@@ -1,5 +1,4 @@
 id,kind,title,status,status_source,phase,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
-RECIPE-PROVIDER-BY-NAME,feature,"Recipe providers cannot be selected by name, so a configuration document cannot choose one",draft,local,,P0,S,core/assets;web,,,,recipe-provider-selection,,2026-08-27,specs/issues/RECIPE-PROVIDER-BY-NAME.md
 STORE-OPENDAL-SERVICES-NOT-ENABLED,issue,"No OpenDAL service features are enabled, so every advertised OpenDAL store type fails to build",draft,local,,P0,S,store/backends,,,,,,2026-08-29,specs/issues/STORE-OPENDAL-SERVICES-NOT-ENABLED.md
 COMMAND-DECLARATION-FORMAT,feature,"No language-neutral command declaration format, so every binding hand-parses its own",draft,local,,P0,M,core/commands;web;py,,,,command-declaration,,2026-08-27,specs/issues/COMMAND-DECLARATION-FORMAT.md
 CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC,issue,SimpleEnvironmentWithPayload panics when no recipe provider is configured,draft,local,,P1,S,core/context,,,,payload-env-recipe-provider-fallback,,2026-08-27,specs/issues/CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC.md
@@ -69,6 +68,7 @@ STORE-CONFIG-FROM-URI,feature,A store cannot be configured from a URI,draft,loca
 UI-VARIADIC-ARGUMENT-LIST-EDITOR,feature,A variadic argument cannot be edited as a list in a parameter editor,draft,local,,P3,M,lib/ui;lib/egui;web;core/query,,,,variadic-arguments-declaration,,2026-08-25,specs/issues/UI-VARIADIC-ARGUMENT-LIST-EDITOR.md
 V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL,issue,The `v` instruction marks the whole plan volatile rather than the steps after it,draft,local,,P3,M,core/plan;core/query,,,,,,2026-08-26,specs/issues/V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL.md
 WEB-CANCELLATION-INERT,issue,Web cancellation surface exists but does nothing,accepted,local,,P3,M,web,,,,,,2026-08-08,specs/issues/WEB-CANCELLATION-INERT.md
+WORKSPACE-NOT-RUSTFMT-CLEAN,issue,"The workspace is not rustfmt-clean, so formatting drift hides in every diff",draft,local,,P3,M,build;docs,,,,,,2026-08-29,specs/issues/WORKSPACE-NOT-RUSTFMT-CLEAN.md
 COMMAND-COMPOSITE-VARIADIC-ARGUMENTS,feature,A variadic argument cannot carry composite elements such as pairs or tuples,draft,local,,P3,L,core/commands;macro;lib/ui,,,,variadic-arguments-declaration,,2026-08-25,specs/issues/COMMAND-COMPOSITE-VARIADIC-ARGUMENTS.md
 CORE-ASSET-GC,issue,Assets are never garbage collected,accepted,local,,P3,L,core/assets;core/store,,,,,,2026-08-08,specs/issues/CORE-ASSET-GC.md
 QUERY-AST-DISCARDS-ENTITIES,issue,"Parsed entities are decoded away, so the AST cannot show them",draft,local,,P3,L,core/query,,,,,,2026-08-14,specs/issues/QUERY-AST-DISCARDS-ENTITIES.md
@@ -87,7 +87,6 @@ FOREIGN-VALUE-TYPE-REGISTRATION,design,Foreign and Python value types in the typ
 OPENDAL-PATH-MAPPING,design,"One path mapping for the OpenDAL store, with a key round-trip property",in_review,local,architecture,,,store/backends,,,,opendal-path-mapping,,2026-08-29,specs/design/opendal-path-mapping/DESIGN.md
 PAYLOAD-ENV-RECIPE-PROVIDER-FALLBACK,design,Recipe-provider fallback for the payload environment,in_review,local,architecture,,,core/context,,,,payload-env-recipe-provider-fallback,,2026-08-29,specs/design/payload-env-recipe-provider-fallback/DESIGN.md
 PLAN-CWD-FREEZE,design,Freeze CWD in the plan and cut correct predecessor boundaries,,github,documentation,,,core/plan;core/query;core/context;core/assets,,35,,plan-cwd-freeze,,2026-08-14,specs/design/plan-cwd-freeze/DESIGN.md
-RECIPE-PROVIDER-SELECTION,design,Selecting a recipe provider by name,in_review,local,architecture,,,core/assets;web,,,,recipe-provider-selection,,2026-08-29,specs/design/recipe-provider-selection/DESIGN.md
 REGISTER-COMMAND-ENUM,design,Enum parameters in register_command!,draft,local,architecture,,,macro;core/commands,,,,register-command-enum,,2026-03-02,specs/design/register-command-enum/DESIGN.md
 STORE-CONFIG-URI,design,Configuring a store from a URI,in_review,local,architecture,,,store/config;store/backends;core/store,,,,store-config-uri,,2026-08-29,specs/design/store-config-uri/DESIGN.md
 UI-EVENTS,design,UI event delivery to widgets,in_review,local,high-level,,,lib/ui,,,,ui-events,,2026-03-02,specs/design/ui-events/DESIGN.md
@@ -111,7 +110,7 @@ DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,
 DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,core/query,,,,,2026-08-17,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
 DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,core/assets,,,,,2026-08-09,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
 DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,core/context;core/plan,,,,,2026-08-16,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
-DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,core/plan;core/assets;core/context,,,,,2026-08-26,,specs/reference/api/DOC_08_RECIPES_PLANS.md
+DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,core/plan;core/assets;core/context,,,,,2026-08-29,,specs/reference/api/DOC_08_RECIPES_PLANS.md
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,core/context;core/commands,,,,,2026-08-01,,specs/reference/PAYLOAD_GUIDE.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,lib/polars,,,,,2026-08-25,,specs/reference/POLARS_COMMAND_LIBRARY.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-08-18,,specs/reference/PROJECT_OVERVIEW.md
@@ -122,6 +121,7 @@ WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,a
 CONTEXT-APPLY-BARE-KEY-ILL-DEFINED,issue,Context::apply with a bare key discards the input state and writes to the store,rejected,local,,P0,S,core/assets,,,,,,2026-08-09,specs/issues/CONTEXT-APPLY-BARE-KEY-ILL-DEFINED.md
 DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE,issue,Execution-time expired dependency always fails its dependent; the stale-value branch is dead,closed,local,,P0,S,core/assets,,,,expired-binary-read-safety,,2026-08-08,specs/issues/DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE.md
 LIB-RECIPE-PROVIDER-PANIC,issue,DefaultEnvironment panics when no recipe provider is configured,closed,local,,P0,S,lib/commands;core/assets;web,,,,,,2026-08-09,specs/issues/LIB-RECIPE-PROVIDER-PANIC.md
+RECIPE-PROVIDER-BY-NAME,feature,"Recipe providers cannot be selected by name, so a configuration document cannot choose one",closed,local,,P0,S,core/assets;web,,,,recipe-provider-selection,,2026-08-27,specs/issues/RECIPE-PROVIDER-BY-NAME.md
 ASSET-EXPIRED-CACHED-BINARY-READ,issue,Expired asset can still return its cached binary on read,closed,local,,P0,M,core/assets;core/store,,,,expiration-safety,,2026-08-08,specs/issues/ASSET-EXPIRED-CACHED-BINARY-READ.md
 ASSET-KEYED-DELEGATION-ALWAYS-CYCLES,issue,The keyed delegation branch cannot succeed - it always records a self-dependency,closed,local,,P0,M,core/assets,,,,keyed-delegation-hand-off,,2026-08-09,specs/issues/ASSET-KEYED-DELEGATION-ALWAYS-CYCLES.md
 CORE-METADATA-FORMAT-TYPE-CONSISTENCY,issue,Metadata data format and type can disagree with the value,closed,local,,P0,M,core/value,,,,value-type-system,,2026-08-08,specs/issues/CORE-METADATA-FORMAT-TYPE-CONSISTENCY.md
@@ -176,6 +176,7 @@ PYTHON-WRAPPER,design,Python wrapper architecture for liquers-py,complete,local,
 QUERY-CONSOLE-ELEMENT,design,Query console UI element,complete,local,,,,lib/ui,,,,query-console-element,,2026-03-02,specs/design/query-console-element/DESIGN.md
 QUERY-LINK-PARSER,design,Action-parameter link parsing (~X~~E),complete,local,,,,core/query,,17,,query-link-parser,,2026-03-02,specs/design/query-link-parser/DESIGN.md
 QUERY-VALIDATION,design,Offline query and recipe validation,complete,local,,,,core/validate,,15,,query-validation,,2026-03-02,specs/design/query-validation/DESIGN.md
+RECIPE-PROVIDER-SELECTION,design,Selecting a recipe provider by name,complete,local,,,,core/assets;web,,48,,recipe-provider-selection,,2026-08-29,specs/design/recipe-provider-selection/DESIGN.md
 STORE-FACTORIES-IN-CORE,design,Store configuration and factories in liquers-core,complete,local,,,,core/store;store/config;store/backends;web;docs,,46,,store-factories-in-core,,2026-08-27,specs/design/store-factories-in-core/DESIGN.md
 STORE-KEY-GUARD,design,Absolute store keys — a store refuses a relative key with a dedicated error,complete,local,,,,core/store;store/backends;core/error;web;axum,,36,,store-key-guard,,2026-08-17,specs/design/store-key-guard/DESIGN.md
 VALUE-TYPE-SYSTEM,design,Liquers value type system,complete,local,,,,core/value;lib/value;py;web,,37,,value-type-system,,2026-08-18,specs/design/value-type-system/DESIGN.md

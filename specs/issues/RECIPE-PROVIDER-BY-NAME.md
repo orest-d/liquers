@@ -2,7 +2,7 @@
 id: RECIPE-PROVIDER-BY-NAME
 kind: feature
 title: Recipe providers cannot be selected by name, so a configuration document cannot choose one
-status: draft
+status: closed
 priority: P0
 complexity: S
 area: [core/assets, web]
@@ -67,3 +67,29 @@ deliberately. Either §4.4 should gain a clause for hard prerequisites, or this 
 2. `RecipeProviderChoice::Trivial` yields one that resolves none.
 3. Round-trips through YAML and JSON.
 4. Exhaustive match enforced (adding a variant fails to compile until handled).
+
+## Resolution
+
+Closed 2026-08-29 by `liquers-core::recipes::RecipeProviderChoice`, implemented on branch
+`claude/recipe-provider-selection-budfor` (PR [#48](https://github.com/orest-d/liquers/pull/48)) under
+[`guides/autonomous_issue_fixing.md`](../guides/autonomous_issue_fixing.md); the reasoning record is
+[`design/recipe-provider-selection/`](../design/recipe-provider-selection/).
+
+The enum route was taken, as this issue proposed: `default` and `trivial`, `#[default]` on
+`Default`, four exhaustive matches with no `_` arm, plus `provider()` → `Arc<dyn
+AsyncRecipeProvider<E>>`, `boxed_provider()` → `Box<…>`, `as_str()`, `FromStr` and `Display`. The
+maintainer settled the set at those two on 2026-08-29: custom providers are too varied to
+standardize, so they stay ad hoc and no `RecipeProviderFactory` or registration hook is added. The
+same decision gave `trivial` the input aliases `none` and `no_recipes`; serialization still emits
+`trivial`.
+
+Evidence: six colocated tests in `liquers-core/src/recipes.rs` plus a rustdoc doctest cover all four
+verification points — behaviour of each provider through `AsyncRecipeProvider` against an
+`AsyncMemoryStore`, YAML and JSON round-trips, alias acceptance and unknown-name rejection, and the
+default variant. Exhaustiveness is enforced by the compiler rather than by a test, which is recorded
+in the design's Phase 3. `cargo test -p liquers-core --lib` passes 669 tests and
+`scripts/check-build-matrix.sh` passes all 14 configurations, wasm32 included. No existing test
+needed adjustment and no existing symbol changed.
+
+The priority tension recorded above is left open: the P0 was scheduling weight, and reconciling
+that with `DOCS_STRUCTURE_GUIDE.md` §4.4 is a change to the priority vocabulary, not to this issue.
