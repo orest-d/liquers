@@ -3,7 +3,7 @@ title: Recipes and Plans Reference
 kind: reference
 audience: internal
 area: [core/plan, core/assets, core/context]
-reviewed: 2026-08-26
+reviewed: 2026-08-29
 ---
 # DOC-08: Recipes and Plans
 
@@ -148,6 +148,28 @@ The YAML root is `RecipeList { recipes: Vec<Recipe> }`. Asset names come from ea
 recipe query's filename. Recipes without a valid filename are omitted from
 directory listing. `get_recipes` maps any `get_bytes` failure to an empty list,
 not only a missing file; malformed YAML from successfully read bytes is an error.
+
+### Selecting a provider by name
+
+`RecipeProviderChoice` names the two built-in providers so a configuration document can select
+one as data. It is a field-free `Copy` enum; `provider()` returns `Arc<dyn AsyncRecipeProvider<E>>`
+and `boxed_provider()` returns `Box<…>`, matching the two setter shapes in use. Both matches are
+exhaustive, so a third built-in provider is a compile error rather than a silent fallback.
+
+| Choice | Provider | Names accepted on input | Emitted |
+|---|---|---|---|
+| `RecipeProviderChoice::Default` | `DefaultRecipeProvider` | `default` | `default` |
+| `RecipeProviderChoice::Trivial` | `TrivialRecipeProvider` | `trivial`, `none`, `no_recipes` | `trivial` |
+
+`Default` is the `#[default]` variant: a document that says nothing about recipes gets working
+recipes. That is the *document* default and is deliberately not the same as an environment
+constructor's unconfigured default, which is per crate. `FromStr` accepts the same names as
+Deserialize and reports an unknown one as an error; `Display` and serialization emit the canonical
+name.
+
+The set is closed and there is no registration hook. A host with its own `AsyncRecipeProvider`
+still passes the value to the environment directly — custom providers vary too much to be named
+here.
 
 ## Planning contract
 
@@ -575,6 +597,7 @@ runtime behavior is unchanged.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-29 | Documented `RecipeProviderChoice`: the named selection of the two built-in providers, the `trivial` aliases `none` and `no_recipes`, the document default, and why the set is closed. | RECIPE-PROVIDER-BY-NAME |
 | 2026-08-26 | Cutting at the outermost cacheable predecessor is now the **default**. Added "Where a boundary goes" — the three conditions (volatility, payload, input state), which are per candidate and which per application, and how to obtain a fully expanded plan. Superseded the paragraph deferring that decision; five new pitfall rows; `frozen_cwd`, `predecessor`, `prologue_steps` and `volatility_source` in the plan fields; a paragraph on `v`'s whole-plan scope. | PREDECESSOR-CUT-EQUIVALENCE |
 | 2026-08-16 | Documented freezing — what it is, the three-cursor problem it solves, when it runs, its mechanics and scope rules — and predecessor boundaries: how cutting differs from freezing, the dependency, caching and parallelism case for making a predecessor available, and five observed pitfalls. Removed `disable_expand_predecessors` from the planning contract. | PLAN-CWD-FREEZE |
 | 2026-08-11 | Documented provider and programmatic recipe CWD provenance, raw plan prefixes and diagnostics, ordered runtime resolution, serialization, identity, and optimizer constraints. | phase-5 |

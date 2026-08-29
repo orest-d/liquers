@@ -22,6 +22,14 @@
 # default build never does. That row also runs `factory04`, which is `#[cfg(not(feature =
 # "opendal"))]` and is the only coverage of the message a gated-off store type must produce.
 #
+# The `async_store,opendal` row is the third state, and the one that used to be the *only* state:
+# OpenDAL linked with no `services-*` feature, so every advertised store type but none of the
+# services is present. It is what `STORE-OPENDAL-SERVICES-NOT-ENABLED` was about, and it is where
+# a `#[cfg(feature = "opendal")]` that should have been `#[cfg(feature = "services-fs")]` shows
+# up. Note it needs `async_store` too: `opendal` alone has never compiled, because
+# `store_factory.rs` imports `AsyncOpenDALStore`, which `async_store` gates — see
+# STORE-OPENDAL-WITHOUT-ASYNC-STORE-BROKEN.
+#
 # Its wasm32 row used to prove the dependency edge liquers-web relied on. That edge is gone —
 # configuration, factories and the builder moved to liquers-core and liquers-web no longer depends
 # on this crate at all — but the row still earns its place as the wasm32 half of the feature split.
@@ -57,6 +65,7 @@ CORE_CONFIGS=(
 STORE_CONFIGS=(
   ""
   "--no-default-features --features async_store"
+  "--no-default-features --features async_store,opendal"
   "--target wasm32-unknown-unknown --no-default-features --features async_store"
 )
 

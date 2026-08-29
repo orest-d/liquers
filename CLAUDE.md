@@ -430,7 +430,10 @@ Configuration and construction live in `liquers-core`; only the backends live ab
    `StoreFactory` when you need a bespoke `resolve`
 3. Make sure the factory is in the relevant `default_store_factory()` chain — order matters, first
    to resolve wins
-4. Update `OPENDAL_STORE_TYPES` in `liquers-store/src/store_factory.rs` if OpenDAL-based
+4. Update `OPENDAL_STORE_TYPES` in `liquers-store/src/store_factory.rs` if OpenDAL-based, **and
+   add the matching `services-<scheme>` feature** to `liquers-store/Cargo.toml` — a type with no
+   service feature behind it is advertised but unconstructible, which
+   `availability02_advertised_types_match_the_enabled_features` will fail on
 5. See `specs/reference/STORE_CONFIG_FSD.md` §"Building stores: the factory model"
 
 ### Adding a Value Type

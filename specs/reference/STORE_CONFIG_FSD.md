@@ -343,7 +343,41 @@ Configuration options:
 ```
 
 #### Other OpenDAL Backends
-OpenDAL supports 80+ backends including: `redis`, `mongodb`, `postgresql`, `mysql`, `sqlite`, `dropbox`, `onedrive`, `gdrive` (Google Drive), `ipfs`, and many more. Refer to [OpenDAL services documentation](https://opendal.apache.org/docs/rust/opendal/services/index.html) for backend-specific configuration options.
+OpenDAL supports 80+ backends including: `redis`, `mongodb`, `postgresql`, `mysql`, `sqlite`, `dropbox`, `onedrive`, `gdrive` (Google Drive), `ipfs`, and many more. Refer to [OpenDAL services documentation](https://opendal.apache.org/docs/rust/opendal/services/index.html) for backend-specific configuration options. Which of them a given build can actually construct is a Cargo feature question — see below.
+
+#### Which services a build has
+
+A store type is only constructible if the OpenDAL *service* behind it was compiled in, and each
+service is a Cargo feature. `liquers-store` declares one feature per advertised type, named after
+OpenDAL's own (`services-s3`, `services-ftp`, …), and `default` enables `services-default`:
+
+| | Types | On by default |
+|---|---|---|
+| Local and object stores | `fs`, `s3`, `gcs`, `azblob` | yes |
+| HTTP family | `http`, `https`, `webdav`, `ftp` | yes |
+| API-backed | `github`, `webhdfs`, `dropbox`, `onedrive`, `gdrive`, `ipfs` | yes |
+| SFTP | `sftp` | on Unix only — `openssh` is Unix-only, so a default build on Windows would not compile |
+| Databases | `redis`, `mongodb`, `postgresql`, `mysql`, `sqlite` | no — each pulls a database client, together +104 crates |
+| Hadoop | `hdfs` | no — its build script requires a JVM on the build machine |
+
+`http` and `https` are one OpenDAL service (`Scheme::Http`), so `services-http` enables both names.
+
+Enable an opt-in service the ordinary way:
+
+```toml
+liquers-store = { version = "0.1", features = ["services-postgresql"] }
+```
+
+To pay for less, take none of them and name the ones you want:
+
+```toml
+liquers-store = { version = "0.1", default-features = false, features = ["async_store", "services-fs", "services-s3"] }
+```
+
+A type left out is still *declared* — it is reported unavailable, with the feature that would
+enable it, rather than as an unknown type. `store_factory.rs`'s
+`availability02_advertised_types_match_the_enabled_features` asserts that the advertised table and
+the enabled features agree, so this table cannot quietly drift from the manifest.
 
 ### 2. Memory Store (Built-in)
 - **Type:** `memory`
@@ -596,13 +630,12 @@ Availability is therefore asked of OpenDAL — `Scheme::enabled()` — rather th
 crate's own feature:
 
 ```
-Store type 's3' is not available in this build: OpenDAL is linked but its 'services-s3' feature is
-not enabled, so the 's3' service is not compiled in
+Store type 'sqlite' is not available in this build: OpenDAL is linked but the 'sqlite' service is
+not compiled in; enable liquers-store's 'services-sqlite' feature
 ```
 
-At the time of writing **no `services-*` feature is enabled**, so every OpenDAL type reports
-unavailable. That is accurate, and it is a defect in its own right —
-[`STORE-OPENDAL-SERVICES-NOT-ENABLED`](../issues/STORE-OPENDAL-SERVICES-NOT-ENABLED.md).
+The feature the message names is `liquers-store`'s, which forwards to OpenDAL's of the same name —
+see "Which services a build has" above for what is on by default.
 
 `filesystem` on wasm32 is the other live case.
 
@@ -724,3 +757,4 @@ Full design: `specs/design/liquers-web-store/`.
 | 2026-08-29 | Reviewed against the implementation at HEAD. Added "Why this configuration exists alongside OpenDAL's own", correcting the claim that OpenDAL offers no text configuration — `via_iter` (0.48) and `from_uri` (0.55) do, but configure one backend each. Added "Configuration values and the OpenDAL string boundary", recording which document value types survive the flattening into OpenDAL's string map and which do not. No change to the configuration format itself. | `design/store-factories-in-core/` Phase 3 |
 | 2026-08-29 | Recorded that an OpenDAL store type's availability is gated by **two** independent features — `liquers-store`'s `opendal` and OpenDAL's own `services-*` — and is asked of `Scheme::enabled()` rather than inferred, after a review found the two conflated. Notes that no `services-*` feature is enabled today, so every OpenDAL type currently reports unavailable. | `design/store-factories-in-core/` PR review |
 | 2026-08-29 | Rescoped: the configuration format, the factory seam and the builder are `liquers-core`'s; `liquers-store` keeps the OpenDAL backends. Added "Building stores: the factory model" — declaration, resolution, first-wins chaining, the absence of a built-in fallback, the unrecognised/unavailable distinction, and `ArgumentCoverage`. Rewrote the `StoreFactory` section for the new trait and **corrected the claim that factories precede built-in types**: there are no built-ins, chain order decides, and the browser's `http` wins because `liquers-store` is not one of its dependencies. Corrected the `opendal` feature's stated rationale. | `design/store-factories-in-core/` Phase 5 |
+| 2026-08-29 | Added "Which services a build has": one Cargo feature per advertised OpenDAL type, the default set, and why `sftp`, the database backends and `hdfs` are not in it. Replaced the statement that no `services-*` feature is enabled — 15 of the 21 advertised types now build out of the box — and updated the unavailability message, which names the `liquers-store` feature to enable. | `issues/STORE-OPENDAL-SERVICES-NOT-ENABLED` |

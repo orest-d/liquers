@@ -698,6 +698,9 @@ mod tests {
         assert!(store.listdir_keys_deep(&subkey).await.unwrap()[0].encode() == "sub/foo.txt");
         */
     }
+    /// Names `opendal::services::Fs`, which exists only behind the service feature — a build
+    /// with OpenDAL linked but `services-fs` off must skip this rather than fail to compile.
+    #[cfg(feature = "services-fs")]
     #[tokio::test]
     async fn test_opendal_localfs() {
         let op = opendal::Operator::new(opendal::services::Fs::default().root("."))

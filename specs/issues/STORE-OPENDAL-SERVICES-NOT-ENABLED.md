@@ -2,7 +2,7 @@
 id: STORE-OPENDAL-SERVICES-NOT-ENABLED
 kind: issue
 title: No OpenDAL service features are enabled, so every advertised OpenDAL store type fails to build
-status: draft
+status: closed
 priority: P0
 complexity: S
 area: [store/backends]
@@ -158,3 +158,63 @@ move or stay unchanged in behaviour.
 The design does make the symptom clearer rather than fixing it — `StoreTypeAvailability` is intended
 to distinguish "unknown type" from "known but unavailable in this build", which is the right shape
 for reporting this. But reporting it well is not the same as the type working.
+
+## Resolution
+
+Fixed on `claude/store-opendal-services-not-enabled-q7zt7w`, PR
+[#47](https://github.com/orest-d/liquers/pull/47).
+
+**What ships.** `liquers-store` now declares one Cargo feature per advertised type, named after
+OpenDAL's own, and `default` enables `services-default`: `fs`, `s3`, `gcs`, `azblob`, `http`,
+`https`, `webdav`, `ftp`, `github`, `webhdfs`, `dropbox`, `onedrive`, `gdrive`, `ipfs`. `sftp` is
+enabled on Unix through a `[target.'cfg(unix)'.dependencies]` row. **15 of the 21 advertised types
+are constructible in a default consumer build, against 1 before** — and that 1 only through the
+dev-dependency leak.
+
+Six are opt-in, each for a reason established by measurement rather than taste:
+
+- `hdfs` — `hdfs-sys`'s build script calls `find_jvm()` unconditionally. A default build would
+  fail outright on any machine without Java. It compiled during investigation only because the
+  container happened to have a JVM.
+- `redis`, `mongodb`, `postgresql`, `mysql`, `sqlite` — +104 crates between them (370 total
+  against 242 for `services-default`, measured with `cargo tree -e normal --no-dedupe`).
+- `sftp` is not opt-in but is not a plain default either: `openssh` uses `std::os::unix`
+  unconditionally, so `services-sftp` in `default` would break every Windows build of
+  `liquers-store` and `liquers-axum`.
+
+The default set costs +102 crates (140 → 242), +126 with `sftp` on Unix.
+
+**Keeping the list honest**, which the issue asked for separately:
+`availability02_advertised_types_match_the_enabled_features` compares `OPENDAL_STORE_TYPES`
+against a hand-written per-type `cfg!(feature = …)` table on one side and `Scheme::enabled()` on
+the other. The two are arrived at independently — the manifest's claim and OpenDAL's — so the
+assertion is not tautological, and it fails on drift in either direction: a type added with no
+feature, a feature dropped from `services-default`, or an OpenDAL upgrade that renames a scheme.
+
+**A second defect, found only because the services were turned on.** `https` is an advertised type
+and `Scheme::from_str("https")` resolves to `Scheme::Http`, so availability reporting always said
+it was fine — but `Operator::via_iter` matches the canonical scheme constant only, so
+`via_iter("https", …)` failed however many features were on. It had never been reachable before,
+because `https` was unavailable for the other reason and never got that far. `create` now resolves
+to a `Scheme` and passes `into_static()`; `availability05_an_alias_scheme_builds` covers it,
+including through the `opendal_https` escape hatch.
+
+**The masking dev-dependency is gone.** `liquers-store`'s `opendal = { features = ["services-fs"] }`
+dev-dependency, which put `services-fs` into the test binary while the shipped library had no
+service at all, is deleted. Two existing tests that constructed `fs` under
+`#[cfg(feature = "opendal")]` now carry `#[cfg(feature = "services-fs")]`, which is what they
+always meant.
+
+**Evidence.** `cargo test -p liquers-store` in five configurations (default; `async_store`;
+`async_store,opendal`; `async_store,services-s3`; default + `services-sqlite`) — 24 tests in the
+default build, all passing. `cargo test -p liquers-lib --lib --tests` (302 + 14 suites) and
+`cargo test -p liquers-axum --lib --tests` green. `bash scripts/check-build-matrix.sh`: all 15
+configurations OK, including a new `--no-default-features --features async_store,opendal` row for
+the service-less state this issue was about.
+
+**Both things this issue blocked are unblocked**, neither done here:
+`STORE-OPENDAL-ARGUMENTS-NOT-DERIVED` (the config types are now nameable) and the offline S3
+tests, of which `availability03_documented_s3_configuration_builds` is the first.
+
+Filed in passing: `STORE-OPENDAL-WITHOUT-ASYNC-STORE-BROKEN`, a pre-existing feature-gating defect
+confirmed against `35bba67`.
