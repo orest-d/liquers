@@ -3,10 +3,9 @@ id: STORE-FACTORIES-IN-CORE
 kind: design
 title: Store configuration and factories in liquers-core
 workflow: liquers-project
-status: draft
 phase: documentation
 area: [core/store, store/config, store/backends, web, docs]
-gh_pr: []
+gh_pr: [46]
 issues: [STORE-CONFIG-IN-CORE]
 affects_docs: [reference/STORE_CONFIG_FSD.md, reference/api/DOC_01_ARCHITECTURE_REFERENCE.md, guides/LANGUAGE-INTEGRATION_GUIDE.md, guides/STORE_FACTORY_GUIDE.md]
 created: 2026-08-27
@@ -614,6 +613,17 @@ Re-check and push an update if any of the following changes here:
 | Either design reaches implementation | Whichever lands second re-reads the other before starting |
 
 Their design does **not** need to change today; the conclusion improved rather than broke.
+
+## Pull request
+
+[orest-d/liquers#46](https://github.com/orest-d/liquers/pull/46) — opened 2026-08-29 from
+`claude/liquers-store-config-core-fef4mi`, carrying steps 1–8 and 10 plus this folder,
+`design/store-config-uri/`, the documentation, and the five issues filed along the way.
+
+Per `DOCS_STRUCTURE_GUIDE.md` §5.5 this folder now carries **no derived `status:`** — with a PR
+open, `in_implementation` is GitHub's to determine and `index.csv`'s to cache, and a hand-written
+copy could only drift. `phase: documentation` stays, because Phase 5 is written and awaiting its
+approval gate; `status: complete` is the maintainer's to confirm once that gate passes.
 
 ## Links
 
