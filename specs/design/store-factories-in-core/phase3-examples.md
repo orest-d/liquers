@@ -426,27 +426,95 @@ in its `doc` — not `Array`. `Array` therefore still has exactly one legitimate
 `serde_json::Value::Array`. And `Object` still has **none**: no OpenDAL service config has a
 map-valued field.
 
-### Scoping question for Phase 4
+### Resolved: how OpenDAL types are described without maintaining OpenDAL's documentation
 
-Describing all ≈134 OpenDAL fields by hand is disproportionate, and hand-written metadata beside a
-dependency's struct is exactly the kind that drifts on the next upgrade. Three options:
+The naive reading of "a factory describes the arguments for each store type" would have
+`liquers-store` carry hand-written entries for ~134 fields it does not own. That is not merely
+tedious — it is a **silent-drift trap**: when OpenDAL adds a field, changes a type or renames one,
+our copy becomes wrong with nothing to detect it, and the wrongness is worse than absence because a
+reader believes it.
 
-1. **Describe every field.** Complete, ~134 entries, and stale the day OpenDAL 0.55 becomes 0.56.
-2. **Describe the common subset per type and mark the type as accepting further keys.** `StoreTypeInfo`
-   would need a "further arguments are passed through" flag; the error path stays useful because the
-   *type* is still known, only its full argument list is not.
-3. **Describe `bucket`-style essentials only, and point at OpenDAL's documentation for the rest.**
-   Cheapest, and honest about where the truth lives.
+Two mechanisms remove the trap, and they are independent — the first alone is sufficient.
 
-**Proposed: option 3 for OpenDAL types specifically, option 1 for core and browser types.** The
-asymmetry is principled — Liquers owns the core and browser store types and their arguments *are*
-the specification, whereas OpenDAL owns its own and duplicating them here creates a second source of
-truth that can only decay. This does not weaken the unclaimed-type error, which lists store *types*
-rather than arguments.
+#### 1. `ArgumentCoverage::Partial` — say that the list is guidance (required)
 
-Flagged at this gate because it changes how much work Phase 4's OpenDAL step is.
+Core and browser store types are `Complete`: Liquers owns them and the argument list *is* the
+specification. OpenDAL types are `Partial { authority: "<OpenDAL's docs URL>" }`: the list is
+guidance, unlisted keys pass through to the backend, and the truth lives upstream.
 
-## Corner Cases
+An incomplete list is only a lie if completeness was claimed. Under `Partial`, OpenDAL 0.56 adding a
+field makes our description *less complete* — never *wrong* — and nothing has to be noticed for the
+documentation to stay honest. This is what a user or a coding agent needs: enough to write a working
+`config:` block, plus an unambiguous pointer to the authority for the rest.
+
+#### 2. Derive the field names from the linked OpenDAL (recommended, optional)
+
+Better than describing fewer fields by hand is describing them **without writing them down at all**.
+Three properties of OpenDAL 0.55, each verified against the source rather than assumed:
+
+| Fact | Evidence |
+|---|---|
+| Every service config is `Serialize` | `pub trait Configurator: Serialize + DeserializeOwned + Debug + 'static` (`src/types/builder.rs:123`) — a trait bound, not a convention |
+| Every service config derives `Default` | all **62** of `src/services/*/config.rs` |
+| No field is skipped on serialization | zero `skip_serializing_if` across those 62 files |
+
+Therefore `serde_json::to_value(S3Config::default())` yields a JSON object containing **every field
+name and its default value**, taken from the OpenDAL version actually linked:
+
+```rust
+fn derived_arguments<C: opendal::Configurator + Default>() -> Vec<StoreArgumentInfo> {
+    match serde_json::to_value(C::default()) {
+        Ok(serde_json::Value::Object(fields)) => fields
+            .into_iter()
+            .map(|(name, default)| StoreArgumentInfo::derived(name, default))
+            .collect(),
+        // A config that is not a JSON object cannot be described; `Partial` already says the
+        // list may be incomplete, so an empty list is a correct answer rather than an error.
+        Ok(_) | Err(_) => Vec::new(),
+    }
+}
+```
+
+**This cannot drift, because it is not written down.** A field added upstream appears; a field
+removed disappears; a type change shows up in the default's JSON type.
+
+What it yields and what it does not:
+
+| | Derived? |
+|---|---|
+| Canonical field name (serde `alias`es collapse to it) | **yes** |
+| Default value | **yes** |
+| Type, where the default is not null — `bool` → `false`, `String` → `""` | **yes** |
+| Type of an `Option<T>` field, whose default is `null` | no → `StoreArgumentType::Any` |
+| Documentation text | no — Rust doc comments do not survive to runtime |
+| Required-ness | no — every config is `#[serde(default)]`; requiredness is a backend runtime concern |
+
+**The maintenance boundary this draws is the important part.** What stays hand-written is a
+`store_type → config type` mapping of about 20 entries, which changes only when a *service* is added
+or removed — the same cadence as `OPENDAL_STORE_TYPES`, which is hand-maintained today anyway.
+Field-level churn, which is where the volume and the volatility both are, becomes free. And the
+failure mode of forgetting an entry is benign: that type reports no arguments, which under `Partial`
+is honest rather than wrong.
+
+On top of the derived list, hand-write `doc` text for only the two or three arguments per type where
+guidance genuinely helps — `bucket`, `root`, `endpoint`, and the `${VAR}` convention for secrets.
+That is a handful of sentences about *usage*, not a transcription of someone else's API.
+
+#### Recommendation
+
+**Do 1; do 2 if Phase 4 finds it as cheap as it looks** (roughly 40 lines plus the 20-entry match,
+replacing ~134 hand-written entries — likely *less* work than describing a subset by hand). They
+compose: 2 fills in the names, 1 states that the result is still not a contract. Deferring 2 costs
+nothing and breaks nothing, because `Partial` with a short hand-written list and a documentation URL
+is already honest and useful; derivation can be added later without changing any signature.
+
+**What is deliberately not attempted.** S3's credential modes are mutually exclusive in practice —
+static keys, or assume-role (`role_arn` + `external_id`), or customer-managed SSE keys — and
+`StoreTypeInfo` cannot express that a group of arguments is exclusive, nor that one argument
+requires another. Encoding argument-group constraints is a much larger feature and is not proposed.
+The guide should say plainly that these descriptions list arguments, not valid combinations.
+
+## Corner Cases## Corner Cases
 
 ### Memory
 

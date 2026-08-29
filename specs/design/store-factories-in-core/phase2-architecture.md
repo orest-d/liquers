@@ -201,6 +201,44 @@ responsible". Two live cases: `fs`/`s3`/… when `liquers-store`'s `opendal` fea
 `filesystem` on `wasm32`. Without this field, splitting dispatch across factories would either lose
 those messages or degrade them to "unknown store type", which `STORE13` exists to forbid.
 
+### `ArgumentCoverage` — whether the argument list is a specification or guidance
+
+```rust
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+pub enum ArgumentCoverage {
+    /// Liquers owns this store type. `arguments` **is** the specification: an argument not listed
+    /// is not accepted, and the list is expected to stay accurate.
+    #[default]
+    Complete,
+    /// The store type's arguments are defined by an external project. `arguments` is *guidance*,
+    /// deliberately not exhaustive, and any further key is passed through to the backend.
+    /// The string is where the authoritative documentation lives.
+    Partial { authority: String },
+}
+```
+
+**This is the field that keeps the design out of a maintenance trap**, and it is the answer to
+"describing all ~134 OpenDAL fields would mean maintaining documentation for someone else's
+project". The trap is not the size of the job — it is that a hand-written list of an external
+crate's fields becomes **silently wrong** when that crate adds a field, changes a type, or renames
+one, with nothing to catch it.
+
+`Partial` removes the trap structurally rather than by discipline: **an incomplete list is only a
+lie if completeness was claimed.** A `Partial` type states in the type system that its arguments are
+guidance and that the truth lives elsewhere, so OpenDAL gaining a field in 0.56 makes our
+description *less complete*, never *wrong*. Nothing has to be noticed for the documentation to stay
+honest.
+
+Consequences, all deliberate:
+
+- **`Complete` types may reject an unknown key; `Partial` types must not.** For `memory`,
+  `filesystem` and the browser types, an unlisted key is a typo worth reporting. For an OpenDAL
+  type, an unlisted key is probably a field we have not described, and refusing it would break a
+  configuration that OpenDAL itself accepts.
+- **The unclaimed-*type* error is unaffected.** It enumerates store *types*, which are ours to know
+  completely, not their arguments.
+- **No default match arm** on this enum anywhere.
+
 ### `StoreTypeInfo` — one store type a factory claims
 
 ```rust
@@ -215,6 +253,9 @@ pub struct StoreTypeInfo {
     pub arguments: Vec<StoreArgumentInfo>,
     #[serde(default)]
     pub availability: StoreTypeAvailability,
+    /// Whether `arguments` is exhaustive. See `ArgumentCoverage`.
+    #[serde(default)]
+    pub coverage: ArgumentCoverage,
 }
 ```
 

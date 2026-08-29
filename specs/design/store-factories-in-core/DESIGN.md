@@ -292,12 +292,43 @@ deserializer accepts), so *requiring* quotes everywhere would cost ergonomics wi
 correctness. Only arrays, objects, nulls and non-integral floats diverge. The reference states the
 narrow rule rather than the blanket one.
 
-**New scoping question for Phase 4.** Describing all ~134 OpenDAL fields by hand is disproportionate
-and would drift on the next OpenDAL upgrade. Proposed asymmetry: describe core and browser store
-types fully — Liquers owns them and their arguments *are* the specification — but describe only the
-essentials for OpenDAL types and point at OpenDAL's own documentation, since duplicating a
-dependency's struct creates a second source of truth that can only decay. This changes how much work
-Phase 4's OpenDAL step is, so it is raised at the gate.
+**Resolved: describing OpenDAL's arguments must not mean maintaining OpenDAL's documentation.**
+The trap the maintainer identified is not the *size* of describing ~134 external fields — it is that
+a hand-written copy of another project's config surface becomes **silently wrong** when that project
+adds a field, changes a type or renames one, with nothing to detect it. Wrong is worse than absent,
+because a reader believes it. Two mechanisms, independent; the first alone suffices.
+
+**1. `ArgumentCoverage`, a new field on `StoreTypeInfo` (required).** `Complete` for the store types
+Liquers owns — core and browser — where the argument list *is* the specification and an unlisted key
+may be rejected. `Partial { authority: <url> }` for OpenDAL types: the list is guidance, unlisted
+keys pass through to the backend, and the authority is named. **An incomplete list is only a lie if
+completeness was claimed**, so OpenDAL 0.56 adding a field makes our description less complete, never
+wrong, and nothing has to be noticed for it to stay honest. The unclaimed-*type* error is unaffected:
+it enumerates types, which are ours to know completely.
+
+**2. Derive the field names rather than write them (recommended, deferrable).** Verified against
+the OpenDAL 0.55 source, not assumed: `Configurator: Serialize + DeserializeOwned + Debug + 'static`
+is a *trait bound*, so every service config serializes; all **62** `src/services/*/config.rs` derive
+`Default`; and there is **not one** `skip_serializing_if` among them. So
+`serde_json::to_value(S3Config::default())` yields every field name with its default, from the
+version actually linked — a list that cannot drift because it is not written down. It gives names,
+defaults, and types wherever the default is not null; it does not give doc text, required-ness, or
+the type of an `Option` field.
+
+The maintenance boundary this draws is the point: what stays hand-written is a
+`store_type -> config type` mapping of ~20 entries, changing only when a *service* is added or
+removed — the same cadence as `OPENDAL_STORE_TYPES`, already hand-maintained. Field-level churn,
+where all the volume and volatility are, becomes free, and forgetting an entry degrades to "no
+arguments reported", which under `Partial` is honest.
+
+Phase 4 should do 1, and do 2 if it proves as cheap as it looks (~40 lines plus the 20-entry match,
+replacing ~134 hand-written entries — probably *less* work than describing a subset by hand).
+Deferring 2 breaks nothing.
+
+**Explicitly not attempted:** `StoreTypeInfo` cannot express that a group of arguments is mutually
+exclusive or co-required — S3's static-keys / assume-role / customer-managed-SSE modes are the live
+example. Encoding argument-group constraints is a much larger feature. The guide must say the
+descriptions list arguments, not valid combinations.
 
 Two Phase 2 gaps were found by the conformity pass and fixed there rather than worked around:
 `StoreArgumentInfo`'s builder methods were never specified, and `liquers-web`'s
