@@ -6,7 +6,7 @@ status: accepted
 priority: P1
 complexity: M
 area: [store/backends]
-design: 
+design: opendal-path-mapping
 created: 2026-08-08
 github:
 ---
@@ -30,3 +30,19 @@ rewrites in the store tests.
 ## Discovery
 
 Migration triage, 2026-08-08. Source: `todo20260219.md` #6, work package WP-5. Verified against HEAD: the FIXME is still at `opendal_store.rs:335`. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.0c.
+
+## Update, 2026-08-29 — reproduction narrows the problem
+
+Reproduced at HEAD while preparing [`design/opendal-path-mapping/`](../design/opendal-path-mapping/).
+The headline claim above does **not** hold on the filesystem backend: `sub/deeper/foo.txt` is
+correct through `set`, `get_bytes`, `contains`, `is_dir`, `listdir`, `listdir_keys`,
+`listdir_keys_deep`, `keys` and `removedir`. The `FIXME` at `opendal_store.rs:335` is stale — the
+line it guards produces correct children when re-enabled — and the two live `//TODO: create_dir`
+markers are satisfied by `make_sub_dirs`.
+
+What reproduction did find is three defects the headline hides: `key_prefix()` returns `Key::new()`
+instead of the configured prefix; directory keys are unaddressable on backends with no directory
+objects (memory, and object stores generally) even though `listdir` sees them; and the path mapping
+is spread across four methods with no round-trip guarantee. The design folder's Phase 1 records the
+evidence and Phase 2 the proposed fix, both awaiting approval. Status left `accepted`: the issue is
+real, its statement is being corrected rather than withdrawn.

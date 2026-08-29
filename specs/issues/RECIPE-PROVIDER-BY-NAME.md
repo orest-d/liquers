@@ -6,7 +6,7 @@ status: draft
 priority: P0
 complexity: S
 area: [core/assets, web]
-design: environment-builder
+design: recipe-provider-selection
 created: 2026-08-27
 github:
 ---

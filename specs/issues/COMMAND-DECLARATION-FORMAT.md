@@ -6,7 +6,7 @@ status: draft
 priority: P0
 complexity: M
 area: [core/commands, web, py]
-design: environment-builder
+design: command-declaration
 created: 2026-08-27
 github:
 ---
