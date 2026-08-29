@@ -220,6 +220,7 @@ deliberately folded behind a broader line.
 - feature `DATA-FORMAT-CONSTANTS-AND-TOOLING`
 - feature `RECIPE-PROVIDER-BY-NAME`
 - feature `STORE-COMMAND-NAMESPACE-MISSING`
+- feature `STORE-CONFIG-FROM-URI`
 - feature `STORE-CONFIG-IN-CORE`
 - feature `TYPE-REGISTRY-NOT-REALM-AWARE`
 - feature `UI-VARIADIC-ARGUMENT-LIST-EDITOR`

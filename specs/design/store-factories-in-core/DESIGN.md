@@ -362,6 +362,25 @@ express the URI form — there is no `uri:` field — and adding one is a format
 design, but the exact equivalence means it would be sugar over the same map rather than a second
 mechanism.
 
+**Correction, and a design question it settled.** An earlier note here called a `uri:` field "sugar
+over the same `config:` map". **That was wrong**, and the maintainer caught it: a URI carries the
+scheme, the scheme *is* the store type, and the store type is the one field the factory chain
+dispatches on. So `uri:` duplicates or replaces `type:` rather than supplementing it — they must be
+mutually exclusive, and a URI is an alternative spelling of the whole entry, not of its arguments.
+
+To be unambiguous about the current state: **`StoreConfig` has no URI support of any kind.** The
+probe called `Operator::from_uri` directly, bypassing Liquers, so it showed OpenDAL's capability, not
+ours.
+
+Filed as [`STORE-CONFIG-FROM-URI`](../../issues/STORE-CONFIG-FROM-URI.md) (P3, M) with the four
+reasons it is not a thin convenience: resolution must go through our chain rather than OpenDAL's
+registry, or the factory design's central property is lost; our type namespace is not OpenDAL's
+scheme namespace (`memory` and `http` are ambiguous, `filesystem` is OpenDAL's `fs`, and our browser
+`http` is a `fetch` store); coverage is uneven (10 schemes via the registry, 61 via per-config
+`from_uri`, 62 via `via_iter`); and `${VAR}` expansion becomes whole-string, needing URL-encoding for
+any secret containing `&`, `=` or `/`. Out of scope here — a new configuration field is a format
+change, and this design moves code and adds a seam.
+
 **Construction never touches the network.** `s3` with a nonexistent bucket, `ftp.invalid:21` and
 `https://example.invalid` all construct fine; OpenDAL builders are lazy. This is why the requested
 offline S3 test is possible, and it confirms "`create` must be fast" is a rule implementations must

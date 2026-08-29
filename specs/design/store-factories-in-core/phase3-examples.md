@@ -428,10 +428,36 @@ s3://probe-bucket/data?region=eu-central-1&allow_anonymous=true&disable_config_l
 Verified: builds, `name=probe-bucket`, `root="/data/"` — **byte-identical to the argument form.**
 The URI's host is the bucket, its path is the root, and its query string is the remaining options.
 
-**`StoreConfig` has no way to write this.** There is no `uri:` field, and adding one is a format
-change beyond this design. It is worth recording as a possible future convenience because the
-equivalence above is exact — a `uri:` entry would be sugar over the same `config:` map, not a second
-mechanism.
+**`StoreConfig` has no way to write this, and it is not a small gap.** There is no `uri:` field and
+no URI handling anywhere in `liquers-store` — the probe above called `Operator::from_uri` directly,
+bypassing Liquers entirely, so it demonstrates OpenDAL's capability rather than ours.
+
+*(Corrected: an earlier draft of this section called a `uri:` entry "sugar over the same `config:`
+map". That was wrong. **A URI carries the scheme, and the scheme is the store type** — the one field
+the factory chain dispatches on. So `uri:` duplicates or replaces `type:` rather than supplementing
+it, and the two must be mutually exclusive. It is an alternative spelling of the whole entry, not of
+its arguments.)*
+
+Four reasons it is not a thin convenience, recorded in
+[`STORE-CONFIG-FROM-URI`](../../issues/STORE-CONFIG-FROM-URI.md) (P3, M) rather than absorbed here:
+
+1. **Resolution must go through our chain, never OpenDAL's registry.** Handing the URI to
+   `Operator::from_uri` bypasses `ChainedStoreFactory` and destroys the property this whole design
+   exists for — that Liquers decides which factory serves a type. A browser build could never
+   override `http` that way.
+2. **Our type namespace is not OpenDAL's scheme namespace.** `memory` is core's `AsyncMemoryStore`
+   *and* an OpenDAL service; our `filesystem` is OpenDAL's `fs`; our `http` is a `fetch` store in the
+   browser and OpenDAL's HTTP service natively. `memory://` and `http://` are ambiguous, and
+   `filesystem` has no scheme at all.
+3. **Coverage is uneven.** OpenDAL's registry resolves 10 schemes; `via_iter` has 62 arms; per-config
+   `from_uri` reaches 61. A format where `uri:` works for some types and not others is a trap.
+4. **Secrets and `${VAR}` expansion interact badly.** Per-value expansion becomes whole-string, so a
+   secret containing `&`, `=` or `/` needs URL-encoding, and the form invites credentials in one
+   string that gets logged and pasted.
+
+The natural home for a URI is where a URI is the unit — a command-line flag, an environment variable,
+a single-store quick start — not a multi-store document, where a `config:` map is more readable than
+a query string.
 
 #### Three findings from running it
 
