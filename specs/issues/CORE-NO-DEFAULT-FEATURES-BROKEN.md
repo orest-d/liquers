@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [core/store, build]
-design: 
+design: core-no-default-features
 created: 2026-08-29
 github:
 ---

@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [docs, lib/commands]
-design: 
+design: polars-doc-example-namespace
 created: 2026-08-12
 github:
 ---

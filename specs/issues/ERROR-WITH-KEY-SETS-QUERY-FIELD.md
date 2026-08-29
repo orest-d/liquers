@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [core/error]
-design: 
+design: error-with-key-field
 created: 2026-08-25
 github:
 ---
