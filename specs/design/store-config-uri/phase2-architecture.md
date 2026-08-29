@@ -8,15 +8,18 @@ Nothing here is implemented.
 
 A URI entry becomes an ordinary entry before the factory chain sees it. Five steps:
 
-1. **Parse** the URI for its scheme.
-2. **Map** the scheme to a store type, first-wins across the chain.
-3. **Fill in** `store_type` on the `StoreConfig`, leaving the URI itself in place.
-4. **Dispatch** through `ChainedStoreFactory` exactly as a `type:` entry would.
-5. **Interpret** the URI inside the claiming factory, which is the only place with the backend
-   knowledge to do it.
+1. **Ask each factory in chain order to `resolve` the entry.** A URI-aware factory parses the
+   scheme and answers with one of the store types it declares; a plain factory falls back to the
+   default exact-match on `store_type` and declines.
+2. **First `Some` wins**, exactly as for a `type:` entry — the same rule, not a parallel one.
+3. **The chain writes the resolved name** onto the `StoreConfig`, leaving the URI in place.
+4. **`create` runs** on a config whose `store_type` is now definite.
+5. **The URI is interpreted inside that factory**, the only place with the backend knowledge to do
+   it.
 
-Step 5 is the one that is not obvious, and §"Why the factory must interpret the URI" explains why the
-alternative — a generic normalizer that rewrites a URI into a `config:` map — cannot work.
+Steps 1 and 5 are the ones that are not obvious. Step 1 is why the trait needs `resolve` rather than
+`claims`; step 5 is why a generic normalizer cannot work — see §"Why the factory must interpret the
+URI".
 
 ### Data structures
 
@@ -39,16 +42,17 @@ pub struct StoreTypeInfo {
     pub store_type: String,
     // … label, doc, arguments, availability, coverage …
     /// URI schemes this store type answers to. Empty means "no URI spelling".
+    /// **Documentation and discovery only** — dispatch goes through `StoreFactory::resolve`.
     #[serde(default)]
     pub uri_schemes: Vec<String>,    // NEW
 }
 ```
 
-`uri_schemes` on `StoreTypeInfo` rather than a central table is deliberate and follows the parent
-design's principle that **a factory declares what it claims**. The chain assembles the
-scheme-to-type mapping by walking `store_types()`, first-wins, the same way it assembles the
-supported-type list — so scheme resolution and type resolution cannot disagree, because they come
-from one source.
+`uri_schemes` on `StoreTypeInfo` rather than a central table follows the parent design's principle
+that **a factory declares what it claims**. It is what a generated table or a `--help` lists, and
+what the unclaimed-scheme error enumerates. It is **not** how an entry is routed: routing is
+`resolve`, so there is exactly one dispatch mechanism and a declared scheme cannot drift out of step
+with the factory's actual behaviour.
 
 ### Rejected alternatives
 
@@ -58,7 +62,8 @@ from one source.
 | **Hand the URI to `Operator::from_uri`** | Bypasses `ChainedStoreFactory` entirely, destroying the property the parent design exists for: that Liquers decides which factory serves a name. A browser build could never override `http`. Also limited to the 10 schemes in `DEFAULT_OPERATOR_REGISTRY`. |
 | **Generic normalizer: rewrite URI into `config:` keys centrally** | Impossible without backend knowledge — see below. |
 | **Merge the two namespaces** (a store type *is* a scheme) | Loses the distinction the maintainer asked to keep, and would let an OpenDAL rename silently change a Liquers type name. |
-| **A new `create_from_uri` method on `StoreFactory`** | Unnecessary: the URI travels inside `StoreConfig`, which `create` already receives. Avoiding a trait change is what keeps this additive. |
+| **A new `create_from_uri` method on `StoreFactory`** | Unnecessary once `resolve` exists: the URI travels inside `StoreConfig`, which `create` already receives, and `resolve` handles the dispatch half. Two entry points would double the paths a factory must keep consistent. |
+| **Chain-side scheme mapping** (`uri_schemes` drives dispatch) | This design's own first draft. Rejected after the maintainer's reframing: it puts backend knowledge in the chain, and gives a factory two ways to be selected that can disagree. |
 
 ## Why the factory must interpret the URI
 
@@ -85,14 +90,41 @@ registry route, which is a second reason not to use OpenDAL's registry.
 
 ## What this requires of `store-factories-in-core`
 
-**This section is the design's second purpose.** Verdict first: **no conflict, no change required
-before that design is approved.**
+**This section is the design's second purpose, and it earned its keep: the first pass got the
+verdict wrong.**
+
+**Corrected verdict: one non-additive change is required, and it must land before that design is
+approved.** The trait method `claims(&self, store_type: &str) -> bool` must become
+`resolve(&self, config: &StoreConfig) -> Option<String>`. Everything else is additive.
+
+The first pass assumed the *chain* would map URI schemes to store types from a `uri_schemes` list,
+then dispatch on the resulting type — which needs no trait change. The maintainer's reframing broke
+that assumption:
+
+> A URI is allowed to be deliberately ambiguous; a store type is not. The store type may be
+> **inferred** by the factory — whether or not there is a URI.
+
+Under that model, resolution is the *factory's* job, so it needs the whole entry as input and
+returns the resolved name as output. `claims(&str) -> bool` cannot express either half. And the
+reframing is right for a reason the first pass had already established one step later: **a URI must
+be interpreted by the factory** because the authority-to-key mapping is per-backend. Resolution is
+the same argument applied earlier, and splitting it — chain resolves the scheme, factory interprets
+the rest — would put backend knowledge in two places and create two mechanisms that can disagree.
+
+Consequence for `uri_schemes`: it stays, but demoted. It is documentation and discovery — what a
+`--help` or a generated table shows — never the dispatch path. That removes the two-sources-of-truth
+risk the first pass created.
+
+**Why it cannot wait.** Changing the method after `store-factories-in-core` ships breaks every
+implementor that overrode it. Adopting `resolve` now costs one method's shape, and its default
+implementation is exactly today's exact-match behaviour, so nothing changes until a factory chooses
+to infer.
 
 | Element of the parent design | Does URI support change it? | Note |
 |---|---|---|
 | `StoreFactory::store_types()` | **No** | Returns `Vec<StoreTypeInfo>`; the new `uri_schemes` is a field on that struct, not a signature change |
-| `StoreFactory::claims()` | **No** | Still keyed on store type; scheme resolution happens before dispatch |
-| `StoreFactory::create()` | **No** | Receives `&StoreConfig`, which is where the URI travels |
+| `StoreFactory::claims()` | **YES — must become `resolve()`** | `claims(&str) -> bool` cannot infer a type; `resolve(&StoreConfig) -> Option<String>` takes the whole entry and returns the resolved name. Breaking if deferred |
+| `StoreFactory::create()` | **No**, and it gains a guarantee | Receives `&StoreConfig` with `store_type` already set to what `resolve` returned |
 | `ChainedStoreFactory` first-wins | **No — and it is load-bearing** | The same rule resolves schemes; see below |
 | `StoreRouterBuilder` | **Additive** | One normalization pass over the config before the existing build loop |
 | `StoreTypeInfo` | **Additive field** | `#[serde(default)] uri_schemes: Vec<String>` |
@@ -100,9 +132,14 @@ before that design is approved.**
 | `ArgumentCoverage`, `StoreTypeAvailability`, `StoreArgumentType` | **No** | Untouched |
 | `StoreTypeMap` | **No** | A map-built factory declares `uri_schemes` in the `StoreTypeInfo` it is given |
 
-**Both additions are `#[serde(default)]` fields on Liquers-owned structs**, so adding them later
-breaks no document and no implementor. The parent design therefore does **not** need to reserve them
-now. Recording that they are anticipated is enough, and this document is that record.
+**The two fields are `#[serde(default)]` on Liquers-owned structs**, so adding them later breaks no
+document and no implementor; they may be deferred. **`resolve` may not.** That asymmetry is the
+audit's substantive output: one trait method's shape has to be right at the gate, and the rest can
+follow whenever URI support is built.
+
+`StoreConfig::store_type` also gains `#[serde(default)]` in the parent design, so an entry whose
+type is inferred can omit it. That is additive and observably inert today, since an empty type
+resolves nowhere.
 
 ### First-wins is what makes the unified URI safe
 

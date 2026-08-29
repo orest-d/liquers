@@ -40,11 +40,20 @@ to know that before the factory design is approved than after it ships. So this 
 carries an explicit §"What this requires of `store-factories-in-core`" and reports gaps as findings
 against **that** design, not this one.
 
-**Result of the audit: no conflict, and two additive fields to anticipate.** Both are
-`#[serde(default)]` fields on structs Liquers owns — `StoreConfig::uri` and
-`StoreTypeInfo::uri_schemes` — so neither is a breaking change and neither needs to land now. The
-`StoreFactory` trait needs **no** signature change, because the URI can travel inside the
-`StoreConfig` the factory already receives. Details and the one genuine trap are in Phase 2.
+**Result of the audit: one trait method must change now; everything else is additive.** The audit
+justified itself by getting this wrong on the first pass and being corrected.
+
+`StoreFactory::claims(&self, store_type: &str) -> bool` must become
+`resolve(&self, config: &StoreConfig) -> Option<String>`. The reason is the maintainer's reframing:
+**a URI is allowed to be deliberately ambiguous, a store type is not, and the store type may be
+inferred by the factory — with or without a URI.** Resolution is therefore the factory's job, taking
+the whole entry and returning the resolved identity; `claims(&str) -> bool` can express neither
+half. Deferring the change breaks every implementor later, while adopting it now costs one method's
+shape and defaults to exactly today's behaviour.
+
+The rest is additive and may wait: `StoreConfig::uri`, `StoreTypeInfo::uri_schemes` (demoted to
+documentation and discovery, never dispatch), and `#[serde(default)]` on `StoreConfig::store_type`.
+Details and the one genuine trap are in Phase 2.
 
 ## Relationship to `store-factories-in-core`
 

@@ -814,13 +814,13 @@ mod tests {
     use super::*;
 
     // --- StoreTypeMap ---
-    #[test] fn map01_claims_only_registered_types();
+    #[test] fn map01_resolves_only_registered_types();
     #[test] fn map02_create_dispatches_to_the_registered_constructor();
     #[test] fn map03_store_types_is_sorted();          // BTreeMap: deterministic error text
     #[test] fn map04_unregistered_type_errors();
 
     // --- ChainedStoreFactory ---
-    #[test] fn chain01_empty_chain_claims_nothing();
+    #[test] fn chain01_empty_chain_resolves_nothing();
     #[test] fn chain02_single_factory_behaves_as_itself();
     #[test] fn chain03_earlier_factory_wins();          // replaces factory02
     #[test] fn chain04_store_types_is_the_union_first_wins();
@@ -828,13 +828,28 @@ mod tests {
     #[test] fn chain06_unavailable_type_reports_its_reason();
 
     // --- core factory ---
-    #[test] fn core01_claims_memory_and_filesystem();
+    #[test] fn core01_resolves_memory_and_filesystem();
     #[test] fn core02_memory_store_is_constructed();
     #[cfg(target_arch = "wasm32")]
     #[test] fn core03_filesystem_is_listed_but_unavailable_on_wasm();
     #[test] fn core04_complete_type_rejects_an_unknown_key();   // ArgumentCoverage::Complete
+
+    // --- resolution ---
+    #[test] fn resolve01_default_is_an_exact_type_match();
+    #[test] fn resolve02_empty_store_type_resolves_nowhere();
+    #[test] fn resolve03_an_inferring_factory_wins_where_it_resolves();
+    #[test] fn resolve04_create_receives_the_resolved_store_type();
 }
 ```
+
+**`resolve04` guards the invariant the trait now promises** — that `create` always sees the name
+`resolve` returned, filled in by the chain. Without it, an inferring factory would have to re-derive
+its own answer inside `create`, and a factory written against the default would silently receive an
+empty type. A test factory that records the `store_type` it was handed is enough.
+
+**`resolve03`** uses a factory that resolves anything carrying a marker key to one of its declared
+types, chained before a factory that would match by name, and asserts the inferring one wins — the
+behavioural half of "the type may be inferred".
 
 Two are worth explaining because they are the ones that could be written vacuously:
 
@@ -932,13 +947,13 @@ and **never executes in the default configuration**. It is the only test coverin
 |---|---|---|
 | Configuration data | 11 moved | Verbatim; any change is a finding |
 | OpenDAL type tables | 2 moved | New module, same assertions |
-| Factory machinery | 14 new | Chain order, union, availability, error text, `Complete` rejection |
+| Factory machinery | 18 new | Chain order, union, availability, error text, `Complete` rejection, resolution |
 | `liquers-store` factories | 12 (4 rewritten) | Gated-feature message, coverage behaviour, derivation, and the two offline S3 tests |
 | Core-only router | 4 new | The design's thesis, structurally unfakeable |
 | Browser | existing, retargeted | Import paths only |
 | Build matrix | 4 new rows | `liquers-core` has none today |
 
-**Total: 43 tests + 4 matrix rows**, of which 20 assert behaviour that does not exist yet and 3
+**Total: 47 tests + 4 matrix rows**, of which 24 assert behaviour that does not exist yet and 3
 replace assertions this design invalidates.
 
 Two of them — `s3_01` and `s3_02` — cannot compile until

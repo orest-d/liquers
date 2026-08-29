@@ -334,7 +334,7 @@ which stays true even if derivation were perfect, since doc text, required-ness 
 the core and browser factories both need), then derivation (which only fills `arguments` for the
 OpenDAL factory).
 
-Test-plan consequence: **41 tests, up from 36.** One of them carries a trap worth stating —
+Test-plan consequence: **47 tests, up from 36.** One of them carries a trap worth stating —
 `derive01` must assert that a few long-stable field names are *present*, never that the list is
 exhaustive. An exhaustive assertion would reintroduce through the test suite precisely the
 maintenance burden derivation exists to remove, failing on every OpenDAL release that adds a field.
@@ -419,18 +419,35 @@ The maintainer wants URI support eventually and asked whether this design would 
 [`design/store-config-uri/`](../store-config-uri/) was written to answer that, under
 `guides/autonomous_issue_fixing.md`, with the audit as its explicit second purpose.
 
-**Verdict: nothing here must change before approval.** URI support needs two fields, both
-`#[serde(default)]` on structs Liquers owns, so both can be added later without breaking a document
-or an implementor:
+**Verdict, after a correction: one trait method changes now; everything else is additive.** The
+audit's first pass concluded "no change required". That was wrong, and the maintainer's reframing is
+what exposed it:
+
+> A URI is allowed to be deliberately ambiguous; a store type is not. The store type may be
+> **inferred** by the factory — whether or not there is a URI.
+
+`claims(&self, store_type: &str) -> bool` can express neither half of that: it cannot see the entry,
+and it cannot return a resolved name. **It becomes
+`resolve(&self, config: &StoreConfig) -> Option<String>`**, whose default implementation is exactly
+today's exact-match, so adopting it changes no behaviour. The chain writes the resolved name onto
+the config before calling `create`, which gives `create` a contract it did not have: its
+`store_type` is always definite.
+
+This had to be caught before the gate. Changing the method afterwards breaks every implementor;
+changing it now costs one method's shape.
 
 | Needed later | Where | Breaking? |
 |---|---|---|
 | `uri: Option<String>` | `StoreConfig` | no — additive, `skip_serializing_if` |
-| `uri_schemes: Vec<String>` | `StoreTypeInfo` | no — additive |
+| `uri_schemes: Vec<String>` | `StoreTypeInfo` | no — additive, and **documentation only**; dispatch is `resolve` |
+| `#[serde(default)]` on `store_type` | `StoreConfig` | no — adopted now, inert until something infers |
 
-**The `StoreFactory` trait needs no signature change**, which is the finding that matters: the URI
-travels *inside* the `StoreConfig` that `create` already receives, so `store_types`, `claims` and
-`create` all stand.
+**The risk that comes with inference**, stated in Phase 2 so it is not discovered later: inferring a
+type from arbitrary configuration is magic, and magic in a routing decision lets a document change
+meaning silently. Two rules bound it — a factory may only resolve to a type it declares, and
+inference should key on something whose purpose is identification (a `uri` scheme) rather than the
+incidental presence of an argument. No in-tree factory needs inference today; all four are served by
+the default.
 
 **First-wins turns out to be load-bearing for URIs, not merely compatible.** A URI `http://…` names
 neither implementation of `http` — the browser's `fetch` store or OpenDAL's HTTP service. Under the

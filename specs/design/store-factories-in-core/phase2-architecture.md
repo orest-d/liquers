@@ -285,6 +285,9 @@ pub struct StoreTypeMap {
 }
 ```
 
+`StoreTypeMap` overrides `resolve` with a map lookup rather than inheriting the scanning default,
+so chain dispatch does not rebuild every `StoreTypeInfo` per store entry.
+
 **`BTreeMap`, not `HashMap`:** `store_types()` feeds error messages that list supported types.
 `HashMap` iteration order varies between runs, which would make those messages — and any test
 asserting on them — nondeterministic. `BTreeMap` sorts by type name, which is also the order a
@@ -300,8 +303,9 @@ pub struct ChainedStoreFactory {
 }
 ```
 
-Order is significant and is the whole contract: the **first** factory claiming a `store_type`
-creates it. Intended assembly is bottom-up — `liquers-core`, then `liquers-store`, then
+Order is significant and is the whole contract: the **first** factory whose `resolve` returns
+`Some` creates the store, and the chain writes that resolved name onto the config before calling
+`create`. Intended assembly is bottom-up — `liquers-core`, then `liquers-store`, then
 `liquers-lib`, then the integration — so a core store type means the same thing everywhere by
 default. A caller needing an override composes their own chain with their factory first; the API
 permits it and the default ordering simply does not.
@@ -349,8 +353,11 @@ exactly one factory and never has to reason about precedence.
 
 ### Moved verbatim
 
-`StoreRouterConfig` and `StoreConfig` move to `liquers-core/src/store_config.rs` with no field
-changes. `StoreConfig::metadata` moves as-is — it is documented "reserved for future use" and never
+`StoreRouterConfig` and `StoreConfig` move to `liquers-core/src/store_config.rs` with one change:
+`store_type` gains `#[serde(default)]`, so an entry whose type will be *inferred* can omit it. Today
+nothing omits it, and an empty type resolves nowhere — the default `resolve` rejects it explicitly —
+so the observable behaviour is unchanged. It is here because making the field required now would
+force a format change later, which is the whole point of having run the URI audit first. `StoreConfig::metadata` moves as-is — it is documented "reserved for future use" and never
 read, and removing it would be a breaking format change for no gain.
 
 ## Trait Implementations
@@ -363,18 +370,70 @@ pub trait StoreFactory {
     /// Store types this factory claims, with their configuration arguments and availability.
     fn store_types(&self) -> Vec<StoreTypeInfo>;
 
-    /// Whether this factory claims `store_type`.
+    /// Which of this factory's store types, if any, this entry describes.
     ///
-    /// Default implementation scans `store_types()`. A factory backed by a map overrides it
-    /// with a lookup, so chain dispatch does not rebuild descriptions per store entry.
-    fn claims(&self, store_type: &str) -> bool {
-        self.store_types().iter().any(|t| t.store_type == store_type)
+    /// The default is an exact match on `config.store_type` against `store_types()`, which is
+    /// today's behaviour. A factory **may override this to infer** the type from the entry —
+    /// from a `uri`, or from anything else it recognizes.
+    ///
+    /// Taking the whole `StoreConfig` rather than a `&str`, and returning the resolved name
+    /// rather than a bool, is what makes inference possible at all. See §Resolution below.
+    fn resolve(&self, config: &StoreConfig) -> Option<String> {
+        let requested = config.store_type.as_str();
+        (!requested.is_empty() && self.store_types().iter().any(|t| t.store_type == requested))
+            .then(|| requested.to_string())
     }
 
-    /// Create a store from a configuration entry whose type this factory claims.
+    /// Create a store from an entry this factory resolved.
+    ///
+    /// **Invariant: `config.store_type` is always the name `resolve` returned.** The chain fills
+    /// it in before calling, so `create` never has to re-derive it or handle an empty type.
     fn create(&self, config: &StoreConfig) -> Result<Box<dyn AsyncStore>, Error>;
 }
 ```
+
+### Resolution: the store type is an output, not only an input
+
+`resolve` replaces the `claims(&str) -> bool` of this design's first draft, after the maintainer
+observed the asymmetry that motivates it:
+
+> A URI is allowed to be deliberately ambiguous; a store type is not. The store type may be
+> **inferred** by the factory — whether or not there is a URI.
+
+That is a better model than the one this document started with. A store type is the *resolved
+identity* of an entry; a URI, a path shape, or anything else a factory recognizes is *input* to that
+resolution. Making the type an output rather than only a lookup key has three consequences:
+
+1. **All backend knowledge stays in the factory.** This design already concluded that a URI must be
+   interpreted by the factory, because the mapping from a URI's authority to a configuration key is
+   per-backend. Resolution is the same argument one step earlier: only the factory knows what its
+   own entries look like.
+2. **There is one resolution mechanism, not two.** An earlier sketch had the *chain* map URI schemes
+   to types from a `uri_schemes` list while `claims` matched type names — two paths that could
+   disagree. With `resolve`, `uri_schemes` on `StoreTypeInfo` becomes documentation and discovery,
+   never dispatch.
+3. **`create` gets a stronger contract.** The chain writes the resolved name onto the config before
+   calling, so a factory's `create` can always trust `config.store_type`.
+
+**Why this lands now rather than later.** Changing `claims(&str) -> bool` into
+`resolve(&StoreConfig) -> Option<String>` after the fact is a **breaking trait change** for every
+implementor that overrode it. Adopting it now costs one method's shape and defaults to exactly the
+current behaviour; deferring it costs a break. This is the one non-additive finding of the URI
+compatibility audit in [`design/store-config-uri/`](../store-config-uri/), and the reason that audit
+was run before this design's gate rather than after.
+
+**The risk, stated so it is not discovered later.** Inference from arbitrary configuration is magic,
+and magic in a routing decision is how a document silently changes meaning — a factory that inferred
+`filesystem` from the presence of a `path` key would reroute any other type that later gained a
+`path`. Two rules keep it bounded, and the guide must state both:
+
+- **A factory may only resolve to a store type it declares in `store_types()`.** The declared set
+  stays the vocabulary; inference chooses within it, never beyond it.
+- **Inference should key on something whose purpose is identification** — a `uri` scheme, an
+  explicit type — not on the incidental presence of an argument.
+
+No in-tree factory needs inference today; every one of them is served by the default. The capability
+is forward-looking, and `resolve`'s default implementation means adopting it changes no behaviour.
 
 **Bounds:** none, preserved from today and load-bearing (see `StoreConstructor` above).
 
@@ -420,7 +479,7 @@ propagate into every signature that stores or passes a builder.
 | Function | Async? | Rationale |
 |---|---|---|
 | `StoreFactory::create` | No | Constructs a store handle; performs no I/O. `AsyncMemoryStore::new` allocates, `AsyncFileStore::new` stores a path, `Operator::via_iter` is sync. |
-| `StoreFactory::store_types` / `claims` | No | Pure data. |
+| `StoreFactory::store_types` / `resolve` | No | Pure data; resolution parses at most a URI. |
 | `StoreRouterBuilder::build` | No | Only calls `create` and `expand_env_vars`. |
 | `expand_env_vars` | No | Reads the process environment; no I/O wait. |
 | Everything the stores then do | Yes | Already async via `AsyncStore`; unchanged. |
@@ -506,7 +565,7 @@ impl StoreRouterBuilder {
     pub fn build_without_env_expansion(self) -> Result<AsyncStoreRouter, Error>;
 }
 
-/// The error a chain returns for a `store_type` no member claims.
+/// The error a chain returns for an entry no member resolves.
 pub fn unknown_store_type_error(store_type: &str, known: &[StoreTypeInfo]) -> Error;
 ```
 
@@ -807,7 +866,7 @@ None. All errors are `liquers_core::error::Error` via typed constructors.
 
 | Scenario | Constructor | Notes |
 |---|---|---|
-| `store_type` no factory in the chain claims | `Error::not_supported` | **Changed from `general_error`.** `ErrorType::NotSupported` is what this actually is, and the only existing assertion on it (`test_unknown_store_type`) checks `is_err()` only. |
+| An entry no factory in the chain resolves | `Error::not_supported` | **Changed from `general_error`.** `ErrorType::NotSupported` is what this actually is, and the only existing assertion on it (`test_unknown_store_type`) checks `is_err()` only. |
 | `store_type` claimed but `Unavailable(reason)` | `Error::not_supported` | Message is the reason verbatim — the `STORE13` contract |
 | Required config key missing | `Error::general_error` | Unchanged: `require_config_string`'s existing message |
 | `${VAR}` unset or unclosed | `Error::general_error` / `ParseError` | Unchanged; moves with `expand_env_vars` |
