@@ -5,7 +5,7 @@ title: Selecting a recipe provider by name
 status: complete
 phase:
 area: [core/assets, web]
-gh_pr: []
+gh_pr: [48]
 issues: [RECIPE-PROVIDER-BY-NAME]
 created: 2026-08-29
 superseded_by:

@@ -176,7 +176,7 @@ PYTHON-WRAPPER,design,Python wrapper architecture for liquers-py,complete,local,
 QUERY-CONSOLE-ELEMENT,design,Query console UI element,complete,local,,,,lib/ui,,,,query-console-element,,2026-03-02,specs/design/query-console-element/DESIGN.md
 QUERY-LINK-PARSER,design,Action-parameter link parsing (~X~~E),complete,local,,,,core/query,,17,,query-link-parser,,2026-03-02,specs/design/query-link-parser/DESIGN.md
 QUERY-VALIDATION,design,Offline query and recipe validation,complete,local,,,,core/validate,,15,,query-validation,,2026-03-02,specs/design/query-validation/DESIGN.md
-RECIPE-PROVIDER-SELECTION,design,Selecting a recipe provider by name,complete,local,,,,core/assets;web,,,,recipe-provider-selection,,2026-08-29,specs/design/recipe-provider-selection/DESIGN.md
+RECIPE-PROVIDER-SELECTION,design,Selecting a recipe provider by name,complete,local,,,,core/assets;web,,48,,recipe-provider-selection,,2026-08-29,specs/design/recipe-provider-selection/DESIGN.md
 STORE-FACTORIES-IN-CORE,design,Store configuration and factories in liquers-core,complete,local,,,,core/store;store/config;store/backends;web;docs,,46,,store-factories-in-core,,2026-08-27,specs/design/store-factories-in-core/DESIGN.md
 STORE-KEY-GUARD,design,Absolute store keys — a store refuses a relative key with a dedicated error,complete,local,,,,core/store;store/backends;core/error;web;axum,,36,,store-key-guard,,2026-08-17,specs/design/store-key-guard/DESIGN.md
 VALUE-TYPE-SYSTEM,design,Liquers value type system,complete,local,,,,core/value;lib/value;py;web,,37,,value-type-system,,2026-08-18,specs/design/value-type-system/DESIGN.md

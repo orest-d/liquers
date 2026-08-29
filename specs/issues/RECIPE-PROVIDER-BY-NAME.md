@@ -71,7 +71,7 @@ deliberately. Either §4.4 should gain a clause for hard prerequisites, or this 
 ## Resolution
 
 Closed 2026-08-29 by `liquers-core::recipes::RecipeProviderChoice`, implemented on branch
-`claude/recipe-provider-selection-budfor` under
+`claude/recipe-provider-selection-budfor` (PR [#48](https://github.com/orest-d/liquers/pull/48)) under
 [`guides/autonomous_issue_fixing.md`](../guides/autonomous_issue_fixing.md); the reasoning record is
 [`design/recipe-provider-selection/`](../design/recipe-provider-selection/).
 
