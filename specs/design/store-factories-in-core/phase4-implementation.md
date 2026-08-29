@@ -74,8 +74,32 @@ pub fn parse_error(message: String) -> Self {
 `Error::new(ErrorType::ParseError, …)`, which `CLAUDE.md` forbids. Moving a known rule violation
 *into* the crate that enforces the rule most strictly is worse than adding one constructor.
 
-**Outside the Phase 1 boundary** — flagged at the Phase 2 gate and still awaiting an explicit
-decision. If declined, Step 3 moves the `Error::new` calls verbatim and files the gap.
+**Approved at the Phase 4 gate**, with authority to add a new `ErrorType` variant if one were
+needed. Assessed: **none is.**
+
+- `ErrorType::ParseError` is semantically exact — a YAML/JSON/TOML document that will not parse *is*
+  a parse failure. What was missing is a constructor for the no-`Position` case, not a kind.
+- `ErrorType::SerializationError` would be **wrong**, and not merely imprecise:
+  `AssetData::classify_persistence_error` (`liquers-core/src/assets.rs:1723`) maps it to
+  `PersistenceStatus::NonSerializable`, meaning "this value cannot be persisted by nature, and that
+  is not an error". A configuration parse failure classified that way would be silently excused.
+- `ParseError` is safe in that same match — it falls in the `NotPersisted` group — and a
+  configuration error never reaches asset persistence anyway.
+
+Worth recording as a property rather than a risk: that match is **exhaustive with no `_` arm**, so
+adding any future `ErrorType` variant is a compile error there until handled. The convention pays
+for itself here.
+
+**A related gap found while assessing, not fixed here.** The design leaves three configuration-time
+error paths on three different kinds: an unclaimed store type is `NotSupported`, a missing required
+argument is `General` (`require_config_string`), and a rejected unknown key on an
+`ArgumentCoverage::Complete` type would be `General` too. A host binding cannot tell "your
+configuration document is wrong" from any other general error — which matters precisely for the
+document-driven setup path `environment-builder` is built for. Filed as
+[`CORE-CONFIGURATION-ERROR-KIND`](../../issues/CORE-CONFIGURATION-ERROR-KIND.md) (P3, S) rather than
+decided in passing: it is an error-taxonomy change affecting paths this design does not otherwise
+touch, and `NotSupported` for an unknown type is arguably *better* than a generic configuration kind
+because it says what is wrong.
 
 **Validation:** `cargo check -p liquers-core`
 

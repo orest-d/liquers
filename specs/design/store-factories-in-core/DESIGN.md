@@ -505,6 +505,29 @@ the plan says explicitly not to hand-reconstruct them.
 **No step is opus-tier.** Every one has a written specification and a validation command; the
 judgement was spent in Phases 2 and 3.
 
+## `Error::parse_error` — approved, and no new kind needed (2026-08-29)
+
+Approved at the Phase 4 gate with authority to add an `ErrorType` variant if one were needed.
+**None is:** `ErrorType::ParseError` is semantically exact for a document that will not parse; what
+was missing is a constructor for the no-`Position` case, since `key_parse_error` and
+`query_parse_error` both require one.
+
+`ErrorType::SerializationError` would have been actively wrong rather than merely imprecise:
+`classify_persistence_error` (`liquers-core/src/assets.rs:1723`) maps it to
+`PersistenceStatus::NonSerializable`, which means "cannot be persisted by nature, and that is not an
+error" — a configuration failure classified that way would be silently excused. `ParseError` falls in
+the `NotPersisted` group and is safe. Worth noting the convention paying off: that match is
+exhaustive with no `_` arm, so any future `ErrorType` variant is a compile error until classified.
+
+**A real adjacent gap found while assessing, filed not folded:**
+[`CORE-CONFIGURATION-ERROR-KIND`](../../issues/CORE-CONFIGURATION-ERROR-KIND.md) (P3, S). Three
+configuration-time paths carry three kinds — unclaimed type `NotSupported`, missing required argument
+`General`, rejected unknown key `General` — so a language binding cannot distinguish "your
+configuration is wrong" from any other general error, which is exactly the discrimination the
+document-driven setup path needs. Left as an issue because it is a taxonomy change over code this
+design does not otherwise touch, and because `NotSupported` for an unknown type may well be better
+than a generic configuration kind.
+
 ## Cross-design coordination
 
 **Standing obligation (maintainer instruction, 2026-08-29): keep
