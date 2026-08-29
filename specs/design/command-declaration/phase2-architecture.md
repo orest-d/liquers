@@ -226,7 +226,7 @@ today, so it is not a regression; see open question 5.
 
 | Option | Verdict |
 |---|---|
-| **A parallel `CommandDeclaration` struct mirroring `CommandMetadata`** (the first draft of this document) | **Rejected on review.** ~80% of its fields were identical; the substance was five missing `#[serde(default)]`. It renamed `argument_type` to `type`, contradicting Phase 1's own acceptance criterion 2; it changed `default` from `CommandParameterValue` to `serde_json::Value`, dropping `Query` defaults; and it silently omitted `presets`, `next`, `hints` and `CommandDefinition::Alias`, so `from_metadata`→`to_metadata` was not an identity. That round-trip passes at `HEAD` only by luck — the registry currently contains 0 of each (verified) — so the Phase 1 test would have certified a lossy format. A second 20-field struct with a renamed key and a different default representation is a second format wearing the first one's name. |
+| **A parallel `CommandDeclaration` struct mirroring `CommandMetadata`** (the first draft of this document) | **Rejected on review.** ~80% of its fields were identical; the substance was five missing `#[serde(default)]`. It renamed `argument_type` to `type`, contradicting Phase 1's own acceptance criterion on field-name agreement; it changed `default` from `CommandParameterValue` to `serde_json::Value`, dropping `Query` defaults; and it silently omitted `presets`, `next`, `hints` and `CommandDefinition::Alias`, so `from_metadata`→`to_metadata` was not an identity. That round-trip passes at `HEAD` only by luck — the registry currently contains 0 of each (verified) — so the Phase 1 test would have certified a lossy format. A second 20-field struct with a renamed key and a different default representation is a second format wearing the first one's name. |
 | Add `#[serde(default)]` and stop there | Insufficient: it leaves `state`, the async tri-state and declared-vs-inferred arguments homeless, which is the residue Part B exists for. |
 | Make the export format tolerant is dangerous — "a registry file missing `cache` would silently deserialize as `true`" (first draft's objection to fixing `CommandMetadata`) | **Does not hold.** `cache` has no `skip_serializing_if`, so the exporter always writes it; the file is generated and never hand-edited; `registry_export` compares signatures and would catch a semantic drift; and the format already tolerates omission of 14 of 20 fields, so the strictness being protected does not exist. |
 | Put `CommandBinding` in `command_metadata.rs` | Rejected: that file is 1397 lines, and metadata-versus-binding is exactly the distinction this issue draws. |
@@ -379,19 +379,19 @@ this revision reuses the whole type rather than mirroring it. `infer_arguments`,
 ## Scope note
 
 Fixing `CommandMetadata`'s serde defaults is a smaller change than the first draft's new type, which
-weakens the issue's `P0`. The issue file itself already flags the tension with
+weakens the issue's `P0` (Phase 1, Q3). The issue file itself already flags the tension with
 `DOCS_STRUCTURE_GUIDE.md` §4.4 — it is scheduling weight, not a defect. With the fix at five
 attributes plus a small module, **P1 looks right**, and the gate is the place to settle it.
 
 ## Review record
 
-*Against Phase 1:* acceptance criteria 1-6 all still map to named tests, and criterion 2 ("field
-names agree with `specs/command_registry.yaml`") is now satisfied literally rather than
-approximately — they are the same struct. Criterion 3's round-trip strengthens from
-"equal modulo `impl_version`" to byte-identical. Criterion 1's wording needs the amendment made in
-the revised Phase 1: the minimal form is a `CommandMetadata`, not a new type. The non-goals (Python
-binding, post-init registration, `register_command!`, exporter output) appear nowhere in the plan;
-the `snapshot_declaration` cleanup stays deferred.
+*Against Phase 1:* all seven acceptance criteria map to named tests in the validation row above.
+Criterion 3 ("field names agree with `specs/command_registry.yaml`") is now satisfied literally
+rather than approximately — they are the same struct. Criterion 4's round-trip strengthens from
+"equal modulo `impl_version`" to byte-identical. Criterion 2 is what Part B exists for, and is the
+only place a new type is introduced. The non-goals (Python binding, post-init registration,
+`register_command!`, exporter output) appear nowhere in the plan; the `snapshot_declaration` cleanup
+stays deferred.
 
 *Against the codebase:* every claim was read at `HEAD` and the deserialization limits were
 re-measured, not carried over. Newly verified for this revision: the 14-of-20 default count; that
