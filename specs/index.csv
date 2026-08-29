@@ -1,9 +1,9 @@
 id,kind,title,status,status_source,phase,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
-RECIPE-PROVIDER-BY-NAME,feature,"Recipe providers cannot be selected by name, so a configuration document cannot choose one",draft,local,,P0,S,core/assets;web,,,,environment-builder,,2026-08-27,specs/issues/RECIPE-PROVIDER-BY-NAME.md
-COMMAND-DECLARATION-FORMAT,feature,"No language-neutral command declaration format, so every binding hand-parses its own",draft,local,,P0,M,core/commands;web;py,,,,environment-builder,,2026-08-27,specs/issues/COMMAND-DECLARATION-FORMAT.md
+RECIPE-PROVIDER-BY-NAME,feature,"Recipe providers cannot be selected by name, so a configuration document cannot choose one",draft,local,,P0,S,core/assets;web,,,,recipe-provider-selection,,2026-08-27,specs/issues/RECIPE-PROVIDER-BY-NAME.md
+COMMAND-DECLARATION-FORMAT,feature,"No language-neutral command declaration format, so every binding hand-parses its own",draft,local,,P0,M,core/commands;web;py,,,,command-declaration,,2026-08-27,specs/issues/COMMAND-DECLARATION-FORMAT.md
 STORE-CONFIG-IN-CORE,feature,"Store configuration types live in liquers-store, so liquers-core cannot own an environment configuration",draft,local,,P0,M,core/store;store/config;web,,,,environment-builder,,2026-08-27,specs/issues/STORE-CONFIG-IN-CORE.md
-CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC,issue,SimpleEnvironmentWithPayload panics when no recipe provider is configured,draft,local,,P1,S,core/context,,,,environment-builder,,2026-08-27,specs/issues/CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC.md
-STORE-OPENDAL-SLASH-HANDLING,issue,OpenDAL store mishandles keys containing slashes,accepted,local,,P1,M,store/backends,,,,,,2026-08-08,specs/issues/STORE-OPENDAL-SLASH-HANDLING.md
+CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC,issue,SimpleEnvironmentWithPayload panics when no recipe provider is configured,draft,local,,P1,S,core/context,,,,payload-env-recipe-provider-fallback,,2026-08-27,specs/issues/CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC.md
+STORE-OPENDAL-SLASH-HANDLING,issue,OpenDAL store mishandles keys containing slashes,accepted,local,,P1,M,store/backends,,,,opendal-path-mapping,,2026-08-08,specs/issues/STORE-OPENDAL-SLASH-HANDLING.md
 CORE-EVALUATE-PATH-CONSOLIDATION,issue,Several evaluation paths duplicate each other,accepted,local,,P1,L,core/assets;core/plan,,,,,,2026-08-08,specs/issues/CORE-EVALUATE-PATH-CONSOLIDATION.md
 QUEUED-MANAGER-STARTUP-READINESS,issue,Queued asset manager accepts work before it is ready to run it,accepted,local,,P1,L,core/assets,,,,environment-builder,,2026-08-08,specs/issues/QUEUED-MANAGER-STARTUP-READINESS.md
 CORE-METADATA-TRACEBACK-SUPPORT,issue,Metadata has no place for an error traceback,accepted,local,,P2,S,core/value;core/error,,,,,,2026-08-08,specs/issues/CORE-METADATA-TRACEBACK-SUPPORT.md
@@ -72,12 +72,16 @@ WEB-NATIVE-IO-TIER2,issue,Browser storage has no IndexedDB backend,accepted,loca
 CORE-MULTI-REALM-INTERPRETER,issue,The interpreter supports a single realm,accepted,local,,P3,XL,core/plan;core/commands,,,,,,2026-08-08,specs/issues/CORE-MULTI-REALM-INTERPRETER.md
 CORE-TOKIO-REMOVAL,issue,Core still depends on tokio primitives on wasm,accepted,local,,P3,XL,core/assets,,,,,,2026-08-08,specs/issues/CORE-TOKIO-REMOVAL.md
 ASSET-MANAGER-INSERT-KEY-ASSET-SEMANTICS,design,asset-manager-insert-key-asset-semantics,draft,local,documentation,,,core/assets,,,,asset-manager-insert-key-asset-semantics,,2026-08-25,specs/design/asset-manager-insert-key-asset-semantics/DESIGN.md
+COMMAND-DECLARATION,design,A language-neutral command declaration type,in_review,local,architecture,,,core/commands;web;py,,,,command-declaration,,2026-08-29,specs/design/command-declaration/DESIGN.md
 CONTEXT-PARAM-ORDER,design,Context parameter position in register_command!,draft,local,architecture,,,core/commands;macro,,,,context-param-order,,2026-03-02,specs/design/context-param-order/DESIGN.md
 ENVIRONMENT-BUILDER,design,Environment builder,,github,examples,,,core/assets;core/context,,44,,environment-builder,,2026-08-27,specs/design/environment-builder/DESIGN.md
 EXPIRATION-INTEGRATION-SUITE-REPAIR,design,expiration-integration-suite-failing-at-head,draft,local,examples,,,core/assets,,,,expiration-integration-suite-failing-at-head,,2026-08-11,specs/design/expiration-integration-suite-failing-at-head/DESIGN.md
 EXPIRED-BINARY-READ-SAFETY,design,Expired-safe binary reads,,github,implementation,,,core/assets;core/store,,22,,expired-binary-read-safety,,2026-08-08,specs/design/expired-binary-read-safety/DESIGN.md
 FOREIGN-VALUE-TYPE-REGISTRATION,design,Foreign and Python value types in the type registry,,github,,,,core/value;lib/value;web;py,,42,,foreign-value-type-registration,,2026-08-26,specs/design/foreign-value-type-registration/DESIGN.md
+OPENDAL-PATH-MAPPING,design,"One path mapping for the OpenDAL store, with a key round-trip property",in_review,local,architecture,,,store/backends,,,,opendal-path-mapping,,2026-08-29,specs/design/opendal-path-mapping/DESIGN.md
+PAYLOAD-ENV-RECIPE-PROVIDER-FALLBACK,design,Recipe-provider fallback for the payload environment,in_review,local,architecture,,,core/context,,,,payload-env-recipe-provider-fallback,,2026-08-29,specs/design/payload-env-recipe-provider-fallback/DESIGN.md
 PLAN-CWD-FREEZE,design,Freeze CWD in the plan and cut correct predecessor boundaries,,github,documentation,,,core/plan;core/query;core/context;core/assets,,35,,plan-cwd-freeze,,2026-08-14,specs/design/plan-cwd-freeze/DESIGN.md
+RECIPE-PROVIDER-SELECTION,design,Selecting a recipe provider by name,in_review,local,architecture,,,core/assets;web,,,,recipe-provider-selection,,2026-08-29,specs/design/recipe-provider-selection/DESIGN.md
 REGISTER-COMMAND-ENUM,design,Enum parameters in register_command!,draft,local,architecture,,,macro;core/commands,,,,register-command-enum,,2026-03-02,specs/design/register-command-enum/DESIGN.md
 UI-EVENTS,design,UI event delivery to widgets,in_review,local,high-level,,,lib/ui,,,,ui-events,,2026-03-02,specs/design/ui-events/DESIGN.md
 VALUE-ACCESSOR,design,Value accessor abstraction,draft,local,high-level,,,core/value,,,,value-accessor,,2026-03-02,specs/design/value-accessor/DESIGN.md

@@ -70,6 +70,7 @@ volatility work all landed in `assets.rs`.
 - **Keyed-recipe ownership** — built → [`design/keyed-recipe-ownership/`](design/keyed-recipe-ownership/)
 - **Keyed delegation as a hand-off** — built → [`design/keyed-delegation-hand-off/`](design/keyed-delegation-hand-off/) *(rule documented in [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md))*
 - **Terminal outcome contract** — built → [`design/wp2-terminal-outcome/`](design/wp2-terminal-outcome/)
+- **Recipe-provider selection by name** — designing → [`design/recipe-provider-selection/`](design/recipe-provider-selection/)
 - **Combined expiration algebra** — planned → [`issues/COMBINED-EXPIRES.md`](issues/COMBINED-EXPIRES.md)
 - **Execution classes beyond simple loading** — planned → [`issues/EXTENDED-FAST-TRACK.md`](issues/EXTENDED-FAST-TRACK.md)
 - **Asset garbage collection** — planned → [`issues/CORE-ASSET-GC.md`](issues/CORE-ASSET-GC.md)
@@ -87,6 +88,7 @@ simply stop being wanted.
 
 - **Payloads** — documented → [`reference/PAYLOAD_GUIDE.md`](reference/PAYLOAD_GUIDE.md)
 - **Environment, Context and evaluation** — documented → [`reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`](reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md)
+- **Recipe-provider fallback in the payload environment** — designing → [`design/payload-env-recipe-provider-fallback/`](design/payload-env-recipe-provider-fallback/)
 - **Metadata format/type consistency** — designing → [`design/metadata-consistency/`](design/metadata-consistency/)
 - **Value accessor abstraction** — designing → [`design/value-accessor/`](design/value-accessor/)
 - **`ValueInterface` capability split** — planned → [`issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md`](issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md)
@@ -103,6 +105,7 @@ serves both. Solve them together.
 - **`register_command!` specification** — documented → [`reference/REGISTER_COMMAND_FSD.md`](reference/REGISTER_COMMAND_FSD.md)
 - **Context parameter position** — designing → [`design/context-param-order/`](design/context-param-order/)
 - **Enum parameters** — designing → [`design/register-command-enum/`](design/register-command-enum/)
+- **Language-neutral command declaration** — designing → [`design/command-declaration/`](design/command-declaration/)
 - **Command metadata enhancements** — planned → [`issues/COMMAND-METADATA-ENHANCEMENTS.md`](issues/COMMAND-METADATA-ENHANCEMENTS.md)
 - **Macro query validation and hints** — planned → [`issues/MACRO-QUERY-VALIDATION-AND-HINTS.md`](issues/MACRO-QUERY-VALIDATION-AND-HINTS.md)
 
@@ -116,7 +119,7 @@ expansion time rather than at runtime. That is the cheapest item here.
   [`reference/PROJECT_OVERVIEW.md`](reference/PROJECT_OVERVIEW.md) §5, conformance in the
   store section of [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md)
 - **Type-enforced key absoluteness** — planned → [`issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md`](issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md)
-- **OpenDAL path normalization** — planned → [`issues/STORE-OPENDAL-SLASH-HANDLING.md`](issues/STORE-OPENDAL-SLASH-HANDLING.md)
+- **OpenDAL path normalization** — designing → [`design/opendal-path-mapping/`](design/opendal-path-mapping/)
 - **Streaming binary access (`openbin`)** — planned → [`issues/CORE-STORE-OPENBIN-MISSING.md`](issues/CORE-STORE-OPENBIN-MISSING.md)
 - **Sessions and key-level authorization** — planned → [`issues/CORE-SESSION-AND-KEY-ACL.md`](issues/CORE-SESSION-AND-KEY-ACL.md)
 
@@ -125,9 +128,12 @@ at plan level and a store never resolves them, so one reaching a store is refuse
 `KeyNotAbsolute`. The rule lives in rustdoc until DOC-07 exists; enforcement is by convention per
 method rather than by signature, which is `STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED`.
 
-`STORE-OPENDAL-SLASH-HANDLING` is P1 and blunt: keys containing `/` are not reliably addressable
-through an OpenDAL backend, which is most real keys. Sessions and ACL are one item because there is
-no identity on `Context` to authorize against.
+`STORE-OPENDAL-SLASH-HANDLING` is P1. Its original statement — that keys containing `/` are not
+reliably addressable — did not survive reproduction: the filesystem backend handles them correctly.
+`design/opendal-path-mapping/` restates it as three defects, of which the sharpest is that a
+directory key is unaddressable on a backend with no directory objects, which covers most of
+`OPENDAL_STORE_TYPES`. Sessions and ACL are one item because there is no identity on `Context` to
+authorize against.
 
 ### Command libraries
 
@@ -182,10 +188,11 @@ question are both measure-first items.
 <!-- BEGIN generated: issues -->
 | Issue | Pri | Cx | Design |
 |---|---|---|---|
-| [`RECIPE-PROVIDER-BY-NAME`](issues/RECIPE-PROVIDER-BY-NAME.md) | P0 | S | `environment-builder` |
-| [`COMMAND-DECLARATION-FORMAT`](issues/COMMAND-DECLARATION-FORMAT.md) | P0 | M | `environment-builder` |
+| [`RECIPE-PROVIDER-BY-NAME`](issues/RECIPE-PROVIDER-BY-NAME.md) | P0 | S | `recipe-provider-selection` |
+| [`COMMAND-DECLARATION-FORMAT`](issues/COMMAND-DECLARATION-FORMAT.md) | P0 | M | `command-declaration` |
 | [`STORE-CONFIG-IN-CORE`](issues/STORE-CONFIG-IN-CORE.md) | P0 | M | `environment-builder` |
-| [`CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC`](issues/CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC.md) | P1 | S | `environment-builder` |
+| [`CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC`](issues/CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC.md) | P1 | S | `payload-env-recipe-provider-fallback` |
+| [`STORE-OPENDAL-SLASH-HANDLING`](issues/STORE-OPENDAL-SLASH-HANDLING.md) | P1 | M | `opendal-path-mapping` |
 | [`QUEUED-MANAGER-STARTUP-READINESS`](issues/QUEUED-MANAGER-STARTUP-READINESS.md) | P1 | L | `environment-builder` |
 <!-- END generated: issues -->
 

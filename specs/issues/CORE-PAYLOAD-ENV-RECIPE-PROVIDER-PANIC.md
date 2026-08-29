@@ -6,7 +6,7 @@ status: draft
 priority: P1
 complexity: S
 area: [core/context]
-design: environment-builder
+design: payload-env-recipe-provider-fallback
 created: 2026-08-27
 github:
 ---
