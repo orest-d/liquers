@@ -27,10 +27,11 @@ Searched: the five issues linked from `design/environment-builder/DESIGN.md`; ev
 | Issue | Status | Priority | Relevance and solution impact | First? | Blocking? | Required action | Priority action |
 |---|---|---|---|---|---|---|---|
 | `STORE-CONFIG-IN-CORE` | draft | P0 | This design resolves it. Its stated boundary and verification list are superseded by Phase 1. | — | no | Close at Phase 5 with the corrected boundary and `complexity: L` | Keep P0 |
-| `RECIPE-PROVIDER-BY-NAME` | draft | P0 | Sibling prerequisite of `environment-builder`. Same "name in a document resolves to an implementation" shape that `StoreFactory` already solves; this design is the worked precedent it cites. No code overlap. | no | no | Monitor; note the precedent at Phase 5 | Keep P0 |
-| `COMMAND-DECLARATION-FORMAT` | draft | P0 | Sibling prerequisite. Independent surface (commands, not stores). | no | no | Monitor | Keep P0 |
+| `RECIPE-PROVIDER-BY-NAME` | draft | P0 | Now designed as `design/recipe-provider-selection/` (in review). It **cites this design in both directions**: it rejects "put the choice in `liquers-store` next to `StoreConfig`" precisely because `STORE-CONFIG-IN-CORE` moves configuration *down* into core, and it records that a `StoreFactory`-shaped registry does **not** transfer to recipe providers, because `AsyncRecipeProvider` is generic in `E` and `dyn RecipeProviderFactory` is therefore not object-safe — "`StoreFactory` has no such problem because `AsyncStore` is not generic". That is independent confirmation of this design's object-safety assumption. It states explicitly: "consumer, not prerequisite. It can land in either order." | no | no | None; cite the object-safety finding in the new guide | Keep P0 |
+| `COMMAND-DECLARATION-FORMAT` | draft | P0 | Now designed as `design/command-declaration/` (in review). Names this design as "document #1; independent of this one". Independent surface (commands, not stores). | no | no | Monitor | Keep P0 |
 | `WEB-NATIVE-IO-TIER2` | accepted | P3 | Adds an IndexedDB store type to `WebStoreFactory`. It must be expressible under the redesigned trait, i.e. carry a `StoreTypeInfo` with its arguments. Confirms the trait must stay `!Send`-friendly (IndexedDB is Promise-based and non-`Send`). | no | no | Design constraint honoured: no `Send`/`Sync` bound on the trait or on the map factory's closures | Keep P3 |
-| `STORE-OPENDAL-SLASH-HANDLING` | accepted | P1 | Concerns key handling *inside* the OpenDAL backend, which does not move. Untouched either way. | no | no | Monitor | Keep P1 |
+| `STORE-OPENDAL-SLASH-HANDLING` | accepted | P1 | Now designed as `design/opendal-path-mapping/` (in review). **Its interaction assessment is stale** — see below. Still not blocking: no source file overlaps. | no | no | Correct that design's "Not touched" list once this lands; see below | Keep P1 |
+| `CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC` | draft | P1 | Now designed as `design/payload-env-recipe-provider-fallback/` (in review). Recipe-provider defaulting in the payload environment; no store surface. | no | no | None | Keep P1 |
 | `CORE-STORE-OPENBIN-MISSING` | accepted | P3 | `openbin` is on `AsyncStore`, already in core. Unaffected by where factories live. | no | no | None | Keep P3 |
 | `STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED` | draft | P3 | `StoreConfig::key_prefix` returns `Key`, not an absolute-key newtype. Moving it neither helps nor worsens; if that issue lands later it changes one signature in the moved code. | no | no | Monitor | Keep P3 |
 | `LIBRARY-CODE-USES-UNWRAP-AND-EXPECT` | draft | P2 | Checked the code being moved: `config.rs` and `store_builder.rs` contain no library `unwrap()`/`expect()` — the only hit is inside a doc-comment example, which is permitted. Nothing is imported into core. | no | no | None; record the check | Keep P2 |
@@ -48,6 +49,41 @@ carry maintainer-assigned scheduling weight, not §4.4 severity — a tension al
 `WEB-NATIVE-IO-TIER2` is the one non-blocker with a real design constraint, and it is honoured
 rather than deferred: the trait and the map factory's closures carry no `Send`/`Sync` bound, so a
 Promise-based IndexedDB store remains expressible.
+
+#### `opendal-path-mapping`: its assessment of this design is out of date
+
+That design's §"Related open issues" says of `STORE-CONFIG-IN-CORE`: *"moves `StoreConfig` into
+`liquers-core`; it does not move `opendal_store.rs`, so there is no ordering constraint, but a merge
+conflict in `store_builder.rs` is possible if both land close together. This change does not edit
+that file."* Its §"Not touched" additionally lists `liquers-store/src/config.rs` and `liquers-core`.
+
+Both statements were written against the issue's **original data-only boundary**. Under the widened
+boundary this design now carries, `store_builder.rs` is not merely at risk of conflict — it is
+gutted: `create_store` is removed, `StoreRouterBuilder` moves to core, and `create_opendal_store`
+becomes `OpendalStoreFactory::create`. Their document also lists `create_opendal_store`
+(`store_builder.rs:188-202`) under "Read, unchanged".
+
+**The good news is that the conclusion survives the correction.** Checked file by file:
+
+| | `opendal-path-mapping` edits | This design edits |
+|---|---|---|
+| `liquers-store/src/opendal_store.rs` | yes (only source file) | no |
+| `liquers-store/src/config.rs`, `store_builder.rs`, `lib.rs`, `Cargo.toml` | no | yes |
+| `liquers-core/*`, `liquers-web/*` | no | yes |
+
+**No source file is touched by both**, so there is no textual merge conflict in either landing
+order. What does go stale is documentation: if this design lands first, their "Not touched" list and
+their `create_opendal_store` line reference are wrong, and their Phase 3 plan should be re-read
+against the factory dispatch. Two shared expectations are worth naming so neither design breaks the
+other:
+
+- Both plan to run `bash scripts/check-build-matrix.sh` and both care about the `opendal`-off
+  configuration. This design changes what that configuration *contains* — `OpendalStoreFactory` is
+  compiled either way and reports `Unavailable` when the feature is off — so their "the `opendal`-off
+  configuration must still compile" check remains meaningful but tests a different shape.
+- Their validation item (d) asserts a prefixed store reports `key_prefix() == data`.
+  `StoreConfig::key_prefix` moves to `liquers-core` with its behaviour unchanged, so that assertion
+  holds; only its import path moves.
 
 ## Data Structures
 

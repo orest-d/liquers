@@ -118,6 +118,7 @@ expansion time rather than at runtime. That is the cheapest item here.
 - **Absolute store keys** — built → `liquers_core::store` module docs; rule summarised in
   [`reference/PROJECT_OVERVIEW.md`](reference/PROJECT_OVERVIEW.md) §5, conformance in the
   store section of [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md)
+- **Store configuration and factories in core** — designing → [`design/store-factories-in-core/`](design/store-factories-in-core/)
 - **Type-enforced key absoluteness** — planned → [`issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md`](issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md)
 - **OpenDAL path normalization** — designing → [`design/opendal-path-mapping/`](design/opendal-path-mapping/)
 - **Streaming binary access (`openbin`)** — planned → [`issues/CORE-STORE-OPENBIN-MISSING.md`](issues/CORE-STORE-OPENBIN-MISSING.md)
@@ -190,7 +191,7 @@ question are both measure-first items.
 |---|---|---|---|
 | [`RECIPE-PROVIDER-BY-NAME`](issues/RECIPE-PROVIDER-BY-NAME.md) | P0 | S | `recipe-provider-selection` |
 | [`COMMAND-DECLARATION-FORMAT`](issues/COMMAND-DECLARATION-FORMAT.md) | P0 | M | `command-declaration` |
-| [`STORE-CONFIG-IN-CORE`](issues/STORE-CONFIG-IN-CORE.md) | P0 | M | `environment-builder` |
+| [`STORE-CONFIG-IN-CORE`](issues/STORE-CONFIG-IN-CORE.md) | P0 | L | `store-factories-in-core` |
 | [`CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC`](issues/CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC.md) | P1 | S | `payload-env-recipe-provider-fallback` |
 | [`STORE-OPENDAL-SLASH-HANDLING`](issues/STORE-OPENDAL-SLASH-HANDLING.md) | P1 | M | `opendal-path-mapping` |
 | [`QUEUED-MANAGER-STARTUP-READINESS`](issues/QUEUED-MANAGER-STARTUP-READINESS.md) | P1 | L | `environment-builder` |

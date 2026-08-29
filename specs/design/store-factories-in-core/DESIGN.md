@@ -1,5 +1,5 @@
 ---
-id: STORE-CONFIG-IN-CORE
+id: STORE-FACTORIES-IN-CORE
 kind: design
 title: Store configuration and factories in liquers-core
 workflow: liquers-project
@@ -140,6 +140,41 @@ description; the section is rewritten to record the reversal and its reason, whi
 three cost lessons, which remain true of the surviving `opendal` feature. Conformance item `STORE12`
 ("a factory that overrides a shared type name resolves to the integration's implementation") also
 needs restating: after this change `liquers-web` has nothing to override.
+
+## Merge with `main` (2026-08-29)
+
+Pulled `origin/main` at `2bb336f`. **No code changed** — four new design folders, `specs/README.md`,
+`specs/index.csv` and four issue front-matters. Merged clean; three consequences for this design.
+
+**1. This folder was misnamed and broke the index.** `scripts/docs_index.py --check` reported
+`duplicate id STORE-CONFIG-IN-CORE (also specs/issues/STORE-CONFIG-IN-CORE.md)` — `init_feature.py`
+derived the design id from the folder name, and the folder was named after the issue. The three
+sibling designs main added all name the folder for the *solution* while the issue names the
+*problem* (`RECIPE-PROVIDER-BY-NAME` -> `recipe-provider-selection`,
+`STORE-OPENDAL-SLASH-HANDLING` -> `opendal-path-mapping`). Renamed
+`store-config-in-core` -> `store-factories-in-core`, id `STORE-FACTORIES-IN-CORE`, which also
+describes the widened scope better. `--check` now reports 0 errors.
+
+**2. Registration that Phase 1 owed and had not paid.** `CLAUDE.md` requires a PR adding a design
+folder to update `specs/README.md`; it had not been. Added a §Stores capability line, repointed the
+issue's `design:` from `environment-builder` to this folder (matching what main did for the three
+siblings), applied the `complexity: M -> L` reclassification to the issue file, noted this design in
+`environment-builder/DESIGN.md` alongside its three, and regenerated `specs/index.csv` and the
+README's generated blocks.
+
+**3. `design/opendal-path-mapping/` assesses this design against its old boundary.** It says a
+`store_builder.rs` merge conflict is "possible" and lists `liquers-store/src/config.rs` and
+`liquers-core` as "Not touched" — both written before the scope widened. Under the current boundary
+`store_builder.rs` is gutted, not merely at risk. Checked file by file anyway: **no source file is
+edited by both designs** (theirs is `opendal_store.rs` alone; this one does not touch it), so the
+conclusion — no ordering constraint — survives. What goes stale is their documentation, and two
+shared expectations are recorded in Phase 2 so neither design silently breaks the other.
+
+**Confirmation from a sibling.** `recipe-provider-selection`'s Phase 2 rejects a `StoreFactory`-shaped
+registry for recipe providers with a precise technical reason — `AsyncRecipeProvider` is generic in
+`E`, so `dyn RecipeProviderFactory` is not object-safe, whereas "`StoreFactory` has no such problem
+because `AsyncStore` is not generic". That independently confirms this design's object-safety
+assumption, and is worth citing in the new store-factory guide as the boundary of the pattern.
 
 ## Links
 

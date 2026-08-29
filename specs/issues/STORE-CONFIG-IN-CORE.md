@@ -4,9 +4,9 @@ kind: feature
 title: Store configuration types live in liquers-store, so liquers-core cannot own an environment configuration
 status: draft
 priority: P0
-complexity: M
+complexity: L
 area: [core/store, store/config, web]
-design: environment-builder
+design: store-factories-in-core
 created: 2026-08-27
 github:
 ---

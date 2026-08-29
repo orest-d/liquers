@@ -137,6 +137,14 @@ the approval gate — nothing is implemented.**
 | `COMMAND-DECLARATION-FORMAT` | [`design/command-declaration/`](../command-declaration/) |
 | `CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC` | [`design/payload-env-recipe-provider-fallback/`](../payload-env-recipe-provider-fallback/) |
 
+`STORE-CONFIG-IN-CORE` also has its own folder now,
+[`design/store-factories-in-core/`](../store-factories-in-core/), but under the full
+`workflow: liquers-project` contract rather than the three above. Its scope was widened at the
+maintainer's direction beyond the issue as filed — the `StoreFactory` trait and `StoreRouterBuilder`
+move into `liquers-core` alongside the configuration types, so `liquers-web` drops `liquers-store`
+entirely — and its complexity is reclassified M -> L. The layering constraint recorded above ("a
+core-side configuration type cannot embed `StoreRouterConfig`") is what that design lifts.
+
 Note for whoever owns this design: if the third is fixed directly, the
 `SimpleEnvironmentWithPayload` row of [Phase 2](./phase2-architecture.md) §"The recipe-provider
 default is per-crate" becomes stale, and that design's Phase 1 corrects a claim in the issue file
