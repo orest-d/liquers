@@ -6,7 +6,7 @@ status: accepted
 priority: P2
 complexity: S
 area: [core/assets]
-design:
+design: queued-manager-conditional-eviction
 created: 2026-08-09
 github:
 ---

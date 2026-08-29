@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [core/commands, core/plan, macro]
-design: variadic-arguments-declaration
+design: variadic-metadata-tail-check
 created: 2026-08-12
 github:
 ---
