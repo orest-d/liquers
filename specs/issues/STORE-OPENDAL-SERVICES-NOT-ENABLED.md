@@ -161,7 +161,8 @@ for reporting this. But reporting it well is not the same as the type working.
 
 ## Resolution
 
-Fixed on `claude/store-opendal-services-not-enabled-q7zt7w`.
+Fixed on `claude/store-opendal-services-not-enabled-q7zt7w`, PR
+[#47](https://github.com/orest-d/liquers/pull/47).
 
 **What ships.** `liquers-store` now declares one Cargo feature per advertised type, named after
 OpenDAL's own, and `default` enables `services-default`: `fs`, `s3`, `gcs`, `azblob`, `http`,
