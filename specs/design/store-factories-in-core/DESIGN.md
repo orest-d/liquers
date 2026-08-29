@@ -23,7 +23,7 @@ superseded_by:
 - [x] Phase 3: Examples & Testing (approved)
 - [x] Phase 4: Implementation Plan (approved)
 - [ ] Phase 5: Documentation
-- [~] Implementation: steps 1-8 and 10 complete; 9 and 11 deferred on a P0
+- [x] Implementation: steps 1-8 and 10 complete and green; 9 and 11 deferred on a P0
 
 ## Notes
 
@@ -543,6 +543,12 @@ Steps 1–8 and 10 complete and green. Steps 9 and 11 deferred, both on
 | `liquers-lib --lib --tests` | 302 pass, `registry_export` untouched and green |
 | `liquers-axum` | pass |
 | `scripts/check-build-matrix.sh` | **14/14**, with three new `liquers-core` rows |
+| `liquers-web --target wasm32-unknown-unknown --features debug-handles` | **15 suites, 141 tests, 0 failures**, after `cargo clean` |
+
+The browser run needed `wasm-bindgen-test-runner`, which this environment did not have; it was
+installed at the version `Cargo.lock` pins (0.2.127). The suites compiled before that — the only
+risk this change posed to them was import paths — but the run is what proves `store_js_STORE`'s 19
+tests still exercise the configuration path end to end.
 
 **The 11 moved configuration tests passed with their assertions unchanged**, which was the stated
 test of whether the move was behaviour-preserving.
