@@ -87,10 +87,12 @@ Three defects, none of which is "slashes do not work":
 
 ## Expected behaviour and acceptance criteria
 
-1. One place maps a `Key` to a backend path and back, with a property test over a generated corpus
-   of keys — including multi-segment keys, keys with dots, unicode names, and names ending in the
-   metadata suffix — asserting `path_to_key(key_to_path(k)) == k` and that a metadata path decodes
-   to the data key.
+1. One place maps a `Key` to a backend path and back, with a property test over a corpus of keys —
+   multi-segment keys, keys with dots, unicode names — asserting `path_to_key(key_to_path(k)) == k`
+   and that a metadata path decodes to the data key. A key whose *filename* ends in the metadata
+   suffix cannot round-trip and must not be asked to: its data path is byte-identical to the
+   metadata path of another key, and `is_supported` already refuses it. The corpus covers it by
+   asserting **refusal**, which is what makes the exclusion explicit rather than accidental.
 2. `AsyncOpenDALStore::key_prefix()` returns the configured prefix, matching `AsyncFileStore`, with
    a test that a prefixed store enumerates and routes only within its prefix.
 3. A directory key whose children exist is addressable on a backend with no directory objects:

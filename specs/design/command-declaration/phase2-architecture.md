@@ -61,7 +61,12 @@ pub enum StateMode {
 impl CommandDeclaration {
     pub fn key(&self) -> CommandKey;
     /// Validated conversion. Fails on an empty name, a `multiple` argument that is not last,
-    /// an argument default that does not fit its declared type, and an unknown enum reference.
+    /// and an argument default that does not fit its declared type.
+    ///
+    /// It does **not** validate an `ArgumentType::GlobalEnum` reference: resolving one needs a
+    /// `CommandMetadataRegistry` (`ArgumentType::resolve_global_enums`), which a declaration does
+    /// not have. Global-enum resolution stays where it happens today, at registry insertion and
+    /// plan building.
     pub fn to_metadata(&self) -> Result<CommandMetadata, Error>;
     /// The inverse, for the round-trip test and for describing a registered command.
     pub fn from_metadata(metadata: &CommandMetadata, state: StateMode) -> Self;
@@ -69,10 +74,21 @@ impl CommandDeclaration {
 ```
 
 `to_metadata` builds on `CommandMetadata::from_key` (`command_metadata.rs:920`) so that every
-default — `cache: true`, `definition: Registered`, `label` from the name with underscores replaced —
-comes from the one place that already owns it. `state: none` is the only case that clears
-`state_argument`; `value`/`text`/`state` keep `Some(ArgumentInfo::any_argument("state"))`, which is
-exactly today's behaviour for every JavaScript command.
+default — `cache: true`, `definition: Registered`, `label` from the name — comes from the one place
+that already owns it. `state: none` is the only case that clears `state_argument`;
+`value`/`text`/`state` keep `Some(ArgumentInfo::any_argument("state"))`, which is exactly today's
+behaviour for every JavaScript command.
+
+**One default is not shared: `label`.** `CommandMetadata::from_key` derives it as
+`key.name.replace("_", " ")` (`command_metadata.rs:925`), while `JsCommandSpec::parse` uses the name
+**unchanged** (`spec.rs:166`). For a JavaScript command named `foo_bar` the two disagree —
+`foo bar` against `foo_bar` — and because `metadata_version` is computed from the stored metadata
+(`command_metadata.rs:1036`), adopting `from_key`'s default would silently change the version of
+every underscored JavaScript command, against this design's own compatibility requirement. So
+`liquers-web` sets `metadata.label` from `declaration.label.unwrap_or_else(|| name.clone())` after
+conversion, preserving today's behaviour, and a parity test covers `foo_bar` specifically. See
+open question 5 — normalising the two defaults instead is defensible, but it is a behaviour change
+and must be chosen, not slipped in.
 
 ## Rejected alternatives
 
@@ -186,7 +202,7 @@ future one would need handling, and the test should fail loudly rather than sile
 | **New validation** | (1) Registry round-trip: every command in `specs/command_registry.yaml` → `CommandDeclaration::from_metadata` → `to_metadata` → equality modulo `impl_version`/`metadata_version`. (2) Minimal declaration `{"name":"greet"}` yields `CommandMetadata` equal to `CommandMetadata::from_key`. (3) Parity with `register_command!` for one representative command including `metadata_version` after registry insertion. (4) YAML and JSON both parse the same declaration to the same value. (5) Malformed declarations: empty name, `multiple` not last, unknown argument type, non-array `arguments`. (6) The whole `liquers-web` COMMAND suite under Node. Commands to run: `cargo test -p liquers-core --lib`, `cargo test -p liquers-lib --lib --tests`, `bash scripts/check-build-matrix.sh`, and — after `cargo clean` — `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles`. |
 | **Behavioural risk** | *Compatibility*: the JavaScript declaration surface widens (new accepted fields and type names) and one diagnostic's wording changes; both are deliberate and listed. *Persistence/data*: `specs/command_registry.yaml` is a committed generated file and must not move — enforced by `registry_export`. *Concurrency*: not applicable — parsing is pure and the `INFERRED_ARGUMENTS` thread-local is untouched. *Performance*: not applicable — registration is not a hot path. *Security*: a declaration is host-supplied data that becomes registered metadata; it cannot name a Rust implementation, so `run` resolution stays entirely with the host. *Error paths*: serde failures replace hand-written ones for malformed fields; wrapped so the command name survives. |
 | **Recovery** | The core module is additive and can stay. The `liquers-web` rewrite is the risky half and is revertible on its own — `JsCommandSpec`'s public shape is unchanged, so reverting `parse` restores the old behaviour without touching `adapter.rs` or `environment.rs`. Sequencing the work as "core type + tests" then "web rewrite" keeps that boundary real. |
-| **Certainty** | Q2 is resolved above but changes accepted input, which is a judgement the maintainer may want. Unverified: that `serde-wasm-bindgen` deserializes a JS object into `Option<serde_json::Value>` for argument defaults — that needs `deserialize_any`, which it supports, but it has not been executed here. Fallback if it does not hold: `js_sys::JSON::stringify` on the run-less copy, then `serde_json::from_str`; the cost is that a non-JSON default becomes "absent" instead of an error. The `!Query` default question was checked and is currently moot (no such command in the file). |
+| **Certainty** | Q2 is resolved above but changes accepted input, which is a judgement the maintainer may want. Unverified: that `serde-wasm-bindgen` deserializes a JS object into `Option<serde_json::Value>` for argument defaults — that needs `deserialize_any`, which it supports, but it has not been executed here. Fallback if it does not hold: `js_sys::JSON::stringify` on the run-less copy, then `serde_json::from_str`; the cost is that a non-JSON default becomes "absent" instead of an error. The `!Query` default question was checked and is currently moot (no such command in the file). Two claims in an earlier draft were wrong and are corrected above, both found by a review bot and confirmed against the code: `to_metadata` cannot validate a global-enum reference without a registry, and the `label` default is not shared between the two registration routes. |
 
 ## Open questions for the gate
 
@@ -202,6 +218,12 @@ future one would need handling, and the test should fail loudly rather than sile
    reverted alone.
 4. **Query-valued defaults** are out of scope; a document cannot declare `default: query "…"`.
    Confirm that is acceptable for now.
+5. **The `label` default split.** `liquers-web` keeps the name verbatim; Rust replaces underscores
+   with spaces. Preserving the split (recommended, and what Phase 2 specifies) keeps every existing
+   JavaScript command's `metadata_version` stable. Normalising to one rule is tidier and makes the
+   two registration routes agree, at the cost of a one-off version change for underscored
+   JavaScript commands — which re-expires their dependent assets. Raised by a review bot on this
+   PR and verified against `spec.rs:166` and `command_metadata.rs:925`.
 
 ## Review record
 

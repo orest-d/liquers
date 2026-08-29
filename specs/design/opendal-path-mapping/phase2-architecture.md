@@ -46,10 +46,17 @@ currently inline in `listdir` (`:445`) and `makedir` (`:498`) moves to `PathMap:
 
 The decode order is the part that must be got right and asserted: strip the trailing `/` **before**
 stripping the metadata suffix, and strip the metadata suffix only from the final segment. Today's
-`path.trim_matches('/').trim_end_matches(Self::METADATA)` (`:242-243`) happens to be correct for the
-paths OpenDAL currently returns, and is not correct for a key whose own filename legitimately ends
-in the suffix — which `is_supported` (`:514-520`) already excludes from routing, so the two rules must
-agree. `PathMap` is where that agreement becomes checkable.
+`path.trim_matches('/').trim_end_matches(Self::METADATA)` (`:242-243`) is correct for the paths
+OpenDAL currently returns.
+
+**Suffix-ending keys are excluded, not round-tripped.** `PathMap::data` for the key
+`foo.__metadata__` and `PathMap::metadata` for the key `foo` produce the *same* path, so no decoder
+can be injective over both while preserving the on-disk layout. That is not a defect to repair
+here: `is_supported` (`:514-520`) already refuses a key whose filename ends in the suffix, so such a
+key never reaches this store. `PathMap::data` and `PathMap::metadata` therefore refuse it too, with
+`Error::key_not_supported`, and the two rules become checkable in one place instead of living in
+`is_supported` alone. An unambiguous encoding (escaping the suffix) would change the on-disk layout
+and is out of scope.
 
 ### 2. `key_prefix()` returns the configured prefix
 
@@ -86,8 +93,18 @@ async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
 ```
 
 `contains` (`:414`) then gains the same fallback `AsyncMemoryStore` has — data, else metadata, else
-`is_dir` (`store.rs:1611-1618`). `get_metadata` (`:318`) already branches on `is_dir` and needs no
-change once `is_dir` is right.
+`is_dir` (`store.rs:1611-1618`).
+
+**`get_metadata` needs the same fallback, and an earlier draft of this document wrongly said it did
+not.** `AsyncOpenDALStore` *overrides* `AsyncStore::get_metadata` (`:317-350`) and never calls
+`is_dir`: it checks the metadata sidecar, then `op.exists(data_path)`, then `op.stat` to decide
+`is_dir()`, and otherwise returns `KeyNotFound`. On a backend with no directory object both
+`exists` calls are false, so `get_metadata("sub")` fails — and `AsyncStore::get_asset_info`
+(`store.rs:409-418`) starts with `self.get_metadata(key).await?`, so it fails too. Fixing `is_dir`
+alone therefore does **not** satisfy acceptance criterion 3. The `KeyNotFound` branch must consult
+the synthetic-directory check and, when it reports children, return
+`Metadata::MetadataRecord(self.default_metadata(key, true))` — the same value the `stat().is_dir()`
+branch already returns.
 
 **Why a listing and not `create_dir`.** Making `make_sub_dirs` (`:277`) stop discarding errors would
 not help: on S3 or the memory backend there is nothing to create. Synthesising from the listing is
@@ -128,7 +145,7 @@ unused `Store` import (`:8`) and an unnecessary `mut` at `:339`.
 | `AsyncOpenDALStore::key_to_path_metadata` | `:248` | delegate to `PathMap::metadata` |
 | `AsyncOpenDALStore::path_to_key` | `:241` | delegate to `PathMap::decode` |
 | `key_prefix` | `:296` | return `self.prefix.clone()` |
-| `get_metadata` | `:318` | comment only |
+| `get_metadata` | `:317-350` | `KeyNotFound` branch consults the synthetic-directory check; stale comment removed |
 | `is_dir` | `:427` | `NotFound` falls back to a bounded listing |
 | `contains` | `:414` | add the `is_dir` fallback |
 | `listdir` | `:445` | use `PathMap::directory`; decode entries through `DecodedPath` |
