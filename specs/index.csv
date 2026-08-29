@@ -53,6 +53,7 @@ OPENDAL-LOCALFS-TEST-SILENT-ON-WRONG-VALUE-TYPE,issue,test_opendal_localfs passe
 QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS,issue,"Query::absolute names a leading slash, colliding with two other meanings of absolute",draft,local,,P3,S,core/query,,,,,,2026-08-17,specs/issues/QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS.md
 REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED,issue,The committed command registry carries stale impl_versions and no test detects it,draft,local,,P3,S,lib/commands;build;docs,,,,,,2026-08-25,specs/issues/REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED.md
 REPO-DEAD-CODE-HYGIENE,issue,Dead modules and untracked files in the repository,accepted,local,,P3,S,build,,,,,,2026-08-08,specs/issues/REPO-DEAD-CODE-HYGIENE.md
+STORE-OPENDAL-ARGUMENTS-NOT-DERIVED,feature,OpenDAL store types have no derived argument descriptions and no offline construction test,draft,local,,P3,S,store/backends;store/config,,,,store-factories-in-core,,2026-08-29,specs/issues/STORE-OPENDAL-ARGUMENTS-NOT-DERIVED.md
 WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE,issue,"JavaScript cannot construct a LiquersError, so a page cannot raise a typed error",accepted,local,,P3,S,web;core/error,,,,,,2026-08-09,specs/issues/WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE.md
 AXUM-WEBSOCKET-HARDENING,issue,WebSocket endpoint is not hardened,accepted,local,,P3,M,axum,,,,,,2026-08-08,specs/issues/AXUM-WEBSOCKET-HARDENING.md
 BENCHMARK-SUITE,feature,No reproducible benchmarks for core runtime paths,accepted,local,,P3,M,build,,,,,,2026-08-08,specs/issues/BENCHMARK-SUITE.md
@@ -89,7 +90,6 @@ PLAN-CWD-FREEZE,design,Freeze CWD in the plan and cut correct predecessor bounda
 RECIPE-PROVIDER-SELECTION,design,Selecting a recipe provider by name,in_review,local,architecture,,,core/assets;web,,,,recipe-provider-selection,,2026-08-29,specs/design/recipe-provider-selection/DESIGN.md
 REGISTER-COMMAND-ENUM,design,Enum parameters in register_command!,draft,local,architecture,,,macro;core/commands,,,,register-command-enum,,2026-03-02,specs/design/register-command-enum/DESIGN.md
 STORE-CONFIG-URI,design,Configuring a store from a URI,in_review,local,architecture,,,store/config;store/backends;core/store,,,,store-config-uri,,2026-08-29,specs/design/store-config-uri/DESIGN.md
-STORE-FACTORIES-IN-CORE,design,Store configuration and factories in liquers-core,,github,documentation,,,core/store;store/config;store/backends;web;docs,,46,,store-factories-in-core,,2026-08-27,specs/design/store-factories-in-core/DESIGN.md
 UI-EVENTS,design,UI event delivery to widgets,in_review,local,high-level,,,lib/ui,,,,ui-events,,2026-03-02,specs/design/ui-events/DESIGN.md
 VALUE-ACCESSOR,design,Value accessor abstraction,draft,local,high-level,,,core/value,,,,value-accessor,,2026-03-02,specs/design/value-accessor/DESIGN.md
 VALUE-LIST-SUPPORT,design,Typed list values for lui/children and lui/roots,draft,local,architecture,,,lib/ui,,,,value-list-support,,2026-03-02,specs/design/value-list-support/DESIGN.md
@@ -176,6 +176,7 @@ PYTHON-WRAPPER,design,Python wrapper architecture for liquers-py,complete,local,
 QUERY-CONSOLE-ELEMENT,design,Query console UI element,complete,local,,,,lib/ui,,,,query-console-element,,2026-03-02,specs/design/query-console-element/DESIGN.md
 QUERY-LINK-PARSER,design,Action-parameter link parsing (~X~~E),complete,local,,,,core/query,,17,,query-link-parser,,2026-03-02,specs/design/query-link-parser/DESIGN.md
 QUERY-VALIDATION,design,Offline query and recipe validation,complete,local,,,,core/validate,,15,,query-validation,,2026-03-02,specs/design/query-validation/DESIGN.md
+STORE-FACTORIES-IN-CORE,design,Store configuration and factories in liquers-core,complete,local,,,,core/store;store/config;store/backends;web;docs,,46,,store-factories-in-core,,2026-08-27,specs/design/store-factories-in-core/DESIGN.md
 STORE-KEY-GUARD,design,Absolute store keys — a store refuses a relative key with a dedicated error,complete,local,,,,core/store;store/backends;core/error;web;axum,,36,,store-key-guard,,2026-08-17,specs/design/store-key-guard/DESIGN.md
 VALUE-TYPE-SYSTEM,design,Liquers value type system,complete,local,,,,core/value;lib/value;py;web,,37,,value-type-system,,2026-08-18,specs/design/value-type-system/DESIGN.md
 VARIADIC-ARGUMENTS-DECLARATION,design,Declarable variadic command arguments,complete,local,,,,macro;core/commands;lib/polars,,,,variadic-arguments-declaration,,2026-08-25,specs/design/variadic-arguments-declaration/DESIGN.md

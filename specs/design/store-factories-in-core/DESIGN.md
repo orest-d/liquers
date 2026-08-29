@@ -3,10 +3,10 @@ id: STORE-FACTORIES-IN-CORE
 kind: design
 title: Store configuration and factories in liquers-core
 workflow: liquers-project
-phase: documentation
+status: complete
 area: [core/store, store/config, store/backends, web, docs]
 gh_pr: [46]
-issues: [STORE-CONFIG-IN-CORE]
+issues: [STORE-CONFIG-IN-CORE, STORE-OPENDAL-ARGUMENTS-NOT-DERIVED]
 affects_docs: [reference/STORE_CONFIG_FSD.md, reference/api/DOC_01_ARCHITECTURE_REFERENCE.md, guides/LANGUAGE-INTEGRATION_GUIDE.md, guides/STORE_FACTORY_GUIDE.md]
 created: 2026-08-27
 superseded_by:
@@ -21,7 +21,7 @@ superseded_by:
 - [x] Phase 2: Solution & Architecture (approved)
 - [x] Phase 3: Examples & Testing (approved)
 - [x] Phase 4: Implementation Plan (approved)
-- [x] Phase 5: Documentation (awaiting approval)
+- [x] Phase 5: Documentation (approved)
 - [x] Implementation: steps 1-8 and 10 complete and green; 9 and 11 deferred on a P0
 
 ## Notes
@@ -620,10 +620,24 @@ Their design does **not** need to change today; the conclusion improved rather t
 `claude/liquers-store-config-core-fef4mi`, carrying steps 1–8 and 10 plus this folder,
 `design/store-config-uri/`, the documentation, and the five issues filed along the way.
 
-Per `DOCS_STRUCTURE_GUIDE.md` §5.5 this folder now carries **no derived `status:`** — with a PR
-open, `in_implementation` is GitHub's to determine and `index.csv`'s to cache, and a hand-written
-copy could only drift. `phase: documentation` stays, because Phase 5 is written and awaiting its
-approval gate; `status: complete` is the maintainer's to confirm once that gate passes.
+**`status: complete`, and what it does and does not claim.** Confirmed by the maintainer at the
+Phase 5 gate on 2026-08-29. Per §5.1 it answers one question — *is any phase this design owed still
+outstanding?* — and the answer is no: all five are written and approved. It is one of the three
+terminal statuses §5.5 permits alongside a `gh_pr`, precisely because GitHub cannot reach it.
+
+**It does not claim the PR merged.** [#46](https://github.com/orest-d/liquers/pull/46) is open at
+the time of writing. If it were ever closed unmerged, this status would need revisiting to
+`abandoned` or `superseded` — the "needs a human" row of §5.5's table.
+
+**The folder is frozen from here** (§5.1): it records what was decided, not what the code does now.
+Corrections to behaviour belong in `reference/STORE_CONFIG_FSD.md` and
+`guides/STORE_FACTORY_GUIDE.md`.
+
+**Two plan steps were not executed, so per §5.6 the remainder is an issue rather than a partial
+status:** [`STORE-OPENDAL-ARGUMENTS-NOT-DERIVED`](../../issues/STORE-OPENDAL-ARGUMENTS-NOT-DERIVED.md)
+(P3, S) carries Step 9 (deriving OpenDAL argument names) and Step 11 (the offline S3 tests), both
+blocked by `STORE-OPENDAL-SERVICES-NOT-ENABLED`. Recording them only here would have lost them, a
+frozen folder being no place for outstanding work.
 
 ## Links
 
