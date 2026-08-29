@@ -1,5 +1,6 @@
 id,kind,title,status,status_source,phase,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
 RECIPE-PROVIDER-BY-NAME,feature,"Recipe providers cannot be selected by name, so a configuration document cannot choose one",draft,local,,P0,S,core/assets;web,,,,recipe-provider-selection,,2026-08-27,specs/issues/RECIPE-PROVIDER-BY-NAME.md
+STORE-OPENDAL-SERVICES-NOT-ENABLED,issue,"No OpenDAL service features are enabled, so every advertised OpenDAL store type fails to build",draft,local,,P0,S,store/backends,,,,,,2026-08-29,specs/issues/STORE-OPENDAL-SERVICES-NOT-ENABLED.md
 COMMAND-DECLARATION-FORMAT,feature,"No language-neutral command declaration format, so every binding hand-parses its own",draft,local,,P0,M,core/commands;web;py,,,,command-declaration,,2026-08-27,specs/issues/COMMAND-DECLARATION-FORMAT.md
 STORE-CONFIG-IN-CORE,feature,"Store configuration types live in liquers-store, so liquers-core cannot own an environment configuration",draft,local,,P0,L,core/store;store/config;web,,,,store-factories-in-core,,2026-08-27,specs/issues/STORE-CONFIG-IN-CORE.md
 CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC,issue,SimpleEnvironmentWithPayload panics when no recipe provider is configured,draft,local,,P1,S,core/context,,,,payload-env-recipe-provider-fallback,,2026-08-27,specs/issues/CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC.md

@@ -45,7 +45,8 @@ the existing browser suite.
 | 1 | Example | Router from a document, default factory | The ordinary path is unchanged in shape: parse a `StoreRouterConfig`, hand it a `default_store_factory()`, build |
 | 2 | Example | An integration contributes store types | `WebStoreFactory` after the move: own factory describing its types, chained after core's, no `liquers-store` |
 | 3 | Example | Pitfalls | First-wins is not last-wins; no built-in fallback; an unclaimed type is an error, not a silent miss |
-| 4 | Example | OpenDAL store types | Conceptual: S3 (26 fields) and FTP (4) described as `StoreTypeInfo`; where our stringification and OpenDAL's parser disagree |
+| 4 | Example | OpenDAL store types | S3 (26 fields) and FTP (4) as `StoreTypeInfo`; S3 built from arguments *and* from a URI, both verified against OpenDAL 0.55; where our stringification and OpenDAL's parser disagree |
+| 4a | Unit tests | S3 offline (2) | `s3_01` argument and URI forms agree; `s3_02` a missing `region` fails at construction — no credentials, no network |
 | 4 | Unit tests | `store_config` (11 tests) | Moved verbatim: env-var expansion, YAML/JSON parsing, builder methods, `key_prefix` |
 | 5 | Unit tests | `store_factory` — core (13 new) | `StoreTypeMap`, chain order, `store_types()` union, availability, error text |
 | 6 | Unit tests | `store_factory` — `liquers-store` (6, 4 rewritten) | OpenDAL factory, default chain, the `factory01`–`factory04` suite restated |
@@ -397,6 +398,152 @@ StoreTypeInfo::new("s3")
 
 This is the first place `StoreArgumentType::Boolean` and `Number` have real users — the core and
 browser types are all strings — so S3 is what justifies those variants existing.
+
+### S3 two ways: from arguments, and from a URI
+
+Both were **run against OpenDAL 0.55** in a scratch probe; the outputs below are recorded, not
+predicted. The probe was removed afterwards — see §What was run and why it is not in the tree.
+
+#### From arguments — what `StoreConfig` supports today
+
+```yaml
+- type: s3
+  prefix: remote
+  config:
+    bucket: probe-bucket
+    root: data
+    region: eu-central-1
+    allow_anonymous: true
+    disable_config_load: true
+```
+
+reaching `Operator::via_iter("s3", …)`. Verified: builds, `name=probe-bucket`, `root="/data/"`.
+
+#### From a URI — what OpenDAL supports and `StoreConfig` cannot express
+
+```
+s3://probe-bucket/data?region=eu-central-1&allow_anonymous=true&disable_config_load=true
+```
+
+Verified: builds, `name=probe-bucket`, `root="/data/"` — **byte-identical to the argument form.**
+The URI's host is the bucket, its path is the root, and its query string is the remaining options.
+
+**`StoreConfig` has no way to write this.** There is no `uri:` field, and adding one is a format
+change beyond this design. It is worth recording as a possible future convenience because the
+equivalence above is exact — a `uri:` entry would be sugar over the same `config:` map, not a second
+mechanism.
+
+#### Three findings from running it
+
+**1. `region` is genuinely required, and the failure is offline and immediate.**
+
+```
+s3://probe-bucket          -> ERR ConfigInvalid at Builder::build: region is missing.
+s3://probe-bucket?region=eu-central-1&allow_anonymous=true   -> OK
+```
+
+This is the clearest evidence for the Phase 1 decision to **validate on construction**: a missing
+required argument is caught at build time, with no network and no credentials.
+
+**2. Construction never touches the network.** `s3` with a nonexistent bucket, `ftp.invalid:21`, and
+`https://example.invalid` all construct successfully. OpenDAL builders are lazy — an `Operator` is a
+handle, and the first request is what fails. This confirms the "`create` must be fast and must not
+fetch bulk data" constraint is a rule *implementations* must honour rather than something the
+backends already violate, **and it is why S3 is unit-testable with no connection.**
+
+**3. `from_uri` covers far fewer services than `via_iter`.** `ftp://ftp.invalid:21` fails with
+"scheme is not registered", while `via_iter("ftp", …)` succeeds in the same build. Counted in the
+source: `DEFAULT_OPERATOR_REGISTRY` registers **10** services (memory, fs, s3, azblob, b2, cos, gcs,
+obs, oss, upyun), while `via_iter` has **62** arms — and 61 of 62 configs implement `from_uri`, so
+the limit is the *registry*, not the configs. Any future `uri:` support would therefore be
+narrower than `config:`, which is a reason to treat it as sugar rather than as the primary form.
+
+### The offline S3 test
+
+Asked for and written; it needs no credentials and no connection, per finding 2:
+
+```rust
+/// s3_01 — an S3 store is constructible offline, from arguments and from a URI, identically.
+///
+/// No credentials, no network: OpenDAL builders are lazy, so a bucket that does not exist still
+/// yields an Operator. This is what makes the advertised-type coverage test below possible.
+#[cfg(feature = "opendal")]
+#[test]
+fn s3_01_arguments_and_uri_agree() -> Result<(), Box<dyn std::error::Error>> {
+    let from_args = StoreConfig::new("s3")
+        .with_prefix("remote")
+        .with_config("bucket", "probe-bucket")
+        .with_config("root", "data")
+        .with_config("region", "eu-central-1")
+        .with_config("allow_anonymous", true)
+        .with_config("disable_config_load", true);
+    let store = default_store_factory().create(&from_args)?;
+    assert_eq!(store.key_prefix(), parse_key("remote")?);
+
+    let via_uri = opendal::Operator::from_uri(
+        "s3://probe-bucket/data?region=eu-central-1&allow_anonymous=true&disable_config_load=true",
+    )?;
+    let via_args = opendal::Operator::via_iter("s3", from_args.config_as_string_map()?)?;
+    assert_eq!(via_uri.info().name(), via_args.info().name());
+    assert_eq!(via_uri.info().root(), via_args.info().root());
+    Ok(())
+}
+
+/// s3_02 — a missing required argument fails at construction, not at first use.
+#[cfg(feature = "opendal")]
+#[test]
+fn s3_02_missing_region_fails_at_construction() {
+    let config = StoreConfig::new("s3").with_config("bucket", "probe-bucket");
+    match default_store_factory().create(&config) {
+        Ok(_) => panic!("S3 must not build without a region"),
+        Err(e) => assert!(e.message.contains("region"), "got: {}", e.message),
+    }
+}
+```
+
+**`s3_01` is the interesting one**, because it asserts the argument and URI forms agree rather than
+asserting a hard-coded root — so it keeps testing the property if OpenDAL changes how it derives
+either.
+
+**It will not compile as written until `services-s3` is enabled**, which is
+[`STORE-OPENDAL-SERVICES-NOT-ENABLED`](../../issues/STORE-OPENDAL-SERVICES-NOT-ENABLED.md) — see
+below. Phase 4 must either sequence that fix first or gate this test.
+
+### The defect that answering this question exposed
+
+Running the probe against every advertised type gave:
+
+```
+PROBE memory: OK      PROBE filesystem: OK      PROBE fs: OK
+PROBE s3:   ERR ... scheme is not enabled or supported
+PROBE ftp:  ERR ... scheme is not enabled or supported
+PROBE http: ERR ... scheme is not enabled or supported
+```
+
+`liquers-store` declares `opendal = { version = "0.55.0", optional = true }` with **no features**,
+and OpenDAL's `default` enables only `services-memory`. `cargo tree -p liquers-axum -e features -i
+opendal` confirms the server crate gets `services-memory` alone — not even `fs`. So **all 21 types in
+`OPENDAL_STORE_TYPES` are unconstructible in any consumer build**, while
+`specs/reference/STORE_CONFIG_FSD.md` documents S3, GCS, Azure Blob, FTP, SFTP and WebDAV with worked
+examples.
+
+`fs` passes in the crate's own tests only because dev-dependencies add `services-fs`, and Cargo
+unifies features across normal and dev dependencies when building tests. **The suite is green
+because of a dev-dependency**, which is the worst case: it conceals the defect rather than merely
+missing it.
+
+Filed as [`STORE-OPENDAL-SERVICES-NOT-ENABLED`](../../issues/STORE-OPENDAL-SERVICES-NOT-ENABLED.md)
+(**P0**, S) — §4.4's "a documented feature that does not work". Independent of this design and not
+fixed by it. The design does make the symptom *reportable*:
+`StoreTypeAvailability::Unavailable("requires the 'services-s3' feature")` is the right shape for
+saying so. Reporting it well is not the same as the type working.
+
+### What was run and why it is not in the tree
+
+A probe test and a temporary `services-s3`/`services-ftp`/`services-http` addition to
+`liquers-store`'s dev-dependencies produced every result above. Both were reverted: enabling service
+features is the *fix* for the P0 issue, and landing it inside an unapproved design would bury a
+user-facing defect fix in a refactor. The tests above are specified here and implemented in Phase 4.
 
 ### What checking this against OpenDAL actually found
 
@@ -760,13 +907,17 @@ and **never executes in the default configuration**. It is the only test coverin
 | Configuration data | 11 moved | Verbatim; any change is a finding |
 | OpenDAL type tables | 2 moved | New module, same assertions |
 | Factory machinery | 14 new | Chain order, union, availability, error text, `Complete` rejection |
-| `liquers-store` factories | 10 (4 rewritten) | Includes the preserved gated-feature message, coverage behaviour and derivation |
+| `liquers-store` factories | 12 (4 rewritten) | Gated-feature message, coverage behaviour, derivation, and the two offline S3 tests |
 | Core-only router | 4 new | The design's thesis, structurally unfakeable |
 | Browser | existing, retargeted | Import paths only |
 | Build matrix | 4 new rows | `liquers-core` has none today |
 
-**Total: 41 tests + 4 matrix rows**, of which 18 assert behaviour that does not exist yet and 3
+**Total: 43 tests + 4 matrix rows**, of which 20 assert behaviour that does not exist yet and 3
 replace assertions this design invalidates.
+
+Two of them — `s3_01` and `s3_02` — cannot compile until
+[`STORE-OPENDAL-SERVICES-NOT-ENABLED`](../../issues/STORE-OPENDAL-SERVICES-NOT-ENABLED.md) is fixed,
+so Phase 4 must either sequence that first or gate them.
 
 ## Inline Review Findings
 

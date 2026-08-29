@@ -352,6 +352,48 @@ objects) where the other crates' take none — a deliberate deviation now record
 `liquers-validate` was not run and does not apply: the design contains no Liquers query, registers
 no command, and evaluates nothing.
 
+## S3 from arguments and from URI — run, not predicted (2026-08-29)
+
+Asked whether S3 works via URI. Probed against OpenDAL 0.55 with a scratch test, then reverted.
+
+**Both work and are exactly equivalent.** `s3://probe-bucket/data?region=eu-central-1&…` and the
+`config:` map produce the same operator (`name=probe-bucket`, `root="/data/"`). `StoreConfig` cannot
+express the URI form — there is no `uri:` field — and adding one is a format change beyond this
+design, but the exact equivalence means it would be sugar over the same map rather than a second
+mechanism.
+
+**Construction never touches the network.** `s3` with a nonexistent bucket, `ftp.invalid:21` and
+`https://example.invalid` all construct fine; OpenDAL builders are lazy. This is why the requested
+offline S3 test is possible, and it confirms "`create` must be fast" is a rule implementations must
+honour rather than one the backends already break.
+
+**`region` is genuinely required and fails at construction**, offline — the clearest evidence for
+the validate-on-construction decision.
+
+**`from_uri` is much narrower than `via_iter`.** `DEFAULT_OPERATOR_REGISTRY` registers **10**
+services; `via_iter` has **62** arms; 61 of 62 configs implement `from_uri`, so the limit is the
+registry. `ftp://` fails as "scheme is not registered" while `via_iter("ftp", …)` succeeds in the
+same build. Any future `uri:` support would be narrower than `config:`.
+
+### The P0 this exposed
+
+`liquers-store` declares `opendal = { version = "0.55.0", optional = true }` with **no features**,
+and OpenDAL's `default` enables only `services-memory`. `cargo tree -p liquers-axum -e features -i
+opendal` shows the server crate gets `services-memory` alone — not even `fs`. **All 21 types in
+`OPENDAL_STORE_TYPES` are unconstructible in any consumer build**, while `STORE_CONFIG_FSD.md`
+documents six of them with worked examples.
+
+The crate's own tests pass only because dev-dependencies add `services-fs` and Cargo unifies
+features across normal and dev dependencies when building tests — **the suite is green because of a
+dev-dependency**, concealing the defect rather than missing it.
+
+Filed as [`STORE-OPENDAL-SERVICES-NOT-ENABLED`](../../issues/STORE-OPENDAL-SERVICES-NOT-ENABLED.md)
+(**P0**, S). Independent of this design; this design makes it *reportable*
+(`StoreTypeAvailability::Unavailable`) but not fixed. Phase 4 must sequence the fix before `s3_01`
+and `s3_02` can compile, or gate them.
+
+Test plan: **43**, up from 41.
+
 ## Cross-design coordination
 
 **Standing obligation (maintainer instruction, 2026-08-29): keep
