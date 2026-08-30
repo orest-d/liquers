@@ -1,6 +1,7 @@
 ---
 id: COMMAND-DECLARATION
 kind: design
+workflow: liquers-project
 title: A language-neutral command declaration type
 status: in_review
 phase: architecture
@@ -13,48 +14,57 @@ superseded_by:
 ---
 # A language-neutral command declaration type
 
-Design tracking for [`issues/COMMAND-DECLARATION-FORMAT.md`](../../issues/COMMAND-DECLARATION-FORMAT.md), prepared under
-[`guides/autonomous_issue_fixing.md`](../../guides/autonomous_issue_fixing.md). No `workflow:`
-marker: this is a simplified transitional design whose required phases are the two written here
-plus whatever the approval gate authorizes. It is **not** opted into the `liquers-project`
-artifact and approval contract.
+Design tracking for [`issues/COMMAND-DECLARATION-FORMAT.md`](../../issues/COMMAND-DECLARATION-FORMAT.md).
+
+**Started** under [`guides/autonomous_issue_fixing.md`](../../guides/autonomous_issue_fixing.md) as a
+simplified two-phase design. **Converted to `liquers-project` on 2026-08-29** by maintainer decision,
+after the purpose statement re-scoped the issue `M → L`: the feature is a merge algebra with
+absence-tracking and name-keyed argument merging, a defaults-derivation rule set, and a call
+specification, which the simplified procedure does not fit. The `workflow: liquers-project` marker
+is set, so all five phases and the Phase 5 documentation contract now apply.
 
 ## Phase status
 
 - [x] Phase 1: High-level design — [`phase1-high-level-design.md`](./phase1-high-level-design.md)
 - [x] Phase 2: Solution and architecture — [`phase2-architecture.md`](./phase2-architecture.md)
-      *(revised 2026-08-29: fix `CommandMetadata` rather than mirror it; the residue reframed as
-      the portable wrapping model, `CallingConvention`; `run` withdrawn pending the gate — see
-      Phase 2 open question 1)*
+      *(rewritten 2026-08-29 against the purpose statement: a four-stage pipeline whose middle
+      three stages — merge, derive defaults, convert — are the shared deliverable. `run` withdrawn
+      pending the gate; see its open question 1.)*
 - [x] Purpose and semantics — [`purpose-and-semantics.md`](./purpose-and-semantics.md)
-      *(maintainer purpose statement, drafted as the future API doc, with a critical evaluation.
-      **Supersedes Phase 2's framing**: the declaration is the runtime equivalent of
-      `register_command!`, not a serialization of `CommandMetadata`. Phase 2 is to be rewritten
-      against it once the six questions in its §Questions are settled.)*
+      *(maintainer purpose statement, drafted as the future API doc, with a critical evaluation
+      and the recorded decisions. **This document, not Phase 1, defines what the feature is.**)*
 - [x] Portability validation — [`portability-analysis.md`](./portability-analysis.md)
       *(six languages assessed; the bar "clear benefit for Python and JavaScript" is met, but
       asymmetrically — see its §Bar)*
-- [ ] Approval gate (§5 of the autonomous procedure) — **awaiting a decision**
-- [ ] Phase 3: Examples, reproduction and tests
-- [ ] Phase 4: Implementation plan and execution
-- [ ] Phase 5: Documentation
+- [ ] Phase 2 approval gate — **awaiting a decision** (5 open questions in Phase 2)
+- [ ] Phase 3: Examples and use-cases — `phase3-examples.md`, not yet created
+- [ ] Phase 4: Implementation plan and execution — `phase4-implementation.md`, not yet created
+- [ ] Phase 5: Documentation — `phase5-documentation.md`, mandatory under `liquers-project`
 
 ## Why this folder exists
 
 `liquers-web` hand-parses a command declaration out of a `JsValue`, and a Python binding would
-rewrite it. Phase 1 measures what stops `CommandMetadata` from serving as the declaration format —
-five missing `#[serde(default)]` attributes, and three concepts it has no field for. Phase 2
-specifies the serde fixes that close the first gap, a small `CallingConvention` type in
-`liquers-core` for the second, and the `liquers-web` re-implementation over both.
+rewrite it. The feature is the runtime equivalent of `register_command!`: it says how a *function*
+becomes a *command*, where `CommandMetadata` describes the command itself.
 
-The second gap is the **wrapping model** — how a callable is adapted to serve as a command.
-`register_command!` decides it at compile time (`CommandSignature`), `liquers-web` re-decides it at
-runtime (`CallableSpec`), and a document cannot express it. Most of that model is either already
-`CommandMetadata` or genuinely language-specific; the portable remainder is two decisions.
+Its substance is a four-stage pipeline whose middle three stages are shared:
 
-A first draft of Phase 2 proposed a parallel `CommandDeclaration` struct mirroring `CommandMetadata`
-field for field; review found it was largely a re-skin that also lost `presets`, `next`, `hints` and
-`CommandDefinition::Alias`. It is kept in Phase 2 §Rejected alternatives rather than deleted.
+```
+1. populate   host introspection fills what it can discover          host-specific
+2. enhance    the author's declaration is merged over it             SHARED
+3. fill       defaults are derived for whatever is still absent      SHARED
+4. use        convert to CommandMetadata + CallSpec, or error        SHARED
+```
+
+Merging happens on the serialized form, so *absence is key-absence* — the distinction a typed
+representation cannot make and the merge cannot do without.
+[`purpose-and-semantics.md`](./purpose-and-semantics.md) is the authoritative statement of what this
+is and why; [`portability-analysis.md`](./portability-analysis.md) tests the reuse claim against six
+languages.
+
+Two earlier drafts of Phase 2 are recorded in its §Rejected alternatives rather than deleted: a
+struct mirroring `CommandMetadata` field for field, and a "fix `CommandMetadata` and add the residue"
+design. Both mistook the feature for a serialization problem.
 
 ## Relationship to `environment-builder`
 

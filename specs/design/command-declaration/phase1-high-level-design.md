@@ -2,10 +2,11 @@ For [`issues/COMMAND-DECLARATION-FORMAT.md`](../../issues/COMMAND-DECLARATION-FO
 
 # Phase 1 — High-level design
 
-> Rewritten 2026-08-29 together with Phase 2. The measurements below are the original ones and
-> reproduce exactly at `HEAD`; the conclusion drawn from them changed. The superseded reading — that
-> `CommandMetadata` cannot serve as the declaration format and needs a parallel type — is recorded
-> in [`phase2-architecture.md`](./phase2-architecture.md) §Rejected alternatives.
+> Rewritten 2026-08-29, twice. The measurements below are the original ones and reproduce exactly at
+> `HEAD`. **[`purpose-and-semantics.md`](./purpose-and-semantics.md) is now the authoritative
+> statement of what this feature is**; this document records the evidence that motivated it and the
+> acceptance criteria, restated against that purpose. Two superseded readings are in
+> [`phase2-architecture.md`](./phase2-architecture.md) §Rejected alternatives.
 
 ## Problem and evidence
 
@@ -36,49 +37,48 @@ already carry `#[serde(default)]`**, and nothing separates the four that do not 
 has one, `volatile: bool` three fields away does not. `ArgumentInfo::label` is a fifth
 (`{"name":"count"}` fails the same way). **The gap is five serde attributes, not a new type.**
 
-What `CommandMetadata` genuinely cannot express is **the wrapping model** — how a callable is
-adapted to serve as a command. Every binding has this concept and none of them shares it: Rust
-decides it at compile time in `register_command!` (`CommandSignature`, `registration.rs:1104`,
-consumed by codegen and gone after expansion); `liquers-web` re-decides it at runtime
-(`CallableSpec`, `adapter.rs:130`, whose doc comment reads *"The retained callable and how to call
-it"*); a document cannot express it at all. `CommandMetadata` describes *the command* and says
-nothing about *the call*, which is correct — but leaves a document-driven host nowhere to put it.
+What `CommandMetadata` genuinely cannot express is **how a function becomes a command** — what
+`register_command!` decides at compile time. The concept exists twice already and is shared nowhere:
+`CommandSignature` (`liquers-macro/src/registration.rs:1104`) is consumed by codegen and gone after
+expansion; `CallableSpec` (`liquers-web/src/command/adapter.rs:130`), whose doc comment reads *"The
+retained callable and how to call it"*, is wasm32-only. A document cannot express it at all.
 
-Most of that model is already portable or already recorded. Only two decisions are neither:
+Concretely, the call specification needs three things metadata does not carry:
 
 - **`state`** — `none | value | text | state`, which form of the input the callable receives.
   `state_argument` records *whether*, never *which*; the macro's `StateParameter` (`:785`) records
   both.
+- **variadic passing** — spread across the call, or collected as one list. Rust has only one mode:
+  `get_multiple` (`liquers-core/src/commands.rs:151`) always collects into `Vec<T>`.
 - **`async` when undeclared** — the macro knows from `async fn`; a host may need to decide per call
-  (`IsAsync::Auto`, `spec.rs:69`). `is_async` is a `bool` and has no undeclared state.
+  (`IsAsync::Auto`, `spec.rs:69`).
 
-Two more are wrapping decisions that stay out: the **result form** (`ResultType{Value,Result}`,
-`:792`) is Rust-only, since a JavaScript callable throws and a Python one raises; and **context
-injection** (`CommandParameter::Context`, `:489`) is portable in principle but has no JavaScript
-implementation at all — `register_js_command` receives a context and discards it
-(`_context`, `adapter.rs:165`). Filed as
+And it needs something metadata's *representation* cannot do: **compose**. A declaration adds to what
+the host already discovered by introspection, field by field and inside nested structures, so an
+author can attach a widget hint to one argument without restating its type and default. That requires
+distinguishing *absent* from *default-valued*, which `#[serde(default)]` collapses — the reason
+merging happens on the serialized form.
+
+Two wrapping decisions stay out. The **result form** (`ResultType{Value,Result}`, `:792`) is
+Rust-only, since JavaScript throws and Python raises. **Keyword argument passing** is deferred by
+decision (`purpose-and-semantics.md` §Decisions, C3): meaningful in Python, meaningless in
+JavaScript. A third, **context injection** (`CommandParameter::Context`, `:489`), is portable in
+principle but has no JavaScript implementation at all — `register_js_command` receives a context and
+discards it (`_context`, `adapter.rs:165`). Filed as
 [`JS-COMMAND-CANNOT-ACCESS-CONTEXT`](../../issues/JS-COMMAND-CANNOT-ACCESS-CONTEXT.md).
 
-Separately, **`arguments` inferred versus declared** is a parse artifact rather than part of the
-model — kept in a thread-local (`adapter.rs:26-37`) because `Vec<ArgumentInfo>` cannot distinguish
-"absent" from "empty".
-
 A further candidate, **`run`** (naming the implementation, from the issue's JSON sketch), belongs to
-neither: it answers *which* implementation, which is `CommandDefinition`'s question, not *how to
-call it*. Withdrawn from the design; see Phase 2 open question 1.
-
-Phase 2 also records two constructor/serde default disagreements found while re-measuring, both able
-to change `metadata_version` silently; one is filed as
-[`STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE`](../../issues/STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE.md).
+neither half: it answers *which* implementation, which is `CommandDefinition`'s question. Withdrawn;
+see Phase 2 open question 1.
 
 ## Expected behaviour and acceptance criteria
 
 1. `CommandMetadata` deserializes from an author-written document whose minimal form is
    `{"name":"greet"}`, applying the defaults `CommandMetadata::from_key` already applies.
-2. `liquers-core` names the portable part of the wrapping model — the state form and the undeclared
-   async state — in a type distinct from metadata, so the macro, the browser binding and a document
-   describe one model instead of three.
-3. Field names agree with `specs/command_registry.yaml` **because they are the same struct**.
+2. `liquers-core` owns stages 2-4 of the pipeline — merge, derive defaults, convert-and-validate —
+   so Python, JavaScript and a plain document share them and only their introspection differs.
+3. Field names agree with `specs/command_registry.yaml` because the pipeline's output *is*
+   `CommandMetadata`; the declaration never re-enumerates its fields.
 4. `specs/command_registry.yaml` parses and re-serializes **byte-identically** — possible only
    because nothing is dropped, so `presets`, `next`, `hints`, `CommandDefinition::Alias` and
    query-valued defaults all keep working from a document.

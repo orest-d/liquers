@@ -1,7 +1,8 @@
 Draft of the API documentation for `CommandDeclaration`, plus a critical evaluation of it.
 Prepared at the approval gate from the maintainer's purpose statement of 2026-08-29.
-Nothing here is implemented, and §Evaluation raises questions that must be settled before
-[`phase2-architecture.md`](./phase2-architecture.md) can be rewritten against it.
+Nothing here is implemented. Every question raised in §Evaluation was settled by the maintainer on
+2026-08-29 and the answers are recorded in §Decisions; `phase2-architecture.md` is rewritten against
+them.
 
 # Purpose and semantics of a command declaration
 
@@ -26,10 +27,12 @@ language-specific declaration form — a Python decorator's keyword arguments, a
 literal, a Starlark dict — reduces to. `CommandMetadata` is language-agnostic in the stronger sense
 that it describes commands without reference to any implementing function at all.
 
-The declaration targets **dynamic hosts**. A Rust command is declared by `register_command!`, which
-has the function's types at compile time and needs nothing at runtime. The plain-document case (a
-`commands.yaml` beside the environment configuration) is served by the same type with no host
-language present at all.
+**The goal is plainly stated:** code that is reusable for Python and JavaScript language support,
+and possibly some others. It is not a claim to universal portability. A Rust command is declared by
+`register_command!`, which has the function's types at compile time and needs nothing at runtime, so
+Rust is not a target. The plain-document case — a `commands.yaml` beside the environment
+configuration — is served by the same type with no host language present at all, and is the case
+with *no* introspection to compose over.
 
 ### The two things it carries
 
@@ -45,8 +48,11 @@ language present at all.
 A declaration is not a complete description and is not meant to be read alone. The normal flow is:
 
 ```
-introspection  ──►  merge declaration over it  ──►  derive defaults  ──►  validate  ──►  CommandMetadata
-(host-specific)     (shared)                       (shared)              (shared)
+1. populate   host introspection fills what it can discover          (host-specific)
+2. enhance    the author's declaration is merged over it             (shared)
+3. fill       defaults are derived for whatever is still absent      (shared)
+4. use        convert to CommandMetadata + call spec;                (shared)
+              report or error on missing required data
 ```
 
 The host discovers what it can from the callable — Python's `inspect.signature` gives names, type
@@ -81,11 +87,12 @@ derived value would be indistinguishable from a declared one and would block it.
 **State.** Whether the function receives the input state, and in which form: not at all (a source
 command), the converted value, its text form, or the `State` itself with its metadata.
 
-**Argument passing.** Liquers arguments are positional by nature but always carry a name, so they can
-be passed either way. A declaration says which, per argument: as part of the positional list, or by
-keyword. Python needs this — an injected argument is naturally keyword-only — and Python can also
-discover it, since `inspect.Parameter.kind` distinguishes positional-only, positional-or-keyword and
-keyword-only.
+**Argument passing.** Liquers arguments are positional by nature but always carry a name, so they
+*could* be passed either way. **Keyword passing is deliberately out of scope for now** (decision C3):
+arguments are passed positionally. The name is retained in the metadata, so adding a keyword mode
+later is additive. Python's injected-arguments case — where a keyword-only parameter would be the
+natural fit — is therefore deferred with it, and Python can discover parameter kinds itself via
+`inspect.Parameter.kind` if it needs to adapt.
 
 **Variadic passing.** A `multiple` argument consumes every remaining action parameter. The
 declaration says how the resulting sequence reaches the function: **spread** across the call as
@@ -203,20 +210,41 @@ case with *no* introspection to merge over, so every field must be declarable. T
 named explicitly as supported, or the merge design will quietly assume a discovery step that is not
 always there.
 
-### Questions to settle before Phase 2 is rewritten
+## Part 3 — Decisions (maintainer, 2026-08-29)
 
-1. **Representation for merge** — serialized-level deep merge (recommended, C2), or a typed partial?
-   This decides whether the deliverable is a function or a struct.
-2. **May a declaration remove** a discovered argument or field, or only add and override? Removal
-   needs an explicit null-versus-absent convention, and the two are easy to confuse in YAML.
-3. **Unknown argument names** — append (as specified above), or reject? Appending is friendlier;
-   rejecting catches typos, which in a positional system silently misbind.
-4. **Is argument passing per-argument or per-command?** Python's injected-keyword case needs
-   per-argument; a per-command default with per-argument override is more code. Recommendation:
-   per-argument, defaulting to positional.
-5. **Does the label derivation apply retroactively** to commands registered by `register_command!`?
-   Changing the rule changes `metadata_version` for every command relying on the default, which
-   re-expires dependent assets. Recommendation: new rule for the declaration path only, and treat
-   unifying it as a separate, deliberate change.
-6. **Scope and procedure** (C1) — re-scope to `L` and adopt `liquers-project`, or split so the
-   JavaScript rewrite is not blocked behind the merge machinery?
+| # | Question | Decision |
+|---|---|---|
+| C1 | Scope | **Agreed.** Re-scoped `M → L`; `design/command-declaration/` adopts `liquers-project`. |
+| C2 | Merge representation | **Agreed with the recommendation:** deep merge at the serialized level. |
+| C3 | Keyword argument passing | **Out of scope for now.** Positional only. |
+| C4 | Order of operations | **Agreed.** The four stages above are normative. |
+| C7 | Portability framing | **Restated:** the goal is code reusable for Python and JavaScript support, and possibly some others. Not a universality claim. |
+| Q1 | Representation | Recommended option accepted (same as C2). |
+| Q2 | May a declaration remove? | **No removal.** See below. |
+| Q3 | Unknown argument names | **Reject.** |
+| Q4 | Per-argument or per-command passing | Moot — C3 removes the dimension. |
+| Q5 | Retroactive label rule | **Not necessary.** Rust function names are normally snake case and the capitalisation is cosmetic; the new rule applies to the declaration path only. |
+| Q6 | Procedure | Agreed with C1. |
+
+### Consequences worth stating
+
+**Q4 is answered by C3, not independently.** Dropping keyword passing removes the dimension that
+per-argument-versus-per-command was about. Nothing per-argument remains in the call specification, so
+the call spec is per-command: state form, variadic passing, asynchrony. Recorded so that a later
+reader does not reinstate a per-argument passing mode believing it was already decided.
+
+**No removal is the right call, and it costs nothing, because stage 1 belongs to the host.** The
+exotic case raised against it — a function parameter with a default that the command should not
+expose — is handled where it arises: the host's introspection simply does not emit that parameter
+into the baseline. The shared layer never needs a deletion marker, and `null` therefore stays an
+ordinary value rather than becoming a sentinel. This is worth keeping in the API doc, because "how do
+I hide a parameter?" is a question that will be asked.
+
+**Rejecting unknown argument names needs one exception, and it is the plain-document case.** With no
+introspection there is no baseline to validate against and every name is "unknown". The rule is
+therefore conditional on the baseline *having* an argument list at all: an absent `arguments` key in
+the baseline means discovery did not run, and the declaration establishes the list; a present
+`arguments` key — including an empty one, meaning a function with no parameters — makes the
+declaration's entries subject to the reject rule. The serialized-level merge gives this distinction
+for free, since absence is key-absence; a typed representation would have needed a separate flag.
+

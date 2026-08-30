@@ -191,7 +191,7 @@ question are both measure-first items.
 <!-- BEGIN generated: issues -->
 | Issue | Pri | Cx | Design |
 |---|---|---|---|
-| [`COMMAND-DECLARATION-FORMAT`](issues/COMMAND-DECLARATION-FORMAT.md) | P0 | M | `command-declaration` |
+| [`COMMAND-DECLARATION-FORMAT`](issues/COMMAND-DECLARATION-FORMAT.md) | P0 | L | `command-declaration` |
 | [`CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC`](issues/CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC.md) | P1 | S | `payload-env-recipe-provider-fallback` |
 | [`STORE-OPENDAL-SLASH-HANDLING`](issues/STORE-OPENDAL-SLASH-HANDLING.md) | P1 | M | `opendal-path-mapping` |
 | [`QUEUED-MANAGER-STARTUP-READINESS`](issues/QUEUED-MANAGER-STARTUP-READINESS.md) | P1 | L | `environment-builder` |

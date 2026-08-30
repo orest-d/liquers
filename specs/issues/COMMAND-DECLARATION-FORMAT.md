@@ -4,7 +4,7 @@ kind: feature
 title: No language-neutral command declaration format, so every binding hand-parses its own
 status: draft
 priority: P0
-complexity: M
+complexity: L
 area: [core/commands, web, py]
 design: command-declaration
 created: 2026-08-27
@@ -72,6 +72,19 @@ type.
    the parser describe one format rather than two.
 3. Reimplement `JsCommandSpec::parse` over it, keeping the current error wording where the tests
    assert on it.
+
+## Scope revision (2026-08-29)
+
+Re-scoped **M → L** by maintainer decision. The design work established that a declaration is the
+runtime equivalent of `register_command!`, not a serialization of `CommandMetadata`, and that its
+substance is a *merge*: a partial declaration composed over what the host discovered by
+introspection. That brings a merge algebra with absence-tracking and name-keyed argument merging, a
+defaults-derivation rule set, and a call specification (state form, variadic passing, asynchrony) —
+none of which fits an `M`. Under `DOCS_STRUCTURE_GUIDE.md` §4.5 the design folder is now required
+rather than optional, and `design/command-declaration/` adopts the `liquers-project` workflow.
+
+See `design/command-declaration/purpose-and-semantics.md` for the purpose statement and the recorded
+decisions.
 
 ## Priority rationale
 

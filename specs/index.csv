@@ -1,5 +1,5 @@
 id,kind,title,status,status_source,phase,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
-COMMAND-DECLARATION-FORMAT,feature,"No language-neutral command declaration format, so every binding hand-parses its own",draft,local,,P0,M,core/commands;web;py,,,,command-declaration,,2026-08-27,specs/issues/COMMAND-DECLARATION-FORMAT.md
+COMMAND-DECLARATION-FORMAT,feature,"No language-neutral command declaration format, so every binding hand-parses its own",draft,local,,P0,L,core/commands;web;py,,,,command-declaration,,2026-08-27,specs/issues/COMMAND-DECLARATION-FORMAT.md
 CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC,issue,SimpleEnvironmentWithPayload panics when no recipe provider is configured,draft,local,,P1,S,core/context,,,,payload-env-recipe-provider-fallback,,2026-08-27,specs/issues/CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC.md
 STORE-OPENDAL-SLASH-HANDLING,issue,OpenDAL store mishandles keys containing slashes,accepted,local,,P1,M,store/backends,,,,opendal-path-mapping,,2026-08-08,specs/issues/STORE-OPENDAL-SLASH-HANDLING.md
 CORE-EVALUATE-PATH-CONSOLIDATION,issue,Several evaluation paths duplicate each other,accepted,local,,P1,L,core/assets;core/plan,,,,,,2026-08-08,specs/issues/CORE-EVALUATE-PATH-CONSOLIDATION.md
