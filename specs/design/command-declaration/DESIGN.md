@@ -26,6 +26,11 @@ artifact and approval contract.
       *(revised 2026-08-29: fix `CommandMetadata` rather than mirror it; the residue reframed as
       the portable wrapping model, `CallingConvention`; `run` withdrawn pending the gate — see
       Phase 2 open question 1)*
+- [x] Purpose and semantics — [`purpose-and-semantics.md`](./purpose-and-semantics.md)
+      *(maintainer purpose statement, drafted as the future API doc, with a critical evaluation.
+      **Supersedes Phase 2's framing**: the declaration is the runtime equivalent of
+      `register_command!`, not a serialization of `CommandMetadata`. Phase 2 is to be rewritten
+      against it once the six questions in its §Questions are settled.)*
 - [x] Portability validation — [`portability-analysis.md`](./portability-analysis.md)
       *(six languages assessed; the bar "clear benefit for Python and JavaScript" is met, but
       asymmetrically — see its §Bar)*

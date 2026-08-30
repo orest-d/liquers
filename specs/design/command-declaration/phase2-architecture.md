@@ -11,6 +11,16 @@ Based on `HEAD`, read rather than remembered. Nothing here is implemented.
 > Phase 1 are unchanged and still stand; the conclusion drawn from them is what changed. The
 > superseded proposal is preserved in §Rejected alternatives so the reasoning is not lost.
 >
+> **Superseded in framing, 2026-08-29**, by
+> [`purpose-and-semantics.md`](./purpose-and-semantics.md). A command declaration is the runtime
+> equivalent of `register_command!` — a *partial* metadata contribution merged over what the host
+> discovered by introspection, plus a call specification — not a serialization of `CommandMetadata`.
+> This document's Part A survives as a prerequisite (and as a latent-defect fix) but not as the
+> feature; Part B is roughly a third of the call specification actually required; and the headline
+> round-trip test measures metadata serde rather than the declaration. **Do not implement from this
+> document.** It is retained because its measurements, its rejected alternatives and its risk
+> analysis remain valid, and because the reasoning that led here should not be lost.
+>
 > **Revised again 2026-08-29**, on the observation that the residue is not a grab-bag: it is the
 > *wrapping model* — how a callable is adapted to serve as a command — which `register_command!`
 > decides at compile time and which has no language-neutral equivalent. `CommandBinding` is renamed
