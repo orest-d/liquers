@@ -2,7 +2,7 @@
 id: COMMAND-DECLARATION-FORMAT
 kind: feature
 title: No language-neutral command declaration format, so every binding hand-parses its own
-status: draft
+status: closed
 priority: P0
 complexity: L
 area: [core/commands, web, py]
@@ -111,3 +111,22 @@ The design's evaluation of the same question is in
    `register_command!` invocation, including `metadata_version`.
 3. `liquers-web`'s command conformance suites pass unchanged (error wording preserved).
 4. A malformed declaration reports the same diagnostics as today.
+
+## Resolution (2026-08-30)
+
+**Closed — implemented.** `liquers-core::command_declaration` owns the shared pipeline: merge over
+introspection, apply conventions, derive defaults, build and validate. `liquers-web` parses its
+declarations through it, and about 150 lines of hand-written `JsValue` parsing are gone.
+
+- Format reference: [`reference/COMMAND_DECLARATION.md`](../reference/COMMAND_DECLARATION.md)
+- Design and reasoning: [`design/command-declaration/`](../design/command-declaration/)
+- Tests: 51 unit and 5 integration in `liquers-core`, 3 conversion tests in `liquers-web`, with the
+  20-test COMMAND conformance suite unchanged and passing.
+
+All four verification criteria hold. The registry round-trips byte-identically; a declaration and
+`register_command!` agree including `metadata_version`; the `liquers-web` suites pass with their
+error wording preserved; and the diagnostics name the command and argument.
+
+Four defects were found by doing the work and are filed separately, none of them introduced by it:
+`MACRO-LEAVES-STALE-METADATA-VERSION` (P1), `ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS`,
+`STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE` and `COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS`.

@@ -3,8 +3,7 @@ id: COMMAND-DECLARATION
 kind: design
 workflow: liquers-project
 title: A language-neutral command declaration type
-status: in_review
-phase: implementation
+status: complete
 area: [core/commands, web, py]
 gh_pr: []
 issues: [COMMAND-DECLARATION-FORMAT, STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE,
@@ -32,10 +31,9 @@ is set, so all five phases and the Phase 5 documentation contract now apply.
       *(rewritten 2026-08-29 against the purpose statement, then descoped: a four-stage pipeline
       whose middle three stages — merge, derive defaults, convert to `CommandMetadata` — are the
       shared deliverable. No call specification and no `run`.)*
-- [x] Reference draft — [`COMMAND_DECLARATION.md`](./COMMAND_DECLARATION.md)
-      *(the format's reference document, written now because the language-specific guides build on
-      it. Held here under its final name because `reference/` must be true at `HEAD`; **promoted to
-      `specs/reference/COMMAND_DECLARATION.md` at Phase 5**, unchanged but for its banner.)*
+- [x] Reference — [`specs/reference/COMMAND_DECLARATION.md`](../../reference/COMMAND_DECLARATION.md)
+      *(written before implementation because the language-specific guides build on it; held in
+      this folder until it was true at `HEAD`, then promoted unchanged but for its banner)*
 - [x] Purpose and semantics — [`purpose-and-semantics.md`](./purpose-and-semantics.md)
       *(maintainer purpose statement, drafted as the future API doc, with a critical evaluation
       and the recorded decisions. **This document, not Phase 1, defines what the feature is.**)*
@@ -47,9 +45,11 @@ is set, so all five phases and the Phase 5 documentation contract now apply.
       *(3 examples, 60 numbered tests; the merge laws and the conventions are the specification.
       Approved 2026-08-30; the state-delivery rule corrected the same day.)*
 - [x] Phase 4: Implementation plan — [`phase4-implementation.md`](./phase4-implementation.md)
-      *(10 steps; the `serde_wasm_bindgen` spike is hoisted ahead of the `liquers-web` rewrite
-      because its answer changes that step. Awaiting approval, then execution.)*
-- [ ] Phase 5: Documentation — `phase5-documentation.md`, mandatory under `liquers-project`
+      *(10 steps, all executed. The spike answered in the design's favour: the conversion holds
+      and integer defaults are preserved, so the fallback path was not needed.)*
+- [x] Phase 5: Documentation — [`phase5-documentation.md`](./phase5-documentation.md)
+      *(reference promoted to [`specs/reference/COMMAND_DECLARATION.md`](../../reference/COMMAND_DECLARATION.md);
+      `COMMAND-DECLARATION-FORMAT` and `ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING` closed)*
 
 ## Why this folder exists
 

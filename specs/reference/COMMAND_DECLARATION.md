@@ -3,14 +3,8 @@ title: Command Declaration Format
 kind: reference
 audience: internal
 area: [core/commands, web, py]
-reviewed: 2026-08-29
+reviewed: 2026-08-30
 ---
-> **Not yet true at `HEAD`.** `reference/` documents describe how the system *is*
-> (`DOCS_STRUCTURE_GUIDE.md` §2), and this format is designed but unimplemented. It is held here
-> under its final name and **promoted to `specs/reference/COMMAND_DECLARATION.md` at Phase 5**,
-> unchanged except for this banner. It is written now because the language-specific guides are to be
-> built on it, and they need a stable thing to point at.
-
 # Command Declaration Format
 
 ## 1. What this describes
@@ -506,4 +500,5 @@ so no query parameter is consumed by either — that is conventions.
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-08-29 | Created. Not yet true at `HEAD`; promoted to `reference/` at Phase 5. | `design/command-declaration/` |
+| 2026-08-30 | Promoted to `reference/` on implementation. The format is true at `HEAD`: `liquers-core::command_declaration`, with 51 unit tests and 5 integration tests, and `liquers-web` parses its declarations through it. | `design/command-declaration/` |
+| 2026-08-29 | Drafted in the design folder, ahead of implementation, because the language-specific guides are to be built on it. | `design/command-declaration/` |

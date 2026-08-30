@@ -191,7 +191,6 @@ question are both measure-first items.
 <!-- BEGIN generated: issues -->
 | Issue | Pri | Cx | Design |
 |---|---|---|---|
-| [`COMMAND-DECLARATION-FORMAT`](issues/COMMAND-DECLARATION-FORMAT.md) | P0 | L | `command-declaration` |
 | [`CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC`](issues/CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC.md) | P1 | S | `payload-env-recipe-provider-fallback` |
 | [`STORE-OPENDAL-SLASH-HANDLING`](issues/STORE-OPENDAL-SLASH-HANDLING.md) | P1 | M | `opendal-path-mapping` |
 | [`QUEUED-MANAGER-STARTUP-READINESS`](issues/QUEUED-MANAGER-STARTUP-READINESS.md) | P1 | L | `environment-builder` |
@@ -204,6 +203,7 @@ deliberately folded behind a broader line.
 
 <!-- BEGIN generated: unplaced -->
 - `guides/TYPE_SYSTEM_GUIDE.md`
+- `reference/COMMAND_DECLARATION.md`
 - `reference/VALUE_TYPE_SYSTEM.md`
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - design `asset-manager-insert-key-asset-semantics`
@@ -215,9 +215,7 @@ deliberately folded behind a broader line.
 - design `predecessor-cut-equivalence`
 - design `store-key-guard`
 - design `value-type-system`
-- feature `ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING`
 - feature `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`
-- feature `COMMAND-DECLARATION-FORMAT`
 - feature `COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS`
 - feature `DATA-FORMAT-CONSTANTS-AND-TOOLING`
 - feature `JS-COMMAND-CANNOT-ACCESS-CONTEXT`

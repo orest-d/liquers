@@ -2,7 +2,7 @@
 id: ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING
 kind: feature
 title: Declared arguments replace inferred ones instead of augmenting them
-status: draft
+status: closed
 priority: P3
 complexity: M
 area: [core/commands, web, py]
@@ -78,3 +78,20 @@ Make the merge explicit rather than implicit, in whichever layer ends up owning 
 A command whose callable declares `count: int = 2`, registered with argument metadata supplying only
 a label for `count`, has metadata carrying **all three** of the label, the `int` type and the default
 `2`.
+
+## Resolution (2026-08-30)
+
+**Closed — resolved by `design/command-declaration/`.** The shared declaration pipeline merges
+declared arguments over discovered ones **by name**: an entry naming a discovered argument augments
+it field by field, leaving what it omits alone. The exact case this issue describes — adding a
+widget hint to one argument without discarding its type and default — is `merge05` in
+`liquers-core::command_declaration`.
+
+Two rules came with it, both tested. An entry naming an argument the callable does not have is
+**rejected** (`merge06`) rather than appended, because Liquers binds query parameters positionally
+and a typo would silently misbind. And the reject rule stands down when no introspection ran
+(`merge07`), so a plain document can still establish its own argument list.
+
+`liquers-web` keeps today's all-or-nothing behaviour, which is correct for it: its inference parses
+function source and refuses anything it cannot read exactly, so an author overriding it generally
+has to supply everything anyway.
