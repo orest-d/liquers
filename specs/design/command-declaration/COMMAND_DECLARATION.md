@@ -116,15 +116,59 @@ argument list is still complete while the declaration is merged, so an author wh
 "unknown argument" error. What the convention then does with that entry is the same whether it was
 discovered or declared.
 
-### 3.2 The conventions
+### 3.2 Two kinds of convention
+
+They do different things and it is worth keeping them apart.
+
+**Structural** — changes the argument list.
 
 | Convention | Rule | Effect |
 |---|---|---|
 | `context` | an argument named `context` | Removed from `arguments`. Its position is recorded under `registration.context` so the integration can pass the context there at call time. It is **not** a `CommandMetadata` argument — matching `register_command!`, where a `context` parameter occupies no argument slot |
-| `state` | the **first** argument, when named `state`, `value` or `text` | Removed from `arguments` and recorded as `state_argument`; which of the three names was used is recorded under `registration.state`, since the form is a calling convention rather than metadata |
 
-An argument the conventions remove is gone from the command's public signature: it consumes no query
-parameter and does not appear in `describeCommand` or in a UI.
+**Delivery** — classifies the first argument and fixes *how its value arrives*.
+
+| Convention | Rule | Effect |
+|---|---|---|
+| `state` | the **first** argument, when named `state`, `value` or `text` | Removed from `arguments` and recorded as `state_argument`. The spelling selects a **delivery mode**, recorded under `registration.state` |
+
+### 3.2.1 The three delivery modes
+
+The mode is language-specific to *perform* — only the integration knows what its native values are —
+but its **meaning is normative**, and every integration must honour it identically. This is the
+whole reason the convention is owned here rather than per host.
+
+| Spelling | The callable receives | Can it fail? |
+|---|---|---|
+| `state` | the `State` wrapper itself, so the callable reaches the metadata as well as the value | no |
+| `value` | the value, **unwrapped to the language-native form wherever the value bridge can do it**, falling back to the `Value` wrapper only where it cannot | no |
+| `text` | the value converted to a string, via `ValueInterface::try_into_string` | **yes** — at call time, not registration |
+
+`value` is not a new mechanism: it delegates to the integration's existing value bridge (the `VALUE`
+feature of the language integration guide). A Python `value` command receives a `str`, an `int`, a
+`DataFrame` — whatever the bridge produces — and a `Value` object only for something the bridge
+cannot unwrap. Writing `value` and receiving a wrapper for a plain string would be a bridge defect,
+not a declaration one.
+
+`text` is the only mode that can fail, and it fails **when the command runs**, not when it is
+declared: `try_into_string` returns a `Result` and not every value has a string form. An integration
+maps that failure through its error bridge like any other command error.
+
+### 3.2.2 Only the first argument
+
+The rule keys on position as well as name. An argument named `state` in any other position is an
+ordinary command argument and keeps its slot.
+
+**The consequence is worth stating plainly, because it surprises people:** a function whose first
+parameter is named anything else — `data`, `df`, `x` — declares a *source* command, and that first
+parameter becomes an ordinary query argument. Naming is the whole rule.
+
+The escape hatch is to declare it rather than rely on the name:
+
+```yaml
+name: transform
+state_argument: { name: df }      # explicit; the convention is not consulted for it
+```
 
 ### 3.3 Opting out
 
@@ -139,8 +183,10 @@ conventions: false                # apply none
 ### 3.4 Adding conventions
 
 The set is expected to grow — a leading `self` in Python, a variadic parameter recognised as
-`multiple`. A new convention is a **behaviour change for existing declarations**, so it is added
-deliberately, with a test, and named in this table rather than left implicit in an implementation.
+`multiple`, further delivery modes. A new convention is a **behaviour change for existing
+declarations**, so it is added deliberately, with a test, and named in the tables above rather than
+left implicit in an implementation. A new *delivery mode* additionally needs its meaning fixed
+normatively, as §3.2.1 does for the three that exist, or two integrations will read it differently.
 
 ## 4. Mapping to `CommandMetadata`
 
@@ -390,7 +436,7 @@ arguments:
   - { name: count, argument_type: int, default: !Value 2,
       gui_info: !IntegerSlider { min: 1, max: 9 } }
 registration:
-  state: state          # which spelling was used
+  state: state          # the delivery mode — here, the State wrapper itself
   context: 2            # the parameter position to pass the context at
 ```
 

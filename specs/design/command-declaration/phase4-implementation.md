@@ -197,7 +197,11 @@ impl CommandDeclaration {
 - `context` — an argument named `context` is removed; its **index before removal** is written to
   `registration.context`.
 - `state` — the **first** argument, if named `state`, `value` or `text`, is moved to
-  `state_argument`; the spelling is written to `registration.state`.
+  `state_argument`; the spelling is written to `registration.state` as the **delivery mode**. Core
+  records it and never acts on it: `state` means the `State` wrapper, `value` means unwrapped
+  through the integration's value bridge where possible, `text` means `try_into_string`
+  (`value.rs:139`) — normative meanings the integration performs. An argument named `state` in any
+  other position is ordinary, and an explicitly declared `state_argument` is left untouched.
 - `conventions: false` disables both; `conventions: { context: false }` disables one.
 - Idempotent: applying twice equals applying once (CONV07).
 
@@ -206,7 +210,7 @@ No `_ =>` arm anywhere — the two flags are matched explicitly.
 **Validation**
 
 ```bash
-cargo test -p liquers-core --lib convention_tests    # CONV01-CONV07
+cargo test -p liquers-core --lib convention_tests    # CONV01-CONV10
 ```
 
 **Agent:** sonnet · skills `rust-best-practices` · knowledge: Phase 2 §Part E, Phase 3 CONV tests,
@@ -494,7 +498,7 @@ it. Criterion 4's byte-identical round-trip is enforced twice — by INT01 in st
 step 9. The sequencing Phase 2 recommends (C → A → B → D → web) is preserved, with the conventions
 inserted and the spike hoisted ahead of the rewrite.
 
-*Against Phase 3:* every numbered test has a step that makes it pass — MERGE in 3, CONV in 4, DEF in
+*Against Phase 3:* every numbered test has a step that makes it pass — MERGE in 3, CONV01-CONV10 in 4, DEF in
 5, BUILD/VAL/HINT in 6, INT in 7-9. No test is orphaned and no step is untested.
 
 *Against the codebase:* `Error::from_error<E: Display>` (`error.rs:129`), `ErrorType::ParameterError`

@@ -239,10 +239,38 @@ identical in every language, and re-implementing it per host is how two hosts co
 what `context` means. A corollary for Part 1 of the pipeline: **stage 1 should be as dumb as it can
 be** — report the parameters, in order, and recognise nothing.
 
+Two kinds, doing different things:
+
+**Structural** — changes the argument list.
+
 | Convention | Rule | Effect |
 |---|---|---|
 | `context` | an argument named `context` | removed from `arguments`; its position recorded at `registration.context` |
-| `state` | the **first** argument, named `state`, `value` or `text` | removed from `arguments`, recorded as `state_argument`; the spelling recorded at `registration.state` |
+
+**Delivery** — classifies the first argument and fixes how its value arrives.
+
+| Convention | Rule | Effect |
+|---|---|---|
+| `state` | the **first** argument, named `state`, `value` or `text` | removed from `arguments`, recorded as `state_argument`; the spelling selects a delivery mode, recorded at `registration.state` |
+
+The three modes have **normative meanings**, which is the point of owning the convention here rather
+than per host:
+
+| Mode | The callable receives | Fails? |
+|---|---|---|
+| `state` | the `State` wrapper — value plus metadata | no |
+| `value` | the value **unwrapped to the language-native form wherever the value bridge can**, falling back to the `Value` wrapper only where it cannot | no |
+| `text` | the value through `ValueInterface::try_into_string` (`value.rs:139`) | **yes, at call time** |
+
+`value` delegates to the integration's existing value bridge rather than introducing a mechanism —
+receiving a wrapper for a plain string would be a bridge defect, not a declaration one. `text` is
+the only mode with a failure path, and it surfaces when the command runs, not when it is declared,
+so `liquers-core` cannot validate it and does not try.
+
+**Position is part of the rule.** A `state` in any other position is an ordinary argument. The
+consequence, which surprises people: a function whose first parameter is named `data` or `df`
+declares a *source* command and that parameter becomes a query argument. The escape hatch is an
+explicit `state_argument` in the declaration, which the convention does not touch.
 
 **Stage 3 — after the merge, before defaults.** The ordering is the design decision here. Running
 conventions *before* the merge would remove `context` from the baseline, so an author writing
@@ -260,10 +288,10 @@ conventions: false                # all off
 **Adding a convention is a behaviour change** for every existing declaration, so the set is written
 down in the reference table rather than left implicit, and each addition needs its own test.
 
-*The `state` convention is inferred rather than requested* — the maintainer's example was `context`.
-It is included because without it every Python command's `state` parameter becomes a query argument,
-which is the same defect the `context` convention exists to prevent, and because the original
-`liquer` decorator did exactly this (`pass_state = name == "state"`). Worth confirming at the gate.
+*The `state` convention was confirmed and refined by the maintainer on 2026-08-30*, which is where
+the two-kinds split and the normative mode meanings come from. It was originally inferred from the
+`context` example, from the same defect it prevents, and from the original `liquer` decorator's
+`pass_state = name == "state"`.
 
 ## The handover boundary
 
