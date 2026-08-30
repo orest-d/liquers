@@ -114,9 +114,11 @@ The design's evaluation of the same question is in
 
 ## Resolution (2026-08-30)
 
-**Closed — implemented.** `liquers-core::command_declaration` owns the shared pipeline: merge over
-introspection, apply conventions, derive defaults, build and validate. `liquers-web` parses its
-declarations through it, and about 150 lines of hand-written `JsValue` parsing are gone.
+**Closed — implemented** on branch `claude/command-declaration-design-apu07j`
+(PR [#50](https://github.com/orest-d/liquers/pull/50)). `liquers-core::command_declaration` owns the
+shared pipeline: merge over introspection, apply conventions, derive defaults, build and validate.
+`liquers-web` parses its declarations through it, and about 150 lines of hand-written `JsValue`
+parsing are gone.
 
 - Format reference: [`reference/COMMAND_DECLARATION.md`](../reference/COMMAND_DECLARATION.md)
 - Design and reasoning: [`design/command-declaration/`](../design/command-declaration/)

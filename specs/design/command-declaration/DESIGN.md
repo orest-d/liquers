@@ -5,7 +5,7 @@ workflow: liquers-project
 title: A language-neutral command declaration type
 status: complete
 area: [core/commands, web, py]
-gh_pr: []
+gh_pr: [50]
 issues: [COMMAND-DECLARATION-FORMAT, STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE,
          JS-COMMAND-CANNOT-ACCESS-CONTEXT, ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING,
          COMMAND-ALIAS-DEFINITION-UNTESTED, LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION,

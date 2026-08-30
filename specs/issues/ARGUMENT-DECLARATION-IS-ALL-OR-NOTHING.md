@@ -81,7 +81,7 @@ a label for `count`, has metadata carrying **all three** of the label, the `int`
 
 ## Resolution (2026-08-30)
 
-**Closed — resolved by `design/command-declaration/`.** The shared declaration pipeline merges
+**Closed — resolved by `design/command-declaration/`** (PR [#50](https://github.com/orest-d/liquers/pull/50)). The shared declaration pipeline merges
 declared arguments over discovered ones **by name**: an entry naming a discovered argument augments
 it field by field, leaving what it omits alone. The exact case this issue describes — adding a
 widget hint to one argument without discarding its type and default — is `merge05` in
