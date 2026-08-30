@@ -4,7 +4,7 @@ kind: design
 workflow: liquers-project
 title: A language-neutral command declaration type
 status: in_review
-phase: examples
+phase: implementation
 area: [core/commands, web, py]
 gh_pr: []
 issues: [COMMAND-DECLARATION-FORMAT, STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE,
@@ -45,8 +45,10 @@ is set, so all five phases and the Phase 5 documentation contract now apply.
 - [x] Phase 2 approval gate — **approved 2026-08-30**; hints decided declaration-only
 - [x] Phase 3: Examples and use-cases — [`phase3-examples.md`](./phase3-examples.md)
       *(3 examples, 47 numbered tests; the merge laws and the conventions are the specification.
-      Awaiting approval.)*
-- [ ] Phase 4: Implementation plan and execution — `phase4-implementation.md`, not yet created
+      Approved 2026-08-30.)*
+- [x] Phase 4: Implementation plan — [`phase4-implementation.md`](./phase4-implementation.md)
+      *(10 steps; the `serde_wasm_bindgen` spike is hoisted ahead of the `liquers-web` rewrite
+      because its answer changes that step. Awaiting approval, then execution.)*
 - [ ] Phase 5: Documentation — `phase5-documentation.md`, mandatory under `liquers-project`
 
 ## Why this folder exists
