@@ -94,8 +94,9 @@ per-command declaration, then a per-argument refinement.
 
 ## 3. Mapping to `CommandMetadata`
 
-Every declaration key is a `CommandMetadata` field. The declaration adds no vocabulary of its own,
-so a field added to `CommandMetadata` is declarable immediately, with no change here.
+Every declaration key is a `CommandMetadata` field, with **one exception**: `hints` (§5), which is
+declaration-only and does not reach the metadata. Apart from that the declaration adds no vocabulary
+of its own, so a field added to `CommandMetadata` is declarable immediately with no change here.
 
 ### 3.1 Command level
 
@@ -114,8 +115,8 @@ so a field added to `CommandMetadata` is declarable immediately, with no change 
 | `presets`, `next` | same | UI affordances: ready-made parameter sets, suggested follow-on commands |
 | `state_argument` | `state_argument` | Present means the command transforms an input state; absent means a *source* command |
 | `arguments` | `arguments` | A list; merged by name — §2.1 |
-| `hints` | `hints` | Free dictionary, not interpreted — §5 |
 | `definition` | `definition` | `Registered` (default) or an `Alias` |
+| `hints` | *(none)* | **Declaration-only**, read by the integration and dropped at build — §5 |
 
 Not declarable: `metadata_version` and `impl_version`. Both are computed — the first from the stored
 metadata content, the second supplied at registration.
@@ -213,9 +214,10 @@ Some facts about a command are neither metadata nor portable — which form of t
 callable wants, whether a variadic reaches it spread or as one list, whether the result must be
 awaited. Each is meaningful in some languages and meaningless in others.
 
-`hints` is a free dictionary for exactly these. **`liquers-core` does not interpret it**: it carries
-it, merges it like any other map, and hands it back. A language integration writes what it needs and
-reads it back at dispatch time.
+`hints` is a free dictionary for exactly these, and it is **the one declaration key that is not a
+`CommandMetadata` field**. It is composed like any other map through the merge, and the integration
+reads it from the declaration — but `build` **drops it**. `CommandMetadata` stays a precise
+specification of the command and says nothing about how to call it.
 
 ```yaml
 name: repeat
@@ -225,7 +227,15 @@ hints:
 ```
 
 Namespace hint keys by integration, so two hosts declaring the same command cannot collide. No key
-is reserved and none is validated; the vocabulary grows as integrations need it.
+is reserved and none is validated; the vocabulary grows as integrations need it. Because nothing is
+validated, a misspelled hint key is silently ignored — an integration that cares should check for
+the keys it expects.
+
+**Hints do not survive export.** A registry exported to `command_registry.yaml` carries metadata
+only, so an environment rebuilt from an exported registry cannot recover how to call a declared
+command. **An integration that replays registrations must retain the declaration, not the
+metadata.** This is what `liquers-web` already does — `REGISTERED_SPECS` retains the declaration for
+exactly this reason — so the requirement is not new, but it is now a rule rather than an accident.
 
 ## 6. Validation
 

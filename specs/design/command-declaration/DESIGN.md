@@ -4,7 +4,7 @@ kind: design
 workflow: liquers-project
 title: A language-neutral command declaration type
 status: in_review
-phase: architecture
+phase: examples
 area: [core/commands, web, py]
 gh_pr: []
 issues: [COMMAND-DECLARATION-FORMAT, STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE,
@@ -41,9 +41,9 @@ is set, so all five phases and the Phase 5 documentation contract now apply.
 - [x] Portability validation — [`portability-analysis.md`](./portability-analysis.md)
       *(six languages assessed; the bar "clear benefit for Python and JavaScript" is met, but
       asymmetrically — see its §Bar)*
-- [ ] Phase 2 approval gate — **awaiting a decision** (5 open questions in Phase 2, led by
-      where hints live)
-- [ ] Phase 3: Examples and use-cases — `phase3-examples.md`, not yet created
+- [x] Phase 2 approval gate — **approved 2026-08-30**; hints decided declaration-only
+- [x] Phase 3: Examples and use-cases — [`phase3-examples.md`](./phase3-examples.md)
+      *(3 examples, 36 numbered tests; the merge laws are the specification. Awaiting approval.)*
 - [ ] Phase 4: Implementation plan and execution — `phase4-implementation.md`, not yet created
 - [ ] Phase 5: Documentation — `phase5-documentation.md`, mandatory under `liquers-project`
 

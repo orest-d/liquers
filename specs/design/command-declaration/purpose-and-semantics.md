@@ -170,6 +170,11 @@ dictionary, mirroring the one `ArgumentInfo` already has (`command_metadata.rs:3
 writes what it needs and reads it back; `liquers-core` only carries and merges it. No hint key is
 reserved or validated, and the vocabulary is expected to grow as integrations need it.
 
+**Decided 2026-08-30: hints live on the declaration only** and are dropped when the metadata is
+built, so `CommandMetadata` stays a precise specification of the command and says nothing about how
+to call it. The cost, accepted deliberately: hints do not survive export, so an integration that
+replays registrations must retain the declaration rather than the metadata.
+
 ```yaml
 name: repeat
 arguments: [{ name: count, type: int }]

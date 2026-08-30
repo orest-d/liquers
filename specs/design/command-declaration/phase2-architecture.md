@@ -185,35 +185,32 @@ There is precedent: `ArgumentInfo` already has
 (`command_metadata.rs:399-403`). `CommandMetadata` has no command-level equivalent, and that
 asymmetry is the natural place for this.
 
-**Recommended: add a command-level `hints` map to `CommandMetadata`**, mirroring the argument-level
-one:
-
-```rust
-/// Free dictionary of hints for the command. Not interpreted by `liquers-core`; a language
-/// integration reads back what it wrote. Namespace keys by integration — `python`, `javascript` —
-/// so two hosts declaring the same command cannot collide.
-#[serde(skip_serializing_if = "serde_json::Map::is_empty")]
-#[serde(default)]
-pub hints: serde_json::Map<String, serde_json::Value>,
-```
+**Decided 2026-08-30: hints live on the declaration only.** `CommandMetadata` stays a precise
+specification and gains no field; `build` drops `hints` rather than mapping it. The recommendation
+here had been the opposite, and the maintainer chose strictness in the metadata over
+self-description in the export.
 
 ```yaml
 name: repeat
-arguments:
-  - name: count
-    type: int
+arguments: [{ name: count, type: int }]
 hints:
-  javascript: { state: text, variadic: spread, async: false }
+  javascript: { state: text, variadic: spread }
 ```
 
-The consequence is that **the declaration needs no structure of its own at all.** It is a partial
-`CommandMetadata`, merged and defaulted; hints ride along as ordinary fields and the deep merge
-composes them like any other map. Part D adds one field to one struct and no new types.
+Three consequences follow, and the design carries them explicitly:
 
-| | For | Against |
-|---|---|---|
-| Hints in `CommandMetadata` (recommended) | The declaration collapses to "partial metadata"; hints survive export and round-trip, so a rebuilt environment can recover how to call; mirrors `ArgumentInfo::hints` | A free-form field slightly dilutes "precise authoritative specification"; `metadata_version` moves when a hint changes — arguably correct, since the command really did change |
-| Hints on the declaration only, dropped at `build` | Keeps `CommandMetadata` strict | The host must read them from the declaration before conversion, and they are lost on export — so an environment rebuild cannot recover them |
+1. **The declaration is not purely a partial `CommandMetadata` after all.** It has exactly one key of
+   its own. `CommandDeclaration` therefore needs an accessor — `hints()` — so a host can read them
+   before or after `build`, and `build` must ignore the key rather than fail on it.
+2. **Hints still compose.** They are part of the merged document, so the deep merge applies to them
+   unchanged; only the final conversion drops them.
+3. **Hints do not survive export**, so an integration that replays registrations must retain the
+   *declaration*, not the metadata. `liquers-web` already does this — `REGISTERED_SPECS` retains the
+   declaration — so nothing changes there, but it becomes a stated rule for the next integration
+   rather than an accident of the current one.
+
+One thing this simplifies: `specs/command_registry.yaml` can never contain a hint, so the
+byte-identical round-trip is unaffected by the hint vocabulary however it grows.
 
 **Nothing about the hint *vocabulary* is designed here.** No key is reserved, none is validated, and
 the examples above are illustrative. Fields are added as integrations need them, which is exactly
@@ -349,9 +346,8 @@ never touches this module — the constraint that survives from draft 2's anti-d
 
 ## Open questions for the gate
 
-1. **Where do hints live?** A command-level `hints` map on `CommandMetadata` (recommended — the
-   declaration then needs no structure of its own, and hints survive export), or on the declaration
-   only, dropped at `build`? See the table in Part D.
+1. ~~**Where do hints live?**~~ **Resolved 2026-08-30: on the declaration only**, dropped at
+   `build`. `CommandMetadata` gains no field. See Part D for the three consequences.
 2. **Widening the JavaScript surface.** The pipeline's output is `CommandMetadata`, so `filename`,
    `expires`, `payload_required`, `presets`, `next`, `multiple`, `injected`, `Alias`, richer
    `ArgumentType`s and query-valued defaults all become declarable from JavaScript at once.

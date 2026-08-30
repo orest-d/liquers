@@ -1,0 +1,690 @@
+Based on `HEAD`, read rather than remembered. Nothing here is implemented; the test code is written
+to be dropped into place at Phase 4.
+
+# Phase 3 — Examples and use-cases
+
+## High-level introduction
+
+Phase 1 states the purpose: an author-facing way to say that a function is a command, which composes
+over what the host discovered and produces a `CommandMetadata`. Phase 2 makes that a four-stage
+pipeline whose middle three stages are shared. This phase shows what an author actually writes, and
+pins the behaviour down with tests.
+
+The examples progress deliberately. **Example 1** is the case that justifies the whole design — an
+author adding one label to one argument without restating the rest — and it is the one to read if
+only one is read. **Example 2** is the plain-document host, which has no introspection at all and so
+exercises the opposite end of the same machinery. **Example 3** collects the ways this goes wrong,
+because most of them are silent in a positional system and the diagnostics are the product.
+
+**Example type:** conceptual examples (declaration in, metadata out) with test code written as real
+Rust test functions, so Phase 4 drops them in rather than writing them again.
+
+## Overview Table
+
+| ID | Kind | Demonstrates or checks |
+|---|---|---|
+| **EX1** | Example | Composition: a Python author labels one argument; type and default survive |
+| **EX2** | Example | A `commands.yaml` with no introspection — the declaration establishes everything |
+| **EX3** | Example | Pitfalls: a misspelled argument, a reordering attempt, a `"None"` default, a lost hint |
+| MERGE01 | Unit | An empty declaration is an identity |
+| MERGE02 | Unit | `enhance` twice equals `enhance` once (idempotence) |
+| MERGE03 | Unit | A declared scalar overrides a discovered one |
+| MERGE04 | Unit | A declared field does **not** overwrite a discovered one it omits |
+| MERGE05 | Unit | An argument entry augments by **name**, not position |
+| MERGE06 | Unit | An entry naming an unknown argument is **rejected** |
+| MERGE07 | Unit | …**unless** the baseline has no `arguments` key at all |
+| MERGE08 | Unit | `arguments: []` in the baseline still triggers the reject rule |
+| MERGE09 | Unit | `null` sets a null value; it does not delete |
+| MERGE10 | Unit | Argument order comes from the baseline and cannot be changed |
+| MERGE11 | Unit | Composition is associative — layered declarations |
+| MERGE12 | Unit | Nested maps merge key-wise; arrays that are not `arguments` replace |
+| DEF01 | Unit | Label derivation: `to_text`, `toText`, `toHTML`, `parseHTTPResponse` |
+| DEF02 | Unit | Derivation never overwrites a declared or discovered label |
+| DEF03 | Unit | `fill_defaults` is idempotent |
+| DEF04 | Unit | Argument `gui_info` defaults to `TextField(40)`, not `ArgumentGUIInfo::None` |
+| DEF05 | Unit | `cache`, `volatile`, `expires`, `definition`, `payload_required` defaults |
+| DEF06 | Unit | Order is normative: derive after merge, never before |
+| BUILD01 | Unit | `{"name":"greet"}` builds a complete `CommandMetadata` |
+| BUILD02 | Unit | `type` is accepted as a spelling of `argument_type` |
+| BUILD03 | Unit | `ArgumentType` aliases: `str`, `text`, `integer`, `number`, `boolean` |
+| BUILD04 | Unit | `CommandParameterValue`: all six input shapes |
+| BUILD05 | Unit | The `"None"` string trap: bare means no-default, `!Value 'None'` means the string |
+| VAL01 | Unit | Empty or missing `name` |
+| VAL02 | Unit | `multiple` argument that is not last |
+| VAL03 | Unit | A default that does not fit its declared type |
+| VAL04 | Unit | An unrecognised argument type names the command and argument |
+| VAL05 | Unit | A global-enum reference is **not** resolved here and does not fail here |
+| HINT01 | Unit | Hints merge like any other map |
+| HINT02 | Unit | `build` drops hints; `hints()` still returns them |
+| HINT03 | Unit | An unknown hint key is carried, not rejected |
+| INT01 | Integration | `command_registry.yaml` parses and re-serializes **byte-identically** |
+| INT02 | Integration | A declaration and `register_command!` agree, `metadata_version` included |
+| INT03 | Integration | `foo_bar` label parity: JavaScript verbatim, document derived |
+| INT04 | Integration | The same declaration in YAML and in JSON builds the same metadata |
+| INT05 | Integration | A JavaScript declaration object survives `serde_wasm_bindgen` conversion |
+| INT06 | Integration | The whole `liquers-web` COMMAND conformance suite, unchanged |
+
+---
+
+## Example 1 — Composition: adding one label (primary)
+
+### Connection to the high-level design
+
+This is the case Phase 1 exists for. Without composition the author must choose: declare *nothing*
+and accept discovered metadata, or declare *everything* and restate what discovery already knew.
+`liquers-web` has exactly that limitation today (`spec.rs:171-174`).
+
+### Scenario
+
+A Python author has a working function. The signature already carries the argument's name, type and
+default. What it cannot carry is a human label or a widget preference.
+
+```python
+@command(label="Repeat text", arguments={"count": {"gui_info": {"IntegerSlider": {"min": 1, "max": 9}}}})
+def repeat(state, count: int = 2):
+    """Repeat the input text."""
+    return state.value * count
+```
+
+### Sequence
+
+1. **populate** — the integration inspects the callable. `inspect.signature` yields `count`,
+   annotated `int`, default `2`; `__doc__` yields the documentation; `__name__` yields the name.
+2. **enhance** — the decorator's keyword arguments are merged over that baseline. `label` is new.
+   The `count` entry is matched **by name** and augments the discovered argument.
+3. **fill** — what is still absent is derived: `count`'s label becomes `Count`; `cache` becomes
+   `true`; `expires` becomes `never`. The command's own label was declared, so derivation leaves it.
+4. **build** — validation passes; a `CommandMetadata` is produced.
+
+### Core example
+
+```yaml
+# stage 1 — baseline from introspection
+name: repeat
+module: python
+doc: Repeat the input text.
+state_argument: { name: state }
+arguments:
+  - { name: count, argument_type: int, default: !Value 2 }
+
+# stage 2 — the declaration, which is all the author wrote
+label: Repeat text
+arguments:
+  - { name: count, gui_info: !IntegerSlider { min: 1, max: 9 } }
+
+# stage 4 — the result
+name: repeat
+label: Repeat text                 # declared
+module: python
+doc: Repeat the input text.        # discovered
+state_argument: { name: state, label: state, gui_info: !TextField 40 }
+arguments:
+  - name: count
+    label: Count                   # derived
+    argument_type: int             # discovered, survived the merge
+    default: !Value 2              # discovered, survived the merge
+    gui_info: !IntegerSlider { min: 1, max: 9 }   # declared
+cache: true                        # derived
+volatile: false
+expires: never
+definition: Registered
+```
+
+**The point of the example is the two lines marked "survived the merge."** Under the all-or-nothing
+rule the design replaces, declaring `arguments` at all would have discarded `int` and `2`.
+
+---
+
+## Example 2 — A document host with no introspection
+
+### Scenario
+
+The two-document setup from `COMMAND-DECLARATION-FORMAT`: one document configures the environment,
+another declares commands. There is no host language and therefore no callable to inspect, so the
+baseline is empty and the declaration must carry everything.
+
+```yaml
+# commands.yaml
+commands:
+  - name: to_upper
+    doc: Convert the input text to upper case
+    state_argument: { name: state }
+    filename: upper.txt
+
+  - name: repeat
+    label: Repeat text
+    state_argument: { name: state }
+    arguments:
+      - { name: count, type: int, default: 2 }
+    hints:
+      python: { state: text }
+```
+
+### What this exercises that Example 1 does not
+
+- **The no-introspection exception (MERGE07).** With no `arguments` key in the baseline, `repeat`'s
+  declaration *establishes* the argument list rather than being checked against it. This is the one
+  place the reject rule stands down, and it exists precisely for this host.
+- **Derived labels doing real work.** `to_upper` declares no label and gets `To upper`. An author
+  writing thirty commands writes thirty fewer labels.
+- **Shorthand defaults.** `default: 2` rather than `default: !Value 2` — the same value, written the
+  way an author expects.
+- **`type` rather than `argument_type`.** Both spellings reach the same field.
+- **A hint on a command with no host present.** It is carried through the merge and dropped at
+  `build`; a Python host loading this document later reads it from the declaration.
+
+### Guide and executable example
+
+This document is a guide candidate in its own right — it is the shortest complete answer to "how do
+I declare commands without writing code". It should become a fixture used by INT04, so the guide's
+example and the test's input are the same text.
+
+---
+
+## Example 3 — Pitfalls
+
+### 3.1 A misspelled argument name is rejected, not added
+
+```yaml
+# baseline:    arguments: [{ name: count, argument_type: int }]
+# declaration: arguments: [{ name: cnt,   label: Count }]
+```
+
+Rejected: `command "repeat": declared argument "cnt" does not exist; the callable declares "count"`.
+
+Silently adding it would have produced a two-argument command whose second argument no function
+parameter receives — and because Liquers binds positionally, the *first* query parameter would then
+fill `count` while the second vanished. This is the reason the rule is reject rather than append.
+
+### 3.2 A declaration cannot reorder
+
+```yaml
+# baseline:    arguments: [{name: a}, {name: b}]
+# declaration: arguments: [{name: b, label: Bee}, {name: a, label: Ay}]
+```
+
+Both entries merge by name; the result is still `[a, b]`. The labels land correctly and the order
+does not move. An author who expects the declaration's order to win gets a surprise — which is why
+MERGE10 asserts it and why the reference states it.
+
+### 3.3 A default of the string `"None"`
+
+```yaml
+- { name: mode, type: string, default: None }          # no default at all
+- { name: mode, type: string, default: !Value 'None' } # the string "None"
+```
+
+Inherited from the exported form, where `None` is how the absent-default marker serializes. The
+shorthand makes it reachable by accident, so it is documented and tested rather than left to be
+discovered.
+
+### 3.4 A hint that nothing reads
+
+```yaml
+hints:
+  javascript: { stat: text }    # "stat", not "state"
+```
+
+Carried through the merge, dropped at `build`, never read. Nothing in `liquers-core` can catch this,
+by construction — `hints` is free-form. An integration that cares must check the keys it expects,
+and its own conformance test is where that belongs.
+
+---
+
+## Corner cases
+
+**Memory.** `CommandDeclaration` owns one `serde_json::Value` and nothing else; no `Arc`, no
+lifetimes. A host retaining declarations for replay retains one per command. The `liquers-web`
+aliasing hazard that `snapshot_declaration` exists for (`environment.rs:171-193`) disappears by
+construction once a parsed declaration is retained instead of the caller's `JsValue`, though acting
+on that belongs to `POST-INIT-COMMAND-REGISTRATION`.
+
+**Concurrency.** None. Every stage is a pure function; registration is not a hot path. The
+`INFERRED_ARGUMENTS` thread-local (`adapter.rs:26-37`) is *removed* rather than made concurrent —
+the merge's own rule carries what it was tracking.
+
+**Errors.** Every failure is `Error::from_error(ErrorType::ParameterError, …)`; no new error type,
+no `Error::new`. Each message names the command, and the argument where there is one. Serde failures
+from the `liquers-web` path are wrapped so the command name survives a message serde wrote.
+
+**Serialization.** The one hard constraint: `specs/command_registry.yaml` must not move (INT01), and
+it is checked byte-for-byte rather than by comparison of parsed values. Every serde change in Part C
+is deserialize-only, so a `Serialize` change is a bug the test catches. `command_metadata.rs:1381`
+asserts an exact JSON string and is the sharpest tripwire.
+
+**Integration.** Two crates. `liquers-core` gains a module and eight deserialize-only serde rows;
+`liquers-web` loses ~130 lines of hand-parsing. `liquers-py` is untouched until it opts in. The
+`liquers-lib` registry export must stay green throughout.
+
+---
+
+## Test plan
+
+Conventions per `liquers-unittest`: unit tests colocated in `#[cfg(test)] mod tests`, integration
+tests in `liquers-core/tests/`, `#[tokio::test]` where async is needed — none is here.
+
+### Unit tests — the merge laws
+
+These are the substance. They are cheap, exhaustive, and each one is a property a host will depend
+on without being told.
+
+```rust
+#[cfg(test)]
+mod merge_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn baseline() -> serde_json::Value {
+        json!({
+            "name": "repeat",
+            "arguments": [
+                { "name": "count", "argument_type": "int", "default": { "Value": 2 } }
+            ]
+        })
+    }
+
+    #[test]
+    fn merge01_empty_declaration_is_identity() {
+        let mut d = CommandDeclaration::from_introspection(baseline());
+        d.enhance(&json!({})).unwrap();
+        assert_eq!(d.as_value(), &baseline());
+    }
+
+    #[test]
+    fn merge02_enhance_is_idempotent() {
+        let decl = json!({ "label": "Repeat text" });
+        let mut once = CommandDeclaration::from_introspection(baseline());
+        once.enhance(&decl).unwrap();
+        let mut twice = CommandDeclaration::from_introspection(baseline());
+        twice.enhance(&decl).unwrap();
+        twice.enhance(&decl).unwrap();
+        assert_eq!(once.as_value(), twice.as_value());
+    }
+
+    #[test]
+    fn merge03_declared_scalar_overrides_discovered() {
+        let mut d = CommandDeclaration::from_introspection(json!({"name":"x","doc":"discovered"}));
+        d.enhance(&json!({ "doc": "declared" })).unwrap();
+        assert_eq!(d.as_value()["doc"], json!("declared"));
+    }
+
+    #[test]
+    fn merge04_omitted_field_leaves_discovered_value() {
+        let mut d = CommandDeclaration::from_introspection(json!({"name":"x","doc":"discovered"}));
+        d.enhance(&json!({ "label": "X" })).unwrap();
+        assert_eq!(d.as_value()["doc"], json!("discovered"));
+    }
+
+    /// The case the design exists for: type and default survive an entry that mentions neither.
+    #[test]
+    fn merge05_argument_entry_augments_by_name() {
+        let mut d = CommandDeclaration::from_introspection(baseline());
+        d.enhance(&json!({ "arguments": [{ "name": "count", "label": "Count" }] })).unwrap();
+        let arg = &d.as_value()["arguments"][0];
+        assert_eq!(arg["label"], json!("Count"));
+        assert_eq!(arg["argument_type"], json!("int"));
+        assert_eq!(arg["default"], json!({ "Value": 2 }));
+    }
+
+    #[test]
+    fn merge06_unknown_argument_name_is_rejected() {
+        let mut d = CommandDeclaration::from_introspection(baseline());
+        let err = d.enhance(&json!({ "arguments": [{ "name": "cnt" }] })).unwrap_err();
+        let m = err.to_string();
+        assert!(m.contains("cnt"), "names the offending argument: {m}");
+        assert!(m.contains("repeat"), "names the command: {m}");
+    }
+
+    /// The plain-document host: no baseline to check against, so the declaration establishes it.
+    #[test]
+    fn merge07_no_arguments_key_lets_the_declaration_establish_the_list() {
+        let mut d = CommandDeclaration::from_introspection(json!({ "name": "repeat" }));
+        d.enhance(&json!({ "arguments": [{ "name": "count", "argument_type": "int" }] })).unwrap();
+        assert_eq!(d.as_value()["arguments"][0]["name"], json!("count"));
+    }
+
+    /// An empty list means "introspected, no parameters" — a different thing from "not introspected".
+    #[test]
+    fn merge08_empty_arguments_list_still_rejects() {
+        let mut d = CommandDeclaration::from_introspection(json!({"name":"f","arguments":[]}));
+        assert!(d.enhance(&json!({ "arguments": [{ "name": "count" }] })).is_err());
+    }
+
+    #[test]
+    fn merge09_null_sets_rather_than_deletes() {
+        let mut d = CommandDeclaration::from_introspection(json!({"name":"x","filename":"a.txt"}));
+        d.enhance(&json!({ "filename": null })).unwrap();
+        assert!(d.as_value().get("filename").is_some(), "the key is present");
+        assert_eq!(d.as_value()["filename"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn merge10_declaration_cannot_reorder_arguments() {
+        let base = json!({"name":"f","arguments":[{"name":"a"},{"name":"b"}]});
+        let mut d = CommandDeclaration::from_introspection(base);
+        d.enhance(&json!({ "arguments": [
+            { "name": "b", "label": "Bee" },
+            { "name": "a", "label": "Ay"  }
+        ]})).unwrap();
+        let args = d.as_value()["arguments"].as_array().unwrap();
+        assert_eq!(args[0]["name"], json!("a"));
+        assert_eq!(args[0]["label"], json!("Ay"));
+        assert_eq!(args[1]["name"], json!("b"));
+    }
+
+    #[test]
+    fn merge11_composition_is_associative() {
+        let (d1, d2) = (json!({ "doc": "one" }), json!({ "label": "Two" }));
+        let mut layered = CommandDeclaration::from_introspection(baseline());
+        layered.enhance(&d1).unwrap();
+        layered.enhance(&d2).unwrap();
+        let mut combined = CommandDeclaration::from_introspection(baseline());
+        combined.enhance(&json!({ "doc": "one", "label": "Two" })).unwrap();
+        assert_eq!(layered.as_value(), combined.as_value());
+    }
+
+    #[test]
+    fn merge12_nested_maps_merge_and_other_arrays_replace() {
+        let base = json!({"name":"f","hints":{"js":{"state":"text","variadic":"spread"}},
+                          "next":["a","b"]});
+        let mut d = CommandDeclaration::from_introspection(base);
+        d.enhance(&json!({ "hints": { "js": { "state": "value" } }, "next": ["c"] })).unwrap();
+        assert_eq!(d.as_value()["hints"]["js"]["state"], json!("value"));
+        assert_eq!(d.as_value()["hints"]["js"]["variadic"], json!("spread"), "sibling survives");
+        assert_eq!(d.as_value()["next"], json!(["c"]), "a non-argument array replaces");
+    }
+}
+```
+
+### Unit tests — defaults
+
+```rust
+#[test]
+fn def01_label_derivation() {
+    for (name, want) in [
+        ("to_text",           "To text"),
+        ("toText",            "To text"),
+        ("toHTML",            "To HTML"),
+        ("parseHTTPResponse", "Parse HTTP response"),
+        ("x",                 "X"),
+    ] {
+        assert_eq!(derive_label(name), want, "deriving from {name:?}");
+    }
+}
+
+#[test]
+fn def02_derivation_never_overwrites() {
+    let mut d = CommandDeclaration::from_introspection(json!({"name":"to_text"}));
+    d.enhance(&json!({ "label": "Textify" })).unwrap();
+    d.fill_defaults();
+    assert_eq!(d.as_value()["label"], json!("Textify"));
+}
+
+#[test]
+fn def03_fill_defaults_is_idempotent() {
+    let mut once = CommandDeclaration::from_introspection(json!({"name":"to_text"}));
+    once.fill_defaults();
+    let mut twice = CommandDeclaration::from_introspection(json!({"name":"to_text"}));
+    twice.fill_defaults();
+    twice.fill_defaults();
+    assert_eq!(once.as_value(), twice.as_value());
+}
+
+/// `ArgumentGUIInfo`'s `Default` is `None`, but `ArgumentInfo::any_argument` sets `TextField(40)`.
+/// Getting this wrong silently re-versions every JavaScript command with declared arguments.
+#[test]
+fn def04_argument_gui_info_defaults_to_text_field_40() {
+    let m = build(json!({ "name": "f", "arguments": [{ "name": "a" }] }));
+    assert_eq!(m.arguments[0].gui_info, ArgumentGUIInfo::TextField(40));
+}
+
+#[test]
+fn def05_scalar_defaults_match_from_key() {
+    let m = build(json!({ "name": "greet" }));
+    let k = CommandMetadata::from_key(CommandKey::new("", "", "greet"));
+    assert_eq!((m.cache, m.volatile, m.expires, m.definition, m.payload_required),
+               (k.cache, k.volatile, k.expires, k.definition, k.payload_required));
+}
+
+/// Order is normative. Deriving before merging would make the derived label look "present".
+#[test]
+fn def06_derive_runs_after_merge() {
+    let mut d = CommandDeclaration::from_introspection(json!({ "name": "to_text" }));
+    d.fill_defaults();                                   // derives "To text"
+    d.enhance(&json!({ "label": "Textify" })).unwrap();  // author still wins
+    assert_eq!(d.as_value()["label"], json!("Textify"));
+}
+```
+
+### Unit tests — build, validation, hints
+
+```rust
+#[test]
+fn build01_minimal_declaration_builds() {
+    let m = build(json!({ "name": "greet" }));
+    assert_eq!(m.name, "greet");
+    assert_eq!(m.label, "Greet");
+    assert!(m.arguments.is_empty());
+}
+
+#[test]
+fn build02_type_is_accepted_for_argument_type() {
+    let m = build(json!({ "name": "f", "arguments": [{ "name": "a", "type": "int" }] }));
+    assert_eq!(m.arguments[0].argument_type, ArgumentType::Integer);
+}
+
+#[test]
+fn build03_argument_type_aliases() {
+    for (spelling, want) in [
+        ("str", ArgumentType::String),     ("text", ArgumentType::String),
+        ("integer", ArgumentType::Integer), ("number", ArgumentType::Float),
+        ("boolean", ArgumentType::Boolean),
+    ] {
+        let m = build(json!({"name":"f","arguments":[{"name":"a","type":spelling}]}));
+        assert_eq!(m.arguments[0].argument_type, want, "spelling {spelling:?}");
+    }
+}
+
+#[test]
+fn build04_command_parameter_value_shapes() {
+    let cases = [
+        (json!(2),                 CommandParameterValue::Value(json!(2))),
+        (json!("hello"),           CommandParameterValue::Value(json!("hello"))),
+        (json!(true),              CommandParameterValue::Value(json!(true))),
+        (json!(null),              CommandParameterValue::Value(json!(null))),
+        (json!("None"),            CommandParameterValue::None),
+        (json!({ "Value": 2 }),    CommandParameterValue::Value(json!(2))),
+    ];
+    for (input, want) in cases {
+        let m = build(json!({"name":"f","arguments":[{"name":"a","default":input}]}));
+        assert_eq!(m.arguments[0].default, want);
+    }
+}
+
+/// Documented trap: the bare string "None" is the absent-default marker.
+#[test]
+fn build05_none_string_needs_the_tagged_form() {
+    let bare = build(json!({"name":"f","arguments":[{"name":"a","default":"None"}]}));
+    assert_eq!(bare.arguments[0].default, CommandParameterValue::None);
+    let tagged = build(json!({"name":"f","arguments":[
+        {"name":"a","default":{"Value":"None"}}]}));
+    assert_eq!(tagged.arguments[0].default, CommandParameterValue::Value(json!("None")));
+}
+
+#[test]
+fn val01_empty_name_is_refused() {
+    assert!(try_build(json!({ "name": "" })).is_err());
+    assert!(try_build(json!({})).is_err());
+}
+
+#[test]
+fn val02_multiple_argument_must_be_last() {
+    let err = try_build(json!({"name":"f","arguments":[
+        {"name":"xs","multiple":true},{"name":"y"}]})).unwrap_err();
+    assert!(err.to_string().contains("xs"));
+}
+
+#[test]
+fn val03_default_must_fit_declared_type() {
+    let err = try_build(json!({"name":"f","arguments":[
+        {"name":"a","type":"int","default":"not a number"}]})).unwrap_err();
+    let m = err.to_string();
+    assert!(m.contains("f") && m.contains("a"), "names command and argument: {m}");
+}
+
+#[test]
+fn val04_unknown_argument_type_names_command_and_argument() {
+    let err = try_build(json!({"name":"f","arguments":[
+        {"name":"a","type":"zzz"}]})).unwrap_err();
+    let m = err.to_string();
+    assert!(m.contains("f") && m.contains("a") && m.contains("zzz"));
+}
+
+/// Resolving one needs a registry, so it stays where it happens today.
+#[test]
+fn val05_global_enum_reference_is_not_resolved_and_does_not_fail() {
+    let m = build(json!({"name":"f","arguments":[
+        {"name":"a","argument_type":{"GlobalEnum":"colours"}}]}));
+    assert!(matches!(m.arguments[0].argument_type, ArgumentType::GlobalEnum(_)));
+}
+
+#[test]
+fn hint01_hints_merge_like_any_map() {
+    let mut d = CommandDeclaration::from_introspection(json!({"name":"f"}));
+    d.enhance(&json!({ "hints": { "python": { "state": "text" } } })).unwrap();
+    d.enhance(&json!({ "hints": { "python": { "variadic": "spread" } } })).unwrap();
+    assert_eq!(d.hints()["python"]["state"], json!("text"));
+    assert_eq!(d.hints()["python"]["variadic"], json!("spread"));
+}
+
+/// Hints are declaration-only: readable from the declaration, absent from the metadata.
+#[test]
+fn hint02_build_drops_hints() {
+    let mut d = CommandDeclaration::from_introspection(json!({"name":"f"}));
+    d.enhance(&json!({ "hints": { "python": { "state": "text" } } })).unwrap();
+    d.fill_defaults();
+    let m = d.build().unwrap();
+    assert_eq!(serde_json::to_value(&m).unwrap().get("hints"), None);
+    assert_eq!(d.hints()["python"]["state"], json!("text"), "still readable");
+}
+
+#[test]
+fn hint03_unknown_hint_key_is_carried_not_rejected() {
+    let mut d = CommandDeclaration::from_introspection(json!({"name":"f"}));
+    d.enhance(&json!({ "hints": { "javascript": { "stat": "text" } } })).unwrap();
+    assert_eq!(d.hints()["javascript"]["stat"], json!("text"));
+    assert!(d.build().is_ok());
+}
+```
+
+### Integration tests
+
+`liquers-core/tests/command_declaration_roundtrip.rs`:
+
+```rust
+/// The hard constraint: the committed registry must not move. Byte-for-byte, not value equality,
+/// because a Serialize change that happens to round-trip is still a change to a committed file.
+#[test]
+fn int01_command_registry_yaml_is_byte_identical_after_a_parse_and_re_serialize() {
+    let path = repo_root().join("specs/command_registry.yaml");
+    let original = std::fs::read_to_string(&path).unwrap();
+    let registry: CommandMetadataRegistry = serde_yaml::from_str(&original).unwrap();
+    let again = serde_yaml::to_string(&registry).unwrap();
+    assert_eq!(strip_comment_block(&original), again);
+}
+
+/// Equal content must give an equal version, since metadata_version is computed from stored
+/// content by add_command_metadata (command_metadata.rs:1036,1064). Asserted, not assumed.
+#[test]
+fn int02_declaration_and_macro_agree_including_metadata_version() {
+    let mut a = CommandMetadataRegistry::new();
+    let mut b = CommandMetadataRegistry::new();
+    a.add_command_metadata(metadata_from_macro_registration());
+    b.add_command_metadata(build(declaration_for_the_same_command()));
+    assert_eq!(a.get("to_text"), b.get("to_text"));
+}
+
+/// The two label rules must stay apart, or every underscored JavaScript command re-versions
+/// and its dependent assets re-expire.
+#[test]
+fn int03_label_parity_between_the_two_paths() {
+    assert_eq!(js_path_metadata("foo_bar").label, "foo_bar");
+    assert_eq!(build(json!({ "name": "foo_bar" })).label, "Foo bar");
+}
+
+#[test]
+fn int04_yaml_and_json_agree() {
+    let yaml = include_str!("fixtures/commands.yaml");   // Example 2, verbatim
+    let from_yaml: serde_json::Value = serde_yaml::from_str(yaml).unwrap();
+    let from_json: serde_json::Value =
+        serde_json::from_str(&serde_json::to_string(&from_yaml).unwrap()).unwrap();
+    assert_eq!(build_all(&from_yaml), build_all(&from_json));
+}
+```
+
+`INT05` and `INT06` are `wasm_bindgen_test`s in `liquers-web`:
+
+- **INT05** — a JavaScript declaration object, converted by `serde_wasm_bindgen`, builds the same
+  metadata as the equivalent `serde_json::Value`. **This is the test that settles Phase 2's largest
+  unverified claim** and should be written first in Phase 4, because the fallback if it fails
+  (`js_sys::JSON::stringify` then `serde_json::from_str`) changes the `liquers-web` code path.
+- **INT06** — the existing COMMAND suite, unchanged. Four tests assert error wording (`:66`,
+  `:409`, `:422`, `:509`) and all four keep their producing code in `liquers-web`.
+
+### Manual validation
+
+```bash
+cargo test -p liquers-core --lib                                    # unit tests
+cargo test -p liquers-core --test command_declaration_roundtrip     # INT01-INT04
+cargo test -p liquers-lib --lib --tests                             # registry_export stays green
+bash scripts/check-build-matrix.sh                                  # 11 configurations
+cargo clean && cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles
+```
+
+---
+
+## Documentation and learning log
+
+**Guide candidates.** Example 1 answers "how do I add metadata the signature cannot carry?" and
+Example 2 answers "how do I declare commands without writing code?" — the two questions a language
+guide must answer first. Both belong in `COMMAND_DECLARATION.md`, which already carries a worked
+example in §8; Example 1 here is the same shape with the merge shown step by step, and §8 should be
+replaced by it once this phase is approved.
+
+Example 2's `commands.yaml` should be a **test fixture used by INT04**, so the documented example and
+the tested input cannot drift.
+
+**Learning to carry into Phase 5.**
+
+- The merge laws are the specification. Prose describing "declaration overrides introspection" is
+  not precise enough to implement from — MERGE04, MERGE09 and MERGE10 are each a case a reasonable
+  implementer would get wrong from the prose alone.
+- Two default mismatches found while designing (`ArgumentGUIInfo::None` versus `TextField(40)`;
+  `state_argument`'s constructor versus serde default) both silently change `metadata_version`.
+  DEF04 exists because of the first; the second is `STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE`
+  and `fill_defaults` should settle it explicitly rather than inherit it.
+- The `"None"` default is the sharpest edge in the format and is inherited, not introduced.
+
+## Review record
+
+*Against Phase 1:* every acceptance criterion has a test — criterion 1 is BUILD01, criterion 3 is
+INT01, criterion 5 is INT02, criterion 6 is INT06, criterion 7 is what the merge laws make possible.
+Criterion 2, the hints, is HINT01–HINT03 as decided (declaration-only).
+
+*Against Phase 2:* the four stages appear as `from_introspection`, `enhance`, `fill_defaults`,
+`build`; every merge rule in Part A has a numbered test, including the no-introspection exception
+that Part A calls load-bearing; the Part B label table is DEF01 verbatim; the Part C
+`CommandParameterValue` table is BUILD04; and the Part D hints decision is HINT02.
+
+*Against the codebase:* no query strings appear in these examples, so query validation does not
+apply. Every cited line was read at `HEAD`. Commands named in examples (`repeat`, `to_upper`) are
+illustrative declarations, not registry lookups.
+
+*Review passes* were run inline rather than by sub-agents, this session not having been asked to
+spawn them; the conformity checks the workflow assigns to separate reviewers are folded into this
+record.
+
+*Gaps I would not hide:* INT05 is the one test whose outcome could change the design, and it is the
+one that cannot be written until Phase 4 puts code in `liquers-web`. INT02 assumes a representative
+command can be registered both ways in one test binary; if `register_command!` cannot be invoked
+from an integration test it becomes a unit test inside `liquers-lib` instead.
