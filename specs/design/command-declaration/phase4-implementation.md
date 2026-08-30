@@ -522,7 +522,9 @@ Step 10 covers the whole set.
 |---|---|
 | Could INT02 live in `liquers-core/tests/`? | **Yes.** `liquers-macro` is a dev-dependency of `liquers-core` (`Cargo.toml:78`), so no move to `liquers-lib` was needed. |
 | Does `serde_yaml` route the tagged `!Value` form somewhere the visitor sees? | **Yes** — through `visit_enum`. The registry round-trips byte-identically, so Phase 2's largest unverified core claim resolved in the design's favour. |
-| Which conversion path did step 8 select? | *pending* |
+| Which conversion path did step 8 select? | *pending — the spike compiles; running it needs `wasm-bindgen-test-runner`, being installed* |
+| Was the environment ready for the wasm rows? | **No.** `wasm32-unknown-unknown` was not installed, so two `check-build-matrix.sh` rows failed for that reason alone. Both pass once the target is added. Worth a line in the build-matrix section of `CLAUDE.md`, which already says the wasm rows need it — the script could say so too rather than reporting a bare FAILED. |
+| Could `INFERRED_ARGUMENTS` be dropped, as Phase 2 and 4 claimed? | **No.** It is persistent per-command state that `describeCommand` reports; the merge only knows about the declaration in hand. See the correction in step 9. |
 | Defects found by implementing rather than planning | `MACRO-LEAVES-STALE-METADATA-VERSION` (P1), `ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS` (P2), and an idempotence bug in `apply_conventions` caught by CONV07 and fixed before commit. |
 
 `CLAUDE.md` needs no change: no new build command, no new feature, no new crate. If step 9 removes
