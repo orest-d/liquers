@@ -239,38 +239,68 @@ identical in every language, and re-implementing it per host is how two hosts co
 what `context` means. A corollary for Part 1 of the pipeline: **stage 1 should be as dumb as it can
 be** — report the parameters, in order, and recognise nothing.
 
-Two kinds, doing different things:
+Two kinds. **Structural conventions run first**, so a `context` in first position is removed before
+the delivery rule looks at what remains.
 
 **Structural** — changes the argument list.
 
 | Convention | Rule | Effect |
 |---|---|---|
-| `context` | an argument named `context` | removed from `arguments`; its position recorded at `registration.context` |
+| `context` | an argument named `context`, any position | removed from `arguments`; position recorded at `registration.context` |
 
-**Delivery** — classifies the first argument and fixes how its value arrives.
+**Delivery** — **the first argument is always the state-derived argument**; its *name* selects only
+*how* the state is delivered. This is the maintainer's correction of 2026-08-30 and it replaces the
+earlier "recognised by name" rule.
 
-| Convention | Rule | Effect |
-|---|---|---|
-| `state` | the **first** argument, named `state`, `value` or `text` | removed from `arguments`, recorded as `state_argument`; the spelling selects a delivery mode, recorded at `registration.state` |
+```rust
+/// How the input state reaches the callable. Derived from the first argument's name, or declared
+/// directly at `registration.state`. `liquers-core` records it and never performs it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StateDelivery {
+    /// Not passed. A source command — `first_command` semantics.
+    None,
+    /// The `State` wrapper: value plus metadata.
+    State,
+    /// The value, unwrapped through the integration's value bridge where it can be,
+    /// falling back to the `Value` wrapper where it cannot.
+    Value,
+    /// The value through `ValueInterface::try_into_string` (`value.rs:139`). The only mode
+    /// with a failure path, and it fails at call time.
+    Text,
+    /// Reserved. Interpreted as `Value` today; a future integration may give it meaning —
+    /// `df` as a polars or pandas DataFrame in Python is the motivating case.
+    Reserved(String),
+}
 
-The three modes have **normative meanings**, which is the point of owning the convention here rather
-than per host:
+impl StateDelivery {
+    /// `none`/`na` → None, `state` → State, `value` → Value, `text` → Text, else Reserved.
+    pub fn from_argument_name(name: &str) -> Self;
+    /// What an integration performs: `Reserved` behaves as `Value`.
+    pub fn effective(&self) -> StateDelivery;
+    pub fn as_str(&self) -> &str;
+}
+```
 
-| Mode | The callable receives | Fails? |
-|---|---|---|
-| `state` | the `State` wrapper — value plus metadata | no |
-| `value` | the value **unwrapped to the language-native form wherever the value bridge can**, falling back to the `Value` wrapper only where it cannot | no |
-| `text` | the value through `ValueInterface::try_into_string` (`value.rs:139`) | **yes, at call time** |
+It serializes as a plain string, so `registration.state` stays readable and a host may **declare**
+the mode instead of deriving it — which is how an integration offers a `first_command` affordance
+without depending on a parameter name. A declared mode wins over a derived one.
 
-`value` delegates to the integration's existing value bridge rather than introducing a mechanism —
-receiving a wrapper for a plain string would be a bridge defect, not a declaration one. `text` is
-the only mode with a failure path, and it surfaces when the command runs, not when it is declared,
-so `liquers-core` cannot validate it and does not try.
+**`Reserved` is the extension point and the reason this is an open enum.** An unrecognised name is
+not an error; it means `value` until something gives it meaning, so declarations written today keep
+working when `df` acquires one. A closed enum would have forced every such name to be an error now.
 
-**Position is part of the rule.** A `state` in any other position is an ordinary argument. The
-consequence, which surprises people: a function whose first parameter is named `data` or `df`
-declares a *source* command and that parameter becomes a query argument. The escape hatch is an
-explicit `state_argument` in the declaration, which the convention does not touch.
+**`None` is `first_command`.** Confirmed against `liquer/commands.py:882`: it sets
+`state_argument = None` and dispatches through `FirstCommandExecutable`, which calls `f(*argv)`
+rather than `f(state_arg, *argv)`. Note the semantic that comes with it — such a command is still
+usable anywhere in a query, and a state reaching it is **ignored, not refused**.
+
+**Where the rule applies.** It interprets a *function's parameter list*, so it applies when
+introspection ran — the baseline carried an `arguments` key — and not when a declaration introduces
+arguments where none were discovered. In that case they are the command's public arguments, not a
+function's parameters, and swallowing the first would be wrong. This reuses the same signal as the
+merge's no-introspection exception. *This scoping is inferred rather than stated by the maintainer
+and is the one part of the rule worth confirming*, because without it a document declaring
+`arguments: [{name: count}]` would lose `count` to the state.
 
 **Stage 3 — after the merge, before defaults.** The ordering is the design decision here. Running
 conventions *before* the merge would remove `context` from the baseline, so an author writing
@@ -288,10 +318,12 @@ conventions: false                # all off
 **Adding a convention is a behaviour change** for every existing declaration, so the set is written
 down in the reference table rather than left implicit, and each addition needs its own test.
 
-*The `state` convention was confirmed and refined by the maintainer on 2026-08-30*, which is where
-the two-kinds split and the normative mode meanings come from. It was originally inferred from the
-`context` example, from the same defect it prevents, and from the original `liquer` decorator's
-`pass_state = name == "state"`.
+*The state rule was confirmed and then corrected by the maintainer on 2026-08-30.* The first
+version — "an argument named `state`/`value`/`text` is recognised as the state" — was wrong in a way
+worth recording: it made the *name* decide whether an argument was the state, which left
+`def f(df, count)` declaring a source command whose first query parameter bound to `df`. Making the
+first argument always the state, with the name selecting only the delivery mode, removes that trap
+and is what allows `Reserved` to be an extension point instead of a failure.
 
 ## The handover boundary
 

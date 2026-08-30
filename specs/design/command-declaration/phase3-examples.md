@@ -59,11 +59,15 @@ Rust test functions, so Phase 4 drops them in rather than writing them again.
 | HINT03 | Unit | An unknown registration-hint key is carried, not rejected |
 | HINT04 | Unit | A **usage** hint on an argument *does* reach the metadata |
 | CONV01 | Unit | An argument named `context` leaves `arguments` and lands in `registration` |
-| CONV02 | Unit | A leading `state` becomes `state_argument` and records its spelling |
-| CONV03 | Unit | `value` and `text` are recognised as the state; a *non-leading* `state` is not |
-| CONV08 | Unit | The delivery **mode** is recorded distinctly for each of the three spellings |
-| CONV09 | Unit | A first parameter named otherwise declares a *source* command with that argument |
+| CONV02 | Unit | The **first** argument is always the state, whatever it is called |
+| CONV03 | Unit | A *non-leading* `state`/`value`/`text` is an ordinary argument |
+| CONV08 | Unit | Each delivery mode is recorded distinctly: `none`, `state`, `value`, `text` |
+| CONV09 | Unit | `none`/`na` gives a source command — `first_command` semantics |
 | CONV10 | Unit | An explicit `state_argument` is not touched by the convention |
+| CONV11 | Unit | An unrecognised first-argument name is `Reserved` and behaves as `value` |
+| CONV12 | Unit | A declared `registration.state` wins over the one derived from the name |
+| CONV13 | Unit | A leading `context` is removed structurally *before* the delivery rule runs |
+| CONV14 | Unit | With no introspection, the delivery rule does not apply |
 | CONV04 | Unit | `conventions: { context: false }` keeps a genuine `context` argument |
 | CONV05 | Unit | `conventions: false` disables every convention |
 | CONV06 | Unit | A declared entry for a recognised name merges first, then is lifted — not rejected |
@@ -618,57 +622,58 @@ fn conv01_context_leaves_arguments_and_lands_in_registration() {
     assert_eq!(d.registration()["context"], json!(1), "the position is recorded");
 }
 
+/// The first argument is *always* the state-derived argument; its name selects only the delivery
+/// mode. `df` here is the state, delivered as `Reserved("df")` which behaves as `value`.
 #[test]
-fn conv02_leading_state_becomes_the_state_argument() {
-    let mut d = CommandDeclaration::from_introspection(json!({"name":"f","arguments":[
-        { "name": "state" }, { "name": "count" }]}));
-    d.apply_conventions().unwrap();
-    let m = finish(&mut d);
-    assert!(m.state_argument.is_some());
-    assert_eq!(m.arguments.len(), 1);
-    assert_eq!(d.registration()["state"], json!("state"), "the spelling is recorded");
-}
-
-/// `value` and `text` are the other spellings; position matters, so a later `state` is an ordinary
-/// argument and keeps its slot.
-#[test]
-fn conv03_state_spellings_and_position() {
-    for spelling in ["value", "text"] {
-        let mut d = CommandDeclaration::from_introspection(
-            json!({"name":"f","arguments":[{ "name": spelling }]}));
+fn conv02_the_first_argument_is_always_the_state() {
+    for (first, want_mode) in [("state", "state"), ("value", "value"),
+                               ("text", "text"), ("df", "df")] {
+        let mut d = CommandDeclaration::from_introspection(json!({"name":"f","arguments":[
+            { "name": first }, { "name": "count" }]}));
         d.apply_conventions().unwrap();
-        assert!(finish(&mut d).state_argument.is_some(), "spelling {spelling:?}");
-    }
-    let mut d = CommandDeclaration::from_introspection(json!({"name":"f","arguments":[
-        { "name": "count" }, { "name": "state" }]}));
-    d.apply_conventions().unwrap();
-    let m = finish(&mut d);
-    assert_eq!(m.arguments.len(), 2, "a non-leading `state` is an ordinary argument");
-}
-
-/// The spelling selects a delivery mode with a normative meaning (reference 3.2.1); core records it
-/// and never acts on it. Every integration must read the same three values.
-#[test]
-fn conv08_delivery_mode_is_recorded_distinctly() {
-    for spelling in ["state", "value", "text"] {
-        let mut d = CommandDeclaration::from_introspection(
-            json!({"name":"f","arguments":[{ "name": spelling }]}));
-        d.apply_conventions().unwrap();
-        assert_eq!(d.registration()["state"], json!(spelling));
+        let m = finish(&mut d);
+        assert!(m.state_argument.is_some(), "first argument {first:?} is the state");
+        assert_eq!(m.arguments.len(), 1, "only `count` remains");
+        assert_eq!(d.registration()["state"], json!(want_mode));
     }
 }
 
-/// Naming is the whole rule, and this is the surprising half: a first parameter named anything else
-/// is an ordinary query argument and the command is a source command.
+/// Position still matters: only the *first* argument is the state.
 #[test]
-fn conv09_an_unrecognised_first_parameter_is_an_ordinary_argument() {
+fn conv03_a_non_leading_state_name_is_an_ordinary_argument() {
     let mut d = CommandDeclaration::from_introspection(json!({"name":"f","arguments":[
-        { "name": "df" }, { "name": "count" }]}));
+        { "name": "value" }, { "name": "state" }, { "name": "text" }]}));
     d.apply_conventions().unwrap();
     let m = finish(&mut d);
-    assert!(m.state_argument.is_none(), "a source command");
     assert_eq!(m.arguments.len(), 2);
-    assert_eq!(m.arguments[0].name, "df");
+    assert_eq!(m.arguments[0].name, "state");
+    assert_eq!(m.arguments[1].name, "text");
+}
+
+/// Core records the mode and never performs it; every integration reads the same values.
+#[test]
+fn conv08_each_delivery_mode_is_recorded_distinctly() {
+    for name in ["none", "na", "state", "value", "text"] {
+        let mut d = CommandDeclaration::from_introspection(
+            json!({"name":"f","arguments":[{ "name": name }]}));
+        d.apply_conventions().unwrap();
+        let want = if name == "na" { "none" } else { name };
+        assert_eq!(d.registration()["state"], json!(want), "name {name:?}");
+    }
+}
+
+/// `first_command` semantics: no state argument at all. Confirmed against liquer/commands.py:882,
+/// where has_state_argument=False sets state_argument to None and dispatch calls f(*argv).
+#[test]
+fn conv09_none_gives_a_source_command() {
+    for name in ["none", "na"] {
+        let mut d = CommandDeclaration::from_introspection(json!({"name":"f","arguments":[
+            { "name": name }, { "name": "count" }]}));
+        d.apply_conventions().unwrap();
+        let m = finish(&mut d);
+        assert!(m.state_argument.is_none(), "{name:?} is a source command");
+        assert_eq!(m.arguments.len(), 1, "the marker is not an argument either");
+    }
 }
 
 /// The escape hatch: declaring it explicitly beats the naming rule.
@@ -680,6 +685,51 @@ fn conv10_explicit_state_argument_is_left_alone() {
     d.apply_conventions().unwrap();
     let m = finish(&mut d);
     assert_eq!(m.state_argument.as_ref().unwrap().name, "df");
+}
+
+/// The extension point. An unrecognised name is not an error — it means `value` until something
+/// gives it meaning, so a declaration written today survives `df` acquiring one.
+#[test]
+fn conv11_reserved_name_behaves_as_value() {
+    assert_eq!(StateDelivery::from_argument_name("df"),
+               StateDelivery::Reserved("df".to_string()));
+    assert_eq!(StateDelivery::from_argument_name("df").effective(), StateDelivery::Value);
+}
+
+/// A host implements its own first_command affordance this way, without depending on a name.
+#[test]
+fn conv12_a_declared_mode_wins_over_the_derived_one() {
+    let mut d = CommandDeclaration::from_introspection(json!({"name":"f","arguments":[
+        { "name": "value" }, { "name": "count" }]}));
+    d.enhance(&json!({ "registration": { "state": "none" } })).unwrap();
+    d.apply_conventions().unwrap();
+    let m = finish(&mut d);
+    assert!(m.state_argument.is_none(), "declared `none` wins over derived `value`");
+}
+
+/// Structural before delivery, or `def f(context, x)` would make the context the state.
+#[test]
+fn conv13_leading_context_is_removed_before_the_delivery_rule() {
+    let mut d = CommandDeclaration::from_introspection(json!({"name":"f","arguments":[
+        { "name": "context" }, { "name": "value" }, { "name": "count" }]}));
+    d.apply_conventions().unwrap();
+    let m = finish(&mut d);
+    assert_eq!(d.registration()["context"], json!(0));
+    assert_eq!(d.registration()["state"], json!("value"), "`value`, not `context`");
+    assert_eq!(m.arguments.len(), 1);
+}
+
+/// The rule interprets a *function's parameters*. A document declaring public arguments where none
+/// were discovered must not lose its first one to the state.
+#[test]
+fn conv14_no_introspection_means_no_delivery_rule() {
+    let mut d = CommandDeclaration::from_introspection(json!({ "name": "f" }));
+    d.enhance(&json!({ "arguments": [{ "name": "count" }] })).unwrap();
+    d.apply_conventions().unwrap();
+    let m = finish(&mut d);
+    assert!(m.state_argument.is_none());
+    assert_eq!(m.arguments.len(), 1);
+    assert_eq!(m.arguments[0].name, "count");
 }
 
 #[test]
@@ -820,8 +870,12 @@ the tested input cannot drift.
   calling convention into the exported registry under a name that already means "hints for the UI".
 - Conventions are the reason stage 1 can be dumb. An integration that recognises `context` itself
   has re-implemented a rule every other language must then re-implement identically.
+- The first argument is *always* the state; its name selects only the delivery mode. The earlier
+  rule — recognise an argument *named* `state`/`value`/`text` — was a trap: `def f(df, count)` would
+  have declared a source command whose first query parameter bound to `df`. Making the name select
+  the mode instead is what lets an unknown name be a reserved extension point rather than an error.
 - The two convention kinds are worth keeping apart: `context` is *structural* — it changes the
-  argument list — while `state` is *delivery*, fixing how a value arrives. The second has normative
+  argument list — while the state rule is *delivery*, fixing how a value arrives. The second has normative
   meanings (`value` means "unwrap through the value bridge where possible") that core records but
   cannot enforce, so each integration's conformance suite is where they are actually checked.
 - `text` is the only delivery mode that can fail, and it fails at call time. Nothing in
@@ -832,16 +886,16 @@ the tested input cannot drift.
 
 *Against Phase 1:* every acceptance criterion has a test — criterion 1 is BUILD01, criterion 3 is
 INT01, criterion 5 is INT02, criterion 6 is INT06, criterion 7 is what the merge laws make possible.
-Criterion 2 is HINT01–HINT04 and CONV01–CONV10: registration hints declaration-only, usage hints in
+Criterion 2 is HINT01–HINT04 and CONV01–CONV14: registration hints declaration-only, usage hints in
 the metadata, and conventions owned by the declaration layer.
 
 *Against Phase 2:* the five stages appear as `from_introspection`, `enhance`, `apply_conventions`,
 `fill_defaults`, `build`; every merge rule in Part A has a numbered test, including the
 no-introspection exception that Part A calls load-bearing; the Part B label table is DEF01 verbatim;
 the Part C `CommandParameterValue` table is BUILD04; Part D's two hint kinds are HINT02 (registration
-dropped) and HINT04 (usage kept); and Part E's conventions are CONV01–CONV10, with CONV06 asserting
-the after-the-merge ordering that Part E calls its design decision and CONV08 pinning the three
-delivery modes.
+dropped) and HINT04 (usage kept); and Part E's conventions are CONV01–CONV14, with CONV06 asserting
+the after-the-merge ordering that Part E calls its design decision, CONV08 pinning the delivery
+modes and CONV13 the structural-before-delivery ordering.
 
 *Against the codebase:* no query strings appear in these examples, so query validation does not
 apply. Every cited line was read at `HEAD`. Commands named in examples (`repeat`, `to_upper`) are

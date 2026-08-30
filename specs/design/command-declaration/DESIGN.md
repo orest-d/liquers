@@ -44,8 +44,8 @@ is set, so all five phases and the Phase 5 documentation contract now apply.
       asymmetrically — see its §Bar)*
 - [x] Phase 2 approval gate — **approved 2026-08-30**; hints decided declaration-only
 - [x] Phase 3: Examples and use-cases — [`phase3-examples.md`](./phase3-examples.md)
-      *(3 examples, 50 numbered tests; the merge laws and the conventions are the specification.
-      Approved 2026-08-30; state-delivery modes added the same day.)*
+      *(3 examples, 54 numbered tests; the merge laws and the conventions are the specification.
+      Approved 2026-08-30; the state-delivery rule corrected the same day.)*
 - [x] Phase 4: Implementation plan — [`phase4-implementation.md`](./phase4-implementation.md)
       *(10 steps; the `serde_wasm_bindgen` spike is hoisted ahead of the `liquers-web` rewrite
       because its answer changes that step. Awaiting approval, then execution.)*

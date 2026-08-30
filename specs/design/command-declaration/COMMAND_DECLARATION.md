@@ -118,57 +118,73 @@ discovered or declared.
 
 ### 3.2 Two kinds of convention
 
-They do different things and it is worth keeping them apart.
+They do different things and it is worth keeping them apart. **Structural conventions run first**, so
+a `context` in first position is removed before the delivery rule looks at what is left.
 
 **Structural** — changes the argument list.
 
 | Convention | Rule | Effect |
 |---|---|---|
-| `context` | an argument named `context` | Removed from `arguments`. Its position is recorded under `registration.context` so the integration can pass the context there at call time. It is **not** a `CommandMetadata` argument — matching `register_command!`, where a `context` parameter occupies no argument slot |
+| `context` | an argument named `context`, in any position | Removed from `arguments`; its position recorded at `registration.context`. It is **not** a `CommandMetadata` argument — matching `register_command!`, where a `context` parameter occupies no argument slot |
 
-**Delivery** — classifies the first argument and fixes *how its value arrives*.
+**Delivery** — fixes how the input state reaches the callable.
 
-| Convention | Rule | Effect |
+> **The first argument is always the state-derived argument.** Its *name* does not decide
+> *whether* it is the state — it decides **how the state is delivered**.
+
+This is the rule that makes a Python or JavaScript signature readable without ceremony: an author
+writes `def repeat(value, count)` and gets the unwrapped value, `def summarise(df)` and gets whatever
+`df` will one day mean, `def now(none)` and gets a source command.
+
+### 3.2.1 The delivery modes
+
+`liquers-core` records the mode; the integration performs it. The **meanings are normative** — every
+integration must honour them identically, which is the whole reason the rule is owned here.
+
+| Name | The callable receives | Can it fail? |
 |---|---|---|
-| `state` | the **first** argument, when named `state`, `value` or `text` | Removed from `arguments` and recorded as `state_argument`. The spelling selects a **delivery mode**, recorded under `registration.state` |
+| `none`, `na` | **nothing** — the state is not passed. A *source* command | no |
+| `state` | the `State` wrapper, so the callable reaches the metadata as well as the value | no |
+| `value` | the value **unwrapped to the language-native form wherever the value bridge can**, falling back to the `Value` wrapper only where it cannot | no |
+| `text` | the value through `ValueInterface::try_into_string` | **yes** — at call time |
+| anything else | **reserved.** Interpreted as `value` today | no, today |
 
-### 3.2.1 The three delivery modes
+**`none` is `first_command`.** It matches `liquer`'s decorator of that name, including the part
+worth remembering: such a command is still a perfectly ordinary command and may appear anywhere in a
+query. A state reaching it is **ignored, not refused**.
 
-The mode is language-specific to *perform* — only the integration knows what its native values are —
-but its **meaning is normative**, and every integration must honour it identically. This is the
-whole reason the convention is owned here rather than per host.
+**Reserved names are the extension point.** An unrecognised first-argument name is not an error; it
+means `value` until something gives it meaning. `df` is the motivating case — a Python integration
+may one day deliver a polars or pandas DataFrame for it, and declarations written today keep working
+because `value` was always the fallback.
 
-| Spelling | The callable receives | Can it fail? |
-|---|---|---|
-| `state` | the `State` wrapper itself, so the callable reaches the metadata as well as the value | no |
-| `value` | the value, **unwrapped to the language-native form wherever the value bridge can do it**, falling back to the `Value` wrapper only where it cannot | no |
-| `text` | the value converted to a string, via `ValueInterface::try_into_string` | **yes** — at call time, not registration |
+**`value` is not a new mechanism.** It delegates to the integration's existing value bridge (the
+`VALUE` feature of the language integration guide). A Python `value` command receives a `str`, an
+`int`, a `DataFrame` — whatever the bridge produces — and a `Value` object only for something the
+bridge cannot unwrap. Receiving a wrapper for a plain string is a bridge defect, not a declaration
+one.
 
-`value` is not a new mechanism: it delegates to the integration's existing value bridge (the `VALUE`
-feature of the language integration guide). A Python `value` command receives a `str`, an `int`, a
-`DataFrame` — whatever the bridge produces — and a `Value` object only for something the bridge
-cannot unwrap. Writing `value` and receiving a wrapper for a plain string would be a bridge defect,
-not a declaration one.
+**`text` is the only mode that can fail**, and it fails when the command *runs*, not when it is
+declared: `try_into_string` returns a `Result` and not every value has a string form.
 
-`text` is the only mode that can fail, and it fails **when the command runs**, not when it is
-declared: `try_into_string` returns a `Result` and not every value has a string form. An integration
-maps that failure through its error bridge like any other command error.
+### 3.2.2 Declaring the mode instead of naming it
 
-### 3.2.2 Only the first argument
-
-The rule keys on position as well as name. An argument named `state` in any other position is an
-ordinary command argument and keeps its slot.
-
-**The consequence is worth stating plainly, because it surprises people:** a function whose first
-parameter is named anything else — `data`, `df`, `x` — declares a *source* command, and that first
-parameter becomes an ordinary query argument. Naming is the whole rule.
-
-The escape hatch is to declare it rather than rely on the name:
+The mode may be set directly, which is how a host implements its own `first_command`-style
+affordance without depending on a parameter name:
 
 ```yaml
-name: transform
-state_argument: { name: df }      # explicit; the convention is not consulted for it
+registration: { state: none }     # a source command, whatever the first argument is called
 ```
+
+A declared mode wins over the one derived from the name.
+
+### 3.2.3 Where the rule applies
+
+The rule interprets **a function's parameter list**. It therefore applies when introspection ran —
+when the baseline carried an `arguments` key — and not when a declaration introduces arguments where
+none were discovered. In that second case the `arguments` are the command's *public* arguments, not
+a function's parameters, and swallowing the first would be wrong. A document host that wants a state
+declares one: `state_argument: {…}`, or `registration: { state: value }`.
 
 ### 3.3 Opting out
 
@@ -423,8 +439,9 @@ arguments:
 **Stage 2** — the declaration merges over it. `label` is new; the `count` entry is matched by name
 and augments the discovered argument, leaving its type and default untouched.
 
-**Stage 3** — conventions apply. `state` is the first argument and is named `state`, so it becomes
-`state_argument`; `context` is recognised and removed. Both leave a trace in `registration`:
+**Stage 3** — conventions apply. `context` is removed first (structural). `state` is then the first
+of what remains, so it becomes `state_argument`, and its *name* selects the `state` delivery mode.
+Both leave a trace in `registration`:
 
 ```yaml
 name: repeat
@@ -436,7 +453,7 @@ arguments:
   - { name: count, argument_type: int, default: !Value 2,
       gui_info: !IntegerSlider { min: 1, max: 9 } }
 registration:
-  state: state          # the delivery mode — here, the State wrapper itself
+  state: state          # the delivery mode, from the first argument's name
   context: 2            # the parameter position to pass the context at
 ```
 

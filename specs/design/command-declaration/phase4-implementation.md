@@ -196,12 +196,31 @@ impl CommandDeclaration {
 
 - `context` — an argument named `context` is removed; its **index before removal** is written to
   `registration.context`.
-- `state` — the **first** argument, if named `state`, `value` or `text`, is moved to
-  `state_argument`; the spelling is written to `registration.state` as the **delivery mode**. Core
-  records it and never acts on it: `state` means the `State` wrapper, `value` means unwrapped
-  through the integration's value bridge where possible, `text` means `try_into_string`
-  (`value.rs:139`) — normative meanings the integration performs. An argument named `state` in any
-  other position is ordinary, and an explicitly declared `state_argument` is left untouched.
+- **State delivery** — the **first** argument is *always* the state-derived argument; its name
+  selects only how the state is delivered. It moves to `state_argument` and the mode is written to
+  `registration.state`. Core records the mode and never performs it.
+
+```rust
+/// How the input state reaches the callable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StateDelivery { None, State, Value, Text, Reserved(String) }
+
+impl StateDelivery {
+    pub fn from_argument_name(name: &str) -> Self;   // none|na, state, value, text, else Reserved
+    pub fn effective(&self) -> StateDelivery;        // Reserved -> Value
+    pub fn as_str(&self) -> &str;                    // serializes as a plain string
+}
+```
+
+  `None` produces no `state_argument` at all — `first_command` semantics, and the marker argument is
+  removed rather than kept. `Reserved` is why this is an open enum: an unrecognised name means
+  `value` today, so a declaration survives `df` acquiring a meaning later. A **declared**
+  `registration.state` wins over the derived one; an explicit `state_argument` is left untouched.
+
+  **Two orderings are load-bearing.** Structural conventions run *before* delivery, or
+  `def f(context, x)` makes the context the state (CONV13). And the delivery rule applies only when
+  introspection ran — the baseline carried an `arguments` key — so a document declaring public
+  arguments does not lose its first one (CONV14); this reuses the merge's no-introspection signal.
 - `conventions: false` disables both; `conventions: { context: false }` disables one.
 - Idempotent: applying twice equals applying once (CONV07).
 
@@ -210,14 +229,15 @@ No `_ =>` arm anywhere — the two flags are matched explicitly.
 **Validation**
 
 ```bash
-cargo test -p liquers-core --lib convention_tests    # CONV01-CONV10
+cargo test -p liquers-core --lib convention_tests    # CONV01-CONV14
 ```
 
 **Agent:** sonnet · skills `rust-best-practices` · knowledge: Phase 2 §Part E, Phase 3 CONV tests,
 and `liquers-macro/src/registration.rs:489,1134` for the rule being reproduced.
 
-**Rollback:** remove `apply_conventions` and `Conventions`; the pipeline still runs, producing
-commands with `state` and `context` as ordinary arguments — the pre-design behaviour.
+**Rollback:** remove `apply_conventions`, `Conventions` and `StateDelivery`; the pipeline still
+runs, producing commands whose first parameter and any `context` are ordinary arguments — the
+pre-design behaviour, and wrong for every dynamic host, so this is a rollback of last resort.
 
 ---
 
@@ -498,7 +518,7 @@ it. Criterion 4's byte-identical round-trip is enforced twice — by INT01 in st
 step 9. The sequencing Phase 2 recommends (C → A → B → D → web) is preserved, with the conventions
 inserted and the spike hoisted ahead of the rewrite.
 
-*Against Phase 3:* every numbered test has a step that makes it pass — MERGE in 3, CONV01-CONV10 in 4, DEF in
+*Against Phase 3:* every numbered test has a step that makes it pass — MERGE in 3, CONV01-CONV14 in 4, DEF in
 5, BUILD/VAL/HINT in 6, INT in 7-9. No test is orphaned and no step is untested.
 
 *Against the codebase:* `Error::from_error<E: Display>` (`error.rs:129`), `ErrorType::ParameterError`
