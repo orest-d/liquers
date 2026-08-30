@@ -59,6 +59,7 @@ Rust test functions, so Phase 4 drops them in rather than writing them again.
 | HINT03 | Unit | An unknown registration-hint key is carried, not rejected |
 | HINT04 | Unit | A **usage** hint on an argument *does* reach the metadata |
 | CONV01 | Unit | An argument named `context` leaves `arguments` and lands in `registration` |
+|  |  | *(baseline needs three arguments: with `[count, context]` the first-is-state rule leaves none)* |
 | CONV02 | Unit | The **first** argument is always the state, whatever it is called |
 | CONV03 | Unit | A *non-leading* `state`/`value`/`text` is an ordinary argument |
 | CONV08 | Unit | Each delivery mode is recorded distinctly: `none`, `state`, `value`, `text` |

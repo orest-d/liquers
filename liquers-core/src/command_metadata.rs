@@ -56,15 +56,15 @@ pub enum EnumArgumentType {
     #[serde(rename = "string")]
     #[default]
     String,
-    #[serde(rename = "int")]
+    #[serde(rename = "int", alias = "integer")]
     Integer,
     #[serde(rename = "int_opt")]
     IntegerOption,
-    #[serde(rename = "float")]
+    #[serde(rename = "float", alias = "number")]
     Float,
     #[serde(rename = "float_opt")]
     FloatOption,
-    #[serde(rename = "bool")]
+    #[serde(rename = "bool", alias = "boolean")]
     Boolean,
     #[serde(rename = "any")]
     Any,
@@ -153,17 +153,17 @@ impl EnumArgument {
 /// Argument type specification
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 pub enum ArgumentType {
-    #[serde(rename = "string")]
+    #[serde(rename = "string", alias = "str", alias = "text")]
     String,
-    #[serde(rename = "int")]
+    #[serde(rename = "int", alias = "integer")]
     Integer,
     #[serde(rename = "int_opt")]
     IntegerOption,
-    #[serde(rename = "float")]
+    #[serde(rename = "float", alias = "number")]
     Float,
     #[serde(rename = "float_opt")]
     FloatOption,
-    #[serde(rename = "bool")]
+    #[serde(rename = "bool", alias = "boolean")]
     Boolean,
     Enum(EnumArgument),
     GlobalEnum(String),
@@ -289,12 +289,132 @@ pub enum ArgumentGUIInfo {
 /// In Plan building phase, the CommandParameterValue is used to fill the default values
 /// where needed when creating the ResolvedParameterValues for an Action.
 /// CommandParameterValue can be a JSON Value, a Query or None.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[derive(Serialize, Debug, Clone, PartialEq, Default)]
 pub enum CommandParameterValue {
     Value(Value),
     Query(Query),
     #[default]
     None,
+}
+
+/// Accepts both the tagged form the exporter writes and the bare form an author writes.
+///
+/// `Serialize` is left derived and untouched, so `specs/command_registry.yaml` does not move.
+/// Deserialization additionally accepts a bare scalar or array as shorthand for
+/// [`CommandParameterValue::Value`], which is what a hand-written declaration or a JavaScript
+/// object literal produces.
+///
+/// | Written | Reads as |
+/// |---|---|
+/// | `!Value 2` / `{"Value": 2}` | `Value(2)` |
+/// | `!Query "a/b"` / `{"Query": …}` | `Query(…)` |
+/// | `None` (the bare string) | `None` — the absent-default marker the exporter writes |
+/// | `2`, `"hello"`, `true`, `[…]` | `Value(…)` |
+/// | `null` | `Value(Null)`, preserving what the JavaScript parser did with a null default |
+///
+/// The one trap, inherited from the exported form rather than introduced here: a default whose
+/// literal value is the **string** `"None"` must be written `!Value 'None'`.
+impl<'de> Deserialize<'de> for CommandParameterValue {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_any(CommandParameterValueVisitor)
+    }
+}
+
+struct CommandParameterValueVisitor;
+
+impl<'de> serde::de::Visitor<'de> for CommandParameterValueVisitor {
+    type Value = CommandParameterValue;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str(
+            "a default value: a scalar, an array, the string \"None\", or a tagged \
+             `Value`/`Query`",
+        )
+    }
+
+    fn visit_bool<E: serde::de::Error>(self, v: bool) -> Result<Self::Value, E> {
+        Ok(CommandParameterValue::Value(Value::Bool(v)))
+    }
+    fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<Self::Value, E> {
+        Ok(CommandParameterValue::Value(Value::from(v)))
+    }
+    fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<Self::Value, E> {
+        Ok(CommandParameterValue::Value(Value::from(v)))
+    }
+    fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<Self::Value, E> {
+        Ok(CommandParameterValue::Value(Value::from(v)))
+    }
+    fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
+        if v == "None" {
+            Ok(CommandParameterValue::None)
+        } else {
+            Ok(CommandParameterValue::Value(Value::from(v)))
+        }
+    }
+    fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+        Ok(CommandParameterValue::Value(Value::Null))
+    }
+    fn visit_none<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+        Ok(CommandParameterValue::Value(Value::Null))
+    }
+    fn visit_some<D: serde::Deserializer<'de>>(self, d: D) -> Result<Self::Value, D::Error> {
+        d.deserialize_any(CommandParameterValueVisitor)
+    }
+
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+        let mut items = Vec::new();
+        while let Some(item) = seq.next_element::<Value>()? {
+            items.push(item);
+        }
+        Ok(CommandParameterValue::Value(Value::Array(items)))
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+        let key: Option<String> = map.next_key()?;
+        let key = match key {
+            Some(key) => key,
+            // An empty map is not a legal default; today's JavaScript parser refuses objects too.
+            None => {
+                return Err(serde::de::Error::custom(
+                    "an empty object is not a default value",
+                ))
+            }
+        };
+        let parsed = match key.as_str() {
+            "Value" => CommandParameterValue::Value(map.next_value::<Value>()?),
+            "Query" => CommandParameterValue::Query(map.next_value::<Query>()?),
+            other => {
+                return Err(serde::de::Error::custom(format!(
+                    "a default value must be a scalar, an array, or a tagged `Value`/`Query`, \
+                     found an object keyed {other:?}"
+                )))
+            }
+        };
+        // The tagged form carries exactly one entry; drain the rest so a malformed document is
+        // refused rather than silently truncated.
+        if map.next_key::<String>()?.is_some() {
+            return Err(serde::de::Error::custom(
+                "a tagged default value must have exactly one key",
+            ));
+        }
+        Ok(parsed)
+    }
+
+    fn visit_enum<A: serde::de::EnumAccess<'de>>(self, data: A) -> Result<Self::Value, A::Error> {
+        use serde::de::VariantAccess;
+        let (tag, variant): (String, _) = data.variant()?;
+        match tag.as_str() {
+            "Value" => Ok(CommandParameterValue::Value(variant.newtype_variant()?)),
+            "Query" => Ok(CommandParameterValue::Query(variant.newtype_variant()?)),
+            "None" => {
+                variant.unit_variant()?;
+                Ok(CommandParameterValue::None)
+            }
+            other => Err(serde::de::Error::custom(format!(
+                "unknown default value tag {other:?}"
+            ))),
+        }
+    }
 }
 
 impl CommandParameterValue {
@@ -367,6 +487,8 @@ pub struct ArgumentInfo {
     pub name: String,
 
     /// Human readable label of the argument, used e.g. in the UI to display the argument.
+    /// Defaults to empty on deserialization; a declaration fills it from the name.
+    #[serde(default)]
     pub label: String,
 
     /// Default value of the argument - or None.
@@ -375,8 +497,9 @@ pub struct ArgumentInfo {
     pub default: CommandParameterValue,
 
     /// Type of the argument.
+    /// `type` is accepted as an alias so a hand-written declaration may use the shorter spelling.
     #[serde(skip_serializing_if = "ArgumentType::is_any")]
-    #[serde(default)]
+    #[serde(default, alias = "type")]
     pub argument_type: ArgumentType,
 
     /// Used for variadic commands. If true, then this argument parses remaining command parameters
@@ -786,6 +909,8 @@ pub struct CommandMetadata {
 
     /// Label of the command, provides a simple description of what the command does.
     /// It may appear in command UI.
+    /// Defaults to empty on deserialization; a declaration fills it from the name.
+    #[serde(default)]
     pub label: String,
 
     /// Module where the command is implemented.
@@ -833,6 +958,7 @@ pub struct CommandMetadata {
 
     /// If true, then the result of the command can be cached.
     /// Default is true.
+    #[serde(default = "true_default")]
     pub cache: bool,
 
     /// If true, then the command is volatile.
@@ -840,6 +966,7 @@ pub struct CommandMetadata {
     /// If a volatile command appears in a plan or query, all the steps after the volatile command
     /// effectively become volatile as well, as they depend on the result of the volatile command.
     /// Default is false.
+    #[serde(default)]
     pub volatile: bool,
 
     /// Whether the command needs an evaluation payload to run.
@@ -869,6 +996,7 @@ pub struct CommandMetadata {
     /// Definition of the command, see [CommandDefinition].
     /// Commands are normally registered and defined in the environment via a [crate::commands::CommandExecutor].
     /// They can however also be defined as aliases to other commands.
+    #[serde(default)]
     pub definition: CommandDefinition,
 
     /// Version of the metadata structure content.
