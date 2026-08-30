@@ -1393,8 +1393,6 @@ mod test {
             serde_yaml::to_string(&recipelist).unwrap()
         );
     }
-
-    #[cfg(feature = "async_store")]
     #[tokio::test]
     async fn test_default_recipe_provider() {
         use crate::context::{EnvRef, Environment, SimpleEnvironment};
@@ -1654,7 +1652,6 @@ mod test {
 
     /// The two choices are distinguished by behaviour, not by type name: `default` resolves a
     /// recipe held in the environment's store, `trivial` resolves none.
-    #[cfg(feature = "async_store")]
     #[tokio::test]
     async fn recipe_provider_choice_yields_providers_that_differ_in_behaviour() {
         use crate::context::{EnvRef, Environment, SimpleEnvironment};

@@ -98,7 +98,6 @@ use core::panic;
 use std::sync::{Arc, Mutex};
 
 use crate::maybe_send::MaybeBoxed;
-use futures::FutureExt;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::assets::DefaultAssetManager;
@@ -176,7 +175,6 @@ pub trait Environment:
     /// Returns the command executor used by the interpreter.
     fn get_command_executor(&self) -> &Self::CommandExecutor;
     /// Returns the asynchronous persistence store.
-    #[cfg(feature = "async_store")]
     fn get_async_store(&self) -> Arc<dyn crate::store::AsyncStore>;
 
     /// Returns the shared asset manager.
@@ -240,7 +238,6 @@ impl<E: Environment> EnvRef<E> {
         EnvRef(Arc::new(env))
     }
     /// Returns the configured asynchronous store.
-    #[cfg(feature = "async_store")]
     pub fn get_async_store(&self) -> Arc<dyn crate::store::AsyncStore> {
         self.0.get_async_store()
     }
@@ -967,7 +964,6 @@ impl Session for SimpleSession {
 pub struct SimpleEnvironment<V: ValueInterface> {
     type_registry: crate::type_system::TypeRegistry,
     store: Arc<dyn Store>,
-    #[cfg(feature = "async_store")]
     async_store: Arc<dyn crate::store::AsyncStore>,
     //cache: Arc<tokio::sync::RwLock<Box<dyn Cache<V>>>>,
     pub command_registry: CommandRegistry<Self>,
@@ -1007,7 +1003,6 @@ impl<V: ValueInterface> SimpleEnvironment<V> {
             store: Arc::new(NoStore),
             command_registry: CommandRegistry::new(),
             //            cache: Arc::new(tokio::sync::RwLock::new(Box::new(NoCache::<V>::new()))),
-            #[cfg(feature = "async_store")]
             async_store: Arc::new(crate::store::NoAsyncStore),
             asset_store: Arc::new(crate::assets::DefaultAssetManager::new()),
             recipe_provider: None,
@@ -1031,7 +1026,6 @@ impl<V: ValueInterface> SimpleEnvironment<V> {
         self
     }
     /// Sets the asynchronous store used by assets.
-    #[cfg(feature = "async_store")]
     pub fn with_async_store(&mut self, store: Box<dyn crate::store::AsyncStore>) -> &mut Self {
         self.async_store = Arc::from(store);
         self
@@ -1063,8 +1057,6 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
     fn get_command_executor(&self) -> &Self::CommandExecutor {
         &self.command_registry
     }
-
-    #[cfg(feature = "async_store")]
     fn get_async_store(&self) -> Arc<dyn crate::store::AsyncStore> {
         self.async_store.clone()
     }
@@ -1130,7 +1122,6 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
 /// [`TrivialRecipeProvider`](crate::recipes::TrivialRecipeProvider).
 pub struct ImmediateEnvironment<V: ValueInterface> {
     type_registry: crate::type_system::TypeRegistry,
-    #[cfg(feature = "async_store")]
     async_store: Arc<dyn crate::store::AsyncStore>,
     pub command_registry: CommandRegistry<Self>,
     asset_store: Arc<crate::assets::ImmediateAssetManager<Self>>,
@@ -1163,14 +1154,12 @@ impl<V: ValueInterface> ImmediateEnvironment<V> {
         ImmediateEnvironment {
             type_registry,
             command_registry: CommandRegistry::new(),
-            #[cfg(feature = "async_store")]
             async_store: Arc::new(crate::store::NoAsyncStore),
             asset_store: Arc::new(crate::assets::ImmediateAssetManager::new()),
             recipe_provider: None,
         }
     }
     /// Sets the asynchronous store used by assets.
-    #[cfg(feature = "async_store")]
     pub fn with_async_store(&mut self, store: Box<dyn crate::store::AsyncStore>) -> &mut Self {
         self.async_store = Arc::from(store);
         self
@@ -1203,8 +1192,6 @@ impl<V: ValueInterface> Environment for ImmediateEnvironment<V> {
     fn get_command_executor(&self) -> &Self::CommandExecutor {
         &self.command_registry
     }
-
-    #[cfg(feature = "async_store")]
     fn get_async_store(&self) -> Arc<dyn crate::store::AsyncStore> {
         self.async_store.clone()
     }
@@ -1266,7 +1253,6 @@ impl<V: ValueInterface> Environment for ImmediateEnvironment<V> {
 /// [`TrivialRecipeProvider`](crate::recipes::TrivialRecipeProvider).
 pub struct ImmediateEnvironmentWithPayload<V: ValueInterface, P: crate::commands::PayloadType> {
     type_registry: crate::type_system::TypeRegistry,
-    #[cfg(feature = "async_store")]
     async_store: Arc<dyn crate::store::AsyncStore>,
     pub command_registry: CommandRegistry<Self>,
     asset_store: Arc<crate::assets::ImmediateAssetManager<Self>>,
@@ -1302,7 +1288,6 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> ImmediateEnvironmentWit
         ImmediateEnvironmentWithPayload {
             type_registry,
             command_registry: CommandRegistry::new(),
-            #[cfg(feature = "async_store")]
             async_store: Arc::new(crate::store::NoAsyncStore),
             asset_store: Arc::new(crate::assets::ImmediateAssetManager::new()),
             recipe_provider: None,
@@ -1310,7 +1295,6 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> ImmediateEnvironmentWit
         }
     }
     /// Sets the asynchronous store used by assets.
-    #[cfg(feature = "async_store")]
     pub fn with_async_store(&mut self, store: Box<dyn crate::store::AsyncStore>) -> &mut Self {
         self.async_store = Arc::from(store);
         self
@@ -1345,8 +1329,6 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
     fn get_command_executor(&self) -> &Self::CommandExecutor {
         &self.command_registry
     }
-
-    #[cfg(feature = "async_store")]
     fn get_async_store(&self) -> Arc<dyn crate::store::AsyncStore> {
         self.async_store.clone()
     }
@@ -1841,7 +1823,6 @@ mod tests {
 pub struct SimpleEnvironmentWithPayload<V: ValueInterface, P: crate::commands::PayloadType> {
     type_registry: crate::type_system::TypeRegistry,
     store: Arc<dyn Store>,
-    #[cfg(feature = "async_store")]
     async_store: Arc<dyn crate::store::AsyncStore>,
     //cache: Arc<tokio::sync::RwLock<Box<dyn Cache<V>>>>,
     pub command_registry: CommandRegistry<Self>,
@@ -1885,7 +1866,6 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> SimpleEnvironmentWithPa
             command_registry: CommandRegistry::new(),
             //            cache: Arc::new(tokio::sync::RwLock::new(Box::new(NoCache::<V>::new()))),
             _payload: std::marker::PhantomData::<P>::default(),
-            #[cfg(feature = "async_store")]
             async_store: Arc::new(crate::store::NoAsyncStore),
             asset_store: Arc::new(crate::assets::DefaultAssetManager::new()),
             recipe_provider: None,
@@ -1909,7 +1889,6 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> SimpleEnvironmentWithPa
         self
     }
     /// Sets the asynchronous store used by assets.
-    #[cfg(feature = "async_store")]
     pub fn with_async_store(&mut self, store: Box<dyn crate::store::AsyncStore>) -> &mut Self {
         self.async_store = Arc::from(store);
         self
@@ -1943,8 +1922,6 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
     fn get_command_executor(&self) -> &Self::CommandExecutor {
         &self.command_registry
     }
-
-    #[cfg(feature = "async_store")]
     fn get_async_store(&self) -> Arc<dyn crate::store::AsyncStore> {
         self.async_store.clone()
     }

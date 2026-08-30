@@ -8,9 +8,11 @@ edition = "2021"
 crate-type = ["cdylib", "lib"]
 
 [features]
-default=["async_store"]
-async_store=["futures", "async-trait"]
-tokio_exec=["futures", "async-trait", "async_store"]
+default=[]
+# Compatibility feature kept for existing Cargo feature selections. The async store API is part
+# of core in every build; this feature no longer controls dependencies or public symbols.
+async_store=[]
+tokio_exec=[]
 # Command-line tools. Deliberately NOT in `default`: this keeps clap out of every
 # library consumer (liquers-py, wasm builds) while still shipping the validator.
 cli=["dep:clap"]
@@ -63,6 +65,8 @@ chrono = "0.4.31"
 blake3 = "1.8.1"
 scc = "3.4.8"
 ansic = "0.1.7"
+futures = "0.3.31"
+async-trait = "0.1.80"
 
 # tokio: native keeps `fs` (used by AsyncFileStore); wasm drops `fs`/`net`
 # (not supported on wasm32-unknown-unknown). Both keep sync/rt/macros/time.
@@ -76,11 +80,3 @@ tokio = { version = "1.47.1", features = ["sync"] }
 tokio = {version="1.47.1", features = ["full"]}
 futures = {version="0.3.31", features=["executor"]}
 liquers-macro={path="../liquers-macro"}
-
-[dependencies.futures]
-version = "0.3.31"
-optional=true
-
-[dependencies.async-trait]
-version = "0.1.80"
-optional=true

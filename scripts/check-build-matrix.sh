@@ -35,12 +35,10 @@
 # on this crate at all — but the row still earns its place as the wasm32 half of the feature split.
 # See specs/design/store-factories-in-core/.
 #
-# liquers-core is here because it now carries an optional feature (`toml`) and target-conditional
+# liquers-core is here because it carries optional features (`toml`, `cli`) and target-conditional
 # store availability (`filesystem` is declared but unavailable on wasm32), neither of which the
-# native default build exercises. Note the absence of a `--no-default-features` row: that
-# configuration has never compiled, because `async_store` gates `futures`/`async-trait` while
-# context.rs, interpreter.rs and store.rs import them unconditionally. Add the row when
-# CORE-NO-DEFAULT-FEATURES-BROKEN is fixed; adding it now would make this script red on arrival.
+# native default build exercises. The `--no-default-features` row proves that the core async store
+# surface is always available even when no optional features are selected.
 #
 # Usage: bash scripts/check-build-matrix.sh
 # See specs/design/liquers-web/phase4-implementation.md, Step 7.
@@ -57,6 +55,7 @@ LIB_CONFIGS=(
 )
 
 CORE_CONFIGS=(
+  "--no-default-features"
   ""
   "--features toml"
   "--target wasm32-unknown-unknown"

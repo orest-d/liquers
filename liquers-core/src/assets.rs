@@ -3409,7 +3409,7 @@ pub trait AssetManager<E: Environment>:
         &self,
         key: &Key,
         binary: &[u8],
-        mut metadata: MetadataRecord,
+        metadata: MetadataRecord,
     ) -> Result<(), Error>;
 
     /// Set State (data + metadata) for a key asset.

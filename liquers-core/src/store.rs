@@ -54,7 +54,7 @@ use crate::error::Error;
 use crate::metadata::{self, AssetInfo, Metadata, MetadataRecord};
 use crate::query::Key;
 
-#[cfg(all(feature = "async_store", not(target_arch = "wasm32")))]
+#[cfg(not(target_arch = "wasm32"))]
 use tokio::time::{sleep, Duration};
 
 /// A synchronous key-value store.
@@ -323,8 +323,6 @@ pub trait Store: Send + Sync {
             return f"Store()"
     */
 }
-
-#[cfg(feature = "async_store")]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 /// An asynchronous key-value store. This is the trait new backends implement.
@@ -564,8 +562,6 @@ impl Clone for NoAsyncStore {
         NoAsyncStore
     }
 }
-
-#[cfg(feature = "async_store")]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl AsyncStore for NoAsyncStore {
@@ -579,14 +575,11 @@ impl AsyncStore for NoAsyncStore {
 }
 
 /// Async-native in-memory store implementation.
-#[cfg(feature = "async_store")]
 pub struct AsyncMemoryStore {
     data: scc::HashMap<Key, (Arc<[u8]>, Metadata)>,
     dir_index: scc::HashMap<Key, Arc<scc::HashMap<Key, usize>>>,
     prefix: Key,
 }
-
-#[cfg(feature = "async_store")]
 impl AsyncMemoryStore {
     pub fn new(prefix: &Key) -> Self {
         Self {
@@ -674,8 +667,6 @@ impl AsyncMemoryStore {
         }
     }
 }
-
-#[cfg(feature = "async_store")]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl AsyncStore for AsyncMemoryStore {
@@ -908,14 +899,14 @@ impl AsyncStore for AsyncMemoryStore {
 
 /// Async-native file store implementation.
 /// Uses `tokio::fs`, unavailable on wasm — excluded from `wasm32` targets.
-#[cfg(all(feature = "async_store", not(target_arch = "wasm32")))]
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Clone)]
 pub struct AsyncFileStore {
     pub path: PathBuf,
     pub prefix: Key,
 }
 
-#[cfg(all(feature = "async_store", not(target_arch = "wasm32")))]
+#[cfg(not(target_arch = "wasm32"))]
 impl AsyncFileStore {
     const METADATA: &'static str = ".__metadata__";
     const LOCK: &'static str = ".__lock__";
@@ -1008,20 +999,16 @@ impl AsyncFileStore {
         }
     }
 }
-
-#[cfg(feature = "async_store")]
 struct FileLockGuard {
     path: PathBuf,
 }
-
-#[cfg(feature = "async_store")]
 impl Drop for FileLockGuard {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);
     }
 }
 
-#[cfg(all(feature = "async_store", not(target_arch = "wasm32")))]
+#[cfg(not(target_arch = "wasm32"))]
 #[async_trait]
 impl AsyncStore for AsyncFileStore {
     fn store_name(&self) -> String {
@@ -1919,12 +1906,9 @@ impl Store for StoreRouter {
 }
 
 /// Asunchronous store that routes requests to multiple (asynchronous) stores.
-#[cfg(feature = "async_store")]
 pub struct AsyncStoreRouter {
     stores: Vec<Box<dyn AsyncStore>>,
 }
-
-#[cfg(feature = "async_store")]
 impl AsyncStoreRouter {
     pub fn new() -> AsyncStoreRouter {
         AsyncStoreRouter { stores: Vec::new() }
@@ -1943,7 +1927,6 @@ impl AsyncStoreRouter {
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg(feature = "async_store")]
 impl AsyncStore for AsyncStoreRouter {
     fn store_name(&self) -> String {
         "Store router".to_string()
@@ -2207,8 +2190,6 @@ mod tests {
         assert!(!store.contains(&key)?);
         Ok(())
     }
-
-    #[cfg(feature = "async_store")]
     #[tokio::test]
     async fn test_async_memory_store_basic() -> Result<(), Error> {
         let store = AsyncMemoryStore::new(&Key::new());
@@ -2253,8 +2234,6 @@ mod tests {
         assert_eq!(store.get_bytes(&metadata_only_key).await?, Vec::<u8>::new());
         Ok(())
     }
-
-    #[cfg(feature = "async_store")]
     #[tokio::test]
     async fn test_async_file_store_basic() -> Result<(), Error> {
         let unique = format!(
@@ -2299,7 +2278,6 @@ mod tests {
     /// lookup used to index one past the end. Listing a store's own root is the most ordinary
     /// call there is, and it aborted — in wasm, where a panic kills the instance, that surfaced as
     /// a hung `Promise` rather than an error.
-    #[cfg(feature = "async_store")]
     #[tokio::test]
     async fn async_router_listdir_at_store_prefix() -> Result<(), Box<dyn std::error::Error>> {
         let mut router = AsyncStoreRouter::new();
@@ -2480,7 +2458,6 @@ mod key_absolute_tests {
     /// 3. **The outside file is byte-compared after an attempted write.** Asserting only the error
     ///    type would still pass if the store failed for some unrelated reason; what actually pins
     ///    the write closed is that the file did not change.
-    #[cfg(feature = "async_store")]
     #[tokio::test]
     async fn keyabs08_async_file_store_refuses_traversal() -> Result<(), Error> {
         let sandbox = unique_temp_dir("keyabs08");
@@ -2604,7 +2581,6 @@ mod key_absolute_tests {
     /// guards only `is_supported` behaves correctly, so a test that always routes would pass
     /// against an implementation whose `get` and `set` are wide open. An `Environment` is commonly
     /// configured with a store held directly.
-    #[cfg(feature = "async_store")]
     #[tokio::test]
     async fn keyabs11_is_supported_false_on_directly_held_store() -> Result<(), Error> {
         let root = unique_temp_dir("keyabs11");
