@@ -82,25 +82,38 @@ space-separated words and the first word is capitalised, so `to_text` and `toTex
 Derivation runs **after** the merge, never before, and only fills what is still empty — otherwise a
 derived value would be indistinguishable from a declared one and would block it.
 
-### The call specification
+### Hints, and what is out of scope
 
-**State.** Whether the function receives the input state, and in which form: not at all (a source
-command), the converted value, its text form, or the `State` itself with its metadata.
+**How to call the function is out of scope** (decision, 2026-08-29). It is the part that fought
+portability: which form of the state a callable wants, whether a variadic arrives spread or
+collected, whether the result is awaited — each is meaningful in some hosts and meaningless in
+others, and typing it in `liquers-core` forces every host to agree on notions some of them do not
+have. What the host does with its callable — register it, wrap it, invoke it — is likewise the
+host's business.
 
-**Argument passing.** Liquers arguments are positional by nature but always carry a name, so they
-*could* be passed either way. **Keyword passing is deliberately out of scope for now** (decision C3):
-arguments are passed positionally. The name is retained in the metadata, so adding a keyword mode
-later is additive. Python's injected-arguments case — where a keyword-only parameter would be the
-natural fit — is therefore deferred with it, and Python can discover parameter kinds itself via
-`inspect.Parameter.kind` if it needs to adapt.
+What remains is a place to **collect** such facts without interpreting them: a free `hints`
+dictionary, mirroring the one `ArgumentInfo` already has (`command_metadata.rs:399-403`). A host
+writes what it needs and reads it back; `liquers-core` only carries and merges it. No hint key is
+reserved or validated, and the vocabulary is expected to grow as integrations need it.
 
-**Variadic passing.** A `multiple` argument consumes every remaining action parameter. The
-declaration says how the resulting sequence reaches the function: **spread** across the call as
-individual arguments, or **collected** as one list argument.
+```yaml
+name: repeat
+arguments: [{ name: count, type: int }]
+hints:
+  javascript: { state: text, variadic: spread }
+```
 
-**Asynchrony.** Whether the result is awaited. A host that can determine this from the callable
-(Python's `inspect.iscoroutinefunction`) never needs it declared; one that cannot (JavaScript, where
-a plain function may still return a Promise) does.
+### The handover boundary
+
+A host's native declaration is not portable data — a JavaScript object holds a `js_sys::Function`, a
+Python decorator's kwargs hold a callable. The host splits its native structure: the callable and
+anything else non-portable stays with the host, and the data part becomes a `CommandDeclaration`.
+`liquers-web` already does this, stripping `run` before parsing (`spec.rs:130-140`). Nothing
+non-portable crosses the boundary, which is what keeps the shared layer shared.
+
+`CommandDeclaration` is a **type**, not a JSON convention, though it holds `serde_json::Value`
+internally — so a PyO3 or `wasm-bindgen` binding can expose the object and let a host build it up
+incrementally rather than assembling JSON by hand.
 
 ---
 
@@ -225,7 +238,8 @@ always there.
 | Q4 | Per-argument or per-command passing | Moot — C3 removes the dimension. |
 | Q5 | Retroactive label rule | **Not necessary.** Rust function names are normally snake case and the capitalisation is cosmetic; the new rule applies to the declaration path only. |
 | Q6 | Procedure | Agreed with C1. |
-| Q1' | `run` and `CommandDefinition` | **`HostFunction` rejected** — it would push runtime selection into the planner. `run` carries a callable at the *host* layer and never enters the shared document. Registration resolves it to `Registered` (**works**) or `Alias` (**does not work as proposed** — see Phase 2 §The `run` field). Recommended: branch 1 for v1. |
+| Q1' | `run` and `CommandDefinition` | **Out of scope entirely.** A callable cannot cross into portable data, and registration is host-specific. Superseded by the descope below; the `HostFunction`/`Alias` analysis is kept in Phase 2 §Rejected alternatives. |
+| — | **Descope, 2026-08-29** | Defining *how to call the function* is out of scope. The declaration's job is the originally stated one: an ergonomic author-facing format that fills defaults and produces `CommandMetadata`. Call-related facts survive as **uninterpreted hints**; the vocabulary is not designed now and grows as needed. |
 
 ### Consequences worth stating
 

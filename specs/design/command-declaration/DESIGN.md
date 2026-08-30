@@ -28,16 +28,17 @@ is set, so all five phases and the Phase 5 documentation contract now apply.
 
 - [x] Phase 1: High-level design — [`phase1-high-level-design.md`](./phase1-high-level-design.md)
 - [x] Phase 2: Solution and architecture — [`phase2-architecture.md`](./phase2-architecture.md)
-      *(rewritten 2026-08-29 against the purpose statement: a four-stage pipeline whose middle
-      three stages — merge, derive defaults, convert — are the shared deliverable. `run` withdrawn
-      pending the gate; see its open question 1.)*
+      *(rewritten 2026-08-29 against the purpose statement, then descoped: a four-stage pipeline
+      whose middle three stages — merge, derive defaults, convert to `CommandMetadata` — are the
+      shared deliverable. No call specification and no `run`.)*
 - [x] Purpose and semantics — [`purpose-and-semantics.md`](./purpose-and-semantics.md)
       *(maintainer purpose statement, drafted as the future API doc, with a critical evaluation
       and the recorded decisions. **This document, not Phase 1, defines what the feature is.**)*
 - [x] Portability validation — [`portability-analysis.md`](./portability-analysis.md)
       *(six languages assessed; the bar "clear benefit for Python and JavaScript" is met, but
       asymmetrically — see its §Bar)*
-- [ ] Phase 2 approval gate — **awaiting a decision** (5 open questions in Phase 2)
+- [ ] Phase 2 approval gate — **awaiting a decision** (5 open questions in Phase 2, led by
+      where hints live)
 - [ ] Phase 3: Examples and use-cases — `phase3-examples.md`, not yet created
 - [ ] Phase 4: Implementation plan and execution — `phase4-implementation.md`, not yet created
 - [ ] Phase 5: Documentation — `phase5-documentation.md`, mandatory under `liquers-project`
@@ -54,11 +55,15 @@ Its substance is a four-stage pipeline whose middle three stages are shared:
 1. populate   host introspection fills what it can discover          host-specific
 2. enhance    the author's declaration is merged over it             SHARED
 3. fill       defaults are derived for whatever is still absent      SHARED
-4. use        convert to CommandMetadata + CallSpec, or error        SHARED
+4. use        convert to CommandMetadata, or error                     SHARED
 ```
 
 Merging happens on the serialized form, so *absence is key-absence* — the distinction a typed
 representation cannot make and the merge cannot do without.
+
+**Descoped 2026-08-29:** defining *how to call the function* is out of scope, as is the callable
+itself. Those were the parts fighting portability. Call-related facts survive as uninterpreted
+hints, whose vocabulary is deliberately not designed yet.
 [`purpose-and-semantics.md`](./purpose-and-semantics.md) is the authoritative statement of what this
 is and why; [`portability-analysis.md`](./portability-analysis.md) tests the reuse claim against six
 languages.

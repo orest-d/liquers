@@ -37,46 +37,37 @@ already carry `#[serde(default)]`**, and nothing separates the four that do not 
 has one, `volatile: bool` three fields away does not. `ArgumentInfo::label` is a fifth
 (`{"name":"count"}` fails the same way). **The gap is five serde attributes, not a new type.**
 
-What `CommandMetadata` genuinely cannot express is **how a function becomes a command** — what
-`register_command!` decides at compile time. The concept exists twice already and is shared nowhere:
-`CommandSignature` (`liquers-macro/src/registration.rs:1104`) is consumed by codegen and gone after
-expansion; `CallableSpec` (`liquers-web/src/command/adapter.rs:130`), whose doc comment reads *"The
-retained callable and how to call it"*, is wasm32-only. A document cannot express it at all.
+What `CommandMetadata` genuinely cannot do is **compose**. A declaration adds to what the host
+already discovered by introspection — field by field and inside nested structures — so an author can
+attach a widget hint to one argument without restating its type and default. That needs *absent* and
+*default-valued* to be distinguishable, which `#[serde(default)]` collapses. It is why the merge
+operates on the serialized form, and it is the substance of the feature.
 
-Concretely, the call specification needs three things metadata does not carry:
+Alongside it there are facts about *how to call the function* that metadata has no field for: which
+form of the state the callable receives, whether a variadic arrives spread or collected, whether the
+result is awaited. **Defining these is out of scope** (`purpose-and-semantics.md` §Decisions): each is
+meaningful in some hosts and meaningless in others, so typing them in `liquers-core` would force
+every host to agree on notions some do not have. They survive as **uninterpreted hints** — a free
+dictionary mirroring the one `ArgumentInfo` already carries (`command_metadata.rs:399-403`) — written
+and read back by the host that understands them.
 
-- **`state`** — `none | value | text | state`, which form of the input the callable receives.
-  `state_argument` records *whether*, never *which*; the macro's `StateParameter` (`:785`) records
-  both.
-- **variadic passing** — spread across the call, or collected as one list. Rust has only one mode:
-  `get_multiple` (`liquers-core/src/commands.rs:151`) always collects into `Vec<T>`.
-- **`async` when undeclared** — the macro knows from `async fn`; a host may need to decide per call
-  (`IsAsync::Auto`, `spec.rs:69`).
+This is what the state form's status confirms: `CommandMetadata::state_argument` is never read by the
+planner or the interpreter. Its only non-test consumers are `liquers-lib/src/egui/widgets.rs:705`
+(UI display), the registration sites, and the macro's compile-time wrapper generation. Whether a
+command receives its state is decided by the executor, not by metadata.
 
-And it needs something metadata's *representation* cannot do: **compose**. A declaration adds to what
-the host already discovered by introspection, field by field and inside nested structures, so an
-author can attach a widget hint to one argument without restating its type and default. That requires
-distinguishing *absent* from *default-valued*, which `#[serde(default)]` collapses — the reason
-merging happens on the serialized form.
-
-Two wrapping decisions stay out. The **result form** (`ResultType{Value,Result}`, `:792`) is
-Rust-only, since JavaScript throws and Python raises. **Keyword argument passing** is deferred by
-decision (`purpose-and-semantics.md` §Decisions, C3): meaningful in Python, meaningless in
-JavaScript. A third, **context injection** (`CommandParameter::Context`, `:489`), is portable in
-principle but has no JavaScript implementation at all — `register_js_command` receives a context and
-discards it (`_context`, `adapter.rs:165`). Filed as
-[`JS-COMMAND-CANNOT-ACCESS-CONTEXT`](../../issues/JS-COMMAND-CANNOT-ACCESS-CONTEXT.md).
-
-A further candidate, **`run`** (naming the implementation, from the issue's JSON sketch), belongs to
-neither half: it answers *which* implementation, which is `CommandDefinition`'s question. Withdrawn;
-see Phase 2 open question 1.
+Equally out of scope: **the callable itself**. A `js_sys::Function` or `Py<PyAny>` cannot cross into
+portable data, and what the host does with it — register an executor, wrap it — is host-specific. The
+host performs a **handover**, keeping the non-portable part and passing the data part on;
+`liquers-web` already strips `run` before parsing (`spec.rs:130-140`).
 
 ## Expected behaviour and acceptance criteria
 
 1. `CommandMetadata` deserializes from an author-written document whose minimal form is
    `{"name":"greet"}`, applying the defaults `CommandMetadata::from_key` already applies.
 2. `liquers-core` owns stages 2-4 of the pipeline — merge, derive defaults, convert-and-validate —
-   so Python, JavaScript and a plain document share them and only their introspection differs.
+   so Python, JavaScript and a plain document share them and only their introspection differs. It
+   carries language-specific call hints without interpreting them.
 3. Field names agree with `specs/command_registry.yaml` because the pipeline's output *is*
    `CommandMetadata`; the declaration never re-enumerates its fields.
 4. `specs/command_registry.yaml` parses and re-serializes **byte-identically** — possible only
