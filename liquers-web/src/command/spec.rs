@@ -94,7 +94,14 @@ fn reflect_get(obj: &JsValue, key: &str) -> Option<JsValue> {
         .filter(|v| !v.is_undefined() && !v.is_null())
 }
 
-/// A copy of the declaration without `run`, so no `js_sys::Function` reaches serde.
+/// A copy of the declaration without `run`, and without any property explicitly set to `null` or
+/// `undefined`.
+///
+/// Dropping the empty properties is not tidiness, it preserves behaviour. The hand-written parser
+/// this replaces read every field through a helper that filtered both
+/// (`fn get`, before this rewrite), so `{ name: "f", label: null }` meant "no label" and fell back
+/// to the default. Handing that `null` to serde instead would fail — `null` is not a `String` — and
+/// `arguments: null` would read as a declared-but-empty list rather than as "infer them".
 fn without_run(spec: &JsValue) -> Result<js_sys::Object, Error> {
     let source = js_sys::Object::from(spec.clone());
     let copy = js_sys::Object::new();
@@ -108,6 +115,9 @@ fn without_run(spec: &JsValue) -> Result<js_sys::Object, Error> {
                 "a command declaration property could not be read".to_string(),
             )
         })?;
+        if value.is_null() || value.is_undefined() {
+            continue;
+        }
         js_sys::Reflect::set(&copy, &key, &value).map_err(|_| {
             Error::from_error(
                 ErrorType::ParameterError,
