@@ -28,26 +28,23 @@ fn declaration_object() -> js_sys::Object {
     set(&spec, "name", &JsValue::from_str("repeat"));
     set(&spec, "label", &JsValue::from_str("Repeat text"));
     set(&spec, "volatile", &JsValue::from_bool(false));
+    // The tagged default form the exporter writes, alongside the bare forms JavaScript writes.
+    let tagged = obj();
+    set(&tagged, "Value", &JsValue::from_f64(7.0));
+    let tagged_arg = obj();
+    set(&tagged_arg, "name", &JsValue::from_str("times"));
+    set(&tagged_arg, "type", &JsValue::from_str("int"));
+    set(&tagged_arg, "default", &tagged.into());
+
     set(
         &spec,
         "arguments",
         &args(vec![
             arg("count", Some("int"), Some(JsValue::from_f64(2.0))),
             arg("sep", Some("string"), Some(JsValue::from_str("-"))),
+            tagged_arg.into(),
         ]),
     );
-
-    let tagged = obj();
-    set(&tagged, "Value", &JsValue::from_f64(7.0));
-    let tagged_arg = obj();
-    set(&tagged_arg, "name", &JsValue::from_str("times"));
-    set(&tagged_arg, "type", &JsValue::from_str("int"));
-    set(&tagged_arg, "default", &tagged);
-
-    let arguments: js_sys::Array = js_sys::Array::from(&JsValue::from(
-        js_sys::Reflect::get(&spec, &JsValue::from_str("arguments")).expect("arguments"),
-    ));
-    arguments.push(&tagged_arg.into());
 
     let javascript = obj();
     set(&javascript, "state", &JsValue::from_str("text"));
@@ -75,10 +72,14 @@ fn decl01_a_javascript_declaration_converts_to_serde_json_value() {
     assert_eq!(arguments.len(), 3);
     assert_eq!(arguments[0]["name"], json!("count"));
     assert_eq!(arguments[0]["type"], json!("int"));
-    assert_eq!(arguments[0]["default"], json!(2.0), "a bare numeric default");
+    // Integers survive as integers. `js_default_to_json` narrowed a whole f64 to i64 by hand
+    // (`spec.rs`, before the rewrite); serde_wasm_bindgen does the same, so a numeric default
+    // keeps its representation and no command's `metadata_version` moves. This assertion is the
+    // whole reason the spike ran before the rewrite it would have invalidated.
+    assert_eq!(arguments[0]["default"], json!(2), "a bare numeric default stays an integer");
     assert_eq!(arguments[1]["default"], json!("-"), "a bare string default");
     assert_eq!(
-        arguments[2]["default"], json!({ "Value": 7.0 }),
+        arguments[2]["default"], json!({ "Value": 7 }),
         "the tagged form survives as a nested object"
     );
 }
@@ -108,14 +109,14 @@ fn decl02_the_converted_declaration_builds_metadata() {
     );
 }
 
-/// DECL03 — a JavaScript number is a float, so an integer default arrives as `2.0`.
+/// DECL03 — a numeric default arrives as a number, whichever representation it takes.
 ///
-/// Recorded because it is the one place the conversion is lossy in a way that matters: the current
-/// hand-written `js_default_to_json` narrows a whole f64 to an i64 (`spec.rs:265-269`), and serde's
-/// conversion does not. Step 9 must keep the narrowing, or an `int` argument's default changes
-/// representation and every such command's `metadata_version` moves.
+/// Written when it looked as though serde's conversion might hand back `2.0` where the old
+/// hand-written `js_default_to_json` narrowed a whole f64 to an i64. DECL01 settles that it does
+/// not — the narrowing is reproduced — so this is now a broad guard rather than the sharp question
+/// it was written as.
 #[wasm_bindgen_test]
-fn decl03_integer_defaults_arrive_as_floats() {
+fn decl03_numeric_defaults_arrive_as_numbers() {
     let spec = obj();
     set(&spec, "name", &JsValue::from_str("f"));
     set(
