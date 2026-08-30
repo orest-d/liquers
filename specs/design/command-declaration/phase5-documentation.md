@@ -164,7 +164,7 @@ behind. What remains is separate work, already filed:
 ## Validation
 
 ```
-cargo test -p liquers-core --lib                                 720 passed
+cargo test -p liquers-core --lib                                 723 passed
 cargo test -p liquers-core --test command_declaration              5 passed
 cargo test -p liquers-lib --lib --tests                     302 + all passed
 bash scripts/check-build-matrix.sh                        11 configurations
@@ -177,6 +177,27 @@ The wasm rows of the build matrix need `rustup target add wasm32-unknown-unknown
 `liquers-web` suite needs `cargo install wasm-bindgen-cli --version 0.2.127`. Neither was present in
 this environment; both had to be installed, and the matrix reported the missing target as two bare
 `FAILED` rows.
+
+## Review follow-up
+
+Automated review on pull request 50 raised two P1 findings against `apply_conventions`, both real
+and both fixed in the same pull request rather than deferred:
+
+1. Idempotence was keyed on the presence of `registration.state`, which is also the key the
+   documented override writes. A declaration that *authored* a delivery mode therefore looked like
+   one a previous pass had already converted, and skipped both conventions — the `context` removal
+   as well as the state rule. A dedicated `conventions_applied` marker replaces it.
+2. `apply_state_delivery` returned before reading the declared mode whenever introspection had not
+   run, so a document host had no way to say its command takes a state. `COMMAND_DECLARATION.md`
+   §3.2.3 had already promised otherwise: the code was the wrong side, and the section is restated
+   to say exactly what now happens — the mode sets `state_argument` and suppresses the
+   source-command warning, while consuming no public argument.
+
+The lesson worth keeping is about the test rather than the code. CONV12 covered case 1 and passed,
+because it used `state: none`, whose correct outcome — no `state_argument` — is indistinguishable
+from the outcome of doing nothing at all, and it never asserted that an argument had been consumed.
+**A convention test whose expected result coincides with the no-op result proves nothing.** CONV12
+is strengthened and CONV15-17 added; three of the four fail against the pre-review implementation.
 
 ## What this does not do
 

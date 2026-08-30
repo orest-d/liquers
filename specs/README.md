@@ -106,7 +106,7 @@ serves both. Solve them together.
 - **`register_command!` specification** — documented → [`reference/REGISTER_COMMAND_FSD.md`](reference/REGISTER_COMMAND_FSD.md)
 - **Context parameter position** — designing → [`design/context-param-order/`](design/context-param-order/)
 - **Enum parameters** — designing → [`design/register-command-enum/`](design/register-command-enum/)
-- **Language-neutral command declaration** — designing → [`design/command-declaration/`](design/command-declaration/)
+- **Language-neutral command declaration** — documented → [`reference/COMMAND_DECLARATION.md`](reference/COMMAND_DECLARATION.md)
 - **Command metadata enhancements** — planned → [`issues/COMMAND-METADATA-ENHANCEMENTS.md`](issues/COMMAND-METADATA-ENHANCEMENTS.md)
 - **Macro query validation and hints** — planned → [`issues/MACRO-QUERY-VALIDATION-AND-HINTS.md`](issues/MACRO-QUERY-VALIDATION-AND-HINTS.md)
 
@@ -203,10 +203,10 @@ deliberately folded behind a broader line.
 
 <!-- BEGIN generated: unplaced -->
 - `guides/TYPE_SYSTEM_GUIDE.md`
-- `reference/COMMAND_DECLARATION.md`
 - `reference/VALUE_TYPE_SYSTEM.md`
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - design `asset-manager-insert-key-asset-semantics`
+- design `command-declaration`
 - design `core-no-default-features`
 - design `environment-builder`
 - design `error-with-key-field`
