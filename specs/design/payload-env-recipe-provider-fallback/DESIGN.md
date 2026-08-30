@@ -2,11 +2,11 @@
 id: PAYLOAD-ENV-RECIPE-PROVIDER-FALLBACK
 kind: design
 title: Recipe-provider fallback for the payload environment
-status: in_review
-phase: architecture
+status: complete
 area: [core/context]
 gh_pr: []
 issues: [CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC]
+affects_docs: [specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md]
 created: 2026-08-29
 superseded_by:
 ---
@@ -22,10 +22,10 @@ artifact and approval contract.
 
 - [x] Phase 1: High-level design — [`phase1-high-level-design.md`](./phase1-high-level-design.md)
 - [x] Phase 2: Solution and architecture — [`phase2-architecture.md`](./phase2-architecture.md)
-- [ ] Approval gate (§5 of the autonomous procedure) — **awaiting a decision**
-- [ ] Phase 3: Examples, reproduction and tests
-- [ ] Phase 4: Implementation plan and execution
-- [ ] Phase 5: Documentation
+- [x] Approval gate (§5 of the autonomous procedure)
+- [x] Phase 3: Examples, reproduction and tests
+- [x] Phase 4: Implementation plan and execution
+- [x] Phase 5: Documentation — [`phase5-documentation.md`](./phase5-documentation.md)
 
 ## Why this folder exists
 
