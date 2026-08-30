@@ -176,6 +176,11 @@ pub struct CommandDeclaration {
     /// distinguishes "a function with no parameters" from "no introspection happened", and the
     /// state-delivery rule keys on it.
     introspected: bool,
+    /// Whether stage 3 has run. Kept here rather than inferred from `registration.state`, because
+    /// an author may *supply* that key — the documented delivery-mode override — and a recorded
+    /// mode is then indistinguishable from an authored one. Keying idempotence on the recorded
+    /// value made an authored mode skip the conventions entirely.
+    conventions_applied: bool,
     warnings: Vec<Warning>,
 }
 
@@ -201,6 +206,7 @@ impl CommandDeclaration {
         CommandDeclaration {
             doc: baseline,
             introspected,
+            conventions_applied: false,
             warnings: Vec::new(),
         }
     }
@@ -211,6 +217,7 @@ impl CommandDeclaration {
         CommandDeclaration {
             doc: document,
             introspected: false,
+            conventions_applied: false,
             warnings: Vec::new(),
         }
     }
@@ -484,13 +491,12 @@ impl CommandDeclaration {
     /// matched by name rather than rejected as unknown. Structural conventions run before delivery
     /// ones, or a leading `context` would become the state. Idempotent, warnings included.
     pub fn apply_conventions(&mut self) -> Result<(), Error> {
-        let conventions = Conventions::from_value(self.doc.get("conventions"));
-
-        // Already applied: `registration.state` is the marker. Without this guard a second run
-        // would read the mode it recorded as a *declared* mode and consume another argument.
-        if self.registration().get("state").is_some() {
+        if self.conventions_applied {
             return Ok(());
         }
+        self.conventions_applied = true;
+
+        let conventions = Conventions::from_value(self.doc.get("conventions"));
         if conventions.context {
             self.take_context_argument()?;
         }
@@ -534,32 +540,46 @@ impl CommandDeclaration {
             return Ok(());
         }
 
-        if !self.introspected {
-            // The `arguments` here are a command's public arguments, not a function's parameters,
-            // so swallowing the first would be wrong.
-            let declared_arguments = self
-                .doc
-                .get("arguments")
-                .and_then(|v| v.as_array())
-                .map(|l| !l.is_empty())
-                .unwrap_or(false);
-            if declared_arguments {
-                self.warn(
-                    WarningKind::NoIntrospection,
-                    "no introspection ran and no `state_argument` was declared, so this is a \
-                     source command; declare `state_argument` if it should transform a state"
-                        .to_string(),
-                );
-            }
-            return Ok(());
-        }
-
-        // A declared mode wins over the one derived from the name.
+        // An authored mode: the documented override, which wins over anything derived from a name.
         let declared_mode = self
             .registration()
             .get("state")
             .and_then(|v| v.as_str())
             .map(StateDelivery::from_argument_name);
+
+        if !self.introspected {
+            // A document's `arguments` are the command's *public* arguments, not a function's
+            // parameters, so none of them is ever consumed here. But a document may still say
+            // that its command takes a state, and declaring the mode is the documented way to do
+            // it (`reference/COMMAND_DECLARATION.md` §3.2.3).
+            match declared_mode {
+                Some(mode) => {
+                    self.warn_if_reserved(&mode);
+                    if mode.passes_state() {
+                        self.set_state_argument(ArgumentInfo::any_argument("state"));
+                    }
+                    self.set_registration("state", Value::from(mode.as_str()));
+                }
+                None => {
+                    let declared_arguments = self
+                        .doc
+                        .get("arguments")
+                        .and_then(|v| v.as_array())
+                        .map(|l| !l.is_empty())
+                        .unwrap_or(false);
+                    if declared_arguments {
+                        self.warn(
+                            WarningKind::NoIntrospection,
+                            "no introspection ran and no state was declared, so this is a source \
+                             command; declare `state_argument`, or `registration.state`, if it \
+                             should transform a state"
+                                .to_string(),
+                        );
+                    }
+                }
+            }
+            return Ok(());
+        }
 
         let first_name = match self
             .doc
@@ -575,16 +595,7 @@ impl CommandDeclaration {
 
         let mode = declared_mode.unwrap_or_else(|| StateDelivery::from_argument_name(&first_name));
 
-        if let StateDelivery::Reserved(name) = &mode {
-            let name = name.clone();
-            self.warn(
-                WarningKind::ReservedStateDelivery,
-                format!(
-                    "the first argument is named {name:?}, which has no defined delivery mode; \
-                     it is treated as `value`"
-                ),
-            );
-        }
+        self.warn_if_reserved(&mode);
 
         // The first argument is consumed either way: as the state, or as the `none` marker.
         // External `Option`; the catch-all is "no arguments to take", which is a no-op.
@@ -604,6 +615,29 @@ impl CommandDeclaration {
         }
         self.set_registration("state", Value::from(mode.as_str()));
         Ok(())
+    }
+
+    /// A delivery mode with no defined meaning is not an error — it means `value` until something
+    /// gives it one — but the author should learn that nothing yet delivers what the name suggests.
+    fn warn_if_reserved(&mut self, mode: &StateDelivery) {
+        if let StateDelivery::Reserved(name) = mode {
+            let name = name.clone();
+            self.warn(
+                WarningKind::ReservedStateDelivery,
+                format!(
+                    "the state delivery mode {name:?} has no defined meaning; it is treated as \
+                     `value`"
+                ),
+            );
+        }
+    }
+
+    fn set_state_argument(&mut self, argument: ArgumentInfo) {
+        if let Ok(value) = serde_json::to_value(argument) {
+            if let Some(map) = self.doc.as_object_mut() {
+                map.insert("state_argument".to_string(), value);
+            }
+        }
     }
 
     fn set_registration(&mut self, key: &str, value: Value) {
@@ -1224,6 +1258,64 @@ mod tests {
         d.apply_conventions().unwrap();
         let m = finish(&mut d);
         assert!(m.state_argument.is_none(), "declared `none` beats derived `value`");
+        // Asserted because the earlier version of this test checked only `state_argument`, which
+        // for `none` is absent either way — so it passed even when the conventions had not run at
+        // all. The first argument must still be consumed as the state marker.
+        assert_eq!(m.arguments.len(), 1, "the first argument is still consumed");
+        assert_eq!(m.arguments[0].name, "count");
+    }
+
+    /// An authored mode must be *applied*, not merely recorded. The guard that makes
+    /// `apply_conventions` idempotent keyed on `registration.state` being present, which an author
+    /// supplying the documented override sets before the first call — so the conventions were
+    /// skipped entirely and the callable's first parameter stayed a public query argument.
+    #[test]
+    fn conv15_an_authored_mode_still_runs_the_conventions() {
+        let mut d = CommandDeclaration::from_introspection(json!({"name":"f","arguments":[
+            { "name": "df" }, { "name": "count" }, { "name": "context" }]}));
+        d.enhance(&json!({ "registration": { "state": "value" } })).unwrap();
+        d.apply_conventions().unwrap();
+        let m = finish(&mut d);
+        assert!(m.state_argument.is_some(), "the authored mode creates the state argument");
+        assert_eq!(m.arguments.len(), 1, "the first parameter is consumed, `context` removed");
+        assert_eq!(m.arguments[0].name, "count");
+        assert_eq!(d.registration()["state"], json!("value"));
+        assert_eq!(d.registration()["context"], json!(2));
+    }
+
+    /// A document declaring a delivery mode is stating that its command takes a state. Its
+    /// `arguments` are the command's *public* arguments, so none of them is consumed — which is
+    /// exactly why an explicit mode is the documented way for a document host to say this
+    /// (`reference/COMMAND_DECLARATION.md` §3.2.3).
+    #[test]
+    fn conv16_a_document_can_declare_its_state_delivery() {
+        let mut d = CommandDeclaration::from_document(json!({ "name": "f" }));
+        d.enhance(&json!({ "arguments": [{ "name": "count" }],
+                           "registration": { "state": "value" } }))
+            .unwrap();
+        d.apply_conventions().unwrap();
+        let m = finish(&mut d);
+        assert!(m.state_argument.is_some(), "the declared mode is honoured");
+        assert_eq!(m.arguments.len(), 1, "no public argument is consumed");
+        assert_eq!(m.arguments[0].name, "count");
+        assert!(
+            !kinds(&d).contains(&WarningKind::NoIntrospection),
+            "the state is stated, so there is nothing to warn about"
+        );
+    }
+
+    /// The same, for `none`: a document may declare itself a source command explicitly.
+    #[test]
+    fn conv17_a_document_can_declare_itself_a_source_command() {
+        let mut d = CommandDeclaration::from_document(json!({ "name": "f" }));
+        d.enhance(&json!({ "arguments": [{ "name": "count" }],
+                           "registration": { "state": "none" } }))
+            .unwrap();
+        d.apply_conventions().unwrap();
+        let m = finish(&mut d);
+        assert!(m.state_argument.is_none());
+        assert_eq!(m.arguments.len(), 1, "no public argument is consumed");
+        assert!(!kinds(&d).contains(&WarningKind::NoIntrospection));
     }
 
     /// Structural before delivery, or `def f(context, x)` would make the context the state.

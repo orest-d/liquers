@@ -175,11 +175,21 @@ A declared mode wins over the one derived from the name.
 
 ### 3.2.3 Where the rule applies
 
-The rule interprets **a function's parameter list**. It therefore applies when introspection ran —
-when the baseline carried an `arguments` key — and not when a declaration introduces arguments where
-none were discovered. In that second case the `arguments` are the command's *public* arguments, not
-a function's parameters, and swallowing the first would be wrong. A document host that wants a state
-declares one: `state_argument: {…}`, or `registration: { state: value }`.
+The rule interprets **a function's parameter list**. It therefore consumes an argument only when
+introspection ran — when the baseline carried an `arguments` key. When a declaration introduces
+arguments where none were discovered, they are the command's *public* arguments rather than a
+function's parameters, and none of them is consumed.
+
+A document may still say that its command takes a state, and there are two ways to do it:
+
+```yaml
+state_argument: { name: state }          # the metadata field, directly
+registration: { state: value }           # the delivery mode, which implies one
+```
+
+Declaring the mode is usually the better of the two, because it says *how* the state arrives as well
+as *that* it does. Either way no public argument is consumed, and neither draws the
+"source command by omission" warning (§3.2.4) — the state has been stated.
 
 ### 3.2.4 Warnings
 
@@ -190,7 +200,7 @@ one has surprised somebody:
 |---|---|---|
 | **reserved delivery mode** | the first argument's name has no defined meaning — `df`, `frame`, `input` | It is being treated as `value`. That is the defined fallback, not a mistake, but an author who expected a DataFrame should learn that nothing yet delivers one |
 | **context before state** | a `context` argument precedes the state | Removing it *shifts which argument becomes the state*. `def f(context, count)` makes `count` the state, which is rarely what was meant |
-| **no introspection** | no introspection ran, the declaration supplied `arguments`, and no `state_argument` was declared | The delivery rule did not apply, so this is a *source* command. If the author meant it to transform a state, nothing said so |
+| **no introspection** | no introspection ran, the declaration supplied `arguments`, and neither `state_argument` nor `registration.state` was declared | This is a *source* command. If the author meant it to transform a state, nothing said so |
 
 These are **warnings, never errors** — every one of them has a legitimate use, so failing would block
 correct declarations to catch incorrect ones.
@@ -500,5 +510,6 @@ so no query parameter is consumed by either — that is conventions.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-30 | §3.2.3 restated: a document declares its state with `state_argument` **or** `registration.state`, and an authored delivery mode is honoured rather than skipped. Corrects a case the first implementation did not cover, found by review on PR #50. | `design/command-declaration/` |
 | 2026-08-30 | Promoted to `reference/` on implementation. The format is true at `HEAD`: `liquers-core::command_declaration`, with 51 unit tests and 5 integration tests, and `liquers-web` parses its declarations through it. | `design/command-declaration/` |
 | 2026-08-29 | Drafted in the design folder, ahead of implementation, because the language-specific guides are to be built on it. | `design/command-declaration/` |
