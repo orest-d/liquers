@@ -417,8 +417,15 @@ exhaust the disk allowance.
 8. `IsAsync` from `registration`.
 
 **Deleted:** `get`, `get_string`, `get_bool`, `parse_arguments`, `parse_argument_type`,
-`js_default_to_json` (~130 lines), and `INFERRED_ARGUMENTS` (`adapter.rs:26-37`).
+`js_default_to_json` (~130 lines).
 **Retained:** `infer_arguments`, `parameter_list`, `strip_comments`, `is_plain_identifier`.
+
+**Correction, made during execution: `INFERRED_ARGUMENTS` is *not* dropped.** Phase 2 and this plan
+both said the merge's own rule carries what the thread-local was tracking. It does not. The merge
+knows whether *this* declaration spelled its arguments out; the thread-local records that fact
+**persistently**, per command key, so `describeCommand` can report `argumentsInferred` long after
+registration. `CommandMetadata` has no field for it and a registration hint would not survive into
+the registry either, so nothing else holds it. Removing it would break `COMMAND05`. It stays.
 
 **A caution specific to this step.** `liquers-web` currently sets `state_argument` unconditionally
 via `CommandMetadata::from_key`, and JavaScript's `state` mode is declared, not inferred. The

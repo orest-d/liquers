@@ -16,9 +16,8 @@
 //! Only `name` and `run` are required; everything else has a meaningful default, so the minimal
 //! declaration stays one line (`COMMAND09`).
 
-use liquers_core::command_metadata::{
-    ArgumentInfo, ArgumentType, CommandKey, CommandMetadata, CommandParameterValue,
-};
+use liquers_core::command_declaration::CommandDeclaration;
+use liquers_core::command_metadata::{ArgumentInfo, CommandKey, CommandMetadata};
 use liquers_core::error::{Error, ErrorType};
 use wasm_bindgen::prelude::*;
 
@@ -89,22 +88,42 @@ pub struct JsCommandSpec {
     pub arguments_inferred: bool,
 }
 
-fn get(obj: &JsValue, key: &str) -> Option<JsValue> {
+fn reflect_get(obj: &JsValue, key: &str) -> Option<JsValue> {
     js_sys::Reflect::get(obj, &JsValue::from_str(key))
         .ok()
         .filter(|v| !v.is_undefined() && !v.is_null())
 }
 
-fn get_string(obj: &JsValue, key: &str) -> Option<String> {
-    get(obj, key).and_then(|v| v.as_string())
-}
-
-fn get_bool(obj: &JsValue, key: &str) -> Option<bool> {
-    get(obj, key).and_then(|v| v.as_bool())
+/// A copy of the declaration without `run`, so no `js_sys::Function` reaches serde.
+fn without_run(spec: &JsValue) -> Result<js_sys::Object, Error> {
+    let source = js_sys::Object::from(spec.clone());
+    let copy = js_sys::Object::new();
+    for key in js_sys::Object::keys(&source).iter() {
+        if key.as_string().as_deref() == Some("run") {
+            continue;
+        }
+        let value = js_sys::Reflect::get(&source, &key).map_err(|_| {
+            Error::from_error(
+                ErrorType::ParameterError,
+                "a command declaration property could not be read".to_string(),
+            )
+        })?;
+        js_sys::Reflect::set(&copy, &key, &value).map_err(|_| {
+            Error::from_error(
+                ErrorType::ParameterError,
+                "a command declaration property could not be copied".to_string(),
+            )
+        })?;
+    }
+    Ok(copy)
 }
 
 impl JsCommandSpec {
     /// Parses a declaration object.
+    ///
+    /// Stage 1 of the declaration pipeline (`specs/reference/COMMAND_DECLARATION.md`) is
+    /// JavaScript-specific and stays here — resolving `run`, and inferring arguments from the
+    /// function source. Stages 2-5 are `liquers-core`'s.
     pub fn parse(spec: &JsValue) -> Result<JsCommandSpec, Error> {
         if !spec.is_object() {
             return Err(Error::from_error(
@@ -113,12 +132,16 @@ impl JsCommandSpec {
             ));
         }
 
-        let name = get_string(spec, "name").ok_or_else(|| {
-            Error::from_error(
-                ErrorType::ParameterError,
-                "A command declaration must have a string `name`".to_string(),
-            )
-        })?;
+        // `name` is checked before serde sees the document, so these two messages survive
+        // verbatim rather than becoming serde's "missing field `name`".
+        let name = reflect_get(spec, "name")
+            .and_then(|v| v.as_string())
+            .ok_or_else(|| {
+                Error::from_error(
+                    ErrorType::ParameterError,
+                    "A command declaration must have a string `name`".to_string(),
+                )
+            })?;
         if name.is_empty() {
             return Err(Error::from_error(
                 ErrorType::ParameterError,
@@ -126,7 +149,7 @@ impl JsCommandSpec {
             ));
         }
 
-        let run = get(spec, "run")
+        let run = reflect_get(spec, "run")
             .filter(|v| v.is_function())
             .ok_or_else(|| {
                 Error::from_error(
@@ -136,7 +159,20 @@ impl JsCommandSpec {
             })?;
         let run: js_sys::Function = run.unchecked_into();
 
-        let namespace = get_string(spec, "namespace").unwrap_or_default();
+        let declaration_object = without_run(spec)?;
+        let mut document: serde_json::Value =
+            serde_wasm_bindgen::from_value(declaration_object.into()).map_err(|e| {
+                Error::from_error(
+                    ErrorType::ParameterError,
+                    format!("Command {name:?}: {e}"),
+                )
+            })?;
+
+        let namespace = document
+            .get("namespace")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         if namespace == RESERVED_NAMESPACE {
             return Err(Error::from_error(
                 ErrorType::ParameterError,
@@ -146,41 +182,43 @@ impl JsCommandSpec {
                 ),
             ));
         }
-        let realm = get_string(spec, "realm").unwrap_or_default();
+        let realm = document
+            .get("realm")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
 
-        let state_mode = match get_string(spec, "state") {
-            Some(s) => StateMode::parse(&s)?,
-            // Default: a command with no declared state is a source command. Inference below can
-            // still not change this — the state mode is never guessed from the function.
+        // JavaScript declares its state mode explicitly rather than by naming the first argument,
+        // so the core state-delivery convention must not run — nor the `context` one, since a
+        // JavaScript command cannot reach the context at all
+        // (JS-COMMAND-CANNOT-ACCESS-CONTEXT).
+        let state_mode = match document.get("state").and_then(|v| v.as_str()) {
+            Some(s) => StateMode::parse(s)?,
+            // A command with no declared state is a source command. Inference below cannot change
+            // this — the state mode is never guessed from the function.
             None => StateMode::None,
         };
-
-        let is_async = match get_bool(spec, "async") {
+        let is_async = match document.get("async").and_then(|v| v.as_bool()) {
             Some(true) => IsAsync::Async,
             Some(false) => IsAsync::Sync,
             None => IsAsync::Auto,
         };
 
-        let key = CommandKey::new(&realm, &namespace, &name);
-        let mut metadata = CommandMetadata::from_key(key.clone());
-        metadata.label = get_string(spec, "label").unwrap_or_else(|| name.clone());
-        metadata.doc = get_string(spec, "doc").unwrap_or_default();
-        metadata.module = "javascript".to_string();
-        // Declared and previously **ignored**, which left every JavaScript command at the
-        // `CommandMetadata` default of `false`: a command explicitly opting out of caching was
-        // treated as cacheable, and the planner could reuse a stale result. Mirrors what
-        // `register_command!` does for a Rust command — it sets `volatile` and leaves `cache`
-        // alone.
-        metadata.volatile = get_bool(spec, "volatile").unwrap_or(false);
+        let arguments_inferred = document.get("arguments").is_none();
+        prepare_javascript_document(&mut document, &name);
 
-        let (arguments, arguments_inferred) = match get(spec, "arguments") {
-            Some(declared) => (parse_arguments(&declared, &name)?, false),
-            None => (infer_arguments(&run, state_mode, &name)?, true),
-        };
-        for a in arguments {
-            metadata.arguments.push(a);
+        let mut metadata = CommandDeclaration::from_document(document)
+            .finish()
+            .map_err(|e| Error::from_error(ErrorType::ParameterError, format!("{e}")))?;
+        metadata.module = "javascript".to_string();
+
+        if arguments_inferred {
+            for argument in infer_arguments(&run, state_mode, &name)? {
+                metadata.arguments.push(argument);
+            }
         }
 
+        let key = CommandKey::new(&realm, &namespace, &name);
         Ok(JsCommandSpec {
             key,
             metadata,
@@ -192,81 +230,69 @@ impl JsCommandSpec {
     }
 }
 
-/// Parses an explicit `arguments` array. This is the reliable path and always wins.
-fn parse_arguments(declared: &JsValue, command: &str) -> Result<Vec<ArgumentInfo>, Error> {
-    if !js_sys::Array::is_array(declared) {
-        return Err(Error::from_error(
-            ErrorType::ParameterError,
-            format!("Command {command:?}: `arguments` must be an array"),
-        ));
-    }
-    let array = js_sys::Array::from(declared);
-    let mut out = Vec::with_capacity(array.length() as usize);
-    for (i, item) in array.iter().enumerate() {
-        let name = get_string(&item, "name").ok_or_else(|| {
-            Error::from_error(
-                ErrorType::ParameterError,
-                format!("Command {command:?}: argument {i} must have a string `name`"),
-            )
-        })?;
-        let mut info = ArgumentInfo::any_argument(&name);
-        if let Some(t) = get_string(&item, "type") {
-            info.argument_type = parse_argument_type(&t, command, &name)?;
-        }
-        if let Some(default) = get(&item, "default") {
-            // Recorded as a JSON default so the planner can resolve it without re-entering
-            // JavaScript. A default that is not JSON-representable is refused rather than
-            // silently dropped.
-            let json = js_default_to_json(&default).ok_or_else(|| {
-                Error::from_error(
-                    ErrorType::ParameterError,
-                    format!(
-                        "Command {command:?}, argument {name:?}: the default value must be a \
-                         string, number, boolean or null"
-                    ),
-                )
-            })?;
-            info.default = CommandParameterValue::Value(json);
-        }
-        out.push(info);
-    }
-    Ok(out)
-}
+/// Fills in what JavaScript's own rules supply, before the shared pipeline derives anything.
+///
+/// Every value written here is one where `liquers-web`'s rule differs from the shared default, so
+/// letting the shared one apply would change existing commands' `metadata_version` and re-expire
+/// their dependent assets:
+///
+/// * **the command label** is the name **verbatim**, where the shared rule would derive
+///   `Foo bar` from `foo_bar`;
+/// * **an argument label** is `name.replace('_', " ")`, matching `ArgumentInfo::any_argument`,
+///   where the shared rule would capitalise it;
+/// * **`state_argument`** is always present, which is what `CommandMetadata::from_key` gave every
+///   JavaScript command before and what the conformance suite's metadata assertions expect;
+/// * **conventions are off**, because JavaScript declares its state mode explicitly.
+///
+/// See open question 2 of `specs/design/command-declaration/phase2-architecture.md`: unifying the
+/// two label rules is defensible but is a deliberate behaviour change, not something to slip in.
+fn prepare_javascript_document(document: &mut serde_json::Value, name: &str) {
+    let map = match document.as_object_mut() {
+        Some(map) => map,
+        None => return,
+    };
+    map.insert("conventions".to_string(), serde_json::Value::Bool(false));
 
-fn parse_argument_type(name: &str, command: &str, arg: &str) -> Result<ArgumentType, Error> {
-    match name {
-        "string" | "str" | "text" => Ok(ArgumentType::String),
-        "int" | "integer" => Ok(ArgumentType::Integer),
-        "float" | "number" => Ok(ArgumentType::Float),
-        "bool" | "boolean" => Ok(ArgumentType::Boolean),
-        "any" => Ok(ArgumentType::Any),
-        other => Err(Error::from_error(
-            ErrorType::ParameterError,
-            format!(
-                "Command {command:?}, argument {arg:?}: unknown type {other:?}; expected \
-                 \"string\", \"int\", \"float\", \"bool\" or \"any\""
-            ),
-        )),
+    let label_missing = map
+        .get("label")
+        .map(|v| v.as_str().unwrap_or("").is_empty())
+        .unwrap_or(true);
+    if label_missing {
+        map.insert(
+            "label".to_string(),
+            serde_json::Value::from(name.to_string()),
+        );
     }
-}
 
-fn js_default_to_json(v: &JsValue) -> Option<serde_json::Value> {
-    if v.is_null() {
-        return Some(serde_json::Value::Null);
-    }
-    if let Some(b) = v.as_bool() {
-        return Some(serde_json::Value::Bool(b));
-    }
-    if let Some(s) = v.as_string() {
-        return Some(serde_json::Value::String(s));
-    }
-    if let Some(n) = v.as_f64() {
-        if n.fract() == 0.0 && n.abs() <= 9_007_199_254_740_992.0 {
-            return Some(serde_json::Value::Number((n as i64).into()));
+    if map.get("state_argument").is_none() {
+        if let Ok(state_argument) = serde_json::to_value(ArgumentInfo::any_argument("state")) {
+            map.insert("state_argument".to_string(), state_argument);
         }
-        return serde_json::Number::from_f64(n).map(serde_json::Value::Number);
     }
-    None
+
+    if let Some(serde_json::Value::Array(arguments)) = map.get_mut("arguments") {
+        for argument in arguments.iter_mut() {
+            let argument_name = argument
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let argument_map = match argument.as_object_mut() {
+                Some(argument_map) => argument_map,
+                None => continue,
+            };
+            let missing = argument_map
+                .get("label")
+                .map(|v| v.as_str().unwrap_or("").is_empty())
+                .unwrap_or(true);
+            if missing && !argument_name.is_empty() {
+                argument_map.insert(
+                    "label".to_string(),
+                    serde_json::Value::from(argument_name.replace('_', " ")),
+                );
+            }
+        }
+    }
 }
 
 /// Infers argument names from the function, over the subset where the parse is provably exact.
