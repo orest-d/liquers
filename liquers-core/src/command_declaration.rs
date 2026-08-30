@@ -304,6 +304,8 @@ fn merge_object(base: &mut Value, declaration: &Value, command: &str) -> Result<
                 )))
             }
         };
+        // Matching an `Option<&mut serde_json::Value>`, an external type: the catch-all is
+        // "absent, or not two objects", which is the replace case.
         match base_map.get_mut(key) {
             Some(existing) if existing.is_object() && declared.is_object() => {
                 merge_object(existing, declared, command)?;
@@ -585,6 +587,7 @@ impl CommandDeclaration {
         }
 
         // The first argument is consumed either way: as the state, or as the `none` marker.
+        // External `Option`; the catch-all is "no arguments to take", which is a no-op.
         let first = match self.doc.get_mut("arguments").and_then(|v| v.as_array_mut()) {
             Some(list) if !list.is_empty() => list.remove(0),
             _ => return Ok(()),
@@ -634,6 +637,8 @@ impl CommandDeclaration {
             map.insert("label".to_string(), Value::from(derive_label(&name)));
         }
         for key in ["state_argument", "arguments"] {
+            // External `serde_json::Value`; the catch-all is "absent or not a shape that holds
+            // arguments", which needs no defaulting.
             match map.get_mut(key) {
                 Some(Value::Array(list)) => {
                     for argument in list.iter_mut() {

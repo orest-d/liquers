@@ -507,9 +507,16 @@ as an issue rather than leaving it implied — a design that ships in part leave
 
 ## Documentation updates
 
-Step 10 covers the whole set. Two notes for Phase 5 evidence: record which conversion path step 8
-selected, and whether INT02 could live in `liquers-core/tests/` or had to move to `liquers-lib`.
-Neither is knowable now and both will be asked later.
+Step 10 covers the whole set.
+
+**Phase 5 evidence, as it accumulates.** Recorded here while fresh rather than reconstructed later.
+
+| Question | Answer |
+|---|---|
+| Could INT02 live in `liquers-core/tests/`? | **Yes.** `liquers-macro` is a dev-dependency of `liquers-core` (`Cargo.toml:78`), so no move to `liquers-lib` was needed. |
+| Does `serde_yaml` route the tagged `!Value` form somewhere the visitor sees? | **Yes** — through `visit_enum`. The registry round-trips byte-identically, so Phase 2's largest unverified core claim resolved in the design's favour. |
+| Which conversion path did step 8 select? | *pending* |
+| Defects found by implementing rather than planning | `MACRO-LEAVES-STALE-METADATA-VERSION` (P1), `ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS` (P2), and an idempotence bug in `apply_conventions` caught by CONV07 and fixed before commit. |
 
 `CLAUDE.md` needs no change: no new build command, no new feature, no new crate. If step 9 removes
 the last use of a dependency in `liquers-web`, its `Cargo.toml` gets a cleanup — check rather than
