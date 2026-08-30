@@ -9,7 +9,8 @@ area: [core/commands, web, py]
 gh_pr: []
 issues: [COMMAND-DECLARATION-FORMAT, STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE,
          JS-COMMAND-CANNOT-ACCESS-CONTEXT, ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING,
-         COMMAND-ALIAS-DEFINITION-UNTESTED, LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION]
+         COMMAND-ALIAS-DEFINITION-UNTESTED, LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION,
+         COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS]
 created: 2026-08-29
 superseded_by:
 ---
@@ -43,7 +44,8 @@ is set, so all five phases and the Phase 5 documentation contract now apply.
       asymmetrically — see its §Bar)*
 - [x] Phase 2 approval gate — **approved 2026-08-30**; hints decided declaration-only
 - [x] Phase 3: Examples and use-cases — [`phase3-examples.md`](./phase3-examples.md)
-      *(3 examples, 36 numbered tests; the merge laws are the specification. Awaiting approval.)*
+      *(3 examples, 47 numbered tests; the merge laws and the conventions are the specification.
+      Awaiting approval.)*
 - [ ] Phase 4: Implementation plan and execution — `phase4-implementation.md`, not yet created
 - [ ] Phase 5: Documentation — `phase5-documentation.md`, mandatory under `liquers-project`
 
@@ -58,12 +60,17 @@ Its substance is a four-stage pipeline whose middle three stages are shared:
 ```
 1. populate   host introspection fills what it can discover          host-specific
 2. enhance    the author's declaration is merged over it             SHARED
-3. fill       defaults are derived for whatever is still absent      SHARED
-4. use        convert to CommandMetadata, or error                     SHARED
+3. apply      conventions reinterpret the composed result            SHARED
+4. fill       defaults derived for whatever is still absent           SHARED
+5. build      convert to CommandMetadata, or error                    SHARED
 ```
 
 Merging happens on the serialized form, so *absence is key-absence* — the distinction a typed
 representation cannot make and the merge cannot do without.
+
+The declaration also **owns conventions**: an argument named `context` is the execution context and
+never becomes a command argument, matching `register_command!`. The rule is the same in every
+language, so stage 1 stays as dumb as possible — report the parameters, recognise nothing.
 
 **Descoped 2026-08-29:** defining *how to call the function* is out of scope, as is the callable
 itself. Those were the parts fighting portability. Call-related facts survive as uninterpreted

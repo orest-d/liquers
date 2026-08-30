@@ -44,8 +44,9 @@ knows, because most of what a command needs is discoverable from the function it
 ```
 1. populate   the host inspects the callable and builds a baseline    host-specific
 2. enhance    the author's declaration is merged over the baseline    shared
-3. fill       defaults are derived for whatever is still absent       shared
-4. build      convert to CommandMetadata, or report what is wrong     shared
+3. apply      conventions reinterpret the composed result             shared
+4. fill       defaults are derived for whatever is still absent       shared
+5. build      convert to CommandMetadata, or report what is wrong     shared
 ```
 
 **Introspection is the basis, not a fallback.** Python's `inspect.signature` yields parameter names,
@@ -57,8 +58,13 @@ string, a namespace, a widget hint, an enum domain.
 The consequence for an author is the property worth remembering: **you write only the difference.**
 Adding a label to one argument does not require restating that argument's type or default.
 
-Stages 2–4 behave identically in every language. Only stage 1 differs, which is why they are shared
+Stages 2–5 behave identically in every language. Only stage 1 differs, which is why they are shared
 code and stage 1 is not.
+
+**Stage 1 should be as dumb as it can be.** Report the parameters the callable actually has, in
+order, and let stage 3 recognise which of them are not command arguments at all. An integration that
+decides for itself that a parameter named `context` is the execution context has re-implemented a
+convention that every other language would then have to re-implement identically.
 
 ### 2.1 Merge rules
 
@@ -92,13 +98,57 @@ host's, and that is where the decision belongs.
 **Composition is associative**, so declarations may be layered: a module-level default, then a
 per-command declaration, then a per-argument refinement.
 
-## 3. Mapping to `CommandMetadata`
+## 3. Conventions
+
+Introspection reports the parameters a function has. Some of them are not command arguments: they
+are the execution context, or the input state. A **convention** recognises those by name and moves
+them out of `arguments` into the place they belong.
+
+Conventions are owned here rather than by each integration, because the recognition rule is the same
+in every language and re-implementing it per host is how two hosts come to disagree about what
+`context` means.
+
+### 3.1 When they apply
+
+Stage 3 — **after** the merge, before defaults are derived. That ordering is deliberate: it means the
+argument list is still complete while the declaration is merged, so an author who writes
+`{ name: "context", label: "…" }` gets their entry matched by name rather than a confusing
+"unknown argument" error. What the convention then does with that entry is the same whether it was
+discovered or declared.
+
+### 3.2 The conventions
+
+| Convention | Rule | Effect |
+|---|---|---|
+| `context` | an argument named `context` | Removed from `arguments`. Its position is recorded under `registration.context` so the integration can pass the context there at call time. It is **not** a `CommandMetadata` argument — matching `register_command!`, where a `context` parameter occupies no argument slot |
+| `state` | the **first** argument, when named `state`, `value` or `text` | Removed from `arguments` and recorded as `state_argument`; which of the three names was used is recorded under `registration.state`, since the form is a calling convention rather than metadata |
+
+An argument the conventions remove is gone from the command's public signature: it consumes no query
+parameter and does not appear in `describeCommand` or in a UI.
+
+### 3.3 Opting out
+
+A function may genuinely have an ordinary argument called `context`. The declaration disables
+conventions by name, or all of them:
+
+```yaml
+conventions: { context: false }   # keep an argument literally named "context"
+conventions: false                # apply none
+```
+
+### 3.4 Adding conventions
+
+The set is expected to grow — a leading `self` in Python, a variadic parameter recognised as
+`multiple`. A new convention is a **behaviour change for existing declarations**, so it is added
+deliberately, with a test, and named in this table rather than left implicit in an implementation.
+
+## 4. Mapping to `CommandMetadata`
 
 Every declaration key is a `CommandMetadata` field, with **one exception**: `hints` (§5), which is
-declaration-only and does not reach the metadata. Apart from that the declaration adds no vocabulary
+declaration-only and does not reach the metadata, plus `registration` and `conventions` (§3, §6). Apart from those the declaration adds no vocabulary
 of its own, so a field added to `CommandMetadata` is declarable immediately with no change here.
 
-### 3.1 Command level
+### 4.1 Command level
 
 | Key | Metadata field | Notes |
 |---|---|---|
@@ -116,12 +166,14 @@ of its own, so a field added to `CommandMetadata` is declarable immediately with
 | `state_argument` | `state_argument` | Present means the command transforms an input state; absent means a *source* command |
 | `arguments` | `arguments` | A list; merged by name — §2.1 |
 | `definition` | `definition` | `Registered` (default) or an `Alias` |
-| `hints` | *(none)* | **Declaration-only**, read by the integration and dropped at build — §5 |
+| `hints` | `hints` | **Usage** hints — how to *use* the command. Metadata; survives export — §6 |
+| `registration` | *(none)* | **Registration** hints — how to *register and call* it. Declaration-only, dropped at build — §6 |
+| `conventions` | *(none)* | Declaration-only; disables conventions — §3.3 |
 
 Not declarable: `metadata_version` and `impl_version`. Both are computed — the first from the stored
 metadata content, the second supplied at registration.
 
-### 3.2 Argument level
+### 4.2 Argument level
 
 | Key | `ArgumentInfo` field | Notes |
 |---|---|---|
@@ -132,14 +184,14 @@ metadata content, the second supplied at registration.
 | `multiple` | `multiple` | Variadic: consumes every remaining action parameter. Must be last |
 | `injected` | `injected` | Supplied from the context, never from the query |
 | `gui_info` | `gui_info` | Preferred entry widget |
-| `hints`, `presets` | same | |
+| `hints`, `presets` | same | `hints` here are **usage** hints and reach the metadata — §6 |
 
 **Argument types.** The canonical names are `string`, `int`, `int_opt`, `float`, `float_opt`,
 `bool`, `any`, `none`, plus the enum forms. These aliases are also accepted, so a declaration written
 against a host's own vocabulary parses: `str` and `text` for `string`, `integer` for `int`, `number`
 for `float`, `boolean` for `bool`.
 
-### 3.3 Argument defaults
+### 4.3 Argument defaults
 
 A default may be written either in the canonical tagged form the exporter produces, or as a bare
 value — the shorthand an author expects:
@@ -155,7 +207,7 @@ value — the shorthand an author expects:
 The one trap: a default whose literal value is the **string** `"None"` must be written
 `!Value 'None'`, because the bare spelling is how "no default" is represented.
 
-## 4. How defaults are created
+## 5. How defaults are created
 
 Stage 3 fills what is still absent after the merge. It **never** overwrites a value that discovery or
 the declaration supplied, and it is idempotent.
@@ -163,7 +215,7 @@ the declaration supplied, and it is idempotent.
 Ordering is normative: **merge, then derive, then build.** Deriving before merging would make a
 derived value indistinguishable from a declared one and would block the author's own.
 
-### 4.1 Labels
+### 5.1 Labels
 
 A label is derived from the name. Both `snake_case` and `camelCase` are broken into words and the
 first is capitalised, so an author who names a function idiomatically in their own language gets a
@@ -184,7 +236,7 @@ capitalise the first character of the result
 
 The same rule derives an argument's label from its name.
 
-### 4.2 Other defaults
+### 5.2 Other defaults
 
 | Field | Default |
 |---|---|
@@ -208,36 +260,64 @@ name: to_text
 which builds a complete `CommandMetadata`: label `To text`, cacheable, non-volatile, never expiring,
 no arguments, registered.
 
-## 5. Hints
+## 6. Hints — two kinds
 
-Some facts about a command are neither metadata nor portable — which form of the input state a
-callable wants, whether a variadic reaches it spread or as one list, whether the result must be
-awaited. Each is meaningful in some languages and meaningless in others.
+Two different things are called hints, they answer different questions, and they must not share a
+key.
 
-`hints` is a free dictionary for exactly these, and it is **the one declaration key that is not a
-`CommandMetadata` field**. It is composed like any other map through the merge, and the integration
-reads it from the declaration — but `build` **drops it**. `CommandMetadata` stays a precise
-specification of the command and says nothing about how to call it.
+| | **Usage hints** | **Registration hints** |
+|---|---|---|
+| Answer | how do I *use* this command? | how do I *register and call* this function? |
+| Key | `hints` | `registration` |
+| Lives in | `CommandMetadata` | the declaration only |
+| Read by | UI, documentation, tooling | the language integration |
+| Survives export | **yes** | **no** — dropped at build |
+| Example | a slider range, a placeholder, a category | which form of the state the callable wants |
+
+### 6.1 Usage hints — `hints`
+
+Part of the metadata, exactly as they are today: `ArgumentInfo::hints` is documented as *"Free
+dictionary of hints for the argument… e.g. to provide additional hints for the UI"*
+(`command_metadata.rs:399-403`). They describe the command to whoever presents it, and they are
+declared like any other metadata field.
+
+```yaml
+arguments:
+  - name: count
+    type: int
+    hints: { placeholder: "how many times" }
+```
+
+**Note a gap:** only `ArgumentInfo` has a `hints` field. `CommandMetadata` has none, so a *command-level*
+usage hint cannot be expressed at all. This predates the declaration format and is not created by it;
+filed as `COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS`.
+
+### 6.2 Registration hints — `registration`
+
+Facts about calling the function: which form of the input state it wants, whether a variadic reaches
+it spread or as one list, whether the result must be awaited, where the context parameter sits. Each
+is meaningful in some languages and meaningless in others, so **`liquers-core` does not interpret
+any of them.** It carries and merges them; the integration reads them back.
 
 ```yaml
 name: repeat
 arguments: [{ name: count, type: int }]
-hints:
+registration:
   javascript: { state: text, variadic: spread }
 ```
 
-Namespace hint keys by integration, so two hosts declaring the same command cannot collide. No key
-is reserved and none is validated; the vocabulary grows as integrations need it. Because nothing is
-validated, a misspelled hint key is silently ignored — an integration that cares should check for
-the keys it expects.
+Namespace by integration, so two hosts declaring the same command cannot collide. Nothing is
+reserved and nothing is validated, so a misspelled key is silently ignored — an integration that
+cares should check for the keys it expects. Conventions (§3) also write here: that is where a
+recognised `context` parameter's position ends up.
 
-**Hints do not survive export.** A registry exported to `command_registry.yaml` carries metadata
-only, so an environment rebuilt from an exported registry cannot recover how to call a declared
-command. **An integration that replays registrations must retain the declaration, not the
-metadata.** This is what `liquers-web` already does — `REGISTERED_SPECS` retains the declaration for
-exactly this reason — so the requirement is not new, but it is now a rule rather than an accident.
+**Registration hints do not survive export.** A registry exported to `command_registry.yaml` carries
+metadata only, so an environment rebuilt from an exported registry cannot recover how to call a
+declared command. **An integration that replays registrations must retain the declaration, not the
+metadata.** `liquers-web` already does this — `REGISTERED_SPECS` retains the declaration for exactly
+this reason — so the requirement is not new, but it is now a rule rather than an accident.
 
-## 6. Validation
+## 7. Validation
 
 Stage 4 reports, naming the command and where relevant the argument:
 
@@ -253,7 +333,7 @@ registration and at plan building, as it does for Rust commands.
 Unknown keys are ignored rather than refused, which matches existing behaviour but means a
 misspelled field is silently dropped. Inside `hints` nothing can be checked at all, by construction.
 
-## 7. What a language integration must do
+## 8. What a language integration must do
 
 The declaration is portable data; a callable is not. An integration performs a **handover**:
 
@@ -272,46 +352,61 @@ own concern and is **outside this format**; `hints` is where it may record its a
 An integration therefore owns: stage 1 (introspection), the handover, the callable, registration, and
 dispatch. It shares: stages 2–4.
 
-## 8. Worked example
+## 9. Worked example
 
 A Python function, with the host discovering the signature:
 
 ```python
-@command(label="Repeat text", arguments={"count": {"gui": "int_slider"}})
-def repeat(state, count: int = 2): ...
+@command(label="Repeat text", arguments={"count": {"gui_info": {"IntegerSlider": {"min": 1, "max": 9}}}})
+def repeat(state, count: int = 2, context=None):
+    """Repeat the input text."""
 ```
 
-**Stage 1** — introspection produces the baseline:
+**Stage 1** — introspection reports the parameters as it finds them, and recognises nothing:
 
 ```yaml
 name: repeat
 module: python
-doc: ""
-state_argument: { name: state }
+doc: Repeat the input text.
 arguments:
+  - { name: state }
   - { name: count, argument_type: int, default: !Value 2 }
+  - { name: context }
 ```
 
-**Stage 2** — the declaration merges over it. `label` is new; the `count` entry augments the
-discovered argument by name, leaving its type and default untouched:
+**Stage 2** — the declaration merges over it. `label` is new; the `count` entry is matched by name
+and augments the discovered argument, leaving its type and default untouched.
+
+**Stage 3** — conventions apply. `state` is the first argument and is named `state`, so it becomes
+`state_argument`; `context` is recognised and removed. Both leave a trace in `registration`:
 
 ```yaml
 name: repeat
 label: Repeat text
 module: python
+doc: Repeat the input text.
 state_argument: { name: state }
 arguments:
-  - { name: count, argument_type: int, default: !Value 2, gui_info: int_slider }
+  - { name: count, argument_type: int, default: !Value 2,
+      gui_info: !IntegerSlider { min: 1, max: 9 } }
+registration:
+  state: state          # which spelling was used
+  context: 2            # the parameter position to pass the context at
 ```
 
-**Stage 3** — derived defaults fill the rest: `count`'s label becomes `Count`, `cache` becomes
-`true`, `expires` becomes `never`, `definition` becomes `Registered`. The command's own label is
-already set, so the derivation rule does not touch it.
+**Stage 4** — derived defaults: `count`'s label becomes `Count`, `cache` becomes `true`, `expires`
+becomes `never`, `definition` becomes `Registered`. The command's label was declared, so derivation
+leaves it.
 
-**Stage 4** — validation passes and a `CommandMetadata` is produced. Had the declaration named
-`"cnt"` instead of `"count"`, stage 4 would have rejected it rather than adding a second argument.
+**Stage 5** — validation passes. The resulting `CommandMetadata` has **one** argument, `count`. The
+`registration` block does not reach it; the Python integration reads it from the declaration and
+knows to call `repeat(state_value, count, context=ctx)`.
 
-## 9. Related documents
+Two things to take from this. The discovered `int` and default `2` **survived** an entry that
+mentioned neither — that is composition. And `state` and `context` never became command arguments,
+so no query parameter is consumed by either — that is conventions.
+
+## 10. Related documents
 
 - [`REGISTER_COMMAND_FSD.md`](REGISTER_COMMAND_FSD.md) — the Rust compile-time counterpart
 - [`COMMAND_REGISTRATION_GUIDE.md`](../guides/COMMAND_REGISTRATION_GUIDE.md) — registering commands in Rust

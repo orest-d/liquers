@@ -54,9 +54,17 @@ Rust test functions, so Phase 4 drops them in rather than writing them again.
 | VAL03 | Unit | A default that does not fit its declared type |
 | VAL04 | Unit | An unrecognised argument type names the command and argument |
 | VAL05 | Unit | A global-enum reference is **not** resolved here and does not fail here |
-| HINT01 | Unit | Hints merge like any other map |
-| HINT02 | Unit | `build` drops hints; `hints()` still returns them |
-| HINT03 | Unit | An unknown hint key is carried, not rejected |
+| HINT01 | Unit | Registration hints merge like any other map |
+| HINT02 | Unit | `build` drops `registration`; `registration()` still returns it |
+| HINT03 | Unit | An unknown registration-hint key is carried, not rejected |
+| HINT04 | Unit | A **usage** hint on an argument *does* reach the metadata |
+| CONV01 | Unit | An argument named `context` leaves `arguments` and lands in `registration` |
+| CONV02 | Unit | A leading `state` becomes `state_argument` and records its spelling |
+| CONV03 | Unit | `value` and `text` are recognised as the state; a *non-leading* `state` is not |
+| CONV04 | Unit | `conventions: { context: false }` keeps a genuine `context` argument |
+| CONV05 | Unit | `conventions: false` disables every convention |
+| CONV06 | Unit | A declared entry for a recognised name merges first, then is lifted — not rejected |
+| CONV07 | Unit | Conventions are idempotent and consume no query parameter |
 | INT01 | Integration | `command_registry.yaml` parses and re-serializes **byte-identically** |
 | INT02 | Integration | A declaration and `register_command!` agree, `metadata_version` included |
 | INT03 | Integration | `foo_bar` label parity: JavaScript verbatim, document derived |
@@ -81,38 +89,42 @@ default. What it cannot carry is a human label or a widget preference.
 
 ```python
 @command(label="Repeat text", arguments={"count": {"gui_info": {"IntegerSlider": {"min": 1, "max": 9}}}})
-def repeat(state, count: int = 2):
+def repeat(state, count: int = 2, context=None):
     """Repeat the input text."""
     return state.value * count
 ```
 
 ### Sequence
 
-1. **populate** — the integration inspects the callable. `inspect.signature` yields `count`,
-   annotated `int`, default `2`; `__doc__` yields the documentation; `__name__` yields the name.
-2. **enhance** — the decorator's keyword arguments are merged over that baseline. `label` is new.
-   The `count` entry is matched **by name** and augments the discovered argument.
-3. **fill** — what is still absent is derived: `count`'s label becomes `Count`; `cache` becomes
+1. **populate** — the integration inspects the callable and **recognises nothing**: it reports
+   `state`, `count` (annotated `int`, default `2`) and `context`, in order. `__doc__` yields the
+   documentation, `__name__` the name.
+2. **enhance** — the decorator's keyword arguments merge over that baseline. `label` is new. The
+   `count` entry is matched **by name** and augments the discovered argument.
+3. **apply** — conventions lift `state` out as `state_argument` and drop `context`, each leaving a
+   trace in `registration`. Neither will consume a query parameter.
+4. **fill** — what is still absent is derived: `count`'s label becomes `Count`; `cache` becomes
    `true`; `expires` becomes `never`. The command's own label was declared, so derivation leaves it.
-4. **build** — validation passes; a `CommandMetadata` is produced.
+5. **build** — validation passes; a `CommandMetadata` with **one** argument is produced.
 
 ### Core example
 
 ```yaml
-# stage 1 — baseline from introspection
+# stage 1 — baseline from introspection; nothing is recognised, everything is reported
 name: repeat
 module: python
 doc: Repeat the input text.
-state_argument: { name: state }
 arguments:
+  - { name: state }
   - { name: count, argument_type: int, default: !Value 2 }
+  - { name: context }
 
 # stage 2 — the declaration, which is all the author wrote
 label: Repeat text
 arguments:
   - { name: count, gui_info: !IntegerSlider { min: 1, max: 9 } }
 
-# stage 4 — the result
+# stage 5 — the result
 name: repeat
 label: Repeat text                 # declared
 module: python
@@ -128,10 +140,14 @@ cache: true                        # derived
 volatile: false
 expires: never
 definition: Registered
+# `registration` stays on the declaration and never reaches the metadata:
+#   registration: { state: state, context: 2 }
 ```
 
-**The point of the example is the two lines marked "survived the merge."** Under the all-or-nothing
-rule the design replaces, declaring `arguments` at all would have discarded `int` and `2`.
+**Two things to take from it.** The lines marked *"survived the merge"* are composition: under the
+all-or-nothing rule this design replaces, declaring `arguments` at all would have discarded `int` and
+`2`. And `state` and `context` never became command arguments, so neither consumes a query parameter
+— that is conventions, and without them `repeat-3` would bind `3` to `state`.
 
 ---
 
@@ -456,7 +472,7 @@ fn def06_derive_runs_after_merge() {
 }
 ```
 
-### Unit tests — build, validation, hints
+### Unit tests — build, validation, hints, conventions
 
 ```rust
 #[test]
@@ -549,31 +565,128 @@ fn val05_global_enum_reference_is_not_resolved_and_does_not_fail() {
 }
 
 #[test]
-fn hint01_hints_merge_like_any_map() {
+fn hint01_registration_hints_merge_like_any_map() {
     let mut d = CommandDeclaration::from_introspection(json!({"name":"f"}));
-    d.enhance(&json!({ "hints": { "python": { "state": "text" } } })).unwrap();
-    d.enhance(&json!({ "hints": { "python": { "variadic": "spread" } } })).unwrap();
-    assert_eq!(d.hints()["python"]["state"], json!("text"));
-    assert_eq!(d.hints()["python"]["variadic"], json!("spread"));
+    d.enhance(&json!({ "registration": { "python": { "state": "text" } } })).unwrap();
+    d.enhance(&json!({ "registration": { "python": { "variadic": "spread" } } })).unwrap();
+    assert_eq!(d.registration()["python"]["state"], json!("text"));
+    assert_eq!(d.registration()["python"]["variadic"], json!("spread"));
 }
 
-/// Hints are declaration-only: readable from the declaration, absent from the metadata.
+/// Registration hints are declaration-only: readable from the declaration, absent from the metadata.
 #[test]
-fn hint02_build_drops_hints() {
+fn hint02_build_drops_registration() {
     let mut d = CommandDeclaration::from_introspection(json!({"name":"f"}));
-    d.enhance(&json!({ "hints": { "python": { "state": "text" } } })).unwrap();
-    d.fill_defaults();
-    let m = d.build().unwrap();
-    assert_eq!(serde_json::to_value(&m).unwrap().get("hints"), None);
-    assert_eq!(d.hints()["python"]["state"], json!("text"), "still readable");
+    d.enhance(&json!({ "registration": { "python": { "state": "text" } } })).unwrap();
+    let m = finish(&mut d);
+    assert_eq!(serde_json::to_value(&m).unwrap().get("registration"), None);
+    assert_eq!(d.registration()["python"]["state"], json!("text"), "still readable");
 }
 
 #[test]
-fn hint03_unknown_hint_key_is_carried_not_rejected() {
+fn hint03_unknown_registration_key_is_carried_not_rejected() {
     let mut d = CommandDeclaration::from_introspection(json!({"name":"f"}));
-    d.enhance(&json!({ "hints": { "javascript": { "stat": "text" } } })).unwrap();
-    assert_eq!(d.hints()["javascript"]["stat"], json!("text"));
+    d.enhance(&json!({ "registration": { "javascript": { "stat": "text" } } })).unwrap();
+    assert_eq!(d.registration()["javascript"]["stat"], json!("text"));
     assert!(d.build().is_ok());
+}
+
+/// The other kind: a usage hint is ordinary metadata and must reach the built command.
+#[test]
+fn hint04_usage_hint_on_an_argument_reaches_the_metadata() {
+    let m = build(json!({ "name": "f", "arguments": [
+        { "name": "a", "hints": { "placeholder": "how many times" } }
+    ]}));
+    assert_eq!(m.arguments[0].hints["placeholder"], json!("how many times"));
+}
+
+// --- conventions ---------------------------------------------------------
+
+/// A context parameter is not a command argument. register_command! gives it no argument slot
+/// (registration.rs:489); a dynamic host needs this rule to reach the same place.
+#[test]
+fn conv01_context_leaves_arguments_and_lands_in_registration() {
+    let mut d = CommandDeclaration::from_introspection(json!({"name":"f","arguments":[
+        { "name": "count" }, { "name": "context" }]}));
+    d.apply_conventions().unwrap();
+    let m = finish(&mut d);
+    assert_eq!(m.arguments.len(), 1);
+    assert_eq!(m.arguments[0].name, "count");
+    assert_eq!(d.registration()["context"], json!(1), "the position is recorded");
+}
+
+#[test]
+fn conv02_leading_state_becomes_the_state_argument() {
+    let mut d = CommandDeclaration::from_introspection(json!({"name":"f","arguments":[
+        { "name": "state" }, { "name": "count" }]}));
+    d.apply_conventions().unwrap();
+    let m = finish(&mut d);
+    assert!(m.state_argument.is_some());
+    assert_eq!(m.arguments.len(), 1);
+    assert_eq!(d.registration()["state"], json!("state"), "the spelling is recorded");
+}
+
+/// `value` and `text` are the other spellings; position matters, so a later `state` is an ordinary
+/// argument and keeps its slot.
+#[test]
+fn conv03_state_spellings_and_position() {
+    for spelling in ["value", "text"] {
+        let mut d = CommandDeclaration::from_introspection(
+            json!({"name":"f","arguments":[{ "name": spelling }]}));
+        d.apply_conventions().unwrap();
+        assert!(finish(&mut d).state_argument.is_some(), "spelling {spelling:?}");
+    }
+    let mut d = CommandDeclaration::from_introspection(json!({"name":"f","arguments":[
+        { "name": "count" }, { "name": "state" }]}));
+    d.apply_conventions().unwrap();
+    let m = finish(&mut d);
+    assert_eq!(m.arguments.len(), 2, "a non-leading `state` is an ordinary argument");
+}
+
+#[test]
+fn conv04_a_convention_can_be_disabled_by_name() {
+    let mut d = CommandDeclaration::from_introspection(json!({"name":"f","arguments":[
+        { "name": "context" }]}));
+    d.enhance(&json!({ "conventions": { "context": false } })).unwrap();
+    d.apply_conventions().unwrap();
+    let m = finish(&mut d);
+    assert_eq!(m.arguments.len(), 1, "a genuine `context` argument survives");
+    assert_eq!(m.arguments[0].name, "context");
+}
+
+#[test]
+fn conv05_all_conventions_can_be_disabled() {
+    let mut d = CommandDeclaration::from_introspection(json!({"name":"f","arguments":[
+        { "name": "state" }, { "name": "context" }]}));
+    d.enhance(&json!({ "conventions": false })).unwrap();
+    d.apply_conventions().unwrap();
+    let m = finish(&mut d);
+    assert_eq!(m.arguments.len(), 2);
+    assert!(m.state_argument.is_none());
+}
+
+/// The reason conventions run *after* the merge: an author declaring metadata for a recognised
+/// name gets it matched by name, not rejected as unknown.
+#[test]
+fn conv06_declared_entry_for_a_recognised_name_merges_before_it_is_lifted() {
+    let mut d = CommandDeclaration::from_introspection(json!({"name":"f","arguments":[
+        { "name": "state" }, { "name": "count" }]}));
+    d.enhance(&json!({ "arguments": [{ "name": "state", "label": "Input" }] }))
+        .expect("must not be rejected as an unknown argument");
+    d.apply_conventions().unwrap();
+    let m = finish(&mut d);
+    assert_eq!(m.state_argument.as_ref().unwrap().label, "Input");
+}
+
+#[test]
+fn conv07_conventions_are_idempotent() {
+    let base = json!({"name":"f","arguments":[{ "name": "state" }, { "name": "context" }]});
+    let mut once = CommandDeclaration::from_introspection(base.clone());
+    once.apply_conventions().unwrap();
+    let mut twice = CommandDeclaration::from_introspection(base);
+    twice.apply_conventions().unwrap();
+    twice.apply_conventions().unwrap();
+    assert_eq!(once.as_value(), twice.as_value());
 }
 ```
 
@@ -664,17 +777,24 @@ the tested input cannot drift.
   DEF04 exists because of the first; the second is `STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE`
   and `fill_defaults` should settle it explicitly rather than inherit it.
 - The `"None"` default is the sharpest edge in the format and is inherited, not introduced.
+- Two things called "hints" answer different questions. Using one key for both would have put a
+  calling convention into the exported registry under a name that already means "hints for the UI".
+- Conventions are the reason stage 1 can be dumb. An integration that recognises `context` itself
+  has re-implemented a rule every other language must then re-implement identically.
 
 ## Review record
 
 *Against Phase 1:* every acceptance criterion has a test — criterion 1 is BUILD01, criterion 3 is
 INT01, criterion 5 is INT02, criterion 6 is INT06, criterion 7 is what the merge laws make possible.
-Criterion 2, the hints, is HINT01–HINT03 as decided (declaration-only).
+Criterion 2 is HINT01–HINT04 and CONV01–CONV07: registration hints declaration-only, usage hints in
+the metadata, and conventions owned by the declaration layer.
 
-*Against Phase 2:* the four stages appear as `from_introspection`, `enhance`, `fill_defaults`,
-`build`; every merge rule in Part A has a numbered test, including the no-introspection exception
-that Part A calls load-bearing; the Part B label table is DEF01 verbatim; the Part C
-`CommandParameterValue` table is BUILD04; and the Part D hints decision is HINT02.
+*Against Phase 2:* the five stages appear as `from_introspection`, `enhance`, `apply_conventions`,
+`fill_defaults`, `build`; every merge rule in Part A has a numbered test, including the
+no-introspection exception that Part A calls load-bearing; the Part B label table is DEF01 verbatim;
+the Part C `CommandParameterValue` table is BUILD04; Part D's two hint kinds are HINT02 (registration
+dropped) and HINT04 (usage kept); and Part E's conventions are CONV01–CONV07, with CONV06 asserting
+the after-the-merge ordering that Part E calls its design decision.
 
 *Against the codebase:* no query strings appear in these examples, so query validation does not
 apply. Every cited line was read at `HEAD`. Commands named in examples (`repeat`, `to_upper`) are

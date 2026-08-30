@@ -170,10 +170,23 @@ dictionary, mirroring the one `ArgumentInfo` already has (`command_metadata.rs:3
 writes what it needs and reads it back; `liquers-core` only carries and merges it. No hint key is
 reserved or validated, and the vocabulary is expected to grow as integrations need it.
 
-**Decided 2026-08-30: hints live on the declaration only** and are dropped when the metadata is
-built, so `CommandMetadata` stays a precise specification of the command and says nothing about how
-to call it. The cost, accepted deliberately: hints do not survive export, so an integration that
-replays registrations must retain the declaration rather than the metadata.
+**Decided 2026-08-30, then refined the same day.** There are *two* kinds of hint and they must not
+share a key:
+
+- **Usage hints** — how to *use* the command — are metadata and already exist
+  (`ArgumentInfo::hints`, documented as UI hints). They survive export.
+- **Registration hints** — how to *register and call* the function — live on the declaration only,
+  under the key `registration`, and are dropped at build. `CommandMetadata` stays a precise
+  specification and says nothing about how to call a function. The accepted cost: they do not
+  survive export, so an integration that replays registrations must retain the declaration.
+
+**And the declaration owns conventions.** Introspection reports the parameters a function has; some
+are not command arguments at all. An argument named `context` is the execution context and is left
+out of the metadata entirely — matching `register_command!`, where a context parameter occupies no
+argument slot. The recognition rule is identical in every language, so it belongs here rather than
+being re-implemented per host, and its corollary is that **stage 1 should be as dumb as it can be**:
+report the parameters and recognise nothing. Conventions run *after* the merge, so an author
+declaring metadata for a recognised name gets it matched rather than rejected.
 
 ```yaml
 name: repeat
