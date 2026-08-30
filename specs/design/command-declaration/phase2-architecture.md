@@ -44,8 +44,14 @@ Three facts about `HEAD` shape the design, all measured:
 
 ## Chosen solution
 
-A new module `liquers-core/src/command_declaration.rs`, plus small additive changes to
+**A function from loosely-specified JSON to `CommandMetadata`**, taking two inputs and composing
+them. A new module `liquers-core/src/command_declaration.rs`, plus small additive changes to
 `command_metadata.rs`. Four parts, in dependency order, each separately revertible.
+
+The value is coordination rather than capability — ~136 lines leave `liquers-web` and ~300 enter
+`liquers-core`, so it is net more code that is written and tested once. That makes it contingent on a
+second consumer; see `purpose-and-semantics.md` §The test this design has to pass, which the gate
+should apply before the open questions below.
 
 ### Part A — the merge (stage 2)
 

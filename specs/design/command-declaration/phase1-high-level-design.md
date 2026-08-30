@@ -61,6 +61,22 @@ portable data, and what the host does with it — register an executor, wrap it 
 host performs a **handover**, keeping the non-portable part and passing the data part on;
 `liquers-web` already strips `run` before parsing (`spec.rs:130-140`).
 
+## What this is, and what it is worth
+
+**In one sentence:** a function from loosely-specified JSON to `CommandMetadata`. More precisely, it
+composes *two* inputs — what the host discovered and what the author declared — and that composition
+is the substance; a single-input parser would be trivial.
+
+The value is **coordination, not capability**. About 136 lines leave `liquers-web` and about 300
+enter `liquers-core`: this is net more code, written once and behaving identically everywhere instead
+of rewritten per binding. It follows that the design is **worth doing only if a second consumer
+exists** — a Python declaration path, which `liquers-py` does not have today
+(`liquers-py/src/commands.rs:187-190` registers Rust functions), or the plain-document host, which is
+this issue's original two-document motivation and cannot exist without it. With only `liquers-web` as
+a consumer the right change is the five serde attributes alone, and this design should be declined.
+That test belongs at the approval gate; see `purpose-and-semantics.md` §The test this design has to
+pass.
+
 ## Expected behaviour and acceptance criteria
 
 1. `CommandMetadata` deserializes from an author-written document whose minimal form is

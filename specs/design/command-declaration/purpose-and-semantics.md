@@ -34,6 +34,69 @@ Rust is not a target. The plain-document case — a `commands.yaml` beside the e
 configuration — is served by the same type with no host language present at all, and is the case
 with *no* introspection to compose over.
 
+### In one sentence, and what that leaves out
+
+*"A function that converts loosely-defined JSON into `CommandMetadata`."* That is close enough to be
+useful, and it is the right mental model. Two corrections keep it from being misleading:
+
+- It converts **more than one** input. The interesting call is not `json → metadata` but
+  `(introspected baseline, author declaration) → metadata`. Composition, not parsing, is the
+  substance; a single-input version of this would be an afternoon's work.
+- "Loosely defined" is not a weakness to be tolerated — it *is* the deliverable. Being able to write
+  `{"name": "to_text"}` and get a complete, valid `CommandMetadata` is the whole product.
+
+### Added value, stated honestly
+
+Ranked by how much of the case they carry:
+
+1. **Composition over introspection.** The only part no host gets for free. Without it each host
+   either writes its own merge or does what `liquers-web` does today — declared *or* inferred, never
+   both — so an author who wants to label one argument must restate all of them. The rules
+   (by-name argument merge, absence versus default, order from the baseline) are more valuable than
+   the code that implements them, because their worth is that every host agrees on them.
+2. **One vocabulary instead of N.** Which type names are accepted, what a missing field means, what
+   an author is told when a declaration is wrong. Two hand-written parsers drift here immediately,
+   and the drift is invisible until someone moves a declaration between languages.
+3. **Defaults derived once.** Labels from names, `gui_info`, everything `CommandMetadata::from_key`
+   already knows. Small code; the value is that Python and JavaScript produce identical metadata for
+   identical input.
+4. **`CommandMetadata` becomes partially specifiable at all.** Today it is not: four fields plus
+   `ArgumentInfo::label` lack `#[serde(default)]`, so `{"name":"greet"}` is rejected. Five
+   attributes, and nothing else here works without them — worth doing on its own as a latent-defect
+   fix.
+
+### What it is *not*
+
+**It does not save code.** About 136 lines leave `liquers-web`; about 300 enter `liquers-core`. The
+net is *more* code. What it saves is **divergence**: those 300 lines are written once, tested once,
+and behave identically everywhere, instead of being written again, slightly differently, per binding.
+
+**It does not make a language binding easy.** A Python binding still needs introspection,
+callable handling, registration and dispatch — none of which this touches. It covers the metadata
+slice, which `portability-analysis.md` measured as the slice Python benefits from most, but it is a
+slice.
+
+**It is not a hard technical problem.** It is a small amount of code whose value is coordination.
+
+### The test this design has to pass
+
+Because the value is coordination rather than capability, it is **contingent on there being at least
+two consumers**. With only `liquers-web`, this is a net loss and the right change is the five serde
+attributes alone.
+
+There are two candidate second consumers, and the design's justification rests on at least one of
+them being real:
+
+- **A Python declaration path.** `liquers-py` has none today — it registers Rust functions through
+  `register_command!` (`liquers-py/src/commands.rs:187-190`). This is the case the issue argues from.
+- **The plain-document host.** A `commands.yaml` beside the environment configuration, with no host
+  language at all. This needs loose-JSON-to-metadata even if no binding is ever written, and it is
+  the *original* motivation in `COMMAND-DECLARATION-FORMAT` — the "two documents" setup.
+
+The second is the stronger justification, because it does not depend on future work: a document host
+cannot exist at all without this, whereas a Python binding could hand-roll its own. If neither is
+actually going to be built, this design should be declined and the serde fix taken on its own.
+
 ### The two things it carries
 
 1. **A metadata contribution** — a *partial* `CommandMetadata`: whatever the author supplies that
