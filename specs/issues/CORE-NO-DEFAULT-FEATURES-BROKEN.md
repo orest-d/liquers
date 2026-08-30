@@ -2,7 +2,7 @@
 id: CORE-NO-DEFAULT-FEATURES-BROKEN
 kind: issue
 title: liquers-core does not build without default features
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/store, build]
@@ -78,3 +78,17 @@ Found while implementing `design/store-factories-in-core/` Phase 4, running the 
 that design's Step 10 proposes adding to the build matrix. Pre-existing and unrelated to that work:
 the three failing imports are in files it does not touch, and it modifies only `Cargo.toml`,
 `error.rs`, `lib.rs` and new modules.
+
+## Resolution
+
+Closed on 2026-08-30 by making `liquers-core`'s async store surface unconditional. `futures` and
+`async-trait` are normal dependencies, source-level `async_store` gates were removed, and
+`async_store` remains only as a no-op compatibility feature for existing Cargo selectors. The build
+matrix now includes `liquers-core --no-default-features`.
+
+Evidence:
+
+- `cargo check -p liquers-core --no-default-features`
+- `cargo test -p liquers-core --no-default-features`
+- `cargo check -p liquers-core`
+- `cargo test -p liquers-core`

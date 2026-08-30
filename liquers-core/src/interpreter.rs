@@ -2,7 +2,6 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::maybe_send::MaybeBoxed;
-use futures::FutureExt;
 
 use crate::{
     assets::{AssetManager, AssetRef},
@@ -1998,8 +1997,6 @@ mod tests {
         assert!(state.metadata.primary_progress().is_done());
         Ok(())
     }
-
-    #[cfg(feature = "async_store")]
     #[tokio::test]
     async fn test_dir() {
         use crate::context::{EnvRef, Environment, SimpleEnvironment};
@@ -2077,8 +2074,6 @@ mod tests {
             panic!("Expected AssetInfo value");
         }
     }
-
-    #[cfg(feature = "async_store")]
     #[tokio::test]
     async fn test_dir_no_recipe_yaml() {
         use crate::context::{EnvRef, Environment, SimpleEnvironment};
@@ -2142,8 +2137,6 @@ mod tests {
             panic!("Expected AssetInfo value");
         }
     }
-
-    #[cfg(feature = "async_store")]
     #[tokio::test]
     async fn test_dir_no_recipe_provider() {
         use crate::context::{EnvRef, Environment, SimpleEnvironment};
