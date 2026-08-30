@@ -7,12 +7,19 @@ The design claims a *language-neutral* command declaration. This document tests 
 six host languages and reports where the claim holds, where it is thinner than it looks, and one
 place where the design as specified would not serve Python.
 
+> **Outcome note, added 2026-08-29.** This analysis was written while the design still contained a
+> typed calling convention. Its central finding — that **M travels to all six languages while C is
+> needed by two to five of them** — is what led to that piece being **descoped**. C is no longer a
+> typed part of the design; those facts survive as uninterpreted hints. The tables below are left as
+> written, because they are the evidence for the decision; read the **M column** as the design's
+> current scope and the **C column** as what was dropped and why.
+
 **Method.** The design has three separable pieces of reuse, and they do not travel equally far:
 
 | Piece | What it is |
 |---|---|
 | **M — the metadata format** | Part A: `CommandMetadata` deserializable from an author-written document |
-| **C — the calling convention** | Part B: `CallingConvention` — state form, undeclared-async |
+| **C — the calling convention** | then Part B, `CallingConvention` (state form, undeclared-async); **now descoped to hints** |
 | **I — argument inference** | Deriving arguments from the callable itself |
 
 For each language the question is which of the three it can use, not whether it "supports the
