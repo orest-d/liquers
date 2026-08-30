@@ -294,6 +294,42 @@ working when `df` acquires one. A closed enum would have forced every such name 
 rather than `f(state_arg, *argv)`. Note the semantic that comes with it — such a command is still
 usable anywhere in a query, and a state reaching it is **ignored, not refused**.
 
+### Warnings — a collected channel, not `eprintln!`
+
+Three convention outcomes are silent decisions the author cannot see in the document, and each is a
+warning rather than an error, because every one has a legitimate use:
+
+| Kind | When |
+|---|---|
+| `ReservedStateDelivery` | the first argument's name has no defined meaning; it is treated as `value` |
+| `ContextBeforeState` | a `context` precedes the state, so removing it **shifts which argument becomes the state** — `def f(context, count)` makes `count` the state |
+| `NoIntrospection` | no introspection ran, the declaration supplied `arguments`, and no `state_argument` was declared, so this is a source command by omission |
+| `DroppedKey` | a declared key cannot reach the metadata — today, a command-level `hints` |
+
+```rust
+/// A non-fatal diagnostic. The host decides how to surface it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Warning { pub command: String, pub kind: WarningKind, pub message: String }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WarningKind {
+    ReservedStateDelivery, ContextBeforeState, NoIntrospection, DroppedKey,
+}
+
+impl CommandDeclaration {
+    /// Diagnostics accumulated so far. De-duplicated, so re-running a stage does not multiply them.
+    pub fn warnings(&self) -> &[Warning];
+}
+```
+
+**Collected rather than printed, and this is a deliberate departure.** `liquers-core` uses
+`eprintln!` for diagnostics elsewhere (56 sites in `assets.rs` alone), which is right for a native
+service and wrong here for two reasons: `liquers-web` is a wasm build where nothing reads stderr, so
+a printed warning is simply lost; and a printed warning cannot be asserted on, whereas the whole
+point of these three is that they are easy to get wrong and so want tests. The host surfaces them —
+`console.warn`, `warnings.warn`, a log line — which is the same "core records, the integration
+performs" split the rest of the design uses. `WarningKind` is matched explicitly, no `_ =>`.
+
 **Where the rule applies.** It interprets a *function's parameter list*, so it applies when
 introspection ran — the baseline carried an `arguments` key — and not when a declaration introduces
 arguments where none were discovered. In that case they are the command's public arguments, not a

@@ -49,7 +49,8 @@ caller and is worse. Step 3 uses a `static NULL`.
 **ADVISORY — a command-level `hints` key is silently dropped.** `CommandMetadata` has no such field
 (`COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS`), and it has no `deny_unknown_fields`, so an author
 writing one gets no error and no effect. Step 6 warns rather than fails, since failing would block
-the day that field is added.
+the day that field is added — on the collected channel step 4 introduces, which turned out to be
+needed for three convention outcomes as well.
 
 **Confirmed rather than assumed:** `Error::from_error<E: Display>` (`error.rs:129`) accepts a
 `String`, so the planned construction is correct and no `Error::new` is needed;
@@ -217,6 +218,29 @@ impl StateDelivery {
   `value` today, so a declaration survives `df` acquiring a meaning later. A **declared**
   `registration.state` wins over the derived one; an explicit `state_argument` is left untouched.
 
+  **Warnings, on a collected channel.** Three convention outcomes are silent decisions and each
+  warns rather than failing, because each has a legitimate use:
+  `ReservedStateDelivery` (an undefined first-argument name, treated as `value`),
+  `ContextBeforeState` (a leading `context` shifted which argument became the state) and
+  `NoIntrospection` (no introspection, declared arguments, no declared `state_argument`).
+
+```rust
+#[derive(Debug, Clone, PartialEq)]
+pub struct Warning { pub command: String, pub kind: WarningKind, pub message: String }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WarningKind { ReservedStateDelivery, ContextBeforeState, NoIntrospection, DroppedKey }
+
+impl CommandDeclaration { pub fn warnings(&self) -> &[Warning]; }
+```
+
+  **Not `eprintln!`, deliberately.** Core prints diagnostics elsewhere (56 sites in `assets.rs`),
+  which suits a native service. Here it would be wrong twice over: `liquers-web` is a wasm build
+  where nothing reads stderr, so a printed warning is lost; and a printed warning cannot be asserted
+  on, which is what WARN01-WARN06 must do. Warnings are de-duplicated so `apply_conventions` stays
+  idempotent in its warnings as well as its document (CONV07 asserts both). `WarningKind` is matched
+  explicitly — no `_ =>`.
+
   **Two orderings are load-bearing.** Structural conventions run *before* delivery, or
   `def f(context, x)` makes the context the state (CONV13). And the delivery rule applies only when
   introspection ran — the baseline carried an `arguments` key — so a document declaring public
@@ -229,7 +253,7 @@ No `_ =>` arm anywhere — the two flags are matched explicitly.
 **Validation**
 
 ```bash
-cargo test -p liquers-core --lib convention_tests    # CONV01-CONV14
+cargo test -p liquers-core --lib convention_tests    # CONV01-CONV14, WARN01-WARN03, WARN05-WARN06
 ```
 
 **Agent:** sonnet · skills `rust-best-practices` · knowledge: Phase 2 §Part E, Phase 3 CONV tests,
@@ -296,8 +320,8 @@ because `CommandMetadata` sets no `deny_unknown_fields` — then validates: empt
 type. Each message names the command and, where applicable, the argument. Global enums are **not**
 resolved (VAL05).
 
-A command-level `hints` key produces a **warning to `eprintln!`**, never a failure — see the
-advisory finding. Library code must not touch stdout.
+A command-level `hints` key produces a `WarningKind::DroppedKey` warning (WARN04), never a failure —
+see the advisory finding. It uses the same collected channel step 4 introduces, not `eprintln!`.
 
 **Validation**
 
@@ -518,7 +542,7 @@ it. Criterion 4's byte-identical round-trip is enforced twice — by INT01 in st
 step 9. The sequencing Phase 2 recommends (C → A → B → D → web) is preserved, with the conventions
 inserted and the spike hoisted ahead of the rewrite.
 
-*Against Phase 3:* every numbered test has a step that makes it pass — MERGE in 3, CONV01-CONV14 in 4, DEF in
+*Against Phase 3:* every numbered test has a step that makes it pass — MERGE in 3, CONV01-CONV14 and WARN01-WARN03/05/06 in 4, WARN04 in 6, DEF in
 5, BUILD/VAL/HINT in 6, INT in 7-9. No test is orphaned and no step is untested.
 
 *Against the codebase:* `Error::from_error<E: Display>` (`error.rs:129`), `ErrorType::ParameterError`

@@ -154,8 +154,9 @@ worth remembering: such a command is still a perfectly ordinary command and may 
 query. A state reaching it is **ignored, not refused**.
 
 **Reserved names are the extension point.** An unrecognised first-argument name is not an error; it
-means `value` until something gives it meaning. `df` is the motivating case — a Python integration
-may one day deliver a polars or pandas DataFrame for it, and declarations written today keep working
+means `value` until something gives it meaning, **and it warns** (§3.2.4) so the author learns that
+nothing yet delivers what the name suggests. `df` is the motivating case — a Python integration may
+one day deliver a polars or pandas DataFrame for it, and declarations written today keep working
 because `value` was always the fallback.
 
 **`value` is not a new mechanism.** It delegates to the integration's existing value bridge (the
@@ -185,6 +186,31 @@ when the baseline carried an `arguments` key — and not when a declaration intr
 none were discovered. In that second case the `arguments` are the command's *public* arguments, not
 a function's parameters, and swallowing the first would be wrong. A document host that wants a state
 declares one: `state_argument: {…}`, or `registration: { state: value }`.
+
+### 3.2.4 Warnings
+
+Conventions make decisions the author cannot see in the document. Three of them are silent and each
+one has surprised somebody:
+
+| Warning | When | Why it matters |
+|---|---|---|
+| **reserved delivery mode** | the first argument's name has no defined meaning — `df`, `frame`, `input` | It is being treated as `value`. That is the defined fallback, not a mistake, but an author who expected a DataFrame should learn that nothing yet delivers one |
+| **context before state** | a `context` argument precedes the state | Removing it *shifts which argument becomes the state*. `def f(context, count)` makes `count` the state, which is rarely what was meant |
+| **no introspection** | no introspection ran, the declaration supplied `arguments`, and no `state_argument` was declared | The delivery rule did not apply, so this is a *source* command. If the author meant it to transform a state, nothing said so |
+
+These are **warnings, never errors** — every one of them has a legitimate use, so failing would block
+correct declarations to catch incorrect ones.
+
+**They are collected, not printed.** `liquers-core` accumulates them and the host surfaces them:
+`console.warn` in a browser, `warnings.warn` in Python, a log line in a service. A library that
+printed them itself would be writing into a wasm build where nothing reads stderr, and would be
+untestable besides.
+
+```rust
+let warnings = declaration.warnings();   // &[Warning] — never fatal
+```
+
+Warnings are de-duplicated, so re-running a stage does not multiply them.
 
 ### 3.3 Opting out
 

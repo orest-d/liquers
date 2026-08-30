@@ -68,6 +68,12 @@ Rust test functions, so Phase 4 drops them in rather than writing them again.
 | CONV12 | Unit | A declared `registration.state` wins over the one derived from the name |
 | CONV13 | Unit | A leading `context` is removed structurally *before* the delivery rule runs |
 | CONV14 | Unit | With no introspection, the delivery rule does not apply |
+| WARN01 | Unit | A reserved delivery name warns, and is still treated as `value` |
+| WARN02 | Unit | A leading `context` warns that it shifted which argument became the state |
+| WARN03 | Unit | No introspection + declared arguments + no `state_argument` warns |
+| WARN04 | Unit | A dropped command-level `hints` warns rather than failing |
+| WARN05 | Unit | Warnings are de-duplicated; re-running a stage does not multiply them |
+| WARN06 | Unit | A warning is never fatal — `build` still succeeds |
 | CONV04 | Unit | `conventions: { context: false }` keeps a genuine `context` argument |
 | CONV05 | Unit | `conventions: false` disables every convention |
 | CONV06 | Unit | A declared entry for a recognised name merges first, then is lifted — not rejected |
@@ -266,8 +272,10 @@ on that belongs to `POST-INIT-COMMAND-REGISTRATION`.
 `INFERRED_ARGUMENTS` thread-local (`adapter.rs:26-37`) is *removed* rather than made concurrent —
 the merge's own rule carries what it was tracking.
 
-**Errors.** Every failure is `Error::from_error(ErrorType::ParameterError, …)`; no new error type,
-no `Error::new`. Each message names the command, and the argument where there is one. Serde failures
+**Errors, and warnings.** Every failure is `Error::from_error(ErrorType::ParameterError, …)`; no new
+error type, no `Error::new`. Non-fatal diagnostics go to a **collected** warning channel rather than
+`eprintln!` — `liquers-web` is a wasm build where nothing reads stderr, so a printed warning is lost,
+and a printed warning cannot be asserted on, which is exactly what WARN01–WARN06 need to do. Each message names the command, and the argument where there is one. Serde failures
 from the `liquers-web` path are wrapped so the command name survives a message serde wrote.
 
 **Serialization.** The one hard constraint: `specs/command_registry.yaml` must not move (INT01), and
@@ -776,6 +784,87 @@ fn conv07_conventions_are_idempotent() {
     twice.apply_conventions().unwrap();
     twice.apply_conventions().unwrap();
     assert_eq!(once.as_value(), twice.as_value());
+    assert_eq!(once.warnings(), twice.warnings(), "warnings too, not just the document");
+}
+
+// --- warnings ------------------------------------------------------------
+//
+// Three convention outcomes are silent decisions an author cannot see in the document. Each has a
+// legitimate use, so each warns rather than failing. Collected, not printed: liquers-web is a wasm
+// build where nothing reads stderr, and a printed warning cannot be asserted on.
+
+fn kinds(d: &CommandDeclaration) -> Vec<WarningKind> {
+    d.warnings().iter().map(|w| w.kind.clone()).collect()
+}
+
+#[test]
+fn warn01_a_reserved_delivery_name_warns_and_still_means_value() {
+    let mut d = CommandDeclaration::from_introspection(json!({"name":"f","arguments":[
+        { "name": "df" }, { "name": "count" }]}));
+    d.apply_conventions().unwrap();
+    assert!(kinds(&d).contains(&WarningKind::ReservedStateDelivery));
+    assert_eq!(d.registration()["state"], json!("df"), "recorded verbatim");
+    assert_eq!(StateDelivery::from_argument_name("df").effective(), StateDelivery::Value);
+    let w = &d.warnings()[0];
+    assert!(w.message.contains("df") && w.command == "f");
+}
+
+/// The surprise: removing a leading context shifts which argument becomes the state, so
+/// `def f(context, count)` makes `count` the state.
+#[test]
+fn warn02_a_leading_context_warns_that_it_shifted_the_state() {
+    let mut d = CommandDeclaration::from_introspection(json!({"name":"f","arguments":[
+        { "name": "context" }, { "name": "count" }]}));
+    d.apply_conventions().unwrap();
+    assert!(kinds(&d).contains(&WarningKind::ContextBeforeState));
+    assert_eq!(d.registration()["state"], json!("count"), "`count` became the state");
+}
+
+/// Scoped to avoid noise: only when the declaration supplied arguments and declared no state, so a
+/// plain-document host declaring `state_argument` explicitly stays quiet.
+#[test]
+fn warn03_no_introspection_warns_only_when_the_state_is_unstated() {
+    let mut noisy = CommandDeclaration::from_introspection(json!({ "name": "f" }));
+    noisy.enhance(&json!({ "arguments": [{ "name": "count" }] })).unwrap();
+    noisy.apply_conventions().unwrap();
+    assert!(kinds(&noisy).contains(&WarningKind::NoIntrospection));
+
+    let mut quiet = CommandDeclaration::from_introspection(json!({ "name": "f" }));
+    quiet.enhance(&json!({ "arguments": [{ "name": "count" }],
+                           "state_argument": { "name": "state" } })).unwrap();
+    quiet.apply_conventions().unwrap();
+    assert!(!kinds(&quiet).contains(&WarningKind::NoIntrospection), "declared, so no warning");
+}
+
+#[test]
+fn warn04_a_dropped_command_level_hints_key_warns() {
+    let mut d = CommandDeclaration::from_introspection(json!({"name":"f"}));
+    d.enhance(&json!({ "hints": { "category": "text" } })).unwrap();
+    let m = finish(&mut d);
+    assert!(kinds(&d).contains(&WarningKind::DroppedKey));
+    assert_eq!(serde_json::to_value(&m).unwrap().get("hints"), None);
+}
+
+#[test]
+fn warn05_warnings_are_deduplicated() {
+    let mut d = CommandDeclaration::from_introspection(json!({"name":"f","arguments":[
+        { "name": "df" }]}));
+    d.apply_conventions().unwrap();
+    d.apply_conventions().unwrap();
+    assert_eq!(d.warnings().iter()
+                 .filter(|w| w.kind == WarningKind::ReservedStateDelivery).count(), 1);
+}
+
+/// Every warned-about case has a legitimate use, so failing would block correct declarations to
+/// catch incorrect ones.
+#[test]
+fn warn06_a_warning_is_never_fatal() {
+    let mut d = CommandDeclaration::from_introspection(json!({"name":"f","arguments":[
+        { "name": "context" }, { "name": "df" }]}));
+    d.apply_conventions().unwrap();
+    d.fill_defaults();
+    assert!(!d.warnings().is_empty());
+    assert!(d.build().is_ok(), "warnings do not fail the build");
 }
 ```
 
@@ -878,6 +967,9 @@ the tested input cannot drift.
   argument list — while the state rule is *delivery*, fixing how a value arrives. The second has normative
   meanings (`value` means "unwrap through the value bridge where possible") that core records but
   cannot enforce, so each integration's conformance suite is where they are actually checked.
+- Silent decisions want warnings, and the three the conventions make are the ones that have
+  surprised people. A collected channel beats `eprintln!` for a library two hosts wrap — and the
+  wasm case makes it not a preference but a correctness point, since stderr goes nowhere there.
 - `text` is the only delivery mode that can fail, and it fails at call time. Nothing in
   `liquers-core` can catch it: `try_into_string` returns a `Result` and the integration's error
   bridge carries it.
@@ -886,7 +978,7 @@ the tested input cannot drift.
 
 *Against Phase 1:* every acceptance criterion has a test — criterion 1 is BUILD01, criterion 3 is
 INT01, criterion 5 is INT02, criterion 6 is INT06, criterion 7 is what the merge laws make possible.
-Criterion 2 is HINT01–HINT04 and CONV01–CONV14: registration hints declaration-only, usage hints in
+Criterion 2 is HINT01–HINT04, CONV01–CONV14 and WARN01–WARN06: registration hints declaration-only, usage hints in
 the metadata, and conventions owned by the declaration layer.
 
 *Against Phase 2:* the five stages appear as `from_introspection`, `enhance`, `apply_conventions`,
@@ -895,7 +987,8 @@ no-introspection exception that Part A calls load-bearing; the Part B label tabl
 the Part C `CommandParameterValue` table is BUILD04; Part D's two hint kinds are HINT02 (registration
 dropped) and HINT04 (usage kept); and Part E's conventions are CONV01–CONV14, with CONV06 asserting
 the after-the-merge ordering that Part E calls its design decision, CONV08 pinning the delivery
-modes and CONV13 the structural-before-delivery ordering.
+modes and CONV13 the structural-before-delivery ordering. Part E's warning channel is
+WARN01–WARN06.
 
 *Against the codebase:* no query strings appear in these examples, so query validation does not
 apply. Every cited line was read at `HEAD`. Commands named in examples (`repeat`, `to_upper`) are
