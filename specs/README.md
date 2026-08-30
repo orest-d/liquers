@@ -106,7 +106,7 @@ serves both. Solve them together.
 - **`register_command!` specification** — documented → [`reference/REGISTER_COMMAND_FSD.md`](reference/REGISTER_COMMAND_FSD.md)
 - **Context parameter position** — designing → [`design/context-param-order/`](design/context-param-order/)
 - **Enum parameters** — designing → [`design/register-command-enum/`](design/register-command-enum/)
-- **Language-neutral command declaration** — designing → [`design/command-declaration/`](design/command-declaration/)
+- **Language-neutral command declaration** — documented → [`reference/COMMAND_DECLARATION.md`](reference/COMMAND_DECLARATION.md)
 - **Command metadata enhancements** — planned → [`issues/COMMAND-METADATA-ENHANCEMENTS.md`](issues/COMMAND-METADATA-ENHANCEMENTS.md)
 - **Macro query validation and hints** — planned → [`issues/MACRO-QUERY-VALIDATION-AND-HINTS.md`](issues/MACRO-QUERY-VALIDATION-AND-HINTS.md)
 
@@ -191,7 +191,6 @@ question are both measure-first items.
 <!-- BEGIN generated: issues -->
 | Issue | Pri | Cx | Design |
 |---|---|---|---|
-| [`COMMAND-DECLARATION-FORMAT`](issues/COMMAND-DECLARATION-FORMAT.md) | P0 | M | `command-declaration` |
 | [`CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC`](issues/CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC.md) | P1 | S | `payload-env-recipe-provider-fallback` |
 | [`STORE-OPENDAL-SLASH-HANDLING`](issues/STORE-OPENDAL-SLASH-HANDLING.md) | P1 | M | `opendal-path-mapping` |
 | [`QUEUED-MANAGER-STARTUP-READINESS`](issues/QUEUED-MANAGER-STARTUP-READINESS.md) | P1 | L | `environment-builder` |
@@ -207,6 +206,7 @@ deliberately folded behind a broader line.
 - `reference/VALUE_TYPE_SYSTEM.md`
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - design `asset-manager-insert-key-asset-semantics`
+- design `command-declaration`
 - design `core-no-default-features`
 - design `environment-builder`
 - design `error-with-key-field`
@@ -224,8 +224,10 @@ deliberately folded behind a broader line.
 - design `value-type-system`
 - design `variadic-metadata-tail-check`
 - feature `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`
-- feature `COMMAND-DECLARATION-FORMAT`
+- feature `COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS`
 - feature `DATA-FORMAT-CONSTANTS-AND-TOOLING`
+- feature `JS-COMMAND-CANNOT-ACCESS-CONTEXT`
+- feature `LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION`
 - feature `LANGUAGE-STORE-TYPE-NOT-DEFINABLE`
 - feature `STORE-COMMAND-NAMESPACE-MISSING`
 - feature `STORE-CONFIG-FROM-URI`

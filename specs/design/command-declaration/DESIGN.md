@@ -1,35 +1,101 @@
 ---
 id: COMMAND-DECLARATION
 kind: design
+workflow: liquers-project
 title: A language-neutral command declaration type
-status: in_review
-phase: architecture
+status: complete
 area: [core/commands, web, py]
-gh_pr: []
-issues: [COMMAND-DECLARATION-FORMAT]
+gh_pr: [50]
+issues: [COMMAND-DECLARATION-FORMAT, STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE,
+         JS-COMMAND-CANNOT-ACCESS-CONTEXT, ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING,
+         COMMAND-ALIAS-DEFINITION-UNTESTED, LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION,
+         COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS]
 created: 2026-08-29
 superseded_by:
 ---
 # A language-neutral command declaration type
 
-Design tracking for [`issues/COMMAND-DECLARATION-FORMAT.md`](../../issues/COMMAND-DECLARATION-FORMAT.md), prepared under
-[`guides/autonomous_issue_fixing.md`](../../guides/autonomous_issue_fixing.md). No `workflow:`
-marker: this is a simplified transitional design whose required phases are the two written here
-plus whatever the approval gate authorizes. It is **not** opted into the `liquers-project`
-artifact and approval contract.
+Design tracking for [`issues/COMMAND-DECLARATION-FORMAT.md`](../../issues/COMMAND-DECLARATION-FORMAT.md).
+
+**Started** under [`guides/autonomous_issue_fixing.md`](../../guides/autonomous_issue_fixing.md) as a
+simplified two-phase design. **Converted to `liquers-project` on 2026-08-29** by maintainer decision,
+after the purpose statement re-scoped the issue `M → L`: the feature is a merge algebra with
+absence-tracking and name-keyed argument merging, a defaults-derivation rule set, and a call
+specification, which the simplified procedure does not fit. The `workflow: liquers-project` marker
+is set, so all five phases and the Phase 5 documentation contract now apply.
 
 ## Phase status
 
 - [x] Phase 1: High-level design — [`phase1-high-level-design.md`](./phase1-high-level-design.md)
 - [x] Phase 2: Solution and architecture — [`phase2-architecture.md`](./phase2-architecture.md)
-- [ ] Approval gate (§5 of the autonomous procedure) — **awaiting a decision**
-- [ ] Phase 3: Examples, reproduction and tests
-- [ ] Phase 4: Implementation plan and execution
-- [ ] Phase 5: Documentation
+      *(rewritten 2026-08-29 against the purpose statement, then descoped: a four-stage pipeline
+      whose middle three stages — merge, derive defaults, convert to `CommandMetadata` — are the
+      shared deliverable. No call specification and no `run`.)*
+- [x] Reference — [`specs/reference/COMMAND_DECLARATION.md`](../../reference/COMMAND_DECLARATION.md)
+      *(written before implementation because the language-specific guides build on it; held in
+      this folder until it was true at `HEAD`, then promoted unchanged but for its banner)*
+- [x] Purpose and semantics — [`purpose-and-semantics.md`](./purpose-and-semantics.md)
+      *(maintainer purpose statement, drafted as the future API doc, with a critical evaluation
+      and the recorded decisions. **This document, not Phase 1, defines what the feature is.**)*
+- [x] Portability validation — [`portability-analysis.md`](./portability-analysis.md)
+      *(six languages assessed; the bar "clear benefit for Python and JavaScript" is met, but
+      asymmetrically — see its §Bar)*
+- [x] Phase 2 approval gate — **approved 2026-08-30**; hints decided declaration-only
+- [x] Phase 3: Examples and use-cases — [`phase3-examples.md`](./phase3-examples.md)
+      *(3 examples, 60 numbered tests; the merge laws and the conventions are the specification.
+      Approved 2026-08-30; the state-delivery rule corrected the same day.)*
+- [x] Phase 4: Implementation plan — [`phase4-implementation.md`](./phase4-implementation.md)
+      *(10 steps, all executed. The spike answered in the design's favour: the conversion holds
+      and integer defaults are preserved, so the fallback path was not needed.)*
+- [x] Phase 5: Documentation — [`phase5-documentation.md`](./phase5-documentation.md)
+      *(reference promoted to [`specs/reference/COMMAND_DECLARATION.md`](../../reference/COMMAND_DECLARATION.md);
+      `COMMAND-DECLARATION-FORMAT` and `ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING` closed)*
 
 ## Why this folder exists
 
-`liquers-web` hand-parses a command declaration out of a `JsValue`, and a Python binding would rewrite it. Phase 1 measures why `CommandMetadata` cannot serve as the declaration format; Phase 2 specifies `CommandDeclaration` in `liquers-core` and the `liquers-web` re-implementation over it.
+`liquers-web` hand-parses a command declaration out of a `JsValue`, and a Python binding would
+rewrite it. The feature is the runtime equivalent of `register_command!`: it says how a *function*
+becomes a *command*, where `CommandMetadata` describes the command itself.
+
+Its substance is a four-stage pipeline whose middle three stages are shared:
+
+```
+1. populate   host introspection fills what it can discover          host-specific
+2. enhance    the author's declaration is merged over it             SHARED
+3. apply      conventions reinterpret the composed result            SHARED
+4. fill       defaults derived for whatever is still absent           SHARED
+5. build      convert to CommandMetadata, or error                    SHARED
+```
+
+Merging happens on the serialized form, so *absence is key-absence* — the distinction a typed
+representation cannot make and the merge cannot do without.
+
+The declaration also **owns conventions**: an argument named `context` is the execution context and
+never becomes a command argument, matching `register_command!`. The rule is the same in every
+language, so stage 1 stays as dumb as possible — report the parameters, recognise nothing.
+
+**Descoped 2026-08-29:** defining *how to call the function* is out of scope, as is the callable
+itself. Those were the parts fighting portability. Call-related facts survive as uninterpreted
+hints, whose vocabulary is deliberately not designed yet.
+
+**In one sentence:** a function from loosely-specified JSON to `CommandMetadata` — except that it
+takes *two* inputs and composes them, which is where the substance is.
+
+**Added value, and its condition.** The value is coordination, not capability: about 136 lines leave
+`liquers-web` and about 300 enter `liquers-core`, so this is net *more* code. What it buys is that
+those lines are written once and behave identically everywhere, instead of being rewritten slightly
+differently per binding. That made it **contingent on there being a second consumer**, and the
+condition is met: **Python and JavaScript support are both real and are likely the next major
+development goal** (maintainer, 2026-08-30), with the plain-document host (`commands.yaml`) as a
+third beneficiary. See [`purpose-and-semantics.md`](./purpose-and-semantics.md) §Added value and
+§The test this design has to pass.
+[`purpose-and-semantics.md`](./purpose-and-semantics.md) is the authoritative statement of what this
+is and why; [`portability-analysis.md`](./portability-analysis.md) tests the reuse claim against six
+languages.
+
+Two earlier drafts of Phase 2 are recorded in its §Rejected alternatives rather than deleted: a
+struct mirroring `CommandMetadata` field for field, and a "fix `CommandMetadata` and add the residue"
+design. Both mistook the feature for a serialization problem.
 
 ## Relationship to `environment-builder`
 

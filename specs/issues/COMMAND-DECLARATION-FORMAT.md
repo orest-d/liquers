@@ -2,9 +2,9 @@
 id: COMMAND-DECLARATION-FORMAT
 kind: feature
 title: No language-neutral command declaration format, so every binding hand-parses its own
-status: draft
+status: closed
 priority: P0
-complexity: M
+complexity: L
 area: [core/commands, web, py]
 design: command-declaration
 created: 2026-08-27
@@ -73,6 +73,19 @@ type.
 3. Reimplement `JsCommandSpec::parse` over it, keeping the current error wording where the tests
    assert on it.
 
+## Scope revision (2026-08-29)
+
+Re-scoped **M → L** by maintainer decision. The design work established that a declaration is the
+runtime equivalent of `register_command!`, not a serialization of `CommandMetadata`, and that its
+substance is a *merge*: a partial declaration composed over what the host discovered by
+introspection. That brings a merge algebra with absence-tracking and name-keyed argument merging, a
+defaults-derivation rule set, and a call specification (state form, variadic passing, asynchrony) —
+none of which fits an `M`. Under `DOCS_STRUCTURE_GUIDE.md` §4.5 the design folder is now required
+rather than optional, and `design/command-declaration/` adopts the `liquers-project` workflow.
+
+See `design/command-declaration/purpose-and-semantics.md` for the purpose statement and the recorded
+decisions.
+
 ## Priority rationale
 
 Recorded **P0** by maintainer decision (2026-08-27): this is a prerequisite for the document-driven
@@ -83,6 +96,14 @@ planned work" and reserves P0 for incorrect results, data loss, a panic on a sup
 documented feature that does not work. This issue is none of those; it is scheduling weight, applied
 deliberately. Either §4.4 should gain a clause for hard prerequisites, or this should settle at P1.
 
+**Confirmed 2026-08-30, and the `P0` stands.** Supporting Python *and* JavaScript is real and likely
+the next major development goal, so the prerequisite claim is now a fact rather than a projection.
+The §4.4 tension is unchanged — this is still not a wrong result, data loss, a panic or a broken
+documented feature — so the observation above stands as filed: §4.4 has no clause for a hard
+prerequisite, and one would be worth adding rather than leaving each such issue to argue the point.
+The design's evaluation of the same question is in
+`design/command-declaration/purpose-and-semantics.md` §The test this design has to pass.
+
 ## Verification
 
 1. Round-trip: every command in `specs/command_registry.yaml` parses into equivalent metadata.
@@ -90,3 +111,24 @@ deliberately. Either §4.4 should gain a clause for hard prerequisites, or this 
    `register_command!` invocation, including `metadata_version`.
 3. `liquers-web`'s command conformance suites pass unchanged (error wording preserved).
 4. A malformed declaration reports the same diagnostics as today.
+
+## Resolution (2026-08-30)
+
+**Closed — implemented** on branch `claude/command-declaration-design-apu07j`
+(PR [#50](https://github.com/orest-d/liquers/pull/50)). `liquers-core::command_declaration` owns the
+shared pipeline: merge over introspection, apply conventions, derive defaults, build and validate.
+`liquers-web` parses its declarations through it, and about 150 lines of hand-written `JsValue`
+parsing are gone.
+
+- Format reference: [`reference/COMMAND_DECLARATION.md`](../reference/COMMAND_DECLARATION.md)
+- Design and reasoning: [`design/command-declaration/`](../design/command-declaration/)
+- Tests: 51 unit and 5 integration in `liquers-core`, 3 conversion tests in `liquers-web`, with the
+  20-test COMMAND conformance suite unchanged and passing.
+
+All four verification criteria hold. The registry round-trips byte-identically; a declaration and
+`register_command!` agree including `metadata_version`; the `liquers-web` suites pass with their
+error wording preserved; and the diagnostics name the command and argument.
+
+Four defects were found by doing the work and are filed separately, none of them introduced by it:
+`MACRO-LEAVES-STALE-METADATA-VERSION` (P1), `ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS`,
+`STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE` and `COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS`.

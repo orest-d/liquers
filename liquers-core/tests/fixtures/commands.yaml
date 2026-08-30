@@ -1,0 +1,16 @@
+# A plain-document host: no host language, so no introspection to compose over.
+# This file is Example 2 of specs/design/command-declaration/phase3-examples.md, verbatim, so the
+# documented example and the tested input cannot drift.
+commands:
+  - name: to_upper
+    doc: Convert the input text to upper case
+    state_argument: { name: state }
+    filename: upper.txt
+
+  - name: repeat
+    label: Repeat text
+    state_argument: { name: state }
+    arguments:
+      - { name: count, type: int, default: 2 }
+    registration:
+      python: { state: text }

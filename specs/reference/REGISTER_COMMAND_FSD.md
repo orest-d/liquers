@@ -3,7 +3,7 @@ title: register_command! Macro Functional Specification
 kind: reference
 audience: internal
 area: [macro, core/commands]
-reviewed: 2026-08-25
+reviewed: 2026-08-30
 ---
 # register_command! Macro Functional Specification
 
@@ -16,6 +16,20 @@ The `register_command!` macro in `liquers-macro` provides a domain-specific lang
 - Requires the target function to be **defined separately** before macro invocation
 - Uses a **custom DSL** inspired by but not compatible with Rust function syntax
 - Generates type-safe wrapper functions and metadata registration
+
+## The runtime counterpart
+
+`register_command!` is the **compile-time** way to say that a function is a command. Its runtime
+counterpart is the [Command Declaration Format](COMMAND_DECLARATION.md), which a dynamic host —
+JavaScript, Python — or a plain `commands.yaml` uses to produce the same `CommandMetadata` without
+a macro. The two agree by construction and by test: `int02` in
+`liquers-core/tests/command_declaration.rs` registers one command both ways and compares the
+result, `metadata_version` included.
+
+Where they *deliberately* differ is the default label. This macro derives `foo bar` from `foo_bar`;
+the declaration path derives `Foo bar`, and `liquers-web` keeps the name verbatim. Unifying them is
+a behaviour change that would move existing commands' `metadata_version`, so it has been left
+alone — see `specs/design/command-declaration/phase2-architecture.md` open question 2.
 
 ## Basic Usage Pattern
 
@@ -593,5 +607,6 @@ pub fn register_commands(mut env: DefaultEnvironment<Value>) -> Result<DefaultEn
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-30 | Added §The runtime counterpart, pointing at the new `COMMAND_DECLARATION.md` and naming the one deliberate divergence (the default label rule) and the test that holds the rest in agreement. | `design/command-declaration/` |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
 | 2026-08-25 | Documented the `multiple` argument flag: grammar slot shared with `injected`, the container-type requirement, element-derived `ArgumentType`, the empty-list default, the last-argument rule, `get_multiple` retrieval, and the six compile-time rejections. | design/variadic-arguments-declaration |

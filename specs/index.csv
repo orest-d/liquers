@@ -1,19 +1,22 @@
 id,kind,title,status,status_source,phase,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
-COMMAND-DECLARATION-FORMAT,feature,"No language-neutral command declaration format, so every binding hand-parses its own",draft,local,,P0,M,core/commands;web;py,,,,command-declaration,,2026-08-27,specs/issues/COMMAND-DECLARATION-FORMAT.md
 CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC,issue,SimpleEnvironmentWithPayload panics when no recipe provider is configured,draft,local,,P1,S,core/context,,,,payload-env-recipe-provider-fallback,,2026-08-27,specs/issues/CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC.md
+MACRO-LEAVES-STALE-METADATA-VERSION,issue,"A macro-registered command's metadata_version is computed from its bare key, not its content",draft,local,,P1,S,core/commands;macro;core/assets,,,,,,2026-08-30,specs/issues/MACRO-LEAVES-STALE-METADATA-VERSION.md
 STORE-OPENDAL-SLASH-HANDLING,issue,OpenDAL store mishandles keys containing slashes,accepted,local,,P1,M,store/backends,,,,opendal-path-mapping,,2026-08-08,specs/issues/STORE-OPENDAL-SLASH-HANDLING.md
 CORE-EVALUATE-PATH-CONSOLIDATION,issue,Several evaluation paths duplicate each other,accepted,local,,P1,L,core/assets;core/plan,,,,,,2026-08-08,specs/issues/CORE-EVALUATE-PATH-CONSOLIDATION.md
 QUEUED-MANAGER-STARTUP-READINESS,issue,Queued asset manager accepts work before it is ready to run it,accepted,local,,P1,L,core/assets,,,,environment-builder,,2026-08-08,specs/issues/QUEUED-MANAGER-STARTUP-READINESS.md
+ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS,issue,An argument's default gui_info differs depending on how the command was registered,draft,local,,P2,S,core/commands;macro;web,,,,,,2026-08-30,specs/issues/ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS.md
 CORE-METADATA-TRACEBACK-SUPPORT,issue,Metadata has no place for an error traceback,accepted,local,,P2,S,core/value;core/error,,,,metadata-error-traceback,,2026-08-08,specs/issues/CORE-METADATA-TRACEBACK-SUPPORT.md
 CORE-NO-DEFAULT-FEATURES-BROKEN,issue,liquers-core does not build without default features,draft,local,,P2,S,core/store;build,,,,core-no-default-features,,2026-08-29,specs/issues/CORE-NO-DEFAULT-FEATURES-BROKEN.md
 ERROR-WITH-KEY-SETS-QUERY-FIELD,issue,'`Error::with_key` writes the key into the `query` field',draft,local,,P2,S,core/error,,,,error-with-key-field,,2026-08-25,specs/issues/ERROR-WITH-KEY-SETS-QUERY-FIELD.md
 POLARS-DOC-EXAMPLES-OMIT-NAMESPACE,issue,Polars reference example queries omit the ns-pl namespace and do not resolve,draft,local,,P2,S,docs;lib/commands,,,,polars-doc-example-namespace,,2026-08-12,specs/issues/POLARS-DOC-EXAMPLES-OMIT-NAMESPACE.md
 QUEUED-MANAGER-EVICTION-RACE,issue,The queued manager's cache evictions can delete a replacement asset,accepted,local,,P2,S,core/assets,,,,queued-manager-conditional-eviction,,2026-08-09,specs/issues/QUEUED-MANAGER-EVICTION-RACE.md
+STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE,issue,Constructing and deserializing the same CommandMetadata give different state arguments,draft,local,,P2,S,core/commands,,,,,,2026-08-29,specs/issues/STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE.md
 STORE-OPENDAL-LIST-OPTION-MISPARSED,issue,A list-valued store config option is mis-parsed by the OpenDAL path,draft,local,,P2,S,store/backends,,,,opendal-list-option-config,,2026-08-29,specs/issues/STORE-OPENDAL-LIST-OPTION-MISPARSED.md
 UI-QUERY-CONSOLE-NO-ERROR-HIGHLIGHT,issue,Query console never highlights the erroring token despite complete plumbing,draft,local,,P2,S,lib/ui;core/query,,,,ui-query-console-error-highlight,,2026-08-12,specs/issues/UI-QUERY-CONSOLE-NO-ERROR-HIGHLIGHT.md
 VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS,issue,An argument declared after a multiple argument is unreachable and unchecked,draft,local,,P2,S,core/commands;core/plan;macro,,,,variadic-metadata-tail-check,,2026-08-12,specs/issues/VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS.md
 AXUM-HANDLER-TEST-COVERAGE,issue,"liquers-axum has no handler test scaffolding, so handler behaviour is verified only by review",accepted,local,,P2,M,axum,,,,expired-binary-read-safety,,2026-08-08,specs/issues/AXUM-HANDLER-TEST-COVERAGE.md
 COMBINED-VALUE-DISCRIMINATION,feature,Deserialization cannot discriminate base from extended values,accepted,local,,P2,M,core/value;lib/value,,,,,,2026-08-08,specs/issues/COMBINED-VALUE-DISCRIMINATION.md
+COMMAND-ALIAS-DEFINITION-UNTESTED,issue,"CommandDefinition::Alias has no test and no user, and its head-parameter semantics are unexercised",draft,local,,P2,M,core/plan;core/commands,,,,,,2026-08-29,specs/issues/COMMAND-ALIAS-DEFINITION-UNTESTED.md
 COMMAND-CONTEXT-PARAM-ORDER,issue,"The context parameter must come last, as a workaround",accepted,local,,P2,M,core/commands;macro,,,,context-param-order,,2026-08-08,specs/issues/COMMAND-CONTEXT-PARAM-ORDER.md
 CORE-PLAN-POLICY-AND-DEFAULTS,issue,Plan builder has no configuration and questionable defaults,accepted,local,,P2,M,core/plan,,,,,,2026-08-08,specs/issues/CORE-PLAN-POLICY-AND-DEFAULTS.md
 CORE-TRACING-MIGRATION,issue,Diagnostics use `eprintln!` rather than structured logging,accepted,local,,P2,M,core/error;build,,,,,,2026-08-08,specs/issues/CORE-TRACING-MIGRATION.md
@@ -22,6 +25,8 @@ EGUI-ASSET-MANAGER-INTEGRATION,feature,No stable adapter between egui widgets an
 ENVIRONMENT-MANAGER-REFERENCE-CYCLE,issue,"Environment and asset manager hold each other with strong Arcs, so every environment leaks",draft,local,,P2,M,core/assets;core/context,,,,environment-builder,,2026-08-27,specs/issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md
 EXPIRATION-RECOVERY-WEB-API,issue,Expiration recovery has no web API surface,accepted,local,,P2,M,axum;core/assets,,,,,,2026-08-08,specs/issues/EXPIRATION-RECOVERY-WEB-API.md
 INLINE-PATH-LACKS-EXECUTE-ONCE,issue,"The inline run path has no execute-once claim, only an is_finished check",accepted,local,,P2,M,core/assets;web,,,,,,2026-08-09,specs/issues/INLINE-PATH-LACKS-EXECUTE-ONCE.md
+JS-COMMAND-CANNOT-ACCESS-CONTEXT,feature,A JavaScript command cannot access the execution context,draft,local,,P2,M,web;core/commands,,,,,,2026-08-29,specs/issues/JS-COMMAND-CANNOT-ACCESS-CONTEXT.md
+LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION,feature,The language integration guide says nothing about writing the integration's own documentation,draft,local,,P2,M,docs;web;py,,,,,,2026-08-30,specs/issues/LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION.md
 LANGUAGE-STORE-TYPE-NOT-DEFINABLE,feature,A store type cannot be defined in the integrated language,draft,local,,P2,M,web;py;core/store;store/config,,,,,,2026-08-29,specs/issues/LANGUAGE-STORE-TYPE-NOT-DEFINABLE.md
 POLARS-COMMAND-TESTS-BYPASS-COMMANDS,issue,The polars command integration tests never invoke a polars command,draft,local,,P2,M,lib/polars;build,,,,,,2026-08-25,specs/issues/POLARS-COMMAND-TESTS-BYPASS-COMMANDS.md
 PY-MODULES-NOT-DECLARED-IN-LIB,issue,Half of liquers-py's source files are not declared as modules and never compile,draft,local,,P2,M,py,,,,,,2026-08-25,specs/issues/PY-MODULES-NOT-DECLARED-IN-LIB.md
@@ -43,6 +48,7 @@ TYPE-REGISTRY-NOT-REALM-AWARE,feature,A query spanning two realms cannot know wh
 VALUE-CONVERSION-CAPABILITY,feature,"Values cannot be converted between types, automatically or explicitly",draft,local,,P2,L,core/value;core/commands;lib/value,,,,,,2026-08-18,specs/issues/VALUE-CONVERSION-CAPABILITY.md
 WORKSPACE-SERDE-DERIVE-UNDECLARED,issue,Three crates use serde derive macros without declaring the `derive` feature,accepted,local,,P2,L,build;core/value;lib/ui;axum,,,,,,2026-08-09,specs/issues/WORKSPACE-SERDE-DERIVE-UNDECLARED.md
 VALUE-TYPE-DEFINITION-MACRO,feature,Value types and their registry entries are hand-written instead of generated,draft,local,,P2,XL,macro;lib/value;core/value,,,,,,2026-08-18,specs/issues/VALUE-TYPE-DEFINITION-MACRO.md
+COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS,feature,A usage hint can be attached to an argument but not to a command,draft,local,,P3,S,core/commands;lib/ui,,,,,,2026-08-30,specs/issues/COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS.md
 COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED,issue,CommandRegistryIssue constructors transpose namespace and name,draft,local,,P3,S,core/commands,,,,,,2026-08-12,specs/issues/COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED.md
 CORE-CONFIGURATION-ERROR-KIND,issue,Configuration errors are indistinguishable from general errors,draft,local,,P3,S,core/error;store/config,,,,,,2026-08-29,specs/issues/CORE-CONFIGURATION-ERROR-KIND.md
 DELEGATED-VALUE-REPERSISTED,issue,An asset that delegates to a key's owner writes the owner's value to the store again,draft,local,,P3,S,core/assets,,,,,,2026-08-12,specs/issues/DELEGATED-VALUE-REPERSISTED.md
@@ -78,7 +84,6 @@ WEB-NATIVE-IO-TIER2,issue,Browser storage has no IndexedDB backend,accepted,loca
 CORE-MULTI-REALM-INTERPRETER,issue,The interpreter supports a single realm,accepted,local,,P3,XL,core/plan;core/commands,,,,,,2026-08-08,specs/issues/CORE-MULTI-REALM-INTERPRETER.md
 CORE-TOKIO-REMOVAL,issue,Core still depends on tokio primitives on wasm,accepted,local,,P3,XL,core/assets,,,,,,2026-08-08,specs/issues/CORE-TOKIO-REMOVAL.md
 ASSET-MANAGER-INSERT-KEY-ASSET-SEMANTICS,design,asset-manager-insert-key-asset-semantics,draft,local,documentation,,,core/assets,,,,asset-manager-insert-key-asset-semantics,,2026-08-25,specs/design/asset-manager-insert-key-asset-semantics/DESIGN.md
-COMMAND-DECLARATION,design,A language-neutral command declaration type,in_review,local,architecture,,,core/commands;web;py,,,,command-declaration,,2026-08-29,specs/design/command-declaration/DESIGN.md
 CONTEXT-PARAM-ORDER,design,Context parameter position in register_command!,draft,local,architecture,,,core/commands;macro,,,,context-param-order,,2026-03-02,specs/design/context-param-order/DESIGN.md
 CORE-NO-DEFAULT-FEATURES,design,liquers-core no-default-features build decision,in_review,local,architecture,,,core/store;build,,,,core-no-default-features,,2026-08-29,specs/design/core-no-default-features/DESIGN.md
 ENVIRONMENT-BUILDER,design,Environment builder,,github,examples,,,core/assets;core/context,,44,,environment-builder,,2026-08-27,specs/design/environment-builder/DESIGN.md
@@ -102,7 +107,7 @@ VALUE-LIST-SUPPORT,design,Typed list values for lui/children and lui/roots,draft
 VARIADIC-METADATA-TAIL-CHECK,design,Hand-built variadic metadata tail validation,in_review,local,architecture,,,core/commands;core/plan;macro,,,,variadic-metadata-tail-check,,2026-08-29,specs/design/variadic-metadata-tail-check/DESIGN.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,overdue,local,,,,build,,,,,2026-03-02,,specs/guides/UNITTEST_GUIDE.md
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,core/commands;macro,,,,,2026-08-25,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
-LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-08-29,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
+LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-08-30,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,core/query,,,,,2026-08-14,,specs/guides/QUERY_ESCAPING_GUIDE.md
 STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,core/store;store/config,,,,,2026-08-29,,specs/guides/STORE_FACTORY_GUIDE.md
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,core/value;lib/value,,,,,2026-08-26,,specs/guides/TYPE_SYSTEM_GUIDE.md
@@ -113,6 +118,7 @@ API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,
 ASSETS,reference,Assets Specification,current,local,,,,core/assets,,,,,2026-08-26,,specs/reference/ASSETS.md
 ASSET_LIFECYCLE,reference,Asset Lifecycle Map,current,local,,,,core/assets,,,,,2026-08-26,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,core/assets,,,,,2026-08-26,,specs/reference/ASSET_SET_OPERATION.md
+COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,core/commands;web;py,,,,,2026-08-30,,specs/reference/COMMAND_DECLARATION.md
 DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,core/assets,,,,,2026-08-12,,specs/reference/DEPENDENCIES_STATUS.md
 DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
 DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,core/query,,,,,2026-08-17,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
@@ -122,7 +128,7 @@ DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,core
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,core/context;core/commands,,,,,2026-08-01,,specs/reference/PAYLOAD_GUIDE.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,lib/polars,,,,,2026-08-25,,specs/reference/POLARS_COMMAND_LIBRARY.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-08-18,,specs/reference/PROJECT_OVERVIEW.md
-REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,macro;core/commands,,,,,2026-08-25,,specs/reference/REGISTER_COMMAND_FSD.md
+REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,macro;core/commands,,,,,2026-08-30,,specs/reference/REGISTER_COMMAND_FSD.md
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,store/config,,,,,2026-08-29,,specs/reference/STORE_CONFIG_FSD.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,core/value;lib/value,,,,,2026-08-26,,specs/reference/VALUE_TYPE_SYSTEM.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,axum;web,,,,,2026-08-17,,specs/reference/WEB_API_SPECIFICATION.md
@@ -139,6 +145,7 @@ EXPIRATION-INTEGRATION-SUITE-FAILING-AT-HEAD,issue,Five expiration_integration t
 PARAMETER-ESCAPING-INCOMPLETE,issue,Action-parameter escaping cannot express every value,closed,local,,P0,M,core/query,,,,parameter-entity-escaping,,2026-08-08,specs/issues/PARAMETER-ESCAPING-INCOMPLETE.md
 PLAN-EXCESS-ACTION-PARAMETERS-DROPPED,issue,Plan builder silently drops excess action parameters,closed,local,,P0,M,core/plan,,,,excess-action-parameters-error,,2026-08-08,specs/issues/PLAN-EXCESS-ACTION-PARAMETERS-DROPPED.md
 STORE-FILESTORE-PATH-TRAVERSAL,issue,A key containing `..` escapes the file store root,closed,local,,P0,M,core/store;store/backends;axum,,,,store-key-guard,,2026-08-09,specs/issues/STORE-FILESTORE-PATH-TRAVERSAL.md
+COMMAND-DECLARATION-FORMAT,feature,"No language-neutral command declaration format, so every binding hand-parses its own",closed,local,,P0,L,core/commands;web;py,,,,command-declaration,,2026-08-27,specs/issues/COMMAND-DECLARATION-FORMAT.md
 STORE-CONFIG-IN-CORE,feature,"Store configuration types live in liquers-store, so liquers-core cannot own an environment configuration",closed,local,,P0,L,core/store;store/config;web,,,,store-factories-in-core,,2026-08-27,specs/issues/STORE-CONFIG-IN-CORE.md
 ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES,issue,ActionParameter::set_value double-encodes its value,closed,local,,P1,S,core/query,,,,parameter-entity-escaping,,2026-08-14,specs/issues/ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES.md
 CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON,issue,Metadata accessors return JSON-quoted strings for legacy metadata,closed,local,,P1,S,core/value,,,,value-type-system,,2026-08-09,specs/issues/CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON.md
@@ -161,9 +168,11 @@ WEB-VALUE04-BYTES-IDENTIFIER-CASE-MISMATCH,issue,"VALUE04 fails at HEAD — byte
 LANGUAGE-GUIDE-STORE-SCOPE-INCOMPLETE,issue,The guide's STORE feature omits integration-provided stores and store configuration,closed,local,,P2,M,web;py;core/store,,,,,,2026-08-09,specs/issues/LANGUAGE-GUIDE-STORE-SCOPE-INCOMPLETE.md
 PY-VALUE-TYPE-DESCRIPTIONS-MISSING,issue,"liquers-py's Value describes no types, so its registry would refuse every write",closed,local,,P2,M,py;core/value,,,,foreign-value-type-registration,,2026-08-26,specs/issues/PY-VALUE-TYPE-DESCRIPTIONS-MISSING.md
 STORE-TESTS-PRINT-TO-STDOUT,issue,liquers-store's OpenDAL tests use println! against the blanket stdout rule,closed,local,,P3,S,store/backends;docs,,,,,,2026-08-25,specs/issues/STORE-TESTS-PRINT-TO-STDOUT.md
+ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING,feature,Declared arguments replace inferred ones instead of augmenting them,closed,local,,P3,M,core/commands;web;py,,,,,,2026-08-29,specs/issues/ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING.md
 PAYLOAD-SOURCED-INJECTION-NOT-DECLARED,issue,An injection that reads the payload is indistinguishable from one that does not,rejected,local,,P3,M,core/plan;core/commands,,,,predecessor-cut-equivalence,,2026-08-26,specs/issues/PAYLOAD-SOURCED-INJECTION-NOT-DECLARED.md
 ASYNC-WASM-REFACTOR,design,Async evaluation on wasm,complete,local,,,,core/assets;web,,,,async-wasm-refactor,,2026-03-02,specs/design/async-wasm-refactor/DESIGN.md
 AXUM-ASSETS-RECIPES-API,design,Assets and recipes HTTP API,complete,local,,,,axum,,,,axum-assets-recipes-api,,2026-03-02,specs/design/axum-assets-recipes-api/DESIGN.md
+COMMAND-DECLARATION,design,A language-neutral command declaration type,complete,local,,,,core/commands;web;py,,50,,command-declaration,,2026-08-29,specs/design/command-declaration/DESIGN.md
 DEPENDENCY-MANAGEMENT,design,Dependency-wait lifecycle and deadlock-safe delegation,complete,local,,,,core/assets,,5,,dependency-management,,2026-03-02,specs/design/dependency-management/DESIGN.md
 DEPENDENCY-SCHEDULING,design,Non-blocking dependency scheduling with atomic run claims,complete,local,,,,core/assets,,6,,dependency-scheduling,,2026-03-02,specs/design/dependency-scheduling/DESIGN.md
 EXCESS-ACTION-PARAMETERS-ERROR,design,Excess action parameters raise an error during plan building,complete,local,,,,core/plan;core/error,,33,,excess-action-parameters-error,,2026-08-12,specs/design/excess-action-parameters-error/DESIGN.md

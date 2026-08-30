@@ -2,239 +2,537 @@ Based on `HEAD`, read rather than remembered. Nothing here is implemented.
 
 # Phase 2 — Solution and architecture
 
+> **Rewritten 2026-08-29** against [`purpose-and-semantics.md`](./purpose-and-semantics.md) and the
+> decisions recorded there. Two earlier drafts are summarised in §Rejected alternatives: a parallel
+> `CommandDeclaration` mirroring `CommandMetadata`, and a "fix `CommandMetadata` and add the
+> residue" design. Both mistook the feature for a serialization problem. It is a *composition*
+> problem.
+
+## Diagnosis
+
+A command declaration is the runtime equivalent of `register_command!`. Its substance is not a
+struct but a **pipeline**, of which the middle is shareable:
+
+```
+1. populate   host introspection fills what it can discover          host-specific
+2. enhance    the author's declaration is merged over it             SHARED
+3. fill       defaults are derived for whatever is still absent      SHARED
+3. apply      conventions reinterpret the composed result            SHARED
+4. fill       defaults derived for whatever is still absent           SHARED
+5. build      convert to CommandMetadata, or error                    SHARED
+```
+
+Stage 1 is irreducibly per-language — `inspect.signature`, a JavaScript source parse, `syn`, or
+nothing at all in the plain-document case. Stages 2–4 are the deliverable.
+
+Three facts about `HEAD` shape the design, all measured:
+
+1. **`CommandMetadata` cannot be deserialized from a partial document.** Four fields lack
+   `#[serde(default)]` — `label`, `cache`, `volatile`, `definition` — plus `ArgumentInfo::label`.
+   Fourteen of its twenty fields already have one, so this is an oversight, not an invariant.
+   Measured: `{"name":"greet"}` fails with `missing field 'label'`.
+2. **Absence and default are not distinguishable in a typed representation.** `#[serde(default)]`
+   collapses "the author said nothing about `cache`" into "the author said `true`" — which is
+   exactly the distinction a merge needs. This is why stage 2 operates on the serialized form.
+3. **`state_argument` is descriptive, not a planner input.** Its only non-test consumers are
+   `liquers-lib/src/egui/widgets.rs:705` (UI display), the registration sites, and the macro's
+   compile-time wrapper generation (`registration.rs:1147`). Neither `plan.rs` nor the interpreter
+   reads it. Whether a command receives its input state is decided by the executor closure, not by
+   metadata — which is why the *form* of the state can be a hint rather than a specification.
+4. **Two constructor/serde defaults disagree**, and both would silently change `metadata_version`:
+   `ArgumentGUIInfo::Default` is `None` while `ArgumentInfo::any_argument` sets `TextField(40)`; and
+   `CommandMetadata::new`/`from_key` set `state_argument: Some(..)` while the serde default is
+   `None`. The second is filed as `STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE`.
+
 ## Chosen solution
 
-A new module `liquers-core/src/command_declaration.rs`, added to `lib.rs` alongside
-`command_metadata` (`lib.rs:119`), containing the declarative half of a command and nothing else.
+**A function from loosely-specified JSON to `CommandMetadata`**, taking two inputs and composing
+them. A new module `liquers-core/src/command_declaration.rs`, plus small additive changes to
+`command_metadata.rs`. Four parts, in dependency order, each separately revertible.
+
+The value is coordination rather than capability — ~136 lines leave `liquers-web` and ~300 enter
+`liquers-core`, so it is net more code that is written and tested once. That made it contingent on a
+second consumer, and **the condition is met**: Python and JavaScript support are both real and are
+likely the next major development goal (`purpose-and-semantics.md` §The test this design has to
+pass). The gate's remaining business is the open questions below, not whether to proceed.
+
+### Part A — the merge (stage 2)
+
+Stage 2 operates on `serde_json::Value`, so *absence is key-absence* and no representation has to
+encode it. This is the decision that makes the rest simple.
 
 ```rust
-/// An author-facing command declaration: everything about a command except its implementation.
-#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+/// A command declaration in the course of being composed: the baseline from introspection with
+/// zero or more declarations merged over it. Not yet a command — call [`Self::build`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CommandDeclaration {
-    pub name: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")] pub namespace: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")] pub realm: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]  pub label: Option<String>,
-    #[serde(default, skip_serializing_if = "String::is_empty")] pub doc: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")] pub module: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")] pub filename: String,
-    /// Which form of the input state the implementation receives. Absent = `none`.
-    #[serde(default)] pub state: StateMode,
-    /// Absent means "not declared": the host may infer, or refuse.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub arguments: Option<Vec<ArgumentDeclaration>>,
-    /// `None` = not declared; the host decides from the callable.
-    #[serde(default, rename = "async", skip_serializing_if = "Option::is_none")]
-    pub is_async: Option<bool>,
-    #[serde(default, skip_serializing_if = "is_false")] pub volatile: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")] pub cache: Option<bool>,
-    #[serde(default)] pub expires: Expires,
-    #[serde(default, skip_serializing_if = "PayloadRequirement::is_none")]
-    pub payload_required: PayloadRequirement,
-    /// Name of the implementation, resolved by the host against its own table of callables.
-    #[serde(default, skip_serializing_if = "Option::is_none")] pub run: Option<String>,
-}
-
-/// One declared argument. A thin, defaulting mirror of [`ArgumentInfo`].
-#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
-pub struct ArgumentDeclaration {
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")] pub label: Option<String>,
-    #[serde(default, rename = "type")] pub argument_type: ArgumentType,
-    #[serde(default, skip_serializing_if = "Option::is_none")] pub default: Option<serde_json::Value>,
-    #[serde(default, skip_serializing_if = "is_false")] pub multiple: bool,
-    #[serde(default, skip_serializing_if = "is_false")] pub injected: bool,
-    #[serde(default)] pub gui_info: ArgumentGUIInfo,
-}
-
-/// Which form of the input state the implementation receives.
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum StateMode {
-    /// No state argument — a source command. Serde alias-free default.
-    #[default] None,
-    Value,
-    #[serde(alias = "string")] Text,
-    State,
+    doc: serde_json::Value,
 }
 
 impl CommandDeclaration {
-    pub fn key(&self) -> CommandKey;
-    /// Validated conversion. Fails on an empty name, a `multiple` argument that is not last,
-    /// and an argument default that does not fit its declared type.
-    ///
-    /// It does **not** validate an `ArgumentType::GlobalEnum` reference: resolving one needs a
-    /// `CommandMetadataRegistry` (`ArgumentType::resolve_global_enums`), which a declaration does
-    /// not have. Global-enum resolution stays where it happens today, at registry insertion and
-    /// plan building.
-    pub fn to_metadata(&self) -> Result<CommandMetadata, Error>;
-    /// The inverse, for the round-trip test and for describing a registered command.
-    pub fn from_metadata(metadata: &CommandMetadata, state: StateMode) -> Self;
+    /// Stage 1's result. `Value::Null` or an empty object means no introspection ran — the
+    /// plain-document case — which is what relaxes the unknown-argument rule below.
+    pub fn from_introspection(baseline: serde_json::Value) -> Self;
+
+    /// Stage 2. Merges `declaration` over what is already here, by the rules below.
+    /// May be called more than once; merging is associative, so layered declarations compose.
+    pub fn enhance(&mut self, declaration: &serde_json::Value) -> Result<(), Error>;
+
+    /// Stage 3. Applies conventions (Part E), moving recognised parameters out of `arguments`.
+    pub fn apply_conventions(&mut self) -> Result<(), Error>;
+
+    /// Stage 4. Idempotent; fills only what is still absent.
+    pub fn fill_defaults(&mut self);
+
+    /// Stage 5. Converts and validates, reporting every missing or inconsistent field.
+    /// `registration` and `conventions` are declaration-only and do not reach the metadata.
+    pub fn build(&self) -> Result<CommandMetadata, Error>;
+
+    /// Registration hints, for the integration that wrote them. Readable before or after `build`.
+    pub fn registration(&self) -> &serde_json::Value;
 }
 ```
 
-`to_metadata` builds on `CommandMetadata::from_key` (`command_metadata.rs:920`) so that every
-default — `cache: true`, `definition: Registered`, `label` from the name — comes from the one place
-that already owns it. `state: none` is the only case that clears `state_argument`;
-`value`/`text`/`state` keep `Some(ArgumentInfo::any_argument("state"))`, which is exactly today's
-behaviour for every JavaScript command.
+**Merge rules.**
 
-**One default is not shared: `label`.** `CommandMetadata::from_key` derives it as
-`key.name.replace("_", " ")` (`command_metadata.rs:925`), while `JsCommandSpec::parse` uses the name
-**unchanged** (`spec.rs:166`). For a JavaScript command named `foo_bar` the two disagree —
-`foo bar` against `foo_bar` — and because `metadata_version` is computed from the stored metadata
-(`command_metadata.rs:1036`), adopting `from_key`'s default would silently change the version of
-every underscored JavaScript command, against this design's own compatibility requirement. So
-`liquers-web` sets `metadata.label` from `declaration.label.unwrap_or_else(|| name.clone())` after
-conversion, preserving today's behaviour, and a parity test covers `foo_bar` specifically. See
-open question 5 — normalising the two defaults instead is defensible, but it is a behaviour change
-and must be chosen, not slipped in.
+| Shape | Rule |
+|---|---|
+| object over object | merged key by key, recursively |
+| scalar or array over anything | replaces it |
+| absent key | leaves the baseline untouched — this is the whole point |
+| `null` | an ordinary value, **not** a deletion marker (no removal — decision Q2) |
+| `arguments` | **special: merged by `name`, never by position** |
+
+The `arguments` rule in full:
+
+- An entry naming an argument the baseline has is **merged into it**, field by field. This is the
+  case the whole design exists for: attaching a `gui_info` or a `label` to one argument without
+  restating its type and default.
+- An entry naming an argument the baseline does **not** have is **rejected** (decision Q3), because
+  Liquers binds query parameters positionally and a typo would silently misbind.
+- **Exception, and it is load-bearing:** when the baseline has *no* `arguments` key at all,
+  discovery did not run, and the declaration establishes the list. A baseline with
+  `"arguments": []` means a function with no parameters and *is* subject to the reject rule. The
+  serialized form gives this distinction for free; a typed one would have needed a separate flag.
+- Order comes from the baseline when it exists, otherwise from the declaration. A declaration may
+  not reorder.
+
+**Removal is not supported, and costs nothing.** The case for it — a function parameter the command
+should not expose — is handled in stage 1, which belongs to the host: introspection simply does not
+emit that parameter. So `null` stays an ordinary value.
+
+### Part B — derived defaults (stage 4)
+
+Fills what is still absent, never what is present. Runs **after** the merge: deriving first would
+make a derived value indistinguishable from a declared one and block it.
+
+The label rule replaces `name.replace("_", " ")`, which appears in eight places
+(`command_metadata.rs:417,440,453,466,487,508,893,925`), capitalises nothing, and does not handle
+camelCase. Every readable label in `specs/command_registry.yaml` (`To text`,
+`Commands documentation`) is hand-written today.
+
+```
+split on '_' and at lower→upper boundaries; a run of capitals followed by a lowercase
+letter splits before the last capital; lowercase each word unless it is all-caps;
+capitalise the first character of the result
+```
+
+| Name | Label |
+|---|---|
+| `to_text` | `To text` |
+| `toText` | `To text` |
+| `toHTML` | `To HTML` |
+| `parseHTTPResponse` | `Parse HTTP response` |
+
+The same rule derives argument labels. **It applies to the declaration path only** (decision Q5):
+`register_command!` keeps `name.replace("_", " ")`, so no existing command's `metadata_version`
+moves. Rust function names are snake case and the capitalisation is cosmetic there.
+
+Remaining defaults come from `CommandMetadata::from_key`, plus `gui_info: TextField(40)` for an
+argument that declares none — matching `ArgumentInfo::any_argument` rather than
+`ArgumentGUIInfo::Default`, which is diagnosis point 3.
+
+### Part C — conversion and validation (stage 5)
+
+`build` deserializes the composed document into `CommandMetadata` and reports what
+is missing or inconsistent. It needs `CommandMetadata` to deserialize from a document that omits what
+stage 3 did not have to fill, so Part C carries the serde changes the previous draft called Part A:
+
+| Target | Change |
+|---|---|
+| `CommandMetadata::{label, volatile, definition}` | `#[serde(default)]` |
+| `CommandMetadata::cache` | `#[serde(default = "true_default")]` |
+| `ArgumentInfo::label` | `#[serde(default)]` |
+| `ArgumentInfo::argument_type` | `#[serde(alias = "type")]` — keeps today's JavaScript spelling |
+| `ArgumentType` | `#[serde(alias)]` for `str`, `text`, `integer`, `number`, `boolean` |
+| `CommandParameterValue` | hand-written `Deserialize` accepting the tagged form *and* a bare value |
+
+All eight are **deserialize-only**. No field is added, removed, renamed or retyped and no
+`Serialize` behaviour changes, so `specs/command_registry.yaml` stays byte-identical and
+`registry_export` stays green.
+
+`CommandParameterValue` accepts `!Value 2`/`{"Value":2}`, `!Query "a/b"`, the bare string `"None"`
+(the None variant, as the exporter writes it), a bare scalar or array as shorthand for `Value(…)`,
+and `null` as `Value(Null)` — preserving `js_default_to_json`'s treatment. Any other map is refused.
+A default whose literal value is the string `"None"` must be written `!Value 'None'`.
+
+Validation reports, with the command and argument named: an empty name; an argument entry naming an
+unknown argument; a `multiple` argument that is not last; a default that does not fit its declared
+type; an unknown argument type. Global-enum references are **not** resolved here — that needs a
+`CommandMetadataRegistry` and stays where it happens today, at registry insertion and plan building.
+
+### Part D — hints, of two kinds
+
+**Correction, 2026-08-30.** An earlier draft used one `hints` key for facts about *calling* a
+function. That collides with an existing field of a different meaning: `ArgumentInfo::hints` is
+documented as *"Free dictionary of hints for the argument… e.g. to provide additional hints for the
+UI"* (`command_metadata.rs:399-403`) — that is a **usage** hint and it belongs in the metadata. The
+two are separated and given distinct keys.
+
+| | Usage hints | Registration hints |
+|---|---|---|
+| Answer | how do I *use* this command? | how do I *register and call* this function? |
+| Key | `hints` | `registration` |
+| Lives in | `CommandMetadata` | the declaration only |
+| Survives export | yes | no — dropped at `build` |
+
+**Usage hints need no work here.** `ArgumentInfo::hints` already exists and already round-trips; a
+declaration sets it like any other metadata field. One gap surfaces and is *not* fixed here:
+`CommandMetadata` has no command-level `hints`, so a usage hint about the command as a whole cannot
+be expressed at all. That predates this design; filed as
+`COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS`.
+
+**Registration hints are the declaration-only key**, per the 2026-08-30 decision that
+`CommandMetadata` stays a precise specification and says nothing about how to call a function.
+`liquers-core` neither interprets nor validates them.
+
+```yaml
+registration:
+  javascript: { state: text, variadic: spread }
+```
+
+Three consequences, carried explicitly:
+
+1. **The declaration is not purely a partial `CommandMetadata`.** It has three keys of its own —
+   `registration`, `conventions` (Part E) and nothing else. `CommandDeclaration` needs a
+   `registration()` accessor, and `build` ignores those keys rather than failing on them.
+2. **They still compose.** Part of the merged document, so the deep merge applies unchanged; only
+   the conversion drops them.
+3. **They do not survive export**, so an integration that replays registrations must retain the
+   *declaration*. `liquers-web` already does — `REGISTERED_SPECS` — so nothing changes there, but it
+   becomes a rule for the next integration rather than an accident of the current one.
+
+One simplification: `specs/command_registry.yaml` can never contain a registration hint, so the
+byte-identical round-trip is unaffected however that vocabulary grows.
+
+### Part E — conventions
+
+Introspection reports the parameters a function has. Some are not command arguments at all: the
+execution context, and the input state. `register_command!` handles this at compile time —
+`CommandParameter::Context` occupies **no** argument slot (`registration.rs:489`, with the comment at
+`:1134` stating it). A dynamic host has no equivalent, so without a rule a Python `def f(state,
+count, context)` yields a three-argument command, two of whose arguments would consume query
+parameters that belong to neither.
+
+**Conventions belong to the declaration layer**, not to each integration: the recognition rule is
+identical in every language, and re-implementing it per host is how two hosts come to disagree about
+what `context` means. A corollary for Part 1 of the pipeline: **stage 1 should be as dumb as it can
+be** — report the parameters, in order, and recognise nothing.
+
+Two kinds. **Structural conventions run first**, so a `context` in first position is removed before
+the delivery rule looks at what remains.
+
+**Structural** — changes the argument list.
+
+| Convention | Rule | Effect |
+|---|---|---|
+| `context` | an argument named `context`, any position | removed from `arguments`; position recorded at `registration.context` |
+
+**Delivery** — **the first argument is always the state-derived argument**; its *name* selects only
+*how* the state is delivered. This is the maintainer's correction of 2026-08-30 and it replaces the
+earlier "recognised by name" rule.
+
+```rust
+/// How the input state reaches the callable. Derived from the first argument's name, or declared
+/// directly at `registration.state`. `liquers-core` records it and never performs it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StateDelivery {
+    /// Not passed. A source command — `first_command` semantics.
+    None,
+    /// The `State` wrapper: value plus metadata.
+    State,
+    /// The value, unwrapped through the integration's value bridge where it can be,
+    /// falling back to the `Value` wrapper where it cannot.
+    Value,
+    /// The value through `ValueInterface::try_into_string` (`value.rs:139`). The only mode
+    /// with a failure path, and it fails at call time.
+    Text,
+    /// Reserved. Interpreted as `Value` today; a future integration may give it meaning —
+    /// `df` as a polars or pandas DataFrame in Python is the motivating case.
+    Reserved(String),
+}
+
+impl StateDelivery {
+    /// `none`/`na` → None, `state` → State, `value` → Value, `text` → Text, else Reserved.
+    pub fn from_argument_name(name: &str) -> Self;
+    /// What an integration performs: `Reserved` behaves as `Value`.
+    pub fn effective(&self) -> StateDelivery;
+    pub fn as_str(&self) -> &str;
+}
+```
+
+It serializes as a plain string, so `registration.state` stays readable and a host may **declare**
+the mode instead of deriving it — which is how an integration offers a `first_command` affordance
+without depending on a parameter name. A declared mode wins over a derived one.
+
+**`Reserved` is the extension point and the reason this is an open enum.** An unrecognised name is
+not an error; it means `value` until something gives it meaning, so declarations written today keep
+working when `df` acquires one. A closed enum would have forced every such name to be an error now.
+
+**`None` is `first_command`.** Confirmed against `liquer/commands.py:882`: it sets
+`state_argument = None` and dispatches through `FirstCommandExecutable`, which calls `f(*argv)`
+rather than `f(state_arg, *argv)`. Note the semantic that comes with it — such a command is still
+usable anywhere in a query, and a state reaching it is **ignored, not refused**.
+
+### Warnings — a collected channel, not `eprintln!`
+
+Three convention outcomes are silent decisions the author cannot see in the document, and each is a
+warning rather than an error, because every one has a legitimate use:
+
+| Kind | When |
+|---|---|
+| `ReservedStateDelivery` | the first argument's name has no defined meaning; it is treated as `value` |
+| `ContextBeforeState` | a `context` precedes the state, so removing it **shifts which argument becomes the state** — `def f(context, count)` makes `count` the state |
+| `NoIntrospection` | no introspection ran, the declaration supplied `arguments`, and no `state_argument` was declared, so this is a source command by omission |
+| `DroppedKey` | a declared key cannot reach the metadata — today, a command-level `hints` |
+
+```rust
+/// A non-fatal diagnostic. The host decides how to surface it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Warning { pub command: String, pub kind: WarningKind, pub message: String }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WarningKind {
+    ReservedStateDelivery, ContextBeforeState, NoIntrospection, DroppedKey,
+}
+
+impl CommandDeclaration {
+    /// Diagnostics accumulated so far. De-duplicated, so re-running a stage does not multiply them.
+    pub fn warnings(&self) -> &[Warning];
+}
+```
+
+**Collected rather than printed, and this is a deliberate departure.** `liquers-core` uses
+`eprintln!` for diagnostics elsewhere (56 sites in `assets.rs` alone), which is right for a native
+service and wrong here for two reasons: `liquers-web` is a wasm build where nothing reads stderr, so
+a printed warning is simply lost; and a printed warning cannot be asserted on, whereas the whole
+point of these three is that they are easy to get wrong and so want tests. The host surfaces them —
+`console.warn`, `warnings.warn`, a log line — which is the same "core records, the integration
+performs" split the rest of the design uses. `WarningKind` is matched explicitly, no `_ =>`.
+
+**Where the rule applies.** It interprets a *function's parameter list*, so it applies when
+introspection ran — the baseline carried an `arguments` key — and not when a declaration introduces
+arguments where none were discovered. In that case they are the command's public arguments, not a
+function's parameters, and swallowing the first would be wrong. This reuses the same signal as the
+merge's no-introspection exception. *This scoping is inferred rather than stated by the maintainer
+and is the one part of the rule worth confirming*, because without it a document declaring
+`arguments: [{name: count}]` would lose `count` to the state.
+
+**Stage 3 — after the merge, before defaults.** The ordering is the design decision here. Running
+conventions *before* the merge would remove `context` from the baseline, so an author writing
+`{ name: "context", label: "…" }` would hit the unknown-argument rejection — a confusing error for a
+reasonable declaration. Running them after means the argument list is complete throughout the merge
+and the convention treats discovered and declared entries alike.
+
+Opting out, for a function with a genuine argument called `context`:
+
+```yaml
+conventions: { context: false }   # this one off
+conventions: false                # all off
+```
+
+**Adding a convention is a behaviour change** for every existing declaration, so the set is written
+down in the reference table rather than left implicit, and each addition needs its own test.
+
+*The state rule was confirmed and then corrected by the maintainer on 2026-08-30.* The first
+version — "an argument named `state`/`value`/`text` is recognised as the state" — was wrong in a way
+worth recording: it made the *name* decide whether an argument was the state, which left
+`def f(df, count)` declaring a source command whose first query parameter bound to `df`. Making the
+first argument always the state, with the name selecting only the delivery mode, removes that trap
+and is what allows `Reserved` to be an extension point instead of a failure.
+
+## The handover boundary
+
+A host's native declaration is not portable data: a JavaScript object literal holds a
+`js_sys::Function`, a Python decorator's kwargs hold a callable. **The host performs a handover**,
+splitting its native structure into two:
+
+```
+native structure (JsValue, Python dict, Starlark dict, …)
+        │
+        ├── the callable and anything else non-portable  ──►  the host keeps it; out of scope here
+        │
+        └── the data part  ──►  CommandDeclaration  ──►  merge, defaults, build  ──►  CommandMetadata
+```
+
+`liquers-web` already does exactly this: it strips `run` before parsing (`spec.rs:130-140`). The
+design's only requirement is that the boundary is explicit and that nothing non-portable crosses it.
+
+Everything on the host's side of that line is **out of scope**: what to do with the callable, how to
+register it, whether that becomes a `CommandDefinition::Registered` executor or something else, and
+how the callable is ultimately invoked. `run` therefore does not appear in this design in any form.
+
+`CommandDeclaration` is a **type, not a JSON convention**, even though it holds `serde_json::Value`
+internally. That matters for the handover: a PyO3 or `wasm-bindgen` binding can expose the object and
+let a host build it up incrementally — `with_label`, `add_argument`, `set_hint` — without
+constructing JSON by hand, while the merge still gets its absence-tracking for free.
+
+## `liquers-web` re-implementation
+
+`JsCommandSpec` keeps its public shape — `key`, `metadata`, `state_mode`, `is_async`, `run`,
+`arguments_inferred` — and `register_js_command` (`adapter.rs:79`) is untouched. `parse` becomes the
+pipeline:
+
+1. Object check, and `name` pre-checked with `Reflect` so today's messages survive verbatim.
+2. `Reflect::get(spec, "run")` checked with `is_function()` — unchanged wording.
+3. Shallow copy of the declaration **without** `run`, so no `js_sys::Function` reaches serde;
+   convert it to `serde_json::Value` via `serde_wasm_bindgen`.
+4. Refuse `namespace == RESERVED_NAMESPACE` — unchanged, keeping the `"reserved"` wording.
+5. **Stage 1:** if the copy has no `arguments` key, run `infer_arguments` (`spec.rs:281`, unchanged,
+   including every refusal message `command05` asserts) and build the baseline from it; otherwise the
+   baseline has no `arguments` key and the declaration establishes the list. This is exactly today's
+   declared-XOR-inferred behaviour, now expressed as the merge's own rule rather than as a
+   thread-local — `INFERRED_ARGUMENTS` (`adapter.rs:26-37`) can be dropped.
+6. **Stages 2-5:** `enhance`, `apply_conventions`, `fill_defaults`, `build`.
+7. Override `metadata.label` with the name **verbatim** when the declaration gave none, and set
+   `module = "javascript"`. The verbatim rule is JavaScript's, not the derived rule, so no existing
+   command's `metadata_version` moves. A parity test covers `foo_bar`.
+8. `StateMode` and `IsAsync` are read from `registration`, by `liquers-web`, exactly as they are
+   read today — both types **stay in `liquers-web`**, which is the point of the descope. An absent
+   `async` hint means `IsAsync::Auto`; an absent `state` hint means `StateMode::None`. Core neither
+   defines nor validates either.
+
+Deleted: `get`, `get_string`, `get_bool`, `parse_arguments`, `parse_argument_type`,
+`js_default_to_json` — about 130 lines. Retained: `infer_arguments`, `parameter_list`,
+`strip_comments`, `is_plain_identifier` (~107 lines), which are stage 1 and are not shareable.
+
+`snapshot_declaration` (`environment.rs:171-193`) exists because `REGISTERED_SPECS` retains the
+caller's mutable `JsValue`. Retaining a composed `CommandDeclaration` is immune by construction, but
+that changes replay-on-rebuild and stays **deferred** to `POST-INIT-COMMAND-REGISTRATION`.
 
 ## Rejected alternatives
 
 | Option | Verdict |
 |---|---|
-| Use `CommandMetadata` directly as the declaration format, adding `#[serde(default)]` to `label`, `cache` and `definition` | Rejected. It makes the *export* format lossy in the other direction — a registry file missing `cache` would silently deserialize as `true` — and it still cannot carry `state`, tri-state `async`, or `run`. Measured evidence for the three missing defaults is in Phase 1. |
-| Put `CommandDeclaration` inside `command_metadata.rs` | Rejected: that file is already 1397 lines, and declaration versus metadata is exactly the distinction this issue exists to draw. A sibling module makes the split legible. |
-| A `#[serde(flatten)]` wrapper `NamedCommandDeclaration { decl, run }` | Rejected: `flatten` needs `deserialize_any`, which interacts badly with `serde-wasm-bindgen` and with self-describing-format assumptions. A plain `run: Option<String>` field costs nothing (**resolves Q1**). |
-| Keep the format in `liquers-web` and have Python depend on it | Rejected by the issue: `liquers-web` is wasm32-only. |
-
-## `liquers-web` re-implementation
-
-`JsCommandSpec` (`spec.rs:81`) keeps its shape — `key`, `metadata`, `state_mode`, `is_async`, `run`,
-`arguments_inferred` — and `register_js_command` (`adapter.rs:79`) is untouched. Only `parse`
-changes:
-
-1. `Reflect::get(spec, "run")`, checked with `is_function()` — unchanged, with its current message
-   (`Command {name:?} must have a `run` function`).
-2. Build a shallow copy of the declaration object **without** `run`, then deserialize it into
-   `CommandDeclaration` with `serde_wasm_bindgen` (already a dependency:
-   `liquers-web/Cargo.toml:32`). Functions and other non-data fields never reach serde.
-3. Refuse `namespace == RESERVED_NAMESPACE` — unchanged, keeping the `"reserved"` wording that
-   `command06_ns_reserved_namespace_is_refused` asserts.
-4. `declaration.to_metadata()?`, then set `module = "javascript"`.
-5. When `arguments` is `None`, run the existing `infer_arguments` (`spec.rs:281`) — unchanged,
-   including every refusal message `command05_infer_refused_shapes` asserts.
-6. Map `declaration.is_async` to `IsAsync`: `Some(true) → Async`, `Some(false) → Sync`,
-   `None → Auto`. `IsAsync` stays in `liquers-web`, because "test whether the result is thenable" is
-   a JavaScript notion; the wire format carries only the tri-state as `Option<bool>`.
-
-Two incidental improvements fall out and are worth naming rather than discovering later:
-
-- `snapshot_declaration` (`environment.rs:171-193`) exists only because `REGISTERED_SPECS` retains
-  the caller's own `JsValue` and a caller may mutate it (`command14`). Retaining a parsed
-  `(CommandDeclaration, js_sys::Function)` pair is immune by construction. **Deferred, not done** —
-  it changes replay-on-rebuild and belongs with `POST-INIT-COMMAND-REGISTRATION`. Recorded here so
-  the opportunity is not lost.
-- A declaration may now express `filename`, `expires` and `payload_required`, which the current
-  parser silently ignores. That is a widening of the JavaScript API; it needs a line in the
-  TypeScript stubs (`liquers-web/tests/stubs/`) and a decision at the gate.
-
-## Argument types and diagnostics (Q2)
-
-`ArgumentType` (`command_metadata.rs:155`) serializes as `string | int | int_opt | float |
-float_opt | bool | any | none`, plus externally-tagged `Enum` / `GlobalEnum`. `parse_argument_type`
-(`spec.rs:236`) accepts `string|str|text`, `int|integer`, `float|number`, `bool|boolean`, `any` —
-overlapping but not equal.
-
-**Resolution:** add `#[serde(alias = …)]` to `ArgumentType` for `str`, `text`, `integer`, `number`,
-`boolean`. Aliases affect deserialization only, so `specs/command_registry.yaml` and the
-`registry_export` comparison are untouched. Two consequences, both to be accepted deliberately:
-
-- A JavaScript declaration may now name `int_opt`, `float_opt`, `none`, and enum forms. This is a
-  widening, and a welcome one — `COMMAND-METADATA-ENHANCEMENTS` wants richer argument types anyway.
-- An **unknown** type name now produces serde's `unknown variant "zzz", expected one of …` instead
-  of the current `Command "c", argument "n": unknown type "zzz"; expected "string", "int", "float",
-  "bool" or "any"`. No test asserts that string. To keep the command and argument identifiable,
-  `JsCommandSpec::parse` wraps every serde failure as
-  `Error::from_error(ErrorType::ParameterError, format!("Command {name:?}: {e}"))`, so the
-  diagnostic gains the serde detail and keeps the command name.
-
-## Argument defaults
-
-`ArgumentDeclaration.default` is `Option<serde_json::Value>`, converted to
-`CommandParameterValue::Value(...)` — the same representation `parse_arguments` produces today
-(`spec.rs:227`), chosen for the same reason (the planner must resolve a default without re-entering
-the host language). `CommandParameterValue::Query` is reachable from a Rust `register_command!`
-default (`query "…"`) but **not** from a declaration in this issue: a query-valued default in a
-document is a distinct feature and would need its own validation. Recorded as a known gap rather
-than silently dropped — no command in `specs/command_registry.yaml`
-carries one today (`grep -c '!Query'` returns 0), so the registry round-trip is unaffected — but a
-future one would need handling, and the test should fail loudly rather than silently skip.
+| **Draft 1 — `CommandDeclaration` mirroring `CommandMetadata` field for field** | Rejected: ~80% identical fields, and it renamed `argument_type` to `type`, changed defaults to `serde_json::Value` (dropping `Query` defaults), and silently lost `presets`, `next`, `hints` and `Alias`. Its round-trip test would have passed only because the registry happens to contain none of those. |
+| **Draft 2 — fix `CommandMetadata`'s serde and add the residue** | Superseded, and instructively: it mistook the feature for a serialization problem. The five serde attributes survive as Part C, but as a prerequisite of `build`, not as the feature. Its `CallingConvention` was about a third of the call specification actually needed. |
+| **A typed partial: mirror struct with `Option` on every field** | Rejected: it is draft 1 with `Option`s, with the drift problem intact, and it still needs a side flag to distinguish "no introspection ran" from "introspected, no arguments". |
+| **Hand-written `Deserialize` tracking presence per field** | Rejected: all the cost of the mirror plus a hand-written impl over twenty-odd fields. |
+| **`#[serde(flatten)]` to compose the halves** | Rejected: needs `deserialize_any`, which `serde-wasm-bindgen` handles badly. |
+| **A typed call specification in core** (`CallSpec { state, variadic, is_async }`, drafted here before the descope) | **Rejected by scope decision.** It was the part fighting portability, and `portability-analysis.md` had already measured why: the metadata half is usable by all six languages, while the call spec's fields were needed by two to five of them and meaningless in the rest. Typing it in core forces every host to agree on notions some of them do not have. As hints it costs one field and constrains nobody. |
+| **`run`, in any form — a callable, a name, or a `CommandDefinition::HostFunction`** | **Out of scope.** A callable cannot cross into portable data at all, and what the host does with it — register an executor, build an alias — is host-specific. `HostFunction` would additionally have pushed runtime selection into the planner. See §The handover boundary. |
+| **Keyword argument passing in the call spec** | Moot — there is no call spec. Should a host need it, it is a hint. |
+| **Removal / deletion markers in the merge** | Rejected by decision Q2: handled in stage 1, which the host owns. |
 
 ## Data ownership, errors, sync/async
 
-- `CommandDeclaration` owns its data (`String`, `Vec`, `serde_json::Value`); no lifetimes, no `Arc`.
-  It is `Clone` so a host may retain it for replay.
-- Every failure is `liquers_core::error::Error` via `Error::from_error(ErrorType::ParameterError, …)`
-  — no new error type, no `Error::new`.
-- Nothing async: declaration parsing is pure. The declared `async` flag describes the
-  *implementation*, and dispatch stays where it is, in `adapter.rs`.
-- `to_metadata` returns `Result` rather than panicking; `from_metadata` is infallible.
+- `CommandDeclaration` owns one `serde_json::Value`; no lifetimes, no `Arc`. The only new type is the
+  convention set, which is a small `Copy` struct of flags.
+- Every failure is `liquers_core::error::Error` via
+  `Error::from_error(ErrorType::ParameterError, …)` — no new error type, no `Error::new`.
+  `liquers-web` wraps serde failures so the command name survives.
+- Nothing async: composition is pure. The declared `async` flag describes the *implementation*.
+- `enhance` and `build` return `Result`; `from_introspection` and `fill_defaults` are infallible,
+  and `fill_defaults` is idempotent.
+- No new enums, so no new matches; the existing no-`_ =>` rule is unaffected.
 
 ## Reuse
 
-`CommandMetadata::from_key`, `ArgumentInfo::any_argument`, `ArgumentType`, `ArgumentGUIInfo`,
-`CommandParameterValue`, `Expires`, `PayloadRequirement` and `CommandKey` are all reused unchanged.
-`infer_arguments`, `parameter_list`, `strip_comments` and `is_plain_identifier` stay in
-`liquers-web`: they parse JavaScript source, which core has no business knowing.
+`CommandMetadata`, `CommandMetadata::from_key`, `ArgumentInfo`, `ArgumentInfo::any_argument`,
+`ArgumentType`, `ArgumentGUIInfo`, `CommandParameterValue`, `CommandDefinition`, `Expires`,
+`PayloadRequirement`, `CommandPreset`, `ParameterPreset` and `CommandKey` are reused unchanged as the
+*output* of stage 4. The declaration never re-enumerates their fields, so adding a metadata field
+never touches this module — the constraint that survives from draft 2's anti-duplication argument.
 
 ## Related open issues
 
-- `POST-INIT-COMMAND-REGISTRATION` (P3, `accepted`) — the other half of the document-driven
-  ergonomics; not a prerequisite, and the `snapshot_declaration` cleanup belongs to it.
-- `STORE-CONFIG-IN-CORE` (P0) — document #1; independent of this one.
-- `COMMAND-METADATA-ENHANCEMENTS`, `REGISTER-COMMAND-ENUM` — both would extend the same field set;
-  the declaration must not foreclose them, which is why `ArgumentType` is reused rather than
-  re-enumerated.
-- `REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED` — relevant to the round-trip test: `impl_version` comes
-  from registration, not from the declaration, so the round-trip must compare metadata *excluding*
-  `impl_version`, or set it explicitly.
+- `ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING` — **resolved by this design**; Part A's by-name argument
+  merge is exactly what it asks for. To be closed when this lands.
+- `STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE` — **now more relevant, not less.** With no
+  `CallSpec` to decide `state_argument`, the declaration sets it as an ordinary metadata field, so a
+  document that omits it gets the serde default (`None`) while a constructor gives `Some(..)`.
+  Worth fixing alongside, though still not a blocker: `fill_defaults` can settle it explicitly.
+- `JS-COMMAND-CANNOT-ACCESS-CONTEXT` — no longer touches this design; whatever it needs is a hint or
+  host-side work.
+- `COMMAND-ALIAS-DEFINITION-UNTESTED` — no longer touches this design; filed independently and
+  still worth fixing.
+- `POST-INIT-COMMAND-REGISTRATION` — owns the `snapshot_declaration` cleanup.
+- `COMMAND-METADATA-ENHANCEMENTS`, `REGISTER-COMMAND-ENUM` — would extend the same field set; reuse
+  means they extend one place, and per-argument enums would arrive through the by-name merge.
+- `REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED` — `impl_version` comes from registration, not from a
+  declaration.
+- `WORKSPACE-NOT-RUSTFMT-CLEAN` — arrived on `main`; the `command_metadata.rs` edits should not be
+  what first trips a formatting check.
 
 ## Risk analysis
 
 | Assessment | Record |
 |---|---|
-| **Files** | Source: `liquers-core/src/command_declaration.rs` (new, ~300 lines), `liquers-core/src/lib.rs` (one `pub mod`), `liquers-core/src/command_metadata.rs` (serde aliases on `ArgumentType`), `liquers-web/src/command/spec.rs` (rewrite of `parse`, deletion of `get_string`/`get_bool`/`parse_arguments`/`parse_argument_type`/`js_default_to_json`, ~150 lines removed). Tests: colocated tests in the new module, plus `liquers-core/tests/` for the registry round-trip. Specs: possibly `REGISTER_COMMAND_FSD.md` pointer + its `reviewed:`/History rows; `specs/index.csv` regenerated. Generated files: **none** — `specs/command_registry.yaml` must be byte-identical. |
-| **Impact area** | `core/commands`, `web`. Downstream: every JavaScript command registration path, `describeCommand`, and the environment rebuild/replay path via `REGISTERED_SPECS`. `liquers-py` is unaffected until it opts in. |
-| **Module/crate reach** | **Not confined to one module.** Crates crossed: `liquers-core` (two modules) and `liquers-web` (one module). This alone fails the automatic-clearance condition. |
-| **Existing-test breakage** | Expected **0 assertion failures**, but the estimate is soft. At risk: the 20 `wasm_bindgen_test`s in `liquers-web/tests/commands_COMMAND.rs`, of which four assert error wording (`:66`, `:409`, `:422`, `:509`) — all four preserved by keeping their producing code in `liquers-web`. `liquers-core/src/command_metadata.rs`'s own tests (`:1210`, `:1236`, `:1254`) must be unaffected by the alias additions; aliases do not change serialization, so they should not be. `liquers-lib`'s `registry_export` must stay green. The honest number is "0 expected, ~24 tests in the blast radius". |
-| **New validation** | (1) Registry round-trip: every command in `specs/command_registry.yaml` → `CommandDeclaration::from_metadata` → `to_metadata` → equality modulo `impl_version`/`metadata_version`. (2) Minimal declaration `{"name":"greet"}` yields `CommandMetadata` equal to `CommandMetadata::from_key`. (3) Parity with `register_command!` for one representative command including `metadata_version` after registry insertion. (4) YAML and JSON both parse the same declaration to the same value. (5) Malformed declarations: empty name, `multiple` not last, unknown argument type, non-array `arguments`. (6) The whole `liquers-web` COMMAND suite under Node. Commands to run: `cargo test -p liquers-core --lib`, `cargo test -p liquers-lib --lib --tests`, `bash scripts/check-build-matrix.sh`, and — after `cargo clean` — `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles`. |
-| **Behavioural risk** | *Compatibility*: the JavaScript declaration surface widens (new accepted fields and type names) and one diagnostic's wording changes; both are deliberate and listed. *Persistence/data*: `specs/command_registry.yaml` is a committed generated file and must not move — enforced by `registry_export`. *Concurrency*: not applicable — parsing is pure and the `INFERRED_ARGUMENTS` thread-local is untouched. *Performance*: not applicable — registration is not a hot path. *Security*: a declaration is host-supplied data that becomes registered metadata; it cannot name a Rust implementation, so `run` resolution stays entirely with the host. *Error paths*: serde failures replace hand-written ones for malformed fields; wrapped so the command name survives. |
-| **Recovery** | The core module is additive and can stay. The `liquers-web` rewrite is the risky half and is revertible on its own — `JsCommandSpec`'s public shape is unchanged, so reverting `parse` restores the old behaviour without touching `adapter.rs` or `environment.rs`. Sequencing the work as "core type + tests" then "web rewrite" keeps that boundary real. |
-| **Certainty** | Q2 is resolved above but changes accepted input, which is a judgement the maintainer may want. Unverified: that `serde-wasm-bindgen` deserializes a JS object into `Option<serde_json::Value>` for argument defaults — that needs `deserialize_any`, which it supports, but it has not been executed here. Fallback if it does not hold: `js_sys::JSON::stringify` on the run-less copy, then `serde_json::from_str`; the cost is that a non-JSON default becomes "absent" instead of an error. The `!Query` default question was checked and is currently moot (no such command in the file). Two claims in an earlier draft were wrong and are corrected above, both found by a review bot and confirmed against the code: `to_metadata` cannot validate a global-enum reference without a registry, and the `label` default is not shared between the two registration routes. |
+| **Documentation** | [`COMMAND_DECLARATION.md`](./COMMAND_DECLARATION.md) is written and is the Phase 5 deliverable: it promotes to `specs/reference/` unchanged but for its not-yet-true banner. `LANGUAGE-INTEGRATION_GUIDE.md` §COMMAND and §8 already point at it. A section on writing an integration's *user* documentation is missing and filed as `LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION`. |
+| **Files** | Source: `liquers-core/src/command_declaration.rs` (new, ~350 lines: the merge, conventions, defaults derivation, `build`), `liquers-core/src/command_metadata.rs` (8 deserialize-only rows plus a hand-written `Deserialize`, ~120 lines added, 0 removed), `liquers-core/src/lib.rs` (one `pub mod`), `liquers-web/src/command/spec.rs` (rewrite of `parse`, ~130 lines removed), `liquers-web/src/command/adapter.rs` (drop `INFERRED_ARGUMENTS`). Tests: colocated, plus `liquers-core/tests/` for the registry round-trip. Specs: a pointer from `REGISTER_COMMAND_FSD.md`; `specs/index.csv` regenerated. Generated files: **none**. |
+| **Impact area** | `core/commands`, `web`. Downstream: every JavaScript registration path, `describeCommand`, and the rebuild/replay path via `REGISTERED_SPECS`. `liquers-py` is unaffected until it opts in — it has no Python-side registration today. |
+| **Module/crate reach** | Two crates, three modules. Fails the automatic-clearance condition. |
+| **Existing-test breakage** | Expected **0 assertion failures**, estimate soft. At risk: the 20 `wasm_bindgen_test`s in `commands_COMMAND.rs`, four of which assert error wording (`:66`, `:409`, `:422`, `:509`) — all preserved by keeping their producing code in `liquers-web`; `command_metadata.rs`'s serde tests (`:1210`, `:1236`, `:1254`, `:1381`), where `:1381` asserts an exact JSON string and is the sharpest tripwire for an accidental `Serialize` change; and `registry_export`. Honest number: "0 expected, ~25 in the blast radius". |
+| **New validation** | **Merge laws** (the substance): an empty declaration is an identity; `enhance` twice equals once; a declared scalar wins; an argument entry augments by name and preserves untouched fields; an unknown argument name is rejected when the baseline has an `arguments` key and accepted when it does not; `null` sets rather than deletes; order never changes. **Defaults**: the four label cases in the Part B table; `gui_info` yields `TextField(40)`. **Conversion**: `{"name":"greet"}` builds; `command_registry.yaml` parses and re-serializes **byte-identically**; `CommandParameterValue`'s six input shapes; malformed inputs each name the command and argument. **Hints**: a usage hint reaches the metadata; a `registration` block merges like any other map, is readable from the declaration, and is absent from the built metadata. **Conventions**: `context` and a leading `state` leave `arguments` and appear in `registration`; `conventions: false` keeps them; an author-declared entry for a recognised name merges before it is lifted, rather than being rejected. **Parity**: the JavaScript path yields `foo_bar`, the document path `Foo bar`; `register_command!` and a declaration agree on `metadata_version` for one representative command. **Suites**: `cargo test -p liquers-core --lib`, `cargo test -p liquers-lib --lib --tests`, `bash scripts/check-build-matrix.sh`, and after `cargo clean` `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles`. |
+| **Behavioural risk** | *Compatibility*: the JavaScript surface widens substantially — `filename`, `expires`, `payload_required`, `presets`, `next`, `hints`, `multiple`, `injected`, `Alias`, richer `ArgumentType`s and query-valued defaults all become declarable; needs a line in the TypeScript stubs. One diagnostic's wording changes from bespoke to serde-derived with the command name prefixed. *Persistence*: `command_registry.yaml` must not move — enforced by a byte-identical round-trip. *Metadata versions*: the `foo_bar` and `gui_info` parity tests exist because a slip there re-expires assets. *Concurrency, performance*: not applicable — composition is pure, registration is not a hot path. *Security*: a declaration is host-supplied data that becomes registered metadata; it cannot name a Rust implementation. |
+| **Recovery** | Parts A, B, D and E are a new module nothing depends on — no `CommandMetadata` field is added. Part C is the only change to existing `Deserialize` impls and is the one to revert first if the registry moves. The `liquers-web` rewrite is separable, since `JsCommandSpec`'s public shape is unchanged. Sequence C → A → B → D → web. |
+| **Certainty** | The merge and defaults are pure functions over `serde_json::Value` and are exhaustively testable, which is where most of the new code is — this is more certain than either earlier draft. Unverified and needing execution in Phase 3: (a) `serde_wasm_bindgen`'s conversion of a JavaScript declaration object to `serde_json::Value`, in particular `deserialize_any` on nested objects and on the argument-default forms; fallback is `js_sys::JSON::stringify` plus `serde_json::from_str`, at the cost that a non-JSON default becomes an error. (b) That the camel-split rule's acronym handling is what is wanted — the table in Part B is the specification, and `parseHTTPResponse` is the case to confirm. |
 
 ## Open questions for the gate
 
-1. **Widening the JavaScript surface.** `filename`, `expires`, `payload_required`, and the extra
-   `ArgumentType` variants become declarable. Accept, or restrict the JavaScript path to today's
-   field set? **Recommendation:** accept — one format is the point of the issue, and a restricted
-   subset would be a second format again.
-2. **Diagnostic wording for an unknown argument type** changes from bespoke to serde-derived (with
-   the command name prefixed). Acceptable? **Recommendation:** accept; no test asserts it and the
-   serde message lists the valid names.
-3. **Split into two changes?** "core type + tests" and "`liquers-web` rewrite" are separable, and
-   the second is where the risk is. **Recommendation:** one PR, two commits, so the web half can be
-   reverted alone.
-4. **Query-valued defaults** are out of scope; a document cannot declare `default: query "…"`.
-   Confirm that is acceptable for now.
-5. **The `label` default split.** `liquers-web` keeps the name verbatim; Rust replaces underscores
-   with spaces. Preserving the split (recommended, and what Phase 2 specifies) keeps every existing
-   JavaScript command's `metadata_version` stable. Normalising to one rule is tidier and makes the
-   two registration routes agree, at the cost of a one-off version change for underscored
-   JavaScript commands — which re-expires their dependent assets. Raised by a review bot on this
-   PR and verified against `spec.rs:166` and `command_metadata.rs:925`.
+1. ~~**Where do hints live?**~~ **Resolved 2026-08-30: on the declaration only**, dropped at
+   `build`. `CommandMetadata` gains no field. See Part D for the three consequences.
+2. **Widening the JavaScript surface.** The pipeline's output is `CommandMetadata`, so `filename`,
+   `expires`, `payload_required`, `presets`, `next`, `multiple`, `injected`, `Alias`, richer
+   `ArgumentType`s and query-valued defaults all become declarable from JavaScript at once.
+   **Recommendation:** accept, and add a line to the TypeScript stubs — a restricted subset would be
+   a second format again.
+3. **Unknown-field tolerance.** The merge cannot reject unknown *metadata* keys without a key list,
+   so a typo'd `volatil: true` merges in and is dropped at `build`. Today's parser ignores it too, so
+   this is not a regression, but a document-driven host makes typos likelier. **Recommendation:**
+   accept now; `build` is the natural place to warn later. Note this interacts with hints: a
+   free-form map means a typo inside `hints` can never be caught by core at all.
+4. ~~**Complexity, re-checked.**~~ **Resolved 2026-08-30.** Stay at `L` with the `liquers-project`
+   workflow. Both Python and JavaScript will inherit this code as the next major development goal,
+   so the merge, the defaulting rules and the diagnostics warrant Phase 3 examples and tests rather
+   than being folded into an implementation commit.
+5. **Commit split.** C → A → B → D → web is five commits; the web rewrite carries the risk.
+   **Recommendation:** one PR, so the web half can be reverted alone.
 
 ## Review record
 
-*Against Phase 1:* every acceptance criterion maps to a named test; the non-goals (Python binding,
-post-init registration, `register_command!`, exporter output) appear nowhere in the plan; the
-`snapshot_declaration` cleanup is explicitly deferred rather than folded in.
+*Against the purpose statement, as descoped:* all four stages appear, with 2-4 shared and 1
+host-specific; the declaration carries a metadata contribution as a partial and never re-enumerates
+metadata fields; merge is by name and handles nesting; defaults derivation runs after merge and
+includes the camel/snake label rule; the output is `CommandMetadata` and nothing else. How to call
+the function is out of scope, retained only as uninterpreted hints, and the handover boundary is
+stated so nothing non-portable enters the shared layer. Q3's no-introspection exception is still
+required and still stated; Q4 and C3 are moot along with the call spec.
 
-*Against the codebase:* the `CommandMetadata` deserialization limits were measured, not assumed;
-`ArgumentType`'s serde names, `CommandMetadata::from_key`'s defaults, `metadata_version`'s
-computation site, `serde-wasm-bindgen`'s presence in `liquers-web`'s manifest, and the four
-error-wording assertions in the conformance suite were all read at `HEAD`. Risk is **not**
-understated: this crosses two crates and three modules, touches a public JavaScript API, and the
-"0 broken tests" estimate is qualified with the 24 tests in range. It therefore fails the automatic
-clearance conditions of the procedure and needs an explicit decision.
+*Against `portability-analysis.md`:* the descope keeps exactly the column that analysis found
+portable to all six languages (metadata) and drops the one it found unevenly justified (the call
+spec, needed by two to five of them). The evidence supported this pivot before it was made, which is
+the strongest argument for it.
+
+*Against the codebase:* every cited line was read at `HEAD`. Verified for this rewrite: that
+`parse_arguments` (`spec.rs:196-234`) reads only `name`, `type` and `default`, so `multiple` and
+`injected` are genuinely new JavaScript surface; that `get_multiple` (`commands.rs:151`) always
+collects, so Rust has one variadic mode; and the eight `name.replace("_", " ")` sites.
+
+*Review passes* were run inline rather than by sub-agents, since this session has not been asked to
+spawn them; the conformity checks the workflow assigns to separate reviewers (against Phase 1, the
+purpose statement, and the codebase) are folded into this record.
+
+*Risk is not understated:* two crates, three modules, a public JavaScript API, a changed
+`Deserialize`, and a "0 broken tests" estimate qualified with the 25 tests in range. This needs an
+explicit decision at the gate.

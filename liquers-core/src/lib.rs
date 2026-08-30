@@ -116,6 +116,7 @@ extern crate serde_derive;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub mod cache;
+pub mod command_declaration;
 pub mod command_metadata;
 #[macro_use]
 pub mod commands;
