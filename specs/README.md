@@ -89,7 +89,7 @@ simply stop being wanted.
 
 - **Payloads** — documented → [`reference/PAYLOAD_GUIDE.md`](reference/PAYLOAD_GUIDE.md)
 - **Environment, Context and evaluation** — documented → [`reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`](reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md)
-- **Recipe-provider fallback in the payload environment** — designing → [`design/payload-env-recipe-provider-fallback/`](design/payload-env-recipe-provider-fallback/)
+- **Recipe-provider fallback in the payload environment** — built → [`reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`](reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md) *(design: [`payload-env-recipe-provider-fallback`](design/payload-env-recipe-provider-fallback/))*
 - **Metadata format/type consistency** — designing → [`design/metadata-consistency/`](design/metadata-consistency/)
 - **Value accessor abstraction** — designing → [`design/value-accessor/`](design/value-accessor/)
 - **`ValueInterface` capability split** — planned → [`issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md`](issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md)
@@ -191,7 +191,6 @@ question are both measure-first items.
 <!-- BEGIN generated: issues -->
 | Issue | Pri | Cx | Design |
 |---|---|---|---|
-| [`CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC`](issues/CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC.md) | P1 | S | `payload-env-recipe-provider-fallback` |
 | [`STORE-OPENDAL-SLASH-HANDLING`](issues/STORE-OPENDAL-SLASH-HANDLING.md) | P1 | M | `opendal-path-mapping` |
 | [`QUEUED-MANAGER-STARTUP-READINESS`](issues/QUEUED-MANAGER-STARTUP-READINESS.md) | P1 | L | `environment-builder` |
 <!-- END generated: issues -->

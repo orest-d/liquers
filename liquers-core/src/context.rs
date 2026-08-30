@@ -1421,9 +1421,10 @@ mod tests {
     #[test]
     fn new_matches_new_with_the_default_registry() {
         let delegated = ImmediateEnvironment::<Value>::new();
-        let explicit = ImmediateEnvironment::<Value>::new_with_type_registry(
-            TypeRegistry::from_value_type::<Value>(),
-        );
+        let explicit =
+            ImmediateEnvironment::<Value>::new_with_type_registry(TypeRegistry::from_value_type::<
+                Value,
+            >());
 
         let described: Vec<&str> = delegated
             .get_type_registry()
@@ -1456,12 +1457,45 @@ mod tests {
         let env = ImmediateEnvironment::<Value>::new_with_type_registry(types);
         let registry = env.get_type_registry();
 
-        assert!(registry.contains("test.Foreign"), "the supplied type is visible");
+        assert!(
+            registry.contains("test.Foreign"),
+            "the supplied type is visible"
+        );
         assert!(registry.contains("Text"), "and the base types survived");
         assert!(
             !registry.contains("error"),
             "there is no error type: an errored state is typed by the value it holds, which is none"
         );
+        Ok(())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn assert_unconfigured_provider_is_trivial<E: Environment>(
+        envref: EnvRef<E>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let key = parse_key("missing/recipe.txt")?;
+        let provider = envref.get_recipe_provider();
+
+        assert!(!provider.has_recipes(&key, envref.clone()).await?);
+        assert!(provider.recipe(&key, envref).await.is_err());
+        Ok(())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn unconfigured_core_environments_return_trivial_recipe_provider(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        assert_unconfigured_provider_is_trivial(SimpleEnvironment::<Value>::new().to_ref()).await?;
+        assert_unconfigured_provider_is_trivial(ImmediateEnvironment::<Value>::new().to_ref())
+            .await?;
+        assert_unconfigured_provider_is_trivial(
+            SimpleEnvironmentWithPayload::<Value, ()>::new().to_ref(),
+        )
+        .await?;
+        assert_unconfigured_provider_is_trivial(
+            ImmediateEnvironmentWithPayload::<Value, ()>::new().to_ref(),
+        )
+        .await?;
         Ok(())
     }
 
@@ -1784,10 +1818,7 @@ mod tests {
             &expected
         );
 
-        let applied = context
-            .apply(&absolute, State::new())
-            .await
-            .expect("apply");
+        let applied = context.apply(&absolute, State::new()).await.expect("apply");
         assert_eq!(
             applied
                 .get()
@@ -1804,8 +1835,8 @@ mod tests {
 /// Native environment with a custom payload and queued asset evaluation.
 ///
 /// This is the payload-bearing counterpart to [`SimpleEnvironment`]. Construction
-/// requires an active Tokio runtime. A recipe provider must be configured before a
-/// keyed recipe lookup; otherwise [`Environment::get_recipe_provider`] panics.
+/// requires an active Tokio runtime. If no recipe provider is configured, this
+/// environment returns [`crate::recipes::TrivialRecipeProvider`].
 #[cfg(not(target_arch = "wasm32"))]
 pub struct SimpleEnvironmentWithPayload<V: ValueInterface, P: crate::commands::PayloadType> {
     type_registry: crate::type_system::TypeRegistry,
@@ -1955,7 +1986,8 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
         if let Some(provider) = &self.recipe_provider {
             return provider.clone();
         }
-        panic!("No recipe provider configured in SimpleEnvironmentWithPayload");
+        eprintln!("No recipe provider configured in SimpleEnvironmentWithPayload");
+        Arc::new(crate::recipes::TrivialRecipeProvider)
     }
 
     fn init_with_envref(&self, envref: EnvRef<Self>) {

@@ -2,7 +2,7 @@
 id: CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC
 kind: issue
 title: SimpleEnvironmentWithPayload panics when no recipe provider is configured
-status: draft
+status: closed
 priority: P1
 complexity: S
 area: [core/context]
@@ -64,3 +64,11 @@ construction. If that project does not land, fix it directly.
 2. All four core environments return the same provider for the unconfigured case.
 3. A test asserting the fallback, alongside `liquers-lib`'s equivalent from
    `LIB-RECIPE-PROVIDER-PANIC`.
+
+## Resolution
+
+Closed on 2026-08-30 by changing `SimpleEnvironmentWithPayload::get_recipe_provider` to return
+`TrivialRecipeProvider` with the same stderr diagnostic used by `SimpleEnvironment`, and by updating
+the struct Rustdoc to match. The focused regression
+`context::tests::unconfigured_core_environments_return_trivial_recipe_provider` verifies that all
+four core environments return a trivial provider when unconfigured.

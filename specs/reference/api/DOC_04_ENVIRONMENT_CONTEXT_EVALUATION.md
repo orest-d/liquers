@@ -3,7 +3,7 @@ title: Environment, Context and Evaluation Reference
 kind: reference
 audience: internal
 area: [core/context, core/plan]
-reviewed: 2026-08-16
+reviewed: 2026-08-30
 ---
 # DOC-04: Environment, Context, and End-to-End Evaluation
 
@@ -314,9 +314,9 @@ legacy JSON metadata.
 |---|---|---|---|---|---|
 | `SimpleEnvironment<V>` | Native only | `()` | Queued `DefaultAssetManager` | `TrivialRecipeProvider` with stderr notice | Async store; legacy sync setter |
 | `ImmediateEnvironment<V>` | Native or Wasm | `()` | Inline `ImmediateAssetManager` | `TrivialRecipeProvider` | Async store |
-| `SimpleEnvironmentWithPayload<V, P>` | Native only | `P` | Queued `DefaultAssetManager` | Panics if missing | Async store; legacy sync setter |
+| `SimpleEnvironmentWithPayload<V, P>` | Native only | `P` | Queued `DefaultAssetManager` | `TrivialRecipeProvider` with stderr notice | Async store; legacy sync setter |
 | `ImmediateEnvironmentWithPayload<V, P>` | Native or Wasm | `P` | Inline `ImmediateAssetManager` | `TrivialRecipeProvider` | Async store |
-| `liquers_lib::DefaultEnvironment<V, P>` | Native or Wasm | `P` | Queued natively, inline on Wasm | Panics if missing | Async store |
+| `liquers_lib::DefaultEnvironment<V, P>` | Native or Wasm | `P` | Queued natively, inline on Wasm | Configured provider; defaults to `DefaultRecipeProvider` | Async store |
 
 `SimpleEnvironment::with_cache` and
 `SimpleEnvironmentWithPayload::with_cache` always panic.
@@ -358,7 +358,7 @@ Visibility does not consistently enforce this separation.
 | P0 | Custom `Environment::apply_recipe` semantics are convention-only | Dependency finalization, volatility, expiration, and plan application are manually duplicated by every environment | Provide a shared default helper or default method and reserve customization for narrower hooks |
 | P1 | Manager startup completion is not observable for queued environments | `init_with_envref` spawns `start` and immediately returns; command-version loading can still be in flight | Make initialization async or make first evaluation await idempotent startup |
 | P1 | `Session` and `User` imply an evaluation hierarchy that is not implemented | `create_session` has no callers in the runtime, and `Context` contains no session or user | Mark them experimental/minimal until authorization/session propagation is designed |
-| P1 | Recipe-provider absence has inconsistent behavior | Core unit-payload environments fall back to trivial recipes; payload and library environments panic | Define one absence/error contract and use a fallible provider lookup if absence is valid |
+| P3 | Recipe-provider absence diagnostics are not uniform | Native queued core environments write a stderr notice when falling back to trivial recipes; immediate environments stay silent, and `liquers_lib::DefaultEnvironment` has a default provider | Decide whether provider absence should be quiet, logged, or impossible by construction in the future environment builder |
 | P1 | Public context lifecycle methods can break finalization invariants | `take_pending_dependencies` clears records; `set_error` and `set_expires` directly affect the asset | Narrow visibility or split command-facing and engine-facing context traits |
 | P1 | Payload mutability semantics are easy to misread | `payload` is public and cloned by value, while guides describe it as mutable/inherited | Document clone semantics and prefer accessors or an explicit shared payload wrapper |
 | P2 | Synchronous store and cache configuration APIs are nonfunctional | `with_store` is unused by asset evaluation; `with_cache` always panics | Remove, deprecate, or make them operational |
@@ -418,6 +418,7 @@ tracked by DOC-03. No new compiler warning was introduced by DOC-04.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-30 | Updated built-in environment recipe-provider fallback behavior after `SimpleEnvironmentWithPayload` stopped panicking and corrected the already-fixed `liquers_lib::DefaultEnvironment` default-provider row. | PAYLOAD-ENV-RECIPE-PROVIDER-FALLBACK |
 | 2026-08-16 | Recorded that the working key is crate-private and why, that `evaluate`/`apply`/`get_dependency_state` refuse relative queries, and that `-R-key/.` is the supported replacement. Restated ordered resolution for frozen plans. | PLAN-CWD-FREEZE |
 | 2026-08-11 | Documented the shared live CWD, interpreter and context resolution boundaries, scoped links, nested-plan propagation, root fallback, and resolved dependency and owner identity. | phase-5 |
 | 2026-08-09 | Reviewed environment construction, context sharing, dependency evaluation, and payload propagation against HEAD; documented payload-aware nested evaluation and the inline payload environment, and corrected links. | PAYLOAD-INHERITANCE |
