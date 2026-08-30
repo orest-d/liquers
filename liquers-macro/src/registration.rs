@@ -2482,8 +2482,7 @@ mod tests {
         }
 
         fn registration_of(ts: proc_macro2::TokenStream) -> String {
-            let mut sig: CommandSignature =
-                syn::parse2(ts).expect("declaration must parse");
+            let mut sig: CommandSignature = syn::parse2(ts).expect("declaration must parse");
             sig.wrapper_version = WrapperVersion::V2;
             fuzzy(&sig.command_registration().to_string())
         }
@@ -2535,7 +2534,10 @@ mod tests {
             });
 
             assert!(tokens.contains("multiple:false"), "tokens: {tokens}");
-            assert!(tokens.contains("arguments.get(0usize,\"a\")?"), "tokens: {tokens}");
+            assert!(
+                tokens.contains("arguments.get(0usize,\"a\")?"),
+                "tokens: {tokens}"
+            );
             assert!(!tokens.contains("get_multiple"), "tokens: {tokens}");
         }
 
@@ -2580,7 +2582,10 @@ mod tests {
         fn rejects_default_on_variadic() {
             let m = parse_err(quote! { fn f(state, c: Vec<String> multiple = "x") -> result });
             assert!(m.contains("default"), "{m}");
-            assert!(m.contains("empty list"), "must say what the default IS: {m}");
+            assert!(
+                m.contains("empty list"),
+                "must say what the default IS: {m}"
+            );
         }
 
         /// U16 - VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS, caught at compile time. Reports on

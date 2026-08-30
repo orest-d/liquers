@@ -164,7 +164,9 @@ mod tests {
         for error_type in each_error_type() {
             let serialized = format!("{:?}", error_type);
             let parsed = parse_error_type(&serialized).unwrap_or_else(|e| {
-                panic!("{serialized} does not round trip: {e} — the response would fall back to 500")
+                panic!(
+                    "{serialized} does not round trip: {e} — the response would fall back to 500"
+                )
             });
             assert_eq!(parsed, error_type, "{serialized}");
         }

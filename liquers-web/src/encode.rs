@@ -117,8 +117,8 @@ mod tests {
     #[wasm_bindgen_test]
     fn web_previously_unrepresentable_values_now_round_trip() {
         for value in [
-            "12:30", "a,b", "a?b", "a=b", "a&b", "a#b", "a%b", "a(b", "café", "日本", "😀",
-            "a;b", "a[b", "a@b", "a!b", "a*b", "a:b/c",
+            "12:30", "a,b", "a?b", "a=b", "a&b", "a#b", "a%b", "a(b", "café", "日本", "😀", "a;b",
+            "a[b", "a@b", "a!b", "a*b", "a:b/c",
         ] {
             assert_eq!(roundtrip(value), value, "round trip failed for {value:?}");
         }

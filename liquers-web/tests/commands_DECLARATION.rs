@@ -64,7 +64,10 @@ fn decl01_a_javascript_declaration_converts_to_serde_json_value() {
     assert_eq!(converted["name"], json!("repeat"));
     assert_eq!(converted["label"], json!("Repeat text"));
     assert_eq!(converted["volatile"], json!(false));
-    assert_eq!(converted["registration"]["javascript"]["state"], json!("text"));
+    assert_eq!(
+        converted["registration"]["javascript"]["state"],
+        json!("text")
+    );
 
     let arguments = converted["arguments"]
         .as_array()
@@ -76,10 +79,15 @@ fn decl01_a_javascript_declaration_converts_to_serde_json_value() {
     // (`spec.rs`, before the rewrite); serde_wasm_bindgen does the same, so a numeric default
     // keeps its representation and no command's `metadata_version` moves. This assertion is the
     // whole reason the spike ran before the rewrite it would have invalidated.
-    assert_eq!(arguments[0]["default"], json!(2), "a bare numeric default stays an integer");
+    assert_eq!(
+        arguments[0]["default"],
+        json!(2),
+        "a bare numeric default stays an integer"
+    );
     assert_eq!(arguments[1]["default"], json!("-"), "a bare string default");
     assert_eq!(
-        arguments[2]["default"], json!({ "Value": 7 }),
+        arguments[2]["default"],
+        json!({ "Value": 7 }),
         "the tagged form survives as a nested object"
     );
 }
@@ -87,8 +95,8 @@ fn decl01_a_javascript_declaration_converts_to_serde_json_value() {
 /// DECL02 — the converted value drives the pipeline end to end, which is what step 9 will do.
 #[wasm_bindgen_test]
 fn decl02_the_converted_declaration_builds_metadata() {
-    let converted: serde_json::Value = serde_wasm_bindgen::from_value(declaration_object().into())
-        .expect("converts");
+    let converted: serde_json::Value =
+        serde_wasm_bindgen::from_value(declaration_object().into()).expect("converts");
 
     let metadata = CommandDeclaration::from_document(converted)
         .finish()
@@ -103,7 +111,9 @@ fn decl02_the_converted_declaration_builds_metadata() {
         "`type` reached `argument_type` through the conversion"
     );
     assert_eq!(
-        serde_json::to_value(&metadata).expect("serializes").get("registration"),
+        serde_json::to_value(&metadata)
+            .expect("serializes")
+            .get("registration"),
         None,
         "a registration hint stays on the declaration"
     );
@@ -122,7 +132,11 @@ fn decl03_numeric_defaults_arrive_as_numbers() {
     set(
         &spec,
         "arguments",
-        &args(vec![arg("count", Some("int"), Some(JsValue::from_f64(2.0)))]),
+        &args(vec![arg(
+            "count",
+            Some("int"),
+            Some(JsValue::from_f64(2.0)),
+        )]),
     );
     let converted: serde_json::Value =
         serde_wasm_bindgen::from_value(spec.into()).expect("converts");

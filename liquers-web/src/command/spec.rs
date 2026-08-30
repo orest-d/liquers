@@ -172,10 +172,7 @@ impl JsCommandSpec {
         let declaration_object = without_run(spec)?;
         let mut document: serde_json::Value =
             serde_wasm_bindgen::from_value(declaration_object.into()).map_err(|e| {
-                Error::from_error(
-                    ErrorType::ParameterError,
-                    format!("Command {name:?}: {e}"),
-                )
+                Error::from_error(ErrorType::ParameterError, format!("Command {name:?}: {e}"))
             })?;
 
         let namespace = document

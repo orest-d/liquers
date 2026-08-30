@@ -257,7 +257,10 @@ fn fvt8_2_a_rebuild_keeps_the_javascript_type() {
 
     let first = shared_env().expect("share");
     assert!(
-        first.0.get_type_registry().contains(liquers_web::value::JS_VALUE_TYPE_IDENTIFIER),
+        first
+            .0
+            .get_type_registry()
+            .contains(liquers_web::value::JS_VALUE_TYPE_IDENTIFIER),
         "the premise: the shared environment knows the type"
     );
 
@@ -270,7 +273,10 @@ fn fvt8_2_a_rebuild_keeps_the_javascript_type() {
     );
 
     assert!(
-        second.0.get_type_registry().contains(liquers_web::value::JS_VALUE_TYPE_IDENTIFIER),
+        second
+            .0
+            .get_type_registry()
+            .contains(liquers_web::value::JS_VALUE_TYPE_IDENTIFIER),
         "a rebuild must not lose the JavaScript type"
     );
 

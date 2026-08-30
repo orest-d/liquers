@@ -286,7 +286,9 @@ fn rebuild_with(additional: JsValue) -> Result<(), Error> {
 /// is still un-shared, and otherwise by rebuilding and replaying. The rebuild discards the asset
 /// cache, which is correct rather than merely tolerable — assets computed against the previous
 /// store are stale the moment it is replaced, and nothing else invalidates them.
-pub fn configure_store_on(config: liquers_core::store_config::StoreRouterConfig) -> Result<(), Error> {
+pub fn configure_store_on(
+    config: liquers_core::store_config::StoreRouterConfig,
+) -> Result<(), Error> {
     // Retain the replacement *and keep the predecessor*, because applying it can fail and the
     // retained copy is what every later rebuild replays. Leaving a failed replacement retained
     // would make the next command registration rebuild into a broken store; clearing retention

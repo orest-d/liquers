@@ -29,21 +29,51 @@ use crate::{
 #[pyclass]
 pub enum Value {
     None {},
-    Bool { value: bool },
-    I32 { value: i32 },
-    I64 { value: i64 },
-    F64 { value: f64 },
-    Text { value: String },
-    Array { value: Vec<Value> },
-    Object { value: BTreeMap<String, Value> },
-    Bytes { value: Vec<u8> },
-    Metadata { value: MetadataRecord },
-    Recipe { value: Recipe },
-    CommandMetadata { value: CommandMetadata },
-    Query { value: Query },
-    Key { value: Key },
-    AssetInfo { value: Vec<crate::metadata::AssetInfo> },
-    Py { value: Py<PyAny> },
+    Bool {
+        value: bool,
+    },
+    I32 {
+        value: i32,
+    },
+    I64 {
+        value: i64,
+    },
+    F64 {
+        value: f64,
+    },
+    Text {
+        value: String,
+    },
+    Array {
+        value: Vec<Value>,
+    },
+    Object {
+        value: BTreeMap<String, Value>,
+    },
+    Bytes {
+        value: Vec<u8>,
+    },
+    Metadata {
+        value: MetadataRecord,
+    },
+    Recipe {
+        value: Recipe,
+    },
+    CommandMetadata {
+        value: CommandMetadata,
+    },
+    Query {
+        value: Query,
+    },
+    Key {
+        value: Key,
+    },
+    AssetInfo {
+        value: Vec<crate::metadata::AssetInfo>,
+    },
+    Py {
+        value: Py<PyAny>,
+    },
 }
 
 #[pymethods]
@@ -233,21 +263,36 @@ impl ValueInterface for Value {
         // time to read time.
         let text_like = ["txt", "html"];
         vec![
-            TypeInfo::new("None")
-                .with_type_name("none")
-                .with_defaults("json", "json", "application/json", "data.json"),
-            TypeInfo::new("Bool")
-                .with_type_name("bool")
-                .with_defaults("json", "json", "application/json", "data.json"),
-            TypeInfo::new("I32")
-                .with_type_name("i32")
-                .with_defaults("json", "json", "application/json", "data.json"),
-            TypeInfo::new("I64")
-                .with_type_name("i64")
-                .with_defaults("json", "json", "application/json", "data.json"),
-            TypeInfo::new("F64")
-                .with_type_name("f64")
-                .with_defaults("json", "json", "application/json", "data.json"),
+            TypeInfo::new("None").with_type_name("none").with_defaults(
+                "json",
+                "json",
+                "application/json",
+                "data.json",
+            ),
+            TypeInfo::new("Bool").with_type_name("bool").with_defaults(
+                "json",
+                "json",
+                "application/json",
+                "data.json",
+            ),
+            TypeInfo::new("I32").with_type_name("i32").with_defaults(
+                "json",
+                "json",
+                "application/json",
+                "data.json",
+            ),
+            TypeInfo::new("I64").with_type_name("i64").with_defaults(
+                "json",
+                "json",
+                "application/json",
+                "data.json",
+            ),
+            TypeInfo::new("F64").with_type_name("f64").with_defaults(
+                "json",
+                "json",
+                "application/json",
+                "data.json",
+            ),
             // The three that genuinely round-trip out: their default is `txt`, and `as_bytes`
             // implements it.
             TypeInfo::new("Text")
@@ -995,7 +1040,10 @@ mod tests {
         );
 
         // And they succeed on the right one.
-        assert_eq!(Value::from_bytes(vec![1, 2]).try_into_bytes(), Ok(vec![1, 2]));
+        assert_eq!(
+            Value::from_bytes(vec![1, 2]).try_into_bytes(),
+            Ok(vec![1, 2])
+        );
         assert!(
             Value::from_asset_info(Vec::new()).identifier() == "AssetInfo",
             "from_asset_info builds the AssetInfo variant instead of panicking"

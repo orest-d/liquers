@@ -214,8 +214,8 @@ async fn the_refusal_names_the_identifier() -> Result<(), Box<dyn std::error::Er
 /// the failure is delayed and confusing: the foreign type works, and then storing an *ordinary*
 /// value — text, an image, anything the build has always supported — is refused.
 #[tokio::test]
-async fn an_empty_base_registry_loses_the_ordinary_types(
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn an_empty_base_registry_loses_the_ordinary_types() -> Result<(), Box<dyn std::error::Error>>
+{
     let mut types = TypeRegistry::new();
     types.register(MockForeign.type_info())?;
     assert!(
@@ -281,7 +281,10 @@ fn the_extended_registry_holds_both_the_base_and_the_addition(
     let mut types = TypeRegistry::from_value_type::<Value>();
     types.register(MockForeign.type_info())?;
 
-    assert!(types.contains(MOCK_TYPE_IDENTIFIER), "the integration's type");
+    assert!(
+        types.contains(MOCK_TYPE_IDENTIFIER),
+        "the integration's type"
+    );
     assert!(types.contains("Text"), "the base value type's types");
     assert!(types.contains("Image"), "the extension's types");
     assert!(

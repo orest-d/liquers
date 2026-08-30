@@ -16,8 +16,8 @@ pub mod metadata;
 pub mod parse;
 pub mod plan;
 pub mod query;
-pub mod value;
 pub mod recipes;
+pub mod value;
 
 use crate::query::*;
 

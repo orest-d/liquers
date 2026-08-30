@@ -12,12 +12,12 @@ use std::collections::HashMap;
 
 use liquers_core::error::Error;
 use liquers_core::store::AsyncStore;
+use liquers_core::store::AsyncStoreRouter;
 use liquers_core::store_config::{StoreConfig, StoreRouterConfig};
 use liquers_core::store_factory::{
-    core_store_factory, ChainedStoreFactory, StoreArgumentInfo, StoreArgumentType,
-    StoreFactory, StoreRouterBuilder, StoreTypeInfo,
+    core_store_factory, ChainedStoreFactory, StoreArgumentInfo, StoreArgumentType, StoreFactory,
+    StoreRouterBuilder, StoreTypeInfo,
 };
-use liquers_core::store::AsyncStoreRouter;
 
 #[cfg(feature = "opendal")]
 use crate::opendal_store::AsyncOpenDALStore;
@@ -149,7 +149,6 @@ impl OpendalStoreFactory {
             None => info,
         }
     }
-
 }
 
 impl StoreFactory for OpendalStoreFactory {
@@ -471,9 +470,7 @@ mod tests {
             // dependency rather than through a feature of this crate, so on Unix it rides along
             // with `opendal` itself. The explicit feature still counts, for a Unix-like target
             // someone enables it on deliberately.
-            "sftp" => {
-                cfg!(feature = "services-sftp") || (cfg!(unix) && cfg!(feature = "opendal"))
-            }
+            "sftp" => cfg!(feature = "services-sftp") || (cfg!(unix) && cfg!(feature = "opendal")),
             "hdfs" => cfg!(feature = "services-hdfs"),
             "redis" => cfg!(feature = "services-redis"),
             "mongodb" => cfg!(feature = "services-mongodb"),
@@ -525,8 +522,8 @@ mod tests {
     /// a store, and no credentials are needed.
     #[cfg(feature = "services-s3")]
     #[test]
-    fn availability03_documented_s3_configuration_builds(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn availability03_documented_s3_configuration_builds() -> Result<(), Box<dyn std::error::Error>>
+    {
         let router = create_router_from_yaml(
             "stores:\n  - type: s3\n    prefix: remote\n    config:\n      \
              bucket: my-liquers-bucket\n      region: us-east-1\n",
@@ -583,7 +580,10 @@ mod tests {
     #[test]
     fn opendal04_types_are_declared_but_unavailable() {
         let types = OpendalStoreFactory.store_types();
-        let s3 = types.iter().find(|t| t.store_type == "s3").expect("declared");
+        let s3 = types
+            .iter()
+            .find(|t| t.store_type == "s3")
+            .expect("declared");
         match &s3.availability {
             StoreTypeAvailability::Unavailable(reason) => assert!(reason.contains("opendal")),
             StoreTypeAvailability::Available => {
@@ -634,7 +634,10 @@ mod tests {
     #[test]
     fn coverage01_opendal_types_are_partial_with_an_authority() {
         let types = OpendalStoreFactory.store_types();
-        let s3 = types.iter().find(|t| t.store_type == "s3").expect("declared");
+        let s3 = types
+            .iter()
+            .find(|t| t.store_type == "s3")
+            .expect("declared");
         match &s3.coverage {
             ArgumentCoverage::Partial { authority } => assert!(authority.starts_with("https://")),
             ArgumentCoverage::Complete => {
@@ -648,8 +651,8 @@ mod tests {
     /// Gated on `services-fs` for the same reason as `opendal03`.
     #[cfg(feature = "services-fs")]
     #[test]
-    fn coverage02_partial_type_accepts_an_undescribed_key(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn coverage02_partial_type_accepts_an_undescribed_key() -> Result<(), Box<dyn std::error::Error>>
+    {
         let config = entry("fs", "local")
             .with_config("root", "/tmp/liquers-coverage02")
             .with_config("atomic_write_dir", "/tmp/liquers-coverage02-tmp");

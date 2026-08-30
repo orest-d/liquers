@@ -29,11 +29,11 @@ pub const CURATED: &[&str] = &[
     "times", "divide", "szlig", "aelig", "oslash", "eth", "thorn", "ndash", "mdash", "horbar",
     "lsquo", "rsquo", "sbquo", "ldquo", "rdquo", "bdquo", "dagger", "Dagger", "bull", "hellip",
     "permil", "prime", "Prime", "trade", "euro", // B-3 Greek
-    "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa", "lambda",
-    "mu", "nu", "xi", "omicron", "pi", "rho", "sigma", "sigmaf", "tau", "upsilon", "phi", "chi",
-    "psi", "omega", "Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta", "Eta", "Theta", "Iota",
-    "Kappa", "Lambda", "Mu", "Nu", "Xi", "Omicron", "Pi", "Rho", "Sigma", "Tau", "Upsilon", "Phi",
-    "Chi", "Psi", "Omega", // B-3 mathematics and arrows
+    "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa",
+    "lambda", "mu", "nu", "xi", "omicron", "pi", "rho", "sigma", "sigmaf", "tau", "upsilon", "phi",
+    "chi", "psi", "omega", "Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta", "Eta", "Theta",
+    "Iota", "Kappa", "Lambda", "Mu", "Nu", "Xi", "Omicron", "Pi", "Rho", "Sigma", "Tau", "Upsilon",
+    "Phi", "Chi", "Psi", "Omega", // B-3 mathematics and arrows
     "minus", "lowast", "radic", "prop", "infin", "ang", "and", "or", "cap", "cup", "int", "there4",
     "sim", "cong", "asymp", "ne", "equiv", "le", "ge", "sub", "sup", "nsub", "sube", "supe",
     "oplus", "otimes", "perp", "sdot", "part", "exist", "forall", "empty", "nabla", "isin",

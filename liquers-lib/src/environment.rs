@@ -66,9 +66,7 @@ impl<V: ValueInterface, P: PayloadType> DefaultEnvironment<V, P> {
     ///
     /// The registry is never written after this point, which is what lets
     /// [`Environment::get_type_registry`] hand out a shared reference with no lock.
-    pub fn new_with_type_registry(
-        type_registry: liquers_core::type_system::TypeRegistry,
-    ) -> Self {
+    pub fn new_with_type_registry(type_registry: liquers_core::type_system::TypeRegistry) -> Self {
         DefaultEnvironment {
             type_registry,
             command_registry: CommandRegistry::new(),

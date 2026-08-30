@@ -184,7 +184,12 @@ impl ValueExtension for ExtValue {
             descriptions.push(
                 TypeInfo::new("egui.Widget")
                     .with_type_name("widget")
-                    .with_defaults("widget", "widget", "application/octet-stream", "data.widget"),
+                    .with_defaults(
+                        "widget",
+                        "widget",
+                        "application/octet-stream",
+                        "data.widget",
+                    ),
             );
         }
         descriptions
@@ -201,9 +206,7 @@ impl ValueExtension for ExtValue {
     fn type_info(&self) -> liquers_core::type_system::TypeInfo {
         match self {
             ExtValue::Foreign { value } => value.type_info(),
-            ExtValue::Image { .. } | ExtValue::UIElement { .. } => {
-                default_ext_type_info(self)
-            }
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } => default_ext_type_info(self),
             #[cfg(feature = "polars")]
             ExtValue::PolarsDataFrame { .. } => default_ext_type_info(self),
             #[cfg(feature = "egui")]

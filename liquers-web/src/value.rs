@@ -195,7 +195,10 @@ mod tests {
     fn the_constant_and_the_instance_agree() {
         let opaque = JsOpaque::new(JsValue::from_str("x"));
 
-        assert_eq!(js_value_type_info().type_identifier, JS_VALUE_TYPE_IDENTIFIER);
+        assert_eq!(
+            js_value_type_info().type_identifier,
+            JS_VALUE_TYPE_IDENTIFIER
+        );
         assert_eq!(opaque.identifier(), JS_VALUE_TYPE_IDENTIFIER);
         assert_eq!(opaque.type_info().type_identifier, JS_VALUE_TYPE_IDENTIFIER);
     }
@@ -223,7 +226,8 @@ mod tests {
 
         assert_eq!(opaque.type_info().type_identifier, JS_VALUE_TYPE_IDENTIFIER);
         assert_eq!(
-            opaque.type_info().type_name, "Uint8Array",
+            opaque.type_info().type_name,
+            "Uint8Array",
             "the constructor name reaches the description"
         );
         assert_eq!(
