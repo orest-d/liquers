@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [lib/ui, core/query]
-design: 
+design: ui-query-console-error-highlight
 created: 2026-08-12
 github:
 ---

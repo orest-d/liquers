@@ -6,7 +6,7 @@ status: accepted
 priority: P2
 complexity: S
 area: [core/value, core/error]
-design: 
+design: metadata-error-traceback
 created: 2026-08-08
 github:
 ---

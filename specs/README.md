@@ -207,14 +207,22 @@ deliberately folded behind a broader line.
 - `reference/VALUE_TYPE_SYSTEM.md`
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - design `asset-manager-insert-key-asset-semantics`
+- design `core-no-default-features`
 - design `environment-builder`
+- design `error-with-key-field`
 - design `expiration-integration-suite-failing-at-head`
 - design `foreign-value-type-registration`
+- design `metadata-error-traceback`
+- design `opendal-list-option-config`
 - design `plan-cwd-freeze`
 - design `plan-relative-resolution`
+- design `polars-doc-example-namespace`
 - design `predecessor-cut-equivalence`
+- design `queued-manager-conditional-eviction`
 - design `store-key-guard`
+- design `ui-query-console-error-highlight`
 - design `value-type-system`
+- design `variadic-metadata-tail-check`
 - feature `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`
 - feature `COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS`
 - feature `DATA-FORMAT-CONSTANTS-AND-TOOLING`

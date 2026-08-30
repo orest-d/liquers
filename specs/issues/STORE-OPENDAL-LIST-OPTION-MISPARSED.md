@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [store/backends]
-design: 
+design: opendal-list-option-config
 created: 2026-08-29
 github:
 ---
