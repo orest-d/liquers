@@ -96,6 +96,14 @@ planned work" and reserves P0 for incorrect results, data loss, a panic on a sup
 documented feature that does not work. This issue is none of those; it is scheduling weight, applied
 deliberately. Either §4.4 should gain a clause for hard prerequisites, or this should settle at P1.
 
+**Confirmed 2026-08-30, and the `P0` stands.** Supporting Python *and* JavaScript is real and likely
+the next major development goal, so the prerequisite claim is now a fact rather than a projection.
+The §4.4 tension is unchanged — this is still not a wrong result, data loss, a panic or a broken
+documented feature — so the observation above stands as filed: §4.4 has no clause for a hard
+prerequisite, and one would be worth adding rather than leaving each such issue to argue the point.
+The design's evaluation of the same question is in
+`design/command-declaration/purpose-and-semantics.md` §The test this design has to pass.
+
 ## Verification
 
 1. Round-trip: every command in `specs/command_registry.yaml` parses into equivalent metadata.

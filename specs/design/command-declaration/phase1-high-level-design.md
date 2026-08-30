@@ -70,12 +70,12 @@ is the substance; a single-input parser would be trivial.
 The value is **coordination, not capability**. About 136 lines leave `liquers-web` and about 300
 enter `liquers-core`: this is net more code, written once and behaving identically everywhere instead
 of rewritten per binding. It follows that the design is **worth doing only if a second consumer
-exists** — a Python declaration path, which `liquers-py` does not have today
-(`liquers-py/src/commands.rs:187-190` registers Rust functions), or the plain-document host, which is
-this issue's original two-document motivation and cannot exist without it. With only `liquers-web` as
-a consumer the right change is the five serde attributes alone, and this design should be declined.
-That test belongs at the approval gate; see `purpose-and-semantics.md` §The test this design has to
-pass.
+exists**. **It does** — confirmed 2026-08-30: Python and JavaScript support are both real and
+supporting both is likely the next major development goal, with the plain-document host
+(`commands.yaml`, this issue's original two-document motivation) as a third beneficiary. `liquers-py`
+has no Python declaration path today — `liquers-py/src/commands.rs:187-190` registers Rust functions
+— so this is work about to happen, not work already duplicated. See `purpose-and-semantics.md`
+§The test this design has to pass.
 
 ## Expected behaviour and acceptance criteria
 
@@ -129,8 +129,10 @@ two); any change to `register_command!`; any change to what `export-command-regi
 - **Q2 — argument type aliases.** The JavaScript parser accepts `str`, `text`, `integer`, `number`,
   `boolean`, which `ArgumentType`'s serde names do not. **Resolved** in Phase 2 §Part A by
   `#[serde(alias)]`, which is deserialize-only and leaves the exported file untouched.
-- **Q3 — `P0`.** With the fix at five attributes plus a small module, the issue's own note about the
-  tension with `DOCS_STRUCTURE_GUIDE.md` §4.4 sharpens: **P1** looks right. For the gate.
+- **Q3 — `P0`. Resolved: it stands.** The tension with `DOCS_STRUCTURE_GUIDE.md` §4.4 is real — this
+  is not a wrong result, data loss, a panic or a broken documented feature — but the `P0` was
+  recorded as deliberate scheduling weight, and "prerequisite for the next major development goal"
+  is now confirmed rather than projected.
 - Assumption: preserving the current bespoke error wording matters only where a test asserts it.
   Verified — `commands_COMMAND.rs` asserts on `"kaboom"` (`:66`), `"reserved"` (`:509`), `"not a
   plain identifier"` and `"Function.length" || "parameter list"` (`:409,:422`), and nothing else.

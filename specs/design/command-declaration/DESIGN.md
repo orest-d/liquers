@@ -75,11 +75,11 @@ takes *two* inputs and composes them, which is where the substance is.
 **Added value, and its condition.** The value is coordination, not capability: about 136 lines leave
 `liquers-web` and about 300 enter `liquers-core`, so this is net *more* code. What it buys is that
 those lines are written once and behave identically everywhere, instead of being rewritten slightly
-differently per binding. That makes it **contingent on there being a second consumer** — a Python
-declaration path (`liquers-py` has none today) or the plain-document host (`commands.yaml`, the
-original two-document motivation, which cannot exist without this). With only `liquers-web` it is a
-net loss, and the right change would be the five serde attributes alone. See
-[`purpose-and-semantics.md`](./purpose-and-semantics.md) §Added value.
+differently per binding. That made it **contingent on there being a second consumer**, and the
+condition is met: **Python and JavaScript support are both real and are likely the next major
+development goal** (maintainer, 2026-08-30), with the plain-document host (`commands.yaml`) as a
+third beneficiary. See [`purpose-and-semantics.md`](./purpose-and-semantics.md) §Added value and
+§The test this design has to pass.
 [`purpose-and-semantics.md`](./purpose-and-semantics.md) is the authoritative statement of what this
 is and why; [`portability-analysis.md`](./portability-analysis.md) tests the reuse claim against six
 languages.

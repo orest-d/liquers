@@ -78,24 +78,35 @@ slice.
 
 **It is not a hard technical problem.** It is a small amount of code whose value is coordination.
 
-### The test this design has to pass
+### The test this design has to pass — **passed**
 
-Because the value is coordination rather than capability, it is **contingent on there being at least
-two consumers**. With only `liquers-web`, this is a net loss and the right change is the five serde
-attributes alone.
+Because the value is coordination rather than capability, it is contingent on there being at least
+two consumers. With only `liquers-web` this would be a net loss, and the right change would be the
+five serde attributes alone.
 
-There are two candidate second consumers, and the design's justification rests on at least one of
-them being real:
+**Answered by the maintainer, 2026-08-30: Python *and* JavaScript support are both real, and
+supporting both is likely the next major development goal.** That is the two-consumer case directly,
+so the coordination value is concrete rather than speculative, and the design is justified on its
+stated grounds. The plain-document host remains a third beneficiary and no longer has to carry the
+argument alone.
 
-- **A Python declaration path.** `liquers-py` has none today — it registers Rust functions through
-  `register_command!` (`liquers-py/src/commands.rs:187-190`). This is the case the issue argues from.
-- **The plain-document host.** A `commands.yaml` beside the environment configuration, with no host
-  language at all. This needs loose-JSON-to-metadata even if no binding is ever written, and it is
-  the *original* motivation in `COMMAND-DECLARATION-FORMAT` — the "two documents" setup.
+Two things follow, and they are recorded rather than left as inference:
 
-The second is the stronger justification, because it does not depend on future work: a document host
-cannot exist at all without this, whereas a Python binding could hand-roll its own. If neither is
-actually going to be built, this design should be declined and the serde fix taken on its own.
+- **The `P0` on `COMMAND-DECLARATION-FORMAT` stands.** It was recorded as deliberate scheduling
+  weight against `DOCS_STRUCTURE_GUIDE.md` §4.4, which reserves `P0` for wrong results, data loss,
+  panics and broken documented features. It is still none of those, so the tension the issue file
+  notes is real — but "prerequisite for the next major development goal" is now a fact rather than a
+  projection, which is what the weight was claiming. Phase 1's Q3 is resolved in favour of leaving it.
+- **Staying at `L` with the `liquers-project` workflow is right.** Phase 2's open question 4 asked
+  whether the descope put this back at the M/L boundary. Two bindings landing on this code answers
+  it: the merge, the defaulting rules and the diagnostics are what both will inherit, and they
+  warrant Phase 3 examples and tests rather than being folded into an implementation commit.
+
+Three filed issues also become more pressing, though none blocks this work:
+`JS-COMMAND-CANNOT-ACCESS-CONTEXT` (Python will want context too, and the asymmetry becomes visible
+across both bindings), `LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION` (two new user-facing bindings mean
+two user guides), and `POST-INIT-COMMAND-REGISTRATION` (for a document-driven host, registering after
+`to_ref` is the normal case rather than the exception).
 
 ### The two things it carries
 

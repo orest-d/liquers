@@ -49,9 +49,10 @@ them. A new module `liquers-core/src/command_declaration.rs`, plus small additiv
 `command_metadata.rs`. Four parts, in dependency order, each separately revertible.
 
 The value is coordination rather than capability — ~136 lines leave `liquers-web` and ~300 enter
-`liquers-core`, so it is net more code that is written and tested once. That makes it contingent on a
-second consumer; see `purpose-and-semantics.md` §The test this design has to pass, which the gate
-should apply before the open questions below.
+`liquers-core`, so it is net more code that is written and tested once. That made it contingent on a
+second consumer, and **the condition is met**: Python and JavaScript support are both real and are
+likely the next major development goal (`purpose-and-semantics.md` §The test this design has to
+pass). The gate's remaining business is the open questions below, not whether to proceed.
 
 ### Part A — the merge (stage 2)
 
@@ -361,11 +362,10 @@ never touches this module — the constraint that survives from draft 2's anti-d
    this is not a regression, but a document-driven host makes typos likelier. **Recommendation:**
    accept now; `build` is the natural place to warn later. Note this interacts with hints: a
    free-form map means a typo inside `hints` can never be caught by core at all.
-4. **Complexity, re-checked.** The descope removes Part D's types and the whole `run` question. What
-   remains — the merge, defaults derivation, serde fixes, validation — sits at the **M/L boundary**
-   rather than clearly at `L`. The `liquers-project` conversion is already made and the merge still
-   warrants Phase 3 examples and tests, so **recommendation: stay at `L` and keep the workflow**;
-   raised only so the re-scope is deliberate rather than inherited.
+4. ~~**Complexity, re-checked.**~~ **Resolved 2026-08-30.** Stay at `L` with the `liquers-project`
+   workflow. Both Python and JavaScript will inherit this code as the next major development goal,
+   so the merge, the defaulting rules and the diagnostics warrant Phase 3 examples and tests rather
+   than being folded into an implementation commit.
 5. **Commit split.** C → A → B → D → web is five commits; the web rewrite carries the risk.
    **Recommendation:** one PR, so the web half can be reverted alone.
 
