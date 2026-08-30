@@ -146,11 +146,10 @@ fn int04b_the_document_fixture_builds_what_it_says() {
 /// Phase 4 left the placement of this test open, on the chance that `register_command!` could not
 /// be reached from a `liquers-core` test. It can: `liquers-macro` is a dev-dependency
 /// (`liquers-core/Cargo.toml:78`), so the test lives here rather than in `liquers-lib`.
-#[test]
-fn int02_declaration_and_macro_agree_including_metadata_version() {
+#[tokio::test]
+async fn int02_declaration_and_macro_agree_including_metadata_version() {
     use liquers_core::command_metadata::CommandKey;
-    use liquers_core::commands::CommandRegistry;
-    use liquers_core::context::{Context, SimpleEnvironment};
+    use liquers_core::context::{Context, Environment, SimpleEnvironment};
     use liquers_core::error::Error;
     use liquers_core::state::State;
     use liquers_core::value::Value;
@@ -158,19 +157,19 @@ fn int02_declaration_and_macro_agree_including_metadata_version() {
 
     // The macro's generated wrapper names both of these.
     type CommandEnvironment = SimpleEnvironment<Value>;
-    type Env = SimpleEnvironment<Value>;
 
     fn repeat(state: &State<Value>, count: i64) -> Result<Value, Error> {
         let text = state.try_into_string()?;
         Ok(Value::from(text.repeat(count.max(0) as usize)))
     }
 
-    let mut from_macro: CommandRegistry<Env> = CommandRegistry::new();
-    let cr = &mut from_macro;
+    let mut env = SimpleEnvironment::<Value>::new();
+    let cr = &mut env.command_registry;
     register_command!(cr, fn repeat(state, count: i64) -> result)
         .expect("the macro registers the command");
-    let macro_metadata = from_macro
-        .command_metadata_registry
+    let envref = env.to_ref();
+    let macro_metadata = envref
+        .get_command_metadata_registry()
         .get(CommandKey::new("", "root", "repeat"))
         .cloned()
         .expect("the macro-registered command is in the registry");
@@ -205,24 +204,8 @@ fn int02_declaration_and_macro_agree_including_metadata_version() {
     let mut macro_comparable = macro_metadata.clone();
     macro_comparable.impl_version = declaration_metadata.impl_version.clone();
 
-    // `register_command!` stores a version computed from the bare skeleton it registered before
-    // the macro filled in the label and arguments, and nothing recomputes it — see
-    // MACRO-LEAVES-STALE-METADATA-VERSION. Recomputing here asserts the property this test is
-    // actually for (equal content gives an equal version) rather than asserting the bug.
-    let stored = macro_metadata.metadata_version;
-    let recomputed = from_macro
-        .command_metadata_registry
-        .update_command_metadata_version(CommandKey::new("", "root", "repeat"))
-        .expect("the macro-registered command is in the registry");
-    assert_ne!(
-        stored, recomputed,
-        "if this ever passes, MACRO-LEAVES-STALE-METADATA-VERSION is fixed and this test should \
-         drop the recomputation"
-    );
-    macro_comparable.metadata_version = recomputed;
-
     assert_eq!(
-        recomputed, declaration_metadata.metadata_version,
+        macro_comparable.metadata_version, declaration_metadata.metadata_version,
         "equal content must give an equal metadata_version"
     );
     assert_eq!(macro_comparable, declaration_metadata);

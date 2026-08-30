@@ -218,6 +218,7 @@ deliberately folded behind a broader line.
 - design `polars-doc-example-namespace`
 - design `predecessor-cut-equivalence`
 - design `queued-manager-conditional-eviction`
+- design `refresh-command-metadata-versions`
 - design `store-key-guard`
 - design `ui-query-console-error-highlight`
 - design `value-type-system`

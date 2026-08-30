@@ -3,7 +3,7 @@ title: Command Registration Guide
 kind: guide
 audience: internal
 area: [core/commands, macro]
-reviewed: 2026-08-25
+reviewed: 2026-08-31
 ---
 # Command Registration Guide
 
@@ -478,6 +478,11 @@ metadata
     .with_doc("Returns the ultimate answer to everything");
 ```
 
+Do metadata customization before converting the environment with `env.to_ref()`. The conversion
+refreshes every command `metadata_version` before the registry is shared, so command authors do not
+need to recompute versions manually. A version read directly from the registry before `to_ref()` may
+still reflect an earlier registration skeleton if later metadata customization has run.
+
 ---
 
 ## 3. Generic Environment Commands (Library Commands)
@@ -779,6 +784,7 @@ fn apply(...) -> Result<...> { ... }
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-31 | Documented that metadata customizations should happen before `env.to_ref()`, which refreshes command metadata versions before sharing. | `design/refresh-command-metadata-versions/phase-5` |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
 | 2026-08-12 | Added "Accepting a variable number of parameters": declared arity is binding, `multiple` is the only variadic mechanism and is not yet declarable, and the `~_` escape is the interim spelling. | design/excess-action-parameters-error |
 | 2026-08-16 | Added "Passing the working directory (or any relative query) into a command": `-R-key/.` as a default link argument, why the working key is not readable from `Context`, building absolute queries from it, and the argument-order pitfall. | PLAN-CWD-FREEZE |

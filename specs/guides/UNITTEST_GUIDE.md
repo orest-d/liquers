@@ -3,7 +3,7 @@ title: Unit Testing Guide
 kind: guide
 audience: internal
 area: [build]
-reviewed: 2026-03-02
+reviewed: 2026-08-31
 ---
 # Liquers Unit Testing Guide
 
@@ -85,11 +85,10 @@ let envref = env.to_ref();
 
 **Important:** `to_ref()` consumes the environment, so call it after all setup is complete.
 
-**Note:** `to_ref()` automatically calls `load_command_versions()` to populate the dependency manager with
-version records for all currently registered commands. This is idempotent — subsequent calls to
-`load_command_versions()` are safe. However, any commands registered *after* `to_ref()` will not
-automatically have their versions loaded; for dynamic command registration scenarios, call
-`load_command_versions()` again after adding new commands.
+**Note:** `to_ref()` refreshes command metadata versions before the environment is shared, then
+initializes the asset manager. For queued managers, startup loads command versions into the
+dependency manager. Register commands and customize their metadata before `to_ref()`; commands
+registered later will not be included in either lifecycle step automatically.
 
 ---
 
@@ -760,4 +759,5 @@ async fn test_error_handling() -> Result<(), Box<dyn std::error::Error>> {
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-31 | Updated `to_ref()` setup guidance to include command metadata-version refresh before environment sharing. | `design/refresh-command-metadata-versions/phase-5` |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |

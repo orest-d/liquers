@@ -32,10 +32,11 @@
 //! # Initialization
 //!
 //! Prefer [`Environment::to_ref`] over [`EnvRef::new`]. `to_ref` consumes the
-//! configured environment, creates the shared reference, and invokes
-//! [`Environment::init_with_envref`] so the asset manager receives its environment
-//! back-reference. `EnvRef::new` only wraps the value in an `Arc`; evaluation can
-//! panic if manager initialization is skipped.
+//! configured environment, refreshes command metadata versions, creates the shared
+//! reference, and invokes [`Environment::init_with_envref`] so the asset manager
+//! receives its environment back-reference. `EnvRef::new` only wraps the value in an
+//! `Arc`; evaluation can panic if manager initialization is skipped, and command
+//! metadata versions are not refreshed.
 //!
 //! Native [`SimpleEnvironment`] and [`SimpleEnvironmentWithPayload`] use
 //! `DefaultAssetManager`, whose construction and initialization spawn Tokio tasks
@@ -165,6 +166,10 @@ pub trait Environment:
 
     /// Returns the registry used for planning and command metadata lookup.
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry;
+
+    /// Returns the mutable registry used while the environment is still owned.
+    fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry;
+
     /// Returns the registry of value types this build knows.
     ///
     /// Mirrors [`Environment::get_command_metadata_registry`]: built once at construction from
@@ -215,7 +220,9 @@ pub trait Environment:
     fn init_with_envref(&self, envref: EnvRef<Self>);
 
     /// Consumes, shares, and initializes this environment.
-    fn to_ref(self) -> EnvRef<Self> {
+    fn to_ref(mut self) -> EnvRef<Self> {
+        self.get_mut_command_metadata_registry()
+            .refresh_metadata_versions();
         let envref = EnvRef::new(self);
         envref.0.init_with_envref(envref.clone());
         envref
@@ -1054,6 +1061,10 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
         &self.command_registry.command_metadata_registry
     }
 
+    fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
+        &mut self.command_registry.command_metadata_registry
+    }
+
     fn get_command_executor(&self) -> &Self::CommandExecutor {
         &self.command_registry
     }
@@ -1187,6 +1198,10 @@ impl<V: ValueInterface> Environment for ImmediateEnvironment<V> {
 
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
         &self.command_registry.command_metadata_registry
+    }
+
+    fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
+        &mut self.command_registry.command_metadata_registry
     }
 
     fn get_command_executor(&self) -> &Self::CommandExecutor {
@@ -1326,6 +1341,10 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
         &self.command_registry.command_metadata_registry
     }
 
+    fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
+        &mut self.command_registry.command_metadata_registry
+    }
+
     fn get_command_executor(&self) -> &Self::CommandExecutor {
         &self.command_registry
     }
@@ -1380,6 +1399,7 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
 mod tests {
     use super::*;
     use crate::assets::AssetData;
+    use crate::command_metadata::{CommandKey, CommandMetadata};
     use crate::metadata::LogEntryKind;
     use crate::parse::{parse_key, parse_query};
     use crate::query::{ActionParameter, QuerySegment};
@@ -1387,6 +1407,118 @@ mod tests {
     use crate::value::Value;
 
     type TestEnvironment = ImmediateEnvironment<Value>;
+
+    fn add_stale_command_version(
+        registry: &mut CommandMetadataRegistry,
+        name: &str,
+    ) -> crate::metadata::Version {
+        registry.add_command(&CommandMetadata::new(name));
+        let key = CommandKey::new("", "root", name);
+        let stale = registry.get(key.clone()).unwrap().metadata_version;
+        registry
+            .get_mut(key)
+            .unwrap()
+            .with_doc("changed after the initial metadata version was calculated");
+        stale
+    }
+
+    fn expected_refreshed_command_version(
+        registry: &CommandMetadataRegistry,
+        name: &str,
+    ) -> crate::metadata::Version {
+        let mut refreshed = registry.clone();
+        refreshed.refresh_metadata_versions();
+        refreshed
+            .get(CommandKey::new("", "root", name))
+            .unwrap()
+            .metadata_version
+    }
+
+    #[test]
+    fn immediate_environment_to_ref_refreshes_metadata_versions() {
+        let mut env = ImmediateEnvironment::<Value>::new();
+        let stale =
+            add_stale_command_version(&mut env.command_registry.command_metadata_registry, "a");
+        let expected = expected_refreshed_command_version(
+            &env.command_registry.command_metadata_registry,
+            "a",
+        );
+
+        let envref = env.to_ref();
+        let actual = envref
+            .get_command_metadata_registry()
+            .get(CommandKey::new("", "root", "a"))
+            .unwrap()
+            .metadata_version;
+
+        assert_ne!(actual, stale);
+        assert_eq!(actual, expected);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn simple_environment_to_ref_refreshes_metadata_versions() {
+        let mut env = SimpleEnvironment::<Value>::new();
+        let stale =
+            add_stale_command_version(&mut env.command_registry.command_metadata_registry, "a");
+        let expected = expected_refreshed_command_version(
+            &env.command_registry.command_metadata_registry,
+            "a",
+        );
+
+        let envref = env.to_ref();
+        let actual = envref
+            .get_command_metadata_registry()
+            .get(CommandKey::new("", "root", "a"))
+            .unwrap()
+            .metadata_version;
+
+        assert_ne!(actual, stale);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn immediate_environment_with_payload_to_ref_refreshes_metadata_versions() {
+        let mut env = ImmediateEnvironmentWithPayload::<Value, ()>::new();
+        let stale =
+            add_stale_command_version(&mut env.command_registry.command_metadata_registry, "a");
+        let expected = expected_refreshed_command_version(
+            &env.command_registry.command_metadata_registry,
+            "a",
+        );
+
+        let envref = env.to_ref();
+        let actual = envref
+            .get_command_metadata_registry()
+            .get(CommandKey::new("", "root", "a"))
+            .unwrap()
+            .metadata_version;
+
+        assert_ne!(actual, stale);
+        assert_eq!(actual, expected);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn simple_environment_with_payload_to_ref_refreshes_metadata_versions() {
+        let mut env = SimpleEnvironmentWithPayload::<Value, ()>::new();
+        let stale =
+            add_stale_command_version(&mut env.command_registry.command_metadata_registry, "a");
+        let expected = expected_refreshed_command_version(
+            &env.command_registry.command_metadata_registry,
+            "a",
+        );
+
+        let envref = env.to_ref();
+        let actual = envref
+            .get_command_metadata_registry()
+            .get(CommandKey::new("", "root", "a"))
+            .unwrap()
+            .metadata_version;
+
+        assert_ne!(actual, stale);
+        assert_eq!(actual, expected);
+    }
 
     /// A type identifier no value type describes — the shape an integration supplies at
     /// construction. `provider.LocalName`, so it satisfies the naming rule.
@@ -1917,6 +2049,10 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
 
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
         &self.command_registry.command_metadata_registry
+    }
+
+    fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
+        &mut self.command_registry.command_metadata_registry
     }
 
     fn get_command_executor(&self) -> &Self::CommandExecutor {

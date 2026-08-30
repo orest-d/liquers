@@ -125,6 +125,10 @@ impl<V: ValueInterface, P: PayloadType> Environment for DefaultEnvironment<V, P>
         &self.command_registry.command_metadata_registry
     }
 
+    fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
+        &mut self.command_registry.command_metadata_registry
+    }
+
     fn get_command_executor(&self) -> &Self::CommandExecutor {
         &self.command_registry
     }

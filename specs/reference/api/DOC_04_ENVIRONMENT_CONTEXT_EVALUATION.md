@@ -3,7 +3,7 @@ title: Environment, Context and Evaluation Reference
 kind: reference
 audience: internal
 area: [core/context, core/plan]
-reviewed: 2026-08-30
+reviewed: 2026-08-31
 ---
 # DOC-04: Environment, Context, and End-to-End Evaluation
 
@@ -68,7 +68,8 @@ An environment is configured before it is shared:
 
 ```text
 owned Environment
-    -> Environment::to_ref(self)
+    -> Environment::to_ref(mut self)
+    -> CommandMetadataRegistry::refresh_metadata_versions()
     -> EnvRef<E>(Arc<E>)
     -> Environment::init_with_envref(envref)
     -> initialized AssetManager back-reference/startup
@@ -76,12 +77,15 @@ owned Environment
 
 `Environment::to_ref` consumes the environment. Further configuration that
 requires `&mut self`, such as command registration or store/provider selection,
-must therefore happen first.
+must therefore happen first. Before sharing the environment, `to_ref` refreshes
+every command `metadata_version`, which finalizes metadata changed by registration
+helpers such as `register_command!`.
 
 `EnvRef::new` only performs the `Arc` wrapping and does not call
-`init_with_envref`. It is the low-level operation used by `to_ref`, not a
-behaviorally equivalent constructor. Evaluation through an uninitialized manager
-can panic when the manager requests its missing environment back-reference.
+`refresh_metadata_versions` or `init_with_envref`. It is the low-level operation
+used by `to_ref`, not a behaviorally equivalent constructor. Evaluation through an
+uninitialized manager can panic when the manager requests its missing environment
+back-reference, and command metadata versions may remain stale.
 
 The built-in native queued environments construct `DefaultAssetManager`, which
 spawns its job queue and expiration monitor during manager construction. Their
@@ -371,6 +375,7 @@ The improved reference should prevent:
 
 - Constructing `EnvRef::new` and then evaluating without manager initialization
 - Registering commands or selecting stores after `to_ref` consumes the environment
+- Reading final command `metadata_version` before `to_ref` refreshes registrations
 - Assuming `EnvRef::evaluate(...).await` always returns a ready value
 - Building a native queued environment outside a Tokio runtime
 - Expecting payload inheritance through keyed assets, which deliberately form a payload boundary
@@ -418,6 +423,7 @@ tracked by DOC-03. No new compiler warning was introduced by DOC-04.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-31 | Documented that `Environment::to_ref` refreshes command metadata versions before sharing and that `EnvRef::new` bypasses that lifecycle step. | `design/refresh-command-metadata-versions/phase-5` |
 | 2026-08-30 | Updated built-in environment recipe-provider fallback behavior after `SimpleEnvironmentWithPayload` stopped panicking and corrected the already-fixed `liquers_lib::DefaultEnvironment` default-provider row. | PAYLOAD-ENV-RECIPE-PROVIDER-FALLBACK |
 | 2026-08-16 | Recorded that the working key is crate-private and why, that `evaluate`/`apply`/`get_dependency_state` refuse relative queries, and that `-R-key/.` is the supported replacement. Restated ordered resolution for frozen plans. | PLAN-CWD-FREEZE |
 | 2026-08-11 | Documented the shared live CWD, interpreter and context resolution boundaries, scoped links, nested-plan propagation, root fallback, and resolved dependency and owner identity. | phase-5 |

@@ -2,11 +2,11 @@
 id: MACRO-LEAVES-STALE-METADATA-VERSION
 kind: issue
 title: A macro-registered command's metadata_version is computed from its bare key, not its content
-status: draft
+status: closed
 priority: P1
 complexity: S
 area: [core/commands, macro, core/assets]
-design:
+design: refresh-command-metadata-versions
 created: 2026-08-30
 github:
 ---
@@ -88,3 +88,12 @@ if that confirmation lands.
 
 `register_command!` two commands that differ only in their argument list; their `metadata_version`
 values differ. And the stored version of a macro-registered command equals its recomputed version.
+
+## Resolution
+
+Closed by `design/refresh-command-metadata-versions/`: `CommandMetadataRegistry` now exposes
+`refresh_metadata_versions`, `Environment::to_ref(mut self)` refreshes the command metadata registry
+before creating `EnvRef`, and macro/declaration parity is asserted without manual recomputation.
+Validated on 2026-08-31 with focused registry tests, `to_ref` lifecycle tests, the INT02
+macro/declaration regression, `cargo test -p liquers-core`, `cargo check -p liquers-py`, and
+`liquers-lib` no-default/webui checks.

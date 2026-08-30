@@ -3,7 +3,7 @@ title: Command Declaration Format
 kind: reference
 audience: internal
 area: [core/commands, web, py]
-reviewed: 2026-08-30
+reviewed: 2026-08-31
 ---
 # Command Declaration Format
 
@@ -262,8 +262,10 @@ of its own, so a field added to `CommandMetadata` is declarable immediately with
 | `registration` | *(none)* | **Registration** hints — how to *register and call* it. Declaration-only, dropped at build — §6 |
 | `conventions` | *(none)* | Declaration-only; disables conventions — §3.3 |
 
-Not declarable: `metadata_version` and `impl_version`. Both are computed — the first from the stored
-metadata content, the second supplied at registration.
+Not declarable: `metadata_version` and `impl_version`. `metadata_version` is computed by the
+registry from stored metadata content. It is computed when a command is stored and refreshed for all
+commands by `Environment::to_ref` after registration-time mutation and before the environment is
+shared. `impl_version` is supplied at registration.
 
 ### 4.2 Argument level
 
@@ -510,6 +512,7 @@ so no query parameter is consumed by either — that is conventions.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-31 | Reviewed command-version behavior against `CommandMetadataRegistry::refresh_metadata_versions` and the `Environment::to_ref` refresh boundary. | `design/refresh-command-metadata-versions/phase-5` |
 | 2026-08-30 | §3.2.3 restated: a document declares its state with `state_argument` **or** `registration.state`, and an authored delivery mode is honoured rather than skipped. Corrects a case the first implementation did not cover, found by review on PR #50. | `design/command-declaration/` |
 | 2026-08-30 | Promoted to `reference/` on implementation. The format is true at `HEAD`: `liquers-core::command_declaration`, with 54 unit tests and 5 integration tests, and `liquers-web` parses its declarations through it. | `design/command-declaration/` |
 | 2026-08-29 | Drafted in the design folder, ahead of implementation, because the language-specific guides are to be built on it. | `design/command-declaration/` |

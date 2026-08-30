@@ -55,6 +55,13 @@ Phase 1 decisions (user): `EnvRef::new` is deprecated (one in-tree caller); `to_
 so its 336 call sites need no migration — but its body must be reimplemented over the builder path so
 it is fully ready on return. Sync startup makes that possible without changing its signature.
 
+Follow-up from `refresh-command-metadata-versions`: the builder design must preserve the invariant
+that command metadata versions are refreshed after registration mutation and before command versions
+are loaded into the dependency manager. If the eventual builder delegates through the refreshed
+`to_ref` path, no separate builder operation is needed; if it bypasses `to_ref`, `build()` must call
+the same `CommandMetadataRegistry::refresh_metadata_versions` lifecycle operation before manager
+startup.
+
 Manager construction: factory, not `Arc::new_cyclic`. Keeping the back-reference strong rules
 `new_cyclic` out (its closure yields a non-upgradable `Weak`), and `Weak::upgrade` costs more than
 `Arc::clone` — a CAS loop rather than a relaxed `fetch_add`, across 78 `get_envref()` sites. The

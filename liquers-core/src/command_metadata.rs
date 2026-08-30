@@ -1229,11 +1229,16 @@ impl CommandMetadataRegistry {
         }
     }
 
-    pub fn update_all_metadata_versions(&mut self) -> &mut Self {
+    pub fn refresh_metadata_versions(&mut self) -> &mut Self {
         for command in &mut self.commands {
             command.metadata_version = Self::calculate_metadata_version(command);
         }
         self
+    }
+
+    #[deprecated(note = "use refresh_metadata_versions")]
+    pub fn update_all_metadata_versions(&mut self) -> &mut Self {
+        self.refresh_metadata_versions()
     }
 
     pub fn get_mut<K>(&mut self, key: K) -> Option<&mut CommandMetadata>
@@ -1431,7 +1436,7 @@ mod tests {
             Version::new(0)
         );
 
-        registry.update_all_metadata_versions();
+        registry.refresh_metadata_versions();
         assert_ne!(
             registry
                 .find_command("", "root", "a")
@@ -1445,6 +1450,105 @@ mod tests {
                 .unwrap()
                 .metadata_version,
             Version::new(0)
+        );
+    }
+
+    #[test]
+    fn refresh_metadata_versions_recomputes_mutated_commands() {
+        let mut registry = CommandMetadataRegistry::new();
+        let command = CommandMetadata::new("a");
+        registry.add_command(&command);
+
+        let stale = registry
+            .find_command("", "root", "a")
+            .unwrap()
+            .metadata_version;
+        registry
+            .get_mut(CommandKey::new("", "root", "a"))
+            .unwrap()
+            .with_doc("changed after insertion");
+
+        registry.refresh_metadata_versions();
+
+        let refreshed = registry
+            .find_command("", "root", "a")
+            .unwrap()
+            .metadata_version;
+        assert_ne!(refreshed, stale);
+        assert_ne!(refreshed, Version::new(0));
+    }
+
+    #[test]
+    fn refresh_metadata_versions_refreshes_every_command() {
+        let mut registry = CommandMetadataRegistry::new();
+        registry
+            .add_command(&CommandMetadata::new("a"))
+            .add_command(&CommandMetadata::new("b"));
+
+        for command in &mut registry.commands {
+            command.metadata_version = Version::new(0);
+        }
+
+        registry.refresh_metadata_versions();
+
+        assert_ne!(
+            registry
+                .find_command("", "root", "a")
+                .unwrap()
+                .metadata_version,
+            Version::new(0)
+        );
+        assert_ne!(
+            registry
+                .find_command("", "root", "b")
+                .unwrap()
+                .metadata_version,
+            Version::new(0)
+        );
+    }
+
+    #[test]
+    fn refresh_metadata_versions_preserves_impl_version() {
+        let mut registry = CommandMetadataRegistry::new();
+        let mut command = CommandMetadata::new("a");
+        command.impl_version = Version::new(123);
+        registry.add_command(&command);
+
+        registry
+            .get_mut(CommandKey::new("", "root", "a"))
+            .unwrap()
+            .with_doc("changed after insertion");
+        registry.refresh_metadata_versions();
+
+        assert_eq!(
+            registry.find_command("", "root", "a").unwrap().impl_version,
+            Version::new(123)
+        );
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn update_all_metadata_versions_delegates_to_refresh_metadata_versions() {
+        let mut via_old_name = CommandMetadataRegistry::new();
+        via_old_name.add_command(&CommandMetadata::new("a"));
+        via_old_name
+            .get_mut(CommandKey::new("", "root", "a"))
+            .unwrap()
+            .with_doc("changed after insertion");
+
+        let mut via_new_name = via_old_name.clone();
+        via_old_name.update_all_metadata_versions();
+        via_new_name.refresh_metadata_versions();
+
+        assert_eq!(
+            via_old_name
+                .find_command("", "root", "a")
+                .unwrap()
+                .metadata_version,
+            via_new_name
+                .find_command("", "root", "a")
+                .unwrap()
+                .metadata_version
         );
     }
 
