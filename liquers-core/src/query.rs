@@ -3350,7 +3350,15 @@ mod tests {
             );
         }
         for text in [
-            "...", "..x", "x..", "a..b", ".hidden", "a.b", "a/b", "a/.hidden/b", "file.txt",
+            "...",
+            "..x",
+            "x..",
+            "a..b",
+            ".hidden",
+            "a.b",
+            "a/b",
+            "a/.hidden/b",
+            "file.txt",
         ] {
             assert!(
                 !parse_key(text)?.is_relative(),

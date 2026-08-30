@@ -310,8 +310,7 @@ mod tests {
         assert_eq!(with_data.metadata.type_identifier()?, "Text");
         assert_eq!(with_data.metadata.type_name()?, "text");
 
-        let from_value =
-            State::from_value_and_metadata(text.clone(), Arc::new(Metadata::new()));
+        let from_value = State::from_value_and_metadata(text.clone(), Arc::new(Metadata::new()));
         assert_eq!(from_value.metadata.type_identifier()?, "Text");
 
         let with_metadata = State::<Value>::new()
@@ -347,7 +346,10 @@ mod tests {
             state.metadata.is_error()?,
             "and the error itself is recorded in the metadata"
         );
-        assert!(state.value_error().is_some(), "so the state reports as failed");
+        assert!(
+            state.value_error().is_some(),
+            "so the state reports as failed"
+        );
 
         // The same situation reached through a value rather than the error constructor agrees.
         let mut equivalent = Metadata::new();
@@ -369,8 +371,7 @@ mod tests {
     #[test]
     fn every_error_route_types_the_state() -> Result<(), Box<dyn std::error::Error>> {
         let direct: State<Value> = State::from_error(Error::general_error("boom".to_string()));
-        let converted: State<Value> =
-            Err(Error::general_error("boom".to_string())).into();
+        let converted: State<Value> = Err(Error::general_error("boom".to_string())).into();
 
         for (label, state) in [("from_error", &direct), ("From<Result>", &converted)] {
             assert_eq!(

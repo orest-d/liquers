@@ -962,10 +962,8 @@ where
         result = &mut promotion => panic!("to_override completed before reaching the persistence gate: {result:?}"),
     }
 
-    let mut replacement = Box::pin(manager.set_state(
-        &key,
-        State::new().with_data(Value::from("new")),
-    ));
+    let mut replacement =
+        Box::pin(manager.set_state(&key, State::new().with_data(Value::from("new"))));
     assert!(
         matches!(futures::poll!(replacement.as_mut()), Poll::Pending),
         "set_state must wait for the in-flight keyed promotion"
@@ -980,13 +978,21 @@ where
     replacement.await?;
 
     let current = manager.get(&key).await?;
-    assert_ne!(current.id(), old.id(), "replacement must detach the old AssetRef");
+    assert_ne!(
+        current.id(),
+        old.id(),
+        "replacement must detach the old AssetRef"
+    );
     // This fixture supplies the recipe through the evaluated query rather than the recipe
     // provider's keyed lookup, so an externally supplied state is a Source.  The race contract
     // is that this newer state, whatever its normal status resolution is, wins cache and store.
     assert_eq!(current.status().await, Status::Source);
     assert_eq!(current.get().await?.try_into_string()?, "new");
-    assert_eq!(old.status().await, Status::Override, "old handle remains detached Override");
+    assert_eq!(
+        old.status().await,
+        Status::Override,
+        "old handle remains detached Override"
+    );
 
     let (stored_bytes, stored_metadata) = store.inner.get(&key).await?;
     assert_eq!(stored_bytes, b"new");
@@ -1012,7 +1018,11 @@ async fn test_to_override_and_set_state_are_serialized_default_manager(
     )?);
     let inner = AsyncMemoryStore::new(&Key::new());
     inner
-        .set(&recipes_key, serde_yaml::to_string(&recipe_list)?.as_bytes(), &Metadata::new())
+        .set(
+            &recipes_key,
+            serde_yaml::to_string(&recipe_list)?.as_bytes(),
+            &Metadata::new(),
+        )
         .await?;
     let store = ToOverrideGateStore::new(inner, key.clone());
 
@@ -1043,7 +1053,11 @@ async fn test_to_override_and_set_state_are_serialized_immediate_manager(
     )?);
     let inner = AsyncMemoryStore::new(&Key::new());
     inner
-        .set(&recipes_key, serde_yaml::to_string(&recipe_list)?.as_bytes(), &Metadata::new())
+        .set(
+            &recipes_key,
+            serde_yaml::to_string(&recipe_list)?.as_bytes(),
+            &Metadata::new(),
+        )
         .await?;
     let store = ToOverrideGateStore::new(inner, key.clone());
 

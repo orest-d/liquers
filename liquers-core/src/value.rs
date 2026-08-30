@@ -1219,8 +1219,7 @@ mod tests {
 
     /// `vts7.4` — the instance method and the registry give the same answer.
     #[test]
-    fn supports_data_format_agrees_with_the_registry(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn supports_data_format_agrees_with_the_registry() -> Result<(), Box<dyn std::error::Error>> {
         let registry = crate::type_system::TypeRegistry::from_value_type::<Value>();
         for value in sample_values() {
             for format in ["json", "txt", "b", "parquet"] {

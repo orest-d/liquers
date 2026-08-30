@@ -415,7 +415,10 @@ fn materialize_nested_parameter<'a, E: Environment>(
                 for value in values {
                     materialized.push(materialize_nested_parameter(context, value).await?);
                 }
-                Ok(ParameterValue::MultipleParameters(name.clone(), materialized))
+                Ok(ParameterValue::MultipleParameters(
+                    name.clone(),
+                    materialized,
+                ))
             }
             ParameterValue::DefaultValue(_, _)
             | ParameterValue::ParameterValue(_, _, _)
@@ -1505,25 +1508,34 @@ mod tests {
             action_name: "collect_materialized".to_owned(),
             position: Position::unknown(),
             parameters: ResolvedParameterValues(vec![
-                ParameterValue::MultipleParameters("items".to_owned(), vec![
-                    ParameterValue::DefaultLink("items".to_owned(), parse_query("default_value")?),
-                    ParameterValue::ParameterLink(
-                        "items".to_owned(),
-                        parse_query("parameter_value")?,
-                        Position::new(10, 1, 11),
-                    ),
-                    ParameterValue::MultipleParameters("items".to_owned(), vec![
-                        ParameterValue::OverrideLink(
+                ParameterValue::MultipleParameters(
+                    "items".to_owned(),
+                    vec![
+                        ParameterValue::DefaultLink(
                             "items".to_owned(),
-                            parse_query("override_value")?,
+                            parse_query("default_value")?,
                         ),
-                        ParameterValue::EnumLink(
+                        ParameterValue::ParameterLink(
                             "items".to_owned(),
-                            parse_query("enum_value")?,
-                            Position::new(20, 1, 21),
+                            parse_query("parameter_value")?,
+                            Position::new(10, 1, 11),
                         ),
-                    ]),
-                ]),
+                        ParameterValue::MultipleParameters(
+                            "items".to_owned(),
+                            vec![
+                                ParameterValue::OverrideLink(
+                                    "items".to_owned(),
+                                    parse_query("override_value")?,
+                                ),
+                                ParameterValue::EnumLink(
+                                    "items".to_owned(),
+                                    parse_query("enum_value")?,
+                                    Position::new(20, 1, 21),
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
                 ParameterValue::ParameterLink(
                     "lossless".to_owned(),
                     parse_query("-R-key/./lossless")?,
@@ -1553,13 +1565,14 @@ mod tests {
             ns: String::new(),
             action_name: "must_not_execute".to_owned(),
             position: Position::unknown(),
-            parameters: ResolvedParameterValues(vec![ParameterValue::MultipleParameters("items".to_owned(), vec![
-                ParameterValue::ParameterLink(
+            parameters: ResolvedParameterValues(vec![ParameterValue::MultipleParameters(
+                "items".to_owned(),
+                vec![ParameterValue::ParameterLink(
                     "items".to_owned(),
                     parse_query("-R-key/./target")?,
                     position.clone(),
-                ),
-            ])]),
+                )],
+            )]),
         });
 
         let error = apply_plan(plan, State::new(), context, envref)
@@ -2195,7 +2208,8 @@ mod tests {
             Err(error) => return (Err(error.clone()), Err(error), false),
         };
         let context = immediate_context(envref.clone(), cwd.clone()).await;
-        if let Err(error) = finalize_plan(envref.clone(), &mut plan, &context, &State::new()).await {
+        if let Err(error) = finalize_plan(envref.clone(), &mut plan, &context, &State::new()).await
+        {
             return (Err(error.clone()), Err(error), false);
         }
 
@@ -2273,7 +2287,11 @@ mod tests {
         register_command!(registry, fn upper(state) -> result)?;
         let envref = environment.to_ref();
 
-        let recipe = Recipe::new("seed/upper/out.txt".to_owned(), String::new(), String::new())?;
+        let recipe = Recipe::new(
+            "seed/upper/out.txt".to_owned(),
+            String::new(),
+            String::new(),
+        )?;
         let cmr = envref.get_command_metadata_registry();
         let mut plan = recipe.to_plan(cmr)?;
         let context = immediate_context(envref.clone(), None).await;
@@ -2286,9 +2304,9 @@ mod tests {
             plan.steps
         );
         assert!(
-            plan.steps
-                .iter()
-                .any(|step| matches!(step, Step::Action { action_name, .. } if action_name == "upper")),
+            plan.steps.iter().any(
+                |step| matches!(step, Step::Action { action_name, .. } if action_name == "upper")
+            ),
             "the last action stays in the parent: {:?}",
             plan.steps
         );
@@ -2306,8 +2324,8 @@ mod tests {
     /// A failure reports the same cause either way, which is only true because a dependency's
     /// error is chained into its dependent.
     #[tokio::test]
-    async fn equivalence_failure_reports_the_same_cause(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn equivalence_failure_reports_the_same_cause() -> Result<(), Box<dyn std::error::Error>>
+    {
         fn boom(_state: &State<Value>) -> Result<Value, Error> {
             Err(Error::general_error("the real reason".to_owned()))
         }
@@ -2335,5 +2353,4 @@ mod tests {
         }
         Ok(())
     }
-
 }

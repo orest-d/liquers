@@ -79,24 +79,21 @@ impl StoreRouterConfig {
 
     /// Load configuration from a YAML string.
     pub fn from_yaml(yaml: &str) -> Result<Self, Error> {
-        serde_yaml::from_str(yaml).map_err(|e| {
-            Error::parse_error(format!("Failed to parse YAML configuration: {}", e))
-        })
+        serde_yaml::from_str(yaml)
+            .map_err(|e| Error::parse_error(format!("Failed to parse YAML configuration: {}", e)))
     }
 
     /// Load configuration from a JSON string.
     pub fn from_json(json: &str) -> Result<Self, Error> {
-        serde_json::from_str(json).map_err(|e| {
-            Error::parse_error(format!("Failed to parse JSON configuration: {}", e))
-        })
+        serde_json::from_str(json)
+            .map_err(|e| Error::parse_error(format!("Failed to parse JSON configuration: {}", e)))
     }
 
     /// Load configuration from a TOML string.
     #[cfg(feature = "toml")]
     pub fn from_toml(toml: &str) -> Result<Self, Error> {
-        toml::from_str(toml).map_err(|e| {
-            Error::parse_error(format!("Failed to parse TOML configuration: {}", e))
-        })
+        toml::from_str(toml)
+            .map_err(|e| Error::parse_error(format!("Failed to parse TOML configuration: {}", e)))
     }
 
     /// Serialize configuration to YAML string.
@@ -173,9 +170,9 @@ impl StoreConfig {
     pub fn require_config_string(&self, key: &str) -> Result<String, Error> {
         self.get_config_string(key).ok_or_else(|| {
             Error::general_error(format!(
-                    "Missing required configuration '{}' for store type '{}'",
-                    key, self.store_type
-                ))
+                "Missing required configuration '{}' for store type '{}'",
+                key, self.store_type
+            ))
         })
     }
 
@@ -240,7 +237,10 @@ pub fn expand_env_vars(input: &str) -> Result<String, Error> {
                     Some('}') => break,
                     Some(ch) => var_name.push(ch),
                     None => {
-                        return Err(Error::parse_error(format!("Unclosed environment variable reference in: {}", input)))
+                        return Err(Error::parse_error(format!(
+                            "Unclosed environment variable reference in: {}",
+                            input
+                        )))
                     }
                 }
             }
@@ -369,5 +369,4 @@ stores:
         let key = config.key_prefix().unwrap();
         assert!(key.is_empty());
     }
-
 }

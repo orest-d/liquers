@@ -54,9 +54,12 @@ fn int03_label_parity_between_the_two_paths() {
     // What `liquers-web` does: the name verbatim, set explicitly rather than derived.
     let javascript = CommandDeclaration::from_document(json!({ "name": "foo_bar",
                                                                "label": "foo_bar" }))
-        .finish()
-        .expect("builds");
-    assert_eq!(javascript.label, "foo_bar", "the JavaScript path keeps the name");
+    .finish()
+    .expect("builds");
+    assert_eq!(
+        javascript.label, "foo_bar",
+        "the JavaScript path keeps the name"
+    );
 }
 
 /// The same declaration in YAML and in JSON must build the same metadata. The fixture is Example 2
@@ -71,7 +74,11 @@ fn int04_yaml_and_json_agree() {
     let built_from_yaml = build_all(&from_yaml);
     let built_from_json = build_all(&from_json);
     assert_eq!(built_from_yaml, built_from_json);
-    assert_eq!(built_from_yaml.len(), 2, "the fixture declares two commands");
+    assert_eq!(
+        built_from_yaml.len(),
+        2,
+        "the fixture declares two commands"
+    );
 }
 
 fn build_all(document: &Value) -> Vec<CommandMetadata> {
@@ -106,7 +113,10 @@ fn int04b_the_document_fixture_builds_what_it_says() {
     assert_eq!(repeat.label, "Repeat text", "declared, so not derived");
     assert_eq!(repeat.arguments.len(), 1);
     assert_eq!(repeat.arguments[0].name, "count");
-    assert_eq!(repeat.arguments[0].label, "Count", "derived from the argument name");
+    assert_eq!(
+        repeat.arguments[0].label, "Count",
+        "derived from the argument name"
+    );
     assert_eq!(
         repeat.arguments[0].argument_type,
         liquers_core::command_metadata::ArgumentType::Integer,
@@ -118,7 +128,9 @@ fn int04b_the_document_fixture_builds_what_it_says() {
         "the bare `2` shorthand"
     );
     assert_eq!(
-        serde_json::to_value(repeat).expect("serializes").get("registration"),
+        serde_json::to_value(repeat)
+            .expect("serializes")
+            .get("registration"),
         None,
         "a registration hint never reaches the metadata"
     );

@@ -2403,8 +2403,7 @@ mod key_absolute_tests {
                 ("removedir", store.removedir(&key).await.err()),
                 ("makedir", store.makedir(&key).await.err()),
             ] {
-                let error = error
-                    .unwrap_or_else(|| panic!("{label} default must refuse {text}"));
+                let error = error.unwrap_or_else(|| panic!("{label} default must refuse {text}"));
                 assert_eq!(
                     error.error_type,
                     ErrorType::KeyNotAbsolute,
@@ -2455,7 +2454,9 @@ mod key_absolute_tests {
             let key = parse_key(text)?;
             let error = sync_store.get(&key).expect_err("must refuse");
             assert_eq!(error.error_type, ErrorType::KeyNotAbsolute, "{text}");
-            let error = sync_store.set(&key, b"x", &metadata).expect_err("must refuse");
+            let error = sync_store
+                .set(&key, b"x", &metadata)
+                .expect_err("must refuse");
             assert_eq!(error.error_type, ErrorType::KeyNotAbsolute, "{text}");
         }
         Ok(())
@@ -2487,7 +2488,9 @@ mod key_absolute_tests {
         tokio::fs::create_dir_all(&root).await.expect("create root");
         let secret = sandbox.join("SECRET.txt");
         let original = b"outside the store root".to_vec();
-        tokio::fs::write(&secret, &original).await.expect("write secret");
+        tokio::fs::write(&secret, &original)
+            .await
+            .expect("write secret");
 
         let store = AsyncFileStore::new(root.to_string_lossy().as_ref(), &Key::new());
         // Detail 1: without this, the deep case below fails with ENOENT rather than the guard.
@@ -2515,7 +2518,10 @@ mod key_absolute_tests {
                 .expect_err("write must be refused");
             assert_eq!(error.error_type, ErrorType::KeyNotAbsolute, "write {text}");
 
-            let error = store.remove(&key).await.expect_err("remove must be refused");
+            let error = store
+                .remove(&key)
+                .await
+                .expect_err("remove must be refused");
             assert_eq!(error.error_type, ErrorType::KeyNotAbsolute, "remove {text}");
 
             assert!(!store.is_supported(&key), "{text} must not route here");
@@ -2556,7 +2562,10 @@ mod key_absolute_tests {
             assert!(!store.is_supported(&key), "{text}");
             assert!(store.key_to_path(&key).is_err(), "path builder {text}");
         }
-        assert_eq!(std::fs::read(&secret).expect("secret still there"), original);
+        assert_eq!(
+            std::fs::read(&secret).expect("secret still there"),
+            original
+        );
 
         std::fs::remove_dir_all(&sandbox).expect("cleanup");
         Ok(())

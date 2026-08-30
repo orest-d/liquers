@@ -128,9 +128,10 @@ fn promote_relative_default_links(
                     // wrong; see PREDECESSOR-CUT-NOT-YET-EQUIVALENT.
                     break;
                 }
-                action
-                    .parameters
-                    .push(ActionParameter::Link(default.clone(), action.position.clone()));
+                action.parameters.push(ActionParameter::Link(
+                    default.clone(),
+                    action.position.clone(),
+                ));
             }
         }
     }
@@ -788,7 +789,10 @@ impl ParameterValue {
                     }
                 }
             }
-            return Ok(ParameterValue::MultipleParameters(arginfo.name.clone(), values));
+            return Ok(ParameterValue::MultipleParameters(
+                arginfo.name.clone(),
+                values,
+            ));
         }
 
         match param.next() {
@@ -1333,7 +1337,10 @@ impl<'c> PlanBuilder<'c> {
                 let link_plan = link_pb.build()?;
                 if link_plan.is_volatile {
                     self.mark_volatile(
-                        &format!("Volatile due to link parameter to volatile query: {}", query),
+                        &format!(
+                            "Volatile due to link parameter to volatile query: {}",
+                            query
+                        ),
                         // The link is consumed at one action, so everything ahead of it is
                         // still pure; the linked query's own scope governs the linked asset.
                         VolatilitySource::Positional,
@@ -4133,10 +4140,13 @@ mod tests {
                         parse_query("-R/./enum.txt")?,
                         Position::unknown(),
                     ),
-                    ParameterValue::MultipleParameters("multiple".to_owned(), vec![ParameterValue::OverrideLink(
+                    ParameterValue::MultipleParameters(
                         "multiple".to_owned(),
-                        parse_query("-R/./multiple.txt")?,
-                    )]),
+                        vec![ParameterValue::OverrideLink(
+                            "multiple".to_owned(),
+                            parse_query("-R/./multiple.txt")?,
+                        )],
+                    ),
                 ]),
             },
         ];
@@ -4190,11 +4200,20 @@ mod tests {
 
         let mut nested = ParameterValue::OverrideLink("leaf".to_owned(), linked_query);
         for depth in 0..DEPTH {
-            nested = ParameterValue::MultipleParameters("multiple".to_owned(), vec![
-                ParameterValue::DefaultValue(format!("before-{depth}"), serde_json::json!(depth)),
-                nested,
-                ParameterValue::OverrideValue(format!("after-{depth}"), serde_json::json!(depth)),
-            ]);
+            nested = ParameterValue::MultipleParameters(
+                "multiple".to_owned(),
+                vec![
+                    ParameterValue::DefaultValue(
+                        format!("before-{depth}"),
+                        serde_json::json!(depth),
+                    ),
+                    nested,
+                    ParameterValue::OverrideValue(
+                        format!("after-{depth}"),
+                        serde_json::json!(depth),
+                    ),
+                ],
+            );
         }
 
         let action_position = Position::new(500, 1, 501);
@@ -4552,7 +4571,9 @@ mod tests {
         // parameters.len() against arguments.len() fails here and nowhere else.
         let mut vcm = CommandMetadata::new("vcmd");
         vcm.with_argument(ArgumentInfo::string_argument("items").set_multiple());
-        assert!(ResolvedParameterValues::from_action(&action_of("vcmd-a-b-c-d"), &vcm, false).is_ok());
+        assert!(
+            ResolvedParameterValues::from_action(&action_of("vcmd-a-b-c-d"), &vcm, false).is_ok()
+        );
 
         Ok(())
     }
@@ -4643,7 +4664,11 @@ mod tests {
         let err = ResolvedParameterValues::from_action(&action_of("cmd-~X~hello~E"), &cm, false)
             .expect_err("surplus link must not build");
 
-        assert!(err.message.contains("~X~hello~E"), "message: {}", err.message);
+        assert!(
+            err.message.contains("~X~hello~E"),
+            "message: {}",
+            err.message
+        );
         Ok(())
     }
 
@@ -4658,7 +4683,11 @@ mod tests {
         let err = ResolvedParameterValues::from_action(&action_of("cmd-x-y"), &cm, false)
             .expect_err("the injected argument must not absorb a parameter");
 
-        assert!(err.message.contains("accepts 1"), "message: {}", err.message);
+        assert!(
+            err.message.contains("accepts 1"),
+            "message: {}",
+            err.message
+        );
         Ok(())
     }
 
@@ -4670,15 +4699,15 @@ mod tests {
         cm.with_argument(ArgumentInfo::string_argument("tail"));
 
         let head = vec![CommandParameterValue::Value(Value::String("h".to_string()))];
-        let err = ResolvedParameterValues::from_action_extended(
-            &action_of("cmd-x-y"),
-            &cm,
-            &head,
-            false,
-        )
-        .expect_err("only one slot is left for the action to fill");
+        let err =
+            ResolvedParameterValues::from_action_extended(&action_of("cmd-x-y"), &cm, &head, false)
+                .expect_err("only one slot is left for the action to fill");
 
-        assert!(err.message.contains("accepts 1"), "message: {}", err.message);
+        assert!(
+            err.message.contains("accepts 1"),
+            "message: {}",
+            err.message
+        );
         Ok(())
     }
 
@@ -4728,7 +4757,10 @@ mod tests {
             "the old, misleading message must be gone: {}",
             err.message
         );
-        assert!(!err.position.is_unknown(), "the instruction must be positioned");
+        assert!(
+            !err.position.is_unknown(),
+            "the instruction must be positioned"
+        );
         Ok(())
     }
 
@@ -4750,7 +4782,11 @@ mod tests {
 
         let err = plan_for("a/v-extra", &cr).expect_err("'v' takes no parameters");
         assert_eq!(err.error_type, ErrorType::TooManyParameters);
-        assert!(err.message.contains("instruction 'v'"), "message: {}", err.message);
+        assert!(
+            err.message.contains("instruction 'v'"),
+            "message: {}",
+            err.message
+        );
         assert!(!err.position.is_unknown(), "the surplus must be positioned");
 
         // `q` was already rejected; it now carries a position too.
@@ -4777,7 +4813,10 @@ mod tests {
         let mut cr = command_metadata::CommandMetadataRegistry::new();
         cr.add_command(CommandMetadata::new("a").with_argument(ArgumentInfo::any_argument("x")));
 
-        assert!(plan_for("a-1", &cr).is_ok(), "the saturated query still builds");
+        assert!(
+            plan_for("a-1", &cr).is_ok(),
+            "the saturated query still builds"
+        );
 
         let err = plan_for("a-1-2", &cr).expect_err("the over-supplied query must not build");
         assert_eq!(err.error_type, ErrorType::TooManyParameters);
@@ -4920,7 +4959,6 @@ mod tests {
         Ok(())
     }
 
-
     /// A relative default link is promoted into **its own** argument slot.
     ///
     /// Appending to the action AST only lands in the right place when every earlier slot is
@@ -4963,7 +5001,6 @@ mod tests {
         Ok(())
     }
 
-
     // --- prologue and freezing (predecessor-cut-equivalence step 1) ------------------------
 
     fn prologue_registry() -> CommandMetadataRegistry {
@@ -4996,7 +5033,10 @@ mod tests {
         assert_eq!(plan.prologue_steps, 1, "the recipe CWD prefix is one step");
         plan.freeze_cwd(None)?;
 
-        let recorded = plan.predecessor.as_ref().expect("a predecessor was recorded");
+        let recorded = plan
+            .predecessor
+            .as_ref()
+            .expect("a predecessor was recorded");
         assert_eq!(
             recorded.encode(),
             "-R/a/c/input.txt/-/identity",
@@ -5007,8 +5047,8 @@ mod tests {
 
     /// Without a prologue the predecessor resolves from the entry cursor, unchanged.
     #[test]
-    fn freeze_leaves_predecessor_alone_without_a_prologue(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn freeze_leaves_predecessor_alone_without_a_prologue() -> Result<(), Box<dyn std::error::Error>>
+    {
         let cmr = prologue_registry();
         let recipe = Recipe::new(
             "-R/./input.txt/-/identity/tail".to_owned(),
@@ -5108,11 +5148,17 @@ mod tests {
     #[test]
     fn volatility_is_monotone_along_the_chain() {
         let cmr = scope_registry();
-        assert!(!PlanBuilder::new(parse_query("prefix").unwrap(), &cmr)
-            .build()
-            .unwrap()
-            .is_volatile);
-        for query in ["prefix/vol_cmd", "prefix/vol_cmd/tail", "prefix/vol_cmd/tail/render"] {
+        assert!(
+            !PlanBuilder::new(parse_query("prefix").unwrap(), &cmr)
+                .build()
+                .unwrap()
+                .is_volatile
+        );
+        for query in [
+            "prefix/vol_cmd",
+            "prefix/vol_cmd/tail",
+            "prefix/vol_cmd/tail/render",
+        ] {
             assert!(
                 PlanBuilder::new(parse_query(query).unwrap(), &cmr)
                     .build()
@@ -5146,13 +5192,13 @@ mod tests {
         cmr
     }
 
-    fn folded_plan(
-        volatile: bool,
-        expires: &str,
-    ) -> Result<Plan, Box<dyn std::error::Error>> {
+    fn folded_plan(volatile: bool, expires: &str) -> Result<Plan, Box<dyn std::error::Error>> {
         let cmr = fold_registry();
-        let mut recipe =
-            Recipe::new("prefix/tail/out.txt".to_owned(), String::new(), String::new())?;
+        let mut recipe = Recipe::new(
+            "prefix/tail/out.txt".to_owned(),
+            String::new(),
+            String::new(),
+        )?;
         recipe.volatile = volatile;
         if !expires.is_empty() {
             recipe.expires = expires.parse()?;
@@ -5193,8 +5239,7 @@ mod tests {
     /// purity of the computation, so it must not make the plan uncuttable. Only an expiration
     /// that is itself volatile does.
     #[test]
-    fn finite_expiration_does_not_declare_volatility(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn finite_expiration_does_not_declare_volatility() -> Result<(), Box<dyn std::error::Error>> {
         let finite = folded_plan(false, "in 5 minutes")?;
         assert!(!finite.is_volatile, "a finite expiration is not volatility");
         assert_eq!(finite.volatility_source, None);
@@ -5214,11 +5259,13 @@ mod tests {
     /// Both halves keep the facts that are true of each independently, and neither claims a
     /// predecessor boundary — a fragment has none.
     #[test]
-    fn split_carries_frozen_cwd_and_clears_predecessor(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn split_carries_frozen_cwd_and_clears_predecessor() -> Result<(), Box<dyn std::error::Error>> {
         let cmr = fold_registry();
-        let mut recipe =
-            Recipe::new("prefix/tail/out.txt".to_owned(), String::new(), String::new())?;
+        let mut recipe = Recipe::new(
+            "prefix/tail/out.txt".to_owned(),
+            String::new(),
+            String::new(),
+        )?;
         recipe.cwd = Some("a/c".to_owned());
         recipe.volatile = true;
         let mut plan = recipe.to_plan(&cmr)?;
@@ -5233,7 +5280,10 @@ mod tests {
                 Some(VolatilitySource::Declared),
                 "{label} half keeps the plan's volatility source"
             );
-            assert!(half.predecessor.is_none(), "{label} half claims no boundary");
+            assert!(
+                half.predecessor.is_none(),
+                "{label} half claims no boundary"
+            );
             assert_eq!(half.predecessor_steps, 0);
             half.check_consistent()?;
         }
@@ -5281,7 +5331,11 @@ mod tests {
         let error = plan
             .check_consistent()
             .expect_err("a range past the last step is inconsistent");
-        assert!(error.message.contains("predecessor range"), "{}", error.message);
+        assert!(
+            error.message.contains("predecessor range"),
+            "{}",
+            error.message
+        );
 
         let mut prologue = recipe.to_plan(&cmr)?;
         prologue.prologue_steps = prologue.steps.len() + 1;
@@ -5344,7 +5398,9 @@ mod tests {
             "the boundary lands in front of the payload, not across it"
         );
         assert!(
-            plan.init_steps.iter().any(|step| matches!(step, Step::Info(m)
+            plan.init_steps
+                .iter()
+                .any(|step| matches!(step, Step::Info(m)
                 if m.contains("fetch/personalize") && m.contains("payload"))),
             "the reason is recorded: {:?}",
             plan.init_steps
@@ -5354,8 +5410,7 @@ mod tests {
 
     /// Volatility is the same predicate on the same candidate plan.
     #[test]
-    fn the_walk_steps_back_past_a_volatile_candidate(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn the_walk_steps_back_past_a_volatile_candidate() -> Result<(), Box<dyn std::error::Error>> {
         let cmr = walk_registry();
         let plan = cut_of("fetch/vol_step/render", &cmr)?;
         assert_eq!(boundary_of(&plan).as_deref(), Some("fetch"));
@@ -5364,8 +5419,7 @@ mod tests {
 
     /// When the obstacle reaches the head, no boundary at any position is safe.
     #[test]
-    fn no_cut_when_the_obstacle_reaches_the_head(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn no_cut_when_the_obstacle_reaches_the_head() -> Result<(), Box<dyn std::error::Error>> {
         let cmr = walk_registry();
         let plan = cut_of("personalize/fetch/render", &cmr)?;
         assert_eq!(boundary_of(&plan), None, "nothing cacheable to cut");
@@ -5375,14 +5429,15 @@ mod tests {
     /// Whole-plan volatility declines before the walk starts: it appears in no candidate query,
     /// so the walk could not see it, and it says nothing here is cacheable.
     #[test]
-    fn declared_volatility_declines_before_the_walk(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn declared_volatility_declines_before_the_walk() -> Result<(), Box<dyn std::error::Error>> {
         let cmr = walk_registry();
         for query in ["fetch/v/expensive/render", "fetch/expensive/render/v"] {
             let plan = cut_of(query, &cmr)?;
             assert_eq!(boundary_of(&plan), None, "no boundary in {query}");
             assert!(
-                plan.init_steps.iter().any(|step| matches!(step, Step::Info(m)
+                plan.init_steps
+                    .iter()
+                    .any(|step| matches!(step, Step::Info(m)
                     if m.contains("declared volatile"))),
                 "the decline is recorded for {query}"
             );
@@ -5428,8 +5483,8 @@ mod tests {
     /// A recorded range that no longer matches what the query builds would split in the wrong
     /// place, so the cut declines rather than risking a duplicated action.
     #[test]
-    fn a_stale_range_declines_rather_than_mis_splitting(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn a_stale_range_declines_rather_than_mis_splitting() -> Result<(), Box<dyn std::error::Error>>
+    {
         let cmr = walk_registry();
         let mut plan = PlanBuilder::new(parse_query("fetch/expensive/render")?, &cmr).build()?;
         plan.freeze_cwd(None)?;

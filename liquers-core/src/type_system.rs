@@ -351,7 +351,10 @@ mod tests {
         let err = registry
             .register(text_info())
             .expect_err("a duplicate identifier must be refused");
-        assert!(err.message.contains("Text"), "message names the identifier: {err}");
+        assert!(
+            err.message.contains("Text"),
+            "message names the identifier: {err}"
+        );
         Ok(())
     }
 
@@ -435,7 +438,9 @@ mod tests {
         assert!(registry
             .get_in_realm("backend", "polars.DataFrame")
             .is_some());
-        assert!(registry.get_in_realm("frontend", "polars.DataFrame").is_none());
+        assert!(registry
+            .get_in_realm("frontend", "polars.DataFrame")
+            .is_none());
 
         // The same identifier may exist in two realms.
         registry.register(TypeInfo::new("polars.DataFrame"))?;
@@ -448,7 +453,9 @@ mod tests {
     fn builder_produces_consistent_defaults() {
         let info = text_info();
         assert_eq!(info.default_data_format, "txt");
-        assert!(info.default_filename.ends_with(&format!(".{}", info.default_extension)));
+        assert!(info
+            .default_filename
+            .ends_with(&format!(".{}", info.default_extension)));
         assert!(
             info.supports_data_format(&info.default_data_format),
             "a type must support its own default format"
@@ -492,7 +499,10 @@ mod tests {
             );
             if let Some((provider, local)) = id.split_once('.') {
                 assert!(
-                    !provider.is_empty() && provider.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()),
+                    !provider.is_empty()
+                        && provider
+                            .chars()
+                            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()),
                     "provider of {id:?} must be lowercase"
                 );
                 assert!(!local.is_empty(), "local name of {id:?} must not be empty");

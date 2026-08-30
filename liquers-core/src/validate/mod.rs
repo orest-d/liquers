@@ -621,7 +621,9 @@ mod tests {
 
         let result = validate_query("to_text-extra", 0, ValidationLevel::Plan, &cmr);
         assert_eq!(result.status, ValidationStatus::Error);
-        let error = result.error.expect("an over-supplied query reports an error");
+        let error = result
+            .error
+            .expect("an over-supplied query reports an error");
         assert_eq!(error.error_type, ErrorType::TooManyParameters);
         assert!(
             !error.position.is_unknown(),

@@ -281,12 +281,8 @@ pub trait StoreFactory {
     ///   argument — otherwise adding that argument elsewhere silently reroutes a document.
     fn resolve(&self, config: &StoreConfig) -> Option<String> {
         let requested = config.store_type.as_str();
-        (!requested.is_empty()
-            && self
-                .store_types()
-                .iter()
-                .any(|t| t.store_type == requested))
-        .then(|| requested.to_string())
+        (!requested.is_empty() && self.store_types().iter().any(|t| t.store_type == requested))
+            .then(|| requested.to_string())
     }
 
     /// Build a store from an entry this factory resolved.
@@ -325,7 +321,10 @@ impl StoreTypeMap {
 
 impl StoreFactory for StoreTypeMap {
     fn store_types(&self) -> Vec<StoreTypeInfo> {
-        self.entries.values().map(|(info, _)| info.clone()).collect()
+        self.entries
+            .values()
+            .map(|(info, _)| info.clone())
+            .collect()
     }
 
     /// Overridden as a map lookup so chain dispatch does not rebuild every description per entry.
@@ -420,7 +419,9 @@ impl StoreFactory for ChainedStoreFactory {
 pub fn core_store_factory() -> StoreTypeMap {
     let memory = StoreTypeInfo::new("memory")
         .with_label("In-memory store")
-        .with_doc("Volatile store held in process memory. Contents are lost when the process ends.");
+        .with_doc(
+            "Volatile store held in process memory. Contents are lost when the process ends.",
+        );
 
     #[cfg(not(target_arch = "wasm32"))]
     let filesystem = StoreTypeInfo::new("filesystem")
@@ -627,7 +628,10 @@ mod tests {
         }
 
         fn resolve(&self, config: &StoreConfig) -> Option<String> {
-            config.config.contains_key("marker").then(|| "inferred".to_string())
+            config
+                .config
+                .contains_key("marker")
+                .then(|| "inferred".to_string())
         }
 
         fn create(&self, config: &StoreConfig) -> Result<Box<dyn AsyncStore>, Error> {
@@ -697,7 +701,11 @@ mod tests {
                 StoreTypeInfo::new("alpha"),
                 Box::new(|_| Err(Error::general_error("unused".to_string()))),
             );
-        let names: Vec<String> = map.store_types().into_iter().map(|t| t.store_type).collect();
+        let names: Vec<String> = map
+            .store_types()
+            .into_iter()
+            .map(|t| t.store_type)
+            .collect();
         assert_eq!(names, vec!["alpha".to_string(), "zebra".to_string()]);
     }
 
@@ -921,8 +929,8 @@ mod tests {
     /// Without it an inferring factory would have to re-derive its own answer inside `create`, and
     /// a factory written against the default would silently receive an empty type.
     #[test]
-    fn resolve04_create_receives_the_resolved_store_type(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn resolve04_create_receives_the_resolved_store_type() -> Result<(), Box<dyn std::error::Error>>
+    {
         let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         let chain = ChainedStoreFactory::new().chain(Box::new(RecordingFactory {
             seen: std::rc::Rc::clone(&seen),

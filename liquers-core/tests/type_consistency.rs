@@ -8,13 +8,13 @@
 
 use liquers_core::{
     assets::AssetManager,
-    state::State,
-    store::{AsyncMemoryStore, AsyncStore},
     context::{Environment, SimpleEnvironment},
     error::ErrorType,
     metadata::{Metadata, MetadataRecord, Status},
     parse::parse_key,
     query::Key,
+    state::State,
+    store::{AsyncMemoryStore, AsyncStore},
     value::{Value, ValueInterface},
 };
 
@@ -68,7 +68,10 @@ async fn set_rejects_an_unsupported_format() -> Result<(), Box<dyn std::error::E
 
     assert_eq!(error.error_type, ErrorType::SerializationError);
     assert!(error.message.contains("Text"), "names the type: {error}");
-    assert!(error.message.contains("parquet"), "names the format: {error}");
+    assert!(
+        error.message.contains("parquet"),
+        "names the format: {error}"
+    );
     assert!(
         error.message.contains("txt"),
         "names what the type supports: {error}"

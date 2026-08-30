@@ -922,7 +922,10 @@ mod test {
             panic!("expected an action step");
         };
         let ParameterValue::MultipleParameters(name, elements) = &parameters.0[0] else {
-            panic!("an applied override must stay a parameter list: {:?}", parameters.0[0]);
+            panic!(
+                "an applied override must stay a parameter list: {:?}",
+                parameters.0[0]
+            );
         };
         assert_eq!(name, "columns");
         assert_eq!(elements.len(), 2, "one element per array entry");
@@ -959,7 +962,10 @@ mod test {
         };
         assert_eq!(name, "columns");
         assert_eq!(elements.len(), 1);
-        assert!(elements[0].link().is_some(), "the element must hold the link");
+        assert!(
+            elements[0].link().is_some(),
+            "the element must hold the link"
+        );
     }
 
     #[test]

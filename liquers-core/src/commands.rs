@@ -213,12 +213,10 @@ impl<E: Environment> CommandArguments<E> {
                 "Injected parameter '{}' inside multiple argument {} '{}'",
                 injected_name, i, name
             ))),
-            ParameterValue::Placeholder(placeholder_name) => {
-                Err(Error::unexpected_error(format!(
-                    "Unresolved placeholder '{}' inside multiple argument {} '{}'",
-                    placeholder_name, i, name
-                )))
-            }
+            ParameterValue::Placeholder(placeholder_name) => Err(Error::unexpected_error(format!(
+                "Unresolved placeholder '{}' inside multiple argument {} '{}'",
+                placeholder_name, i, name
+            ))),
             ParameterValue::None => Err(Error::unexpected_error(format!(
                 "Unresolved parameter inside multiple argument {} '{}'",
                 i, name
@@ -752,11 +750,14 @@ mod tests {
         /// U1 - three elements convert, in order.
         #[test]
         fn returns_elements_in_order() -> Result<(), Error> {
-            let args = args_of(ParameterValue::MultipleParameters("columns".to_string(), vec![
-                element("columns", "a".into(), 21),
-                element("columns", "b".into(), 23),
-                element("columns", "c".into(), 25),
-            ]));
+            let args = args_of(ParameterValue::MultipleParameters(
+                "columns".to_string(),
+                vec![
+                    element("columns", "a".into(), 21),
+                    element("columns", "b".into(), 23),
+                    element("columns", "c".into(), 25),
+                ],
+            ));
 
             let columns: Vec<String> = args.get_multiple(0, "columns")?;
             assert_eq!(columns, vec!["a", "b", "c"]);
@@ -768,7 +769,10 @@ mod tests {
         /// because a variadic argument has no default other than emptiness.
         #[test]
         fn empty_list_is_ok() -> Result<(), Error> {
-            let args = args_of(ParameterValue::MultipleParameters("columns".to_string(), Vec::new()));
+            let args = args_of(ParameterValue::MultipleParameters(
+                "columns".to_string(),
+                Vec::new(),
+            ));
 
             let columns: Vec<String> = args.get_multiple(0, "columns")?;
             assert!(columns.is_empty());
@@ -792,13 +796,14 @@ mod tests {
         #[test]
         fn unresolved_link_element_is_an_error() -> Result<(), Error> {
             let link = crate::parse::parse_query("-R/config/colname.txt")?;
-            let args = args_of(ParameterValue::MultipleParameters("columns".to_string(), vec![
-                ParameterValue::ParameterLink(
+            let args = args_of(ParameterValue::MultipleParameters(
+                "columns".to_string(),
+                vec![ParameterValue::ParameterLink(
                     "columns".to_string(),
                     link,
                     Position::new(21, 1, 22),
-                ),
-            ]));
+                )],
+            ));
 
             let err = args
                 .get_multiple::<String>(0, "columns")
@@ -815,10 +820,13 @@ mod tests {
         /// carries its own position, which is what makes a per-element diagnostic possible.
         #[test]
         fn conversion_error_carries_element_position() {
-            let mut args = args_of(ParameterValue::MultipleParameters("columns".to_string(), vec![
-                element("rows", 1.into(), 21),
-                element("rows", "x".into(), 23),
-            ]));
+            let mut args = args_of(ParameterValue::MultipleParameters(
+                "columns".to_string(),
+                vec![
+                    element("rows", 1.into(), 21),
+                    element("rows", "x".into(), 23),
+                ],
+            ));
             args.action_position = Position::new(6, 1, 7);
 
             let err = args
@@ -834,10 +842,10 @@ mod tests {
         /// the `Vec` element type rather than leaving it `Any`.
         #[test]
         fn converts_integers() -> Result<(), Error> {
-            let args = args_of(ParameterValue::MultipleParameters("columns".to_string(), vec![
-                element("rows", 1.into(), 21),
-                element("rows", 2.into(), 23),
-            ]));
+            let args = args_of(ParameterValue::MultipleParameters(
+                "columns".to_string(),
+                vec![element("rows", 1.into(), 21), element("rows", 2.into(), 23)],
+            ));
 
             let rows: Vec<i64> = args.get_multiple(0, "rows")?;
             assert_eq!(rows, vec![1, 2]);

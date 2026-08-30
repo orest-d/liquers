@@ -118,15 +118,51 @@ struct Mnemonic {
 /// `~<digits>` is absent because it is contextual — a `-` *followed by* a digit — and is handled
 /// explicitly in both directions.
 static MNEMONICS: &[Mnemonic] = &[
-    Mnemonic { encoded: "~H", decoded: "https://", emitted: true },
-    Mnemonic { encoded: "~h", decoded: "http://", emitted: true },
-    Mnemonic { encoded: "~f", decoded: "file://", emitted: true },
-    Mnemonic { encoded: "~P", decoded: "://", emitted: true },
-    Mnemonic { encoded: "~~", decoded: "~", emitted: true },
-    Mnemonic { encoded: "~.", decoded: " ", emitted: true },
-    Mnemonic { encoded: "~/", decoded: "/", emitted: true },
-    Mnemonic { encoded: "~_", decoded: "-", emitted: true },
-    Mnemonic { encoded: "~I", decoded: "/", emitted: false },
+    Mnemonic {
+        encoded: "~H",
+        decoded: "https://",
+        emitted: true,
+    },
+    Mnemonic {
+        encoded: "~h",
+        decoded: "http://",
+        emitted: true,
+    },
+    Mnemonic {
+        encoded: "~f",
+        decoded: "file://",
+        emitted: true,
+    },
+    Mnemonic {
+        encoded: "~P",
+        decoded: "://",
+        emitted: true,
+    },
+    Mnemonic {
+        encoded: "~~",
+        decoded: "~",
+        emitted: true,
+    },
+    Mnemonic {
+        encoded: "~.",
+        decoded: " ",
+        emitted: true,
+    },
+    Mnemonic {
+        encoded: "~/",
+        decoded: "/",
+        emitted: true,
+    },
+    Mnemonic {
+        encoded: "~_",
+        decoded: "-",
+        emitted: true,
+    },
+    Mnemonic {
+        encoded: "~I",
+        decoded: "/",
+        emitted: false,
+    },
 ];
 
 /// One piece of a parameter token: literal text, or an entity and what it decoded to.
@@ -342,7 +378,9 @@ pub(crate) fn match_entity(text: &str) -> Result<Option<(usize, Cow<'static, str
         return Ok(None);
     }
     let Some(opener) = text[1..].chars().next() else {
-        return Err(entity_error("a '~' at the end of a parameter escapes nothing".to_owned()));
+        return Err(entity_error(
+            "a '~' at the end of a parameter escapes nothing".to_owned(),
+        ));
     };
 
     // The compact negative-number form: `~42` is `-42`.

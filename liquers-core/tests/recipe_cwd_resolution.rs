@@ -51,7 +51,9 @@ async fn via_evaluate(
 ) -> Result<Value, Error> {
     // A command builds an absolute query from the directory it was given; a relative one is
     // refused, because it could not identify the asset it names.
-    let asset = context.evaluate(&Query::from(dir.join("hello.txt"))).await?;
+    let asset = context
+        .evaluate(&Query::from(dir.join("hello.txt")))
+        .await?;
     Ok(Value::from(format!(
         "via_evaluate:{}",
         asset.get().await?.try_into_string()?

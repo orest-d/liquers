@@ -69,7 +69,10 @@ fn an_uncurated_name_points_at_the_feature_and_at_the_numeric_form() {
 fn an_uncurated_name_parses_with_the_feature() -> Result<(), Box<dyn std::error::Error>> {
     let query = parse_query("f-~ncheck~")?;
     let action = query.action().ok_or("no action")?;
-    assert_eq!(action.parameters[0].string_value(), Some("\u{2713}".to_owned()));
+    assert_eq!(
+        action.parameters[0].string_value(),
+        Some("\u{2713}".to_owned())
+    );
     Ok(())
 }
 
@@ -158,7 +161,10 @@ fn a_long_entity_before_e_cannot_defeat_the_depth_guard() {
 #[test]
 fn entities_next_to_link_markers_still_parse() -> Result<(), Box<dyn std::error::Error>> {
     for (query, note) in [
-        ("f-~X~g-~U26~E~E", "an entity inside a link, then the real terminator"),
+        (
+            "f-~X~g-~U26~E~E",
+            "an entity inside a link, then the real terminator",
+        ),
         ("f-~U26~E", "an entity followed by a literal E"),
         ("f-~~E", "an escaped tilde followed by a literal E"),
         ("f-~X~g~E-~U26~E", "a link, then an entity and a literal E"),

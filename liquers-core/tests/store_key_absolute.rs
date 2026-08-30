@@ -117,7 +117,10 @@ async fn keyabs12_traversal_is_refused_and_reads_nothing() -> Result<(), Box<dyn
     match evaluate(envref.clone(), "-R/../SECRET.txt", None).await {
         Ok(state) => {
             let text = state.try_into_string().unwrap_or_default();
-            assert_ne!(text, "outside the store root", "READ THE FILE OUTSIDE THE ROOT");
+            assert_ne!(
+                text, "outside the store root",
+                "READ THE FILE OUTSIDE THE ROOT"
+            );
             panic!("expected a lookup failure inside the root, got {text:?}");
         }
         Err(e) => assert_ne!(
@@ -183,8 +186,8 @@ fn keyabs13_recipe_with_relative_cwd_yields_a_refused_key() -> Result<(), Box<dy
 /// Dotted filenames are the ones most likely to be caught by a careless implementation: `.hidden`
 /// begins with a dot and `a..b` contains two, and neither is a relative element.
 #[tokio::test]
-async fn keyabs14_ordinary_keys_and_dotted_names_still_work() -> Result<(), Box<dyn std::error::Error>>
-{
+async fn keyabs14_ordinary_keys_and_dotted_names_still_work(
+) -> Result<(), Box<dyn std::error::Error>> {
     let store = AsyncMemoryStore::new(&Key::new());
     for text in [
         "data/report.txt",
@@ -212,8 +215,17 @@ async fn keyabs14_ordinary_keys_and_dotted_names_still_work() -> Result<(), Box<
 
     // CWD resolution still resolves; the store rule sits after it, not instead of it.
     let cwd = parse_key("data/reports")?;
-    assert_eq!(parse_key("./x.txt")?.to_absolute(&cwd).encode(), "data/reports/x.txt");
-    assert_eq!(parse_key("../x.txt")?.to_absolute(&cwd).encode(), "data/x.txt");
-    assert!(parse_key("../x.txt")?.to_absolute(&cwd).as_absolute().is_ok());
+    assert_eq!(
+        parse_key("./x.txt")?.to_absolute(&cwd).encode(),
+        "data/reports/x.txt"
+    );
+    assert_eq!(
+        parse_key("../x.txt")?.to_absolute(&cwd).encode(),
+        "data/x.txt"
+    );
+    assert!(parse_key("../x.txt")?
+        .to_absolute(&cwd)
+        .as_absolute()
+        .is_ok());
     Ok(())
 }

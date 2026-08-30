@@ -60,7 +60,9 @@ async fn key_link_resolves_per_directory() -> Result<(), Box<dyn std::error::Err
 async fn key_link_default_is_overridable() -> Result<(), Box<dyn std::error::Error>> {
     let envref = env()?;
     let asset = envref
-        .evaluate(parse_query("-R-cwd/proj/a/-/where_am_i-~X~-R-key/other/place~E")?)
+        .evaluate(parse_query(
+            "-R-cwd/proj/a/-/where_am_i-~X~-R-key/other/place~E",
+        )?)
         .await?;
     assert_eq!(asset.get().await?.try_into_string()?, "dir=other/place");
     Ok(())
@@ -102,7 +104,10 @@ async fn root_fallback_is_reported_only_when_used() -> Result<(), Box<dyn std::e
     let mut relative = Plan::new();
     relative.steps = vec![Step::GetAsset(parse_key("./x.csv")?)];
     let (_, defaulted) = relative.freeze_cwd(None)?;
-    assert!(defaulted, "a relative operand with no CWD used the fallback");
+    assert!(
+        defaulted,
+        "a relative operand with no CWD used the fallback"
+    );
 
     let mut absolute = Plan::new();
     absolute.steps = vec![Step::GetAsset(parse_key("data/x.csv")?)];
@@ -491,14 +496,29 @@ async fn equivalence_suite() -> Result<(), Box<dyn std::error::Error>> {
         &envref,
         &[
             ("E1  transform chain", "seed/upper"),
-            ("E2  resource then action", "-R-stored/./input.csv/-/analyze"),
-            ("E3  resource, action, filename", "-R-stored/./x.csv/-/analyze/result.txt"),
-            ("E4  cwd-setting predecessor", "-R-cwd/./sub/-R-stored/./input.csv/-/analyze"),
+            (
+                "E2  resource then action",
+                "-R-stored/./input.csv/-/analyze",
+            ),
+            (
+                "E3  resource, action, filename",
+                "-R-stored/./x.csv/-/analyze/result.txt",
+            ),
+            (
+                "E4  cwd-setting predecessor",
+                "-R-cwd/./sub/-R-stored/./input.csv/-/analyze",
+            ),
             ("E5  absolute query", "/-R-stored/./input.csv/-/analyze"),
             ("E6  volatile command", "vol_counted/upper"),
-            ("E9  explicit link parameter", "-R-stored/./x.csv/-/join-~X~-R-stored/data/big.csv/-/analyze~E"),
+            (
+                "E9  explicit link parameter",
+                "-R-stored/./x.csv/-/join-~X~-R-stored/data/big.csv/-/analyze~E",
+            ),
             ("E11 relative default link", "where_am_i/upper"),
-            ("E12 chain through a link", "seed/join-~X~-R-stored/data/big.csv/-/analyze~E/upper"),
+            (
+                "E12 chain through a link",
+                "seed/join-~X~-R-stored/data/big.csv/-/analyze~E/upper",
+            ),
             ("E16 v mid-chain", "seed/v/upper"),
             ("E16 v at the end", "seed/upper/v"),
             ("Ex  failure surfaces its cause", "boom/upper"),
@@ -566,7 +586,9 @@ async fn payload_boundary(
 async fn e7_declared_payload_moves_the_boundary() -> Result<(), Box<dyn std::error::Error>> {
     let envref = payload_env(true)?;
     assert_eq!(
-        payload_boundary(&envref, "greet-World/stamp/shout").await?.as_deref(),
+        payload_boundary(&envref, "greet-World/stamp/shout")
+            .await?
+            .as_deref(),
         Some("greet-World"),
         "the boundary lands in front of the payload-requiring command"
     );
@@ -581,7 +603,9 @@ async fn e7_declared_payload_moves_the_boundary() -> Result<(), Box<dyn std::err
 async fn e8_an_undeclared_payload_is_cut_across() -> Result<(), Box<dyn std::error::Error>> {
     let envref = payload_env(false)?;
     assert_eq!(
-        payload_boundary(&envref, "greet-World/stamp/shout").await?.as_deref(),
+        payload_boundary(&envref, "greet-World/stamp/shout")
+            .await?
+            .as_deref(),
         Some("greet-World/stamp"),
         "undeclared, the payload command is swallowed by the boundary — a declaration defect, \
          not a cutting defect"
@@ -594,7 +618,9 @@ async fn e8_an_undeclared_payload_is_cut_across() -> Result<(), Box<dyn std::err
 async fn e13_mid_chain_payload_steps_back_once() -> Result<(), Box<dyn std::error::Error>> {
     let envref = payload_env(true)?;
     assert_eq!(
-        payload_boundary(&envref, "greet-A/greet-B/stamp/shout").await?.as_deref(),
+        payload_boundary(&envref, "greet-A/greet-B/stamp/shout")
+            .await?
+            .as_deref(),
         Some("greet-A/greet-B"),
         "the walk stops at the first cacheable candidate, it does not keep unwinding"
     );
@@ -622,13 +648,20 @@ async fn e15_a_volatile_recipe_is_not_cut() -> Result<(), Box<dyn std::error::Er
     let envref = suite_env(suite_store().await?)?;
     let cmr = envref.get_command_metadata_registry();
 
-    let mut recipe = Recipe::new("seed/upper/out.txt".to_owned(), String::new(), String::new())?;
+    let mut recipe = Recipe::new(
+        "seed/upper/out.txt".to_owned(),
+        String::new(),
+        String::new(),
+    )?;
     let plain = recipe.to_plan(cmr)?;
     assert_eq!(plain.volatility_source, None);
 
     recipe.volatile = true;
     let mut plan = recipe.to_plan(cmr)?;
-    assert!(plan.is_volatile, "the recipe's declaration reaches the plan");
+    assert!(
+        plan.is_volatile,
+        "the recipe's declaration reaches the plan"
+    );
     assert_eq!(plan.volatility_source, Some(VolatilitySource::Declared));
     plan.freeze_cwd(None)?;
     assert!(
@@ -644,12 +677,19 @@ async fn e15_a_volatile_recipe_is_not_cut() -> Result<(), Box<dyn std::error::Er
 async fn a_finite_expiration_still_cuts() -> Result<(), Box<dyn std::error::Error>> {
     let envref = suite_env(suite_store().await?)?;
     let cmr = envref.get_command_metadata_registry();
-    let mut recipe = Recipe::new("seed/upper/out.txt".to_owned(), String::new(), String::new())?;
+    let mut recipe = Recipe::new(
+        "seed/upper/out.txt".to_owned(),
+        String::new(),
+        String::new(),
+    )?;
     recipe.expires = "in 5 minutes".parse()?;
     let mut plan = recipe.to_plan(cmr)?;
     assert!(!plan.expires.is_never(), "the expiration reached the plan");
     plan.freeze_cwd(None)?;
-    assert!(plan.cut_predecessor(cmr)?, "a finite expiration does not block a cut");
+    assert!(
+        plan.cut_predecessor(cmr)?,
+        "a finite expiration does not block a cut"
+    );
     Ok(())
 }
 
@@ -658,8 +698,7 @@ async fn a_finite_expiration_still_cuts() -> Result<(), Box<dyn std::error::Erro
 /// Nineteen suites stayed green through that change precisely because nothing asserted it; this
 /// is the assertion.
 #[tokio::test]
-async fn volatile_recipe_skips_dependency_registration(
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn volatile_recipe_skips_dependency_registration() -> Result<(), Box<dyn std::error::Error>> {
     let envref = suite_env(suite_store().await?)?;
     let cmr = envref.get_command_metadata_registry();
     let query = "-R-stored/proj/a/input.csv/-/analyze/out.txt";
@@ -687,7 +726,11 @@ async fn volatile_recipe_skips_dependency_registration(
 async fn cut_plan_survives_serde_round_trip() -> Result<(), Box<dyn std::error::Error>> {
     let envref = suite_env(suite_store().await?)?;
     let cmr = envref.get_command_metadata_registry();
-    let mut recipe = Recipe::new("seed/upper/out.txt".to_owned(), String::new(), String::new())?;
+    let mut recipe = Recipe::new(
+        "seed/upper/out.txt".to_owned(),
+        String::new(),
+        String::new(),
+    )?;
     recipe.cwd = Some(SUITE_CWD.to_owned());
     let mut plan = recipe.to_plan(cmr)?;
     plan.freeze_cwd(None)?;
@@ -772,7 +815,11 @@ async fn an_input_state_survives_finalization() -> Result<(), Box<dyn std::error
 
     for (label, input, expected) in [
         ("empty state", State::new(), "[[None]]"),
-        ("supplied state", State::new().with_data(Value::from("x")), "[[x]]"),
+        (
+            "supplied state",
+            State::new().with_data(Value::from("x")),
+            "[[x]]",
+        ),
     ] {
         let recipe = Recipe::new("wrap/wrap".to_owned(), String::new(), String::new())?;
         let mut plan = recipe.to_plan(cmr)?;
@@ -794,8 +841,8 @@ async fn an_input_state_survives_finalization() -> Result<(), Box<dyn std::error
 
 /// The decline is recorded, so it is distinguishable from a plan that had no predecessor.
 #[tokio::test]
-async fn a_stateful_application_says_why_it_was_not_cut(
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn a_stateful_application_says_why_it_was_not_cut() -> Result<(), Box<dyn std::error::Error>>
+{
     let envref = wrap_env()?;
     let cmr = envref.get_command_metadata_registry();
     let recipe = Recipe::new("wrap/wrap".to_owned(), String::new(), String::new())?;
@@ -806,7 +853,9 @@ async fn a_stateful_application_says_why_it_was_not_cut(
     finalize_plan(envref.clone(), &mut plan, &context, &input).await?;
 
     assert!(
-        plan.init_steps.iter().any(|step| matches!(step, Step::Info(m)
+        plan.init_steps
+            .iter()
+            .any(|step| matches!(step, Step::Info(m)
             if m.contains("input state"))),
         "the reason is recorded: {:?}",
         plan.init_steps
@@ -826,7 +875,14 @@ async fn finalize_expanded_never_cuts() -> Result<(), Box<dyn std::error::Error>
     let context = Context::new(asset, false).await;
     finalize_plan_expanded(envref.clone(), &mut plan, &context).await?;
 
-    assert!(!has_boundary(&plan), "expanded means no boundary: {:?}", plan.steps);
-    assert!(plan.frozen_cwd.is_some(), "but it is still frozen and analysed");
+    assert!(
+        !has_boundary(&plan),
+        "expanded means no boundary: {:?}",
+        plan.steps
+    );
+    assert!(
+        plan.frozen_cwd.is_some(),
+        "but it is still frozen and analysed"
+    );
     Ok(())
 }

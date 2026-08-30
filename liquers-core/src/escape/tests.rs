@@ -50,7 +50,10 @@ fn encode_token_canonical_spellings() {
 fn encode_token_output_is_always_ascii() {
     for value in ["café", "日本", "😀", "Ł", "π", "°", "\u{10FFFF}", "\u{0}"] {
         let encoded = encode_token(value);
-        assert!(encoded.is_ascii(), "{value:?} encoded to non-ASCII {encoded:?}");
+        assert!(
+            encoded.is_ascii(),
+            "{value:?} encoded to non-ASCII {encoded:?}"
+        );
     }
 }
 
@@ -117,7 +120,13 @@ fn every_radix_spells_the_same_code_point() -> Result<(), Error> {
 /// or nothing — once placed in a query.
 #[test]
 fn decode_token_rejects_literals_the_parser_would_not_accept() {
-    for (text, offending) in [(":", ':'), ("a-b", '-'), ("a/b", '/'), ("a b", ' '), ("a,b", ',')] {
+    for (text, offending) in [
+        (":", ':'),
+        ("a-b", '-'),
+        ("a/b", '/'),
+        ("a b", ' '),
+        ("a,b", ','),
+    ] {
         let Err(e) = decode_token(text) else {
             panic!("{text:?} must not decode: {offending:?} is not valid unescaped");
         };
@@ -185,13 +194,19 @@ fn character_classes_widen_for_parameters_and_narrow_for_resource_names() {
     assert!(is_unescaped_parameter_char('Ł'));
     assert!(is_unescaped_parameter_char('日'));
     assert!(is_unescaped_parameter_char('π'));
-    assert!(!is_unescaped_parameter_char('°'), "a symbol is not alphanumeric");
+    assert!(
+        !is_unescaped_parameter_char('°'),
+        "a symbol is not alphanumeric"
+    );
     assert!(!is_unescaped_parameter_char(':'));
 
     // Narrowed, deliberately: resource names become store keys.
     assert!(is_resource_name_char('a'));
     assert!(is_resource_name_char('_'));
-    assert!(!is_resource_name_char('Ł'), "narrowing is the point; see RESOURCE-NAME-ASCII-ONLY");
+    assert!(
+        !is_resource_name_char('Ł'),
+        "narrowing is the point; see RESOURCE-NAME-ASCII-ONLY"
+    );
     assert!(!is_resource_name_char('é'));
 }
 
@@ -232,10 +247,45 @@ fn corpus() -> Vec<String> {
         out.push(c.to_string());
     }
     for s in [
-        "é", "Ł", "°", "π", "…", "≠", "€", "😀", "\u{10FFFF}", "\u{0}", "\t", "\n", "\u{A0}",
-        "12:30", "a,b", "café", "日本", "-5", "-42", "a-4", "~X~", "~E", "~~", "~n", "~U41~",
-        "~namp~", "a~I b", "https://api.example.com/data", "http://x", "file:///tmp/a", "://",
-        "a b c", "", "~", "-", "/", "+", ".", "_",
+        "é",
+        "Ł",
+        "°",
+        "π",
+        "…",
+        "≠",
+        "€",
+        "😀",
+        "\u{10FFFF}",
+        "\u{0}",
+        "\t",
+        "\n",
+        "\u{A0}",
+        "12:30",
+        "a,b",
+        "café",
+        "日本",
+        "-5",
+        "-42",
+        "a-4",
+        "~X~",
+        "~E",
+        "~~",
+        "~n",
+        "~U41~",
+        "~namp~",
+        "a~I b",
+        "https://api.example.com/data",
+        "http://x",
+        "file:///tmp/a",
+        "://",
+        "a b c",
+        "",
+        "~",
+        "-",
+        "/",
+        "+",
+        ".",
+        "_",
     ] {
         out.push(s.to_owned());
     }
@@ -269,7 +319,10 @@ fn round_trip_and_ascii_over_the_corpus() -> Result<(), Error> {
         let encoded = encode_token(&s);
         assert!(encoded.is_ascii(), "{s:?} encoded to non-ASCII {encoded:?}");
         let decoded = decode_token(&encoded)?;
-        assert_eq!(decoded, s, "round trip failed for {s:?} (encoded {encoded:?})");
+        assert_eq!(
+            decoded, s,
+            "round trip failed for {s:?} (encoded {encoded:?})"
+        );
     }
     Ok(())
 }
@@ -290,9 +343,34 @@ fn canonicalisation_is_idempotent_over_the_corpus() -> Result<(), Error> {
 #[test]
 fn decode_only_spellings_collapse_to_canonical() -> Result<(), Error> {
     for text in [
-        "~I", "~/", "~namp~", "~n~amp~", "~U0041~", "~U41~", "~D65~", "~O101~", "~B1000001~",
-        "~nlbrack~", "~nlsqb~", "~nsol~", "~nplus~", "~nperiod~", "~nlowbar~", "~H", "~h", "~f",
-        "~P", "a~Ib", "~5", "~42", "abc", "~~", "~.", "~_", "~U1F600~", "~D128512~",
+        "~I",
+        "~/",
+        "~namp~",
+        "~n~amp~",
+        "~U0041~",
+        "~U41~",
+        "~D65~",
+        "~O101~",
+        "~B1000001~",
+        "~nlbrack~",
+        "~nlsqb~",
+        "~nsol~",
+        "~nplus~",
+        "~nperiod~",
+        "~nlowbar~",
+        "~H",
+        "~h",
+        "~f",
+        "~P",
+        "a~Ib",
+        "~5",
+        "~42",
+        "abc",
+        "~~",
+        "~.",
+        "~_",
+        "~U1F600~",
+        "~D128512~",
     ] {
         let once = encode_token(decode_token(text)?);
         let twice = encode_token(decode_token(&once)?);

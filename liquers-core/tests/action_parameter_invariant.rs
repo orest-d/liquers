@@ -50,7 +50,11 @@ fn stored_value_is_always_the_decoded_value() {
     for v in values() {
         // Constructor.
         let built = ActionParameter::new_string(v.to_owned());
-        assert_eq!(built.string_value(), Some(v.to_owned()), "new_string({v:?})");
+        assert_eq!(
+            built.string_value(),
+            Some(v.to_owned()),
+            "new_string({v:?})"
+        );
 
         // Setter. This is `ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES`: it used to store
         // `encode_token(v)`, so `string_value` returned the escaped text and `encode` escaped it a
@@ -70,7 +74,11 @@ fn stored_value_is_always_the_decoded_value() {
 fn encoding_is_a_boundary_not_a_stored_form() {
     let mut p = ActionParameter::new_string(String::new());
     p.set_value("a b");
-    assert_eq!(p.string_value(), Some("a b".to_owned()), "storage is not escaped");
+    assert_eq!(
+        p.string_value(),
+        Some("a b".to_owned()),
+        "storage is not escaped"
+    );
     assert_eq!(p.encode(), "a~.b", "escaping happens on the way out");
     // Encoding twice would give `a~~.b`, which decodes to `a~.b` rather than `a b`.
     assert_ne!(p.encode(), "a~~.b");
@@ -83,7 +91,10 @@ fn programmatically_built_queries_round_trip() -> Result<(), Error> {
         let action = ActionRequest::new("filter".to_owned())
             .with_parameters(vec![ActionParameter::new_string(v.to_owned())]);
         let text = action.encode();
-        assert!(text.is_ascii(), "encoded query must be ASCII, got {text:?} for {v:?}");
+        assert!(
+            text.is_ascii(),
+            "encoded query must be ASCII, got {text:?} for {v:?}"
+        );
 
         let parsed = parse_query(&text)?;
         let Some(reparsed) = parsed.action() else {

@@ -28,20 +28,18 @@ pub const CURATED: &[&str] = &[
     "para", "middot", "cedil", "sup1", "ordm", "raquo", "frac14", "frac12", "frac34", "iquest",
     "times", "divide", "szlig", "aelig", "oslash", "eth", "thorn", "ndash", "mdash", "horbar",
     "lsquo", "rsquo", "sbquo", "ldquo", "rdquo", "bdquo", "dagger", "Dagger", "bull", "hellip",
-    "permil", "prime", "Prime", "trade", "euro",
-    // B-3 Greek
-    "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa",
-    "lambda", "mu", "nu", "xi", "omicron", "pi", "rho", "sigma", "sigmaf", "tau", "upsilon",
-    "phi", "chi", "psi", "omega", "Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta", "Eta",
-    "Theta", "Iota", "Kappa", "Lambda", "Mu", "Nu", "Xi", "Omicron", "Pi", "Rho", "Sigma", "Tau",
-    "Upsilon", "Phi", "Chi", "Psi", "Omega",
-    // B-3 mathematics and arrows
-    "minus", "lowast", "radic", "prop", "infin", "ang", "and", "or", "cap", "cup", "int",
-    "there4", "sim", "cong", "asymp", "ne", "equiv", "le", "ge", "sub", "sup", "nsub", "sube",
-    "supe", "oplus", "otimes", "perp", "sdot", "part", "exist", "forall", "empty", "nabla",
-    "isin", "notin", "ni", "prod", "sum", "larr", "uarr", "rarr", "darr", "harr", "crarr",
-    "lArr", "uArr", "rArr", "dArr", "hArr", "loz", "spades", "clubs", "hearts", "diams", "ensp",
-    "emsp", "thinsp", "zwnj", "zwj", "lrm", "rlm",
+    "permil", "prime", "Prime", "trade", "euro", // B-3 Greek
+    "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa", "lambda",
+    "mu", "nu", "xi", "omicron", "pi", "rho", "sigma", "sigmaf", "tau", "upsilon", "phi", "chi",
+    "psi", "omega", "Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta", "Eta", "Theta", "Iota",
+    "Kappa", "Lambda", "Mu", "Nu", "Xi", "Omicron", "Pi", "Rho", "Sigma", "Tau", "Upsilon", "Phi",
+    "Chi", "Psi", "Omega", // B-3 mathematics and arrows
+    "minus", "lowast", "radic", "prop", "infin", "ang", "and", "or", "cap", "cup", "int", "there4",
+    "sim", "cong", "asymp", "ne", "equiv", "le", "ge", "sub", "sup", "nsub", "sube", "supe",
+    "oplus", "otimes", "perp", "sdot", "part", "exist", "forall", "empty", "nabla", "isin",
+    "notin", "ni", "prod", "sum", "larr", "uarr", "rarr", "darr", "harr", "crarr", "lArr", "uArr",
+    "rArr", "dArr", "hArr", "loz", "spades", "clubs", "hearts", "diams", "ensp", "emsp", "thinsp",
+    "zwnj", "zwj", "lrm", "rlm",
 ];
 
 /// Curated names the **encoder must never emit**.
@@ -71,7 +69,9 @@ const HEADER: &str = "\
 pub fn generate(table: &BTreeMap<String, String>) -> Result<String, String> {
     for name in CURATED {
         if !table.contains_key(*name) {
-            return Err(format!("curated name {name:?} is not in the vendored table"));
+            return Err(format!(
+                "curated name {name:?} is not in the vendored table"
+            ));
         }
     }
     for name in NOT_EMITTED {
@@ -106,7 +106,8 @@ pub fn generate(table: &BTreeMap<String, String>) -> Result<String, String> {
         let (Some(c), None) = (chars.next(), chars.next()) else {
             continue;
         };
-        let index = u16::try_from(i).map_err(|_| "curated table exceeds u16 indexing".to_owned())?;
+        let index =
+            u16::try_from(i).map_err(|_| "curated table exceeds u16 indexing".to_owned())?;
         by_char.push((c, index));
     }
     by_char.sort_unstable_by_key(|(c, _)| *c);

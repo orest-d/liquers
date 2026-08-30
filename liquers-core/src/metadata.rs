@@ -1472,7 +1472,10 @@ fn media_type_override(media_type: String) -> Option<String> {
     }
 }
 
-fn legacy_string_field(o: &serde_json::Map<String, serde_json::Value>, key: &str) -> Option<String> {
+fn legacy_string_field(
+    o: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Option<String> {
     o.get(key).map(|value| match value.as_str() {
         Some(text) => text.to_string(),
         None => value.to_string(),
@@ -2927,8 +2930,8 @@ mod tests {
     /// almost any JSON object deserialize as a record, and serde drops unrecognised fields
     /// silently — so a legacy document was converted and lost its extra data on the next write.
     #[test]
-    fn legacy_document_with_unknown_fields_is_preserved(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn legacy_document_with_unknown_fields_is_preserved() -> Result<(), Box<dyn std::error::Error>>
+    {
         let metadata = Metadata::from_json(r#"{"media_type":"text/plain","custom":{"a":1}}"#)?;
         match &metadata {
             Metadata::LegacyMetadata(value) => {

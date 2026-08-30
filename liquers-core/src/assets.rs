@@ -617,7 +617,9 @@ fn validate_metadata_hard(
     // identifier check still applies; only the format pairing is meaningless here, exactly as for
     // an error state.
     let unserializable = info.supported_data_formats.is_empty();
-    if let Some(declared_data_format) = declared_data_format.filter(|_| !is_error_state && !unserializable) {
+    if let Some(declared_data_format) =
+        declared_data_format.filter(|_| !is_error_state && !unserializable)
+    {
         if !info.supports_data_format(declared_data_format) {
             let supported = info
                 .supported_data_formats
@@ -4840,7 +4842,6 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         let _mutation = self.key_mutation_lock.lock().await;
 
         /// Adds non-fatal metadata consistency warnings for externally supplied values.
-
         // 1. Cancel any existing processing asset for this key
         if self.assets.contains_async(key).await {
             if let Some(asset_entry) = self.assets.get_async(key).await {
@@ -4943,7 +4944,6 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         let _mutation = self.key_mutation_lock.lock().await;
 
         /// Adds non-fatal metadata consistency warnings for externally supplied state.
-
         // 1. Cancel any existing processing asset for this key
         if self.assets.contains_async(key).await {
             if let Some(asset_entry) = self.assets.get_async(key).await {
@@ -4990,7 +4990,11 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         // 3. Create metadata record with updated status, timestamp, and log entry
         let mut metadata = state.metadata.as_ref().clone();
         metadata.set_status(final_status)?;
-        validate_required_metadata_fields_enum(key, &metadata, self.get_envref().get_type_registry())?;
+        validate_required_metadata_fields_enum(
+            key,
+            &metadata,
+            self.get_envref().get_type_registry(),
+        )?;
         add_soft_consistency_warnings_enum(&mut metadata)?;
         metadata.set_updated_now()?;
         metadata.add_log_entry(LogEntry::info("State set externally".to_string()))?;
@@ -5747,7 +5751,10 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             match asset_ref.persistence_status().await {
                 PersistenceStatus::Persisted => {
                     let metadata = asset_ref.get_metadata().await?;
-                    self.envref().get_async_store().set_metadata(key, &metadata).await?;
+                    self.envref()
+                        .get_async_store()
+                        .set_metadata(key, &metadata)
+                        .await?;
                 }
                 PersistenceStatus::NonSerializable => {}
                 PersistenceStatus::NotPersisted | PersistenceStatus::None => {
@@ -5962,9 +5969,15 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         } else {
             store.set(key, binary, &metadata.clone().into()).await?;
         }
-        if matches!(final_status, Status::Ready | Status::Source | Status::Override) {
+        if matches!(
+            final_status,
+            Status::Ready | Status::Source | Status::Override
+        ) {
             if let Some(version) = metadata.version {
-                let expired = self.dependency_manager.register_version(&dep_key, version).await;
+                let expired = self
+                    .dependency_manager
+                    .register_version(&dep_key, version)
+                    .await;
                 self.expire_dependencies_result(expired).await;
             }
         }
@@ -6015,9 +6028,15 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         } else {
             store.set_metadata(key, &metadata.clone().into()).await?;
         }
-        if matches!(final_status, Status::Ready | Status::Source | Status::Override) {
+        if matches!(
+            final_status,
+            Status::Ready | Status::Source | Status::Override
+        ) {
             if let Some(version) = metadata.version() {
-                let expired = self.dependency_manager.register_version(&dep_key, version).await;
+                let expired = self
+                    .dependency_manager
+                    .register_version(&dep_key, version)
+                    .await;
                 self.expire_dependencies_result(expired).await;
             }
             let expired = self.dependency_manager.track_asset(&asset).await;
@@ -6537,12 +6556,9 @@ mod tests {
         let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         let envref = env.to_ref();
         let key = parse_key("shared.txt").unwrap();
-        let delegating = AssetData::<SimpleEnvironment<Value>>::new(
-            2240,
-            key.clone().into(),
-            envref.clone(),
-        )
-        .to_ref();
+        let delegating =
+            AssetData::<SimpleEnvironment<Value>>::new(2240, key.clone().into(), envref.clone())
+                .to_ref();
         let owner =
             AssetData::<SimpleEnvironment<Value>>::new(2241, key.clone().into(), envref.clone())
                 .to_ref();
@@ -6627,7 +6643,10 @@ mod tests {
             AssetData::<SimpleEnvironment<Value>>::new(2243, dep_key.clone().into(), envref)
                 .to_ref();
 
-        parent.record_dependency_on_asset(&dependency).await.unwrap();
+        parent
+            .record_dependency_on_asset(&dependency)
+            .await
+            .unwrap();
 
         let metadata = parent.get_metadata().await.unwrap();
         let deps = metadata.get_dependencies();
@@ -8997,7 +9016,10 @@ recipes:
     #[test]
     fn soft_consistency_entries_report_only_real_divergence() {
         let quiet = super::soft_consistency_entries("csv", Some("csv"), "text/csv", "text/csv");
-        assert!(quiet.is_empty(), "consistent metadata must not warn: {quiet:?}");
+        assert!(
+            quiet.is_empty(),
+            "consistent metadata must not warn: {quiet:?}"
+        );
 
         let refined =
             super::soft_consistency_entries("csv:comma", Some("csv"), "text/csv", "text/csv");

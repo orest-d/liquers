@@ -766,7 +766,8 @@ fn validate(metadata: &CommandMetadata) -> Result<(), Error> {
             return Err(parameter_error(format!(
                 "command {command:?}: the `multiple` argument {:?} must be the last argument, \
                  but {:?} follows it",
-                argument.name, metadata.arguments[position + 1].name
+                argument.name,
+                metadata.arguments[position + 1].name
             )));
         }
     }
@@ -814,7 +815,11 @@ mod tests {
         })
     }
     fn kinds(declaration: &CommandDeclaration) -> Vec<WarningKind> {
-        declaration.warnings().iter().map(|w| w.kind.clone()).collect()
+        declaration
+            .warnings()
+            .iter()
+            .map(|w| w.kind.clone())
+            .collect()
     }
 
     // --- stage 2: the merge laws ---------------------------------------------------------------
@@ -839,16 +844,14 @@ mod tests {
 
     #[test]
     fn merge03_declared_scalar_overrides_discovered() {
-        let mut d =
-            CommandDeclaration::from_introspection(json!({"name":"x","doc":"discovered"}));
+        let mut d = CommandDeclaration::from_introspection(json!({"name":"x","doc":"discovered"}));
         d.enhance(&json!({ "doc": "declared" })).unwrap();
         assert_eq!(d.as_value()["doc"], json!("declared"));
     }
 
     #[test]
     fn merge04_omitted_field_leaves_discovered_value() {
-        let mut d =
-            CommandDeclaration::from_introspection(json!({"name":"x","doc":"discovered"}));
+        let mut d = CommandDeclaration::from_introspection(json!({"name":"x","doc":"discovered"}));
         d.enhance(&json!({ "label": "X" })).unwrap();
         assert_eq!(d.as_value()["doc"], json!("discovered"));
     }
@@ -889,8 +892,7 @@ mod tests {
     /// An empty list means "introspected, no parameters" — different from "not introspected".
     #[test]
     fn merge08_empty_arguments_list_still_rejects() {
-        let mut d =
-            CommandDeclaration::from_introspection(json!({"name":"f","arguments":[]}));
+        let mut d = CommandDeclaration::from_introspection(json!({"name":"f","arguments":[]}));
         assert!(d
             .enhance(&json!({ "arguments": [{ "name": "count" }] }))
             .is_err());
@@ -898,8 +900,7 @@ mod tests {
 
     #[test]
     fn merge09_null_sets_rather_than_deletes() {
-        let mut d =
-            CommandDeclaration::from_introspection(json!({"name":"x","filename":"a.txt"}));
+        let mut d = CommandDeclaration::from_introspection(json!({"name":"x","filename":"a.txt"}));
         d.enhance(&json!({ "filename": null })).unwrap();
         assert!(d.as_value().get("filename").is_some(), "the key is present");
         assert_eq!(d.as_value()["filename"], Value::Null);
@@ -947,7 +948,11 @@ mod tests {
             json!("spread"),
             "the sibling survives"
         );
-        assert_eq!(d.as_value()["next"], json!(["c"]), "a non-argument array replaces");
+        assert_eq!(
+            d.as_value()["next"],
+            json!(["c"]),
+            "a non-argument array replaces"
+        );
     }
 
     // --- stage 4: derived defaults -------------------------------------------------------------
@@ -1050,7 +1055,10 @@ mod tests {
             (json!(true), CommandParameterValue::Value(json!(true))),
             (json!(null), CommandParameterValue::Value(json!(null))),
             (json!("None"), CommandParameterValue::None),
-            (json!({ "Value": 2 }), CommandParameterValue::Value(json!(2))),
+            (
+                json!({ "Value": 2 }),
+                CommandParameterValue::Value(json!(2)),
+            ),
         ];
         for (input, want) in cases {
             let m = build(json!({"name":"f","arguments":[{"name":"a","default":input}]}));
@@ -1063,9 +1071,8 @@ mod tests {
     fn build05_none_string_needs_the_tagged_form() {
         let bare = build(json!({"name":"f","arguments":[{"name":"a","default":"None"}]}));
         assert_eq!(bare.arguments[0].default, CommandParameterValue::None);
-        let tagged = build(
-            json!({"name":"f","arguments":[{"name":"a","default":{"Value":"None"}}]}),
-        );
+        let tagged =
+            build(json!({"name":"f","arguments":[{"name":"a","default":{"Value":"None"}}]}));
         assert_eq!(
             tagged.arguments[0].default,
             CommandParameterValue::Value(json!("None"))
@@ -1094,7 +1101,10 @@ mod tests {
             try_build(json!({"name":"f","arguments":[{"name":"a","type":"zzz"}]})).unwrap_err();
         let message = format!("{error}");
         assert!(message.contains('f'), "names the command: {message}");
-        assert!(message.contains("zzz"), "names the offending type: {message}");
+        assert!(
+            message.contains("zzz"),
+            "names the offending type: {message}"
+        );
     }
 
     // --- stage 3: conventions -----------------------------------------------------------------
@@ -1107,7 +1117,11 @@ mod tests {
             { "name": "value" }, { "name": "count" }, { "name": "context" }]}));
         d.apply_conventions().unwrap();
         let m = finish(&mut d);
-        assert_eq!(m.arguments.len(), 1, "`value` became the state, `context` is gone");
+        assert_eq!(
+            m.arguments.len(),
+            1,
+            "`value` became the state, `context` is gone"
+        );
         assert_eq!(m.arguments[0].name, "count");
         assert_eq!(d.registration()["context"], json!(2));
     }
@@ -1127,7 +1141,10 @@ mod tests {
             );
             d.apply_conventions().unwrap();
             let m = finish(&mut d);
-            assert!(m.state_argument.is_some(), "first argument {first:?} is the state");
+            assert!(
+                m.state_argument.is_some(),
+                "first argument {first:?} is the state"
+            );
             assert_eq!(m.arguments.len(), 1, "only `count` remains ({first:?})");
             assert_eq!(d.registration()["state"], json!(want_mode));
         }
@@ -1149,12 +1166,20 @@ mod tests {
     fn conv04_a_convention_can_be_disabled_by_name() {
         let mut d = CommandDeclaration::from_introspection(json!({"name":"f","arguments":[
             { "name": "value" }, { "name": "context" }]}));
-        d.enhance(&json!({ "conventions": { "context": false } })).unwrap();
+        d.enhance(&json!({ "conventions": { "context": false } }))
+            .unwrap();
         d.apply_conventions().unwrap();
         let m = finish(&mut d);
-        assert_eq!(m.arguments.len(), 1, "a genuine `context` argument survives");
+        assert_eq!(
+            m.arguments.len(),
+            1,
+            "a genuine `context` argument survives"
+        );
         assert_eq!(m.arguments[0].name, "context");
-        assert!(m.state_argument.is_some(), "the delivery rule still applied to `value`");
+        assert!(
+            m.state_argument.is_some(),
+            "the delivery rule still applied to `value`"
+        );
     }
 
     #[test]
@@ -1217,7 +1242,11 @@ mod tests {
             d.apply_conventions().unwrap();
             let m = finish(&mut d);
             assert!(m.state_argument.is_none(), "{name:?} is a source command");
-            assert_eq!(m.arguments.len(), 1, "the marker is not an argument ({name:?})");
+            assert_eq!(
+                m.arguments.len(),
+                1,
+                "the marker is not an argument ({name:?})"
+            );
             assert_eq!(m.arguments[0].name, "count");
         }
     }
@@ -1228,7 +1257,8 @@ mod tests {
         let mut d = CommandDeclaration::from_introspection(
             json!({"name":"f","arguments":[{ "name": "df" }]}),
         );
-        d.enhance(&json!({ "state_argument": { "name": "df" } })).unwrap();
+        d.enhance(&json!({ "state_argument": { "name": "df" } }))
+            .unwrap();
         d.apply_conventions().unwrap();
         let m = finish(&mut d);
         assert_eq!(m.state_argument.as_ref().unwrap().name, "df");
@@ -1254,10 +1284,14 @@ mod tests {
     fn conv12_a_declared_mode_wins_over_the_derived_one() {
         let mut d = CommandDeclaration::from_introspection(json!({"name":"f","arguments":[
             { "name": "value" }, { "name": "count" }]}));
-        d.enhance(&json!({ "registration": { "state": "none" } })).unwrap();
+        d.enhance(&json!({ "registration": { "state": "none" } }))
+            .unwrap();
         d.apply_conventions().unwrap();
         let m = finish(&mut d);
-        assert!(m.state_argument.is_none(), "declared `none` beats derived `value`");
+        assert!(
+            m.state_argument.is_none(),
+            "declared `none` beats derived `value`"
+        );
         // Asserted because the earlier version of this test checked only `state_argument`, which
         // for `none` is absent either way — so it passed even when the conventions had not run at
         // all. The first argument must still be consumed as the state marker.
@@ -1273,11 +1307,19 @@ mod tests {
     fn conv15_an_authored_mode_still_runs_the_conventions() {
         let mut d = CommandDeclaration::from_introspection(json!({"name":"f","arguments":[
             { "name": "df" }, { "name": "count" }, { "name": "context" }]}));
-        d.enhance(&json!({ "registration": { "state": "value" } })).unwrap();
+        d.enhance(&json!({ "registration": { "state": "value" } }))
+            .unwrap();
         d.apply_conventions().unwrap();
         let m = finish(&mut d);
-        assert!(m.state_argument.is_some(), "the authored mode creates the state argument");
-        assert_eq!(m.arguments.len(), 1, "the first parameter is consumed, `context` removed");
+        assert!(
+            m.state_argument.is_some(),
+            "the authored mode creates the state argument"
+        );
+        assert_eq!(
+            m.arguments.len(),
+            1,
+            "the first parameter is consumed, `context` removed"
+        );
         assert_eq!(m.arguments[0].name, "count");
         assert_eq!(d.registration()["state"], json!("value"));
         assert_eq!(d.registration()["context"], json!(2));
@@ -1326,7 +1368,11 @@ mod tests {
         d.apply_conventions().unwrap();
         let m = finish(&mut d);
         assert_eq!(d.registration()["context"], json!(0));
-        assert_eq!(d.registration()["state"], json!("value"), "`value`, not `context`");
+        assert_eq!(
+            d.registration()["state"],
+            json!("value"),
+            "`value`, not `context`"
+        );
         assert_eq!(m.arguments.len(), 1);
     }
 
@@ -1335,7 +1381,8 @@ mod tests {
     #[test]
     fn conv14_no_introspection_means_no_delivery_rule() {
         let mut d = CommandDeclaration::from_document(json!({ "name": "f" }));
-        d.enhance(&json!({ "arguments": [{ "name": "count" }] })).unwrap();
+        d.enhance(&json!({ "arguments": [{ "name": "count" }] }))
+            .unwrap();
         d.apply_conventions().unwrap();
         let m = finish(&mut d);
         assert!(m.state_argument.is_none());
@@ -1364,7 +1411,11 @@ mod tests {
             { "name": "context" }, { "name": "count" }]}));
         d.apply_conventions().unwrap();
         assert!(kinds(&d).contains(&WarningKind::ContextBeforeState));
-        assert_eq!(d.registration()["state"], json!("count"), "`count` became the state");
+        assert_eq!(
+            d.registration()["state"],
+            json!("count"),
+            "`count` became the state"
+        );
     }
 
     /// Scoped to the unstated case, so a document host that declares `state_argument` stays quiet
@@ -1372,7 +1423,9 @@ mod tests {
     #[test]
     fn warn03_no_introspection_warns_only_when_the_state_is_unstated() {
         let mut noisy = CommandDeclaration::from_document(json!({ "name": "f" }));
-        noisy.enhance(&json!({ "arguments": [{ "name": "count" }] })).unwrap();
+        noisy
+            .enhance(&json!({ "arguments": [{ "name": "count" }] }))
+            .unwrap();
         noisy.apply_conventions().unwrap();
         assert!(kinds(&noisy).contains(&WarningKind::NoIntrospection));
 
@@ -1391,7 +1444,8 @@ mod tests {
     #[test]
     fn warn04_a_dropped_command_level_hints_key_warns() {
         let mut d = CommandDeclaration::from_document(json!({"name":"f"}));
-        d.enhance(&json!({ "hints": { "category": "text" } })).unwrap();
+        d.enhance(&json!({ "hints": { "category": "text" } }))
+            .unwrap();
         let m = finish(&mut d);
         assert!(kinds(&d).contains(&WarningKind::DroppedKey));
         assert_eq!(serde_json::to_value(&m).unwrap().get("hints"), None);
@@ -1429,8 +1483,10 @@ mod tests {
     #[test]
     fn hint01_registration_hints_merge_like_any_map() {
         let mut d = CommandDeclaration::from_introspection(json!({"name":"f"}));
-        d.enhance(&json!({ "registration": { "python": { "state": "text" } } })).unwrap();
-        d.enhance(&json!({ "registration": { "python": { "variadic": "spread" } } })).unwrap();
+        d.enhance(&json!({ "registration": { "python": { "state": "text" } } }))
+            .unwrap();
+        d.enhance(&json!({ "registration": { "python": { "variadic": "spread" } } }))
+            .unwrap();
         assert_eq!(d.registration()["python"]["state"], json!("text"));
         assert_eq!(d.registration()["python"]["variadic"], json!("spread"));
     }
@@ -1440,16 +1496,22 @@ mod tests {
     #[test]
     fn hint02_build_drops_registration() {
         let mut d = CommandDeclaration::from_document(json!({"name":"f"}));
-        d.enhance(&json!({ "registration": { "python": { "state": "text" } } })).unwrap();
+        d.enhance(&json!({ "registration": { "python": { "state": "text" } } }))
+            .unwrap();
         let m = finish(&mut d);
         assert_eq!(serde_json::to_value(&m).unwrap().get("registration"), None);
-        assert_eq!(d.registration()["python"]["state"], json!("text"), "still readable");
+        assert_eq!(
+            d.registration()["python"]["state"],
+            json!("text"),
+            "still readable"
+        );
     }
 
     #[test]
     fn hint03_unknown_registration_key_is_carried_not_rejected() {
         let mut d = CommandDeclaration::from_document(json!({"name":"f"}));
-        d.enhance(&json!({ "registration": { "javascript": { "stat": "text" } } })).unwrap();
+        d.enhance(&json!({ "registration": { "javascript": { "stat": "text" } } }))
+            .unwrap();
         assert_eq!(d.registration()["javascript"]["stat"], json!("text"));
         assert!(d.build().is_ok());
     }

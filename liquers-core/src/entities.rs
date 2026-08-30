@@ -228,8 +228,16 @@ mod tests {
     fn tilde_and_hyphen_names_are_not_the_ascii_characters() {
         // The trap: HTML5 has no name for ASCII `~` (U+007E) or `-` (U+002D). `tilde` is U+02DC
         // and `hyphen` is U+2010, so neither is a way to write the ASCII character.
-        assert_eq!(curated_name('~'), None, "'~' has no name; the escape is `~~`");
-        assert_eq!(curated_name('-'), None, "'-' has no name; the escape is `~_`");
+        assert_eq!(
+            curated_name('~'),
+            None,
+            "'~' has no name; the escape is `~~`"
+        );
+        assert_eq!(
+            curated_name('-'),
+            None,
+            "'-' has no name; the escape is `~_`"
+        );
         // Both are deliberately left out of the curated set, so a default build rejects them
         // rather than silently decoding them to the wrong character.
         assert!(!is_curated("tilde"));
@@ -290,7 +298,11 @@ mod tests {
         assert_eq!(compiled_count(), 203);
         // `check` (U+2713) is outside Annex B, so a default build cannot decode `~ncheck~`.
         // `hellip` deliberately *is* curated (tier B-2), which is why it is not the example.
-        assert_eq!(lookup("check"), None, "check needs the entities-html5 feature");
+        assert_eq!(
+            lookup("check"),
+            None,
+            "check needs the entities-html5 feature"
+        );
         assert_eq!(lookup("hellip"), Some("\u{2026}"), "hellip is curated");
     }
 

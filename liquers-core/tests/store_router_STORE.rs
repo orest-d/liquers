@@ -6,6 +6,7 @@
 //! `specs/design/store-factories-in-core/` stated as an assertion.
 
 use liquers_core::error::Error;
+use liquers_core::metadata::Metadata;
 use liquers_core::parse::parse_key;
 use liquers_core::store::AsyncStore;
 use liquers_core::store_config::StoreRouterConfig;
@@ -13,7 +14,6 @@ use liquers_core::store_factory::{
     default_store_factory, ArgumentCoverage, StoreArgumentInfo, StoreArgumentType,
     StoreRouterBuilder, StoreTypeAvailability, StoreTypeInfo,
 };
-use liquers_core::metadata::Metadata;
 
 /// core_router01 — a working router from a YAML document, with no `liquers-store` in the graph.
 #[tokio::test]
@@ -30,9 +30,10 @@ async fn core_router01_builds_from_yaml_without_liquers_store(
 
 /// core_router02 — routing is by prefix, and the first matching store in document order wins.
 #[tokio::test]
-async fn core_router02_routes_by_prefix_first_match_wins(
-) -> Result<(), Box<dyn std::error::Error>> {
-    let yaml = "stores:\n  - type: memory\n    prefix: data/inner\n  - type: memory\n    prefix: data\n";
+async fn core_router02_routes_by_prefix_first_match_wins() -> Result<(), Box<dyn std::error::Error>>
+{
+    let yaml =
+        "stores:\n  - type: memory\n    prefix: data/inner\n  - type: memory\n    prefix: data\n";
     let router = StoreRouterBuilder::from_yaml(yaml, Box::new(default_store_factory()))?.build()?;
 
     let inner = parse_key("data/inner/a.txt")?;
@@ -87,9 +88,7 @@ fn core_router04_type_info_round_trips_through_json() -> Result<(), Box<dyn std:
                 .required()
                 .with_doc("Where it lives."),
         )
-        .with_argument(
-            StoreArgumentInfo::derived("retries", serde_json::json!(3)),
-        )
+        .with_argument(StoreArgumentInfo::derived("retries", serde_json::json!(3)))
         .unavailable("requires the 'example' feature")
         .partial("https://example.invalid/docs");
 
