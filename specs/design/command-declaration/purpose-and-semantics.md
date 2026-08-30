@@ -225,6 +225,7 @@ always there.
 | Q4 | Per-argument or per-command passing | Moot — C3 removes the dimension. |
 | Q5 | Retroactive label rule | **Not necessary.** Rust function names are normally snake case and the capitalisation is cosmetic; the new rule applies to the declaration path only. |
 | Q6 | Procedure | Agreed with C1. |
+| Q1' | `run` and `CommandDefinition` | **`HostFunction` rejected** — it would push runtime selection into the planner. `run` carries a callable at the *host* layer and never enters the shared document. Registration resolves it to `Registered` (**works**) or `Alias` (**does not work as proposed** — see Phase 2 §The `run` field). Recommended: branch 1 for v1. |
 
 ### Consequences worth stating
 

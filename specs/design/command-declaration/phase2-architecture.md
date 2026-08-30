@@ -297,6 +297,101 @@ never touches this module — the constraint that survives from draft 2's anti-d
 - `WORKSPACE-NOT-RUSTFMT-CLEAN` — arrived on `main`; the `command_metadata.rs` edits should not be
   what first trips a formatting check.
 
+## The `run` field
+
+**The proposal.** `run` carries a callable. Registration turns it into one of two things: the
+function registered as an executable command in `CommandRegistry` (**branch 1**,
+`CommandDefinition::Registered`), or a `CommandDefinition::Alias` onto a per-runtime dispatch command
+(**branch 2** — a `pycall` / `jscall` registered once, using commands themselves as the pluggable
+runtime). This avoids a `CommandDefinition::HostFunction { runtime, module, name }`, which would
+require the interpreter to support pluggable runtimes.
+
+**Rejecting `HostFunction` is right.** It would put runtime selection into the planner, which today
+knows only `Registered` and `Alias` (`plan.rs:1555-1600`), and every consumer of `CommandDefinition`
+would have to learn what a runtime identifier means. The payoff would be a metadata field the
+planner immediately delegates anyway. Agreed, and it is now recorded as rejected rather than open.
+
+**`run` cannot be a field of the shared declaration.** A `js_sys::Function` or `Py<PyAny>` is not
+serde-able, which is the observation the issue opens with. So `run` belongs to the *host's*
+declaration surface — the JavaScript object, the Python decorator's argument — and is stripped
+before the document enters stage 2, exactly as `spec.rs` strips it today. The shared pipeline never
+sees a callable; it sees the `CommandDefinition` that registration chose. This is compatible with the
+proposal and preserves the merge.
+
+### Branch 1 works, for every language assessed
+
+`CommandRegistry::register_command` (`commands.rs:613-625`) accepts any closure
+`Fn(&State, CommandArguments, Context) -> Result<Value, Error>` meeting the `MaybeSend`/`MaybeSync`
+bounds, and returns `&mut CommandMetadata` for the caller to overwrite with the built metadata. The
+host captures its callable in that closure. No interpreter change, no metadata pollution, and the
+command's own metadata governs both planning and execution because they are the same command.
+
+| Host | Captured value | Assessment |
+|---|---|---|
+| JavaScript | `js_sys::Function` | **Proven** — this is what `register_js_command` does today |
+| Python | `Py<PyAny>` | Works; `Py<T>` is `Send + Sync`, GIL acquired inside the closure |
+| Rhai | `FnPtr` + `AST` | Both `'static` and clonable |
+| Rune | `Function` | `'static`; Rune's async maps onto the async registration path |
+| Starlark | `FrozenValue` in a `FrozenModule` | Works on the *frozen* path only — a live `Value` is heap-borrowed. Worth confirming before relying on it |
+
+### Branch 2 does not work as proposed, and the reason is specific
+
+`ResolvedParameterValues::from_action_extended` (`plan.rs:995-1011`) zips `head_parameters` against
+**the alias command's own `arguments`**, then resolves the alias's remaining arguments into
+individual slots:
+
+```rust
+let mut values = head_parameters.iter()
+    .zip(command_metadata.arguments.iter())     // the ALIAS's arguments, not the target's
+    .map(|(x, arginfo)| ParameterValue::from_command_parameter_value(&arginfo.name, x))
+    .collect_vec();
+let n = values.len();
+for a in command_metadata.arguments.iter().skip(n) { … }
+```
+
+That is the right semantics for a genuine alias — `head` is `slice` with its first argument
+pre-filled, so the two share an argument list. It is the wrong shape for a dispatcher.
+
+A `pycall(state, fn_id, *args)` registered through `register_command!` reads its variadic with
+`CommandArguments::get_multiple(i, …)` (`commands.rs:151`), which requires **one**
+`ParameterValue::MultipleParameters` slot at index `i`. That slot is produced by `pop_value` only
+when the *alias's* metadata declares a `multiple` argument. So `foo`'s metadata would have to be
+shaped `[fn_id, args multiple]` — pycall's shape — discarding `foo`'s per-argument types, labels,
+defaults and widget hints. **That is precisely the metadata this feature exists to carry.**
+
+There is an escape hatch, and it should be judged on its costs rather than dismissed: register the
+dispatcher with a **hand-written** closure instead of the macro, ignoring its own declared shape and
+iterating `0..args.len()` by index. Then `foo` keeps its real arguments, with the dispatch id as
+argument 0 marked `injected` — `accepted_parameter_count` (`plan.rs:918-925`) filters injected, so
+the user-facing arity stays right, and `lib/commands.rs:172` filters them out of documentation. Its
+costs:
+
+- a synthetic argument in **every** declared command's metadata, which lands in any exported registry;
+- it depends on `CommandArguments`'s public accessors being sufficient outside `liquers-core`
+  (`parameters` is `pub(crate)`; `len()` is public);
+- a **state-mode mismatch** that branch 1 cannot have: if `foo` declares `state: none` its
+  `state_argument` is `None`, but the dispatcher it retargets to is registered *with* a state. Under
+  branch 1 the metadata and the executor are the same command, so the question never arises.
+
+**And `CommandDefinition::Alias` is untested.** A repository-wide search finds only its two match
+arms — `plan.rs:1575` and `lib/commands.rs:165` — with no test, no `register_command!` statement that
+produces one, and no entry in `specs/command_registry.yaml` (`grep -c 'Alias'` returns 0). Building
+the Python and JavaScript story on it means productionising an untested path whose head-parameter
+semantics have never been exercised.
+
+### Recommendation
+
+**v1: branch 1 only.** It works for all six languages, changes nothing in the planner, keeps every
+declared argument's metadata intact, and is already proven in `liquers-web`.
+
+**Keep branch 2 as a designed-for future**, but for its *real* payoff, which is not dispatch:
+**serializability**. A `Registered` command's implementation is invisible in metadata, so an exported
+registry cannot say which function a command was. `Alias { pycall, [id] }` records the binding, which
+is what would let an environment rebuild or a registry export reconstruct declared commands — the
+concern behind `POST-INIT-COMMAND-REGISTRATION` and `snapshot_declaration`. Pursuing it needs the
+head-parameter semantics settled and `Alias` given tests first, so it belongs to that issue rather
+than to this one.
+
 ## Risk analysis
 
 | Assessment | Record |
@@ -312,14 +407,8 @@ never touches this module — the constraint that survives from draft 2's anti-d
 
 ## Open questions for the gate
 
-1. **`run`.** Withdrawn from the structures: `CommandDefinition` already answers *which*
-   implementation (`Registered` = by key from the executor, `Alias` = by rewriting), and `CallSpec`
-   answers *how to call it*. `run` answers the first. Resolutions: **(a)** drop it — the host keys its
-   table by `CommandKey`, as `register_js_command` does today; **(b)** a name-defaulted override for
-   one callable serving several commands; **(c)** `CommandDefinition::HostFunction { name }`, which
-   makes it metadata, lets `describeCommand` report it, and forces `plan.rs:1555` and
-   `lib/commands.rs:163` to state their handling. **Recommendation:** (c) if the document-driven host
-   needs indirection, (a) if not — it depends on the intended host setup.
+1. **`run`** — *proposal evaluated 2026-08-29; see §The `run` field below. One sub-question remains
+   for the gate: accept branch 1 only for v1 (recommended), or productionise `Alias` now?*
 2. **Widening the JavaScript surface.** Reusing `CommandMetadata` as the output makes a large field
    set declarable from JavaScript at once. **Recommendation:** accept, and add the TypeScript stubs
    line — a restricted subset would be a second format again.
