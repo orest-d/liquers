@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets]
-reviewed: 2026-08-29
+reviewed: 2026-08-30
 ---
 # Liquers Language Integration Guide
 
@@ -586,9 +586,20 @@ def test_VALUE05_unknown_object_uses_opaque_value():
 
 **Contract.** Register a callable from the *integrated language* as a *language command* with complete `CommandMetadata`, bind *State* and query parameters, inject supported services/context, invoke the callable, and convert its result or exception. Define first-command versus transform-command behavior and duplicate registration policy.
 
+**Declaration format.** Do not invent a declaration vocabulary for your *language*. The
+[Command Declaration Format](../design/command-declaration/COMMAND_DECLARATION.md) defines what a
+declaration means for every *language*: how its keys map to `CommandMetadata`, how a declaration
+**composes** over what introspection discovered rather than replacing it, and how defaults —
+including labels derived from `snake_case` or `camelCase` names — are created. Your *integration*
+supplies introspection (stage 1) and the handover that keeps the callable out of the portable data;
+everything from the merge onward is shared. Facts specific to your *language*, such as how the
+*State* is passed or whether a variadic arrives spread, go in `hints`, which core carries without
+interpreting. *(Forthcoming: promoted to `reference/COMMAND_DECLARATION.md` when the format lands;
+`design/command-declaration/` is its current home.)*
+
 **Objects/API to map or implement:**
 
-- Language-facing command declaration/decorator/builder object
+- Language-facing command declaration/decorator/builder object, over the shared declaration format
 - `CommandMetadata`, `CommandKey`, `ArgumentInfo`, `ArgumentType`, and registry *wrappers*
 - A callable registry and stable callable handle/ID
 - A Rust `CommandExecutor`/`CommandRegistry` adapter for language callables
@@ -624,6 +635,12 @@ The rule that works:
 - Keep the explicit declaration as the documented reliable path, and let it win outright when both are present.
 
 **Warn on every replacement, and say what was replaced.** A duplicate registration and an accidental name collision are indistinguishable at the point they happen, and shadowing a Rust built-in stays invisible until a query quietly returns the wrong thing. Distinguish the two cases in the message — replacing a *language command* is routine, replacing a built-in usually is not. Resolve plan arguments before language binding. Release runtime/VM locks around Rust work and reacquire only for the callback. A bridge command plus callable registry is useful when direct generic registration is awkward, but aliases and callable IDs must remain observable and debuggable.
+
+**Examples.** Base worked examples on the
+[Command Declaration Format](../design/command-declaration/COMMAND_DECLARATION.md) §8, which shows a
+baseline, a declaration, the merged result and the derived defaults for one command. An example that
+restates every argument in full misrepresents the format — the property to demonstrate is that an
+author writes only the difference.
 
 **Meaningful tests:** `COMMAND01` register and execute a first command; `COMMAND02` transform receives state and typed parameters; `COMMAND03` exception maps through `ERROR`; `COMMAND04` defaults/enums/variadics bind; `COMMAND05` metadata matches the callable declaration, **including a command with no arguments**; `COMMAND06` duplicate/unregister policy, and registration **after the environment is already in use** takes effect; `COMMAND07` context injection; `COMMAND08` returned opaque value follows `VALUE` — **both** that an un-opted-in value is refused and that an opted-in one survives the round trip; `COMMAND09` minimal declaration has useful metadata defaults; `COMMAND10` complete declaration preserves every supported metadata field; `COMMAND11` closure captures and retains state according to `RUNTIME`; `COMMAND12` a declared flag that changes planner behaviour actually reaches the planner; `COMMAND13` every declared state-passing mode delivers its documented content; `COMMAND14` a retained declaration is unaffected by later mutation of the object the caller passed.
 
@@ -1147,6 +1164,7 @@ Every language-specific design should contain:
 - Shared opaque-value mechanism for every *integrated language*: `liquers-lib/src/value/foreign.rs` (`ForeignValue`) and the `ExtValue::Foreign` variant in `liquers-lib/src/value/mod.rs`
 - Command removal: `CommandRegistry::unregister` (`liquers-core/src/commands.rs`) and `CommandMetadataRegistry::remove_command` (`liquers-core/src/command_metadata.rs`)
 - A worked *integration* design following this guide: [`specs/design/liquers-web/`](liquers-web/) — browser JavaScript, phases 1-4 with the full 83-test disposition
+- [Command Declaration Format](../design/command-declaration/COMMAND_DECLARATION.md) — the shared declaration vocabulary, composition over introspection, and the defaulting rules every *language* guide builds on *(forthcoming in `reference/`)*
 - [Command Registration Guide](COMMAND_REGISTRATION_GUIDE.md)
 - [Async/Wasm Refactor Design](async-wasm-refactor/DESIGN.md)
 - [Liquers Web API Specification](WEB_API_SPECIFICATION.md)
@@ -2569,6 +2587,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-30 | §COMMAND points at the shared [Command Declaration Format](../design/command-declaration/COMMAND_DECLARATION.md) instead of leaving each *integration* to invent a declaration vocabulary: the key-to-`CommandMetadata` mapping, composition over introspection, the defaulting rules, and `hints` for language-specific facts. Adds an **Examples** note — a worked example that restates every argument misrepresents the format. Listed in §8. A section on writing *language* documentation and user guides is still missing; filed as `LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION`. | `design/command-declaration/` |
 | 2026-08-29 | §STORE "Taking only part of the store support crate": **recommendation reversed.** The project took option 2 — configuration, the `StoreFactory` seam and `StoreRouterBuilder` moved to `liquers-core`, so an integration needs no store crate for them and `liquers-web` dropped its dependency. Records why the original rejection did not survive (the consumer was `liquers-core` itself, not one integration), keeps option 3 as still correct for the *backends*, and restates the extension-seam rule: there are no built-in types and factories chain first-wins, so overriding a shared type name means chaining earlier. `STORE12`'s override clause restated in terms of chain order, with an `NA` condition. Added §"What the *language* cannot contribute: a store *type*" — the seam is for the integration, not the language, and a page can supply a store instance but not a named type with declared arguments. | `design/store-factories-in-core/` |
 | 2026-08-26 | §VALUE "Typing an integrated value": registration is no longer an open problem. Records the one-identifier-per-variant rule for the foreign container, the extend-and-freeze registration recipe with its four traps, the constant-plus-test guarantee, and that a value type you define yourself needs none of it. | `design/foreign-value-type-registration/` |
 | 2026-08-18 | Added the VALUE convention that a language value is converted to a native variant when that is possible and not too expensive, so an integration normally defines only the foreign container; added type-identifier naming and registration guidance pointing at the type system, and the two rules that keep a bridge ready for automatic conversion. | `design/value-type-system/` |

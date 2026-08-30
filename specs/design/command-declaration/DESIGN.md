@@ -9,7 +9,7 @@ area: [core/commands, web, py]
 gh_pr: []
 issues: [COMMAND-DECLARATION-FORMAT, STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE,
          JS-COMMAND-CANNOT-ACCESS-CONTEXT, ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING,
-         COMMAND-ALIAS-DEFINITION-UNTESTED]
+         COMMAND-ALIAS-DEFINITION-UNTESTED, LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION]
 created: 2026-08-29
 superseded_by:
 ---
@@ -31,6 +31,10 @@ is set, so all five phases and the Phase 5 documentation contract now apply.
       *(rewritten 2026-08-29 against the purpose statement, then descoped: a four-stage pipeline
       whose middle three stages — merge, derive defaults, convert to `CommandMetadata` — are the
       shared deliverable. No call specification and no `run`.)*
+- [x] Reference draft — [`COMMAND_DECLARATION.md`](./COMMAND_DECLARATION.md)
+      *(the format's reference document, written now because the language-specific guides build on
+      it. Held here under its final name because `reference/` must be true at `HEAD`; **promoted to
+      `specs/reference/COMMAND_DECLARATION.md` at Phase 5**, unchanged but for its banner.)*
 - [x] Purpose and semantics — [`purpose-and-semantics.md`](./purpose-and-semantics.md)
       *(maintainer purpose statement, drafted as the future API doc, with a critical evaluation
       and the recorded decisions. **This document, not Phase 1, defines what the feature is.**)*
