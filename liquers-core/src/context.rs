@@ -1082,11 +1082,15 @@ impl<
     /// The registry is never written after this point, which is what lets
     /// [`Environment::get_type_registry`] hand out a shared reference with no lock.
     pub fn new_with_type_registry(type_registry: crate::type_system::TypeRegistry) -> Self {
+        use crate::environment_builder::AssetManagerKind as _;
         Self::assemble(
             type_registry,
             Arc::new(crate::store::NoAsyncStore),
             CommandRegistry::new(),
-            Arc::new(crate::recipes::TrivialRecipeProvider),
+            // The kind carries the default, because it is the only thing distinguishing one
+            // built-in environment from another now that they share this type — and the core and
+            // library environments have always disagreed about it.
+            K::default_recipe_provider(),
             crate::environment_builder::AssetManagerOptions::default(),
         )
     }

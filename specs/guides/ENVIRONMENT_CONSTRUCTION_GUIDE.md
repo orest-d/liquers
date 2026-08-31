@@ -144,10 +144,22 @@ Which backends exist is a build fact, so the factory chain is an argument rather
 let mut builder = liquers_lib::environment::default_environment_builder::<Value, ()>();
 ```
 
-`liquers-core`'s builder defaults to `RecipeProviderChoice::Trivial` — it has no opinion about
-recipes. `liquers-lib`'s configures `Default`, which reads recipes through the store, and that is
-what every `liquers-lib` consumer has always got. Building a `DefaultEnvironment` from a bare
-`EnvironmentBuilder::new()` would silently stop `-R/` queries resolving, with no compile error.
+`liquers-core`'s kinds default to `RecipeProviderChoice::Trivial` — core has no opinion about
+recipes. `liquers-lib`'s `LibKind` defaults to `Default`, which reads recipes through the store, and
+that is what every `liquers-lib` consumer has always got. Building a `DefaultEnvironment` from a
+bare `EnvironmentBuilder::<Value>::new()` — which is `DefaultKind`, not `LibKind` — resolves no
+recipes, and nothing stops compiling.
+
+The default lives on the **kind** (`AssetManagerKind::default_recipe_provider`) rather than in one
+place, because the kind is the only thing that still distinguishes the two once both are
+`GenericEnvironment`. `DefaultEnvironment<V, ()>` and `SimpleEnvironment<V>` would otherwise be the
+same type natively, and a type alias cannot change what `new()` does. So both of these are correct
+and they differ:
+
+```rust,ignore
+DefaultEnvironment::<Value>::new()               // LibKind    → recipes through the store
+SimpleEnvironment::<Value>::new()                // Queued     → no recipes
+```
 
 For the polars command namespace, bring the extension trait into scope:
 

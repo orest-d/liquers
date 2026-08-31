@@ -155,10 +155,14 @@ are type aliases of it, so every existing signature still names a real type:
 | `SimpleEnvironmentWithPayload<V, P>` | `Queued` | `P` |
 | `ImmediateEnvironment<V>` | `Inline` | `()` |
 | `ImmediateEnvironmentWithPayload<V, P>` | `Inline` | `P` |
-| `liquers_lib::DefaultEnvironment<V, P>` | `DefaultKind` | `P` |
+| `liquers_lib::DefaultEnvironment<V, P>` | `LibKind` | `P` |
 
 `AssetManagerKind` selects the execution model at compile time and carries the
-manager as a generic associated type. It has to be a marker rather than the manager
+manager as a generic associated type. It also carries the **default recipe provider**
+(`default_recipe_provider`, defaulted to `Trivial`), because once every built-in environment is
+`GenericEnvironment` the kind is the only thing left that distinguishes them: `liquers-lib`'s
+`LibKind` selects the same manager as `DefaultKind` but reads recipes through the store, which is
+what `DefaultEnvironment` has always done and what a type alias alone could not preserve. It has to be a marker rather than the manager
 type itself: the manager is parameterized by the environment, so naming it directly
 produces an infinitely recursive type. `DefaultKind` is `Queued` natively and
 `Inline` on wasm.

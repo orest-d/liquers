@@ -44,7 +44,7 @@ Delivered beyond the readiness fix, both by maintainer decision at the Phase 3 g
 | Steps executed | 12 of 12 |
 | Files changed | 32 (+2108 / −879) |
 | New modules | `environment_builder.rs` (555 lines), `environment_config.rs` (279) |
-| New tests | 12 integration, 8 builder unit, 6 config unit, 5 parametric |
+| New tests | 12 integration, 8 builder unit, 6 config unit, 5 parametric, 3 library-default |
 | Suites green | `liquers-core` 22 suites, `liquers-lib` 18, all 16 feature configurations |
 
 ## Deviations from the approved design
@@ -76,7 +76,24 @@ added) and reachability strictly improves: the removed ones guarded a state `to_
 preclude, while the added one guards a state `try_to_ref` structurally precludes. Worth knowing
 that the "no unset state at all" claim in Phase 1 question 2 is true of the *manager* only.
 
-**4. `liquers-py` came into scope.** Phase 2 left it out. Once `init_with_envref` became fallible
+**4. `liquers-lib` needs its own kind marker, because a type alias cannot change `new()`.**
+Found by a review bot on PR #53, after implementation: aliasing `DefaultEnvironment` to
+`GenericEnvironment<V, P, DefaultKind>` made it *the same type* as `SimpleEnvironment<V>` natively,
+so `DefaultEnvironment::new()` inherited the core default and silently stopped resolving `-R/`
+queries. This is precisely the regression Phase 2 §The recipe-provider default is per-crate
+predicted — and the mitigation it proposed, `default_environment_builder`, covers only the builder
+path, not the constructor. The design had a hole.
+
+Fixed by moving the default onto the kind: `AssetManagerKind::default_recipe_provider` (defaulted to
+`Trivial`), overridden by a new `liquers_lib::environment::LibKind` that selects `DefaultKind`'s
+manager and the library's `Default` provider. `DefaultEnvironment` is a distinct type again, which
+is honest — the two environments genuinely differ in behaviour. The alternative, accepting `Trivial`
+everywhere and documenting the change, was rejected because it is invisible at compile time.
+
+Pinned behaviourally by `liquers-lib/tests/environment_defaults.rs`: is there a recipe in the store,
+and does it resolve? An identity assertion would not have caught it, since both providers exist.
+
+**5. `liquers-py` came into scope.** Phase 2 left it out. Once `init_with_envref` became fallible
 and carried the readiness contract, its `todo!()` was a panic on a supported path; it now returns an
 explicit `Err`. The crate's environment is still a stub.
 
@@ -168,6 +185,14 @@ closure yields a non-upgradable `Weak`. So exactly one side carries an unset sta
 to handle it. Choosing the *environment* side is still right — `get_envref` is called at 78 sites in
 manager hot paths and is now a plain field read — but the tradeoff is a relocation, not a removal,
 and Phase 1 recorded it as the latter.
+
+**Two defaults that differ and both compile is a regression class, not an incident.** Phase 2 named
+this exact hazard, wrote down why it mattered, and still shipped a mitigation that covered only half
+the surface — `default_environment_builder` for the builder path, nothing for `new()`. Predicting a
+hazard is not the same as covering it, and the test that would have caught it had to be
+*behavioural*: both providers exist and both compile, so only "does a recipe in the store actually
+resolve?" distinguishes them. Where a design says "this would be silent", the follow-through is a
+test that observes the consequence, on every path that reaches it.
 
 **The gate decision to keep `to_ref` paid for itself twice.** `liquers-web`, the hardest call site
 in the tree, needed no code change at all; the axum examples compiled unchanged; and a

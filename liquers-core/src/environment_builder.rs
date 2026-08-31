@@ -76,6 +76,22 @@ pub trait AssetManagerKind: 'static {
         envref: EnvRef<E>,
         options: &AssetManagerOptions,
     ) -> Result<Arc<Self::Manager<E>>, Error>;
+
+    /// The recipe provider an environment of this kind installs when none is configured.
+    ///
+    /// This is on the *kind* rather than being a single global default because the kind is the
+    /// only thing that distinguishes one built-in environment from another once they share
+    /// [`GenericEnvironment`]. `SimpleEnvironment<V>` and `liquers_lib::DefaultEnvironment<V>`
+    /// are otherwise the same type natively, and they have always disagreed here: the core
+    /// environments resolve no recipes, while the library environment reads them through the
+    /// store. Collapsing that would make every `-R/` query in an application relying on the
+    /// library default fail with `KeyNotFound` — silently, since nothing stops compiling.
+    ///
+    /// Defaults to [`RecipeProviderChoice::Trivial`], which is the core behaviour; a kind
+    /// overrides it only to carry a different crate's default.
+    fn default_recipe_provider<E: Environment>() -> Arc<dyn AsyncRecipeProvider<E>> {
+        RecipeProviderChoice::Trivial.provider()
+    }
 }
 
 /// Native queued execution: [`crate::assets::DefaultAssetManager`], with a job queue and an
@@ -176,10 +192,10 @@ impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> Default
 impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<V, P, K> {
     /// A builder with a type registry from `V`, no store, and no recipe provider.
     ///
-    /// The unconfigured recipe provider resolves to [`RecipeProviderChoice::Trivial`]. That is the
-    /// *core* default and is deliberately not the same as the document default — see
-    /// [`RecipeProviderChoice`] — nor the same as `liquers-lib`'s, which reads recipes through the
-    /// store.
+    /// The unconfigured recipe provider resolves to [`AssetManagerKind::default_recipe_provider`],
+    /// which is [`RecipeProviderChoice::Trivial`] for the core kinds. That is deliberately not the
+    /// same as the *document* default — see [`RecipeProviderChoice`] — nor the same as
+    /// `liquers-lib`'s kind, which reads recipes through the store.
     pub fn new() -> Self {
         EnvironmentBuilder {
             type_registry: TypeRegistry::from_value_type::<V>(),
@@ -288,7 +304,7 @@ impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<
 
         let recipe_provider = self
             .recipe_provider
-            .unwrap_or_else(|| RecipeProviderChoice::Trivial.provider());
+            .unwrap_or_else(K::default_recipe_provider);
 
         let environment = GenericEnvironment::assemble(
             self.type_registry,
