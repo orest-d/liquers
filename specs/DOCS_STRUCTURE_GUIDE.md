@@ -413,8 +413,9 @@ Designs that do not make this assessment omit the field and have an empty `readi
 | `covered` | The issue or feature has its own Phase 1 and 2 record, but no independent Phase 3 or 4 is needed because another named design covers the work or the source is a duplicate. |
 
 The Phase 1 document owns the explanation, leading issue, and tiered open-question list supporting
-this value. `DESIGN.md` carries only the enum; `index.csv` projects it onto the linked source
-issue or feature row so readiness remains filterable alongside priority and complexity. The procedure in
+this value. `DESIGN.md` carries only the enum; `index.csv` projects it onto both the linked source
+issue or feature row and the design row. The design row inherits source priority and complexity, so
+readiness remains filterable alongside the queue fields in either representation. The procedure in
 [`guides/autonomous_bulk_design.md`](guides/autonomous_bulk_design.md) defines how autonomous bulk
 design work assigns and maintains it.
 
@@ -595,8 +596,8 @@ id,kind,title,status,status_source,phase,readiness,priority,complexity,area,gh_i
 | `status` | Front-matter for issues, features, and local design states; derived from GitHub only for a design's PR-derived states (§5.5). |
 | `status_source` | `local` for issues and features, which always own their status locally. Designs may read `github` only while their PR-derived status is cached. |
 | `phase` | `kind: design` only, and only in a status that carries one (§5.1). Empty otherwise. |
-| `readiness` | Optional implementation-readiness assessment authored by a readiness-labeled design (§5.1.1), rendered on its one linked `kind: issue` or `kind: feature` row. Empty for unlinked sources and design rows. |
-| `priority`, `complexity` | From an issue or feature. Empty for `kind: design`. |
+| `readiness` | Optional implementation-readiness assessment authored by a readiness-labeled design (§5.1.1), rendered on both its one linked `kind: issue` or `kind: feature` row and its design row. Empty when there is no readiness-labeled reciprocal pair. |
+| `priority`, `complexity` | From an issue or feature. A design with exactly one known source inherits those values; other design rows are empty. |
 | `area` | `;`-separated. |
 | `gh_issue` | Number, or empty. Written by hand once, in the issue's front-matter (§4.3). |
 | `gh_pr` | `;`-separated numbers. For an **issue**, derived from GitHub's issue↔PR links. For a **design**, seeded from `DESIGN.md` front-matter, where it is written by hand once (§5.5); the *state* of those PRs is always GitHub's. |
@@ -628,7 +629,7 @@ Then the rank each kind actually has:
 | Kind | Ordered by |
 |---|---|
 | `issue`, `feature` | `priority` ascending, then `complexity` **smallest first** — the top of the file is the most urgent thing that is also the least work. A missing value sorts last rather than first, so an unranked issue cannot squat at the top. |
-| `design` | Nothing. Designs carry no `priority` or `complexity` (§5.1); readiness appears on their linked issue or feature row. |
+| `design` | Source priority ascending, then source complexity smallest first, when the design has exactly one known source. Other designs have no queue rank. |
 | `guide`, `reference` | `overdue` above `current`, so a document owed a review is the one you see. |
 
 `id` breaks every remaining tie. Columns are never padded for alignment.

@@ -146,7 +146,8 @@ def sort_key(row: dict) -> tuple:
         rank = (PRIORITY_ORDER.get(row["priority"], len(PRIORITY_ORDER)),
                 COMPLEXITY_ORDER.get(row["complexity"], len(COMPLEXITY_ORDER)))
     elif kind == "design":
-        rank = (0, 0)
+        rank = (PRIORITY_ORDER.get(row["priority"], len(PRIORITY_ORDER)),
+                COMPLEXITY_ORDER.get(row["complexity"], len(COMPLEXITY_ORDER)))
     else:
         rank = (0 if row["status"] == "overdue" else 1, 0)
     return (finished(row), KIND_ORDER.get(kind, len(KIND_ORDER)), rank, row["id"])
@@ -211,17 +212,24 @@ def collect() -> list[dict]:
                 "_fm": f, "_path": path,
             })
 
-    # Readiness is authored by a design, but its one-source invariant means it is most useful in
-    # the source issue/feature row: that row retains the queue's kind, priority, and complexity.
-    # Invalid or ambiguous links remain blank here and are reported by check().
+    # A design with one known source inherits its source-owned queue fields. A readiness design
+    # also projects its design-owned readiness back onto that source. Invalid or ambiguous links
+    # remain unjoined and are reported by check().
     issue_rows = {row["id"]: row for row in rows if row["kind"] in ("issue", "feature")}
     for row in rows:
         if row["kind"] != "design":
             continue
         readiness = row["_fm"].get("readiness", "")
         sources = _list(row["_fm"], "issues")
-        if readiness and len(sources) == 1 and sources[0] in issue_rows:
-            issue_rows[sources[0]]["readiness"] = readiness
+        if len(sources) != 1 or sources[0] not in issue_rows:
+            continue
+        source = issue_rows[sources[0]]
+        row["priority"] = source["priority"]
+        row["complexity"] = source["complexity"]
+        row["gh_issue"] = source["gh_issue"]
+        row["readiness"] = readiness
+        if readiness:
+            source["readiness"] = readiness
 
     rows.sort(key=sort_key)
     return rows
