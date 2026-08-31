@@ -2,11 +2,11 @@
 id: COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED
 kind: issue
 title: CommandRegistryIssue constructors transpose namespace and name
-status: draft
+status: in_progress
 priority: P3
 complexity: S
 area: [core/commands]
-design: 
+design: command-registry-issue-fields
 created: 2026-08-12
 github:
 ---

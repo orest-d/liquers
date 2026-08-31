@@ -2,11 +2,11 @@
 id: DOCS-DEAD-LINKS-OUTSIDE-README
 kind: issue
 title: Relative links outside README are never validated
-status: accepted
+status: in_progress
 priority: P3
 complexity: S
 area: [docs]
-design: 
+design: docs-dead-links
 created: 2026-08-08
 github:
 ---

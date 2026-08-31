@@ -2,11 +2,11 @@
 id: COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS
 kind: feature
 title: A usage hint can be attached to an argument but not to a command
-status: draft
+status: in_progress
 priority: P3
 complexity: S
 area: [core/commands, lib/ui]
-design:
+design: command-metadata-command-hints
 created: 2026-08-30
 github:
 ---
