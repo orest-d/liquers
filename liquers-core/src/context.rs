@@ -100,12 +100,6 @@ use std::sync::{Arc, Mutex};
 
 use crate::maybe_send::MaybeBoxed;
 
-#[cfg(not(target_arch = "wasm32"))]
-use crate::assets::DefaultAssetManager;
-#[cfg(not(target_arch = "wasm32"))]
-use crate::cache::Cache;
-#[cfg(not(target_arch = "wasm32"))]
-use crate::store::{NoStore, Store};
 use crate::{
     assets::{AssetManager, AssetRef, AssetServiceMessage},
     command_metadata::CommandMetadataRegistry,
@@ -213,19 +207,60 @@ pub trait Environment:
         context: Context<Self>,
     ) -> crate::maybe_send::BoxFuture<'static, Result<Arc<Self::Value>, Error>>;
 
-    /// Installs the environment back-reference and starts manager services.
+    /// Constructs, installs and **starts** this environment's asset manager.
     ///
-    /// Called once by [`Self::to_ref`]. Implementations normally call
-    /// [`AssetManager::set_envref`] and arrange for [`AssetManager::start`].
-    fn init_with_envref(&self, envref: EnvRef<Self>);
+    /// Called once by [`Self::try_to_ref`], with an [`EnvRef`] that nothing else can observe yet.
+    /// On return the manager must be fully usable: constructed with this reference, installed in
+    /// the environment, and started. That obligation is the entire readiness guarantee, and it is
+    /// the one thing a hand-written [`Environment`] must get right.
+    ///
+    /// The expected shape is the deferred-slot pattern the built-in environments use: hold the
+    /// manager in a `OnceLock`, construct it here with the reference in hand, install it, start it.
+    ///
+    /// ```ignore
+    /// fn init_with_envref(&self, envref: EnvRef<Self>) -> Result<(), Error> {
+    ///     let manager = Arc::new(ImmediateAssetManager::new(envref));
+    ///     let _ = self.asset_store.set(manager.clone());
+    ///     manager.start()
+    /// }
+    /// ```
+    fn init_with_envref(&self, envref: EnvRef<Self>) -> Result<(), Error>;
 
-    /// Consumes, shares, and initializes this environment.
-    fn to_ref(mut self) -> EnvRef<Self> {
+    /// Consumes, shares and initializes this environment, reporting a startup failure.
+    ///
+    /// Refreshes command metadata versions — `register_command!` mutates metadata after the
+    /// registry first computes `metadata_version`, so the versions are stale until refreshed, and
+    /// startup snapshots them into the dependency manager — then creates the [`EnvRef`] and hands
+    /// it to [`Self::init_with_envref`] before returning it. No reference escapes this function
+    /// before the manager is started, so the value it returns is ready to evaluate.
+    ///
+    /// This is the single readiness sequence: [`Self::to_ref`] and
+    /// `EnvironmentBuilder::build` both run it rather than reimplementing it.
+    fn try_to_ref(mut self) -> Result<EnvRef<Self>, Error> {
         self.get_mut_command_metadata_registry()
             .refresh_metadata_versions();
+        #[allow(deprecated)]
         let envref = EnvRef::new(self);
-        envref.0.init_with_envref(envref.clone());
-        envref
+        envref.0.init_with_envref(envref.clone())?;
+        Ok(envref)
+    }
+
+    /// Consumes, shares, and initializes this environment.
+    ///
+    /// The recommended construction path is `EnvironmentBuilder::build`, which configures an
+    /// environment and reports errors; this remains supported for an ad-hoc or hand-written
+    /// [`Environment`], where replicating the builder is not worth it.
+    ///
+    /// # Panics
+    ///
+    /// If manager startup fails. Neither built-in manager can fail — startup writes an in-memory
+    /// map — but a custom [`Self::init_with_envref`] can. Use [`Self::try_to_ref`] where that
+    /// matters.
+    fn to_ref(self) -> EnvRef<Self> {
+        match self.try_to_ref() {
+            Ok(envref) => envref,
+            Err(e) => panic!("environment initialization failed: {e}"),
+        }
     }
 }
 
@@ -258,8 +293,20 @@ pub struct EnvRef<E: Environment>(pub Arc<E>);
 impl<E: Environment> EnvRef<E> {
     /// Wraps an environment without invoking [`Environment::init_with_envref`].
     ///
+    /// # Deprecated
+    ///
+    /// This produces a reference whose asset manager was never constructed or started — the state
+    /// `QUEUED-MANAGER-STARTUP-READINESS` is about. Every evaluation path assumes an installed,
+    /// started manager, so a reference from here is not safe to evaluate through. Use
+    /// [`Environment::to_ref`], [`Environment::try_to_ref`] or `EnvironmentBuilder::build`, each
+    /// of which runs the readiness sequence.
+    ///
     /// Prefer [`Environment::to_ref`] for an environment that will evaluate
     /// queries. This constructor is a low-level building block used by `to_ref`.
+    #[deprecated(
+        note = "produces an EnvRef with no asset manager installed or started; use \
+                Environment::to_ref, Environment::try_to_ref, or EnvironmentBuilder::build"
+    )]
     pub fn new(env: E) -> Self {
         EnvRef(Arc::new(env))
     }
@@ -977,341 +1024,54 @@ impl Session for SimpleSession {
     }
 }
 
-/// Native environment with unit payload and queued asset evaluation.
+/// The environment every built-in name resolves to.
 ///
-/// This uses [`CommandRegistry`] for execution and metadata,
-/// `DefaultAssetManager` for queued evaluation, and an optional asynchronous store
-/// and recipe provider. Construction requires an active Tokio runtime because the
-/// manager spawns its queue and expiration-monitor tasks.
+/// One type parameterized by value type, payload type and an **asset-manager kind**, replacing the
+/// four near-duplicate structs that preceded it. [`SimpleEnvironment`],
+/// [`SimpleEnvironmentWithPayload`], [`ImmediateEnvironment`] and
+/// [`ImmediateEnvironmentWithPayload`] are aliases of it, so every existing signature still names
+/// a real type and nothing had to move.
 ///
-/// If no recipe provider is configured, this environment returns
-/// [`TrivialRecipeProvider`](crate::recipes::TrivialRecipeProvider).
-#[cfg(not(target_arch = "wasm32"))]
-pub struct SimpleEnvironment<V: ValueInterface> {
-    type_registry: crate::type_system::TypeRegistry,
-    store: Arc<dyn Store>,
-    async_store: Arc<dyn crate::store::AsyncStore>,
-    //cache: Arc<tokio::sync::RwLock<Box<dyn Cache<V>>>>,
-    pub command_registry: CommandRegistry<Self>,
-    asset_store: std::sync::OnceLock<Arc<DefaultAssetManager<Self>>>,
-    recipe_provider: Option<Arc<dyn AsyncRecipeProvider<Self>>>,
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl<V: ValueInterface> Default for SimpleEnvironment<V> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl<V: ValueInterface> SimpleEnvironment<V> {
-    /// Creates a native queued environment with no asynchronous persistence.
-    ///
-    /// The environment still needs [`Environment::to_ref`] before evaluation.
-    pub fn new() -> Self {
-        Self::new_with_type_registry(crate::type_system::TypeRegistry::from_value_type::<V>())
-    }
-
-    /// Creates a native queued environment with a caller-supplied type registry.
-    ///
-    /// For an integration that adds a type `V` cannot describe statically — a foreign language
-    /// handle whose identifier belongs to the integration crate rather than to the value type.
-    /// **Extend** [`TypeRegistry::from_value_type`](crate::type_system::TypeRegistry::from_value_type):
-    /// starting from `TypeRegistry::new()` loses every type the build already had, including the
-    /// `error` pseudo-type that even a failed asset needs.
-    ///
-    /// The registry is never written after this point, which is what lets
-    /// [`Environment::get_type_registry`] hand out a shared reference with no lock.
-    pub fn new_with_type_registry(type_registry: crate::type_system::TypeRegistry) -> Self {
-        SimpleEnvironment {
-            type_registry,
-            store: Arc::new(NoStore),
-            command_registry: CommandRegistry::new(),
-            //            cache: Arc::new(tokio::sync::RwLock::new(Box::new(NoCache::<V>::new()))),
-            async_store: Arc::new(crate::store::NoAsyncStore),
-            asset_store: std::sync::OnceLock::new(),
-            recipe_provider: None,
-        }
-    }
-    /// Sets the legacy synchronous store field.
-    ///
-    /// Current asset evaluation uses [`Self::with_async_store`]; this synchronous
-    /// store is not exposed through [`Environment`] and is not used by the asset
-    /// manager.
-    pub fn with_store(&mut self, store: Box<dyn Store>) -> &mut Self {
-        self.store = Arc::from(store);
-        self
-    }
-    /// Sets the keyed recipe provider.
-    pub fn with_recipe_provider(
-        &mut self,
-        provider: Box<dyn AsyncRecipeProvider<Self>>,
-    ) -> &mut Self {
-        self.recipe_provider = Some(Arc::from(provider));
-        self
-    }
-    /// Sets the asynchronous store used by assets.
-    pub fn with_async_store(&mut self, store: Box<dyn crate::store::AsyncStore>) -> &mut Self {
-        self.async_store = Arc::from(store);
-        self
-    }
-    /// Unsupported legacy cache setter.
-    ///
-    /// This method always panics.
-    pub fn with_cache(&mut self, _cache: Box<dyn Cache<V>>) -> &mut Self {
-        panic!("SimpleEnvironment does not support cache for now");
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
-    fn get_type_registry(&self) -> &crate::type_system::TypeRegistry {
-        &self.type_registry
-    }
-
-    type Value = V;
-    type CommandExecutor = CommandRegistry<Self>;
-    type SessionType = SimpleSession;
-    type Payload = ();
-    type AssetManager = DefaultAssetManager<Self>;
-
-    fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
-        &self.command_registry.command_metadata_registry
-    }
-
-    fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
-        &mut self.command_registry.command_metadata_registry
-    }
-
-    fn get_command_executor(&self) -> &Self::CommandExecutor {
-        &self.command_registry
-    }
-    fn get_async_store(&self) -> Arc<dyn crate::store::AsyncStore> {
-        self.async_store.clone()
-    }
-
-    fn get_asset_manager(&self) -> Arc<DefaultAssetManager<Self>> {
-        installed_manager(&self.asset_store)
-    }
-    fn create_session(&self, user: User) -> Self::SessionType {
-        SimpleSession { user }
-    }
-
-    fn apply_recipe(
-        envref: EnvRef<Self>,
-        input_state: State<Self::Value>,
-        recipe: Recipe,
-        context: Context<Self>,
-    ) -> crate::maybe_send::BoxFuture<'static, Result<Arc<Self::Value>, Error>> {
-        use crate::interpreter::{apply_plan, finalize_plan};
-
-        async move {
-            let recipe_expires = recipe.expires.clone();
-            let mut plan = {
-                let cmr = envref.0.get_command_metadata_registry();
-                recipe.to_plan(cmr)?
-            };
-
-            finalize_plan(envref.clone(), &mut plan, &context, &input_state).await?;
-            let combined_expires = plan.expires.clone() | recipe_expires;
-            context.set_expires(combined_expires).await?;
-
-            let res = apply_plan(plan, input_state, context, envref).await?;
-
-            Ok(res)
-        }
-        .maybe_boxed()
-    }
-
-    fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<Self>> {
-        if let Some(provider) = &self.recipe_provider {
-            return provider.clone();
-        }
-        eprintln!("No recipe provider configured in SimpleEnvironment");
-        Arc::new(crate::recipes::TrivialRecipeProvider)
-    }
-
-    fn init_with_envref(&self, envref: EnvRef<Self>) {
-        let manager = Arc::new(crate::assets::DefaultAssetManager::new());
-        manager.set_envref(envref);
-        let _ = self.asset_store.set(manager.clone());
-        tokio::spawn(async move {
-            manager.start().await;
-        });
-    }
-}
-
-/// Spawn-free environment with unit payload and inline asset evaluation.
+/// Construct one with [`crate::environment_builder::EnvironmentBuilder`], which is the recommended
+/// path; [`Environment::to_ref`] remains available for an environment assembled by hand.
 ///
-/// This uses [`crate::assets::ImmediateAssetManager`], has no job queue or
-/// expiration-monitor task, and starts lazily on first evaluation. It can be
-/// constructed without a Tokio runtime and is suitable for Wasm and deterministic
-/// inline execution. It supports only the asynchronous store API.
+/// # The manager slot
 ///
-/// If no recipe provider is configured, this environment returns
-/// [`TrivialRecipeProvider`](crate::recipes::TrivialRecipeProvider).
-pub struct ImmediateEnvironment<V: ValueInterface> {
+/// `asset_store` is written exactly once, by [`Environment::init_with_envref`], before any
+/// [`EnvRef`] to this environment is observable. The manager cannot be built earlier because it
+/// needs that reference — this is the construction cycle, and the slot is where it is broken.
+pub struct GenericEnvironment<
+    V: ValueInterface,
+    P: crate::commands::PayloadType = (),
+    K: crate::environment_builder::AssetManagerKind = crate::environment_builder::DefaultKind,
+> {
     type_registry: crate::type_system::TypeRegistry,
     async_store: Arc<dyn crate::store::AsyncStore>,
+    /// Commands, and the metadata registry planning reads.
     pub command_registry: CommandRegistry<Self>,
-    asset_store: std::sync::OnceLock<Arc<crate::assets::ImmediateAssetManager<Self>>>,
-    recipe_provider: Option<Arc<dyn AsyncRecipeProvider<Self>>>,
-}
-
-impl<V: ValueInterface> Default for ImmediateEnvironment<V> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<V: ValueInterface> ImmediateEnvironment<V> {
-    /// Creates an inline environment with no asynchronous persistence.
-    pub fn new() -> Self {
-        Self::new_with_type_registry(crate::type_system::TypeRegistry::from_value_type::<V>())
-    }
-
-    /// Creates an inline environment with a caller-supplied type registry.
-    ///
-    /// For an integration that adds a type `V` cannot describe statically — a foreign language
-    /// handle whose identifier belongs to the integration crate rather than to the value type.
-    /// **Extend** [`TypeRegistry::from_value_type`](crate::type_system::TypeRegistry::from_value_type):
-    /// starting from `TypeRegistry::new()` loses every type the build already had, including the
-    /// `error` pseudo-type that even a failed asset needs.
-    ///
-    /// The registry is never written after this point, which is what lets
-    /// [`Environment::get_type_registry`] hand out a shared reference with no lock.
-    pub fn new_with_type_registry(type_registry: crate::type_system::TypeRegistry) -> Self {
-        ImmediateEnvironment {
-            type_registry,
-            command_registry: CommandRegistry::new(),
-            async_store: Arc::new(crate::store::NoAsyncStore),
-            asset_store: std::sync::OnceLock::new(),
-            recipe_provider: None,
-        }
-    }
-    /// Sets the asynchronous store used by assets.
-    pub fn with_async_store(&mut self, store: Box<dyn crate::store::AsyncStore>) -> &mut Self {
-        self.async_store = Arc::from(store);
-        self
-    }
-    /// Sets the keyed recipe provider.
-    pub fn with_recipe_provider(
-        &mut self,
-        provider: Box<dyn AsyncRecipeProvider<Self>>,
-    ) -> &mut Self {
-        self.recipe_provider = Some(Arc::from(provider));
-        self
-    }
-}
-
-impl<V: ValueInterface> Environment for ImmediateEnvironment<V> {
-    fn get_type_registry(&self) -> &crate::type_system::TypeRegistry {
-        &self.type_registry
-    }
-
-    type Value = V;
-    type CommandExecutor = CommandRegistry<Self>;
-    type SessionType = SimpleSession;
-    type Payload = ();
-    type AssetManager = crate::assets::ImmediateAssetManager<Self>;
-
-    fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
-        &self.command_registry.command_metadata_registry
-    }
-
-    fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
-        &mut self.command_registry.command_metadata_registry
-    }
-
-    fn get_command_executor(&self) -> &Self::CommandExecutor {
-        &self.command_registry
-    }
-    fn get_async_store(&self) -> Arc<dyn crate::store::AsyncStore> {
-        self.async_store.clone()
-    }
-
-    fn get_asset_manager(&self) -> Arc<crate::assets::ImmediateAssetManager<Self>> {
-        installed_manager(&self.asset_store)
-    }
-
-    fn create_session(&self, user: User) -> Self::SessionType {
-        SimpleSession { user }
-    }
-
-    fn apply_recipe(
-        envref: EnvRef<Self>,
-        input_state: State<Self::Value>,
-        recipe: Recipe,
-        context: Context<Self>,
-    ) -> crate::maybe_send::BoxFuture<'static, Result<Arc<Self::Value>, Error>> {
-        use crate::interpreter::{apply_plan, finalize_plan};
-        async move {
-            let recipe_expires = recipe.expires.clone();
-            let mut plan = {
-                let cmr = envref.0.get_command_metadata_registry();
-                recipe.to_plan(cmr)?
-            };
-            finalize_plan(envref.clone(), &mut plan, &context, &input_state).await?;
-            let combined_expires = plan.expires.clone() | recipe_expires;
-            context.set_expires(combined_expires).await?;
-            let res = apply_plan(plan, input_state, context, envref).await?;
-            Ok(res)
-        }
-        .maybe_boxed()
-    }
-
-    fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<Self>> {
-        if let Some(provider) = &self.recipe_provider {
-            return provider.clone();
-        }
-        Arc::new(crate::recipes::TrivialRecipeProvider)
-    }
-
-    fn init_with_envref(&self, envref: EnvRef<Self>) {
-        // No spawn: ImmediateAssetManager::start() runs lazily on first evaluation.
-        let manager = Arc::new(crate::assets::ImmediateAssetManager::new());
-        manager.set_envref(envref);
-        let _ = self.asset_store.set(manager);
-    }
-}
-
-/// Spawn-free environment with a custom payload and inline asset evaluation.
-///
-/// This is the payload-bearing counterpart to [`ImmediateEnvironment`], and the inline
-/// counterpart to [`SimpleEnvironmentWithPayload`]. It uses
-/// [`crate::assets::ImmediateAssetManager`], has no job queue or expiration-monitor task,
-/// and starts lazily on first evaluation, so it can be constructed without a Tokio runtime.
-///
-/// This is the only environment pairing a payload with the inline asset manager, and it is
-/// therefore what makes the Wasm-compatible payload path exercisable natively.
-///
-/// If no recipe provider is configured, this environment returns
-/// [`TrivialRecipeProvider`](crate::recipes::TrivialRecipeProvider).
-pub struct ImmediateEnvironmentWithPayload<V: ValueInterface, P: crate::commands::PayloadType> {
-    type_registry: crate::type_system::TypeRegistry,
-    async_store: Arc<dyn crate::store::AsyncStore>,
-    pub command_registry: CommandRegistry<Self>,
-    asset_store: std::sync::OnceLock<Arc<crate::assets::ImmediateAssetManager<Self>>>,
-    recipe_provider: Option<Arc<dyn AsyncRecipeProvider<Self>>>,
+    asset_store: std::sync::OnceLock<Arc<K::Manager<Self>>>,
+    /// Never `Option`: a default is resolved at construction, so there is no unconfigured state to
+    /// report or to panic on.
+    recipe_provider: Arc<dyn AsyncRecipeProvider<Self>>,
+    manager_options: crate::environment_builder::AssetManagerOptions,
     _payload: std::marker::PhantomData<P>,
 }
 
-impl<V: ValueInterface, P: crate::commands::PayloadType> Default
-    for ImmediateEnvironmentWithPayload<V, P>
+impl<
+        V: ValueInterface,
+        P: crate::commands::PayloadType,
+        K: crate::environment_builder::AssetManagerKind,
+    > GenericEnvironment<V, P, K>
 {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<V: ValueInterface, P: crate::commands::PayloadType> ImmediateEnvironmentWithPayload<V, P> {
-    /// Creates an inline payload-bearing environment with no asynchronous persistence.
+    /// Creates an environment with a trivial recipe provider and no store.
+    ///
+    /// Prefer [`crate::environment_builder::EnvironmentBuilder`]; this exists for an ad-hoc
+    /// environment and for the many call sites that predate the builder.
     pub fn new() -> Self {
         Self::new_with_type_registry(crate::type_system::TypeRegistry::from_value_type::<V>())
     }
 
-    /// Creates an inline payload-bearing environment with a caller-supplied type registry.
+    /// Creates an environment with a caller-supplied type registry.
     ///
     /// For an integration that adds a type `V` cannot describe statically — a foreign language
     /// handle whose identifier belongs to the integration crate rather than to the value type.
@@ -1322,42 +1082,76 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> ImmediateEnvironmentWit
     /// The registry is never written after this point, which is what lets
     /// [`Environment::get_type_registry`] hand out a shared reference with no lock.
     pub fn new_with_type_registry(type_registry: crate::type_system::TypeRegistry) -> Self {
-        ImmediateEnvironmentWithPayload {
+        Self::assemble(
             type_registry,
-            command_registry: CommandRegistry::new(),
-            async_store: Arc::new(crate::store::NoAsyncStore),
+            Arc::new(crate::store::NoAsyncStore),
+            CommandRegistry::new(),
+            Arc::new(crate::recipes::TrivialRecipeProvider),
+            crate::environment_builder::AssetManagerOptions::default(),
+        )
+    }
+
+    /// Assembles an environment from already-resolved services.
+    pub(crate) fn assemble(
+        type_registry: crate::type_system::TypeRegistry,
+        async_store: Arc<dyn crate::store::AsyncStore>,
+        command_registry: CommandRegistry<Self>,
+        recipe_provider: Arc<dyn AsyncRecipeProvider<Self>>,
+        manager_options: crate::environment_builder::AssetManagerOptions,
+    ) -> Self {
+        GenericEnvironment {
+            type_registry,
+            async_store,
+            command_registry,
             asset_store: std::sync::OnceLock::new(),
-            recipe_provider: None,
-            _payload: std::marker::PhantomData::<P>,
+            recipe_provider,
+            manager_options,
+            _payload: std::marker::PhantomData,
         }
     }
+
     /// Sets the asynchronous store used by assets.
     pub fn with_async_store(&mut self, store: Box<dyn crate::store::AsyncStore>) -> &mut Self {
         self.async_store = Arc::from(store);
         self
     }
+
     /// Sets the keyed recipe provider.
     pub fn with_recipe_provider(
         &mut self,
         provider: Box<dyn AsyncRecipeProvider<Self>>,
     ) -> &mut Self {
-        self.recipe_provider = Some(Arc::from(provider));
+        self.recipe_provider = Arc::from(provider);
         self
     }
 }
 
-impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
-    for ImmediateEnvironmentWithPayload<V, P>
+impl<
+        V: ValueInterface,
+        P: crate::commands::PayloadType,
+        K: crate::environment_builder::AssetManagerKind,
+    > Default for GenericEnvironment<V, P, K>
 {
-    fn get_type_registry(&self) -> &crate::type_system::TypeRegistry {
-        &self.type_registry
+    fn default() -> Self {
+        Self::new()
     }
+}
 
+impl<
+        V: ValueInterface,
+        P: crate::commands::PayloadType,
+        K: crate::environment_builder::AssetManagerKind,
+    > Environment for GenericEnvironment<V, P, K>
+{
     type Value = V;
     type CommandExecutor = CommandRegistry<Self>;
     type SessionType = SimpleSession;
     type Payload = P;
-    type AssetManager = crate::assets::ImmediateAssetManager<Self>;
+    type AssetManager = K::Manager<Self>;
+
+    fn get_type_registry(&self) -> &crate::type_system::TypeRegistry {
+        &self.type_registry
+    }
 
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
         &self.command_registry.command_metadata_registry
@@ -1370,12 +1164,17 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
     fn get_command_executor(&self) -> &Self::CommandExecutor {
         &self.command_registry
     }
+
     fn get_async_store(&self) -> Arc<dyn crate::store::AsyncStore> {
         self.async_store.clone()
     }
 
-    fn get_asset_manager(&self) -> Arc<crate::assets::ImmediateAssetManager<Self>> {
+    fn get_asset_manager(&self) -> Arc<Self::AssetManager> {
         installed_manager(&self.asset_store)
+    }
+
+    fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<Self>> {
+        self.recipe_provider.clone()
     }
 
     fn create_session(&self, user: User) -> Self::SessionType {
@@ -1389,35 +1188,54 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
         context: Context<Self>,
     ) -> crate::maybe_send::BoxFuture<'static, Result<Arc<Self::Value>, Error>> {
         use crate::interpreter::{apply_plan, finalize_plan};
+
         async move {
             let recipe_expires = recipe.expires.clone();
             let mut plan = {
                 let cmr = envref.0.get_command_metadata_registry();
                 recipe.to_plan(cmr)?
             };
+
             finalize_plan(envref.clone(), &mut plan, &context, &input_state).await?;
             let combined_expires = plan.expires.clone() | recipe_expires;
             context.set_expires(combined_expires).await?;
-            let res = apply_plan(plan, input_state, context, envref).await?;
-            Ok(res)
+
+            apply_plan(plan, input_state, context, envref).await
         }
         .maybe_boxed()
     }
 
-    fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<Self>> {
-        if let Some(provider) = &self.recipe_provider {
-            return provider.clone();
-        }
-        Arc::new(crate::recipes::TrivialRecipeProvider)
-    }
-
-    fn init_with_envref(&self, envref: EnvRef<Self>) {
-        // No spawn: ImmediateAssetManager::start() runs lazily on first evaluation.
-        let manager = Arc::new(crate::assets::ImmediateAssetManager::new());
-        manager.set_envref(envref);
-        let _ = self.asset_store.set(manager);
+    fn init_with_envref(&self, envref: EnvRef<Self>) -> Result<(), Error> {
+        let manager = K::build(envref, &self.manager_options)?;
+        let _ = self.asset_store.set(manager.clone());
+        manager.start()
     }
 }
+
+/// Native environment with unit payload and queued asset evaluation.
+///
+/// Construction requires an active Tokio runtime, because the queued manager spawns its job queue
+/// and expiration monitor. An alias of [`GenericEnvironment`] since the environment-builder work.
+#[cfg(not(target_arch = "wasm32"))]
+pub type SimpleEnvironment<V> = GenericEnvironment<V, (), crate::environment_builder::Queued>;
+
+/// Native environment with a custom payload and queued asset evaluation.
+#[cfg(not(target_arch = "wasm32"))]
+pub type SimpleEnvironmentWithPayload<V, P> =
+    GenericEnvironment<V, P, crate::environment_builder::Queued>;
+
+/// Spawn-free environment with unit payload and inline asset evaluation.
+///
+/// No job queue and no expiration-monitor task, so it can be constructed without a Tokio runtime
+/// and runs in a browser. Also useful natively for deterministic inline evaluation.
+pub type ImmediateEnvironment<V> = GenericEnvironment<V, (), crate::environment_builder::Inline>;
+
+/// Spawn-free environment with a custom payload and inline asset evaluation.
+///
+/// The pairing that makes the wasm-compatible payload path exercisable natively.
+pub type ImmediateEnvironmentWithPayload<V, P> =
+    GenericEnvironment<V, P, crate::environment_builder::Inline>;
+
 
 #[cfg(test)]
 mod tests {
@@ -1967,172 +1785,5 @@ mod tests {
                 .as_ref(),
             &expected
         );
-    }
-}
-
-/// Native environment with a custom payload and queued asset evaluation.
-///
-/// This is the payload-bearing counterpart to [`SimpleEnvironment`]. Construction
-/// requires an active Tokio runtime. If no recipe provider is configured, this
-/// environment returns [`crate::recipes::TrivialRecipeProvider`].
-#[cfg(not(target_arch = "wasm32"))]
-pub struct SimpleEnvironmentWithPayload<V: ValueInterface, P: crate::commands::PayloadType> {
-    type_registry: crate::type_system::TypeRegistry,
-    store: Arc<dyn Store>,
-    async_store: Arc<dyn crate::store::AsyncStore>,
-    //cache: Arc<tokio::sync::RwLock<Box<dyn Cache<V>>>>,
-    pub command_registry: CommandRegistry<Self>,
-    asset_store: std::sync::OnceLock<Arc<DefaultAssetManager<Self>>>,
-    recipe_provider: Option<Arc<dyn AsyncRecipeProvider<Self>>>,
-    _payload: std::marker::PhantomData<P>,
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl<V: ValueInterface, P: crate::commands::PayloadType> Default
-    for SimpleEnvironmentWithPayload<V, P>
-{
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl<V: ValueInterface, P: crate::commands::PayloadType> SimpleEnvironmentWithPayload<V, P> {
-    /// Creates a native queued environment with no asynchronous persistence.
-    ///
-    /// The environment still needs [`Environment::to_ref`] before evaluation.
-    pub fn new() -> Self {
-        Self::new_with_type_registry(crate::type_system::TypeRegistry::from_value_type::<V>())
-    }
-
-    /// Creates a native queued payload-bearing environment with a caller-supplied type registry.
-    ///
-    /// For an integration that adds a type `V` cannot describe statically — a foreign language
-    /// handle whose identifier belongs to the integration crate rather than to the value type.
-    /// **Extend** [`TypeRegistry::from_value_type`](crate::type_system::TypeRegistry::from_value_type):
-    /// starting from `TypeRegistry::new()` loses every type the build already had, including the
-    /// `error` pseudo-type that even a failed asset needs.
-    ///
-    /// The registry is never written after this point, which is what lets
-    /// [`Environment::get_type_registry`] hand out a shared reference with no lock.
-    pub fn new_with_type_registry(type_registry: crate::type_system::TypeRegistry) -> Self {
-        SimpleEnvironmentWithPayload {
-            type_registry,
-            store: Arc::new(NoStore),
-            command_registry: CommandRegistry::new(),
-            //            cache: Arc::new(tokio::sync::RwLock::new(Box::new(NoCache::<V>::new()))),
-            _payload: std::marker::PhantomData::<P>::default(),
-            async_store: Arc::new(crate::store::NoAsyncStore),
-            asset_store: std::sync::OnceLock::new(),
-            recipe_provider: None,
-        }
-    }
-    /// Sets the legacy synchronous store field.
-    ///
-    /// Current asset evaluation uses [`Self::with_async_store`]; this synchronous
-    /// store is not exposed through [`Environment`] and is not used by the asset
-    /// manager.
-    pub fn with_store(&mut self, store: Box<dyn Store>) -> &mut Self {
-        self.store = Arc::from(store);
-        self
-    }
-    /// Sets the keyed recipe provider.
-    pub fn with_recipe_provider(
-        &mut self,
-        provider: Box<dyn AsyncRecipeProvider<Self>>,
-    ) -> &mut Self {
-        self.recipe_provider = Some(Arc::from(provider));
-        self
-    }
-    /// Sets the asynchronous store used by assets.
-    pub fn with_async_store(&mut self, store: Box<dyn crate::store::AsyncStore>) -> &mut Self {
-        self.async_store = Arc::from(store);
-        self
-    }
-    /// Unsupported legacy cache setter.
-    ///
-    /// This method always panics.
-    pub fn with_cache(&mut self, _cache: Box<dyn Cache<V>>) -> &mut Self {
-        panic!("SimpleEnvironment does not support cache for now");
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
-    for SimpleEnvironmentWithPayload<V, P>
-{
-    fn get_type_registry(&self) -> &crate::type_system::TypeRegistry {
-        &self.type_registry
-    }
-
-    type Value = V;
-    type CommandExecutor = CommandRegistry<Self>;
-    type SessionType = SimpleSession;
-    type Payload = P;
-    type AssetManager = DefaultAssetManager<Self>;
-
-    fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
-        &self.command_registry.command_metadata_registry
-    }
-
-    fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
-        &mut self.command_registry.command_metadata_registry
-    }
-
-    fn get_command_executor(&self) -> &Self::CommandExecutor {
-        &self.command_registry
-    }
-    fn get_async_store(&self) -> Arc<dyn crate::store::AsyncStore> {
-        self.async_store.clone()
-    }
-
-    fn get_asset_manager(&self) -> Arc<DefaultAssetManager<Self>> {
-        installed_manager(&self.asset_store)
-    }
-    fn create_session(&self, user: User) -> Self::SessionType {
-        SimpleSession { user }
-    }
-
-    fn apply_recipe(
-        envref: EnvRef<Self>,
-        input_state: State<Self::Value>,
-        recipe: Recipe,
-        context: Context<Self>,
-    ) -> crate::maybe_send::BoxFuture<'static, Result<Arc<Self::Value>, Error>> {
-        use crate::interpreter::{apply_plan, finalize_plan};
-
-        async move {
-            let recipe_expires = recipe.expires.clone();
-            let mut plan = {
-                let cmr = envref.0.get_command_metadata_registry();
-                recipe.to_plan(cmr)?
-            };
-
-            finalize_plan(envref.clone(), &mut plan, &context, &input_state).await?;
-            let combined_expires = plan.expires.clone() | recipe_expires;
-            context.set_expires(combined_expires).await?;
-
-            let res = apply_plan(plan, input_state, context, envref).await?;
-
-            Ok(res)
-        }
-        .maybe_boxed()
-    }
-
-    fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<Self>> {
-        if let Some(provider) = &self.recipe_provider {
-            return provider.clone();
-        }
-        eprintln!("No recipe provider configured in SimpleEnvironmentWithPayload");
-        Arc::new(crate::recipes::TrivialRecipeProvider)
-    }
-
-    fn init_with_envref(&self, envref: EnvRef<Self>) {
-        let manager = Arc::new(crate::assets::DefaultAssetManager::new());
-        manager.set_envref(envref);
-        let _ = self.asset_store.set(manager.clone());
-        tokio::spawn(async move {
-            manager.start().await;
-        });
     }
 }

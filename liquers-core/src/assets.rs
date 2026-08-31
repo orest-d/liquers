@@ -3230,30 +3230,40 @@ pub enum EvalMode {
     Inline,
 }
 
-/// Shared helper: register command metadata/impl versions into the dependency manager.
-/// Extracted from the former `DefaultAssetManager::load_command_versions` so both managers'
-/// `start()` reuse one implementation. Idempotent.
-pub(crate) async fn load_command_versions<E: Environment>(
+
+/// Registers every command's metadata and implementation version into the dependency manager.
+///
+/// Synchronous, and used by [`AssetManager::start`]. It replaced an async equivalent that existed
+/// only because `DependencyManager::register_version` awaits `scc`'s async entry API; the work
+/// itself is uncontended in-memory map writes, which is what lets environment construction stay
+/// synchronous.
+///
+/// Returns the dependency keys whose stored version *changed*. At first startup the version map is
+/// empty, so every key inserts vacant and the result is empty — which is what makes synchronous
+/// startup correct: nothing can need a cascade before anything has been registered. A later call
+/// through [`AssetManager::refresh_command_versions`] can return a non-empty list, and applying it
+/// is the caller's job because cascade expiration is asynchronous.
+pub(crate) fn load_command_versions_sync<E: Environment>(
     dm: &crate::dependencies::DependencyManager<E>,
     cmr: &crate::command_metadata::CommandMetadataRegistry,
-) {
+) -> Vec<crate::metadata::DependencyKey> {
+    let mut changed = Vec::new();
     for cmd in &cmr.commands {
         let ck = cmd.key();
         if !cmd.metadata_version.is_unknown() {
-            dm.register_version(
-                &crate::metadata::DependencyKey::for_command_metadata(&ck),
-                cmd.metadata_version,
-            )
-            .await;
+            let key = crate::metadata::DependencyKey::for_command_metadata(&ck);
+            if dm.register_version_sync(&key, cmd.metadata_version) {
+                changed.push(key);
+            }
         }
         if !cmd.impl_version.is_unknown() {
-            dm.register_version(
-                &crate::metadata::DependencyKey::for_command_implementation(&ck),
-                cmd.impl_version,
-            )
-            .await;
+            let key = crate::metadata::DependencyKey::for_command_implementation(&ck);
+            if dm.register_version_sync(&key, cmd.impl_version) {
+                changed.push(key);
+            }
         }
     }
+    changed
 }
 
 /// Asset evaluation, keyed mutation, recovery, directory, and lifecycle service.
@@ -3554,9 +3564,6 @@ pub trait AssetManager<E: Environment>:
 
     // --- lifecycle / manager-primitive methods (moved from the concrete manager) ---
 
-    /// Set the environment back-reference. Called once from `Environment::init_with_envref`.
-    fn set_envref(&self, envref: EnvRef<E>);
-
     /// Access the runtime dependency manager.
     fn dependency_manager(&self) -> &crate::dependencies::DependencyManager<E>;
 
@@ -3608,7 +3615,7 @@ pub trait AssetManager<E: Environment>:
     /// Next monotonic asset id.
     fn next_id_for_asset(&self) -> u64;
 
-    /// The environment reference (set via `set_envref`). Panics if not yet set.
+    /// The environment reference, supplied to the manager's constructor.
     fn get_envref(&self) -> EnvRef<E>;
 
     /// Cancel any pending expiration tracking for the given asset id. Immediate managers no-op.
@@ -3624,9 +3631,46 @@ pub trait AssetManager<E: Environment>:
     /// Create a temporary (non-addressable) asset owned by this manager.
     fn create_temporary_asset(&self) -> AssetRef<E>;
 
-    /// Idempotent startup: register command versions (calls the shared
-    /// internal `load_command_versions` helper). Eager on `DefaultAssetManager`, lazy on immediate.
-    async fn start(&self);
+    /// Idempotent, synchronous startup: registers command metadata and implementation versions
+    /// into the dependency manager.
+    ///
+    /// Called from [`Environment::init_with_envref`] before any [`EnvRef`] is observable, which is
+    /// what makes the returned reference ready to evaluate. Synchronous because the work is
+    /// uncontended in-memory map writes: at startup the version map is empty, every key inserts
+    /// vacant, and no cascade can fire. No store is touched.
+    ///
+    /// Fallible although neither built-in manager can fail today. The `Result` is reserved for a
+    /// manager whose startup genuinely can fail — one restoring a persisted dependency graph from
+    /// a store — because adding it later would be a breaking change. Do not "simplify" it away.
+    fn start(&self) -> Result<(), Error>;
+
+    /// Re-read the command metadata registry and re-register versions.
+    ///
+    /// **Not** a readiness operation, and deliberately separate from [`Self::start`]: it exists so
+    /// a command registered or a metadata edit made *after* construction is reflected in the
+    /// dependency graph. Callable any number of times.
+    ///
+    /// Returns the dependency keys whose version changed, which are exactly the keys whose
+    /// dependents must be expired. It does not expire them itself, because cascade expiration is
+    /// asynchronous; [`Self::refresh_command_versions_and_expire`] is the companion that does.
+    fn refresh_command_versions(&self) -> Result<Vec<crate::metadata::DependencyKey>, Error>;
+
+    /// [`Self::refresh_command_versions`], then cascade-expire everything it reports.
+    ///
+    /// This is the hook dynamic command registration needs: a changed version invalidates every
+    /// asset built against the old command.
+    async fn refresh_command_versions_and_expire(&self) -> Result<(), Error> {
+        for key in self.refresh_command_versions()? {
+            self.cascade_expire_dependents(&key).await;
+        }
+        Ok(())
+    }
+
+    /// Whether [`Self::start`] has completed at least once.
+    ///
+    /// The observable readiness boundary. True the instant `Environment::to_ref` or
+    /// `EnvironmentBuilder::build` returns.
+    fn is_started(&self) -> bool;
 
     /// Schedule expiration tracking for a Ready asset. Immediate managers no-op (lazy check).
     fn track_expiration(&self, asset_ref: &AssetRef<E>, expiration_time: &ExpirationTime);
@@ -3850,7 +3894,12 @@ enum ExpirationMonitorMessage<E: Environment> {
 #[cfg(not(target_arch = "wasm32"))]
 pub struct DefaultAssetManager<E: Environment> {
     id: std::sync::atomic::AtomicU64,
-    envref: std::sync::OnceLock<EnvRef<E>>,
+    /// Supplied at construction. The manager is fully formed at birth: there is no unset state
+    /// and therefore no "environment not set" path to guard.
+    envref: EnvRef<E>,
+    /// Whether `start()` has completed at least once. An `AtomicBool` rather than a one-shot cell
+    /// because `refresh_command_versions` must remain re-runnable.
+    started: std::sync::atomic::AtomicBool,
     assets: scc::HashMap<Key, AssetRef<E>>,
     /// Serializes keyed map mutations with their durable store work.
     key_mutation_lock: tokio::sync::Mutex<()>,
@@ -3865,31 +3914,27 @@ pub struct DefaultAssetManager<E: Environment> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl<E: Environment> Default for DefaultAssetManager<E> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 impl<E: Environment> DefaultAssetManager<E> {
     /// Atomically claims an empty keyed asset slot.
     pub(crate) async fn try_insert_key_asset(&self, key: &Key, asset: AssetRef<E>) -> bool {
         self.assets.insert_async(key.clone(), asset).await.is_ok()
     }
 
-    /// Constructs and initializes a default asset manager
-    pub fn new() -> Self {
-        Self::with_capacity(4)
+    /// Constructs a default asset manager for an environment that already exists.
+    ///
+    /// Spawns the job-queue and expiration-monitor tasks, so it requires an active Tokio runtime.
+    pub fn new(envref: EnvRef<E>) -> Self {
+        Self::with_capacity(envref, 4)
     }
 
-    /// Constructs and initializes a default asset manager with a custom job capacity.
-    pub fn with_capacity(capacity: usize) -> Self {
+    /// Constructs a default asset manager with a custom job capacity.
+    pub fn with_capacity(envref: EnvRef<E>, capacity: usize) -> Self {
         let job_queue = Arc::new(JobQueue::new(capacity));
         let (monitor_tx, monitor_rx) = mpsc::unbounded_channel();
         let manager = DefaultAssetManager {
             id: std::sync::atomic::AtomicU64::new(1000),
-            envref: std::sync::OnceLock::new(),
+            envref,
+            started: std::sync::atomic::AtomicBool::new(false),
             assets: scc::HashMap::new(),
             key_mutation_lock: tokio::sync::Mutex::new(()),
             query_assets: scc::HashMap::new(),
@@ -3899,7 +3944,6 @@ impl<E: Environment> DefaultAssetManager<E> {
             max_dependency_retries: 3,
         };
         tokio::spawn(async move {
-            eprintln!("Spawned job queue");
             job_queue.run().await;
         });
         tokio::spawn(Self::run_expiration_monitor(monitor_rx));
@@ -4088,20 +4132,11 @@ impl<E: Environment> DefaultAssetManager<E> {
         self.id.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
     }
 
-    /// Get an environment reference
+    /// Get an environment reference.
+    ///
+    /// A plain field read: the reference is a constructor parameter, so it is always present.
     pub fn get_envref(&self) -> EnvRef<E> {
-        self.envref
-            .get()
-            .expect("Environment not set in AssetStore")
-            .clone()
-    }
-
-    /// Set environment reference used to access the store, manager, and runtime services.
-    /// The envref can only be set once during environment initialization.
-    pub fn set_envref(&self, envref: EnvRef<E>) {
-        if self.envref.set(envref.clone()).is_err() {
-            panic!("Environment already set in AssetStore");
-        }
+        self.envref.clone()
     }
 
     /// Access the internal dependency manager (pub(crate) — not public API).
@@ -4109,8 +4144,8 @@ impl<E: Environment> DefaultAssetManager<E> {
         &self.dependency_manager
     }
 
-    // NOTE (async-wasm-refactor M-B): `load_command_versions` is now the shared free helper
-    // `crate::assets::load_command_versions(dm, cmr)`, called from `start()`. The
+    // NOTE (async-wasm-refactor M-B): version loading is now the shared free helper
+    // `crate::assets::load_command_versions_sync(dm, cmr)`, called from `start()`. The
     // `cascade_expire_dependents` / `expire_dependencies_result` / `register_plan_dependencies`
     // methods are now shared default methods on the `AssetManager` trait (Q1). Removed here.
 
@@ -4203,10 +4238,7 @@ impl<E: Environment> DefaultAssetManager<E> {
     /// Convinience method to get a recipe provider from the environment reference.
     /// Used e.g. by: `contains`, `evaluate_recipe`, `get_asset_info`
     pub fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<E>> {
-        self.envref
-            .get()
-            .expect("Environment not set in AssetStore")
-            .get_recipe_provider()
+        self.envref.get_recipe_provider()
     }
 
     /// Returns a resource asset assuming it is non-volatile
@@ -5154,10 +5186,6 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
 
     // --- manager-primitive methods (delegate to inherent bodies / provide new ones) ---
 
-    fn set_envref(&self, envref: EnvRef<E>) {
-        DefaultAssetManager::set_envref(self, envref);
-    }
-
     fn dependency_manager(&self) -> &crate::dependencies::DependencyManager<E> {
         DefaultAssetManager::dependency_manager(self)
     }
@@ -5201,11 +5229,24 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         AssetRef::new_temporary(self.get_envref())
     }
 
-    async fn start(&self) {
-        if let Some(envref) = self.envref.get() {
-            let cmr = envref.get_command_metadata_registry();
-            load_command_versions(&self.dependency_manager, cmr).await;
-        }
+    fn start(&self) -> Result<(), Error> {
+        let cmr = self.envref.get_command_metadata_registry();
+        // At first startup nothing can have changed, so the reported list is empty. Re-running
+        // `start` is harmless for the same reason; a caller wanting the cascade uses
+        // `refresh_command_versions_and_expire`.
+        let _changed = load_command_versions_sync(&self.dependency_manager, cmr);
+        self.started
+            .store(true, std::sync::atomic::Ordering::Release);
+        Ok(())
+    }
+
+    fn refresh_command_versions(&self) -> Result<Vec<crate::metadata::DependencyKey>, Error> {
+        let cmr = self.envref.get_command_metadata_registry();
+        Ok(load_command_versions_sync(&self.dependency_manager, cmr))
+    }
+
+    fn is_started(&self) -> bool {
+        self.started.load(std::sync::atomic::Ordering::Acquire)
     }
 
     fn track_expiration(&self, asset_ref: &AssetRef<E>, expiration_time: &ExpirationTime) {
@@ -5610,7 +5651,8 @@ impl<E: Environment + 'static> JobQueue<E> {
 /// can also be used for deterministic inline evaluation on native targets.
 pub struct ImmediateAssetManager<E: Environment> {
     id: std::sync::atomic::AtomicU64,
-    envref: std::sync::OnceLock<EnvRef<E>>,
+    /// Supplied at construction; see [`DefaultAssetManager`].
+    envref: EnvRef<E>,
     // Plain maps behind std Mutex: locked only for brief SYNC get/insert/remove, NEVER across an
     // `.await` (the guard is `!Send`, which statically enforces this on native).
     assets: std::sync::Mutex<std::collections::HashMap<Key, AssetRef<E>>>,
@@ -5618,13 +5660,10 @@ pub struct ImmediateAssetManager<E: Environment> {
     key_mutation_lock: tokio::sync::Mutex<()>,
     query_assets: std::sync::Mutex<std::collections::HashMap<Query, AssetRef<E>>>,
     dependency_manager: crate::dependencies::DependencyManager<E>,
-    started: tokio::sync::OnceCell<()>,
-}
-
-impl<E: Environment> Default for ImmediateAssetManager<E> {
-    fn default() -> Self {
-        Self::new()
-    }
+    /// Whether `start()` has completed at least once. An `AtomicBool` rather than the
+    /// `tokio::sync::OnceCell` this used to be: a one-shot cell would foreclose
+    /// [`AssetManager::refresh_command_versions`], and startup is no longer asynchronous.
+    started: std::sync::atomic::AtomicBool,
 }
 
 impl<E: Environment> ImmediateAssetManager<E> {
@@ -5640,19 +5679,18 @@ impl<E: Environment> ImmediateAssetManager<E> {
         }
     }
 
-    /// Creates an uninitialized inline manager.
+    /// Creates an inline manager for an environment that already exists.
     ///
-    /// Its environment back-reference is installed during environment
-    /// initialization before evaluation methods can be used.
-    pub fn new() -> Self {
+    /// Spawns nothing and needs no Tokio runtime, which is what the browser requires.
+    pub fn new(envref: EnvRef<E>) -> Self {
         ImmediateAssetManager {
             id: std::sync::atomic::AtomicU64::new(1000),
-            envref: std::sync::OnceLock::new(),
+            envref,
             assets: std::sync::Mutex::new(std::collections::HashMap::new()),
             key_mutation_lock: tokio::sync::Mutex::new(()),
             query_assets: std::sync::Mutex::new(std::collections::HashMap::new()),
             dependency_manager: crate::dependencies::DependencyManager::new(),
-            started: tokio::sync::OnceCell::new(),
+            started: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -5661,22 +5699,7 @@ impl<E: Environment> ImmediateAssetManager<E> {
     }
 
     fn envref(&self) -> EnvRef<E> {
-        self.envref
-            .get()
-            .expect("Environment not set in ImmediateAssetManager")
-            .clone()
-    }
-
-    /// Ensure command versions are loaded exactly once (lazy startup — no init-time spawn).
-    async fn ensure_started(&self) {
-        self.started
-            .get_or_init(|| async {
-                if let Some(envref) = self.envref.get() {
-                    let cmr = envref.get_command_metadata_registry();
-                    load_command_versions(&self.dependency_manager, cmr).await;
-                }
-            })
-            .await;
+        self.envref.clone()
     }
 
     async fn make_volatile(&self, recipe_src: Recipe) -> AssetRef<E> {
@@ -5780,7 +5803,6 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         if let Some(key) = query.key() {
             return self.get(&key).await;
         }
-        self.ensure_started().await;
         loop {
             let assetref = self.get_query_asset(query).await?;
             let status = assetref.status().await;
@@ -5823,7 +5845,6 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
     }
 
     async fn apply(&self, recipe: Recipe, to: State<E::Value>) -> Result<AssetRef<E>, Error> {
-        self.ensure_started().await;
         let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, self.envref()).to_ref();
         asset_ref.run_inline().await?;
         Ok(asset_ref)
@@ -5842,7 +5863,6 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         payload_path: Vec<Query>,
     ) -> Result<AssetRef<E>, Error> {
         let _ = parent;
-        self.ensure_started().await;
         // Volatile by construction, so this is a fresh unshared asset in no map.
         let asset = if let Some(key) = query.key() {
             self.get_resource_asset(&key).await?
@@ -5860,14 +5880,12 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         to: State<E::Value>,
         payload: Option<E::Payload>,
     ) -> Result<AssetRef<E>, Error> {
-        self.ensure_started().await;
         let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, self.envref()).to_ref();
         asset_ref.run_immediately_inline(payload).await?;
         Ok(asset_ref)
     }
 
     async fn get(&self, key: &Key) -> Result<AssetRef<E>, Error> {
-        self.ensure_started().await;
         loop {
             let asset_ref = self.get_resource_asset(key).await?;
             let status = asset_ref.status().await;
@@ -6047,12 +6065,6 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
 
     // --- primitives ---
 
-    fn set_envref(&self, envref: EnvRef<E>) {
-        if self.envref.set(envref).is_err() {
-            panic!("Environment already set in ImmediateAssetManager");
-        }
-    }
-
     fn dependency_manager(&self) -> &crate::dependencies::DependencyManager<E> {
         &self.dependency_manager
     }
@@ -6091,8 +6103,23 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         AssetRef::new_temporary(self.envref())
     }
 
-    async fn start(&self) {
-        self.ensure_started().await;
+    fn start(&self) -> Result<(), Error> {
+        let envref = self.envref();
+        let cmr = envref.get_command_metadata_registry();
+        let _changed = load_command_versions_sync(&self.dependency_manager, cmr);
+        self.started
+            .store(true, std::sync::atomic::Ordering::Release);
+        Ok(())
+    }
+
+    fn refresh_command_versions(&self) -> Result<Vec<crate::metadata::DependencyKey>, Error> {
+        let envref = self.envref();
+        let cmr = envref.get_command_metadata_registry();
+        Ok(load_command_versions_sync(&self.dependency_manager, cmr))
+    }
+
+    fn is_started(&self) -> bool {
+        self.started.load(std::sync::atomic::Ordering::Acquire)
     }
 
     /// No monitor task in immediate mode — expiration is checked lazily on access.
