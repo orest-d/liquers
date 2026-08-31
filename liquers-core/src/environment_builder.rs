@@ -300,3 +300,256 @@ impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<
         environment.try_to_ref()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::command_metadata::{CommandKey, CommandMetadata};
+    use crate::metadata::DependencyKey;
+    use crate::value::Value;
+
+    /// Registers one command so startup has a version to register.
+    fn probe(builder: &mut EnvironmentBuilder<Value>) -> CommandKey {
+        let key = CommandKey::new_name("probe");
+        builder
+            .command_registry
+            .command_metadata_registry
+            .add_command(&CommandMetadata::new("probe"));
+        key
+    }
+
+    /// T1 (version half): the command's metadata version is in the dependency manager the instant
+    /// `build()` returns.
+    ///
+    /// Before this work the same assertion after `to_ref()` found `None`: startup was a detached
+    /// task. That is the whole defect, and this is the inverted reproduction of it — no sleep, no
+    /// yield.
+    #[tokio::test]
+    async fn command_version_present_immediately_after_build() {
+        let mut builder = EnvironmentBuilder::<Value>::new();
+        let key = probe(&mut builder);
+
+        let envref = builder.build().expect("build");
+
+        let dep_key = DependencyKey::for_command_metadata(&key);
+        assert!(
+            envref
+                .get_asset_manager()
+                .dependency_manager()
+                .get_version(&dep_key)
+                .await
+                .is_some(),
+            "the metadata version must be registered before build() returns"
+        );
+        let impl_key = DependencyKey::for_command_implementation(&key);
+        let _ = impl_key;
+    }
+
+    /// T13 (graph half): the version that reaches the dependency graph is the **refreshed** one.
+    ///
+    /// `register_command!` mutates metadata after the registry computes `metadata_version`. If the
+    /// refresh did not precede startup, the graph would hold a version no command ever had, and
+    /// every later comparison against it would be wrong — silently, since nothing errors.
+    #[tokio::test]
+    async fn build_registers_the_refreshed_metadata_version() {
+        let mut builder = EnvironmentBuilder::<Value>::new();
+        let key = probe(&mut builder);
+
+        let cmr = &mut builder.command_registry.command_metadata_registry;
+        let stale = cmr.get(key.clone()).unwrap().metadata_version;
+        cmr.get_mut(key.clone())
+            .unwrap()
+            .with_doc("changed after the initial metadata version was calculated");
+
+        let envref = builder.build().expect("build");
+
+        let refreshed = envref
+            .get_command_metadata_registry()
+            .get(key.clone())
+            .unwrap()
+            .metadata_version;
+        assert_ne!(refreshed, stale, "the refresh must recompute the version");
+
+        let registered = envref
+            .get_asset_manager()
+            .dependency_manager()
+            .get_version(&DependencyKey::for_command_metadata(&key))
+            .await
+            .expect("a version must be registered");
+        assert_eq!(
+            registered, refreshed,
+            "the dependency graph must hold the refreshed version, not the stale one"
+        );
+    }
+
+    /// T8: refreshing when nothing changed reports no work, however often it runs.
+    #[tokio::test]
+    async fn refresh_reports_nothing_when_nothing_changed() {
+        let mut builder = EnvironmentBuilder::<Value>::new();
+        probe(&mut builder);
+        let envref = builder.build().expect("build");
+        let manager = envref.get_asset_manager();
+
+        assert!(manager.refresh_command_versions().expect("refresh").is_empty());
+        assert!(manager.refresh_command_versions().expect("refresh").is_empty());
+    }
+
+    /// T7: a changed metadata version *is* reported by a refresh, which is what makes the barrier
+    /// re-runnable rather than one-shot.
+    ///
+    /// This is the mechanism `POST-INIT-COMMAND-REGISTRATION` needs: the reported keys are exactly
+    /// those whose dependents must be expired, and `refresh_command_versions_and_expire` applies
+    /// the cascade for them.
+    #[tokio::test]
+    async fn refresh_reports_a_changed_version() {
+        let mut builder = EnvironmentBuilder::<Value>::new();
+        let key = probe(&mut builder);
+        let envref = builder.build().expect("build");
+
+        // Nothing changed yet.
+        let manager = envref.get_asset_manager();
+        assert!(manager.refresh_command_versions().expect("refresh").is_empty());
+
+        // Register a *different* version for the same key, simulating a metadata edit that a
+        // future dynamic-registration path would make.
+        let dep_key = DependencyKey::for_command_metadata(&key);
+        let bumped = crate::metadata::Version::new(9_999);
+        let changed = manager
+            .dependency_manager()
+            .register_version_sync(&dep_key, bumped);
+        assert!(
+            changed,
+            "overwriting an occupied entry with a different version must report the change"
+        );
+
+        // The next refresh puts the real version back, and reports that as a change.
+        let reported = manager.refresh_command_versions().expect("refresh");
+        assert!(
+            reported.contains(&dep_key),
+            "a version that differs from the registry's must be reported, got {reported:?}"
+        );
+    }
+
+    /// T2 — **the original bug**, as a direct assertion.
+    ///
+    /// `AssetManager::register_plan_dependencies` reads
+    /// `if let Some(ver) = self.dependency_manager().get_version(&plan_dep.key).await`. When
+    /// startup had not run, `get_version` returned `None`, the `if let` skipped, and the plan's
+    /// dependency edges were **silently** not registered — no error, no log, just a dependency
+    /// graph that would never invalidate anything. That is `QUEUED-MANAGER-STARTUP-READINESS`, and
+    /// this asserts the inverse: an edge registered against a command key immediately after
+    /// construction, with nothing awaited in between.
+    #[tokio::test]
+    async fn plan_dependencies_registered_immediately_after_build() {
+        use crate::dependencies::{DependencyRelation, PlanDependency};
+
+        let mut builder = EnvironmentBuilder::<Value>::new();
+        let key = probe(&mut builder);
+        let envref = builder.build().expect("build");
+        let manager = envref.get_asset_manager();
+
+        let command_key = DependencyKey::for_command_metadata(&key);
+        let dependent = crate::parse::parse_key("report.txt").expect("key");
+
+        manager
+            .register_plan_dependencies(
+                &dependent,
+                &[PlanDependency::new(
+                    command_key.clone(),
+                    DependencyRelation::StateArgument,
+                )],
+            )
+            .await
+            .expect("register");
+
+        // Expiring the command must now reach the dependent. Before this work the edge was never
+        // created, so this returned nothing at all.
+        let expired = manager.dependency_manager().expire(&command_key).await;
+        let dependent_dep_key = DependencyKey::from(&dependent);
+        assert!(
+            expired.keys.contains(&dependent_dep_key),
+            "expiring the command must cascade to the asset that depends on it; got {:?}",
+            expired.keys
+        );
+    }
+
+    /// The other half of T2: what the defect actually looked like.
+    ///
+    /// A dependency key with no registered version is skipped by `register_plan_dependencies`,
+    /// silently, and no edge forms. Before this work *every* command key was in that state during
+    /// the startup window, so this is not a hypothetical failure mode — it is the failure that was
+    /// happening, reproduced here on purpose. It is also why the fix had to be a construction-time
+    /// guarantee rather than a check: there is no error to notice.
+    #[tokio::test]
+    async fn an_unregistered_dependency_version_registers_no_edge() {
+        use crate::dependencies::{DependencyRelation, PlanDependency};
+
+        let mut builder = EnvironmentBuilder::<Value>::new();
+        probe(&mut builder);
+        let envref = builder.build().expect("build");
+        let manager = envref.get_asset_manager();
+
+        // A command that was never registered, so startup never gave it a version — exactly the
+        // state every command was in before `build()` awaited startup.
+        let unknown = DependencyKey::for_command_metadata(&CommandKey::new_name("never_declared"));
+        let dependent = crate::parse::parse_key("report.txt").expect("key");
+
+        manager
+            .register_plan_dependencies(
+                &dependent,
+                &[PlanDependency::new(
+                    unknown.clone(),
+                    DependencyRelation::StateArgument,
+                )],
+            )
+            .await
+            .expect("register reports success even though it registered nothing");
+
+        // `expire` reports the key itself alongside its dependents, so the assertion is about the
+        // dependent: it is absent, because no edge was ever created for it.
+        let expired = manager.dependency_manager().expire(&unknown).await;
+        let dependent_dep_key = DependencyKey::from(&dependent);
+        assert!(
+            !expired.keys.contains(&dependent_dep_key),
+            "no edge can exist for a version the manager never saw; got {:?}",
+            expired.keys
+        );
+    }
+
+    /// The two per-crate recipe-provider defaults are distinct, and both are expressible as a
+    /// `RecipeProviderChoice`.
+    ///
+    /// `liquers-core` defaults to `Trivial`; `liquers-lib`'s `default_environment_builder`
+    /// configures `Default`. Collapsing them would silently stop `-R/` queries resolving for every
+    /// application that relied on the library default, with no compile error anywhere.
+    #[test]
+    fn core_builder_defaults_to_the_trivial_provider() {
+        let builder = EnvironmentBuilder::<Value, (), Inline>::new();
+        assert!(
+            builder.recipe_provider.is_none(),
+            "an unconfigured builder holds no provider; build() resolves Trivial"
+        );
+
+        let configured =
+            EnvironmentBuilder::<Value, (), Inline>::new()
+                .with_recipe_provider_choice(RecipeProviderChoice::Default);
+        assert!(configured.recipe_provider.is_some());
+    }
+
+    /// A store and a store configuration are mutually exclusive, and saying both is an error
+    /// rather than a silent precedence rule.
+    #[test]
+    fn a_store_and_a_store_config_conflict() {
+        let result = EnvironmentBuilder::<Value, (), Inline>::new()
+            .with_async_store(Arc::new(crate::store::NoAsyncStore))
+            .with_store_config(
+                StoreRouterConfig::new(),
+                Box::new(crate::store_factory::default_store_factory()),
+            )
+            .build();
+        match result {
+            Ok(_) => panic!("configuring both a store and a store configuration must fail"),
+            Err(e) => assert!(e.to_string().contains("store configuration")),
+        }
+    }
+}
