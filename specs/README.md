@@ -204,9 +204,7 @@ Regenerated on every run. Anything listed here is missing from the capability ma
 deliberately folded behind a broader line.
 
 <!-- BEGIN generated: unplaced -->
-- `guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md`
 - `guides/TYPE_SYSTEM_GUIDE.md`
-- `reference/ENVIRONMENT_CONFIG.md`
 - `reference/VALUE_TYPE_SYSTEM.md`
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - design `asset-manager-insert-key-asset-semantics`
@@ -217,7 +215,6 @@ deliberately folded behind a broader line.
 - design `core-no-default-features`
 - design `delegated-value-repersisted`
 - design `docs-dead-links`
-- design `environment-builder`
 - design `error-with-key-field`
 - design `expiration-integration-suite-failing-at-head`
 - design `foreign-value-type-registration`

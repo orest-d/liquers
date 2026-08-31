@@ -1,7 +1,6 @@
 id,kind,title,status,status_source,phase,readiness,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
 STORE-OPENDAL-SLASH-HANDLING,issue,OpenDAL store mishandles keys containing slashes,accepted,local,,,P1,M,store/backends,,,,opendal-path-mapping,,2026-08-08,specs/issues/STORE-OPENDAL-SLASH-HANDLING.md
 CORE-EVALUATE-PATH-CONSOLIDATION,issue,Several evaluation paths duplicate each other,accepted,local,,,P1,L,core/assets;core/plan,,,,,,2026-08-08,specs/issues/CORE-EVALUATE-PATH-CONSOLIDATION.md
-QUEUED-MANAGER-STARTUP-READINESS,issue,Queued asset manager accepts work before it is ready to run it,accepted,local,,,P1,L,core/assets,,,,environment-builder,,2026-08-08,specs/issues/QUEUED-MANAGER-STARTUP-READINESS.md
 ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS,issue,An argument's default gui_info differs depending on how the command was registered,draft,local,,,P2,S,core/commands;macro;web,,,,,,2026-08-30,specs/issues/ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS.md
 CORE-METADATA-TRACEBACK-SUPPORT,issue,Metadata has no place for an error traceback,accepted,local,,,P2,S,core/value;core/error,,,,metadata-error-traceback,,2026-08-08,specs/issues/CORE-METADATA-TRACEBACK-SUPPORT.md
 ERROR-WITH-KEY-SETS-QUERY-FIELD,issue,'`Error::with_key` writes the key into the `query` field',draft,local,,,P2,S,core/error,,,,error-with-key-field,,2026-08-25,specs/issues/ERROR-WITH-KEY-SETS-QUERY-FIELD.md
@@ -100,7 +99,6 @@ DELEGATED-VALUE-REPERSISTENCE,design,Avoid re-persisting delegated asset values,
 DOCS-DEAD-LINKS,design,Validate relative links in tracked specifications,in_review,local,implementation,ready,P3,S,docs;build,,,,docs-dead-links,,2026-08-31,specs/design/docs-dead-links/DESIGN.md
 STORE-CONFIG-URI,design,Configuring a store from a URI,in_review,local,architecture,,P3,M,store/config;store/backends;core/store,,,,store-config-uri,,2026-08-29,specs/design/store-config-uri/DESIGN.md
 CONTEXT-PARAM-ORDER,design,Context parameter position in register_command!,draft,local,architecture,,,,core/commands;macro,,,,context-param-order,,2026-03-02,specs/design/context-param-order/DESIGN.md
-ENVIRONMENT-BUILDER,design,Environment builder,,github,examples,,,,core/assets;core/context,,44,,environment-builder,,2026-08-27,specs/design/environment-builder/DESIGN.md
 FOREIGN-VALUE-TYPE-REGISTRATION,design,Foreign and Python value types in the type registry,,github,,,,,core/value;lib/value;web;py,,42,,foreign-value-type-registration,,2026-08-26,specs/design/foreign-value-type-registration/DESIGN.md
 PLAN-CWD-FREEZE,design,Freeze CWD in the plan and cut correct predecessor boundaries,,github,documentation,,,,core/plan;core/query;core/context;core/assets,,35,,plan-cwd-freeze,,2026-08-14,specs/design/plan-cwd-freeze/DESIGN.md
 REGISTER-COMMAND-ENUM,design,Enum parameters in register_command!,draft,local,architecture,,,,macro;core/commands,,,,register-command-enum,,2026-03-02,specs/design/register-command-enum/DESIGN.md
@@ -109,7 +107,7 @@ VALUE-ACCESSOR,design,Value accessor abstraction,draft,local,high-level,,,,core/
 VALUE-LIST-SUPPORT,design,Typed list values for lui/children and lui/roots,draft,local,architecture,,,,lib/ui,,,,value-list-support,,2026-03-02,specs/design/value-list-support/DESIGN.md
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,core/commands;macro,,,,,2026-08-31,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,core/context;core/assets;core/store,,,,,2026-08-31,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
-LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-08-30,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
+LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-08-31,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,core/query,,,,,2026-08-14,,specs/guides/QUERY_ESCAPING_GUIDE.md
 STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,core/store;store/config,,,,,2026-08-29,,specs/guides/STORE_FACTORY_GUIDE.md
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,core/value;lib/value,,,,,2026-08-26,,specs/guides/TYPE_SYSTEM_GUIDE.md
@@ -126,15 +124,15 @@ COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,core/
 DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,,core/assets,,,,,2026-08-12,,specs/reference/DEPENDENCIES_STATUS.md
 DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
 DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,core/query,,,,,2026-08-17,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
-DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,core/assets,,,,,2026-08-09,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
+DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,core/assets,,,,,2026-08-31,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
 DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,core/context;core/plan,,,,,2026-08-31,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
 DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,core/plan;core/assets;core/context,,,,,2026-08-29,,specs/reference/api/DOC_08_RECIPES_PLANS.md
 ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,core/context;core/store;core/assets,,,,,2026-08-31,,specs/reference/ENVIRONMENT_CONFIG.md
-PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,core/context;core/commands,,,,,2026-08-01,,specs/reference/PAYLOAD_GUIDE.md
+PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,core/context;core/commands,,,,,2026-08-31,,specs/reference/PAYLOAD_GUIDE.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,lib/polars,,,,,2026-08-25,,specs/reference/POLARS_COMMAND_LIBRARY.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-08-18,,specs/reference/PROJECT_OVERVIEW.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,macro;core/commands,,,,,2026-08-30,,specs/reference/REGISTER_COMMAND_FSD.md
-STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,store/config,,,,,2026-08-29,,specs/reference/STORE_CONFIG_FSD.md
+STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,store/config,,,,,2026-08-31,,specs/reference/STORE_CONFIG_FSD.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,core/value;lib/value,,,,,2026-08-26,,specs/reference/VALUE_TYPE_SYSTEM.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,axum;web,,,,,2026-08-17,,specs/reference/WEB_API_SPECIFICATION.md
 CONTEXT-APPLY-BARE-KEY-ILL-DEFINED,issue,Context::apply with a bare key discards the input state and writes to the store,rejected,local,,,P0,S,core/assets,,,,,,2026-08-09,specs/issues/CONTEXT-APPLY-BARE-KEY-ILL-DEFINED.md
@@ -164,6 +162,7 @@ FOREIGN-VALUE-TYPES-NOT-REGISTERED,issue,A foreign language value cannot be regi
 IMMEDIATE-MANAGER-NO-FAST-TRACK,issue,"ImmediateAssetManager never fast-tracks, so a stored file cannot be read by key on wasm",closed,local,,,P1,M,core/assets;web,,,,,,2026-08-09,specs/issues/IMMEDIATE-MANAGER-NO-FAST-TRACK.md
 PREDECESSOR-CUT-NOT-YET-EQUIVALENT,issue,Cutting a predecessor boundary is not yet equivalent to expanding it,closed,local,,,P1,M,core/plan;core/assets,,,,predecessor-cut-equivalence,,2026-08-15,specs/issues/PREDECESSOR-CUT-NOT-YET-EQUIVALENT.md
 VOLATILE-KEYED-RECIPE-SELF-DELEGATION,issue,Volatile keyed recipe delegates to itself,closed,local,,,P1,M,core/assets,,,,keyed-recipe-ownership,,2026-08-08,specs/issues/VOLATILE-KEYED-RECIPE-SELF-DELEGATION.md
+QUEUED-MANAGER-STARTUP-READINESS,issue,Queued asset manager accepts work before it is ready to run it,closed,local,,,P1,L,core/assets,,,,environment-builder,,2026-08-08,specs/issues/QUEUED-MANAGER-STARTUP-READINESS.md
 ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE,issue,insert_key_asset silently does nothing on the queued manager when the key is taken,closed,local,,,P2,S,core/assets,,,,asset-manager-insert-key-asset-semantics,,2026-08-09,specs/issues/ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE.md
 BUILD-MATRIX-NOT-RUN-IN-CI,issue,The feature/target build matrix is never run automatically,closed,local,,,P2,S,build;docs,,,,,,2026-08-25,specs/issues/BUILD-MATRIX-NOT-RUN-IN-CI.md
 COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED,issue,"CombinedValue::default_extension returns ""ext"" for every extended value",closed,local,,,P2,S,lib/value,,,,value-type-system,,2026-08-18,specs/issues/COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED.md
@@ -189,6 +188,7 @@ AXUM-ASSETS-RECIPES-API,design,Assets and recipes HTTP API,complete,local,,,,,ax
 COMMAND-DECLARATION,design,A language-neutral command declaration type,complete,local,,,,,core/commands;web;py,,50,,command-declaration,,2026-08-29,specs/design/command-declaration/DESIGN.md
 DEPENDENCY-MANAGEMENT,design,Dependency-wait lifecycle and deadlock-safe delegation,complete,local,,,,,core/assets,,5,,dependency-management,,2026-03-02,specs/design/dependency-management/DESIGN.md
 DEPENDENCY-SCHEDULING,design,Non-blocking dependency scheduling with atomic run claims,complete,local,,,,,core/assets,,6,,dependency-scheduling,,2026-03-02,specs/design/dependency-scheduling/DESIGN.md
+ENVIRONMENT-BUILDER,design,Environment builder,complete,local,,,,,core/assets;core/context,,44;53,,environment-builder,,2026-08-27,specs/design/environment-builder/DESIGN.md
 EXCESS-ACTION-PARAMETERS-ERROR,design,Excess action parameters raise an error during plan building,complete,local,,,,,core/plan;core/error,,33,,excess-action-parameters-error,,2026-08-12,specs/design/excess-action-parameters-error/DESIGN.md
 EXPIRATION-MECHANISM,design,Asset expiration mechanism,complete,local,,,,,core/assets,,,,expiration-mechanism,,2026-03-02,specs/design/expiration-mechanism/DESIGN.md
 EXPIRATION-MONITOR-ASSETREF,design,Weak references in the expiration monitor,complete,local,,,,,core/assets,,9;11,,expiration-monitor-assetref,,2026-03-02,specs/design/expiration-monitor-assetref/DESIGN.md
