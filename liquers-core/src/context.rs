@@ -229,6 +229,25 @@ pub trait Environment:
     }
 }
 
+/// Reads an environment's installed asset manager.
+///
+/// The slot is written by [`Environment::init_with_envref`], which runs inside
+/// [`Environment::to_ref`] before any [`EnvRef`] is observable, so by the time any caller holds an
+/// environment to ask this of, the manager is installed. The unset branch is therefore
+/// unreachable rather than merely unlikely, and it panics rather than fabricating a detached
+/// manager: a manager with no environment behind it is exactly the state
+/// `QUEUED-MANAGER-STARTUP-READINESS` is about, and silently producing one would hide the defect
+/// this function's caller is relying on being absent.
+fn installed_manager<M>(slot: &std::sync::OnceLock<Arc<M>>) -> Arc<M> {
+    match slot.get() {
+        Some(manager) => manager.clone(),
+        None => panic!(
+            "asset manager read before Environment::init_with_envref installed it; \
+             construct environments with Environment::to_ref or EnvironmentBuilder::build"
+        ),
+    }
+}
+
 /// Cloneable shared reference to an initialized [`Environment`].
 ///
 /// The inner `Arc` is public for direct access to environment-specific services.
@@ -974,7 +993,7 @@ pub struct SimpleEnvironment<V: ValueInterface> {
     async_store: Arc<dyn crate::store::AsyncStore>,
     //cache: Arc<tokio::sync::RwLock<Box<dyn Cache<V>>>>,
     pub command_registry: CommandRegistry<Self>,
-    asset_store: Arc<DefaultAssetManager<Self>>,
+    asset_store: std::sync::OnceLock<Arc<DefaultAssetManager<Self>>>,
     recipe_provider: Option<Arc<dyn AsyncRecipeProvider<Self>>>,
 }
 
@@ -1011,7 +1030,7 @@ impl<V: ValueInterface> SimpleEnvironment<V> {
             command_registry: CommandRegistry::new(),
             //            cache: Arc::new(tokio::sync::RwLock::new(Box::new(NoCache::<V>::new()))),
             async_store: Arc::new(crate::store::NoAsyncStore),
-            asset_store: Arc::new(crate::assets::DefaultAssetManager::new()),
+            asset_store: std::sync::OnceLock::new(),
             recipe_provider: None,
         }
     }
@@ -1073,7 +1092,7 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
     }
 
     fn get_asset_manager(&self) -> Arc<DefaultAssetManager<Self>> {
-        self.asset_store.clone()
+        installed_manager(&self.asset_store)
     }
     fn create_session(&self, user: User) -> Self::SessionType {
         SimpleSession { user }
@@ -1114,10 +1133,11 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
     }
 
     fn init_with_envref(&self, envref: EnvRef<Self>) {
-        self.get_asset_manager().set_envref(envref.clone());
-        let am = self.get_asset_manager();
+        let manager = Arc::new(crate::assets::DefaultAssetManager::new());
+        manager.set_envref(envref);
+        let _ = self.asset_store.set(manager.clone());
         tokio::spawn(async move {
-            am.start().await;
+            manager.start().await;
         });
     }
 }
@@ -1135,7 +1155,7 @@ pub struct ImmediateEnvironment<V: ValueInterface> {
     type_registry: crate::type_system::TypeRegistry,
     async_store: Arc<dyn crate::store::AsyncStore>,
     pub command_registry: CommandRegistry<Self>,
-    asset_store: Arc<crate::assets::ImmediateAssetManager<Self>>,
+    asset_store: std::sync::OnceLock<Arc<crate::assets::ImmediateAssetManager<Self>>>,
     recipe_provider: Option<Arc<dyn AsyncRecipeProvider<Self>>>,
 }
 
@@ -1166,7 +1186,7 @@ impl<V: ValueInterface> ImmediateEnvironment<V> {
             type_registry,
             command_registry: CommandRegistry::new(),
             async_store: Arc::new(crate::store::NoAsyncStore),
-            asset_store: Arc::new(crate::assets::ImmediateAssetManager::new()),
+            asset_store: std::sync::OnceLock::new(),
             recipe_provider: None,
         }
     }
@@ -1212,7 +1232,7 @@ impl<V: ValueInterface> Environment for ImmediateEnvironment<V> {
     }
 
     fn get_asset_manager(&self) -> Arc<crate::assets::ImmediateAssetManager<Self>> {
-        self.asset_store.clone()
+        installed_manager(&self.asset_store)
     }
 
     fn create_session(&self, user: User) -> Self::SessionType {
@@ -1250,7 +1270,9 @@ impl<V: ValueInterface> Environment for ImmediateEnvironment<V> {
 
     fn init_with_envref(&self, envref: EnvRef<Self>) {
         // No spawn: ImmediateAssetManager::start() runs lazily on first evaluation.
-        self.get_asset_manager().set_envref(envref);
+        let manager = Arc::new(crate::assets::ImmediateAssetManager::new());
+        manager.set_envref(envref);
+        let _ = self.asset_store.set(manager);
     }
 }
 
@@ -1270,7 +1292,7 @@ pub struct ImmediateEnvironmentWithPayload<V: ValueInterface, P: crate::commands
     type_registry: crate::type_system::TypeRegistry,
     async_store: Arc<dyn crate::store::AsyncStore>,
     pub command_registry: CommandRegistry<Self>,
-    asset_store: Arc<crate::assets::ImmediateAssetManager<Self>>,
+    asset_store: std::sync::OnceLock<Arc<crate::assets::ImmediateAssetManager<Self>>>,
     recipe_provider: Option<Arc<dyn AsyncRecipeProvider<Self>>>,
     _payload: std::marker::PhantomData<P>,
 }
@@ -1304,7 +1326,7 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> ImmediateEnvironmentWit
             type_registry,
             command_registry: CommandRegistry::new(),
             async_store: Arc::new(crate::store::NoAsyncStore),
-            asset_store: Arc::new(crate::assets::ImmediateAssetManager::new()),
+            asset_store: std::sync::OnceLock::new(),
             recipe_provider: None,
             _payload: std::marker::PhantomData::<P>,
         }
@@ -1353,7 +1375,7 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
     }
 
     fn get_asset_manager(&self) -> Arc<crate::assets::ImmediateAssetManager<Self>> {
-        self.asset_store.clone()
+        installed_manager(&self.asset_store)
     }
 
     fn create_session(&self, user: User) -> Self::SessionType {
@@ -1391,7 +1413,9 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
 
     fn init_with_envref(&self, envref: EnvRef<Self>) {
         // No spawn: ImmediateAssetManager::start() runs lazily on first evaluation.
-        self.get_asset_manager().set_envref(envref);
+        let manager = Arc::new(crate::assets::ImmediateAssetManager::new());
+        manager.set_envref(envref);
+        let _ = self.asset_store.set(manager);
     }
 }
 
@@ -1958,7 +1982,7 @@ pub struct SimpleEnvironmentWithPayload<V: ValueInterface, P: crate::commands::P
     async_store: Arc<dyn crate::store::AsyncStore>,
     //cache: Arc<tokio::sync::RwLock<Box<dyn Cache<V>>>>,
     pub command_registry: CommandRegistry<Self>,
-    asset_store: Arc<DefaultAssetManager<Self>>,
+    asset_store: std::sync::OnceLock<Arc<DefaultAssetManager<Self>>>,
     recipe_provider: Option<Arc<dyn AsyncRecipeProvider<Self>>>,
     _payload: std::marker::PhantomData<P>,
 }
@@ -1999,7 +2023,7 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> SimpleEnvironmentWithPa
             //            cache: Arc::new(tokio::sync::RwLock::new(Box::new(NoCache::<V>::new()))),
             _payload: std::marker::PhantomData::<P>::default(),
             async_store: Arc::new(crate::store::NoAsyncStore),
-            asset_store: Arc::new(crate::assets::DefaultAssetManager::new()),
+            asset_store: std::sync::OnceLock::new(),
             recipe_provider: None,
         }
     }
@@ -2063,7 +2087,7 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
     }
 
     fn get_asset_manager(&self) -> Arc<DefaultAssetManager<Self>> {
-        self.asset_store.clone()
+        installed_manager(&self.asset_store)
     }
     fn create_session(&self, user: User) -> Self::SessionType {
         SimpleSession { user }
@@ -2104,10 +2128,11 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
     }
 
     fn init_with_envref(&self, envref: EnvRef<Self>) {
-        self.get_asset_manager().set_envref(envref.clone());
-        let am = self.get_asset_manager();
+        let manager = Arc::new(crate::assets::DefaultAssetManager::new());
+        manager.set_envref(envref);
+        let _ = self.asset_store.set(manager.clone());
         tokio::spawn(async move {
-            am.start().await;
+            manager.start().await;
         });
     }
 }
