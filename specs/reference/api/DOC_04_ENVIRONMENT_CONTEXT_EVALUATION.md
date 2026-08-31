@@ -60,41 +60,113 @@ conflict with implementation.
 | Recipe binding | `get_recipe_provider` | Key-to-recipe resolution |
 | Persistence binding | `get_async_store` | Asset persistence when `async_store` is enabled |
 | Interpreter hook | `Environment::apply_recipe` | Plan finalization and application contract |
-| Initialization hook | `Environment::init_with_envref` | Manager back-reference and startup |
+| Initialization hook | `Environment::init_with_envref` | Constructs, installs and starts the manager |
+| Construction surface | `EnvironmentBuilder` | Recommended path; configures services and builds |
 
 ## Ownership and initialization
 
-An environment is configured before it is shared:
+An environment is configured before it is shared, and is **ready to evaluate when
+it becomes observable**. There is one readiness sequence, in
+`Environment::try_to_ref`, and both construction paths run it:
 
 ```text
-owned Environment
-    -> Environment::to_ref(mut self)
-    -> CommandMetadataRegistry::refresh_metadata_versions()
-    -> EnvRef<E>(Arc<E>)
-    -> Environment::init_with_envref(envref)
-    -> initialized AssetManager back-reference/startup
+EnvironmentBuilder::build(self)          owned Environment
+    -> resolve services                      |
+    -> GenericEnvironment                    |
+    \_________________________________ Environment::try_to_ref(mut self)
+                                             -> CommandMetadataRegistry::refresh_metadata_versions()
+                                             -> EnvRef<E>(Arc<E>)
+                                             -> Environment::init_with_envref(envref)
+                                                    -> construct AssetManager with the EnvRef
+                                                    -> install it in the environment
+                                                    -> AssetManager::start()
+                                             -> EnvRef, ready to evaluate
 ```
 
-`Environment::to_ref` consumes the environment. Further configuration that
-requires `&mut self`, such as command registration or store/provider selection,
-must therefore happen first. Before sharing the environment, `to_ref` refreshes
-every command `metadata_version`, which finalizes metadata changed by registration
-helpers such as `register_command!`.
+The window in which the environment's manager slot is empty is entirely inside
+`try_to_ref`, and no `EnvRef` escapes during it. That is the readiness guarantee,
+and it is what `QUEUED-MANAGER-STARTUP-READINESS` was about: startup used to be a
+detached task, so a caller could evaluate against a manager whose command versions
+were not registered yet. The visible symptom was silent —
+`AssetManager::register_plan_dependencies` skips a dependency whose version the
+manager does not know, so a plan evaluated in that window registered no dependency
+edges and nothing ever invalidated the assets built from it.
 
-`EnvRef::new` only performs the `Arc` wrapping and does not call
-`refresh_metadata_versions` or `init_with_envref`. It is the low-level operation
-used by `to_ref`, not a behaviorally equivalent constructor. Evaluation through an
-uninitialized manager can panic when the manager requests its missing environment
-back-reference, and command metadata versions may remain stale.
+| Path | For | Failure |
+|---|---|---|
+| `EnvironmentBuilder::build` | applications and integrations; the recommended, documented path | `Result` |
+| `Environment::try_to_ref` | an ad-hoc or hand-written `Environment` | `Result` |
+| `Environment::to_ref` | the same, where the error cannot occur | panics |
 
-The built-in native queued environments construct `DefaultAssetManager`, which
-spawns its job queue and expiration monitor during manager construction. Their
-`new` methods consequently require an active Tokio runtime. Their initialization
-hook installs the environment reference and spawns `AssetManager::start`.
+`to_ref` and `try_to_ref` consume the environment, so configuration requiring
+`&mut self` — command registration, store or provider selection — must happen
+first. Before sharing, the sequence refreshes every command `metadata_version`,
+finalizing metadata changed by registration helpers such as `register_command!`.
+`build()` inherits that refresh by delegating rather than reimplementing the
+sequence, so it cannot drift out of step.
 
-`ImmediateEnvironment` constructs `ImmediateAssetManager` without spawning. Its
-initialization hook installs the back-reference, and manager startup occurs lazily
-on first evaluation.
+`EnvRef::new` is **deprecated**. It performs only the `Arc` wrapping: no metadata
+refresh, no `init_with_envref`, so the manager is never constructed or started. An
+`EnvRef` from it is not safe to evaluate through, which is why the sequence above
+is the only supported way to obtain one.
+
+`init_with_envref` carries the whole obligation, and is the seam that lets one
+generic `try_to_ref` body serve the built-in environments and a hand-written one
+alike. It is fallible, and on return the manager must be constructed with the
+supplied reference, installed, and started. A custom environment implements it with
+the same deferred-slot shape the built-ins use:
+
+```rust,ignore
+fn init_with_envref(&self, envref: EnvRef<Self>) -> Result<(), Error> {
+    let manager = Arc::new(ImmediateAssetManager::new(envref));
+    let _ = self.asset_store.set(manager.clone());
+    manager.start()
+}
+```
+
+The manager is constructed *inside* the hook because it needs the `EnvRef` — that
+is the construction cycle, and the environment's `OnceLock` manager slot is where
+it is broken. The manager itself therefore has no unset state at all: its
+environment reference is a constructor parameter, and the `set_envref` method and
+its "environment not set" panic are gone.
+
+`AssetManager::start` is synchronous and fallible. Its work is uncontended
+in-memory map writes — at startup the version map is empty, so every key inserts
+vacant and no expiration cascade can fire — and it touches no store. Synchronous
+startup is what lets `to_ref` keep its existing signature while becoming correct.
+`start` is idempotent; `refresh_command_versions` is the separate, re-runnable
+operation for metadata changed after construction, and returns the dependency keys
+whose version changed so a caller can cascade them.
+
+**Synchronous does not mean runtime-free.** The queued manager spawns its job queue
+and expiration monitor from its constructor, so `Queued` still requires an active
+Tokio runtime. `Inline` spawns nothing and constructs with no reactor present,
+which is what wasm needs.
+
+## Environment types and the manager kind
+
+`GenericEnvironment<V, P, K>` is the one built-in environment, parameterized by
+value type, payload type and an **asset-manager kind**. The four previous structs
+are type aliases of it, so every existing signature still names a real type:
+
+| Alias | Kind | Payload |
+|---|---|---|
+| `SimpleEnvironment<V>` | `Queued` | `()` |
+| `SimpleEnvironmentWithPayload<V, P>` | `Queued` | `P` |
+| `ImmediateEnvironment<V>` | `Inline` | `()` |
+| `ImmediateEnvironmentWithPayload<V, P>` | `Inline` | `P` |
+| `liquers_lib::DefaultEnvironment<V, P>` | `DefaultKind` | `P` |
+
+`AssetManagerKind` selects the execution model at compile time and carries the
+manager as a generic associated type. It has to be a marker rather than the manager
+type itself: the manager is parameterized by the environment, so naming it directly
+produces an infinitely recursive type. `DefaultKind` is `Queued` natively and
+`Inline` on wasm.
+
+The kind is a type parameter and not a configuration value on purpose — two
+branches of a match on `"queued"` / `"inline"` produce two different concrete
+environment types, and `Environment` is not object-safe, so they cannot be erased
+behind a `dyn`.
 
 ## Environment contract
 
@@ -124,9 +196,12 @@ The trait signature does not enforce those steps. A custom implementation that
 omits them changes dependency, volatility, expiration, metadata, or command
 semantics.
 
-`init_with_envref` is the other lifecycle hook. It must at least install the
-manager's environment back-reference and arrange startup. The trait also does not
-enforce or provide a default for this protocol.
+`init_with_envref` is the other lifecycle hook, and unlike `apply_recipe` its
+contract *is* enforced in one respect: it is fallible, so an implementation that
+cannot produce a started manager has somewhere to say so rather than leaving the
+caller with an unusable reference. What it must do — construct the manager with the
+supplied reference, install it, start it — is still a protocol the trait describes
+rather than checks. See §Ownership and initialization.
 
 ## Top-level evaluation
 
@@ -358,9 +433,7 @@ Visibility does not consistently enforce this separation.
 
 | Priority | Gap | Evidence and impact | Recommended action |
 |---:|---|---|---|
-| P0 | `EnvRef::new` creates an evaluation-unsafe uninitialized reference | It is public and looks like a normal constructor but skips `init_with_envref`; manager environment access can panic | Make it private or explicitly unsafe-by-protocol, or introduce a distinct initialized constructor/state |
 | P0 | Custom `Environment::apply_recipe` semantics are convention-only | Dependency finalization, volatility, expiration, and plan application are manually duplicated by every environment | Provide a shared default helper or default method and reserve customization for narrower hooks |
-| P1 | Manager startup completion is not observable for queued environments | `init_with_envref` spawns `start` and immediately returns; command-version loading can still be in flight | Make initialization async or make first evaluation await idempotent startup |
 | P1 | `Session` and `User` imply an evaluation hierarchy that is not implemented | `create_session` has no callers in the runtime, and `Context` contains no session or user | Mark them experimental/minimal until authorization/session propagation is designed |
 | P3 | Recipe-provider absence diagnostics are not uniform | Native queued core environments write a stderr notice when falling back to trivial recipes; immediate environments stay silent, and `liquers_lib::DefaultEnvironment` has a default provider | Decide whether provider absence should be quiet, logged, or impossible by construction in the future environment builder |
 | P1 | Public context lifecycle methods can break finalization invariants | `take_pending_dependencies` clears records; `set_error` and `set_expires` directly affect the asset | Narrow visibility or split command-facing and engine-facing context traits |
@@ -373,9 +446,12 @@ Visibility does not consistently enforce this separation.
 
 The improved reference should prevent:
 
-- Constructing `EnvRef::new` and then evaluating without manager initialization
+- Constructing `EnvRef::new` (deprecated) and then evaluating: the manager is never
+  constructed or started
 - Registering commands or selecting stores after `to_ref` consumes the environment
-- Reading final command `metadata_version` before `to_ref` refreshes registrations
+- Reading final command `metadata_version` before construction refreshes registrations
+- Implementing `init_with_envref` without starting the manager, which reintroduces
+  `QUEUED-MANAGER-STARTUP-READINESS` for that environment
 - Assuming `EnvRef::evaluate(...).await` always returns a ready value
 - Building a native queued environment outside a Tokio runtime
 - Expecting payload inheritance through keyed assets, which deliberately form a payload boundary
@@ -423,6 +499,7 @@ tracked by DOC-03. No new compiler warning was introduced by DOC-04.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-31 | Replaced the initialization sequence with `try_to_ref`'s and documented `EnvironmentBuilder` as the recommended construction path, `init_with_envref`'s strengthened contract, synchronous fallible manager startup, and `GenericEnvironment` with its four aliases and the asset-manager kind. Retired the P0 `EnvRef::new` and P1 unobservable-startup gap rows. | `design/environment-builder/phase-5` |
 | 2026-08-31 | Documented that `Environment::to_ref` refreshes command metadata versions before sharing and that `EnvRef::new` bypasses that lifecycle step. | `design/refresh-command-metadata-versions/phase-5` |
 | 2026-08-30 | Updated built-in environment recipe-provider fallback behavior after `SimpleEnvironmentWithPayload` stopped panicking and corrected the already-fixed `liquers_lib::DefaultEnvironment` default-provider row. | PAYLOAD-ENV-RECIPE-PROVIDER-FALLBACK |
 | 2026-08-16 | Recorded that the working key is crate-private and why, that `evaluate`/`apply`/`get_dependency_state` refuse relative queries, and that `-R-key/.` is the supported replacement. Restated ordered resolution for frozen plans. | PLAN-CWD-FREEZE |

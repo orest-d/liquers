@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets]
-reviewed: 2026-08-30
+reviewed: 2026-08-31
 ---
 # Liquers Language Integration Guide
 
@@ -429,8 +429,23 @@ impl ForeignValue for JsOpaque {
 // your environment setup — the one place every rebuild path funnels through
 let mut types = TypeRegistry::from_value_type::<Value>();
 types.register(js_value_type_info())?;
+
+// Through the builder, which is the recommended construction path:
+let mut builder = EnvironmentBuilder::<Value>::new().with_type_registry(types);
+// … register commands into `builder.command_registry` …
+let envref = builder.build()?;
+
+// Or on an environment you are assembling by hand:
 let mut env = DefaultEnvironment::<Value>::new_with_type_registry(types);
 ```
+
+`EnvironmentBuilder::build` returns an `EnvRef` whose asset manager is already started, so an
+integration does not have to arrange initialization or worry about a first evaluation racing it.
+An integration that defines its **own** `Environment` rather than using a built-in one carries that
+obligation itself, in `init_with_envref`: construct the manager with the supplied reference,
+install it, start it. See
+[Building and Configuring an Environment](./ENVIRONMENT_CONSTRUCTION_GUIDE.md) §Implementing your
+own `Environment`.
 
 Four things worth getting right, each of which has cost somebody time:
 
@@ -2586,6 +2601,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-31 | §VALUE shows `EnvironmentBuilder::with_type_registry` alongside `new_with_type_registry`, and records that an integration defining its own `Environment` carries the readiness obligation in `init_with_envref`. Links to the new construction guide. | `design/environment-builder/phase-5` |
 | 2026-08-30 | Declaration links now resolve to `reference/COMMAND_DECLARATION.md`, the format having landed. | `design/command-declaration/` |
 | 2026-08-30 | §COMMAND points at the shared [Command Declaration Format](../reference/COMMAND_DECLARATION.md) instead of leaving each *integration* to invent a declaration vocabulary: the key-to-`CommandMetadata` mapping, composition over introspection, the defaulting rules, and `hints` for language-specific facts. Adds an **Examples** note — a worked example that restates every argument misrepresents the format. Listed in §8. A section on writing *language* documentation and user guides is still missing; filed as `LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION`. | `design/command-declaration/` |
 | 2026-08-29 | §STORE "Taking only part of the store support crate": **recommendation reversed.** The project took option 2 — configuration, the `StoreFactory` seam and `StoreRouterBuilder` moved to `liquers-core`, so an integration needs no store crate for them and `liquers-web` dropped its dependency. Records why the original rejection did not survive (the consumer was `liquers-core` itself, not one integration), keeps option 3 as still correct for the *backends*, and restates the extension-seam rule: there are no built-in types and factories chain first-wins, so overriding a shared type name means chaining earlier. `STORE12`'s override clause restated in terms of chain order, with an `NA` condition. Added §"What the *language* cannot contribute: a store *type*" — the seam is for the integration, not the language, and a page can supply a store instance but not a named type with declared arguments. | `design/store-factories-in-core/` |

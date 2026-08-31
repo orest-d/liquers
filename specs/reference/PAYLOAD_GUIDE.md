@@ -3,7 +3,7 @@ title: Payload Specification and Usage
 kind: reference
 audience: internal
 area: [core/context, core/commands]
-reviewed: 2026-08-01
+reviewed: 2026-08-31
 ---
 # Payload Usage Guide
 
@@ -159,6 +159,14 @@ pub struct MyPayload {
 ### Step 2: Choose Environment Type
 
 **Option A: Use SimpleEnvironmentWithPayload** (recommended for most cases)
+
+> Since the environment-builder work, `SimpleEnvironmentWithPayload<V, P>` and
+> `ImmediateEnvironmentWithPayload<V, P>` are **type aliases** of
+> `GenericEnvironment<V, P, K>` rather than distinct structs. Every name below still resolves to a
+> real type and no code changes; the payload dimension survives consolidation as the plain `P`
+> parameter. Build one with `EnvironmentBuilder::<Value, MyPayload>::new()`, or keep using
+> `to_ref` on an environment you assembled — see
+> [Building and Configuring an Environment](../guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md).
 
 ```rust
 use liquers_core::context::SimpleEnvironmentWithPayload;
@@ -1189,4 +1197,5 @@ When creating a newtype for injection:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-31 | Recorded that the payload environments are now type aliases of `GenericEnvironment<V, P, K>` rather than distinct structs, and pointed at the builder for construction. Payload semantics themselves are unchanged and were not otherwise re-reviewed. | `design/environment-builder/phase-5` |
 | 2026-08-01 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |

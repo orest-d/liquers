@@ -3,7 +3,7 @@ id: ENVIRONMENT-BUILDER
 kind: design
 title: Environment builder
 workflow: liquers-project
-phase: implementation
+phase: documentation
 area: [core/assets, core/context]
 gh_pr: [44]
 issues: [QUEUED-MANAGER-STARTUP-READINESS, ENVIRONMENT-MANAGER-REFERENCE-CYCLE, CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC, STORE-CONFIG-IN-CORE, COMMAND-DECLARATION-FORMAT, RECIPE-PROVIDER-BY-NAME, WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG]
@@ -20,9 +20,9 @@ superseded_by:
 - [x] Phase 1: High-Level Design (approved)
 - [x] Phase 2: Solution & Architecture (approved)
 - [x] Phase 3: Examples & Testing (approved 2026-08-31)
-- [x] Phase 4: Implementation Plan (awaiting approval)
-- [ ] Phase 5: Documentation
-- [ ] Implementation Complete
+- [x] Phase 4: Implementation Plan (approved 2026-08-31)
+- [x] Implementation: all twelve steps complete and green
+- [x] Phase 5: Documentation (awaiting approval)
 
 ## Notes
 

@@ -3,7 +3,7 @@ title: Assets and Execution Lifecycle Reference
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-08-09
+reviewed: 2026-08-31
 ---
 # DOC-03: Assets and Execution Lifecycle
 
@@ -279,11 +279,40 @@ Framework-facing or low-level APIs:
 - `MetadataSaver`
 - Direct access through public `AssetRef::data`
 - `JobQueue`
-- Manager lifecycle primitives such as `set_envref`, `dependency_manager`,
-  insertion/removal, and expiration tracking
+- Manager lifecycle primitives such as `dependency_manager`, insertion/removal,
+  and expiration tracking
 
 These groups are not enforced by Rust visibility consistently. The rustdoc now
 labels the boundary, but a future API pass should narrow or separate it.
+
+## Manager lifecycle
+
+A manager is constructed **for an environment that already exists**:
+`DefaultAssetManager::new(envref)`, `DefaultAssetManager::with_capacity(envref, capacity)` and
+`ImmediateAssetManager::new(envref)` take the `EnvRef` and store it as a plain field. The manager
+therefore has no unset state: `get_envref` is a field read, and the former `set_envref` method and
+its "environment not set" panic no longer exist. `Environment::init_with_envref` is what calls
+these constructors, with a reference nothing else can observe yet.
+
+| Operation | Shape | Contract |
+|---|---|---|
+| `start` | `fn start(&self) -> Result<(), Error>` | Idempotent startup: registers command metadata and implementation versions into the dependency manager. Synchronous — the work is uncontended in-memory map writes and touches no store. Called from `init_with_envref` before any `EnvRef` is observable. |
+| `is_started` | `fn is_started(&self) -> bool` | Whether `start` has completed at least once. The observable readiness boundary. |
+| `refresh_command_versions` | `fn refresh_command_versions(&self) -> Result<Vec<DependencyKey>, Error>` | Re-reads the metadata registry and re-registers versions, returning the keys whose version changed. **Not** a readiness operation, and re-runnable: it exists so a command registered or a metadata edit made after construction is reflected. |
+| `refresh_command_versions_and_expire` | `async fn … -> Result<(), Error>` | The above, then cascade-expires everything it reports. Provided; cascade expiration is asynchronous, which is why the sync half only reports. |
+
+Both `start` and `refresh_command_versions` are fallible although neither built-in manager can fail
+today. The `Result` is reserved for a manager whose startup genuinely can fail — one restoring a
+persisted dependency graph from a store — because adding it later would be a breaking change.
+
+`ImmediateAssetManager` no longer starts lazily. It used to hold a `tokio::sync::OnceCell` and call
+`ensure_started()` at each of its five evaluation entry points; startup now happens once, during
+construction, and the flag is an `AtomicBool` so `refresh_command_versions` stays re-runnable — a
+one-shot cell would foreclose it.
+
+**Construction still requires a runtime for the queued manager.** `DefaultAssetManager` spawns its
+job queue and expiration monitor from its constructor. `ImmediateAssetManager` spawns nothing.
+Synchronous startup did not change that, and the distinction is per manager rather than global.
 
 ## Conflicts and unresolved gaps
 
@@ -348,5 +377,6 @@ API-surface gap.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-31 | Documented the manager lifecycle under the new ownership: constructors take the `EnvRef`, `set_envref` is gone, `start` is synchronous and fallible, and `is_started` / `refresh_command_versions` / `refresh_command_versions_and_expire` replace lazy startup. | `design/environment-builder/phase-5` |
 | 2026-08-09 | Reviewed asset reads, expiration, dependency waiting, persistence, and lifecycle behavior against HEAD; documented the unified state/binary exposure policy and corrected links. | ASSET-EXPIRED-CACHED-BINARY-READ |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
