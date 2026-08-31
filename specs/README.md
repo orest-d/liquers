@@ -202,7 +202,9 @@ Regenerated on every run. Anything listed here is missing from the capability ma
 deliberately folded behind a broader line.
 
 <!-- BEGIN generated: unplaced -->
+- `guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md`
 - `guides/TYPE_SYSTEM_GUIDE.md`
+- `reference/ENVIRONMENT_CONFIG.md`
 - `reference/VALUE_TYPE_SYSTEM.md`
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - design `asset-manager-insert-key-asset-semantics`
@@ -248,6 +250,7 @@ deliberately folded behind a broader line.
 
 <!-- BEGIN generated: guides -->
 - [`COMMAND_REGISTRATION_GUIDE.md`](guides/COMMAND_REGISTRATION_GUIDE.md) — This guide covers defining and registering new commands in Liquers. It covers both the `register_command!` macro approach and manual registration.
+- [`ENVIRONMENT_CONSTRUCTION_GUIDE.md`](guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md) — An `Environment` owns the global services a query evaluation needs: the command registry, the
 - [`LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md) — Status: Draft
 - [`QUERY_ESCAPING_GUIDE.md`](guides/QUERY_ESCAPING_GUIDE.md) — A Liquers query is text with structure: `/` separates path segments, `-` separates action
 - [`STORE_FACTORY_GUIDE.md`](guides/STORE_FACTORY_GUIDE.md) — How to define a store type, contribute one from another crate, choose which set of store types a

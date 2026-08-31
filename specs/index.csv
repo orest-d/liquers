@@ -72,6 +72,7 @@ STORE-CONFIG-FROM-URI,feature,A store cannot be configured from a URI,draft,loca
 UI-VARIADIC-ARGUMENT-LIST-EDITOR,feature,A variadic argument cannot be edited as a list in a parameter editor,draft,local,,,P3,M,lib/ui;lib/egui;web;core/query,,,,variadic-arguments-declaration,,2026-08-25,specs/issues/UI-VARIADIC-ARGUMENT-LIST-EDITOR.md
 V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL,issue,The `v` instruction marks the whole plan volatile rather than the steps after it,draft,local,,,P3,M,core/plan;core/query,,,,,,2026-08-26,specs/issues/V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL.md
 WEB-CANCELLATION-INERT,issue,Web cancellation surface exists but does nothing,accepted,local,,,P3,M,web,,,,,,2026-08-08,specs/issues/WEB-CANCELLATION-INERT.md
+WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG,issue,liquers-web hand-rolls the environment configuration that EnvironmentConfig will own,draft,local,,,P3,M,web;core/store;core/context,,,,,,2026-08-31,specs/issues/WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG.md
 WORKSPACE-NOT-RUSTFMT-CLEAN,issue,"The workspace is not rustfmt-clean, so formatting drift hides in every diff",draft,local,,,P3,M,build;docs,,,,,,2026-08-29,specs/issues/WORKSPACE-NOT-RUSTFMT-CLEAN.md
 COMMAND-COMPOSITE-VARIADIC-ARGUMENTS,feature,A variadic argument cannot carry composite elements such as pairs or tuples,draft,local,,,P3,L,core/commands;macro;lib/ui,,,,variadic-arguments-declaration,,2026-08-25,specs/issues/COMMAND-COMPOSITE-VARIADIC-ARGUMENTS.md
 CORE-ASSET-GC,issue,Assets are never garbage collected,accepted,local,,,P3,L,core/assets;core/store,,,,,,2026-08-08,specs/issues/CORE-ASSET-GC.md
@@ -107,6 +108,7 @@ UI-EVENTS,design,UI event delivery to widgets,in_review,local,high-level,,,,lib/
 VALUE-ACCESSOR,design,Value accessor abstraction,draft,local,high-level,,,,core/value,,,,value-accessor,,2026-03-02,specs/design/value-accessor/DESIGN.md
 VALUE-LIST-SUPPORT,design,Typed list values for lui/children and lui/roots,draft,local,architecture,,,,lib/ui,,,,value-list-support,,2026-03-02,specs/design/value-list-support/DESIGN.md
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,core/commands;macro,,,,,2026-08-31,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
+ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,core/context;core/assets;core/store,,,,,2026-08-31,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-08-30,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,core/query,,,,,2026-08-14,,specs/guides/QUERY_ESCAPING_GUIDE.md
 STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,core/store;store/config,,,,,2026-08-29,,specs/guides/STORE_FACTORY_GUIDE.md
@@ -127,6 +129,7 @@ DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local
 DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,core/assets,,,,,2026-08-09,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
 DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,core/context;core/plan,,,,,2026-08-31,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
 DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,core/plan;core/assets;core/context,,,,,2026-08-29,,specs/reference/api/DOC_08_RECIPES_PLANS.md
+ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,core/context;core/store;core/assets,,,,,2026-08-31,,specs/reference/ENVIRONMENT_CONFIG.md
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,core/context;core/commands,,,,,2026-08-01,,specs/reference/PAYLOAD_GUIDE.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,lib/polars,,,,,2026-08-25,,specs/reference/POLARS_COMMAND_LIBRARY.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-08-18,,specs/reference/PROJECT_OVERVIEW.md
