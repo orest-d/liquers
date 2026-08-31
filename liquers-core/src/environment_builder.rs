@@ -46,6 +46,10 @@ use crate::value::ValueInterface;
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AssetManagerOptions {
     /// Job-queue capacity for a queued kind. Defaults to the manager's own default (four).
+    ///
+    /// Must be at least 1. Zero is rejected at build time rather than treated as "no limit":
+    /// the queue starts work only while `running_count < capacity`, so zero would accept
+    /// evaluations and never run them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub job_capacity: Option<usize>,
 }
@@ -111,6 +115,17 @@ impl AssetManagerKind for Queued {
         options: &AssetManagerOptions,
     ) -> Result<Arc<Self::Manager<E>>, Error> {
         Ok(Arc::new(match options.job_capacity {
+            // A zero capacity is not "no limit", it is a deadlock: the job queue starts an asset
+            // only while `running_count < capacity`, so with zero nothing ever starts and every
+            // submitted evaluation parks forever. The caller gets a hang with no error, which is
+            // strictly worse than a rejected configuration — and this is now reachable from a
+            // configuration document, not just from a deliberate `with_capacity(0)`.
+            Some(0) => {
+                return Err(Error::general_error(
+                    "job_capacity is 0; the queued asset manager would accept work and never run                      it. Use at least 1, or leave it unset for the default."
+                        .to_string(),
+                ))
+            }
             Some(capacity) => crate::assets::DefaultAssetManager::with_capacity(envref, capacity),
             None => crate::assets::DefaultAssetManager::new(envref),
         }))
@@ -530,6 +545,40 @@ mod tests {
             "no edge can exist for a version the manager never saw; got {:?}",
             expired.keys
         );
+    }
+
+    /// A zero job capacity is rejected rather than accepted into a deadlock.
+    ///
+    /// `JobQueue` starts an asset only while `running_count < capacity`, so capacity zero accepts
+    /// every submission and runs none of them: the caller waits forever with no error. Since
+    /// `job_capacity` is now reachable from a configuration document, that has to fail at build
+    /// time — a hang is the one outcome a misconfiguration must not produce.
+    #[tokio::test]
+    async fn a_zero_job_capacity_is_rejected() {
+        let result = EnvironmentBuilder::<Value>::new()
+            .with_asset_manager_options(AssetManagerOptions::default().with_job_capacity(0))
+            .build();
+
+        match result {
+            Ok(_) => panic!("job_capacity 0 would accept work and never run it"),
+            Err(e) => {
+                let message = e.to_string();
+                assert!(
+                    message.contains("job_capacity"),
+                    "the error must name the offending option, got: {message}"
+                );
+            }
+        }
+    }
+
+    /// A capacity of one is the smallest workable value and is accepted.
+    #[tokio::test]
+    async fn a_job_capacity_of_one_is_accepted() {
+        let envref = EnvironmentBuilder::<Value>::new()
+            .with_asset_manager_options(AssetManagerOptions::default().with_job_capacity(1))
+            .build()
+            .expect("capacity 1 is valid");
+        assert!(envref.get_asset_manager().is_started());
     }
 
     /// The two per-crate recipe-provider defaults are distinct, and both are expressible as a

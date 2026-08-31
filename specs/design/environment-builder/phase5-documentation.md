@@ -93,7 +93,18 @@ everywhere and documenting the change, was rejected because it is invisible at c
 Pinned behaviourally by `liquers-lib/tests/environment_defaults.rs`: is there a recipe in the store,
 and does it resolve? An identity assertion would not have caught it, since both providers exist.
 
-**5. `liquers-py` came into scope.** Phase 2 left it out. Once `init_with_envref` became fallible
+**5. `job_capacity: 0` had to be rejected.** Also found by review on PR #53. `JobQueue` starts an
+asset only while `running_count < capacity`, so a capacity of zero accepts every submission and runs
+none — the caller hangs, with no error anywhere. `DefaultAssetManager::with_capacity` was always
+public, so the value was always reachable, but this design made it reachable *from a configuration
+document*, which is what turns a deliberate misuse into a plausible typo. `Queued::build` now
+rejects it, matching the principle the design already applied to `job_capacity` against `Inline`: a
+kind returns an error for a setting it cannot honour rather than dropping it.
+
+Removed alongside it: `JobQueue::new`'s unconditional `eprintln!("Creating job queue with capacity
+…")`, the sibling of the `"Spawned job queue"` line `DESIGN.md` had already folded into scope.
+
+**6. `liquers-py` came into scope.** Phase 2 left it out. Once `init_with_envref` became fallible
 and carried the readiness contract, its `todo!()` was a panic on a supported path; it now returns an
 explicit `Err`. The crate's environment is still a stub.
 

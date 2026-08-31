@@ -43,7 +43,7 @@ assets:
 |---|---|---|---|
 | `store` | `StoreRouterConfig` | empty router | Store list and routing prefixes. See [Store Configuration](./STORE_CONFIG_FSD.md); the format is not restated here. |
 | `recipes` | `RecipeProviderChoice` | **`default`** | `default` reads recipes through the store; `trivial` resolves none. Aliases `none` and `no_recipes` are accepted for `trivial`. |
-| `assets` | `AssetManagerOptions` | all unset | Per-manager settings. `job_capacity` sets the queued manager's job-queue size. |
+| `assets` | `AssetManagerOptions` | all unset | Per-manager settings. `job_capacity` sets the queued manager's job-queue size; **must be at least 1**. |
 
 Every field has a serde default, so a document may configure one section and omit the rest, and a
 field added later does not break an existing document. Unknown keys are currently **ignored**
@@ -82,6 +82,8 @@ setters infallible and chainable; three failures surface at `build()` instead:
 | Store type no factory in the chain claims | Names the type, and lists the types the chain supports |
 | `${VAR}` referencing an unset variable | The expander has no default-value syntax, so this is an error rather than an empty value |
 | Both a store and a store configuration supplied | Rejected rather than resolved by a silent precedence rule |
+| `assets.job_capacity: 0` | Rejected. The queue starts work only while `running_count < capacity`, so zero would accept every evaluation and run none — a hang with no error, which is strictly worse than a rejected configuration |
+| `assets.job_capacity` set against an inline kind | Rejected. `Inline` has no job queue, and silently ignoring the setting would hide the mistake |
 
 Use `with_store_config_unexpanded` where there are no environment variables to expand — a browser
 page — mirroring `StoreRouterBuilder::build_without_env_expansion`.

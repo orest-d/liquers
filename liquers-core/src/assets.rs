@@ -5400,7 +5400,6 @@ pub struct JobQueue<E: Environment> {
 impl<E: Environment + 'static> JobQueue<E> {
     /// Create a new job queue with the specified capacity
     pub fn new(capacity: usize) -> Self {
-        eprintln!("Creating job queue with capacity {}", capacity);
         JobQueue {
             jobs: Arc::new(Mutex::new(Vec::new())),
             running_count: Arc::new(AtomicUsize::new(0)),
