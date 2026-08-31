@@ -13,11 +13,16 @@ the tree, `liquers-web`. Scenario 3 collects what will bite people.
 **Examples are conceptual.** Making them runnable requires the implementation, which is Phase 4.
 Each is written so it can be lifted into a test or a guide once the code exists.
 
-> **Amended 2026-08-31**, after the four prerequisite designs merged. Every "before" block was
-> re-read against `HEAD`; the only one that moved is Scenario 2a (`liquers-web`), noted inline.
-> Scenario 4's layering argument is superseded — the sketched `EnvironmentConfig` can now live in
-> `liquers-core` — and T9 changes what it proves, because the panic it guarded against was fixed
-> directly. See [`DESIGN.md`](./DESIGN.md) §Prerequisite review.
+> **Amended 2026-08-31**, in two passes. First, after the four prerequisite designs merged: every
+> "before" block was re-read against `HEAD`; the only one that moved is Scenario 2a (`liquers-web`),
+> noted inline, and T9 changed what it proves because the panic it guarded against was fixed
+> directly.
+>
+> Then two maintainer decisions at the gate. **`to_ref` stays** — so Scenario 3b is rewritten (it
+> was a deprecation warning; it is now a supported path), open question 5 is resolved and no longer
+> blocks Phase 4, and a new Scenario 3e covers the case the decision exists for: a user-implemented
+> environment. **`EnvironmentConfig` is in scope** — so Scenario 4 stops being a sketch, and gains
+> tests. See [`DESIGN.md`](./DESIGN.md) §Prerequisite review and §Gate decisions.
 
 ## Overview Table
 
@@ -30,9 +35,11 @@ Each is written so it can be lifted into a test or a guide once the code exists.
 | 2c | Payload environment | The `P` parameter survives consolidation | `GenericEnvironment<V, P, K>` aliases |
 | 2d | `liquers-lib` polars test | Extension trait replacing an inherent method | `PolarsCommandRegistration` |
 | 3a | The readiness guarantee | The defect this project exists to fix | `build()` ordering, `is_started` |
-| 3b | Deprecated `to_ref` still compiles | 336 call sites keep working | inherent `to_ref` on the alias |
+| 3b | `to_ref` still compiles, and is supported | 348 call sites keep working, no warning | `Environment::to_ref` / `try_to_ref` |
 | 3c | `Queued` needs a runtime | Sync ≠ runtime-free | `Queued::build` |
 | 3d | Late command registration | The re-runnable barrier | `refresh_command_versions` |
+| 3e | A user-implemented `Environment` | The path the builder deliberately does not own | `init_with_envref`, `try_to_ref` |
+| 4 | One document configures environment + store | The committed configuration goal | `EnvironmentConfig`, `with_config` |
 
 | # | Test | Checks | Kind |
 |---|---|---|---|
@@ -45,10 +52,13 @@ Each is written so it can be lifted into a test or a guide once the code exists.
 | T7 | `refresh_command_versions_expires_dependents` | A changed version cascades | integration |
 | T8 | `refresh_is_idempotent_when_nothing_changed` | Re-running expires nothing | unit |
 | T9 | `recipe_provider_defaults_across_all_aliases` | The per-crate defaults are preserved, and `CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC` cannot recur | unit |
-| T10 | `deprecated_to_ref_produces_a_ready_envref` | The old door is not a hole | integration |
+| T10 | `to_ref_produces_a_ready_envref` | The `to_ref` door is not a hole either | integration |
 | T11 | `aliases_are_the_generic_type` | Consolidation did not change any public type identity | compile-time |
 | T12 | `inline_builds_without_a_tokio_runtime` | Wasm path; `Inline` spawns nothing | unit |
-| T13 | `build_refreshes_command_metadata_versions` | `build()` step 0: a command mutated after registration is registered under its **refreshed** version, not the stale one — the `to_ref` invariant from `refresh-command-metadata-versions`, preserved through the builder | unit |
+| T13 | `build_refreshes_command_metadata_versions` | A command mutated after registration is registered under its **refreshed** version, not the stale one — the `to_ref` invariant from `refresh-command-metadata-versions`, inherited by `build()` because it delegates to `try_to_ref` | unit |
+| T14 | `custom_environment_gets_the_readiness_guarantee` | A test-local `Environment` implementing only `init_with_envref` reaches a started manager through `to_ref` — the ad-hoc path the gate decision keeps open | integration |
+| T15 | `config_roundtrips_and_applies` | `EnvironmentConfig` YAML/JSON round-trip; `with_config` yields the named store router, recipe provider and manager options | unit |
+| T16 | `config_errors_surface_at_build` | An unset `${VAR}` and an unclaimed store `type` both fail at `build()`, not at the setter, and the store-type error lists what the chain supports | unit |
 
 ## Example
 
@@ -334,11 +344,14 @@ tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 Both lines delete. A timing-dependent test becomes a deterministic one, which is the clearest
 before/after in the suite.
 
-### Scenario 4 — `EnvironmentConfig`, sketched (NOT in scope)
+### Scenario 4 — `EnvironmentConfig`: one document for the environment and its store
 
-Phase 1 records a single-configuration-point ambition and requires only that this design not
-preclude it. Sketching it is how that requirement gets tested, so this scenario is illustrative:
-nothing here is being built now.
+**In scope as of 2026-08-31.** This scenario was written as an illustrative sketch, testing only
+that the design did not *preclude* a single configuration point. The maintainer decision at the gate
+makes it the goal: the store router configuration is a section of the environment configuration, and
+one file or JSON structure configures both. Everything below is now specified rather than sketched —
+`liquers-core` holds every type it names, and Phase 4 sequences it as the final, separable step
+after the readiness fix is green.
 
 **What configuration can and cannot cover.** Commands are Rust functions registered by a macro; no
 YAML can name one. So a configuration file configures *services*, and code registers *commands*.
@@ -365,15 +378,13 @@ assets:
 > `EnvironmentConfig` in `liquers-store` and treated `RecipeProviderChoice` as hypothetical. Both
 > premises are gone: PR 46 moved the store configuration types, the `StoreFactory` trait, factory
 > chaining and `StoreRouterBuilder` into `liquers-core`, and PR 48 added the real
-> `RecipeProviderChoice` to `liquers-core/src/recipes.rs`. **The sketch below now compiles-in-
-> principle entirely inside `liquers-core`** — every field is a core type. The code is updated;
-> the §Layering paragraph that followed it is struck through and replaced. Nothing here is in
-> scope for this project either way; what changed is that the *sketch* got easier, not that the
-> builder acquired an obligation.
+> `RecipeProviderChoice` to `liquers-core/src/recipes.rs`. Every field below is a core type, so the
+> whole document lives beside the builder it configures.
 
 ```rust
-// in liquers-core: since PR 46 it holds StoreRouterConfig, StoreFactory and StoreRouterBuilder,
-// so it can see every field of this struct and the EnvironmentBuilder they configure.
+// in liquers-core/src/environment_config.rs: since PR 46 the crate holds StoreRouterConfig,
+// StoreFactory and StoreRouterBuilder, so it sees every field of this struct and the
+// EnvironmentBuilder they configure.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EnvironmentConfig {
     #[serde(default)] pub store: StoreRouterConfig,
@@ -383,32 +394,51 @@ pub struct EnvironmentConfig {
 
 impl EnvironmentConfig {
     pub fn from_yaml(yaml: &str) -> Result<Self, Error>;
+    pub fn from_json(json: &str) -> Result<Self, Error>;
+    pub fn from_toml(toml: &str) -> Result<Self, Error>;
+    pub fn to_yaml(&self) -> Result<String, Error>;
+    pub fn to_json(&self) -> Result<String, Error>;
     pub fn expand_env_vars(&mut self) -> Result<(), Error>;
+}
 
-    /// Apply every configured service to a builder. Commands are the caller's job.
-    pub fn apply<V: ValueInterface, P: PayloadType, K: AssetManagerKind>(
-        &self,
-        builder: EnvironmentBuilder<V, P, K>,
-        factories: &[Box<dyn StoreFactory>],
-    ) -> Result<EnvironmentBuilder<V, P, K>, Error>;
+// applied through the builder, in the same direction as every other setter:
+impl<V, P, K> EnvironmentBuilder<V, P, K> {
+    pub fn with_config(self, config: EnvironmentConfig, factory: Box<dyn StoreFactory>) -> Self;
 }
 ```
 
 Use:
 
 ```rust
-let mut config = EnvironmentConfig::from_yaml(&std::fs::read_to_string("environment.yaml")?)?;
-config.expand_env_vars()?;
+let config = EnvironmentConfig::from_yaml(&std::fs::read_to_string("environment.yaml")?)?;
 
-let mut builder = config.apply(EnvironmentBuilder::<Value>::new(), &factories)?;
+let mut builder = EnvironmentBuilder::<Value>::new()
+    .with_config(config, Box::new(default_store_factory()));
 register_my_commands(&mut builder.command_registry)?;   // code, not config
 let envref = builder.build()?;
 ```
 
-`apply` takes and returns the builder by value, matching the `with_*` setters, so it composes with
-hand-written configuration in either order — config first then override in code, or the reverse.
-`StoreRouterConfig` and `expand_env_vars` are reused verbatim; note the existing expander supports
-`${VAR}` only and **errors** when the variable is unset, with no default-value syntax.
+**Revised from the sketch.** `apply(builder, &factories) -> Result<builder>` became
+`builder.with_config(config, factory) -> Self`, for three reasons: it reads in the same direction as
+every other setter, so configuration and hand-written overrides compose in either order without one
+of them inverting; it stays infallible, because store construction is deferred to `build()` where
+the other fallible work already lives; and the factory is a `Box<dyn StoreFactory>`, matching
+`StoreRouterBuilder::new`'s existing parameter rather than introducing a slice-of-boxes convention
+beside it. `${VAR}` expansion also moves into `build()` — the caller no longer has to remember
+`expand_env_vars()`, and the wasm path that must *not* expand says so explicitly with
+`with_store_config_unexpanded`, mirroring `StoreRouterBuilder::build_without_env_expansion`.
+
+Two behaviors worth stating, because both are silent otherwise:
+
+- **`recipes:` absent means `default`, not `trivial`.** `RecipeProviderChoice`'s `#[default]` variant
+  is `Default`, chosen deliberately by `recipe-provider-selection` on the grounds that a document
+  saying nothing about recipes most plausibly wants them to work. That is *not* the core builder's
+  unconfigured default, which is `Trivial`. So applying a configuration is an explicit act that sets
+  the provider — a bare `EnvironmentBuilder::<Value>::new()` resolves recipes trivially, and the
+  same builder `.with_config(EnvironmentConfig::default(), …)` resolves them through the store.
+  Intended, and the reference must say so.
+- **The expander errors on an unset variable** and has no default-value syntax, so a missing
+  `LIQUERS_DATA` fails the build rather than producing an empty root. Also intended; T16 pins it.
 
 **~~Layering.~~ Superseded 2026-08-31.** This paragraph read: `EnvironmentConfig` cannot live in
 `liquers-core` because `StoreRouterConfig` lives in `liquers-store`, which depends on core, so it
@@ -469,27 +499,79 @@ no default arm — consistent with the project's enum convention.
 
 ## Corner Cases
 
-### 3b — `to_ref` still compiles, and is still correct
+### 3b — `to_ref` still compiles, and is now a supported path
 
 ```rust
-let envref = SimpleEnvironment::<Value>::new().to_ref();  // warning: deprecated
-assert!(envref.get_asset_manager().is_started());          // but ready
+let envref = SimpleEnvironment::<Value>::new().to_ref();   // no warning: supported
+assert!(envref.get_asset_manager().is_started());           // and ready
 ```
 
-All 336 sites keep working. The deprecation warning is the migration prompt; the readiness is the
-point. Because `to_ref`'s signature is infallible it must panic on a startup error — which cannot
-happen today, and is the stated reason the method is deprecated rather than blessed.
+**Rewritten 2026-08-31.** This corner case previously read "all 336 sites keep working, emitting a
+deprecation warning", and carried open question 5 — the contradiction between deprecating-and-hiding
+`to_ref` and claiming its call sites were free. The maintainer decision removes the contradiction
+rather than resolving it: constructors stay `pub`, `to_ref` stays on the `Environment` trait with its
+signature and no `#[deprecated]`, and the 348 sites are genuinely untouched.
 
-**But `SimpleEnvironment::<Value>::new()` is `pub(crate)` after this change**, so the line above
-compiles only *inside* `liquers-core`. Outside it, existing `.to_ref()` calls still compile only if
-the environment came from somewhere they can still reach.
+What changed for them is invisible and is the entire point: `to_ref` now returns an `EnvRef` whose
+manager is constructed, installed and **started**, because its body delegates the sequence to
+`try_to_ref` and `init_with_envref`. Before this project the same line returned an `EnvRef` whose
+manager startup was a detached task that might not have run.
 
-> **Open question 5** (new, and material): Phase 2 claims both "336 `to_ref` sites keep working" and
-> "constructors become `pub(crate)`". Those are in tension for the sites *outside* `liquers-core` —
-> 94 in `liquers-core/tests` are integration tests and therefore external crates too. Either the
-> constructors stay `pub` through a deprecation period (and `to_ref` is genuinely free), or they go
-> `pub(crate)` now (and those sites migrate in the same PR). The second is more honest but makes the
-> migration mandatory rather than gradual. **This needs deciding before Phase 4.**
+```rust
+// When the error matters, the fallible half:
+let envref = SimpleEnvironment::<Value>::new().try_to_ref()?;
+```
+
+`to_ref` panics on a startup error, which neither built-in manager can produce (startup writes an
+in-memory map). `try_to_ref` is the same body with the `Result` exposed, and is what
+`EnvironmentBuilder::build` calls.
+
+> **Open question 5 — resolved, no longer blocking Phase 4.** Keep constructors `pub`. The
+> alternative (`pub(crate)` now, mandatory migration in the same PR) is incompatible with supporting
+> ad-hoc environments at all: a caller who cannot construct an environment cannot call `to_ref` on
+> one.
+
+### 3e — A user-implemented `Environment`
+
+The case the gate decision exists for. A user with their own global services implements
+`Environment` directly, and the readiness guarantee has to reach them too — the builder owns
+concrete environment types (Phase 1, question 1) and deliberately does not serve this path.
+
+```rust
+struct MyEnvironment {
+    command_registry: CommandRegistry<Self>,
+    // The deferred-slot pattern: the manager cannot exist before the EnvRef does.
+    asset_store: OnceLock<Arc<ImmediateAssetManager<Self>>>,
+    // … the caller's own global services …
+}
+
+impl Environment for MyEnvironment {
+    // … associated types and accessors …
+
+    /// The one method that carries the readiness obligation: on return the manager must be
+    /// constructed with this EnvRef, installed, and started.
+    fn init_with_envref(&self, envref: EnvRef<Self>) -> Result<(), Error> {
+        let manager = Arc::new(ImmediateAssetManager::new(envref));
+        let _ = self.asset_store.set(manager.clone());
+        manager.start()
+    }
+
+    // to_ref and try_to_ref are provided; nothing else to implement.
+}
+
+let envref = MyEnvironment::new().try_to_ref()?;
+assert!(envref.get_asset_manager().is_started());
+```
+
+Three lines of obligation, checked by the compiler at two of them — the signature is fallible, and
+`start()` returns a `Result` that must be used. Compare with today's contract, which is "call
+`set_envref`, then arrange for `start` somehow", where arranging it wrongly is exactly
+`QUEUED-MANAGER-STARTUP-READINESS`.
+
+This is why `init_with_envref` is kept rather than deleted: it is the *seam* that lets one generic
+`try_to_ref` body serve both the built-in environments and a user-defined one. Deleting it, as the
+draft proposed, would have required every such user to reimplement the sequence — including the
+metadata-version refresh they have no reason to know about.
 
 ### 3c — Sync does not mean runtime-free
 
@@ -560,6 +642,8 @@ where `?` is used, no `unwrap`/`expect` outside tests, typed error constructors,
 | `build_refreshes_command_metadata_versions` (T13) | Register a command, mutate its metadata (the shape `register_command!` produces), `build()`, then read the version the dependency manager holds: it is the **refreshed** version. Mirrors `immediate_environment_to_ref_refreshes_metadata_versions` in `context.rs`, one layer further on — that test proves the registry was refreshed, this one proves the refreshed value reached the dependency graph |
 | `inline_builds_without_a_tokio_runtime` (T12) | Plain `#[test]`, no `#[tokio::test]`: `Inline` builds. `manager_parametric.rs` already carries a "no-tokio-runtime proof" for `ImmediateAssetManager`; extend it to construction rather than duplicating it |
 | `builder_defaults_match_previous_environment_defaults` | `NoAsyncStore`, empty registry, type registry from `V` |
+| `config_roundtrips_and_applies` (T15) | `EnvironmentConfig` survives a YAML and a JSON round-trip; `with_config` produces the named store router, the named recipe provider and the given manager options. Also asserts the documented asymmetry: `EnvironmentBuilder::new()` alone resolves recipes **trivially**, while the same builder with `EnvironmentConfig::default()` applied resolves them through the store, because `RecipeProviderChoice`'s `#[default]` is the *document* default |
+| `config_errors_surface_at_build` (T16) | An unset `${VAR}` in the store section, and a store `type` no factory in the chain claims, both fail at `build()` rather than at the setter; the second error names the store types the chain does support |
 
 ### Integration tests — `liquers-core/tests/`
 
@@ -570,7 +654,8 @@ where `?` is used, no `unwrap`/`expect` outside tests, typed error constructors,
 | `concurrent_first_evaluations_share_one_startup` (T4) | `environment_builder.rs` | N concurrent first evaluations; startup ran once (counter on a test kind), all observe complete state |
 | `readiness_equivalent_across_kinds` (T6) | `manager_parametric.rs` *(extend)* | Same assertions for `Queued` and `Inline` — issue verification item 5. The file is already parametric over managers |
 | `refresh_command_versions_expires_dependents` (T7) | `environment_builder.rs` | Change a metadata version, refresh, assert the dependent asset expired |
-| `deprecated_to_ref_produces_a_ready_envref` (T10) | `environment_builder.rs` | `#[allow(deprecated)]`; same readiness assertions |
+| `to_ref_produces_a_ready_envref` (T10) | `environment_builder.rs` | Same readiness assertions through the `to_ref` door. **Renamed 2026-08-31**: no `#[allow(deprecated)]`, because `to_ref` is a supported path and carries no attribute. Also asserts `try_to_ref` agrees |
+| `custom_environment_gets_the_readiness_guarantee` (T14) | `environment_builder.rs` | A test-local `Environment` implementing `init_with_envref` and nothing else reaches a started manager through `to_ref` — Scenario 3e. This is the regression test for the gate decision: if a later refactor moves the readiness sequence into the builder, this fails |
 | `aliases_are_the_generic_type` (T11) | `environment_builder.rs` | Compile-time: a fn taking `GenericEnvironment<Value, (), Queued>` accepts a `SimpleEnvironment<Value>` |
 
 ### Regression and migration coverage
@@ -585,7 +670,11 @@ where `?` is used, no `unwrap`/`expect` outside tests, typed error constructors,
 - `liquers-lib/tests/polars_commands.rs`, `registry_export.rs` — extension trait in scope; registry
   export unchanged (no command signatures move).
 - `liquers-web` — `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles`
-  must pass; the rebuild-on-late-registration path is the sensitive one.
+  must pass; the rebuild-on-late-registration path is the sensitive one, and since PR 46 it also
+  replays a `StoreRouterConfig` and its store objects, not only command declarations.
+- **`EnvironmentConfig` is the last step and separably testable.** T15/T16 exercise it through the
+  builder with no environment-lifecycle assertions, so if the configuration layer slips, the
+  readiness fix and its tests (T1-T14) still stand alone. Phase 4 should keep that separation.
 
 ### Commands to run
 
@@ -601,6 +690,13 @@ cargo clean && cargo test -p liquers-web --target wasm32-unknown-unknown --featu
 Material for Phase 5, collected while writing these examples.
 
 **Guide-worthy (for `ENVIRONMENT_CONSTRUCTION_GUIDE.md`):**
+
+- Scenario 3e as the "implementing your own environment" section: the `init_with_envref` contract is
+  the one obligation a custom environment carries, and getting it wrong reproduces the very issue
+  this project closes.
+- Scenario 4 as the configuration walkthrough, with the `recipes:`-absent asymmetry called out
+  explicitly — it is the kind of default that is obvious in the reference and surprising in
+  practice.
 
 - Scenario 1a as the opening walkthrough — smallest complete build-register-evaluate.
 - Scenario 1b for stores; 2b for kind selection and the wasm story.
@@ -624,7 +720,14 @@ that demonstrates why the guide insists on `build()`; T6 shows the guarantee is 
 4. Writing the examples surfaced two design questions the architecture had not settled — the
    builder aliases (open question 4) and the `pub(crate)` / `to_ref` tension (open question 5,
    material). That tension was invisible until a call site outside `liquers-core` was written out.
-5. *(2026-08-31)* A design that waits between phases accumulates stale premises rather than stale
+5. *(2026-08-31)* Reversing finding A1 made the design **smaller**. The finding removed `to_ref`
+   from the trait because a defaulted body cannot construct a builder for an arbitrary implementor —
+   true, and irrelevant: the body needs the *sequence*, not a builder, and the one step that varies
+   is already behind `init_with_envref`. Restoring it means `build()` delegates to `try_to_ref`
+   instead of reimplementing it, so one readiness guarantee has one implementation. Worth recording
+   as guidance: when a trait method "cannot be generic", check whether the varying part is already
+   abstracted by a neighbouring hook before moving the method to a concrete type.
+6. *(2026-08-31)* A design that waits between phases accumulates stale premises rather than stale
    conclusions. Four prerequisite PRs merged between Phase 3 and this review; none of them touched
    the architecture, and all four touched facts the documents cited to justify it — where a type
    lives, whether a function panics, what `to_ref` does first. The one that mattered was invisible
@@ -640,7 +743,7 @@ no agents spawned): Phase 1 conformity, Phase 2 conformity, and codebase + query
 
 **Reviewer 1 — Phase 1 conformity.** Examples exercise every Phase 1 decision: sync fallible
 `build()` (1a, 1b), kind selection replacing the cfg-import hack (2b), the readiness guarantee as an
-assertion (3a), the re-runnable barrier (3d), `to_ref` deprecated-but-correct (3b), the reference
+assertion (3a), the re-runnable barrier (3d), `to_ref` still correct (3b), the reference
 cycle explicitly unchanged (corner-case table). No scope drift; no Phase 1 element unexercised.
 
 **Reviewer 2 — Phase 2 conformity.** Signatures in the examples match §Function Signatures:
@@ -677,25 +780,49 @@ changing shape — noted inline, with a rebuild obligation added for Phase 4. Sc
 argument is superseded and struck through. One test added (T13) for the `build()` step-0 refresh
 invariant; T9 re-scoped from closing evidence to regression guard.
 
+**Gate decisions (2026-08-31).** Two maintainer decisions, applied above. **`to_ref` stays** —
+corner case 3b rewritten from "deprecated but working" to "supported", new Scenario 3e for the
+user-implemented environment the decision exists for, T10 renamed and T14 added, open question 5
+resolved and Phase 4 unblocked. **One configuration document** — Scenario 4 promoted from sketch to
+committed scope, its `apply` reshaped into `with_config` to read in the same direction as the other
+setters, and T15/T16 added. The examples were re-read after both: no scenario contradicts the
+revised architecture, and 1a, 1b, 2a-2d are unaffected because none of them ever called `to_ref` or
+a configuration API.
+
 ## Open Questions
 
+**Nothing here blocks Phase 4 any more.** The two that did — open question 5 below, and Phase 2's
+question 4 — were resolved by maintainer decision on 2026-08-31.
+
 1. *(from Phase 2)* `refresh_command_versions` cascade application — return `ExpiredDependents` or
-   apply synchronously?
-2. *(from Phase 2)* Confirm no wasm path needs `Queued` present-but-unusable.
-3. *(from Phase 2)* Is `to_ref` deprecated indefinitely, or removed once tests migrate?
+   apply synchronously? **Open**, decides one signature; the readiness guarantee does not depend on
+   it.
+2. *(from Phase 2)* Confirm no wasm path needs `Queued` present-but-unusable. **Open**, low risk.
+3. **~~Is `to_ref` deprecated indefinitely, or removed once tests migrate?~~ Resolved: neither.**
+   `to_ref` is supported and carries no deprecation. The builder is recommended and documented;
+   in-tree call sites are phased out only where cheap. `EnvRef::new` keeps its deprecation.
 4. **~~Builder convenience aliases?~~ Resolved: none.** One `EnvironmentBuilder<V, P, K>` with
    default type parameters (`P = ()`, `K = DefaultKind`, target-selected). A builder name per
    environment would re-suggest the duplication this project removes. Side benefit: `liquers-lib`
    loses its own target-selection cfg pair, since `DefaultKind` already does it.
-5. **New, and blocking Phase 4.** `pub(crate)` constructors and "336 `to_ref` sites keep working"
-   are in tension outside `liquers-core` — including its own `tests/`, which are external crates.
-   Keep constructors `pub` through a deprecation period (gradual migration), or make them
-   `pub(crate)` now (migration mandatory in the same PR)?
-6. *(from Phase 2, new 2026-08-31)* Does the builder accept a `StoreRouterConfig` + factory now that
-   both are `liquers-core` types, or does `with_async_store` stay its only store entry point?
-   Recommendation: status quo for this project, `with_store_config` added later as an additive
-   setter. **Needs a decision at the gate** — it is the one place a merged prerequisite offers this
-   design new scope.
-7. *(new 2026-08-31)* Deleting `SimpleEnvironmentWithPayload`'s per-call
-   `"No recipe provider configured"` `eprintln!` is a behavior change with no replacement. Confirm
-   it needs only a Phase 5 note, not a construction-time diagnostic.
+5. **~~`pub(crate)` constructors versus 336 working `to_ref` sites.~~ Resolved: constructors stay
+   `pub`.** The tension was created by the proposal to hide them, and the maintainer decision
+   withdraws it — supporting ad-hoc environments requires that constructing one stays possible. No
+   mandatory migration, no deprecation warnings, Phase 4 unblocked. See corner case 3b.
+6. **~~Does the builder accept a store configuration?~~ Resolved: yes, as a section of
+   `EnvironmentConfig`.** One document configures the environment and its store. Scenario 4 is in
+   scope; Phase 4 sequences it last and separably.
+7. **~~The `eprintln!` removal.~~ Resolved:** Phase 5 note, no replacement diagnostic.
+
+### Newly open, from the 2026-08-31 decisions
+
+8. **Where does the default store factory chain come from for an application?** `with_config` takes
+   the factory explicitly, which is right for `liquers-web` and `liquers-store` but makes the common
+   `liquers-lib` case write out a chain to get the obvious answer. Recommendation: a `liquers-lib`
+   convenience beside `default_environment_builder`, matching how the recipe-provider default is
+   already handled per crate. *(Phase 2 open question 6.)*
+9. **Does `liquers-web` migrate its hand-rolled `apply_store` onto `EnvironmentConfig` in this
+   project, or later?** Recommendation: **later.** The rebuild path is the crate's most delicate
+   code, it works, and this project already carries a readiness fix plus a configuration layer. The
+   migration is what makes `EnvironmentConfig` pay off for the JavaScript target, so it should be
+   filed rather than forgotten.

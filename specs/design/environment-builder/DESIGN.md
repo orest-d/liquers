@@ -6,8 +6,8 @@ workflow: liquers-project
 phase: examples
 area: [core/assets, core/context]
 gh_pr: [44]
-issues: [QUEUED-MANAGER-STARTUP-READINESS, ENVIRONMENT-MANAGER-REFERENCE-CYCLE, CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC, STORE-CONFIG-IN-CORE, COMMAND-DECLARATION-FORMAT, RECIPE-PROVIDER-BY-NAME]
-affects_docs: [DOC_04_ENVIRONMENT_CONTEXT_EVALUATION, DOC_03_ASSETS_EXECUTION_LIFECYCLE, ENVIRONMENT_CONSTRUCTION_GUIDE, LANGUAGE-INTEGRATION_GUIDE, PAYLOAD_GUIDE, ASSET_LIFECYCLE]
+issues: [QUEUED-MANAGER-STARTUP-READINESS, ENVIRONMENT-MANAGER-REFERENCE-CYCLE, CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC, STORE-CONFIG-IN-CORE, COMMAND-DECLARATION-FORMAT, RECIPE-PROVIDER-BY-NAME, WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG]
+affects_docs: [DOC_04_ENVIRONMENT_CONTEXT_EVALUATION, DOC_03_ASSETS_EXECUTION_LIFECYCLE, ENVIRONMENT_CONSTRUCTION_GUIDE, ENVIRONMENT_CONFIG, LANGUAGE-INTEGRATION_GUIDE, PAYLOAD_GUIDE, ASSET_LIFECYCLE, STORE_CONFIG_FSD]
 created: 2026-08-27
 superseded_by:
 ---
@@ -26,7 +26,14 @@ superseded_by:
 
 ## Notes
 
-Resolves issue `QUEUED-MANAGER-STARTUP-READINESS` (P1; complexity reclassified M -> L).
+Resolves issue `QUEUED-MANAGER-STARTUP-READINESS` (P1; complexity reclassified M -> L). Since the
+2026-08-31 gate decisions it also delivers the single-configuration-point goal (`EnvironmentConfig`),
+which Phase 1 had recorded as future direction.
+
+Filed during the 2026-08-31 review, not fixed here:
+`WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG` (P3) — `liquers-web` hand-rolls the
+configuration-apply path that `EnvironmentConfig` will own; migrating it is deliberately left out of
+this project.
 
 Race confirmed empirically: immediately after `to_ref()` the dependency manager holds no command
 versions, and `register_plan_dependencies` therefore silently registers zero edges for a plan
@@ -60,7 +67,10 @@ that command metadata versions are refreshed after registration mutation and bef
 are loaded into the dependency manager. If the eventual builder delegates through the refreshed
 `to_ref` path, no separate builder operation is needed; if it bypasses `to_ref`, `build()` must call
 the same `CommandMetadataRegistry::refresh_metadata_versions` lifecycle operation before manager
-startup.
+startup. **Satisfied by the first branch as of the 2026-08-31 gate decisions:** `build()` delegates
+to `Environment::try_to_ref`, whose provided body carries the refresh, so no builder-side operation
+exists to forget. The 2026-08-31 review found the design had taken the *second* branch and omitted
+the call — see §Gate decisions, D1.
 
 Manager construction: factory, not `Arc::new_cyclic`. Keeping the back-reference strong rules
 `new_cyclic` out (its closure yields a non-upgradable `Weak`), and `Weak::upgrade` costs more than
@@ -176,6 +186,52 @@ no hard-prerequisite clause; the recommendation is to leave §4.4 as written and
 prerequisites as P1 unless they independently meet a P0 criterion.
 
 **`POST-INIT-COMMAND-REGISTRATION` P3 → P2 remains unapplied**, still pending confirmation.
+
+## Gate decisions (2026-08-31)
+
+Two maintainer decisions taken at the Phase 3 approval gate. Both are applied through Phases 1-3;
+neither has been implemented.
+
+**D1 — `to_ref` stays.** The builder is the ergonomic, recommended way to construct an environment,
+but ad-hoc user-created environments may still need `to_ref` or an equivalent mechanism. Phase it out
+where that makes sense and is cheap; it can stay.
+
+*Applied as:* `Environment::to_ref` keeps its trait method and signature, gains a fallible sibling
+`try_to_ref`, and carries **no** deprecation. `init_with_envref` is kept — sync and fallible now,
+with a strengthened contract: on return the manager is constructed, installed and started. The
+`pub(crate)`-constructors refinement is withdrawn. `EnvRef::new` keeps its deprecation, since it is
+the door that genuinely produces an unready reference.
+
+*Consequence the decision did not ask for, and the reason it is a good one:*
+`EnvironmentBuilder::build()` now **delegates** to `try_to_ref` rather than reimplementing the
+readiness sequence beside it. One guarantee, one implementation, and the metadata-version refresh
+invariant is inherited structurally instead of having to be remembered. This reverses Phase 2's
+finding A1, which had moved `to_ref` to a deprecated inherent method on the ground that a defaulted
+trait body cannot construct a builder — true, but the body needs the *sequence*, and the varying
+step was already behind `init_with_envref`.
+
+*Resolves:* Phase 3 open question 5 (was blocking Phase 4) and Phase 2 open question 3.
+
+**D2 — one configuration document.** The store router configuration is part of the environment
+configuration. The goal is to configure both the environment and its store from a single file or
+JSON structure.
+
+*Applied as:* `EnvironmentConfig` in `liquers-core` — `store: StoreRouterConfig`,
+`recipes: RecipeProviderChoice`, `assets: AssetManagerOptions`, with the same `from_yaml` /
+`from_json` / `from_toml` / `expand_env_vars` surface `StoreRouterConfig` already has. The builder
+gains `with_store_config`, `with_store_config_unexpanded` and `with_config`;
+`with_async_store` stays for a caller who has already built a store. The manager *kind* and the
+store *factories* stay out of the document, because neither can be selected by a string: the kind
+would need two different concrete types behind a non-object-safe trait, and which backends exist is
+a build fact.
+
+*Scope:* this moves Phase 1's *Future Direction* into scope and grows the project beyond its P1
+readiness fix. Deliberate, and the smallest version of that growth — every type it names already
+exists in `liquers-core`, and `StoreRouterBuilder::build` is synchronous, so `build()` stays sync.
+Phase 4 must sequence it as the **final, separable step**, after the readiness fix is green.
+
+*Resolves:* Phase 2 open question 4.
+
 
 Note for whoever owns this design: `payload-env-recipe-provider-fallback`'s Phase 1 corrects a claim
 in `CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC.md` about the struct's doc comment.
