@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 # --------------------------------------------------------------------------- vocabularies
-# Mirrors DOCS_STRUCTURE_GUIDE.md §3, §4.3, §4.4, §4.5, §5.1, §5.2. Kept in sync by CHECK 1,
+# Mirrors DOCS_STRUCTURE_GUIDE.md §3, §4.3, §4.4, §4.5, §5.1, §5.1.1, §5.2. Kept in sync by CHECK 1,
 # which fails when a document uses a value absent here.
 
 AREAS = {
@@ -39,6 +39,7 @@ ISSUE_STATUS = {"draft", "accepted", "rejected", "duplicate",
 DESIGN_STATUS = {"draft", "in_review", "approved", "in_implementation",
                  "implemented", "complete", "superseded", "abandoned"}
 DESIGN_STATUS_NEEDING_PHASE = {"draft", "in_review", "approved", "in_implementation", "implemented"}
+DESIGN_READINESS = {"ready", "needs-decision", "blocked", "phase2-blocked", "covered"}
 # §5.5: the statuses a human may write on a design that has a gh_pr. "" means "derived — ask
 # GitHub"; the rest are terminal conclusions GitHub cannot draw.
 TERMINAL_STATUS_WITH_PR = {"", "complete", "superseded", "abandoned"}
@@ -63,8 +64,9 @@ KIND_ORDER = {"issue": 0, "feature": 0, "design": 1, "guide": 2, "reference": 3}
 AUDIENCES = {"internal", "user", "both"}
 REVIEW_DAYS = 92                          # §9.4
 
-COLUMNS = ["id", "kind", "title", "status", "status_source", "phase", "priority", "complexity",
-           "area", "gh_issue", "gh_pr", "branch", "design", "reviewed", "created", "file"]
+COLUMNS = ["id", "kind", "title", "status", "status_source", "phase", "readiness", "priority",
+           "complexity", "area", "gh_issue", "gh_pr", "branch", "design", "reviewed", "created",
+           "file"]
 
 # No "# GENERATED" banner line: CSV has no comment syntax, so GitHub's renderer reads line 1
 # as the header, finds one column, and refuses to render the table. The file is marked generated
@@ -162,7 +164,7 @@ def collect() -> list[dict]:
             # Issue and feature documents always own their status (§4.3). `github` is a link,
             # not a transfer of authority.
             "status_source": "local",
-            "phase": "", "priority": f.get("priority", ""),
+            "phase": "", "readiness": "", "priority": f.get("priority", ""),
             "complexity": f.get("complexity", ""), "area": ";".join(_list(f, "area")),
             "gh_issue": f.get("github", ""), "gh_pr": ";".join(_list(f, "gh_pr")),
             "branch": "", "design": f.get("design", ""), "reviewed": "",
@@ -180,7 +182,8 @@ def collect() -> list[dict]:
             # Who owns the value in the status column, not whether a PR exists (§5.5). A design
             # that has reached a hand-written terminal status owns it locally, gh_pr or not.
             "status_source": "github" if gh_pr and not f.get("status") else "local",
-            "phase": f.get("phase", ""), "priority": "", "complexity": "",
+            "phase": f.get("phase", ""), "readiness": f.get("readiness", ""),
+            "priority": "", "complexity": "",
             "area": ";".join(_list(f, "area")), "gh_issue": "", "gh_pr": ";".join(gh_pr),
             "branch": "", "design": slug, "reviewed": "", "created": f.get("created", ""),
             "file": path.relative_to(REPO).as_posix(), "_fm": f, "_path": path,
@@ -200,7 +203,8 @@ def collect() -> list[dict]:
                     status = ""
             rows.append({
                 "id": path.stem, "kind": f.get("kind", kind), "title": f.get("title", ""),
-                "status": status, "status_source": "local", "phase": "", "priority": "",
+                "status": status, "status_source": "local", "phase": "", "readiness": "",
+                "priority": "",
                 "complexity": "", "area": ";".join(_list(f, "area")), "gh_issue": "",
                 "gh_pr": "", "branch": "", "design": "", "reviewed": str(reviewed),
                 "created": "", "file": path.relative_to(REPO).as_posix(),
@@ -287,6 +291,8 @@ def check(rows: list[dict]) -> tuple[list[str], list[str]]:
 
     designs = {r["design"] for r in rows if r["kind"] == "design"}
     issue_ids = {r["id"] for r in rows if r["kind"] in ("issue", "feature")}
+    issue_rows = {r["id"]: r for r in rows if r["kind"] in ("issue", "feature")}
+    readiness_design_by_issue: dict[str, str] = {}
 
     for r in rows:
         f, where = r["_fm"], r["file"]
@@ -351,6 +357,28 @@ def check(rows: list[dict]) -> tuple[list[str], list[str]]:
                     errors.append(f"{where}: status '{status}' must not carry a phase (§5.1)")
             if f.get("phase") and f["phase"] not in PHASES and f["phase"] not in RETIRED_PHASES:
                 errors.append(f"{where}: unknown phase '{f['phase']}' (see guide §5.2)")
+            if f.get("readiness") and f["readiness"] not in DESIGN_READINESS:
+                errors.append(f"{where}: readiness '{f['readiness']}' not in §5.1.1")
+            if f.get("readiness"):
+                sources = _list(f, "issues")
+                if len(sources) != 1:
+                    errors.append(f"{where}: readiness-labeled design must name exactly one "
+                                  f"source issue or feature (§5.1.1)")
+                else:
+                    source = sources[0]
+                    if source not in issue_rows:
+                        errors.append(f"{where}: source issue or feature '{source}' does not exist")
+                    else:
+                        linked_design = issue_rows[source]["_fm"].get("design")
+                        if linked_design != r["design"]:
+                            errors.append(f"{where}: source '{source}' links to design "
+                                          f"'{linked_design}', expected '{r['design']}' (§5.1.1)")
+                        owner = readiness_design_by_issue.get(source)
+                        if owner:
+                            errors.append(f"{where}: source '{source}' is already owned by "
+                                          f"readiness-labeled design '{owner}' (§5.1.1)")
+                        else:
+                            readiness_design_by_issue[source] = r["design"]
             sb = f.get("superseded_by")
             if sb and sb not in designs:
                 errors.append(f"{where}: superseded_by '{sb}' does not exist")

@@ -359,6 +359,7 @@ title: Timing and race safety in asset expiration
 workflow: liquers-project  # five phases, including mandatory documentation; see §5.2
 status: in_review           # OMITTED once `gh_pr` is set — see §5.5
 phase: architecture         # see §5.2
+readiness: phase2-blocked   # optional implementation-readiness assessment; see §5.1.1
 area: [core/assets]
 issues: [ASSET-EXPIRED-CACHED-BINARY-READ]
 gh_pr: [11]                 # PRs implementing this design; set by hand once, then owned by GitHub
@@ -394,6 +395,32 @@ apart, adding a phase is one row in the table below and touches no status anywhe
 Designs have no `priority` or `complexity`; those live on the issue that motivated the design.
 Designs are never deleted and never move out of `design/` — every terminal status is a readable
 state, and the status field is what separates them.
+
+#### 5.1.1 Design readiness
+
+`readiness` is an optional assessment of whether the first four design phases provide a safe basis
+for implementation. It is independent of `status`: status says where the design effort is in its
+lifecycle, while readiness says what an implementer can responsibly do with its current content.
+Designs that do not make this assessment omit the field and have an empty `readiness` column in
+`index.csv`.
+
+| Readiness | Meaning |
+|---|---|
+| `ready` | Phases 1-4 are present and reviewed, with no blocking question and no unresolved design question. Implementation details may remain only when the public or internal contract already constrains them. |
+| `needs-decision` | Phases 1-4 describe a working solution, but at least one user-facing or system-facing design choice remains open. The design records a recommended answer and the consequences of alternatives. |
+| `blocked` | Phases 1-4 exist, but the final review found a blocking unknown that prevents the design from being a reliable implementation basis. Do not proceed to implementation. |
+| `phase2-blocked` | Phases 1 and 2 are complete, but uncertainty prevents a working Phase 3 example/test contract or Phase 4 implementation plan. Phases 3 and 4 are intentionally absent or remain explicitly incomplete. |
+| `covered` | The issue or feature has its own Phase 1 and 2 record, but no independent Phase 3 or 4 is needed because another named design covers the work or the source is a duplicate. |
+
+The Phase 1 document owns the explanation, leading issue, and tiered open-question list supporting
+this value. `DESIGN.md` carries only the enum so the index remains filterable. The procedure in
+[`guides/autonomous_bulk_design.md`](guides/autonomous_bulk_design.md) defines how autonomous bulk
+design work assigns and maintains it.
+
+Every readiness-labeled design owns exactly one source issue or feature. Its `issues:` list contains
+that one ID, the source document's `design:` field links back to the design slug, and no second
+readiness-labeled design may claim the same source. Historical designs without readiness metadata
+retain their original many-issue relationships.
 
 `workflow` records which gated skill created the effort. `workflow: liquers-project` is the
 unambiguous five-phase contract and makes `documentation` mandatory. An omitted `workflow` denotes
@@ -558,7 +585,7 @@ check is the protection that holds; a comment was only ever advisory.
 Columns, in this exact order:
 
 ```
-id,kind,title,status,status_source,phase,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
+id,kind,title,status,status_source,phase,readiness,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
 ```
 
 | Column | Notes |
@@ -567,6 +594,7 @@ id,kind,title,status,status_source,phase,priority,complexity,area,gh_issue,gh_pr
 | `status` | Front-matter for issues, features, and local design states; derived from GitHub only for a design's PR-derived states (§5.5). |
 | `status_source` | `local` for issues and features, which always own their status locally. Designs may read `github` only while their PR-derived status is cached. |
 | `phase` | `kind: design` only, and only in a status that carries one (§5.1). Empty otherwise. |
+| `readiness` | Optional `kind: design` implementation-readiness assessment (§5.1.1). Empty for unlabeled designs and every other kind. |
 | `priority`, `complexity` | Empty for `kind: design`. |
 | `area` | `;`-separated. |
 | `gh_issue` | Number, or empty. Written by hand once, in the issue's front-matter (§4.3). |
@@ -673,28 +701,31 @@ tooling, no network and no Python can still record what it found.
 6. `phase` is present exactly when §5.1 requires it, and names a phase from §5.2. A `retired`
    phase name is accepted on a file that already carried it and rejected on a new one — so the
    check must compare against `HEAD`, not just the working tree.
-7. `index.csv` matches what regeneration would produce.
-8. Every path and every issue ID referenced by `specs/README.md` exists.
-9. Every stage marker in the capability map matches the directory its link points into (§8.1).
-10. Every `reference/` and `guides/` document has `reviewed:`, a `## History` section, and a top
+7. When a design carries `readiness`, it uses one of the values in §5.1.1, names exactly one
+   existing source issue or feature, owns that source reciprocally, and does not share it with
+   another readiness-labeled design.
+8. `index.csv` matches what regeneration would produce.
+9. Every path and every issue ID referenced by `specs/README.md` exists.
+10. Every stage marker in the capability map matches the directory its link points into (§8.1).
+11. Every `reference/` and `guides/` document has `reviewed:`, a `## History` section, and a top
     History row whose date equals `reviewed:` (§9.5).
-11. If `reviewed:` changed in this diff, the History gained a row bearing the new date (§9.2). This
+12. If `reviewed:` changed in this diff, the History gained a row bearing the new date (§9.2). This
     one reads the diff, not just the tree.
-12. No `workflow: liquers-project` design is `complete` unless `phase5-documentation.md` exists and
+13. No `workflow: liquers-project` design is `complete` unless `phase5-documentation.md` exists and
     records the review of every document in its authoritative `affects_docs` set (§9.3).
-13. **Warning:** documents whose `reviewed:` is more than 92 days old (§9.4).
-14. *With network:* imported bodies still match `imported_body_sha`; every design whose linked PRs
+14. **Warning:** documents whose `reviewed:` is more than 92 days old (§9.4).
+15. *With network:* imported bodies still match `imported_body_sha`; every design whose linked PRs
     are all closed unmerged is reported for a human decision (§5.5).
 
-Checks 11, 12 and 14 are **not implemented yet** — 11 needs the git diff, 12 needs cross-document
-Phase 5 validation, and 14 needs the API. `--sync` is likewise unbuilt. Everything else runs
+Checks 12, 13 and 15 are **not implemented yet** — 12 needs the git diff, 13 needs cross-document
+Phase 5 validation, and 15 needs the API. `--sync` is likewise unbuilt. Everything else runs
 offline with no token.
 
-Checks 10–12 are the review guardrail. None of them can tell whether a document is *right* — they
+Checks 11–13 are the review guardrail. None of them can tell whether a document is *right* — they
 enforce that a judgement was recorded, dated and attributable, and that a landing design cannot
 close while leaving a document it named behind.
 
-Checks 8 and 9, with the coverage block of §8.4, are what stop the capability map decaying the way
+Checks 9 and 10, with the coverage block of §8.4, are what stop the capability map decaying the way
 the old `FEATURES.md` did — it listed five files that did not exist and omitted two that did. The
 prose cannot be validated; the links, the stages and the omissions can.
 
