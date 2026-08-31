@@ -3,7 +3,7 @@ title: Store Configuration Functional Specification
 kind: reference
 audience: internal
 area: [store/config]
-reviewed: 2026-08-29
+reviewed: 2026-08-31
 ---
 # Functional Specification Document (FSD): Store Configuration
 
@@ -748,10 +748,17 @@ Full design: `specs/design/liquers-web-store/`.
 ---
 **End of FSD**
 
+## Related
+
+`StoreRouterConfig` is embedded verbatim by
+[`EnvironmentConfig`](./ENVIRONMENT_CONFIG.md), so one document can configure an environment and
+its store together. Everything on this page applies unchanged to that document's `store:` section.
+
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-31 | Linked `EnvironmentConfig`, which embeds `StoreRouterConfig` as its `store:` section. No change to the store configuration format itself. | `design/environment-builder/phase-5` |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
 | 2026-08-09 | Documented the optional `opendal` feature, the `StoreFactory` extension seam, and the three browser store types (`localstorage`, `http`/`https` via `fetch`, `js`). | `design/liquers-web-store/` |
 | 2026-08-29 | Reviewed against the implementation at HEAD. Added "Why this configuration exists alongside OpenDAL's own", correcting the claim that OpenDAL offers no text configuration — `via_iter` (0.48) and `from_uri` (0.55) do, but configure one backend each. Added "Configuration values and the OpenDAL string boundary", recording which document value types survive the flattening into OpenDAL's string map and which do not. No change to the configuration format itself. | `design/store-factories-in-core/` Phase 3 |

@@ -179,6 +179,35 @@ impl<E: Environment> DependencyManager<E> {
         }
     }
 
+    /// Synchronous counterpart of [`Self::register_version`], for the uncontended startup path.
+    ///
+    /// Returns `true` when the stored version differed from `version`, i.e. when the caller must
+    /// arrange a cascade. It deliberately does **not** return [`ExpiredDependents`]: computing
+    /// those requires [`Self::expire_dependents`], which is asynchronous, so a synchronous
+    /// registration cannot produce them. Splitting detection from application is what lets asset
+    /// manager startup be synchronous — see
+    /// [`AssetManager::start`](crate::assets::AssetManager::start).
+    ///
+    /// At first startup the `versions` map is empty, so every key inserts `Vacant` and this always
+    /// returns `false`. A later re-registration through
+    /// [`AssetManager::refresh_command_versions`](crate::assets::AssetManager::refresh_command_versions)
+    /// can report `true`, and
+    /// [`AssetManager::refresh_command_versions_and_expire`](crate::assets::AssetManager::refresh_command_versions_and_expire)
+    /// applies the cascade for it.
+    pub fn register_version_sync(&self, key: &DependencyKey, version: Version) -> bool {
+        match self.versions.entry_sync(key.clone()) {
+            scc::hash_map::Entry::Occupied(mut entry) => {
+                let version_changed = *entry.get() != version;
+                *entry.get_mut() = version;
+                version_changed
+            }
+            scc::hash_map::Entry::Vacant(entry) => {
+                entry.insert_entry(version);
+                false
+            }
+        }
+    }
+
     /// Check whether the stored version for `key` matches `expected`.
     ///
     /// **Version 0 semantics:** `Version(0)` means "unknown" and always matches.

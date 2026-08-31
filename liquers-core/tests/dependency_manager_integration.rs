@@ -8,6 +8,7 @@
 
 use liquers_core::parse::parse_key;
 use liquers_core::{
+    assets::AssetManager,
     context::{Context, Environment, SimpleEnvironment},
     error::Error,
     metadata::{DependencyKey, Version},
@@ -82,12 +83,17 @@ async fn command_metadata_has_versions_after_registration() -> Result<(), Error>
         "metadata_version should be nonzero after registration"
     );
 
-    // Convert to envref to trigger load_command_versions
+    // Convert to envref, which loads command versions before returning.
     let envref = env.to_ref();
 
-    // Give the spawned task time to complete
-    tokio::task::yield_now().await;
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    // No sleep. This used to read `yield_now().await` followed by `sleep(50ms)`, because
+    // `to_ref` spawned startup as a detached task and the test had to hope it had run —
+    // `QUEUED-MANAGER-STARTUP-READINESS`. Startup is synchronous and complete on return now,
+    // so the assertion is deterministic.
+    assert!(
+        envref.get_asset_manager().is_started(),
+        "to_ref must return a started manager"
+    );
 
     // Verify via command metadata registry that versions are present
     let cmr = envref.get_command_metadata_registry();

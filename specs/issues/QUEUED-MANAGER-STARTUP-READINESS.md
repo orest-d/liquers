@@ -2,7 +2,7 @@
 id: QUEUED-MANAGER-STARTUP-READINESS
 kind: issue
 title: Queued asset manager accepts work before it is ready to run it
-status: accepted
+status: closed
 priority: P1
 complexity: L
 area: [core/assets]
@@ -79,3 +79,44 @@ Add tests covering:
 5. Equivalent readiness guarantees for `DefaultAssetManager` and
    `ImmediateAssetManager`.
 6. Native queued execution and the Wasm-compatible inline path.
+
+## Resolution (2026-08-31)
+
+Closed by `design/environment-builder/`. Expected behaviour **1** was chosen: `Environment::to_ref`
+does not expose an environment until manager startup has completed.
+
+`Environment::try_to_ref` now owns a single readiness sequence — refresh command metadata versions,
+create the `EnvRef`, then call `init_with_envref`, which constructs the asset manager with that
+reference, installs it, and starts it. No reference escapes before startup finishes.
+`EnvironmentBuilder::build` delegates to the same sequence rather than reimplementing it, so both
+construction paths carry one guarantee with one implementation, and `to_ref` keeps its signature
+while becoming correct.
+
+`AssetManager::start` is synchronous and fallible. Its only reason to be async was
+`scc::HashMap::entry_async`; the work is uncontended in-memory map writes and touches no store, so
+`register_version_sync` (built on `entry_sync`) replaces it. `set_envref` is gone — both managers
+take the `EnvRef` at construction — along with the two "environment not set" panics it required.
+
+Verification items, all covered:
+
+| Item | Where |
+|---|---|
+| 1. Evaluation immediately after `to_ref` | `manager_parametric::ready_on_return_{default,immediate}` |
+| 2. A command whose versions must be registered during startup | `environment_builder::tests::command_version_present_immediately_after_build` |
+| 3. Concurrent first evaluations sharing one startup | `manager_parametric::concurrent_first_evaluations_{default,immediate}` |
+| 4. Startup failure propagation | `tests/environment_builder.rs::startup_failure_propagates_from_build` |
+| 5. Equivalent readiness for both managers | `manager_parametric::ready_on_return_*`, run over both |
+| 6. Native queued and wasm-compatible inline | the same parametric pair, plus `inline_builds_without_a_tokio_runtime` |
+
+The defect itself is pinned as a differential: `plan_dependencies_registered_immediately_after_build`
+asserts the edge now forms, and `an_unregistered_dependency_version_registers_no_edge` reproduces
+the failure mode on a key with no registered version — showing that
+`register_plan_dependencies` skips silently, which is why the fix had to be a construction-time
+guarantee rather than a check.
+
+`dependency_manager_integration.rs` no longer sleeps 50 ms before asserting that versions loaded.
+
+Two things this did **not** do, both deliberate: the `Arc` cycles remain
+(`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`, deferred by decision), and registering a command after
+construction still needs a rebuild (`POST-INIT-COMMAND-REGISTRATION`) — though
+`refresh_command_versions` is now the re-runnable hook that work will need.

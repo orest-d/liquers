@@ -483,3 +483,99 @@ fn immediate_keyed_eval_without_tokio_runtime() -> Result<(), Error> {
     assert_eq!(text, "hello");
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Readiness — the same guarantee under both managers (T6), and shared startup (T4)
+// ---------------------------------------------------------------------------
+
+/// `QUEUED-MANAGER-STARTUP-READINESS` verification item 5: the queued and inline managers must
+/// offer *equivalent* readiness semantics even though their execution models differ.
+///
+/// They arrive at it differently — the queued manager used to spawn startup and the inline one
+/// used to defer it lazily to the first evaluation — and both were unobservable. Now both are
+/// started before the `EnvRef` is handed back, so the same assertion holds for each.
+async fn scenario_ready_on_return<E>(envref: EnvRef<E>) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    assert!(
+        envref.get_asset_manager().is_started(),
+        "the manager must be started before the EnvRef is observable"
+    );
+    // And it is usable immediately, with nothing awaited in between.
+    let asset = envref.get_asset_manager().get_asset(&q("greet")).await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "hello");
+    Ok(())
+}
+
+#[tokio::test]
+async fn ready_on_return_default() -> Result<(), Error> {
+    let mut env = SimpleEnvironment::<Value>::new();
+    register_greet(&mut env.command_registry);
+    scenario_ready_on_return(env.to_ref()).await
+}
+
+#[tokio::test]
+async fn ready_on_return_immediate() -> Result<(), Error> {
+    let mut env = ImmediateEnvironment::<Value>::new();
+    register_greet(&mut env.command_registry);
+    scenario_ready_on_return(env.to_ref()).await
+}
+
+/// Verification item 3: multiple concurrent first evaluations must share one startup operation.
+///
+/// The construction-time guarantee makes this trivially true rather than carefully arranged —
+/// startup has already completed before any evaluation can begin, so there is no first-evaluation
+/// race left to lose. Asserted anyway: a future change that moved startup back to a lazy path
+/// would have to keep this true.
+async fn scenario_concurrent_first_evaluations<E>(envref: EnvRef<E>) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    assert!(envref.get_asset_manager().is_started());
+
+    let mut handles = Vec::new();
+    for _ in 0..8 {
+        let envref = envref.clone();
+        handles.push(async move {
+            let asset = envref.get_asset_manager().get_asset(&q("greet")).await?;
+            asset.get().await?.try_into_string()
+        });
+    }
+    let results = futures::future::join_all(handles).await;
+    for result in results {
+        assert_eq!(result?, "hello");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn concurrent_first_evaluations_default() -> Result<(), Error> {
+    let mut env = SimpleEnvironment::<Value>::new();
+    register_greet(&mut env.command_registry);
+    scenario_concurrent_first_evaluations(env.to_ref()).await
+}
+
+#[tokio::test]
+async fn concurrent_first_evaluations_immediate() -> Result<(), Error> {
+    let mut env = ImmediateEnvironment::<Value>::new();
+    register_greet(&mut env.command_registry);
+    scenario_concurrent_first_evaluations(env.to_ref()).await
+}
+
+/// The no-tokio-runtime proof, extended from evaluation to **construction**.
+///
+/// `inline_builds_without_a_tokio_runtime` in `tests/environment_builder.rs` covers the builder
+/// path; this covers `to_ref`, which is the door an ad-hoc environment uses. Both matter, because
+/// the browser has no reactor for either to find.
+#[test]
+fn immediate_construction_without_tokio_runtime() -> Result<(), Error> {
+    let mut env = ImmediateEnvironment::<Value>::new();
+    register_greet(&mut env.command_registry);
+    let envref: EnvRef<ImmediateEnvironment<Value>> = env.to_ref();
+    assert!(
+        envref.get_asset_manager().is_started(),
+        "startup must complete during to_ref, with no runtime present"
+    );
+    Ok(())
+}

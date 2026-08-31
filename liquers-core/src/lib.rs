@@ -124,6 +124,8 @@ pub mod assets;
 pub mod context;
 pub mod dependencies;
 pub mod entities;
+pub mod environment_builder;
+pub mod environment_config;
 pub mod error;
 pub mod escape;
 pub mod expiration;

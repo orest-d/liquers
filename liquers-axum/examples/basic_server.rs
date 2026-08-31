@@ -12,22 +12,25 @@
 /// Then test with:
 ///   curl http://localhost:3000/liquer/q/text-Hello
 ///   curl http://localhost:3000/liquer/api/store/keys
+use std::sync::Arc;
+
 use liquers_axum::{QueryApiBuilder, StoreApiBuilder};
 use liquers_core::store::AsyncFileStore;
 use liquers_core::{
     command_metadata::CommandKey,
     commands::CommandArguments,
-    context::{Context, Environment, SimpleEnvironment},
+    context::{Context, SimpleEnvironment},
+    environment_builder::EnvironmentBuilder,
     error::Error,
     query::Key,
     value::Value,
 };
 
 // Register commands with the environment
-fn register_commands(mut env: SimpleEnvironment<Value>) -> Result<SimpleEnvironment<Value>, Error> {
+fn register_commands(
+    cr: &mut liquers_core::commands::CommandRegistry<SimpleEnvironment<Value>>,
+) -> Result<(), Error> {
     use liquers_core::command_metadata::ArgumentInfo;
-
-    let cr = &mut env.command_registry;
 
     // Register the 'text' command - creates a text value from the given string
     let key = CommandKey::new_name("text");
@@ -44,7 +47,7 @@ fn register_commands(mut env: SimpleEnvironment<Value>) -> Result<SimpleEnvironm
         .with_doc("Create a text value from the given string")
         .with_argument(ArgumentInfo::any_argument("text"));
 
-    Ok(env)
+    Ok(())
 }
 
 #[tokio::main]
@@ -60,13 +63,14 @@ async fn main() {
 
     let async_store = AsyncFileStore::new(&store_path, &Key::new());
 
-    let mut env = SimpleEnvironment::<Value>::new();
-    env.with_async_store(Box::new(async_store));
+    // The builder is the recommended construction path: it configures services, freezes the
+    // command registry, and returns an `EnvRef` whose asset manager is already started — so the
+    // first query cannot race environment initialization.
+    let mut builder = EnvironmentBuilder::<Value>::new().with_async_store(Arc::new(async_store));
 
-    // Register commands
-    let env = register_commands(env).expect("Failed to register commands");
+    register_commands(&mut builder.command_registry).expect("Failed to register commands");
 
-    let env_ref = env.to_ref();
+    let env_ref = builder.build().expect("Failed to build environment");
 
     // Build Query API router (GET/POST /q/{*query})
     let query_router = QueryApiBuilder::new("/liquer/q").build();
