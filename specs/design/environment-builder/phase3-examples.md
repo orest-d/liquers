@@ -13,6 +13,12 @@ the tree, `liquers-web`. Scenario 3 collects what will bite people.
 **Examples are conceptual.** Making them runnable requires the implementation, which is Phase 4.
 Each is written so it can be lifted into a test or a guide once the code exists.
 
+> **Amended 2026-08-31**, after the four prerequisite designs merged. Every "before" block was
+> re-read against `HEAD`; the only one that moved is Scenario 2a (`liquers-web`), noted inline.
+> Scenario 4's layering argument is superseded — the sketched `EnvironmentConfig` can now live in
+> `liquers-core` — and T9 changes what it proves, because the panic it guarded against was fixed
+> directly. See [`DESIGN.md`](./DESIGN.md) §Prerequisite review.
+
 ## Overview Table
 
 | # | Example | Demonstrates | Phase 2 element exercised |
@@ -38,10 +44,11 @@ Each is written so it can be lifted into a test or a guide once the code exists.
 | T6 | `readiness_equivalent_across_kinds` | Issue verification item 5 — `Queued` and `Inline` agree | integration, parametric |
 | T7 | `refresh_command_versions_expires_dependents` | A changed version cascades | integration |
 | T8 | `refresh_is_idempotent_when_nothing_changed` | Re-running expires nothing | unit |
-| T9 | `recipe_provider_defaults_across_all_aliases` | `CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC` cannot recur | unit |
+| T9 | `recipe_provider_defaults_across_all_aliases` | The per-crate defaults are preserved, and `CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC` cannot recur | unit |
 | T10 | `deprecated_to_ref_produces_a_ready_envref` | The old door is not a hole | integration |
 | T11 | `aliases_are_the_generic_type` | Consolidation did not change any public type identity | compile-time |
 | T12 | `inline_builds_without_a_tokio_runtime` | Wasm path; `Inline` spawns nothing | unit |
+| T13 | `build_refreshes_command_metadata_versions` | `build()` step 0: a command mutated after registration is registered under its **refreshed** version, not the stale one — the `to_ref` invariant from `refresh-command-metadata-versions`, preserved through the builder | unit |
 
 ## Example
 
@@ -194,10 +201,23 @@ One code path, as before.
 
 > **Note for Phase 4:** the comment above `with_default_recipe_provider` in that file claims
 > `DefaultEnvironment::get_recipe_provider` *panics* when none is set, citing
-> `liquers-lib/src/environment.rs:152`. That is stale — `LIB-RECIPE-PROVIDER-PANIC` was fixed and
+> `liquers-lib/src/environment.rs:152`. That is stale — `LIB-RECIPE-PROVIDER-PANIC` is `closed` and
 > the field is now a non-optional `Arc`. The provider call is still wanted (the default reads
 > recipes from the store), but the stated reason is wrong and should be corrected while the
-> surrounding lines are being edited.
+> surrounding lines are being edited. **Still true at `HEAD` on 2026-08-31**; the comment survived
+> three intervening PRs, which is itself the argument for fixing it in passing.
+
+> **Re-checked 2026-08-31 — the file has moved, the shape has not.** Since PR 46 and PR 50,
+> `liquers-web/src/environment.rs` also holds `STORE_CONFIG` (a
+> `liquers_core::store_config::StoreRouterConfig` — the crate no longer depends on `liquers-store`
+> at all), `STORE_OBJECTS`, and a `REGISTERED_SPECS` replay whose parser now builds on
+> `liquers_core::command_declaration::CommandDeclaration`. None of that changes the migration
+> above: `new_environment()` still returns an un-shared environment and `build_environment()` still
+> calls `to_ref` on it, so renaming the return type is still most of the work. What it adds is a
+> **rebuild obligation** for Phase 4 — a rebuild must replay the store configuration and store
+> objects as well as the command declarations, and the builder must therefore be constructible
+> repeatedly from retained state. It is, since `new_environment` returns the builder by value; the
+> point is that the migration must not collapse the two functions into one.
 
 ### Scenario 2b — Inline / wasm, and why the kind is a type parameter
 
@@ -340,8 +360,20 @@ assets:
   job_capacity: 8               # queued only; see the finding below
 ```
 
+> **Amended 2026-08-31.** When this scenario was written, `StoreRouterConfig` lived in
+> `liquers-store` and `recipes: default` had no type behind it, so the sketch placed
+> `EnvironmentConfig` in `liquers-store` and treated `RecipeProviderChoice` as hypothetical. Both
+> premises are gone: PR 46 moved the store configuration types, the `StoreFactory` trait, factory
+> chaining and `StoreRouterBuilder` into `liquers-core`, and PR 48 added the real
+> `RecipeProviderChoice` to `liquers-core/src/recipes.rs`. **The sketch below now compiles-in-
+> principle entirely inside `liquers-core`** — every field is a core type. The code is updated;
+> the §Layering paragraph that followed it is struck through and replaced. Nothing here is in
+> scope for this project either way; what changed is that the *sketch* got easier, not that the
+> builder acquired an obligation.
+
 ```rust
-// in liquers-store: the lowest crate that can see both StoreRouterConfig and EnvironmentBuilder
+// in liquers-core: since PR 46 it holds StoreRouterConfig, StoreFactory and StoreRouterBuilder,
+// so it can see every field of this struct and the EnvironmentBuilder they configure.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EnvironmentConfig {
     #[serde(default)] pub store: StoreRouterConfig,
@@ -378,11 +410,23 @@ hand-written configuration in either order — config first then override in cod
 `StoreRouterConfig` and `expand_env_vars` are reused verbatim; note the existing expander supports
 `${VAR}` only and **errors** when the variable is unset, with no default-value syntax.
 
-**Layering.** `EnvironmentConfig` cannot live in `liquers-core`, because `StoreRouterConfig` lives
-in `liquers-store`, which depends on core (Phase 1 §Future Direction). It belongs in
-`liquers-store`, which sees both. This is precisely why `EnvironmentBuilder::with_async_store` takes
-an already-constructed `Arc<dyn AsyncStore>` rather than a store *config*: the core builder stays
-free of the layering problem, and a higher crate adds the config layer without touching core.
+**~~Layering.~~ Superseded 2026-08-31.** This paragraph read: `EnvironmentConfig` cannot live in
+`liquers-core` because `StoreRouterConfig` lives in `liquers-store`, which depends on core, so it
+belongs in `liquers-store`; and that is *why* `with_async_store` takes an already-constructed
+`Arc<dyn AsyncStore>` rather than a store config.
+
+Both halves are void. `STORE-CONFIG-IN-CORE` (PR 46) put `StoreRouterConfig`, `StoreConfig`,
+`expand_env_vars`, `StoreFactory`, factory chaining and `StoreRouterBuilder` in `liquers-core`, and
+`liquers-web` dropped `liquers-store` entirely as the design intended. So `EnvironmentConfig` can
+live in core, and `with_async_store`'s signature no longer has a layering justification — it has
+only an ordinary scope one: this project is a readiness fix, and adding a configuration entry point
+widens it. That is a decision rather than a constraint now, and it is **Phase 2 open question 4**,
+where the recommendation is to keep `with_async_store` as the sole store entry point for this
+project and add `with_store_config` later as a purely additive setter.
+
+`RecipeProviderChoice` in the struct above is likewise no longer hypothetical: PR 48 added exactly
+that enum, `#[serde(rename_all = "lowercase")]` with `Default` / `Trivial` variants, so
+`recipes: default` in the YAML deserializes with no new type at all.
 
 **The manager kind stays a type parameter, and should.** A YAML string cannot select a type: two
 branches of a `match` on `"queued"` / `"inline"` produce two different concrete environment types,
@@ -494,7 +538,8 @@ and applying them is async.
 | Two builders, two environments | Independent; each gets its own manager and dependency graph. |
 | Empty command registry | `start()` registers nothing and succeeds; `is_started()` is true. |
 | No store configured | `NoAsyncStore` default, as today. A `-R/` query fails with `KeyNotFound`. |
-| No recipe provider configured | `TrivialRecipeProvider` from the core builder; `DefaultRecipeProvider` from `liquers_lib::default_environment_builder`. Preserving both is deliberate — one global default would silently break `-R/` queries for `DefaultEnvironment` users. |
+| No recipe provider configured | `RecipeProviderChoice::Trivial` from the core builder; `RecipeProviderChoice::Default` from `liquers_lib::default_environment_builder`. Preserving both is deliberate — one global default would silently break `-R/` queries for `DefaultEnvironment` users. |
+| Command metadata mutated by `register_command!` after the registry computed its version | `build()` step 0 refreshes the metadata versions before startup snapshots them, matching what `to_ref` has done since `refresh-command-metadata-versions`. Covered by T13. |
 | Manager slot already installed | Unreachable: `build()` is the sole writer and holds the only `EnvRef`. `debug_assert!`, not a runtime branch. |
 | Dropping the `EnvRef` | Still leaks (`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`, deferred by decision). Unchanged, not worsened. |
 | `Queued` on wasm | Does not exist — `#[cfg(not(target_arch = "wasm32"))]`. A wasm build naming it fails to compile, which is the intent. |
@@ -511,7 +556,8 @@ where `?` is used, no `unwrap`/`expect` outside tests, typed error constructors,
 | `build_returns_a_started_manager` (T1) | `is_started()` true on return; command version present |
 | `startup_failure_propagates_from_build` (T5) | With a test kind whose `start` returns `Err`, `build()` returns that `Error`; no `EnvRef` is produced |
 | `refresh_is_idempotent_when_nothing_changed` (T8) | Second `refresh_command_versions()` expires nothing |
-| `recipe_provider_defaults_across_all_aliases` (T9) | Core builder yields `TrivialRecipeProvider` for all four aliases and **none panics**; `liquers_lib::default_environment_builder` yields `DefaultRecipeProvider`. Both asserted, so a later collapse of the two defaults fails the test |
+| `recipe_provider_defaults_across_all_aliases` (T9) | Core builder yields `RecipeProviderChoice::Trivial` for all four aliases and **none panics**; `liquers_lib::default_environment_builder` yields `RecipeProviderChoice::Default`. Both asserted, so a later collapse of the two defaults fails the test. **Amended 2026-08-31:** the "none panics" half now guards a fix that already landed (PR 51) rather than delivering one, so this is a regression test, not the closing evidence for `CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC` — that issue is already `closed` |
+| `build_refreshes_command_metadata_versions` (T13) | Register a command, mutate its metadata (the shape `register_command!` produces), `build()`, then read the version the dependency manager holds: it is the **refreshed** version. Mirrors `immediate_environment_to_ref_refreshes_metadata_versions` in `context.rs`, one layer further on — that test proves the registry was refreshed, this one proves the refreshed value reached the dependency graph |
 | `inline_builds_without_a_tokio_runtime` (T12) | Plain `#[test]`, no `#[tokio::test]`: `Inline` builds. `manager_parametric.rs` already carries a "no-tokio-runtime proof" for `ImmediateAssetManager`; extend it to construction rather than duplicating it |
 | `builder_defaults_match_previous_environment_defaults` | `NoAsyncStore`, empty registry, type registry from `V` |
 
@@ -578,6 +624,14 @@ that demonstrates why the guide insists on `build()`; T6 shows the guarantee is 
 4. Writing the examples surfaced two design questions the architecture had not settled — the
    builder aliases (open question 4) and the `pub(crate)` / `to_ref` tension (open question 5,
    material). That tension was invisible until a call site outside `liquers-core` was written out.
+5. *(2026-08-31)* A design that waits between phases accumulates stale premises rather than stale
+   conclusions. Four prerequisite PRs merged between Phase 3 and this review; none of them touched
+   the architecture, and all four touched facts the documents cited to justify it — where a type
+   lives, whether a function panics, what `to_ref` does first. The one that mattered was invisible
+   from the outside: `to_ref` gained a `refresh_metadata_versions()` call, and `build()`, which
+   deliberately does *not* delegate to `to_ref`, had no equivalent. Worth a Phase 5 note — a
+   construction path that bypasses another must be re-checked against it whenever the bypassed one
+   changes, and nothing in the workflow does that automatically.
 
 ## Review Record
 
@@ -613,6 +667,16 @@ round-trips to `world/greet`. The commands are example-local rather than registr
 the `--command` overrides. No `-R/` resource queries appear, so no store-presence check applies.
 No spaces, newlines or special characters in any query.
 
+**Post-merge review (2026-08-31).** A fourth pass re-read every "before" block against `HEAD` after
+the four prerequisite designs merged. `liquers-core`'s construction and lifecycle code is untouched,
+so Scenarios 1a, 2b, 2c, 3a, 3b, 3c and the `dependency_manager_integration.rs` sleep all still
+quote current source. `liquers-axum/examples/basic_server.rs` is unchanged. `liquers-lib`'s
+`SelectedAssetManager` cfg pair and inherent `register_polars_commands` are unchanged, so 2d stands.
+Scenario 2a's file grew (store-configuration replay, `CommandDeclaration`-based parsing) without
+changing shape — noted inline, with a rebuild obligation added for Phase 4. Scenario 4's layering
+argument is superseded and struck through. One test added (T13) for the `build()` step-0 refresh
+invariant; T9 re-scoped from closing evidence to regression guard.
+
 ## Open Questions
 
 1. *(from Phase 2)* `refresh_command_versions` cascade application — return `ExpiredDependents` or
@@ -627,3 +691,11 @@ No spaces, newlines or special characters in any query.
    are in tension outside `liquers-core` — including its own `tests/`, which are external crates.
    Keep constructors `pub` through a deprecation period (gradual migration), or make them
    `pub(crate)` now (migration mandatory in the same PR)?
+6. *(from Phase 2, new 2026-08-31)* Does the builder accept a `StoreRouterConfig` + factory now that
+   both are `liquers-core` types, or does `with_async_store` stay its only store entry point?
+   Recommendation: status quo for this project, `with_store_config` added later as an additive
+   setter. **Needs a decision at the gate** — it is the one place a merged prerequisite offers this
+   design new scope.
+7. *(new 2026-08-31)* Deleting `SimpleEnvironmentWithPayload`'s per-call
+   `"No recipe provider configured"` `eprintln!` is a behavior change with no replacement. Confirm
+   it needs only a Phase 5 note, not a construction-time diagnostic.

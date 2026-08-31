@@ -10,6 +10,14 @@ manager with that `EnvRef` in hand, installs it, and runs startup — so no part
 `EnvRef` is ever observable. `Environment::to_ref` stays public and is reimplemented over the same
 path, closing the readiness hole through that door too.
 
+> **Amended 2026-08-31, after the four prerequisite designs merged.** The architecture is unchanged;
+> five factual amendments are marked inline and summarised in
+> [`DESIGN.md`](./DESIGN.md) §Prerequisite review. The material ones: `build()` gains a
+> metadata-version refresh step (§`EnvironmentBuilder` inherent API), the recipe-provider default is
+> now expressed with `RecipeProviderChoice` (§Recipe Provider), the payload environment's panic is
+> already fixed so the builder preserves rather than delivers that fix (§preflight), and a core-side
+> `EnvironmentConfig` is now possible, which opens **open question 4**.
+
 ## Known-Issue Preflight
 
 Searched: `specs/index.csv` for locally open records (`draft` / `accepted` / `in_progress`) in areas
@@ -20,7 +28,13 @@ registration, and the recipe provider.
 | Issue | Status | Priority | Relevance and solution impact | First? | Blocking? | Required action | Priority action |
 |---|---|---|---|---|---|---|---|
 | `QUEUED-MANAGER-STARTUP-READINESS` | accepted | P1 | The project itself. | n/a | no | Resolve here. | Keep P1; complexity M→L applied |
-| `CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC` | draft | P1 | Filed during this preflight. `SimpleEnvironmentWithPayload::get_recipe_provider` panics where its three siblings fall back to `TrivialRecipeProvider`. Consolidation deletes the divergent copy, and the builder supplies one default. | no | no | Fixed by construction here; §Migration records it. | Keep P1 |
+| `CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC` | **closed** (PR 51) | P1 | Filed during this preflight, then fixed directly: `SimpleEnvironmentWithPayload::get_recipe_provider` now falls back to `TrivialRecipeProvider` and logs to stderr. Consolidation still deletes the divergent copy — the builder **preserves** the fix and removes the per-call `eprintln!`, since the field becomes a non-optional `Arc` with no unconfigured state to report. | n/a | no | No longer an obligation; §The recipe-provider default is per-crate updated. | — |
+| `STORE-CONFIG-IN-CORE` | **closed** (PR 46) | P0 | Prerequisite for document-driven setup. `store_config.rs` / `store_factory.rs` are core modules; `liquers-web` dropped `liquers-store`. Removes the layering constraint Phase 1 recorded. | n/a | no | Opens open question 4 (store config in the builder). | — |
+| `RECIPE-PROVIDER-BY-NAME` | **closed** (PR 48) | P0 | `RecipeProviderChoice` in `liquers-core/src/recipes.rs` names `default` / `trivial` and yields the provider. The builder should express its default with it rather than a bare `Arc::new(TrivialRecipeProvider)`. | n/a | no | Applied in §`EnvironmentBuilder` inherent API. | — |
+| `COMMAND-DECLARATION-FORMAT` | **closed** (PR 50) | P0 | `CommandDeclaration` in `liquers-core`. The builder does not touch declaration parsing; only `liquers-web`'s replay path is affected, and only internally. | n/a | no | None. | — |
+| `MACRO-LEAVES-STALE-METADATA-VERSION` | **closed** (`refresh-command-metadata-versions`) | — | `Environment::to_ref` now calls `CommandMetadataRegistry::refresh_metadata_versions()` before `EnvRef::new`. `build()` bypasses `to_ref`, so it must run the same operation or reintroduce the stale-version defect. | n/a | **yes, as an invariant** | `build()` step 0; test coverage in Phase 3. | — |
+| `QUEUED-MANAGER-EVICTION-RACE` | accepted (design `in_review`) | P2 | `DefaultAssetManager` cache eviction, not construction or startup. Edits the same file. | no | no | Monitor for merge conflicts only. | Keep P2 |
+| `CORE-EVALUATE-PATH-CONSOLIDATION` | accepted | P1 | Duplicated evaluation paths. This design removes the five lazy `ensure_started()` calls from the inline entry points, which touches those paths. No conflict of intent — fewer per-call barriers is what consolidation wants — but the two will overlap textually. | no | no | Monitor; note the `ensure_started` removal in that issue if it starts first. | Keep P1 |
 | `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` | draft | P2 | Two `Arc` cycles keep every environment alive. Deferred by decision in Phase 1. The architecture keeps the back-reference strong, so it neither fixes nor worsens it. | no | no | Monitor; do not regress. `build()` is the natural future home for the fix. | Keep P2 |
 | `POST-INIT-COMMAND-REGISTRATION` | accepted | P3 | Registration needs `&mut CommandRegistry`; `Arc::get_mut` never sees count 1. Unchanged by this work — the deferred slot moving to the environment does not alter the strong count. Its long-term goal (dynamic registration and metadata modification) **does** constrain us: startup must be re-runnable. | no | no | Design `refresh_command_versions` as a separate re-runnable path; do not use a one-shot cell. | Keep P3 |
 | `ASSETS-FIX1` | accepted | P2 | TODO/FIXME markers in the asset lifecycle. Touches `assets.rs`, which this project edits, but no overlap with construction or startup. | no | no | Monitor for merge conflicts only. | Keep P2 |
@@ -30,10 +44,15 @@ registration, and the recipe provider.
 
 ### Blocking and Priority Decision
 
-**No blockers.** `CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC` is a panic on a supported path and so sits
-in §4.4 P0 territory, but it is not a prerequisite: consolidation removes the divergent
-implementation rather than depending on it being fixed first. It is filed at P1 with the argument
-for P0 recorded in the issue, to be raised if a shipped path is found to depend on it.
+**No blockers.** As of 2026-08-31 the four prerequisites recorded in `DESIGN.md` have all merged,
+so nothing this design depends on is outstanding. `CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC` was never
+a prerequisite — consolidation removes the divergent implementation rather than depending on it —
+and was fixed directly in the meantime.
+
+One **invariant** rather than a blocker: `refresh-command-metadata-versions` put a
+`refresh_metadata_versions()` call at the head of `to_ref`. Because `build()` does not delegate
+through `to_ref`, it must run that operation itself; otherwise this design silently reopens
+`MACRO-LEAVES-STALE-METADATA-VERSION`. Recorded as step 0 of the `build()` sequence.
 `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` is a deliberate non-goal (Phase 1, question 3) and the
 architecture is required only not to make it worse.
 
@@ -214,29 +233,41 @@ environment never sees `None`. That is the whole of the change that retires the 
 Consolidation cannot use one default provider, because the two crates disagree today and both are
 correct for their audience:
 
-| Constructor | Default provider today |
+| Constructor | Default provider today (post-PR 51) |
 |---|---|
 | `SimpleEnvironment`, `ImmediateEnvironment`, `ImmediateEnvironmentWithPayload` | `TrivialRecipeProvider` |
-| `SimpleEnvironmentWithPayload` | **panics** (`CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC`) |
+| `SimpleEnvironmentWithPayload` | `TrivialRecipeProvider`, plus an `eprintln!` on **every** call |
 | `liquers_lib::DefaultEnvironment` (`environment.rs:77`) | **`DefaultRecipeProvider`** |
+
+**Amended 2026-08-31.** This table originally recorded `SimpleEnvironmentWithPayload` as *panicking*;
+`payload-env-recipe-provider-fallback` (PR 51) fixed that before this design started implementing,
+so the four core environments now agree. Two consequences: the builder **preserves** a fix rather
+than delivering one, and the warning `eprintln!` disappears with it — a non-optional `Arc` field has
+no unconfigured state to warn about, so the diagnostic has nothing left to say.
 
 `DefaultRecipeProvider` reads recipes through the store; `TrivialRecipeProvider` resolves none. So
 if `DefaultEnvironment` became an alias whose builder defaulted to `Trivial`, every `-R/` query in
 an application that relied on the library default would start failing `KeyNotFound` — a silent
 behavior regression, invisible at compile time.
 
-**Resolution.** `EnvironmentBuilder::new` in `liquers-core` defaults to `TrivialRecipeProvider`,
-unchanged for the three core environments and fixing the fourth. `liquers-lib` supplies its own
-pre-configured constructor rather than relying on the core default:
+**Resolution.** `EnvironmentBuilder::new` in `liquers-core` defaults to
+`RecipeProviderChoice::Trivial`, unchanged for all four core environments. `liquers-lib` supplies
+its own pre-configured constructor rather than relying on the core default:
 
 ```rust
 // liquers-lib
 pub fn default_environment_builder<V: ValueInterface, P: PayloadType>()
     -> EnvironmentBuilder<V, P, DefaultKind>
 {
-    EnvironmentBuilder::new().with_recipe_provider(Arc::new(DefaultRecipeProvider))
+    EnvironmentBuilder::new().with_recipe_provider_choice(RecipeProviderChoice::Default)
 }
 ```
+
+Both defaults are now written as a `RecipeProviderChoice` — the serde enum
+`recipe-provider-selection` (PR 48) added to `liquers-core/src/recipes.rs` — rather than as a bare
+`Arc::new(TrivialRecipeProvider)`. That is a small change with two payoffs: the default becomes a
+value that can be printed, compared and asserted on in T9, and it is the same value a future
+`EnvironmentConfig` would deserialize, so no second spelling of "which provider" appears.
 
 Every existing behavior is preserved, the divergence becomes explicit and testable rather than an
 accident of which constructor was called, and `liquers-lib` gains the natural home for any future
@@ -260,6 +291,13 @@ impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<
         self,
         provider: Arc<dyn AsyncRecipeProvider<GenericEnvironment<V, P, K>>>,
     ) -> Self;
+
+    /// Select a built-in provider by name — the data-expressible half, added 2026-08-31.
+    /// `RecipeProviderChoice` (`liquers-core/src/recipes.rs`, from `RECIPE-PROVIDER-BY-NAME`)
+    /// already yields the provider, so this is `with_recipe_provider(choice.provider())`.
+    /// It exists so a configuration document and hand-written code spell the choice identically.
+    pub fn with_recipe_provider_choice(self, choice: RecipeProviderChoice) -> Self;
+
     pub fn with_asset_manager_options(self, options: AssetManagerOptions) -> Self;
 
     /// Construct, install, and start. Returns an `EnvRef` that is ready to evaluate.
@@ -283,7 +321,17 @@ now would be the breaking change later.
 
 **`build()` sequence** (signatures only; bodies are Phase 4):
 
-1. Resolve the recipe provider: configured, else `TrivialRecipeProvider`.
+0. **`self.command_registry.get_mut_command_metadata_registry().refresh_metadata_versions();`**
+   *(added 2026-08-31)* — `register_command!` mutates command metadata after the registry first
+   computes `metadata_version`, so the versions are stale until refreshed.
+   `refresh-command-metadata-versions` put this call at the head of `Environment::to_ref`; `build()`
+   does not delegate through `to_ref`, so it must run the same operation or reopen
+   `MACRO-LEAVES-STALE-METADATA-VERSION`. **Order is load-bearing**: refresh must precede step 6,
+   because `start()` snapshots those versions into the `DependencyManager`, and a version snapshotted
+   stale is a cache-validation defect rather than a cosmetic one. Step 0 is also the operation
+   `refresh_command_versions` must re-run for late registration — refresh the metadata registry, then
+   re-register into the dependency manager.
+1. Resolve the recipe provider: configured, else `RecipeProviderChoice::Trivial`.
 2. Construct `GenericEnvironment` with `asset_store: OnceLock::new()`.
 3. `let envref = EnvRef::new(env);`
 4. `let manager = K::build(envref.clone(), &self.manager_options)?;` — the manager receives a live
@@ -311,7 +359,12 @@ pub trait AssetManager<E: Environment>: MaybeSend + MaybeSync {
     /// Fallible so a manager whose startup can fail is expressible without a breaking change.
     fn start(&self) -> Result<(), Error>;
 
-    /// Re-read the command metadata registry and re-register versions.
+    /// Refresh the command metadata registry's versions, then re-register them.
+    ///
+    /// Two operations, in order: `CommandMetadataRegistry::refresh_metadata_versions` (the same
+    /// call `build()` makes at step 0, so a metadata edit is reflected in `metadata_version`),
+    /// then re-registration into the `DependencyManager`. Refreshing without re-registering
+    /// changes nothing observable; re-registering without refreshing re-registers stale versions.
     ///
     /// Separate from `start` because it is **not** a readiness operation: it exists so a later
     /// command registration or metadata edit can be reflected. Re-registering a changed version
@@ -446,6 +499,15 @@ unchanged in this project.** Rationale:
 What this project does contribute is that the inconsistency is now written down (Phase 1
 §Recipe Provider) with the builder positioned as the place to resolve it.
 
+**Amended 2026-08-31.** `RECIPE-PROVIDER-BY-NAME` closed while this design waited, adding
+`RecipeProviderChoice` to `liquers-core/src/recipes.rs`: a `Default` / `Trivial` serde enum with
+`provider()`, `boxed_provider()`, `FromStr` and `Display`. It changes none of the reasoning above —
+the *trait* signatures still take `envref` per call, and that decision stands — but it does supply
+the vocabulary the builder should use for selecting a built-in provider, which is why
+`with_recipe_provider_choice` joins the API. A provider that needs the environment at construction
+time is still future work, still reachable through the `with_recipe_provider_factory` hook named
+above, and still has no consumer.
+
 ## Function Signatures
 
 Consolidated list of every signature this project adds, changes or removes. Bodies are Phase 4.
@@ -472,6 +534,8 @@ impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<
         self,
         provider: Arc<dyn AsyncRecipeProvider<GenericEnvironment<V, P, K>>>,
     ) -> Self;
+    pub fn with_recipe_provider_choice(self, choice: RecipeProviderChoice) -> Self;
+    pub fn with_asset_manager_options(self, options: AssetManagerOptions) -> Self;
     pub fn build(self) -> Result<EnvRef<GenericEnvironment<V, P, K>>, Error>;
 }
 
@@ -588,12 +652,18 @@ That is exactly why it is deprecated.
 **Dependency flow** is respected: everything new is in `liquers-core`, and `liquers-lib` /
 `liquers-web` / `liquers-axum` only consume it. No backward `use`.
 
-**Crate placement of a future `EnvironmentConfig`:** sketched in Phase 3 §Scenario 4. it cannot live in `liquers-core`,
-because `StoreRouterConfig` lives in `liquers-store`, which depends on core. It belongs in
-`liquers-store` or above, wrapping `EnvironmentBuilder` rather than replacing it. This is why the
-builder takes an already-constructed `Arc<dyn AsyncStore>` rather than a store *config*: that keeps
-the core builder free of the layering problem, and lets a higher crate add the config layer without
-touching core.
+**Crate placement of a future `EnvironmentConfig` — amended 2026-08-31.** Sketched in Phase 3
+§Scenario 4. This paragraph originally read: it cannot live in `liquers-core`, because
+`StoreRouterConfig` lives in `liquers-store`, which depends on core, so it belongs in
+`liquers-store` or above. **That constraint no longer exists.** `STORE-CONFIG-IN-CORE` (PR 46) moved
+`StoreRouterConfig`, `StoreConfig`, `expand_env_vars`, the `StoreFactory` trait, factory chaining and
+`StoreRouterBuilder` into `liquers-core`; `RECIPE-PROVIDER-BY-NAME` (PR 48) added
+`RecipeProviderChoice` there too. Every field of the sketched `EnvironmentConfig` — store, recipes,
+assets — is now a `liquers-core` type, so the whole configuration document can live beside the
+builder it configures.
+
+Keeping `with_async_store(Arc<dyn AsyncStore>)` as the builder's only store entry point is therefore
+now a *choice* rather than a constraint, and one this design has not made. **Open question 4.**
 
 ## Relevant Commands
 
@@ -709,6 +779,37 @@ are each justified by a field or associated type; `Arc` for shared cheaply-clone
 `TypeRegistry` for write-once data. Advisory: `AssetManagerKind` is deliberately not object-safe —
 noted in §Function Signatures so nobody later tries to make it `dyn`.
 
+### Post-merge review (2026-08-31)
+
+A fifth pass, run after the four prerequisite designs merged, re-read this document against `HEAD`
+rather than against the tree it was written on. Findings:
+
+**C1 — invariant, fixed.** `Environment::to_ref` now calls `refresh_metadata_versions()` before
+`EnvRef::new` (`liquers-core/src/context.rs:223-227`), added by
+`refresh-command-metadata-versions`. The `build()` sequence in this document predates it and had no
+equivalent step, so implementing it as written would have reopened
+`MACRO-LEAVES-STALE-METADATA-VERSION` for every environment built through the builder — silently,
+because the symptom is a stale `metadata_version` in the dependency graph rather than a compile or
+test failure. Added as step 0, with the ordering constraint stated.
+
+**C2 — stale fact, fixed.** The payload environment no longer panics without a recipe provider
+(PR 51). Three places said or implied it did.
+
+**C3 — constraint lifted, recorded.** The layering argument against a core-side `EnvironmentConfig`
+is void since PR 46. Recorded rather than acted on, as open question 4.
+
+**C4 — vocabulary available, applied.** `RecipeProviderChoice` exists; the builder's defaults are
+now expressed with it.
+
+**C5 — verified, no change.** The consolidation targets are untouched at `HEAD`: four environment
+structs with their own `init_with_envref` (`context.rs:1116`, `1251`, `1392`, `2106`),
+`AssetManager::set_envref` (`assets.rs:3558`) and `async fn start` (`3629`), both
+`OnceLock<EnvRef<E>>` slots (`3853`, `5613`), the `eprintln!("Spawned job queue")` (`3902`),
+`ImmediateAssetManager::ensure_started` (`5671`), `liquers-lib`'s `SelectedAssetManager` cfg pair
+(`environment.rs:20-22`), and the `yield_now()` + `sleep(50ms)` in
+`dependency_manager_integration.rs:89-90`. Every "before" quotation in Phase 3 still matches its
+source except where Phase 3 now marks otherwise.
+
 ## Open Questions
 
 1. **Cascade application in `refresh_command_versions`.** A changed version yields
@@ -721,3 +822,33 @@ noted in §Function Signatures so nobody later tries to make it `dyn`.
    a compile-time-present-but-unusable kind.
 3. **Deprecation horizon.** Is `to_ref` deprecated-and-kept indefinitely, or removed in a later
    release once the tests migrate? Affects whether the 336 sites are ever touched.
+4. **Does the builder accept a store *configuration*, now that it could?** *(new, 2026-08-31.)*
+   `StoreRouterConfig`, `StoreFactory` and `StoreRouterBuilder` are `liquers-core` types since
+   PR 46, so `EnvironmentBuilder` could offer
+
+   ```rust
+   pub fn with_store_config(self, config: StoreRouterConfig, factory: Box<dyn StoreFactory>)
+       -> Result<Self, Error>;   // or defer construction to build()
+   ```
+
+   alongside `with_async_store`. Three options:
+
+   | Option | Consequence |
+   |---|---|
+   | **A — keep `with_async_store` only** (status quo) | Smallest surface. A configuration-driven caller builds the router itself and passes the result; `liquers-web` already does exactly this with its retained `STORE_CONFIG`. |
+   | **B — add `with_store_config`** | The builder becomes directly configuration-drivable, and the future `EnvironmentConfig` is a thin serde wrapper over the builder rather than a separate assembly step. Costs a fallible setter (or a deferred failure inside `build()`) and a policy on which factory chain is the default. |
+   | **C — take a whole `EnvironmentConfig` in core** | Largest step; effectively builds the "single configuration point" now, which Phase 1 explicitly placed out of scope. |
+
+   **Recommendation: A for this project, with B noted as additive.** Both `with_async_store` and
+   `with_store_config` can coexist and B can be added later without a breaking change, so declining
+   it now costs nothing — whereas taking it on widens an already-L change and drags factory-chain
+   policy into a readiness fix. This needs a decision at the gate, because it is the one place where
+   a merged prerequisite genuinely offers this design new scope.
+5. **Does the `eprintln!` removal need recording as an intentional behavior change?** *(new,
+   2026-08-31.)* `SimpleEnvironmentWithPayload::get_recipe_provider` currently logs
+   `"No recipe provider configured …"` on every call. Consolidation deletes it, because the
+   consolidated field is a non-optional `Arc`. Nothing observable is lost — the fallback provider is
+   the same — but a user who relies on that line to notice a misconfiguration loses it. The
+   suggested answer is that this is a strict improvement (the builder makes the default explicit at
+   construction, so the warning has no subject) and needs only a Phase 5 note, not a replacement
+   diagnostic.

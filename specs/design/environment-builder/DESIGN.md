@@ -88,9 +88,12 @@ global services are expected to arrive later via a separate route.
 
 Future direction the design must not preclude (not in scope): a single YAML-serializable
 `EnvironmentConfiguration` covering manager, commands, recipe provider and store.
-`liquers-store`'s `StoreRouterConfig` / `StoreRouterBuilder` is the working precedent. Layering
-constraint: `StoreRouterConfig` lives in `liquers-store`, which depends on `liquers-core`, so a
-core-side configuration type cannot embed it — this decides where the builder can live. Also note
+`StoreRouterConfig` / `StoreRouterBuilder` is the working precedent. **The layering constraint
+recorded here originally — that `StoreRouterConfig` lived in `liquers-store` and so could not be
+embedded by a core-side configuration type — was lifted on 2026-08-31** when
+`design/store-factories-in-core/` merged: `store_config.rs` and `store_factory.rs` are now
+`liquers-core` modules. A core-side `EnvironmentConfig` is therefore possible, which changes where
+the builder and its future configuration type can live; see §Prerequisite review below. Also note
 `E::Payload` is per-execution, not a global service bag; a "global payload" would be a distinct
 environment-lifetime thing.
 
@@ -100,14 +103,15 @@ The JavaScript (and later Python) target is a two-document setup: one configurin
 one declaring commands. Phase 3 §Scenario 4 sketches the first. Filed as prerequisites, none of them
 blocking this design:
 
-All three are **P0 by maintainer decision** (2026-08-27) — hard prerequisites, not severity. See the
-priority note in each file, and the §4.4 caveat below.
+All three were **P0 by maintainer decision** (2026-08-27) — hard prerequisites, not severity. See the
+priority note in each file, and the §4.4 caveat below. **All three are now `closed`** — see
+§Prerequisite review.
 
-| Issue | Priority | Why it comes first |
-|---|---|---|
-| `STORE-CONFIG-IN-CORE` | P0 | A core-side configuration type cannot embed `StoreRouterConfig` while it lives in `liquers-store`. No new core dependency; `liquers-web` already takes `liquers-store` with backends off just to reach these types. |
-| `COMMAND-DECLARATION-FORMAT` | P0 | Document #2 has no home. `JsCommandSpec` hand-parses a `JsValue` field by field; Python would rewrite it. Split declarative half (serde) from implementation (resolved by name). |
-| `RECIPE-PROVIDER-BY-NAME` | P0 | The one `EnvironmentConfig` field that cannot be expressed as data today. |
+| Issue | Priority | Why it came first | State (2026-08-31) |
+|---|---|---|---|
+| `STORE-CONFIG-IN-CORE` | P0 | A core-side configuration type cannot embed `StoreRouterConfig` while it lives in `liquers-store`. | **closed.** `liquers-core/src/store_config.rs` and `store_factory.rs` exist; `liquers-web` no longer depends on `liquers-store` at all. |
+| `COMMAND-DECLARATION-FORMAT` | P0 | Document #2 has no home. `JsCommandSpec` hand-parses a `JsValue` field by field; Python would rewrite it. Split declarative half (serde) from implementation (resolved by name). | **closed.** `liquers-core/src/command_declaration.rs`; `liquers-web`'s `JsCommandSpec` now builds on `CommandDeclaration`. |
+| `RECIPE-PROVIDER-BY-NAME` | P0 | The one `EnvironmentConfig` field that cannot be expressed as data today. | **closed.** `RecipeProviderChoice` in `liquers-core/src/recipes.rs`, with `provider()` / `boxed_provider()` / `FromStr` / `Display`. |
 
 **Open against `DOCS_STRUCTURE_GUIDE.md` §4.4.** That table defines P1 as "something blocking planned
 work" and reserves P0 for incorrect results, data loss, a panic on a supported path, or a documented
@@ -132,27 +136,46 @@ the asset cache.
 
 ### Preparatory issues designed separately
 
-Three of the issues listed above now have their own design folders, prepared under
-[`guides/autonomous_issue_fixing.md`](../../guides/autonomous_issue_fixing.md). They keep the same
-five phase names but not this design's persistent-artifact or approval contract, and none of them
-changes this design's phase documents, front-matter or workflow marker. All three are **awaiting
-the approval gate — nothing is implemented.**
+Four of the issues listed above were designed and implemented in their own folders. **All four have
+merged; none of them changed this design's phase documents, front-matter or workflow marker.**
 
-| Issue | Design |
-|---|---|
-| `RECIPE-PROVIDER-BY-NAME` | [`design/recipe-provider-selection/`](../recipe-provider-selection/) |
-| `COMMAND-DECLARATION-FORMAT` | [`design/command-declaration/`](../command-declaration/) |
-| `CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC` | [`design/payload-env-recipe-provider-fallback/`](../payload-env-recipe-provider-fallback/) |
+| Issue | Design | Merged as |
+|---|---|---|
+| `RECIPE-PROVIDER-BY-NAME` | [`design/recipe-provider-selection/`](../recipe-provider-selection/) | PR 48 |
+| `COMMAND-DECLARATION-FORMAT` | [`design/command-declaration/`](../command-declaration/) | PR 50 |
+| `CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC` | [`design/payload-env-recipe-provider-fallback/`](../payload-env-recipe-provider-fallback/) | PR 51 |
+| `STORE-CONFIG-IN-CORE` | [`design/store-factories-in-core/`](../store-factories-in-core/) | PR 46 |
 
-`STORE-CONFIG-IN-CORE` also has its own folder now,
-[`design/store-factories-in-core/`](../store-factories-in-core/), but under the full
-`workflow: liquers-project` contract rather than the three above. Its scope was widened at the
-maintainer's direction beyond the issue as filed — the `StoreFactory` trait and `StoreRouterBuilder`
-move into `liquers-core` alongside the configuration types, so `liquers-web` drops `liquers-store`
-entirely — and its complexity is reclassified M -> L. The layering constraint recorded above ("a
-core-side configuration type cannot embed `StoreRouterConfig`") is what that design lifts.
+The first three were prepared under
+[`guides/autonomous_issue_fixing.md`](../../guides/autonomous_issue_fixing.md) — the same five phase
+names, but not this design's persistent-artifact or approval contract — except
+`command-declaration`, which was converted to `workflow: liquers-project` mid-flight.
+`store-factories-in-core` ran the full `liquers-project` contract from the start; its scope was
+widened at the maintainer's direction beyond the issue as filed (the `StoreFactory` trait and
+`StoreRouterBuilder` moved into `liquers-core` alongside the configuration types, so `liquers-web`
+drops `liquers-store` entirely), and its complexity was reclassified M -> L.
 
-Note for whoever owns this design: if the third is fixed directly, the
-`SimpleEnvironmentWithPayload` row of [Phase 2](./phase2-architecture.md) §"The recipe-provider
-default is per-crate" becomes stale, and that design's Phase 1 corrects a claim in the issue file
-about the struct's doc comment.
+## Prerequisite review (2026-08-31)
+
+Phases 1-3 were written on 2026-08-27, before any prerequisite had merged. This review re-read them
+against `HEAD` and amended what the merges invalidated. **Nothing of the architecture changed** —
+the readiness fix, the consolidation into `GenericEnvironment`, the sync fallible `build()` and the
+re-runnable barrier all stand. What changed is the surrounding facts the documents cited.
+
+| Merged work | What it invalidated | Where amended |
+|---|---|---|
+| `store-factories-in-core` (PR 46) | The layering constraint. `StoreRouterConfig`, `StoreFactory`, `StoreRouterBuilder` are `liquers-core` modules now, so a core-side `EnvironmentConfig` is possible and `liquers-web` no longer depends on `liquers-store`. | Phase 1 §Future Direction; Phase 2 §Integration Points and new open question 4; Phase 3 §Scenario 4 |
+| `recipe-provider-selection` (PR 48) | "The one `EnvironmentConfig` field that cannot be expressed as data." `RecipeProviderChoice` exists in `liquers-core/src/recipes.rs`. | Phase 2 §Recipe Provider and §`EnvironmentBuilder` inherent API; Phase 3 §Scenario 4 |
+| `command-declaration` (PR 50) | Nothing structural — the builder does not touch declaration parsing — but `liquers-web`'s `JsCommandSpec` now builds on `CommandDeclaration`, so the replay path the builder migration must preserve has a different internal shape. | Phase 3 §Scenario 2a note |
+| `payload-env-recipe-provider-fallback` (PR 51) | `SimpleEnvironmentWithPayload::get_recipe_provider` no longer panics; it falls back to `TrivialRecipeProvider` and logs to stderr. The builder therefore *preserves* a fix rather than delivering one. | Phase 2 preflight row and §The recipe-provider default is per-crate; Phase 3 T9 and corner-case table |
+| `refresh-command-metadata-versions` | `Environment::to_ref` now calls `refresh_metadata_versions()` before `EnvRef::new`. Phase 2's `build()` sequence predates it and omitted the step. | Phase 2 §`EnvironmentBuilder` inherent API, step 0 |
+
+**§4.4 priority dispute is moot in practice.** The three P0-by-decision prerequisites are closed, so
+nothing now sits at a priority the guide's table does not support. The guide is unchanged and gains
+no hard-prerequisite clause; the recommendation is to leave §4.4 as written and to treat future
+prerequisites as P1 unless they independently meet a P0 criterion.
+
+**`POST-INIT-COMMAND-REGISTRATION` P3 → P2 remains unapplied**, still pending confirmation.
+
+Note for whoever owns this design: `payload-env-recipe-provider-fallback`'s Phase 1 corrects a claim
+in `CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC.md` about the struct's doc comment.

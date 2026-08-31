@@ -104,15 +104,21 @@ The ambition is a **single configuration point** that sets up an environment —
 commands, recipe provider, and the store — plausibly a YAML-serializable `EnvironmentConfiguration`.
 Not solved here; the builder must simply not preclude it. Three facts shape it:
 
-- **The pattern already exists.** `liquers-store`'s `StoreRouterConfig` is serde-derived with
+- **The pattern already exists.** `StoreRouterConfig` is serde-derived with
   `from_yaml` / `from_json` / `from_toml` and `${VAR_NAME}` expansion, consumed by
   `StoreRouterBuilder` plus registered factories. An `EnvironmentConfiguration` embedding it is the
   natural shape, and `StoreRouterBuilder` is the precedent the environment builder should mirror.
-- **Layering blocks the obvious version.** `StoreRouterConfig` lives in `liquers-store`, which
-  depends on `liquers-core`. A config type *in* `liquers-core` therefore cannot embed it. Either the
-  configuration type lives in `liquers-store` or above, or the core-side type keeps the store section
-  opaque for a higher crate to interpret. Phase 2 must decide which, because it decides where the
-  builder itself can live.
+- **~~Layering blocks the obvious version.~~ Lifted 2026-08-31.** This bullet originally read: a
+  config type in `liquers-core` cannot embed `StoreRouterConfig`, because that type lived in
+  `liquers-store`, which depends on core. `STORE-CONFIG-IN-CORE` closed that gap —
+  `liquers-core/src/store_config.rs` and `liquers-core/src/store_factory.rs` now hold
+  `StoreRouterConfig`, `StoreConfig`, `expand_env_vars`, the `StoreFactory` trait, factory chaining
+  and `StoreRouterBuilder`, and `liquers-web` dropped its `liquers-store` dependency entirely. A
+  core-side `EnvironmentConfig` is therefore constructible in one crate. `RECIPE-PROVIDER-BY-NAME`
+  closed alongside it, so `RecipeProviderChoice` makes the recipe section expressible as data too.
+  What this *changes* for the builder is recorded as Phase 2 open question 4: whether
+  `with_async_store(Arc<dyn AsyncStore>)` remains the only store entry point, or the builder also
+  accepts a `StoreRouterConfig` plus a factory. It does not change anything already committed.
 - **"Global payload" is not today's `Payload`.** `E::Payload` / `PayloadType` is a *per-execution*
   value reaching commands through `Context::get_payload_clone` and `InjectedFromContext`. A global
   service bag would be a distinct, environment-lifetime thing that could plausibly reuse the same
