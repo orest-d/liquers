@@ -3,11 +3,11 @@ id: ENVIRONMENT-BUILDER
 kind: design
 title: Environment builder
 workflow: liquers-project
-phase: documentation
+status: complete
 area: [core/assets, core/context]
-gh_pr: [44]
+gh_pr: [44, 53]
 issues: [QUEUED-MANAGER-STARTUP-READINESS, ENVIRONMENT-MANAGER-REFERENCE-CYCLE, CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC, STORE-CONFIG-IN-CORE, COMMAND-DECLARATION-FORMAT, RECIPE-PROVIDER-BY-NAME, WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG]
-affects_docs: [DOC_04_ENVIRONMENT_CONTEXT_EVALUATION, DOC_03_ASSETS_EXECUTION_LIFECYCLE, ENVIRONMENT_CONSTRUCTION_GUIDE, ENVIRONMENT_CONFIG, LANGUAGE-INTEGRATION_GUIDE, PAYLOAD_GUIDE, ASSET_LIFECYCLE, STORE_CONFIG_FSD]
+affects_docs: [DOC_04_ENVIRONMENT_CONTEXT_EVALUATION, DOC_03_ASSETS_EXECUTION_LIFECYCLE, ENVIRONMENT_CONSTRUCTION_GUIDE, ENVIRONMENT_CONFIG, LANGUAGE-INTEGRATION_GUIDE, PAYLOAD_GUIDE, STORE_CONFIG_FSD]
 created: 2026-08-27
 superseded_by:
 ---
@@ -22,7 +22,24 @@ superseded_by:
 - [x] Phase 3: Examples & Testing (approved 2026-08-31)
 - [x] Phase 4: Implementation Plan (approved 2026-08-31)
 - [x] Implementation: all twelve steps complete and green
-- [x] Phase 5: Documentation (awaiting approval)
+- [x] Phase 5: Documentation (approved 2026-08-31)
+
+## Outcome
+
+**Complete, 2026-08-31.** `QUEUED-MANAGER-STARTUP-READINESS` is closed: `Environment::try_to_ref`
+owns one readiness sequence, and both construction paths — `to_ref` and `EnvironmentBuilder::build`
+— run it, so an `EnvRef` is ready to evaluate the moment it exists. Delivered alongside it, by the
+gate decisions of 2026-08-31: `GenericEnvironment` replacing four near-duplicate structs behind the
+existing names, and `EnvironmentConfig` configuring an environment and its store from one document.
+
+Read [`ENVIRONMENT_CONSTRUCTION_GUIDE.md`](../../guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md) and
+[`ENVIRONMENT_CONFIG.md`](../../reference/ENVIRONMENT_CONFIG.md) rather than these phase documents:
+they describe the behaviour as built. [Phase 5](./phase5-documentation.md) records what was
+implemented, the five deviations from the approved design, and what was learned — including two P1
+regressions this work introduced and review caught, both fixed before merge.
+
+Shipped in [PR #53](https://github.com/orest-d/liquers/pull/53); the design is complete
+independently of when that merges.
 
 ## Notes
 

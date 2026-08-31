@@ -83,7 +83,6 @@ CORE-MULTI-REALM-INTERPRETER,issue,The interpreter supports a single realm,accep
 CORE-TOKIO-REMOVAL,issue,Core still depends on tokio primitives on wasm,accepted,local,,P3,XL,core/assets,,,,,,2026-08-08,specs/issues/CORE-TOKIO-REMOVAL.md
 ASSET-MANAGER-INSERT-KEY-ASSET-SEMANTICS,design,asset-manager-insert-key-asset-semantics,draft,local,documentation,,,core/assets,,,,asset-manager-insert-key-asset-semantics,,2026-08-25,specs/design/asset-manager-insert-key-asset-semantics/DESIGN.md
 CONTEXT-PARAM-ORDER,design,Context parameter position in register_command!,draft,local,architecture,,,core/commands;macro,,,,context-param-order,,2026-03-02,specs/design/context-param-order/DESIGN.md
-ENVIRONMENT-BUILDER,design,Environment builder,,github,documentation,,,core/assets;core/context,,44,,environment-builder,,2026-08-27,specs/design/environment-builder/DESIGN.md
 ERROR-WITH-KEY-FIELD,design,Error::with_key populates the key field,in_review,local,architecture,,,core/error,,,,error-with-key-field,,2026-08-29,specs/design/error-with-key-field/DESIGN.md
 EXPIRATION-INTEGRATION-SUITE-REPAIR,design,expiration-integration-suite-failing-at-head,draft,local,examples,,,core/assets,,,,expiration-integration-suite-failing-at-head,,2026-08-11,specs/design/expiration-integration-suite-failing-at-head/DESIGN.md
 EXPIRED-BINARY-READ-SAFETY,design,Expired-safe binary reads,,github,implementation,,,core/assets;core/store,,22,,expired-binary-read-safety,,2026-08-08,specs/design/expired-binary-read-safety/DESIGN.md
@@ -178,6 +177,7 @@ COMMAND-DECLARATION,design,A language-neutral command declaration type,complete,
 CORE-NO-DEFAULT-FEATURES,design,liquers-core no-default-features build decision,complete,local,,,,core/store;build,,,,core-no-default-features,,2026-08-29,specs/design/core-no-default-features/DESIGN.md
 DEPENDENCY-MANAGEMENT,design,Dependency-wait lifecycle and deadlock-safe delegation,complete,local,,,,core/assets,,5,,dependency-management,,2026-03-02,specs/design/dependency-management/DESIGN.md
 DEPENDENCY-SCHEDULING,design,Non-blocking dependency scheduling with atomic run claims,complete,local,,,,core/assets,,6,,dependency-scheduling,,2026-03-02,specs/design/dependency-scheduling/DESIGN.md
+ENVIRONMENT-BUILDER,design,Environment builder,complete,local,,,,core/assets;core/context,,44;53,,environment-builder,,2026-08-27,specs/design/environment-builder/DESIGN.md
 EXCESS-ACTION-PARAMETERS-ERROR,design,Excess action parameters raise an error during plan building,complete,local,,,,core/plan;core/error,,33,,excess-action-parameters-error,,2026-08-12,specs/design/excess-action-parameters-error/DESIGN.md
 EXPIRATION-MECHANISM,design,Asset expiration mechanism,complete,local,,,,core/assets,,,,expiration-mechanism,,2026-03-02,specs/design/expiration-mechanism/DESIGN.md
 EXPIRATION-MONITOR-ASSETREF,design,Weak references in the expiration monitor,complete,local,,,,core/assets,,9;11,,expiration-monitor-assetref,,2026-03-02,specs/design/expiration-monitor-assetref/DESIGN.md
