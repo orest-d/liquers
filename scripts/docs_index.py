@@ -146,7 +146,8 @@ def sort_key(row: dict) -> tuple:
         rank = (PRIORITY_ORDER.get(row["priority"], len(PRIORITY_ORDER)),
                 COMPLEXITY_ORDER.get(row["complexity"], len(COMPLEXITY_ORDER)))
     elif kind == "design":
-        rank = (0, 0)
+        rank = (PRIORITY_ORDER.get(row["priority"], len(PRIORITY_ORDER)),
+                COMPLEXITY_ORDER.get(row["complexity"], len(COMPLEXITY_ORDER)))
     else:
         rank = (0 if row["status"] == "overdue" else 1, 0)
     return (finished(row), KIND_ORDER.get(kind, len(KIND_ORDER)), rank, row["id"])
@@ -182,7 +183,7 @@ def collect() -> list[dict]:
             # Who owns the value in the status column, not whether a PR exists (§5.5). A design
             # that has reached a hand-written terminal status owns it locally, gh_pr or not.
             "status_source": "github" if gh_pr and not f.get("status") else "local",
-            "phase": f.get("phase", ""), "readiness": f.get("readiness", ""),
+            "phase": f.get("phase", ""), "readiness": "",
             "priority": "", "complexity": "",
             "area": ";".join(_list(f, "area")), "gh_issue": "", "gh_pr": ";".join(gh_pr),
             "branch": "", "design": slug, "reviewed": "", "created": f.get("created", ""),
@@ -210,6 +211,25 @@ def collect() -> list[dict]:
                 "created": "", "file": path.relative_to(REPO).as_posix(),
                 "_fm": f, "_path": path,
             })
+
+    # A design with one known source inherits its source-owned queue fields. A readiness design
+    # also projects its design-owned readiness back onto that source. Invalid or ambiguous links
+    # remain unjoined and are reported by check().
+    issue_rows = {row["id"]: row for row in rows if row["kind"] in ("issue", "feature")}
+    for row in rows:
+        if row["kind"] != "design":
+            continue
+        readiness = row["_fm"].get("readiness", "")
+        sources = _list(row["_fm"], "issues")
+        if len(sources) != 1 or sources[0] not in issue_rows:
+            continue
+        source = issue_rows[sources[0]]
+        row["priority"] = source["priority"]
+        row["complexity"] = source["complexity"]
+        row["gh_issue"] = source["gh_issue"]
+        row["readiness"] = readiness
+        if readiness:
+            source["readiness"] = readiness
 
     rows.sort(key=sort_key)
     return rows
