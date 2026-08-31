@@ -137,8 +137,18 @@ impl liquers_core::context::Environment for Environment {
         todo!()
     }
 
-    fn init_with_envref(&self, envref: liquers_core::context::EnvRef<Self>) {
-        todo!()
+    fn init_with_envref(
+        &self,
+        envref: liquers_core::context::EnvRef<Self>,
+    ) -> Result<(), liquers_core::error::Error> {
+        // The Python environment is a stub: `get_asset_manager` and `get_recipe_provider` are
+        // still `todo!()`, so there is no manager to construct, install or start. Report that
+        // rather than panicking — this hook is now the readiness contract, and a `todo!()` behind
+        // it would be a panic on a path callers are entitled to take.
+        let _ = envref;
+        Err(liquers_core::error::Error::general_error(
+            "the Python environment does not yet provide an asset manager".to_string(),
+        ))
     }
 }
 

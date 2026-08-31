@@ -29,27 +29,33 @@ macro_rules! register_polars_commands {
     }};
 }
 
-/// Register all Polars commands in the "pl" namespace
+/// Register all Polars commands in the "pl" namespace.
+///
+/// Takes the command registry rather than the environment, so it serves both construction paths:
+/// an `EnvironmentBuilder`'s `command_registry` field and an environment's own. The two are the
+/// same type, because `DefaultEnvironment` is an alias.
 pub fn register_commands(
-    env: &mut crate::environment::DefaultEnvironment<Value>,
+    cr: &mut liquers_core::commands::CommandRegistry<
+        crate::environment::DefaultEnvironment<Value>,
+    >,
 ) -> Result<(), Error> {
     // I/O commands
-    io::register_commands(env)?;
+    io::register_commands(cr)?;
 
     // Selection and slicing
-    selection::register_commands(env)?;
+    selection::register_commands(cr)?;
 
     // Filtering
-    filtering::register_commands(env)?;
+    filtering::register_commands(cr)?;
 
     // Sorting
-    sorting::register_commands(env)?;
+    sorting::register_commands(cr)?;
 
     // Aggregations
-    aggregation::register_commands(env)?;
+    aggregation::register_commands(cr)?;
 
     // Info commands
-    info::register_commands(env)?;
+    info::register_commands(cr)?;
 
     Ok(())
 }

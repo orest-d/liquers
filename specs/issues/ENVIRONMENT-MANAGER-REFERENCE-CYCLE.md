@@ -92,3 +92,17 @@ change; fixing it separately is possible if the builder work does not land.
 2. A `Drop`-instrumented environment is dropped when the last `EnvRef` goes out of scope.
 3. Building and dropping many environments in a loop does not grow retained memory.
 4. `get_envref` still returns a usable `EnvRef` from inside an evaluation.
+
+## Status after `design/environment-builder` (2026-08-31)
+
+Unchanged, by decision, and **not worsened**. That design kept the manager's back-reference strong
+(Phase 1, question 3), so both cycles are exactly as described above.
+
+One detail moved: the manager's back-reference is no longer a `OnceLock<EnvRef<E>>` filled in after
+construction, but a plain `EnvRef<E>` field supplied to the constructor. The strong count is the
+same; what changed is that there is no unset state around it. The environment now holds its manager
+in a `OnceLock` instead, written once by `Environment::init_with_envref`.
+
+That relocation is where a future fix would go: `init_with_envref` is now the single place that
+constructs the manager with a reference to its environment, so weakening that reference is one
+function to change rather than four.

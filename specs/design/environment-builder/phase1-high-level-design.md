@@ -63,9 +63,10 @@ None directly; `liquers-lib`'s egui/webui environments are built through the sam
 
 ## Crate Placement
 
-**liquers-core** — new builder module plus `src/context.rs` (the four built-in environments,
-`Environment::to_ref`, `init_with_envref`, `EnvRef::new`) and `src/assets.rs` (`AssetManager`
-lifecycle: `set_envref`, `start`). **liquers-lib** — `src/environment.rs` (`DefaultEnvironment`,
+**liquers-core** — new builder module, a new configuration module *(added 2026-08-31)*, plus
+`src/context.rs` (the four built-in environments, `Environment::to_ref`, `init_with_envref`,
+`EnvRef::new` — the first two are kept and reworked, not removed) and `src/assets.rs`
+(`AssetManager` lifecycle: `set_envref`, `start`). **liquers-lib** — `src/environment.rs` (`DefaultEnvironment`,
 `SelectedAssetManager`). **liquers-web**, **liquers-axum** — migrate construction sites.
 `liquers-py`'s `init_with_envref` is `todo!()` and stays out of scope.
 
@@ -98,28 +99,46 @@ Audience: framework maintainers and language integrators. Afterwards they should
 correctly initialized environment from the guide alone, and to tell from the reference what an
 `EnvRef` guarantees.
 
-## Future Direction (aware of, not in scope)
+## Future Direction ~~(aware of, not in scope)~~ — **brought into scope 2026-08-31**
 
 The ambition is a **single configuration point** that sets up an environment — manager selection,
 commands, recipe provider, and the store — plausibly a YAML-serializable `EnvironmentConfiguration`.
-Not solved here; the builder must simply not preclude it. Three facts shape it:
 
-- **The pattern already exists.** `liquers-store`'s `StoreRouterConfig` is serde-derived with
+**This section no longer describes future work.** It was written when the layering constraint below
+made a core-side configuration type impossible; `STORE-CONFIG-IN-CORE` and `RECIPE-PROVIDER-BY-NAME`
+removed that, and the maintainer decision of 2026-08-31 commits the goal: the store router
+configuration is a **section of** the environment configuration, and one file or JSON structure
+configures both. `EnvironmentConfig` is specified in Phase 2 §Data Structures and demonstrated in
+Phase 3 §Scenario 4, sequenced as the final separable step of Phase 4.
+
+What stays out of scope is a `commands:` section — commands are Rust functions a document cannot
+name, so a configuration configures *services* and code registers *commands*. Three facts shaped
+the design, and the second is now historical:
+
+- **The pattern already exists.** `StoreRouterConfig` is serde-derived with
   `from_yaml` / `from_json` / `from_toml` and `${VAR_NAME}` expansion, consumed by
   `StoreRouterBuilder` plus registered factories. An `EnvironmentConfiguration` embedding it is the
   natural shape, and `StoreRouterBuilder` is the precedent the environment builder should mirror.
-- **Layering blocks the obvious version.** `StoreRouterConfig` lives in `liquers-store`, which
-  depends on `liquers-core`. A config type *in* `liquers-core` therefore cannot embed it. Either the
-  configuration type lives in `liquers-store` or above, or the core-side type keeps the store section
-  opaque for a higher crate to interpret. Phase 2 must decide which, because it decides where the
-  builder itself can live.
+- **~~Layering blocks the obvious version.~~ Lifted 2026-08-31.** This bullet originally read: a
+  config type in `liquers-core` cannot embed `StoreRouterConfig`, because that type lived in
+  `liquers-store`, which depends on core. `STORE-CONFIG-IN-CORE` closed that gap —
+  `liquers-core/src/store_config.rs` and `liquers-core/src/store_factory.rs` now hold
+  `StoreRouterConfig`, `StoreConfig`, `expand_env_vars`, the `StoreFactory` trait, factory chaining
+  and `StoreRouterBuilder`, and `liquers-web` dropped its `liquers-store` dependency entirely. A
+  core-side `EnvironmentConfig` is therefore constructible in one crate. `RECIPE-PROVIDER-BY-NAME`
+  closed alongside it, so `RecipeProviderChoice` makes the recipe section expressible as data too.
+  What this *changes* for the builder is recorded as Phase 2 open question 4: whether
+  `with_async_store(Arc<dyn AsyncStore>)` remains the only store entry point, or the builder also
+  accepts a `StoreRouterConfig` plus a factory. It does not change anything already committed.
 - **"Global payload" is not today's `Payload`.** `E::Payload` / `PayloadType` is a *per-execution*
   value reaching commands through `Context::get_payload_clone` and `InjectedFromContext`. A global
   service bag would be a distinct, environment-lifetime thing that could plausibly reuse the same
   injection machinery with a global rather than per-execution source. The two must not be conflated.
 
-The `ENVIRONMENT_CONSTRUCTION_GUIDE.md` planned above should be written so a config-driven setup can
-be added as a section later without restructuring it.
+The `ENVIRONMENT_CONSTRUCTION_GUIDE.md` planned above ~~should be written so a config-driven setup can
+be added as a section later without restructuring it~~ **carries that section from the start**, and a
+new `specs/reference/ENVIRONMENT_CONFIG.md` documents the document itself (Phase 2 §Documentation
+Architecture).
 
 ## Open Questions
 
@@ -166,13 +185,16 @@ be added as a section later without restructuring it.
    signature. So `to_ref` becomes a correct shorthand for "build with defaults", and the builder
    becomes the configuration surface for everything else. Phase 2 must confirm no path reaches an
    `EnvRef` except through those two.
-   **Refinement to evaluate in Phase 2:** hide `to_ref` from users without touching it, by making the
-   built-in environments' *constructors* `pub(crate)` and dropping their public `Default` impls. Since
-   `to_ref(self)` consumes an owned environment, a caller who cannot construct one cannot call it, and
-   the builder becomes the only source. The types themselves must stay **public and nameable** —
-   `register_command!` needs a `CommandEnvironment` type alias, and users write
-   `EnvRef<SimpleEnvironment<Value>>` and `Context<E>` in their own signatures — so this is
-   constructor visibility, not type visibility.
+   **~~Refinement to evaluate in Phase 2~~ — evaluated and WITHDRAWN 2026-08-31.** The refinement was
+   to hide `to_ref` without touching it, by making the built-in environments' *constructors*
+   `pub(crate)` and dropping their public `Default` impls, so that a caller who cannot construct an
+   environment cannot call `to_ref` on one. Phase 3 corner case 3b showed the contradiction — 94 of
+   the call sites are in `liquers-core/tests`, which is an external crate — and the maintainer
+   decision settles it: the builder is the **recommended** path, not the only one, and an ad-hoc
+   user-created environment still needs `to_ref`. Constructors stay `pub`, `to_ref` stays on the
+   trait and is **not deprecated**, and in-tree call sites are phased out only where that is cheap.
+   `EnvRef::new` keeps its deprecation, since it is the door that actually produces an unready
+   reference. See Phase 2 §`Environment` and §Hiding the remaining doors.
 5. **~~Async or sync `build()`?~~ Decided: sync (option A).** `start()` is async only because
    `DependencyManager::register_version` awaits `scc::HashMap::entry_async`. At build time that map
    is empty and uncontended, every command key inserts `Vacant`, so `version_changed` is always

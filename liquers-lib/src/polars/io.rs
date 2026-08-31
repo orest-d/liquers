@@ -88,10 +88,11 @@ macro_rules! register_polars_io_commands {
 
 /// Backward-compatible wrapper calling the `register_polars_io_commands!` macro.
 pub fn register_commands(
-    env: &mut crate::environment::DefaultEnvironment<Value>,
+    cr: &mut liquers_core::commands::CommandRegistry<
+        crate::environment::DefaultEnvironment<Value>,
+    >,
 ) -> Result<(), Error> {
     type CommandEnvironment = crate::environment::DefaultEnvironment<Value>;
-    let cr = env.get_mut_command_registry();
     register_polars_io_commands!(cr)?;
     Ok(())
 }

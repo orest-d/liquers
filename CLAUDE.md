@@ -449,7 +449,8 @@ refuses an identifier the registry does not contain.
 One identifier per variant, and one variant per identifier — everything that varies per instance
 goes in `type_name`. A type whose identifier belongs to an *integration crate* instead of to the
 value type (a JavaScript handle in `liquers-web`) cannot be in that static list: it extends the base
-registry and passes it to the environment constructor, `new_with_type_registry`.
+registry and passes it to the builder with `EnvironmentBuilder::with_type_registry` (or to
+`new_with_type_registry`, when assembling an environment by hand).
 
 See `specs/guides/TYPE_SYSTEM_GUIDE.md` for the whole procedure,
 `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §VALUE for the integration-owned case, and
