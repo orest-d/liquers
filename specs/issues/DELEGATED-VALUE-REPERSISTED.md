@@ -2,11 +2,11 @@
 id: DELEGATED-VALUE-REPERSISTED
 kind: issue
 title: An asset that delegates to a key's owner writes the owner's value to the store again
-status: draft
+status: in_progress
 priority: P3
 complexity: S
 area: [core/assets]
-design:
+design: delegated-value-repersisted
 created: 2026-08-12
 github:
 ---

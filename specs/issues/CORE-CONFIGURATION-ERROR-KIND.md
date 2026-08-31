@@ -2,11 +2,11 @@
 id: CORE-CONFIGURATION-ERROR-KIND
 kind: issue
 title: Configuration errors are indistinguishable from general errors
-status: draft
+status: in_progress
 priority: P3
 complexity: S
 area: [core/error, store/config]
-design: 
+design: configuration-error-kind
 created: 2026-08-29
 github:
 ---

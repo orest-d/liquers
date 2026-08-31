@@ -207,7 +207,12 @@ deliberately folded behind a broader line.
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - design `asset-manager-insert-key-asset-semantics`
 - design `command-declaration`
+- design `command-metadata-command-hints`
+- design `command-registry-issue-fields`
+- design `configuration-error-kind`
 - design `core-no-default-features`
+- design `delegated-value-repersisted`
+- design `docs-dead-links`
 - design `environment-builder`
 - design `error-with-key-field`
 - design `expiration-integration-suite-failing-at-head`
