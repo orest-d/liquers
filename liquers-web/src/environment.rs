@@ -93,13 +93,15 @@ pub fn new_environment() -> Result<WebEnvironment, Error> {
 
     let mut env = WebEnvironment::new_with_type_registry(types);
     crate::builtins::register_builtin_commands(&mut env)?;
-    // Required, not optional: `DefaultEnvironment::get_recipe_provider` *panics* when none is set
-    // (`liquers-lib/src/environment.rs:152`), and evaluating any `-R/` query reaches it. On wasm a
-    // panic aborts the instance, so the symptom is a `Promise` that never settles — a hang, with
-    // no error anywhere. See `specs/issues/LIB-RECIPE-PROVIDER-PANIC.md`.
+    // Required, not optional — but not because anything panics. An unconfigured environment
+    // resolves recipes *trivially*, i.e. finds none, so every `-R/` query would fail with
+    // `KeyNotFound` whatever the store contains. `RecipeProviderChoice::Default` reads recipes
+    // through the environment's store, which is what this crate wants; with no store configured it
+    // simply finds none, and `-R/` fails with `KeyNotFound` as it should.
     //
-    // The default provider reads recipes through the environment's store, so with no store
-    // configured it simply finds none, and a `-R/` query fails with `KeyNotFound` as it should.
+    // (This comment used to cite a panic in `DefaultEnvironment::get_recipe_provider`. That was
+    // `LIB-RECIPE-PROVIDER-PANIC`, since closed; the provider field is a non-optional `Arc` now
+    // and there is no panic to avoid.)
     env.with_default_recipe_provider();
     Ok(env)
 }

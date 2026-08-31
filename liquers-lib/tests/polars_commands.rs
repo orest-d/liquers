@@ -7,7 +7,9 @@
 
 use liquers_core::{context::Environment, error::Error, metadata::MetadataRecord, state::State};
 use liquers_lib::{
-    environment::DefaultEnvironment,
+    // `register_polars_commands` is an extension-trait method since `DefaultEnvironment` became an
+    // alias of a `liquers-core` type: Rust permits an inherent `impl` only in the defining crate.
+    environment::{DefaultEnvironment, PolarsCommandRegistration},
     value::{simple::SimpleValue, ExtValueInterface, Value},
 };
 use std::sync::Arc;

@@ -1124,6 +1124,30 @@ impl<
         self.recipe_provider = Arc::from(provider);
         self
     }
+
+    /// Selects one of the built-in recipe providers by name.
+    ///
+    /// The same vocabulary [`crate::environment_builder::EnvironmentBuilder`] and a configuration
+    /// document use, so the choice is spelled one way everywhere.
+    pub fn with_recipe_provider_choice(
+        &mut self,
+        choice: crate::recipes::RecipeProviderChoice,
+    ) -> &mut Self {
+        self.recipe_provider = choice.provider();
+        self
+    }
+
+    /// Reads recipes through the environment's store
+    /// ([`RecipeProviderChoice::Default`](crate::recipes::RecipeProviderChoice::Default)).
+    pub fn with_default_recipe_provider(&mut self) -> &mut Self {
+        self.with_recipe_provider_choice(crate::recipes::RecipeProviderChoice::Default)
+    }
+
+    /// Resolves no recipes at all
+    /// ([`RecipeProviderChoice::Trivial`](crate::recipes::RecipeProviderChoice::Trivial)).
+    pub fn with_trivial_recipe_provider(&mut self) -> &mut Self {
+        self.with_recipe_provider_choice(crate::recipes::RecipeProviderChoice::Trivial)
+    }
 }
 
 impl<
