@@ -182,7 +182,7 @@ def collect() -> list[dict]:
             # Who owns the value in the status column, not whether a PR exists (§5.5). A design
             # that has reached a hand-written terminal status owns it locally, gh_pr or not.
             "status_source": "github" if gh_pr and not f.get("status") else "local",
-            "phase": f.get("phase", ""), "readiness": f.get("readiness", ""),
+            "phase": f.get("phase", ""), "readiness": "",
             "priority": "", "complexity": "",
             "area": ";".join(_list(f, "area")), "gh_issue": "", "gh_pr": ";".join(gh_pr),
             "branch": "", "design": slug, "reviewed": "", "created": f.get("created", ""),
@@ -210,6 +210,18 @@ def collect() -> list[dict]:
                 "created": "", "file": path.relative_to(REPO).as_posix(),
                 "_fm": f, "_path": path,
             })
+
+    # Readiness is authored by a design, but its one-source invariant means it is most useful in
+    # the source issue/feature row: that row retains the queue's kind, priority, and complexity.
+    # Invalid or ambiguous links remain blank here and are reported by check().
+    issue_rows = {row["id"]: row for row in rows if row["kind"] in ("issue", "feature")}
+    for row in rows:
+        if row["kind"] != "design":
+            continue
+        readiness = row["_fm"].get("readiness", "")
+        sources = _list(row["_fm"], "issues")
+        if readiness and len(sources) == 1 and sources[0] in issue_rows:
+            issue_rows[sources[0]]["readiness"] = readiness
 
     rows.sort(key=sort_key)
     return rows
