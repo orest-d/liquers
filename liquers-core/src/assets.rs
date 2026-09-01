@@ -1258,6 +1258,11 @@ pub struct AssetRef<E: Environment> {
     pub data: Arc<RwLock<AssetData<E>>>,
 }
 
+struct RecipeEvaluation<V: ValueInterface> {
+    state: State<V>,
+    delegated: bool,
+}
+
 /// Weak handle that preserves an asset id without keeping its data alive.
 pub struct WeakAssetRef<E: Environment> {
     id: u64,
@@ -2180,6 +2185,12 @@ impl<E: Environment> AssetRef<E> {
     /// value as this asset's final data or persist it; those steps are performed by
     /// [`Self::evaluate_and_store`].
     pub async fn evaluate_recipe(&self) -> Result<State<E::Value>, Error> {
+        self.evaluate_recipe_outcome()
+            .await
+            .map(|outcome| outcome.state)
+    }
+
+    async fn evaluate_recipe_outcome(&self) -> Result<RecipeEvaluation<E::Value>, Error> {
         self.resolve_volatility_before_evaluation().await;
         let (input_state, recipe) = {
             let (input_state, recipe) = self.initial_state_and_recipe().await;
@@ -2215,7 +2226,10 @@ impl<E: Environment> AssetRef<E> {
                         let envref = self.get_envref().await;
                         let manager = envref.get_asset_manager();
                         let state = manager.wait_for_dependency(self, &asset).await?;
-                        return Ok(state);
+                        return Ok(RecipeEvaluation {
+                            state,
+                            delegated: true,
+                        });
                     }
                     // This asset is the registered owner, or nothing is registered — a
                     // volatile key, which the manager deliberately never registers, or an
@@ -2283,7 +2297,10 @@ impl<E: Environment> AssetRef<E> {
             let _ = metadata.add_dependency(dep);
         }
 
-        Ok(State::from_parts(res, Arc::new(metadata)))
+        Ok(RecipeEvaluation {
+            state: State::from_parts(res, Arc::new(metadata)),
+            delegated: false,
+        })
     }
 
     /// Evaluates the recipe, installs the result, and attempts persistence.
@@ -2292,9 +2309,10 @@ impl<E: Environment> AssetRef<E> {
     /// persistence outcome is recorded separately in [`PersistenceStatus`].
     pub async fn evaluate_and_store(&self) -> Result<(), Error> {
         self.resolve_volatility_before_evaluation().await;
-        let res = self.evaluate_recipe().await;
+        let res = self.evaluate_recipe_outcome().await;
         match res {
-            Ok(state) => {
+            Ok(outcome) => {
+                let RecipeEvaluation { state, delegated } = outcome;
                 let data = state.data_unchecked().clone();
                 let metadata = state.metadata.clone();
                 {
@@ -2321,8 +2339,10 @@ impl<E: Environment> AssetRef<E> {
                     )
                 };
 
-                self.persist_with_status_tracking(save_in_background, cancelled)
-                    .await;
+                if !delegated {
+                    self.persist_with_status_tracking(save_in_background, cancelled)
+                        .await;
+                }
 
                 // Register in DM for non-volatile assets
                 if !lock_is_volatile {
@@ -3229,7 +3249,6 @@ pub enum EvalMode {
     /// Ordinary get/apply operations run in the caller's task before returning.
     Inline,
 }
-
 
 /// Registers every command's metadata and implementation version into the dependency manager.
 ///

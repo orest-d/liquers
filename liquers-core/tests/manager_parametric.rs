@@ -9,6 +9,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use liquers_core::{
     assets::AssetManager,
     command_metadata::CommandKey,
@@ -215,6 +216,62 @@ async fn counted_recipe_store() -> Result<AsyncMemoryStore, Error> {
     Ok(store)
 }
 
+struct CountingStore {
+    inner: AsyncMemoryStore,
+    value_writes: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl AsyncStore for CountingStore {
+    fn store_name(&self) -> String {
+        self.inner.store_name()
+    }
+
+    fn key_prefix(&self) -> Key {
+        self.inner.key_prefix()
+    }
+
+    async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+        self.inner.get(key).await
+    }
+
+    async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+        self.value_writes.fetch_add(1, Ordering::SeqCst);
+        self.inner.set(key, data, metadata).await
+    }
+
+    async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+        self.inner.set_metadata(key, metadata).await
+    }
+
+    async fn contains(&self, key: &Key) -> Result<bool, Error> {
+        self.inner.contains(key).await
+    }
+
+    async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+        self.inner.is_dir(key).await
+    }
+
+    async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+        self.inner.listdir(key).await
+    }
+
+    fn is_supported(&self, key: &Key) -> bool {
+        self.inner.is_supported(key)
+    }
+}
+
+async fn counting_recipe_store() -> Result<(CountingStore, Arc<AtomicUsize>), Error> {
+    let value_writes = Arc::new(AtomicUsize::new(0));
+    Ok((
+        CountingStore {
+            inner: counted_recipe_store().await?,
+            value_writes: value_writes.clone(),
+        },
+        value_writes,
+    ))
+}
+
 fn register_counted<E>(cr: &mut liquers_core::commands::CommandRegistry<E>, calls: Arc<AtomicUsize>)
 where
     E: Environment<Value = Value>,
@@ -382,21 +439,27 @@ async fn plain_stored_value_immediate() -> Result<(), Error> {
 #[tokio::test]
 async fn keyed_delegation_default() -> Result<(), Error> {
     let calls = Arc::new(AtomicUsize::new(0));
+    let (store, value_writes) = counting_recipe_store().await?;
     let mut env = SimpleEnvironment::<Value>::new();
     register_counted(&mut env.command_registry, calls.clone());
-    env.with_async_store(Box::new(counted_recipe_store().await?));
+    env.with_async_store(Box::new(store));
     env.with_recipe_provider(Box::new(DefaultRecipeProvider));
-    scenario_keyed_delegation(env.to_ref(), calls).await
+    scenario_keyed_delegation(env.to_ref(), calls).await?;
+    assert_eq!(value_writes.load(Ordering::SeqCst), 1);
+    Ok(())
 }
 
 #[tokio::test]
 async fn keyed_delegation_immediate() -> Result<(), Error> {
     let calls = Arc::new(AtomicUsize::new(0));
+    let (store, value_writes) = counting_recipe_store().await?;
     let mut env = ImmediateEnvironment::<Value>::new();
     register_counted(&mut env.command_registry, calls.clone());
-    env.with_async_store(Box::new(counted_recipe_store().await?));
+    env.with_async_store(Box::new(store));
     env.with_recipe_provider(Box::new(DefaultRecipeProvider));
-    scenario_keyed_delegation(env.to_ref(), calls).await
+    scenario_keyed_delegation(env.to_ref(), calls).await?;
+    assert_eq!(value_writes.load(Ordering::SeqCst), 1);
+    Ok(())
 }
 
 #[tokio::test]

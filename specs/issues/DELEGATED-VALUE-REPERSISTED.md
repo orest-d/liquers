@@ -2,7 +2,7 @@
 id: DELEGATED-VALUE-REPERSISTED
 kind: issue
 title: An asset that delegates to a key's owner writes the owner's value to the store again
-status: in_progress
+status: closed
 priority: P3
 complexity: S
 area: [core/assets]
@@ -61,3 +61,9 @@ Found on 2026-08-12 while fixing `ASSET-KEYED-DELEGATION-ALWAYS-CYCLES`
 (`specs/design/keyed-delegation-hand-off/`). Before that fix the delegation branch always errored,
 so it never reached persistence and this was unreachable. Deliberately left out of scope there: it
 is a property of `evaluate_and_store`, not of the dependency-cycle check that issue was about.
+
+## Resolution
+
+Closed on 2026-09-01. Recipe evaluation now carries a private delegated outcome to
+`evaluate_and_store`, which installs and readies the handed-off value but skips the delegating
+asset's persistence attempt. Counting-store tests cover both default and immediate managers.

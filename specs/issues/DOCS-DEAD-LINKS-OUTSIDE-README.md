@@ -2,7 +2,7 @@
 id: DOCS-DEAD-LINKS-OUTSIDE-README
 kind: issue
 title: Relative links outside README are never validated
-status: in_progress
+status: closed
 priority: P3
 complexity: S
 area: [docs]
@@ -57,3 +57,10 @@ change or the new check starts as a warning.
 Found while removing `design/liquers-wf/` (2026-08-08). Deleting the folder broke two links in
 `design/liquers-web/phase1-high-level-design.md`; `--check` reported only the one in
 `README.md`, which is what prompted the sweep.
+
+## Resolution
+
+Closed on 2026-09-01. The documentation check now resolves relative links from every current
+README, issue, design, reference, and guide document, while excluding archives, URL targets,
+absolute paths, and fragment-only links. The existing current-document corpus was repaired and
+Python regressions cover resolution, diagnostics, fragments, URLs, and archive exclusion.
