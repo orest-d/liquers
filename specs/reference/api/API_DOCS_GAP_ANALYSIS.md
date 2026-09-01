@@ -351,8 +351,8 @@ constructs inconsistent state or metadata.
 
 ### 7. Stores and persistence
 
-`liquers-store` configuration has relatively good source documentation and examples
-in [`config.rs`](../../../liquers-store/src/config.rs). The underlying `Store` and
+store configuration has current source documentation and examples
+in [`store_factory.rs`](../../../liquers-core/src/store_factory.rs). The underlying `Store` and
 `AsyncStore` consumer contract is less clear.
 
 #### Recommended documentation

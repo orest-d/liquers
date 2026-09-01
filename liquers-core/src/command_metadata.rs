@@ -34,10 +34,61 @@ impl CommandRegistryIssue {
         }
     }
     pub fn warning(realm: &str, namespace: &str, name: &str, message: String) -> Self {
-        CommandRegistryIssue::new(realm, name, namespace, false, message)
+        CommandRegistryIssue::new(realm, namespace, name, false, message)
     }
     pub fn error(realm: &str, namespace: &str, name: &str, message: String) -> Self {
-        CommandRegistryIssue::new(realm, name, namespace, true, message)
+        CommandRegistryIssue::new(realm, namespace, name, true, message)
+    }
+}
+
+#[cfg(test)]
+mod command_registry_issue_tests {
+    use super::{CommandMetadata, CommandRegistryIssue};
+
+    #[test]
+    fn warning_preserves_realm_namespace_and_name() {
+        let issue = CommandRegistryIssue::warning(
+            "warning-realm",
+            "warning-namespace",
+            "warning-command",
+            "warning".to_owned(),
+        );
+
+        assert_eq!(issue.realm, "warning-realm");
+        assert_eq!(issue.namespace, "warning-namespace");
+        assert_eq!(issue.name, "warning-command");
+        assert!(!issue.is_error);
+    }
+
+    #[test]
+    fn error_preserves_realm_namespace_and_name() {
+        let issue = CommandRegistryIssue::error(
+            "error-realm",
+            "error-namespace",
+            "error-command",
+            "error".to_owned(),
+        );
+
+        assert_eq!(issue.realm, "error-realm");
+        assert_eq!(issue.namespace, "error-namespace");
+        assert_eq!(issue.name, "error-command");
+        assert!(issue.is_error);
+    }
+
+    #[test]
+    fn check_reports_reserved_name_in_its_namespace() {
+        let mut metadata = CommandMetadata::default();
+        metadata.realm = "custom-realm".to_owned();
+        metadata.namespace = "custom-namespace".to_owned();
+        metadata.name = "ns".to_owned();
+
+        let issues = metadata.check();
+
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].realm, "custom-realm");
+        assert_eq!(issues[0].namespace, "custom-namespace");
+        assert_eq!(issues[0].name, "ns");
+        assert!(issues[0].is_error);
     }
 }
 

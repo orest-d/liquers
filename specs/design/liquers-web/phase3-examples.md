@@ -46,7 +46,7 @@ declaring the fixture commands (`--command hello --command repeat --command shou
 | `fetch_json-https%3A%2F%2F…` | **Error** | percent-encoding is not in the grammar — `%` fails at offset 16. Recorded because the first draft of Example 2 assumed it worked |
 
 **Validation caught a real defect**, not just an example typo — see Example 2 and
-`PARAMETER-ESCAPING-INCOMPLETE` in [`specs/archive/2026-08-08-issues.md`](../archive/2026-08-08-issues.md).
+`PARAMETER-ESCAPING-INCOMPLETE` in [`specs/archive/2026-08-08-issues.md`](../../archive/2026-08-08-issues.md).
 
 **Why these shapes.** Per the guide's Appendix A, *every query segment is a command* — there is no
 literal-value segment. Test input therefore comes from a **source command** (`hello`, `number-42`),
@@ -140,7 +140,7 @@ alphanumerics plus `_`, `+`, `.`. Measured:
 
 So `encode_token` is **not round-trip safe** for any string containing a colon, and separately there
 is **no lone-colon entity** in the grammar — `~P` covers `://` only, so a value like `12:30` cannot
-be encoded by any encoder. Filed as `PARAMETER-ESCAPING-INCOMPLETE` in [`specs/archive/2026-08-08-issues.md`](../archive/2026-08-08-issues.md).
+be encoded by any encoder. Filed as `PARAMETER-ESCAPING-INCOMPLETE` in [`specs/archive/2026-08-08-issues.md`](../../archive/2026-08-08-issues.md).
 
 **Consequence for this design:** the planned JS helper must *not* be a port of `encode_token`, which
 would inherit the defect. Phase 4 either fixes `encode_token` first and mirrors it, or implements

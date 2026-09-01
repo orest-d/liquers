@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets]
-reviewed: 2026-08-31
+reviewed: 2026-09-01
 ---
 # Liquers Language Integration Guide
 
@@ -22,7 +22,7 @@ Short-term priorities are:
 
 Longer-term candidates include Rhai, JavaScript/TypeScript on Node or Deno, RustPython, generic Wasm guests, C/C++, and GDScript.
 
-`liquers-py` is a useful but partial reference, not the conformance definition. In particular, it contains many basic wrappers and an experimental `pycall`, but also incomplete paths. See [PYTHON-WRAPPER-HIGH-LEVEL-DESIGN.md](PYTHON-WRAPPER-HIGH-LEVEL-DESIGN.md), [PYTHON-WRAPPER-ARCHITECTURE.md](PYTHON-WRAPPER-ARCHITECTURE.md), and [FEATURES/PYTHON-BASIC-OBJECTS.md](FEATURES/PYTHON-BASIC-OBJECTS.md).
+`liquers-py` is a useful but partial reference, not the conformance definition. In particular, it contains many basic wrappers and an experimental `pycall`, but also incomplete paths. See [PYTHON-WRAPPER-HIGH-LEVEL-DESIGN.md](../design/python-wrapper/phase1-high-level-design.md), [PYTHON-WRAPPER-ARCHITECTURE.md](../design/python-wrapper/phase2-architecture.md), and [FEATURES/PYTHON-BASIC-OBJECTS.md](../archive/PYTHON-BASIC-OBJECTS.md).
 
 ### Supplying a recipe working directory
 
@@ -256,7 +256,7 @@ Recommended minimum profiles:
 
 `STUBS` and `PACKAGE` are delivery features rather than capabilities: they describe how the *integration* is declared to tooling and shipped to users, not what it can do. Any *integration* consumed outside this repository should select `PACKAGE`, and `STUBS` wherever the *integrated language* has a stub format at all.
 
-**Out of scope: cache.** There is deliberately no cache feature. The `liquers_core::cache` module (`BinCache`, `Cache`) is legacy and scheduled for removal — assets provide caching, as noted in [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md). An *integration* should not expose it, and an existing wrapper such as `liquers-py/src/cache.rs` should be dropped rather than modernized. This is a scope decision for the guide as a whole, so it does not need a per-design `NA` entry.
+**Out of scope: cache.** There is deliberately no cache feature. The `liquers_core::cache` module (`BinCache`, `Cache`) is legacy and scheduled for removal — assets provide caching, as noted in [PROJECT_OVERVIEW.md](../reference/PROJECT_OVERVIEW.md). An *integration* should not expose it, and an existing wrapper such as `liquers-py/src/cache.rs` should be dropped rather than modernized. This is a scope decision for the guide as a whole, so it does not need a per-design `NA` entry.
 
 ## 5. Feature Guidance
 
@@ -1177,12 +1177,12 @@ Every language-specific design should contain:
 - Liquers core integration boundaries: `liquers-core/src/value.rs`, `error.rs`, `context.rs`, `commands.rs`, `store.rs`, `recipes.rs`, `assets.rs`, and `maybe_send.rs`
 - Shared opaque-value mechanism for every *integrated language*: `liquers-lib/src/value/foreign.rs` (`ForeignValue`) and the `ExtValue::Foreign` variant in `liquers-lib/src/value/mod.rs`
 - Command removal: `CommandRegistry::unregister` (`liquers-core/src/commands.rs`) and `CommandMetadataRegistry::remove_command` (`liquers-core/src/command_metadata.rs`)
-- A worked *integration* design following this guide: [`specs/design/liquers-web/`](liquers-web/) — browser JavaScript, phases 1-4 with the full 83-test disposition
+- A worked *integration* design following this guide: [`specs/design/liquers-web/`](../design/liquers-web/) — browser JavaScript, phases 1-4 with the full 83-test disposition
 - [Command Declaration Format](../reference/COMMAND_DECLARATION.md) — the shared declaration vocabulary, composition over introspection, and the defaulting rules every *language* guide builds on
 - [Command Registration Guide](COMMAND_REGISTRATION_GUIDE.md)
-- [Async/Wasm Refactor Design](async-wasm-refactor/DESIGN.md)
-- [Liquers Web API Specification](WEB_API_SPECIFICATION.md)
-- [Liquers UI Payload Design](UI_PAYLOAD_DESIGN.md)
+- [Async/Wasm Refactor Design](../design/async-wasm-refactor/DESIGN.md)
+- [Liquers Web API Specification](../reference/WEB_API_SPECIFICATION.md)
+- [Liquers UI Payload Design](../archive/2026-03-02-ui-payload-design.md)
 - [`wasm-bindgen`: JavaScript Promises and Rust Futures](https://rustwasm.github.io/docs/wasm-bindgen/reference/js-promises-and-rust-futures.html)
 - [`starlark-rust` value model](https://docs.rs/starlark/latest/starlark/values/index.html)
 - [`starlark-rust` evaluator overview](https://docs.rs/starlark/latest/starlark/)
@@ -2420,7 +2420,7 @@ def test_POLYGLOT09_outer_cancellation_reaches_embedded_runtime(env):
 ### WEBSERV
 
 Route prefixes follow the `liquers-axum` builders and the default base path of
-[WEB_API_SPECIFICATION.md](WEB_API_SPECIFICATION.md) §2.1: queries are served under
+[WEB_API_SPECIFICATION.md](../reference/WEB_API_SPECIFICATION.md) §2.1: queries are served under
 `/liquer/q/{*query}`, the store under `/liquer/api/store/{data,metadata}/{*key}`, and assets under
 `/liquer/api/assets/{data,metadata}/{*query}`. A design that configures different base paths
 substitutes them here.
@@ -2601,6 +2601,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-01 | Repaired current design, reference, and archive links so the tracked-document link check can validate this guide. | `DOCS-DEAD-LINKS-OUTSIDE-README` |
 | 2026-08-31 | §VALUE shows `EnvironmentBuilder::with_type_registry` alongside `new_with_type_registry`, and records that an integration defining its own `Environment` carries the readiness obligation in `init_with_envref`. Links to the new construction guide. | `design/environment-builder/phase-5` |
 | 2026-08-30 | Declaration links now resolve to `reference/COMMAND_DECLARATION.md`, the format having landed. | `design/command-declaration/` |
 | 2026-08-30 | §COMMAND points at the shared [Command Declaration Format](../reference/COMMAND_DECLARATION.md) instead of leaving each *integration* to invent a declaration vocabulary: the key-to-`CommandMetadata` mapping, composition over introspection, the defaulting rules, and `hints` for language-specific facts. Adds an **Examples** note — a worked example that restates every argument misrepresents the format. Listed in §8. A section on writing *language* documentation and user guides is still missing; filed as `LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION`. | `design/command-declaration/` |

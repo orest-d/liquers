@@ -46,10 +46,7 @@ VALUE-CONVERSION-CAPABILITY,feature,"Values cannot be converted between types, a
 WORKSPACE-SERDE-DERIVE-UNDECLARED,issue,Three crates use serde derive macros without declaring the `derive` feature,accepted,local,,,P2,L,build;core/value;lib/ui;axum,,,,,,2026-08-09,specs/issues/WORKSPACE-SERDE-DERIVE-UNDECLARED.md
 VALUE-TYPE-DEFINITION-MACRO,feature,Value types and their registry entries are hand-written instead of generated,draft,local,,,P2,XL,macro;lib/value;core/value,,,,,,2026-08-18,specs/issues/VALUE-TYPE-DEFINITION-MACRO.md
 COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS,feature,A usage hint can be attached to an argument but not to a command,in_progress,local,,needs-decision,P3,S,core/commands;lib/ui,,,,command-metadata-command-hints,,2026-08-30,specs/issues/COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS.md
-COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED,issue,CommandRegistryIssue constructors transpose namespace and name,in_progress,local,,ready,P3,S,core/commands,,,,command-registry-issue-fields,,2026-08-12,specs/issues/COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED.md
 CORE-CONFIGURATION-ERROR-KIND,issue,Configuration errors are indistinguishable from general errors,in_progress,local,,needs-decision,P3,S,core/error;store/config,,,,configuration-error-kind,,2026-08-29,specs/issues/CORE-CONFIGURATION-ERROR-KIND.md
-DELEGATED-VALUE-REPERSISTED,issue,An asset that delegates to a key's owner writes the owner's value to the store again,in_progress,local,,ready,P3,S,core/assets,,,,delegated-value-repersisted,,2026-08-12,specs/issues/DELEGATED-VALUE-REPERSISTED.md
-DOCS-DEAD-LINKS-OUTSIDE-README,issue,Relative links outside README are never validated,in_progress,local,,ready,P3,S,docs,,,,docs-dead-links,,2026-08-08,specs/issues/DOCS-DEAD-LINKS-OUTSIDE-README.md
 OPENDAL-LOCALFS-TEST-SILENT-ON-WRONG-VALUE-TYPE,issue,test_opendal_localfs passes even if -R-dir/src does not return AssetInfo,draft,local,,,P3,S,store/backends,,,,,,2026-08-26,specs/issues/OPENDAL-LOCALFS-TEST-SILENT-ON-WRONG-VALUE-TYPE.md
 QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS,issue,"Query::absolute names a leading slash, colliding with two other meanings of absolute",draft,local,,,P3,S,core/query,,,,,,2026-08-17,specs/issues/QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS.md
 REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED,issue,The committed command registry carries stale impl_versions and no test detects it,draft,local,,,P3,S,lib/commands;build;docs,,,,,,2026-08-25,specs/issues/REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED.md
@@ -93,10 +90,7 @@ QUEUED-MANAGER-CONDITIONAL-EVICTION,design,Conditional queued-manager cache evic
 UI-QUERY-CONSOLE-ERROR-HIGHLIGHT,design,Query console highlights positioned errors,in_review,local,architecture,,P2,S,lib/ui;core/query,,,,ui-query-console-error-highlight,,2026-08-29,specs/design/ui-query-console-error-highlight/DESIGN.md
 VARIADIC-METADATA-TAIL-CHECK,design,Hand-built variadic metadata tail validation,in_review,local,architecture,,P2,S,core/commands;core/plan;macro,,,,variadic-metadata-tail-check,,2026-08-29,specs/design/variadic-metadata-tail-check/DESIGN.md
 COMMAND-METADATA-COMMAND-HINTS,design,Command-level metadata hints,in_review,local,implementation,needs-decision,P3,S,core/commands;macro;lib/ui,,,,command-metadata-command-hints,,2026-08-31,specs/design/command-metadata-command-hints/DESIGN.md
-COMMAND-REGISTRY-ISSUE-FIELDS,design,Preserve command registry issue identity fields,in_review,local,implementation,ready,P3,S,core/commands,,,,command-registry-issue-fields,,2026-08-31,specs/design/command-registry-issue-fields/DESIGN.md
 CONFIGURATION-ERROR-KIND,design,Classify semantic configuration failures,in_review,local,implementation,needs-decision,P3,S,core/error;store/config,,,,configuration-error-kind,,2026-08-31,specs/design/configuration-error-kind/DESIGN.md
-DELEGATED-VALUE-REPERSISTENCE,design,Avoid re-persisting delegated asset values,in_review,local,implementation,ready,P3,S,core/assets,,,,delegated-value-repersisted,,2026-08-31,specs/design/delegated-value-repersisted/DESIGN.md
-DOCS-DEAD-LINKS,design,Validate relative links in tracked specifications,in_review,local,implementation,ready,P3,S,docs;build,,,,docs-dead-links,,2026-08-31,specs/design/docs-dead-links/DESIGN.md
 STORE-CONFIG-URI,design,Configuring a store from a URI,in_review,local,architecture,,P3,M,store/config;store/backends;core/store,,,,store-config-uri,,2026-08-29,specs/design/store-config-uri/DESIGN.md
 CONTEXT-PARAM-ORDER,design,Context parameter position in register_command!,draft,local,architecture,,,,core/commands;macro,,,,context-param-order,,2026-03-02,specs/design/context-param-order/DESIGN.md
 FOREIGN-VALUE-TYPE-REGISTRATION,design,Foreign and Python value types in the type registry,,github,,,,,core/value;lib/value;web;py,,42,,foreign-value-type-registration,,2026-08-26,specs/design/foreign-value-type-registration/DESIGN.md
@@ -107,11 +101,11 @@ VALUE-ACCESSOR,design,Value accessor abstraction,draft,local,high-level,,,,core/
 VALUE-LIST-SUPPORT,design,Typed list values for lui/children and lui/roots,draft,local,architecture,,,,lib/ui,,,,value-list-support,,2026-03-02,specs/design/value-list-support/DESIGN.md
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,core/commands;macro,,,,,2026-08-31,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,core/context;core/assets;core/store,,,,,2026-08-31,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
-LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-08-31,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
+LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-09-01,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,core/query,,,,,2026-08-14,,specs/guides/QUERY_ESCAPING_GUIDE.md
 STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,core/store;store/config,,,,,2026-08-29,,specs/guides/STORE_FACTORY_GUIDE.md
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,core/value;lib/value,,,,,2026-08-26,,specs/guides/TYPE_SYSTEM_GUIDE.md
-UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,build,,,,,2026-08-31,,specs/guides/UNITTEST_GUIDE.md
+UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,build,,,,,2026-09-01,,specs/guides/UNITTEST_GUIDE.md
 autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,docs;build,,,,,2026-08-31,,specs/guides/autonomous_bulk_design.md
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,,docs;build,,,,,2026-08-11,,specs/guides/autonomous_issue_fixing.md
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,local,,,,,lib/image,,,,,2026-03-02,,specs/reference/IMAGE_COMMAND_LIBRARY.md
@@ -174,6 +168,9 @@ RECIPE-TO-PLAN-IGNORES-RECIPE-LEVEL-VOLATILE-AND-EXPIRES,issue,Recipe to_plan ig
 WEB-VALUE04-BYTES-IDENTIFIER-CASE-MISMATCH,issue,"VALUE04 fails at HEAD — bytes identifier is `Bytes`, the test expects `bytes`",closed,local,,,P2,S,web;core/value,,,,foreign-value-type-registration,,2026-08-25,specs/issues/WEB-VALUE04-BYTES-IDENTIFIER-CASE-MISMATCH.md
 LANGUAGE-GUIDE-STORE-SCOPE-INCOMPLETE,issue,The guide's STORE feature omits integration-provided stores and store configuration,closed,local,,,P2,M,web;py;core/store,,,,,,2026-08-09,specs/issues/LANGUAGE-GUIDE-STORE-SCOPE-INCOMPLETE.md
 PY-VALUE-TYPE-DESCRIPTIONS-MISSING,issue,"liquers-py's Value describes no types, so its registry would refuse every write",closed,local,,,P2,M,py;core/value,,,,foreign-value-type-registration,,2026-08-26,specs/issues/PY-VALUE-TYPE-DESCRIPTIONS-MISSING.md
+COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED,issue,CommandRegistryIssue constructors transpose namespace and name,closed,local,,,P3,S,core/commands,,,,command-registry-issue-fields,,2026-08-12,specs/issues/COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED.md
+DELEGATED-VALUE-REPERSISTED,issue,An asset that delegates to a key's owner writes the owner's value to the store again,closed,local,,,P3,S,core/assets,,,,delegated-value-repersisted,,2026-08-12,specs/issues/DELEGATED-VALUE-REPERSISTED.md
+DOCS-DEAD-LINKS-OUTSIDE-README,issue,Relative links outside README are never validated,closed,local,,,P3,S,docs,,,,docs-dead-links,,2026-08-08,specs/issues/DOCS-DEAD-LINKS-OUTSIDE-README.md
 STORE-TESTS-PRINT-TO-STDOUT,issue,liquers-store's OpenDAL tests use println! against the blanket stdout rule,closed,local,,,P3,S,store/backends;docs,,,,,,2026-08-25,specs/issues/STORE-TESTS-PRINT-TO-STDOUT.md
 ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING,feature,Declared arguments replace inferred ones instead of augmenting them,closed,local,,,P3,M,core/commands;web;py,,,,,,2026-08-29,specs/issues/ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING.md
 PAYLOAD-SOURCED-INJECTION-NOT-DECLARED,issue,An injection that reads the payload is indistinguishable from one that does not,rejected,local,,,P3,M,core/plan;core/commands,,,,predecessor-cut-equivalence,,2026-08-26,specs/issues/PAYLOAD-SOURCED-INJECTION-NOT-DECLARED.md
@@ -183,6 +180,9 @@ PAYLOAD-ENV-RECIPE-PROVIDER-FALLBACK,design,Recipe-provider fallback for the pay
 REFRESH-COMMAND-METADATA-VERSIONS,design,Refresh command metadata versions before environment sharing,complete,local,,,P1,S,core/commands;macro;core/context;core/assets,,,,refresh-command-metadata-versions,,2026-08-30,specs/design/refresh-command-metadata-versions/DESIGN.md
 PLAN-RELATIVE-RESOLUTION,design,CWD-relative query resolution in plans,complete,local,,,P1,M,core/query;core/plan;core/assets;core/context,,,,plan-relative-resolution,,2026-08-10,specs/design/plan-relative-resolution/DESIGN.md
 CORE-NO-DEFAULT-FEATURES,design,liquers-core no-default-features build decision,complete,local,,,P2,S,core/store;build,,,,core-no-default-features,,2026-08-29,specs/design/core-no-default-features/DESIGN.md
+COMMAND-REGISTRY-ISSUE-FIELDS,design,Preserve command registry issue identity fields,complete,local,,,P3,S,core/commands,,,,command-registry-issue-fields,,2026-08-31,specs/design/command-registry-issue-fields/DESIGN.md
+DELEGATED-VALUE-REPERSISTENCE,design,Avoid re-persisting delegated asset values,complete,local,,,P3,S,core/assets,,,,delegated-value-repersisted,,2026-08-31,specs/design/delegated-value-repersisted/DESIGN.md
+DOCS-DEAD-LINKS,design,Validate relative links in tracked specifications,complete,local,,,P3,S,docs;build,,,,docs-dead-links,,2026-08-31,specs/design/docs-dead-links/DESIGN.md
 ASYNC-WASM-REFACTOR,design,Async evaluation on wasm,complete,local,,,,,core/assets;web,,,,async-wasm-refactor,,2026-03-02,specs/design/async-wasm-refactor/DESIGN.md
 AXUM-ASSETS-RECIPES-API,design,Assets and recipes HTTP API,complete,local,,,,,axum,,,,axum-assets-recipes-api,,2026-03-02,specs/design/axum-assets-recipes-api/DESIGN.md
 COMMAND-DECLARATION,design,A language-neutral command declaration type,complete,local,,,,,core/commands;web;py,,50,,command-declaration,,2026-08-29,specs/design/command-declaration/DESIGN.md

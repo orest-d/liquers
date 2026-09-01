@@ -707,7 +707,10 @@ tooling, no network and no Python can still record what it found.
    existing source issue or feature, owns that source reciprocally, and does not share it with
    another readiness-labeled design.
 8. `index.csv` matches what regeneration would produce.
-9. Every path and every issue ID referenced by `specs/README.md` exists.
+9. Every relative link target in current `README.md`, issue, design, reference, and guide
+   documents exists, and every issue ID referenced by `specs/README.md` exists. Fragment-only,
+   absolute-path, and HTTP(S) links are outside this filesystem check; archived documents are
+   excluded because they are immutable historical records.
 10. Every stage marker in the capability map matches the directory its link points into (§8.1).
 11. Every `reference/` and `guides/` document has `reviewed:`, a `## History` section, and a top
     History row whose date equals `reviewed:` (§9.5).
@@ -1018,3 +1021,9 @@ If two of these seem to apply, the item is probably an issue plus a design: file
 **Editing an existing `reference/` or `guides/` document?** If you changed what it claims, add a
 History row and bump `reviewed:` in the same commit (§9.2). If you only fixed a typo, change
 neither.
+
+## History
+
+| Date | Change | Source |
+|---|---|---|
+| 2026-09-01 | Expanded check 9 to cover relative links in all current tracked Markdown documents while excluding archive history and non-filesystem targets. | `DOCS-DEAD-LINKS-OUTSIDE-README` |

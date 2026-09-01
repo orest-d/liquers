@@ -8,7 +8,7 @@ liquers-web — browser/JavaScript integration of Liquers (wasm)
 
 Provide a new workspace crate `liquers-web` that compiles to `wasm32-unknown-unknown` and exposes
 Liquers to JavaScript in the browser through `wasm-bindgen`. It is the **language integration** for
-browser JavaScript as defined in [LANGUAGE-INTEGRATION_GUIDE.md](../LANGUAGE-INTEGRATION_GUIDE.md):
+browser JavaScript as defined in [LANGUAGE-INTEGRATION_GUIDE.md](../../guides/LANGUAGE-INTEGRATION_GUIDE.md):
 a page can construct an environment, evaluate queries as Promises, and register its own commands
 written in JavaScript. It is the browser-side counterpart of `liquers-axum`.
 
@@ -224,7 +224,7 @@ rather than as unknowns:
 
 ## References
 
-- [LANGUAGE-INTEGRATION_GUIDE.md](../LANGUAGE-INTEGRATION_GUIDE.md) — §4 profiles, §5 feature
+- [LANGUAGE-INTEGRATION_GUIDE.md](../../guides/LANGUAGE-INTEGRATION_GUIDE.md) — §4 profiles, §5 feature
   contracts, §6 Browser JavaScript, §7 checklist, Appendix A reference tests
 - `specs/design/liquers-wf/phase1-high-level-design.md` — older sketch; folder removed 2026-08-08
   (`DOCS_STRUCTURE_GUIDE.md` §5.1), superseded in full by this design

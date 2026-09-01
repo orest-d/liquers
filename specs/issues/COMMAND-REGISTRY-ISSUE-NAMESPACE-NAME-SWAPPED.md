@@ -2,7 +2,7 @@
 id: COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED
 kind: issue
 title: CommandRegistryIssue constructors transpose namespace and name
-status: in_progress
+status: closed
 priority: P3
 complexity: S
 area: [core/commands]
@@ -55,3 +55,8 @@ through unnoticed and what will let it back in without a test.
 
 Found while locating the registration-time home for the variadic-argument check in
 `VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS`.
+
+## Resolution
+
+Closed on 2026-09-01. Both convenience constructors now preserve `(realm, namespace, name)` in
+declaration order, with direct warning/error tests and a reserved-name diagnostic regression test.

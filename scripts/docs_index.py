@@ -76,6 +76,32 @@ COLUMNS = ["id", "kind", "title", "status", "status_source", "phase", "readiness
 REPO = Path(__file__).resolve().parent.parent
 SPECS = REPO / "specs"
 
+RELATIVE_LINK_RE = re.compile(r"\]\((?!https?://)([^)]+)\)")
+
+
+def tracked_markdown_paths(specs: Path) -> list[Path]:
+    """Return current-state Markdown documents whose local links are validated."""
+    paths = [specs / "README.md"]
+    for directory in ("issues", "design", "reference", "guides"):
+        paths.extend((specs / directory).rglob("*.md"))
+    return sorted(path for path in paths if path.is_file())
+
+
+def relative_link_errors(specs: Path) -> list[str]:
+    """Report missing filesystem targets for the restricted Markdown link grammar."""
+    errors = []
+    for path in tracked_markdown_paths(specs):
+        text = path.read_text(encoding="utf-8")
+        for match in RELATIVE_LINK_RE.finditer(text):
+            raw_target = match.group(1)
+            target_text = raw_target.split("#", 1)[0]
+            if not target_text or target_text.startswith("/"):
+                continue
+            if not (path.parent / target_text).resolve().exists():
+                source = path.relative_to(specs.parent).as_posix()
+                errors.append(f"{source}: dead link {raw_target} (§8.4)")
+    return errors
+
 
 # --------------------------------------------------------------------------- front-matter
 def parse_front_matter(text: str) -> tuple[dict, str]:
@@ -425,14 +451,13 @@ def check(rows: list[dict]) -> tuple[list[str], list[str]]:
     elif idx.read_text(encoding="utf-8") != render_csv(rows):
         errors.append("specs/index.csv is stale — run scripts/docs_index.py")
 
-    # CHECK 8 — every path and issue id the capability map names must exist
+    # CHECK 8 — relative links in every tracked current-state document must exist
+    errors.extend(relative_link_errors(SPECS))
+
+    # The capability map also names issue IDs that must exist.
     readme_path = SPECS / "README.md"
     if readme_path.exists():
         readme = readme_path.read_text(encoding="utf-8")
-        for m in re.finditer(r"\]\((?!https?:)([A-Za-z0-9_./-]+)\)", readme):
-            target = (SPECS / m.group(1)).resolve()
-            if not target.exists():
-                errors.append(f"specs/README.md: dead link {m.group(1)} (§8.4)")
         for m in re.finditer(r"`([A-Z][A-Z0-9-]{4,})`", readme):
             if m.group(1) not in ids and m.group(1) not in issue_ids:
                 warnings.append(f"specs/README.md: names unknown id {m.group(1)}")
