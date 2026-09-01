@@ -1,5 +1,13 @@
 # Phase 1: High-Level Design - Query Console Highlights Positioned Errors
 
+## Design Readiness
+
+- **Readiness:** ready
+- **Leading issue:** None
+- **Explanation:** The console owns the error, the core renderer already highlights by position,
+  and only the egui layouter boundary drops the value.
+- **Open questions:** None
+
 ## Problem and Evidence
 
 `Error` carries `Position`, and `StyledQuery::from_query` can turn matching tokens into
@@ -30,6 +38,18 @@ Assumption: cloning `Position` for UI rendering is acceptable and cheap.
 
 No new reference or guide is expected. If UI reference docs mention error presentation, update one
 sentence; otherwise Phase 5 can record no docs update needed.
+
+## Design Dependencies
+
+- `requires` `excess-action-parameters-error`: completed planner work supplies positioned errors;
+  this design consumes that established contract and does not change planner semantics.
+
+## Consolidated Findings
+
+Preserve the existing one-argument `query_to_layout_job` wrapper and add a position-aware sibling,
+so the other display caller remains source-compatible. Clone `Position` into the egui closure only
+if required by borrow rules. Test token classification separately from font rendering, plus one
+console update/render-state case for known and unknown positions.
 
 ## Review
 

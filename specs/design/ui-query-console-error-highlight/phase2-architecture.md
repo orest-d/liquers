@@ -47,7 +47,7 @@ Rejected: highlight only the error label; the issue requires token-level visual 
 | New validation | Unit test for styled query token highlight with known/unknown position; UI helper test if feasible. |
 | Behavioural risk | Minimal; render-only. No persistence/concurrency/security concern. |
 | Recovery | Revert helper and call-site change. |
-| Certainty | High that styling pipeline exists; medium on exact egui layouter lifetime shape. |
+| Certainty | High; HEAD has two helper callers and the console closure captures cloned query text. |
 
 ## Rust Review
 

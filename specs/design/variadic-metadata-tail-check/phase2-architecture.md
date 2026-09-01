@@ -2,25 +2,27 @@
 
 ## Overview
 
-Add the starved-argument rule to `CommandMetadata::check()` and make command registration reject
-metadata whose check produces errors. The rule scans declared `arguments` in order, remembers a
-previous non-injected `multiple` argument, and reports each later non-injected argument as
-unreachable.
+Add the starved-argument rule to `CommandMetadata::check()`: scan declared `arguments` in order,
+remember a previous non-injected `multiple` argument, and report each later non-injected argument
+as unreachable. Do not yet claim registration enforcement: `register_command` stores default
+metadata and returns `&mut CommandMetadata`, after which macro and hand-built callers populate the
+arguments. There is no finalization boundary at which rejection is both complete and timely.
 
 ## Known-Issue Preflight
 
 | Issue | Status | Priority | Relevance and action | Blocking? |
 |---|---|---|---|---|
-| `COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED` | draft | P3 | `CommandRegistryIssue::error` currently transposes namespace/name. This design should either fix that first in the same small command-metadata area or avoid relying on the broken constructor for new tests. | yes |
+| `COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED` | closed | P3 | Fixed at HEAD; constructor and regression tests preserve realm, namespace and name. It is no longer a blocker. | no |
 | `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS` | draft | P3 | Future composite variadic support does not change the tail-position rule. | no |
 | `UI-VARIADIC-ARGUMENT-LIST-EDITOR` | draft | P3 | UI editing is separate and should only consume valid metadata. | no |
 
 ## Files and Symbols
 
-Primary files: `liquers-core/src/command_metadata.rs` for `CommandMetadata::check`,
-`ArgumentInfo::injected`/`multiple` inspection, and `CommandRegistryIssue`; `liquers-core/src/commands.rs`
-for `CommandRegistry::register_command` and `register_async_command` if validation becomes
-registration-enforced. Integration check: `liquers-py/src/command_metadata.rs::add_python_command`
+Primary file for the rule: `liquers-core/src/command_metadata.rs` for `CommandMetadata::check`,
+`ArgumentInfo::injected`/`multiple` inspection, and `CommandRegistryIssue`. The unresolved boundary
+spans `liquers-core/src/commands.rs::CommandRegistry::{register_command,register_async_command}`
+and `CommandMetadataRegistry::{add_command,get_mut}`. Integration check:
+`liquers-py/src/command_metadata.rs::add_python_command`
 currently marks only the last argument `multiple`.
 
 ## Data, Ownership, Serialization and Errors
@@ -31,9 +33,9 @@ typed constructor, preserving Liquers' single error type.
 
 ## Sync, Async and API Effects
 
-Validation is synchronous. Public registration methods already return `Result`, so they can reject
-invalid metadata without signature changes. Async command registration must run the same metadata
-check as sync registration.
+Validation is synchronous, but the existing `Result` from registration occurs before metadata
+mutation. Checking there cannot see the invalid tail; checking on every `get_mut` is too early;
+checking only during planning/export changes the promised "rejected at registration" timing.
 
 ## Alternatives
 
@@ -52,10 +54,18 @@ model.
 | Existing-test breakage | At most command-registration tests if they build invalid metadata; expected none. |
 | New validation | Unit tests for check rule, injected-after-multiple allowance, and registration rejection. |
 | Behavioural risk | Invalid hand-built commands now fail earlier; no persistence, concurrency or security concern. |
-| Recovery | Revert check and registration enforcement. |
-| Certainty | Medium because the broken `CommandRegistryIssue` constructor is a real prerequisite/blocker. |
+| Recovery | The rule itself is local; any future registration/finalization API needs its own compatibility rollback. |
+| Certainty | High on the rule and current API limitation; no safe enforcement boundary is selected. |
 
 ## Rust Review
 
 The scan can borrow `self.arguments` without cloning. Use explicit conditionals, no default enum
 match, and typed `Error` construction when converting registry issues to registration failure.
+
+## Continuation Blocker
+
+The repository must choose error timing and API ownership. An explicit `finish_registration(key)`
+is reliable but adds a public workflow step; validating during PlanBuilder catches every use but
+allows invalid registries to exist and changes the issue's acceptance contract; accepting complete
+metadata in registration is clean but breaks current macro and language-binding construction. Until
+one is chosen, Phase 3 cannot state where the rejection is observed and Phase 4 cannot be executable.

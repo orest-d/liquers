@@ -1,5 +1,13 @@
 # Phase 1: High-Level Design - Error::with_key Populates the Key Field
 
+## Design Readiness
+
+- **Readiness:** ready
+- **Leading issue:** None
+- **Explanation:** HEAD confirms the builder writes the wrong existing field; the correction is
+  local, signature-compatible, and directly testable.
+- **Open questions:** None
+
 ## Problem and Evidence
 
 `Error::with_key` in `liquers-core/src/error.rs` writes the encoded key into `ErrorPayload.query`
@@ -32,6 +40,17 @@ Assumption: no workspace caller relies on the incorrect query pollution.
 
 No new reference or guide is expected. If an error reference exists, add one sentence clarifying
 that `query` and `key` are separate serialized contexts.
+
+## Design Dependencies
+
+None.
+
+## Consolidated Findings
+
+Change only `Error::with_key`; dependency mismatch/cycle constructors intentionally populate both
+fields and are not builder call sites. Future serialized errors place key context under `key`
+instead of `query`; historical diagnostics require no migration. Unit tests must distinguish
+`with_key`, `with_query`, serde output, and one real recipe/planner call path.
 
 ## Review
 

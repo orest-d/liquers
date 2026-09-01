@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [core/commands]
-design:
+design: state-argument-serde-default
 created: 2026-08-29
 github:
 ---

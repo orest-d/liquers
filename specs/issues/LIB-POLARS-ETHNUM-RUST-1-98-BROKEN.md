@@ -6,6 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [lib/polars, build]
+design: lib-polars-ethnum-rust-1-98
 created: 2026-08-30
 github:
 ---

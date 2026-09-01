@@ -1,5 +1,13 @@
 # Phase 1: High-Level Design - Polars Reference Examples Select the pl Namespace
 
+## Design Readiness
+
+- **Readiness:** ready
+- **Leading issue:** None
+- **Explanation:** The registered namespace and validator path are explicit; no runtime contract or
+  user choice is needed to correct the examples.
+- **Open questions:** None
+
 ## Problem and Evidence
 
 `specs/reference/POLARS_COMMAND_LIBRARY.md` states the `pl` namespace but still shows example
@@ -32,6 +40,18 @@ marked as snippets.
 
 Update `specs/reference/POLARS_COMMAND_LIBRARY.md` and its History row. No new guide is needed, but
 the validation command may be mentioned if concise.
+
+## Design Dependencies
+
+- `overlaps` `variadic-arguments-declaration`: completed variadic Polars examples must retain their
+  parameter spelling while gaining namespace context.
+
+## Consolidated Findings
+
+Qualify complete runnable queries with `ns-pl` before the first Polars action, but do not alter
+isolated command-name tables or fragments that intentionally assume an established namespace.
+Replace or repair the malformed resource-transform example. Validation should extract an explicit
+curated set of runnable examples and use the committed registry; no Rust source change is planned.
 
 ## Review
 

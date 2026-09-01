@@ -6,7 +6,7 @@ status: closed
 priority: P2
 complexity: S
 area: [core/error]
-design: 
+design: core-error-payload-size
 created: 2026-08-08
 github:
 ---
