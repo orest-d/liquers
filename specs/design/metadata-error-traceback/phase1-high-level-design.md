@@ -1,5 +1,15 @@
 # Phase 1: High-Level Design - Error Traceback in Metadata Log Entries
 
+## Design Readiness
+
+- **Readiness:** needs-decision
+- **Leading issue:** **Proposed resolution - traceback representation:** Store one optional UTF-8
+  traceback string on `ErrorPayload` and copy it to the existing `LogEntry.traceback` field.
+- **Explanation:** The additive string solution is implementable and backward compatible, but it
+  establishes a public serialized error contract that later language bindings must follow.
+- **Open questions:** **Proposed resolution - traceback representation:** Approve a rendered string
+  for this S-sized change; structured frames remain with `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`.
+
 ## Problem and Evidence
 
 `LogEntry::from_error` in `liquers-core/src/metadata.rs` preserves message, query and position, but
@@ -34,6 +44,19 @@ transport remains separate work.
 Small maintenance may be needed in `specs/reference/PAYLOAD_GUIDE.md` or the error/reference area
 if they claim the complete error metadata shape. No new guide is expected unless implementation
 reveals a repeatable traceback integration workflow.
+
+## Design Dependencies
+
+- `overlaps` `plan-cwd-freeze`: that completed design deliberately kept error chaining outside its
+  scope and confirms that recursive `Error` causes are not required here.
+
+## Consolidated Findings
+
+`LogEntry` already serializes `traceback: Option<String>`; the missing source is `ErrorPayload` and
+the copy in `LogEntry::from_error`. Keep `Error` pointer-sized, default the new field for old JSON,
+and add a builder rather than attempting to serialize `std::error::Error::source`. Validate the
+flat error wire shape, old-data compatibility, conversion with and without traceback, and metadata
+round-trip. Structured language frames remain separate.
 
 ## Review
 

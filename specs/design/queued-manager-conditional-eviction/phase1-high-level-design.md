@@ -1,5 +1,13 @@
 # Phase 1: High-Level Design - Conditional Queued-Manager Cache Eviction
 
+## Design Readiness
+
+- **Readiness:** ready
+- **Leading issue:** None
+- **Explanation:** `scc::HashMap::remove_if_async` supplies the required atomic primitive and the
+  stale compare/drop/remove sequences remain present at HEAD.
+- **Open questions:** None
+
 ## Problem and Evidence
 
 `DefaultAssetManager` compares an asset id under an `scc` entry guard, drops the guard, and then
@@ -31,6 +39,18 @@ Assumption: `scc::HashMap::remove_if_async` is available and is the intended pri
 
 No new reference or guide is expected. If the asset reference documents discuss eviction
 concurrency, add a short note; otherwise Phase 5 can record no docs update needed.
+
+## Design Dependencies
+
+- `overlaps` `asset-manager-insert-key-asset-semantics`: that completed design established
+  identity-safe key mutation and its `remove_key_asset_if` pattern should be reused.
+
+## Consolidated Findings
+
+Key and query maps need one atomic identity predicate each. The key path must preserve the existing
+`key_mutation_lock` ordering used for durable key mutation, while the query path can use
+`remove_if_async` directly. Sequential identity tests prove decisions; a deterministic concurrent
+test must coordinate replacement between observation and attempted stale cleanup without sleeps.
 
 ## Review
 

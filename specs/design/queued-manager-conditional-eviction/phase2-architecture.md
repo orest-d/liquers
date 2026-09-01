@@ -47,7 +47,7 @@ localized race.
 | New validation | Unit test proving stale id removal does not evict a replacement for key and query maps where reachable. |
 | Behavioural risk | Concurrency correctness improves; no persistence, performance or security regression expected. |
 | Recovery | Revert helper use to previous remove path; no migration. |
-| Certainty | High for key-map helper; medium for exact query-map test harness until map access pattern is chosen. |
+| Certainty | High; both map types and the current identity-test pattern are present at HEAD. |
 
 ## Rust Review
 

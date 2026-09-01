@@ -3,8 +3,8 @@
 ## Overview
 
 Change `Error::with_key` to assign `self.key = Some(key.encode())`. Keep `with_query` unchanged,
-and review constructors that currently set both fields before deciding whether they intentionally
-represent query context or only copied an old mistake.
+and keep dependency mismatch/cycle constructors unchanged: code inspection confirms they
+deliberately derive both fields from a dependency key and do not call this builder.
 
 ## Known-Issue Preflight
 
@@ -46,7 +46,7 @@ diagnostic records and can remain as written.
 | New validation | Unit tests for `with_key`, `with_query`, and one constructor with key context. |
 | Behavioural risk | Persistence compatibility is shape-compatible but field values differ for future errors; no concurrency/performance/security impact. |
 | Recovery | Revert one assignment and tests. |
-| Certainty | High for builder bug; medium for dependency constructor intent until call sites are checked. |
+| Certainty | High; the distinct constructor intent and builder callers were rechecked at HEAD. |
 
 ## Rust Review
 

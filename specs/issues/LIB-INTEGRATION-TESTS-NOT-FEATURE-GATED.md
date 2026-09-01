@@ -6,7 +6,7 @@ status: closed
 priority: P2
 complexity: S
 area: [lib/value, build]
-design:
+design: lib-integration-test-feature-gates
 created: 2026-08-18
 github:
 ---

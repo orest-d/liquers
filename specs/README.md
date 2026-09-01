@@ -207,17 +207,22 @@ deliberately folded behind a broader line.
 - `guides/TYPE_SYSTEM_GUIDE.md`
 - `reference/VALUE_TYPE_SYSTEM.md`
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
+- design `argument-gui-info-default`
 - design `asset-manager-insert-key-asset-semantics`
+- design `build-matrix-ci`
 - design `command-declaration`
 - design `command-metadata-command-hints`
 - design `command-registry-issue-fields`
 - design `configuration-error-kind`
+- design `core-error-payload-size`
 - design `core-no-default-features`
 - design `delegated-value-repersisted`
 - design `docs-dead-links`
 - design `error-with-key-field`
 - design `expiration-integration-suite-failing-at-head`
 - design `foreign-value-type-registration`
+- design `lib-integration-test-feature-gates`
+- design `lib-polars-ethnum-rust-1-98`
 - design `metadata-error-traceback`
 - design `opendal-list-option-config`
 - design `plan-cwd-freeze`
@@ -226,6 +231,7 @@ deliberately folded behind a broader line.
 - design `predecessor-cut-equivalence`
 - design `queued-manager-conditional-eviction`
 - design `refresh-command-metadata-versions`
+- design `state-argument-serde-default`
 - design `store-key-guard`
 - design `ui-query-console-error-highlight`
 - design `value-type-system`

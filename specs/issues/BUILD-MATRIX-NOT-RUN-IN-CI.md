@@ -6,7 +6,7 @@ status: closed
 priority: P2
 complexity: S
 area: [build, docs]
-design:
+design: build-matrix-ci
 created: 2026-08-25
 github:
 ---

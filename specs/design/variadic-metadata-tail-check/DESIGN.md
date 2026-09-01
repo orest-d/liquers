@@ -4,6 +4,7 @@ kind: design
 title: Hand-built variadic metadata tail validation
 status: in_review
 phase: architecture
+readiness: phase2-blocked
 area: [core/commands, core/plan, macro]
 issues: [VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS]
 gh_pr: []
@@ -21,8 +22,8 @@ hand-built `CommandMetadata`.
 
 - [x] Phase 1: High-Level Design
 - [x] Phase 2: Solution & Architecture
-- [ ] Phase 3: Examples and Tests
-- [ ] Phase 4: Implementation
+- [ ] Phase 3: Examples and Tests - intentionally not produced
+- [ ] Phase 4: Implementation - intentionally not produced
 - [ ] Phase 5: Documentation
 
 ## Links

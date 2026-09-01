@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [core/commands, macro, web]
-design:
+design: argument-gui-info-default
 created: 2026-08-30
 github:
 ---

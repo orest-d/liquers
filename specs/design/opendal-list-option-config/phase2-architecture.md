@@ -2,10 +2,10 @@
 
 ## Overview
 
-Encode JSON arrays for OpenDAL by joining scalar string representations with commas, reject nested
-arrays/objects with `Error::not_supported`, and omit `null` entries so absent optional OpenDAL
-fields stay absent. Keep scalar string, bool and number behaviour unchanged except for documenting
-that non-integral floats may still be rejected by OpenDAL integer fields.
+Encode non-empty JSON arrays by joining scalar string representations with commas. Reject empty or
+nested arrays, null members, and scalar strings containing commas with `Error::not_supported` naming the key;
+omit a top-level null so an optional OpenDAL field stays absent. Keep scalar string, bool and number
+behaviour unchanged; service-specific numeric validation remains OpenDAL's responsibility.
 
 ## Known-Issue Preflight
 
@@ -48,9 +48,9 @@ Rejected: introspect every OpenDAL service schema before flattening; too large a
 | Module/crate reach | Source change in `liquers-core`, call site in `liquers-store`; API unchanged. |
 | Existing-test breakage | Low; tests expecting JSON array text would change, none expected. |
 | New validation | Unit tests for string, bool, integer, array of strings, null omission and nested rejection. |
-| Behavioural risk | Arrays containing commas become ambiguous; document scalar element restriction. No concurrency/security concern. |
+| Behavioural risk | Ambiguous comma-bearing elements are rejected before OpenDAL. No concurrency/security concern. |
 | Recovery | Revert conversion branch and reference text. |
-| Certainty | High on OpenDAL comma convention; medium on whether null should omit or error, chosen as omit for optional fields. |
+| Certainty | High; the converter is already fallible and the encoding/rejection contract is explicit. |
 
 ## Rust Review
 
