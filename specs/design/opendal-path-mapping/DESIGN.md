@@ -33,8 +33,10 @@ approval gate.
 - [x] Phase 3 approval gate — approved 2026-09-02.
 - [x] Phase 4: Implementation Plan — [`phase4-implementation.md`](./phase4-implementation.md)
       *(two signature refinements carried back into Phase 2; see Notes)*
-- [ ] **Phase 4 approval gate — awaiting `proceed`.**
-- [ ] Phase 5: Documentation — `phase5-documentation.md` *(mandatory under `workflow: liquers-project`)*
+- [x] Phase 4 approval gate — approved 2026-09-02.
+- [ ] Execution of the Phase 4 plan (8 steps, 2 crates)
+- [ ] Phase 5: Documentation — `phase5-documentation.md`
+      *(mandatory under `workflow: liquers-project`; entry criteria in Phase 4)*
 
 ## Why this folder exists
 
