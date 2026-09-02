@@ -2,6 +2,7 @@
 id: OPENDAL-PATH-MAPPING
 kind: design
 title: One path mapping for the OpenDAL store, with a key round-trip property
+workflow: liquers-project
 status: in_review
 phase: architecture
 area: [store/backends]
@@ -12,22 +13,24 @@ superseded_by:
 ---
 # OpenDAL path mapping
 
-Design tracking for `STORE-OPENDAL-SLASH-HANDLING` (**P0** since 2026-09-02), begun under
-[`guides/autonomous_issue_fixing.md`](../../guides/autonomous_issue_fixing.md). No `workflow:`
-marker: this is a simplified transitional design whose required phases are the two written here
-plus whatever the approval gate authorizes. It is **not** opted into the `liquers-project` artifact
-and approval contract — see "Workflow" below, which is a question for the gate.
+Design tracking for `STORE-OPENDAL-SLASH-HANDLING` (**P0** since 2026-09-02). Begun under
+[`guides/autonomous_issue_fixing.md`](../../guides/autonomous_issue_fixing.md), and **migrated to
+the `liquers-project` five-phase contract on 2026-09-02**, explicitly adopted by the user at the
+architecture gate: the issue is `P0`/`M`, and that guide's §1 confines its procedure to `S`/`M` at
+`P2`/`P3`. All five phases are therefore required, Phase 5 documentation included, with a per-phase
+approval gate.
 
 ## Phase status
 
-- [x] Phase 1: High-level design — [`phase1-high-level-design.md`](./phase1-high-level-design.md)
-      *(rewritten 2026-09-02 after a second reproduction)*
-- [x] Phase 2: Solution and architecture — [`phase2-architecture.md`](./phase2-architecture.md)
-      *(rewritten 2026-09-02)*
-- [ ] Approval gate — **awaiting a decision on Q2, Q3, Q4 and the workflow question**
-- [ ] Phase 3: Examples, reproduction and tests
-- [ ] Phase 4: Implementation plan and execution
-- [ ] Phase 5: Documentation
+- [x] Phase 1: High-Level Design — [`phase1-high-level-design.md`](./phase1-high-level-design.md)
+      *(rewritten 2026-09-02 after a second reproduction; restructured to the template the same day)*
+- [x] Phase 2: Solution & Architecture — [`phase2-architecture.md`](./phase2-architecture.md)
+      *(rewritten and restructured 2026-09-02; gate decisions folded in)*
+- [ ] **Phase 2 approval gate — awaiting `proceed`.** Q1-Q4 and the workflow question are answered;
+      the revised document has not yet been approved.
+- [ ] Phase 3: Examples & Use-cases — `phase3-examples.md`
+- [ ] Phase 4: Implementation Plan — `phase4-implementation.md`
+- [ ] Phase 5: Documentation — `phase5-documentation.md` *(mandatory under `workflow: liquers-project`)*
 
 ## Why this folder exists
 
@@ -43,18 +46,15 @@ directories.
 Six defects are now in scope. The folder exists because the problem statement had to be corrected
 twice, and both corrections are evidence a future reader needs.
 
-## Workflow
+## Decisions taken at the architecture gate, 2026-09-02
 
-The issue is `P0` / `M`. `guides/autonomous_issue_fixing.md` §1 confines that procedure to `S`/`M`
-at `P2`/`P3`, so this design has outgrown the procedure it was begun under. Two ways forward, for
-the gate to choose:
-
-- **Adopt the `liquers-project` five-phase contract** — add `workflow: liquers-project` to this
-  front-matter, and produce Phase 3, 4 and 5 documents under that skill's templates and approval
-  gates. `DOCS_STRUCTURE_GUIDE.md` §5.2 requires the user to adopt that contract explicitly; it is
-  not added retroactively on an agent's judgement.
-- **Keep the simplified contract** and carry on with the phases this folder already uses, with the
-  gate authorizing Phases 3-5 in one decision.
+| | Decision |
+|---|---|
+| **Workflow** | Adopt `liquers-project`. Phase 1 and Phase 2 restructured to its templates the same day; Phases 3-5 follow it, Phase 5 mandatory. |
+| **Q1 — directory-key gap in scope?** | Yes. |
+| **Q2 — `key_prefix()` fix here or split out?** | Fix here, in its own commit, with a router test. |
+| **Q3 — the 200-line commented-out synchronous `OpenDALStore`?** | **Delete it in this change**, so the issue closes with all four of its `//TODO: create_dir` citations resolved rather than two left inside dead text. |
+| **Q4 — the P1 -> P0 raise?** | Keep P0. Data loss reachable over HTTP is the guide's own §4.4 criterion. |
 
 ## Notes
 

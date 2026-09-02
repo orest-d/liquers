@@ -1,27 +1,134 @@
-# Phase 1 — High-level design
+# Phase 1: High-Level Design — OpenDAL path mapping
 
 For [`issues/STORE-OPENDAL-SLASH-HANDLING.md`](../../issues/STORE-OPENDAL-SLASH-HANDLING.md)
-(issue, complexity M, `status: accepted`; priority raised to **P0** on 2026-09-02 — see
-"Second reproduction" below).
+(issue, **P0**, complexity M, `status: accepted`).
 
-> **Revision history of this document.** Written 2026-08-29 from a first reproduction, which
-> concluded that the issue's headline claim was not reproducible and that the remaining defects
-> were three. A **second reproduction on 2026-09-02** found two further defects the first pass
-> missed, one of them destructive, and disproved one of the first pass's own claims. Both passes
-> are recorded below, because the correction is part of the evidence.
+> **Revision history.** Written 2026-08-29 from a first reproduction, which concluded that the
+> issue's headline claim was not reproducible and that the remaining defects were three. A **second
+> reproduction on 2026-09-02** found two further defects, one of them destructive, and disproved one
+> of the first pass's own claims. Restructured the same day to the `liquers-project` contract when
+> the workflow was adopted at the gate. Both reproductions are recorded below, because the
+> correction is part of the evidence.
+
+## Feature Name
+
+OpenDAL path mapping — one `Key`-to-backend-path mapping, with a round-trip property and a
+directory form.
+
+## Purpose
+
+`AsyncOpenDALStore` builds backend paths in six places and gets the trailing slash right in only
+two. Because OpenDAL treats a path without a trailing `/` as a *prefix*, `removedir("sub")` deletes
+`subway/` and `listdir_keys_deep("sub")` lists it — data loss and wrong results on every backend.
+This work puts the mapping in one place, fixes the five defects that follow from its absence, and
+pins the result down with a round-trip property test and a sibling-safety test.
+
+## Core Interactions
+
+### Query System
+None. No query, parse or plan behaviour changes. `-R/` and `-R-dir/` queries against an
+OpenDAL-backed store return correct results afterwards where they returned sibling data before.
+
+### Store System
+The whole change. `AsyncOpenDALStore` (`liquers-store/src/opendal_store.rs`): path mapping,
+`key_prefix`, `is_dir`, `contains`, `get_metadata`, `removedir`, `listdir`, `listdir_keys_deep`,
+`makedir`. `AsyncStoreRouter` (`liquers-core`) is not edited but changes behaviour, because it
+routes and aggregates on `key_prefix()`.
+
+### Command System
+None. No command is added, removed or changed; no namespace is touched.
+
+### Asset System
+Indirectly: `AsyncStore::get_asset_info` delegates to `get_metadata`, so a directory key that is
+unaddressable today becomes addressable as an asset on backends with no directory objects.
+
+### Value Types
+None. No `ExtValue` variant, no `TypeInfo`.
+
+### Web/API
+No route changes, but `liquers-axum`'s `DELETE /api/store/removedir/{*key}` stops deleting sibling
+directories, and its store listing endpoints stop reporting keys from them.
+
+### UI
+None. `liquers-web` no longer depends on `liquers-store` at all
+(see [`design/store-factories-in-core/`](../store-factories-in-core/)).
+
+## Crate Placement
+
+**`liquers-store`** — `src/opendal_store.rs` for the implementation and its colocated tests, plus
+one `#[cfg]` line in `src/store_factory.rs`. This is where the OpenDAL backend lives, and the
+dependency flow is respected: nothing moves toward `liquers-core`, which is read but not edited.
+
+The mapping stays a private type inside `opendal_store.rs` rather than a new `path_map.rs` module:
+the deliverable the issue asks for is "one place", not "one file", and a module would add public
+surface for a single caller.
+
+## Documentation Intent
+
+**Reference:** *Extend* `specs/reference/STORE_CONFIG_FSD.md` — no. That document specifies
+configuration, and this is semantics. **Create** a new reference section documenting `AsyncStore`'s
+directory and deletion contract: what `is_dir`, `contains` and `removedir` mean when the backend has
+no directory objects, and the rule that no operation on a key may reach a sibling key. Four of the
+six defects are divergences from an unwritten rule, so writing the rule down is the durable fix.
+Exact path decided in Phase 2 (a new `specs/reference/STORE_SEMANTICS.md`, or a section in an
+existing store reference).
+
+**Guide:** Neither. There is no repeatable task a developer performs here; nobody "uses" a path
+mapping. Reconsider if Phase 3 finds that configuring a *prefixed* store needs explaining — the
+prefix convention (the prefix is part of the path under the backend root) is currently folklore.
+
+**Other documents to create:** `specs/issues/STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE.md`
+— filed 2026-09-02, since the suite itself is out of scope (see Non-goals).
+
+**Specific documents to update:** `specs/README.md` §Stores (done, 2026-09-02: the disproven
+statement is corrected and the P0 raise reflected); the issue file
+`STORE-OPENDAL-SLASH-HANDLING.md` (evidence update done; `status` at Phase 5); the two folded-in
+issue files, closed at Phase 5; `specs/index.csv`, regenerated.
+
+**Audience and outcome:** a future maintainer adding a fifth `AsyncStore` implementation should be
+able to read the contract and satisfy it without reading this design folder or reverse-engineering
+`AsyncMemoryStore`.
+
+## Open Questions
+
+1. **Q1 — is the directory-key gap (defect 4) in scope, or a separate issue?**
+   **Answered at the 2026-09-02 gate: in scope.**
+2. **Q2 — the `key_prefix()` fix changes router behaviour. Fix here or split out?**
+   **Answered: fix here, in its own commit, with a router test.**
+3. **Q3 — delete the commented-out synchronous `OpenDALStore` block?**
+   **Answered: delete it in this change.** It is 200 lines that cannot compile and it holds two of
+   the four `//TODO: create_dir` markers the issue cites, so leaving it would close the issue with
+   two citations untouched.
+4. **Q4 — is the P1 → P0 raise right?** **Answered: keep P0.**
+5. Still open, for Phase 2 to settle: the exact path and shape of the new reference section
+   (question 1 under Documentation Intent).
+6. Still open, for Phase 3: whether the sibling-safety property can be asserted against a *remote*
+   object store offline, or whether `memory` and `fs` are the whole verifiable surface.
+
+## References
+
+- [`issues/STORE-OPENDAL-SLASH-HANDLING.md`](../../issues/STORE-OPENDAL-SLASH-HANDLING.md)
+- [`issues/STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE.md`](../../issues/STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE.md)
+- [`design/store-factories-in-core/`](../store-factories-in-core/) — merged; `store_builder.rs` is
+  gone and every reference here is re-resolved to `store_factory.rs`
+- [`archive/2026-08-08-docs-migration-plan.md`](../../archive/2026-08-08-docs-migration-plan.md)
+  §4.0c — where the issue came from (work package WP-5)
+- OpenDAL 0.55 `Operator::create_dir` (`types/operator/operator.rs:457`) — the trailing-slash rule
+
+---
+
+# Appendix A — Reproduction evidence
 
 ## The problem as filed
 
-The issue states: *"Keys that contain a `/` — which is to say most real keys — are not reliably
-addressable through an OpenDAL-backed store."* It cites the
+*"Keys that contain a `/` — which is to say most real keys — are not reliably addressable through
+an OpenDAL-backed store."* The issue cites the
 `// FIXME: This currently does not work due to some bug with handling '/'` at
 `liquers-store/src/opendal_store.rs:340` and four `//TODO: create_dir` markers.
 
 ## First reproduction, 2026-08-29 — the headline is not the whole story
 
-Reproduced against `HEAD` with a scratch integration test over `AsyncOpenDALStore` (deleted
-afterwards; results below are raw output).
-
+Scratch integration test over `AsyncOpenDALStore`, deleted afterwards; raw output.
 **Filesystem backend** (`opendal::services::Fs`, key `sub/deeper/foo.txt`):
 
 ```
@@ -61,7 +168,7 @@ FS       removedir(sub)          = Ok
 Both come from the same root cause as everything else in this issue: **a directory path needs a
 trailing `/` and does not always get one.** `op.list_with(path).recursive(true)` and
 `op.remove_all(path)` treat a path with no trailing slash as a *prefix*, so `"sub"` matches
-`"subway/…"` too. Verified directly against the operator:
+`"subway/…"` too. Verified directly against the operator, on both backends:
 
 ```
 list recursive "sub"   = ["sub/a.txt", "sub/deep/c.txt", "subway/b.txt"]
@@ -84,9 +191,11 @@ fs     create_dir("sub/") = Ok                                          'sub' on
 Nested writes work on the filesystem because OpenDAL's `Fs` service creates parent directories on
 write, not because `make_sub_dirs` does anything.
 
-## What is actually wrong
+---
 
-Six defects. The first is data loss and is why the issue's priority is raised to P0.
+# Appendix B — What is actually wrong
+
+Six defects. The first is data loss and is why the issue is P0.
 
 1. **`removedir` deletes sibling directories** (`:408`). `op.remove_all(self.key_to_path(key)?)`
    with no trailing slash is a prefix delete: `removedir("data")` also destroys `database/` and
@@ -137,12 +246,16 @@ Six defects. The first is data loss and is why the issue's priority is raised to
    `path_to_key(key_to_path(k)) == k`. The issue's own **Expected behaviour** asks for exactly
    this: *"Path normalization is applied in one place, with a round-trip property test."*
 
-6. **`make_sub_dirs` is a no-op, and two markers claim otherwise.** Evidence above. Two further
-   defects sit in the same lines: `prefix_of_size(i).unwrap()` at `:279` and `:488` is `unwrap()`
-   in library code, which `CLAUDE.md` forbids; and the file emits two compiler warnings at `HEAD`
-   (unused `Store` import `:8`, unnecessary `mut` `:339`).
+6. **`make_sub_dirs` is a no-op, and two markers claim otherwise.** Evidence in Appendix A. Two
+   further defects sit in the same lines: `prefix_of_size(i).unwrap()` at `:279` and `:488` is
+   `unwrap()` in library code, which `CLAUDE.md` forbids; and the file emits two compiler warnings
+   at `HEAD` (unused `Store` import `:8`, unnecessary `mut` `:339`).
 
-## Expected behaviour and acceptance criteria
+---
+
+# Appendix C — Acceptance criteria, scope and constraints
+
+## Acceptance criteria
 
 1. **No operation on a key ever reaches a sibling key.** `removedir("sub")` leaves `subway/`
    untouched; `listdir_keys_deep("sub")` and `keys()` return nothing from `subway/`. Asserted on
@@ -162,8 +275,9 @@ Six defects. The first is data loss and is why the issue's priority is raised to
    memory backend, so `test_opendal_subdir`'s assertions can be uncommented rather than
    apologised for. `is_dir` on an absent key returns `Ok(false)`, as every other store does.
 5. Every `//TODO: create_dir` and the stale `FIXME` is resolved by code or replaced with what is
-   true; `make_sub_dirs` is fixed or deleted, not left dead behind a comment claiming otherwise.
-   No `unwrap()` remains in this file outside tests, and the file compiles without warnings.
+   true; `make_sub_dirs` is deleted, not left dead behind a comment claiming otherwise; the
+   commented-out synchronous block goes with them (Q3). No `unwrap()` remains in this file outside
+   tests, and the file compiles without warnings.
 6. No behaviour change to the filesystem paths that already work: the first reproduction becomes a
    regression test.
 
@@ -172,22 +286,9 @@ Six defects. The first is data loss and is why the issue's priority is raised to
 `store/backends`. Reached by: `AsyncStoreRouter` (routing, `listdir` and `is_dir` across stores),
 `-R/` and `-R-dir/` queries against any OpenDAL-backed store, `liquers-axum`'s store endpoints
 (including the destructive `removedir` route), and `liquers-lib/examples/ui_query_console_app.rs`.
-`liquers-web` no longer depends on `liquers-store` at all (see
-[`design/store-factories-in-core/`](../store-factories-in-core/)), so the browser build is
-unaffected. Query, Commands and Assets are untouched.
+Query, Commands and Assets are untouched.
 
-## Scope and non-goals
-
-In scope: the six defects above, in `liquers-store/src/opendal_store.rs` and its colocated tests.
-
-Folded in, both because they live in the same file and the same test module is being rewritten:
-
-- `OPENDAL-LOCALFS-TEST-SILENT-ON-WRONG-VALUE-TYPE` (P3, S) — `test_opendal_localfs` (`:705`)
-  `eprintln!`s where it should assert, so it would not catch a regression this change might cause.
-- `STORE-OPENDAL-WITHOUT-ASYNC-STORE-BROKEN` (P3, S) — `opendal` without `async_store` does not
-  compile, because `store_factory.rs` imports a type gated on the other feature.
-
-Not in scope:
+## Non-goals
 
 - making `get_metadata` on a directory populate `children` (the expensive recursive walk) — the
   FIXME is deleted, not honoured; whether directory metadata should carry children at all is a
@@ -197,12 +298,16 @@ Not in scope:
 - `STORE-OPENDAL-ARGUMENTS-NOT-DERIVED` (P3) — belongs to `store-factories-in-core`;
 - `STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED` — the key-absoluteness rule is already enforced here, by
   `key_to_path`;
-- a shared behavioural conformance suite for `AsyncStore` implementations. Every defect here is a
-  divergence from what the two `liquers-core` stores already do, and one suite run against all
-  three would have caught four of the six. That is an `L`-complexity change to `liquers-core` and
-  is filed separately rather than folded in;
-- deleting the commented-out synchronous `OpenDALStore` block (`:16-218`, 200 lines, 27% of the
-  file). See Q3.
+- building the shared `AsyncStore` behavioural conformance suite. Every defect here is a divergence
+  from what the two `liquers-core` stores already do, and one suite run against all four
+  implementations would have caught four of the six. That is an `L`-complexity change to
+  `liquers-core` and is filed as
+  `STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE` rather than folded into a P0 fix. Writing
+  the *contract* it would encode is in scope, under Documentation Intent.
+
+Folded in, both because they live in the same file and the same test module is being rewritten:
+`OPENDAL-LOCALFS-TEST-SILENT-ON-WRONG-VALUE-TYPE` (P3, S) and
+`STORE-OPENDAL-WITHOUT-ASYNC-STORE-BROKEN` (P3, S).
 
 ## Compatibility constraints
 
@@ -217,26 +322,7 @@ Not in scope:
   property the round-trip test pins down.
 - `removedir`'s doc comment says *"Files are not removed recursively"*, which is false for all
   three async stores. Correct the comment; do not change the behaviour to match it.
-
-## Known questions and assumptions
-
-- **Q1** — is the directory-key gap (defect 4) in scope, or a separate issue? It is where the real
-  design choice is. **Answered at the 2026-09-02 gate: in scope.**
-- **Q2** — the routing behaviour change in defect 3: fix here, or split out?
-- **Q3** — the commented-out synchronous `OpenDALStore` block: delete as part of this work, or
-  leave?
 - Assumption: synthesizing directory existence from what is stored is the intended contract for
   `is_dir`/`contains`, not an accident. Both `liquers-core` memory stores do it; `AsyncFileStore`
-  asks the filesystem. The contract is not written down anywhere — see the documentation note.
-
-## Documentation assessment
-
-`specs/README.md` §Stores describes this issue and links this design; both need the corrected
-statement, since the "not reliably addressable" headline turns out to be **true after all**, for a
-different reason than the one the issue gave.
-
-Potentially substantive, for Phase 5: `AsyncStore`'s directory and deletion contract — what
-`is_dir`, `contains` and `removedir` mean when the backend has no directories — is undocumented,
-and four of the six defects are divergences from an unwritten rule.
-`specs/reference/STORE_CONFIG_FSD.md` describes configuration, not semantics. Writing that contract
-down is a new section in a reference document, and is now recommended rather than merely proposed.
+  asks the filesystem. The contract is not written down anywhere — hence the reference section
+  under Documentation Intent.
