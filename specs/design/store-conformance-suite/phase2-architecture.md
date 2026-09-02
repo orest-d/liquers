@@ -188,6 +188,30 @@ pub enum RuleOutcome {
 `Errored` carries `ErrorType` and the message separately rather than an `Error`, so the report stays
 plainly serializable and a rule cannot smuggle a payload into it.
 
+**A rule body is written with `?`, and still cannot return `Err`.** `RuleFn` returns
+`BoxFuture<'_, RuleOutcome>` with no `Result` in sight, which would make every store call a
+four-line `match`. The idiomatic resolution is a `From` impl and a two-part rule:
+
+```rust
+impl From<Error> for RuleOutcome {
+    fn from(e: Error) -> Self {
+        RuleOutcome::Errored { error_type: e.error_type, message: e.message }
+    }
+}
+
+// The body may use `?`: its error type *is* an outcome.
+async fn remove01_body(f: &dyn Fixture) -> Result<(), RuleOutcome> { ... }
+
+// The rule the registry holds cannot fail.
+async fn remove01(f: &dyn Fixture) -> RuleOutcome {
+    match remove01_body(f).await { Ok(()) => RuleOutcome::Passed, Err(outcome) => outcome }
+}
+```
+
+The `rule!` macro emits the wrapper, so a rule author writes only the body. `?` on a store call
+becomes `Errored`; `return Err(failed("..."))` is how a rule reports a contract violation, which
+keeps the two distinguishable — a store that errored is not a store that disagreed.
+
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReportEntry { pub id: String, pub title: String, pub contract: String, pub outcome: RuleOutcome }

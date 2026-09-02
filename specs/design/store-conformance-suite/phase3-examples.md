@@ -30,7 +30,7 @@ namespace is involved.
 | S1 | Fixture + suite for a well-behaved store | Example | The ordinary path: `StoreCapabilities`, `keys_for`, `run_all`, `assert_conformant` |
 | S2 | `liquers-store-check` against a document | Example | Safety levels, provenance defaults, residue at `create-only`, the report |
 | S3 | A restricted store, and two vacuous rules | Example | `SkippedPrecondition`, argued `NA`, and how a rule passes while checking nothing |
-| R1–R28 | The rule inventory | Rules | The nine sections of `STORE_SEMANTICS.md`, one ID per contract claim |
+| R1–R31 | The rule inventory | Rules | The nine sections of `STORE_SEMANTICS.md`, one ID per contract claim |
 | H1–H8 | Harness unit tests | Unit | The report machinery itself: level gating, capability gating, `assert_conformant` in both directions, residue accounting |
 | C1–C7 | Suites | Integration | Seven in-tree implementations plus trait defaults, natively and under wasm |
 | D1 | Synchronization test | Integration | Rule IDs in code = IDs cited in the contract = IDs cited in the guide |
@@ -47,11 +47,14 @@ One ID per contract claim, grouped by `STORE_SEMANTICS.md` section. `Min` is the
 | `sibling02` | `listdir("sub")` reports nothing from `subway/` | 1 | Directories | CreateOnly |
 | `sibling03` | `remove("data")` leaves `database/x` readable | 1 | Remove | Scratch |
 | `sibling04` | `is_dir`/`contains` on `sub` are unaffected by `subway` | 1 | Directories | CreateOnly |
+| `sibling05` | A key refused as data is not addressable as a *directory* either | 1 | Directories | ReadOnly |
 | `dir01` | A directory holding children is addressable by `is_dir` and `contains` | 2 | Directories | CreateOnly |
 | `dir02` | `is_dir` on an absent key is `Ok(false)`, never `Err` | 2 | Directories | ReadOnly |
 | `dir03` | Every entry `listdir` calls a directory answers `is_dir == true` | 2 | Directories | CreateOnly |
 | `dir04` | A directory's metadata has `is_dir == true` and carries its key | 2 | Directories | CreateOnly |
 | `dir05` | `contains` falls back to `is_dir` | 2 | Directories | CreateOnly |
+| `dir06` | The agreement holds in reverse: a key answering `is_dir == true` appears in its parent's `listdir` | 2 | Directories | CreateOnly |
+| `dir07` | Directory metadata does **not** populate `children` | 2 | Directories | CreateOnly |
 | `explicit01` | `makedir` creates a childless directory that persists | 3 | ExplicitDirectories | CreateOnly |
 | `explicit02` | A derived directory retires when its last child goes | 3 | Directories, Remove | Scratch |
 | `explicit03` | Recursive `removedir` takes explicit descendants with it | 3 | ExplicitDirectories, RemoveDirectories | Scratch |
@@ -77,14 +80,14 @@ fixed:
 
 | Level | Rules runnable | Cumulative |
 |---|---|---|
-| `ReadOnly` | 9 | 9 |
-| `CreateOnly` | +11 | 20 |
-| `Scratch` | +8 | 28 |
-| `Unrestricted` | +0 | 28 |
+| `ReadOnly` | 10 | 10 |
+| `CreateOnly` | +13 | 23 |
+| `Scratch` | +8 | 31 |
+| `Unrestricted` | +0 | 31 |
 
 Two findings fall out, and both belong in the tool's output rather than in this document alone:
 
-- **`ReadOnly` is a third of the suite and misses every rule this project was created for.** The
+- **`ReadOnly` is under a third of the suite and misses every rule this project was created for.** The
   sibling rule, the `removedir` postcondition and the derived-directory lifecycle all need
   `Scratch`. A clean `read-only` report is genuinely weak evidence, which is why the tool prints
   the not-run counts rather than a bare "conformant".
@@ -242,12 +245,12 @@ The resulting report is a *subset*, and every gap has a stated reason:
 | Outcome | Count | Why |
 |---|---|---|
 | Passed | 12 | `absence01`–`absence02`, `prefix01`–`prefix03`, `keyabs01`, `sidecar01`, `keys01`–`keys02`, `data01`–`data02`, `remove03` |
-| SkippedCapability | 15 | every `dir*` and `explicit*`, `sibling01`, `sibling02`, `sibling04`, `absence03`, `remove01`–`remove02`, `sidecar02` |
+| SkippedCapability | 18 | every `dir*` and `explicit*`, `sibling01`, `sibling02`, `sibling04`, `sibling05`, `absence03`, `remove01`–`remove02`, `sidecar02` |
 | SkippedPrecondition | 1 | `sibling03` — it needs a `FreshPrefixPair`, and numeric IDs have none |
 
-**Twelve of twenty-eight, and that is the correct answer for this store.**
+**Twelve of thirty-one, and that is the correct answer for this store.**
 
-Note which mechanism did the work: **capability gating accounts for 15 of the 16 gaps, and the
+Note which mechanism did the work: **capability gating accounts for 18 of the 19 gaps, and the
 `KeyRequest` decline for one.** Capability gating fires first, so a store with no directories never
 reaches `keys_for` for a directory rule at all. That is worth knowing before Phase 4 — the
 `Capability` vocabulary carries most of the weight for a restricted store, and `KeyRequest` is the
@@ -259,33 +262,58 @@ to `LANGUAGE-INTEGRATION_GUIDE.md` §3 says so explicitly: for a deliberately re
 
 **And the trap.** Two rules that would pass whatever the store does:
 
+Both snippets are **rule bodies** — `async fn(..) -> Result<(), RuleOutcome>`, where `?` is legal
+because `From<Error> for RuleOutcome` makes a store error an `Errored` outcome (Phase 2). The
+registry holds the wrapper, which cannot return `Err`.
+
 ```rust
 // VACUOUS — the two-branch match. Passes if removedir works, and equally if it is a no-op
 // that reports success, which is the exact defect remove01 exists to catch.
 match store.removedir(&dir).await {
-    Ok(()) => RuleOutcome::Passed,
-    Err(_) => RuleOutcome::Passed,   // "some stores refuse removedir"
+    Ok(()) => return Ok(()),
+    Err(_) => return Ok(()),   // "some stores refuse removedir"
 }
 
 // CORRECT — assert the postcondition, and let capability gating handle refusal.
-store.removedir(&dir).await?;
-if store.is_dir(&dir).await? { return failed("removedir returned Ok but the directory is still there"); }
+store.removedir(&dir).await?;                       // a store error becomes Errored
+if store.is_dir(&dir).await? {
+    return Err(failed("removedir returned Ok but the directory is still there"));
+}
+Ok(())
 ```
 
 ```rust
 // VACUOUS — an existence check on something never absent. `subway` was created by this rule,
 // so of course it is there; nothing about `sub` was tested.
-if store.contains(&subway).await? { RuleOutcome::Passed } else { failed(..) }
+if store.contains(&subway).await? { Ok(()) } else { Err(failed("subway is gone")) }
 
 // CORRECT — read it, and compare the bytes. A removedir that truncated rather than
 // unlinked would pass the check above and fail this one.
-assert_bytes_eq(store.get_bytes(&subway).await?, original)
+let bytes = store.get_bytes(&subway).await?;
+if bytes != original { return Err(failed("removedir(sub) altered subway's content")); }
+Ok(())
 ```
+
+**`?` and `Err(failed(..))` mean different things, and the distinction is load-bearing:** `?`
+reports that the store *errored*, `Err(failed(..))` that it *disagreed with the contract*. A rule
+that collapses the two makes a permissions failure look like a conformance defect.
 
 The test for every rule is the question `LANGUAGE-INTEGRATION_GUIDE.md` §3 poses: *what
 implementation change would make this fail?* If nothing plausible would, the rule is decoration —
 and a decorative rule in a conformance suite is worse than a missing one, because it reports safety
 it never checked.
+
+### One contract claim deliberately left uncovered
+
+`STORE_SEMANTICS.md` §8 requires that **a path a store cannot decode is skipped by a listing rather
+than failing it** — one unexpected object in a shared bucket must not make a directory unlistable.
+No rule checks it, and none can: producing an undecodable path means writing *behind* the store,
+directly to the backend, which is precisely what `AsyncStore` does not expose. A fixture hook for
+it would be a backend-shaped escape hatch in an interface whose value is that it has none.
+
+It stays a per-store test, and this is one reason `pathmap02`–`pathmap07` are kept rather than
+replaced in the mapping below. The guide records it as a claim a store author must verify
+themselves, with the OpenDAL tests as the worked example.
 
 ## Corner Cases
 
@@ -307,17 +335,23 @@ when the behaviour is broken.**
 | Adopted ID | Existing test | Location | Replaced? |
 |---|---|---|---|
 | `sibling01`–`sibling04` | `sibling01`–`sibling04` | `liquers-store/src/opendal_store.rs` | Yes, once the rule runs against `AsyncOpenDALStore` |
-| `dir01`–`dir04` | `dir01`–`dir04` | `liquers-store/src/opendal_store.rs` | Yes |
+| `dir01`–`dir05` | `dir01`–`dir05` | `liquers-store/src/opendal_store.rs` | Yes — `dir05` (directory metadata is marked as a directory) generalizes as the rule of the same name |
 | `remove01`–`remove02` | `remove01`–`remove02` | `liquers-store/src/opendal_store.rs` | Yes |
 | `prefix01`, `router01` | same | `liquers-store/src/opendal_store.rs` | `prefix01` yes; `router01` **kept** — router selection is not a store rule |
 | `sidecar01` | `pathmap01`–`pathmap07` | `liquers-store/src/opendal_store.rs` | **Partly.** The refusal generalizes; the path-mapping internals do not. Keep `pathmap02`–`pathmap07` |
-| `explicit01`–`explicit03` | `diridx04`, `diridx05`, `diridx09`, `memdir04` | `store_dir_index.rs`, `store.rs` | **Kept.** `DirectoryIndex` is a component with its own tests; the rules test stores, not it |
+| `explicit01`–`explicit03` | **all of** `diridx01`–`diridx09`, `memdir01`–`memdir05` | `store_dir_index.rs`, `store.rs` | **All kept.** `DirectoryIndex` is a component with its own unit tests, and `memdir*` test `AsyncMemoryStore`'s use of it. The rules test *stores* through `AsyncStore`; these test the component beneath. No deletion here |
 | `keyabs01` | `keyabs07`–`keyabs11`, `keyabs16`–`keyabs17` | `store.rs`, `opendal_store.rs` | Yes, per store |
 | — | `keyabs12`–`keyabs14` | `tests/store_key_absolute.rs` | **Kept.** They test refusal through evaluation and recipe CWD, which is not a store rule |
 | `absence01`–`absence03` | `traitdef01` | `liquers-core/src/store.rs` | Yes |
 
-Roughly nine of the ~15 duplicated functions are replaced; six are kept for a stated reason. That
-ratio is itself worth recording — the suite generalizes less than a count of matching IDs suggests.
+**The table accounts for every existing test in the named files**; an ID present there and absent
+here would be an unreviewed deletion, which is the failure this table exists to prevent.
+
+Counted honestly: about **twelve** functions are replaced and about **twenty** kept — the whole
+`diridx` and `memdir` families, `router01`, `pathmap02`–`pathmap07`, and `keyabs12`–`keyabs14`.
+The suite generalizes considerably less than a count of matching IDs suggests, because a shared
+rule tests a *store through `AsyncStore`* while many of these test a component beneath it or a path
+through evaluation above it. That is worth knowing before Phase 4 promises a tidy-up.
 
 ## Test Plan
 
@@ -351,6 +385,10 @@ lists honest, the other keeps residue reporting truthful.
 | `C6` | `FetchStore` (stub global `fetch`) | liquers-web | `#[wasm_bindgen_test]`, Node | ReadOnly |
 | `C7` | `LocalStorageStore` | liquers-web | `#[wasm_bindgen_test]`, `browser-tests` | Scratch |
 | `C8` | `JsStore` (stub JS object) | liquers-web | `#[wasm_bindgen_test]`, Node | Scratch |
+
+`C8` at `Scratch` requires the stub to implement **every** method `JsStore` forwards: it returns
+`KeyNotSupported` for any the JS object omits (`js_store.rs:211–256`), so a partial stub would
+report capability gaps that belong to the stub rather than to `JsStore`.
 
 `C1` ships with `prefix02` in `allowed_failures` citing
 `CORE-ASYNC-MEMORY-STORE-IS-SUPPORTED-IGNORES-PREFIX` **only if** that design has not merged; `H5`
