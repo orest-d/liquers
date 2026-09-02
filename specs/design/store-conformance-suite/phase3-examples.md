@@ -32,7 +32,7 @@ namespace is involved.
 | S3 | A restricted store, and two vacuous rules | Example | `SkippedPrecondition`, argued `NA`, and how a rule passes while checking nothing |
 | R1–R31 | The rule inventory | Rules | The nine sections of `STORE_SEMANTICS.md`, one ID per contract claim |
 | H1–H8 | Harness unit tests | Unit | The report machinery itself: level gating, capability gating, `assert_conformant` in both directions, residue accounting |
-| C1–C7 | Suites | Integration | Seven in-tree implementations plus trait defaults, natively and under wasm |
+| C1–C8 | Suites | Integration | Seven in-tree implementations plus the trait defaults, natively and under wasm (a ninth, `NoAsyncStore`, is added by the Phase 4 review) |
 | D1 | Synchronization test | Integration | Rule IDs in code = IDs cited in the contract = IDs cited in the guide |
 | M1 | Adoption mapping | Table | Which existing test each adopted ID replaces, and what is *not* replaced |
 
@@ -80,13 +80,16 @@ fixed:
 
 | Level | Rules runnable | Cumulative |
 |---|---|---|
-| `ReadOnly` | 10 | 10 |
-| `CreateOnly` | +13 | 23 |
+| `ReadOnly` | 9 | 9 |
+| `CreateOnly` | +14 | 23 |
 | `Scratch` | +8 | 31 |
 
 Two findings fall out, and both belong in the tool's output rather than in this document alone:
 
-- **`ReadOnly` is under a third of the suite and misses every rule this project was created for.** The
+- **`ReadOnly` is under a third of the suite and misses every rule this project was created for.**
+  It shrank further at the Phase 4 review: `keyshape01` moved to `CreateOnly` on the finding that
+  checking a relative key is refused means *calling* `set`, `remove` and `removedir` with one — so
+  a store whose refusal is broken would mutate at the level advertised as safe against real data. The
   sibling rule, the `removedir` postcondition and the derived-directory lifecycle all need
   `Scratch`. A clean `read-only` report is genuinely weak evidence, which is why the tool prints
   the not-run counts rather than a bare "conformant".
