@@ -108,7 +108,7 @@ fail?* — a rule with no plausible answer is rewritten, not registered.
 | 5 | `sibling01`–`sibling05` | 5 | §1 | `sibling.rs` |
 | 6 | `dir01`–`dir07`, `data01` | 8 | §2 | `directories.rs` |
 | 7 | `explicit01`–`explicit03`, `absence01`–`absence03`, `remove01`–`remove03`, `data02` | 10 | §3–§5 | `removal.rs`, `absence.rs` |
-| 8 | `prefix01`–`prefix03`, `keyabs01`, `sidecar01`–`sidecar02`, `keys01`–`keys02` | 8 | §6–§9 | `prefix.rs`, `keyshape.rs`, `sidecar.rs`, `enumerate.rs` |
+| 8 | `prefix01`–`prefix04`, `keyshape01`, `sidecar01`–`sidecar02`, `keys01`–`keys02` | 8 | §6–§9 | `prefix.rs`, `keyshape.rs`, `sidecar.rs`, `enumerate.rs` |
 
 **5 + 8 + 10 + 8 = 31**, matching the Phase 3 inventory exactly — verified by diffing the ID sets
 rather than by counting rows, since a range like `` `dir01`–`dir07` `` is easy to miscount by hand.
@@ -380,6 +380,48 @@ assertion that could be vacuous.
 The project degrades gracefully: if everything after step 9 were abandoned, the repository would
 still hold a written contract, a working harness, 31 rules and a census of which stores diverge —
 which is most of what the issue asked for.
+
+## Final-review findings — open before approval
+
+The Phase 4 opus review examined all four phase documents together and found sixteen issues, four
+of them severity 1. Two need **your decision** before Phase 4 can be approved; the rest are
+resolved, or are corrections already applied.
+
+### Applied
+
+| # | Finding | Resolution |
+|---|---|---|
+| F1 | `prefix01` had **no ground truth** — it could only compare `key_prefix()` against itself, so issue **row 9 would have slipped through**, and `keys01` was circular | `Fixture` gains `expected_prefix() -> Key`; rules may not derive anything from `store.key_prefix()`. Phase 3's traceability table corrected |
+| F7 | The adoption table mapped `traitdef01` to `absence01`–`absence03`; it is actually the `contains`→`is_dir` fallback test. Deleting it would have **removed the only trait-default coverage of issue row 3**. `keyabs09` (sync `FileStore`) and `keyabs11` (`is_supported`) were also mis-mapped | Table corrected; `keyabs09` moved to *Kept* |
+| F8 | Rule ID `keyabs01` **collides** with `query.rs:3335`'s existing `keyabs01_is_relative_truth_table`, breaking the one-ID-one-meaning spine `D1` enforces | Renamed `keyshape01`, matching Phase 2's `keyshape.rs` |
+| F12b | The `listdir_keys_deep` trait default tests `is_dir(key)` — the *parent* — instead of `is_dir(&sub_key)` | Filed as `CORE-LISTDIR-KEYS-DEEP-TESTS-THE-WRONG-KEY` (P2/S) |
+
+### To resolve during implementation
+
+| # | Finding | Disposition |
+|---|---|---|
+| F2 | **Nothing verifies a capability declaration.** `explicit_directories: false` skips `explicit01` — so issue row 7, a P0, is caught only if the fixture declares the capability the broken store is least likely to be given | Add one **negative rule per capability**: `write: false` ⇒ `set` errors, `explicit_directories: false` ⇒ `makedir` returns `KeyNotSupported`, and so on. Declaring `false` becomes a claim that can fail rather than a way to skip a rule. ~6 rules |
+| F3 | `explicit02` is **unsatisfiable for `AsyncFileStore`**: `remove` unlinks the file and leaves the directory, `is_dir` stats the path, so the directory does not retire. The contract claim in §3 is true only of index-derived stores, and no capability distinguishes them | Add a `DerivedDirectories` capability mirroring `STORE_SEMANTICS.md` §2's three-sources table, gating `explicit02`; **and** restate §3 so it stops claiming what a real filesystem does not do. Step 1 work |
+| F5 | **`ReadOnly` is not read-only.** `keyshape01` must call `set`/`remove`/`removedir` with a relative key to check refusal — if refusal is broken, the "safe" level mutates. Phase 1 anticipated a buggy *rule* breaching the level, never a correct rule breaching it because the *store* is buggy | `keyshape01` moved to `CreateOnly` (done). The residual case — a store whose refusal is broken — is stated in the guide as a limit of the level, not papered over |
+| F6 | Phase 2 lets the fixture create keys for `Existing`/`ExistingDirectory`, a mutation at level 1, contradicting decision 9 | At `ReadOnly` the fixture must **find** a subject, not create one; if it cannot, it declines and the rule reports `SkippedPrecondition` |
+| F9 | **The router is barely tested**, though the issue's Impact section is entirely about it. `AsyncStoreRouter::is_dir`/`listdir` select on `key_prefix()` alone while `find_store` also consults `is_supported` — no rule reaches it | Add two router rules: a key inside a store's prefix but unsupported by it, and a key whose prefix matches two stores |
+| F10 | `KeyRequest` cannot express what four rules need: a relative key, a `.__metadata__` collision, and **one `Unsupported` variant serving both `prefix02` and `prefix03`** — so answering for one leaves the other vacuous. Adding variants later is breaking, by design | Split into `OutsidePrefix` and `UnsupportedShape`, add `Relative` and `MetadataCollision`, **before** implementation |
+| F11 | C4 exercises **10 of 31 rules**: the minimal store has only `get`/`set_metadata`, so `Write` is false and rows 3, 6, 7 and 10 — all trait-default behaviour — never run. `NoAsyncStore` (`store.rs:570`) is already `pub`, already the `Environment` default, and is an **eighth in-tree implementation nobody counted** | Give the C4 store a backing map so it runs at `Scratch`; test `NoAsyncStore` as C9 |
+| F12a | No rule covers `listdir_keys`, `listdir_keys_deep`, `listdir_asset_info` or `get_asset_info`, though Phase 1 called `get_asset_info` contract surface | Add rules; `listdir_keys_deep` now has a filed bug to pin |
+| F13 | **No rule isolation or defined order.** 31 rules share one store with `cleanup` once at the end, so `keys01`/`keys02` and `explicit02` are order-dependent | Pass the rule ID to `keys_for` so fixtures namespace per rule; document that `run_all` runs in `rules()` order |
+| F14 | `ReportEntry` carries no keys, so a failure says what disagreed but not **on which key**; and nothing prints the report on assertion failure, so CI shows bare IDs | Add `subject: Vec<Key>`; suites `eprintln!` the full report before asserting (stdout belongs to the binary) |
+| F15 | **`Fixture` lacks `MaybeSend + MaybeSync`**, so `RuleFn`'s `BoxFuture` will not compile natively — every rule body holds `&dyn Fixture` across an `.await` | Add the bounds, as `AsyncStore` carries them (`store.rs:335`). Step 2, first compile |
+| F16 | `absence03` is stated in the **two-branch shape Phase 3 itself calls vacuous**; `prefix02`/`prefix03` both assert `is_supported` is *false*, which the trait default returns unconditionally — so both pass for a store that says no to everything | `absence03` asserts `Ok(())`. Add **`prefix04`**: `is_supported` is *true* for a key inside the prefix the store can address — §6 makes layering depend on it and nothing checked it |
+
+### Needing a decision — see the approval gate
+
+- **F4 — the validation tool's primary mode has no fixture.** `--config` is the default invocation
+  and the mode Phase 1 decision 7 justifies the tool with, but no phase says where a configured
+  store's `StoreCapabilities` and `keys_for` answers come from. `create_fixture` builds a *scratch*
+  store; `StoreCapabilities` deliberately has no `Default`; `Existing` would mean listing somebody's
+  production store to pick a subject. This is a genuine unsolved design problem, not an oversight.
+- **Sizing.** The review's judgement is that this is **`XL`, not `L`**, and the findings above add
+  roughly ten more rules, two capabilities, four `KeyRequest` variants and a ninth suite.
 
 ## Phase 5 Entry Criteria
 

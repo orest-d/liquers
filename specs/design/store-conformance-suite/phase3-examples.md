@@ -67,7 +67,7 @@ One ID per contract claim, grouped by `STORE_SEMANTICS.md` section. `Min` is the
 | `prefix01` | `key_prefix()` reports the configured prefix | 6 | — | ReadOnly |
 | `prefix02` | `is_supported` is false for a key outside the prefix | 6 | — | ReadOnly |
 | `prefix03` | `is_supported` is false for a key the store cannot address | 6 | — | ReadOnly |
-| `keyabs01` | Every fallible key-taking method refuses a relative key with `KeyNotAbsolute` | 7 | — | ReadOnly |
+| `keyshape01` | Every fallible key-taking method refuses a relative key with `KeyNotAbsolute` | 7 | — | CreateOnly |
 | `sidecar01` | A key colliding with the `.__metadata__` form is refused, not silently aliased | 8 | — | ReadOnly |
 | `sidecar02` | Metadata written with `set_metadata` reads back | 8 | StoredMetadata | CreateOnly |
 | `keys01` | **Every key `keys()` returns starts with the store's prefix** | 9 | EnumerateKeys | ReadOnly |
@@ -245,7 +245,7 @@ The resulting report is a *subset*, and every gap has a stated reason:
 
 | Outcome | Count | Why |
 |---|---|---|
-| Passed | 12 | `absence01`–`absence02`, `prefix01`–`prefix03`, `keyabs01`, `sidecar01`, `keys01`–`keys02`, `data01`–`data02`, `remove03` |
+| Passed | 12 | `absence01`–`absence02`, `prefix01`–`prefix03`, `keyshape01`, `sidecar01`, `keys01`–`keys02`, `data01`–`data02`, `remove03` |
 | SkippedCapability | 18 | every `dir*` and `explicit*`, `sibling01`, `sibling02`, `sibling04`, `sibling05`, `absence03`, `remove01`–`remove02`, `sidecar02` |
 | SkippedPrecondition | 1 | `sibling03` — it needs a `FreshPrefixPair`, and numeric IDs have none |
 
@@ -304,6 +304,50 @@ implementation change would make this fail?* If nothing plausible would, the rul
 and a decorative rule in a conformance suite is worse than a missing one, because it reports safety
 it never checked.
 
+### Traceability: the eleven divergences the issue enumerated
+
+The issue's claim is specific — *"a suite run against every implementation would have caught rows
+1, 2, 3, 4, 7, 8, 9 and 10 at the commit that introduced them."* That claim is only worth anything
+if the inventory actually does. Row by row:
+
+| Issue row | The divergence | Caught by |
+|---|---|---|
+| 1 | `is_dir` on an absent key: `Ok(false)` vs `Err` | `dir02` |
+| 2 | A directory with children not addressable on a flat backend | `dir01` |
+| 3 | `contains` falls back to `is_dir` — or does not | `dir05` |
+| 4 | `removedir` scoped to the directory vs the path prefix (**the P0 data loss**) | `sibling01`, `sibling03` |
+| 5 | Is `removedir` recursive? Doc said no, every implementation said yes | `remove02` |
+| 6 | `removedir` on a directory that does not exist | `absence03` |
+| 7 | Does `makedir` create anything? (**P0**) | `explicit01` |
+| 8 | Does `is_supported` consult the prefix? | `prefix02` |
+| 9 | Does `key_prefix()` report the configured prefix? | `prefix01` — **only once `Fixture` gains `expected_prefix()`; see below** |
+| 10 | What does `keys()` return? | `keys01`, `keys02` |
+| 11 | How directory structure is derived on a flat backend | **behaviourally only** — see below |
+
+Ten of eleven are caught directly, including both P0s and all eight the issue named — **with one
+correction the Phase 4 final review forced.**
+
+**Row 9 needs ground truth the fixture does not yet supply.** As first drafted, `prefix01` could
+only compare `store.key_prefix()` against itself, because `Fixture` exposed no independent notion of
+the configured prefix — so `AsyncOpenDALStore` returning `Key::new()` (`opendal_store.rs:296`), the
+divergence row 9 *is*, would have passed. `keys01` was circular for the same reason, and passes
+unconditionally for any store whose prefix is root, `AsyncStoreRouter` included. The design's own
+examples disagreed about this without noticing: Phase 3 Scenario 1 derived its keys from
+`self.store.key_prefix()`, Scenario 3 from a fixture field.
+
+**`Fixture` therefore gains `fn expected_prefix(&self) -> Key`,** rules are forbidden to derive
+anything from `store.key_prefix()`, and `prefix01` compares the two. Recorded here rather than only
+in Phase 2 because this table is the design's claim to solve the issue, and it was briefly wrong.
+
+**Row 11 is different in kind and is deliberately not caught as stated.** It complains of "four
+private mechanisms, no two alike, and one store with none" — a statement about *implementation*,
+not about observable behaviour, and a conformance suite cannot police how a store derives an
+answer, only that the answer is right. `dir01`–`dir07` check that whatever mechanism a store uses
+produces consistent, agreeing answers, which is the part that can be checked from outside. The
+structural half was fixed by `design/opendal-path-mapping/` extracting `DirectoryIndex`
+(`CORE-DIRECTORY-INDEX-NOT-SHARED`, closed), and nothing here re-opens it. Recorded so that nobody
+later reads row 11 as an uncovered gap.
+
 ### One contract claim deliberately left uncovered
 
 `STORE_SEMANTICS.md` §8 requires that **a path a store cannot decode is skipped by a listing rather
@@ -341,9 +385,11 @@ when the behaviour is broken.**
 | `prefix01`, `router01` | same | `liquers-store/src/opendal_store.rs` | `prefix01` yes; `router01` **kept** — router selection is not a store rule |
 | `sidecar01` | `pathmap01`–`pathmap07` | `liquers-store/src/opendal_store.rs` | **Partly.** The refusal generalizes; the path-mapping internals do not. Keep `pathmap02`–`pathmap07` |
 | `explicit01`–`explicit03` | **all of** `diridx01`–`diridx09`, `memdir01`–`memdir05` | `store_dir_index.rs`, `store.rs` | **All kept.** `DirectoryIndex` is a component with its own unit tests, and `memdir*` test `AsyncMemoryStore`'s use of it. The rules test *stores* through `AsyncStore`; these test the component beneath. No deletion here |
-| `keyabs01` | `keyabs07`–`keyabs11`, `keyabs16`–`keyabs17` | `store.rs`, `opendal_store.rs` | Yes, per store |
+| `keyshape01` | `keyabs07`, `keyabs08`, `keyabs10`, `keyabs16`, `keyabs17` | `store.rs`, `opendal_store.rs` | Yes, per store |
+| — | `keyabs09` | `liquers-core/src/store.rs` | **Kept.** It tests the *synchronous* `FileStore`, which Phase 1 decision 4 puts out of scope; no async rule can replace it |
+| `prefix02`, `prefix03` | `keyabs11` | `liquers-core/src/store.rs` | Yes — `keyabs11_is_supported_false_on_directly_held_store` is about `is_supported`, not relative keys |
 | — | `keyabs12`–`keyabs14` | `tests/store_key_absolute.rs` | **Kept.** They test refusal through evaluation and recipe CWD, which is not a store rule |
-| `absence01`–`absence03` | `traitdef01` | `liquers-core/src/store.rs` | Yes |
+| **`dir05`** | `traitdef01` | `liquers-core/src/store.rs` | Yes — `traitdef01_default_contains_falls_back_to_is_dir` is about the `contains`→`is_dir` fallback, **not** absence. Mapping it to `absence01`–`absence03` would have deleted the only coverage of issue row 3 for the trait defaults |
 
 **The table accounts for every existing test in the named files**; an ID present there and absent
 here would be an unreviewed deletion, which is the failure this table exists to prevent.
