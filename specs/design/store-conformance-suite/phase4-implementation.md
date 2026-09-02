@@ -49,8 +49,13 @@ Add `store-conformance = []`, **not** in `default`. Define `Capability`, `StoreC
 `Default`, with `has()` matching `Capability` exhaustively), `SafetyLevel` (three variants, `Ord`
 order documented as load-bearing), `KeyRequest`, `Unavailable`, `Fixture`, `RuleOutcome`,
 `From<Error> for RuleOutcome`, `ReportEntry`, `ConformanceReport` (with `created` and `residue`),
-`AllowedFailure`, `RuleMeta`, `Rule`, `RuleFn`, an empty `rules()`, `run_all`, `run_rule`, and the
-`rule!` macro emitting the wrapper described in Phase 2.
+`AllowedFailure`, `RuleMeta`, `Rule`, `RuleFn`, `OutcomeCounts`, an empty `rules()`, `rule(id)`,
+`run_all`, `run_rule`, and the `rule!` macro emitting the wrapper described in Phase 2. The
+`ConformanceReport` methods land here too, not later: `counts() -> OutcomeCounts`, `failures()`,
+`not_run_by_level()`, `assert_conformant(&[AllowedFailure])`, and `Display`. `assert_conformant`
+must fail in **both** directions from the start — a disallowed failure, and an `allowed` rule that
+passed — because step 4's `H5` tests exactly that and steps 9–12 depend on it to keep their
+allowed-failure lists from going stale.
 
 **Validation:**
 ```bash
@@ -68,6 +73,12 @@ Implementations verbatim, `maybe_send.rs`, the `#[cfg_attr(..., async_trait)]` p
 
 Additive, defaulted to `Ok(None)`, `#[cfg(feature = "store-conformance")]` on the method because its
 return type only exists under the feature.
+
+**Record the known limitation in the method's doc comment**, not only in this design: it is
+synchronous, matching `create`, so a factory needing async setup — provisioning a scratch bucket,
+opening a connection — cannot supply a fixture. A store author hits this at the moment they
+implement the method, which is where the sentence has to be. If step 11 or a later store actually
+needs async construction, file it rather than widening `create`.
 
 **Validation:** `cargo check -p liquers-core --features store-conformance` and
 `cargo check -p liquers-py` (the implementor most likely to break).
@@ -91,12 +102,15 @@ Each step: write the rule bodies as `async fn(&dyn Fixture) -> Result<(), RuleOu
 them through `rule!`, and for **every** rule answer *what implementation change would make this
 fail?* — a rule with no plausible answer is rewritten, not registered.
 
-| Step | Rules | Contract § |
-|---|---|---|
-| 5 | `sibling01`–`sibling05` | §1 |
-| 6 | `dir01`–`dir07`, `data01` | §2 |
-| 7 | `explicit01`–`explicit03`, `absence01`–`absence03`, `remove01`–`remove03`, `data02` | §3–§5 |
-| 8 | `prefix01`–`prefix03`, `keyabs01`, `sidecar01`–`sidecar02`, `keys01`–`keys02` | §6–§9 |
+| Step | Rules | Count | Contract § | File under `store_conformance/rules/` |
+|---|---|---|---|---|
+| 5 | `sibling01`–`sibling05` | 5 | §1 | `sibling.rs` |
+| 6 | `dir01`–`dir07`, `data01` | 8 | §2 | `directories.rs` |
+| 7 | `explicit01`–`explicit03`, `absence01`–`absence03`, `remove01`–`remove03`, `data02` | 10 | §3–§5 | `removal.rs`, `absence.rs` |
+| 8 | `prefix01`–`prefix03`, `keyabs01`, `sidecar01`–`sidecar02`, `keys01`–`keys02` | 8 | §6–§9 | `prefix.rs`, `keyshape.rs`, `sidecar.rs`, `enumerate.rs` |
+
+**5 + 8 + 10 + 8 = 31**, matching the Phase 3 inventory exactly — verified by diffing the ID sets
+rather than by counting rows, since a range like `` `dir01`–`dir07` `` is easy to miscount by hand.
 
 **Constraints (Phase 2, restated because they are violated by habit):** assert on `ErrorType`,
 never message text; `contains`/`is_dir` before the first mutation at `Scratch`; `record_created`
@@ -135,9 +149,20 @@ test — so the blast radius is bounded and predictable:
 | `store.rs:2141` | asserts `is_empty()` on a fresh store | returns the prefix — assert `== [prefix]` |
 | `store.rs:2146`, `:2148` | asserts `len() == 1` | key + prefix (+ any directory) |
 
-Also correct the `removedir` doc comments to the postcondition. Any *other* divergence step 9
-surfaces: fix here if `S`; if it qualifies on its own as `M` or larger, file it, add the rule to
-that store's `allowed_failures` citing the issue, and let `H5` force the entry out when it is fixed.
+Also correct the `removedir` doc comments to the postcondition.
+
+**Any *other* divergence step 9 surfaces**, under decision 5. The `S`/`M` boundary needs a
+criterion rather than a feeling, so: **`S` — the fix touches only that store's own module and the
+tests of it. `M` or larger — it changes a shared type, the `AsyncStore` trait, another store, or a
+public signature.** Anything genuinely ambiguous is treated as `M`, because filing an issue is
+cheap and a half-finished shared-type change inside a test-suite PR is not.
+
+For an `M`+ divergence: file the issue, add the rule to that store's `allowed_failures` citing it,
+and — the half decision 5 spells out — **the store's row in the guide's status matrix reads
+`BLOCKED`, not `PARTIAL`**. `BLOCKED` is the state for "finished, and something it depends on is
+not", which is exactly this; `PARTIAL` would say the store is unfinished, which is a different
+claim and different work. `H5` forces the `allowed_failures` entry out the moment the issue is
+fixed, and step 14's matrix is regenerated from the report, so the row cannot outlive the entry.
 
 **Validation:** `cargo test -p liquers-core --features store-conformance` **and**
 `cargo test -p liquers-lib --lib --tests` (the default loop, to catch anything downstream).
@@ -186,9 +211,16 @@ CHROMEDRIVER=$(which chromedriver) cargo test -p liquers-web \
 with `required-features = ["cli", "store-conformance"]` — an auto-discovered binary cannot carry
 one)
 
-`--config` (defaults to `read-only`), `--scratch <type>` (defaults to `scratch`), `--level`,
-`--rule`, `--format text|yaml|json`. Prints the resolved `StoreConfig` before running, the residue
-**before** the summary at `create-only`, and the not-run counts per level always. Exit **0**
+The full surface Phase 2 specifies: `--config <store.yaml>` (defaults to `read-only`) with
+`--store <prefix>` to pick one store out of a multi-store document; `--scratch <store-type>`
+(defaults to `scratch`) with repeatable `--arg k=v` passed through to `create_fixture`; plus
+`--level`, repeatable `--rule <id>`, and `--format text|yaml|json`. Prints the resolved `StoreConfig` before running, and the not-run counts per level always.
+
+**Listing the residue is a requirement of this step, not a formatting preference.** At
+`create-only` the tool cannot remove what it made, so the operator now owns keys they did not have;
+Phase 1 decision 9 is explicit that a run which does not list them is a slow leak with no record.
+It prints **before** the summary, and a `create-only` run that reports no residue while `created` is
+non-empty is a bug in this step, not a tidy result. Exit **0**
 conformant · **1** non-conformant · **2** invocation or setup failure.
 
 **Validation:** run it against a temp `fs` store at each of the three levels; assert exit codes and
@@ -204,10 +236,22 @@ that `create-only` lists residue.
 `specs/guides/STORE_FACTORY_GUIDE.md`, `specs/reference/STORE_CONFIG_FSD.md`, `CLAUDE.md`,
 `specs/README.md`
 
+**Not** `specs/guides/UNITTEST_GUIDE.md`: its `AsyncStoreWrapper` example belongs to
+`DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS`, which also covers `STORE_CONFIG_FSD.md`'s mention and
+the `liquers-unittest` skill's import block. If that issue has landed by this step, nothing to do;
+if not, leave it — fixing half of an issue's surface in passing makes the issue look done when it
+is not. The two `CLAUDE.md` passages are the exception, because this step edits that file anyway.
+
 The guide follows the nine-part outline in Phase 2, including the worked restricted store and the
 statement that level 3 is rule discipline rather than a guarantee, and that a `create-only` run
 leaves everything it created behind. `CLAUDE.md` §"Adding a Store Backend" gains a step and loses
 its two `AsyncStoreWrapper` mentions.
+
+**The per-store status matrix is generated, not written.** It comes from the reports steps 9, 11
+and 12 produce — `ConformanceReport` derives serde precisely so this is a transformation rather
+than a transcription — merged with the `allowed_failures` lists to mark `BLOCKED` rows. Hand-
+maintaining it would guarantee it goes stale, which is the failure this whole project exists to
+prevent; a matrix nobody can regenerate is a claim about the past.
 
 **Validation:** `python3 scripts/docs_index.py --check`; every rule ID cited must exist (step 16
 enforces).
@@ -316,5 +360,9 @@ Phase 5 begins when **all** of these hold:
 5. Every rule a store is allowed to fail cites an open issue, and `H5` confirms no stale entry.
 6. `D1` green — the rule IDs in code, contract and guide are one set.
 7. Every review comment on the PR is answered or incorporated.
-8. The step-9 census, the per-level counts, the `Unavailable` reasons, the residue, any rule found
-   vacuous, and the real adoption ratio are all recorded for the Phase 5 learning log.
+8. The Phase 5 learning log has its material: the step-9 census, the per-level counts, the
+   `Unavailable` reasons and the residue (Phase 1 decisions 9 and 11), plus any rule found vacuous
+   and the real adoption ratio (added by Phase 3 — the first because five such tests had to be
+   retro-fitted to `LANGUAGE-INTEGRATION_GUIDE.md` after the same mistake, the second because
+   Phase 3's own estimate moved from nine-of-fifteen to twelve-replaced-twenty-kept once the
+   families were counted properly).
