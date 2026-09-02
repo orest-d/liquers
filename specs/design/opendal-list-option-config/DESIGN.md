@@ -3,10 +3,11 @@ id: OPENDAL-LIST-OPTION-CONFIG
 kind: design
 title: OpenDAL list option configuration encoding
 status: in_review
-phase: implementation
+phase: documentation
 readiness: ready
 area: [store/backends]
 issues: [STORE-OPENDAL-LIST-OPTION-MISPARSED]
+affects_docs: [reference/STORE_CONFIG_FSD.md]
 gh_pr: []
 created: 2026-08-29
 superseded_by:
@@ -21,7 +22,7 @@ Simplified autonomous issue design for `STORE-OPENDAL-LIST-OPTION-MISPARSED`.
 - [x] Phase 2: Solution & Architecture
 - [x] Phase 3: Examples and Tests
 - [x] Phase 4: Implementation
-- [ ] Phase 5: Documentation
+- [x] Phase 5: Documentation
 
 ## Links
 
@@ -29,3 +30,4 @@ Simplified autonomous issue design for `STORE-OPENDAL-LIST-OPTION-MISPARSED`.
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
+- [Phase 5](./phase5-documentation.md)

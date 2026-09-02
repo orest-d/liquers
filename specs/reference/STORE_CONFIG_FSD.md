@@ -462,18 +462,20 @@ and they do not agree everywhere:
 | `"eu-central-1"` (string) | `eu-central-1` | the string | **yes** — passed through verbatim |
 | `true` (boolean) | `true` | `true` | **yes** |
 | `1000` (integer) | `1000` | `1000` | **yes** |
-| `1000.0` (float) | `1000.0` | rejected by an integer field | **no** |
-| `[a, b]` (list) | `["a","b"]` — **JSON text** | splits on commas, keeping brackets and quotes | **no** |
-| `null` | `null` | the four-character string `null` | **no** |
+| `1000.0` (float) | `1000.0` | service-dependent | **unchanged** |
+| `[a, b]` (non-empty scalar list) | `a,b` | splits on commas | **yes** |
+| `null` | omitted | absent option | **yes** |
 
-**The rule that follows: write OpenDAL parameters as scalars, and write a list-valued OpenDAL option
-as a comma-separated string.** Quoting every value is always safe, because a JSON string is passed
-through unchanged and OpenDAL's conventions then apply directly:
+**The rule that follows: write OpenDAL parameters as scalars or non-empty scalar YAML/JSON lists.**
+Liquers joins list elements with commas after expanding each element, matching OpenDAL's sequence
+format. Each list element must be a non-null scalar that expands without a comma; empty lists,
+nested lists, objects, null list elements, and comma-bearing list elements are rejected with the
+option name. A top-level `null` is omitted. A scalar comma-separated string remains valid for
+compatibility and is passed through unchanged.
 
 ```yaml
 config:
-  endpoints: "127.0.0.1:2379,127.0.0.1:2380"   # correct
-  # endpoints: [ "127.0.0.1:2379", "127.0.0.1:2380" ]   # WRONG — see below
+  endpoints: ["127.0.0.1:2379", "127.0.0.1:2380"] # encoded as a comma-separated list
   enable_virtual_host_style: true              # fine unquoted: booleans round-trip
   batch_max_operations: 1000                   # fine unquoted: whole numbers round-trip
 ```
@@ -481,16 +483,8 @@ config:
 Booleans and whole numbers need no quoting — their flattened text is exactly what OpenDAL expects —
 so requiring quotes everywhere would cost ergonomics without buying correctness.
 
-The last three rows of the table are a **known defect**, not a designed behaviour:
-[`STORE-OPENDAL-LIST-OPTION-MISPARSED`](../issues/STORE-OPENDAL-LIST-OPTION-MISPARSED.md). Its reach
-today is narrow — `endpoints` on the `tikv` service is the only non-scalar field across all of
-OpenDAL 0.55's service configs, and `tikv` is reachable only through the `opendal_tikv` escape hatch
-— but the flattening rule is general, so a future OpenDAL release that adds a list field to a common
-service inherits it silently.
-
-This applies **only to OpenDAL-backed types.** The built-in and browser store types read their
-`config:` values as `serde_json::Value` directly and never pass through this flattening, which is
-why the browser `http` store's `keys` is written as a genuine YAML list.
+This applies only to the OpenDAL string boundary. Built-in and browser store types retain their
+structured `serde_json::Value` configuration and do not use this conversion.
 
 ### Configuration Loading
 - The configuration should be loadable from YAML, TOML or JSON.
@@ -763,6 +757,7 @@ its store together. Everything on this page applies unchanged to that document's
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-02 | Documented the OpenDAL list encoding contract: non-empty scalar lists are comma-joined, top-level nulls are omitted, and ambiguous or structured list values are rejected. | `STORE-OPENDAL-LIST-OPTION-MISPARSED` |
 | 2026-09-02 | Linked `STORE_SEMANTICS.md`, which specifies store *behaviour* as distinct from configuration. No change to the configuration format. | `design/opendal-path-mapping/` Phase 5 |
 | 2026-08-31 | Linked `EnvironmentConfig`, which embeds `StoreRouterConfig` as its `store:` section. No change to the store configuration format itself. | `design/environment-builder/phase-5` |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |

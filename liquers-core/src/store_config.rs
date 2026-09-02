@@ -188,12 +188,42 @@ impl StoreConfig {
         let mut result = HashMap::new();
         for (key, value) in &self.config {
             let string_value = match value {
-                serde_json::Value::String(s) => s.clone(),
-                serde_json::Value::Bool(b) => b.to_string(),
-                serde_json::Value::Number(n) => n.to_string(),
-                _ => value.to_string(),
+                serde_json::Value::Null => continue,
+                serde_json::Value::Array(values) => {
+                    if values.is_empty() {
+                        return Err(Error::not_supported(format!(
+                            "OpenDAL configuration option '{}' must not be an empty list",
+                            key
+                        )));
+                    }
+                    values
+                        .iter()
+                        .map(|value| {
+                            let value = expand_env_vars(&render_config_scalar(value, key)?)?;
+                            if value.contains(',') {
+                                return Err(Error::not_supported(format!(
+                                    "OpenDAL configuration option '{}' contains a comma-bearing list element",
+                                    key
+                                )));
+                            }
+                            Ok(value)
+                        })
+                        .collect::<Result<Vec<_>, Error>>()?
+                        .join(",")
+                }
+                serde_json::Value::String(_)
+                | serde_json::Value::Bool(_)
+                | serde_json::Value::Number(_) => {
+                    expand_env_vars(&render_config_scalar(value, key)?)?
+                }
+                serde_json::Value::Object(_) => {
+                    return Err(Error::not_supported(format!(
+                        "OpenDAL configuration option '{}' must be a scalar or non-empty scalar list",
+                        key
+                    )));
+                }
             };
-            result.insert(key.clone(), expand_env_vars(&string_value)?);
+            result.insert(key.clone(), string_value);
         }
         Ok(result)
     }
@@ -210,6 +240,20 @@ impl StoreConfig {
         }
         self.config = expanded_config;
         Ok(())
+    }
+}
+
+fn render_config_scalar(value: &serde_json::Value, key: &str) -> Result<String, Error> {
+    match value {
+        serde_json::Value::String(value) => Ok(value.clone()),
+        serde_json::Value::Bool(value) => Ok(value.to_string()),
+        serde_json::Value::Number(value) => Ok(value.to_string()),
+        serde_json::Value::Null | serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+            Err(Error::not_supported(format!(
+                "OpenDAL configuration option '{}' must contain only non-null scalar list elements",
+                key
+            )))
+        }
     }
 }
 
@@ -368,5 +412,80 @@ stores:
         let config = StoreConfig::new("memory");
         let key = config.key_prefix().unwrap();
         assert!(key.is_empty());
+    }
+
+    #[test]
+    fn config_as_string_map_preserves_scalars_and_omits_null(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let config = StoreConfig::new("opendal_tikv")
+            .with_config("string", "one,two")
+            .with_config("boolean", true)
+            .with_config("integer", 1000)
+            .with_config("float", 1000.0)
+            .with_config("absent", serde_json::Value::Null);
+
+        let values = config.config_as_string_map()?;
+
+        assert_eq!(values.get("string"), Some(&"one,two".to_string()));
+        assert_eq!(values.get("boolean"), Some(&"true".to_string()));
+        assert_eq!(values.get("integer"), Some(&"1000".to_string()));
+        assert_eq!(values.get("float"), Some(&"1000.0".to_string()));
+        assert!(!values.contains_key("absent"));
+        Ok(())
+    }
+
+    #[test]
+    fn config_as_string_map_encodes_scalar_lists_and_expands_environment(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        std::env::set_var("STORE_CONFIG_LIST_HOST", "127.0.0.1:2379");
+        let config = StoreConfig::new("opendal_tikv").with_config(
+            "endpoints",
+            serde_json::json!(["${STORE_CONFIG_LIST_HOST}", "127.0.0.1:2380", true, 42]),
+        );
+
+        let values = config.config_as_string_map()?;
+
+        assert_eq!(
+            values.get("endpoints"),
+            Some(&"127.0.0.1:2379,127.0.0.1:2380,true,42".to_string())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn config_as_string_map_rejects_ambiguous_or_unsupported_lists() {
+        for value in [
+            serde_json::json!([]),
+            serde_json::json!([["nested"]]),
+            serde_json::json!([{"nested": "object"}]),
+            serde_json::json!([null]),
+            serde_json::json!(["one,two"]),
+        ] {
+            let config = StoreConfig::new("opendal_tikv").with_config("endpoints", value);
+            let error = config.config_as_string_map().unwrap_err();
+            assert!(
+                error.message.contains("endpoints"),
+                "the error must name the configuration option: {}",
+                error.message
+            );
+        }
+    }
+
+    #[test]
+    fn config_as_string_map_matches_for_equivalent_json_and_yaml(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let json = r#"{"stores":[{"type":"opendal_tikv","config":{"endpoints":["127.0.0.1:2379","127.0.0.1:2380"]}}]}"#;
+        let yaml = r#"
+stores:
+  - type: opendal_tikv
+    config:
+      endpoints: ["127.0.0.1:2379", "127.0.0.1:2380"]
+"#;
+
+        let json_values = StoreRouterConfig::from_json(json)?.stores[0].config_as_string_map()?;
+        let yaml_values = StoreRouterConfig::from_yaml(yaml)?.stores[0].config_as_string_map()?;
+
+        assert_eq!(json_values, yaml_values);
+        Ok(())
     }
 }
