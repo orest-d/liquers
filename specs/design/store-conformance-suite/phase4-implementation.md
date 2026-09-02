@@ -27,7 +27,8 @@ suites so nothing depends on it.
 
 **Files:** `specs/reference/STORE_SEMANTICS.md`
 
-Resolve the three ⚠ rows using the Phase 1 decisions: §5 the `removedir` postcondition (`Ok` means
+Record the sync/async `keys()` asymmetry step 10 creates, beside the trait-neutral phrasing, so it
+reads as a decision rather than an oversight. Resolve the three ⚠ rows using the Phase 1 decisions: §5 the `removedir` postcondition (`Ok` means
 the directory is gone; recursion follows; the trait default's `Err(KeyNotSupported)` stays valid
 for a store declaring no `RemoveDirectories`), §9 `keys()` returns data keys plus directories plus
 the prefix with **every returned key starting with the prefix**, §6 keep or clear the
@@ -127,8 +128,10 @@ disagreement, never conflated.
 
 `AsyncMemoryStore`, `AsyncFileStore`, `AsyncStoreRouter` (memory + file), and a local minimal store
 exercising the trait defaults — defined **in the test file**, not exported from the library, so the
-defaults are tested without adding production surface. Reuse the `unique_temp_dir` helper pattern
-from `tests/store_key_absolute.rs`.
+defaults are tested without adding production surface. That store is cheap: `AsyncStore` has only
+**two methods with no default**, `get` and `set_metadata`; everything else the C4 suite exercises is
+inherited, which is exactly what C4 is for. Reuse the `unique_temp_dir` helper pattern from
+`tests/store_key_absolute.rs`.
 
 **This step produces the divergence census** — the first honest answer to "do the implementations
 agree?". Record every failure verbatim; it is Phase 5's most valuable artefact.
@@ -146,8 +149,22 @@ test — so the blast radius is bounded and predictable:
 
 | Call site | Today | After |
 |---|---|---|
-| `store.rs:2141` | asserts `is_empty()` on a fresh store | returns the prefix — assert `== [prefix]` |
-| `store.rs:2146`, `:2148` | asserts `len() == 1` | key + prefix (+ any directory) |
+| `store.rs:2141` (`test_async_memory_store_basic`) | asserts `is_empty()` on a fresh store | returns the prefix — assert `== [prefix]` |
+| `store.rs:2146`, `:2148` (same test) | asserts `contains(&key)` and `len() == 1` | key + prefix (+ any directory) |
+
+**The synchronous `MemoryStore` is deliberately left alone**, and this needs saying because the trap
+is well disguised: `test_simple_store` at `store.rs:2110–2131` makes the *identical* assertions
+(`keys().is_empty()`, `len() == 1`) against `MemoryStore`, so an implementer fixing the async test
+will find the sync one failing the same way and "fix" it too. Do not. Phase 1 decision 4 puts the
+synchronous `Store` trait out of scope (`CORE-SYNC-STORE-TRAIT-OBSOLETE`), and `MemoryStore` is
+`pub` and reached from Python — `liquers-py/src/store.rs:131` exposes `PyStore::keys()` straight
+through — so changing it is a Python-visible behaviour change made in a test-suite PR, for a trait
+this project has argued should be deleted.
+
+The consequence is a **documented asymmetry**: until the synchronous trait goes, `MemoryStore::keys`
+and `AsyncMemoryStore::keys` answer differently. Step 1 records that in `STORE_SEMANTICS.md` beside
+the trait-neutral phrasing, so it reads as a decision rather than as an oversight someone should
+tidy up.
 
 Also correct the `removedir` doc comments to the postcondition.
 
@@ -195,11 +212,18 @@ behind `browser-tests`, clearing its namespace first as `store_local_STORE.rs` a
 qualify on its own as `M` or larger, file it and fall back to `ReadOnly` over a hand-placed corpus,
 reporting the unreachable rules as `SkippedPrecondition`.
 
+`liquers-core` is already a normal dependency here, so the feature is added under
+`[dev-dependencies]`. **That cannot reach the wasm bundle**: `cargo build -p liquers-web` does not
+build dev-dependencies, so unification applies only to test builds. The claim is cheap to verify and
+the validation below does, rather than asserting it.
+
 **Validation:**
 ```bash
 cargo test -p liquers-web --target wasm32-unknown-unknown          # C6, C8, under Node
 CHROMEDRIVER=$(which chromedriver) cargo test -p liquers-web \
   --target wasm32-unknown-unknown --features browser-tests         # C7
+# the feature must not reach the shipped artifact:
+cargo tree -p liquers-web --target wasm32-unknown-unknown -e features -i liquers-core
 ```
 **Agent:** sonnet · skills: `rust-best-practices`, `liquers-unittest` · knowledge:
 `liquers-web/src/store/*`, `tests/store_local_STORE.rs`, `liquers-web/README.md`, the wasm notes in
@@ -244,7 +268,15 @@ is not. The two `CLAUDE.md` passages are the exception, because this step edits 
 
 The guide follows the nine-part outline in Phase 2, including the worked restricted store and the
 statement that level 3 is rule discipline rather than a guarantee, and that a `create-only` run
-leaves everything it created behind. `CLAUDE.md` §"Adding a Store Backend" gains a step and loses
+leaves everything it created behind.
+
+**It must also name what the suite does not check.** Phase 3 left one contract claim deliberately
+uncovered — `STORE_SEMANTICS.md` §8's requirement that an undecodable path be *skipped* by a listing
+rather than failing it — because producing one means writing behind the store, which `AsyncStore`
+does not expose. The guide says so plainly, tells the author it is theirs to verify, and points at
+`pathmap02`–`pathmap07` (kept in step 15) as the worked example. A guide that lists only what the
+suite covers implies the suite covers everything, which is the same lie as a green report over
+rules that never ran. `CLAUDE.md` §"Adding a Store Backend" gains a step and loses
 its two `AsyncStoreWrapper` mentions.
 
 **The per-store status matrix is generated, not written.** It comes from the reports steps 9, 11
@@ -281,8 +313,9 @@ locations Reviewer 3 confirmed.
 `specs/issues/*`, `specs/index.csv`
 
 `D1` asserts the ID sets from `rules()`, `STORE_SEMANTICS.md` and `STORE_IMPLEMENTATION_GUIDE.md`
-are equal, printing the difference in both directions; it locates `specs/` by walking up from
-`CARGO_MANIFEST_DIR` and skips with a warning if absent, as `registry_export` does. Add a
+are equal, printing the difference in both directions; it locates `specs/` as `registry_export.rs:60–63` does — `CARGO_MANIFEST_DIR` then `.parent()`
+once to the workspace root, not a repeated walk — and skips with a warning if the directory is
+absent, as a packaged crate has no `specs/`. Add a
 `store-conformance` row to the build matrix. Close
 `STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE` and
 `CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS` with resolution notes (§4.3).
