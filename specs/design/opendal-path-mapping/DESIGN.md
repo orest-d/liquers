@@ -95,10 +95,24 @@ twice, and both corrections are evidence a future reader needs.
 - **Phase 4 refined two Phase 2 signatures, and both are recorded in Phase 2.** (R1) `PathMap`
   cannot build `Error::key_not_supported` — it needs a store name an associated function cannot
   reach, and `store_name()` allocates per call on the key-encoding path. The *predicate*
-  (`is_suffix_ambiguous`) stays in `PathMap`, the *error* moves to the store; one rule, real store
-  name, nothing allocated on the happy path. (R2) `directory_metadata_includes_children` is
-  **dropped**: every in-tree store overrides `get_metadata`, so the hook would have had no consumer.
-  Only the `contains` default changes.
+  (`is_suffix_ambiguous`) stays in `PathMap`, the *error* moves to the store. The predicate is
+  needed regardless, because `is_supported` returns `bool` and cannot use an error at all.
+  (R2) `directory_metadata_includes_children` is **dropped**: every in-tree store overrides
+  `get_metadata`, so the hook would have had no consumer. Only the `contains` default changes.
+- **R1's real fix is an `Error` API gap, filed rather than worked around silently.** `ErrorPayload`
+  carries `query`, `key`, `position` and `command_key` as fields with builders; the store name is
+  the one piece of provenance that is prose. `CORE-ERROR-STORE-NAME-NOT-STRUCTURED` (P2/S) asks for
+  a `store` field and a `with_store_name` builder beside the existing four, after which
+  `PathMap::data` could refuse directly and the store would keep only the enrichment. Not done here:
+  it changes a `serde` payload reaching `liquers-web`, `liquers-py` and the axum API.
+- **The store-contract divergences are enumerated, not just mentioned.**
+  `STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE` now carries all **eleven** disagreements
+  found across the five `AsyncStore` implementations, each with evidence and the issue tracking it.
+  This design fixes six and documents two; three name their own new issues
+  (`CORE-ASYNC-MEMORY-STORE-IS-SUPPORTED-IGNORES-PREFIX`,
+  `CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS`, `CORE-ASYNC-MEMORY-STORE-MAKEDIR-DOES-NOTHING`);
+  two (`removedir` is recursive despite its doc comment; `removedir` on an absent directory) are
+  documentation-only and are answered by `STORE_SEMANTICS.md` at Phase 5.
 - **Phase 3 corrected Phase 2 twice, and both corrections are recorded in Phase 2 rather than only
   in Phase 3.** (1) "`AsyncMemoryStore`'s existing tests prove the extraction faithful" was not
   evidence: there is **one** behavioural test, covering a single key and never checking `is_dir`

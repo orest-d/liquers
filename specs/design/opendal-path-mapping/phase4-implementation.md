@@ -31,8 +31,29 @@ functions are associated (no `&self`) and have none. Threading one through would
 `PathMap::data(key, &self.store_name())` at every call site, and `store_name()` allocates a `String`
 per call — on the key-encoding path, which `CLAUDE.md` lists as performance-sensitive.
 
-**Resolution: split the rule from the message.** `PathMap` owns the *predicate*; the store owns the
-*error*.
+**This is an `Error` API gap, not a fact about path mapping** — raised at the gate and worth stating
+before the workaround. `ErrorPayload` (`error.rs:58`) carries `query`, `key`, `position` and
+`command_key` as fields with builders (`with_query`, `with_key`, `with_position`,
+`with_command_key`, `:143-160`); the store name is the one piece of provenance that is prose rather
+than data. With a `store: Option<String>` field and a matching `with_store_name(...)`, a helper with
+no `&self` could raise the error unattributed and the store boundary could enrich it:
+
+```rust
+Err(Error::key_not_supported_unattributed(key))          // in PathMap
+    .map_err(|e| e.with_store_name(&self.store_name()))  // at the store boundary
+```
+
+Filed as `CORE-ERROR-STORE-NAME-NOT-STRUCTURED` (P2/S). **Not done here**: it changes a `serde`
+payload that reaches `liquers-web`, `liquers-py` and the axum API, and this design is already
+cross-crate with a P0 in it. When it lands, `PathMap::data` and `::metadata` can enforce the refusal
+themselves and the store keeps only the enrichment.
+
+**Resolution for now: split the rule from the message.** `PathMap` owns the *predicate*; the store
+owns the *error*. Note that **the predicate is needed regardless of the `Error` API**:
+`is_supported(&self, key) -> bool` returns a bool and cannot use an error at all, so the rule has to
+exist as a predicate for it to consult. The split is not purely a workaround — what
+`with_store_name` would buy is the *second* half, letting the path builders enforce what they
+document.
 
 ```rust
 impl PathMap {
@@ -60,6 +81,11 @@ impl AsyncOpenDALStore {
 place — while the error text keeps naming the real store and the happy path allocates nothing extra.
 `Key::as_absolute` already yields `KeyNotAbsolute` with no store name (`error.rs:319`), so `data`,
 `metadata` and `directory` stay fallible with no further help.
+
+**The residual weakness, stated rather than hidden:** `PathMap::data` does not itself refuse an
+ambiguous key — the store's entry points do, immediately before calling it. A future call site that
+uses `PathMap::data` directly would bypass the rule. A doc comment on `PathMap` says so and names
+`CORE-ERROR-STORE-NAME-NOT-STRUCTURED` as what would close the hole.
 
 **R2 — `directory_metadata_includes_children` is dropped.** Phase 2 §"Trait Implementations"
 proposed it so a store could inherit directory metadata without the recursive subtree walk. Checked
@@ -425,13 +451,22 @@ Phase 5 then delivers:
 - `phase5-documentation.md` — one to three pages: what was implemented, deviations and why, issues
   filed, learning. The Corrections log in Phase 3 is its raw material.
 - **`specs/reference/STORE_SEMANTICS.md`** — the store behavioural contract, written against what
-  shipped. Content list in Phase 3's "Usage, Meaning, and Connections".
+  shipped. Content list in Phase 3's "Usage, Meaning, and Connections", plus the rows of
+  `STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE`'s divergence table that this work settles
+  (1, 2, 3, 4, 9, 11 — and 5 and 6, which are documentation-only: `removedir` **is** recursive,
+  contrary to its doc comment, and is a no-op on an absent directory). Rows 7, 8 and 10 name their
+  own open issues rather than being answered.
 - `specs/reference/STORE_CONFIG_FSD.md` — a cross-link, plus a `## History` row and a `reviewed:`
   bump.
 - Issue closures: `STORE-OPENDAL-SLASH-HANDLING`, `CORE-DIRECTORY-INDEX-NOT-SHARED`,
   `CORE-ASYNC-MEMORY-STORE-MAKEDIR-DOES-NOTHING`, `OPENDAL-LOCALFS-TEST-SILENT-ON-WRONG-VALUE-TYPE`,
   `STORE-OPENDAL-WITHOUT-ASYNC-STORE-BROKEN`, each with a resolution note.
-  `STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE` stays open — it is deliberately not done.
+- **Deliberately left open, each with a reason on the issue itself:**
+  `STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE` (the umbrella, now carrying the full
+  eleven-row divergence table), `CORE-ERROR-STORE-NAME-NOT-STRUCTURED` (R1's real fix),
+  `CORE-ASYNC-MEMORY-STORE-IS-SUPPORTED-IGNORES-PREFIX`,
+  `CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS`. `STORE_SEMANTICS.md` answers the rows this work
+  touches; the umbrella issue owns completing it.
 - Follow-up recorded on `CORE-DIRECTORY-INDEX-NOT-SHARED`: migrating `FetchStore` and
   `LocalStorageStore` to `DirectoryIndex`.
 - `specs/README.md` §Stores: the design moves `designing` → `documented`; `STORE_SEMANTICS.md` is

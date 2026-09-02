@@ -65,9 +65,12 @@ here. No blocker remains.
 | `STORE-OPENDAL-LIST-OPTION-MISPARSED` | P2/S | draft, design `opendal-list-option-config` | Lives in `store_factory.rs`'s option parsing, not in `opendal_store.rs`. The only textual overlap is the import block §6 touches. No ordering constraint either way. | No |
 | `STORE-OPENDAL-ARGUMENTS-NOT-DERIVED` | P3/S | draft, design `store-factories-in-core` | That design is `complete` (PR #46, merged). The remaining feature work is argument metadata in `store_factory.rs` and does not touch `opendal_store.rs`. | No |
 | `STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED` | P1/L | accepted | The reason `PathMap`'s entry points stay fallible: absoluteness is enforced per method, by convention, not by the type. This change preserves that enforcement and concentrates it, which is a step toward the issue rather than away from it. | No |
+| `CORE-ERROR-STORE-NAME-NOT-STRUCTURED` | P2/S | draft (**filed by this design**, 2026-09-02, from the Phase 4 gate) | A store's name is interpolated into the message instead of being an `ErrorPayload` field with a `with_store_name` builder beside the four that exist. It is why `PathMap` cannot raise `key_not_supported` itself (R1). Not fixed here: it changes a `serde` payload reaching `liquers-web`, `liquers-py` and the axum API. | No |
+| `CORE-ASYNC-MEMORY-STORE-IS-SUPPORTED-IGNORES-PREFIX` | P1/S | draft (**filed by this design**, 2026-09-02) | `AsyncMemoryStore::is_supported` (`store.rs:893`) ignores its own prefix while all four other stores check theirs; masked today by the router's separate prefix test. Found enumerating contract divergences. Not in scope — it needs a test sweep, not a one-line edit. | No |
+| `CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS` | P2/S | draft (**filed by this design**, 2026-09-02) | `keys()` returns data keys only in `AsyncMemoryStore` and data keys plus directories plus the root everywhere else. Needs a contract decision before an implementation change, so it belongs to the umbrella issue. | No |
 | `CORE-ASYNC-MEMORY-STORE-MAKEDIR-DOES-NOTHING` | P0/S | draft (**filed by this design**, 2026-09-02, from Phase 3) | `AsyncMemoryStore::makedir` (`store.rs:888`) records nothing and reports success; `PUT /api/store/makedir/{*key}` is a documented endpoint. `DirectoryIndex::explicit` is precisely the missing capability, so the fix is one call to `insert_directory` — sequenced as its own commit after the extraction, so the extraction stays behaviour-preserving. | No |
 | `CORE-DIRECTORY-INDEX-NOT-SHARED` | P1/L | accepted (**filed by this design**, 2026-09-02) | **Now covered by this design.** Four stores each reimplement directory derivation and a fifth has nothing; the gate directed that the fallback live in `liquers-core` so `liquers-web`'s HTTP-backed stores can use it too. §3a is its architecture. | No — it *is* the work |
-| `STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE` | P1/L | draft (**filed by this design**, 2026-09-02) | The suite that would enforce the semantics §3a puts in core across all implementations. Still out of scope: §3a gives the semantics one *implementation* to inherit, the suite gives them an *enforcement*, and the second is a separate body of test work. The contract they share is written at Phase 5. | No |
+| `STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE` | P1/L | accepted (**filed by this design**, 2026-09-02; expanded at the Phase 4 gate) | The umbrella. Now carries the **full enumeration of eleven contract divergences** across the five `AsyncStore` implementations, with evidence and the issue tracking each — of which this design fixes six and documents two. Still out of scope as *work*: §3a gives the semantics one *implementation* to inherit; the suite gives them an *enforcement*, and it must run under `wasm32` too, which is what makes it `L`. | No |
 | `CORE-STORE-OPENBIN-MISSING` | — | draft | `openbin` is unimplemented here as everywhere; its `TODO` (`:503`) is untouched. | No |
 | `LIBRARY-CODE-USES-UNWRAP-AND-EXPECT` | P1/L | draft | Two of its instances are in this file (`:279`, `:488`). Both are removed by §5 and §1, so this change reduces that issue's surface. | No |
 | `STORE-CONFIG-IN-CORE` | — | closed | Merged. Its `opendal03` test carries a comment deferring the `key_prefix()` assertion to *this* design; §2 enables it. | No |
@@ -216,10 +219,13 @@ impl PathMap {
     const METADATA: &'static str = ".__metadata__";
 
     /// True when the key's filename ends in METADATA, so its data path would collide with another
-    /// key's metadata path. **Added by Phase 4, R1**: `Error::key_not_supported` needs a store
-    /// name, which an associated function cannot reach, and `store_name()` allocates a String per
-    /// call on the key-encoding path. So the *predicate* lives here and the *error* on the store,
-    /// where `is_supported` and every path entry point consult the same rule.
+    /// key's metadata path. **Added by Phase 4, R1.** `is_supported` returns `bool` and cannot use
+    /// an error at all, so the rule must exist as a predicate regardless; and
+    /// `Error::key_not_supported` needs a store name an associated function cannot reach, so the
+    /// *error* is raised at the store. When `CORE-ERROR-STORE-NAME-NOT-STRUCTURED` lands —
+    /// a `store` field on `ErrorPayload` and a `with_store_name` builder beside the existing
+    /// `with_key`/`with_query` — `data` and `metadata` can refuse directly and the store keeps
+    /// only the enrichment.
     fn is_suffix_ambiguous(key: &Key) -> bool;
 
     /// "sub/foo.txt" — fallible via `Key::as_absolute`; suffix refusal is the store's, per R1.
