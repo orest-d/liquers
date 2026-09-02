@@ -233,21 +233,40 @@ Settled at the Phase 1 gate, and now normative for Phase 2:
    store is somebody's data. Phase 2 owns the shape — including the wrinkle that the conformance
    types are feature-gated while `StoreFactory` is not.
 
-9. **Every rule declares whether it is read-only or potentially destructive, and the split is
-   load-bearing.** "Potentially destructive" covers *any* write, not only removal: a `set` to a key
-   that already exists destroys what was there, and the suite cannot know it does not. The
-   validation tool runs the read-only rules by default and requires an explicit opt-in for the
-   rest — a tool that takes a configuration document and calls `removedir` will otherwise be
-   pointed at production storage in its first week.
-   **The report must distinguish "not run" from "passed".** A summary that reads conformant
-   because the destructive half never executed is precisely the vacuous-conformance failure
-   `LANGUAGE-INTEGRATION_GUIDE.md` §3 warns about, and it would be produced by the *default*
-   invocation. Outcomes are at least: passed, failed, skipped for a declared capability, and not
-   run because its effect class was not permitted.
-   **The guide states the precautions**, not merely the mechanism: test against a temporary folder
-   or a throwaway database; treat any store used for conformance testing as expendable; do not run
-   against a third-party service unless that has been explicitly permitted, and never against one
-   holding data you did not create.
+9. **Four safety levels, ordered, each rule declaring the lowest it can run at.** The binary
+   read-only/destructive split is not enough: between "touch nothing" and "do anything" there are
+   two useful positions, and they are where a real store gets validated safely.
+
+   | Level | Name | Permits | Refuses |
+   |---|---|---|---|
+   | 1 | `read-only` | reads and listings | every mutation |
+   | 2 | `create-only` | creating a key that does not exist | overwriting, removing, `removedir` |
+   | 3 | `scratch` | anything, **to keys this run created** | touching anything that was already there |
+   | 4 | `unrestricted` | everything | nothing |
+
+   The tool takes the level as an argument; a rule that needs more than the level allows is **not
+   run**, and the report says which level would run it — so the default invocation tells the
+   operator what it did not check and how to check it, rather than reporting a quiet pass.
+
+   Three consequences that Phase 2 must design for rather than discover:
+
+   - **Level 3 has to be enforced, not merely declared.** "Only what this run created" is
+     bookkeeping — a record of created keys, consulted on every mutation. Enforcing it inside each
+     rule means every rule can breach it by mistake; enforcing it in a **guard that wraps the
+     fixture's store** means a rule cannot, and the guard is also where a breach becomes a
+     legible error rather than a deleted file. The wrapping store is the shape to beat.
+   - **`removedir` at level 3 is the hard case.** A directory whose subtree the run created
+     entirely is fine; one that also holds a pre-existing key is not, and the guard cannot know
+     which without walking it. Removing a directory is precisely the operation the sibling rule
+     exists to check, so this is not an edge case to defer.
+   - **Level 2 cannot clean up after itself.** It creates keys and may not remove them, so the run
+     leaves residue by design. The tool must **list what it left behind**, or a level-2 run against
+     a real store is a slow leak with no record.
+
+   **Recommendation for Phase 2, not yet a decision:** make the default level follow the fixture's
+   provenance rather than being one constant. A fixture the factory just built is expendable by
+   construction, so `scratch` is a safe default there; a store named in somebody's configuration
+   document should default to `read-only` and make them ask for more.
 
 ## Open Questions
 
@@ -257,10 +276,11 @@ Settled at the Phase 1 gate, and now normative for Phase 2:
    this repository declares its capabilities. It also decides whether the guide's per-store status
    matrix can be *generated* from a report rather than maintained by hand, which is the strongest
    version of the synchronization mechanism above.
-2. **Does the effect-class split leave the read-only half worth running?** Several rules can only
-   be checked by writing — the sibling rule's whole point is that `removedir("data")` must not
-   touch `database/`. Phase 2 should confirm that the read-only subset is a useful default rather
-   than a near-empty one, and say so in the tool's own output if it is thin.
+2. **What does each level actually buy?** Phase 2 should count the rules runnable at each of the
+   four levels before the levels are fixed in the tool's interface. If `read-only` runs three rules
+   out of forty, that is worth knowing — and worth printing — before anyone treats a clean level-1
+   report as evidence of anything. The sibling rule, the one that motivated all of this, needs
+   level 3 at least.
 
 ## References
 
