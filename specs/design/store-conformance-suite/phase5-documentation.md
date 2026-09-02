@@ -1,48 +1,160 @@
-# Phase 5: Documentation - store-conformance-suite
+# Phase 5: Documentation — `AsyncStore` conformance
+
+**PR:** [orest-d/liquers#59](https://github.com/orest-d/liquers/pull/59) · **Issue:**
+`STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE` (closed)
 
 ## Completion Preconditions
 
-- [ ] Implementation is finished and validated
-- [ ] All user comments are answered or incorporated
-- [ ] All review comments are answered or incorporated
-- [ ] Documentation is consistent with implemented and tested behavior
-- [ ] Documentation is included in the implementation PR when practical
+- All planned implementation work is finished and validated, or explicitly not carried out with the
+  reason recorded (step 15, below).
+- Tests green: 789 `liquers-core` lib tests, 5 core conformance suites, 2 OpenDAL suites, 2 wasm
+  suites under Node, `D1`. The `liquers-lib` default loop is clean.
+- `scripts/check-build-matrix.sh` passes on both new rows; the two rows that fail are pre-existing
+  and unrelated (`BUILD-SYSINFO-REQUIRES-NEWER-RUSTC`).
+- `python3 scripts/docs_index.py --check`: 0 errors.
+- Every rule a store is allowed to fail cites an open issue, and `H5` fails the suite if such a rule
+  starts passing — so no allowed-failure entry can outlive its reason.
+- Review comments on PR #59: none outstanding.
 
 ## Implementation Summary
 
-[About one page; never more than three pages for this whole document. State what was implemented
-and whether it conforms to the request and approved design. Identify anything omitted or added and
-explain why. Link to reference/guide documents for detail.]
+`AsyncStore` now has an executable contract. `liquers_core::store_conformance` holds **32 rules**,
+one per claim in `specs/reference/STORE_SEMANTICS.md`, behind the non-default `store-conformance`
+feature. The module names no runtime — no `tokio`, no test attribute, no panic — so each crate
+supplies its own harness, which is what lets `liquers-web` run the same rules under
+`wasm_bindgen_test` while `liquers-core` runs them under `#[tokio::test]`.
 
-## Documentation Delivered
+Nine suites cover **nine in-tree implementations plus the trait defaults**:
 
-### New Reference Documents
-[Paths and purposes, or `None` with rationale]
+| Suite | Store | Result |
+|---|---|---|
+| `C1`–`C5` (`liquers-core`) | `AsyncMemoryStore`, `AsyncFileStore`, `AsyncStoreRouter`, trait defaults, `NoAsyncStore` | conformant |
+| `C6`–`C7` (`liquers-store`) | `AsyncOpenDALStore` over the memory and filesystem services | conformant, 31 rules each — the widest coverage in tree |
+| `C8`, `C10` (`liquers-web`, Node) | `FetchStore`, `JsStore` | conformant / `BLOCKED` on two filed issues |
+| `C9` (`liquers-web`, browser) | `LocalStorageStore` | **written, never executed** — needs a chromedriver |
+| `D1` | the documents | rule IDs in code, contract and guide are one set |
 
-### New Guide Documents
-[Paths and purposes, or `None` with rationale]
+Three documents carry it: `STORE_SEMANTICS.md` (completed — the contract), the new
+`STORE_IMPLEMENTATION_GUIDE.md` (operational — how to build a store that satisfies it), and the new
+`CONFORMANCE_TERMS.md` (the vocabulary both guides share).
 
-### Existing Documents Reviewed or Updated
-[Authoritative `affects_docs` set, review result, and History/reviewed updates]
+## Deviations from the approved design
 
-### Links and Capability Map
-[Links added, updated, or replaced in `specs/README.md` and other documentation]
+**The validation tool was cut**, at the Phase 4 gate, on the final review's judgement that the
+project was `XL` with it. Its design is preserved in full on
+`STORE-CONFORMANCE-VALIDATION-TOOL` — command surface, provenance-based level defaults, residue
+requirement, exit codes, the `StoreFactory::create_fixture` extension — along with the one question
+it never answered: where a `--config` store's capabilities and preconditions come from.
+
+**A fourth safety level was removed.** Phase 1 specified `unrestricted`; Phase 3 counted the rules
+runnable at each level and found none reach for it. A level no rule needs can only permit damage no
+check asked for.
+
+**Step 15, the adoption deletions, was not carried out** — and this is the one deviation that is a
+finding rather than a scope cut. The mapping table assumed each adopted ID generalizes the
+like-named unit test; the names show otherwise. `dir04` and `dir05` are *swapped* between the two
+schemes, three `sibling` IDs name different claims, and `traitdef01` is rule `dir05` — a rule the
+trait-defaults suite correctly skips, so `traitdef01` is its only coverage of that contract.
+Deleting on that table would have removed real coverage while looking like tidying. Filed as
+`STORE-TEST-IDS-COLLIDE-WITH-CONFORMANCE-RULE-IDS`.
+
+**Rule count is 32, not 31.** `prefix04` was added by the Phase 4 review: `prefix02` and `prefix03`
+both assert `is_supported` is *false*, and the trait default returns `false` unconditionally, so
+without a positive case a store refusing every key passed both and looked conformant.
 
 ## Issues Filed
 
-[New issue IDs and one-line explanations, including intentionally omitted design scope; or `None`]
+| Issue | P/C | Found by |
+|---|---|---|
+| `CORE-LISTDIR-KEYS-DEEP-TESTS-THE-WRONG-KEY` | P2/S | reading the methods no rule covered — **fixed here** |
+| `STORE-SEMANTICS-CHILDREN-RULE-CONTRADICTS-EVERY-STORE` | P2/S | `dir07`, first census run |
+| `CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER` | P2/S | `C3` |
+| `WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND` | P2/S | `C10` |
+| `WEB-JS-STORE-HAS-NO-DIRECTORY-METADATA` | P2/S | `C10` |
+| `STORE-TEST-IDS-COLLIDE-WITH-CONFORMANCE-RULE-IDS` | P2/M | step 15 |
+| `CORE-SYNC-STORE-TRAIT-OBSOLETE` | P2/M | scoping |
+| `DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS` | P2/S | scoping |
+| `STORE-CONFORMANCE-VALIDATION-TOOL` | P2/M | the Phase 4 cut |
+| `BUILD-SYSINFO-REQUIRES-NEWER-RUSTC` | P2/S | the build matrix — pre-existing, unrelated |
+
+Closed: `STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE`,
+`CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS`, `CORE-LISTDIR-KEYS-DEEP-TESTS-THE-WRONG-KEY`.
 
 ## Important Learning
 
-[Meaning and importance of the work, connections to existing functionality, repeatable guidance,
-corrections, and unexpected learning. Keep detail in reference/guide documents and link it here.]
+**A rule needs ground truth the store cannot supply.** `prefix01` as first written compared
+`key_prefix()` with itself, so the divergence it exists for — a store returning `Key::new()` —
+would have passed. `Fixture::expected_prefix` fixed it. The design's own examples had disagreed
+about this without anyone noticing: one derived keys from `store.key_prefix()`, another from a
+fixture field. **Where a rule's subject is also its oracle, it checks nothing.**
+
+**Declaring a capability `false` must be a claim, not an exit.** Under-declaring is how a broken
+`makedir` escapes `explicit01` — the store least likely to be given the capability. Partly
+addressed (`StoreCapabilities` has no `Default`, so adding a field breaks every fixture); the
+negative rules the review proposed are not implemented and remain the strongest available fix.
+
+**Three defects were in this work, not in the stores**, and each is the general case of something a
+store author will hit:
+
+- `H1`/`H2` asserted "the rule was not called" against a recorder the rule never wrote the checked
+  key into. Vacuous on the first attempt, in the tests of a suite built to prevent exactly that.
+- The harness tests reimplemented the gate instead of calling it, so a bug in `run_one` would have
+  been invisible to all of them.
+- `GenericFixture` derived its key stem from `SystemTime::now()`, which **panics on wasm32**. A
+  fixture meant to be shared was unusable on the target that motivated the whole design.
+
+**`assert_conformant` failing in both directions earned its cost four times.** Each time a fix
+landed, it reported the now-stale allowed-failure entry rather than waiting to be noticed — once
+contradicting my own assumption that the router would inherit `AsyncMemoryStore`'s `keys()`
+divergence. It does not.
+
+**Capability gating does most of the work; `KeyRequest` is the long tail.** For the restricted store
+worked in Phase 3, gating accounts for 15 of 16 gaps and a precondition decline for one. Both are
+needed — the decline catches what capabilities cannot express, such as a store that *has*
+directories but whose names can never form a prefix pair.
+
+**The implementation count was wrong in the contract, and the suite is what found out.** It said
+five and listed seven; it is nine plus the defaults. `NoAsyncStore` is `pub`, is what an
+`Environment` holds until a store is configured, and nobody had counted it.
+
+## Documentation Delivered
+
+**Created:** `specs/guides/STORE_IMPLEMENTATION_GUIDE.md`, `specs/reference/CONFORMANCE_TERMS.md`.
+**Updated:** `STORE_SEMANTICS.md` (contract completed; implementation count corrected; §2's
+`children` claim marked unsettled), `LANGUAGE-INTEGRATION_GUIDE.md` (§3 vocabulary extracted, §STORE
+cross-linked), `STORE_FACTORY_GUIDE.md`, `STORE_CONFIG_FSD.md`, `CLAUDE.md`, `specs/README.md`,
+`scripts/check-build-matrix.sh`.
+
+`affects_docs` is the six documents above. Each was reviewed against implemented behaviour; the
+guide's per-store status table is generated from the reports rather than maintained by hand, which
+is why `ConformanceReport` derives serde even though the tool that justified it was cut.
 
 ## Conformance and Remaining Work
 
-[Explicitly compare requested, approved, and implemented scope. State whether anything remains. Any
-deferred remainder must be represented by an issue rather than a partial design status.]
+The design's four Phase 1 deliverables: the contract is complete, the suite is implemented and
+applied, the guide exists, and the validation tool was deliberately deferred with its design intact.
+Three items remain open.
+
+### Outstanding
+
+1. **The `children` question** (`STORE-SEMANTICS-CHILDREN-RULE-CONTRADICTS-EVERY-STORE`) — `dir07`
+   reports `Blocked`, and settling it makes the rule live by deleting one branch. Needs a decision,
+   not a fix.
+2. **`C9` has never run.** It compiles behind `browser-tests` and needs a chromedriver matching the
+   installed browser. A gap in the census, not a passing result.
+3. **The negative capability rules** (review finding F2) are not implemented.
 
 ## Validation
 
-[Documentation checks run and their outcomes. If rebase, merge conflict, or integration changed
-relevant content, record the post-merge consistency review here.]
+```bash
+cargo test -p liquers-core  --features store-conformance          # 789 lib + C1–C5 + D1
+cargo test -p liquers-store --features store-conformance          # C6–C7
+cargo test -p liquers-web --target wasm32-unknown-unknown         # C8, C10 (Node)
+CHROMEDRIVER=$(which chromedriver) cargo test -p liquers-web \
+  --target wasm32-unknown-unknown --features browser-tests        # C9 — not yet run
+bash scripts/check-build-matrix.sh
+python3 scripts/docs_index.py --check
+```
+
+Run the wasm loops after `cargo clean`, separately from the native one: they build a different
+target, and a combined run exhausts a constrained session's disk allowance.
