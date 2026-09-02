@@ -50,6 +50,9 @@ async_store=[]
 # See specs/design/store-factories-in-core/.
 opendal=["dep:opendal"]
 toml=["liquers-core/toml"]
+# The AsyncStore conformance suite, forwarded from liquers-core. Test-only in practice and
+# deliberately out of `default`, for the feature-unification reason recorded on the core feature.
+store-conformance=["liquers-core/store-conformance"]
 
 # --- OpenDAL services -------------------------------------------------------------------
 #

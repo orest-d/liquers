@@ -178,12 +178,23 @@ impl AsyncOpenDALStore {
         self.reject_ambiguous(key)?;
         PathMap::metadata(key)
     }
+    /// Map an OpenDAL read failure onto a Liquers error, **keeping "not there" distinct from
+    /// "could not tell"**.
+    ///
+    /// `STORE_SEMANTICS.md` §4 makes that distinction load-bearing: a store that reports a
+    /// permission refusal as absence tells a caller a key does not exist when the truth is that it
+    /// was denied, and one that reports absence as a read error makes every caller match on a
+    /// message instead of an error type. This used to fold both into `KeyReadError`, which the
+    /// conformance rule `absence01` caught against both the memory and filesystem services.
     fn map_read_error<T>(
         &self,
         key: &Key,
         res: opendal::Result<T>,
     ) -> Result<T, liquers_core::error::Error> {
         res.map_err(|e| {
+            if e.kind() == opendal::ErrorKind::NotFound {
+                return liquers_core::error::Error::key_not_found(key);
+            }
             liquers_core::error::Error::key_read_error(
                 key,
                 &self.store_name(),

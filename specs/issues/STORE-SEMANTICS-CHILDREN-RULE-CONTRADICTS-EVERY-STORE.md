@@ -1,7 +1,7 @@
 ---
 id: STORE-SEMANTICS-CHILDREN-RULE-CONTRADICTS-EVERY-STORE
 kind: issue
-title: STORE_SEMANTICS says directory metadata does not populate children, and every store populates it
+title: STORE_SEMANTICS forbids children in directory metadata; seven stores populate it and one does not
 status: draft
 priority: P2
 complexity: S
@@ -32,8 +32,13 @@ and **no implementation follows the first sentence.** Every store populates `chi
 | `MemoryStore` | `store.rs:1488` |
 | `LocalStorageStore` | `liquers-web/src/store/local_storage.rs:404` |
 
-All of them do `metadata.children = self.listdir_asset_info(key)…`. The claim is unanimous in the
-other direction, so this is a defect in the *contract*, not in eight stores.
+All of them do `metadata.children = self.listdir_asset_info(key)…`.
+
+**One store does not: `AsyncOpenDALStore`.** Its `get_metadata` never touches `children`, and the
+conformance rule `dir07` passes against both its services. So the split is seven-to-one rather than
+unanimous — which strengthens rather than weakens the case that the contract has to be settled: two
+in-tree stores answer the same question differently, and the document currently sides with the
+minority while describing the majority's behaviour as what the default "still does".
 
 ## Impact
 
