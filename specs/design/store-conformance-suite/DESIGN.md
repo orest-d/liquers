@@ -3,8 +3,7 @@ id: STORE-CONFORMANCE-SUITE
 kind: design
 title: An implemented conformance suite, a completed contract, and a store implementation guide
 workflow: liquers-project
-status:
-phase: documentation
+status: complete
 area: [core/store, store/backends, web, docs]
 gh_pr: [59]
 issues: [STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE, CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS, CORE-LISTDIR-KEYS-DEEP-TESTS-THE-WRONG-KEY, CORE-SYNC-STORE-TRAIT-OBSOLETE, DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS, STORE-CONFORMANCE-VALIDATION-TOOL, STORE-SEMANTICS-CHILDREN-RULE-CONTRADICTS-EVERY-STORE, CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER, WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND, WEB-JS-STORE-HAS-NO-DIRECTORY-METADATA, STORE-TEST-IDS-COLLIDE-WITH-CONFORMANCE-RULE-IDS, BUILD-SYSINFO-REQUIRES-NEWER-RUSTC]
@@ -22,8 +21,9 @@ superseded_by:
 - [x] Phase 2: Solution & Architecture — approved 2026-09-02
 - [x] Phase 3: Examples & Testing — approved 2026-09-02
 - [x] Phase 4: Implementation Plan — approved 2026-09-02
-- [x] Implementation — steps 1, 2, 4-12, 14, 16 complete; step 15 deliberately not carried out — awaiting approval
-- [x] Phase 5: Documentation — awaiting approval
+- [x] Implementation — steps 1, 2, 4-12, 14, 16 complete; step 15 deliberately not carried out
+- [x] Design complete — awaiting approval
+- [x] Phase 5: Documentation — approved 2026-09-02
 
 ## Notes
 
