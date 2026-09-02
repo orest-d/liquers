@@ -2,7 +2,10 @@
 
 ## Overview
 
-Four artefacts, one vocabulary running through all of them:
+Three artefacts, one vocabulary running through all of them. A fourth — the `liquers-store-check`
+binary — was specified here and **deferred at the Phase 4 gate** to
+[`STORE-CONFORMANCE-VALIDATION-TOOL`](../../issues/STORE-CONFORMANCE-VALIDATION-TOOL.md), which
+carries its design in full:
 
 1. **`liquers_core::store_conformance`** — a shipped module behind the non-default feature
    `store-conformance`. Runtime-agnostic: plain `async fn`s, no `tokio`, no test attributes, no
@@ -10,9 +13,7 @@ Four artefacts, one vocabulary running through all of them:
    interface and the report.
 2. **Fixtures and suites** in `liquers-core`, `liquers-store` and `liquers-web`, running all seven
    in-tree implementations plus the trait defaults.
-3. **`liquers-store-check`** — a binary that builds a store or router from a configuration
-   document, runs the suite at a chosen safety level, and prints the report.
-4. **Documentation** — `STORE_SEMANTICS.md` completed, `STORE_IMPLEMENTATION_GUIDE.md` created,
+3. **Documentation** — `STORE_SEMANTICS.md` completed, `STORE_IMPLEMENTATION_GUIDE.md` created,
    `CONFORMANCE_TERMS.md` extracted so this guide and `LANGUAGE-INTEGRATION_GUIDE.md` share one
    status vocabulary, and a test holding all three to the code.
 
@@ -33,10 +34,10 @@ Open issues in `core/store`, `store/backends` and `web`, with their bearing on t
 | `CORE-STORE-OPENBIN-MISSING` | P3/M | `openbin` is unimplemented everywhere, so there is nothing to hold to a contract. **No rules cover it.** When it is implemented it needs the absolute-key check and a rule; recorded in the guide's question list. | No |
 | `STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED` | P3/L | The `keyabs` family is convention-enforced. This suite adopts those IDs as rules, which strengthens the convention but does not replace the type-level fix. | No |
 | `RESOURCE-NAME-ASCII-ONLY` | P2/L | Non-ASCII names cannot be parsed into a `Key`, so no rule can request one. `KeyRequest` therefore has no "non-ASCII name" variant, and `STORE_SEMANTICS.md` §7 keeps its ⚠. | No |
-| `STORE-OPENDAL-LIST-OPTION-MISPARSED` | P2/S | Affects configuration parsing, which `liquers-store-check` uses. A mis-parsed list option makes the tool build the wrong store — a *setup* failure that would be reported as non-conformance. The tool must print the resolved `StoreConfig` it built. | No |
+| `STORE-OPENDAL-LIST-OPTION-MISPARSED` | P2/S | Was a hazard for the tool; **moot here** now that no step reads a configuration document. Recorded on `STORE-CONFORMANCE-VALIDATION-TOOL`. | No |
 | `WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG` | P3/M | `liquers-web` hand-rolls its environment configuration. Irrelevant: the web suites construct stores directly, not through a document. | No |
 | `CORE-ERROR-STORE-NAME-NOT-STRUCTURED` | P2/S | A store's name is interpolated into the message rather than being a payload field. Rules must therefore assert on `ErrorType`, **never** on message text. Stated as a rule-authoring constraint below. | No |
-| `CORE-CONFIGURATION-ERROR-KIND` | P3/S | In progress. `liquers-store-check` should distinguish a configuration error (exit 2) from non-conformance (exit 1); until the error kind exists, it distinguishes by *stage* — a failure before the first rule runs is a setup failure. | No |
+| `CORE-CONFIGURATION-ERROR-KIND` | P3/S | Was relevant to the tool's exit codes; **moot here**. Recorded on `STORE-CONFORMANCE-VALIDATION-TOOL`. | No |
 
 ### Blocking and Priority Decision
 
@@ -295,38 +296,22 @@ against.
 No signature changes. The suite tests the trait as it is; the three ⚠ rows are resolved by changing
 `AsyncMemoryStore` and the doc comments, not the shape.
 
-### Trait: `StoreFactory` (additive extension, in `liquers-core::store_factory`)
+### Trait: `StoreFactory` — **deferred**
 
-```rust
-    /// Build a throwaway, empty store of this type for conformance testing, if this factory can.
-    ///
-    /// The default is `Ok(None)` — "this factory cannot make a scratch store" — so no existing
-    /// implementor changes. A factory that can (a temporary directory, a scratch prefix, a fresh
-    /// table) returns a fixture that owns whatever must be cleaned up.
-    #[cfg(feature = "store-conformance")]
-    fn create_fixture(
-        &self,
-        config: &StoreConfig,
-    ) -> Result<Option<Box<dyn crate::store_conformance::Fixture>>, Error> {
-        let _ = config;
-        Ok(None)
-    }
-```
+An additive, defaulted `create_fixture` was specified here so a factory could build a throwaway
+store of its own type. It has **no consumer other than the validation tool** — the in-tree suites
+write their fixtures by hand — so it is deferred with it to
+[`STORE-CONFORMANCE-VALIDATION-TOOL`](../../issues/STORE-CONFORMANCE-VALIDATION-TOOL.md), which
+carries the signature, the `#[cfg]` reasoning and the synchronous-construction limitation.
 
-Additive and defaulted, per the "extend, don't mutate" rule — `liquers-py` and every other
-implementor keep compiling. The `#[cfg]` on the method is required because its return type only
-exists under the feature.
-
-**Known limitation:** `create_fixture` is synchronous, matching `create`. A factory needing async
-setup (provisioning a scratch bucket) cannot participate; making the factory async is a separate
-change and out of scope. Recorded in the guide.
+`StoreFactory` is therefore **unchanged by this project**.
 
 ## Generic Parameters & Bounds
 
 **None.** The suite is entirely `dyn`-based: `&dyn Fixture`, `&dyn AsyncStore`, `Box<dyn Fixture>`.
 Rules must be storable in a `&'static [Rule]` and callable across crates and both targets, which a
-generic `F: Fixture` would prevent (no `&'static [Rule]` of monomorphised bodies, no object-safe
-`create_fixture`). Dynamic dispatch costs nothing that matters: every rule performs store I/O.
+generic `F: Fixture` would prevent (no `&'static [Rule]` of monomorphised bodies). Dynamic dispatch
+costs nothing that matters: every rule performs store I/O.
 
 The only bound anywhere is the one `AsyncStore` already carries (`MaybeSend + MaybeSync`), inherited
 rather than restated.
@@ -340,7 +325,6 @@ rather than restated.
 | `Fixture::keys_for` | async | A fixture may have to ask its backend what exists. |
 | `Fixture::cleanup` | async | Removal is store I/O. |
 | `Fixture::store/capabilities/safety_level/label` | sync | Pure accessors; making them async would force `.await` at every rule's first line for nothing. |
-| `StoreFactory::create_fixture` | sync | Matches `create`. See the limitation above. |
 | Report inspection (`conformant`, `counts`, `assert_conformant`) | sync | Pure data. |
 
 **No runtime is named anywhere in the module.** No `tokio`, no `wasm_bindgen_test`, no
@@ -396,25 +380,15 @@ that, an ignore list written for a good reason outlives the reason — the same 
 - A rule **declares every capability it needs**; `run_all` checks `requires` before calling it, so
   a rule never has to test for its own applicability.
 
-### Module: `liquers-store` binary `liquers-store-check`
+### Module: `liquers-store` binary — **deferred**
 
-```text
-liquers-store-check --config <store.yaml> [--store <prefix>] [--rule <id>]...
-                    [--level read-only|create-only|scratch]
-                    [--format text|yaml|json]
-liquers-store-check --scratch <store-type> [--arg k=v]...   # factory-built fixture
-```
+The `liquers-store-check` command surface, its provenance-based level defaults, its residue
+requirement and its exit codes are recorded on
+[`STORE-CONFORMANCE-VALIDATION-TOOL`](../../issues/STORE-CONFORMANCE-VALIDATION-TOOL.md).
 
-Defaults follow provenance, as Phase 1 recommended and this phase decides:
-**`--config` defaults to `read-only`** (it is somebody's data); **`--scratch` defaults to
-`scratch`** (the factory just made it). Raising the level on `--config` is always explicit.
-
-**At `--level create-only` the tool prints the residue list before the summary**, because that level
-cannot clean up after itself and the operator now owns whatever it made. Exit codes match
-`liquers-validate`: **0** conformant · **1** non-conformant · **2** invocation or setup failure. The tool prints the resolved `StoreConfig` before running, so a mis-parsed option
-(`STORE-OPENDAL-LIST-OPTION-MISPARSED`) is visible as a setup problem rather than as a store defect,
-and it prints the not-run counts per level so a clean `read-only` report cannot be mistaken for
-conformance.
+**One requirement survives the deferral**: `ConformanceReport` derives serde. It was justified by
+the tool's `--format yaml|json`, but it is independently required here, because the guide's
+per-store status matrix is *generated* from the reports rather than hand-maintained.
 
 ## Integration Points
 
@@ -422,7 +396,6 @@ conformance.
 
 - New module directory `src/store_conformance/` — `mod.rs`, `fixture.rs`, `report.rs`,
   `rules/{sibling,directories,removal,absence,prefix,keyshape,sidecar,enumerate}.rs`.
-- `src/store_factory.rs` — the additive `create_fixture` method.
 - `src/store.rs` — `AsyncMemoryStore::keys` changed for decision 1; `removedir` doc comments
   corrected to the postcondition.
 - `Cargo.toml` — `store-conformance = []` feature, **not in `default`**. Cargo unifies features
@@ -436,13 +409,9 @@ conformance.
 
 ### Crate: `liquers-store`
 
-- `Cargo.toml` — `store-conformance` forwarding to `liquers-core/store-conformance`; a **new** `cli`
-  feature with `clap` as a **new optional dependency** (`liquers-store` has neither today, unlike
-  `liquers-core`); an explicit `[[bin]]` with `required-features = ["cli", "store-conformance"]`,
-  because an auto-discovered binary cannot carry one — the same reason `liquers-validate` has an
-  explicit block. `cli` stays out of `default`, matching `liquers-core`.
-- `src/bin/liquers_store_check.rs` — the tool.
-- `src/store_factory.rs` — `create_fixture` for the OpenDAL types that can make a scratch location.
+- `Cargo.toml` — `store-conformance` forwarding to `liquers-core/store-conformance`. **No `cli`
+  feature, no `clap`, no `[[bin]]`** — those went with the tool, so this crate gains one feature and
+  no dependency.
 - `tests/store_conformance_CONF.rs` — `AsyncOpenDALStore` over the `fs` service in a temp directory.
 
 ### Crate: `liquers-web`
@@ -455,12 +424,12 @@ conformance.
 
 ### Crate: `liquers-py`
 
-Untouched. `create_fixture` is defaulted, so its `StoreFactory` usage is unaffected.
+Untouched. No trait it implements changes.
 
 ### Dependencies
 
 **None added.** `serde`, `serde_derive`, `async-trait` and `futures` are already core dependencies;
-`clap` is already an optional core dependency behind `cli` and gains a `liquers-store` counterpart.
+No new optional dependency: `clap` went with the tool.
 Temporary directories in tests use `std::env::temp_dir()` with a unique name, matching
 `store_key_absolute.rs` — no `tempfile` dependency.
 
@@ -521,7 +490,8 @@ leave both guides poorer.
    failure; prefix in the path or stripped; atomicity, concurrency and quota boundaries;
    enumeration cost; error mapping; `openbin` when it exists.
 6. **Testing your store** — writing a fixture, the `KeyRequest` vocabulary, the three safety levels,
-   what each level buys, `assert_conformant` and allowed failures, and `liquers-store-check`.
+   what each level buys, and `assert_conformant` with its allowed failures. Links
+   `STORE-CONFORMANCE-VALIDATION-TOOL` as the command-line route, once it exists.
 7. **Safety precautions** — a temporary folder or throwaway database; treat any store under test as
    expendable; no third-party service unless explicitly permitted, and never one holding data you
    did not create. States plainly that level 3 is rule discipline, not a guarantee. **And that a
@@ -547,8 +517,8 @@ front matter, a `## History` row and `reviewed:` on creation.
 |---|---|
 | `specs/reference/STORE_SEMANTICS.md` | As above. |
 | `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` | §3 status vocabulary → link `CONFORMANCE_TERMS.md`. §STORE direction-2 questions → cross-link the new guide instead of answering twice. |
-| `specs/guides/STORE_FACTORY_GUIDE.md` | Cross-link; document `create_fixture`. |
-| `specs/reference/STORE_CONFIG_FSD.md` | Cross-link; note `liquers-store-check` as a way to validate a document's stores. |
+| `specs/guides/STORE_FACTORY_GUIDE.md` | Cross-link only. |
+| `specs/reference/STORE_CONFIG_FSD.md` | Cross-link only; validating a document's stores is `STORE-CONFORMANCE-VALIDATION-TOOL`. |
 | `CLAUDE.md` | §"Adding a Store Backend" gains a step (run the suite) and points at the new guide; the two `AsyncStoreWrapper` passages are corrected in passing. |
 | `specs/guides/UNITTEST_GUIDE.md` | Left to `DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS` unless that lands first. |
 | `specs/README.md` | Capability-map entries for the new guide and reference. |
@@ -599,8 +569,6 @@ altered.
 ### Error Constructors
 
 - `assert_conformant` returns `Error::general_error(...)` listing the offending rules.
-- `create_fixture` implementations return `Error::general_error` or an existing typed constructor;
-  never `Error::new`.
 - Rules construct no errors at all: they classify the ones the store returns into `RuleOutcome`.
 - `Unavailable` is **not** an `Error`. It is a fixture's reasoned decline, which belongs in the
   report as `SkippedPrecondition`, not in the error channel — treating "this store has no

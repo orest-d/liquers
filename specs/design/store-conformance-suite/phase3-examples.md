@@ -9,8 +9,8 @@ satisfy", the corner cases that will otherwise be discovered by breaking somethi
 mapping table that decision 2 requires before any existing test is deleted.
 
 The progression is deliberate. **Scenario 1** is the ordinary path — a fixture and a suite for a
-store that behaves normally. **Scenario 2** adds the validation tool, the safety levels and residue,
-which is where a store meets a real backend. **Scenario 3** is the awkward one: the store that
+store that behaves normally. **Scenario 2** covered the validation tool and moved out with it
+at the Phase 4 gate. **Scenario 3** is the awkward one: the store that
 cannot satisfy most of the suite and is nonetheless correct, plus the two ways a rule can look
 green while checking nothing.
 
@@ -28,7 +28,7 @@ namespace is involved.
 | # | Item | Kind | Demonstrates / checks |
 |---|---|---|---|
 | S1 | Fixture + suite for a well-behaved store | Example | The ordinary path: `StoreCapabilities`, `keys_for`, `run_all`, `assert_conformant` |
-| S2 | `liquers-store-check` against a document | Example | Safety levels, provenance defaults, residue at `create-only`, the report |
+| ~~S2~~ | ~~`liquers-store-check` against a document~~ | — | Deferred to `STORE-CONFORMANCE-VALIDATION-TOOL` |
 | S3 | A restricted store, and two vacuous rules | Example | `SkippedPrecondition`, argued `NA`, and how a rule passes while checking nothing |
 | R1–R31 | The rule inventory | Rules | The nine sections of `STORE_SEMANTICS.md`, one ID per contract claim |
 | H1–H8 | Harness unit tests | Unit | The report machinery itself: level gating, capability gating, `assert_conformant` in both directions, residue accounting |
@@ -165,47 +165,17 @@ async fn conformance_async_file_store() -> Result<(), Box<dyn std::error::Error>
 The `match` on `KeyRequest` is exhaustive by design (Phase 2): when a precondition is added, this
 fixture stops compiling rather than silently declining a rule that was meant to run.
 
-### Scenario 2 — the validation tool, safety levels and residue
+### Scenario 2 — **deferred with the tool**
 
-**What it adds to Scenario 1:** the same rules against a store nobody wrote a fixture for, described
-by a configuration document, with the safety machinery that makes that survivable.
+This scenario showed `liquers-store-check` against a configuration document: the provenance
+defaults, a `create-only` run printing its residue before the summary, and a report naming the
+rules the level excluded. It moved, with the rest of the tool's design, to
+[`STORE-CONFORMANCE-VALIDATION-TOOL`](../../issues/STORE-CONFORMANCE-VALIDATION-TOOL.md).
 
-```bash
-# Default: read-only, because this document describes somebody's data.
-$ liquers-store-check --config deploy/stores.yaml
-resolved: store_type=opendal_fs prefix=data root=/srv/liquers/data
-AsyncOpenDALStore (fs) · read-only · 9/28 rules run
-  passed 8 · failed 1 · not run 19
-  FAILED dir02  is_dir on an absent key is Ok(false), never Err  [§2]
-    expected Ok(false), got Err(KeyNotFound)
-  not run: 11 need create-only, 8 need scratch
-exit 1
-```
-
-The report names the rules it could **not** run and the level that would run them, so a clean
-default run cannot be mistaken for conformance. Raising the level on a `--config` store is always
-explicit:
-
-```bash
-$ liquers-store-check --config deploy/stores.yaml --level create-only
-...
-LEFT BEHIND — this level cannot remove what it created:
-  data/lqcheck-3f9a1c/f-01.txt
-  data/lqcheck-3f9a1c/sub
-  data/lqcheck-3f9a1c/subway
-  20/28 rules run · passed 20 · failed 0 · not run 8 (need scratch)
-```
-
-Residue is printed **before** the summary, not in a trailer: at `create-only` the operator now owns
-three keys they did not have, and that is the first thing they need to know.
-
-A factory-built fixture inverts the default, because it is expendable by construction:
-
-```bash
-$ liquers-store-check --scratch opendal_fs        # defaults to --level scratch
-AsyncOpenDALStore (fs, scratch) · scratch · 28/28 rules run · passed 28 · residue: none
-exit 0
-```
+What it demonstrated that **still applies here**: the safety levels are a property of the *rules*,
+not of the tool. Every rule declares the lowest level it runs at, `run_all` gates on it, and the
+report distinguishes "not run at this level" from "passed" — all exercised by `H2` and by the C
+suites, which run at `Scratch` against fixtures they own.
 
 ### Scenario 3 — a restricted store, and two rules that check nothing
 
@@ -371,7 +341,7 @@ themselves, with the OpenDAL tests as the worked example.
 | 2 | Two temp directories collide | Nanosecond-stamped names collide under parallel `cargo test` | Reuse the `unique_temp_dir` pattern from `store_key_absolute.rs`, plus the rule's own unique stem |
 | 3 | Check-then-write is not atomic at `Scratch` | Phase 1 accepted this; a concurrent writer in the gap is overwritten | Documented as a limit, not a guarantee; unit test H6 asserts the *check* happens, not that it is atomic |
 | 4 | A rule creates and does not record | Residue is under-reported and cleanup misses it — the one failure the levels exist to prevent | H7 runs every rule against a recording stub store and asserts `created_keys()` covers every key the stub saw written |
-| 5 | `AsyncStoreRouter` mixes implementations | A rule's key may land in a different store than its precondition assumed | The router fixture supplies keys from **one** member store per request and says which; a cross-store rule is out of scope for this project |
+| 5 | `AsyncStoreRouter` mixes implementations | A rule's key may land in a different store than its precondition assumed | The router fixture supplies keys from **one** member store per request and says which. Two router-specific rules are added per Phase 4 finding F9 — the issue's Impact section is entirely about the router, so leaving composition unchecked would miss the point |
 | 6 | Report must serialize on wasm | `serde_json` is present, but `Key` and `ErrorType` must round-trip | H8 asserts a report round-trips through JSON on both targets |
 | 7 | The feature-off build | `store-conformance` off must compile everywhere, including the `create_fixture` `#[cfg]` | Added as a row to `scripts/check-build-matrix.sh` |
 

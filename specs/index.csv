@@ -34,6 +34,7 @@ LANGUAGE-STORE-TYPE-NOT-DEFINABLE,feature,A store type cannot be defined in the 
 POLARS-COMMAND-TESTS-BYPASS-COMMANDS,issue,The polars command integration tests never invoke a polars command,draft,local,,,P2,M,lib/polars;build,,,,,,2026-08-25,specs/issues/POLARS-COMMAND-TESTS-BYPASS-COMMANDS.md
 PY-MODULES-NOT-DECLARED-IN-LIB,issue,Half of liquers-py's source files are not declared as modules and never compile,draft,local,,,P2,M,py,,,,,,2026-08-25,specs/issues/PY-MODULES-NOT-DECLARED-IN-LIB.md
 PY-VALUE-SERIALIZER-IS-A-STUB,issue,liquers-py's value serializer writes almost nothing and reads nothing back,draft,local,,,P2,M,py;core/value,,,,,,2026-08-26,specs/issues/PY-VALUE-SERIALIZER-IS-A-STUB.md
+STORE-CONFORMANCE-VALIDATION-TOOL,issue,No way to run the conformance suite against a store outside a test binary,accepted,local,,,P2,M,store/backends;core/store,,,,,,2026-09-02,specs/issues/STORE-CONFORMANCE-VALIDATION-TOOL.md
 WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT,issue,Enter key does not submit in the browser query console,accepted,local,,,P2,M,lib/ui,,,,ui-events,,2026-08-08,specs/issues/WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT.md
 WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED,issue,Submitted query state is not preserved in the browser,accepted,local,,,P2,M,lib/ui,,,,ui-events,,2026-08-08,specs/issues/WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED.md
 ASSETS-FIX1,feature,Unresolved TODO and FIXME markers in the asset lifecycle,accepted,local,,,P2,L,core/assets,,,,,,2026-08-08,specs/issues/ASSETS-FIX1.md

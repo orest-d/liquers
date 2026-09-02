@@ -14,8 +14,7 @@ parameterized suite that any store implementation can be run against, in-tree or
 `specs/reference/STORE_SEMANTICS.md`, which today records three questions as unsettled, and adds
 `specs/guides/STORE_IMPLEMENTATION_GUIDE.md`, the operational counterpart that tells someone
 writing a further store what decisions they have to make and how to check that they made them
-consistently. A small validation tool builds a store router from a configuration document, runs the
-suite against it and prints the report, so a store can be checked outside any test binary.
+consistently.
 
 ## Core Interactions
 
@@ -217,24 +216,27 @@ Settled at the Phase 1 gate, and now normative for Phase 2:
    where that is declared and reviewed. This subsumes the per-rule test generation considered
    earlier: a generated test per rule can be added later over the same rule functions if the
    coarse granularity ever hurts, and nothing has to be rewritten for it.
-7. **A validation tool is part of the deliverable.** It builds a store or router from a YAML
-   configuration document, runs the suite, and prints the report — usable for design validation and
-   for debugging a store under development, with no test binary and no recompilation. It is also
-   the natural consumer of a serializable report, and the reason to make the report serializable
-   rather than only `Display`.
+7. ~~**A validation tool is part of the deliverable.**~~ **Deferred at the Phase 4 gate** to
+   [`STORE-CONFORMANCE-VALIDATION-TOOL`](../../issues/STORE-CONFORMANCE-VALIDATION-TOOL.md)
+   (P2, M). It builds a store or router from a YAML document, runs the suite and prints the report.
+   The final review sized this project `XL` with the tool in it and `L` without, and identified it
+   as the cleanest removal: nothing else depends on it, and it carries the project's one unsolved
+   design question — where a `--config` store's fixture comes from. **Every decision taken about it
+   is recorded on that issue**, not lost: the command surface, the provenance defaults, the residue
+   requirement, the exit codes and the `create_fixture` extension.
+   One consequence stays here: the report is still **serializable rather than only `Display`**,
+   because the guide's per-store status matrix is generated from it.
 8. **The suite does not construct stores; the caller supplies a fixture.** There is no universal
    way to create an empty store of a given type — a filesystem store needs a temporary directory,
    an HTTP-backed store needs something serving it — so construction stays with whoever knows the
    type, and **the guide carries the recipes** (see its question list above). The suite's contract
    with the caller is a fixture, not a constructor.
-   **Where a factory *can* make one, it should offer it.** A `StoreFactory` already knows how to
-   build its types from a configuration entry, and for several of them building a *fresh, empty*
-   one is a short step further — a temporary directory, a fresh table, a scratch prefix. Extending
-   the trait with a fixture constructor, additively and defaulting to "not supported", is what lets
-   the validation tool test a store type named in a document without a hand-written fixture, and it
-   is the safest path by construction: a factory-made fixture is expendable, where a configured
-   store is somebody's data. Phase 2 owns the shape — including the wrinkle that the conformance
-   types are feature-gated while `StoreFactory` is not.
+   **Where a factory *can* make one, it should offer it** — `StoreFactory` already builds its types
+   from a configuration entry, and building a *fresh, empty* one is a short step further. **Deferred
+   with the tool**, since `create_fixture` has no other consumer: the in-tree suites write their
+   fixtures by hand. The shape, and the wrinkle that the conformance types are feature-gated while
+   `StoreFactory` is not, are recorded on
+   [`STORE-CONFORMANCE-VALIDATION-TOOL`](../../issues/STORE-CONFORMANCE-VALIDATION-TOOL.md).
 
 9. **Three safety levels, ordered, each rule declaring the lowest it can run at.** The binary
    read-only/destructive split is not enough: between "touch nothing" and "do anything" there are

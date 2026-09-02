@@ -2,8 +2,10 @@
 
 ## Overview
 
-Sixteen steps in four movements: **specify** (1), **build the harness and prove it** (2–4),
-**write the rules and run them** (5–12), **document, adopt and close** (13–16).
+**Fourteen active steps in four movements**: **specify** (1), **build the harness and prove it**
+(2, 4), **write the rules and run them** (5–12), **document, adopt and close** (14–16). Steps 3 and
+13 were removed at the gate with the validation tool; their numbers are kept so that references to
+later steps stay stable.
 
 Two ordering rules are load-bearing and not negotiable:
 
@@ -68,23 +70,13 @@ cargo check -p liquers-core --target wasm32-unknown-unknown --features store-con
 Implementations verbatim, `maybe_send.rs`, the `#[cfg_attr(..., async_trait)]` pattern at
 `store.rs:327`.
 
-### Step 3 — `StoreFactory::create_fixture`
+### Step 3 — **removed**
 
-**Files:** `liquers-core/src/store_factory.rs`
-
-Additive, defaulted to `Ok(None)`, `#[cfg(feature = "store-conformance")]` on the method because its
-return type only exists under the feature.
-
-**Record the known limitation in the method's doc comment**, not only in this design: it is
-synchronous, matching `create`, so a factory needing async setup — provisioning a scratch bucket,
-opening a connection — cannot supply a fixture. A store author hits this at the moment they
-implement the method, which is where the sentence has to be. If step 11 or a later store actually
-needs async construction, file it rather than widening `create`.
-
-**Validation:** `cargo check -p liquers-core --features store-conformance` and
-`cargo check -p liquers-py` (the implementor most likely to break).
-**Agent:** haiku · skills: `rust-best-practices` · knowledge: `store_factory.rs:267–292`, the seven
-implementors Reviewer B enumerated.
+`StoreFactory::create_fixture` went with the validation tool to
+[`STORE-CONFORMANCE-VALIDATION-TOOL`](../../issues/STORE-CONFORMANCE-VALIDATION-TOOL.md); the
+in-tree suites write their fixtures by hand, so nothing here needs it. **`StoreFactory` is
+unchanged by this project.** The step number is kept rather than renumbered, so that references to
+later steps stay stable.
 
 ### Step 4 — Harness unit tests (H1–H8) — **before any real rule**
 
@@ -185,13 +177,13 @@ fixed, and step 14's matrix is regenerated from the report, so the row cannot ou
 `cargo test -p liquers-lib --lib --tests` (the default loop, to catch anything downstream).
 **Agent:** sonnet · skills: `rust-best-practices` · knowledge: step 9's census, decision 5's M+ rule.
 
-### Step 11 — `liquers-store`: plumbing, C5, and a scratch factory
+### Step 11 — `liquers-store`: plumbing and C5
 
-**Files:** `liquers-store/Cargo.toml`, `src/store_factory.rs`, `tests/store_conformance_CONF.rs`
+**Files:** `liquers-store/Cargo.toml`, `tests/store_conformance_CONF.rs`
 
-New `store-conformance` feature forwarding to core; new `cli` feature with `clap` as a **new**
-optional dependency (the crate has neither today). `create_fixture` for the OpenDAL `fs` type,
-building a temp-directory backend. C5 runs `AsyncOpenDALStore` at `Scratch`.
+New `store-conformance` feature forwarding to core — **that is the whole manifest change**; the
+`cli` feature, the `clap` dependency and the scratch factory all left with the tool. C5 runs
+`AsyncOpenDALStore` over the `fs` service in a temp directory, at `Scratch`.
 
 **Validation:** `cargo test -p liquers-store --features store-conformance` and
 `cargo check -p liquers-store --no-default-features`
@@ -229,28 +221,13 @@ cargo tree -p liquers-web --target wasm32-unknown-unknown -e features -i liquers
 `liquers-web/src/store/*`, `tests/store_local_STORE.rs`, `liquers-web/README.md`, the wasm notes in
 `CLAUDE.md`.
 
-### Step 13 — `liquers-store-check`
+### Step 13 — **removed**
 
-**Files:** `liquers-store/src/bin/liquers_store_check.rs`, `liquers-store/Cargo.toml` (`[[bin]]`
-with `required-features = ["cli", "store-conformance"]` — an auto-discovered binary cannot carry
-one)
-
-The full surface Phase 2 specifies: `--config <store.yaml>` (defaults to `read-only`) with
-`--store <prefix>` to pick one store out of a multi-store document; `--scratch <store-type>`
-(defaults to `scratch`) with repeatable `--arg k=v` passed through to `create_fixture`; plus
-`--level`, repeatable `--rule <id>`, and `--format text|yaml|json`. Prints the resolved `StoreConfig` before running, and the not-run counts per level always.
-
-**Listing the residue is a requirement of this step, not a formatting preference.** At
-`create-only` the tool cannot remove what it made, so the operator now owns keys they did not have;
-Phase 1 decision 9 is explicit that a run which does not list them is a slow leak with no record.
-It prints **before** the summary, and a `create-only` run that reports no residue while `created` is
-non-empty is a bug in this step, not a tidy result. Exit **0**
-conformant · **1** non-conformant · **2** invocation or setup failure.
-
-**Validation:** run it against a temp `fs` store at each of the three levels; assert exit codes and
-that `create-only` lists residue.
-**Agent:** sonnet · skills: `rust-best-practices` · knowledge: Phase 3 Scenario 2 output verbatim,
-`liquers-core/src/bin/liquers_validate.rs` as the CLI precedent.
+The tool moved to
+[`STORE-CONFORMANCE-VALIDATION-TOOL`](../../issues/STORE-CONFORMANCE-VALIDATION-TOOL.md) with its
+command surface, provenance defaults, residue requirement and exit codes intact. **The one
+requirement that stays**: `ConformanceReport` derives serde — justified by the tool's `--format`,
+but independently required because step 14's status matrix is generated from the reports.
 
 ### Step 14 — Documentation
 
@@ -333,7 +310,6 @@ absent, as a packaged crate has no `specs/`. Add a
 | Step 10 | `cargo test -p liquers-lib --lib --tests` — the default loop |
 | Step 11 | `cargo test -p liquers-store --features store-conformance` |
 | Step 12 | wasm loop under Node; `browser-tests` separately, after `cargo clean` |
-| Step 13 | the tool at all three levels against a temp `fs` store |
 | Step 16 | `bash scripts/check-build-matrix.sh`, `python3 scripts/docs_index.py --check` |
 
 Run the wasm and browser loops **after `cargo clean`**, separately from the native loop: they build
@@ -350,14 +326,12 @@ run made.
 |---|---|---|---|
 | 1 | sonnet | — | Contract prose; the three ⚠ resolutions are subtle |
 | 2 | sonnet | rust-best-practices | The type design is the whole architecture |
-| 3 | haiku | rust-best-practices | One defaulted method |
 | 4 | sonnet | liquers-unittest, rust-best-practices | H5/H7 are easy to write vacuously |
 | 5–8 | sonnet | rust-best-practices, liquers-unittest | Each rule needs the "what would make this fail?" test |
 | 9 | sonnet | liquers-unittest | Fixtures plus the census |
 | 10 | sonnet | rust-best-practices | A behaviour change with downstream tests |
 | 11 | sonnet | rust-best-practices | Feature plumbing is where cfg bugs hide |
 | 12 | sonnet | rust-best-practices, liquers-unittest | Two harnesses, one wasm-only crate |
-| 13 | sonnet | rust-best-practices | CLI plus safety behaviour |
 | 14 | sonnet | — | Long-form documentation |
 | 15 | sonnet | liquers-unittest | Deleting tests demands judgement, not speed |
 | 16 | sonnet | liquers-unittest | Cross-document assertion |
@@ -371,8 +345,7 @@ assertion that could be vacuous.
 | Step | Risk | Rollback |
 |---|---|---|
 | 1 | Contract wrong | Revert the file; nothing depends on it until step 5 |
-| 2–9, 11–13 | Additive behind a non-default feature | `git revert`; the default build never compiled it |
-| 3 | Trait method breaks an implementor | Revert; the method is defaulted, so no implementor *had* to change |
+| 2, 4–9, 11, 12 | Additive behind a non-default feature | `git revert`; the default build never compiled it |
 | **10** | **Behaviour change** — `AsyncMemoryStore::keys` | Revert the `keys` change and re-add `keys01`/`keys02` to that store's `allowed_failures` citing `CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS`, which stays open. The suite still ships; the divergence is recorded instead of fixed |
 | **15** | **Deletes tests** | `git revert` restores them exactly; this is why deletion is one late step and not spread across steps 5–12 |
 | 14, 16 | Documentation and assertions | Revert; `D1` failing is a signal, not a breakage |
@@ -415,19 +388,22 @@ resolved, or are corrections already applied.
 
 ### Needing a decision — see the approval gate
 
-- **F4 — the validation tool's primary mode has no fixture.** `--config` is the default invocation
-  and the mode Phase 1 decision 7 justifies the tool with, but no phase says where a configured
-  store's `StoreCapabilities` and `keys_for` answers come from. `create_fixture` builds a *scratch*
-  store; `StoreCapabilities` deliberately has no `Default`; `Existing` would mean listing somebody's
-  production store to pick a subject. This is a genuine unsolved design problem, not an oversight.
-- **Sizing.** The review's judgement is that this is **`XL`, not `L`**, and the findings above add
-  roughly ten more rules, two capabilities, four `KeyRequest` variants and a ninth suite.
+**Both resolved at the gate.** The validation tool — and with it F4, the unsolved question of where
+a `--config` store's fixture comes from — moved to
+[`STORE-CONFORMANCE-VALIDATION-TOOL`](../../issues/STORE-CONFORMANCE-VALIDATION-TOOL.md) (P2, M),
+which carries every decision already taken about it so the work does not restart from nothing. That
+removes two steps, a crate feature, a new dependency, a new binary and a trait extension, which is
+what brings this project back to a defensible `L` — the sizing question the review raised.
+
+The remaining findings above still add roughly ten rules, two capabilities, four `KeyRequest`
+variants and a ninth suite, so `L` is the honest label rather than a comfortable one.
 
 ## Phase 5 Entry Criteria
 
 Phase 5 begins when **all** of these hold:
 
-1. Steps 1–16 complete, or an incomplete step is filed as an issue and named here.
+1. The fourteen active steps complete, or an incomplete step is filed as an issue and named here.
+   Steps 3 and 13 are `STORE-CONFORMANCE-VALIDATION-TOOL` and are **not** entry criteria.
 2. `cargo test -p liquers-core -p liquers-store --features store-conformance` green; the wasm loop
    green under Node; the browser loop green or its absence explained.
 3. `bash scripts/check-build-matrix.sh` green, including the feature-off row.
