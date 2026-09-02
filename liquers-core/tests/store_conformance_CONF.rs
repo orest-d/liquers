@@ -75,13 +75,10 @@ async fn c1_async_memory_store() {
     // Its `is_supported` consults the prefix, so a key elsewhere is genuinely refused.
     .with_outside_prefix(parse_key("elsewhere/x.txt").expect("key"));
 
-    check(
-        run_all(&fixture).await,
-        &[AllowedFailure {
-            rule: "keys02",
-            issue: "CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS",
-        }],
-    );
+    // No allowed failures. `keys02` was listed here until step 10 made `keys()` return the
+    // directories and the prefix as §9 requires; `H5` then reported the entry as stale, which is
+    // how a fixed issue forces its own bookkeeping out.
+    check(run_all(&fixture).await, &[]);
 }
 
 /// `C2` — `AsyncFileStore` over a temporary directory.

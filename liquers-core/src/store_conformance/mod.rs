@@ -877,6 +877,14 @@ mod tests {
             let entry = run_one(&fixture, rule).await;
             let recorded = fixture.created_keys();
             for key in fixture.store.keys().await.unwrap_or_default() {
+                // `keys()` also enumerates the directories above the data keys and the store's own
+                // prefix (§9). No rule *creates* those — they are derived — so only data keys are
+                // the rule's to record.
+                if key == fixture.expected_prefix()
+                    || matches!(fixture.store.is_dir(&key).await, Ok(true))
+                {
+                    continue;
+                }
                 assert!(
                     recorded.contains(&key),
                     "rule `{}` created {} without recording it ({:?})",
@@ -907,16 +915,13 @@ mod tests {
         );
         assert_eq!(counts.errored, 0, "no rule should error: {report}");
 
-        // The one live divergence, named rather than tolerated in silence. `AsyncMemoryStore`
-        // returns data keys only; the contract says data keys plus directories plus the prefix.
-        // When that is fixed, `H5` turns this entry into a failure telling us to delete it — which
-        // is the whole point of `assert_conformant` failing in both directions.
+        // No allowed failures. `keys02` was listed here while `AsyncMemoryStore` returned data
+        // keys only; step 10 fixed that, and `H5` reported the entry as stale rather than letting
+        // it outlive its reason — which is what `assert_conformant` failing in both directions is
+        // for. `CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS` is closed by that change.
         report
-            .assert_conformant(&[AllowedFailure {
-                rule: "keys02",
-                issue: "CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS",
-            }])
-            .expect("only the known keys() divergence may fail");
+            .assert_conformant(&[])
+            .expect("AsyncMemoryStore is expected to be conformant");
     }
 
     /// The sibling family against a store that is expected to satisfy it.

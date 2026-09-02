@@ -2,7 +2,7 @@
 id: CORE-LISTDIR-KEYS-DEEP-TESTS-THE-WRONG-KEY
 kind: issue
 title: The listdir_keys_deep default recurses on the parent's is_dir instead of the child's
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/store, store/backends]
@@ -64,3 +64,10 @@ Found on 2026-09-02 by the Phase 4 final review of `design/store-conformance-sui
 checking which `AsyncStore` methods no conformance rule covers. `listdir_keys`,
 `listdir_keys_deep`, `listdir_asset_info` and `get_asset_info` were all uncovered; reading the
 first two turned this up.
+
+## Resolution
+
+Closed 2026-09-02. Both the async and synchronous `listdir_keys_deep` defaults now guard on
+`is_dir(&sub_key)` rather than `is_dir(key)`, so the decision is about the child being descended
+into rather than a constant. Fixed alongside the `keys()` change it was blocking, as an `S` per
+decision 5 of `design/store-conformance-suite/`.
