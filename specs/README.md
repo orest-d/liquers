@@ -206,7 +206,9 @@ question are both measure-first items.
 ## Open issues attached to live design work
 
 <!-- BEGIN generated: issues -->
-*None.*
+| Issue | Pri | Cx | Design |
+|---|---|---|---|
+| [`CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS`](issues/CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS.md) | P1 | M | `store-conformance-suite` |
 <!-- END generated: issues -->
 
 ## Not yet placed
@@ -215,7 +217,9 @@ Regenerated on every run. Anything listed here is missing from the capability ma
 deliberately folded behind a broader line.
 
 <!-- BEGIN generated: unplaced -->
+- `guides/STORE_IMPLEMENTATION_GUIDE.md`
 - `guides/TYPE_SYSTEM_GUIDE.md`
+- `reference/CONFORMANCE_TERMS.md`
 - `reference/VALUE_TYPE_SYSTEM.md`
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - design `argument-gui-info-default`
@@ -244,6 +248,7 @@ deliberately folded behind a broader line.
 - design `queued-manager-conditional-eviction`
 - design `refresh-command-metadata-versions`
 - design `state-argument-serde-default`
+- design `store-conformance-suite`
 - design `store-key-guard`
 - design `ui-query-console-error-highlight`
 - design `value-type-system`
@@ -270,7 +275,8 @@ deliberately folded behind a broader line.
 - [`ENVIRONMENT_CONSTRUCTION_GUIDE.md`](guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md) — An `Environment` owns the global services a query evaluation needs: the command registry, the
 - [`LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md) — Status: Draft
 - [`QUERY_ESCAPING_GUIDE.md`](guides/QUERY_ESCAPING_GUIDE.md) — A Liquers query is text with structure: `/` separates path segments, `-` separates action
-- [`STORE_FACTORY_GUIDE.md`](guides/STORE_FACTORY_GUIDE.md) — How to define a store type, contribute one from another crate, choose which set of store types a
+- [`STORE_FACTORY_GUIDE.md`](guides/STORE_FACTORY_GUIDE.md) — > This guide covers **declaring a store type** so a configuration document can name it. For
+- [`STORE_IMPLEMENTATION_GUIDE.md`](guides/STORE_IMPLEMENTATION_GUIDE.md) — How to implement an `AsyncStore` that satisfies
 - [`TYPE_SYSTEM_GUIDE.md`](guides/TYPE_SYSTEM_GUIDE.md) — How to add a value type so the system can describe it, store it and read it back. For *why* the
 - [`UNITTEST_GUIDE.md`](guides/UNITTEST_GUIDE.md) — This guide explains how to write comprehensive unit tests for the Liquers query evaluation flow, covering environment setup, command registration, query evaluat
 - [`autonomous_bulk_design.md`](guides/autonomous_bulk_design.md) — This is the binding procedure for a coding agent asked to create or finish design documents for

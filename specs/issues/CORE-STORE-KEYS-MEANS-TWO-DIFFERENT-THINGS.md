@@ -2,7 +2,7 @@
 id: CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS
 kind: issue
 title: keys() returns data keys in one store and data keys plus directories and the root in others
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/store, store/backends]
@@ -77,3 +77,11 @@ the implementations honest afterwards.
 Found on 2026-09-02 while enumerating `AsyncStore` contract divergences for
 [`design/opendal-path-mapping/`](../design/opendal-path-mapping/), whose Phase 1 reproduction output
 (`keys = ["", "sub", "sub/deeper", "sub/deeper/foo.txt"]`) is the evidence above.
+
+## Resolution
+
+Closed 2026-09-02. `STORE_SEMANTICS.md` §9 settles it — `keys()` returns data keys, the
+directories above them, and the store's own prefix, and every returned key starts with that
+prefix. `AsyncMemoryStore::keys` was the outlier and now builds the ancestor directories from its
+data keys. Enforced by rules `keys01` and `keys02` in `liquers_core::store_conformance`, run
+against every in-tree store. See `design/store-conformance-suite/` Phase 4 steps 1 and 10.

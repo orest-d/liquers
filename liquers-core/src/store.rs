@@ -248,7 +248,8 @@ pub trait Store: Send + Sync {
         let keys = self.listdir_keys(key)?;
         let mut keys_deep = keys.clone();
         for sub_key in keys {
-            if self.is_dir(key)? {
+            // See the async twin: the guard is about the child.
+            if self.is_dir(&sub_key)? {
                 let sub = self.listdir_keys_deep(&sub_key)?;
                 keys_deep.extend(sub.into_iter());
             }
@@ -431,9 +432,19 @@ pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSyn
         Err(Error::key_not_supported(key, &self.store_name()))
     }
 
-    /// Remove directory.
-    /// The key must be a directory.
-    /// It depends on the underlying store whether the directory must be empty.    
+    /// Remove a directory and everything under it.
+    ///
+    /// **Specified by its postcondition:** if this returns `Ok(())`, the directory does not exist
+    /// afterwards. Failing to remove it is an error; what is forbidden is claiming success without
+    /// the effect. Recursion follows rather than being stipulated separately — a directory derived
+    /// from its children exists while any child remains, so a removal that left one and reported
+    /// `Ok(())` would break the postcondition.
+    ///
+    /// On a directory that does not exist, `Ok(())` is correct: the postcondition already holds.
+    /// This default returns `Err(KeyNotSupported)` instead, which is also correct — a store that
+    /// has not implemented directory removal is *refusing*, not silently succeeding.
+    ///
+    /// Not atomic on any backend. See `specs/reference/STORE_SEMANTICS.md` §5.
     async fn removedir(&self, key: &Key) -> Result<(), Error> {
         key.as_absolute()?;
         Err(Error::key_not_supported(key, &self.store_name()))
@@ -518,7 +529,10 @@ pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSyn
         let keys = self.listdir_keys(key).await?;
         let mut keys_deep = keys.clone();
         for sub_key in keys {
-            if self.is_dir(key).await? {
+            // `sub_key`, not `key`: the guard decides whether to descend into the *child*.
+            // Testing the parent made it a constant, so every child including data keys was
+            // recursed into. CORE-LISTDIR-KEYS-DEEP-TESTS-THE-WRONG-KEY.
+            if self.is_dir(&sub_key).await? {
                 let sub = self.listdir_keys_deep(&sub_key).await?;
                 keys_deep.extend(sub.into_iter());
             }
@@ -578,6 +592,11 @@ impl Clone for NoAsyncStore {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl AsyncStore for NoAsyncStore {
     async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+        // The absoluteness check comes first even here. A store that holds nothing still has to say
+        // *no* correctly: reporting a relative key as merely "not found" hides a malformed key
+        // behind an ordinary miss, and `contains` on this same store already refuses it properly.
+        // Caught by `keyshape01` — this store had never been run against the suite.
+        key.as_absolute()?;
         Err(Error::key_not_found(key))
     }
 
@@ -772,15 +791,31 @@ impl AsyncStore for AsyncMemoryStore {
         Ok(self.dir_index.is_dir(key).await)
     }
 
+    /// Data keys, the directories above them, and this store's own prefix.
+    ///
+    /// Inherits the `AsyncStore` default rather than enumerating the data map directly. Returning
+    /// data keys alone was `CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS`: one stored object yielded
+    /// one key here and four in every other store, and a router could return both shapes at once.
+    /// `STORE_SEMANTICS.md` §9 settles it — and note the cost it names, that a key returned here is
+    /// not necessarily one `get` will succeed on, because a directory is enumerated and cannot be
+    /// read as data.
     async fn keys(&self) -> Result<Vec<Key>, Error> {
-        let mut keys = Vec::new();
-        let _ = self
-            .data
-            .iter_async(|key, _| {
-                keys.push(key.clone());
-                true
-            })
-            .await;
+        // Built here rather than from `listdir_keys_deep`, which for this store deliberately
+        // enumerates the *data* map and so never yields a derived directory.
+        let data_keys = self.listdir_keys_deep(&self.prefix).await?;
+        let mut keys: Vec<Key> = vec![self.prefix.clone()];
+        for key in data_keys {
+            // Every proper prefix of a stored key is a directory (§2), and §9 says they are
+            // enumerated alongside the data keys.
+            let mut ancestor = key.parent();
+            while ancestor.len() > self.prefix.len() {
+                if !keys.contains(&ancestor) {
+                    keys.push(ancestor.clone());
+                }
+                ancestor = ancestor.parent();
+            }
+            keys.push(key);
+        }
         Ok(keys)
     }
 
@@ -1815,7 +1850,8 @@ impl Store for StoreRouter {
         let keys = self.listdir_keys(key)?;
         let mut keys_deep = keys.clone();
         for sub_key in keys {
-            if self.is_dir(key)? {
+            // See the async twin: the guard is about the child.
+            if self.is_dir(&sub_key)? {
                 let sub = self.listdir_keys_deep(&sub_key)?;
                 keys_deep.extend(sub.into_iter());
             }
@@ -1961,9 +1997,19 @@ impl AsyncStore for AsyncStoreRouter {
         }
     }
 
-    /// Remove directory.
-    /// The key must be a directory.
-    /// It depends on the underlying store whether the directory must be empty.    
+    /// Remove a directory and everything under it.
+    ///
+    /// **Specified by its postcondition:** if this returns `Ok(())`, the directory does not exist
+    /// afterwards. Failing to remove it is an error; what is forbidden is claiming success without
+    /// the effect. Recursion follows rather than being stipulated separately — a directory derived
+    /// from its children exists while any child remains, so a removal that left one and reported
+    /// `Ok(())` would break the postcondition.
+    ///
+    /// On a directory that does not exist, `Ok(())` is correct: the postcondition already holds.
+    /// This default returns `Err(KeyNotSupported)` instead, which is also correct — a store that
+    /// has not implemented directory removal is *refusing*, not silently succeeding.
+    ///
+    /// Not atomic on any backend. See `specs/reference/STORE_SEMANTICS.md` §5.
     async fn removedir(&self, key: &Key) -> Result<(), Error> {
         let key = key.as_absolute()?;
         if let Some(store) = self.find_store(key) {
@@ -2051,7 +2097,10 @@ impl AsyncStore for AsyncStoreRouter {
         let keys = self.listdir_keys(key).await?;
         let mut keys_deep = keys.clone();
         for sub_key in keys {
-            if self.is_dir(key).await? {
+            // `sub_key`, not `key`: the guard decides whether to descend into the *child*.
+            // Testing the parent made it a constant, so every child including data keys was
+            // recursed into. CORE-LISTDIR-KEYS-DEEP-TESTS-THE-WRONG-KEY.
+            if self.is_dir(&sub_key).await? {
                 let sub = self.listdir_keys_deep(&sub_key).await?;
                 keys_deep.extend(sub.into_iter());
             }
@@ -2132,14 +2181,27 @@ mod tests {
         let metadata = Metadata::MetadataRecord(MetadataRecord::new());
 
         assert!(!store.contains(&key).await?);
-        assert!(store.keys().await?.is_empty());
+        // `keys()` returns data keys, the directories above them, **and the store's own prefix**
+        // (`STORE_SEMANTICS.md` §9), so an empty store still reports one key: the prefix itself.
+        assert_eq!(store.keys().await?, vec![Key::new()]);
         assert!(!store.is_dir(&parse_key("a/b")?).await?);
 
         store.set(&key, &data, &metadata).await?;
         assert!(store.contains(&key).await?);
         assert!(store.keys().await?.contains(&key));
         assert!(store.is_dir(&parse_key("a/b")?).await?);
-        assert_eq!(store.keys().await?.len(), 1);
+        // One data key `a/b/c`, the two directories above it, and the prefix: four, not one.
+        let mut keys = store.keys().await?;
+        keys.sort_by_key(|k| k.encode());
+        assert_eq!(
+            keys,
+            vec![
+                Key::new(),
+                parse_key("a")?,
+                parse_key("a/b")?,
+                parse_key("a/b/c")?,
+            ]
+        );
 
         let (data2, metadata2) = store.get(&key).await?;
         assert_eq!(data, data2);

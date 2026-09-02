@@ -27,6 +27,15 @@ cli=["dep:clap"]
 # See specs/design/parameter-entity-escaping/.
 entities-html5=[]
 
+# The AsyncStore behavioural conformance suite (liquers_core::store_conformance).
+# Deliberately NOT in `default`, for the reason given above for entities-html5: cargo features
+# unify additively across the dependency graph, and liquers-lib and liquers-store both depend on
+# this crate with defaults on, so anything in `default` is unavoidable for the wasm bundle whatever
+# liquers-web declares. Keeping it out means unification can only ever add it, and nothing in a
+# production graph asks for it. Consumers enable it in [dev-dependencies].
+# See specs/design/store-conformance-suite/.
+store-conformance=[]
+
 # TOML parsing for configuration documents (StoreRouterConfig::from_toml).
 # Deliberately NOT in `default`, matching how liquers-store gated it before the configuration
 # types moved here: a consumer that never reads TOML should not link a TOML parser.

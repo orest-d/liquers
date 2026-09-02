@@ -104,6 +104,13 @@ done
 # The default consumer of liquers-store must be undisturbed by the feature split.
 check liquers-axum ""
 
+# The conformance suite is behind a non-default feature, so the default build never exercises it —
+# and a store author enabling it must not be the first to discover it does not compile. Both
+# directions matter: with the feature ON (the module and its tests), and with it OFF (the
+# `#[cfg]`-gated items must vanish cleanly).
+check liquers-core "--features store-conformance --lib --tests"
+check liquers-store "--features store-conformance --lib --tests"
+
 if [ ${#failed[@]} -ne 0 ]; then
   echo
   echo "FAILED configurations:"
