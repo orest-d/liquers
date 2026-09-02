@@ -18,7 +18,7 @@
 
 ## Implementation Summary
 
-`AsyncStore` now has an executable contract. `liquers_core::store_conformance` holds **32 rules**,
+`AsyncStore` now has an executable contract. `liquers_core::store_conformance` holds **42 rules**,
 one per claim in `specs/reference/STORE_SEMANTICS.md`, behind the non-default `store-conformance`
 feature. The module names no runtime — no `tokio`, no test attribute, no panic — so each crate
 supplies its own harness, which is what lets `liquers-web` run the same rules under
@@ -29,7 +29,7 @@ Nine suites cover **nine in-tree implementations plus the trait defaults**:
 | Suite | Store | Result |
 |---|---|---|
 | `C1`–`C5` (`liquers-core`) | `AsyncMemoryStore`, `AsyncFileStore`, `AsyncStoreRouter`, trait defaults, `NoAsyncStore` | conformant |
-| `C6`–`C7` (`liquers-store`) | `AsyncOpenDALStore` over the memory and filesystem services | conformant, 31 rules each — the widest coverage in tree |
+| `C6`–`C7` (`liquers-store`) | `AsyncOpenDALStore` over the memory and filesystem services | conformant — the widest coverage in tree |
 | `C8`, `C10` (`liquers-web`, Node) | `FetchStore`, `JsStore` | conformant / `BLOCKED` on two filed issues |
 | `C9` (`liquers-web`, browser) | `LocalStorageStore` | **written, never executed** — needs a chromedriver |
 | `D1` | the documents | rule IDs in code, contract and guide are one set |
@@ -142,7 +142,41 @@ Three items remain open.
    not a fix.
 2. **`C9` has never run.** It compiles behind `browser-tests` and needs a chromedriver matching the
    installed browser. A gap in the census, not a passing result.
-3. **The negative capability rules** (review finding F2) are not implemented.
+3. **`CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS`** (P1/M) — `AsyncFileStore` refuses a
+   sidecar-colliding key in `is_supported` and writes it in `set`, corrupting the metadata of the
+   key it collides with. Recorded as an allowed failure on `C2` so `H5` reports it when fixed.
+
+## Post-review round
+
+A Codex review on PR #59 raised five findings, **all five correct**, and two of them were things
+this design had seen and reasoned past. The inventory went from 32 rules to 42.
+
+- **`keyshape01` invoked `remove` and `removedir` at `CreateOnly`** — a level that forbids removal —
+  against a traversal key, on precisely the store whose broken refusal would let it escape the
+  namespace. Split into `keyshape01` (reads, `ReadOnly`) and `keyshape02` (mutations, `Scratch`),
+  each stopping at the first method that accepts the key rather than continuing to call the
+  destructive ones. Phase 4 had moved this rule from `ReadOnly` to `CreateOnly` for exactly this
+  reason and stopped one step short.
+- **`GenericFixture::cleanup` deleted at `CreateOnly`**, contradicting the level's promise and the
+  residue accounting the design makes much of. Now a no-op below `Scratch`.
+- **No rule requested `Existing` or `ExistingDirectory`.** The design documented `Existing` as the
+  only source of subjects for a read-only store, and no rule asked for one — so `FetchStore` passed
+  six rules without ever reading anything. Added `data03` and `dir08`.
+- **Capability declarations were unverified** — review finding F2, which Phase 5 had listed as
+  outstanding. Now implemented: `RuleMeta::refutes` runs a rule only when a capability is declared
+  *absent*, and six refuting rules assert the store really does refuse. A fully writable store can
+  no longer declare everything `false` and report conformant.
+- **`sidecar01` checked only `is_supported`**, a routing hint a direct caller never consults. Added
+  `sidecar03` — which immediately found the `AsyncFileStore` write above.
+
+Two defects surfaced by the new rules on their first run: the `AsyncFileStore` metadata collision,
+and `NoAsyncStore::get` reporting a relative key as `KeyNotFound` rather than `KeyNotAbsolute`
+(fixed here — a store holding nothing still has to say *no* correctly, and its own `contains`
+already did).
+
+**The pattern worth keeping:** every one of the five was a place where a rule's *shape* let a
+non-conforming store through — not a missing rule, but a rule that could not fail. That is the same
+failure this suite exists to catch in other people's code, found in its own.
 
 ## Validation
 

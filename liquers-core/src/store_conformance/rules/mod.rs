@@ -5,6 +5,7 @@
 //! worse than a missing one — it reports safety it never checked.
 
 pub mod absence;
+pub mod capabilities;
 pub mod enumerate;
 pub mod directories;
 pub mod explicit;
@@ -19,6 +20,20 @@ use super::Rule;
 
 /// Build a [`Rule`] entry and the boxing shim an `async fn` needs to become a [`super::RuleFn`].
 macro_rules! rule {
+    // A refuting rule: applies only when the store declares `$cap` **absent**.
+    (refute $cap:ident, $id:literal, $title:literal, $contract:literal, $level:ident, $body:path) => {
+        $crate::store_conformance::Rule {
+            meta: $crate::store_conformance::RuleMeta {
+                id: $id,
+                title: $title,
+                contract: $contract,
+                requires: &[],
+                refutes: Some($crate::store_conformance::Capability::$cap),
+                min_level: $crate::store_conformance::SafetyLevel::$level,
+            },
+            run: |fixture| Box::pin($body(fixture)),
+        }
+    };
     ($id:literal, $title:literal, $contract:literal, [$($cap:ident),*], $level:ident, $body:path) => {
         $crate::store_conformance::Rule {
             meta: $crate::store_conformance::RuleMeta {
@@ -26,6 +41,7 @@ macro_rules! rule {
                 title: $title,
                 contract: $contract,
                 requires: &[$($crate::store_conformance::Capability::$cap),*],
+                refutes: None,
                 min_level: $crate::store_conformance::SafetyLevel::$level,
             },
             run: |fixture| Box::pin($body(fixture)),
@@ -138,6 +154,10 @@ static RULES: &[Rule] = &[
         CreateOnly,
         directories::dir07
     ),
+    rule!("data03", "a key that already holds data can be read",
+        "STORE_SEMANTICS.md §2", [], ReadOnly, directories::data03),
+    rule!("dir08", "a directory that already exists answers is_dir",
+        "STORE_SEMANTICS.md §2", [Directories], ReadOnly, directories::dir08),
     rule!(
         "data01",
         "set then get returns the same bytes",
@@ -239,16 +259,33 @@ static RULES: &[Rule] = &[
     rule!("prefix04", "is_supported is true for a key inside the prefix the store can address",
         "STORE_SEMANTICS.md §6", [], ReadOnly, prefix::prefix04),
     // §7 — key shape.
-    rule!("keyshape01", "every fallible key-taking method refuses a relative key with KeyNotAbsolute",
-        "STORE_SEMANTICS.md §7", [], CreateOnly, keyshape::keyshape01),
+    rule!("keyshape01", "the reading methods refuse a relative key with KeyNotAbsolute",
+        "STORE_SEMANTICS.md §7", [], ReadOnly, keyshape::keyshape01),
+    rule!("keyshape02", "the mutating methods refuse a relative key with KeyNotAbsolute",
+        "STORE_SEMANTICS.md §7", [], Scratch, keyshape::keyshape02),
     // §8 — metadata sidecars.
     rule!("sidecar01", "a key that would collide with another key's metadata path is refused",
         "STORE_SEMANTICS.md §8", [], ReadOnly, sidecar::sidecar01),
     rule!("sidecar02", "metadata written with set_metadata reads back",
         "STORE_SEMANTICS.md §8", [StoredMetadata, Write], CreateOnly, sidecar::sidecar02),
+    rule!("sidecar03", "the fallible operations actually reject a sidecar-colliding key",
+        "STORE_SEMANTICS.md §8", [Write], Scratch, sidecar::sidecar03),
     // §9 — what keys() returns.
     rule!("keys01", "every key keys() returns starts with the store's prefix",
         "STORE_SEMANTICS.md §9", [EnumerateKeys], ReadOnly, enumerate::keys01),
     rule!("keys02", "keys() returns data keys, the directories above them, and the prefix itself",
         "STORE_SEMANTICS.md §9", [EnumerateKeys, Write], CreateOnly, enumerate::keys02),
+    // Refuting rules: each turns a `false` capability from an exit into a claim that can fail.
+    rule!(refute Write, "nowrite01", "a store declaring no Write refuses set",
+        "STORE_SEMANTICS.md §2", CreateOnly, capabilities::nowrite01),
+    rule!(refute Remove, "noremove01", "a store declaring no Remove refuses remove",
+        "STORE_SEMANTICS.md §5", CreateOnly, capabilities::noremove01),
+    rule!(refute Directories, "nodir01", "a store declaring no Directories does not report one",
+        "STORE_SEMANTICS.md §2", ReadOnly, capabilities::nodir01),
+    rule!(refute ExplicitDirectories, "nomakedir01", "a store declaring no ExplicitDirectories refuses makedir",
+        "STORE_SEMANTICS.md §3", CreateOnly, capabilities::nomakedir01),
+    rule!(refute RemoveDirectories, "noremovedir01", "a store declaring no RemoveDirectories refuses removedir",
+        "STORE_SEMANTICS.md §5", CreateOnly, capabilities::noremovedir01),
+    rule!(refute EnumerateKeys, "nokeys01", "a store declaring no EnumerateKeys does not enumerate",
+        "STORE_SEMANTICS.md §9", ReadOnly, capabilities::nokeys01),
 ];

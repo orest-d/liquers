@@ -144,9 +144,15 @@ its last file — so it declares `directories: true, derived_directories: false`
 declares `derived_directories` differently *per service*: true on the memory service, false on the
 filesystem one.
 
-**Declaring a capability `false` is a claim, not a way to skip a rule.** Under-declaring is how a
-broken `makedir` would escape `explicit01` — precisely the store least likely to be given the
-capability. Declare what your store is meant to do, then let the report tell you whether it does.
+**Declaring a capability `false` is a claim, not a way to skip a rule — and it is checked.** For
+each capability there is a *refuting* rule that runs only when you declare it absent, and asserts
+your store really does refuse: `nowrite01`, `noremove01`, `nodir01`, `nomakedir01`,
+`noremovedir01`, `nokeys01`. Without them, a fully writable store could declare everything `false`,
+skip every write, removal and enumeration check, and still report conformant — and the store least
+likely to be *given* a capability is the one whose implementation of it is broken, which is exactly
+how a `makedir` that records nothing would escape `explicit01`.
+
+Declare what your store is meant to do, then let the report tell you whether it does.
 
 ## 5. Testing your store
 
@@ -290,14 +296,15 @@ the two sets agree, so a rule cannot be added without the contract naming it.
 | § | Rules |
 |---|---|
 | §1 sibling rule | `sibling01` `sibling02` `sibling03` `sibling04` `sibling05` |
-| §2 directories | `dir01` `dir02` `dir03` `dir04` `dir05` `dir06` `dir07` `data01` |
+| §2 directories | `dir01` `dir02` `dir03` `dir04` `dir05` `dir06` `dir07` `dir08` `data01` `data03` |
 | §3 derived vs explicit | `explicit01` `explicit02` `explicit03` |
 | §4 absence | `absence01` `absence02` `absence03` |
 | §5 removal | `remove01` `remove02` `remove03` `data02` |
 | §6 prefixes | `prefix01` `prefix02` `prefix03` `prefix04` |
-| §7 key shape | `keyshape01` |
-| §8 sidecars | `sidecar01` `sidecar02` |
+| §7 key shape | `keyshape01` `keyshape02` |
+| §8 sidecars | `sidecar01` `sidecar02` `sidecar03` |
 | §9 enumeration | `keys01` `keys02` |
+| refuting rules | `nowrite01` `noremove01` `nodir01` `nomakedir01` `noremovedir01` `nokeys01` |
 
 ## 9. Status of the in-tree stores
 

@@ -206,7 +206,9 @@ question are both measure-first items.
 ## Open issues attached to live design work
 
 <!-- BEGIN generated: issues -->
-*None.*
+| Issue | Pri | Cx | Design |
+|---|---|---|---|
+| [`CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS`](issues/CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS.md) | P1 | M | `store-conformance-suite` |
 <!-- END generated: issues -->
 
 ## Not yet placed

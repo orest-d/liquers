@@ -21,6 +21,11 @@ pub enum RuleOutcome {
     Failed { detail: String, subject: Vec<Key> },
     /// The store does not claim the capability this rule needs, so the rule was not called.
     SkippedCapability { missing: Capability },
+    /// A refuting rule whose capability the store *does* claim, so there is nothing to refute.
+    ///
+    /// Distinct from [`RuleOutcome::SkippedCapability`] because the reason is the opposite: the
+    /// store has the capability, and the positive rules for it applied instead.
+    SkippedCapabilityPresent { present: Capability },
     /// The fixture could not supply the keys this rule needs, and said why.
     SkippedPrecondition { request: KeyRequest, reason: String },
     /// The rule needs a higher safety level than this run permits. **Not a pass.**
@@ -42,6 +47,7 @@ impl RuleOutcome {
             RuleOutcome::Failed { .. } | RuleOutcome::Errored { .. } => true,
             RuleOutcome::Passed
             | RuleOutcome::SkippedCapability { .. }
+            | RuleOutcome::SkippedCapabilityPresent { .. }
             | RuleOutcome::SkippedPrecondition { .. }
             | RuleOutcome::NotRunSafetyLevel { .. }
             | RuleOutcome::Blocked { .. } => false,
@@ -111,7 +117,8 @@ impl ConformanceReport {
                 RuleOutcome::Passed => c.passed += 1,
                 RuleOutcome::Failed { .. } => c.failed += 1,
                 RuleOutcome::Errored { .. } => c.errored += 1,
-                RuleOutcome::SkippedCapability { .. } => c.skipped_capability += 1,
+                RuleOutcome::SkippedCapability { .. }
+                | RuleOutcome::SkippedCapabilityPresent { .. } => c.skipped_capability += 1,
                 RuleOutcome::SkippedPrecondition { .. } => c.skipped_precondition += 1,
                 RuleOutcome::NotRunSafetyLevel { .. } => c.not_run_level += 1,
                 RuleOutcome::Blocked { .. } => c.blocked += 1,
@@ -166,6 +173,7 @@ impl ConformanceReport {
                         } => format!("{error_type:?}: {message}"),
                         RuleOutcome::Passed
                         | RuleOutcome::SkippedCapability { .. }
+                        | RuleOutcome::SkippedCapabilityPresent { .. }
                         | RuleOutcome::SkippedPrecondition { .. }
                         | RuleOutcome::NotRunSafetyLevel { .. }
                         | RuleOutcome::Blocked { .. } => String::new(),
@@ -238,6 +246,11 @@ impl std::fmt::Display for ConformanceReport {
                 RuleOutcome::SkippedCapability { missing } => {
                     writeln!(f, "  skipped {} — needs {:?}", entry.id, missing)?
                 }
+                RuleOutcome::SkippedCapabilityPresent { present } => writeln!(
+                    f,
+                    "  skipped {} — the store declares {:?}, so there is nothing to refute",
+                    entry.id, present
+                )?,
                 RuleOutcome::NotRunSafetyLevel { required } => {
                     writeln!(f, "  not run {} — needs {:?}", entry.id, required)?
                 }

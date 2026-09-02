@@ -7,7 +7,7 @@
 //! cannot address unambiguously.
 
 use crate::metadata::{Metadata, MetadataRecord};
-use crate::store_conformance::rules::support::require_absent;
+use crate::store_conformance::rules::support::{metadata as blank_metadata, require_absent};
 use crate::store_conformance::{failed, failed_at, keys_for, Fixture, KeyRequest, RuleOutcome};
 
 /// `sidecar01` — a key that would collide with another key's metadata path is refused.
@@ -34,6 +34,62 @@ pub async fn sidecar01(f: &dyn Fixture) -> RuleOutcome {
         );
     }
     RuleOutcome::Passed
+}
+
+/// `sidecar03` — the fallible operations actually reject a sidecar-colliding key.
+///
+/// `sidecar01` only checks `is_supported`, which is a **routing hint**: `AsyncStoreRouter` consults
+/// it, but a caller can invoke `get`, `set` or `set_metadata` directly without asking. A
+/// sidecar-backed store that reports `false` there and still accepts the key in `set` would pass
+/// `sidecar01` while overwriting another key's metadata — the collision the rule claims to prevent.
+///
+/// `Scratch`, because proving it means calling `set`. If the store wrongly accepts, damage has been
+/// done to a key this run did not create — which is why the failure says so, and why this rule can
+/// only run against a store the operator has declared expendable.
+pub async fn sidecar03(f: &dyn Fixture) -> RuleOutcome {
+    let keys = match keys_for(f, KeyRequest::MetadataCollision).await {
+        Ok(k) => k,
+        Err(outcome) => return outcome,
+    };
+    let Some(key) = keys.first().cloned() else {
+        return failed("the fixture returned no key for MetadataCollision");
+    };
+
+    // Reads first: harmless, and they establish whether the refusal is uniform.
+    if f.store().get_bytes(&key).await.is_ok() {
+        return failed_at(
+            format!(
+                "{} is refused by is_supported but get_bytes read it — the refusal is not uniform",
+                key.encode()
+            ),
+            vec![key],
+        );
+    }
+
+    match f.store().set(&key, b"must be refused", &blank_metadata()).await {
+        Err(_) => {}
+        Ok(()) => {
+            f.record_created(&key);
+            return failed_at(
+                format!(
+                    "set({0}) succeeded though is_supported refuses it. Its data path is another                      key's metadata path, so this write has corrupted that key's metadata — a                      store must refuse what it cannot address unambiguously, not merely decline to                      route it",
+                    key.encode()
+                ),
+                vec![key],
+            );
+        }
+    }
+
+    match f.store().set_metadata(&key, &blank_metadata()).await {
+        Err(_) => RuleOutcome::Passed,
+        Ok(()) => failed_at(
+            format!(
+                "set_metadata({}) succeeded though is_supported refuses the key",
+                key.encode()
+            ),
+            vec![key],
+        ),
+    }
 }
 
 /// `sidecar02` — metadata written with `set_metadata` reads back.

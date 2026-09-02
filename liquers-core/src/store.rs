@@ -592,6 +592,11 @@ impl Clone for NoAsyncStore {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl AsyncStore for NoAsyncStore {
     async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+        // The absoluteness check comes first even here. A store that holds nothing still has to say
+        // *no* correctly: reporting a relative key as merely "not found" hides a malformed key
+        // behind an ordinary miss, and `contains` on this same store already refuses it properly.
+        // Caught by `keyshape01` — this store had never been run against the suite.
+        key.as_absolute()?;
         Err(Error::key_not_found(key))
     }
 

@@ -1,4 +1,5 @@
 id,kind,title,status,status_source,phase,readiness,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
+CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS,issue,AsyncFileStore refuses a sidecar-colliding key in is_supported but writes it in set,draft,local,,,P1,M,core/store,,,,store-conformance-suite,,2026-09-02,specs/issues/CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS.md
 CORE-EVALUATE-PATH-CONSOLIDATION,issue,Several evaluation paths duplicate each other,accepted,local,,,P1,L,core/assets;core/plan,,,,,,2026-08-08,specs/issues/CORE-EVALUATE-PATH-CONSOLIDATION.md
 ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS,issue,An argument's default gui_info differs depending on how the command was registered,draft,local,,needs-decision,P2,S,core/commands;macro;web,,,,argument-gui-info-default,,2026-08-30,specs/issues/ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS.md
 BUILD-SYSINFO-REQUIRES-NEWER-RUSTC,issue,liquers-lib test builds fail because a transitive sysinfo requires a newer rustc,draft,local,,,P2,S,build,,,,,,2026-09-02,specs/issues/BUILD-SYSINFO-REQUIRES-NEWER-RUSTC.md

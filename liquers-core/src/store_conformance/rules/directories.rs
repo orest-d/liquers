@@ -329,6 +329,73 @@ pub async fn dir07(f: &dyn Fixture) -> RuleOutcome {
     }
 }
 
+/// `data03` — a key that already holds data can be read.
+///
+/// The positive read path, and until it existed nothing exercised it. `Existing` is documented as
+/// the only source of subjects for a read-only store — `FetchStore` seeds one — yet **no rule
+/// requested it**, so a read-only store whose read path was completely broken reported conformant
+/// on six passing rules that never read anything.
+pub async fn data03(f: &dyn Fixture) -> RuleOutcome {
+    let keys = match keys_for(f, KeyRequest::Existing).await {
+        Ok(k) => k,
+        Err(outcome) => return outcome,
+    };
+    let Some(key) = keys.first().cloned() else {
+        return failed("the fixture returned no key for Existing");
+    };
+
+    match f.store().contains(&key).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return failed_at(
+                format!(
+                    "the fixture offered {} as an existing key, but contains says it is absent",
+                    key.encode()
+                ),
+                vec![key],
+            )
+        }
+        Err(e) => return e.into(),
+    }
+
+    match f.store().get_bytes(&key).await {
+        Ok(_) => RuleOutcome::Passed,
+        Err(e) => failed_at(
+            format!(
+                "get_bytes({}) failed with {:?} for a key the fixture says exists",
+                key.encode(),
+                e.error_type
+            ),
+            vec![key],
+        ),
+    }
+}
+
+/// `dir08` — a directory that already exists answers `is_dir`.
+///
+/// The read-only counterpart of `dir01`, for a store that cannot create anything.
+pub async fn dir08(f: &dyn Fixture) -> RuleOutcome {
+    let keys = match keys_for(f, KeyRequest::ExistingDirectory).await {
+        Ok(k) => k,
+        Err(outcome) => return outcome,
+    };
+    let Some(key) = keys.first().cloned() else {
+        return failed("the fixture returned no key for ExistingDirectory");
+    };
+
+    match f.store().is_dir(&key).await {
+        Ok(true) => RuleOutcome::Passed,
+        Ok(false) => failed_at(
+            format!(
+                "the fixture offered {} as an existing directory, but is_dir is false",
+                key.encode()
+            ),
+            vec![key],
+        ),
+        Err(e) => e.into(),
+    }
+}
+
 /// `data01` — `set` then `get` returns the same bytes.
 ///
 /// The floor. A store failing this fails everything else for uninteresting reasons, so it is worth

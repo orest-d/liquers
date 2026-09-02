@@ -364,8 +364,16 @@ impl Fixture for GenericFixture {
             .unwrap_or_default()
     }
     async fn cleanup(&self) {
-        // Both, because a rule may have created a directory with `makedir`, which `remove` will
-        // not delete. Best effort: cleanup never fails a report.
+        // **Nothing below `Scratch`.** `CreateOnly` forbids removal, and cleaning up anyway would
+        // break that promise, make the documented residue accounting a lie, and — on a backend with
+        // the over-broad deletion bug this suite exists to find — reach data the run never created.
+        // At `CreateOnly` everything created survives by design; the residue list is what makes
+        // that visible.
+        if self.level < SafetyLevel::Scratch {
+            return;
+        }
+        // Both calls, because a rule may have created a directory with `makedir`, which `remove`
+        // does not delete. Best effort: cleanup never fails a report.
         for key in self.created_keys() {
             let _ = self.store.remove(&key).await;
             let _ = self.store.removedir(&key).await;

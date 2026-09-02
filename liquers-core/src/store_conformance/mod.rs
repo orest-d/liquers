@@ -162,6 +162,13 @@ pub struct RuleMeta {
     pub contract: &'static str,
     /// Capabilities the store must have for this rule to apply.
     pub requires: &'static [Capability],
+    /// A capability this rule runs only when the store declares it **absent**.
+    ///
+    /// Capability gating alone makes a `false` an exit: a fully writable store could declare
+    /// everything `false`, skip every write, removal and enumeration check, and still satisfy
+    /// `assert_conformant` — which contradicts what [`Fixture::capabilities`] promises. A refuting
+    /// rule turns each `false` into a claim that can fail.
+    pub refutes: Option<Capability>,
     /// The lowest level at which this rule can run.
     pub min_level: SafetyLevel,
 }
@@ -228,6 +235,20 @@ pub async fn run_rule(fixture: &dyn Fixture, id: &str) -> Option<ReportEntry> {
 /// Gate a single rule on capability and level, then run it if it applies.
 pub(crate) async fn run_one(fixture: &dyn Fixture, rule: &Rule) -> ReportEntry {
     let capabilities = fixture.capabilities();
+    // A refuting rule is the inverse of the gate below: it applies precisely when the capability is
+    // declared absent, and checks the store really does refuse.
+    if let Some(refuted) = rule.meta.refutes {
+        let outcome = if capabilities.has(refuted) {
+            RuleOutcome::SkippedCapabilityPresent { present: refuted }
+        } else if fixture.safety_level() < rule.meta.min_level {
+            RuleOutcome::NotRunSafetyLevel {
+                required: rule.meta.min_level,
+            }
+        } else {
+            (rule.run)(fixture).await
+        };
+        return entry_for(rule, outcome);
+    }
     let outcome = match rule
         .meta
         .requires
@@ -242,11 +263,17 @@ pub(crate) async fn run_one(fixture: &dyn Fixture, rule: &Rule) -> ReportEntry {
         },
         None => (rule.run)(fixture).await,
     };
-    // Lift the failing keys onto the entry, so the report says *where* and not only *what*.
+    entry_for(rule, outcome)
+}
+
+/// Build a report entry, lifting any failing keys onto it.
+fn entry_for(rule: &Rule, outcome: RuleOutcome) -> ReportEntry {
+    // The report must say *where* and not only *what*.
     let subject = match &outcome {
         RuleOutcome::Failed { subject, .. } => subject.clone(),
         RuleOutcome::Passed
         | RuleOutcome::SkippedCapability { .. }
+        | RuleOutcome::SkippedCapabilityPresent { .. }
         | RuleOutcome::SkippedPrecondition { .. }
         | RuleOutcome::NotRunSafetyLevel { .. }
         | RuleOutcome::Blocked { .. }

@@ -98,7 +98,12 @@ one bounded listing on the branch that would otherwise have failed.
   majority's behaviour. Rule `dir07` reports `Blocked` until this is decided.
   `STORE-SEMANTICS-CHILDREN-RULE-CONTRADICTS-EVERY-STORE`.
 
-*Enforced by:* `dir01`, `dir02`, `dir03`, `dir04`, `dir05`, `dir06`, `dir07`, `data01`.
+*Enforced by:* `dir01`, `dir02`, `dir03`, `dir04`, `dir05`, `dir06`, `dir07`, `dir08`, `data01`,
+`data03`, and the refuting rules `nowrite01` and `nodir01`.
+`data03` and `dir08` work from keys that already exist, which is the only way a **read-only** store
+can be checked at all — until they were added, a store whose read path was entirely broken reported
+conformant. `nowrite01` and `nodir01` check that a store declaring it *cannot* do these things
+really refuses, so a declaration is a claim rather than a way to skip the rules for it.
 The `DirectoryIndex` component keeps its own `diridx01`-`diridx08` unit tests in `liquers-core`.
 
 ## 3. Derived and explicit directories are different
@@ -115,7 +120,7 @@ either.
 Forgetting a single marker leaves a `makedir` descendant reporting as a directory after the
 removal that was supposed to contain it succeeded.
 
-*Enforced by:* `explicit01`, `explicit02`, `explicit03`.
+*Enforced by:* `explicit01`, `explicit02`, `explicit03`, `nomakedir01`.
 
 ## 4. Absence is not an error
 
@@ -164,7 +169,8 @@ framing: a store that has not implemented `removedir` is refusing, not succeedin
 recorded as a divergence while the rule was stated as a return convention; restating it as a
 postcondition resolves it without changing any code.
 
-*Enforced by:* `remove01`, `remove02`, `remove03`, `absence03`, `sibling01`, `data02`.
+*Enforced by:* `remove01`, `remove02`, `remove03`, `absence03`, `sibling01`, `data02`,
+`noremove01`, `noremovedir01`.
 
 ## 6. Keys, prefixes and routing
 
@@ -211,7 +217,11 @@ The rule is enforced per method by convention rather than by the type, which is
 ⚠ Non-ASCII resource names cannot be parsed into a `Key` at all (`RESOURCE-NAME-ASCII-ONLY`), so
 they never reach a store. This is a parsing limit, not a store one.
 
-*Enforced by:* `keyshape01`. The `keyabs` family in `liquers-core/src/query.rs` covers `Key`'s own
+*Enforced by:* `keyshape01` (the reading methods) and `keyshape02` (the mutating ones).
+They are separate rules because checking that `set`, `remove` and `removedir` refuse means *calling*
+them with a traversal key — and on the nonconforming store the rule exists to find, such a key may
+resolve outside the store's namespace. Only the reads are safe below `Scratch`.
+The `keyabs` family in `liquers-core/src/query.rs` covers `Key`'s own
 relativeness predicate, which is a different subject.
 
 ## 8. Metadata sidecars
@@ -228,7 +238,11 @@ A sidecar found in the backend implies its data key: a listing reports `sub/orph
 `sub/orphan`. A path a store cannot decode is **skipped** by listings rather than failing them —
 one unexpected object in a shared bucket must not make a directory unlistable.
 
-*Enforced by:* `sidecar01`, `sidecar02`. The OpenDAL path mapping keeps its own `pathmap02`-`pathmap07`
+*Enforced by:* `sidecar01`, `sidecar02`, `sidecar03`. `is_supported` is a *routing hint* — a caller
+may invoke `get` or `set` without consulting it — so `sidecar01` checking it alone would pass a
+store that refuses to route the key and then accepts it in `set`, overwriting the very metadata the
+refusal exists to protect. `sidecar03` checks the operations themselves.
+The OpenDAL path mapping keeps its own `pathmap02`-`pathmap07`
 unit tests.
 
 ## 9. What `keys()` returns
@@ -249,7 +263,7 @@ the cost of the decision, and it is deliberate: the alternative contract, data k
 `CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS` recorded; the `AsyncStore` default, `AsyncFileStore`
 and `AsyncOpenDALStore` already behave as specified here.
 
-*Enforced by:* `keys01`, `keys02`.
+*Enforced by:* `keys01`, `keys02`, `nokeys01`.
 
 ## History
 
