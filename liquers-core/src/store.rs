@@ -440,12 +440,23 @@ pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSyn
     }
 
     /// Returns true if store contains the key.
+    ///
+    /// Falls back to [`Self::is_dir`], so a store that answers for directories does not have to
+    /// restate that a directory is contained. `AsyncMemoryStore` and `liquers-web`'s
+    /// `LocalStorageStore` both wrote this by hand before it was a default; a store that overrode
+    /// `is_dir` and not `contains` got the two disagreeing, silently.
+    ///
+    /// The absoluteness check stays first: the fallback must not weaken the refusal.
     async fn contains(&self, key: &Key) -> Result<bool, Error> {
         key.as_absolute()?;
-        Ok(false)
+        self.is_dir(key).await
     }
 
     /// Returns true if key points to a directory.
+    ///
+    /// `Ok(false)` for a key that is simply absent — **not** an error. A backend failure
+    /// (permissions, network) is still an error; the two are different answers and callers rely on
+    /// the distinction.
     async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
         key.as_absolute()?;
         Ok(false)
@@ -2426,6 +2437,48 @@ mod key_absolute_tests {
         assert!(!store.contains(&ok).await?);
         assert!(!store.is_dir(&ok).await?);
         assert!(store.listdir(&ok).await?.is_empty());
+        Ok(())
+    }
+
+    /// `TRAITDEF01` — the default `contains` falls back to `is_dir`.
+    ///
+    /// `DirOnlyStore` implements the two methods that have no default, plus `is_dir`. Everything
+    /// else exercised here is the trait's own body, so this checks the default and not an override.
+    #[tokio::test]
+    async fn traitdef01_default_contains_falls_back_to_is_dir() -> Result<(), Error> {
+        struct DirOnlyStore;
+
+        #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+        #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+        impl AsyncStore for DirOnlyStore {
+            async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+                key.as_absolute()?;
+                Err(Error::key_not_found(key))
+            }
+            async fn set_metadata(&self, key: &Key, _metadata: &Metadata) -> Result<(), Error> {
+                key.as_absolute()?;
+                Ok(())
+            }
+            async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+                Ok(key.as_absolute()?.encode() == "a/b")
+            }
+        }
+
+        let store = DirOnlyStore;
+        assert!(
+            store.contains(&parse_key("a/b")?).await?,
+            "a directory is contained, without the store restating it"
+        );
+        assert!(!store.contains(&parse_key("a/c")?).await?);
+
+        // The fallback must not weaken the relative-key refusal.
+        use crate::error::ErrorType;
+        let error = store
+            .contains(&parse_key("a/../b")?)
+            .await
+            .err()
+            .unwrap_or_else(|| panic!("a relative key must be refused"));
+        assert_eq!(error.error_type, ErrorType::KeyNotAbsolute);
         Ok(())
     }
 
