@@ -13,9 +13,12 @@ it is configured (`STORE_CONFIG_FSD.md`) or how a store type is registered
 
 ## Why this document exists
 
-`AsyncStore` has five in-tree implementations — `AsyncMemoryStore`, `AsyncFileStore` and
-`AsyncStoreRouter` in `liquers-core`, `AsyncOpenDALStore` in `liquers-store`, and `FetchStore`,
-`LocalStorageStore` and `JsStore` in `liquers-web` — plus whatever a language integration supplies.
+`AsyncStore` has **nine** in-tree implementations — `AsyncMemoryStore`, `AsyncFileStore`,
+`AsyncStoreRouter` and `NoAsyncStore` in `liquers-core`, `AsyncOpenDALStore` in `liquers-store`
+(over two OpenDAL services that behave differently), and `FetchStore`, `LocalStorageStore` and
+`JsStore` in `liquers-web` — plus the trait defaults themselves, which a store inherits by writing
+nothing, and whatever a language integration supplies. The count said five until 2026-09-02, when
+the conformance suite had to enumerate them.
 Until 2026-09-02 the trait's doc comments were the whole specification, and the implementations did
 not agree: eleven separate disagreements were enumerated, of which one destroyed data.
 
@@ -27,8 +30,9 @@ is the operational counterpart — how to implement a store that satisfies this,
 suite against it.
 
 **Rows marked ⚠ are known to be unsettled.** They name the issue tracking them rather than stating a
-rule the code does not follow. Only one remains, in §7, and it is a *parsing* limit rather than a
-store one.
+rule the code does not follow. Two remain: §2's `children` question, which the conformance suite
+surfaced and which needs a decision rather than a fix, and §7's, which is a *parsing* limit rather
+than a store one.
 
 **This document is trait-neutral where the rule is.** `AsyncStore` is the only store trait that
 must satisfy it today — the synchronous `Store` is obsolete and unreachable
@@ -85,9 +89,14 @@ one bounded listing on the branch that would otherwise have failed.
   directory, which is what a caller reading the record directly receives. `get_asset_info` is built
   on `get_metadata`, so a store that cannot produce directory metadata cannot answer `-R-dir/`
   queries.
-- Directory metadata does **not** populate `children`. `listdir_asset_info` calls `get_asset_info`
-  per child, which calls `get_metadata` per child directory: a full recursive walk of the subtree
-  for one directory read. The `AsyncStore` default still does this; stores that care override it.
+- ⚠ **Directory metadata and `children` — unsettled.** This section used to state that directory
+  metadata does *not* populate `children`, on the grounds that `listdir_asset_info` calls
+  `get_asset_info` per child, which calls `get_metadata` per child directory: a full recursive walk
+  of the subtree for one directory read. The cost is real. But seven of the nine implementations
+  populate it, including the `AsyncStore` default this very sentence pointed at, and only
+  `AsyncOpenDALStore` does not — so the document sided with the minority while describing the
+  majority's behaviour. Rule `dir07` reports `Blocked` until this is decided.
+  `STORE-SEMANTICS-CHILDREN-RULE-CONTRADICTS-EVERY-STORE`.
 
 *Enforced by:* `dir01`, `dir02`, `dir03`, `dir04`, `dir05`, `dir06`, `dir07`, `data01`.
 The `DirectoryIndex` component keeps its own `diridx01`-`diridx08` unit tests in `liquers-core`.
@@ -155,7 +164,7 @@ framing: a store that has not implemented `removedir` is refusing, not succeedin
 recorded as a divergence while the rule was stated as a return convention; restating it as a
 postcondition resolves it without changing any code.
 
-*Enforced by:* `remove01`, `remove02`, `remove03`, `absence03`, `sibling01`.
+*Enforced by:* `remove01`, `remove02`, `remove03`, `absence03`, `sibling01`, `data02`.
 
 ## 6. Keys, prefixes and routing
 
@@ -183,7 +192,12 @@ a general store, it handles that file while unsupported keys pass to subsequent 
 `AsyncMemoryStore` and `MemoryStore` have no narrower exclusions, so their predicate is exactly
 `!key.is_relative() && key.has_key_prefix(&self.prefix)`.
 
-*Enforced by:* `memsupport01`-`memsupport06`, `prefix01`, `router01`, `dir04`, `opendal03`.
+*Enforced by:* `prefix01`, `prefix02`, `prefix03`, `prefix04`, `sibling05`.
+`prefix04` is the positive case and the one most easily left out: `prefix02` and `prefix03` both
+assert `is_supported` is *false*, and the trait default returns `false` unconditionally, so without
+it a store that refuses every key passes both and looks conformant while being unusable in a
+layering. `AsyncMemoryStore` keeps its own `memsupport01`-`memsupport06` unit tests, and the router
+its `router01`.
 
 ## 7. Key shape
 
