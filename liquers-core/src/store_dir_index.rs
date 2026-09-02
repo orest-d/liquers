@@ -172,13 +172,42 @@ impl DirectoryIndex {
         self.insert_key(key).await;
     }
 
-    /// Forgets an explicitly created directory. Children, if any, keep it derived.
+    /// Forgets one explicitly created directory. Children, if any, keep it derived.
+    ///
+    /// Removes the marker for exactly this key. To remove a directory *and everything explicitly
+    /// created beneath it* — what `removedir` means — use [`Self::remove_directory_tree`].
     pub async fn remove_directory(&self, key: &Key) {
         if key.is_empty() {
             return;
         }
         if self.explicit.remove_async(key).await.is_some() {
             self.remove_key(key).await;
+        }
+    }
+
+    /// Forgets an explicitly created directory and every explicit directory beneath it.
+    ///
+    /// This is what a recursive `removedir` needs. Removing only the exact marker leaves a
+    /// descendant created by `makedir` behind, so `removedir("a")` after `makedir("a/b")` would
+    /// report `a/b` as a directory even though the removal succeeded.
+    ///
+    /// The root key removes **all** explicit directories: removing the root directory removes
+    /// everything under it.
+    pub async fn remove_directory_tree(&self, key: &Key) {
+        let mut doomed = Vec::new();
+        let _ = self
+            .explicit
+            .iter_async(|explicit| {
+                if key.is_empty() || explicit.has_key_prefix(key) {
+                    doomed.push(explicit.clone());
+                }
+                true
+            })
+            .await;
+        for directory in doomed {
+            if self.explicit.remove_async(&directory).await.is_some() {
+                self.remove_key(&directory).await;
+            }
         }
     }
 
@@ -342,6 +371,30 @@ mod tests {
             index.is_dir(&dir).await,
             "explicitly created, so it outlives its children"
         );
+        Ok(())
+    }
+
+    /// `DIRIDX09` — removing a directory tree takes its explicit descendants with it.
+    ///
+    /// Raised in review of PR #58: `remove_directory` forgets one marker, so `removedir("a")`
+    /// after `makedir("a/b")` left `a/b` reporting as a directory despite the removal succeeding.
+    #[tokio::test]
+    async fn diridx09_remove_directory_tree_takes_explicit_descendants() -> Result<(), Error> {
+        let index = DirectoryIndex::new();
+        index.insert_directory(&parse_key("a/b")?).await;
+        index.insert_directory(&parse_key("a/b/c")?).await;
+        index.insert_directory(&parse_key("other")?).await;
+
+        index.remove_directory_tree(&parse_key("a")?).await;
+
+        assert!(!index.is_dir(&parse_key("a/b")?).await, "the descendant goes too");
+        assert!(!index.is_dir(&parse_key("a/b/c")?).await);
+        assert!(!index.is_dir(&parse_key("a")?).await);
+        assert!(index.is_dir(&parse_key("other")?).await, "an unrelated tree survives");
+
+        // The root removes everything.
+        index.remove_directory_tree(&Key::new()).await;
+        assert!(!index.is_dir(&parse_key("other")?).await);
         Ok(())
     }
 

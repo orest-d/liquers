@@ -158,7 +158,13 @@ impl AsyncOpenDALStore {
 
     /// Maps a key onto its directory path, with the trailing `/` OpenDAL requires for `list`,
     /// `remove_all` and `create_dir`.
+    ///
+    /// Refuses a suffix-ambiguous key like the data and metadata forms do. Without the check,
+    /// `makedir`, `removedir` and `listdir` accepted a key that `is_supported`, `get` and `set`
+    /// all reject — so a reserved-name subtree could be created or deleted through the directory
+    /// path while every other entry point refused it. Raised in review of PR #58.
     pub fn key_to_path_dir(&self, key: &Key) -> Result<String, Error> {
+        self.reject_ambiguous(key)?;
         PathMap::directory(key)
     }
 
@@ -237,8 +243,17 @@ impl AsyncStore for AsyncOpenDALStore {
     }
 
     /// Create default metadata object for a given key
-    fn default_metadata(&self, _key: &Key, _is_dir: bool) -> MetadataRecord {
-        MetadataRecord::new()
+    /// Records the key and whether it is a directory, as `AsyncMemoryStore` does.
+    ///
+    /// This ignored both arguments and returned an empty record, so `get_metadata` on a directory
+    /// produced a record with `is_dir == false` and no key — a file-shaped answer for a directory.
+    /// It mattered little while directory keys were unaddressable on flat backends; now that they
+    /// are addressable it is the record a caller actually receives. Raised in review of PR #58.
+    fn default_metadata(&self, key: &Key, is_dir: bool) -> MetadataRecord {
+        let mut metadata = MetadataRecord::new();
+        metadata.with_key(key.to_owned());
+        metadata.is_dir = is_dir;
+        metadata
     }
 
     /// Get data asynchronously
@@ -1059,6 +1074,48 @@ mod tests {
         assert!(store.contains(&dir).await?);
         assert!(store.get_metadata(&dir).await.is_ok(), "directory metadata");
         assert!(store.get_asset_info(&dir).await.is_ok(), "and asset info built on it");
+        Ok(())
+    }
+
+    /// `DIR05` — directory metadata says it is a directory, and names its key.
+    ///
+    /// Raised in review of PR #58: `default_metadata` ignored both arguments, so the record a
+    /// caller got for a directory was indistinguishable from one for a file.
+    #[tokio::test]
+    async fn dir05_directory_metadata_is_marked_as_a_directory() -> Result<(), Error> {
+        let store = memory_store();
+        let dir = parse_key("data/reports")?;
+        store
+            .set(&parse_key("data/reports/q3.csv")?, b"rows", &Metadata::new())
+            .await?;
+
+        let Metadata::MetadataRecord(record) = store.get_metadata(&dir).await? else {
+            panic!("expected a MetadataRecord for a directory");
+        };
+        assert!(record.is_dir, "a directory must be marked as one");
+        assert_eq!(record.key, Some(dir), "and must name its key");
+        Ok(())
+    }
+
+    /// `PATHMAP07` — the directory form refuses a suffix-ambiguous key, like the other forms.
+    ///
+    /// Raised in review of PR #58: `makedir`, `removedir` and `listdir` reached the directory
+    /// mapper without the ambiguity check, so they accepted a key every other entry point refused.
+    #[tokio::test]
+    async fn pathmap07_directory_form_refuses_suffix_ambiguous_keys() -> Result<(), Error> {
+        use liquers_core::error::ErrorType;
+        let store = memory_store();
+        let key = parse_key("reserved.__metadata__")?;
+
+        assert!(store.key_to_path_dir(&key).is_err());
+        for error in [
+            store.makedir(&key).await.err(),
+            store.removedir(&key).await.err(),
+            store.listdir(&key).await.err(),
+        ] {
+            let error = error.unwrap_or_else(|| panic!("directory ops must refuse the key"));
+            assert_eq!(error.error_type, ErrorType::KeyNotSupported);
+        }
         Ok(())
     }
 

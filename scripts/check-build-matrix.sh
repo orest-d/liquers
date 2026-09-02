@@ -65,6 +65,12 @@ STORE_CONFIGS=(
   ""
   "--no-default-features --features async_store"
   "--no-default-features --features async_store,opendal"
+  # `opendal` alone, and a service without `async_store`: both compile only since PR #58 gated the
+  # `AsyncOpenDALStore` import correctly (`STORE-OPENDAL-WITHOUT-ASYNC-STORE-BROKEN`). The second
+  # is the sharper row — it has a service compiled in and still no store type to construct, which
+  # is where the factory advertised `fs` as available and then blamed the wrong feature.
+  "--no-default-features --features opendal"
+  "--no-default-features --features services-fs"
   "--target wasm32-unknown-unknown --no-default-features --features async_store"
 )
 

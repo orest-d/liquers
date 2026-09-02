@@ -43,6 +43,9 @@ A store that maps keys onto strings must therefore have **one** place that produ
 form, and every call site that names a directory must use it. Spreading the rule across call sites
 is what allowed two of the three to be missed for as long as they were.
 
+The directory form is subject to the same key refusals as the data and metadata forms (§8): a key
+the store will not address as data must not become addressable as a directory.
+
 *Enforced by:* `sibling01`-`sibling04` in `liquers-store/src/opendal_store.rs`.
 
 ## 2. Directories on a backend that has none
@@ -68,8 +71,11 @@ one bounded listing on the branch that would otherwise have failed.
 - `listdir` and `is_dir` must agree. A directory the listing can see must be addressable.
 - `contains` falls back to `is_dir`. Provided by the `AsyncStore` default; a store overriding
   `is_dir` and not `contains` would otherwise have the two disagree silently.
-- A directory key's metadata is `default_metadata(key, true)`. `get_asset_info` is built on
-  `get_metadata`, so a store that cannot produce directory metadata cannot answer `-R-dir/` queries.
+- A directory key's metadata is `default_metadata(key, true)`, and **`default_metadata` must honour
+  both arguments** — a record with `is_dir == false` and no key is a file-shaped answer for a
+  directory, which is what a caller reading the record directly receives. `get_asset_info` is built
+  on `get_metadata`, so a store that cannot produce directory metadata cannot answer `-R-dir/`
+  queries.
 - Directory metadata does **not** populate `children`. `listdir_asset_info` calls `get_asset_info`
   per child, which calls `get_metadata` per child directory: a full recursive walk of the subtree
   for one directory read. The `AsyncStore` default still does this; stores that care override it.
@@ -86,7 +92,11 @@ A derived index alone cannot express the second. `LocalStorageStore` grew a priv
 recorded nothing and reported success. `DirectoryIndex` carries both, and `is_dir` answers for
 either.
 
-*Enforced by:* `diridx04`, `diridx05`, `memdir04`.
+**A recursive `removedir` removes explicit directories beneath it, not only the one named.**
+Forgetting a single marker leaves a `makedir` descendant reporting as a directory after the
+removal that was supposed to contain it succeeded.
+
+*Enforced by:* `diridx04`, `diridx05`, `diridx09`, `memdir04`.
 
 ## 4. Absence is not an error
 
@@ -171,7 +181,7 @@ A sidecar found in the backend implies its data key: a listing reports `sub/orph
 `sub/orphan`. A path a store cannot decode is **skipped** by listings rather than failing them —
 one unexpected object in a shared bucket must not make a directory unlistable.
 
-*Enforced by:* `pathmap01`-`pathmap06`.
+*Enforced by:* `pathmap01`-`pathmap07`.
 
 ## 9. What `keys()` returns
 
@@ -187,4 +197,5 @@ settled, do not assume a key returned by `keys()` can be `get`.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-02 | Recorded that a recursive `removedir` takes explicit descendant directories with it, that `default_metadata` must honour both arguments, and that the directory path form is subject to the same key refusals as the data and metadata forms. All three from PR #58 review findings. | `design/opendal-path-mapping/` PR review |
 | 2026-09-02 | Created. Written against the implementation after `STORE-OPENDAL-SLASH-HANDLING` and `CORE-DIRECTORY-INDEX-NOT-SHARED` were fixed: the sibling rule, the three sources of directory truth, derived versus explicit directories, absence versus failure, removal, prefixes and routing, key shape, metadata sidecars. Three questions are recorded as unsettled rather than answered. | `design/opendal-path-mapping/` Phase 5 |

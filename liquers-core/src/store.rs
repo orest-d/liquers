@@ -753,8 +753,9 @@ impl AsyncStore for AsyncMemoryStore {
             }
         }
         // An explicitly created directory survives losing its children, so `removedir` is what
-        // takes it away.
-        self.dir_index.remove_directory(key).await;
+        // takes it away — and it must take explicit directories *beneath* it too, or a `makedir`
+        // descendant would outlive the recursive removal that just succeeded.
+        self.dir_index.remove_directory_tree(key).await;
         Ok(())
     }
 
@@ -2281,6 +2282,13 @@ mod tests {
 
         store.removedir(&dir).await?;
         assert!(!store.is_dir(&dir).await?);
+
+        // A `makedir` descendant must not outlive a recursive removal of its parent.
+        // Raised in review of PR #58.
+        store.makedir(&parse_key("tree/inner")?).await?;
+        store.removedir(&parse_key("tree")?).await?;
+        assert!(!store.is_dir(&parse_key("tree/inner")?).await?);
+        assert!(!store.is_dir(&parse_key("tree")?).await?);
         Ok(())
     }
 

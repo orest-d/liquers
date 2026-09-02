@@ -148,7 +148,7 @@ impl OpendalStoreFactory {
             .with_arguments(Self::common_arguments(store_type))
             .partial(OPENDAL_DOCS);
 
-        match unavailability_reason(store_type) {
+        match constructibility_reason(store_type) {
             Some(reason) => info.unavailable(&reason),
             None => info,
         }
@@ -195,11 +195,14 @@ impl StoreFactory for OpendalStoreFactory {
         #[cfg(not(all(feature = "opendal", feature = "async_store")))]
         {
             // Without OpenDAL — or without `async_store`, which is what `AsyncOpenDALStore` is
-            // gated on — every type is unavailable, so this branch only has to report it.
-            match unavailability_reason(&config.store_type) {
+            // gated on — nothing can be constructed, so this branch only has to say which of the
+            // three independent requirements is missing. `constructibility_reason` weighs all
+            // three and puts the service reason first.
+            match constructibility_reason(&config.store_type) {
                 Some(reason) => Err(unavailable(reason)),
                 None => Err(unavailable(
-                    "requires the 'opendal' feature of liquers-store".to_string(),
+                    "requires the 'opendal' and 'async_store' features of liquers-store"
+                        .to_string(),
                 )),
             }
         }
@@ -228,6 +231,33 @@ fn unavailability_reason(store_type: &str) -> Option<String> {
     {
         resolve_enabled_scheme(store_type).err()
     }
+}
+
+/// Why this build cannot *construct* `store_type`, or `None` if it can.
+///
+/// A third independent thing, on top of the two [`unavailability_reason`] weighs:
+/// `AsyncOpenDALStore` is gated on `async_store`, so a build with OpenDAL and every service
+/// compiled in still has no store to hand back without it.
+///
+/// Kept separate rather than folded into `unavailability_reason`, which answers the *service*
+/// question and is what `availability02` compares against the manifest. Conflating the two is the
+/// mistake that documentation warns about, and folding `async_store` in makes a missing service
+/// report the wrong feature: `sqlite` without `services-sqlite` must still say `services-sqlite`.
+/// The service reason therefore comes first, and the `async_store` gap is the fallback.
+///
+/// Raised in review of PR #58: before it, `--no-default-features --features services-fs`
+/// advertised `fs` as available and then blamed the already-enabled `opendal` feature for the
+/// failure to build it. That configuration did not compile at all before this PR.
+fn constructibility_reason(store_type: &str) -> Option<String> {
+    if let Some(reason) = unavailability_reason(store_type) {
+        return Some(reason);
+    }
+    #[cfg(not(feature = "async_store"))]
+    {
+        return Some("requires the 'async_store' feature of liquers-store".to_string());
+    }
+    #[cfg(feature = "async_store")]
+    None
 }
 
 /// The OpenDAL scheme `store_type` names, if this build compiled that service in.
@@ -357,9 +387,12 @@ mod tests {
     /// empty key rather than the configured prefix, so the factory's own contract — that
     /// `StoreConfig::key_prefix` reaches the store it builds — was unverifiable here.
     ///
-    /// Gated on `services-fs`, not on `opendal`: the type it builds needs the service compiled
-    /// in, and `opendal` alone compiles in none.
-    #[cfg(feature = "services-fs")]
+    /// Gated on `services-fs` **and** `async_store`, not on `opendal`: constructing a store needs
+    /// the service compiled in (`opendal` alone compiles in none) *and* `AsyncOpenDALStore`, which
+    /// is gated on `async_store`. Missing the second gate made this test fail in
+    /// `--no-default-features --features services-fs`, a configuration that did not compile at all
+    /// before this PR. Raised in review of PR #58.
+    #[cfg(all(feature = "services-fs", feature = "async_store"))]
     #[test]
     fn opendal03_constructs_a_store() -> Result<(), Box<dyn std::error::Error>> {
         let config = entry("fs", "local").with_config("root", "/tmp/liquers-opendal03");
@@ -657,8 +690,8 @@ mod tests {
 
     /// The behavioural half of `Partial`: a key the factory does not describe must still reach the
     /// backend. `atomic_write_dir` is a real `fs` option this factory says nothing about.
-    /// Gated on `services-fs` for the same reason as `opendal03`.
-    #[cfg(feature = "services-fs")]
+    /// Gated on `services-fs` and `async_store` for the same reason as `opendal03`.
+    #[cfg(all(feature = "services-fs", feature = "async_store"))]
     #[test]
     fn coverage02_partial_type_accepts_an_undescribed_key() -> Result<(), Box<dyn std::error::Error>>
     {
