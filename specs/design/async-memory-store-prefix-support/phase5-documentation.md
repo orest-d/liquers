@@ -1,48 +1,74 @@
-# Phase 5: Documentation - async-memory-store-prefix-support
+# Phase 5: Documentation - Memory-Store Prefix Support
 
 ## Completion Preconditions
 
-- [ ] Implementation is finished and validated
-- [ ] All user comments are answered or incorporated
-- [ ] All review comments are answered or incorporated
-- [ ] Documentation is consistent with implemented and tested behavior
-- [ ] Documentation is included in the implementation PR when practical
+- [x] Implementation and tests are complete.
+- [x] User and review feedback is incorporated.
+- [x] Documentation matches verified behavior.
 
 ## Implementation Summary
 
-[About one page; never more than three pages for this whole document. State what was implemented
-and whether it conforms to the request and approved design. Identify anything omitted or added and
-explain why. Link to reference/guide documents for detail.]
+`AsyncMemoryStore::is_supported` and `MemoryStore::is_supported` now require both an absolute key
+and segment-aware membership in their configured prefix. Trait rustdoc defines support as a
+cumulative decision: absolute-key validity, prefix membership, then optional store-specific
+exclusions. The empty-prefix single-file overlay example explains why `is_supported` remains
+meaningful even though routers also prefilter by prefix.
+
+Six direct paired tests cover descendants, outside keys, relative keys, an empty prefix, a key
+equal to the prefix, and a similar-but-distinct segment. Router and fallible-operation behavior are
+unchanged.
 
 ## Documentation Delivered
 
 ### New Reference Documents
-[Paths and purposes, or `None` with rationale]
+
+None; `specs/reference/STORE_SEMANTICS.md` remains authoritative.
 
 ### New Guide Documents
-[Paths and purposes, or `None` with rationale]
+
+None; this is an implementor contract rather than a user workflow.
 
 ### Existing Documents Reviewed or Updated
-[Authoritative `affects_docs` set, review result, and History/reviewed updates]
+
+- `specs/reference/STORE_SEMANTICS.md`: cumulative support contract, overlay rationale, tests, and
+  History.
+- Source issue: closed with current implementation and test evidence.
+- `STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE`: row 8 records resolved prefix parity.
 
 ### Links and Capability Map
-[Links added, updated, or replaced in `specs/README.md` and other documentation]
+
+The temporary README entry was removed after the reference became authoritative. Generated indexes
+were refreshed; the source issue and reference History retain design links.
 
 ## Issues Filed
 
-[New issue IDs and one-line explanations, including intentionally omitted design scope; or `None`]
+None for this correction. The briefly proposed cross-backend issue was removed because those
+stores already implement the required prefix term. The unrelated synchronous `MemoryStore::makedir`
+issue remains outside this work.
 
 ## Important Learning
 
-[Meaning and importance of the work, connections to existing functionality, repeatable guidance,
-corrections, and unexpected learning. Keep detail in reference/guide documents and link it here.]
+Router prefix filtering and a store's own support answer are intentionally redundant at the
+minimum boundary. `is_supported` can then narrow that boundary for overlays or backend limitations.
+This makes a router safe while allowing ordered stores to pass unsupported keys onward.
 
 ## Conformance and Remaining Work
 
-[Explicitly compare requested, approved, and implemented scope. State whether anything remains. Any
-deferred remainder must be represented by an issue rather than a partial design status.]
+The delivered implementation matches the clarified requirement. Both memory stores now align with
+the other prefix-bearing stores, while future store-specific exclusions remain possible. Nothing
+from this issue remains deferred.
 
 ## Validation
 
-[Documentation checks run and their outcomes. If rebase, merge conflict, or integration changed
-relevant content, record the post-merge consistency review here.]
+Passed after the corrected implementation:
+
+```text
+cargo test -p liquers-core --lib memsupport
+cargo test -p liquers-core --lib store::tests
+cargo test -p liquers-core
+git diff --check
+python3 scripts/docs_index.py --check
+```
+
+The workspace-wide formatting check has unrelated pre-existing failures; no broad formatting churn
+was applied.

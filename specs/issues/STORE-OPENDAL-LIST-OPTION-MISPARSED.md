@@ -2,7 +2,7 @@
 id: STORE-OPENDAL-LIST-OPTION-MISPARSED
 kind: issue
 title: A list-valued store config option is mis-parsed by the OpenDAL path
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [store/backends]
@@ -80,8 +80,9 @@ list field to a common service turns this into a live defect with no test to cat
 
 `config_as_string_map` should encode a JSON array the way OpenDAL reads one — comma-separated
 elements, without JSON quoting — or refuse it with an error naming the option, rather than
-producing a string that parses into garbage. Nulls should be omitted rather than stringified, and a
-float that is not integral should be refused where an integer is expected.
+producing a string that parses into garbage. Nulls should be omitted rather than stringified.
+Scalar number formatting remains unchanged; service-specific integer validation remains OpenDAL's
+responsibility.
 
 Whichever is chosen, the encoding rule belongs in `specs/reference/STORE_CONFIG_FSD.md`: it is part
 of the configuration format's contract, not an implementation detail.
@@ -98,3 +99,10 @@ It does inform one of that design's decisions — `StoreArgumentType::Array` des
 that carries a real list, which is the browser `http` store's `keys`. An OpenDAL list option is
 spelled as a comma-separated `String` at the document level, so it is `StoreArgumentType::String`
 with the convention stated in its `doc`, not `Array`.
+
+## Resolution
+
+Closed 2026-09-02: `StoreConfig::config_as_string_map` now converts non-empty scalar arrays to
+OpenDAL's comma-separated format, omits top-level nulls, and rejects ambiguous or structured list
+values with the option name. Colocated core tests cover scalar preservation, list conversion,
+environment expansion, invalid input, and equivalent JSON/YAML documents.

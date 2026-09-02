@@ -270,13 +270,13 @@ pub trait Store: Send + Sync {
         raise KeyNotSupportedStoreException(key=key, store=self)
     */
 
-    /// Returns true when this store supports the supplied key.
-    /// This allows layering Stores, e.g. by with_overlay, with_fallback
-    /// and store selectively certain data (keys) in certain stores.
+    /// Returns whether this store supports the supplied key.
     ///
-    /// An implementation should return `false` for a relative key (`!key.is_relative()`), but
-    /// **this is routing, not enforcement**: only the routers call this method, so the refusal
-    /// must also sit in each fallible method. See the
+    /// A supported key must be absolute, must start with [`Store::key_prefix`], and must pass any
+    /// narrower backend-specific filter. For example, a single-file overlay may have an empty
+    /// prefix but return `true` only for the one file it intercepts, allowing later stores in a
+    /// router to handle every other key. Fallible operations must still enforce absolute keys
+    /// themselves. See the
     /// [module documentation](self#a-store-key-is-absolute).
     fn is_supported(&self, _key: &Key) -> bool {
         false
@@ -540,13 +540,13 @@ pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSyn
         raise KeyNotSupportedStoreException(key=key, store=self)
     */
 
-    /// Returns true when this store supports the supplied key.
-    /// This allows layering Stores, e.g. by with_overlay, with_fallback
-    /// and store selectively certain data (keys) in certain stores.
+    /// Returns whether this store supports the supplied key.
     ///
-    /// An implementation should return `false` for a relative key (`!key.is_relative()`), but
-    /// **this is routing, not enforcement**: only the routers call this method, so the refusal
-    /// must also sit in each fallible method. See the
+    /// A supported key must be absolute, must start with [`AsyncStore::key_prefix`], and must pass
+    /// any narrower backend-specific filter. For example, a single-file overlay may have an empty
+    /// prefix but return `true` only for the one file it intercepts, allowing later stores in a
+    /// router to handle every other key. Fallible operations must still enforce absolute keys
+    /// themselves. See the
     /// [module documentation](self#a-store-key-is-absolute).
     fn is_supported(&self, _key: &Key) -> bool {
         false
@@ -830,10 +830,7 @@ impl AsyncStore for AsyncMemoryStore {
     }
 
     fn is_supported(&self, key: &Key) -> bool {
-        // The prefix is deliberately not consulted here; that omission predates the key rule and
-        // is out of its scope. See `specs/design/store-key-guard/` and
-        // `CORE-ASYNC-MEMORY-STORE-IS-SUPPORTED-IGNORES-PREFIX`.
-        !key.is_relative()
+        !key.is_relative() && key.has_key_prefix(&self.prefix)
     }
 }
 
@@ -1190,8 +1187,7 @@ impl AsyncStore for AsyncFileStore {
     }
 
     fn is_supported(&self, key: &Key) -> bool {
-        !key.is_relative()
-            && key.has_key_prefix(&self.prefix)
+        !key.is_relative() && key.has_key_prefix(&self.prefix)
             && (!key
                 .filename()
                 .is_some_and(|file_name| file_name.name.ends_with(Self::METADATA)))
@@ -1605,9 +1601,7 @@ impl Store for MemoryStore {
     }
 
     fn is_supported(&self, key: &Key) -> bool {
-        // The prefix is deliberately not consulted here; that omission predates the key rule and
-        // is out of its scope. See `specs/design/store-key-guard/`.
-        !key.is_relative()
+        !key.is_relative() && key.has_key_prefix(&self.prefix)
     }
 }
 
@@ -2172,6 +2166,66 @@ mod tests {
             Some("only.json".to_string())
         );
         assert_eq!(store.get_bytes(&metadata_only_key).await?, Vec::<u8>::new());
+        Ok(())
+    }
+
+    fn memory_store_support(prefix: &Key, key: &Key) -> (bool, bool) {
+        let sync_store = MemoryStore::new(prefix);
+        let async_store = AsyncMemoryStore::new(prefix);
+        (sync_store.is_supported(key), async_store.is_supported(key))
+    }
+
+    #[test]
+    fn memsupport01_absolute_key_inside_prefix_is_supported() -> Result<(), Error> {
+        let prefix = parse_key("data")?;
+        let key = parse_key("data/report.txt")?;
+
+        assert_eq!(memory_store_support(&prefix, &key), (true, true));
+        Ok(())
+    }
+
+    #[test]
+    fn memsupport02_absolute_key_outside_prefix_is_not_supported() -> Result<(), Error> {
+        let prefix = parse_key("data")?;
+        let key = parse_key("other/report.txt")?;
+
+        assert_eq!(memory_store_support(&prefix, &key), (false, false));
+        Ok(())
+    }
+
+    #[test]
+    fn memsupport03_relative_key_with_matching_prefix_is_not_supported() -> Result<(), Error> {
+        let prefix = parse_key("data")?;
+        let key = parse_key("data/../secret")?;
+
+        assert!(key.has_key_prefix(&prefix));
+        assert!(key.is_relative());
+        assert_eq!(memory_store_support(&prefix, &key), (false, false));
+        Ok(())
+    }
+
+    #[test]
+    fn memsupport04_root_store_supports_absolute_key() -> Result<(), Error> {
+        let key = parse_key("any/report.txt")?;
+
+        assert_eq!(memory_store_support(&Key::new(), &key), (true, true));
+        Ok(())
+    }
+
+    #[test]
+    fn memsupport05_key_equal_to_prefix_is_supported() -> Result<(), Error> {
+        let prefix = parse_key("data")?;
+
+        assert_eq!(memory_store_support(&prefix, &prefix), (true, true));
+        Ok(())
+    }
+
+    #[test]
+    fn memsupport06_similar_segment_is_not_supported() -> Result<(), Error> {
+        let prefix = parse_key("data")?;
+        let key = parse_key("database/report.txt")?;
+
+        assert_eq!(memory_store_support(&prefix, &key), (false, false));
         Ok(())
     }
 
