@@ -752,6 +752,9 @@ impl AsyncStore for AsyncMemoryStore {
                 self.remove_key_from_index(&key_to_remove).await;
             }
         }
+        // An explicitly created directory survives losing its children, so `removedir` is what
+        // takes it away.
+        self.dir_index.remove_directory(key).await;
         Ok(())
     }
 
@@ -809,14 +812,26 @@ impl AsyncStore for AsyncMemoryStore {
         Ok(keys)
     }
 
+    /// Creates a directory that exists in its own right.
+    ///
+    /// This used to validate its key and return `Ok(())`, recording nothing: the caller was told a
+    /// directory had been created and none existed. The cause was structural — a directory index
+    /// derived from stored keys cannot represent a directory with no children — and it made
+    /// `PUT /api/store/makedir/{*key}` a no-op against a memory-backed store.
+    /// `CORE-ASYNC-MEMORY-STORE-MAKEDIR-DOES-NOTHING`.
+    ///
+    /// An explicitly created directory outlives its children: removing the last file from it
+    /// leaves the directory the caller asked for, and only `removedir` takes it away.
     async fn makedir(&self, key: &Key) -> Result<(), Error> {
         let key = key.as_absolute()?;
+        self.dir_index.insert_directory(key).await;
         Ok(())
     }
 
     fn is_supported(&self, key: &Key) -> bool {
         // The prefix is deliberately not consulted here; that omission predates the key rule and
-        // is out of its scope. See `specs/design/store-key-guard/`.
+        // is out of its scope. See `specs/design/store-key-guard/` and
+        // `CORE-ASYNC-MEMORY-STORE-IS-SUPPORTED-IGNORES-PREFIX`.
         !key.is_relative()
     }
 }
@@ -2234,26 +2249,38 @@ mod tests {
         Ok(())
     }
 
-    /// `MEMDIR04` — **`makedir` records nothing.** This asserts behaviour that is wrong.
+    /// `MEMDIR04` — `makedir` records an empty directory, and `removedir` takes it away.
     ///
-    /// `AsyncMemoryStore::makedir` validates its key and returns `Ok(())`, so the caller is told a
-    /// directory was created and none exists. The cause is structural: an index derived from
-    /// stored keys cannot represent a directory with no children.
-    ///
-    /// Filed as `CORE-ASYNC-MEMORY-STORE-MAKEDIR-DOES-NOTHING`. This assertion is **deliberately**
-    /// of the current, incorrect behaviour: a characterization test that asserted the desired
-    /// behaviour would fail here and could not do its job. It is flipped by the commit that adds
-    /// `DirectoryIndex::insert_directory` to `makedir`.
+    /// This test was written asserting the opposite — that `makedir` recorded nothing — because
+    /// that was the behaviour it had to characterize before the directory index moved into
+    /// `store_dir_index`. `DirectoryIndex::explicit` is what a derived index could not express,
+    /// and this is the assertion flipping to match. `CORE-ASYNC-MEMORY-STORE-MAKEDIR-DOES-NOTHING`.
     #[tokio::test]
-    async fn memdir04_makedir_currently_records_nothing() -> Result<(), Error> {
+    async fn memdir04_makedir_records_an_empty_directory() -> Result<(), Error> {
         let store = AsyncMemoryStore::new(&Key::new());
         let dir = parse_key("empty/folder")?;
 
         store.makedir(&dir).await?;
 
-        assert!(!store.is_dir(&dir).await?, "known defect: makedir records nothing");
-        assert!(!store.contains(&dir).await?);
-        assert!(store.listdir(&parse_key("empty")?).await?.is_empty());
+        assert!(store.is_dir(&dir).await?);
+        assert!(store.contains(&dir).await?);
+        assert!(
+            store.is_dir(&parse_key("empty")?).await?,
+            "its parent is a directory too"
+        );
+        assert_eq!(
+            store.listdir(&parse_key("empty")?).await?,
+            vec!["folder".to_string()]
+        );
+
+        // An explicitly created directory outlives its children.
+        let child = dir.join("f.txt");
+        store.set(&child, b"x", &Metadata::new()).await?;
+        store.remove(&child).await?;
+        assert!(store.is_dir(&dir).await?, "explicit, so it survives losing its child");
+
+        store.removedir(&dir).await?;
+        assert!(!store.is_dir(&dir).await?);
         Ok(())
     }
 
