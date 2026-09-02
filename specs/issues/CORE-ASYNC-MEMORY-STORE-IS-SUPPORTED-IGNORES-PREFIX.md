@@ -6,7 +6,7 @@ status: draft
 priority: P1
 complexity: S
 area: [core/store]
-design:
+design: async-memory-store-prefix-support
 created: 2026-09-02
 github:
 ---
