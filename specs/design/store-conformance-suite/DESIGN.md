@@ -1,18 +1,18 @@
 ---
 id: STORE-CONFORMANCE-SUITE
 kind: design
-title: A shared behavioural conformance suite for AsyncStore
+title: An implemented conformance suite, a completed contract, and a store implementation guide
 workflow: liquers-project
 status: draft
 phase: high-level
 area: [core/store, store/backends, web, docs]
 gh_pr: []
 issues: [STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE, CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS]
-affects_docs: [STORE_SEMANTICS, STORE_CONFORMANCE_GUIDE]
+affects_docs: [STORE_SEMANTICS, STORE_IMPLEMENTATION_GUIDE, LANGUAGE-INTEGRATION_GUIDE, STORE_FACTORY_GUIDE, STORE_CONFIG_FSD]
 created: 2026-09-02
 superseded_by:
 ---
-# A shared behavioural conformance suite for `AsyncStore`
+# An implemented conformance suite, a completed contract, and a store implementation guide
 
 **Created:** 2026-09-02
 
@@ -27,9 +27,16 @@ superseded_by:
 
 ## Notes
 
-Fixes `STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE` (P1, L). Two deliverables in order:
-complete `specs/reference/STORE_SEMANTICS.md` (three rows are still marked unsettled), then build
-the parameterized suite every `AsyncStore` implementation runs — natively and under `wasm32`.
+Fixes `STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE` (P1, L). Three deliverables:
+
+1. Complete `specs/reference/STORE_SEMANTICS.md` — the contract. Three rows are still ⚠.
+2. Implement `liquers_core::store_conformance` — the suite, runtime-agnostic so it runs natively
+   and under `wasm32`, and applied to all seven in-tree implementations.
+3. Write `specs/guides/STORE_IMPLEMENTATION_GUIDE.md` — the operational counterpart, modelled on
+   `LANGUAGE-INTEGRATION_GUIDE.md` but with the suite *implemented* rather than fixed as
+   appendix pseudocode.
+
+Contract, guide and suite stay synchronized through shared rule IDs, asserted by a test.
 
 ## Links
 
