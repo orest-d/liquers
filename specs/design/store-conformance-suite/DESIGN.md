@@ -21,9 +21,9 @@ superseded_by:
 - [x] Phase 1: High-Level Design — approved 2026-09-02
 - [x] Phase 2: Solution & Architecture — approved 2026-09-02
 - [x] Phase 3: Examples & Testing — approved 2026-09-02
-- [x] Phase 4: Implementation Plan — awaiting approval — awaiting approval
+- [x] Phase 4: Implementation Plan — approved 2026-09-02
+- [x] Implementation — steps 1, 2, 4-12, 14, 16 complete; step 15 deliberately not carried out — awaiting approval
 - [ ] Phase 5: Documentation
-- [ ] Implementation Complete
 
 ## Notes
 

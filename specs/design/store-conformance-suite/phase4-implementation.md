@@ -271,22 +271,23 @@ enforces).
 **Agent:** sonnet · skills: none · knowledge: `LANGUAGE-INTEGRATION_GUIDE.md` structure, Phase 1's
 guide-question list, Phase 3 Scenario 3, the step-9 census.
 
-### Step 15 — Adoption deletions ⚠ *deletes tests* — **gated on steps 9–12 passing**
+### Step 15 — Adoption deletions — **not carried out, deliberately**
 
-**Files:** `liquers-store/src/opendal_store.rs`, `liquers-core/src/store.rs`
+The mapping table this step was to execute assumed each adopted ID generalizes the like-named unit
+test. Reading the actual test names shows it does not: `dir04` and `dir05` are *swapped* between the
+two schemes, three `sibling` IDs name entirely different claims, `remove01` as a unit test is what
+the suite calls `absence03`, and `traitdef01` is the `contains`→`is_dir` fallback — which is rule
+`dir05`, a rule the trait-defaults suite correctly *skips* because it declares no `Directories`
+capability. Deleting on that table would have removed real coverage while looking like tidying.
 
-Execute the Phase 3 mapping table row by row. For each row marked *Yes*: confirm the shared rule
-passes against that store, **and confirm it fails when the behaviour is deliberately broken**
-(revert the assertion locally, see red, restore) — then delete the old test. A rule that stays green
-under a broken store replaces nothing and the row is not executed.
+The step's own gate is what caught it: *confirm the shared rule passes against that store, and
+confirm it fails when the behaviour is broken, then delete*. The first half was never reachable,
+because the rules and the tests are not about the same things.
 
-Rows marked *Kept* are not touched: the whole `diridx` and `memdir` families, `router01`,
-`pathmap02`–`pathmap07`, `keyabs12`–`keyabs14`.
-
-**Validation:** `cargo test -p liquers-core -p liquers-store --features store-conformance`, and the
-test count before/after recorded in the commit message.
-**Agent:** sonnet · skills: `liquers-unittest` · knowledge: Phase 3 mapping table, the exact test
-locations Reviewer 3 confirmed.
+Filed as [`STORE-TEST-IDS-COLLIDE-WITH-CONFORMANCE-RULE-IDS`](../../issues/STORE-TEST-IDS-COLLIDE-WITH-CONFORMANCE-RULE-IDS.md)
+(P2, M): rename the unit tests first so no ID means two things, *then* delete what is genuinely
+duplicated. Deletion is not urgent; the collision is, because a report naming `dir05` currently
+points a reader at a unit test about something else.
 
 ### Step 16 — Synchronization, matrix, and closure
 
