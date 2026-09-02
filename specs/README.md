@@ -247,6 +247,7 @@ deliberately folded behind a broader line.
 - design `queued-manager-conditional-eviction`
 - design `refresh-command-metadata-versions`
 - design `state-argument-serde-default`
+- design `store-conformance-suite`
 - design `store-key-guard`
 - design `ui-query-console-error-highlight`
 - design `value-type-system`

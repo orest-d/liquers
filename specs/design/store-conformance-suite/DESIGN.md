@@ -7,7 +7,7 @@ status: draft
 phase: high-level
 area: [core/store, store/backends, web, docs]
 gh_pr: []
-issues: [STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE, CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS]
+issues: [STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE, CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS, CORE-SYNC-STORE-TRAIT-OBSOLETE, DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS]
 affects_docs: [STORE_SEMANTICS, STORE_IMPLEMENTATION_GUIDE, LANGUAGE-INTEGRATION_GUIDE, STORE_FACTORY_GUIDE, STORE_CONFIG_FSD]
 created: 2026-09-02
 superseded_by:
@@ -37,6 +37,13 @@ Fixes `STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE` (P1, L). Three delive
    appendix pseudocode.
 
 Contract, guide and suite stay synchronized through shared rule IDs, asserted by a test.
+
+Settled at the Phase 1 gate: `keys()` returns data keys plus directories plus the prefix and every
+returned key starts with the prefix; `removedir` is a postcondition (`Ok` means the directory is
+gone), from which recursion follows; guide, contract and code share one vocabulary; the
+synchronous `Store` trait is out of scope and obsolete (issue filed), though the contract stays
+trait-neutral against its possible return for synchronous realms; a store failing its own suite is
+fixed here unless the fix is `M` or larger.
 
 ## Links
 

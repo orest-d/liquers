@@ -112,9 +112,13 @@ capability and the suite then checks:
   together? What happens on a concurrent `set`? Is a partial write possible at a quota boundary?
 - **What does enumeration cost?** Is `keys()` a full backend scan, and is it acceptable at all?
 - **How do backend errors map onto `ErrorType`?**
-- **Is the store constructible from a configuration document?** That is a `StoreTypeInfo` and a
-  place in a `StoreFactory` chain — `guides/STORE_FACTORY_GUIDE.md` owns the procedure and is
-  linked, not repeated.
+- **What does implementing a store actually mean here?** The guide must say plainly what work is
+  in front of the author, because it is not one shape: is a new struct implementing the trait
+  enough; does an existing factory need extending; is a whole new `StoreFactory` required; and if
+  so, must it be chained into a `default_store_factory()` so a configuration document can name the
+  type at all? A store nobody can construct from configuration is only half delivered.
+  `guides/STORE_FACTORY_GUIDE.md` owns the factory procedure and is linked, not repeated — what
+  the new guide adds is *which* of these paths applies and how to tell.
 
 **Keeping the contract and the guide synchronized** is a mechanism, not an intention: the suite's
 rule IDs are the shared spine, every contract section and every guide capability cites them, and a
@@ -135,33 +139,88 @@ the registered commands.
   the three store guides form one path: implement (new) → declare a type → configure.
 - `specs/index.csv`; and the issue files closed or depended on below.
 
-**Audience:** whoever writes the eighth `AsyncStore`, in this repository or against it. They should
-be able to read the guide, answer its questions, run the suite, and find out where they disagree
-with the contract, without ever opening this design folder.
+**Audience:** whoever writes any further `AsyncStore`, in this repository or against it — not just
+the next one. They should be able to read the guide, answer its questions, run the suite, and find
+out where they disagree with the contract, without ever opening this design folder.
+
+## Decisions Taken
+
+Settled at the Phase 1 gate, and now normative for Phase 2:
+
+1. **`keys()` returns data keys plus directories plus the prefix**, and **every key returned must
+   start with the store's prefix**. This is the contract for row 10 and closes
+   `CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS`; `AsyncMemoryStore`, which returns data keys only,
+   is the implementation that must change.
+2. **`removedir` is specified as a postcondition, not as a return convention.** If it returns
+   `Ok(())`, the directory does not exist afterwards; failing to remove it is an error. Two things
+   follow rather than being stipulated separately: **recursion** (a directory derived from its
+   children still exists while a child remains, so a non-recursive removal that reported success
+   would break the postcondition), and the disposition of row 6 — on an absent directory the
+   postcondition already holds, so `Ok(())` is right, while the trait default's
+   `Err(KeyNotSupported)` remains legitimate for a store that declares no directory removal at all.
+   It is a claim of success that is forbidden without the effect.
+3. **One vocabulary across the guide, the contract and the code.** A store declaring a capability
+   in Rust makes the same claim as its row in the guide's status matrix. The guide's terminology
+   and status vocabulary are shared with `LANGUAGE-INTEGRATION_GUIDE.md`: Phase 2 chooses between
+   duplicating that section and extracting it into a reference both guides link. Extracting is
+   preferable — two copies of a normative vocabulary drift exactly as two copies of a format do —
+   but duplication is acceptable if extraction turns out to disturb the other guide.
+4. **The synchronous `Store` trait is out of scope, and obsolete.** No synchronous rules are
+   implemented and no synchronous tests are written. Filed as
+   [`CORE-SYNC-STORE-TRAIT-OBSOLETE`](../../issues/CORE-SYNC-STORE-TRAIT-OBSOLETE.md) (P2, M) —
+   nothing can hold one: `Environment` exposes only `get_async_store`, and `AsyncStoreWrapper`, the
+   adapter that used to bridge them, has already been deleted. A synchronous store may return one
+   day to let a *realm* evaluate queries synchronously, so `STORE_SEMANTICS.md` states its rules in
+   trait-neutral terms wherever they are the same for both, and records that only the asynchronous
+   case must be satisfied today. A future synchronous store then inherits the contract instead of
+   re-deriving it.
+   Filed alongside it:
+   [`DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS`](../../issues/DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS.md)
+   (P2, S) — `CLAUDE.md`, `UNITTEST_GUIDE.md` and `STORE_CONFIG_FSD.md` still teach that deleted
+   type, and the guide's setup snippet does not compile.
+5. **A store failing its own suite is fixed inside this project**, unless the fix is large enough to
+   deserve its own issue at complexity `M` or greater — then it is filed, the rule stays in the
+   suite as a named expected failure citing that issue, and the store's row reads `BLOCKED` rather
+   than being quietly excused. Expected: `AsyncMemoryStore`'s `keys()` (decision 1) and its
+   `is_supported` (which already has `async-memory-store-prefix-support`) are `S`-sized and fixed
+   here.
 
 ## Open Questions
 
-1. **What does `keys()` enumerate** — data keys only, or data keys plus directories plus the
-   prefix? The suite cannot accept both, so this must be decided, not deferred. (Row 10;
-   `CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS` records the candidates.)
-2. **Does the trait-default `removedir` become `Ok(())`**, matching all three overrides, or do the
-   overrides become an error? (Row 6, this issue's own.)
-3. **Are the guide's capability IDs and the suite's capability declaration the same vocabulary?**
-   They should be — a store declaring `WRITE` in code is the same claim as `WRITE: COMPLETE` in its
-   status row — but that couples a document's ID scheme to a Rust type, and Phase 2 must decide how
-   tightly.
-4. **How does a rule get a fresh store?** A factory closure the harness supplies, or a store handed
-   in already-empty and cleaned up by the rule? `LocalStorageStore` persists across tests in one
-   browser session, so this is not cosmetic.
-5. **How does one rule map to one reported failure** under two harnesses that disagree about what a
-   test is — a macro generating a `#[tokio::test]` / `#[wasm_bindgen_test]` per rule, or one test
-   per store collecting a report?
-6. **Is the synchronous `Store` trait in scope?** `MemoryStore`, `FileStore` and `StoreRouter`
-   implement it and have the same rules. The issue says `AsyncStore`; including them roughly
-   doubles the suite.
-7. **What happens when an existing store fails its own suite?** Several will — the three ⚠ rows are
-   live divergences. Fix inside this project, or land the suite with named expected failures and
-   an issue each? The guide's `BLOCKED` state exists for exactly this and suggests the latter.
+1. **How does one rule map to one reported failure**, under two harnesses that disagree about what
+   a test is? Discussed below; a recommendation, not yet a decision.
+2. **How does a rule get a fresh, empty store?** A factory closure the harness supplies and calls
+   per rule, or one store handed in and cleaned between rules? `LocalStorageStore` persists across
+   tests within a browser session and `AsyncFileStore` needs a temporary directory, so this is not
+   cosmetic. Related but separate: some stores (`FetchStore`, `JsStore`) cannot be *populated*
+   through `AsyncStore` at all, so the fixture, not the rule, must place the preconditions.
+3. **How tightly is the capability vocabulary coupled to Rust?** Decision 3 fixes that guide and
+   code share one vocabulary; it does not fix whether that is a `bitflags`-style struct, a set of
+   marker methods on a trait, or an associated const — and the answer decides how a store *outside*
+   this repository declares its capabilities.
+
+### On question 1 — the recommendation
+
+Three shapes, of which the third is a small superset of the other two:
+
+- **A report.** One test per store calls `run_all(fixture)` and asserts the report is clean. Rules
+  return outcomes rather than panicking, so **every** rule runs and one execution shows every
+  divergence at once — which is exactly what a project chartered to enumerate divergences wants,
+  and what feeds the guide's per-store status matrix. But one giant test cannot be run rule by rule
+  and names the failing rule only inside a message.
+- **Generated tests.** A macro expands to one test function per rule. Each is individually
+  runnable, named in `cargo test` output, and fails independently. But the macro must satisfy two
+  attributes (`#[tokio::test]` natively, `#[wasm_bindgen_test]` on wasm), and there is no whole-store
+  view.
+- **Both, which costs almost nothing extra.** Make each rule an `async fn(&Fixture) -> RuleOutcome`
+  that never panics. Then `run_all` is a fold over the rule set, and the macro is a thin generator
+  emitting one test per rule that calls that one rule and asserts its outcome. The harness
+  attribute is a macro parameter rather than a `cfg` inside the macro, so `liquers-web` passes
+  `#[wasm_bindgen_test]` and nothing in `liquers-core` needs to know wasm exists.
+
+**Recommended: the third.** The non-panicking rule signature is what makes it cheap, and it is
+required anyway — a rule that panics cannot report `BLOCKED` for a known divergence, and decision 5
+depends on being able to.
 
 ## References
 
