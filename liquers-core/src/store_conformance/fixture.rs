@@ -148,6 +148,7 @@ pub struct GenericFixture {
     existing: Option<Key>,
     existing_directory: Option<Key>,
     no_supported_key: Option<String>,
+    supported: Option<Key>,
     created: std::sync::Mutex<Vec<Key>>,
     counter: std::sync::atomic::AtomicUsize,
     run: String,
@@ -161,15 +162,24 @@ impl GenericFixture {
         capabilities: StoreCapabilities,
         level: SafetyLevel,
     ) -> Self {
-        // A per-run stem, so two suites against one backing store cannot collide, and a rerun does
-        // not meet its own leftovers.
-        let run = format!(
-            "lqconf{:x}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
-        );
+        // A per-fixture stem, so two suites against one backing store cannot collide.
+        //
+        // **Not derived from the clock.** `SystemTime::now()` *panics* on `wasm32-unknown-unknown`
+        // — "time not implemented on this platform" — so a time-based stem made this fixture
+        // unusable on the one target that motivated a runtime-agnostic suite in the first place.
+        // A process-wide counter plus the address of a fresh allocation is unique within a run and
+        // needs no platform facilities.
+        //
+        // It is **not** unique *across* runs. A store that persists between runs — browser
+        // `localStorage` is the in-tree case — should pass its own durable stem to
+        // [`Self::with_run_id`], or it will meet its own leftovers on the second run.
+        static SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let nth = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let boxed = Box::new(0u8);
+        let addr = Box::into_raw(boxed) as usize;
+        // Safety: the allocation is reclaimed immediately; only its address was wanted.
+        drop(unsafe { Box::from_raw(addr as *mut u8) });
+        let run = format!("lqconf{addr:x}{nth:x}");
         GenericFixture {
             store,
             key_base: prefix.clone(),
@@ -183,10 +193,22 @@ impl GenericFixture {
             existing: None,
             existing_directory: None,
             no_supported_key: None,
+            supported: None,
             created: std::sync::Mutex::new(Vec::new()),
             counter: std::sync::atomic::AtomicUsize::new(0),
             run,
         }
+    }
+
+    /// A durable stem for generated key names, for a store that persists between runs.
+    ///
+    /// The default stem is unique within a process but not across processes. A browser
+    /// `localStorage` store keeps what a previous run wrote, so a suite that reuses the default
+    /// passes the first time and meets its own leftovers the second — the failure mode
+    /// `store_local_STORE.rs` already documents for that store.
+    pub fn with_run_id(mut self, run: impl Into<String>) -> Self {
+        self.run = run.into();
+        self
     }
 
     /// Where to generate fresh keys, when that is **not** the store's own prefix.
@@ -198,6 +220,16 @@ impl GenericFixture {
     /// the store.
     pub fn with_key_base(mut self, key_base: Key) -> Self {
         self.key_base = key_base;
+        self
+    }
+
+    /// A key this store is known to accept, when a *generated* name would not be.
+    ///
+    /// Needed by any store whose key space is a fixed set rather than a shape — `FetchStore`
+    /// consults a configured key list, so an invented name is legitimately unsupported and
+    /// `prefix04` would fail a correct store without this.
+    pub fn with_supported(mut self, key: Key) -> Self {
+        self.supported = Some(key);
         self
     }
 
@@ -278,9 +310,10 @@ impl Fixture for GenericFixture {
         let base = &self.key_base;
         match request {
             KeyRequest::Fresh => Ok(vec![base.join(self.stem("f"))]),
-            KeyRequest::Supported => match &self.no_supported_key {
-                Some(reason) => Err(Unavailable::new(reason.clone())),
-                None => Ok(vec![base.join(self.stem("s"))]),
+            KeyRequest::Supported => match (&self.no_supported_key, &self.supported) {
+                (Some(reason), _) => Err(Unavailable::new(reason.clone())),
+                (None, Some(key)) => Ok(vec![key.clone()]),
+                (None, None) => Ok(vec![base.join(self.stem("s"))]),
             },
             KeyRequest::FreshSiblings { count } => {
                 let dir = self.stem("d");
