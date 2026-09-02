@@ -855,8 +855,11 @@ mod tests {
             self.created.lock().map(|c| c.clone()).unwrap_or_default()
         }
         async fn cleanup(&self) {
+            // Both, because a rule may have created a directory (`explicit01` calls `makedir`) and
+            // `remove` does not delete one. The residue report is what surfaced the omission.
             for key in self.created_keys() {
                 let _ = self.store.remove(&key).await;
+                let _ = self.store.removedir(&key).await;
             }
         }
     }

@@ -4,8 +4,12 @@
 //! A rule with no plausible answer is decoration, and a decorative rule in a conformance suite is
 //! worse than a missing one — it reports safety it never checked.
 
+pub mod absence;
 pub mod directories;
+pub mod explicit;
+pub mod removal;
 pub mod sibling;
+pub(crate) mod support;
 
 use super::Rule;
 
@@ -137,5 +141,88 @@ static RULES: &[Rule] = &[
         [Write],
         CreateOnly,
         directories::data01
+    ),
+    // §3 — derived and explicit directories are different things.
+    rule!(
+        "explicit01",
+        "makedir creates a directory that exists, is empty, and persists",
+        "STORE_SEMANTICS.md §3",
+        [ExplicitDirectories],
+        CreateOnly,
+        explicit::explicit01
+    ),
+    rule!(
+        "explicit02",
+        "a derived directory retires when its last child goes",
+        "STORE_SEMANTICS.md §3",
+        [Directories, DerivedDirectories, Write, Remove],
+        Scratch,
+        explicit::explicit02
+    ),
+    rule!(
+        "explicit03",
+        "a recursive removedir takes explicit descendants with it",
+        "STORE_SEMANTICS.md §3",
+        [ExplicitDirectories, RemoveDirectories],
+        Scratch,
+        explicit::explicit03
+    ),
+    // §4 — absence is not an error.
+    rule!(
+        "absence01",
+        "reading an absent key gives KeyNotFound, from all three read methods",
+        "STORE_SEMANTICS.md §4",
+        [],
+        ReadOnly,
+        absence::absence01
+    ),
+    rule!(
+        "absence02",
+        "contains on an absent key is Ok(false), not an error",
+        "STORE_SEMANTICS.md §4",
+        [],
+        ReadOnly,
+        absence::absence02
+    ),
+    rule!(
+        "absence03",
+        "removedir on a directory that does not exist returns Ok(())",
+        "STORE_SEMANTICS.md §4",
+        [RemoveDirectories],
+        CreateOnly,
+        absence::absence03
+    ),
+    // §5 — removal.
+    rule!(
+        "remove01",
+        "after removedir returns Ok, the directory does not exist",
+        "STORE_SEMANTICS.md §5",
+        [RemoveDirectories, Write],
+        Scratch,
+        removal::remove01
+    ),
+    rule!(
+        "remove02",
+        "removedir is recursive: no child survives it",
+        "STORE_SEMANTICS.md §5",
+        [RemoveDirectories, Write],
+        Scratch,
+        removal::remove02
+    ),
+    rule!(
+        "remove03",
+        "remove deletes data and metadata together",
+        "STORE_SEMANTICS.md §5",
+        [Remove, Write],
+        Scratch,
+        removal::remove03
+    ),
+    rule!(
+        "data02",
+        "writing a key that already exists replaces its content",
+        "STORE_SEMANTICS.md §5",
+        [Write],
+        Scratch,
+        removal::data02
     ),
 ];
