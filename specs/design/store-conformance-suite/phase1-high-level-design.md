@@ -13,8 +13,9 @@ them a P0 that destroyed data. This project gives the trait an **executable** co
 parameterized suite that any store implementation can be run against, in-tree or out — completes
 `specs/reference/STORE_SEMANTICS.md`, which today records three questions as unsettled, and adds
 `specs/guides/STORE_IMPLEMENTATION_GUIDE.md`, the operational counterpart that tells someone
-writing the eighth store what decisions they have to make and how to check that they made them
-consistently.
+writing a further store what decisions they have to make and how to check that they made them
+consistently. A small validation tool builds a store router from a configuration document, runs the
+suite against it and prints the report, so a store can be checked outside any test binary.
 
 ## Core Interactions
 
@@ -57,7 +58,15 @@ must be runtime-agnostic — plain `async fn`s taking a store, no `tokio`, no te
 each crate drives it with its own harness (`#[tokio::test]` natively, `#[wasm_bindgen_test]` on
 wasm).
 
-Not `liquers-lib`: it sits above `liquers-store`, so a suite there could not reach either.
+**The validation tool** goes where the most store types are reachable, which is `liquers-store` —
+it owns the OpenDAL backends, and `liquers-core` owns `StoreRouterBuilder` and the configuration
+format. An explicit `[[bin]]` with `required-features`, following `liquers-validate`'s precedent:
+an auto-discovered binary cannot carry one, so a build without the feature would try to compile it.
+It cannot reach `liquers-web`'s stores — those exist only in a browser — which is a limitation to
+state, not to work around.
+
+Not `liquers-lib`: it sits above `liquers-store` and adds no store types, so a suite there could
+not reach either the backends or the core stores.
 
 ## Documentation Intent
 
@@ -112,6 +121,12 @@ capability and the suite then checks:
   together? What happens on a concurrent `set`? Is a partial write possible at a quota boundary?
 - **What does enumeration cost?** Is `keys()` a full backend scan, and is it acceptable at all?
 - **How do backend errors map onto `ErrorType`?**
+- **How is a store of this type created for testing, empty and populated?** There is no universal
+  answer and the suite does not attempt one: a filesystem store needs a temporary directory created
+  first, an OpenDAL store needs a configured backend, a fetch store needs something serving HTTP —
+  a small Python server is a legitimate answer. Some stores cannot be *populated* through
+  `AsyncStore` at all, so the fixture must place the preconditions by other means. This is the
+  store author's work, and the guide is where the recipe for each shape belongs.
 - **What does implementing a store actually mean here?** The guide must say plainly what work is
   in front of the author, because it is not one shape: is a new struct implementing the trait
   enough; does an existing factory need extending; is a whole new `StoreFactory` required; and if
@@ -185,42 +200,41 @@ Settled at the Phase 1 gate, and now normative for Phase 2:
    `is_supported` (which already has `async-memory-store-prefix-support`) are `S`-sized and fixed
    here.
 
+6. **The suite reports; it does not panic.** Each rule is an `async fn` returning an outcome, and
+   `run_all` folds the rule set into a `ConformanceReport` — so one execution shows every
+   divergence at once, which is what a project chartered to enumerate divergences needs. **The
+   report is obtainable directly, for debugging**, not only as a test's internal state. A store's
+   test then asserts *against the report*, naming the rules it is allowed to fail — a read-only
+   store, or one supporting a restricted key set, is not a broken store, and the ignore list is
+   where that is declared and reviewed. This subsumes the per-rule test generation considered
+   earlier: a generated test per rule can be added later over the same rule functions if the
+   coarse granularity ever hurts, and nothing has to be rewritten for it.
+7. **A validation tool is part of the deliverable.** It builds a store or router from a YAML
+   configuration document, runs the suite, and prints the report — usable for design validation and
+   for debugging a store under development, with no test binary and no recompilation. It is also
+   the natural consumer of a serializable report, and the reason to make the report serializable
+   rather than only `Display`.
+8. **The suite does not construct stores; the caller supplies a fixture.** There is no universal
+   way to create an empty store of a given type — a filesystem store needs a temporary directory,
+   an HTTP-backed store needs something serving it — so construction stays with whoever knows the
+   type, and **the guide carries the recipes** (see its question list above). The suite's contract
+   with the caller is a fixture, not a constructor.
+
 ## Open Questions
 
-1. **How does one rule map to one reported failure**, under two harnesses that disagree about what
-   a test is? Discussed below; a recommendation, not yet a decision.
-2. **How does a rule get a fresh, empty store?** A factory closure the harness supplies and calls
-   per rule, or one store handed in and cleaned between rules? `LocalStorageStore` persists across
-   tests within a browser session and `AsyncFileStore` needs a temporary directory, so this is not
-   cosmetic. Related but separate: some stores (`FetchStore`, `JsStore`) cannot be *populated*
-   through `AsyncStore` at all, so the fixture, not the rule, must place the preconditions.
-3. **How tightly is the capability vocabulary coupled to Rust?** Decision 3 fixes that guide and
+1. **How tightly is the capability vocabulary coupled to Rust?** Decision 3 fixes that guide and
    code share one vocabulary; it does not fix whether that is a `bitflags`-style struct, a set of
    marker methods on a trait, or an associated const — and the answer decides how a store *outside*
-   this repository declares its capabilities.
-
-### On question 1 — the recommendation
-
-Three shapes, of which the third is a small superset of the other two:
-
-- **A report.** One test per store calls `run_all(fixture)` and asserts the report is clean. Rules
-  return outcomes rather than panicking, so **every** rule runs and one execution shows every
-  divergence at once — which is exactly what a project chartered to enumerate divergences wants,
-  and what feeds the guide's per-store status matrix. But one giant test cannot be run rule by rule
-  and names the failing rule only inside a message.
-- **Generated tests.** A macro expands to one test function per rule. Each is individually
-  runnable, named in `cargo test` output, and fails independently. But the macro must satisfy two
-  attributes (`#[tokio::test]` natively, `#[wasm_bindgen_test]` on wasm), and there is no whole-store
-  view.
-- **Both, which costs almost nothing extra.** Make each rule an `async fn(&Fixture) -> RuleOutcome`
-  that never panics. Then `run_all` is a fold over the rule set, and the macro is a thin generator
-  emitting one test per rule that calls that one rule and asserts its outcome. The harness
-  attribute is a macro parameter rather than a `cfg` inside the macro, so `liquers-web` passes
-  `#[wasm_bindgen_test]` and nothing in `liquers-core` needs to know wasm exists.
-
-**Recommended: the third.** The non-panicking rule signature is what makes it cheap, and it is
-required anyway — a rule that panics cannot report `BLOCKED` for a known divergence, and decision 5
-depends on being able to.
+   this repository declares its capabilities. It also decides whether the guide's per-store status
+   matrix can be *generated* from a report rather than maintained by hand, which is the strongest
+   version of the synchronization mechanism above.
+2. **The suite writes, removes and calls `removedir`. What stops the validation tool destroying
+   real data?** A tool that takes a configuration document and exercises removal is pointed at
+   production storage the first week it exists — the sibling rule alone requires creating and
+   deleting directory trees. Phase 2 must decide the safeguard: confining every rule to a
+   generated scratch prefix, requiring an explicit opt-in flag, refusing to run against a
+   non-empty store, or some combination. This is a design constraint on the *rules*, not only on
+   the tool: a rule that writes outside a declared scratch prefix cannot be made safe afterwards.
 
 ## References
 

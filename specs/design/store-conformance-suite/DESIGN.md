@@ -35,6 +35,8 @@ Fixes `STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE` (P1, L). Three delive
 3. Write `specs/guides/STORE_IMPLEMENTATION_GUIDE.md` — the operational counterpart, modelled on
    `LANGUAGE-INTEGRATION_GUIDE.md` but with the suite *implemented* rather than fixed as
    appendix pseudocode.
+4. Ship a validation tool that builds a store router from a YAML document, runs the suite and
+   prints the report.
 
 Contract, guide and suite stay synchronized through shared rule IDs, asserted by a test.
 
@@ -43,7 +45,11 @@ returned key starts with the prefix; `removedir` is a postcondition (`Ok` means 
 gone), from which recursion follows; guide, contract and code share one vocabulary; the
 synchronous `Store` trait is out of scope and obsolete (issue filed), though the contract stays
 trait-neutral against its possible return for synchronous realms; a store failing its own suite is
-fixed here unless the fix is `M` or larger.
+fixed here unless the fix is `M` or larger. The suite reports rather than panics, and a store's
+test asserts against the report with a declared list of rules it may fail; the report is also
+obtainable directly for debugging. A validation tool in `liquers-store` builds a router from a YAML
+document and prints the report. The suite never constructs stores — the caller supplies a fixture,
+and the guide carries the per-type recipes for building one.
 
 ## Links
 
