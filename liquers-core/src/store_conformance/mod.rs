@@ -226,7 +226,7 @@ pub async fn run_rule(fixture: &dyn Fixture, id: &str) -> Option<ReportEntry> {
 }
 
 /// Gate a single rule on capability and level, then run it if it applies.
-async fn run_one(fixture: &dyn Fixture, rule: &'static Rule) -> ReportEntry {
+pub(crate) async fn run_one(fixture: &dyn Fixture, rule: &Rule) -> ReportEntry {
     let capabilities = fixture.capabilities();
     let outcome = match rule
         .meta
@@ -289,5 +289,463 @@ pub(crate) async fn keys_for(
     match fixture.keys_for(&request).await {
         Ok(keys) => Ok(keys),
         Err(Unavailable { reason }) => Err(RuleOutcome::SkippedPrecondition { request, reason }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! `H1`–`H8` — the harness itself, proven before any real rule exists.
+    //!
+    //! A rule that fails because the gating is wrong is indistinguishable from a store that
+    //! genuinely diverges, and "which stores diverge" is this suite's entire output. So the
+    //! machinery is tested first, against stub rules whose behaviour is known exactly.
+    //!
+    //! `H6` and `H7` are different in kind: they are properties of *rules*, not of the harness.
+    //! Their checkers are built and proven here — including against a deliberately bad stub rule,
+    //! so the checker itself is not vacuous — and pointed at the real inventory in the step that
+    //! introduces it.
+
+    use super::*;
+    use crate::metadata::{Metadata, MetadataRecord};
+    use crate::store::AsyncStore;
+    use async_trait::async_trait;
+    use std::sync::Mutex;
+
+    // ---------------------------------------------------------------- stub store
+
+    /// What the stub store was asked to do, in order. `H6` reads this.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    enum Call {
+        Read(Key),
+        Mutate(Key),
+    }
+
+    /// A minimal in-memory store that records what it was asked to do.
+    #[derive(Default)]
+    struct StubStore {
+        data: Mutex<Vec<(Key, Vec<u8>)>>,
+        calls: Mutex<Vec<Call>>,
+    }
+
+    impl StubStore {
+        fn calls(&self) -> Vec<Call> {
+            self.calls.lock().map(|c| c.clone()).unwrap_or_default()
+        }
+        fn written(&self) -> Vec<Key> {
+            self.calls()
+                .into_iter()
+                .filter_map(|c| match c {
+                    Call::Mutate(k) => Some(k),
+                    Call::Read(_) => None,
+                })
+                .collect()
+        }
+        fn note(&self, call: Call) {
+            if let Ok(mut c) = self.calls.lock() {
+                c.push(call);
+            }
+        }
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl AsyncStore for StubStore {
+        async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+            self.note(Call::Read(key.clone()));
+            let data = self.data.lock().map_err(|_| Error::general_error("poisoned".to_owned()))?;
+            match data.iter().find(|(k, _)| k == key) {
+                Some((_, bytes)) => Ok((
+                    bytes.clone(),
+                    Metadata::MetadataRecord(MetadataRecord::new()),
+                )),
+                None => Err(Error::key_not_found(key)),
+            }
+        }
+
+        async fn set(&self, key: &Key, data: &[u8], _metadata: &Metadata) -> Result<(), Error> {
+            self.note(Call::Mutate(key.clone()));
+            let mut store = self.data.lock().map_err(|_| Error::general_error("poisoned".to_owned()))?;
+            store.retain(|(k, _)| k != key);
+            store.push((key.clone(), data.to_vec()));
+            Ok(())
+        }
+
+        async fn set_metadata(&self, key: &Key, _metadata: &Metadata) -> Result<(), Error> {
+            self.note(Call::Mutate(key.clone()));
+            Ok(())
+        }
+
+        async fn contains(&self, key: &Key) -> Result<bool, Error> {
+            self.note(Call::Read(key.clone()));
+            let data = self.data.lock().map_err(|_| Error::general_error("poisoned".to_owned()))?;
+            Ok(data.iter().any(|(k, _)| k == key))
+        }
+
+        async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+            self.note(Call::Read(key.clone()));
+            Ok(false)
+        }
+
+        async fn remove(&self, key: &Key) -> Result<(), Error> {
+            self.note(Call::Mutate(key.clone()));
+            let mut store = self.data.lock().map_err(|_| Error::general_error("poisoned".to_owned()))?;
+            store.retain(|(k, _)| k != key);
+            Ok(())
+        }
+    }
+
+    // ---------------------------------------------------------------- stub fixture
+
+    struct StubFixture {
+        store: StubStore,
+        capabilities: StoreCapabilities,
+        level: SafetyLevel,
+        created: Mutex<Vec<Key>>,
+    }
+
+    /// Every field named — that is the point of `StoreCapabilities` having no `Default`.
+    fn all_capabilities() -> StoreCapabilities {
+        StoreCapabilities {
+            write: true,
+            remove: true,
+            directories: true,
+            derived_directories: true,
+            explicit_directories: true,
+            remove_directories: true,
+            stored_metadata: true,
+            enumerate_keys: true,
+        }
+    }
+
+    impl StubFixture {
+        fn new(capabilities: StoreCapabilities, level: SafetyLevel) -> Self {
+            StubFixture {
+                store: StubStore::default(),
+                capabilities,
+                level,
+                created: Mutex::new(Vec::new()),
+            }
+        }
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl Fixture for StubFixture {
+        fn store(&self) -> &dyn AsyncStore {
+            &self.store
+        }
+        fn capabilities(&self) -> StoreCapabilities {
+            self.capabilities
+        }
+        fn safety_level(&self) -> SafetyLevel {
+            self.level
+        }
+        fn expected_prefix(&self) -> Key {
+            Key::new()
+        }
+        fn label(&self) -> String {
+            "stub".to_owned()
+        }
+        async fn keys_for(&self, request: &KeyRequest) -> Result<Vec<Key>, Unavailable> {
+            match request {
+                KeyRequest::Fresh => Ok(vec![Key::new().join("fresh.txt")]),
+                _ => Err(Unavailable::new("the stub supplies only Fresh")),
+            }
+        }
+        fn record_created(&self, key: &Key) {
+            if let Ok(mut c) = self.created.lock() {
+                c.push(key.clone());
+            }
+        }
+        fn created_keys(&self) -> Vec<Key> {
+            self.created.lock().map(|c| c.clone()).unwrap_or_default()
+        }
+    }
+
+    // ---------------------------------------------------------------- stub rules
+
+    /// Passes, but **touches the store first** so that "was this rule called?" is observable on
+    /// the fixture rather than through global state.
+    ///
+    /// An earlier draft recorded the call in a global keyed by rule ID, and the body always wrote
+    /// the same literal — so `assert!(!was_called("needs_write"))` held whether or not the rule
+    /// ran. That is the vacuous-assertion trap this suite exists to catch, met in its own tests.
+    async fn stub_pass(f: &dyn Fixture) -> RuleOutcome {
+        let _ = f.store().contains(&Key::new().join("probe.txt")).await;
+        RuleOutcome::Passed
+    }
+    async fn stub_fail(_f: &dyn Fixture) -> RuleOutcome {
+        failed("the store disagreed")
+    }
+    /// Well-behaved: checks before it mutates, and records what it created.
+    async fn stub_good_write(f: &dyn Fixture) -> RuleOutcome {
+        let keys = match keys_for(f, KeyRequest::Fresh).await {
+            Ok(k) => k,
+            Err(outcome) => return outcome,
+        };
+        let key = &keys[0];
+        match f.store().contains(key).await {
+            Ok(true) => return RuleOutcome::SkippedPrecondition {
+                request: KeyRequest::Fresh,
+                reason: "the key already exists".to_owned(),
+            },
+            Ok(false) => {}
+            Err(e) => return e.into(),
+        }
+        if let Err(e) = f
+            .store()
+            .set(key, b"x", &Metadata::MetadataRecord(MetadataRecord::new()))
+            .await
+        {
+            return e.into();
+        }
+        f.record_created(key);
+        RuleOutcome::Passed
+    }
+    /// Deliberately bad: writes without checking, and never records. The `H6`/`H7` checkers must
+    /// catch this, or they are decoration.
+    async fn stub_bad_write(f: &dyn Fixture) -> RuleOutcome {
+        let keys = match keys_for(f, KeyRequest::Fresh).await {
+            Ok(k) => k,
+            Err(outcome) => return outcome,
+        };
+        if let Err(e) = f
+            .store()
+            .set(&keys[0], b"x", &Metadata::MetadataRecord(MetadataRecord::new()))
+            .await
+        {
+            return e.into();
+        }
+        RuleOutcome::Passed
+    }
+
+    fn stub_rules() -> Vec<Rule> {
+        vec![
+            rules::rule!("pass", "always passes", "test", [], ReadOnly, stub_pass),
+            rules::rule!("fail", "always fails", "test", [], ReadOnly, stub_fail),
+        ]
+    }
+
+    /// Run one rule through **the gate `run_all` actually uses**, not a copy of it.
+    ///
+    /// An earlier draft reimplemented the gating here; a bug in `run_one` would then have been
+    /// invisible to every one of these tests. `run_one` takes `&Rule` rather than `&'static Rule`
+    /// precisely so the tests can reach it with a locally built stub.
+    async fn gated(fixture: &dyn Fixture, rule: &Rule) -> RuleOutcome {
+        run_one(fixture, rule).await.outcome
+    }
+
+    fn report_of(entries: Vec<ReportEntry>) -> ConformanceReport {
+        ConformanceReport {
+            store: "stub".to_owned(),
+            capabilities: all_capabilities(),
+            level: SafetyLevel::Scratch,
+            entries,
+            created: Vec::new(),
+            residue: Vec::new(),
+        }
+    }
+
+    fn entry(id: &str, outcome: RuleOutcome) -> ReportEntry {
+        ReportEntry {
+            id: id.to_owned(),
+            title: "t".to_owned(),
+            contract: "test".to_owned(),
+            subject: Vec::new(),
+            outcome,
+        }
+    }
+
+    // ---------------------------------------------------------------- H1–H8
+
+    /// `H1` — a rule whose capability is missing is skipped, and **is not called**.
+    ///
+    /// The "not called" half is the load-bearing one: a rule that runs anyway might pass by luck
+    /// against a store that does not support what it tests.
+    #[tokio::test]
+    async fn h1_missing_capability_skips_without_calling_the_rule() {
+        let mut caps = all_capabilities();
+        caps.write = false;
+        let fixture = StubFixture::new(caps, SafetyLevel::Scratch);
+        let rule = rules::rule!("needs_write", "t", "test", [Write], ReadOnly, stub_pass);
+
+        let outcome = gated(&fixture, &rule).await;
+        assert_eq!(
+            outcome,
+            RuleOutcome::SkippedCapability { missing: Capability::Write }
+        );
+        assert!(
+            fixture.store.calls().is_empty(),
+            "the rule body must not run: it touched the store {:?}",
+            fixture.store.calls()
+        );
+
+        // The control: with the capability present, the same rule *does* touch the store — so the
+        // assertion above is about gating rather than about a rule that never does anything.
+        let permitted = StubFixture::new(all_capabilities(), SafetyLevel::Scratch);
+        let rule = rules::rule!("needs_write", "t", "test", [Write], ReadOnly, stub_pass);
+        assert_eq!(gated(&permitted, &rule).await, RuleOutcome::Passed);
+        assert!(!permitted.store.calls().is_empty());
+    }
+
+    /// `H2` — a rule needing a higher level is not run, and the report says which level would.
+    #[tokio::test]
+    async fn h2_insufficient_level_is_not_run() {
+        let fixture = StubFixture::new(all_capabilities(), SafetyLevel::ReadOnly);
+        let rule = rules::rule!("needs_scratch", "t", "test", [], Scratch, stub_pass);
+
+        assert_eq!(
+            gated(&fixture, &rule).await,
+            RuleOutcome::NotRunSafetyLevel { required: SafetyLevel::Scratch }
+        );
+        assert!(
+            fixture.store.calls().is_empty(),
+            "the rule body must not run below its level"
+        );
+
+        // The control, as in `H1`: at a sufficient level the same rule runs and touches the store.
+        let permitted = StubFixture::new(all_capabilities(), SafetyLevel::Scratch);
+        let rule = rules::rule!("needs_scratch", "t", "test", [], Scratch, stub_pass);
+        assert_eq!(gated(&permitted, &rule).await, RuleOutcome::Passed);
+        assert!(!permitted.store.calls().is_empty());
+    }
+
+    /// `H3` — a failure that is not allowed is an error, and the message names the rule.
+    #[test]
+    fn h3_assert_conformant_reports_a_failure() {
+        let report = report_of(vec![entry("r1", failed("boom"))]);
+        let error = report
+            .assert_conformant(&[])
+            .expect_err("a failed rule must not be conformant");
+        assert!(error.message.contains("r1"), "{}", error.message);
+        assert!(error.message.contains("boom"), "{}", error.message);
+    }
+
+    /// `H4` — a failure listed as allowed is accepted.
+    #[test]
+    fn h4_allowed_failure_is_accepted() {
+        let report = report_of(vec![entry("r1", failed("known"))]);
+        report
+            .assert_conformant(&[AllowedFailure { rule: "r1", issue: "SOME-ISSUE" }])
+            .expect("an allowed failure is not a defect");
+    }
+
+    /// `H5` — **an allowed rule that passed is also an error.**
+    ///
+    /// Without this, an ignore list written for a good reason outlives the reason, which is the
+    /// staleness this whole suite exists to prevent. It is what makes a fixed issue force the
+    /// entry's removal instead of relying on someone remembering.
+    #[test]
+    fn h5_stale_allowed_failure_is_reported() {
+        let report = report_of(vec![entry("r1", RuleOutcome::Passed)]);
+        let error = report
+            .assert_conformant(&[AllowedFailure { rule: "r1", issue: "FIXED-ISSUE" }])
+            .expect_err("an allowed rule that passed must be reported");
+        assert!(error.message.contains("r1"), "{}", error.message);
+        assert!(error.message.contains("remove the entry"), "{}", error.message);
+
+        // An allowed failure naming a rule that does not exist is also caught.
+        let report = report_of(vec![entry("r1", RuleOutcome::Passed)]);
+        let error = report
+            .assert_conformant(&[AllowedFailure { rule: "ghost", issue: "X" }])
+            .expect_err("an unknown rule id must be reported");
+        assert!(error.message.contains("ghost"), "{}", error.message);
+    }
+
+    /// `H6` — the checker for "a rule checks before it mutates", proven against a bad rule.
+    ///
+    /// A checker that only ever saw well-behaved rules would be decoration; `stub_bad_write` is
+    /// what makes this test mean something.
+    #[tokio::test]
+    async fn h6_check_before_mutate_checker_catches_a_bad_rule() {
+        for (rule, expect_ok) in [
+            (rules::rule!("good", "t", "test", [], Scratch, stub_good_write), true),
+            (rules::rule!("bad", "t", "test", [], Scratch, stub_bad_write), false),
+        ] {
+            let fixture = StubFixture::new(all_capabilities(), SafetyLevel::Scratch);
+            let _ = (rule.run)(&fixture).await;
+            let calls = fixture.store.calls();
+            let checked_first = match calls.iter().position(|c| matches!(c, Call::Mutate(_))) {
+                None => true,
+                Some(first_mutation) => calls[..first_mutation]
+                    .iter()
+                    .any(|c| matches!(c, Call::Read(_))),
+            };
+            assert_eq!(
+                checked_first, expect_ok,
+                "rule `{}` check-before-mutate", rule.meta.id
+            );
+        }
+    }
+
+    /// `H7` — the checker for "a rule records every key it creates", proven against a bad rule.
+    ///
+    /// Under-recording is the one failure the safety levels cannot survive: an unrecorded key is
+    /// neither cleaned up nor reported as residue, so it leaks silently.
+    #[tokio::test]
+    async fn h7_records_created_checker_catches_a_bad_rule() {
+        for (rule, expect_ok) in [
+            (rules::rule!("good", "t", "test", [], Scratch, stub_good_write), true),
+            (rules::rule!("bad", "t", "test", [], Scratch, stub_bad_write), false),
+        ] {
+            let fixture = StubFixture::new(all_capabilities(), SafetyLevel::Scratch);
+            let _ = (rule.run)(&fixture).await;
+            let recorded = fixture.created_keys();
+            let all_recorded = fixture
+                .store
+                .written()
+                .iter()
+                .all(|k| recorded.contains(k));
+            assert_eq!(all_recorded, expect_ok, "rule `{}` records what it creates", rule.meta.id);
+        }
+    }
+
+    /// `H8` — the report round-trips through JSON and YAML.
+    ///
+    /// Required independently of the deferred validation tool: the guide's per-store status matrix
+    /// is generated from these reports rather than hand-maintained.
+    #[test]
+    fn h8_report_round_trips() -> Result<(), Box<dyn std::error::Error>> {
+        let report = report_of(vec![
+            entry("r1", RuleOutcome::Passed),
+            entry("r2", failed("detail")),
+            entry("r3", RuleOutcome::SkippedCapability { missing: Capability::Directories }),
+            entry("r4", RuleOutcome::NotRunSafetyLevel { required: SafetyLevel::Scratch }),
+            entry(
+                "r5",
+                RuleOutcome::SkippedPrecondition {
+                    request: KeyRequest::FreshPrefixPair,
+                    reason: "numeric ids".to_owned(),
+                },
+            ),
+            entry(
+                "r6",
+                RuleOutcome::Errored {
+                    error_type: ErrorType::KeyNotFound,
+                    message: "gone".to_owned(),
+                },
+            ),
+        ]);
+
+        let json: ConformanceReport = serde_json::from_str(&serde_json::to_string(&report)?)?;
+        assert_eq!(json.entries, report.entries);
+        let yaml: ConformanceReport = serde_yaml::from_str(&serde_yaml::to_string(&report)?)?;
+        assert_eq!(yaml.entries, report.entries);
+        Ok(())
+    }
+
+    /// The gate itself, end to end: `run_all` produces one entry per rule, in order.
+    #[tokio::test]
+    async fn harness_runs_every_rule_in_order() {
+        let fixture = StubFixture::new(all_capabilities(), SafetyLevel::Scratch);
+        let mut entries = Vec::new();
+        for rule in stub_rules() {
+            entries.push(entry(rule.meta.id, gated(&fixture, &rule).await));
+        }
+        let report = report_of(entries);
+        let counts = report.counts();
+        assert_eq!(counts.passed, 1);
+        assert_eq!(counts.failed, 1);
+        assert_eq!(counts.ran(), 2);
     }
 }
