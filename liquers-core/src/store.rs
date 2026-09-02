@@ -2234,6 +2234,123 @@ mod tests {
         assert_eq!(store.get_bytes(&metadata_only_key).await?, Vec::<u8>::new());
         Ok(())
     }
+
+    // ---------------------------------------------------------------------------------------
+    // `MEMDIR01`-`MEMDIR05` — characterization of `AsyncMemoryStore`'s directory behaviour.
+    //
+    // These pin what the store does **today**, before its directory index is extracted into
+    // `store_dir_index::DirectoryIndex`. They exist because the extraction's safety was argued
+    // from "the existing tests pass unchanged", and the existing tests were one: a single key,
+    // one directory level, and no check of `is_dir` after a removal — none of the refcount
+    // behaviour an extraction is most likely to break.
+    //
+    // They must therefore pass against the *unextracted* store first, and pass **unchanged**
+    // afterwards. A test that needed editing during the extraction is a signal that behaviour
+    // moved, not that the test was wrong.
+    //
+    // See specs/design/opendal-path-mapping/phase3-examples.md, Finding 1.
+    // ---------------------------------------------------------------------------------------
+
+    /// `MEMDIR01` — storing a key makes every proper ancestor a directory, and the key itself not.
+    #[tokio::test]
+    async fn memdir01_ancestors_of_a_stored_key_are_directories() -> Result<(), Error> {
+        let store = AsyncMemoryStore::new(&Key::new());
+        let key = parse_key("a/b/c.txt")?;
+        assert!(!store.is_dir(&parse_key("a")?).await?);
+
+        store.set(&key, b"data", &Metadata::new()).await?;
+
+        assert!(store.is_dir(&parse_key("a")?).await?);
+        assert!(store.is_dir(&parse_key("a/b")?).await?);
+        assert!(!store.is_dir(&key).await?, "the key itself holds data, it is not a directory");
+        assert!(!store.is_dir(&parse_key("a/z")?).await?, "an unrelated name is not a directory");
+        Ok(())
+    }
+
+    /// `MEMDIR02` — a directory outlives all but its last child.
+    ///
+    /// This is what the index's reference counts are for, and the case no existing test reached.
+    #[tokio::test]
+    async fn memdir02_directory_retires_only_with_its_last_child() -> Result<(), Error> {
+        let store = AsyncMemoryStore::new(&Key::new());
+        let (first, second) = (parse_key("a/b/c.txt")?, parse_key("a/b/d.txt")?);
+        store.set(&first, b"1", &Metadata::new()).await?;
+        store.set(&second, b"2", &Metadata::new()).await?;
+        let dir = parse_key("a/b")?;
+        assert!(store.is_dir(&dir).await?);
+
+        store.remove(&first).await?;
+        assert!(store.is_dir(&dir).await?, "one child remains, so a/b is still a directory");
+
+        store.remove(&second).await?;
+        assert!(!store.is_dir(&dir).await?, "no children remain");
+        assert!(!store.is_dir(&parse_key("a")?).await?, "and the retirement propagates upward");
+        Ok(())
+    }
+
+    /// `MEMDIR03` — `listdir` reports direct children only, at every depth.
+    #[tokio::test]
+    async fn memdir03_listdir_reports_direct_children_only() -> Result<(), Error> {
+        let store = AsyncMemoryStore::new(&Key::new());
+        for text in ["a/b/c.txt", "a/b/d.txt", "a/e.txt", "f.txt"] {
+            store.set(&parse_key(text)?, b"x", &Metadata::new()).await?;
+        }
+
+        let mut root = store.listdir(&Key::new()).await?;
+        root.sort();
+        assert_eq!(root, vec!["a".to_string(), "f.txt".to_string()]);
+
+        let mut a = store.listdir(&parse_key("a")?).await?;
+        a.sort();
+        assert_eq!(a, vec!["b".to_string(), "e.txt".to_string()], "c.txt is not a child of a");
+
+        let mut b = store.listdir(&parse_key("a/b")?).await?;
+        b.sort();
+        assert_eq!(b, vec!["c.txt".to_string(), "d.txt".to_string()]);
+        Ok(())
+    }
+
+    /// `MEMDIR04` — **`makedir` records nothing.** This asserts behaviour that is wrong.
+    ///
+    /// `AsyncMemoryStore::makedir` validates its key and returns `Ok(())`, so the caller is told a
+    /// directory was created and none exists. The cause is structural: an index derived from
+    /// stored keys cannot represent a directory with no children.
+    ///
+    /// Filed as `CORE-ASYNC-MEMORY-STORE-MAKEDIR-DOES-NOTHING`. This assertion is **deliberately**
+    /// of the current, incorrect behaviour: a characterization test that asserted the desired
+    /// behaviour would fail here and could not do its job. It is flipped by the commit that adds
+    /// `DirectoryIndex::insert_directory` to `makedir`.
+    #[tokio::test]
+    async fn memdir04_makedir_currently_records_nothing() -> Result<(), Error> {
+        let store = AsyncMemoryStore::new(&Key::new());
+        let dir = parse_key("empty/folder")?;
+
+        store.makedir(&dir).await?;
+
+        assert!(!store.is_dir(&dir).await?, "known defect: makedir records nothing");
+        assert!(!store.contains(&dir).await?);
+        assert!(store.listdir(&parse_key("empty")?).await?.is_empty());
+        Ok(())
+    }
+
+    /// `MEMDIR05` — `removedir` clears the subtree and the index with it.
+    #[tokio::test]
+    async fn memdir05_removedir_clears_the_subtree_and_the_index() -> Result<(), Error> {
+        let store = AsyncMemoryStore::new(&Key::new());
+        for text in ["a/b/c.txt", "a/e.txt", "f.txt"] {
+            store.set(&parse_key(text)?, b"x", &Metadata::new()).await?;
+        }
+
+        store.removedir(&parse_key("a")?).await?;
+
+        assert!(!store.is_dir(&parse_key("a")?).await?);
+        assert!(!store.is_dir(&parse_key("a/b")?).await?);
+        assert!(!store.contains(&parse_key("a/b/c.txt")?).await?);
+        assert!(store.contains(&parse_key("f.txt")?).await?, "an unrelated key survives");
+        assert_eq!(store.listdir(&Key::new()).await?, vec!["f.txt".to_string()]);
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_async_file_store_basic() -> Result<(), Error> {
         let unique = format!(
