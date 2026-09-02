@@ -1,7 +1,7 @@
 ---
 id: BUILD-SYSINFO-REQUIRES-NEWER-RUSTC
 kind: issue
-title: liquers-lib test builds fail because a transitive sysinfo requires a newer rustc
+title: liquers-lib test builds fail on rustc 1.94 because a transitive sysinfo requires 1.95
 status: draft
 priority: P2
 complexity: S
@@ -29,9 +29,16 @@ The library targets build; only the test targets pull it in.
 
 ## Impact
 
-The build matrix cannot go green on a 1.94 toolchain, so a genuine regression in those two rows
-would be indistinguishable from this. `CLAUDE.md` names the matrix as the check to run after
-touching a `#[cfg(feature = …)]`, and a check that is always red teaches people to ignore it.
+**Local only.** `.github/workflows/build-matrix.yml` pins `dtolnay/rust-toolchain@stable`, which
+resolves to a rustc new enough for `sysinfo`, so CI is unaffected — this was checked rather than
+assumed, after an earlier version of this issue claimed the matrix "cannot go green" without
+qualifying where.
+
+The cost is on a contributor's machine: `CLAUDE.md` names the matrix as the check to run after
+touching a `#[cfg(feature = …)]`, and on a 1.94 toolchain two of its rows are always red, so a
+genuine regression in them is indistinguishable from this. A check that is reliably red locally and
+green in CI is the worst of both — it teaches people to ignore the local run and to discover
+breakage only after pushing.
 
 ## Expected behaviour
 
@@ -49,4 +56,5 @@ already wants 1.95 features.
 
 Found on 2026-09-02 while adding the `store-conformance` rows to the build matrix, at Phase 4 step
 16 of `design/store-conformance-suite/`. Pre-existing and unrelated to that work: the two failing
-rows fail identically without any of its changes.
+rows fail identically without any of its changes. The CI/local split was established afterwards, by
+reading the workflow's toolchain pin rather than inferring from the local failure.
