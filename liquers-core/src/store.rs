@@ -53,6 +53,7 @@ use async_trait::async_trait;
 use crate::error::Error;
 use crate::metadata::{self, AssetInfo, Metadata, MetadataRecord};
 use crate::query::Key;
+use crate::store_dir_index::DirectoryIndex;
 
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::time::{sleep, Duration};
@@ -439,12 +440,23 @@ pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSyn
     }
 
     /// Returns true if store contains the key.
+    ///
+    /// Falls back to [`Self::is_dir`], so a store that answers for directories does not have to
+    /// restate that a directory is contained. `AsyncMemoryStore` and `liquers-web`'s
+    /// `LocalStorageStore` both wrote this by hand before it was a default; a store that overrode
+    /// `is_dir` and not `contains` got the two disagreeing, silently.
+    ///
+    /// The absoluteness check stays first: the fallback must not weaken the refusal.
     async fn contains(&self, key: &Key) -> Result<bool, Error> {
         key.as_absolute()?;
-        Ok(false)
+        self.is_dir(key).await
     }
 
     /// Returns true if key points to a directory.
+    ///
+    /// `Ok(false)` for a key that is simply absent — **not** an error. A backend failure
+    /// (permissions, network) is still an error; the two are different answers and callers rely on
+    /// the distinction.
     async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
         key.as_absolute()?;
         Ok(false)
@@ -577,96 +589,32 @@ impl AsyncStore for NoAsyncStore {
 /// Async-native in-memory store implementation.
 pub struct AsyncMemoryStore {
     data: scc::HashMap<Key, (Arc<[u8]>, Metadata)>,
-    dir_index: scc::HashMap<Key, Arc<scc::HashMap<Key, usize>>>,
+    /// Directory structure derived from the stored keys.
+    ///
+    /// The mechanism used to live here as a private field and a handful of private methods; it is
+    /// now `store_dir_index::DirectoryIndex`, shared with every other store that has to derive
+    /// directories from a flat key set. See `CORE-DIRECTORY-INDEX-NOT-SHARED`.
+    dir_index: DirectoryIndex,
     prefix: Key,
 }
 impl AsyncMemoryStore {
     pub fn new(prefix: &Key) -> Self {
         Self {
             data: scc::HashMap::new(),
-            dir_index: scc::HashMap::new(),
+            dir_index: DirectoryIndex::new(),
             prefix: prefix.to_owned(),
         }
     }
 
-    fn index_edges_for_key(key: &Key) -> Vec<(Key, Key)> {
-        let mut edges = Vec::new();
-        for depth in 0..key.len() {
-            let parent = if depth == 0 {
-                Key::new()
-            } else {
-                key.prefix_of_size(depth).unwrap_or_default()
-            };
-            if let Some(child) = key.prefix_of_size(depth + 1) {
-                edges.push((parent, child));
-            }
-        }
-        edges
-    }
-
-    async fn get_or_create_children_map(&self, parent: &Key) -> Arc<scc::HashMap<Key, usize>> {
-        if let Some(children) = self
-            .dir_index
-            .read_async(parent, |_, children| children.clone())
-            .await
-        {
-            return children;
-        }
-        let fresh = Arc::new(scc::HashMap::new());
-        match self
-            .dir_index
-            .insert_async(parent.clone(), fresh.clone())
-            .await
-        {
-            Ok(()) => fresh,
-            Err((_parent, _fresh)) => self
-                .dir_index
-                .read_async(parent, |_, children| children.clone())
-                .await
-                .unwrap_or_else(|| Arc::new(scc::HashMap::new())),
-        }
-    }
-
     async fn add_key_to_index(&self, key: &Key) {
-        for (parent, child) in Self::index_edges_for_key(key) {
-            let children = self.get_or_create_children_map(&parent).await;
-            if children
-                .update_async(&child, |_k, count| {
-                    *count += 1;
-                })
-                .await
-                .is_none()
-            {
-                let _ = children.insert_async(child, 1).await;
-            }
-        }
+        self.dir_index.insert_key(key).await;
     }
 
     async fn remove_key_from_index(&self, key: &Key) {
-        for (parent, child) in Self::index_edges_for_key(key) {
-            if let Some(children) = self
-                .dir_index
-                .read_async(&parent, |_, children| children.clone())
-                .await
-            {
-                if let Some(current_count) = children.read_async(&child, |_k, count| *count).await {
-                    if current_count <= 1 {
-                        let _ = children.remove_async(&child).await;
-                    } else {
-                        let _ = children
-                            .update_async(&child, |_k, count| {
-                                *count -= 1;
-                            })
-                            .await;
-                    }
-                    if children.is_empty() {
-                        let _ = self.dir_index.remove_async(&parent).await;
-                    }
-                }
-            }
-        }
+        self.dir_index.remove_key(key).await;
     }
 }
+
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl AsyncStore for AsyncMemoryStore {
@@ -804,6 +752,10 @@ impl AsyncStore for AsyncMemoryStore {
                 self.remove_key_from_index(&key_to_remove).await;
             }
         }
+        // An explicitly created directory survives losing its children, so `removedir` is what
+        // takes it away — and it must take explicit directories *beneath* it too, or a `makedir`
+        // descendant would outlive the recursive removal that just succeeded.
+        self.dir_index.remove_directory_tree(key).await;
         Ok(())
     }
 
@@ -812,20 +764,12 @@ impl AsyncStore for AsyncMemoryStore {
         if self.data.contains_async(key).await {
             return Ok(true);
         }
-        Ok(self
-            .dir_index
-            .read_async(key, |_k, children| !children.is_empty())
-            .await
-            .unwrap_or(false))
+        Ok(self.dir_index.is_dir(key).await)
     }
 
     async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
         let key = key.as_absolute()?;
-        Ok(self
-            .dir_index
-            .read_async(key, |_k, children| !children.is_empty())
-            .await
-            .unwrap_or(false))
+        Ok(self.dir_index.is_dir(key).await)
     }
 
     async fn keys(&self) -> Result<Vec<Key>, Error> {
@@ -851,23 +795,7 @@ impl AsyncStore for AsyncMemoryStore {
 
     async fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
         let key = key.as_absolute()?;
-        let Some(children) = self
-            .dir_index
-            .read_async(key, |_k, children| children.clone())
-            .await
-        else {
-            return Ok(vec![]);
-        };
-
-        let mut keys = Vec::new();
-        let _ = children
-            .iter_async(|child_key, _| {
-                keys.push(child_key.clone());
-                true
-            })
-            .await;
-        keys.sort();
-        Ok(keys)
+        Ok(self.dir_index.child_keys(key).await)
     }
 
     async fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
@@ -885,14 +813,26 @@ impl AsyncStore for AsyncMemoryStore {
         Ok(keys)
     }
 
+    /// Creates a directory that exists in its own right.
+    ///
+    /// This used to validate its key and return `Ok(())`, recording nothing: the caller was told a
+    /// directory had been created and none existed. The cause was structural — a directory index
+    /// derived from stored keys cannot represent a directory with no children — and it made
+    /// `PUT /api/store/makedir/{*key}` a no-op against a memory-backed store.
+    /// `CORE-ASYNC-MEMORY-STORE-MAKEDIR-DOES-NOTHING`.
+    ///
+    /// An explicitly created directory outlives its children: removing the last file from it
+    /// leaves the directory the caller asked for, and only `removedir` takes it away.
     async fn makedir(&self, key: &Key) -> Result<(), Error> {
         let key = key.as_absolute()?;
+        self.dir_index.insert_directory(key).await;
         Ok(())
     }
 
     fn is_supported(&self, key: &Key) -> bool {
         // The prefix is deliberately not consulted here; that omission predates the key rule and
-        // is out of its scope. See `specs/design/store-key-guard/`.
+        // is out of its scope. See `specs/design/store-key-guard/` and
+        // `CORE-ASYNC-MEMORY-STORE-IS-SUPPORTED-IGNORES-PREFIX`.
         !key.is_relative()
     }
 }
@@ -2234,6 +2174,142 @@ mod tests {
         assert_eq!(store.get_bytes(&metadata_only_key).await?, Vec::<u8>::new());
         Ok(())
     }
+
+    // ---------------------------------------------------------------------------------------
+    // `MEMDIR01`-`MEMDIR05` — characterization of `AsyncMemoryStore`'s directory behaviour.
+    //
+    // These pin what the store does **today**, before its directory index is extracted into
+    // `store_dir_index::DirectoryIndex`. They exist because the extraction's safety was argued
+    // from "the existing tests pass unchanged", and the existing tests were one: a single key,
+    // one directory level, and no check of `is_dir` after a removal — none of the refcount
+    // behaviour an extraction is most likely to break.
+    //
+    // They must therefore pass against the *unextracted* store first, and pass **unchanged**
+    // afterwards. A test that needed editing during the extraction is a signal that behaviour
+    // moved, not that the test was wrong.
+    //
+    // See specs/design/opendal-path-mapping/phase3-examples.md, Finding 1.
+    // ---------------------------------------------------------------------------------------
+
+    /// `MEMDIR01` — storing a key makes every proper ancestor a directory, and the key itself not.
+    #[tokio::test]
+    async fn memdir01_ancestors_of_a_stored_key_are_directories() -> Result<(), Error> {
+        let store = AsyncMemoryStore::new(&Key::new());
+        let key = parse_key("a/b/c.txt")?;
+        assert!(!store.is_dir(&parse_key("a")?).await?);
+
+        store.set(&key, b"data", &Metadata::new()).await?;
+
+        assert!(store.is_dir(&parse_key("a")?).await?);
+        assert!(store.is_dir(&parse_key("a/b")?).await?);
+        assert!(!store.is_dir(&key).await?, "the key itself holds data, it is not a directory");
+        assert!(!store.is_dir(&parse_key("a/z")?).await?, "an unrelated name is not a directory");
+        Ok(())
+    }
+
+    /// `MEMDIR02` — a directory outlives all but its last child.
+    ///
+    /// This is what the index's reference counts are for, and the case no existing test reached.
+    #[tokio::test]
+    async fn memdir02_directory_retires_only_with_its_last_child() -> Result<(), Error> {
+        let store = AsyncMemoryStore::new(&Key::new());
+        let (first, second) = (parse_key("a/b/c.txt")?, parse_key("a/b/d.txt")?);
+        store.set(&first, b"1", &Metadata::new()).await?;
+        store.set(&second, b"2", &Metadata::new()).await?;
+        let dir = parse_key("a/b")?;
+        assert!(store.is_dir(&dir).await?);
+
+        store.remove(&first).await?;
+        assert!(store.is_dir(&dir).await?, "one child remains, so a/b is still a directory");
+
+        store.remove(&second).await?;
+        assert!(!store.is_dir(&dir).await?, "no children remain");
+        assert!(!store.is_dir(&parse_key("a")?).await?, "and the retirement propagates upward");
+        Ok(())
+    }
+
+    /// `MEMDIR03` — `listdir` reports direct children only, at every depth.
+    #[tokio::test]
+    async fn memdir03_listdir_reports_direct_children_only() -> Result<(), Error> {
+        let store = AsyncMemoryStore::new(&Key::new());
+        for text in ["a/b/c.txt", "a/b/d.txt", "a/e.txt", "f.txt"] {
+            store.set(&parse_key(text)?, b"x", &Metadata::new()).await?;
+        }
+
+        let mut root = store.listdir(&Key::new()).await?;
+        root.sort();
+        assert_eq!(root, vec!["a".to_string(), "f.txt".to_string()]);
+
+        let mut a = store.listdir(&parse_key("a")?).await?;
+        a.sort();
+        assert_eq!(a, vec!["b".to_string(), "e.txt".to_string()], "c.txt is not a child of a");
+
+        let mut b = store.listdir(&parse_key("a/b")?).await?;
+        b.sort();
+        assert_eq!(b, vec!["c.txt".to_string(), "d.txt".to_string()]);
+        Ok(())
+    }
+
+    /// `MEMDIR04` — `makedir` records an empty directory, and `removedir` takes it away.
+    ///
+    /// This test was written asserting the opposite — that `makedir` recorded nothing — because
+    /// that was the behaviour it had to characterize before the directory index moved into
+    /// `store_dir_index`. `DirectoryIndex::explicit` is what a derived index could not express,
+    /// and this is the assertion flipping to match. `CORE-ASYNC-MEMORY-STORE-MAKEDIR-DOES-NOTHING`.
+    #[tokio::test]
+    async fn memdir04_makedir_records_an_empty_directory() -> Result<(), Error> {
+        let store = AsyncMemoryStore::new(&Key::new());
+        let dir = parse_key("empty/folder")?;
+
+        store.makedir(&dir).await?;
+
+        assert!(store.is_dir(&dir).await?);
+        assert!(store.contains(&dir).await?);
+        assert!(
+            store.is_dir(&parse_key("empty")?).await?,
+            "its parent is a directory too"
+        );
+        assert_eq!(
+            store.listdir(&parse_key("empty")?).await?,
+            vec!["folder".to_string()]
+        );
+
+        // An explicitly created directory outlives its children.
+        let child = dir.join("f.txt");
+        store.set(&child, b"x", &Metadata::new()).await?;
+        store.remove(&child).await?;
+        assert!(store.is_dir(&dir).await?, "explicit, so it survives losing its child");
+
+        store.removedir(&dir).await?;
+        assert!(!store.is_dir(&dir).await?);
+
+        // A `makedir` descendant must not outlive a recursive removal of its parent.
+        // Raised in review of PR #58.
+        store.makedir(&parse_key("tree/inner")?).await?;
+        store.removedir(&parse_key("tree")?).await?;
+        assert!(!store.is_dir(&parse_key("tree/inner")?).await?);
+        assert!(!store.is_dir(&parse_key("tree")?).await?);
+        Ok(())
+    }
+
+    /// `MEMDIR05` — `removedir` clears the subtree and the index with it.
+    #[tokio::test]
+    async fn memdir05_removedir_clears_the_subtree_and_the_index() -> Result<(), Error> {
+        let store = AsyncMemoryStore::new(&Key::new());
+        for text in ["a/b/c.txt", "a/e.txt", "f.txt"] {
+            store.set(&parse_key(text)?, b"x", &Metadata::new()).await?;
+        }
+
+        store.removedir(&parse_key("a")?).await?;
+
+        assert!(!store.is_dir(&parse_key("a")?).await?);
+        assert!(!store.is_dir(&parse_key("a/b")?).await?);
+        assert!(!store.contains(&parse_key("a/b/c.txt")?).await?);
+        assert!(store.contains(&parse_key("f.txt")?).await?, "an unrelated key survives");
+        assert_eq!(store.listdir(&Key::new()).await?, vec!["f.txt".to_string()]);
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_async_file_store_basic() -> Result<(), Error> {
         let unique = format!(
@@ -2396,6 +2472,48 @@ mod key_absolute_tests {
         assert!(!store.contains(&ok).await?);
         assert!(!store.is_dir(&ok).await?);
         assert!(store.listdir(&ok).await?.is_empty());
+        Ok(())
+    }
+
+    /// `TRAITDEF01` — the default `contains` falls back to `is_dir`.
+    ///
+    /// `DirOnlyStore` implements the two methods that have no default, plus `is_dir`. Everything
+    /// else exercised here is the trait's own body, so this checks the default and not an override.
+    #[tokio::test]
+    async fn traitdef01_default_contains_falls_back_to_is_dir() -> Result<(), Error> {
+        struct DirOnlyStore;
+
+        #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+        #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+        impl AsyncStore for DirOnlyStore {
+            async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+                key.as_absolute()?;
+                Err(Error::key_not_found(key))
+            }
+            async fn set_metadata(&self, key: &Key, _metadata: &Metadata) -> Result<(), Error> {
+                key.as_absolute()?;
+                Ok(())
+            }
+            async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+                Ok(key.as_absolute()?.encode() == "a/b")
+            }
+        }
+
+        let store = DirOnlyStore;
+        assert!(
+            store.contains(&parse_key("a/b")?).await?,
+            "a directory is contained, without the store restating it"
+        );
+        assert!(!store.contains(&parse_key("a/c")?).await?);
+
+        // The fallback must not weaken the relative-key refusal.
+        use crate::error::ErrorType;
+        let error = store
+            .contains(&parse_key("a/../b")?)
+            .await
+            .err()
+            .unwrap_or_else(|| panic!("a relative key must be refused"));
+        assert_eq!(error.error_type, ErrorType::KeyNotAbsolute);
         Ok(())
     }
 

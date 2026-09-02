@@ -1,54 +1,125 @@
 ---
 id: OPENDAL-PATH-MAPPING
 kind: design
-title: One path mapping for the OpenDAL store, with a key round-trip property
-status: in_review
-phase: architecture
-area: [store/backends]
+title: One path mapping for the OpenDAL store, and shared directory support in core
+workflow: liquers-project
+status: complete
+area: [core/store, store/backends, web]
 gh_pr: []
-issues: [STORE-OPENDAL-SLASH-HANDLING]
+affects_docs: [reference/STORE_SEMANTICS.md, reference/STORE_CONFIG_FSD.md]
+issues: [STORE-OPENDAL-SLASH-HANDLING, CORE-DIRECTORY-INDEX-NOT-SHARED, CORE-ASYNC-MEMORY-STORE-MAKEDIR-DOES-NOTHING, OPENDAL-LOCALFS-TEST-SILENT-ON-WRONG-VALUE-TYPE, STORE-OPENDAL-WITHOUT-ASYNC-STORE-BROKEN]
 created: 2026-08-29
 superseded_by:
 ---
 # OpenDAL path mapping
 
-Design tracking for `STORE-OPENDAL-SLASH-HANDLING`, prepared under
-[`guides/autonomous_issue_fixing.md`](../../guides/autonomous_issue_fixing.md). No `workflow:`
-marker: this is a simplified transitional design whose required phases are the two written here
-plus whatever the approval gate authorizes. It is **not** opted into the `liquers-project` artifact
-and approval contract.
+Design tracking for `STORE-OPENDAL-SLASH-HANDLING` (**P0**) and `CORE-DIRECTORY-INDEX-NOT-SHARED`
+(P1, `L`, filed at the architecture gate on 2026-09-02 and covered here). Begun under
+[`guides/autonomous_issue_fixing.md`](../../guides/autonomous_issue_fixing.md), and **migrated to
+the `liquers-project` five-phase contract on 2026-09-02**, explicitly adopted by the user at the
+architecture gate: the issue is `P0`/`M`, and that guide's §1 confines its procedure to `S`/`M` at
+`P2`/`P3`. All five phases are therefore required, Phase 5 documentation included, with a per-phase
+approval gate.
 
 ## Phase status
 
-- [x] Phase 1: High-level design — [`phase1-high-level-design.md`](./phase1-high-level-design.md)
-- [x] Phase 2: Solution and architecture — [`phase2-architecture.md`](./phase2-architecture.md)
-- [ ] Approval gate (§5 of the autonomous procedure) — **awaiting a decision**
-- [ ] Phase 3: Examples, reproduction and tests
-- [ ] Phase 4: Implementation plan and execution
-- [ ] Phase 5: Documentation
+- [x] Phase 1: High-Level Design — [`phase1-high-level-design.md`](./phase1-high-level-design.md)
+      *(rewritten 2026-09-02 after a second reproduction; restructured to the template the same day)*
+- [x] Phase 2: Solution & Architecture — [`phase2-architecture.md`](./phase2-architecture.md)
+      *(rewritten and restructured 2026-09-02; gate decisions folded in)*
+- [x] Phase 2 approval gate — approved 2026-09-02.
+- [x] Phase 3: Examples & Use-cases — [`phase3-examples.md`](./phase3-examples.md)
+      *(two findings carried back into Phase 2; see Notes)*
+- [x] Phase 3 approval gate — approved 2026-09-02.
+- [x] Phase 4: Implementation Plan — [`phase4-implementation.md`](./phase4-implementation.md)
+      *(two signature refinements carried back into Phase 2; see Notes)*
+- [x] Phase 4 approval gate — approved 2026-09-02.
+- [x] Execution of the Phase 4 plan — 9 commits, `d9d150a`..`b44b8b8`, all gates held
+- [x] Phase 5: Documentation — [`phase5-documentation.md`](./phase5-documentation.md),
+      [`reference/STORE_SEMANTICS.md`](../../reference/STORE_SEMANTICS.md)
 
 ## Why this folder exists
 
 The issue as filed says keys containing `/` are "not reliably addressable through an OpenDAL-backed
-store". Reproduction at `HEAD` (recorded in Phase 1) does not support that headline: on the
-filesystem backend, `sub/deeper/foo.txt` works end to end. What reproduction *did* find is three
-separate defects the headline hides, one of which (`key_prefix()` returning the wrong value) affects
-routing rather than paths. Restating the problem is therefore the first deliverable, and it needs a
-durable home rather than a chat message.
+store". A first reproduction on 2026-08-29 did not support that headline — on the filesystem
+backend a nested key works end to end — and restated the problem as three defects, none of them
+about slashes. A **second reproduction on 2026-09-02, probing sibling directories whose names share
+a prefix, found that the headline is true after all**, for a reason the first pass could not see
+with one key in isolation: three call sites address a directory without a trailing `/`, so OpenDAL
+treats the path as a prefix. One of them is `removedir`, which therefore deletes sibling
+directories.
+
+Six defects are now in scope. The folder exists because the problem statement had to be corrected
+twice, and both corrections are evidence a future reader needs.
+
+## Decisions taken at the architecture gate, 2026-09-02
+
+| | Decision |
+|---|---|
+| **Workflow** | Adopt `liquers-project`. Phase 1 and Phase 2 restructured to its templates the same day; Phases 3-5 follow it, Phase 5 mandatory. |
+| **Q1 — directory-key gap in scope?** | Yes. |
+| **Q2 — `key_prefix()` fix here or split out?** | Fix here, in its own commit, with a router test. |
+| **Q3 — the 200-line commented-out synchronous `OpenDALStore`?** | **Delete it in this change**, so the issue closes with all four of its `//TODO: create_dir` citations resolved rather than two left inside dead text. |
+| **Q4 — the P1 -> P0 raise?** | Keep P0. Data loss reachable over HTTP is the guide's own §4.4 criterion. |
+| **The store contract in `specs/reference/`** | Desirable, and **Phase 5 work** — written against what shipped. `specs/reference/STORE_SEMANTICS.md`. |
+| **Where the directory fallback lives** | **`liquers-core`**, not private to the OpenDAL store: `liquers-web`'s HTTP-backed stores have or will have the same problem. A shared `DirectoryIndex` (the `AsyncMemoryStore` mechanism, extracted and generalized) plus the `AsyncStore` semantics that follow from `is_dir`. Filed as `CORE-DIRECTORY-INDEX-NOT-SHARED`; the work becomes cross-crate and therefore `L`. |
 
 ## Notes
 
-- The `// FIXME: … some bug with handling '/'` at `liquers-store/src/opendal_store.rs:335` is
-  **stale**. Re-enabling the line it guards produces correct output on the filesystem backend at
-  all directory depths. The second half of that comment — that the call may be too expensive — is
-  still true and is the reason to leave it disabled.
-- **2026-08-29, from [`design/store-factories-in-core/`](../store-factories-in-core/):** that
-  design's scope was widened beyond the `STORE-CONFIG-IN-CORE` issue as filed — the `StoreFactory`
-  trait and `StoreRouterBuilder` move into `liquers-core` too, and `store_builder.rs` is gutted.
-  Phase 2 §"Related open issues" here has been updated accordingly. The practical answer improves:
-  the merge conflict that section called "possible" is **ruled out** — no source file is edited by
-  both designs. Nothing in this design needs to change; the `create_opendal_store` line reference
-  will need re-resolving if the other design lands first.
-- `AsyncMemoryStore` (`liquers-core/src/store.rs:1619`) synthesizes directory existence from stored
-  keys rather than asking a backend. That is the precedent for the directory-key gap described in
-  Phase 2, and the reason the fix is not speculative.
+- The `// FIXME: … some bug with handling '/'` at `opendal_store.rs:340` is **stale as written**.
+  Re-enabling the line it guards produces correct output on the filesystem backend at all directory
+  depths. The second half of that comment — that the call may be too expensive — is still true and
+  is the reason to leave it disabled.
+- **`make_sub_dirs` has never worked.** `create_dir` without a trailing slash is rejected by
+  OpenDAL unconditionally and the error is discarded. The 2026-08-29 note that it satisfies the
+  `//TODO: create_dir` markers is withdrawn; Phase 1 records the evidence and Phase 2 §5 proposes
+  deleting the function.
+- **2026-09-02, from [`design/store-factories-in-core/`](../store-factories-in-core/):** that
+  design has **merged** (`status: complete`, PR #46). `store_builder.rs` no longer exists;
+  `create_opendal_store` is now `OpendalStoreFactory::create` in
+  `liquers-store/src/store_factory.rs`. Every reference in Phase 2 has been re-resolved. There is
+  no merge conflict: that design does not touch `opendal_store.rs`. Its `opendal03` test carries a
+  comment deferring the `key_prefix()` assertion to this design.
+- `AsyncMemoryStore` (`liquers-core/src/store.rs:810-830`) synthesizes directory existence from a
+  key index rather than asking a backend. That is the precedent for the directory-key gap described
+  in Phase 1 defect 4, and the reason the fix is not speculative.
+- **Four stores already derive directory structure from a flat key set, no two alike**, which is
+  what turned "give the OpenDAL store a fallback" into "put the fallback in core":
+  `AsyncMemoryStore` (`store.rs:580`, refcounted `scc` index maintained on write), the sync
+  `MemoryStore` (`:1607`, no index — an O(n) scan per call), `FetchStore`
+  (`liquers-web/src/store/fetch.rs:130`, an immutable `BTreeMap` built from a configured key set),
+  and `LocalStorageStore` (`local_storage.rs:353`, a mutable map **plus** an `explicit_dirs` set for
+  empty directories `makedir` created). `AsyncOpenDALStore` has none. `explicit` is a field of the
+  core type because `LocalStorageStore` proved it necessary.
+- **Sequencing.** The P0 (commits 1-2: the trailing slash and `key_prefix()`) touches
+  `liquers-store` only and depends on nothing in `liquers-core`, so it can ship and revert ahead of
+  the core work if that needs another round. Phase 4 keeps that freedom.
+- **Phase 4 refined two Phase 2 signatures, and both are recorded in Phase 2.** (R1) `PathMap`
+  cannot build `Error::key_not_supported` — it needs a store name an associated function cannot
+  reach, and `store_name()` allocates per call on the key-encoding path. The *predicate*
+  (`is_suffix_ambiguous`) stays in `PathMap`, the *error* moves to the store. The predicate is
+  needed regardless, because `is_supported` returns `bool` and cannot use an error at all.
+  (R2) `directory_metadata_includes_children` is **dropped**: every in-tree store overrides
+  `get_metadata`, so the hook would have had no consumer. Only the `contains` default changes.
+- **R1's real fix is an `Error` API gap, filed rather than worked around silently.** `ErrorPayload`
+  carries `query`, `key`, `position` and `command_key` as fields with builders; the store name is
+  the one piece of provenance that is prose. `CORE-ERROR-STORE-NAME-NOT-STRUCTURED` (P2/S) asks for
+  a `store` field and a `with_store_name` builder beside the existing four, after which
+  `PathMap::data` could refuse directly and the store would keep only the enrichment. Not done here:
+  it changes a `serde` payload reaching `liquers-web`, `liquers-py` and the axum API.
+- **The store-contract divergences are enumerated, not just mentioned.**
+  `STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE` now carries all **eleven** disagreements
+  found across the five `AsyncStore` implementations, each with evidence and the issue tracking it.
+  This design fixes six and documents two; three name their own new issues
+  (`CORE-ASYNC-MEMORY-STORE-IS-SUPPORTED-IGNORES-PREFIX`,
+  `CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS`, `CORE-ASYNC-MEMORY-STORE-MAKEDIR-DOES-NOTHING`);
+  two (`removedir` is recursive despite its doc comment; `removedir` on an absent directory) are
+  documentation-only and are answered by `STORE_SEMANTICS.md` at Phase 5.
+- **Phase 3 corrected Phase 2 twice, and both corrections are recorded in Phase 2 rather than only
+  in Phase 3.** (1) "`AsyncMemoryStore`'s existing tests prove the extraction faithful" was not
+  evidence: there is **one** behavioural test, covering a single key and never checking `is_dir`
+  after a removal. Characterization tests are now written against `HEAD` and committed *before* the
+  extraction. (2) `AsyncMemoryStore::makedir` (`store.rs:888`) is a silent no-op, so adopting
+  `DirectoryIndex::explicit` would change its behaviour; filed as
+  `CORE-ASYNC-MEMORY-STORE-MAKEDIR-DOES-NOTHING` (P0/S — a documented endpoint that does nothing)
+  and sequenced as its own commit after the extraction.
