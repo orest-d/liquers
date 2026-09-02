@@ -102,7 +102,7 @@ CONTEXT-PARAM-ORDER,design,Context parameter position in register_command!,draft
 FOREIGN-VALUE-TYPE-REGISTRATION,design,Foreign and Python value types in the type registry,,github,,,,,core/value;lib/value;web;py,,42,,foreign-value-type-registration,,2026-08-26,specs/design/foreign-value-type-registration/DESIGN.md
 PLAN-CWD-FREEZE,design,Freeze CWD in the plan and cut correct predecessor boundaries,,github,documentation,,,,core/plan;core/query;core/context;core/assets,,35,,plan-cwd-freeze,,2026-08-14,specs/design/plan-cwd-freeze/DESIGN.md
 REGISTER-COMMAND-ENUM,design,Enum parameters in register_command!,draft,local,architecture,,,,macro;core/commands,,,,register-command-enum,,2026-03-02,specs/design/register-command-enum/DESIGN.md
-STORE-CONFORMANCE-SUITE,design,"An implemented conformance suite, a completed contract, and a store implementation guide",draft,local,examples,,,,core/store;store/backends;web;docs,,,,store-conformance-suite,,2026-09-02,specs/design/store-conformance-suite/DESIGN.md
+STORE-CONFORMANCE-SUITE,design,"An implemented conformance suite, a completed contract, and a store implementation guide",draft,local,implementation,,,,core/store;store/backends;web;docs,,,,store-conformance-suite,,2026-09-02,specs/design/store-conformance-suite/DESIGN.md
 UI-EVENTS,design,UI event delivery to widgets,in_review,local,high-level,,,,lib/ui,,,,ui-events,,2026-03-02,specs/design/ui-events/DESIGN.md
 VALUE-ACCESSOR,design,Value accessor abstraction,draft,local,high-level,,,,core/value,,,,value-accessor,,2026-03-02,specs/design/value-accessor/DESIGN.md
 VALUE-LIST-SUPPORT,design,Typed list values for lui/children and lui/roots,draft,local,architecture,,,,lib/ui,,,,value-list-support,,2026-03-02,specs/design/value-list-support/DESIGN.md
