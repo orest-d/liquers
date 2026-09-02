@@ -198,8 +198,19 @@ pub struct ConformanceReport {
     pub capabilities: StoreCapabilities,
     pub level: SafetyLevel,
     pub entries: Vec<ReportEntry>,
+    /// Keys the run created, whether or not they survived.
+    pub created: Vec<Key>,
+    /// Keys that were still present after `cleanup` — what this run left in the store.
+    pub residue: Vec<Key>,
 }
 ```
+
+**`residue` is not bookkeeping; it is the level-2 safety requirement.** At `CreateOnly` a rule may
+create and may not remove, so `cleanup` can remove nothing and every created key survives by
+design. A run that leaves keys behind without saying which is a slow leak with no record, so
+`run_all` re-checks each created key with `contains` after `cleanup` — a read, permitted at every
+level — and the tool prints the residue prominently rather than in a trailer. At `Scratch` and above
+a non-empty `residue` means cleanup did not do its job, which is worth seeing too.
 
 `ConformanceReport` implements `Display` for the human form and derives serde for the tool's
 `--format yaml|json` and for generating the guide's status matrix.
@@ -222,6 +233,14 @@ pub trait Fixture {
     fn label(&self) -> String;
     /// Keys satisfying a precondition, or a reason this store cannot supply them.
     async fn keys_for(&self, request: &KeyRequest) -> Result<Vec<Key>, Unavailable>;
+    /// Record a key this run created. A rule calls this immediately after a successful create.
+    ///
+    /// Sync, so no lock is held across an `.await`. The fixture is the only thing that can know
+    /// what to clean up and what was left behind, which is why the record lives here rather than
+    /// in the report.
+    fn record_created(&self, key: &Key);
+    /// Every key `record_created` was told about, in creation order.
+    fn created_keys(&self) -> Vec<Key>;
     /// Best-effort removal of what the run created. Never fails the report.
     async fn cleanup(&self) {}
 }
@@ -336,6 +355,10 @@ that, an ignore list written for a good reason outlives the reason — the same 
   rules on trust, with no guard wrapping the store.
 - A rule **never panics** and never returns `Err`. An unexpected store error becomes
   `RuleOutcome::Errored`.
+- A rule **records every key it creates**, through `Fixture::record_created`, immediately after the
+  create succeeds. This is what makes `cleanup` and the residue report possible; a rule that
+  creates without recording leaks silently, which is the one failure the safety levels exist to
+  prevent.
 - A rule **declares every capability it needs**; `run_all` checks `requires` before calling it, so
   a rule never has to test for its own applicability.
 
@@ -352,8 +375,9 @@ Defaults follow provenance, as Phase 1 recommended and this phase decides:
 **`--config` defaults to `read-only`** (it is somebody's data); **`--scratch` defaults to
 `scratch`** (the factory just made it). Raising the level on `--config` is always explicit.
 
-Exit codes match `liquers-validate`: **0** conformant · **1** non-conformant · **2** invocation or
-setup failure. The tool prints the resolved `StoreConfig` before running, so a mis-parsed option
+**At `--level create-only` the tool prints the residue list before the summary**, because that level
+cannot clean up after itself and the operator now owns whatever it made. Exit codes match
+`liquers-validate`: **0** conformant · **1** non-conformant · **2** invocation or setup failure. The tool prints the resolved `StoreConfig` before running, so a mis-parsed option
 (`STORE-OPENDAL-LIST-OPTION-MISPARSED`) is visible as a setup problem rather than as a store defect,
 and it prints the not-run counts per level so a clean `read-only` report cannot be mistaken for
 conformance.
@@ -428,14 +452,23 @@ Temporary directories in tests use `std::env::temp_dir()` with a unique name, ma
 **Create** `specs/reference/CONFORMANCE_TERMS.md` (kind: reference, audience: internal, area:
 `docs`): the requirement levels, the implementation states (`NA`, `NS`, `DESIGN`, `PARTIAL`,
 `COMPLETE`, `BLOCKED`, `CONFORMANT`), and the `NA` discipline — argued, with a reversing condition.
-Extracted from `LANGUAGE-INTEGRATION_GUIDE.md` §3, which is replaced there by a link plus its
-language-specific additions.
+**Extraction scope, checked against the source rather than estimated.**
+`LANGUAGE-INTEGRATION_GUIDE.md:81–100` is a self-contained 20-line block — the three requirement
+levels and the seven implementation states — whose only language-specific reference is `ASYNCQ` as
+an example of `Profile`. That block moves; the guide keeps a link and re-states its `Profile`
+example in its own terms.
 
-> **This is the decision in this phase most likely to be revised.** Phase 1 preferred extraction and
-> permitted duplication. Extraction is a bounded edit to ~30 lines of a 2616-line guide, and it is
-> what makes "one vocabulary" true rather than aspirational — but it touches a document this project
-> does not own. If review prefers, duplicating the section into the new guide is the fallback, at
-> the cost of two copies that will drift.
+Two neighbouring passages **stay where they are**: the dependency-constraint paragraph (`:104`) is
+written in terms of *hard* and *soft dependency*, which are the language guide's own; and the `NA`
+discipline (`:177–201`) is carried almost entirely by language-specific examples (`ASYNCCMD01`,
+`PACKAGE06`, `STUBS02`). `CONFORMANCE_TERMS.md` states the `NA` *principle* — argued, with a
+reversing condition — and each guide keeps its own worked version. Extracting the examples would
+leave both guides poorer.
+
+> Phase 1 preferred extraction and permitted duplication as a fallback. With the boundary now
+> measured at 20 lines and one example, extraction is the recommendation. If review still prefers
+> not to touch that guide, duplicating the block into the new one is the fallback, at the cost of
+> two copies that will drift.
 
 ### Guide Plan
 
@@ -457,7 +490,9 @@ language-specific additions.
    what each level buys, `assert_conformant` and allowed failures, and `liquers-store-check`.
 7. **Safety precautions** — a temporary folder or throwaway database; treat any store under test as
    expendable; no third-party service unless explicitly permitted, and never one holding data you
-   did not create. States plainly that level 3 is rule discipline, not a guarantee.
+   did not create. States plainly that level 3 is rule discipline, not a guarantee. **And that a
+   `create-only` run leaves everything it created behind**, by definition — what the residue list
+   is for, and that clearing it is the operator's job, not the tool's.
 8. **A worked restricted store** — the database-table view: rows as files, numeric IDs, no
    directories. Shows a fixture declining `FreshNested` and `FreshPrefixPair`, and a status matrix
    where many argued `NA`s are the expected outcome rather than a smell.
@@ -498,7 +533,7 @@ operational counterpart and the guide links back. The three store documents form
 ### Evidence to Collect During Implementation
 
 Which rules each in-tree store fails on first run (the divergence census the issue predicts); the
-runnable-rule count per safety level; every `NA` a fixture declines and its reason; any rule whose
+runnable-rule count per safety level; the residue a `create-only` run actually leaves; every `NA` a fixture declines and its reason; any rule whose
 assertion turned out to pass whatever the store did.
 
 ## Relevant Commands
