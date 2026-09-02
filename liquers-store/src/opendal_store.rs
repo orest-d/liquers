@@ -217,6 +217,117 @@ impl Store for OpenDALStore {
 }
 */
 
+/// What a backend path denotes.
+///
+/// Explicit, so a caller decoding a listing cannot forget that it yields metadata sidecars and
+/// directory entries alongside data entries.
+#[cfg(feature = "async_store")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DecodedPath {
+    /// A data object.
+    Data(Key),
+    /// A metadata sidecar; the key is the *data* it describes.
+    Metadata(Key),
+    /// A directory — the backend path carried a trailing `/`.
+    Directory(Key),
+}
+
+#[cfg(feature = "async_store")]
+impl DecodedPath {
+    /// The key this path denotes, whichever kind it is.
+    pub fn key(&self) -> &Key {
+        match self {
+            DecodedPath::Data(key) => key,
+            DecodedPath::Metadata(key) => key,
+            DecodedPath::Directory(key) => key,
+        }
+    }
+}
+
+/// The one place that maps a [`Key`] onto a backend path and back.
+///
+/// A store key is absolute (see `liquers_core::store`), so every fallible entry point starts with
+/// [`Key::as_absolute`]. A data path is the key's `encode()` form. A **directory path additionally
+/// carries a trailing `/`**, which OpenDAL requires and which is not cosmetic: without it,
+/// `list`, `remove_all` and `create_dir` treat the path as a *prefix*, so `"sub"` also matches
+/// `"subway/…"`. That is how `removedir("data")` came to delete `database/`, and why the trailing
+/// slash is this type's business rather than each call site's.
+///
+/// # The metadata suffix, and what this type does not enforce
+///
+/// The metadata for `foo` lives at `foo.__metadata__`, so the *data* path of the key
+/// `foo.__metadata__` is byte-identical to the *metadata* path of the key `foo`. No decoder can be
+/// injective over both while preserving the on-disk layout, so such keys are excluded:
+/// [`PathMap::is_suffix_ambiguous`] is the rule, and both [`AsyncOpenDALStore::is_supported`] and
+/// the store's path entry points consult it.
+///
+/// The refusal is raised by the *store*, not here, because `Error::key_not_supported` needs a
+/// store name that an associated function cannot reach. So `PathMap::data` does **not** itself
+/// refuse an ambiguous key — a new call site using it directly would bypass the rule.
+/// `CORE-ERROR-STORE-NAME-NOT-STRUCTURED` is what would close that: with a `store` field on
+/// `ErrorPayload` and a `with_store_name` builder, these functions could refuse directly and the
+/// store would keep only the enrichment.
+#[cfg(feature = "async_store")]
+pub struct PathMap;
+
+#[cfg(feature = "async_store")]
+impl PathMap {
+    const METADATA: &'static str = ".__metadata__";
+
+    /// True when the key's filename ends in the metadata suffix, so its data path would collide
+    /// with another key's metadata path.
+    ///
+    /// A predicate rather than a `Result` because [`AsyncStore::is_supported`] returns `bool` and
+    /// cannot use an error at all; keeping the rule in one predicate is what lets both it and the
+    /// path entry points ask the same question.
+    pub fn is_suffix_ambiguous(key: &Key) -> bool {
+        key.filename()
+            .is_some_and(|file_name| file_name.name.ends_with(Self::METADATA))
+    }
+
+    /// The data path: `"sub/foo.txt"`. Fallible via [`Key::as_absolute`].
+    pub fn data(key: &Key) -> Result<String, Error> {
+        Ok(key.as_absolute()?.encode())
+    }
+
+    /// The metadata sidecar path: `"sub/foo.txt.__metadata__"`.
+    pub fn metadata(key: &Key) -> Result<String, Error> {
+        Ok(format!("{}{}", key.as_absolute()?.encode(), Self::METADATA))
+    }
+
+    /// The directory path: `"sub/"`, and `""` for the root key.
+    ///
+    /// The trailing slash is the whole point; the root maps to the empty string because OpenDAL
+    /// spells the backend root that way and `"/"` would name a directory called nothing.
+    pub fn directory(key: &Key) -> Result<String, Error> {
+        let encoded = key.as_absolute()?.encode();
+        if encoded.is_empty() {
+            Ok(String::new())
+        } else {
+            Ok(format!("{}/", encoded.trim_end_matches('/')))
+        }
+    }
+
+    /// Decodes a path the backend returned into what it denotes.
+    ///
+    /// Order matters and is asserted by the tests: the trailing `/` is stripped **before** the
+    /// metadata suffix, and the suffix is stripped from the final segment **once**. Stripping it
+    /// repeatedly — which `trim_end_matches` does — would decode `x.__metadata__.__metadata__` to
+    /// `x` rather than to `x.__metadata__`.
+    pub fn decode(path: &str) -> Result<DecodedPath, Error> {
+        use liquers_core::parse;
+        let trimmed = path.trim_matches('/');
+        let is_directory = path.ends_with('/') && !trimmed.is_empty();
+        if is_directory {
+            return Ok(DecodedPath::Directory(parse::parse_key(trimmed)?));
+        }
+        match trimmed.strip_suffix(Self::METADATA) {
+            Some(data) => Ok(DecodedPath::Metadata(parse::parse_key(data)?)),
+            None => Ok(DecodedPath::Data(parse::parse_key(trimmed)?)),
+        }
+    }
+}
+
 #[cfg(feature = "async_store")]
 pub struct AsyncOpenDALStore {
     op: Operator,
@@ -225,10 +336,19 @@ pub struct AsyncOpenDALStore {
 
 #[cfg(feature = "async_store")]
 impl AsyncOpenDALStore {
-    const METADATA: &'static str = ".__metadata__";
-
     pub fn new(op: Operator, prefix: Key) -> Self {
         AsyncOpenDALStore { op, prefix }
+    }
+
+    /// Refuses a key whose filename ends in the metadata suffix.
+    ///
+    /// The rule lives in [`PathMap::is_suffix_ambiguous`]; the error is raised here because
+    /// `Error::key_not_supported` needs this store's name.
+    fn reject_ambiguous(&self, key: &Key) -> Result<(), Error> {
+        if PathMap::is_suffix_ambiguous(key) {
+            return Err(Error::key_not_supported(key, &self.store_name()));
+        }
+        Ok(())
     }
 
     /// Maps a key onto a backend path.
@@ -236,17 +356,25 @@ impl AsyncOpenDALStore {
     /// Fallible because a store requires an absolute key: a `.` or `..` element would address
     /// something outside the intended namespace. See `liquers_core::store` for the rule.
     pub fn key_to_path(&self, key: &Key) -> Result<String, Error> {
-        Ok(key.as_absolute()?.encode())
+        self.reject_ambiguous(key)?;
+        PathMap::data(key)
     }
+
+    /// Maps a key onto its directory path, with the trailing `/` OpenDAL requires for `list`,
+    /// `remove_all` and `create_dir`.
+    pub fn key_to_path_dir(&self, key: &Key) -> Result<String, Error> {
+        PathMap::directory(key)
+    }
+
+    /// Decodes a backend path back into a key, whatever kind of path it is.
     pub fn path_to_key(&self, path: &str) -> Result<Key, Error> {
-        use liquers_core::parse;
-        let trimmed = path.trim_matches('/').trim_end_matches(Self::METADATA);
-        parse::parse_key(trimmed)
+        Ok(PathMap::decode(path)?.key().to_owned())
     }
 
     /// Maps a key onto its metadata path. Fallible for the same reason as [`Self::key_to_path`].
     pub fn key_to_path_metadata(&self, key: &Key) -> Result<String, Error> {
-        Ok(format!("{}{}", key.as_absolute()?.encode(), Self::METADATA))
+        self.reject_ambiguous(key)?;
+        PathMap::metadata(key)
     }
     fn map_read_error<T>(
         &self,
@@ -402,11 +530,18 @@ impl AsyncStore for AsyncOpenDALStore {
         Ok(())
     }
 
-    /// Remove directory.
-    /// The key must be a directory.
-    /// Files are not removed recursively.
+    /// Removes a directory and everything under it.
+    ///
+    /// Recursive, matching `AsyncMemoryStore` and `AsyncFileStore` — the previous doc comment said
+    /// "Files are not removed recursively", which was true of no implementation.
+    ///
+    /// The path **must** carry a trailing `/`. Without it `remove_all` deletes by *prefix*, so
+    /// `removedir("data")` also destroyed `database/`. That was `STORE-OPENDAL-SLASH-HANDLING`
+    /// defect 1, and `PathMap::directory` is what prevents it recurring.
+    ///
+    /// Removing a directory that does not exist is `Ok(())`, as it is for `AsyncFileStore`.
     async fn removedir(&self, key: &Key) -> Result<(), Error> {
-        let path = self.key_to_path(key)?;
+        let path = self.key_to_path_dir(key)?;
         self.map_write_error(key, self.op.remove_all(&path).await)
     }
 
@@ -449,20 +584,23 @@ impl AsyncStore for AsyncOpenDALStore {
         }
         */
         let mut list = BTreeSet::new();
-        let path = self.key_to_path(key)?.trim_end_matches('/').to_string() + "/"; // Ensure trailing slash for directory
+        let path = self.key_to_path_dir(key)?;
         let entries = self.map_read_error(key, self.op.list(&path).await)?;
         for entry in entries {
-            if self.path_to_key(entry.path())? == *key {
+            // A path the backend returned that this store cannot decode is skipped rather than
+            // failing the listing: one unexpected object in a shared bucket must not make a
+            // directory unlistable.
+            let Ok(decoded) = PathMap::decode(entry.path()) else {
+                continue;
+            };
+            if decoded.key() == key {
                 continue;
             }
-            let mut name = entry.name().to_string();
-            name = name.trim_matches('/').to_string();
-            name = name.trim_matches('\\').to_string();
-
-            if name.ends_with(Self::METADATA) {
-                name = name.trim_end_matches(Self::METADATA).to_string();
-            }
-            list.insert(name);
+            // A metadata sidecar implies its data key, so both yield the same name.
+            let Some(name) = decoded.key().filename() else {
+                continue;
+            };
+            list.insert(name.encode().to_string());
         }
         Ok(list.into_iter().collect())
     }
@@ -480,15 +618,15 @@ impl AsyncStore for AsyncOpenDALStore {
     /// as well as in all the subdirectories.
     async fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
         let mut list = BTreeSet::new();
-        let path = self.key_to_path(key)?;
+        // The trailing slash is required: `list_with` on a path without one matches by *prefix*,
+        // so listing `sub` also returned everything under `subway/`.
+        let path = self.key_to_path_dir(key)?;
         let entries = self.map_read_error(key, self.op.list_with(&path).recursive(true).await)?;
         for entry in entries {
-            if let Ok(sub) = self.path_to_key(entry.path()) {
-                for i in (key.len() + 1)..=sub.len() {
-                    let sub_key = sub.prefix_of_size(i).unwrap();
-                    list.insert(sub_key);
-                }
-                list.insert(sub);
+            if let Ok(decoded) = PathMap::decode(entry.path()) {
+                let sub = decoded.key();
+                list.extend(((key.len() + 1)..=sub.len()).filter_map(|i| sub.prefix_of_size(i)));
+                list.insert(sub.to_owned());
             }
         }
         Ok(list.into_iter().collect())
@@ -496,7 +634,7 @@ impl AsyncStore for AsyncOpenDALStore {
 
     /// Make a directory
     async fn makedir(&self, key: &Key) -> Result<(), Error> {
-        let path = format!("{}/", self.key_to_path(key)?);
+        let path = self.key_to_path_dir(key)?;
         self.map_write_error(key, self.op.create_dir(&path).await)
     }
 
@@ -514,9 +652,7 @@ impl AsyncStore for AsyncOpenDALStore {
     fn is_supported(&self, key: &Key) -> bool {
         !key.is_relative()
             && key.has_key_prefix(&self.prefix)
-            && (!key
-                .filename()
-                .is_some_and(|file_name| file_name.name.ends_with(Self::METADATA)))
+            && !PathMap::is_suffix_ambiguous(key)
     }
 }
 
@@ -566,6 +702,303 @@ mod tests {
 
         let ok = parse_key("data/report.txt").expect("key parses");
         assert!(store.is_supported(&ok));
+    }
+
+    /// A memory-backed store: no directory objects, which is the object-store shape.
+    fn memory_store() -> AsyncOpenDALStore {
+        let op = Operator::new(Memory::default())
+            .expect("memory operator")
+            .finish();
+        AsyncOpenDALStore::new(op, Key::new())
+    }
+
+    /// A filesystem-backed store in a uniquely named temp directory, removed on drop.
+    ///
+    /// The two backends differ in exactly the way that matters — one has directory objects and the
+    /// other does not — so a fix verified on only one proves nothing about the other.
+    #[cfg(feature = "services-fs")]
+    struct FsStore {
+        store: AsyncOpenDALStore,
+        root: std::path::PathBuf,
+    }
+
+    #[cfg(feature = "services-fs")]
+    impl Drop for FsStore {
+        fn drop(&mut self) {
+            let _ignore = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[cfg(feature = "services-fs")]
+    fn fs_store(label: &str) -> FsStore {
+        let root = std::env::temp_dir().join(format!(
+            "liquers_opendal_{}_{}",
+            label,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        let _ignore = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("temp dir");
+        let op = Operator::new(
+            opendal::services::Fs::default().root(root.to_str().expect("utf-8 temp path")),
+        )
+        .expect("fs operator")
+        .finish();
+        FsStore {
+            store: AsyncOpenDALStore::new(op, Key::new()),
+            root,
+        }
+    }
+
+    /// `PATHMAP01` — every supported key round-trips: `decode(data(k))` is `Data(k)`.
+    ///
+    /// The corpus is deliberately adversarial: multi-segment keys, dots inside names, a name
+    /// containing the metadata suffix without ending in it, the root, and — the case that
+    /// motivated all of this — two names where one is a prefix of the other.
+    ///
+    /// **Not covered: non-ASCII names.** `parse_key("données/rapport.csv")` fails at HEAD —
+    /// `resource_name` accepts only alphanumerics, `_`, `.` and `-`, so such a key cannot reach a
+    /// store to be mapped. That is `RESOURCE-NAME-ASCII-ONLY`, not a gap in this mapping; the
+    /// corpus records the boundary rather than pretending to test past it.
+    #[test]
+    fn pathmap01_data_paths_round_trip() -> Result<(), Error> {
+        for text in [
+            "",
+            "a",
+            "a/b",
+            "a/b/c.txt",
+            "data/input.csv",
+            "sub",
+            "subway",
+            "sub/deeper/foo.txt",
+            "a.b.c/d.e.f",
+            "x.__metadata__.txt",
+            "one/two/three/four/five/six.bin",
+            "UPPER/MixedCase/file-name_v2.tar.gz",
+        ] {
+            let key = parse_key(text)?;
+            let path = PathMap::data(&key)?;
+            assert_eq!(
+                PathMap::decode(&path)?,
+                DecodedPath::Data(key.clone()),
+                "round trip {text} via {path}"
+            );
+        }
+        Ok(())
+    }
+
+    /// `PATHMAP02` — a metadata path decodes to the key of the **data** it describes.
+    #[test]
+    fn pathmap02_metadata_paths_decode_to_their_data_key() -> Result<(), Error> {
+        for text in ["a", "a/b/c.txt", "sub/deeper/report.csv"] {
+            let key = parse_key(text)?;
+            let path = PathMap::metadata(&key)?;
+            assert_eq!(PathMap::decode(&path)?, DecodedPath::Metadata(key.clone()), "{text}");
+        }
+        Ok(())
+    }
+
+    /// `PATHMAP03` — a key whose filename ends in the suffix is refused, in one rule.
+    ///
+    /// Its data path would be byte-identical to another key's metadata path, so no decoder can be
+    /// injective over both. The exclusion is asserted rather than left implicit: `is_supported`,
+    /// `key_to_path` and `key_to_path_metadata` must all agree.
+    #[test]
+    fn pathmap03_suffix_ambiguous_keys_are_refused_everywhere() -> Result<(), Error> {
+        use liquers_core::error::ErrorType;
+        let store = memory_store();
+        for text in ["a.__metadata__", "sub/a.__metadata__"] {
+            let key = parse_key(text)?;
+            assert!(PathMap::is_suffix_ambiguous(&key), "{text} is ambiguous");
+            assert!(!store.is_supported(&key), "{text} must not route here");
+            for error in [
+                store.key_to_path(&key).err(),
+                store.key_to_path_metadata(&key).err(),
+            ] {
+                let error = error.unwrap_or_else(|| panic!("{text} must be refused"));
+                assert_eq!(error.error_type, ErrorType::KeyNotSupported, "{text}");
+            }
+        }
+        // A name that merely *contains* the suffix is fine.
+        let ok = parse_key("x.__metadata__.txt")?;
+        assert!(!PathMap::is_suffix_ambiguous(&ok));
+        assert!(store.is_supported(&ok));
+        Ok(())
+    }
+
+    /// `PATHMAP04` — the directory form carries exactly one trailing slash; the root is empty.
+    #[test]
+    fn pathmap04_directory_form_carries_one_trailing_slash() -> Result<(), Error> {
+        assert_eq!(PathMap::directory(&Key::new())?, "");
+        assert_eq!(PathMap::directory(&parse_key("sub")?)?, "sub/");
+        assert_eq!(PathMap::directory(&parse_key("a/b/c")?)?, "a/b/c/");
+        assert_eq!(PathMap::data(&parse_key("sub")?)?, "sub", "data form has none");
+        Ok(())
+    }
+
+    /// `PATHMAP05` — decode order: the trailing slash first, then the suffix, once.
+    ///
+    /// Stripping the suffix repeatedly — what `trim_end_matches` did — decoded
+    /// `x.__metadata__.__metadata__` to `x` instead of to `x.__metadata__`.
+    #[test]
+    fn pathmap05_decode_order_and_single_strip() -> Result<(), Error> {
+        assert_eq!(PathMap::decode("sub/")?, DecodedPath::Directory(parse_key("sub")?));
+        assert_eq!(PathMap::decode("sub/f.txt")?, DecodedPath::Data(parse_key("sub/f.txt")?));
+        assert_eq!(
+            PathMap::decode("sub/f.txt.__metadata__")?,
+            DecodedPath::Metadata(parse_key("sub/f.txt")?)
+        );
+        assert_eq!(
+            PathMap::decode("x.__metadata__.__metadata__")?,
+            DecodedPath::Metadata(parse_key("x.__metadata__")?),
+            "the suffix is stripped once, not repeatedly"
+        );
+        assert_eq!(PathMap::decode("")?, DecodedPath::Data(Key::new()));
+        Ok(())
+    }
+
+    /// `PATHMAP06` — a listing entry that cannot be decoded is skipped, not fatal.
+    ///
+    /// One unexpected object in a shared bucket must not make a directory unlistable. A stray
+    /// sidecar is reported under its data name, which is what a sidecar implies.
+    #[tokio::test]
+    async fn pathmap06_undecodable_listing_entries_are_skipped() -> Result<(), Error> {
+        let op = Operator::new(Memory::default()).expect("memory operator").finish();
+        op.write("sub/orphan.__metadata__", "{}")
+            .await
+            .map_err(|e| Error::general_error(e.to_string()))?;
+        let store = AsyncOpenDALStore::new(op, Key::new());
+
+        assert_eq!(
+            store.listdir(&parse_key("sub")?).await?,
+            vec!["orphan".to_string()],
+            "a sidecar implies its data key"
+        );
+        Ok(())
+    }
+
+    /// `SIBLING01` — `removedir` must not reach a directory whose name shares its prefix.
+    ///
+    /// The P0. `remove_all` on a path with no trailing slash deletes by *prefix*, so
+    /// `removedir("data")` destroyed `database/`. Reachable through
+    /// `DELETE /api/store/removedir/{*key}`.
+    #[tokio::test]
+    async fn sibling01_removedir_leaves_a_prefix_sharing_sibling() -> Result<(), Error> {
+        let fs = fs_store("sibling01");
+        for store in [&memory_store(), &fs.store] {
+            let inside = parse_key("data/input.csv")?;
+            let sibling = parse_key("database/export.csv")?;
+            store.set(&inside, b"in", &Metadata::new()).await?;
+            store.set(&sibling, b"out", &Metadata::new()).await?;
+
+            store.removedir(&parse_key("data")?).await?;
+
+            assert!(!store.contains(&inside).await?, "the named directory is gone");
+            assert!(store.contains(&sibling).await?, "the sibling survives");
+            assert_eq!(store.get_bytes(&sibling).await?, b"out", "and is intact");
+        }
+        Ok(())
+    }
+
+    /// `SIBLING02` — the same, one level down.
+    #[tokio::test]
+    async fn sibling02_removedir_is_scoped_at_depth() -> Result<(), Error> {
+        let fs = fs_store("sibling02");
+        for store in [&memory_store(), &fs.store] {
+            store.set(&parse_key("p/sub/a.txt")?, b"a", &Metadata::new()).await?;
+            store.set(&parse_key("p/subway/b.txt")?, b"b", &Metadata::new()).await?;
+
+            store.removedir(&parse_key("p/sub")?).await?;
+
+            assert!(!store.contains(&parse_key("p/sub/a.txt")?).await?);
+            assert!(store.contains(&parse_key("p/subway/b.txt")?).await?);
+        }
+        Ok(())
+    }
+
+    /// `SIBLING03` — a recursive listing must not return keys from a prefix-sharing sibling.
+    #[tokio::test]
+    async fn sibling03_listdir_keys_deep_excludes_siblings() -> Result<(), Error> {
+        let fs = fs_store("sibling03");
+        for store in [&memory_store(), &fs.store] {
+            store.set(&parse_key("sub/a.txt")?, b"a", &Metadata::new()).await?;
+            store.set(&parse_key("subway/b.txt")?, b"b", &Metadata::new()).await?;
+
+            let deep = store.listdir_keys_deep(&parse_key("sub")?).await?;
+            let encoded: Vec<String> = deep.iter().map(|k| k.encode()).collect();
+
+            assert!(encoded.contains(&"sub/a.txt".to_string()), "got {encoded:?}");
+            assert!(
+                !encoded.iter().any(|k| k.starts_with("subway")),
+                "a sibling leaked into the listing: {encoded:?}"
+            );
+        }
+        Ok(())
+    }
+
+    /// `REMOVE01` — removing a directory that does not exist is a no-op, as in `AsyncFileStore`.
+    #[tokio::test]
+    async fn remove01_removedir_on_an_absent_directory_is_ok() -> Result<(), Error> {
+        let fs = fs_store("remove01");
+        for store in [&memory_store(), &fs.store] {
+            store.removedir(&parse_key("never/existed")?).await?;
+        }
+        Ok(())
+    }
+
+    /// `REMOVE02` — `removedir` on the root key empties the store. Deliberate, and asserted so.
+    ///
+    /// This is the one case where scoping the delete to a directory narrows nothing: the root
+    /// directory *is* everything. `AsyncFileStore` would do the same.
+    #[tokio::test]
+    async fn remove02_removedir_on_the_root_empties_the_store() -> Result<(), Error> {
+        let store = memory_store();
+        store.set(&parse_key("a/b.txt")?, b"x", &Metadata::new()).await?;
+        store.set(&parse_key("c.txt")?, b"y", &Metadata::new()).await?;
+
+        store.removedir(&Key::new()).await?;
+
+        assert!(!store.contains(&parse_key("a/b.txt")?).await?);
+        assert!(!store.contains(&parse_key("c.txt")?).await?);
+        Ok(())
+    }
+
+    /// `FSREG01` — the filesystem behaviour that already worked, kept working.
+    ///
+    /// This is the 2026-08-29 reproduction that concluded the store was correct, turned from
+    /// printed output into assertions. It was right about everything it tested; the defects lived
+    /// in cases it did not reach.
+    #[cfg(feature = "services-fs")]
+    #[tokio::test]
+    async fn fsreg01_nested_key_round_trip_on_the_filesystem() -> Result<(), Error> {
+        let fs = fs_store("fsreg01");
+        let store = &fs.store;
+        let key = parse_key("sub/deeper/foo.txt")?;
+        store.set(&key, b"hello", &Metadata::new()).await?;
+
+        assert_eq!(store.get_bytes(&key).await?, b"hello");
+        assert!(store.contains(&key).await?);
+        assert!(store.is_dir(&parse_key("sub")?).await?);
+        assert!(!store.is_dir(&key).await?);
+        assert_eq!(store.listdir(&Key::new()).await?, vec!["sub".to_string()]);
+        assert_eq!(store.listdir(&parse_key("sub")?).await?, vec!["deeper".to_string()]);
+        assert_eq!(
+            store.listdir(&parse_key("sub/deeper")?).await?,
+            vec!["foo.txt".to_string()]
+        );
+        assert_eq!(
+            store
+                .listdir_keys(&parse_key("sub/deeper")?)
+                .await?
+                .iter()
+                .map(|k| k.encode())
+                .collect::<Vec<_>>(),
+            vec!["sub/deeper/foo.txt".to_string()]
+        );
+        assert!(store.get_metadata(&parse_key("sub")?).await.is_ok());
+        Ok(())
     }
 
     #[tokio::test]
