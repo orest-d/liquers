@@ -2,7 +2,7 @@
 id: LIB-POLARS-ETHNUM-RUST-1-98-BROKEN
 kind: issue
 title: liquers-lib polars builds fail in ethnum on Rust 1.98
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [lib/polars, build]
@@ -40,3 +40,11 @@ workspace should pin/update/gate dependencies so the supported build matrix is t
 
 Found on 2026-08-30 while validating `CORE-NO-DEFAULT-FEATURES-BROKEN` with
 `bash scripts/check-build-matrix.sh` under `rustc 1.98.0`.
+
+## Resolution, 2026-09-02
+
+The committed dependency resolution now selects `ethnum 1.5.3`, which fixes the
+Rust 1.98 `TryFromIntError` construction failure. `liquers-lib` uses Polars
+0.55.2 and its compatible `ethnum` constraint resolves to that fixed release.
+Both formerly failing Polars checks and `bash scripts/check-build-matrix.sh`
+passed with `rustc 1.98.0`.
