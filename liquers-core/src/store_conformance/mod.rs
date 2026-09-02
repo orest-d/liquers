@@ -242,11 +242,21 @@ pub(crate) async fn run_one(fixture: &dyn Fixture, rule: &Rule) -> ReportEntry {
         },
         None => (rule.run)(fixture).await,
     };
+    // Lift the failing keys onto the entry, so the report says *where* and not only *what*.
+    let subject = match &outcome {
+        RuleOutcome::Failed { subject, .. } => subject.clone(),
+        RuleOutcome::Passed
+        | RuleOutcome::SkippedCapability { .. }
+        | RuleOutcome::SkippedPrecondition { .. }
+        | RuleOutcome::NotRunSafetyLevel { .. }
+        | RuleOutcome::Blocked { .. }
+        | RuleOutcome::Errored { .. } => Vec::new(),
+    };
     ReportEntry {
         id: rule.meta.id.to_owned(),
         title: rule.meta.title.to_owned(),
         contract: rule.meta.contract.to_owned(),
-        subject: Vec::new(),
+        subject,
         outcome,
     }
 }
@@ -266,10 +276,19 @@ impl From<Error> for RuleOutcome {
     }
 }
 
-/// A rule's disagreement with the contract, with the keys it was looking at.
+/// A rule's disagreement with the contract, on no particular key.
 pub fn failed(detail: impl Into<String>) -> RuleOutcome {
     RuleOutcome::Failed {
         detail: detail.into(),
+        subject: Vec::new(),
+    }
+}
+
+/// A rule's disagreement with the contract, naming the keys it was looking at.
+pub fn failed_at(detail: impl Into<String>, subject: Vec<Key>) -> RuleOutcome {
+    RuleOutcome::Failed {
+        detail: detail.into(),
+        subject,
     }
 }
 
@@ -732,6 +751,274 @@ mod tests {
         let yaml: ConformanceReport = serde_yaml::from_str(&serde_yaml::to_string(&report)?)?;
         assert_eq!(yaml.entries, report.entries);
         Ok(())
+    }
+
+    // ------------------------------------------------- the real inventory
+
+    /// A fixture over `AsyncMemoryStore`, so `H6`/`H7` and the smoke test below exercise the real
+    /// rules rather than stubs.
+    struct MemFixture {
+        store: crate::store::AsyncMemoryStore,
+        created: Mutex<Vec<Key>>,
+        seq: Mutex<usize>,
+    }
+
+    impl MemFixture {
+        fn new() -> Self {
+            MemFixture {
+                store: crate::store::AsyncMemoryStore::new(&Key::new()),
+                created: Mutex::new(Vec::new()),
+                seq: Mutex::new(0),
+            }
+        }
+        /// Unique stems, so rules do not collide with each other's keys.
+        fn stem(&self, base: &str) -> String {
+            let mut n = self.seq.lock().expect("seq");
+            *n += 1;
+            format!("{base}{n}")
+        }
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl Fixture for MemFixture {
+        fn store(&self) -> &dyn AsyncStore {
+            &self.store
+        }
+        fn capabilities(&self) -> StoreCapabilities {
+            StoreCapabilities {
+                write: true,
+                remove: true,
+                directories: true,
+                derived_directories: true,
+                explicit_directories: true,
+                remove_directories: true,
+                stored_metadata: true,
+                enumerate_keys: true,
+            }
+        }
+        fn safety_level(&self) -> SafetyLevel {
+            SafetyLevel::Scratch
+        }
+        fn expected_prefix(&self) -> Key {
+            Key::new()
+        }
+        fn label(&self) -> String {
+            "AsyncMemoryStore (in-test fixture)".to_owned()
+        }
+        async fn keys_for(&self, request: &KeyRequest) -> Result<Vec<Key>, Unavailable> {
+            let base = Key::new();
+            match request {
+                KeyRequest::Fresh => Ok(vec![base.join(self.stem("fresh"))]),
+                KeyRequest::FreshSiblings { count } => {
+                    let dir = self.stem("dir");
+                    Ok((0..*count)
+                        .map(|i| base.join(&dir).join(format!("s{i}.txt")))
+                        .collect())
+                }
+                KeyRequest::FreshPrefixPair => {
+                    let stem = self.stem("sub");
+                    Ok(vec![base.join(&stem), base.join(format!("{stem}way"))])
+                }
+                KeyRequest::FreshNested { depth } => {
+                    let mut key = base.join(self.stem("nest"));
+                    for i in 0..*depth {
+                        key = key.join(format!("d{i}"));
+                    }
+                    Ok(vec![key.join("leaf.txt")])
+                }
+                KeyRequest::Existing | KeyRequest::ExistingDirectory => Err(Unavailable::new(
+                    "this fixture seeds nothing; the store starts empty",
+                )),
+                KeyRequest::OutsidePrefix => Err(Unavailable::new(
+                    "the fixture's prefix is the root, so no absolute key is outside it",
+                )),
+                KeyRequest::UnsupportedShape => Err(Unavailable::new(
+                    "AsyncMemoryStore accepts every absolute key under its prefix",
+                )),
+                KeyRequest::Supported => Ok(vec![base.join(self.stem("supported"))]),
+                KeyRequest::Relative => match crate::parse::parse_key("../escape.txt") {
+                    Ok(key) => Ok(vec![key]),
+                    Err(e) => Err(Unavailable::new(e.message.clone())),
+                },
+                KeyRequest::MetadataCollision => Err(Unavailable::new(
+                    "AsyncMemoryStore keeps metadata beside the data rather than in a sidecar key",
+                )),
+            }
+        }
+        fn record_created(&self, key: &Key) {
+            if let Ok(mut c) = self.created.lock() {
+                c.push(key.clone());
+            }
+        }
+        fn created_keys(&self) -> Vec<Key> {
+            self.created.lock().map(|c| c.clone()).unwrap_or_default()
+        }
+    }
+
+    /// `H7`, pointed at the real inventory: every rule records every key it creates.
+    ///
+    /// An unrecorded key is neither cleaned up nor reported as residue, so it leaks silently — the
+    /// one failure the safety levels cannot survive. The checker was proven against a deliberately
+    /// bad rule in `h7_records_created_checker_catches_a_bad_rule`.
+    #[tokio::test]
+    async fn h7_every_real_rule_records_what_it_creates() {
+        assert!(!rules().is_empty(), "an empty inventory would pass vacuously");
+        for rule in rules() {
+            let fixture = MemFixture::new();
+            let entry = run_one(&fixture, rule).await;
+            let recorded = fixture.created_keys();
+            for key in fixture.store.keys().await.unwrap_or_default() {
+                assert!(
+                    recorded.contains(&key),
+                    "rule `{}` created {} without recording it ({:?})",
+                    rule.meta.id,
+                    key.encode(),
+                    entry.outcome
+                );
+            }
+        }
+    }
+
+    /// The sibling family against a store that is expected to satisfy it.
+    ///
+    /// `AsyncMemoryStore` addresses by key rather than by string prefix, so it should pass every
+    /// rule it can reach. A rule it cannot reach reports why, and that is not a pass.
+    #[tokio::test]
+    async fn sibling_rules_hold_for_the_memory_store() {
+        let fixture = MemFixture::new();
+        let mut reached = 0;
+        for rule in rules().iter().filter(|r| r.meta.id.starts_with("sibling")) {
+            let entry = run_one(&fixture, rule).await;
+            match &entry.outcome {
+                RuleOutcome::Passed => reached += 1,
+                RuleOutcome::SkippedPrecondition { .. } => {}
+                other => panic!("{} on AsyncMemoryStore: {other:?}", rule.meta.id),
+            }
+        }
+        assert!(reached >= 4, "only {reached} sibling rules were reachable");
+    }
+
+    /// A store that deletes by **string prefix**, reproducing the defect `sibling01` exists for.
+    ///
+    /// This is `STORE-OPENDAL-SLASH-HANDLING` defect 1 in miniature: `removedir("sub")` takes
+    /// `subway/` with it, and reports success. Without this test the sibling rules would be green
+    /// against a store that cannot break them, which proves nothing about the rules.
+    struct PrefixDeletingStore {
+        inner: crate::store::AsyncMemoryStore,
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl AsyncStore for PrefixDeletingStore {
+        async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+            self.inner.get(key).await
+        }
+        async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+            self.inner.set(key, data, metadata).await
+        }
+        async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+            self.inner.set_metadata(key, metadata).await
+        }
+        async fn contains(&self, key: &Key) -> Result<bool, Error> {
+            self.inner.contains(key).await
+        }
+        async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+            self.inner.is_dir(key).await
+        }
+        async fn remove(&self, key: &Key) -> Result<(), Error> {
+            self.inner.remove(key).await
+        }
+        /// The bug: every key whose *encoded name* starts with this one goes.
+        async fn removedir(&self, key: &Key) -> Result<(), Error> {
+            let doomed: Vec<Key> = self
+                .inner
+                .keys()
+                .await?
+                .into_iter()
+                .filter(|k| k.encode().starts_with(&key.encode()))
+                .collect();
+            for k in doomed {
+                self.inner.remove(&k).await?;
+            }
+            Ok(())
+        }
+    }
+
+    struct BrokenFixture {
+        store: PrefixDeletingStore,
+        created: Mutex<Vec<Key>>,
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl Fixture for BrokenFixture {
+        fn store(&self) -> &dyn AsyncStore {
+            &self.store
+        }
+        fn capabilities(&self) -> StoreCapabilities {
+            StoreCapabilities {
+                write: true,
+                remove: true,
+                directories: true,
+                derived_directories: true,
+                explicit_directories: false,
+                remove_directories: true,
+                stored_metadata: true,
+                enumerate_keys: true,
+            }
+        }
+        fn safety_level(&self) -> SafetyLevel {
+            SafetyLevel::Scratch
+        }
+        fn expected_prefix(&self) -> Key {
+            Key::new()
+        }
+        fn label(&self) -> String {
+            "PrefixDeletingStore".to_owned()
+        }
+        async fn keys_for(&self, request: &KeyRequest) -> Result<Vec<Key>, Unavailable> {
+            match request {
+                KeyRequest::FreshPrefixPair => Ok(vec![
+                    Key::new().join("sub"),
+                    Key::new().join("subway"),
+                ]),
+                _ => Err(Unavailable::new("only the prefix pair is needed here")),
+            }
+        }
+        fn record_created(&self, key: &Key) {
+            if let Ok(mut c) = self.created.lock() {
+                c.push(key.clone());
+            }
+        }
+        fn created_keys(&self) -> Vec<Key> {
+            self.created.lock().map(|c| c.clone()).unwrap_or_default()
+        }
+    }
+
+    /// **`sibling01` catches the data-loss defect.** The rule is only worth having if it fails here.
+    #[tokio::test]
+    async fn sibling01_catches_a_prefix_deleting_store() {
+        let fixture = BrokenFixture {
+            store: PrefixDeletingStore {
+                inner: crate::store::AsyncMemoryStore::new(&Key::new()),
+            },
+            created: Mutex::new(Vec::new()),
+        };
+        let rule = rule("sibling01").expect("sibling01 is registered");
+        let entry = run_one(&fixture, rule).await;
+
+        match &entry.outcome {
+            RuleOutcome::Failed { detail, .. } => {
+                assert!(detail.contains("destroyed"), "{detail}");
+                assert!(
+                    entry.subject.iter().any(|k| k.encode().contains("subway")),
+                    "the failure must name the sibling it lost: {:?}",
+                    entry.subject
+                );
+            }
+            other => panic!("sibling01 must fail against a prefix-deleting store, got {other:?}"),
+        }
     }
 
     /// The gate itself, end to end: `run_all` produces one entry per rule, in order.

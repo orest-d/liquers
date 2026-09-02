@@ -13,7 +13,12 @@ pub enum RuleOutcome {
     /// The store agrees with the contract.
     Passed,
     /// The store disagrees with the contract. This is the only outcome that means a defect.
-    Failed { detail: String },
+    ///
+    /// `subject` is lifted into [`ReportEntry::subject`] by the harness. Rules may not put keys
+    /// into `detail` instead: message text is not something a rule may reason about
+    /// (`CORE-ERROR-STORE-NAME-NOT-STRUCTURED`), and a failure that does not say *which key* is
+    /// most of a bug report short of the useful part.
+    Failed { detail: String, subject: Vec<Key> },
     /// The store does not claim the capability this rule needs, so the rule was not called.
     SkippedCapability { missing: Capability },
     /// The fixture could not supply the keys this rule needs, and said why.
@@ -154,7 +159,7 @@ impl ConformanceReport {
                     entry.id,
                     entry.contract,
                     match &entry.outcome {
-                        RuleOutcome::Failed { detail } => detail.clone(),
+                        RuleOutcome::Failed { detail, .. } => detail.clone(),
                         RuleOutcome::Errored {
                             error_type,
                             message,
@@ -214,7 +219,7 @@ impl std::fmt::Display for ConformanceReport {
         for entry in &self.entries {
             match &entry.outcome {
                 RuleOutcome::Passed => {}
-                RuleOutcome::Failed { detail } => {
+                RuleOutcome::Failed { detail, .. } => {
                     writeln!(f, "  FAILED {} [{}] {}", entry.id, entry.contract, detail)?;
                     if !entry.subject.is_empty() {
                         writeln!(f, "         keys: {:?}", entry.subject)?;
