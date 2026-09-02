@@ -49,7 +49,11 @@ fixed here unless the fix is `M` or larger. The suite reports rather than panics
 test asserts against the report with a declared list of rules it may fail; the report is also
 obtainable directly for debugging. A validation tool in `liquers-store` builds a router from a YAML
 document and prints the report. The suite never constructs stores — the caller supplies a fixture,
-and the guide carries the per-type recipes for building one.
+the guide carries the per-type recipes, and `StoreFactory` gains an additive, defaulted fixture
+constructor so a type named in a document can be tested without one. Every rule declares whether it
+is read-only or potentially destructive; the tool runs the read-only half by default, the report
+distinguishes "not run" from "passed", and the guide states the precautions (temporary folder or
+throwaway database, expendable store, no third-party service without explicit permission).
 
 ## Links
 

@@ -126,7 +126,12 @@ capability and the suite then checks:
   first, an OpenDAL store needs a configured backend, a fetch store needs something serving HTTP —
   a small Python server is a legitimate answer. Some stores cannot be *populated* through
   `AsyncStore` at all, so the fixture must place the preconditions by other means. This is the
-  store author's work, and the guide is where the recipe for each shape belongs.
+  store author's work, and the guide is where the recipe for each shape belongs. **Can the type's
+  factory build a fresh empty one itself?** If it can, offering that is worth more than documenting
+  a recipe, because it makes the store testable from a configuration document alone.
+- **What is safe to run this against?** The suite writes and removes; the guide must say so
+  plainly and give the precautions — a temporary folder or throwaway database, a store treated as
+  expendable, and no third-party service unless explicitly permitted.
 - **What does implementing a store actually mean here?** The guide must say plainly what work is
   in front of the author, because it is not one shape: is a new struct implementing the trait
   enough; does an existing factory need extending; is a whole new `StoreFactory` required; and if
@@ -219,6 +224,30 @@ Settled at the Phase 1 gate, and now normative for Phase 2:
    an HTTP-backed store needs something serving it — so construction stays with whoever knows the
    type, and **the guide carries the recipes** (see its question list above). The suite's contract
    with the caller is a fixture, not a constructor.
+   **Where a factory *can* make one, it should offer it.** A `StoreFactory` already knows how to
+   build its types from a configuration entry, and for several of them building a *fresh, empty*
+   one is a short step further — a temporary directory, a fresh table, a scratch prefix. Extending
+   the trait with a fixture constructor, additively and defaulting to "not supported", is what lets
+   the validation tool test a store type named in a document without a hand-written fixture, and it
+   is the safest path by construction: a factory-made fixture is expendable, where a configured
+   store is somebody's data. Phase 2 owns the shape — including the wrinkle that the conformance
+   types are feature-gated while `StoreFactory` is not.
+
+9. **Every rule declares whether it is read-only or potentially destructive, and the split is
+   load-bearing.** "Potentially destructive" covers *any* write, not only removal: a `set` to a key
+   that already exists destroys what was there, and the suite cannot know it does not. The
+   validation tool runs the read-only rules by default and requires an explicit opt-in for the
+   rest — a tool that takes a configuration document and calls `removedir` will otherwise be
+   pointed at production storage in its first week.
+   **The report must distinguish "not run" from "passed".** A summary that reads conformant
+   because the destructive half never executed is precisely the vacuous-conformance failure
+   `LANGUAGE-INTEGRATION_GUIDE.md` §3 warns about, and it would be produced by the *default*
+   invocation. Outcomes are at least: passed, failed, skipped for a declared capability, and not
+   run because its effect class was not permitted.
+   **The guide states the precautions**, not merely the mechanism: test against a temporary folder
+   or a throwaway database; treat any store used for conformance testing as expendable; do not run
+   against a third-party service unless that has been explicitly permitted, and never against one
+   holding data you did not create.
 
 ## Open Questions
 
@@ -228,13 +257,10 @@ Settled at the Phase 1 gate, and now normative for Phase 2:
    this repository declares its capabilities. It also decides whether the guide's per-store status
    matrix can be *generated* from a report rather than maintained by hand, which is the strongest
    version of the synchronization mechanism above.
-2. **The suite writes, removes and calls `removedir`. What stops the validation tool destroying
-   real data?** A tool that takes a configuration document and exercises removal is pointed at
-   production storage the first week it exists — the sibling rule alone requires creating and
-   deleting directory trees. Phase 2 must decide the safeguard: confining every rule to a
-   generated scratch prefix, requiring an explicit opt-in flag, refusing to run against a
-   non-empty store, or some combination. This is a design constraint on the *rules*, not only on
-   the tool: a rule that writes outside a declared scratch prefix cannot be made safe afterwards.
+2. **Does the effect-class split leave the read-only half worth running?** Several rules can only
+   be checked by writing — the sibling rule's whole point is that `removedir("data")` must not
+   touch `database/`. Phase 2 should confirm that the read-only subset is a useful default rather
+   than a near-empty one, and say so in the tool's own output if it is thin.
 
 ## References
 
