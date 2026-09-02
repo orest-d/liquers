@@ -141,6 +141,7 @@ pub mod recipes;
 pub mod state;
 pub mod store;
 pub mod store_config;
+pub mod store_dir_index;
 pub mod store_factory;
 pub mod type_system;
 pub mod validate;

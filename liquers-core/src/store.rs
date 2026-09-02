@@ -53,6 +53,7 @@ use async_trait::async_trait;
 use crate::error::Error;
 use crate::metadata::{self, AssetInfo, Metadata, MetadataRecord};
 use crate::query::Key;
+use crate::store_dir_index::DirectoryIndex;
 
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::time::{sleep, Duration};
@@ -577,96 +578,32 @@ impl AsyncStore for NoAsyncStore {
 /// Async-native in-memory store implementation.
 pub struct AsyncMemoryStore {
     data: scc::HashMap<Key, (Arc<[u8]>, Metadata)>,
-    dir_index: scc::HashMap<Key, Arc<scc::HashMap<Key, usize>>>,
+    /// Directory structure derived from the stored keys.
+    ///
+    /// The mechanism used to live here as a private field and a handful of private methods; it is
+    /// now `store_dir_index::DirectoryIndex`, shared with every other store that has to derive
+    /// directories from a flat key set. See `CORE-DIRECTORY-INDEX-NOT-SHARED`.
+    dir_index: DirectoryIndex,
     prefix: Key,
 }
 impl AsyncMemoryStore {
     pub fn new(prefix: &Key) -> Self {
         Self {
             data: scc::HashMap::new(),
-            dir_index: scc::HashMap::new(),
+            dir_index: DirectoryIndex::new(),
             prefix: prefix.to_owned(),
         }
     }
 
-    fn index_edges_for_key(key: &Key) -> Vec<(Key, Key)> {
-        let mut edges = Vec::new();
-        for depth in 0..key.len() {
-            let parent = if depth == 0 {
-                Key::new()
-            } else {
-                key.prefix_of_size(depth).unwrap_or_default()
-            };
-            if let Some(child) = key.prefix_of_size(depth + 1) {
-                edges.push((parent, child));
-            }
-        }
-        edges
-    }
-
-    async fn get_or_create_children_map(&self, parent: &Key) -> Arc<scc::HashMap<Key, usize>> {
-        if let Some(children) = self
-            .dir_index
-            .read_async(parent, |_, children| children.clone())
-            .await
-        {
-            return children;
-        }
-        let fresh = Arc::new(scc::HashMap::new());
-        match self
-            .dir_index
-            .insert_async(parent.clone(), fresh.clone())
-            .await
-        {
-            Ok(()) => fresh,
-            Err((_parent, _fresh)) => self
-                .dir_index
-                .read_async(parent, |_, children| children.clone())
-                .await
-                .unwrap_or_else(|| Arc::new(scc::HashMap::new())),
-        }
-    }
-
     async fn add_key_to_index(&self, key: &Key) {
-        for (parent, child) in Self::index_edges_for_key(key) {
-            let children = self.get_or_create_children_map(&parent).await;
-            if children
-                .update_async(&child, |_k, count| {
-                    *count += 1;
-                })
-                .await
-                .is_none()
-            {
-                let _ = children.insert_async(child, 1).await;
-            }
-        }
+        self.dir_index.insert_key(key).await;
     }
 
     async fn remove_key_from_index(&self, key: &Key) {
-        for (parent, child) in Self::index_edges_for_key(key) {
-            if let Some(children) = self
-                .dir_index
-                .read_async(&parent, |_, children| children.clone())
-                .await
-            {
-                if let Some(current_count) = children.read_async(&child, |_k, count| *count).await {
-                    if current_count <= 1 {
-                        let _ = children.remove_async(&child).await;
-                    } else {
-                        let _ = children
-                            .update_async(&child, |_k, count| {
-                                *count -= 1;
-                            })
-                            .await;
-                    }
-                    if children.is_empty() {
-                        let _ = self.dir_index.remove_async(&parent).await;
-                    }
-                }
-            }
-        }
+        self.dir_index.remove_key(key).await;
     }
 }
+
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl AsyncStore for AsyncMemoryStore {
@@ -812,20 +749,12 @@ impl AsyncStore for AsyncMemoryStore {
         if self.data.contains_async(key).await {
             return Ok(true);
         }
-        Ok(self
-            .dir_index
-            .read_async(key, |_k, children| !children.is_empty())
-            .await
-            .unwrap_or(false))
+        Ok(self.dir_index.is_dir(key).await)
     }
 
     async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
         let key = key.as_absolute()?;
-        Ok(self
-            .dir_index
-            .read_async(key, |_k, children| !children.is_empty())
-            .await
-            .unwrap_or(false))
+        Ok(self.dir_index.is_dir(key).await)
     }
 
     async fn keys(&self) -> Result<Vec<Key>, Error> {
@@ -851,23 +780,7 @@ impl AsyncStore for AsyncMemoryStore {
 
     async fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
         let key = key.as_absolute()?;
-        let Some(children) = self
-            .dir_index
-            .read_async(key, |_k, children| children.clone())
-            .await
-        else {
-            return Ok(vec![]);
-        };
-
-        let mut keys = Vec::new();
-        let _ = children
-            .iter_async(|child_key, _| {
-                keys.push(child_key.clone());
-                true
-            })
-            .await;
-        keys.sort();
-        Ok(keys)
+        Ok(self.dir_index.child_keys(key).await)
     }
 
     async fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
