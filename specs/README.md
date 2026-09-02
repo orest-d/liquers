@@ -127,6 +127,7 @@ expansion time rather than at runtime. That is the cheapest item here.
 - **Configuring a store from a URI** — designing → [`design/store-config-uri/`](design/store-config-uri/)
 - **Type-enforced key absoluteness** — planned → [`issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md`](issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md)
 - **OpenDAL path normalization** — designing → [`design/opendal-path-mapping/`](design/opendal-path-mapping/)
+- **Shared directory support for backends without directories** — designing → [`design/opendal-path-mapping/`](design/opendal-path-mapping/) *(issue [`CORE-DIRECTORY-INDEX-NOT-SHARED`](issues/CORE-DIRECTORY-INDEX-NOT-SHARED.md))*
 - **Streaming binary access (`openbin`)** — planned → [`issues/CORE-STORE-OPENBIN-MISSING.md`](issues/CORE-STORE-OPENBIN-MISSING.md)
 - **Sessions and key-level authorization** — planned → [`issues/CORE-SESSION-AND-KEY-ACL.md`](issues/CORE-SESSION-AND-KEY-ACL.md)
 
@@ -144,8 +145,17 @@ them is `removedir`, which therefore deletes sibling directories — data loss, 
 first, and the second-sharpest is that a directory key is unaddressable on a backend with no
 directory objects, which covers most of `OPENDAL_STORE_TYPES`. That nothing checks the four
 `AsyncStore` implementations against one another is
-`STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE`. Sessions and ACL are one item because there
-is no identity on `Context` to authorize against.
+`STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE`.
+
+Most backends have no directory objects, so `is_dir`, `contains` and `listdir` must be *derived*
+from the keys that exist. Four stores each solved that privately and no two alike — `AsyncMemoryStore`
+with a refcounted index, the sync `MemoryStore` with an O(n) scan, `FetchStore` from a configured key
+set, `LocalStorageStore` with a map plus an explicit-directory set — and `AsyncOpenDALStore` with
+nothing at all. `CORE-DIRECTORY-INDEX-NOT-SHARED` is that duplication; the same design covers it,
+putting a shared `DirectoryIndex` and the semantics downstream of `is_dir` in `liquers-core` so each
+store supplies only its own source of directory truth.
+
+Sessions and ACL are one item because there is no identity on `Context` to authorize against.
 
 ### Command libraries
 
@@ -201,6 +211,7 @@ question are both measure-first items.
 | Issue | Pri | Cx | Design |
 |---|---|---|---|
 | [`STORE-OPENDAL-SLASH-HANDLING`](issues/STORE-OPENDAL-SLASH-HANDLING.md) | P0 | M | `opendal-path-mapping` |
+| [`CORE-DIRECTORY-INDEX-NOT-SHARED`](issues/CORE-DIRECTORY-INDEX-NOT-SHARED.md) | P1 | L | `opendal-path-mapping` |
 <!-- END generated: issues -->
 
 ## Not yet placed

@@ -1,14 +1,18 @@
 # Phase 1: High-Level Design — OpenDAL path mapping
 
 For [`issues/STORE-OPENDAL-SLASH-HANDLING.md`](../../issues/STORE-OPENDAL-SLASH-HANDLING.md)
-(issue, **P0**, complexity M, `status: accepted`).
+(issue, **P0**, complexity M) and
+[`issues/CORE-DIRECTORY-INDEX-NOT-SHARED.md`](../../issues/CORE-DIRECTORY-INDEX-NOT-SHARED.md)
+(issue, P1, complexity L) — both `status: accepted`. The second was filed at the architecture gate
+when it became clear the directory fallback belongs in `liquers-core` rather than in one store.
 
 > **Revision history.** Written 2026-08-29 from a first reproduction, which concluded that the
 > issue's headline claim was not reproducible and that the remaining defects were three. A **second
 > reproduction on 2026-09-02** found two further defects, one of them destructive, and disproved one
 > of the first pass's own claims. Restructured the same day to the `liquers-project` contract when
-> the workflow was adopted at the gate. Both reproductions are recorded below, because the
-> correction is part of the evidence.
+> the workflow was adopted at the gate, and **widened the same day** when the gate directed that the
+> directory fallback live in core. Both reproductions are recorded below, because the correction is
+> part of the evidence.
 
 ## Feature Name
 
@@ -17,11 +21,21 @@ directory form.
 
 ## Purpose
 
-`AsyncOpenDALStore` builds backend paths in six places and gets the trailing slash right in only
-two. Because OpenDAL treats a path without a trailing `/` as a *prefix*, `removedir("sub")` deletes
-`subway/` and `listdir_keys_deep("sub")` lists it — data loss and wrong results on every backend.
-This work puts the mapping in one place, fixes the five defects that follow from its absence, and
-pins the result down with a round-trip property test and a sibling-safety test.
+Two things, one of them urgent.
+
+**The urgent one.** `AsyncOpenDALStore` builds backend paths in six places and gets the trailing
+slash right in only two. Because OpenDAL treats a path without a trailing `/` as a *prefix*,
+`removedir("sub")` deletes `subway/` and `listdir_keys_deep("sub")` lists it — data loss and wrong
+results on every backend. This work puts the mapping in one place, fixes the five defects that
+follow from its absence, and pins the result down with a round-trip property test and a
+sibling-safety test.
+
+**The broader one.** The sixth defect is that the store has no way to answer `is_dir` on a backend
+with no directory objects, which is most of them. Four other stores each solve that privately and no
+two alike, so the fallback is built **in `liquers-core`** — a shared `DirectoryIndex` plus the
+`AsyncStore` semantics that follow from `is_dir` — and each store supplies only its own source of
+directory truth. That is `CORE-DIRECTORY-INDEX-NOT-SHARED`, and it is what makes this work
+cross-crate.
 
 ## Core Interactions
 
@@ -30,10 +44,20 @@ None. No query, parse or plan behaviour changes. `-R/` and `-R-dir/` queries aga
 OpenDAL-backed store return correct results afterwards where they returned sibling data before.
 
 ### Store System
-The whole change. `AsyncOpenDALStore` (`liquers-store/src/opendal_store.rs`): path mapping,
-`key_prefix`, `is_dir`, `contains`, `get_metadata`, `removedir`, `listdir`, `listdir_keys_deep`,
-`makedir`. `AsyncStoreRouter` (`liquers-core`) is not edited but changes behaviour, because it
-routes and aggregates on `key_prefix()`.
+The whole change, and it spans two crates.
+
+`liquers-store`: `AsyncOpenDALStore` — path mapping, `key_prefix`, `is_dir`, `contains`,
+`get_metadata`, `removedir`, `listdir`, `listdir_keys_deep`, `makedir`.
+
+`liquers-core`: a new `store_dir_index` module holding `DirectoryIndex`, the directory derivation
+extracted from `AsyncMemoryStore` and generalized to cover what `FetchStore` and
+`LocalStorageStore` each grew privately; plus two `AsyncStore` trait defaults (`contains`,
+`get_metadata`) so a store that answers `is_dir` inherits the rest instead of restating it.
+`AsyncMemoryStore` adopts the extracted index, unchanged in behaviour, which is what proves the
+extraction faithful.
+
+`AsyncStoreRouter` is not edited but changes behaviour, because it routes and aggregates on
+`key_prefix()`.
 
 ### Command System
 None. No command is added, removed or changed; no namespace is touched.
@@ -50,35 +74,52 @@ No route changes, but `liquers-axum`'s `DELETE /api/store/removedir/{*key}` stop
 directories, and its store listing endpoints stop reporting keys from them.
 
 ### UI
-None. `liquers-web` no longer depends on `liquers-store` at all
-(see [`design/store-factories-in-core/`](../store-factories-in-core/)).
+None directly. `liquers-web` no longer depends on `liquers-store`
+(see [`design/store-factories-in-core/`](../store-factories-in-core/)), but it does depend on
+`liquers-core`, so its stores inherit the changed trait defaults — both override them, so nothing
+changes, and the wasm test loop is run to confirm rather than assume. `FetchStore` and
+`LocalStorageStore` keep their private directory indexes for now; migrating them to
+`DirectoryIndex` is filed as follow-up, not done here.
 
 ## Crate Placement
 
-**`liquers-store`** — `src/opendal_store.rs` for the implementation and its colocated tests, plus
-one `#[cfg]` line in `src/store_factory.rs`. This is where the OpenDAL backend lives, and the
-dependency flow is respected: nothing moves toward `liquers-core`, which is read but not edited.
+**`liquers-core`** — `src/store_dir_index.rs` (new, a sibling of the existing `store.rs`,
+`store_config.rs`, `store_factory.rs`) for `DirectoryIndex`, and narrow edits to `src/store.rs` for
+the two trait defaults and for `AsyncMemoryStore` adopting the extracted index. Placement rationale:
+this is shared store semantics, four crates' worth of stores need it, and `liquers-core` is the only
+crate all of them depend on. It adds no dependency — `scc` is already there and already compiles for
+wasm32.
 
-The mapping stays a private type inside `opendal_store.rs` rather than a new `path_map.rs` module:
-the deliverable the issue asks for is "one place", not "one file", and a module would add public
-surface for a single caller.
+**`liquers-store`** — `src/opendal_store.rs` for the OpenDAL implementation and its colocated tests,
+plus one `#[cfg]` line in `src/store_factory.rs`.
+
+The dependency flow is respected: `liquers-store` gains a dependency on a `liquers-core` module,
+never the reverse.
+
+The *path* mapping stays a private type inside `opendal_store.rs` rather than a new `path_map.rs`
+module: the deliverable the issue asks for is "one place", not "one file", and a module would add
+public surface for a single caller. The *directory* mechanism is the opposite case — five stores
+need it, so it is public and in core.
 
 ## Documentation Intent
 
 **Reference:** *Extend* `specs/reference/STORE_CONFIG_FSD.md` — no. That document specifies
-configuration, and this is semantics. **Create** a new reference section documenting `AsyncStore`'s
-directory and deletion contract: what `is_dir`, `contains` and `removedir` mean when the backend has
-no directory objects, and the rule that no operation on a key may reach a sibling key. Four of the
-six defects are divergences from an unwritten rule, so writing the rule down is the durable fix.
-Exact path decided in Phase 2 (a new `specs/reference/STORE_SEMANTICS.md`, or a section in an
-existing store reference).
+configuration, and this is semantics. **Create `specs/reference/STORE_SEMANTICS.md`**, confirmed at
+the gate as desirable and as **Phase 5 work** — written against what shipped, not ahead of it. It
+documents `AsyncStore`'s directory and deletion contract: what `is_dir`, `contains` and `removedir`
+mean when the backend has no directory objects; that no operation on a key may reach a sibling key;
+the three sources of directory truth (`stat`, a bounded listing, `DirectoryIndex`) and which backend
+shape uses which. Four of the six defects are divergences from an unwritten rule, and the new core
+module is that rule's implementation, so writing the rule down is the durable half of the fix.
 
 **Guide:** Neither. There is no repeatable task a developer performs here; nobody "uses" a path
 mapping. Reconsider if Phase 3 finds that configuring a *prefixed* store needs explaining — the
 prefix convention (the prefix is part of the path under the backend root) is currently folklore.
 
-**Other documents to create:** `specs/issues/STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE.md`
-— filed 2026-09-02, since the suite itself is out of scope (see Non-goals).
+**Other documents to create:** two issues, both filed 2026-09-02 —
+`specs/issues/CORE-DIRECTORY-INDEX-NOT-SHARED.md`, which this design now **covers**, and
+`specs/issues/STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE.md`, whose suite remains out of
+scope (see Non-goals).
 
 **Specific documents to update:** `specs/README.md` §Stores (done, 2026-09-02: the disproven
 statement is corrected and the P0 raise reflected); the issue file
@@ -100,6 +141,9 @@ able to read the contract and satisfy it without reading this design folder or r
    the four `//TODO: create_dir` markers the issue cites, so leaving it would close the issue with
    two citations untouched.
 4. **Q4 — is the P1 → P0 raise right?** **Answered: keep P0.**
+   **Q5 — where does the directory fallback live?** Raised and answered at the same gate: **in
+   `liquers-core`**, not private to the OpenDAL store, because `liquers-web`'s HTTP-backed stores
+   have or will have the same problem. Filed as `CORE-DIRECTORY-INDEX-NOT-SHARED` and covered here.
 5. Still open, for Phase 2 to settle: the exact path and shape of the new reference section
    (question 1 under Documentation Intent).
 6. Still open, for Phase 3: whether the sibling-safety property can be asserted against a *remote*
@@ -270,7 +314,12 @@ Six defects. The first is data loss and is why the issue is P0.
    than accidental.
 3. `key_prefix()` returns the configured prefix, matching `AsyncFileStore`, with a test that a
    prefixed store enumerates and routes only within its prefix.
-4. A directory key whose children exist is addressable on a backend with no directory objects:
+4. **The directory fallback is in `liquers-core`, usable by any store.** `DirectoryIndex` covers
+   what `AsyncMemoryStore`, `FetchStore` and `LocalStorageStore` each built privately — derived
+   children, incremental maintenance, construction from a key set, and explicitly created empty
+   directories — and `AsyncMemoryStore` adopts it with its existing tests passing **unchanged**,
+   which is what proves the extraction faithful. A directory key whose children exist is then
+   addressable on a backend with no directory objects:
    `is_dir`, `contains`, `get_metadata` and `get_asset_info` agree with `listdir`. Verified on the
    memory backend, so `test_opendal_subdir`'s assertions can be uncommented rather than
    apologised for. `is_dir` on an absent key returns `Ok(false)`, as every other store does.
@@ -298,12 +347,17 @@ Query, Commands and Assets are untouched.
 - `STORE-OPENDAL-ARGUMENTS-NOT-DERIVED` (P3) — belongs to `store-factories-in-core`;
 - `STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED` — the key-absoluteness rule is already enforced here, by
   `key_to_path`;
-- building the shared `AsyncStore` behavioural conformance suite. Every defect here is a divergence
-  from what the two `liquers-core` stores already do, and one suite run against all four
-  implementations would have caught four of the six. That is an `L`-complexity change to
-  `liquers-core` and is filed as
-  `STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE` rather than folded into a P0 fix. Writing
-  the *contract* it would encode is in scope, under Documentation Intent.
+- building the shared `AsyncStore` behavioural conformance suite. `DirectoryIndex` and the trait
+  defaults give the semantics one *implementation* to inherit; the suite would give them an
+  *enforcement* across all of them, which is a separate body of test work. Filed as
+  `STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE`. Writing the *contract* both would encode is
+  in scope, under Documentation Intent;
+- migrating `FetchStore` and `LocalStorageStore` to `DirectoryIndex`. Both work today, both are
+  wasm-only with their own Node, browser and Playwright test loops, and the migration is cleanup
+  rather than repair. `CORE-DIRECTORY-INDEX-NOT-SHARED` asks that the mechanism be *available* in
+  core, which it will be; the migration is follow-up recorded on that issue. The sync `MemoryStore`
+  is left alone for the same reason — its index-free `is_dir` scan is a performance matter, not a
+  correctness one.
 
 Folded in, both because they live in the same file and the same test module is being rewritten:
 `OPENDAL-LOCALFS-TEST-SILENT-ON-WRONG-VALUE-TYPE` (P3, S) and

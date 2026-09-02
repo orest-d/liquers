@@ -1,19 +1,20 @@
 ---
 id: OPENDAL-PATH-MAPPING
 kind: design
-title: One path mapping for the OpenDAL store, with a key round-trip property
+title: One path mapping for the OpenDAL store, and shared directory support in core
 workflow: liquers-project
 status: in_review
 phase: architecture
-area: [store/backends]
+area: [core/store, store/backends, web]
 gh_pr: []
-issues: [STORE-OPENDAL-SLASH-HANDLING, OPENDAL-LOCALFS-TEST-SILENT-ON-WRONG-VALUE-TYPE, STORE-OPENDAL-WITHOUT-ASYNC-STORE-BROKEN]
+issues: [STORE-OPENDAL-SLASH-HANDLING, CORE-DIRECTORY-INDEX-NOT-SHARED, OPENDAL-LOCALFS-TEST-SILENT-ON-WRONG-VALUE-TYPE, STORE-OPENDAL-WITHOUT-ASYNC-STORE-BROKEN]
 created: 2026-08-29
 superseded_by:
 ---
 # OpenDAL path mapping
 
-Design tracking for `STORE-OPENDAL-SLASH-HANDLING` (**P0** since 2026-09-02). Begun under
+Design tracking for `STORE-OPENDAL-SLASH-HANDLING` (**P0**) and `CORE-DIRECTORY-INDEX-NOT-SHARED`
+(P1, `L`, filed at the architecture gate on 2026-09-02 and covered here). Begun under
 [`guides/autonomous_issue_fixing.md`](../../guides/autonomous_issue_fixing.md), and **migrated to
 the `liquers-project` five-phase contract on 2026-09-02**, explicitly adopted by the user at the
 architecture gate: the issue is `P0`/`M`, and that guide's §1 confines its procedure to `S`/`M` at
@@ -55,6 +56,8 @@ twice, and both corrections are evidence a future reader needs.
 | **Q2 — `key_prefix()` fix here or split out?** | Fix here, in its own commit, with a router test. |
 | **Q3 — the 200-line commented-out synchronous `OpenDALStore`?** | **Delete it in this change**, so the issue closes with all four of its `//TODO: create_dir` citations resolved rather than two left inside dead text. |
 | **Q4 — the P1 -> P0 raise?** | Keep P0. Data loss reachable over HTTP is the guide's own §4.4 criterion. |
+| **The store contract in `specs/reference/`** | Desirable, and **Phase 5 work** — written against what shipped. `specs/reference/STORE_SEMANTICS.md`. |
+| **Where the directory fallback lives** | **`liquers-core`**, not private to the OpenDAL store: `liquers-web`'s HTTP-backed stores have or will have the same problem. A shared `DirectoryIndex` (the `AsyncMemoryStore` mechanism, extracted and generalized) plus the `AsyncStore` semantics that follow from `is_dir`. Filed as `CORE-DIRECTORY-INDEX-NOT-SHARED`; the work becomes cross-crate and therefore `L`. |
 
 ## Notes
 
@@ -75,3 +78,14 @@ twice, and both corrections are evidence a future reader needs.
 - `AsyncMemoryStore` (`liquers-core/src/store.rs:810-830`) synthesizes directory existence from a
   key index rather than asking a backend. That is the precedent for the directory-key gap described
   in Phase 1 defect 4, and the reason the fix is not speculative.
+- **Four stores already derive directory structure from a flat key set, no two alike**, which is
+  what turned "give the OpenDAL store a fallback" into "put the fallback in core":
+  `AsyncMemoryStore` (`store.rs:580`, refcounted `scc` index maintained on write), the sync
+  `MemoryStore` (`:1607`, no index — an O(n) scan per call), `FetchStore`
+  (`liquers-web/src/store/fetch.rs:130`, an immutable `BTreeMap` built from a configured key set),
+  and `LocalStorageStore` (`local_storage.rs:353`, a mutable map **plus** an `explicit_dirs` set for
+  empty directories `makedir` created). `AsyncOpenDALStore` has none. `explicit` is a field of the
+  core type because `LocalStorageStore` proved it necessary.
+- **Sequencing.** The P0 (commits 1-2: the trailing slash and `key_prefix()`) touches
+  `liquers-store` only and depends on nothing in `liquers-core`, so it can ship and revert ahead of
+  the core work if that needs another round. Phase 4 keeps that freedom.
