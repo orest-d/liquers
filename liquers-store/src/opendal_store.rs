@@ -402,6 +402,21 @@ impl AsyncOpenDALStore {
             )
         })
     }
+    /// True when the backend holds anything under this key's directory path.
+    ///
+    /// This store's source of directory truth on a backend that has no directory objects — most of
+    /// them, `s3`, `gcs`, `azblob` and the SQL backends included. It asks the backend rather than
+    /// keeping a `DirectoryIndex`, because the backend is authoritative and may be written by
+    /// another process: an index would go stale, and rebuilding it means listing the whole bucket.
+    ///
+    /// `limit(1)` is a page-size **hint**, not a cap — the memory backend returns two entries for
+    /// it — so this tests for non-emptiness and never for a count.
+    async fn has_children(&self, key: &Key) -> Result<bool, Error> {
+        let path = self.key_to_path_dir(key)?;
+        let entries = self.map_read_error(key, self.op.list_with(&path).limit(1).await)?;
+        Ok(!entries.is_empty())
+    }
+
     async fn make_sub_dirs(&self, key: &Key) -> Result<(), liquers_core::error::Error> {
         for i in 1..=key.len() {
             let sub_key = key.prefix_of_size(i).unwrap();
@@ -472,10 +487,10 @@ impl AsyncStore for AsyncOpenDALStore {
             if self.map_read_error(key, self.op.exists(&path).await)? {
                 let stat = self.map_read_error(key, self.op.stat(&path).await)?;
                 if stat.is_dir() {
-                    let mut metadata = self.default_metadata(key, true);
-                    // FIXME: This currently does not work due to some bug with handling '/'
-                    // Anyway, it may be too expensive to list directory contents here.
-                    //metadata.children = self.listdir_asset_info(key).await.unwrap_or_default();
+                    // Directory children are deliberately not populated here: `listdir_asset_info`
+                    // calls `get_asset_info` per child, which calls `get_metadata` per child
+                    // directory — a full recursive walk of the subtree for one directory read.
+                    let metadata = self.default_metadata(key, true);
                     return Ok(Metadata::MetadataRecord(metadata));
                 } else {
                     let mut metadata = self.default_metadata(key, false);
@@ -488,6 +503,18 @@ impl AsyncStore for AsyncOpenDALStore {
                     return Ok(metadata);
                 }
             } else {
+                // Neither the data object nor its sidecar exists. On a backend with no directory
+                // objects that is also what a *directory* looks like, so ask whether anything is
+                // stored under it before reporting the key absent. Without this,
+                // `get_metadata("sub")` — and `get_asset_info`, which is built on it — failed for
+                // a directory that `listdir` could see, and fixing `is_dir` alone would not have
+                // helped: this method overrides the trait default and never calls `is_dir`.
+                //
+                // The value returned is the one the `stat().is_dir()` branch above returns, so the
+                // two paths cannot diverge.
+                if self.has_children(key).await? {
+                    return Ok(Metadata::MetadataRecord(self.default_metadata(key, true)));
+                }
                 Err(Error::key_not_found(key))
             }
         }
@@ -554,6 +581,9 @@ impl AsyncStore for AsyncOpenDALStore {
     }
 
     /// Returns true if store contains the key.
+    ///
+    /// Data, else the metadata sidecar, else a directory — the same order `AsyncMemoryStore` uses.
+    /// Without the last step a directory visible to `listdir` was reported as not contained.
     async fn contains(&self, key: &Key) -> Result<bool, Error> {
         let path = self.key_to_path(key)?;
         if self.map_read_error(key, self.op.exists(&path).await)? {
@@ -563,14 +593,32 @@ impl AsyncStore for AsyncOpenDALStore {
         if self.map_read_error(key, self.op.exists(&metadata_path).await)? {
             return Ok(true);
         }
-        Ok(false)
+        self.is_dir(key).await
     }
 
     /// Returns true if key points to a directory.
+    ///
+    /// `stat` first, because a backend that has real directories answers in O(1). When it reports
+    /// the path absent, fall back to asking whether anything is stored under it: on an object
+    /// store a directory has no object of its own, so `stat` finding nothing says nothing about
+    /// whether the directory exists.
+    ///
+    /// An absent key is `Ok(false)`, matching every other store. Any **other** backend error still
+    /// propagates — an S3 403 must not be reported as "not a directory", which is why this matches
+    /// `NotFound` specifically rather than testing `is_err()`. The catch-all arm is over
+    /// `opendal::ErrorKind`, a foreign `#[non_exhaustive]` enum, and is the one place this file
+    /// needs one.
     async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
         let path = self.key_to_path(key)?;
-        let stat = self.map_read_error(key, self.op.stat(&path).await)?;
-        Ok(stat.is_dir())
+        match self.op.stat(&path).await {
+            Ok(stat) => Ok(stat.is_dir()),
+            Err(e) if e.kind() == opendal::ErrorKind::NotFound => self.has_children(key).await,
+            Err(e) => Err(Error::key_read_error(
+                key,
+                &self.store_name(),
+                &format!("{e} (OpenDAL Read Error)"),
+            )),
+        }
     }
 
     /// List or iterator of all keys
@@ -1080,9 +1128,8 @@ mod tests {
             router.is_dir(&parse_key("other")?).await?,
             "the second store's directory is answered by the second store, not claimed by the first"
         );
-        // `router.is_dir("data")` is asserted by `DIR04`, not here: it delegates to the OpenDAL
-        // store, whose `is_dir` cannot yet answer for a directory on a backend with no directory
-        // objects. That is defect 4, fixed in the commit that adds `has_children`.
+        // `router.is_dir("data")` is asserted by `DIR04`, which delegates to the OpenDAL store and
+        // therefore needs the directory fallback this commit's successor adds.
         Ok(())
     }
 
@@ -1177,44 +1224,110 @@ mod tests {
         assert!(store.listdir_keys(&Key::new()).await.unwrap().is_empty());
     }
 
+    /// The memory backend has no directory objects, which is the object-store shape.
+    ///
+    /// This test used to carry the note "memory backend does not support directories explicitly,
+    /// so not everything works as it should" and a commented-out block of assertions. That was the
+    /// bug, written down and then tolerated: `listdir` could see a directory that `is_dir`,
+    /// `contains` and `get_metadata` all denied. The assertions are live now.
     #[tokio::test]
-    async fn test_opendal_subdir() {
-        // Create a memory operator
-        // Note that memory backend does not support directories explicitly, so not wverything works as it should
-        let memory = Memory::default();
-        let op = Operator::new(memory).unwrap().finish();
-        let store = AsyncOpenDALStore::new(op, Key::new());
+    async fn test_opendal_subdir() -> Result<(), Error> {
+        let store = memory_store();
 
-        assert_eq!(store.keys().await.unwrap().len(), 1);
-        assert!(store.listdir(&Key::new()).await.unwrap().is_empty());
-        assert!(store.listdir_keys(&Key::new()).await.unwrap().is_empty());
+        assert_eq!(store.keys().await?.len(), 1, "the root key alone");
+        assert!(store.listdir(&Key::new()).await?.is_empty());
+        assert!(store.listdir_keys(&Key::new()).await?.is_empty());
 
-        let key = parse_key("sub/foo.txt").unwrap();
-        let subkey = parse_key("sub").unwrap();
-        let data = b"hello world";
+        let key = parse_key("sub/foo.txt")?;
+        let subkey = parse_key("sub")?;
 
-        // Write data
-        store.set(&key, data, &Metadata::new()).await.unwrap();
-        assert!(store.contains(&key).await.unwrap());
-        //assert!(store.is_dir(&subkey).await.unwrap());
+        store.set(&key, b"hello world", &Metadata::new()).await?;
+        assert!(store.contains(&key).await?);
+        assert!(store.is_dir(&subkey).await?);
 
-        assert_eq!(store.keys().await.unwrap().len(), 3);
-        assert!(store
-            .keys()
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|x| x.encode())
-            .collect::<Vec<_>>()
-            .contains(&"sub/foo.txt".to_string()));
-        assert!(store.listdir(&subkey).await.unwrap().len() == 1);
-        /*
-        assert!(store.listdir(&subkey).await.unwrap()[0] == "sub/foo.txt");
-        assert!(store.listdir_keys(&subkey).await.unwrap().len() == 1);
-        assert!(store.listdir_keys(&subkey).await.unwrap()[0].encode() == "sub/foo.txt");
-        assert!(store.listdir_keys_deep(&subkey).await.unwrap().len() == 1);
-        assert!(store.listdir_keys_deep(&subkey).await.unwrap()[0].encode() == "sub/foo.txt");
-        */
+        // Root, the directory, and the data key.
+        let encoded: Vec<String> = store.keys().await?.iter().map(|k| k.encode()).collect();
+        assert_eq!(encoded.len(), 3, "got {encoded:?}");
+        assert!(encoded.contains(&"sub/foo.txt".to_string()));
+
+        assert_eq!(store.listdir(&subkey).await?, vec!["foo.txt".to_string()]);
+        assert_eq!(
+            store.listdir_keys(&subkey).await?.iter().map(|k| k.encode()).collect::<Vec<_>>(),
+            vec!["sub/foo.txt".to_string()]
+        );
+        assert_eq!(
+            store.listdir_keys_deep(&subkey).await?.iter().map(|k| k.encode()).collect::<Vec<_>>(),
+            vec!["sub/foo.txt".to_string()]
+        );
+        Ok(())
+    }
+
+    /// `DIR01` — on a backend with no directory objects, addressing agrees with listing.
+    #[tokio::test]
+    async fn dir01_directory_key_is_addressable_without_directory_objects() -> Result<(), Error> {
+        let store = memory_store();
+        let key = parse_key("data/reports/q3.csv")?;
+        let dir = parse_key("data/reports")?;
+        store.set(&key, b"rows", &Metadata::new()).await?;
+
+        assert_eq!(store.listdir(&dir).await?, vec!["q3.csv".to_string()]);
+        assert!(store.is_dir(&dir).await?, "listing sees it, so addressing must too");
+        assert!(store.contains(&dir).await?);
+        assert!(store.get_metadata(&dir).await.is_ok(), "directory metadata");
+        assert!(store.get_asset_info(&dir).await.is_ok(), "and asset info built on it");
+        Ok(())
+    }
+
+    /// `DIR02` — an absent key is `Ok(false)`, not an error.
+    ///
+    /// Every other store answers this way: `AsyncFileStore`, `AsyncMemoryStore`, and the trait
+    /// default. This store returning `Err` was the divergence.
+    #[tokio::test]
+    async fn dir02_is_dir_on_an_absent_key_is_false_not_an_error() -> Result<(), Error> {
+        let fs = fs_store("dir02");
+        for store in [&memory_store(), &fs.store] {
+            assert!(!store.is_dir(&parse_key("nothing/here")?).await?);
+            assert!(!store.contains(&parse_key("nothing/here")?).await?);
+        }
+        Ok(())
+    }
+
+    /// `DIR03` — `has_children` is non-emptiness, never a count.
+    ///
+    /// `limit(1)` is a page-size hint: the memory backend returns two entries for it, because a
+    /// data object and its sidecar arrive together. A test asserting a count would pass on one
+    /// backend and fail on another.
+    #[tokio::test]
+    async fn dir03_directory_detection_does_not_depend_on_a_count() -> Result<(), Error> {
+        let store = memory_store();
+        for i in 0..5 {
+            store
+                .set(&parse_key(&format!("many/f{i}.txt"))?, b"x", &Metadata::new())
+                .await?;
+        }
+        assert!(store.is_dir(&parse_key("many")?).await?);
+        assert_eq!(store.listdir(&parse_key("many")?).await?.len(), 5);
+        Ok(())
+    }
+
+    /// `DIR04` — the router's `is_dir` reaches a prefixed OpenDAL store's directory.
+    ///
+    /// The half of `ROUTER01` that had to wait for this commit: `AsyncStoreRouter::is_dir`
+    /// delegates on `key_prefix()`, and the store it delegates to could not answer for a directory
+    /// with no directory object.
+    #[tokio::test]
+    async fn dir04_router_is_dir_reaches_a_prefixed_opendal_store() -> Result<(), Error> {
+        use liquers_core::store::{AsyncMemoryStore, AsyncStoreRouter};
+
+        let op = Operator::new(Memory::default()).expect("memory operator").finish();
+        let mut router = AsyncStoreRouter::new();
+        router.add_store(Box::new(AsyncOpenDALStore::new(op, parse_key("data")?)));
+        router.add_store(Box::new(AsyncMemoryStore::new(&parse_key("other")?)));
+
+        router.set(&parse_key("data/in.csv")?, b"in", &Metadata::new()).await?;
+
+        assert!(router.is_dir(&parse_key("data")?).await?);
+        Ok(())
     }
     /// Names `opendal::services::Fs`, which exists only behind the service feature — a build
     /// with OpenDAL linked but `services-fs` off must skip this rather than fail to compile.
