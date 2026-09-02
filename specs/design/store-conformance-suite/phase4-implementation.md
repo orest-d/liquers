@@ -30,11 +30,15 @@ suites so nothing depends on it.
 **Files:** `specs/reference/STORE_SEMANTICS.md`
 
 Record the sync/async `keys()` asymmetry step 10 creates, beside the trait-neutral phrasing, so it
-reads as a decision rather than an oversight. Resolve the three ⚠ rows using the Phase 1 decisions: §5 the `removedir` postcondition (`Ok` means
-the directory is gone; recursion follows; the trait default's `Err(KeyNotSupported)` stays valid
-for a store declaring no `RemoveDirectories`), §9 `keys()` returns data keys plus directories plus
-the prefix with **every returned key starting with the prefix**, §6 keep or clear the
-`is_supported` ⚠ depending on whether `async-memory-store-prefix-support` has merged. Restate rules
+reads as a decision rather than an oversight. Resolve the **two** ⚠ rows this project owns, using the Phase 1 decisions: §5 the `removedir`
+postcondition (`Ok` means the directory is gone; recursion follows; the trait default's
+`Err(KeyNotSupported)` stays valid for a store declaring no `RemoveDirectories`), and §9 `keys()`
+returns data keys plus directories plus the prefix with **every returned key starting with the
+prefix**.
+
+§6's `is_supported` ⚠ was the third; `async-memory-store-prefix-support` merged from `main` on
+2026-09-02 and cleared it. §7's remaining ⚠ is `RESOURCE-NAME-ASCII-ONLY`, a parsing limit rather
+than a store one, and stays. Restate rules
 trait-neutrally where they hold for both traits, noting only `AsyncStore` must satisfy them today
 (`CORE-SYNC-STORE-TRAIT-OBSOLETE`). Replace each *Enforced by* line with the Phase 3 rule IDs. Add a
 `## History` row and bump `reviewed:` in the same commit (§9.2).

@@ -28,22 +28,23 @@ Open issues in `core/store`, `store/backends` and `web`, with their bearing on t
 |---|---|---|---|
 | `STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE` | P1/L | This design closes it. | — |
 | `CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS` | P2/S | Settled by Phase 1 decision 1. Rule `keys01`–`keys02` encode it; `AsyncMemoryStore` changes. Closed by this work. | No |
-| `CORE-ASYNC-MEMORY-STORE-IS-SUPPORTED-IGNORES-PREFIX` | P1/S | Its own design (`async-memory-store-prefix-support`) is at `phase: implementation`, Phase 3 approved. Rule `prefix02` will fail `AsyncMemoryStore` until it lands. **Sequencing, not blocking**: if it has not merged when this reaches Phase 4, the rule ships listing that store in its `allowed_failures` citing the issue, and the entry is removed when it merges — the stale-ignore check (below) makes that automatic rather than remembered. | No |
+| `CORE-ASYNC-MEMORY-STORE-IS-SUPPORTED-IGNORES-PREFIX` | P1/S | **Closed** — merged from `main` on 2026-09-02. `AsyncMemoryStore::is_supported` is now `!key.is_relative() && key.has_key_prefix(&self.prefix)`, so `prefix02` passes and **no `allowed_failures` entry is needed**. `STORE_SEMANTICS.md` §6 has lost its ⚠ accordingly. The sequencing risk this row recorded is gone. | No |
 | `CORE-SYNC-STORE-TRAIT-OBSOLETE` | P2/M | Filed by this design. Out of scope; the contract is phrased trait-neutrally so its eventual return inherits the rules. | No |
 | `DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS` | P2/S | Filed by this design. `UNITTEST_GUIDE.md` and `CLAUDE.md` teach a deleted type. This design edits `CLAUDE.md` §"Adding a Store Backend" anyway, so it fixes the two `CLAUDE.md` passages in passing; the guide and `STORE_CONFIG_FSD.md` passages stay with the issue. | No |
 | `CORE-STORE-OPENBIN-MISSING` | P3/M | `openbin` is unimplemented everywhere, so there is nothing to hold to a contract. **No rules cover it.** When it is implemented it needs the absolute-key check and a rule; recorded in the guide's question list. | No |
 | `STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED` | P3/L | The `keyabs` family is convention-enforced. This suite adopts those IDs as rules, which strengthens the convention but does not replace the type-level fix. | No |
 | `RESOURCE-NAME-ASCII-ONLY` | P2/L | Non-ASCII names cannot be parsed into a `Key`, so no rule can request one. `KeyRequest` therefore has no "non-ASCII name" variant, and `STORE_SEMANTICS.md` §7 keeps its ⚠. | No |
-| `STORE-OPENDAL-LIST-OPTION-MISPARSED` | P2/S | Was a hazard for the tool; **moot here** now that no step reads a configuration document. Recorded on `STORE-CONFORMANCE-VALIDATION-TOOL`. | No |
+| `STORE-OPENDAL-LIST-OPTION-MISPARSED` | P2/S | **Closed** — merged from `main` on 2026-09-02. Was a hazard for the tool and moot here anyway, since no step reads a configuration document. | No |
 | `WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG` | P3/M | `liquers-web` hand-rolls its environment configuration. Irrelevant: the web suites construct stores directly, not through a document. | No |
 | `CORE-ERROR-STORE-NAME-NOT-STRUCTURED` | P2/S | A store's name is interpolated into the message rather than being a payload field. Rules must therefore assert on `ErrorType`, **never** on message text. Stated as a rule-authoring constraint below. | No |
 | `CORE-CONFIGURATION-ERROR-KIND` | P3/S | Was relevant to the tool's exit codes; **moot here**. Recorded on `STORE-CONFORMANCE-VALIDATION-TOOL`. | No |
 
 ### Blocking and Priority Decision
 
-**No blockers.** The one issue that could have been — `CORE-ASYNC-MEMORY-STORE-IS-SUPPORTED-IGNORES-PREFIX`,
-P1 — has an approved design in implementation, and the architecture absorbs either outcome through
-the allowed-failure mechanism it needs anyway. No priority changes are proposed: nothing here meets
+**No blockers.** The one issue that could have been —
+`CORE-ASYNC-MEMORY-STORE-IS-SUPPORTED-IGNORES-PREFIX`, P1 — **merged from `main` on 2026-09-02**,
+so the question is settled rather than absorbed. The allowed-failure mechanism stays, because
+step 10 may still surface divergences the census has not seen yet. No priority changes are proposed: nothing here meets
 the P0 criteria of `DOCS_STRUCTURE_GUIDE.md` §4.4, since the suite discovers divergences rather than
 suffering from them.
 
@@ -443,8 +444,8 @@ Temporary directories in tests use `std::env::temp_dir()` with a unique name, ma
 - §5 — replace the ⚠ with the postcondition: `Ok(())` means the directory does not exist
   afterwards; recursion follows; the trait default's `Err(KeyNotSupported)` is legitimate for a
   store declaring no `RemoveDirectories`.
-- §6 — remove the `AsyncMemoryStore::is_supported` ⚠ when
-  `async-memory-store-prefix-support` lands, or keep it citing that design.
+- §6 — **already done**: `async-memory-store-prefix-support` merged from `main` on 2026-09-02 and
+  removed that ⚠. Nothing for this project to do in §6.
 - §9 — replace the ⚠ with the rule: `keys()` returns data keys, directories and the prefix, and
   **every returned key starts with the prefix**.
 - Every section's *Enforced by* line becomes rule IDs from `rules()`.
