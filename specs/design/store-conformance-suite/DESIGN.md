@@ -4,11 +4,11 @@ kind: design
 title: An implemented conformance suite, a completed contract, and a store implementation guide
 workflow: liquers-project
 status: draft
-phase: high-level
+phase: architecture
 area: [core/store, store/backends, web, docs]
 gh_pr: []
 issues: [STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE, CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS, CORE-SYNC-STORE-TRAIT-OBSOLETE, DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS]
-affects_docs: [STORE_SEMANTICS, STORE_IMPLEMENTATION_GUIDE, LANGUAGE-INTEGRATION_GUIDE, STORE_FACTORY_GUIDE, STORE_CONFIG_FSD]
+affects_docs: [STORE_SEMANTICS, STORE_IMPLEMENTATION_GUIDE, CONFORMANCE_TERMS, LANGUAGE-INTEGRATION_GUIDE, STORE_FACTORY_GUIDE, STORE_CONFIG_FSD]
 created: 2026-09-02
 superseded_by:
 ---
@@ -18,8 +18,8 @@ superseded_by:
 
 ## Phase Status
 
-- [x] Phase 1: High-Level Design — awaiting approval
-- [ ] Phase 2: Solution & Architecture
+- [x] Phase 1: High-Level Design — approved 2026-09-02
+- [x] Phase 2: Solution & Architecture — awaiting approval
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation

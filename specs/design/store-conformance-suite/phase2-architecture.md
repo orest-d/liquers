@@ -1,105 +1,557 @@
-# Phase 2: Solution & Architecture - store-conformance-suite
+# Phase 2: Solution & Architecture — `AsyncStore` conformance
 
 ## Overview
 
-[2-3 sentences summarizing the architectural approach]
+Four artefacts, one vocabulary running through all of them:
+
+1. **`liquers_core::store_conformance`** — a shipped module behind the non-default feature
+   `store-conformance`. Runtime-agnostic: plain `async fn`s, no `tokio`, no test attributes, no
+   panics. It defines the rules, the capability vocabulary, the safety levels, the fixture
+   interface and the report.
+2. **Fixtures and suites** in `liquers-core`, `liquers-store` and `liquers-web`, running all seven
+   in-tree implementations plus the trait defaults.
+3. **`liquers-store-check`** — a binary that builds a store or router from a configuration
+   document, runs the suite at a chosen safety level, and prints the report.
+4. **Documentation** — `STORE_SEMANTICS.md` completed, `STORE_IMPLEMENTATION_GUIDE.md` created,
+   `CONFORMANCE_TERMS.md` extracted so this guide and `LANGUAGE-INTEGRATION_GUIDE.md` share one
+   status vocabulary, and a test holding all three to the code.
+
+The spine is the **rule ID**. A rule ID names a function in `rules()`, a citation in the contract,
+and a row in the guide; the synchronization test asserts the three sets are equal.
 
 ## Known-Issue Preflight
 
-[Search issues linked to the design, overlapping affected areas, and touching integration points,
-dependencies, public APIs, or architecture assumptions. Include relevant locally open issues,
-including `accepted` and `in_progress` items, from `specs/index.csv`.]
+Open issues in `core/store`, `store/backends` and `web`, with their bearing on this architecture.
 
-| Issue | Status | Current priority | Relevance and solution impact | Must be addressed first? | Blocking? | Required action | Priority action |
-|---|---|---|---|---|---|---|---|
-| [Issue ID or `None found`] | [open status] | [P0-P3] | [Impact on solution] | [yes/no] | [yes/no] | [Resolve, redesign, or monitor] | [Keep or recommend change] |
+| Issue | P/C | Bearing | Blocker? |
+|---|---|---|---|
+| `STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE` | P1/L | This design closes it. | — |
+| `CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS` | P2/S | Settled by Phase 1 decision 1. Rule `keys01`–`keys02` encode it; `AsyncMemoryStore` changes. Closed by this work. | No |
+| `CORE-ASYNC-MEMORY-STORE-IS-SUPPORTED-IGNORES-PREFIX` | P1/S | Its own design (`async-memory-store-prefix-support`) is at `phase: implementation`, Phase 3 approved. Rule `prefix02` will fail `AsyncMemoryStore` until it lands. **Sequencing, not blocking**: if it has not merged when this reaches Phase 4, the rule ships listing that store in its `allowed_failures` citing the issue, and the entry is removed when it merges — the stale-ignore check (below) makes that automatic rather than remembered. | No |
+| `CORE-SYNC-STORE-TRAIT-OBSOLETE` | P2/M | Filed by this design. Out of scope; the contract is phrased trait-neutrally so its eventual return inherits the rules. | No |
+| `DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS` | P2/S | Filed by this design. `UNITTEST_GUIDE.md` and `CLAUDE.md` teach a deleted type. This design edits `CLAUDE.md` §"Adding a Store Backend" anyway, so it fixes the two `CLAUDE.md` passages in passing; the guide and `STORE_CONFIG_FSD.md` passages stay with the issue. | No |
+| `CORE-STORE-OPENBIN-MISSING` | P3/M | `openbin` is unimplemented everywhere, so there is nothing to hold to a contract. **No rules cover it.** When it is implemented it needs the absolute-key check and a rule; recorded in the guide's question list. | No |
+| `STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED` | P3/L | The `keyabs` family is convention-enforced. This suite adopts those IDs as rules, which strengthens the convention but does not replace the type-level fix. | No |
+| `RESOURCE-NAME-ASCII-ONLY` | P2/L | Non-ASCII names cannot be parsed into a `Key`, so no rule can request one. `KeyRequest` therefore has no "non-ASCII name" variant, and `STORE_SEMANTICS.md` §7 keeps its ⚠. | No |
+| `STORE-OPENDAL-LIST-OPTION-MISPARSED` | P2/S | Affects configuration parsing, which `liquers-store-check` uses. A mis-parsed list option makes the tool build the wrong store — a *setup* failure that would be reported as non-conformance. The tool must print the resolved `StoreConfig` it built. | No |
+| `WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG` | P3/M | `liquers-web` hand-rolls its environment configuration. Irrelevant: the web suites construct stores directly, not through a document. | No |
+| `CORE-ERROR-STORE-NAME-NOT-STRUCTURED` | P2/S | A store's name is interpolated into the message rather than being a payload field. Rules must therefore assert on `ErrorType`, **never** on message text. Stated as a rule-authoring constraint below. | No |
+| `CORE-CONFIGURATION-ERROR-KIND` | P3/S | In progress. `liquers-store-check` should distinguish a configuration error (exit 2) from non-conformance (exit 1); until the error kind exists, it distinguishes by *stage* — a failure before the first rule runs is a setup failure. | No |
 
 ### Blocking and Priority Decision
 
-[Resolve blockers first or redesign to remove the dependency; do not approve Phase 2 with an
-unresolved blocker. Every blocker must be at least P1. Use P0 only when the issue also meets
-`DOCS_STRUCTURE_GUIDE.md` §4.4 impact criteria. Record and confirm priority changes.]
+**No blockers.** The one issue that could have been — `CORE-ASYNC-MEMORY-STORE-IS-SUPPORTED-IGNORES-PREFIX`,
+P1 — has an approved design in implementation, and the architecture absorbs either outcome through
+the allowed-failure mechanism it needs anyway. No priority changes are proposed: nothing here meets
+the P0 criteria of `DOCS_STRUCTURE_GUIDE.md` §4.4, since the suite discovers divergences rather than
+suffering from them.
 
 ## Data Structures
 
-### New Structs
+### `Capability` — the shared vocabulary
 
-[Define structs with fields, types, ownership rationale]
+```rust
+/// What a store can do. This enum **is** the vocabulary: a variant is a capability ID in
+/// `STORE_IMPLEMENTATION_GUIDE.md` and a row in a store's status matrix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Capability {
+    /// `set` and `set_metadata` — the store accepts writes.
+    Write,
+    /// `remove` — a single key can be deleted.
+    Remove,
+    /// `is_dir` and `listdir` answer meaningfully; the key space has a directory structure.
+    Directories,
+    /// `makedir` creates a directory that persists with no children.
+    ExplicitDirectories,
+    /// `removedir` removes a directory and its subtree.
+    RemoveDirectories,
+    /// Metadata written with `set_metadata` is read back, rather than derived on the fly.
+    StoredMetadata,
+    /// `keys()` enumerates the store.
+    EnumerateKeys,
+}
+```
 
-### New Enums
+### `StoreCapabilities` — a store's answers
 
-[Define enums with variants and their semantics]
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoreCapabilities {
+    pub write: bool,
+    pub remove: bool,
+    pub directories: bool,
+    pub explicit_directories: bool,
+    pub remove_directories: bool,
+    pub stored_metadata: bool,
+    pub enumerate_keys: bool,
+}
+```
 
-### ExtValue Extensions (if applicable)
+**Deliberately no `Default`.** A fixture must name every field, so adding a capability is a compile
+error at every fixture rather than a silent `false` that skips new rules and still reports green.
+This is the "no default match arm" rule applied to a struct, and it is aimed squarely at the
+vacuous-conformance failure `LANGUAGE-INTEGRATION_GUIDE.md` §3 describes.
 
-[If adding new ExtValue variants, document them here]
+`StoreCapabilities::has(&self, c: Capability) -> bool` matches `Capability` exhaustively, so the
+enum and the struct cannot drift.
+
+### `SafetyLevel`
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SafetyLevel {
+    ReadOnly,      // reads and listings only
+    CreateOnly,    // may create a key that does not exist
+    Scratch,       // may modify or remove keys this run created
+    Unrestricted,  // no restriction
+}
+```
+
+**Variant order is load-bearing**: `Ord` derives from it, and the gate is `fixture.safety_level() >=
+rule.meta.min_level`. Reordering the variants silently changes which rules run. Documented on the
+type.
+
+### `KeyRequest` — the precondition vocabulary
+
+A rule never invents a key name. It asks for one, and a fixture whose store cannot supply it
+declines with a reason. This is what lets a store keyed by numeric database row IDs, with no
+directories, participate at all.
+
+```rust
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum KeyRequest {
+    /// One key that does not exist and the rule may create.
+    Fresh,
+    /// `count` fresh keys in one directory.
+    FreshSiblings { count: usize },
+    /// Two fresh keys where one name is a proper prefix of the other (`sub`, `subway`).
+    /// The sibling rule's whole subject.
+    FreshPrefixPair,
+    /// A fresh key at least `depth` segments below the store's prefix.
+    FreshNested { depth: usize },
+    /// A key that already holds data — the read-only path's only source of subjects.
+    Existing,
+    /// A directory that already exists.
+    ExistingDirectory,
+    /// A key this store must refuse: `is_supported` is false for it.
+    Unsupported,
+}
+```
+
+**No `#[non_exhaustive]`, on purpose.** An out-of-tree fixture matching this enum *should* fail to
+compile when a precondition is added — otherwise it silently declines a rule that was meant to run,
+and the report loses a check without saying so. Adding a variant is a deliberate breaking change,
+and the guide says so.
+
+### `RuleMeta` and `Rule`
+
+```rust
+pub struct RuleMeta {
+    pub id: &'static str,                    // "sibling01"
+    pub title: &'static str,
+    pub contract: &'static str,              // "STORE_SEMANTICS.md §1"
+    pub requires: &'static [Capability],
+    pub min_level: SafetyLevel,
+}
+
+/// A rule body. Boxed rather than `async fn` in a static: function pointers are const-constructible
+/// and `async fn` is not.
+pub type RuleFn = for<'a> fn(&'a dyn Fixture) -> BoxFuture<'a, RuleOutcome>;
+
+pub struct Rule { pub meta: RuleMeta, pub run: RuleFn }
+
+pub fn rules() -> &'static [Rule];
+```
+
+`BoxFuture` is `liquers_core::maybe_send::BoxFuture` — `Send`-bounded natively, bare on wasm — so
+the same signature compiles on both targets. Each rule body is an ordinary `async fn`; a
+declarative `rule!` macro emits the `Rule` entry and the boxing shim, so the boilerplate is written
+once.
+
+### `RuleOutcome` and `ConformanceReport`
+
+```rust
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum RuleOutcome {
+    Passed,
+    Failed { detail: String },
+    SkippedCapability { missing: Capability },
+    SkippedPrecondition { request: KeyRequest, reason: String },
+    NotRunSafetyLevel { required: SafetyLevel },
+    Blocked { issue: String, detail: String },
+    Errored { error_type: ErrorType, message: String },
+}
+```
+
+`Errored` carries `ErrorType` and the message separately rather than an `Error`, so the report stays
+plainly serializable and a rule cannot smuggle a payload into it.
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReportEntry { pub id: String, pub title: String, pub contract: String, pub outcome: RuleOutcome }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConformanceReport {
+    pub store: String,
+    pub capabilities: StoreCapabilities,
+    pub level: SafetyLevel,
+    pub entries: Vec<ReportEntry>,
+}
+```
+
+`ConformanceReport` implements `Display` for the human form and derives serde for the tool's
+`--format yaml|json` and for generating the guide's status matrix.
 
 ## Trait Implementations
 
-[List traits to implement, for which types, with signatures]
+### Trait: `Fixture` (new, in `store_conformance::fixture`)
+
+```rust
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+pub trait Fixture {
+    /// The store under test.
+    fn store(&self) -> &dyn AsyncStore;
+    /// What this store claims it can do.
+    fn capabilities(&self) -> StoreCapabilities;
+    /// How much this fixture permits a rule to do.
+    fn safety_level(&self) -> SafetyLevel;
+    /// Name for the report — the store type and any distinguishing configuration.
+    fn label(&self) -> String;
+    /// Keys satisfying a precondition, or a reason this store cannot supply them.
+    async fn keys_for(&self, request: &KeyRequest) -> Result<Vec<Key>, Unavailable>;
+    /// Best-effort removal of what the run created. Never fails the report.
+    async fn cleanup(&self) {}
+}
+
+pub struct Unavailable { pub reason: String }
+```
+
+Object-safe: no generic methods, no `Self` by value, no associated types. The suite holds
+`&dyn Fixture`.
+
+`keys_for` returns *names*; it does not create the keys, except for `Existing` and
+`ExistingDirectory`, where the subject must already be present and the fixture is the only thing
+that can put it there — that is how a read-only store (`FetchStore`) has anything to be tested
+against.
+
+### Trait: `AsyncStore` (unchanged)
+
+No signature changes. The suite tests the trait as it is; the three ⚠ rows are resolved by changing
+`AsyncMemoryStore` and the doc comments, not the shape.
+
+### Trait: `StoreFactory` (additive extension, in `liquers-core::store_factory`)
+
+```rust
+    /// Build a throwaway, empty store of this type for conformance testing, if this factory can.
+    ///
+    /// The default is `Ok(None)` — "this factory cannot make a scratch store" — so no existing
+    /// implementor changes. A factory that can (a temporary directory, a scratch prefix, a fresh
+    /// table) returns a fixture that owns whatever must be cleaned up.
+    #[cfg(feature = "store-conformance")]
+    fn create_fixture(
+        &self,
+        config: &StoreConfig,
+    ) -> Result<Option<Box<dyn crate::store_conformance::Fixture>>, Error> {
+        let _ = config;
+        Ok(None)
+    }
+```
+
+Additive and defaulted, per the "extend, don't mutate" rule — `liquers-py` and every other
+implementor keep compiling. The `#[cfg]` on the method is required because its return type only
+exists under the feature.
+
+**Known limitation:** `create_fixture` is synchronous, matching `create`. A factory needing async
+setup (provisioning a scratch bucket) cannot participate; making the factory async is a separate
+change and out of scope. Recorded in the guide.
 
 ## Generic Parameters & Bounds
 
-[Document generic parameters and justify bounds]
+**None.** The suite is entirely `dyn`-based: `&dyn Fixture`, `&dyn AsyncStore`, `Box<dyn Fixture>`.
+Rules must be storable in a `&'static [Rule]` and callable across crates and both targets, which a
+generic `F: Fixture` would prevent (no `&'static [Rule]` of monomorphised bodies, no object-safe
+`create_fixture`). Dynamic dispatch costs nothing that matters: every rule performs store I/O.
+
+The only bound anywhere is the one `AsyncStore` already carries (`MaybeSend + MaybeSync`), inherited
+rather than restated.
 
 ## Sync vs Async Decisions
 
-[Table or list of functions with async/sync choice and rationale]
+| Item | Sync/Async | Rationale |
+|---|---|---|
+| Rule bodies | async | They call `AsyncStore`. |
+| `run_all`, `run_rule` | async | Fold over async rules. |
+| `Fixture::keys_for` | async | A fixture may have to ask its backend what exists. |
+| `Fixture::cleanup` | async | Removal is store I/O. |
+| `Fixture::store/capabilities/safety_level/label` | sync | Pure accessors; making them async would force `.await` at every rule's first line for nothing. |
+| `StoreFactory::create_fixture` | sync | Matches `create`. See the limitation above. |
+| Report inspection (`conformant`, `counts`, `assert_conformant`) | sync | Pure data. |
+
+**No runtime is named anywhere in the module.** No `tokio`, no `wasm_bindgen_test`, no
+`#[tokio::test]`. The harness lives in the consuming crate; this is what lets `liquers-web` run the
+same rules under `wasm_bindgen_test`.
 
 ## Function Signatures
 
-[Provide function signatures for all public functions]
+### Module: `liquers_core::store_conformance`
+
+```rust
+pub fn rules() -> &'static [Rule];
+pub fn rule(id: &str) -> Option<&'static Rule>;
+
+/// Run every rule against the fixture. Never panics, never returns `Err`: the report is the result.
+pub async fn run_all(fixture: &dyn Fixture) -> ConformanceReport;
+
+/// Run one rule by ID. `None` if the ID is unknown.
+pub async fn run_rule(fixture: &dyn Fixture, id: &str) -> Option<ReportEntry>;
+
+impl ConformanceReport {
+    pub fn counts(&self) -> OutcomeCounts;
+    pub fn failures(&self) -> impl Iterator<Item = &ReportEntry>;
+    /// How many rules were not run at each level, and which level would run them.
+    pub fn not_run_by_level(&self) -> Vec<(SafetyLevel, usize)>;
+    /// The assertion a suite makes. `allowed` names rules this store is permitted to fail, each
+    /// with the issue that permits it.
+    pub fn assert_conformant(&self, allowed: &[AllowedFailure]) -> Result<(), Error>;
+}
+
+pub struct AllowedFailure { pub rule: &'static str, pub issue: &'static str }
+```
+
+**`assert_conformant` fails in both directions.** A rule that failed and is not allowed is an
+error; **a rule that is allowed and passed is also an error**, naming the entry to delete. Without
+that, an ignore list written for a good reason outlives the reason — the same discipline
+`LANGUAGE-INTEGRATION_GUIDE.md` §3 imposes with its reversing conditions, made mechanical.
+
+### Rule-authoring constraints (normative for Phase 3/4)
+
+- A rule **asserts on `ErrorType`, never on message text.** `CORE-ERROR-STORE-NAME-NOT-STRUCTURED`
+  means the store's name is interpolated into the message, so message text is neither stable nor
+  portable.
+- A rule **checks before it mutates** at `Scratch`: `contains`/`is_dir` first, and abandon with
+  `SkippedPrecondition` if the key is already there. This is Phase 1 decision 9 — upheld by the
+  rules on trust, with no guard wrapping the store.
+- A rule **never panics** and never returns `Err`. An unexpected store error becomes
+  `RuleOutcome::Errored`.
+- A rule **declares every capability it needs**; `run_all` checks `requires` before calling it, so
+  a rule never has to test for its own applicability.
+
+### Module: `liquers-store` binary `liquers-store-check`
+
+```text
+liquers-store-check --config <store.yaml> [--store <prefix>] [--rule <id>]...
+                    [--level read-only|create-only|scratch|unrestricted]
+                    [--format text|yaml|json]
+liquers-store-check --scratch <store-type> [--arg k=v]...   # factory-built fixture
+```
+
+Defaults follow provenance, as Phase 1 recommended and this phase decides:
+**`--config` defaults to `read-only`** (it is somebody's data); **`--scratch` defaults to
+`scratch`** (the factory just made it). Raising the level on `--config` is always explicit.
+
+Exit codes match `liquers-validate`: **0** conformant · **1** non-conformant · **2** invocation or
+setup failure. The tool prints the resolved `StoreConfig` before running, so a mis-parsed option
+(`STORE-OPENDAL-LIST-OPTION-MISPARSED`) is visible as a setup problem rather than as a store defect,
+and it prints the not-run counts per level so a clean `read-only` report cannot be mistaken for
+conformance.
 
 ## Integration Points
 
-[Which crates, which files, which modules to modify or create]
+### Crate: `liquers-core`
+
+- New module directory `src/store_conformance/` — `mod.rs`, `fixture.rs`, `report.rs`,
+  `rules/{sibling,directories,removal,absence,prefix,keyshape,sidecar,enumerate}.rs`.
+- `src/store_factory.rs` — the additive `create_fixture` method.
+- `src/store.rs` — `AsyncMemoryStore::keys` changed for decision 1; `removedir` doc comments
+  corrected to the postcondition.
+- `Cargo.toml` — `store-conformance = []` feature, **not in `default`**. Cargo unifies features
+  additively across the workspace and `liquers-lib`/`liquers-store` depend on core with defaults on,
+  so anything in `default` is unavoidable for the wasm bundle — the same reasoning that keeps
+  `entities-html5` out. `serde`/`serde_derive` are already unconditional dependencies, so the report
+  adds none.
+- `tests/store_conformance_CONF.rs` — fixtures and suites for `AsyncMemoryStore`, `AsyncFileStore`,
+  `AsyncStoreRouter`, and the trait defaults (`MinimalStore`).
+- `tests/conformance_docs_CONF.rs` — the synchronization test.
+
+### Crate: `liquers-store`
+
+- `Cargo.toml` — `store-conformance` forwarding to `liquers-core/store-conformance`; a **new** `cli`
+  feature with `clap` as a **new optional dependency** (`liquers-store` has neither today, unlike
+  `liquers-core`); an explicit `[[bin]]` with `required-features = ["cli", "store-conformance"]`,
+  because an auto-discovered binary cannot carry one — the same reason `liquers-validate` has an
+  explicit block. `cli` stays out of `default`, matching `liquers-core`.
+- `src/bin/liquers_store_check.rs` — the tool.
+- `src/store_factory.rs` — `create_fixture` for the OpenDAL types that can make a scratch location.
+- `tests/store_conformance_CONF.rs` — `AsyncOpenDALStore` over the `fs` service in a temp directory.
+
+### Crate: `liquers-web`
+
+- `Cargo.toml` — dev-dependency on `liquers-core` with `store-conformance` (it already depends on
+  core; the feature is added for tests).
+- `tests/store_conformance_CONF.rs` — `LocalStorageStore` (behind `browser-tests`, since
+  `localStorage` needs a real browser), `FetchStore` (read-only, `Existing` keys served by the test
+  harness), `JsStore` (a stub JS object). Driven by `#[wasm_bindgen_test]`.
+
+### Crate: `liquers-py`
+
+Untouched. `create_fixture` is defaulted, so its `StoreFactory` usage is unaffected.
+
+### Dependencies
+
+**None added.** `serde`, `serde_derive`, `async-trait` and `futures` are already core dependencies;
+`clap` is already an optional core dependency behind `cli` and gains a `liquers-store` counterpart.
+Temporary directories in tests use `std::env::temp_dir()` with a unique name, matching
+`store_key_absolute.rs` — no `tempfile` dependency.
 
 ## Documentation Architecture
 
 ### Reference Plan
-[New, extend existing, or none; exact path, kind, audience, area, purpose, sections/claims, links]
+
+**Extend** `specs/reference/STORE_SEMANTICS.md` (kind: reference, audience: internal, area:
+`core/store, store/backends, web`):
+
+- §5 — replace the ⚠ with the postcondition: `Ok(())` means the directory does not exist
+  afterwards; recursion follows; the trait default's `Err(KeyNotSupported)` is legitimate for a
+  store declaring no `RemoveDirectories`.
+- §6 — remove the `AsyncMemoryStore::is_supported` ⚠ when
+  `async-memory-store-prefix-support` lands, or keep it citing that design.
+- §9 — replace the ⚠ with the rule: `keys()` returns data keys, directories and the prefix, and
+  **every returned key starts with the prefix**.
+- Every section's *Enforced by* line becomes rule IDs from `rules()`.
+- Rules stated trait-neutrally where they hold for both traits, with a note that only `AsyncStore`
+  must satisfy them today (`CORE-SYNC-STORE-TRAIT-OBSOLETE`).
+- `## History` row and `reviewed:` bump in the same commit (§9.2).
+
+**Create** `specs/reference/CONFORMANCE_TERMS.md` (kind: reference, audience: internal, area:
+`docs`): the requirement levels, the implementation states (`NA`, `NS`, `DESIGN`, `PARTIAL`,
+`COMPLETE`, `BLOCKED`, `CONFORMANT`), and the `NA` discipline — argued, with a reversing condition.
+Extracted from `LANGUAGE-INTEGRATION_GUIDE.md` §3, which is replaced there by a link plus its
+language-specific additions.
+
+> **This is the decision in this phase most likely to be revised.** Phase 1 preferred extraction and
+> permitted duplication. Extraction is a bounded edit to ~30 lines of a 2616-line guide, and it is
+> what makes "one vocabulary" true rather than aspirational — but it touches a document this project
+> does not own. If review prefers, duplicating the section into the new guide is the fallback, at
+> the cost of two copies that will drift.
 
 ### Guide Plan
-[New, extend existing, or none; exact path, kind, audience, area, workflow, examples/snippets, links]
+
+**Create** `specs/guides/STORE_IMPLEMENTATION_GUIDE.md` (kind: guide, audience: internal, area:
+`core/store, store/backends, web`), structured after `LANGUAGE-INTEGRATION_GUIDE.md`:
+
+1. Purpose and scope; what a *store*, a *backend*, an *internal key* and a *fixture* are.
+2. Terminology — links `CONFORMANCE_TERMS.md`, adds store-specific terms.
+3. How to use the capabilities: the `Capability` vocabulary, the status matrix, `NA` discipline.
+4. **What implementing a store means** — new struct only, extend a factory, write a `StoreFactory`,
+   chain it into `default_store_factory()`. Links `STORE_FACTORY_GUIDE.md`; does not repeat it.
+5. The design questions, per capability — internal key space; key mapping, round-tripping and
+   unrepresentable keys; prefix addressing and the sibling rule; metadata stored or derived and
+   which source wins; read-only or writable; restricted key spaces; directory support and the three
+   sources of truth; authoritative backends and why they may not keep an index; absence versus
+   failure; prefix in the path or stripped; atomicity, concurrency and quota boundaries;
+   enumeration cost; error mapping; `openbin` when it exists.
+6. **Testing your store** — writing a fixture, the `KeyRequest` vocabulary, the four safety levels,
+   what each level buys, `assert_conformant` and allowed failures, and `liquers-store-check`.
+7. **Safety precautions** — a temporary folder or throwaway database; treat any store under test as
+   expendable; no third-party service unless explicitly permitted, and never one holding data you
+   did not create. States plainly that level 3 is rule discipline, not a guarantee.
+8. **A worked restricted store** — the database-table view: rows as files, numeric IDs, no
+   directories. Shows a fixture declining `FreshNested` and `FreshPrefixPair`, and a status matrix
+   where many argued `NA`s are the expected outcome rather than a smell.
+9. Per-store status matrix for the seven in-tree implementations.
 
 ### Other Documents to Create
-[Exact paths, kinds, audiences, purposes, and link destinations; or `None` with rationale]
+
+None.
+
+### New Reference or Guide Documents
+
+`specs/reference/CONFORMANCE_TERMS.md`, `specs/guides/STORE_IMPLEMENTATION_GUIDE.md`. Both get
+front matter, a `## History` row and `reviewed:` on creation.
 
 ### Existing Documents to Review or Update
-[Every specific Phase 1 update plus area candidates, exact changes, discarded candidates, and the
-proposed authoritative `affects_docs` set]
+
+| Document | Change |
+|---|---|
+| `specs/reference/STORE_SEMANTICS.md` | As above. |
+| `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` | §3 status vocabulary → link `CONFORMANCE_TERMS.md`. §STORE direction-2 questions → cross-link the new guide instead of answering twice. |
+| `specs/guides/STORE_FACTORY_GUIDE.md` | Cross-link; document `create_fixture`. |
+| `specs/reference/STORE_CONFIG_FSD.md` | Cross-link; note `liquers-store-check` as a way to validate a document's stores. |
+| `CLAUDE.md` | §"Adding a Store Backend" gains a step (run the suite) and points at the new guide; the two `AsyncStoreWrapper` passages are corrected in passing. |
+| `specs/guides/UNITTEST_GUIDE.md` | Left to `DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS` unless that lands first. |
+| `specs/README.md` | Capability-map entries for the new guide and reference. |
+| `specs/index.csv` | Regenerated. |
+
+**Proposed `affects_docs`:** `STORE_SEMANTICS`, `STORE_IMPLEMENTATION_GUIDE`, `CONFORMANCE_TERMS`,
+`LANGUAGE-INTEGRATION_GUIDE`, `STORE_FACTORY_GUIDE`, `STORE_CONFIG_FSD`.
 
 ### Design and Capability Links
-[Where links to design artifacts must be added, updated, or replaced, including `specs/README.md`]
+
+`specs/README.md` gains the guide under store work; `STORE_SEMANTICS.md` links the guide as its
+operational counterpart and the guide links back. The three store documents form one path:
+**implement** (new guide) → **declare a type** (`STORE_FACTORY_GUIDE.md`) → **configure**
+(`STORE_CONFIG_FSD.md`).
+
+### Evidence to Collect During Implementation
+
+Which rules each in-tree store fails on first run (the divergence census the issue predicts); the
+runnable-rule count per safety level; every `NA` a fixture declines and its reason; any rule whose
+assertion turned out to pass whatever the store did.
 
 ## Relevant Commands
 
 ### New Commands
-[List all new commands with full signatures]
+
+**None.** This project adds no command and no namespace. It touches the store layer, below command
+execution; nothing here is reachable from a query, and no `register_command!` invocation changes.
 
 ### Relevant Existing Namespaces
-[Which existing command namespaces interact with this feature?]
 
-## Web Endpoints (if applicable)
+**None applicable.** No query is evaluated by the suite or the tool — rules call `AsyncStore`
+directly, which is the point: a conformance rule that went through query evaluation would be
+testing the interpreter as well as the store. No namespace review is needed, so the usual
+Phase 2 question about relevant namespaces has no subject here.
 
-[Document new or modified HTTP endpoints]
+## Web Endpoints
+
+None. `liquers-axum`'s store handlers are unchanged. They remain the reason the sibling rule
+matters — `DELETE /api/store/removedir/{*key}` is what made it a P0 — but no route is added or
+altered.
 
 ## Error Handling
 
-[Error scenarios, which ErrorType to use, error propagation strategy]
+### New Error Types
 
-## Serialization Strategy
+**None.** Everything uses `liquers_core::error::Error` with existing `ErrorType` variants.
 
-[Serde annotations, round-trip compatibility]
+### Error Constructors
 
-## Concurrency Considerations
+- `assert_conformant` returns `Error::general_error(...)` listing the offending rules.
+- `create_fixture` implementations return `Error::general_error` or an existing typed constructor;
+  never `Error::new`.
+- Rules construct no errors at all: they classify the ones the store returns into `RuleOutcome`.
+- `Unavailable` is **not** an `Error`. It is a fixture's reasoned decline, which belongs in the
+  report as `SkippedPrecondition`, not in the error channel — treating "this store has no
+  directories" as an error would put a design fact in a failure path.
 
-[Thread safety, locks, shared state]
+## Open Questions for Review
 
-## Compilation Validation
-
-[Mental check: would this compile with cargo check?]
-
-## References to liquers-patterns.md
-
-[Verify alignment with established patterns]
+1. **`CONFORMANCE_TERMS.md` extraction** — bounded, but it edits `LANGUAGE-INTEGRATION_GUIDE.md`.
+   Extract, or duplicate?
+2. **Adopting existing rule IDs.** The families already exist as per-store tests, spread across
+   five files: `sibling`, `pathmap`, `remove`, `prefix`, `router` and `dir` in
+   `liquers-store/src/opendal_store.rs`; `diridx` in `liquers-core/src/store_dir_index.rs`;
+   `memdir` and `traitdef` in `liquers-core/src/store.rs`; `keyabs` in `liquers-core/src/query.rs`,
+   `store.rs` and `tests/store_key_absolute.rs`; `opendal` in `liquers-store/src/store_factory.rs`.
+   Review counted roughly **15 test functions** that a generalized rule would duplicate.
+   The suite should adopt those IDs for the rules that generalize them, and the duplicated per-store
+   tests should then be deleted so an ID has one definition. That deletes working tests, which
+   deserves an explicit decision rather than being done quietly in Phase 4. Note that not all are
+   candidates: `keyabs12`–`keyabs14` test the refusal *through evaluation and a recipe CWD*, which
+   is not a store rule and must stay where it is.
+3. **`FetchStore` and `JsStore` fixtures** need a served corpus and a stub JS object respectively.
+   Building those is real work inside a wasm harness; if it proves disproportionate, running those
+   two at `ReadOnly` with a small hand-placed corpus is the fallback.
