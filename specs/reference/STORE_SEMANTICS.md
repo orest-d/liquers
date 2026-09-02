@@ -22,7 +22,7 @@ not agree: eleven separate disagreements were enumerated, of which one destroyed
 `AsyncStoreRouter` mixes implementations in a single namespace, so a deployment answers the same
 question two ways depending on which store a key lands in. This document is the contract; the
 shared suite that holds every implementation to it is `liquers_core::store_conformance`, and the
-*Enforced by* line under each section names the rules that check it. `STORE_IMPLEMENTATION_GUIDE.md`
+*Enforced by* line under each section names the rules that check it. [`guides/STORE_IMPLEMENTATION_GUIDE.md`](../guides/STORE_IMPLEMENTATION_GUIDE.md)
 is the operational counterpart — how to implement a store that satisfies this, and how to run the
 suite against it.
 

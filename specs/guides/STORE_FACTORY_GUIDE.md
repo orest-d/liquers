@@ -3,9 +3,13 @@ title: Store Factory Guide
 kind: guide
 audience: internal
 area: [core/store, store/config]
-reviewed: 2026-08-29
+reviewed: 2026-09-02
 ---
 # Store Factory Guide
+
+> This guide covers **declaring a store type** so a configuration document can name it. For
+> implementing the store itself — the contract, the capability model and the conformance suite —
+> see [`STORE_IMPLEMENTATION_GUIDE.md`](STORE_IMPLEMENTATION_GUIDE.md).
 
 How to define a store type, contribute one from another crate, choose which set of store types a
 build gets, and override one someone else defined.
@@ -203,5 +207,6 @@ feature that has not been designed. Document exclusivity in an argument's `doc` 
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-02 | Cross-linked `STORE_IMPLEMENTATION_GUIDE.md`, which covers implementing the store a factory builds, so the two halves of the job point at each other. | `design/store-conformance-suite/` Phase 4 step 14 |
 | 2026-08-29 | Added "ask, do not infer" to §"Say a type exists but cannot be built here", after a review found `OpendalStoreFactory` conflating its own `opendal` feature with OpenDAL's per-service ones. | `design/store-factories-in-core/` PR review |
 | 2026-08-29 | Created with the factory model: choosing a chain, adding a type by map or by trait, overriding by chaining earlier, declaring unavailability, `ArgumentCoverage` for externally-owned arguments, the `create` contract, and the inference rules. | `design/store-factories-in-core/` |

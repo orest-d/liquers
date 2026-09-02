@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets]
-reviewed: 2026-09-01
+reviewed: 2026-09-02
 ---
 # Liquers Language Integration Guide
 
@@ -78,26 +78,11 @@ Unless qualified, “value” is informal. Designs should use *language value*, 
 
 A feature ID is preferably a pronounceable uppercase word of at most eight alphanumeric characters. A familiar abbreviation is acceptable; exceptionally, a longer ID may be used when shortening it would reduce clarity. IDs contain no underscores. IDs are stable and must not be renamed for one *integrated language*. A specific design may split a feature into milestones, but status and tests must still roll up to the ID.
 
-Use these requirement levels:
-
-- **Essential**: required for a useful in-process *integration*.
-- **Profile**: essential for some hosts, such as `ASYNCQ` in a browser.
-- **Optional**: an independently selectable extension.
-
-Use these implementation states:
-
-- `NA`: intentionally not applicable, with a reason
-- `NS`: not started
-- `DESIGN`: design complete, implementation absent
-- `PARTIAL`: some required cases work
-- `COMPLETE`: all selected requirements implemented
-- `BLOCKED`: implemented, but a defect **outside the *integration*** stops a required test from
-  passing. Must name the defect. This is not a softer `PARTIAL`: `PARTIAL` says the *integration*
-  is unfinished, `BLOCKED` says it is finished and something it depends on is not, and the two
-  call for different work. An *integration* may not sit in `BLOCKED` without a filed issue, and
-  the blocked tests stay in the suite, marked as expected failures rather than deleted — they are
-  what will prove the fix.
-- `CONFORMANT`: complete and all required feature tests pass
+**The requirement levels and implementation states are defined in
+[`reference/CONFORMANCE_TERMS.md`](../reference/CONFORMANCE_TERMS.md)** — Essential / Profile /
+Optional, and `NA` / `NS` / `DESIGN` / `PARTIAL` / `COMPLETE` / `BLOCKED` / `CONFORMANT` — shared
+with `guides/STORE_IMPLEMENTATION_GUIDE.md` so there is one definition rather than two. `Profile` in
+this guide means essential for some *hosts*: `ASYNCQ` in a browser is the example.
 
 Dependencies constrain these states. A feature may not be claimed `COMPLETE` or `CONFORMANT` before every *hard dependency* has reached at least `COMPLETE`. A *soft dependency* imposes no such ordering, but when it is `NA` — or merely not yet implemented — the dependent feature's design must say what it does instead, and that statement is part of the feature's documented limitations. Selecting a feature whose *hard dependency* is `NA` is a design error, not a limitation to be recorded.
 
@@ -769,7 +754,9 @@ supported**. See "What the *language* cannot contribute" below.
 
 **The design must answer:** Which methods are mandatory versus safely defaulted? Are bytes copied or viewed? Are keys normalized? What are atomicity and consistency guarantees? How are language sync methods scheduled? Can callbacks re-enter Liquers?
 
-For a store the *integration* provides (direction 2), additionally:
+For a store the *integration* provides (direction 2), additionally — and
+[`guides/STORE_IMPLEMENTATION_GUIDE.md`](STORE_IMPLEMENTATION_GUIDE.md) is where these are answered
+at length, along with the conformance suite that checks the answers:
 
 - **Which host storage is appropriate, and is it read-only?** A read-only store is a legitimate,
   common backend; say how it refuses writes rather than leaving the trait default to decide.
@@ -2601,6 +2588,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-02 | §3's requirement levels and implementation states moved to `reference/CONFORMANCE_TERMS.md`, so the store implementation guide shares one definition rather than copying it. The `NA` discipline and its language-specific examples stay here. §STORE's direction-2 questions now cross-link `guides/STORE_IMPLEMENTATION_GUIDE.md` instead of answering them twice. | `design/store-conformance-suite/` Phase 4 step 14 |
 | 2026-09-01 | Repaired current design, reference, and archive links so the tracked-document link check can validate this guide. | `DOCS-DEAD-LINKS-OUTSIDE-README` |
 | 2026-08-31 | §VALUE shows `EnvironmentBuilder::with_type_registry` alongside `new_with_type_registry`, and records that an integration defining its own `Environment` carries the readiness obligation in `init_with_envref`. Links to the new construction guide. | `design/environment-builder/phase-5` |
 | 2026-08-30 | Declaration links now resolve to `reference/COMMAND_DECLARATION.md`, the format having landed. | `design/command-declaration/` |
