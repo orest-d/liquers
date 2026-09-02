@@ -572,21 +572,35 @@ altered.
   report as `SkippedPrecondition`, not in the error channel — treating "this store has no
   directories" as an error would put a design fact in a failure path.
 
-## Open Questions for Review
+## Decisions from Review
 
-1. **`CONFORMANCE_TERMS.md` extraction** — bounded, but it edits `LANGUAGE-INTEGRATION_GUIDE.md`.
-   Extract, or duplicate?
-2. **Adopting existing rule IDs.** The families already exist as per-store tests, spread across
-   five files: `sibling`, `pathmap`, `remove`, `prefix`, `router` and `dir` in
-   `liquers-store/src/opendal_store.rs`; `diridx` in `liquers-core/src/store_dir_index.rs`;
-   `memdir` and `traitdef` in `liquers-core/src/store.rs`; `keyabs` in `liquers-core/src/query.rs`,
-   `store.rs` and `tests/store_key_absolute.rs`; `opendal` in `liquers-store/src/store_factory.rs`.
-   Review counted roughly **15 test functions** that a generalized rule would duplicate.
-   The suite should adopt those IDs for the rules that generalize them, and the duplicated per-store
-   tests should then be deleted so an ID has one definition. That deletes working tests, which
-   deserves an explicit decision rather than being done quietly in Phase 4. Note that not all are
-   candidates: `keyabs12`–`keyabs14` test the refusal *through evaluation and a recipe CWD*, which
-   is not a store rule and must stay where it is.
-3. **`FetchStore` and `JsStore` fixtures** need a served corpus and a stub JS object respectively.
-   Building those is real work inside a wasm harness; if it proves disproportionate, running those
-   two at `ReadOnly` with a small hand-placed corpus is the fallback.
+1. **Extract `CONFORMANCE_TERMS.md`.** Confirmed. `LANGUAGE-INTEGRATION_GUIDE.md:81–100` moves; the
+   dependency-constraint paragraph and the `NA` discipline stay, as measured above.
+
+2. **A duplicated per-store test is deleted only once its replacement is replicated and passing.**
+   Not a cleanup at the end — an ordering constraint on the implementation, in three steps per ID:
+   1. add the shared rule under the adopted ID;
+   2. run it against the same store and see it pass, and see it *fail* when the behaviour it checks
+      is broken — a rule that would pass either way replaces nothing;
+   3. only then delete the per-store test.
+
+   This needs a per-ID mapping — old test location → new rule → the store it was proving — which
+   Phase 3 produces as a table and Phase 4 executes row by row. An ID whose old test covers
+   something the shared rule does not is **not** deleted; it is kept and the difference recorded.
+   `keyabs12`–`keyabs14` are already known to be in that category.
+
+3. **Implement the `FetchStore` and `JsStore` fixtures**, unless one turns out to qualify on its own
+   as `M` or larger — the same threshold as decision 5. Checked rather than assumed, and both look
+   comfortably below it:
+   - `FetchStore` reads `fetch` off `js_sys::global()` at call time
+     (`liquers-web/src/store/fetch.rs:217`), *not* from `web_sys::Window`. A test can therefore
+     install a stub `fetch` on the global object and serve an in-memory corpus — no HTTP server, no
+     WebDriver, and it runs under Node in the routine loop rather than behind `browser-tests`.
+     Its `is_supported` also consults a configured known-key set (`fetch.rs:400`), which is exactly
+     the source for `KeyRequest::Existing` on a read-only store.
+   - `JsStore` delegates to a JavaScript object, so its fixture is that object: a small stub
+     implementing the methods it forwards.
+
+   If either exceeds the threshold once written, it is filed as its own issue, the fixture falls
+   back to `ReadOnly` over a hand-placed corpus, and the rules it cannot reach are reported as
+   `SkippedPrecondition` rather than quietly absent.
