@@ -4,6 +4,7 @@
 //! A rule with no plausible answer is decoration, and a decorative rule in a conformance suite is
 //! worse than a missing one — it reports safety it never checked.
 
+pub mod directories;
 pub mod sibling;
 
 use super::Rule;
@@ -71,5 +72,70 @@ static RULES: &[Rule] = &[
         [Directories],
         ReadOnly,
         sibling::sibling05
+    ),
+    // §2 — directories on a backend that has none, and the data round trip.
+    rule!(
+        "dir01",
+        "a directory holding children is addressable by is_dir and contains",
+        "STORE_SEMANTICS.md §2",
+        [Directories, Write],
+        CreateOnly,
+        directories::dir01
+    ),
+    rule!(
+        "dir02",
+        "is_dir on an absent key is Ok(false), never an error",
+        "STORE_SEMANTICS.md §2",
+        [Directories],
+        ReadOnly,
+        directories::dir02
+    ),
+    rule!(
+        "dir03",
+        "every entry listdir calls a directory answers is_dir == true",
+        "STORE_SEMANTICS.md §2",
+        [Directories, Write],
+        CreateOnly,
+        directories::dir03
+    ),
+    rule!(
+        "dir04",
+        "a directory's metadata is directory-shaped and carries its key",
+        "STORE_SEMANTICS.md §2",
+        [Directories, Write],
+        CreateOnly,
+        directories::dir04
+    ),
+    rule!(
+        "dir05",
+        "contains falls back to is_dir",
+        "STORE_SEMANTICS.md §2",
+        [Directories, Write],
+        CreateOnly,
+        directories::dir05
+    ),
+    rule!(
+        "dir06",
+        "a key answering is_dir appears in its parent's listing",
+        "STORE_SEMANTICS.md §2",
+        [Directories, Write],
+        CreateOnly,
+        directories::dir06
+    ),
+    rule!(
+        "dir07",
+        "directory metadata does not populate children",
+        "STORE_SEMANTICS.md §2",
+        [Directories, Write],
+        CreateOnly,
+        directories::dir07
+    ),
+    rule!(
+        "data01",
+        "set then get returns the same bytes",
+        "STORE_SEMANTICS.md §2",
+        [Write],
+        CreateOnly,
+        directories::data01
     ),
 ];

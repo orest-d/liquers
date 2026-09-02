@@ -854,6 +854,11 @@ mod tests {
         fn created_keys(&self) -> Vec<Key> {
             self.created.lock().map(|c| c.clone()).unwrap_or_default()
         }
+        async fn cleanup(&self) {
+            for key in self.created_keys() {
+                let _ = self.store.remove(&key).await;
+            }
+        }
     }
 
     /// `H7`, pointed at the real inventory: every rule records every key it creates.
@@ -878,6 +883,26 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The whole inventory against `AsyncMemoryStore`, printed.
+    ///
+    /// This is the divergence census in miniature: it does not assert conformance — the store is
+    /// known to diverge on `keys()` until that is fixed — it asserts that every rule reaches a
+    /// *decided* outcome, and prints the report so the divergences are visible rather than
+    /// summarised.
+    #[tokio::test]
+    async fn census_against_the_memory_store() {
+        let fixture = MemFixture::new();
+        let report = run_all(&fixture).await;
+        eprintln!("{report}");
+        let counts = report.counts();
+        assert_eq!(
+            counts.ran() + counts.skipped_capability + counts.skipped_precondition + counts.not_run_level,
+            rules().len(),
+            "every rule must reach a decided outcome"
+        );
+        assert_eq!(counts.errored, 0, "no rule should error: {report}");
     }
 
     /// The sibling family against a store that is expected to satisfy it.
