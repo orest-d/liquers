@@ -236,16 +236,22 @@ Settled at the Phase 1 gate, and now normative for Phase 2:
    store is somebody's data. Phase 2 owns the shape — including the wrinkle that the conformance
    types are feature-gated while `StoreFactory` is not.
 
-9. **Four safety levels, ordered, each rule declaring the lowest it can run at.** The binary
+9. **Three safety levels, ordered, each rule declaring the lowest it can run at.** The binary
    read-only/destructive split is not enough: between "touch nothing" and "do anything" there are
-   two useful positions, and they are where a real store gets validated safely.
+   useful positions, and they are where a real store gets validated safely.
 
    | Level | Name | Permits | Refuses |
    |---|---|---|---|
    | 1 | `read-only` | reads and listings | every mutation |
    | 2 | `create-only` | creating a key that does not exist | overwriting, removing, `removedir` |
    | 3 | `scratch` | anything, **to keys this run created** | touching anything that was already there |
-   | 4 | `unrestricted` | everything | nothing |
+
+   **A fourth level, `unrestricted`, was specified here and removed at the Phase 3 gate.** Phase 3
+   counted the rules runnable at each level and found that *no rule requires it*: every rule is
+   satisfied at `scratch` or below. A level nothing needs is a level chosen out of vagueness, and
+   the only thing it can do is permit damage no check asked for. A fixture that cannot record what
+   it creates simply declares `create-only`, which is the honest answer. It can be added when
+   something actually needs it.
 
    The tool takes the level as an argument; a rule that needs more than the level allows is **not
    run**, and the report says which level would run it — so the default invocation tells the
@@ -309,11 +315,11 @@ Settled at the Phase 1 gate, and now normative for Phase 2:
    supplies names; the set of requests it must satisfy is Phase 2's, and it is effectively a second
    small interface next to the capability declaration. Too coarse and specialized stores cannot
    participate; too fine and every fixture author has a long list to implement.
-3. **What does each level actually buy?** Phase 2 should count the rules runnable at each of the
-   four levels before the levels are fixed in the tool's interface, and print the counts. A clean
-   `read-only` report is evidence of very little if it ran three rules out of forty. The tool's own
-   default for a store named in a configuration document is still open; `read-only` is the
-   conservative choice, against decision 10's `scratch` for a fixture the test built.
+3. ~~**What does each level actually buy?**~~ **Answered in Phase 3**, and it changed the design:
+   10 rules at `read-only`, +13 at `create-only`, +8 at `scratch`, and **none** at the fourth level,
+   which is why there is no longer a fourth level. The tool prints these counts so a clean
+   `read-only` report cannot be mistaken for conformance. Defaults follow provenance: `read-only`
+   for a store named in a configuration document, `scratch` for a fixture the factory built.
 
 ## References
 

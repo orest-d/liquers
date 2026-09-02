@@ -83,7 +83,6 @@ fixed:
 | `ReadOnly` | 10 | 10 |
 | `CreateOnly` | +13 | 23 |
 | `Scratch` | +8 | 31 |
-| `Unrestricted` | +0 | 31 |
 
 Two findings fall out, and both belong in the tool's output rather than in this document alone:
 
@@ -91,9 +90,11 @@ Two findings fall out, and both belong in the tool's output rather than in this 
   sibling rule, the `removedir` postcondition and the derived-directory lifecycle all need
   `Scratch`. A clean `read-only` report is genuinely weak evidence, which is why the tool prints
   the not-run counts rather than a bare "conformant".
-- **No rule requires `Unrestricted`.** Level 4 exists for a *fixture* that cannot honour scratch
-  bookkeeping — a store whose creations cannot be enumerated, say — not because any rule needs it.
-  Stating that in the guide stops it being chosen out of vagueness.
+- **The count removed a level.** Phase 1 specified a fourth, `unrestricted`; nothing in the
+  inventory reaches for it, because every rule is satisfied at `scratch` or below. A level no rule
+  needs can only permit damage no check asked for, so it is gone — added back when something
+  actually requires it. This is the clearest return on counting before fixing the interface, rather
+  than after.
 
 ## Example
 

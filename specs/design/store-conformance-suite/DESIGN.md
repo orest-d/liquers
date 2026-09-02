@@ -4,7 +4,7 @@ kind: design
 title: An implemented conformance suite, a completed contract, and a store implementation guide
 workflow: liquers-project
 status: draft
-phase: architecture
+phase: examples
 area: [core/store, store/backends, web, docs]
 gh_pr: []
 issues: [STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE, CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS, CORE-SYNC-STORE-TRAIT-OBSOLETE, DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS]
@@ -19,8 +19,8 @@ superseded_by:
 ## Phase Status
 
 - [x] Phase 1: High-Level Design — approved 2026-09-02
-- [x] Phase 2: Solution & Architecture — awaiting approval
-- [ ] Phase 3: Examples & Testing
+- [x] Phase 2: Solution & Architecture — approved 2026-09-02
+- [x] Phase 3: Examples & Testing — awaiting approval
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
@@ -50,9 +50,10 @@ test asserts against the report with a declared list of rules it may fail; the r
 obtainable directly for debugging. A validation tool in `liquers-store` builds a router from a YAML
 document and prints the report. The suite never constructs stores — the caller supplies a fixture,
 the guide carries the per-type recipes, and `StoreFactory` gains an additive, defaulted fixture
-constructor so a type named in a document can be tested without one. Safety is four ordered levels — `read-only`,
-`create-only`, `scratch` (only what this run created), `unrestricted` — with each rule declaring the
-lowest it can run at; the report distinguishes "not run" from "passed" and names the level that
+constructor so a type named in a document can be tested without one. Safety is three ordered levels — `read-only`,
+`create-only` and `scratch` (only what this run created) — with each rule declaring the lowest it
+can run at; a fourth, `unrestricted`, was specified in Phase 1 and removed at the Phase 3 gate when
+the inventory showed no rule needs it; the report distinguishes "not run" from "passed" and names the level that
 would run it. Level 3 is upheld by the rules on trust — check before write, no guard wrapper. Unit tests run at
 fixture + scratch. Rules ask the fixture for key names rather than inventing them, which is what
 lets the suite reach a specialized store (a view onto a database table, keyed by numeric row ID,

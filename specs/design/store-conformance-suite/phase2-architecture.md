@@ -105,13 +105,23 @@ pub enum SafetyLevel {
     ReadOnly,      // reads and listings only
     CreateOnly,    // may create a key that does not exist
     Scratch,       // may modify or remove keys this run created
-    Unrestricted,  // no restriction
 }
 ```
 
 **Variant order is load-bearing**: `Ord` derives from it, and the gate is `fixture.safety_level() >=
 rule.meta.min_level`. Reordering the variants silently changes which rules run. Documented on the
 type.
+
+**There is deliberately no `Unrestricted`.** It was specified in Phase 1 and removed at the Phase 3
+gate: the inventory showed every rule satisfied at `Scratch` or below, so a fourth level could only
+permit damage no check asked for. A fixture that cannot record its creations declares `CreateOnly`.
+Adding a variant later is additive and the `Ord` gate keeps working, so nothing here forecloses it.
+
+**There is deliberately no `Unrestricted`.** It was specified in Phase 1 and removed at the Phase 3
+gate: the rule inventory showed every rule satisfied at `Scratch` or below, so a fourth level could
+only permit damage no check asked for. A fixture that cannot record its creations declares
+`CreateOnly`. Adding a variant later is additive and the `Ord` gate keeps working, so nothing here
+forecloses it.
 
 ### `KeyRequest` — the precondition vocabulary
 
@@ -390,7 +400,7 @@ that, an ignore list written for a good reason outlives the reason — the same 
 
 ```text
 liquers-store-check --config <store.yaml> [--store <prefix>] [--rule <id>]...
-                    [--level read-only|create-only|scratch|unrestricted]
+                    [--level read-only|create-only|scratch]
                     [--format text|yaml|json]
 liquers-store-check --scratch <store-type> [--arg k=v]...   # factory-built fixture
 ```
@@ -510,7 +520,7 @@ leave both guides poorer.
    sources of truth; authoritative backends and why they may not keep an index; absence versus
    failure; prefix in the path or stripped; atomicity, concurrency and quota boundaries;
    enumeration cost; error mapping; `openbin` when it exists.
-6. **Testing your store** — writing a fixture, the `KeyRequest` vocabulary, the four safety levels,
+6. **Testing your store** — writing a fixture, the `KeyRequest` vocabulary, the three safety levels,
    what each level buys, `assert_conformant` and allowed failures, and `liquers-store-check`.
 7. **Safety precautions** — a temporary folder or throwaway database; treat any store under test as
    expendable; no third-party service unless explicitly permitted, and never one holding data you
