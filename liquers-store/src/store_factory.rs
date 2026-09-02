@@ -19,7 +19,11 @@ use liquers_core::store_factory::{
     StoreRouterBuilder, StoreTypeInfo,
 };
 
-#[cfg(feature = "opendal")]
+// `AsyncOpenDALStore` is gated on `async_store`, not on `opendal`, so importing it under
+// `opendal` alone made `--no-default-features --features opendal` fail to build with "found an
+// item that was configured out". The two features are independent in the manifest and the source
+// now says so. `STORE-OPENDAL-WITHOUT-ASYNC-STORE-BROKEN`.
+#[cfg(all(feature = "opendal", feature = "async_store"))]
 use crate::opendal_store::AsyncOpenDALStore;
 #[cfg(feature = "opendal")]
 use opendal::Operator;
@@ -174,7 +178,7 @@ impl StoreFactory for OpendalStoreFactory {
                 config.store_type, reason
             ))
         };
-        #[cfg(feature = "opendal")]
+        #[cfg(all(feature = "opendal", feature = "async_store"))]
         {
             // Resolving to a `Scheme` rather than passing the name through is what makes an
             // *alias* work. `Scheme::from_str` accepts several — `https` is `Scheme::Http`,
@@ -188,9 +192,10 @@ impl StoreFactory for OpendalStoreFactory {
             let operator = create_opendal_operator(scheme, config.config_as_string_map()?)?;
             Ok(Box::new(AsyncOpenDALStore::new(operator, prefix)))
         }
-        #[cfg(not(feature = "opendal"))]
+        #[cfg(not(all(feature = "opendal", feature = "async_store")))]
         {
-            // Without OpenDAL every type is unavailable, so this branch only has to report it.
+            // Without OpenDAL — or without `async_store`, which is what `AsyncOpenDALStore` is
+            // gated on — every type is unavailable, so this branch only has to report it.
             match unavailability_reason(&config.store_type) {
                 Some(reason) => Err(unavailable(reason)),
                 None => Err(unavailable(

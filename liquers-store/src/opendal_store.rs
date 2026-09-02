@@ -5,7 +5,7 @@ use liquers_core::{
     error::Error,
     metadata::{Metadata, MetadataRecord},
     query::Key,
-    store::{AsyncStore, Store},
+    store::AsyncStore,
 };
 use opendal::{Buffer, Operator};
 
@@ -1138,14 +1138,22 @@ mod tests {
 
         let a = envref.evaluate("-R-dir/src").await.unwrap();
         let s = a.get().await.expect("Failed to get asset state");
-        if let Value::AssetInfo(a) = s.data_unchecked().as_ref() {
-            let names: std::collections::HashSet<String> = a
-                .iter()
-                .map(|x| x.filename.as_ref().unwrap().clone())
-                .collect();
-            eprintln!("Names: {:?}", names);
-        } else {
-            eprintln!("Expected AssetInfo value, got {:?}", s.data_unchecked());
-        }
+        // Both branches used to `eprintln!`, so this test reported `ok` whether or not `-R-dir/src`
+        // returned an `AssetInfo` — and it is the only end-to-end coverage of `get_asset_info`
+        // through the interpreter. `OPENDAL-LOCALFS-TEST-SILENT-ON-WRONG-VALUE-TYPE`.
+        let Value::AssetInfo(info) = s.data_unchecked().as_ref() else {
+            panic!(
+                "-R-dir/src must evaluate to AssetInfo, got {:?}",
+                s.data_unchecked()
+            );
+        };
+        let names: std::collections::HashSet<String> = info
+            .iter()
+            .filter_map(|x| x.filename.clone())
+            .collect();
+        assert!(
+            names.contains("opendal_store.rs"),
+            "the listing of src/ must contain this file, got {names:?}"
+        );
     }
 }
