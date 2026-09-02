@@ -421,8 +421,16 @@ impl AsyncStore for AsyncOpenDALStore {
     }
 
     /// Key prefix common to all keys in this store.
+    ///
+    /// The configured prefix, matching `AsyncFileStore` and `FileStore`. It used to return the
+    /// root key, which made `AsyncStoreRouter::is_dir` and `listdir` answer from this store for
+    /// *every* key in the router — `find_store` was unaffected because it also consults
+    /// `is_supported`, which does check the real prefix.
+    ///
+    /// The prefix is part of the path under the backend root, as it is for the file stores, so
+    /// `key_to_path` needs no adjustment: only the advertised value was wrong.
     fn key_prefix(&self) -> Key {
-        Key::new()
+        self.prefix.clone()
     }
 
     /// Create default metadata object for a given key
@@ -998,6 +1006,83 @@ mod tests {
             vec!["sub/deeper/foo.txt".to_string()]
         );
         assert!(store.get_metadata(&parse_key("sub")?).await.is_ok());
+        Ok(())
+    }
+
+    /// `PREFIX01` — a prefixed store advertises its prefix and enumerates only within it.
+    ///
+    /// Both halves matter: `key_prefix()` reports `data`, and the backend path still *contains*
+    /// `data`, because the prefix is part of the path under the backend root rather than a mount
+    /// point that gets stripped. `liquers-web`'s `FetchStore` is the documented exception.
+    #[tokio::test]
+    async fn prefix01_a_prefixed_store_reports_and_respects_its_prefix() -> Result<(), Error> {
+        let op = Operator::new(Memory::default()).expect("memory operator").finish();
+        let store = AsyncOpenDALStore::new(op, parse_key("data")?);
+        let key = parse_key("data/input.csv")?;
+        store.set(&key, b"rows", &Metadata::new()).await?;
+
+        assert_eq!(store.key_prefix(), parse_key("data")?);
+        assert!(store.store_name().starts_with("data"), "got {}", store.store_name());
+        assert_eq!(store.key_to_path(&key)?, "data/input.csv", "the prefix is part of the path");
+        assert!(store.is_supported(&key));
+        assert!(!store.is_supported(&parse_key("other/input.csv")?));
+        Ok(())
+    }
+
+    /// `SIBLING04` — a prefixed store does not enumerate a prefix-sharing directory beside it.
+    ///
+    /// **This test needs both fixes.** Without the trailing slash, `keys()` lists `database/…`
+    /// because `list_with("data")` matches by prefix. Without `key_prefix()`, it enumerates from
+    /// the backend root and reaches `database/` that way. Remove either and it fails.
+    #[tokio::test]
+    async fn sibling04_a_prefixed_store_enumerates_only_its_own_subtree() -> Result<(), Error> {
+        let op = Operator::new(Memory::default()).expect("memory operator").finish();
+        // Written through an unprefixed view, so both directories exist in one backend root.
+        let root = AsyncOpenDALStore::new(op.clone(), Key::new());
+        root.set(&parse_key("data/input.csv")?, b"in", &Metadata::new()).await?;
+        root.set(&parse_key("database/export.csv")?, b"out", &Metadata::new()).await?;
+
+        let store = AsyncOpenDALStore::new(op, parse_key("data")?);
+        let keys: Vec<String> = store.keys().await?.iter().map(|k| k.encode()).collect();
+
+        assert!(keys.contains(&"data/input.csv".to_string()), "got {keys:?}");
+        assert!(
+            !keys.iter().any(|k| k.starts_with("database")),
+            "a prefix-sharing sibling leaked into keys(): {keys:?}"
+        );
+        Ok(())
+    }
+
+    /// `ROUTER01` — a prefixed OpenDAL store no longer answers for keys outside its prefix.
+    ///
+    /// `AsyncStoreRouter::is_dir` consults **only** `key_prefix()`, unlike `find_store`, which also
+    /// requires `is_supported`. So a store claiming the root prefix answered `is_dir` for every key
+    /// in the router, including keys belonging to a store listed after it.
+    #[tokio::test]
+    async fn router01_a_prefixed_store_does_not_claim_the_whole_router() -> Result<(), Error> {
+        use liquers_core::store::{AsyncMemoryStore, AsyncStoreRouter};
+
+        let op = Operator::new(Memory::default()).expect("memory operator").finish();
+        let mut router = AsyncStoreRouter::new();
+        router.add_store(Box::new(AsyncOpenDALStore::new(op, parse_key("data")?)));
+        router.add_store(Box::new(AsyncMemoryStore::new(&parse_key("other")?)));
+
+        router
+            .set(&parse_key("data/in.csv")?, b"in", &Metadata::new())
+            .await?;
+        router
+            .set(&parse_key("other/out.csv")?, b"out", &Metadata::new())
+            .await?;
+
+        assert_eq!(router.get_bytes(&parse_key("data/in.csv")?).await?, b"in");
+        assert_eq!(router.get_bytes(&parse_key("other/out.csv")?).await?, b"out");
+        assert!(
+            router.is_dir(&parse_key("other")?).await?,
+            "the second store's directory is answered by the second store, not claimed by the first"
+        );
+        // `router.is_dir("data")` is asserted by `DIR04`, not here: it delegates to the OpenDAL
+        // store, whose `is_dir` cannot yet answer for a directory on a backend with no directory
+        // objects. That is defect 4, fixed in the commit that adds `has_children`.
         Ok(())
     }
 

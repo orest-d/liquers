@@ -347,12 +347,11 @@ mod tests {
     /// Constructing an OpenDAL store performs no I/O: the builder is lazy, so a backend that does
     /// not exist still yields a store. That is what makes these tests offline.
     ///
-    /// **Deliberately does not assert `key_prefix()`.** Written that way first, it failed:
-    /// `AsyncOpenDALStore::key_prefix` returns an empty key rather than the configured prefix.
-    /// That is a known defect of the backend, not of this factory — `STORE-OPENDAL-SLASH-HANDLING`,
-    /// designed in `specs/design/opendal-path-mapping/`, whose Phase 2 lists `key_prefix` (`:296`)
-    /// among the functions it repairs. Asserting it here would fail for a reason this module does
-    /// not control.
+    /// Asserts `key_prefix()`, which this test could not do until
+    /// `STORE-OPENDAL-SLASH-HANDLING` was fixed: `AsyncOpenDALStore::key_prefix` used to return an
+    /// empty key rather than the configured prefix, so the factory's own contract — that
+    /// `StoreConfig::key_prefix` reaches the store it builds — was unverifiable here.
+    ///
     /// Gated on `services-fs`, not on `opendal`: the type it builds needs the service compiled
     /// in, and `opendal` alone compiles in none.
     #[cfg(feature = "services-fs")]
@@ -361,6 +360,11 @@ mod tests {
         let config = entry("fs", "local").with_config("root", "/tmp/liquers-opendal03");
         let store = default_store_factory().create(&config)?;
         assert!(store.is_supported(&parse_key("local/a.txt")?));
+        assert_eq!(
+            store.key_prefix(),
+            parse_key("local")?,
+            "the configured prefix must reach the store it builds"
+        );
         Ok(())
     }
 
