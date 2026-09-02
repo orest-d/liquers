@@ -2,7 +2,7 @@
 id: CORE-ASYNC-MEMORY-STORE-MAKEDIR-DOES-NOTHING
 kind: issue
 title: AsyncMemoryStore::makedir succeeds without creating a directory
-status: draft
+status: closed
 priority: P0
 complexity: S
 area: [core/store]
@@ -60,3 +60,13 @@ Found on 2026-09-02 writing the Phase 3 test plan of
 [`design/opendal-path-mapping/`](../design/opendal-path-mapping/): a characterization test for
 `AsyncMemoryStore`'s directory behaviour, written to pin that behaviour before extracting the index,
 had to assert that `makedir` does nothing in order to pass.
+
+## Resolution, 2026-09-02
+
+`AsyncMemoryStore::makedir` calls `DirectoryIndex::insert_directory`, and `removedir` calls
+`remove_directory`. An explicitly created directory now exists without children and outlives losing
+them, which is what `makedir` means. `memdir04` asserts it — the test was written asserting the
+opposite, because that was the behaviour it had to characterize before the index moved.
+
+Fixed as a commit separate from the extraction, so the extraction stayed provably
+behaviour-preserving and the one behaviour change is visible on its own.

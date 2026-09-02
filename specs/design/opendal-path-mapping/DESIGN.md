@@ -3,10 +3,10 @@ id: OPENDAL-PATH-MAPPING
 kind: design
 title: One path mapping for the OpenDAL store, and shared directory support in core
 workflow: liquers-project
-status: in_review
-phase: implementation
+status: complete
 area: [core/store, store/backends, web]
 gh_pr: []
+affects_docs: [reference/STORE_SEMANTICS.md, reference/STORE_CONFIG_FSD.md]
 issues: [STORE-OPENDAL-SLASH-HANDLING, CORE-DIRECTORY-INDEX-NOT-SHARED, CORE-ASYNC-MEMORY-STORE-MAKEDIR-DOES-NOTHING, OPENDAL-LOCALFS-TEST-SILENT-ON-WRONG-VALUE-TYPE, STORE-OPENDAL-WITHOUT-ASYNC-STORE-BROKEN]
 created: 2026-08-29
 superseded_by:
@@ -34,9 +34,9 @@ approval gate.
 - [x] Phase 4: Implementation Plan — [`phase4-implementation.md`](./phase4-implementation.md)
       *(two signature refinements carried back into Phase 2; see Notes)*
 - [x] Phase 4 approval gate — approved 2026-09-02.
-- [ ] Execution of the Phase 4 plan (8 steps, 2 crates)
-- [ ] Phase 5: Documentation — `phase5-documentation.md`
-      *(mandatory under `workflow: liquers-project`; entry criteria in Phase 4)*
+- [x] Execution of the Phase 4 plan — 9 commits, `d9d150a`..`b44b8b8`, all gates held
+- [x] Phase 5: Documentation — [`phase5-documentation.md`](./phase5-documentation.md),
+      [`reference/STORE_SEMANTICS.md`](../../reference/STORE_SEMANTICS.md)
 
 ## Why this folder exists
 

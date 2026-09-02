@@ -3,11 +3,16 @@ title: Store Configuration Functional Specification
 kind: reference
 audience: internal
 area: [store/config]
-reviewed: 2026-08-31
+reviewed: 2026-09-02
 ---
 # Functional Specification Document (FSD): Store Configuration
 
 ## Overview
+
+> **Configuration, not behaviour.** What a store *does* once configured — the sibling rule, how
+> directories are derived on a backend that has none, what `is_dir` and `removedir` mean, how a
+> store's prefix relates to its backend paths — is
+> [`STORE_SEMANTICS.md`](STORE_SEMANTICS.md).
 
 This document specifies how a store system is configured: a declarative document defines an
 `AsyncStoreRouter` composed of several store backends.
@@ -758,6 +763,7 @@ its store together. Everything on this page applies unchanged to that document's
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-02 | Linked `STORE_SEMANTICS.md`, which specifies store *behaviour* as distinct from configuration. No change to the configuration format. | `design/opendal-path-mapping/` Phase 5 |
 | 2026-08-31 | Linked `EnvironmentConfig`, which embeds `StoreRouterConfig` as its `store:` section. No change to the store configuration format itself. | `design/environment-builder/phase-5` |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
 | 2026-08-09 | Documented the optional `opendal` feature, the `StoreFactory` extension seam, and the three browser store types (`localstorage`, `http`/`https` via `fetch`, `js`). | `design/liquers-web-store/` |

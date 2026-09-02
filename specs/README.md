@@ -126,8 +126,9 @@ expansion time rather than at runtime. That is the cheapest item here.
 - **Configuring an environment and its store from one document** — documented → [`reference/ENVIRONMENT_CONFIG.md`](reference/ENVIRONMENT_CONFIG.md)
 - **Configuring a store from a URI** — designing → [`design/store-config-uri/`](design/store-config-uri/)
 - **Type-enforced key absoluteness** — planned → [`issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md`](issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md)
-- **OpenDAL path normalization** — designing → [`design/opendal-path-mapping/`](design/opendal-path-mapping/)
-- **Shared directory support for backends without directories** — designing → [`design/opendal-path-mapping/`](design/opendal-path-mapping/) *(issue [`CORE-DIRECTORY-INDEX-NOT-SHARED`](issues/CORE-DIRECTORY-INDEX-NOT-SHARED.md))*
+- **OpenDAL path normalization** — documented → [`reference/STORE_SEMANTICS.md`](reference/STORE_SEMANTICS.md) *(design in [`design/opendal-path-mapping/`](design/opendal-path-mapping/))*
+- **Store behavioural semantics** — documented → [`reference/STORE_SEMANTICS.md`](reference/STORE_SEMANTICS.md)
+- **Shared directory support for backends without directories** — documented → `liquers-core/src/store_dir_index.rs` *(design in [`design/opendal-path-mapping/`](design/opendal-path-mapping/))*
 - **Streaming binary access (`openbin`)** — planned → [`issues/CORE-STORE-OPENBIN-MISSING.md`](issues/CORE-STORE-OPENBIN-MISSING.md)
 - **Sessions and key-level authorization** — planned → [`issues/CORE-SESSION-AND-KEY-ACL.md`](issues/CORE-SESSION-AND-KEY-ACL.md)
 
@@ -136,24 +137,21 @@ at plan level and a store never resolves them, so one reaching a store is refuse
 `KeyNotAbsolute`. The rule lives in rustdoc until DOC-07 exists; enforcement is by convention per
 method rather than by signature, which is `STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED`.
 
-`STORE-OPENDAL-SLASH-HANDLING` is **P0**. Its original statement — that keys containing `/` are not
-reliably addressable — survived reproduction on the second attempt, once two sibling directories
-with a shared name prefix were probed rather than one key in isolation: three call sites address a
-directory without the trailing `/` OpenDAL requires, so the path is treated as a *prefix*. One of
-them is `removedir`, which therefore deletes sibling directories — data loss, reachable through
-`DELETE /api/store/removedir/{*key}`. `design/opendal-path-mapping/` records six defects, that one
-first, and the second-sharpest is that a directory key is unaddressable on a backend with no
-directory objects, which covers most of `OPENDAL_STORE_TYPES`. That nothing checks the four
-`AsyncStore` implementations against one another is
-`STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE`.
+`STORE-OPENDAL-SLASH-HANDLING` is **closed**. Its original statement — that keys containing `/` are
+not reliably addressable — did not survive a first reproduction and *did* survive a second, once two
+sibling directories with a shared name prefix were probed rather than one key in isolation: three
+call sites addressed a directory without the trailing `/` OpenDAL requires, so the path was treated
+as a *prefix*. One of them was `removedir`, which therefore deleted sibling directories — data loss,
+reachable through `DELETE /api/store/removedir/{*key}`. Six defects were fixed in
+`design/opendal-path-mapping/`, along with `CORE-DIRECTORY-INDEX-NOT-SHARED`: four stores had each
+derived directory structure from a flat key set privately and no two alike, so the mechanism is now
+`liquers-core`'s `DirectoryIndex` and each store supplies only its own source of directory truth.
 
-Most backends have no directory objects, so `is_dir`, `contains` and `listdir` must be *derived*
-from the keys that exist. Four stores each solved that privately and no two alike — `AsyncMemoryStore`
-with a refcounted index, the sync `MemoryStore` with an O(n) scan, `FetchStore` from a configured key
-set, `LocalStorageStore` with a map plus an explicit-directory set — and `AsyncOpenDALStore` with
-nothing at all. `CORE-DIRECTORY-INDEX-NOT-SHARED` is that duplication; the same design covers it,
-putting a shared `DirectoryIndex` and the semantics downstream of `is_dir` in `liquers-core` so each
-store supplies only its own source of directory truth.
+What none of it had was a written contract, which is now
+[`reference/STORE_SEMANTICS.md`](reference/STORE_SEMANTICS.md). The eleven divergences found across
+the five `AsyncStore` implementations are enumerated on
+`STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE`; six are fixed, two are documented, and three
+name their own open issues.
 
 Sessions and ACL are one item because there is no identity on `Context` to authorize against.
 
@@ -208,11 +206,7 @@ question are both measure-first items.
 ## Open issues attached to live design work
 
 <!-- BEGIN generated: issues -->
-| Issue | Pri | Cx | Design |
-|---|---|---|---|
-| [`CORE-ASYNC-MEMORY-STORE-MAKEDIR-DOES-NOTHING`](issues/CORE-ASYNC-MEMORY-STORE-MAKEDIR-DOES-NOTHING.md) | P0 | S | `opendal-path-mapping` |
-| [`STORE-OPENDAL-SLASH-HANDLING`](issues/STORE-OPENDAL-SLASH-HANDLING.md) | P0 | M | `opendal-path-mapping` |
-| [`CORE-DIRECTORY-INDEX-NOT-SHARED`](issues/CORE-DIRECTORY-INDEX-NOT-SHARED.md) | P1 | L | `opendal-path-mapping` |
+*None.*
 <!-- END generated: issues -->
 
 ## Not yet placed

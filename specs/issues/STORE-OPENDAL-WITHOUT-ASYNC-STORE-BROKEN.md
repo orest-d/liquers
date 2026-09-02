@@ -2,7 +2,7 @@
 id: STORE-OPENDAL-WITHOUT-ASYNC-STORE-BROKEN
 kind: issue
 title: liquers-store's `opendal` feature does not compile without `async_store`
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [store/backends]
@@ -74,3 +74,13 @@ Found while fixing `STORE-OPENDAL-SERVICES-NOT-ENABLED`, when adding a build-mat
 of that row, `--no-default-features --features opendal`, failed to compile for this unrelated
 reason and had to be written `--no-default-features --features async_store,opendal` with a
 comment pointing here.
+
+## Resolution, 2026-09-02
+
+Option 1 taken, as the issue proposed: the `AsyncOpenDALStore` import in `store_factory.rs` and the
+`create()` branch that uses it are gated on `all(feature = "opendal", feature = "async_store")`, and
+the fallback branch reports every type unavailable — truthful for a build that links OpenDAL but can
+expose no store. `cargo check -p liquers-store --no-default-features --features opendal` builds.
+
+Folded into [`design/opendal-path-mapping/`](../design/opendal-path-mapping/), which was already
+editing the file.

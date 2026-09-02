@@ -2,7 +2,7 @@
 id: CORE-DIRECTORY-INDEX-NOT-SHARED
 kind: issue
 title: Directory knowledge for backends without directories is reimplemented in every store
-status: accepted
+status: closed
 priority: P1
 complexity: L
 area: [core/store, store/backends, web]
@@ -71,3 +71,20 @@ Raised on 2026-09-02 during the architecture gate of
 [`design/opendal-path-mapping/`](../design/opendal-path-mapping/): the OpenDAL directory gap was
 about to be fixed with a mechanism private to that store, and the same problem exists in
 `liquers-web`'s HTTP store. That design now covers this issue as well.
+
+## Resolution, 2026-09-02
+
+`liquers-core/src/store_dir_index.rs` holds `DirectoryIndex`: the mechanism moved out of
+`AsyncMemoryStore` and generalized with `from_keys` (what `FetchStore` builds by hand) and an
+`explicit` set for directories created rather than derived (what `LocalStorageStore` grew privately
+and `AsyncMemoryStore` lacked entirely). `AsyncStore::contains` gained the `is_dir` fallback, so a
+store answering `is_dir` inherits the rest instead of restating it.
+
+`AsyncMemoryStore` adopts the index with its characterization tests passing unchanged, and
+`AsyncOpenDALStore` takes the semantics while keeping a bounded listing as its own source of
+directory truth — its backend is authoritative and may be written by another process, so an index
+would go stale. `reference/STORE_SEMANTICS.md` §2 records which backend shape uses which source.
+
+**Follow-up, not done here:** migrating `FetchStore` and `LocalStorageStore` off their private
+indexes. Both work, both are wasm-only with their own test loops, and the migration is cleanup
+rather than repair. The issue's requirement — that the mechanism be *available* in core — is met.

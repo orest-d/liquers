@@ -2,7 +2,7 @@
 id: OPENDAL-LOCALFS-TEST-SILENT-ON-WRONG-VALUE-TYPE
 kind: issue
 title: test_opendal_localfs passes even if -R-dir/src does not return AssetInfo
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [store/backends]
@@ -50,3 +50,11 @@ s.data_unchecked())`, and the `names` set this test already computes should be a
 Found on 2026-08-26 while fixing `STORE-TESTS-PRINT-TO-STDOUT`: converting the branch's
 diagnostic `println!`s to `eprintln!` (in scope for that issue) surfaced that the branch was never
 an assertion to begin with (out of scope for that issue, which was about stdout only).
+
+## Resolution, 2026-09-02
+
+`test_opendal_localfs` destructures with a `let ... else` that panics, and asserts the computed
+`names` set contains `"opendal_store.rs"` rather than printing it. Folded into
+[`design/opendal-path-mapping/`](../design/opendal-path-mapping/) because that work changed
+`get_asset_info`, and this test is its only end-to-end coverage through the interpreter — the
+regression it could not have caught was one this change might have caused.
