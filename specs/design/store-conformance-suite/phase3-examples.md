@@ -30,7 +30,7 @@ namespace is involved.
 | S1 | Fixture + suite for a well-behaved store | Example | The ordinary path: `StoreCapabilities`, `keys_for`, `run_all`, `assert_conformant` |
 | ~~S2~~ | ~~`liquers-store-check` against a document~~ | — | Deferred to `STORE-CONFORMANCE-VALIDATION-TOOL` |
 | S3 | A restricted store, and two vacuous rules | Example | `SkippedPrecondition`, argued `NA`, and how a rule passes while checking nothing |
-| R1–R31 | The rule inventory | Rules | The nine sections of `STORE_SEMANTICS.md`, one ID per contract claim |
+| R1–R32 | The rule inventory | Rules | The nine sections of `STORE_SEMANTICS.md`, one ID per contract claim |
 | H1–H8 | Harness unit tests | Unit | The report machinery itself: level gating, capability gating, `assert_conformant` in both directions, residue accounting |
 | C1–C8 | Suites | Integration | Seven in-tree implementations plus the trait defaults, natively and under wasm (a ninth, `NoAsyncStore`, is added by the Phase 4 review) |
 | D1 | Synchronization test | Integration | Rule IDs in code = IDs cited in the contract = IDs cited in the guide |
@@ -66,7 +66,8 @@ One ID per contract claim, grouped by `STORE_SEMANTICS.md` section. `Min` is the
 | `remove03` | `remove` deletes data and metadata together | 5 | Remove | Scratch |
 | `prefix01` | `key_prefix()` reports the configured prefix | 6 | — | ReadOnly |
 | `prefix02` | `is_supported` is false for a key outside the prefix | 6 | — | ReadOnly |
-| `prefix03` | `is_supported` is false for a key the store cannot address | 6 | — | ReadOnly |
+| `prefix03` | `is_supported` is false for a key whose *shape* the store cannot address | 6 | — | ReadOnly |
+| `prefix04` | **`is_supported` is *true* for a key inside the prefix the store can address** | 6 | — | ReadOnly |
 | `keyshape01` | Every fallible key-taking method refuses a relative key with `KeyNotAbsolute` | 7 | — | CreateOnly |
 | `sidecar01` | A key colliding with the `.__metadata__` form is refused, not silently aliased | 8 | — | ReadOnly |
 | `sidecar02` | Metadata written with `set_metadata` reads back | 8 | StoredMetadata | CreateOnly |
@@ -80,9 +81,13 @@ fixed:
 
 | Level | Rules runnable | Cumulative |
 |---|---|---|
-| `ReadOnly` | 9 | 9 |
-| `CreateOnly` | +14 | 23 |
-| `Scratch` | +8 | 31 |
+| `ReadOnly` | 10 | 10 |
+| `CreateOnly` | +14 | 24 |
+| `Scratch` | +8 | 32 |
+
+*(Counts as implemented. `prefix04` was added by the Phase 4 review — `prefix02` and `prefix03` both
+assert `is_supported` is **false**, and the trait default returns `false` unconditionally, so
+without a positive case a store that refuses everything passed both and looked conformant.)*
 
 Two findings fall out, and both belong in the tool's output rather than in this document alone:
 

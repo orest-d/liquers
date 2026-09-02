@@ -906,6 +906,17 @@ mod tests {
             "every rule must reach a decided outcome"
         );
         assert_eq!(counts.errored, 0, "no rule should error: {report}");
+
+        // The one live divergence, named rather than tolerated in silence. `AsyncMemoryStore`
+        // returns data keys only; the contract says data keys plus directories plus the prefix.
+        // When that is fixed, `H5` turns this entry into a failure telling us to delete it — which
+        // is the whole point of `assert_conformant` failing in both directions.
+        report
+            .assert_conformant(&[AllowedFailure {
+                rule: "keys02",
+                issue: "CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS",
+            }])
+            .expect("only the known keys() divergence may fail");
     }
 
     /// The sibling family against a store that is expected to satisfy it.

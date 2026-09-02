@@ -5,10 +5,14 @@
 //! worse than a missing one — it reports safety it never checked.
 
 pub mod absence;
+pub mod enumerate;
 pub mod directories;
 pub mod explicit;
+pub mod keyshape;
+pub mod prefix;
 pub mod removal;
 pub mod sibling;
+pub mod sidecar;
 pub(crate) mod support;
 
 use super::Rule;
@@ -225,4 +229,26 @@ static RULES: &[Rule] = &[
         Scratch,
         removal::data02
     ),
+    // §6 — keys, prefixes and routing.
+    rule!("prefix01", "key_prefix() reports the prefix the store was configured with",
+        "STORE_SEMANTICS.md §6", [], ReadOnly, prefix::prefix01),
+    rule!("prefix02", "is_supported is false for a key outside this store's prefix",
+        "STORE_SEMANTICS.md §6", [], ReadOnly, prefix::prefix02),
+    rule!("prefix03", "is_supported is false for a key whose shape the store cannot address",
+        "STORE_SEMANTICS.md §6", [], ReadOnly, prefix::prefix03),
+    rule!("prefix04", "is_supported is true for a key inside the prefix the store can address",
+        "STORE_SEMANTICS.md §6", [], ReadOnly, prefix::prefix04),
+    // §7 — key shape.
+    rule!("keyshape01", "every fallible key-taking method refuses a relative key with KeyNotAbsolute",
+        "STORE_SEMANTICS.md §7", [], CreateOnly, keyshape::keyshape01),
+    // §8 — metadata sidecars.
+    rule!("sidecar01", "a key that would collide with another key's metadata path is refused",
+        "STORE_SEMANTICS.md §8", [], ReadOnly, sidecar::sidecar01),
+    rule!("sidecar02", "metadata written with set_metadata reads back",
+        "STORE_SEMANTICS.md §8", [StoredMetadata, Write], CreateOnly, sidecar::sidecar02),
+    // §9 — what keys() returns.
+    rule!("keys01", "every key keys() returns starts with the store's prefix",
+        "STORE_SEMANTICS.md §9", [EnumerateKeys], ReadOnly, enumerate::keys01),
+    rule!("keys02", "keys() returns data keys, the directories above them, and the prefix itself",
+        "STORE_SEMANTICS.md §9", [EnumerateKeys, Write], CreateOnly, enumerate::keys02),
 ];
