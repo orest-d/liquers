@@ -53,8 +53,12 @@ the guide carries the per-type recipes, and `StoreFactory` gains an additive, de
 constructor so a type named in a document can be tested without one. Safety is four ordered levels — `read-only`,
 `create-only`, `scratch` (only what this run created), `unrestricted` — with each rule declaring the
 lowest it can run at; the report distinguishes "not run" from "passed" and names the level that
-would run it. The guide states the precautions (temporary folder or throwaway database, expendable
-store, no third-party service without explicit permission).
+would run it. Level 3 is upheld by the rules on trust — check before write, no guard wrapper. Unit tests run at
+fixture + scratch. Rules ask the fixture for key names rather than inventing them, which is what
+lets the suite reach a specialized store (a view onto a database table, keyed by numeric row ID,
+with no directories); such a store conforms to a subset, and many argued `NA`s are expected rather
+than suspicious. The guide states the precautions (temporary folder or throwaway database,
+expendable store, no third-party service without explicit permission).
 
 ## Links
 

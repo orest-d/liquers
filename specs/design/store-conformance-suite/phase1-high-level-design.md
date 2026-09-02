@@ -129,6 +129,9 @@ capability and the suite then checks:
   store author's work, and the guide is where the recipe for each shape belongs. **Can the type's
   factory build a fresh empty one itself?** If it can, offering that is worth more than documenting
   a recipe, because it makes the store testable from a configuration document alone.
+- **Is the key space constrained in shape, not only in extent?** A store addressing database rows
+  by numeric ID cannot accept `sub/a.txt`, and has no meaningful directories. Say what a key looks
+  like, what the fixture can and cannot create, and expect several argued `NA`s in the status row.
 - **What is safe to run this against?** The suite writes and removes; the guide must say so
   plainly and give the precautions — a temporary folder or throwaway database, a store treated as
   expendable, and no third-party service unless explicitly permitted.
@@ -250,11 +253,15 @@ Settled at the Phase 1 gate, and now normative for Phase 2:
 
    Three consequences that Phase 2 must design for rather than discover:
 
-   - **Level 3 has to be enforced, not merely declared.** "Only what this run created" is
-     bookkeeping — a record of created keys, consulted on every mutation. Enforcing it inside each
-     rule means every rule can breach it by mistake; enforcing it in a **guard that wraps the
-     fixture's store** means a rule cannot, and the guard is also where a breach becomes a
-     legible error rather than a deleted file. The wrapping store is the shape to beat.
+   - **Level 3 is upheld by the rules themselves, on trust.** A rule checks whether the key exists
+     and does not proceed if it does; there is no guard wrapping the store. Chosen deliberately
+     over a wrapper: the wrapper is stronger but every rule then runs through an indirection that
+     exists only for the tool, and the rules are ours to review. Two limits to state rather than
+     paper over — a buggy rule *can* breach the level, and check-then-write is not atomic, so a key
+     created by someone else in the gap would be overwritten. Both are acceptable against a
+     scratch or throwaway store, which is what the precautions require; neither would be acceptable
+     as a safety guarantee against a store holding real data, and the guide must not imply it is
+     one.
    - **`removedir` at level 3 is the hard case.** A directory whose subtree the run created
      entirely is fine; one that also holds a pre-existing key is not, and the guard cannot know
      which without walking it. Removing a directory is precisely the operation the sibling rule
@@ -268,6 +275,28 @@ Settled at the Phase 1 gate, and now normative for Phase 2:
    construction, so `scratch` is a safe default there; a store named in somebody's configuration
    document should default to `read-only` and make them ask for more.
 
+10. **Unit tests run at `fixture + scratch`.** A fixture the test builds — a temporary directory, a
+    fresh memory store, a factory-made scratch store — exercised at level 3. It is the strongest
+    level that is safe by construction, so the in-tree suites get the widest coverage without any
+    of the tool's hazards.
+
+11. **Rules ask the fixture for key names; they do not invent them.** This is what lets a general
+    suite reach a *specialized* store. Consider a store that is a view onto one database table:
+    "files" are serialized rows, the key is a row ID, there are no meaningful subdirectories, and
+    if IDs are numeric the store cannot accept an arbitrary key at all. Nearly every rule as
+    ordinarily written would be inapplicable — not because the store is wrong, but because the rule
+    chose the name `sub/a.txt`.
+    So a rule states the *precondition* it needs — "a key that does not exist", "two keys where one
+    name is a proper prefix of the other", "a key two levels deep" — and the fixture supplies names
+    that satisfy it or declines. A decline is a reported `NA` with the fixture's reason, which is
+    reviewable; a rule inventing names is a failure that looks like a defect in the store.
+    **Such a store conforms to a subset, and that is a legitimate outcome.** Where
+    `LANGUAGE-INTEGRATION_GUIDE.md` §3 warns that a feature with many `NA`s is a smell, the
+    counterpart here is the opposite: for a deliberately restricted store many `NA`s are *expected*.
+    Each still has to be argued and carry a reversing condition — that is what keeps "my store is
+    special" from becoming a way to excuse a real divergence. The guide owns this distinction, and
+    a worked restricted-store example is the clearest way to make it.
+
 ## Open Questions
 
 1. **How tightly is the capability vocabulary coupled to Rust?** Decision 3 fixes that guide and
@@ -276,11 +305,15 @@ Settled at the Phase 1 gate, and now normative for Phase 2:
    this repository declares its capabilities. It also decides whether the guide's per-store status
    matrix can be *generated* from a report rather than maintained by hand, which is the strongest
    version of the synchronization mechanism above.
-2. **What does each level actually buy?** Phase 2 should count the rules runnable at each of the
-   four levels before the levels are fixed in the tool's interface. If `read-only` runs three rules
-   out of forty, that is worth knowing — and worth printing — before anyone treats a clean level-1
-   report as evidence of anything. The sibling rule, the one that motivated all of this, needs
-   level 3 at least.
+2. **What vocabulary of preconditions does a fixture answer?** Decision 11 fixes that the fixture
+   supplies names; the set of requests it must satisfy is Phase 2's, and it is effectively a second
+   small interface next to the capability declaration. Too coarse and specialized stores cannot
+   participate; too fine and every fixture author has a long list to implement.
+3. **What does each level actually buy?** Phase 2 should count the rules runnable at each of the
+   four levels before the levels are fixed in the tool's interface, and print the counts. A clean
+   `read-only` report is evidence of very little if it ran three rules out of forty. The tool's own
+   default for a store named in a configuration document is still open; `read-only` is the
+   conservative choice, against decision 10's `scratch` for a fixture the test built.
 
 ## References
 
