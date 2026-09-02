@@ -135,12 +135,17 @@ at plan level and a store never resolves them, so one reaching a store is refuse
 `KeyNotAbsolute`. The rule lives in rustdoc until DOC-07 exists; enforcement is by convention per
 method rather than by signature, which is `STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED`.
 
-`STORE-OPENDAL-SLASH-HANDLING` is P1. Its original statement — that keys containing `/` are not
-reliably addressable — did not survive reproduction: the filesystem backend handles them correctly.
-`design/opendal-path-mapping/` restates it as three defects, of which the sharpest is that a
-directory key is unaddressable on a backend with no directory objects, which covers most of
-`OPENDAL_STORE_TYPES`. Sessions and ACL are one item because there is no identity on `Context` to
-authorize against.
+`STORE-OPENDAL-SLASH-HANDLING` is **P0**. Its original statement — that keys containing `/` are not
+reliably addressable — survived reproduction on the second attempt, once two sibling directories
+with a shared name prefix were probed rather than one key in isolation: three call sites address a
+directory without the trailing `/` OpenDAL requires, so the path is treated as a *prefix*. One of
+them is `removedir`, which therefore deletes sibling directories — data loss, reachable through
+`DELETE /api/store/removedir/{*key}`. `design/opendal-path-mapping/` records six defects, that one
+first, and the second-sharpest is that a directory key is unaddressable on a backend with no
+directory objects, which covers most of `OPENDAL_STORE_TYPES`. That nothing checks the four
+`AsyncStore` implementations against one another is
+`STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE`. Sessions and ACL are one item because there
+is no identity on `Context` to authorize against.
 
 ### Command libraries
 
@@ -195,7 +200,7 @@ question are both measure-first items.
 <!-- BEGIN generated: issues -->
 | Issue | Pri | Cx | Design |
 |---|---|---|---|
-| [`STORE-OPENDAL-SLASH-HANDLING`](issues/STORE-OPENDAL-SLASH-HANDLING.md) | P1 | M | `opendal-path-mapping` |
+| [`STORE-OPENDAL-SLASH-HANDLING`](issues/STORE-OPENDAL-SLASH-HANDLING.md) | P0 | M | `opendal-path-mapping` |
 <!-- END generated: issues -->
 
 ## Not yet placed

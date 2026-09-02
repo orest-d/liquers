@@ -3,7 +3,7 @@ id: STORE-OPENDAL-SLASH-HANDLING
 kind: issue
 title: OpenDAL store mishandles keys containing slashes
 status: accepted
-priority: P1
+priority: P0
 complexity: M
 area: [store/backends]
 design: opendal-path-mapping
@@ -46,3 +46,33 @@ objects (memory, and object stores generally) even though `listdir` sees them; a
 is spread across four methods with no round-trip guarantee. The design folder's Phase 1 records the
 evidence and Phase 2 the proposed fix, both awaiting approval. Status left `accepted`: the issue is
 real, its statement is being corrected rather than withdrawn.
+
+## Update, 2026-09-02 — the headline is true after all, and one defect is data loss
+
+A second reproduction, probing two sibling directories whose names share a prefix (`sub/` and
+`subway/`) rather than one key in isolation, found two defects the 2026-08-29 pass missed. Both are
+genuine slash handling, which is what the issue said in the first place:
+
+1. **`removedir` deletes sibling directories.** `opendal_store.rs:408` calls
+   `op.remove_all(key_to_path(key))` with no trailing slash, which OpenDAL treats as a *prefix*
+   delete. Reproduced on the filesystem backend: `removedir("sub")` destroyed `subway/`. Reachable
+   remotely — `liquers-axum` serves `DELETE /api/store/removedir/{*key}`. Both other async stores
+   scope the delete correctly, so this is a divergence from an established contract.
+2. **`listdir_keys_deep` returns keys from sibling directories** (`:481`), same missing slash on
+   `list_with(path).recursive(true)`. It propagates through `keys()` and the store router.
+
+Verified fix in both cases: pass `"sub/"`. With the slash, a recursive list of `sub/` returns only
+`sub/…`, and `remove_all("sub/")` leaves `subway/b.txt` in place, on memory and filesystem alike.
+
+**Priority raised P1 -> P0** on the first of these: data loss, per `DOCS_STRUCTURE_GUIDE.md` §4.4.
+
+The same pass also **disproved the 2026-08-29 update's claim** that the two live `//TODO: create_dir`
+markers are satisfied by `make_sub_dirs`. They are not: `make_sub_dirs` calls `create_dir` without a
+trailing slash, which OpenDAL rejects unconditionally, and the error is discarded by `let _ignore`.
+The function has never created a directory on any backend; nested writes work on the filesystem
+because OpenDAL's `Fs` service creates parents on write.
+
+Six defects are now in scope, recorded with evidence in
+[`design/opendal-path-mapping/`](../design/opendal-path-mapping/) Phase 1, with the solution in
+Phase 2. Two adjacent P3 issues in the same file are folded into the same change:
+`OPENDAL-LOCALFS-TEST-SILENT-ON-WRONG-VALUE-TYPE` and `STORE-OPENDAL-WITHOUT-ASYNC-STORE-BROKEN`.

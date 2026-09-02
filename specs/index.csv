@@ -1,6 +1,7 @@
 id,kind,title,status,status_source,phase,readiness,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
-STORE-OPENDAL-SLASH-HANDLING,issue,OpenDAL store mishandles keys containing slashes,accepted,local,,,P1,M,store/backends,,,,opendal-path-mapping,,2026-08-08,specs/issues/STORE-OPENDAL-SLASH-HANDLING.md
+STORE-OPENDAL-SLASH-HANDLING,issue,OpenDAL store mishandles keys containing slashes,accepted,local,,,P0,M,store/backends,,,,opendal-path-mapping,,2026-08-08,specs/issues/STORE-OPENDAL-SLASH-HANDLING.md
 CORE-EVALUATE-PATH-CONSOLIDATION,issue,Several evaluation paths duplicate each other,accepted,local,,,P1,L,core/assets;core/plan,,,,,,2026-08-08,specs/issues/CORE-EVALUATE-PATH-CONSOLIDATION.md
+STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE,issue,No shared behavioural conformance suite for AsyncStore implementations,draft,local,,,P1,L,core/store;store/backends,,,,,,2026-09-02,specs/issues/STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE.md
 ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS,issue,An argument's default gui_info differs depending on how the command was registered,draft,local,,needs-decision,P2,S,core/commands;macro;web,,,,argument-gui-info-default,,2026-08-30,specs/issues/ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS.md
 CORE-METADATA-TRACEBACK-SUPPORT,issue,Metadata has no place for an error traceback,accepted,local,,needs-decision,P2,S,core/value;core/error,,,,metadata-error-traceback,,2026-08-08,specs/issues/CORE-METADATA-TRACEBACK-SUPPORT.md
 ERROR-WITH-KEY-SETS-QUERY-FIELD,issue,'`Error::with_key` writes the key into the `query` field',draft,local,,ready,P2,S,core/error,,,,error-with-key-field,,2026-08-25,specs/issues/ERROR-WITH-KEY-SETS-QUERY-FIELD.md
@@ -80,7 +81,6 @@ CORE-MULTI-REALM-INTERPRETER,issue,The interpreter supports a single realm,accep
 CORE-TOKIO-REMOVAL,issue,Core still depends on tokio primitives on wasm,accepted,local,,,P3,XL,core/assets,,,,,,2026-08-08,specs/issues/CORE-TOKIO-REMOVAL.md
 EXPIRATION-INTEGRATION-SUITE-REPAIR,design,expiration-integration-suite-failing-at-head,draft,local,examples,,P0,M,core/assets,,,,expiration-integration-suite-failing-at-head,,2026-08-11,specs/design/expiration-integration-suite-failing-at-head/DESIGN.md
 EXPIRED-BINARY-READ-SAFETY,design,Expired-safe binary reads,,github,implementation,,P0,M,core/assets;core/store,,22,,expired-binary-read-safety,,2026-08-08,specs/design/expired-binary-read-safety/DESIGN.md
-OPENDAL-PATH-MAPPING,design,"One path mapping for the OpenDAL store, with a key round-trip property",in_review,local,architecture,,P1,M,store/backends,,,,opendal-path-mapping,,2026-08-29,specs/design/opendal-path-mapping/DESIGN.md
 ARGUMENT-GUI-INFO-DEFAULT,design,Consistent default GUI metadata for command arguments,in_review,local,implementation,needs-decision,P2,S,core/commands;macro;web,,,,argument-gui-info-default,,2026-09-01,specs/design/argument-gui-info-default/DESIGN.md
 ASSET-MANAGER-INSERT-KEY-ASSET-SEMANTICS,design,asset-manager-insert-key-asset-semantics,draft,local,documentation,,P2,S,core/assets,,,,asset-manager-insert-key-asset-semantics,,2026-08-25,specs/design/asset-manager-insert-key-asset-semantics/DESIGN.md
 ERROR-WITH-KEY-FIELD,design,Error::with_key populates the key field,in_review,local,implementation,ready,P2,S,core/error,,,,error-with-key-field,,2026-08-29,specs/design/error-with-key-field/DESIGN.md
@@ -97,6 +97,7 @@ CONFIGURATION-ERROR-KIND,design,Classify semantic configuration failures,in_revi
 STORE-CONFIG-URI,design,Configuring a store from a URI,in_review,local,architecture,,P3,M,store/config;store/backends;core/store,,,,store-config-uri,,2026-08-29,specs/design/store-config-uri/DESIGN.md
 CONTEXT-PARAM-ORDER,design,Context parameter position in register_command!,draft,local,architecture,,,,core/commands;macro,,,,context-param-order,,2026-03-02,specs/design/context-param-order/DESIGN.md
 FOREIGN-VALUE-TYPE-REGISTRATION,design,Foreign and Python value types in the type registry,,github,,,,,core/value;lib/value;web;py,,42,,foreign-value-type-registration,,2026-08-26,specs/design/foreign-value-type-registration/DESIGN.md
+OPENDAL-PATH-MAPPING,design,"One path mapping for the OpenDAL store, with a key round-trip property",in_review,local,architecture,,,,store/backends,,,,opendal-path-mapping,,2026-08-29,specs/design/opendal-path-mapping/DESIGN.md
 PLAN-CWD-FREEZE,design,Freeze CWD in the plan and cut correct predecessor boundaries,,github,documentation,,,,core/plan;core/query;core/context;core/assets,,35,,plan-cwd-freeze,,2026-08-14,specs/design/plan-cwd-freeze/DESIGN.md
 REGISTER-COMMAND-ENUM,design,Enum parameters in register_command!,draft,local,architecture,,,,macro;core/commands,,,,register-command-enum,,2026-03-02,specs/design/register-command-enum/DESIGN.md
 UI-EVENTS,design,UI event delivery to widgets,in_review,local,high-level,,,,lib/ui,,,,ui-events,,2026-03-02,specs/design/ui-events/DESIGN.md
