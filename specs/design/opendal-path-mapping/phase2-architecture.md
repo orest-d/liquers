@@ -32,8 +32,9 @@ be committed:
 | 3a | **`DirectoryIndex` and shared directory semantics in core** | `liquers-core` | — (`CORE-DIRECTORY-INDEX-NOT-SHARED`) | 3 |
 | 3b | OpenDAL supplies its own directory truth and inherits the semantics | `liquers-store` | 4 | 4 |
 | 4 | `removedir` doc comment corrected | `liquers-store` | 1 | 1 |
-| 5 | `make_sub_dirs` deleted; dead synchronous block deleted | `liquers-store` | 6, Q3 | 5 |
-| 6 | Warning hygiene; two folded-in P3 issues | `liquers-store` | — | 6 |
+| 5 | `make_sub_dirs` deleted; dead synchronous block deleted | `liquers-store` | 6, Q3 | 5-6 |
+| 6 | Warning hygiene; two folded-in P3 issues | `liquers-store` | — | 7 |
+| 7 | `AsyncMemoryStore::makedir` records the directory | `liquers-core` | — (`CORE-ASYNC-MEMORY-STORE-MAKEDIR-DOES-NOTHING`) | 8 |
 
 **The change is cross-crate.** Commits 1, 2 and 5-6 are confined to `liquers-store`; commit 3
 adds a module to `liquers-core` and adjusts two `AsyncStore` trait defaults, and commit 4 is the
@@ -64,6 +65,7 @@ here. No blocker remains.
 | `STORE-OPENDAL-LIST-OPTION-MISPARSED` | P2/S | draft, design `opendal-list-option-config` | Lives in `store_factory.rs`'s option parsing, not in `opendal_store.rs`. The only textual overlap is the import block §6 touches. No ordering constraint either way. | No |
 | `STORE-OPENDAL-ARGUMENTS-NOT-DERIVED` | P3/S | draft, design `store-factories-in-core` | That design is `complete` (PR #46, merged). The remaining feature work is argument metadata in `store_factory.rs` and does not touch `opendal_store.rs`. | No |
 | `STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED` | P1/L | accepted | The reason `PathMap`'s entry points stay fallible: absoluteness is enforced per method, by convention, not by the type. This change preserves that enforcement and concentrates it, which is a step toward the issue rather than away from it. | No |
+| `CORE-ASYNC-MEMORY-STORE-MAKEDIR-DOES-NOTHING` | P0/S | draft (**filed by this design**, 2026-09-02, from Phase 3) | `AsyncMemoryStore::makedir` (`store.rs:888`) records nothing and reports success; `PUT /api/store/makedir/{*key}` is a documented endpoint. `DirectoryIndex::explicit` is precisely the missing capability, so the fix is one call to `insert_directory` — sequenced as its own commit after the extraction, so the extraction stays behaviour-preserving. | No |
 | `CORE-DIRECTORY-INDEX-NOT-SHARED` | P1/L | accepted (**filed by this design**, 2026-09-02) | **Now covered by this design.** Four stores each reimplement directory derivation and a fifth has nothing; the gate directed that the fallback live in `liquers-core` so `liquers-web`'s HTTP-backed stores can use it too. §3a is its architecture. | No — it *is* the work |
 | `STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE` | P1/L | draft (**filed by this design**, 2026-09-02) | The suite that would enforce the semantics §3a puts in core across all implementations. Still out of scope: §3a gives the semantics one *implementation* to inherit, the suite gives them an *enforcement*, and the second is a separate body of test work. The contract they share is written at Phase 5. | No |
 | `CORE-STORE-OPENBIN-MISSING` | — | draft | `openbin` is unimplemented here as everywhere; its `TODO` (`:503`) is untouched. | No |
@@ -348,10 +350,28 @@ Each store keeps its own `is_dir`. What it stops restating is everything downstr
 a directory key's metadata being `default_metadata(key, true)` — which the trait defaults now
 provide (see Trait Implementations).
 
-**Who adopts it in this change:** `AsyncMemoryStore` (the mechanism is extracted *from* it, so it
-is the proof the extraction is faithful — its behaviour must not change and its existing tests must
-pass unchanged) and `AsyncOpenDALStore` (§3b). **Who does not, yet:** `FetchStore` and
-`LocalStorageStore`. They work today, they are wasm-only with their own Node/browser/Playwright test
+**Who adopts it in this change:** `AsyncMemoryStore` (the mechanism is extracted *from* it, so its
+behaviour must not change).
+
+> **Corrected by Phase 3, Finding 1.** This section originally rested that safety on
+> "its existing tests must pass unchanged". Counted at `HEAD`, those are **one** behavioural test
+> (`test_async_memory_store_basic`, `store.rs:2194`) plus `keyabs07`, and the behavioural one covers
+> a single key, one directory level, and never checks `is_dir` after a removal. It cannot prove a
+> refcounted-index extraction faithful. Phase 3's plan therefore **writes characterization tests
+> against `HEAD` first** (`MEMDIR01-05`), commits them before the extraction, and requires them to
+> pass unchanged after. The claim was not evidence; counting the tests took one grep.
+
+> **Also corrected by Phase 3, Finding 2.** `DirectoryIndex::explicit` gives `AsyncMemoryStore` a
+> capability it lacks, and adopting it would change behaviour: `makedir` (`store.rs:888`) is a
+> silent no-op today — it validates its key, returns `Ok(())` and records nothing, so `is_dir` is
+> `false` immediately afterwards. Filed as `CORE-ASYNC-MEMORY-STORE-MAKEDIR-DOES-NOTHING` (P0/S:
+> `PUT /api/store/makedir/{*key}` is specified in `reference/WEB_API_SPECIFICATION.md` §4.1.10, and
+> a documented feature that does not work is §4.4's P0; the practical consequence is small). The
+> extraction commit therefore **keeps `makedir` a no-op**, so it is provably behaviour-preserving,
+> and a separate later commit makes it call `insert_directory`. One behaviour change, one commit,
+> visible in the diff.
+
+**Who does not, yet:** and `AsyncOpenDALStore` (§3b). `FetchStore` and `LocalStorageStore`. They work today, they are wasm-only with their own Node/browser/Playwright test
 loops that do not fit the native loop, and migrating them is cleanup rather than repair. It is filed
 as follow-up under `CORE-DIRECTORY-INDEX-NOT-SHARED` rather than done here — the issue's requirement
 is that the mechanism be *available* in core, and it will be. The sync `MemoryStore` is likewise

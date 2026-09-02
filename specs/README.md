@@ -210,6 +210,7 @@ question are both measure-first items.
 <!-- BEGIN generated: issues -->
 | Issue | Pri | Cx | Design |
 |---|---|---|---|
+| [`CORE-ASYNC-MEMORY-STORE-MAKEDIR-DOES-NOTHING`](issues/CORE-ASYNC-MEMORY-STORE-MAKEDIR-DOES-NOTHING.md) | P0 | S | `opendal-path-mapping` |
 | [`STORE-OPENDAL-SLASH-HANDLING`](issues/STORE-OPENDAL-SLASH-HANDLING.md) | P0 | M | `opendal-path-mapping` |
 | [`CORE-DIRECTORY-INDEX-NOT-SHARED`](issues/CORE-DIRECTORY-INDEX-NOT-SHARED.md) | P1 | L | `opendal-path-mapping` |
 <!-- END generated: issues -->
