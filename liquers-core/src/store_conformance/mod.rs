@@ -37,7 +37,7 @@ pub mod fixture;
 pub mod report;
 pub mod rules;
 
-pub use fixture::{Fixture, KeyRequest, Unavailable};
+pub use fixture::{Fixture, GenericFixture, KeyRequest, Unavailable};
 pub use report::{AllowedFailure, ConformanceReport, OutcomeCounts, ReportEntry, RuleOutcome};
 
 /// What a store can do.

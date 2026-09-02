@@ -124,3 +124,218 @@ pub trait Fixture: MaybeSend + MaybeSync {
     /// is why the report lists the residue rather than assuming it is empty.
     async fn cleanup(&self) {}
 }
+
+/// A ready-made [`Fixture`] for the common case: a store, its prefix, and what it can do.
+///
+/// Most of `keys_for` is the same for every store — generating fresh names under a prefix is not
+/// where store implementations differ. What *does* differ is the handful of preconditions a
+/// particular store can offer: a key outside its prefix, a key shape it refuses, a metadata
+/// collision, a pre-seeded key for the read-only path. Those are supplied by builder methods, and
+/// anything not supplied is declined with a reason that reaches the report.
+///
+/// A store whose key space is too unusual for this — a view onto a database table keyed by numeric
+/// row ID — implements [`Fixture`] directly instead. This type is a convenience, not a ceiling.
+pub struct GenericFixture {
+    store: Box<dyn AsyncStore>,
+    prefix: Key,
+    key_base: Key,
+    capabilities: StoreCapabilities,
+    level: SafetyLevel,
+    label: String,
+    outside_prefix: Option<Key>,
+    unsupported_shape: Option<Key>,
+    metadata_collision: Option<Key>,
+    existing: Option<Key>,
+    existing_directory: Option<Key>,
+    no_supported_key: Option<String>,
+    created: std::sync::Mutex<Vec<Key>>,
+    counter: std::sync::atomic::AtomicUsize,
+    run: String,
+}
+
+impl GenericFixture {
+    pub fn new(
+        label: impl Into<String>,
+        store: Box<dyn AsyncStore>,
+        prefix: Key,
+        capabilities: StoreCapabilities,
+        level: SafetyLevel,
+    ) -> Self {
+        // A per-run stem, so two suites against one backing store cannot collide, and a rerun does
+        // not meet its own leftovers.
+        let run = format!(
+            "lqconf{:x}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        );
+        GenericFixture {
+            store,
+            key_base: prefix.clone(),
+            prefix,
+            capabilities,
+            level,
+            label: label.into(),
+            outside_prefix: None,
+            unsupported_shape: None,
+            metadata_collision: None,
+            existing: None,
+            existing_directory: None,
+            no_supported_key: None,
+            created: std::sync::Mutex::new(Vec::new()),
+            counter: std::sync::atomic::AtomicUsize::new(0),
+            run,
+        }
+    }
+
+    /// Where to generate fresh keys, when that is **not** the store's own prefix.
+    ///
+    /// The two coincide for an ordinary store and diverge for a composition: an
+    /// [`AsyncStoreRouter`](crate::store::AsyncStoreRouter) reports the root as its prefix, because
+    /// it spans several, but keys must be generated under one member's prefix or nothing routes.
+    /// Conflating them made `prefix01` fail against a correct router — the fixture was wrong, not
+    /// the store.
+    pub fn with_key_base(mut self, key_base: Key) -> Self {
+        self.key_base = key_base;
+        self
+    }
+
+    /// Declare that **no** key is supported, with the reason.
+    ///
+    /// For a store that accepts nothing by design — `NoAsyncStore` is the in-tree example, and it
+    /// is what an `Environment` holds until a store is configured. Without this, `prefix04` fails
+    /// such a store for doing exactly what it exists to do, and a failure that is really a design
+    /// fact is the worst kind of entry in a conformance report.
+    pub fn without_supported(mut self, reason: impl Into<String>) -> Self {
+        self.no_supported_key = Some(reason.into());
+        self
+    }
+
+    /// A key outside this store's prefix, so `prefix02` can run.
+    pub fn with_outside_prefix(mut self, key: Key) -> Self {
+        self.outside_prefix = Some(key);
+        self
+    }
+    /// A key whose *shape* this store refuses, so `prefix03` and `sibling05` can run.
+    pub fn with_unsupported_shape(mut self, key: Key) -> Self {
+        self.unsupported_shape = Some(key);
+        self
+    }
+    /// A key colliding with another key's metadata path, so `sidecar01` can run.
+    pub fn with_metadata_collision(mut self, key: Key) -> Self {
+        self.metadata_collision = Some(key);
+        self
+    }
+    /// A key already holding data — the read-only path's only source of subjects.
+    pub fn with_existing(mut self, key: Key) -> Self {
+        self.existing = Some(key);
+        self
+    }
+    /// A directory that already exists.
+    pub fn with_existing_directory(mut self, key: Key) -> Self {
+        self.existing_directory = Some(key);
+        self
+    }
+
+    fn stem(&self, base: &str) -> String {
+        let n = self
+            .counter
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        format!("{}-{base}{n}", self.run)
+    }
+
+    fn offered(key: &Option<Key>, what: &str) -> Result<Vec<Key>, Unavailable> {
+        match key {
+            Some(k) => Ok(vec![k.clone()]),
+            None => Err(Unavailable::new(format!(
+                "this fixture was not given {what}"
+            ))),
+        }
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+impl Fixture for GenericFixture {
+    fn store(&self) -> &dyn AsyncStore {
+        self.store.as_ref()
+    }
+    fn capabilities(&self) -> StoreCapabilities {
+        self.capabilities
+    }
+    fn safety_level(&self) -> SafetyLevel {
+        self.level
+    }
+    fn expected_prefix(&self) -> Key {
+        self.prefix.clone()
+    }
+    fn label(&self) -> String {
+        self.label.clone()
+    }
+
+    async fn keys_for(&self, request: &KeyRequest) -> Result<Vec<Key>, Unavailable> {
+        let base = &self.key_base;
+        match request {
+            KeyRequest::Fresh => Ok(vec![base.join(self.stem("f"))]),
+            KeyRequest::Supported => match &self.no_supported_key {
+                Some(reason) => Err(Unavailable::new(reason.clone())),
+                None => Ok(vec![base.join(self.stem("s"))]),
+            },
+            KeyRequest::FreshSiblings { count } => {
+                let dir = self.stem("d");
+                Ok((0..*count)
+                    .map(|i| base.join(&dir).join(format!("s{i}.txt")))
+                    .collect())
+            }
+            KeyRequest::FreshPrefixPair => {
+                // One name a proper prefix of the other, which is the whole subject of §1.
+                let stem = self.stem("sub");
+                Ok(vec![base.join(&stem), base.join(format!("{stem}way"))])
+            }
+            KeyRequest::FreshNested { depth } => {
+                let mut key = base.join(self.stem("n"));
+                for i in 0..*depth {
+                    key = key.join(format!("d{i}"));
+                }
+                Ok(vec![key.join("leaf.txt")])
+            }
+            KeyRequest::Relative => crate::parse::parse_key("data/../../escape.txt")
+                .map(|k| vec![k])
+                .map_err(|e| Unavailable::new(e.message.clone())),
+            KeyRequest::OutsidePrefix => {
+                Self::offered(&self.outside_prefix, "a key outside its prefix")
+            }
+            KeyRequest::UnsupportedShape => {
+                Self::offered(&self.unsupported_shape, "a key shape the store refuses")
+            }
+            KeyRequest::MetadataCollision => {
+                Self::offered(&self.metadata_collision, "a metadata-colliding key")
+            }
+            KeyRequest::Existing => Self::offered(&self.existing, "a pre-seeded existing key"),
+            KeyRequest::ExistingDirectory => {
+                Self::offered(&self.existing_directory, "a pre-seeded existing directory")
+            }
+        }
+    }
+
+    fn record_created(&self, key: &Key) {
+        if let Ok(mut created) = self.created.lock() {
+            created.push(key.clone());
+        }
+    }
+    fn created_keys(&self) -> Vec<Key> {
+        self.created
+            .lock()
+            .map(|c| c.clone())
+            .unwrap_or_default()
+    }
+    async fn cleanup(&self) {
+        // Both, because a rule may have created a directory with `makedir`, which `remove` will
+        // not delete. Best effort: cleanup never fails a report.
+        for key in self.created_keys() {
+            let _ = self.store.remove(&key).await;
+            let _ = self.store.removedir(&key).await;
+        }
+    }
+}
