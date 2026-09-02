@@ -7,8 +7,9 @@ Memory-store support predicates respect prefixes
 ## Purpose
 
 Make the asynchronous and synchronous memory stores report support only for absolute keys beneath
-their configured prefix. This restores parity with the other store backends and makes direct
-`is_supported` calls and layering composition agree with each store's advertised namespace.
+their configured prefix. `is_supported` remains independently useful for narrower store policies:
+for example, an empty-prefix single-file overlay supports only its intercepted file and lets later
+router stores handle everything else.
 
 ## Core Interactions
 
@@ -16,53 +17,24 @@ their configured prefix. This restores parity with the other store backends and 
 No language change. Reuse `Key::is_relative` and segment-wise `Key::has_key_prefix`.
 
 ### Store System
-Change only `AsyncMemoryStore::is_supported` and the equivalent `MemoryStore` predicate. Preserve
-the existing `Key::as_absolute()` enforcement in every fallible key-taking store operation.
+Change `AsyncMemoryStore::is_supported` and `MemoryStore::is_supported`. Support is cumulative:
+absolute key, configured-prefix membership, then any store-specific exclusions such as folders or
+file types. Fallible operations retain their separate `Key::as_absolute()` enforcement.
 
-### Command System
-None.
-
-### Asset System
-No asset lifecycle change; correct support reporting only affects store selection and composition.
-
-### Value Types
-None.
-
-### Web/API (if applicable)
-None; configured routers already prefilter by prefix, so normal API routing is unchanged.
-
-### UI (if applicable)
-None.
+### Command, Asset, Value, Web/API, and UI Systems
+No behavior change. Routers already combine prefix membership with `is_supported`.
 
 ## Crate Placement
 
-`liquers-core/src/store.rs`: both memory-store implementations and focused regression tests already
-live there. No public signature, dependency, or cross-crate change is required.
+`liquers-core/src/store.rs`, beside both implementations and their inline tests. No public
+signature, dependency, or cross-crate change.
 
 ## Documentation Intent
 
-**Reference:** Extend `specs/reference/STORE_SEMANTICS.md` in Phase 5 by replacing its warning with
-the settled, tested prefix-support behavior; no new reference is needed.
-
-**Guide:** Neither; this is backend conformance, not a repeatable user workflow. Reconsider only if
-implementation reveals guidance beyond the existing absolute-key and store semantics references.
-
-**Other documents to create:** None; tests and the existing reference are the durable evidence.
-
-**Specific documents to update:** Link this design from
-`specs/issues/CORE-ASYNC-MEMORY-STORE-IS-SUPPORTED-IGNORES-PREFIX.md`; update `specs/README.md` now,
-then close the issue and update `STORE_SEMANTICS.md` after implementation is verified.
-
-Backend maintainers should see that absolute-key validity, prefix membership, and optional
-backend-specific exclusions are cumulative parts of support reporting.
+Extend `specs/reference/STORE_SEMANTICS.md`; no new reference or guide is required. Update the
+source issue, the accepted store-conformance issue, trait rustdoc, and generated documentation
+links. Phase 5 must explain the cumulative contract and the single-file overlay example.
 
 ## Open Questions
 
-None blocking. Phase 2 will verify whether any non-router composition implementation currently
-consults these predicates and whether a shared helper would reduce rather than obscure the rule.
-
-## References
-
-- `specs/issues/CORE-ASYNC-MEMORY-STORE-IS-SUPPORTED-IGNORES-PREFIX.md`
-- `specs/reference/STORE_SEMANTICS.md` sections 6-7
-- `specs/design/store-key-guard/`
+None. Prefix membership is necessary but not sufficient; `is_supported` may be narrower.

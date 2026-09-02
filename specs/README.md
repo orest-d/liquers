@@ -128,8 +128,6 @@ expansion time rather than at runtime. That is the cheapest item here.
 - **Type-enforced key absoluteness** — planned → [`issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md`](issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md)
 - **OpenDAL path normalization** — documented → [`reference/STORE_SEMANTICS.md`](reference/STORE_SEMANTICS.md) *(design in [`design/opendal-path-mapping/`](design/opendal-path-mapping/))*
 - **Store behavioural semantics** — documented → [`reference/STORE_SEMANTICS.md`](reference/STORE_SEMANTICS.md)
-- **Memory-store prefix support reporting** — designing →
-  [`design/async-memory-store-prefix-support/`](design/async-memory-store-prefix-support/)
 - **Shared directory support for backends without directories** — documented → `liquers-core/src/store_dir_index.rs` *(design in [`design/opendal-path-mapping/`](design/opendal-path-mapping/))*
 - **Streaming binary access (`openbin`)** — planned → [`issues/CORE-STORE-OPENBIN-MISSING.md`](issues/CORE-STORE-OPENBIN-MISSING.md)
 - **Sessions and key-level authorization** — planned → [`issues/CORE-SESSION-AND-KEY-ACL.md`](issues/CORE-SESSION-AND-KEY-ACL.md)
@@ -208,9 +206,7 @@ question are both measure-first items.
 ## Open issues attached to live design work
 
 <!-- BEGIN generated: issues -->
-| Issue | Pri | Cx | Design |
-|---|---|---|---|
-| [`CORE-ASYNC-MEMORY-STORE-IS-SUPPORTED-IGNORES-PREFIX`](issues/CORE-ASYNC-MEMORY-STORE-IS-SUPPORTED-IGNORES-PREFIX.md) | P1 | S | `async-memory-store-prefix-support` |
+*None.*
 <!-- END generated: issues -->
 
 ## Not yet placed
@@ -224,6 +220,7 @@ deliberately folded behind a broader line.
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - design `argument-gui-info-default`
 - design `asset-manager-insert-key-asset-semantics`
+- design `async-memory-store-prefix-support`
 - design `build-matrix-ci`
 - design `command-declaration`
 - design `command-metadata-command-hints`

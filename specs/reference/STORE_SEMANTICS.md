@@ -143,15 +143,22 @@ A store is constructed with a `prefix: Key`, and:
   `FileStore::key_to_path` pushes the whole key, prefix included, onto its root, and
   `AsyncOpenDALStore` does the same. `liquers-web`'s `FetchStore` is the one store that strips its
   prefix, and documents that it is the exception.
-- **`is_supported` answers whether this store will accept the key**, which is a separate question
-  from the prefix test the router already performs. It is what makes layering (`with_overlay`,
-  `with_fallback`) work, and a store answering "yes" to every absolute key cannot participate in a
-  layering correctly.
+- **`is_supported` answers whether the store supports the key.** The answer is cumulative: the key
+  must be absolute, must begin with the configured prefix, and must pass any narrower
+  store-specific exclusions such as a reserved folder, unsupported file type, ambiguous metadata
+  sidecar, or explicit allowlist.
+- **The router repeats the prefix check deliberately.** Router selection must remain safe for
+  custom stores, while a store's direct `is_supported` answer must truthfully describe its own
+  supported namespace.
 
-⚠ **`AsyncMemoryStore::is_supported` ignores its prefix**, unlike the four other stores. Masked in
-practice by the router's separate prefix test. `CORE-ASYNC-MEMORY-STORE-IS-SUPPORTED-IGNORES-PREFIX`.
+An empty prefix does not mean a store must support every absolute key. For example, a single-file
+overlay can have an empty prefix and return true only for its intercepted file. When placed before
+a general store, it handles that file while unsupported keys pass to subsequent stores.
 
-*Enforced by:* `prefix01`, `router01`, `dir04`, `opendal03`.
+`AsyncMemoryStore` and `MemoryStore` have no narrower exclusions, so their predicate is exactly
+`!key.is_relative() && key.has_key_prefix(&self.prefix)`.
+
+*Enforced by:* `memsupport01`-`memsupport06`, `prefix01`, `router01`, `dir04`, `opendal03`.
 
 ## 7. Key shape
 
@@ -198,4 +205,5 @@ settled, do not assume a key returned by `keys()` can be `get`.
 | Date | Change | Source |
 |---|---|---|
 | 2026-09-02 | Recorded that a recursive `removedir` takes explicit descendant directories with it, that `default_metadata` must honour both arguments, and that the directory path form is subject to the same key refusals as the data and metadata forms. All three from PR #58 review findings. | `design/opendal-path-mapping/` PR review |
+| 2026-09-02 | Defined `is_supported` cumulatively: absolute key, configured-prefix membership, then optional store-specific exclusions. Added the empty-prefix single-file overlay rationale and memory-store conformance tests. | `design/async-memory-store-prefix-support/` Phase 5 |
 | 2026-09-02 | Created. Written against the implementation after `STORE-OPENDAL-SLASH-HANDLING` and `CORE-DIRECTORY-INDEX-NOT-SHARED` were fixed: the sibling rule, the three sources of directory truth, derived versus explicit directories, absence versus failure, removal, prefixes and routing, key shape, metadata sidecars. Three questions are recorded as unsettled rather than answered. | `design/opendal-path-mapping/` Phase 5 |
