@@ -4,7 +4,7 @@ kind: design
 title: One path mapping for the OpenDAL store, and shared directory support in core
 workflow: liquers-project
 status: in_review
-phase: examples
+phase: implementation
 area: [core/store, store/backends, web]
 gh_pr: []
 issues: [STORE-OPENDAL-SLASH-HANDLING, CORE-DIRECTORY-INDEX-NOT-SHARED, CORE-ASYNC-MEMORY-STORE-MAKEDIR-DOES-NOTHING, OPENDAL-LOCALFS-TEST-SILENT-ON-WRONG-VALUE-TYPE, STORE-OPENDAL-WITHOUT-ASYNC-STORE-BROKEN]
@@ -30,8 +30,10 @@ approval gate.
 - [x] Phase 2 approval gate — approved 2026-09-02.
 - [x] Phase 3: Examples & Use-cases — [`phase3-examples.md`](./phase3-examples.md)
       *(two findings carried back into Phase 2; see Notes)*
-- [ ] **Phase 3 approval gate — awaiting `proceed`.**
-- [ ] Phase 4: Implementation Plan — `phase4-implementation.md`
+- [x] Phase 3 approval gate — approved 2026-09-02.
+- [x] Phase 4: Implementation Plan — [`phase4-implementation.md`](./phase4-implementation.md)
+      *(two signature refinements carried back into Phase 2; see Notes)*
+- [ ] **Phase 4 approval gate — awaiting `proceed`.**
 - [ ] Phase 5: Documentation — `phase5-documentation.md` *(mandatory under `workflow: liquers-project`)*
 
 ## Why this folder exists
@@ -90,6 +92,13 @@ twice, and both corrections are evidence a future reader needs.
 - **Sequencing.** The P0 (commits 1-2: the trailing slash and `key_prefix()`) touches
   `liquers-store` only and depends on nothing in `liquers-core`, so it can ship and revert ahead of
   the core work if that needs another round. Phase 4 keeps that freedom.
+- **Phase 4 refined two Phase 2 signatures, and both are recorded in Phase 2.** (R1) `PathMap`
+  cannot build `Error::key_not_supported` — it needs a store name an associated function cannot
+  reach, and `store_name()` allocates per call on the key-encoding path. The *predicate*
+  (`is_suffix_ambiguous`) stays in `PathMap`, the *error* moves to the store; one rule, real store
+  name, nothing allocated on the happy path. (R2) `directory_metadata_includes_children` is
+  **dropped**: every in-tree store overrides `get_metadata`, so the hook would have had no consumer.
+  Only the `contains` default changes.
 - **Phase 3 corrected Phase 2 twice, and both corrections are recorded in Phase 2 rather than only
   in Phase 3.** (1) "`AsyncMemoryStore`'s existing tests prove the extraction faithful" was not
   evidence: there is **one** behavioural test, covering a single key and never checking `is_dir`

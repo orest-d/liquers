@@ -163,14 +163,15 @@ modified, and `liquers-core` is not edited.
 
 ### `AsyncStore` trait defaults, in `liquers-core`
 
-Two defaults change, so that a store which answers `is_dir` inherits the rest instead of restating
-it. Both are widenings of a permissive default, not new obligations, so no implementation is
-required to change.
+One default changes, so that a store which answers `is_dir` inherits the rest instead of restating
+it. It is a widening of a permissive default, not a new obligation, so no implementation is required
+to change. (This section originally changed **two**; Phase 4's R2 dropped the second — see the
+struck row.)
 
 | Default | Line | Today | After |
 |---|---|---|---|
 | `contains` | `store.rs:442` | `Ok(false)` | data, else metadata is the store's business; the default falls back to `self.is_dir(key)`, which is what `AsyncMemoryStore` (`:810`) and `LocalStorageStore` already do by hand |
-| `get_metadata` | `store.rs:397` | on `is_dir`, returns `default_metadata(key, true)` **and walks the whole subtree** into `metadata.children` via `listdir_asset_info` | the walk moves behind a new `fn directory_metadata_includes_children(&self) -> bool { true }`, so a store can inherit directory metadata without paying for a recursive read |
+| ~~`get_metadata`~~ | `store.rs:397` | — | **Dropped by Phase 4, refinement R2.** The proposed `directory_metadata_includes_children` hook would have had **no consumer**: every in-tree store overrides `get_metadata`, `AsyncOpenDALStore` included, and it fixes its own override in step 6. A trait method added for a hypothetical caller is speculative API on a trait every integration implements. |
 
 `is_dir`'s own default stays `Ok(false)` — a store with no directory concept should say no, not
 guess. What changes is that "absent key means `Ok(false)`, never `Err`" becomes a documented rule
@@ -214,7 +215,14 @@ Everything stays `async`; no blocking call is introduced and no sync wrapper is 
 impl PathMap {
     const METADATA: &'static str = ".__metadata__";
 
-    /// "sub/foo.txt" — refuses a filename ending in METADATA, and a relative key.
+    /// True when the key's filename ends in METADATA, so its data path would collide with another
+    /// key's metadata path. **Added by Phase 4, R1**: `Error::key_not_supported` needs a store
+    /// name, which an associated function cannot reach, and `store_name()` allocates a String per
+    /// call on the key-encoding path. So the *predicate* lives here and the *error* on the store,
+    /// where `is_supported` and every path entry point consult the same rule.
+    fn is_suffix_ambiguous(key: &Key) -> bool;
+
+    /// "sub/foo.txt" — fallible via `Key::as_absolute`; suffix refusal is the store's, per R1.
     fn data(key: &Key) -> Result<String, Error>;
 
     /// "sub/foo.txt.__metadata__" — same refusals.
@@ -267,8 +275,9 @@ that, but the corpus pins the single-strip rule down.
 can be injective over both while preserving the on-disk layout. `is_supported` (`:514-520`) already
 refuses a key whose filename ends in the suffix, so such a key never reaches this store — but
 `key_to_path` accepts it today (confirmed: it returns `Ok("a.__metadata__")`), so the rule lives in
-one method and is absent from another. `PathMap::data` and `PathMap::metadata` refuse it too, with
-`Error::key_not_supported`. An unambiguous encoding (escaping the suffix) would change the on-disk
+one method and is absent from another. After Phase 4's R1, `is_supported` and the store's path
+entry points share the single predicate `PathMap::is_suffix_ambiguous`, and the store raises
+`Error::key_not_supported` with its own name. An unambiguous encoding (escaping the suffix) would change the on-disk
 layout and is out of scope.
 
 **Lenient in, strict out.** `PathMap::decode` is applied to paths the *backend* returns, which
