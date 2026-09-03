@@ -7,7 +7,7 @@ status: draft
 phase: examples
 area: [core/assets, core/plan]
 gh_pr: []
-issues: [CORE-EVALUATE-PATH-CONSOLIDATION, ASSETS-FIX1, INLINE-PATH-LACKS-EXECUTE-ONCE, ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED]
+issues: [CORE-EVALUATE-PATH-CONSOLIDATION, ASSETS-FIX1, INLINE-PATH-LACKS-EXECUTE-ONCE, ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED, ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY, REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED]
 affects_docs: []
 created: 2026-09-02
 superseded_by:
@@ -20,7 +20,7 @@ superseded_by:
 
 - [x] Phase 1: High-Level Design (approved 2026-09-03)
 - [x] Phase 2: Solution & Architecture (approved 2026-09-03)
-- [ ] Phase 3: Examples & Testing (in progress)
+- [x] Phase 3: Examples & Testing (drafted, reviewed)
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete

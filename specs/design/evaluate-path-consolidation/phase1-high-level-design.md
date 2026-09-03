@@ -144,7 +144,11 @@ erases the asymmetry.
 
 Consequently the unified body takes **only the asset**. Entry points become constructors that
 differ in the asset they build — recipe, initial state, payload, tracked vs ad hoc — never in how
-it is evaluated, and `AssetData` already carries those facts (`initial_state`, `is_volatile`,
+it is evaluated. The qualifier matters and Phase 3 had to learn it the hard way: they are thin *in
+evaluation logic*, not in construction, and construction decides what concurrent access means. Two
+`apply` calls build two separate ad-hoc assets and legitimately run the body twice; two `get_asset`
+calls converge on one mapped asset and must run it once. "One evaluation path" is not "every entry
+point is interchangeable", and `AssetData` already carries those facts (`initial_state`, `is_volatile`,
 `save_in_background`, `payload_path`, `expiration_time`).
 
 ## Recorded Execution Facts (requirement added 2026-09-03)

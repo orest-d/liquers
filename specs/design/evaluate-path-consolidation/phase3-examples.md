@@ -144,6 +144,7 @@ that records "a payload was supplied" instead.
 | C6 | **`ValueProduced` before finalization** | A subscriber polls on the notification and sees `None`/`Processing` | today's immediate path notifies before `try_to_set_ready` | notify after finalization in the one body | on receipt of `ValueProduced`, status is already terminal |
 | C7 | **A spawn leaks into the shared body** | wasm build breaks, or the inline manager hangs with no reactor | the one body runs under both harnesses | only the harnesses are platform-specific; the body uses no `tokio::` primitive | `immediate_runs_without_tokio_runtime` (exists) stays green, plus the wasm build matrix |
 | C8 | **`try_to_set_ready` runs too late** | An asset with a stale dependency is stored as `Ready` instead of `Expired` | status must be final before notify, before persist, before `track_asset` | fix the order in the one body | a stale-dependency asset is persisted as `Expired`, not `Ready` |
+| C10 | **Stale-dependency asset persisted as `Ready`** | The store says `Ready` for a value the run concluded was expired | the stale-dependency rule runs in `finish_run_with_result` (`:2050`), *after* `evaluate_and_store` persisted (`:2345`), and no save follows | move the rule into status finalization, before persistence | a stale-dependency asset's **stored** metadata says `Expired`. Pre-existing at HEAD — filed as `ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY` |
 | C9 | **Inline claim resets to the wrong status** | A dropped claim leaves an asset unrunnable, or lets a second caller re-enter | the queued `RunClaim` re-parks to a queue the inline path does not have | the inline claim restores a re-runnable status | after a failed claimed run, a second `run_inline` completes the evaluation |
 
 ## Test Plan
@@ -165,6 +166,8 @@ outside tests, typed error constructors, `#[cfg(test)] mod tests` at file end.
 | `make_volatile_takes_target_from_caller` | `assets.rs` | `#[tokio::test]` | the key caller yields `Some(key)`, the query caller `None` |
 | `delegating_asset_does_not_persist` | `assets.rs` | `#[tokio::test]` | one store write for the key, performed by the owner |
 | `value_produced_fires_after_status_finalization` | `assets.rs` | `#[tokio::test]` | on `ValueProduced`, `status().is_finished()` already holds (C6) |
+| `set_state_does_not_enter_the_evaluation_body` | `assets.rs` | `#[tokio::test]` | after `set_state`, the status is the supplied one and no dependency record appeared (C3 — a guard, since the behaviour is unchanged) |
+| `status_is_final_before_persistence` | `assets.rs` | `#[tokio::test]` | the status written to the store equals the asset's terminal status; with a stale dependency both are `Expired`, not `Ready` (C8/C10) |
 | `apply_plan_rejects_missing_payload` | `interpreter.rs` | `#[tokio::test]` | the gate's error, with the query attached |
 | `context_apply_defers_payload_check_to_apply_plan` | `context.rs` | `#[tokio::test]` | the error originates in `apply_plan`; `Context::apply` carries no pre-check |
 | `get_asset_info_projects_payload_required` | `recipes.rs` | `#[tokio::test]` | recipe preview projects `plan.payload_required` beside `is_volatile` and `expires` |
@@ -218,6 +221,45 @@ Before the change, run the existing suite against a `save_to_store` that uses `b
 It passes. That is the demonstration that the volatile-keyed store write is currently unguarded,
 and the reason C1 is the first corner case rather than a footnote.
 
+## Query Validation
+
+Every query appearing in this document was checked with `liquers-validate` against the real
+97-command registry (`transform` and `personalize` declared with `--command`, since they are
+illustrative):
+
+```
+transform            -> transform            Ok
+personalize          -> personalize          Ok
+-R/data/report.txt   -> -R/data/report.txt   Ok
+```
+
+Exit 0. Worth doing even for queries this simple: `-R/` consumes the rest of the string as a key,
+so `-R/data/report.txt` would have meant something different had a segment been appended without
+`/-/`.
+
+## Review Outcome
+
+**Reviewer 1 — conformity with Phases 1 and 2.** No blocking findings. Every Phase 2 commitment has
+coverage, and the eight-row persistence table maps one-to-one onto I1–I8. Two gaps, **both fixed
+above**: corner cases C3 and C8 had no tests. C8 turned out to be the more valuable of the two —
+writing its test revealed that HEAD does not honour the ordering invariant at all (see C10 and the
+issue filed).
+
+It also judged Phase 1's "thin wrappers" phrasing incomplete, which is fair: the wrappers are thin
+*in evaluation logic*, not in construction, and construction is what decides whether two concurrent
+callers converge on one asset. That is exactly what the execute-once correction exposed. Phase 1 is
+amended rather than left for a future reader to rediscover.
+
+**Reviewer 2 — test realism against the codebase.** Every claim verified: `scenario_volatile_keyed_eval`
+asserts the value and no store write (`manager_parametric.rs:327`); `immediate_concurrent_same_query_runs_once`
+registers a synchronous closure that cannot yield (`:484`); both `apply` implementations call
+`AssetData::new_ext` per invocation, so concurrent applies are separate assets (`:4743`, `:5866`);
+`Submitted` is queued-only (`:1318`); `Recipe::from(query)` leaves `cwd: None`, so `store_to_key()`
+yields `None` for a plain query asset (`recipes.rs:404`, `:421`, `:356`); `CountingStore` and
+`Metadata::get_dependencies` make every proposed assertion observable; the test names match the
+file's conventions. Its one open item — that the `#[cfg(test)]` map accessors do not exist yet — is
+Phase 4 work this document already schedules.
+
 ## Documentation and Learning Log
 
 **Guide-worthy?** No new guide. Nothing here answers "how do I achieve X" for a command author —
@@ -236,6 +278,16 @@ should carry them as prose rather than as a test list:
    *point* is persistence are worth auditing beyond this design.
 2. Two `apply` calls are not a concurrency test. Ad-hoc assets are unshared by construction, so any
    execute-once test must converge two callers on one *mapped* asset.
-3. `payload: required` is implemented and tested but documented in no reference or guide — filed as
+3. **The ordering invariant is not honoured at HEAD.** Writing the test for "status is finalized
+   before persistence" showed that an asset using a stale dependency is persisted as `Ready` and
+   only then labelled `Expired` in memory, with no save after. Filed as
+   `ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY` (P2, M). The consolidation states the invariant and
+   makes the violation visible, but does not by itself fix it — the rule lives in the harness the
+   design keeps. A test written to confirm an assumption is worth more than one written to confirm
+   a change.
+4. **"Thin wrapper" needs the qualifier.** Entry points are thin in evaluation logic; they are not
+   interchangeable in construction, and construction decides what concurrent access means. Two
+   `apply` calls are two assets; two `get_asset` calls are one.
+5. `payload: required` is implemented and tested but documented in no reference or guide — filed as
    `REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED` (P2, S). It was found because a test needed
    the declaration and it had to be recovered from the macro parser.
