@@ -143,20 +143,77 @@ differ in the asset they build — recipe, initial state, payload, tracked vs ad
 it is evaluated, and `AssetData` already carries those facts (`initial_state`, `is_volatile`,
 `save_in_background`, `payload_path`, `expiration_time`).
 
+## Resolved Questions (2026-09-03)
+
+1. **Store-target ownership for a query asset.** Non-keyed (query) assets are not stored; they need
+   no owner. The write predicate is therefore `AssetRef::bound_owner_key().is_some()` — which
+   already exists and is already what `DependencyManager::track_asset` uses. It replaces
+   `recipe.key().or(recipe.store_to_key())` in `save_to_store` (`assets.rs:2447`, `:2479`) and in
+   `AssetData`'s metadata-save path (`:833`, `:861`). Note this keeps recipe-defined resources
+   storable: a `recipes.yaml` action chain has `key() == None` and is identified by
+   `store_to_key()`, which `bound_owner_key` accepts as recipe identity — while an ad-hoc `apply`
+   asset built from a bare-key recipe fails the owner check and writes nothing.
+2. **Harness collapse.** To be resolved by this design; the mapping is below.
+3. **`INLINE-PATH-LACKS-EXECUTE-ONCE`** — co-delivery with this work.
+
+## Method Mapping (Phase 2 input)
+
+### `AssetRef` evaluation and run layer
+
+| Today | Becomes | Note |
+|---|---|---|
+| `evaluate_recipe_outcome()` (private) | **`evaluate(payload)`** — the one body | absorbs delegation, provider resolution, dep collection, install, finalize, persist, DM track |
+| `evaluate_recipe()` (pub) | removed | no caller outside `assets.rs` and its tests |
+| `evaluate_and_store()` (pub) | `evaluate(None)` | |
+| `evaluate_immediately(payload)` (pub) | `evaluate(Some(payload))` | |
+| `run_with_future(fut)` `cfg(not(wasm32))` | unchanged | genuine platform difference: spawned psm loop |
+| `run_with_future_inline(fut)` | unchanged | spawn-free psm via `futures::join!` |
+| `run()` | `run(None)` | |
+| `run_immediately(payload)` | `run(Some(payload))` | |
+| `run_inline()` | `run_inline(None)` | |
+| `run_immediately_inline(payload)` | `run_inline(Some(payload))` | |
+
+Three evaluation bodies become one; four run entry points become two; the two harnesses stay two,
+because spawn-vs-inline is a real platform split, not a duplication.
+
+### `AssetManager` trait and its two implementations
+
+| Today | Becomes | Note |
+|---|---|---|
+| `get_asset(query)` ×2 | unchanged | resolve through the maps, then schedule |
+| `get(key)` ×2 | unchanged | |
+| `apply(recipe, state)` ×2 | **`apply(recipe, state, payload)`** ×2 | |
+| `apply_immediately(recipe, state, payload)` ×2 | removed — same method | |
+| `get_dependency_asset_with_payload(...)` | unchanged role; its `run_immediately(payload)` becomes `run(Some(payload))` | |
+| `get_dependency_asset`, `drain_dependencies`, `wait_for_dependency` | unchanged | dependency scheduling is a separate concern |
+| `eval_mode()` | unchanged, but consulted only for *reproducible* assets | see the decision point below |
+
+Six evaluation entry-point implementations (3 methods × 2 managers) become four.
+
+### Public and `Context` layer
+
+| Today | Becomes | Note |
+|---|---|---|
+| `EnvRef::evaluate(query)` | unchanged | |
+| `EnvRef::evaluate_immediately(query, payload)` | unchanged signature; delegates to `apply(recipe, State::new(), Some(payload))` | |
+| `Context::evaluate` / `get_dependency_state` | unchanged | |
+| `Context::apply(query, to)` | the `requires_payload` branch disappears: one call, `manager.apply(recipe, to, self.payload.clone())` | payload inheritance stops depending on a pre-check |
+| `save_to_store` target `recipe.key().or(store_to_key())` | `bound_owner_key()` | question 1 |
+
 ## Open Questions
 
-1. **Store-target ownership for a non-key query asset carrying a `filename`.** `store_to_key()`
-   resolves to `cwd/filename` and HEAD writes there. Such an asset is reproducible, so the value is
-   legitimate — but the key belongs to whatever the recipe provider resolves at that path. Owning
-   it lets a query plant a value under a key it does not define; not owning it removes `filename:`
-   as a persistence mechanism for query assets.
-2. **Harness collapse.** Can the four run harnesses become two (spawn vs inline) with the
-   evaluation body as a parameter, given `run_with_future` is `#[cfg(not(wasm32))]` and
-   `run_with_future_inline` is not? With one body, `run`/`run_immediately` and
-   `run_inline`/`run_immediately_inline` differ only in the payload argument.
-3. **`INLINE-PATH-LACKS-EXECUTE-ONCE` (P2, accepted): prerequisite, co-delivery, or out of scope?**
-   Consolidation makes a shared claim primitive cheaper; folding it in widens the blast radius.
-   The Phase 2 known-issue preflight decides.
+All six original questions are resolved (see above). One decision remains, and it belongs to
+Phase 2 rather than to the user:
+
+### Decision point for Phase 2
+
+Does `apply` under a queued manager still enqueue, or always evaluate inline? Proposal: **inline**,
+extending the rationale already written for payload dependencies — such an asset is unshared,
+unreused and unpersisted, so a queue slot buys nothing, and taking one while the parent holds one
+is the deadlock pattern in `ASSETS-FIX1` #17. This *adds* the "completes before returning"
+guarantee to `apply` rather than removing one, so no caller loses a property, and it derives from
+reproducibility instead of being a policy. It is the one row that changes an observable guarantee,
+so it is called out rather than assumed.
 
 ## References
 

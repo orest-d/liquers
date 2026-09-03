@@ -41,9 +41,13 @@ queued-vs-inline and queue characteristics are genuine manager policy, the latte
 The same predicate governs map reuse, loadable persistence, and eligibility to be a dependency —
 which is why `Context::apply` records no edge. The unified body therefore takes only the asset.
 
-Three questions carried into Phase 2: store-target ownership for a query asset with a `filename`,
-whether the four run harnesses collapse to two given the wasm `cfg` split, and whether
-`INLINE-PATH-LACKS-EXECUTE-ONCE` is a prerequisite.
+All Phase 1 questions resolved on 2026-09-03: non-keyed (query) assets are not stored, so the
+write predicate is the existing `AssetRef::bound_owner_key()`; the harness mapping is settled in
+Phase 1's method-mapping tables (3 evaluation bodies to 1, 4 run entry points to 2, 6 manager
+evaluation entry points to 4); `INLINE-PATH-LACKS-EXECUTE-ONCE` is co-delivered with this work.
+
+One decision left for Phase 2: whether `apply` under a queued manager enqueues or evaluates inline.
+Proposal is inline, derived from reproducibility rather than chosen as policy.
 
 ## Links
 
