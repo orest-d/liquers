@@ -869,6 +869,97 @@ impl AsyncStore for AsyncMemoryStore {
     }
 }
 
+/// The metadata sidecar suffix: the metadata for `foo` lives at `foo.__metadata__`.
+pub const METADATA_SUFFIX: &str = ".__metadata__";
+
+/// The lock-file suffix [`AsyncFileStore`] takes while writing: the lock for `foo` is
+/// `foo.__lock__`.
+pub const LOCK_SUFFIX: &str = ".__lock__";
+
+/// The legacy metadata *folder* name, reserved exactly rather than as a suffix.
+///
+/// This is not a layout any store in this repository uses. It is the predecessor Python
+/// implementation's: in [`orest-d/liquer`](https://github.com/orest-d/liquer), `liquer/store.py`
+/// (at `2eb4e64`) declares `METADATA = "__metadata__"` and puts the metadata for `sub/foo.txt` at
+/// `sub/__metadata__/foo.txt.json`. That implementation refuses the name as a filename *and* in
+/// any interior position, and filters it out of listings — the same three rules this module
+/// applies.
+///
+/// It is reserved here so that layout stays readable if support for it is ever wanted, and the
+/// citation is in this doc comment because **nothing in this repository evidences the layout**: a
+/// reservation whose reason is invisible is the one a future reader deletes.
+pub const METADATA_FOLDER: &str = "__metadata__";
+
+/// The names a store's metadata layout reserves, and therefore the keys it must refuse.
+///
+/// A sidecar layout keeps the metadata for `foo` at `foo.__metadata__`, which makes the key
+/// `foo.__metadata__` unaddressable — its *data* path is that same byte string. Such keys are
+/// refused rather than silently colliding, because a store must not accept a key it cannot address
+/// unambiguously (`STORE_SEMANTICS.md` §8).
+///
+/// Three kinds of caller ask the same question through this type, and all three must:
+///
+/// 1. [`AsyncStore::is_supported`], which is only a **routing hint** — `AsyncStoreRouter` consults
+///    it and a direct caller need not.
+/// 2. The path builders, so that every fallible method inherits the refusal. This is the half that
+///    was missing, and `liquers-axum`'s store handlers are the callers that reached the filesystem
+///    through it (`CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS`).
+/// 3. The listing filters. Not optional: `listdir_keys_deep` calls `is_dir` on every child, so an
+///    unfiltered reserved name turns a refusal into a *failed enumeration* — the store stops being
+///    listable at all. §8 requires listings to skip what they cannot address, not fail on it.
+///
+/// A predicate rather than a fallible function because [`AsyncStore::is_supported`] returns `bool`
+/// and cannot carry an error; the *store* raises the refusal, because `Error::key_not_supported`
+/// needs a store name this type cannot reach (`CORE-ERROR-STORE-NAME-NOT-STRUCTURED`).
+///
+/// Each store declares what its **own** layout uses. Over-reserving is a defect in the same family
+/// as under-reserving: `x.__lock__` is a key [`AsyncOpenDALStore`] can address perfectly well,
+/// because it takes no locks.
+///
+/// See `specs/design/sidecar-colliding-keys/` and `specs/reference/STORE_SEMANTICS.md` §8.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReservedNames {
+    /// Reserved as a suffix: any segment *ending* in one of these.
+    suffixes: &'static [&'static str],
+    /// Reserved exactly: a segment equal to one of these.
+    ///
+    /// Deliberately separate from `suffixes` rather than derived from it by stripping a leading
+    /// dot. Deriving is shorter and wrong — it would reserve the bare name `__lock__`, and no
+    /// layout has ever used a `__lock__` directory, so the store would refuse a key for no reason
+    /// and the contract would claim a layout that does not exist.
+    exact: &'static [&'static str],
+}
+
+impl ReservedNames {
+    /// Declares what a layout reserves. `const` so a store holds the result as an associated
+    /// constant rather than rebuilding it per call.
+    pub const fn new(
+        suffixes: &'static [&'static str],
+        exact: &'static [&'static str],
+    ) -> Self {
+        Self { suffixes, exact }
+    }
+
+    /// True when one directory-entry name is reserved.
+    ///
+    /// Takes `&str` because the listing filters have a name and no key, and building a key per
+    /// entry in order to ask would allocate for nothing.
+    pub fn is_reserved_name(&self, name: &str) -> bool {
+        self.suffixes.iter().any(|suffix| name.ends_with(suffix))
+            || self.exact.iter().any(|reserved| name == *reserved)
+    }
+
+    /// True when **any** segment of the key is reserved.
+    ///
+    /// Any, not the last: `dir.__metadata__/child` needs `dir.__metadata__` to be a directory,
+    /// while the metadata of `dir` needs it to be a file, so the key is unaddressable even though
+    /// its filename is innocent. [`Key::filename`] is the last segment only, which is how the
+    /// original check missed this shape.
+    pub fn is_reserved_key(&self, key: &Key) -> bool {
+        key.iter().any(|segment| self.is_reserved_name(&segment.name))
+    }
+}
+
 /// Async-native file store implementation.
 /// Uses `tokio::fs`, unavailable on wasm — excluded from `wasm32` targets.
 #[cfg(not(target_arch = "wasm32"))]
