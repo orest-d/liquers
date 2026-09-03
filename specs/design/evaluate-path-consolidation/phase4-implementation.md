@@ -1,91 +1,355 @@
-# Phase 4: Implementation Plan - evaluate-path-consolidation
+---
+id: EVALUATE-PATH-CONSOLIDATION-PHASE4
+kind: design
+title: "Phase 4: Implementation plan — eight steps, each independently revertable"
+status: draft
+phase: implementation
+area: [core/assets, core/plan, core/context]
+created: 2026-09-03
+---
+# Phase 4: Implementation Plan — Evaluation Path Consolidation
 
 ## Overview
 
-**Feature:** evaluate-path-consolidation
+Eight steps, ordered so that **the tree compiles and the suite passes after every one**, and so the
+single step with externally visible behaviour change (Step 3) is isolated in its own commit and can
+be reverted without touching the rest.
 
-**Architecture:** [1-2 sentence summary]
+The order is deliberately not "biggest first". Steps 1–3 are additive or mechanical and close
+`ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED` on their own; Step 4 is the consolidation proper and
+lands on ground already prepared; Steps 5–6 remove the duplicate entry points and add the claim.
+Nothing after Step 3 changes what is written to a store.
 
-**Estimated complexity:** [Low / Medium / High]
-
-**Estimated time:** [X hours]
-
-**Prerequisites:**
-- Phase 1, 2, 3 approved
-- All open questions resolved
-- Dependencies identified
+| Step | What | Behaviour change | Revert cost |
+|---|---|---|---|
+| 1 | Record the payload requirement | none (a field stops being empty) | trivial |
+| 2 | Add `store_target`, set it at 14 sites | none (field unused) | trivial |
+| 3 | **Switch the write predicate to `store_target`** | **3 persistence rows narrow** | isolated commit |
+| 4 | One `evaluate(payload)`; `run`/`run_inline` | notification ordering only | large but self-contained |
+| 5 | Merge `apply`/`apply_immediately`; simplify `Context::apply`; key+payload error | `apply` gains an inline guarantee | moderate |
+| 6 | Inline execute-once claim | fixes a double-run window | independent |
+| 7 | Cross-cutting suite, matrix, wasm | none | n/a |
+| 8 | Phase 5 documentation | none | n/a |
 
 ## Implementation Steps
 
-### Step 1: [Action Description]
+### Step 1 — Record the payload requirement
 
-**File:** `[exact-file-path]`
+Closes `ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED`. Entirely additive: a field that always read
+`None` starts carrying what the plan already knew.
 
-**Action:**
-- [Specific change 1]
-- [Specific change 2]
+**Files and changes**
 
-**Code changes:**
 ```rust
-// NEW: Add this code
-// MODIFY: Change existing code
-// DELETE: Remove this code
+// liquers-core/src/context.rs — new, mirrors set_expires
+impl<E: Environment> Context<E> {
+    /// Records that this evaluation's plan requires a payload, so the fact reaches
+    /// `MetadataRecord.payload_required` and from there `AssetInfo`.
+    pub async fn set_payload_required(&self) -> Result<(), Error>;
+}
 ```
 
-**Validation:**
-```bash
-cargo check -p [crate-name]
+- `liquers-core/src/interpreter.rs`, in `apply_plan`, immediately after the existing authoritative
+  gate: when `plan.payload_required.is_required()`, call `context.set_payload_required().await?`.
+  Placed here because this is the one point every execution path passes through, and because
+  `RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING` reports the alternative site as misplaced.
+- `liquers-core/src/recipes.rs`, in `AsyncRecipeProvider::get_asset_info` (`:526`): add
+  `asset_info.payload_required = plan.payload_required;` beside the existing `is_volatile` and
+  `expires` projections.
+- `liquers-core/src/assets.rs`: add the read accessor.
+
+```rust
+impl<E: Environment> AssetRef<E> {
+    /// Whether this asset's plan required an evaluation payload.
+    pub async fn payload_required(&self) -> PayloadRequirement;
+}
 ```
 
-**Rollback:**
-```bash
-git checkout [file-path]
-```
+**Tests:** `payload_requirement_recorded_in_metadata`, `payload_requirement_reaches_asset_info`,
+`payload_supplied_but_not_required_records_none`, `get_asset_info_projects_payload_required`.
 
-**Agent Specification:**
-- **Model:** [haiku / sonnet / opus]
-- **Skills:** [rust-best-practices, liquers-unittest, etc.]
-- **Knowledge:** [Which files, specs, patterns the agent needs]
-- **Rationale:** [Why this model]
+**Validation:** `cargo test -p liquers-core --lib --tests`
 
 ---
 
-[Repeat for each step]
+### Step 2 — Add `store_target` and set it at every construction site
+
+Mechanical and unused on completion: nothing reads the field yet, so no behaviour can change.
+
+```rust
+// liquers-core/src/assets.rs, in AssetData<E>
+/// Key this asset is responsible for writing, or `None` for a query or ad-hoc asset.
+/// Set at construction by the manager; never inferred from the recipe afterwards, because
+/// provider resolution replaces the recipe mid-evaluation.
+store_target: Option<Key>,
+```
+
+Constructors gain the target rather than receiving it afterwards, so no asset ever exists with the
+wrong one:
+
+```rust
+impl<E: Environment> AssetData<E> {
+    pub(crate) fn new_ext(
+        id: u64,
+        recipe: Recipe,
+        initial_state: State<E::Value>,
+        store_target: Option<Key>,
+        envref: EnvRef<E>,
+    ) -> Self;
+}
+
+impl<E: Environment> AssetRef<E> {
+    pub(crate) fn new_from_recipe(
+        id: u64,
+        recipe: Recipe,
+        store_target: Option<Key>,
+        envref: EnvRef<E>,
+    ) -> Self;
+}
+
+impl<E: Environment> ImmediateAssetManager<E> {
+    // serves a key caller and a query caller; the target cannot be derived inside
+    async fn make_volatile(&self, recipe_src: Recipe, store_target: Option<Key>) -> AssetRef<E>;
+}
+```
+
+The 14 sites and their values are the table in `phase2-architecture.md` §"Construction sites". The
+two that matter: `get_volatile_resource_asset` (`:4294`) records `Some(key)` — the case a
+map-derived predicate misses — and `make_volatile` takes the target from its caller.
+
+**Tests:** `store_target_some_for_keyed_construction`,
+`store_target_none_for_query_and_adhoc_construction`, `make_volatile_takes_target_from_caller`.
+
+**Validation:** `cargo test -p liquers-core --lib --tests`
+
+---
+
+### Step 3 — Switch the write predicate  ⚠ the behaviour change
+
+The only step that changes what reaches a store. Its own commit, revertable alone.
+
+- `liquers-core/src/assets.rs:2447` and `:2479` (`save_to_store`) and `:833`, `:861`
+  (`save_metadata_to_store` and its sibling): replace
+  `recipe.key()?.or(recipe.store_to_key()?)` with the recorded `store_target`.
+- The write condition becomes `store_target.is_some() && !delegated`.
+
+Three persistence rows narrow: a query asset resolving `store_to_key`, an `apply` with a bare-key
+recipe, and an `apply` whose recipe carries a filename all stop writing. Row 2 — a **volatile keyed
+asset** — must keep writing, with status `Volatile`; that is the regression the current suite
+cannot see.
+
+**Tests:** the eight `scenario_persist_*` bodies, both managers. Run
+`scenario_persist_keyed_volatile` **first**: if it fails, the predicate is map-derived rather than
+recorded, which is the Phase 1 mistake.
+
+**Validation:** `cargo test -p liquers-core --lib --tests` then
+`cargo test -p liquers-lib --lib --tests`
+
+---
+
+### Step 4 — One evaluation body
+
+The consolidation proper.
+
+```rust
+impl<E: Environment> AssetRef<E> {
+    /// The single evaluation body. Private: evaluation is entered through the asset manager.
+    async fn evaluate(&self, payload: Option<E::Payload>) -> Result<(), Error>;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) async fn run(&self, payload: Option<E::Payload>) -> Result<(), Error>;
+    pub(crate) async fn run_inline(&self, payload: Option<E::Payload>) -> Result<(), Error>;
+}
+```
+
+Removed: `evaluate_recipe`, `evaluate_recipe_outcome`, `evaluate_and_store`, `evaluate_immediately`,
+`run_immediately`, `run_immediately_inline`. The two harnesses (`run_with_future`,
+`run_with_future_inline`) are unchanged.
+
+The invariant order inside `evaluate` is the nine steps in `phase2-architecture.md`
+§"`evaluate` — the invariant order". Two ordering points are not optional:
+
+- `try_to_set_ready()` runs **before** the `ValueProduced` notification and **before** persistence.
+  Today the immediate path notifies while the status is still `None`/`Processing`.
+- The payload is **moved** into the context, never cloned — `PayloadType` is not required to be
+  `Clone`.
+
+**Tests:** `evaluate_keyed_records_value_status_dependencies_and_persists`,
+`value_produced_fires_after_status_finalization`, `delegating_asset_does_not_persist`,
+`status_is_final_before_persistence`, `set_state_does_not_enter_the_evaluation_body`, plus
+`scenario_entry_point_equivalence` (assert the facts `evaluate` produces — **not** the literal
+status sequence, which differs by scheduling).
+
+**Validation:** `cargo test -p liquers-core --lib --tests`, then the wasm loop
+(`cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles` after
+`cargo clean`), because this step is where a `tokio::` primitive could leak into shared code.
+
+---
+
+### Step 5 — Merge the ad-hoc entry points
+
+```rust
+async fn apply(
+    &self,
+    recipe: Recipe,
+    to: State<E::Value>,
+    payload: Option<E::Payload>,
+) -> Result<AssetRef<E>, Error>;
+
+#[deprecated(note = "use `apply(recipe, to, payload)`; every apply now evaluates before returning")]
+async fn apply_immediately(
+    &self,
+    recipe: Recipe,
+    to: State<E::Value>,
+    payload: Option<E::Payload>,
+) -> Result<AssetRef<E>, Error> {
+    self.apply(recipe, to, payload).await
+}
+```
+
+- `DefaultAssetManager::apply` → construct ad hoc, `run(payload)` (no `job_queue.submit`).
+- `ImmediateAssetManager::apply` → construct ad hoc, `run_inline(payload)`.
+- `Context::apply` loses the `requires_payload` pre-check and its duplicated error message; one
+  call, `manager.apply(recipe, to, self.payload.clone())`.
+- `get_dependency_asset_with_payload` (both managers): the `query.key()` branch becomes the
+  explicit error in `phase2-architecture.md` §"A latent violation this exposes".
+- `liquers-lib/src/ui/runner.rs:229` moves from `apply_immediately` to `apply`.
+
+**Tests:** `context_apply_defers_payload_check_to_apply_plan`,
+`scenario_key_with_payload_is_an_error`, `scenario_payload_asset_absent_from_maps`,
+`scenario_persist_apply_with_payload`.
+
+**Validation:** `cargo test -p liquers-core --lib --tests` then
+`cargo test -p liquers-lib --lib --tests`
+
+---
+
+### Step 6 — Inline execute-once claim
+
+Co-delivers `INLINE-PATH-LACKS-EXECUTE-ONCE`.
+
+```rust
+/// Atomic execute-once claim available on both targets. `RunClaim` becomes the queued
+/// specialization; this variant's `Drop` restores a re-runnable status instead of re-submitting
+/// to a queue it does not have.
+pub(crate) async fn try_claim_for_run_inline(&self) -> Result<Option<InlineRunClaim<'_>>, Error>;
+```
+
+Scope discipline from that issue's own evidence: a claim that only *refuses* a second caller is the
+wrong answer and broke `liquers-web`'s async-command test when it was tried. The second caller must
+**wait**, which `run_with_future_inline` already improvises through its `select!` between
+`wait_to_finish()` and the evaluation future. This makes that correct rather than improvised.
+
+**Tests:** `inline_execute_once_with_yielding_command` — two concurrent `get_asset` of the same
+query, with a command carrying a real `.await`. Not two `apply` calls: those build two separate
+ad-hoc assets and legitimately run twice.
+
+**Validation:** `cargo test -p liquers-core --lib --tests`, plus the wasm loop.
+
+---
+
+### Step 7 — Cross-cutting validation
+
+No production change. Complete the integration suite in `manager_parametric.rs`, add the
+`#[cfg(test)]` map accessors (`key_map_contains`, `query_map_contains`) on both managers, and run
+the full matrix.
+
+**Validation:**
+
+```bash
+cargo test -p liquers-core --lib --tests
+cargo test -p liquers-lib --lib --tests
+bash scripts/check-build-matrix.sh
+cargo clean && cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles
+```
+
+`cargo clean` before the wasm loop is not optional in a 30 GB session (`CLAUDE.md` §Building and
+testing). Do not run `cargo test --workspace`.
+
+---
+
+### Step 8 — Phase 5 documentation
+
+Per `phase2-architecture.md` §"The Phase 5 explanation": rewrite `ASSET_LIFECYCLE.md` into the
+flow-and-public-surface reference, promote its audit content to
+`specs/archive/<date>-asset-lifecycle-duplication-audit.md`, update `DOC_03`
+§"Public versus infrastructure APIs" and §"Persistence contract", update `ASSETS.md` and
+`PAYLOAD_GUIDE.md`, rewrite the `assets.rs` `//!` entry-point table as the module-level public API,
+add `## History` rows and bump `reviewed:`, update `specs/README.md`, and close the issues.
 
 ## Testing Plan
 
-### Unit Tests
-[When to run, file paths, commands]
+| When | Command | Gate |
+|---|---|---|
+| After every step | `cargo test -p liquers-core --lib --tests` | all green |
+| After steps 3 and 5 | `cargo test -p liquers-lib --lib --tests` | dependent crates unaffected |
+| After steps 4 and 6 | wasm loop, after `cargo clean` | no spawn leaked into shared code |
+| After step 7 | `bash scripts/check-build-matrix.sh` | 11 configurations |
+| Before the PR | all of the above | — |
 
-### Integration Tests
-[When to run, file paths, commands]
+**Order-sensitive check.** In Step 3, run `scenario_persist_keyed_volatile` before the others: it is
+the one that distinguishes a *recorded* target from a *map-derived* one, and it is the regression
+the current suite cannot see.
 
-### Manual Validation
-[Commands to run, expected outputs]
+**Tests that must fail first.** `scenario_persist_apply_bare_key_recipe`,
+`scenario_persist_apply_recipe_with_filename`, `scenario_entry_point_equivalence`,
+`scenario_key_with_payload_is_an_error`, `inline_execute_once_with_yielding_command`,
+`payload_requirement_recorded_in_metadata`. Write each and watch it fail before implementing the
+step; a test that passes on arrival is testing something else.
 
-## Agent Assignment Summary
+## Agent Assignment
 
-| Step | Model | Skills | Rationale |
-|------|-------|--------|-----------|
-| 1 | [model] | [skills] | [rationale] |
+| Step | Model | Skills | Knowledge it must load |
+|---|---|---|---|
+| 1 | Sonnet | rust-best-practices, liquers-unittest | Phase 2 §"Payload requirement — where it is recorded"; `interpreter.rs` `apply_plan` gate; `recipes.rs:526`; `metadata.rs` payload accessors |
+| 2 | Sonnet | rust-best-practices | Phase 2 §"Construction sites" (all 14 rows); `assets.rs` constructors |
+| 3 | **Opus** | rust-best-practices, liquers-unittest | Phase 2 §"Persistence outcomes"; Phase 3 C1; `save_to_store`, `save_metadata_to_store` | 
+| 4 | **Opus** | rust-best-practices, liquers-unittest | Phase 2 §"`evaluate` — the invariant order"; both current bodies; both harnesses; Phase 3 C6, C7, C8 |
+| 5 | Sonnet | rust-best-practices, liquers-unittest | Phase 2 §"Merge the ad-hoc entry points" and §"Reusability invariant"; `Context::apply`; `ui/runner.rs` |
+| 6 | **Opus** | rust-best-practices | `INLINE-PATH-LACKS-EXECUTE-ONCE` in full, including why the cheap guard was reverted; `RunClaim`; `run_with_future_inline` |
+| 7 | Haiku | liquers-unittest | Phase 3 test plan; `manager_parametric.rs` conventions |
+| 8 | Sonnet | — | Phase 2 §"The Phase 5 explanation"; `DOCS_STRUCTURE_GUIDE.md` §4.3, §9 |
+
+Steps 3, 4 and 6 are Opus work: 3 is the only behaviour change, 4 is the consolidation itself, and
+6 has a documented history of a plausible-looking fix that broke a working test. Steps 1, 2, 5 and
+8 are mechanical enough for Sonnet given the sections named; 7 is assembly.
 
 ## Rollback Plan
 
-[Per-step and full feature rollback procedures]
+One commit per step, so `git revert` of a single commit is always a valid state.
 
-## Documentation Updates
+| Step | If it goes wrong | Revert impact |
+|---|---|---|
+| 1 | `payload_required` reads `None` again | none — the field was already dead |
+| 2 | field unused | none |
+| 3 | **a store write is lost or an unwanted one appears** | reverting restores `recipe.key().or(store_to_key())`; Steps 1–2 stay | 
+| 4 | evaluation misbehaves on one manager | revert restores both bodies; Steps 1–3 stay, since none of them depends on the merge |
+| 5 | an `apply` caller depended on queued (non-blocking) behaviour | revert restores `apply_immediately`; the deprecated default means callers still compile |
+| 6 | the claim deadlocks or refuses a legitimate second caller | revert independently — nothing else depends on it |
 
-[New reference/guide files, affected existing documents, History/reviewed updates, capability-map
-links, and a step for collecting implementation/review learning for Phase 5]
+**The signal to watch on Step 3:** a *disappeared* store entry is silent. Before merging, diff the
+store contents produced by the eight persistence scenarios against the same scenarios at the parent
+commit; only the three intended rows may differ.
+
+**Not a rollback path:** disabling or skipping a failing test. If `scenario_persist_keyed_volatile`
+fails, the predicate is wrong, not the test.
 
 ## Phase 5 Entry Criteria
 
-- [ ] Implementation is finished and validated
-- [ ] All user comments are answered
-- [ ] All review comments are answered
-- [ ] Documentation can be verified against implemented and tested behavior
-- [ ] Phase 5 documentation is included in the implementation PR when practical
+Phase 5 begins when all of the following hold:
 
-## Execution Options
-
-[Execute now, create tasks, revise, exit]
+1. Steps 1–7 are implemented and committed; `cargo test -p liquers-core --lib --tests` and
+   `cargo test -p liquers-lib --lib --tests` are green.
+2. `bash scripts/check-build-matrix.sh` passes all 11 configurations, and the wasm loop passes after
+   `cargo clean`.
+3. Every test in the Phase 3 plan exists and passes, and each test listed as "must fail first" was
+   observed failing before its step.
+4. No `TODO`, `FIXME` or `todo!()` is introduced; `ASSETS-FIX1`'s markers in the rewritten region
+   are resolved or re-recorded.
+5. All review comments — from the multi-agent reviews and from the user — are answered or
+   incorporated.
+6. The issues this design closes are ready to move to `closed` with a resolution note:
+   `CORE-EVALUATE-PATH-CONSOLIDATION`, `ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED`,
+   `INLINE-PATH-LACKS-EXECUTE-ONCE`. `ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY` and
+   `REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED` stay open — they are out of scope, and Phase 5
+   records that explicitly rather than letting them look forgotten.
