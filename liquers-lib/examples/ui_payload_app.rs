@@ -88,7 +88,7 @@ impl PayloadApp {
 }
 
 impl eframe::App for PayloadApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         // 1. Run AppRunner (processes messages, auto-evaluates pending, polls results).
         self._runtime.block_on(async {
             if let Err(e) = self.runner.run(&self.app_state).await {
@@ -103,11 +103,11 @@ impl eframe::App for PayloadApp {
             !matches!(state.take_invalidation(), Invalidation::None)
         };
         if model_changed || self.runner.needs_repaint() {
-            ctx.request_repaint();
+            ui.ctx().request_repaint();
         }
 
         // 2. Render UI.
-        egui::CentralPanel::default().show(ctx, |ui| {
+        {
             ui.heading("Liquers UI Payload App");
             ui.separator();
 
@@ -116,7 +116,7 @@ impl eframe::App for PayloadApp {
                 Ok(state) => state.roots(),
                 Err(_) => {
                     ui.spinner();
-                    ctx.request_repaint();
+                    ui.ctx().request_repaint();
                     return;
                 }
             };
@@ -134,7 +134,7 @@ impl eframe::App for PayloadApp {
                     self.ui_context.submit_query(root, "hello");
                 }
             }
-        });
+        }
     }
 }
 

@@ -311,7 +311,7 @@ impl UISpecElement {
                 MenuItem::Button { label, action, .. } => {
                     if ui.button(label).clicked() {
                         self.handle_menu_action(action, ctx);
-                        ui.close_menu();
+                        ui.close();
                     }
                 }
                 MenuItem::Submenu { label, items, .. } => {
@@ -422,7 +422,7 @@ impl UIElement for UISpecElement {
 
         // 2. Render menu bar
         if let Some(menu_spec) = &self.menu_spec {
-            egui::menu::bar(ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
                 self.render_menu_bar(ui, menu_spec, ctx);
             });
         }

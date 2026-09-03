@@ -126,7 +126,7 @@ impl QueryConsoleApp {
 }
 
 impl eframe::App for QueryConsoleApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let app_state = self.ui_context.app_state().clone();
 
         // Submit root query on first frame
@@ -149,10 +149,10 @@ impl eframe::App for QueryConsoleApp {
             !matches!(state.take_invalidation(), Invalidation::None)
         };
         if model_changed || self.app_runner.needs_repaint() {
-            ctx.request_repaint();
+            ui.ctx().request_repaint();
         }
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        {
             let roots = match try_sync_lock(&app_state) {
                 Ok(state) => state.roots(),
                 Err(e) => {
@@ -171,7 +171,7 @@ impl eframe::App for QueryConsoleApp {
                     render_element(ui, handle, &self.ui_context);
                 }
             }
-        });
+        }
     }
 }
 

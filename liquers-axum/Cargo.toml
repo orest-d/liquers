@@ -10,35 +10,35 @@ crate-type = ["rlib"]  # Removed cdylib - not needed for pure Rust web library
 [dependencies]
 liquers-core={path="../liquers-core"}
 liquers-store={path="../liquers-store"}
-serde = "1.0.181"
-serde_derive = "1.0.181"
-serde_json = "1.0.104"
-serde_yaml = "0.9.33"
-bytes = "1.8.0"
-async-trait = "0.1.80"
+serde = "1.0.229"
+serde_derive = "1.0.229"
+serde_json = "1.0.151"
+serde_yaml = "0.9.34"
+bytes = "1.12.1"
+async-trait = "0.1.92"
 
 
-axum = { version = "0.8.8", features = ["macros", "multipart", "ws"] }  # Latest 0.8.x with WebSocket support
+axum = { version = "0.8.9", features = ["macros", "multipart", "ws"] }  # Latest 0.8.x with WebSocket support
 ciborium = "0.2"      # CBOR serialization support
 bincode = "1.3"       # Bincode serialization support
 base64 = "0.22"       # Base64 encoding for JSON binary data
 itertools = "0.14.0"
 nom = "8.0.0"
 nom_locate = "5.0.0"
-regex = "1.9.3"
+regex = "1.13.1"
 thiserror = "2.0"
-tokio = { version = "1.47.1", features = ["full"] }
-tower = "0.5.1"
-futures = "0.3.31"
+tokio = { version = "1.53.1", features = ["full"] }
+tower = "0.5.3"
+futures = "0.3.34"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 tower-http = { version = "0.6", features = ["trace", "cors"] }
-chrono = "0.4.41"
+chrono = "0.4.45"
 
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["json"] }
 tokio-tungstenite = "0.23"
-futures = "0.3.31"
+futures = "0.3.34"
 
 [features]
 default=["async_store"]
