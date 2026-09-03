@@ -116,19 +116,29 @@ Then `reserved04` and `reserved07`.
 removes public API.
 
 1. Replace `const METADATA` (71) with
-   `pub const RESERVED: ReservedNames = ReservedNames::new(&[METADATA_SUFFIX]);` — importing both
-   from `liquers_core::store`.
+   `pub const RESERVED: ReservedNames = ReservedNames::new(&[METADATA_SUFFIX]);` — importing
+   `ReservedNames` and `METADATA_SUFFIX` from `liquers_core::store`.
+   **`Self::METADATA` has two further uses that are not predicates and must become
+   `METADATA_SUFFIX`**, or this step does not compile: `PathMap::metadata` (91), which builds the
+   sidecar path, and `PathMap::decode` (120), which strips it. The third use (81) is inside the
+   function being deleted. Raised by the Phase 4 review — the earlier wording named only the
+   constant and would have left two errors.
 2. **Delete `pub fn is_suffix_ambiguous`** (79-82).
 3. `reject_ambiguous` (144) and `is_supported` (521) call `PathMap::RESERVED.is_reserved_key(key)`.
 4. `listdir` (459): after the `PathMap::decode` guard, `continue` on a reserved decoded key.
 5. `listdir_keys_deep` (492): the same guard, **before** `list.extend(…)` inserts the prefixes, so a
    reserved interior segment takes its whole subtree with it.
-6. Rewrite the module doc comment at 57-65, which names the deleted function as "the rule".
+6. Rewrite **both** doc comments that name the deleted function as "the rule": the module-level one
+   at 57-65 and the method-level one on `reject_ambiguous` at 141. The second was missed by the
+   first draft of this step and surfaced in the Phase 4 review; a rustdoc intra-doc link to a
+   deleted item is a build warning, not just stale prose.
 7. Rename `pathmap03_suffix_ambiguous_keys_are_refused_everywhere` →
    `pathmap03_reserved_keys_are_refused_everywhere` and
    `pathmap07_directory_form_refuses_suffix_ambiguous_keys` →
    `pathmap07_directory_form_refuses_reserved_keys`, **keeping the IDs**, and extend both with the
-   newly reserved shapes. Add `pathmap08`.
+   newly reserved shapes. **Their bodies call the deleted function** — `pathmap03` at 680 and 692 —
+   so this is a compile requirement, not only a rename: both assertions become
+   `PathMap::RESERVED.is_reserved_key(…)`, as the Phase 3 rewrite already shows. Add `pathmap08`.
 
 **Validate:** `cargo test -p liquers-store`
 
@@ -157,8 +167,15 @@ anticipate). Regenerate with `python3 scripts/docs_index.py`.
 ### Step 9 — the full matrix
 
 **Validate:** the four commands in Phase 3's Test Plan, ending with
-`bash scripts/check-build-matrix.sh` (11 configurations; the wasm32 core row is the one that proves
-step 1's placement was right).
+`bash scripts/check-build-matrix.sh` (the wasm32 `liquers-core` row is the one that proves step 1's
+placement was right).
+
+The script prints its own total; do not assert a number against it. **`CLAUDE.md` says "11
+configurations" and that is stale** — the script runs 20 at HEAD (7 `liquers-lib`, 4
+`liquers-core`, 6 `liquers-store`, 1 `liquers-axum`, 2 `store-conformance`). Found during this
+review, when one reviewer repeated the 11 and a second arrived at 17 by missing two arms; filed as
+`DOCS-BUILD-MATRIX-CONFIGURATION-COUNT-STALE` rather than fixed here, since `CLAUDE.md` is outside
+this design's scope.
 
 ## Testing Plan
 
@@ -170,7 +187,7 @@ step 1's placement was right).
 | After 6 | `cargo test -p liquers-store` | OpenDAL, `pathmap01`-`pathmap08` |
 | After 7 | `cargo test -p liquers-core --features store-conformance --test store_conformance_CONF` | `C1`-`C5`; `C2` with no allowed failures |
 | After 8 | `python3 scripts/docs_index.py --check` | the documentation index |
-| After 9 | `bash scripts/check-build-matrix.sh` | 11 configurations including wasm32 |
+| After 9 | `bash scripts/check-build-matrix.sh` | every feature and target configuration, wasm32 included |
 
 **The one expected report change:** `C2` loses its `sidecar03` allowed failure, and `prefix03` and
 `sibling05` move from "not run" to passing. Any other change in any suite is a regression to
@@ -204,7 +221,7 @@ not clean reverts:
 | Step | Risk | Rollback |
 |---|---|---|
 | 3-7 | Reverting step 3 alone leaves `C2` asserting against a fixed bug that is no longer fixed — `H5` red in the other direction | Revert 3, 4, 5 and 7 together; the branch is only ever pushed with all of them |
-| 6 | `PathMap::is_suffix_ambiguous` is `pub`; anything out-of-tree calling it breaks | Restore it as a two-line wrapper over `PathMap::RESERVED.is_reserved_key`, rather than reverting the whole step. Cheaper than the alternative and keeps the widened rule |
+| 6 | `PathMap::is_suffix_ambiguous` is `pub`; anything out-of-tree calling it breaks | Restore it as a two-line wrapper over `PathMap::RESERVED.is_reserved_key`, rather than reverting the whole step. Cheaper than the alternative and keeps the widened rule — but note the restored function is deliberately **broader** than the one deleted: it answered for the filename, the wrapper answers for every segment. That is the right direction for a compatibility shim (it refuses more, never fewer) and must be said in its doc comment, not left for a caller to discover |
 
 Nothing here migrates data or changes a serialized format, so there is no state to unwind — a
 revert restores the previous behaviour exactly, including, deliberately, the bug.
@@ -215,7 +232,7 @@ Phase 5 begins when **all** of these hold:
 
 1. Steps 1-9 are complete and every validation command passes.
 2. `C2` reports no allowed failures, and `prefix03` / `sibling05` are passing rather than "not run".
-3. `scripts/check-build-matrix.sh` is clean across all 11 configurations.
+3. `scripts/check-build-matrix.sh` reports every configuration OK.
 4. Every review comment on the PR is answered or incorporated.
 
 Phase 5 then delivers, per the Phase 2 documentation architecture:
