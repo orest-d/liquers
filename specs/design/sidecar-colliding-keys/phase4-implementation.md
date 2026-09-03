@@ -49,7 +49,10 @@ impl ReservedNames {
 
 Bodies are pinned in Phase 2 §Function Signatures. Doc comments matter here more than usual: this
 type is the answer a future store implementer will find, so it carries *why* it is a predicate
-rather than a fallible function, and why both name forms are reserved.
+rather than a fallible function, and why both name forms are reserved — **including the citation to
+`orest-d/liquer`'s `liquer/store.py` for the bare form** (Phase 2 §Provenance). Nothing in this
+repository evidences that layout, so a reader who finds the reservation unexplained is the one
+likely to delete it.
 
 **Validate:** `cargo check -p liquers-core`
 

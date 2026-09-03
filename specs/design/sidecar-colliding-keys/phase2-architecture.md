@@ -66,6 +66,32 @@ pub struct ReservedNames {
 }
 ```
 
+### Provenance of the bare `__metadata__` reservation
+
+The widening to the bare folder name is not speculative. It restores a rule the **predecessor
+Python implementation** (`github.com/orest-d/liquer`, `liquer/store.py` at `2eb4e64`) has and the
+Rust port dropped:
+
+| Python Liquer | Line | Rule |
+|---|---|---|
+| `METADATA = "__metadata__"` | 401, 1303, 1499 | the bare name, in three store classes |
+| `p.parent / self.METADATA / (p.name + ".json")` | 426 | the layout itself — metadata for `sub/foo.txt` at `sub/__metadata__/foo.txt.json` |
+| `assert p.name != self.METADATA` | 420, 425, 1316, 1321, 1326 | refuses the bare name as a filename |
+| `assert key_name(key) != self.METADATA and ("/" + self.METADATA + "/") not in key` | 1513, 1526 | refuses it as a filename **and in any interior position** |
+| `if d.name != self.METADATA` | 543, 1468-1469 | filters it out of listings |
+
+The last two rows are exactly the two things this design adds: the interior-segment rule, and the
+listing filter. The Rust port kept the refusal but narrowed it to the filename, and moved the
+layout from a folder to a `.__metadata__` sidecar without carrying the folder name forward as
+reserved. So the two reserved forms have different origins and both are load-bearing — the bare
+name is the predecessor's, the dotted suffix is the Rust era's — and a store that may one day read
+either layout must refuse both.
+
+Recorded here because there is **no evidence of this layout in the `liquers` repository at all**:
+no archived spec, no git history, no code. A future reader finding a reservation with no visible
+reason is the one most likely to remove it, so the citation belongs in the `ReservedNames` doc
+comment as well as here.
+
 There are **no named preset constants** — settled at the Phase 2 gate, replacing an earlier
 `SIDECAR` / `SIDECAR_AND_LOCK` pair. "Sidecar" names a layout *style*, which is not what a reader
 of the constant needs to know; and a shared preset forces two stores to agree that one label
