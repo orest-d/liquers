@@ -3,7 +3,7 @@ id: SIDECAR-COLLIDING-KEYS
 kind: design
 title: Sidecar-colliding keys refused by the path builders
 workflow: liquers-project
-status: in_review
+status: approved
 phase: implementation
 area: [core/store, store/backends, docs]
 gh_pr: []
@@ -21,7 +21,7 @@ superseded_by:
 - [x] Phase 1: High-Level Design — approved 2026-09-03
 - [x] Phase 2: Solution & Architecture — approved 2026-09-03
 - [x] Phase 3: Examples & Testing — approved 2026-09-03
-- [ ] Phase 4: Implementation Plan — awaiting approval
+- [x] Phase 4: Implementation Plan — approved 2026-09-03
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
 
