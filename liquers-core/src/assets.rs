@@ -853,7 +853,8 @@ impl<E: Environment> AssetData<E> {
     /// This is a throttled operation that ensures metadata is not saved too frequently.
     /// Used by: `process_service_messages` in this module.
     async fn save_metadata_to_store(&self) -> Result<(), Error> {
-        let key = self.recipe.key()?.or(self.recipe.store_to_key()?);
+        // The recorded key, not a re-derivation: only a keyed asset has a place in the store.
+        let key = self.key.clone();
         self.metadata_saver
             .save_immediately(self.metadata.clone(), key, self.get_envref())
             .await;
@@ -881,7 +882,7 @@ impl<E: Environment> AssetData<E> {
     /// Get asset info structure for the asset
     pub fn get_asset_info(&self) -> Result<AssetInfo, Error> {
         let mut assetinfo = self.metadata.get_asset_info().unwrap_or_default();
-        if let Some(key) = self.recipe.key()?.or(self.recipe.store_to_key()?) {
+        if let Some(key) = self.key.clone() {
             assetinfo.with_key(key);
         }
         assetinfo.query = Some(self.recipe.get_query()?);
@@ -2490,9 +2491,37 @@ impl<E: Environment> AssetRef<E> {
 
             let envref = lock.get_envref();
             let store = envref.get_async_store();
-            let key = lock.recipe.key()?.or(lock.recipe.store_to_key()?);
+            // Only a keyed asset may be written, and the key is the one recorded at construction
+            // — the same one `mark_expired_status` invalidates under, which was a *different*
+            // derivation before this change (with opposite precedence, so the two could disagree
+            // and an asset could be written under a key it could never invalidate).
+            let key = lock.key.clone();
+            let is_volatile = lock.is_volatile;
             drop(lock);
             if let Some(key) = key.as_ref() {
+                // Ownership is approximated by keyedness. Registration is the manager's own
+                // caching decision, and a volatile keyed asset is deliberately never registered,
+                // so only a *non-volatile* keyed asset that is not the registered owner is
+                // suspicious — record it rather than failing, since it is legal today.
+                // See `ASSET-REGISTRATION-OWNERSHIP-CONTRACT`.
+                if !is_volatile {
+                    let manager = envref.get_asset_manager();
+                    let registered_is_self = manager
+                        .owned_key_asset(key)
+                        .await
+                        .map(|owner| owner.id() == self.id())
+                        .unwrap_or(false);
+                    if !registered_is_self {
+                        let mut lock = self.data.write().await;
+                        let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
+                            "Keyed asset {} wrote to '{}' while not the registered owner of that \
+                             key; ownership is approximated by keyedness \
+                             (ASSET-REGISTRATION-OWNERSHIP-CONTRACT)",
+                            self.id(),
+                            key
+                        )));
+                    }
+                }
                 store.set(key, &data, &metadata).await
             } else {
                 Err(Error::general_error(format!(
@@ -2725,7 +2754,7 @@ impl<E: Environment> AssetRef<E> {
     /// `Expired` is idempotent. A `Source` cannot expire because it has no recipe
     /// from which to recover. Other statuses return an error.
     pub async fn expire(&self) -> Result<(), Error> {
-        let key_opt = self.bound_owner_key().await?;
+        let key_opt = self.key().await;
 
         let transitioned_to_expired = self.mark_expired_status().await?;
 
@@ -2742,7 +2771,9 @@ impl<E: Environment> AssetRef<E> {
     }
 
     async fn mark_expired_status(&self) -> Result<bool, Error> {
-        let owner_key = self.bound_owner_key().await?;
+        // The same recorded key `save_to_store` writes under. Before this change these were two
+        // independent derivations with opposite precedence.
+        let owner_key = self.key().await;
         let mut lock = self.data.write().await;
         let mut transitioned_to_expired = false;
         let result = match lock.status {
@@ -6861,8 +6892,14 @@ mod tests {
 
         let envref = env.to_ref();
 
-        let mut asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(1234, recipe, None, envref.clone());
+        // Keyed: in production an asset for this recipe is created by `get_resource_asset(key)`,
+        // which records the key. Only a keyed asset is written to the store.
+        let mut asset_data = AssetData::<SimpleEnvironment<Value>>::new(
+            1234,
+            recipe,
+            Some(store_key.clone()),
+            envref.clone(),
+        );
         asset_data.save_in_background = false; // Save synchronously for the test
 
         let assetref = asset_data.to_ref();
@@ -8147,9 +8184,15 @@ recipes:
         let query = parse_query("test/out.txt").unwrap();
         let mut recipe: Recipe = query.into();
         recipe.cwd = Some("a/b".to_string());
+        let store_key = recipe.store_to_key().unwrap().unwrap();
 
-        let mut asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(9001, recipe, None, envref.clone());
+        // Keyed, as the production construction for such a recipe would be.
+        let mut asset_data = AssetData::<SimpleEnvironment<Value>>::new(
+            9001,
+            recipe,
+            Some(store_key),
+            envref.clone(),
+        );
         asset_data.save_in_background = false;
         let assetref = asset_data.to_ref();
 
@@ -8228,8 +8271,12 @@ recipes:
         recipe.cwd = Some("persist".to_owned());
         let store_key = recipe.store_to_key().unwrap().unwrap();
 
-        let mut asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(9003, recipe, None, envref.clone());
+        let mut asset_data = AssetData::<SimpleEnvironment<Value>>::new(
+            9003,
+            recipe,
+            Some(store_key.clone()),
+            envref.clone(),
+        );
         asset_data.save_in_background = false;
         let assetref = asset_data.to_ref();
 

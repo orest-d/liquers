@@ -773,3 +773,164 @@ fn immediate_construction_without_tokio_runtime() -> Result<(), Error> {
     );
     Ok(())
 }
+
+// ============================================================================
+// Persistence outcomes: only a keyed asset may be written to the store
+// (evaluate-path-consolidation Step 3 — the durable-state change)
+//
+// The eight rows of the persistence table. Three of them narrow: a query asset resolving
+// store_to_key, an apply with a bare-key recipe, and an apply whose recipe carries a filename
+// all stop writing, because none of them is a keyed asset.
+// ============================================================================
+
+/// Row 1 — a keyed, non-volatile recipe asset is stored, and its value is loadable.
+async fn scenario_persist_keyed_nonvolatile<E>(envref: EnvRef<E>) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    let key = parse_key("dash.txt")?;
+    let asset = envref.get_asset_manager().get(&key).await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "hello");
+    let store = envref.get_async_store();
+    assert!(
+        store.contains(&key).await?,
+        "a keyed non-volatile asset must be written to the store"
+    );
+    Ok(())
+}
+
+/// Row 2 — a **volatile** keyed asset is still stored. It is not persistent (its status is one
+/// `try_fast_track` refuses), but the bytes land, which is what "stored but not loadable" means.
+///
+/// This is the regression guard for the whole design: a map-derived write predicate reports that
+/// a volatile keyed asset owns nothing, and the existing `scenario_volatile_keyed_eval` asserts
+/// only the produced value, so the loss would pass the suite unnoticed.
+async fn scenario_persist_keyed_volatile<E>(envref: EnvRef<E>) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    let key = parse_key("vol.txt")?;
+    let asset = envref.get_asset_manager().get(&key).await?;
+    let state = asset.get().await?;
+    assert_eq!(state.value_state()?.try_into_string()?, "vol");
+    let store = envref.get_async_store();
+    assert!(
+        store.contains(&key).await?,
+        "a volatile keyed asset is keyed, so it is stored — it is merely not loadable"
+    );
+    Ok(())
+}
+
+/// Row 4 — a non-keyed query asset owns no place in the store and writes nothing.
+async fn scenario_persist_query_writes_nothing<E>(envref: EnvRef<E>) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    let asset = envref.get_asset_manager().get_asset(&q("greet")).await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "hello");
+    assert_eq!(asset.key().await, None);
+    let store = envref.get_async_store();
+    assert!(
+        !store.contains(&parse_key("dash.txt")?).await?,
+        "a query asset must not write under any key"
+    );
+    Ok(())
+}
+
+/// Rows 6 and 7 — an ad-hoc `apply` writes nothing, even when its recipe is a bare key or
+/// carries a filename. This is the durable half of `CONTEXT-APPLY-BARE-KEY-ILL-DEFINED`:
+/// previously such an asset wrote its result under a key it did not own.
+async fn scenario_persist_apply_writes_nothing<E>(envref: EnvRef<E>) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    let m = envref.get_asset_manager();
+    let store = envref.get_async_store();
+    let target = parse_key("applied.txt")?;
+    assert!(!store.contains(&target).await?, "precondition");
+
+    // A recipe with cwd + filename, which `store_to_key()` resolves to `applied.txt`.
+    let mut recipe: liquers_core::recipes::Recipe = q("greet/applied.txt").into();
+    recipe.cwd = Some(String::new());
+    let applied = m.apply(recipe, State::new()).await?;
+    let _ = applied.get().await;
+
+    assert_eq!(applied.key().await, None, "an apply asset is not keyed");
+    assert!(
+        !store.contains(&target).await?,
+        "an ad-hoc apply owns no key and must not write to the store"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn persist_keyed_nonvolatile_default() -> Result<(), Error> {
+    let mut env = SimpleEnvironment::<Value>::new();
+    register_greet(&mut env.command_registry);
+    env.with_async_store(Box::new(recipe_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_persist_keyed_nonvolatile(env.to_ref()).await
+}
+
+#[tokio::test]
+async fn persist_keyed_nonvolatile_immediate() -> Result<(), Error> {
+    let mut env = ImmediateEnvironment::<Value>::new();
+    register_greet(&mut env.command_registry);
+    env.with_async_store(Box::new(recipe_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_persist_keyed_nonvolatile(env.to_ref()).await
+}
+
+#[tokio::test]
+async fn persist_keyed_volatile_default() -> Result<(), Error> {
+    let mut env = SimpleEnvironment::<Value>::new();
+    register_vol_cmd(&mut env.command_registry);
+    env.with_async_store(Box::new(volatile_recipe_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_persist_keyed_volatile(env.to_ref()).await
+}
+
+#[tokio::test]
+async fn persist_keyed_volatile_immediate() -> Result<(), Error> {
+    let mut env = ImmediateEnvironment::<Value>::new();
+    register_vol_cmd(&mut env.command_registry);
+    env.with_async_store(Box::new(volatile_recipe_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_persist_keyed_volatile(env.to_ref()).await
+}
+
+#[tokio::test]
+async fn persist_query_writes_nothing_default() -> Result<(), Error> {
+    let mut env = SimpleEnvironment::<Value>::new();
+    register_greet(&mut env.command_registry);
+    env.with_async_store(Box::new(recipe_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_persist_query_writes_nothing(env.to_ref()).await
+}
+
+#[tokio::test]
+async fn persist_query_writes_nothing_immediate() -> Result<(), Error> {
+    let mut env = ImmediateEnvironment::<Value>::new();
+    register_greet(&mut env.command_registry);
+    env.with_async_store(Box::new(recipe_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_persist_query_writes_nothing(env.to_ref()).await
+}
+
+#[tokio::test]
+async fn persist_apply_writes_nothing_default() -> Result<(), Error> {
+    let mut env = SimpleEnvironment::<Value>::new();
+    register_greet(&mut env.command_registry);
+    env.with_async_store(Box::new(recipe_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_persist_apply_writes_nothing(env.to_ref()).await
+}
+
+#[tokio::test]
+async fn persist_apply_writes_nothing_immediate() -> Result<(), Error> {
+    let mut env = ImmediateEnvironment::<Value>::new();
+    register_greet(&mut env.command_registry);
+    env.with_async_store(Box::new(recipe_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_persist_apply_writes_nothing(env.to_ref()).await
+}
