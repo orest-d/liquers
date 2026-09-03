@@ -247,6 +247,7 @@ deliberately folded behind a broader line.
 - design `predecessor-cut-equivalence`
 - design `queued-manager-conditional-eviction`
 - design `refresh-command-metadata-versions`
+- design `sidecar-colliding-keys`
 - design `state-argument-serde-default`
 - design `store-conformance-suite`
 - design `store-key-guard`
