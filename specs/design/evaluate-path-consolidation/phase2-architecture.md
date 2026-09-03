@@ -86,6 +86,31 @@ store_target: Option<Key>,
 `bound_owner_key` keeps its existing role (dependency-manager registration, delegation identity)
 and is not touched.
 
+#### Construction sites
+
+Every site that builds an asset, and the target it records. This is the complete list at HEAD
+(`assets.rs`); Phase 4 works from it.
+
+| Site | Line | `store_target` |
+|---|---|---|
+| `DefaultAssetManager::get_nonvolatile_resource_asset` | 4281 | `Some(key)` |
+| `DefaultAssetManager::get_volatile_resource_asset` | 4294 | `Some(key)` — the case `bound_owner_key` would have missed |
+| `DefaultAssetManager::get_nonvolatile_query_asset` | 4333 | `None` |
+| `DefaultAssetManager::get_volatile_query_asset` | 4346 | `None` |
+| `DefaultAssetManager::apply` / `apply_immediately` | 4743, 4759 | `None` |
+| `DefaultAssetManager::set_state` | 5065 | `Some(key)` — installs, never evaluates |
+| `DefaultAssetManager::create_asset` (public, untracked) | 4245 | `None` |
+| `DefaultAssetManager::create_dummy_asset` | 4253 | `None` |
+| `ImmediateAssetManager::make_volatile` | 5724 | **parameter** — serves both a key caller (5756) and a query caller (5737), so the target cannot be derived inside it |
+| `ImmediateAssetManager::get_resource_asset` (non-volatile branch) | 5765 | `Some(key)` |
+| `ImmediateAssetManager::get_query_asset` (non-volatile branch) | 5745 | `None` |
+| `ImmediateAssetManager::apply` / `apply_immediately` | 5866, 5901 | `None` |
+| `ImmediateAssetManager::set_state` | 6052 | `Some(key)` — installs, never evaluates |
+| `AssetData::new_temporary` | 1520 | `None` |
+
+`make_volatile` is the only site that needs a signature change rather than a literal: it is shared
+between the keyed and query paths, which is precisely the conflation this field removes.
+
 ### The predicate that follows
 
 **Write iff `store_target.is_some()` and this evaluation did not delegate.**
@@ -93,10 +118,16 @@ and is not touched.
 The loadable-vs-stored distinction then needs no separate rule, because of a closure worth stating
 explicitly:
 
-> A `store_target` is only ever set by a manager creating an asset *for a key*. Such an asset has
-> no supplied initial state, and a payload cannot cross a key boundary. Therefore
-> `store_target.is_some()` implies the asset is **either reproducible or volatile** — and the
-> volatile case already writes status `Volatile`, which `try_fast_track` refuses.
+> Among assets that reach `evaluate`, a `store_target` is only ever set by a manager creating an
+> asset *for a key*. Such an asset has no supplied initial state, and a payload cannot cross a key
+> boundary. Therefore `store_target.is_some()` implies the asset is **either reproducible or
+> volatile** — and the volatile case already writes status `Volatile`, which `try_fast_track`
+> refuses.
+>
+> The qualifier matters: `AssetManager::set_state(key, state)` also builds a keyed asset *with* a
+> supplied state, so it is the one construction that pairs a store target with supplied data. It
+> never calls `evaluate` — it installs a value and persists directly — so it is outside the
+> closure rather than a counter-example to it. Phase 3 covers it as a corner case.
 
 So the write path needs one predicate and no new status logic. Reproducibility remains the
 *explanation* (it is why a query or `apply` asset has no target, why volatile results are not
@@ -488,6 +519,30 @@ Applied to the signatures above.
   exists with the wrong target. The volatile branch currently mutates `is_volatile` post-construction;
   do not copy that shape.
 - Matches over `Status` in the finalization path stay exhaustive; no `_ =>` arm is introduced.
+
+## Review Outcome
+
+Two independent reviews ran against this document before the approval gate.
+
+**Reviewer A — Phase 1 conformity.** No blocking findings. All eight Phase 1 commitments are
+addressed. One concern: Phase 1 scoped the change to `assets.rs` and `context.rs`, while Phase 2
+also touches `interpreter.rs` and `recipes.rs`. **Fixed** — Phase 1's Crate Placement section now
+records the widening and its justification, and the payload-projection point is framed as a
+deliberate revision rather than a silent one. Reviewer A judged both Phase 2 corrections to Phase 1
+(the write predicate, the rejected duplicate field) justified by evidence and clearly recorded.
+
+**Reviewer B — codebase alignment.** No blocking findings; every factual claim verified against
+HEAD, including the load-bearing one: `get_volatile_resource_asset` (`assets.rs:4292`) creates an
+asset it does not insert into the key map, and that asset *does* write today through
+`save_to_store`'s `recipe.key()?.or(recipe.store_to_key()?)` (`:2447`). Confirmed too: the four
+evaluation methods have no callers outside `assets.rs` and its tests; `liquers-lib/src/ui/runner.rs`
+is the only out-of-crate `apply_immediately` caller; `apply_plan`'s gate calls itself authoritative;
+`recipes.rs:526` projects `is_volatile` and `expires` but not `payload_required`.
+
+The construction-site enumeration was completed by hand afterwards (the table above), which
+surfaced two details neither review had: `make_volatile` serves both a key and a query caller and
+therefore needs the target as a parameter, and `set_state` pairs a store target with a supplied
+state — the one construction outside the reproducibility closure, now scoped explicitly.
 
 ## Open Decisions for Phase 3
 
