@@ -286,3 +286,25 @@ No `unwrap`/`expect`, no new error type, no `_ =>` match arm (nothing new matche
 2. Is `SIDECAR` / `SIDECAR_AND_LOCK` the right constant naming, given
    `STORE-METADATA-LAYOUT-HARDCODED-PER-STORE` will introduce a `MetadataLayout` vocabulary these
    should not fight?
+
+## Review Record
+
+Two independent reviewers (focused tier), run in parallel per the workflow. No fixer pass was
+needed: neither returned a blocking or advisory finding.
+
+**Reviewer A — Phase 1 conformity.** No findings. Confirmed all five decisions settled at the
+Phase 1 gate are honoured, store by store against Phase 1's reserved-name table; that
+`ReservedNames` builds no part of the out-of-scope layout subsystem; that all four Phase 1 open
+questions are resolved rather than restated; and that the `affects_docs` rejection list is
+defensible.
+
+**Reviewer B — codebase alignment at HEAD.** No findings. Verified every line reference cited
+here; that `Key::iter()` and `ResourceName::name` are public with the assumed types; that
+`acquire_lock` runs before any `key_to_path` call or directory creation in `set` (1095),
+`set_metadata` (1116), `remove` (1121) and `removedir` (1144), so a lock-path refusal leaves no
+side effects; that both listing filters match by dotted suffix only and so miss the bare folder
+name; that `PathMap::decode` strips the suffix exactly once (opendal_store.rs:120-126) and still
+collapses `x.__metadata__` to `x` after the widening; that the 16 conformance families leave
+`reserved01`-`reserved05` free; and that nothing in-tree constructs a reserved key. It also
+confirmed the design reuses `Error::key_not_supported`, the `reject_ambiguous` shape and the
+existing `with_unsupported_shape` fixture builder rather than reinventing them.
