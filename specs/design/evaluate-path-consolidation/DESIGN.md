@@ -7,7 +7,7 @@ status: draft
 phase: implementation
 area: [core/assets, core/plan]
 gh_pr: []
-issues: [CORE-EVALUATE-PATH-CONSOLIDATION, ASSETS-FIX1, INLINE-PATH-LACKS-EXECUTE-ONCE, ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED, ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY, REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED]
+issues: [CORE-EVALUATE-PATH-CONSOLIDATION, ASSETS-FIX1, INLINE-PATH-LACKS-EXECUTE-ONCE, ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED, ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY, REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED, ASSET-REGISTRATION-OWNERSHIP-CONTRACT]
 affects_docs: [ASSET_LIFECYCLE, DOC_03_ASSETS_EXECUTION_LIFECYCLE, ASSETS, PAYLOAD_GUIDE]
 created: 2026-09-02
 superseded_by:
@@ -53,9 +53,17 @@ evaluation, symmetrically with volatility.
 
 Phase 2 settles that decision: `apply` evaluates inline on both managers, extending the rationale
 already written for payload dependencies. Phase 2 also corrects Phase 1 on two points — the write
-predicate is a recorded `store_target`, not `bound_owner_key` (which returns `None` for volatile
-keyed assets, which must keep writing), and the payload requirement lives in metadata only, not in
-a duplicated `AssetData` field.
+predicate is the asset's own recorded `key`, not `bound_owner_key` (which returns `None` for
+volatile keyed assets, which must keep writing), and the payload requirement lives in metadata
+only, not in a duplicated `AssetData` field.
+
+Settled with the project owner on 2026-09-03: the **keyed-asset model**. A keyed asset is one
+associated with a key, known and recorded at creation. The layering is `stored ⟹ keyed` and
+`persistent ⟹ stored`, so "not keyed" means never stored and never loadable. Ownership is
+approximated by keyedness, with a metadata warning when a non-registered keyed asset writes; the
+exact registration contract is out of scope and filed as `ASSET-REGISTRATION-OWNERSHIP-CONTRACT`
+(P2, L). The key is also projected into metadata, so a keyed asset and a non-keyed query asset
+built from the same query become distinguishable — which is where delegation originated.
 
 ## Links
 

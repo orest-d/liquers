@@ -29,8 +29,8 @@ Nothing after Step 3 changes what is written to a store.
 | Step | What | Behaviour change | Revert cost |
 |---|---|---|---|
 | 1 | Record the payload requirement | none (a field stops being empty) | trivial |
-| 2 | Add `store_target`, set it at 14 sites | none (field unused) | trivial |
-| 3 | **Switch the write predicate to `store_target`** | **3 persistence rows narrow** | isolated commit |
+| 2 | Add `key`, set it at 14 sites | none (field unused) | trivial |
+| 3 | **Switch the write predicate to `key`** | **3 persistence rows narrow** | isolated commit |
 | 4 | One `evaluate(payload)`; `run`/`run_inline` | notification ordering only | large but self-contained |
 | 5 | Merge `apply`/`apply_immediately`; simplify `Context::apply`; key+payload error | `apply` gains an inline guarantee | moderate |
 | 6 | Inline execute-once claim | fixes a double-run window | independent |
@@ -84,7 +84,7 @@ deletes cannot creep back.
 
 ---
 
-### Step 2 — Add `store_target` and set it at every construction site
+### Step 2 — Add `key` and set it at every construction site
 
 Mechanical and unused on completion: nothing reads the field yet, so no behaviour can change.
 
@@ -93,7 +93,7 @@ Mechanical and unused on completion: nothing reads the field yet, so no behaviou
 /// Key this asset is responsible for writing, or `None` for a query or ad-hoc asset.
 /// Set at construction by the manager; never inferred from the recipe afterwards, because
 /// provider resolution replaces the recipe mid-evaluation.
-store_target: Option<Key>,
+key: Option<Key>,
 ```
 
 Constructors gain the target rather than receiving it afterwards, so no asset ever exists with the
@@ -105,7 +105,7 @@ impl<E: Environment> AssetData<E> {
         id: u64,
         recipe: Recipe,
         initial_state: State<E::Value>,
-        store_target: Option<Key>,
+        key: Option<Key>,
         envref: EnvRef<E>,
     ) -> Self;
 }
@@ -114,14 +114,14 @@ impl<E: Environment> AssetRef<E> {
     pub(crate) fn new_from_recipe(
         id: u64,
         recipe: Recipe,
-        store_target: Option<Key>,
+        key: Option<Key>,
         envref: EnvRef<E>,
     ) -> Self;
 }
 
 impl<E: Environment> ImmediateAssetManager<E> {
     // serves a key caller and a query caller; the target cannot be derived inside
-    async fn make_volatile(&self, recipe_src: Recipe, store_target: Option<Key>) -> AssetRef<E>;
+    async fn make_volatile(&self, recipe_src: Recipe, key: Option<Key>) -> AssetRef<E>;
 }
 ```
 
@@ -142,8 +142,8 @@ commit or the step does not compile:
 **13 test call sites**, all in `liquers-core`. None in `liquers-lib`, `liquers-axum`, `liquers-web`
 or `liquers-py` — these constructors are `pub(crate)`.
 
-**Tests:** `store_target_some_for_keyed_construction`,
-`store_target_none_for_query_and_adhoc_construction`, `make_volatile_takes_target_from_caller`.
+**Tests:** `the recorded key_some_for_keyed_construction`,
+`the recorded key_none_for_query_and_adhoc_construction`, `make_volatile_takes_target_from_caller`.
 
 **Validation:** `cargo test -p liquers-core --lib --tests`
 
@@ -155,10 +155,10 @@ The only step that changes what reaches a store. Its own commit, revertable alon
 
 - `liquers-core/src/assets.rs:2447` and `:2479` (`save_to_store`) and `:833`, `:861`
   (`save_metadata_to_store` and its sibling): replace
-  `recipe.key()?.or(recipe.store_to_key()?)` with the recorded `store_target`.
+  `recipe.key()?.or(recipe.store_to_key()?)` with the recorded `key`.
 - **`:2682` and `:2699` (`mark_expired_status`)**: replace `bound_owner_key()` with the same
-  `store_target`. See the finding below — this site was missed by Phase 2 and by every reviewer.
-- The write condition becomes `store_target.is_some() && !delegated`.
+  `key`. See the finding below — this site was missed by Phase 2 and by every reviewer.
+- The write condition becomes `the recorded key.is_some() && !delegated`.
 
 #### The site the design nearly missed: writing and invalidating use different keys
 
@@ -179,7 +179,7 @@ and `mark_expired_status` refuses `Status::Volatile` outright, so no invalidatio
 The divergence is one change away from mattering, and it is a textbook instance of what
 `CORE-EVALUATE-PATH-CONSOLIDATION` is about — the same question answered differently in two places.
 
-Recording `store_target` unifies them: one derivation for writing, invalidating, and deciding
+Recording `key` unifies them: one derivation for writing, invalidating, and deciding
 whether to write at all. That is an additional benefit of the field, not merely a cheaper way to
 compute the old predicate — and it is why Step 3 must convert this site too, or the design would
 leave the two derivations still disagreeing, with one of them now recorded and the other still
@@ -365,8 +365,8 @@ Write each and watch it fail before implementing its step; one that passes on ar
 something else.
 
 *New-API tests* — these cannot compile against HEAD because they name a field or method that does
-not exist yet (`store_target_some_for_keyed_construction`,
-`store_target_none_for_query_and_adhoc_construction`, `make_volatile_takes_target_from_caller`).
+not exist yet (`the recorded key_some_for_keyed_construction`,
+`the recorded key_none_for_query_and_adhoc_construction`, `make_volatile_takes_target_from_caller`).
 A compile error is **not** evidence the assertion is meaningful. For these the discipline is
 different: after implementing, invert the assertion once and confirm it goes red.
 
@@ -437,7 +437,7 @@ those are properties of what the asset *is*.
 **2. What was missing.** The two-key-derivation finding above (`save_to_store` writes under one
 key, `mark_expired_status` invalidates under another). Neither Phase 2 nor any of the four
 reviewers caught it, and Step 3 would have converted one derivation while leaving the other. It is
-now in scope and is independent evidence for `store_target`.
+now in scope and is independent evidence for `key`.
 
 **3. Is any decision wrong?** Re-examined the six load-bearing ones. The one worth re-stating is
 `apply` no longer calling `job_queue.submit`: it removes a bound on concurrent ad-hoc evaluations.
@@ -455,7 +455,7 @@ derivation it calls.
 **5. Scope — this should be two pull requests.** Steps 1–3 and Steps 4–7 are separable, and a
 single PR rewriting the evaluation core *and* changing persistence is hard to review honestly:
 
-- **PR 1 (Steps 1–3):** record the payload requirement, add `store_target`, unify the key
+- **PR 1 (Steps 1–3):** record the payload requirement, add `key`, unify the key
   derivations and narrow the write predicate. Closes `ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED`,
   fixes the durable-state behaviour, and is reviewable against the eight-row persistence table
   alone. It stands on its own if the rest is delayed.

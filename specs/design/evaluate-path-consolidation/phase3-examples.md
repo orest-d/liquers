@@ -31,7 +31,7 @@ something, and the test plan that catches each.
 | U3 | Requirement, not presence | unit | a plan needing no payload records `None` even when a payload was supplied | **yes** |
 | U4 | Recipe-preview projection | unit | `get_asset_info` projects `plan.payload_required` beside `is_volatile`/`expires` | **yes** |
 | U5 | Payload gate is `apply_plan`'s | unit | the error comes from the interpreter gate; `Context::apply` no longer pre-checks | no¹ |
-| U6 | `store_target` per construction | unit | the 14 construction sites record the right target | **yes** |
+| U6 | `key` per construction | unit | the 14 construction sites record the right target | **yes** |
 | U7 | Delegation suppresses the write | unit | a delegating asset does not persist; the owner does | no |
 | I1–I8 | The eight persistence rows | integration | store contents after evaluation, both managers | I5–I7 **yes** |
 | I9 | Entry-point equivalence | integration | identical dependency records and metadata facts across three entry points | **yes** |
@@ -54,12 +54,12 @@ at *construction*.
 **The component sequence.**
 
 1. **Construction** (manager, differs per entry point): `get(key)` builds an asset with
-   `store_target: Some(key)` and registers it in the key map; `apply(recipe, state, payload)` builds
-   an ad-hoc asset with `store_target: None` that enters no map.
+   `the recorded key: Some(key)` and registers it in the key map; `apply(recipe, state, payload)` builds
+   an ad-hoc asset with `the recorded key: None` that enters no map.
 2. **Evaluation** (private `evaluate(payload)`, identical for all three): resolve volatility →
    resolve the recipe (delegate to the key's owner if one is registered) → `apply_recipe` →
    collect dependencies into metadata → install value, type identifier and type name →
-   `try_to_set_ready()` → notify → persist if `store_target.is_some() && !delegated` →
+   `try_to_set_ready()` → notify → persist if `the recorded key.is_some() && !delegated` →
    `track_asset`.
 3. **Observation** (caller): identical metadata facts; different persistence and reuse.
 
@@ -68,13 +68,13 @@ at *construction*.
 let manager = envref.get_asset_manager();
 let key = parse_key("data/report.txt")?;
 
-// 1. keyed resource: store_target = Some(key), enters the key map
+// 1. keyed resource: the recorded key = Some(key), enters the key map
 let keyed = manager.get(&key).await?;
 
-// 2. ad-hoc apply: store_target = None, in no map
+// 2. ad-hoc apply: the recorded key = None, in no map
 let applied = manager.apply(Recipe::from(q("transform")), State::new(), None).await?;
 
-// 3. ad-hoc apply with a payload: store_target = None, and never reusable
+// 3. ad-hoc apply with a payload: the recorded key = None, and never reusable
 let with_payload = manager
     .apply(Recipe::from(q("transform")), State::new(), Some(payload))
     .await?;
@@ -136,9 +136,9 @@ that records "a payload was supplied" instead.
 
 | # | Case | Symptom if wrong | Cause | Correction | The assertion that catches it |
 |---|---|---|---|---|---|
-| C1 | **Volatile keyed asset stops being stored** | A volatile key's file silently stops appearing in the store | `bound_owner_key()` returns `None` for it — the manager deliberately never registers volatile keyed assets | `store_target` recorded at construction (`get_volatile_resource_asset`) | store contains the key with status `Volatile` after evaluation. **The existing `scenario_volatile_keyed_eval` asserts the value only, so this regression passes the suite today** |
+| C1 | **Volatile keyed asset stops being stored** | A volatile key's file silently stops appearing in the store | `bound_owner_key()` returns `None` for it — the manager deliberately never registers volatile keyed assets | `key` recorded at construction (`get_volatile_resource_asset`) | store contains the key with status `Volatile` after evaluation. **The existing `scenario_volatile_keyed_eval` asserts the value only, so this regression passes the suite today** |
 | C2 | **`make_volatile` records the wrong target** | Volatile keyed assets stop writing, or volatile query assets start writing | `ImmediateAssetManager::make_volatile` serves a key caller (`:5756`) and a query caller (`:5737`); it cannot derive the target | Take the target as a parameter | both volatile shapes checked separately on the inline manager |
-| C3 | **`set_state` treated as an evaluation** | Installed values acquire dependency records, or lose their supplied status | `set_state(key, state)` pairs a store target with supplied data but never calls `evaluate` | Leave it outside the one body | after `set_state`, status is the supplied one and no dependency record appeared |
+| C3 | **`set_state` treated as an evaluation** | Installed values acquire dependency records, or lose their supplied status | `set_state(key, state)` pairs a key with supplied data but never calls `evaluate` | Leave it outside the one body | after `set_state`, status is the supplied one and no dependency record appeared |
 | C4 | **Delegation double-writes or double-registers** | Two writes to one key, or a duplicated dependency edge | `delegated` is redundant for persistence but still gates DM suppression | Keep the flag; pin the persistence equivalence | exactly one store write for the key; the delegating asset registers nothing |
 | C5 | **Payload asset reachable from a map** | A second request returns a payload-evaluated value with no payload supplied | the key branch of `get_dependency_asset_with_payload` resolves through `get_resource_asset`, whose non-volatile path returns the *map-registered* asset | that branch becomes an explicit error | key + payload returns an error naming the boundary; no asset created, no map touched |
 | C6 | **`ValueProduced` before finalization** | A subscriber polls on the notification and sees `None`/`Processing` | today's immediate path notifies before `try_to_set_ready` | notify after finalization in the one body | on receipt of `ValueProduced`, status is already terminal |
@@ -161,8 +161,8 @@ outside tests, typed error constructors, `#[cfg(test)] mod tests` at file end.
 | `payload_requirement_recorded_in_metadata` | `assets.rs` | `#[tokio::test]` | after evaluating a `payload: required` plan, `metadata.payload_required()` is `Required` |
 | `payload_requirement_reaches_asset_info` | `assets.rs` | `#[tokio::test]` | the same value appears in `get_asset_info()` |
 | `payload_supplied_but_not_required_records_none` | `assets.rs` | `#[tokio::test]` | a plan needing no payload records `None` **with a payload supplied** — reproducibility follows the requirement |
-| `store_target_some_for_keyed_construction` | `assets.rs` | `#[tokio::test]` | `get_nonvolatile_resource_asset` and `get_volatile_resource_asset` both record `Some(key)` |
-| `store_target_none_for_query_and_adhoc_construction` | `assets.rs` | `#[tokio::test]` | query assets, `apply` assets, `create_asset`, `new_temporary` all record `None` |
+| `the recorded key_some_for_keyed_construction` | `assets.rs` | `#[tokio::test]` | `get_nonvolatile_resource_asset` and `get_volatile_resource_asset` both record `Some(key)` |
+| `the recorded key_none_for_query_and_adhoc_construction` | `assets.rs` | `#[tokio::test]` | query assets, `apply` assets, `create_asset`, `new_temporary` all record `None` |
 | `make_volatile_takes_target_from_caller` | `assets.rs` | `#[tokio::test]` | the key caller yields `Some(key)`, the query caller `None` |
 | `delegating_asset_does_not_persist` | `assets.rs` | `#[tokio::test]` | one store write for the key, performed by the owner |
 | `value_produced_fires_after_status_finalization` | `assets.rs` | `#[tokio::test]` | on `ValueProduced`, `status().is_finished()` already holds (C6) |
@@ -183,7 +183,7 @@ All scenario bodies are generic over the environment and run against **both** ma
 | `scenario_persist_keyed_volatile` | row 2 | store contains the key, status `Volatile`, not fast-trackable on re-request | **assertion missing today** |
 | `scenario_persist_keyed_delegating` | row 3 | exactly one write, by the owner | passes — guard |
 | `scenario_persist_query_plain` | row 4 | no write | passes — guard |
-| `scenario_persist_query_with_store_to_key` | row 5 | `store_target` is `None` and nothing is written | construction-level¹ |
+| `scenario_persist_query_with_store_to_key` | row 5 | `key` is `None` and nothing is written | construction-level¹ |
 | `scenario_persist_apply_bare_key_recipe` | row 6 | nothing written under that key | **fails today** |
 | `scenario_persist_apply_recipe_with_filename` | row 7 | nothing written under `cwd/filename` | **fails today** |
 | `scenario_persist_apply_with_payload` | row 8 | no write | passes — guard |

@@ -15,8 +15,8 @@ created: 2026-09-03
 The two run harnesses stay (spawn vs inline — a platform split, not duplication) but lose their
 per-body variants; `AssetManager` loses `apply_immediately`, since a supplied state or payload
 already implies inline evaluation. Two facts move from being re-derived per call site to being
-recorded on the asset: the **store target** (the key this asset is responsible for, set when the
-manager creates it) and the **payload requirement** (projected from the plan into metadata and
+recorded on the asset: **whether it is a keyed asset and which key** (recorded when the manager
+creates it) and the **payload requirement** (projected from the plan into metadata and
 `AssetInfo`). `INLINE-PATH-LACKS-EXECUTE-ONCE` is co-delivered as a queue-less claim primitive.
 
 ## Known-Issue Preflight
@@ -55,7 +55,7 @@ mechanism for each.
 | Box | Members | Mechanism |
 |---|---|---|
 | **Invariants** of the one body | dependency recording, status finalization, key-owner delegation, payload precondition, volatility resolution, notification | executed unconditionally in `evaluate` |
-| **Facts recorded on the asset** | store target, volatility, payload requirement, initial state, payload | fields on `AssetData` / `Metadata`, set at construction or resolved before evaluation |
+| **Facts recorded on the asset** | the key (keyed or not), volatility, payload requirement, initial state, payload | fields on `AssetData` / `Metadata`, set at construction or resolved before evaluation |
 | **Manager policy** | queued vs inline | `AssetManager::eval_mode`, unchanged |
 
 ### Reusability invariant
@@ -116,86 +116,121 @@ Cost: one branch removed and one error added, in two managers. Benefit: the inva
 construction rather than by coincidence, and the failure is named if a future change makes the path
 reachable.
 
-### Correction to Phase 1: `bound_owner_key` is not the write predicate
+### The keyed-asset model (settled with the project owner, 2026-09-03)
 
 Phase 1 proposed writing iff `AssetRef::bound_owner_key().is_some()`. That is **wrong for volatile
-keyed assets**, and the error is worth recording because it nearly removed a behaviour you
-explicitly asked to keep.
+keyed assets**, and the correction led to a better model than the one it replaced.
 
-`bound_owner_key` asks the manager's key map who owns the key. A volatile keyed asset is
-**deliberately never registered** (`get_volatile_resource_asset` creates a fresh `AssetRef` and puts
-it in no map), so `owned_key_asset` returns `None` and `bound_owner_key` yields `None`. Today such
-an asset *does* write — `save_to_store` targets `recipe.key().or(store_to_key())` — producing a
-stored-but-not-loadable file, which is exactly "volatile assets can be stored but are not
-persistent". The `bound_owner_key` predicate would have silently stopped storing them.
+`bound_owner_key` answers "do I own this key?" by consulting the manager's key map. A volatile keyed
+asset is **deliberately never registered** (`get_volatile_resource_asset`, `:4292`), so the lookup
+returns `None` — while that asset *is* associated with a key and *does* write to the store today.
+The predicate would have silently stopped storing volatile keyed results, which the project owner
+had explicitly asked to keep ("volatile assets can be stored, they are just not persistent").
 
-The fix is to record the write target instead of re-deriving it:
+The model that replaces it uses the project's established vocabulary:
+
+> **A keyed asset is an asset associated with a key.** Whether it is keyed, and which key, is known
+> at the moment of creation and is recorded on the asset. `None` means it is not a keyed asset.
 
 ```rust
-/// The key this asset is responsible for, recorded when a manager creates the asset *for* that
-/// key — including a volatile keyed asset, which is deliberately absent from the key map.
+// liquers-core/src/assets.rs, in AssetData<E>
+/// The key this asset is associated with — it is a *keyed asset* — or `None` when it is not.
 ///
-/// `None` for a query asset and for an ad-hoc `apply` asset, neither of which owns a place in
-/// the store. This is the *write* target; `bound_owner_key()` remains the separate question of
-/// who is registered as the key's owner, which is what the dependency manager asks.
-store_target: Option<Key>,
+/// Set at construction by the manager, which knows the answer because the key is the argument it
+/// was called with. Never re-derived from the recipe afterwards: provider resolution replaces the
+/// recipe mid-evaluation, which is exactly why re-derivation produced divergent answers.
+key: Option<Key>,
 ```
 
-`bound_owner_key` keeps its existing role (dependency-manager registration, delegation identity)
-and is not touched.
+### The layering
 
-#### Construction sites
+Three properties, in one-way implication:
 
-Every site that builds an asset, and the target it records. This is the complete list at HEAD
-(`assets.rs`); Phase 4 works from it.
+```
+keyed        — decided at creation, recorded on the asset
+stored       ⟹ keyed          (only a keyed asset may be written to the store)
+persistent   ⟹ stored         (only a stored asset can be loadable)
+```
 
-| Site | Line | `store_target` |
+Contrapositive, which is what the code enforces: **not keyed ⟹ never stored ⟹ never loadable.**
+
+This states the volatile rule exactly — a volatile keyed asset *is* keyed, so it is stored; it is
+not persistent, because it is written with a status `try_fast_track` refuses. And it disposes of
+`CONTEXT-APPLY-BARE-KEY-ILL-DEFINED` without a special case: an ad-hoc `apply` asset is not keyed,
+so whether it may write never arises.
+
+### Ownership versus registration
+
+Registration in the manager's key map is a **caching and sharing decision that belongs to the
+manager**, not a property of the asset. Declining to register a non-volatile keyed asset still
+produces correct results — it merely means the asset is not reused. At most one asset is registered
+per key.
+
+So ownership is *approximated* by keyedness in this design:
+
+- A **registered** keyed asset is definitely the owner.
+- A **non-registered** keyed asset is a gray zone — but when it is volatile and storable it does
+  write, which is part of the ownership privilege.
+
+**Interim rule adopted here:** treat a keyed asset as the owner, and when a **non-registered keyed
+asset writes, record a warning in its metadata**. The gray zone stays legal and stops being silent,
+so a real problem leaves a trace instead of passing unnoticed.
+
+The exact contract — whether registration can be made guaranteed, how it can be observed without a
+lock (the monotonic "once unregistered, never re-registered" property), a `protected_registration`
+flag, and what such an asset does when it expires — is **out of scope** and filed as
+`ASSET-REGISTRATION-OWNERSHIP-CONTRACT` (P2, L, needs its own design folder). That issue also
+records the future feature this blocks: using assets as a communication channel between asset
+users, which requires registration to be contractual rather than opportunistic.
+
+### The key belongs in metadata
+
+A keyed asset and a non-keyed query asset built from the same query are **not the same thing** — the
+keyed one knows its key — yet today their states can be indistinguishable. The recorded key is
+therefore projected into `MetadataRecord`, exactly as `payload_required` is, so the difference is
+observable to clients, to the store sidecar, and to tests.
+
+This also explains delegation's origin: a keyed asset resolves to a recipe carrying a query, that
+query can itself be requested and cached as a *non-keyed* asset, and delegation reconciles the two
+identities at evaluation time. With the key recorded and reflected in metadata they are
+distinguishable by construction, so the reconciliation may later be reducible — a question for
+`ASSET-REGISTRATION-OWNERSHIP-CONTRACT`, not for this design.
+
+### What the recorded key replaces
+
+Five call sites stop re-deriving and become reads of one field:
+
+| Consumer | Today | Becomes |
 |---|---|---|
-| `DefaultAssetManager::get_nonvolatile_resource_asset` | 4281 | `Some(key)` |
-| `DefaultAssetManager::get_volatile_resource_asset` | 4294 | `Some(key)` — the case `bound_owner_key` would have missed |
-| `DefaultAssetManager::get_nonvolatile_query_asset` | 4333 | `None` |
-| `DefaultAssetManager::get_volatile_query_asset` | 4346 | `None` |
-| `DefaultAssetManager::apply` / `apply_immediately` | 4743, 4759 | `None` |
-| `DefaultAssetManager::set_state` | 5065 | `Some(key)` — installs, never evaluates |
-| `DefaultAssetManager::create_asset` (public, untracked) | 4245 | `None` |
-| `DefaultAssetManager::create_dummy_asset` | 4253 | `None` |
-| `ImmediateAssetManager::make_volatile` | 5724 | **parameter** — serves both a key caller (5756) and a query caller (5737), so the target cannot be derived inside it |
-| `ImmediateAssetManager::get_resource_asset` (non-volatile branch) | 5765 | `Some(key)` |
-| `ImmediateAssetManager::get_query_asset` (non-volatile branch) | 5745 | `None` |
-| `ImmediateAssetManager::apply` / `apply_immediately` | 5866, 5901 | `None` |
-| `ImmediateAssetManager::set_state` | 6052 | `Some(key)` — installs, never evaluates |
-| `AssetData::new_temporary` | 1520 | `None` |
+| `save_to_store` (`:2447`, `:2479`) | `recipe.key()?.or(recipe.store_to_key()?)` | read `key` |
+| `save_metadata_to_store` (`:833`, `:861`) | the same derivation | read `key` |
+| `mark_expired_status` (`:2682`, `:2699`) | `bound_owner_key()` — **a different derivation** | read `key` |
+| `Context::owner_key` (`:925`) → `register_plan_dependencies` | `bound_owner_key()` | read `key` |
+| `DependencyManager::track_asset` (`dependencies.rs:303`) | `bound_owner_key()` | read `key` |
 
-`make_volatile` is the only site that needs a signature change rather than a literal: it is shared
-between the keyed and query paths, which is precisely the conflation this field removes.
+`record_dependency_on_asset`'s same-node test (`bound_key_candidate`, `:1404`) likewise reads the
+field. `bound_owner_key` itself is expected to disappear; if a caller genuinely needs "am I
+*registered*" rather than "am I keyed", that caller belongs to
+`ASSET-REGISTRATION-OWNERSHIP-CONTRACT`.
 
-### The predicate that follows
+Note the two derivations in that table are not merely separate implementations — they use
+**opposite precedence**. `save_to_store` tries `key()` then `store_to_key()`; `bound_owner_key`
+tries `store_to_key()` then `key()`. Nobody chose that; it is what independent local reasoning
+produces, and it is the clearest single piece of evidence for recording the answer instead of
+deriving it.
 
-**Write iff `store_target.is_some()` and this evaluation did not delegate.**
+### The write predicate
 
-The loadable-vs-stored distinction then needs no separate rule, because of a closure worth stating
-explicitly:
+**Write iff the asset is keyed and this evaluation did not delegate.**
 
-> Among assets that reach `evaluate`, a `store_target` is only ever set by a manager creating an
-> asset *for a key*. Such an asset has no supplied initial state, and a payload cannot cross a key
-> boundary. Therefore `store_target.is_some()` implies the asset is **either reproducible or
-> volatile** — and the volatile case already writes status `Volatile`, which `try_fast_track`
-> refuses.
->
-> The qualifier matters: `AssetManager::set_state(key, state)` also builds a keyed asset *with* a
-> supplied state, so it is the one construction that pairs a store target with supplied data. It
-> never calls `evaluate` — it installs a value and persists directly — so it is outside the
-> closure rather than a counter-example to it. Phase 3 covers it as a corner case.
-
-So the write path needs one predicate and no new status logic. Reproducibility remains the
-*explanation* (it is why a query or `apply` asset has no target, why volatile results are not
-reused, and why a payload asset may not be a dependency), and its one new mechanical use is the
-recorded payload requirement below. It is not, in the end, a second gate on persistence — an
-honest downgrade from the Phase 1 sketch.
+`&& !delegated` may prove redundant: ad-hoc and query assets are not keyed and so cannot write
+regardless, and a volatile keyed asset never delegates because nothing is registered to delegate to.
+Phase 3 pins the equivalence with a test rather than assuming it; the flag is kept meanwhile for
+dependency-manager suppression.
 
 ### Persistence outcomes, today versus after
 
-| Case | `store_target` | Today | After |
+| Case | the recorded `key` | Today | After |
 |---|---|---|---|
 | Keyed, non-volatile (recipe-defined) | `Some(key)` | write `Ready`, fast-trackable | unchanged |
 | Keyed, volatile | `Some(key)` | write `Volatile`, not fast-trackable | unchanged |
@@ -224,17 +259,23 @@ rely on silently; Phase 3 pins it with a test.
 pub struct AssetData<E: Environment> {
     // ... existing fields unchanged ...
 
-    /// Key this asset is responsible for writing, or `None` for a query or ad-hoc asset.
+    /// The key this asset is associated with — it is a *keyed asset* — or `None` when it is not.
     /// Set at construction by the manager; never inferred from the recipe afterwards, because
     /// provider resolution replaces the recipe mid-evaluation.
-    store_target: Option<Key>,
+    key: Option<Key>,
 }
 ```
 
 **Ownership:** owned `Option<Key>`; `Key` is already owned and cloned freely elsewhere in this
 struct. No `Arc` — a key is small and the field is read under the existing lock.
 
-**Serialization:** none. `AssetData` is not serialized; the persisted projection is `Metadata`.
+**Serialization:** the field itself is not serialized (`AssetData` never is), but its value **is
+projected into `MetadataRecord`**, so a keyed asset and a non-keyed query asset are distinguishable
+in metadata, in the store sidecar and in `AssetInfo`. See §"The key belongs in metadata".
+
+**Relationship to the two identity-adjacent fields already present**, which the reference must state
+plainly: `key` answers *is this a keyed asset, and which key*; `recipe` answers *what to evaluate*;
+`query` is the immutable original request.
 
 **Why a field and not a method:** `bound_owner_key`'s own doc comment records the reason — "provider
 evaluation replaces the mutable recipe, so ownership cannot be inferred from `AssetData::recipe`
@@ -334,7 +375,7 @@ fixed.
    `ValueProduced` notification.
 7. `ValueProduced` notification, after finalization. This is a **behaviour improvement for the
    payload path**, which today notifies while the status is still `None`/`Processing`.
-8. Persist iff `store_target.is_some() && !delegated`.
+8. Persist iff `key.is_some() && !delegated`.
 9. `dependency_manager().track_asset(self)` — unconditional; already self-limiting on status and
    `bound_owner_key`, so ad-hoc assets register nothing.
 
@@ -344,7 +385,7 @@ fixed.
 /// Applies a recipe to a supplied initial state, with an optional execution payload.
 ///
 /// A supplied state or a payload makes the result non-reproducible: it is in no map, is never
-/// reused, and owns no store target. Evaluation therefore completes before this returns and
+/// reused, and owns no key. Evaluation therefore completes before this returns and
 /// consumes no job-queue slot, on both managers.
 async fn apply(
     &self,
@@ -459,7 +500,7 @@ No new trait is introduced. One existing trait changes, in two implementors, bot
 | `apply_immediately` | removed from the impl; the deprecated trait default forwards to `apply` |
 | `get_asset`, `get` | unchanged, including their stale-terminal eviction loops |
 | `get_dependency_asset_with_payload` | unchanged except `run_immediately(payload)` → `run(Some(payload))` |
-| `get_resource_asset` / `get_volatile_resource_asset` / `get_nonvolatile_*` | set `store_target` at construction |
+| `get_resource_asset` / `get_volatile_resource_asset` / `get_nonvolatile_*` | set the recorded `key` at construction |
 
 **Implementor: `ImmediateAssetManager<E>`** (`assets.rs:5777`) — inline, wasm-capable.
 
@@ -469,7 +510,7 @@ No new trait is introduced. One existing trait changes, in two implementors, bot
 | `apply_immediately` | removed from the impl |
 | `get_asset`, `get` | unchanged, including lazy expiration-on-access |
 | `get_dependency_asset_with_payload` | unchanged except `run_immediately_inline(payload)` → `run_inline(Some(payload))` |
-| `make_volatile` / `get_resource_asset` | set `store_target` at construction |
+| `make_volatile` / `get_resource_asset` | set the recorded `key` at construction |
 
 Both keep `eval_mode()`, and neither gains or loses a trait bound. `AssetManager` is reached as
 `Arc<E::AssetManager>` through an associated type, never as `dyn AssetManager`, so object safety
@@ -503,7 +544,7 @@ one arm, and it is the harness's — `evaluate` propagates with `?` and `finish_
 remains the single failure authority, matching `try_to_set_ready` being the single success
 authority.
 
-No `unwrap()` or `expect()` is introduced; `store_target` is an `Option<Key>` read directly, and
+No `unwrap()` or `expect()` is introduced; the recorded `key` is an `Option<Key>` read directly, and
 every `Result` on the path propagates with `?`.
 
 ## Sync vs Async
@@ -522,7 +563,7 @@ existing discipline of taking the write lock for the data/metadata assignment on
 
 | Crate / module | Change |
 |---|---|
-| `liquers-core/src/assets.rs` | one private `evaluate`; two `pub(crate)` run entry points; `store_target` field and its 14 construction sites; `save_to_store` target; `apply` merge in both managers; the payload path's key branch becomes an error; inline claim |
+| `liquers-core/src/assets.rs` | one private `evaluate`; two `pub(crate)` run entry points; the recorded `key` field and its 14 construction sites; `save_to_store` target; `apply` merge in both managers; the payload path's key branch becomes an error; inline claim |
 | `liquers-core/src/context.rs` | `Context::apply` loses the payload branch; `Context::set_payload_required` added |
 | `liquers-core/src/interpreter.rs` | one projection line in `apply_plan` beside the existing gate |
 | `liquers-core/src/recipes.rs` | one projection line in `AsyncRecipeProvider::get_asset_info` |
@@ -576,8 +617,8 @@ as the axes that generate every flow, rather than enumerating paths:
 
 | Dimension | Why it exists | What it changes |
 |---|---|---|
-| Keyed / query / ad-hoc identity | what the asset *is*, and whether anything can ask for it again | store target, map membership, reuse |
-| Initial state supplied | the caller injects input the identity does not describe | non-reproducible: no store target, no reuse |
+| Keyed / query / ad-hoc identity | what the asset *is*, and whether anything can ask for it again | key, map membership, reuse |
+| Initial state supplied | the caller injects input the identity does not describe | non-reproducible: no key, no reuse |
 | Payload present or required | per-call caller context that is deliberately *not* part of identity, and cannot cross a key boundary | unmappable, unreusable, never persisted as loadable |
 | Volatility | the result is valid but single-use | stored but not loadable; never reused |
 | Delegation | another asset owns the key | hand-off: no write, no second dependency edge |
@@ -594,7 +635,7 @@ That separation is the explanation the requirement asks for, and it is what the 
 | `specs/reference/ASSET_LIFECYCLE.md` | reference | core developers | **Primary, rewritten.** The public surface; the surviving methods and their relationships; the flow dimensions above with a step-by-step execution sequence for each; the persistence-outcome table. §2, §3 Paths A–D, §6 and §7 are replaced, not amended | link from README capability line; points at the `assets.rs` rustdoc as primary |
 | `specs/archive/<date>-asset-lifecycle-duplication-audit.md` | archive | — | **New.** The §6 asymmetry table and §7 issue list, preserved as the evidence trail for the issue | referenced from the design folder |
 | `liquers-core/src/assets.rs` `//!` | code | core developers | **The high-level public API at module level** — the requirement's item 4. `DOC_03` already designates this rustdoc "the primary reference", so it carries the API overview and the reference documents point at it. Its current entry-point table is replaced | ↔ `ASSET_LIFECYCLE.md` |
-| `specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md` | reference | integrators | §"Public entry-point contract" (three entry points become two), §"Persistence contract" (the `store_target` predicate), §"Public versus infrastructure APIs" — which today says the boundary "is not enforced by Rust visibility consistently" and that "a future API pass should narrow or separate it": **this design is that pass**, so the section records the narrowed surface — and §"Conflicts and unresolved gaps" (remove what this closes) | ↔ `ASSET_LIFECYCLE.md` |
+| `specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md` | reference | integrators | §"Public entry-point contract" (three entry points become two), §"Persistence contract" (the the recorded `key` predicate), §"Public versus infrastructure APIs" — which today says the boundary "is not enforced by Rust visibility consistently" and that "a future API pass should narrow or separate it": **this design is that pass**, so the section records the narrowed surface — and §"Conflicts and unresolved gaps" (remove what this closes) | ↔ `ASSET_LIFECYCLE.md` |
 | `specs/reference/ASSETS.md` | reference | core developers | §Overview and §AssetManager entry-point list | ↔ both above |
 | `specs/reference/PAYLOAD_GUIDE.md` | reference | command authors | the requirement is now recorded and observable in metadata and `AssetInfo` | ↔ `DOC_03` |
 | `specs/README.md` | map | everyone | capability lines for evaluation and assets point at the updated reference | — |
@@ -634,7 +675,7 @@ Applied to the signatures above.
   be `Clone`, so the payload must be *moved* into the context, not cloned. `Context::apply` clones
   its own `Option<E::Payload>` — which is why `PayloadType: Clone` matters there and is already
   satisfied. Phase 4 must not introduce a clone in `evaluate`.
-- `store_target` is set at construction rather than after, to avoid a window in which an asset
+- the recorded `key` is set at construction rather than after, to avoid a window in which an asset
   exists with the wrong target. The volatile branch currently mutates `is_volatile` post-construction;
   do not copy that shape.
 - Matches over `Status` in the finalization path stay exhaustive; no `_ =>` arm is introduced.
@@ -660,7 +701,7 @@ is the only out-of-crate `apply_immediately` caller; `apply_plan`'s gate calls i
 
 The construction-site enumeration was completed by hand afterwards (the table above), which
 surfaced two details neither review had: `make_volatile` serves both a key and a query caller and
-therefore needs the target as a parameter, and `set_state` pairs a store target with a supplied
+therefore needs the target as a parameter, and `set_state` pairs a key with a supplied
 state — the one construction outside the reproducibility closure, now scoped explicitly.
 
 ## Open Decisions for Phase 3

@@ -131,7 +131,7 @@ once instead of rediscovering it per call site.
 A volatile keyed asset is stored and owned but not loadable — which is what HEAD does already
 (it writes with status `Volatile`, which fast-track refuses).
 
-**Derived persistence rule to be specified in Phase 2:** write iff the asset owns a store target
+**Derived persistence rule to be specified in Phase 2:** write iff the asset owns a key
 (`key()` or `store_to_key()`, and not delegating — the owner writes, not the delegator); write a
 loadable status iff reproducible, otherwise a status fast-track refuses. No flag, no parameter.
 
@@ -246,7 +246,7 @@ Six evaluation entry-point implementations (3 methods × 2 managers) become four
 | `EnvRef::evaluate_immediately(query, payload)` | unchanged signature; delegates to `apply(recipe, State::new(), Some(payload))` | |
 | `Context::evaluate` / `get_dependency_state` | unchanged | |
 | `Context::apply(query, to)` | the `requires_payload` branch disappears: one call, `manager.apply(recipe, to, self.payload.clone())` | payload inheritance stops depending on a pre-check |
-| `save_to_store` target `recipe.key().or(store_to_key())` | `bound_owner_key()` | question 1 |
+| `save_to_store` target `recipe.key().or(store_to_key())` | the key recorded on the asset | question 1 |
 
 ## Open Questions
 

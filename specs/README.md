@@ -254,6 +254,7 @@ deliberately folded behind a broader line.
 - design `ui-query-console-error-highlight`
 - design `value-type-system`
 - design `variadic-metadata-tail-check`
+- feature `ASSET-REGISTRATION-OWNERSHIP-CONTRACT`
 - feature `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`
 - feature `COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS`
 - feature `DATA-FORMAT-CONSTANTS-AND-TOOLING`

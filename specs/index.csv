@@ -41,6 +41,7 @@ STORE-CONFORMANCE-VALIDATION-TOOL,issue,No way to run the conformance suite agai
 STORE-TEST-IDS-COLLIDE-WITH-CONFORMANCE-RULE-IDS,issue,Store unit tests share IDs with conformance rules that check different contracts,draft,local,,,P2,M,core/store;store/backends;docs,,,,store-conformance-suite,,2026-09-02,specs/issues/STORE-TEST-IDS-COLLIDE-WITH-CONFORMANCE-RULE-IDS.md
 WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT,issue,Enter key does not submit in the browser query console,accepted,local,,,P2,M,lib/ui,,,,ui-events,,2026-08-08,specs/issues/WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT.md
 WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED,issue,Submitted query state is not preserved in the browser,accepted,local,,,P2,M,lib/ui,,,,ui-events,,2026-08-08,specs/issues/WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED.md
+ASSET-REGISTRATION-OWNERSHIP-CONTRACT,feature,"Registration of a keyed asset is a manager convenience, not a contract anything can rely on",draft,local,,,P2,L,core/assets,,,,,,2026-09-03,specs/issues/ASSET-REGISTRATION-OWNERSHIP-CONTRACT.md
 ASSETS-FIX1,feature,Unresolved TODO and FIXME markers in the asset lifecycle,accepted,local,,,P2,L,core/assets,,,,,,2026-08-08,specs/issues/ASSETS-FIX1.md
 ASSETS-IMPROVEMENTS,feature,"Asset persistence, eviction safety and upload limits",accepted,local,,,P2,L,core/assets;core/store,,,,,,2026-08-08,specs/issues/ASSETS-IMPROVEMENTS.md
 COMBINED-EXPIRES,feature,No algebra for combining expiration across dependencies,accepted,local,,,P2,L,core/assets,,,,,,2026-08-08,specs/issues/COMBINED-EXPIRES.md
@@ -103,7 +104,7 @@ COMMAND-METADATA-COMMAND-HINTS,design,Command-level metadata hints,in_review,loc
 CONFIGURATION-ERROR-KIND,design,Classify semantic configuration failures,in_review,local,implementation,needs-decision,P3,S,core/error;store/config,,,,configuration-error-kind,,2026-08-31,specs/design/configuration-error-kind/DESIGN.md
 STORE-CONFIG-URI,design,Configuring a store from a URI,in_review,local,architecture,,P3,M,store/config;store/backends;core/store,,,,store-config-uri,,2026-08-29,specs/design/store-config-uri/DESIGN.md
 CONTEXT-PARAM-ORDER,design,Context parameter position in register_command!,draft,local,architecture,,,,core/commands;macro,,,,context-param-order,,2026-03-02,specs/design/context-param-order/DESIGN.md
-EVALUATE-PATH-CONSOLIDATION,design,One evaluation path for every entry point,draft,local,examples,,,,core/assets;core/plan,,,,evaluate-path-consolidation,,2026-09-02,specs/design/evaluate-path-consolidation/DESIGN.md
+EVALUATE-PATH-CONSOLIDATION,design,One evaluation path for every entry point,draft,local,implementation,,,,core/assets;core/plan,,,,evaluate-path-consolidation,,2026-09-02,specs/design/evaluate-path-consolidation/DESIGN.md
 FOREIGN-VALUE-TYPE-REGISTRATION,design,Foreign and Python value types in the type registry,,github,,,,,core/value;lib/value;web;py,,42,,foreign-value-type-registration,,2026-08-26,specs/design/foreign-value-type-registration/DESIGN.md
 PLAN-CWD-FREEZE,design,Freeze CWD in the plan and cut correct predecessor boundaries,,github,documentation,,,,core/plan;core/query;core/context;core/assets,,35,,plan-cwd-freeze,,2026-08-14,specs/design/plan-cwd-freeze/DESIGN.md
 REGISTER-COMMAND-ENUM,design,Enum parameters in register_command!,draft,local,architecture,,,,macro;core/commands,,,,register-command-enum,,2026-03-02,specs/design/register-command-enum/DESIGN.md
