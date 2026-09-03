@@ -221,7 +221,7 @@ assert!(!PathMap::RESERVED.is_reserved_key(&parse_key("x.__lock__")?));
 
 **Not in `mod tests`.** `liquers-core/src/store.rs` has two test modules at HEAD, and the difference
 matters: `mod tests` (line 2145) is the general store suite, and `mod key_absolute_tests` (line
-2514) is the suite for the absolute-key precondition, carrying `keyabs01`-`keyabs17`, its own
+2515) is the suite for the absolute-key precondition, carrying `keyabs01`-`keyabs17`, its own
 `use crate::error::ErrorType`, and the `unique_temp_dir` helper at line 2524. **`unique_temp_dir`
 exists only there** — `mod tests`'s one file-store test builds its temp path inline (line 2438) —
 so appending the `reserved` tests to `mod tests` would not compile.
