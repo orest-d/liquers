@@ -6,7 +6,7 @@ status: closed
 priority: P2
 complexity: S
 area: [lib/value]
-design: value-type-system
+design: combined-value-default-extension
 created: 2026-08-18
 github:
 ---
