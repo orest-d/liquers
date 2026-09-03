@@ -58,6 +58,64 @@ mechanism for each.
 | **Facts recorded on the asset** | store target, volatility, payload requirement, initial state, payload | fields on `AssetData` / `Metadata`, set at construction or resolved before evaluation |
 | **Manager policy** | queued vs inline | `AssetManager::eval_mode`, unchanged |
 
+### Reusability invariant
+
+**Only `evaluate(None)` produces an asset the manager may store and hand out again** (user
+decision, 2026-09-03). An asset evaluated with a payload is never inserted into the key map or the
+query map, is never returned by `get`/`get_asset`, and can never be requested a second time.
+
+Today this holds only through a chain of reasoning rather than by construction: a command
+declaring `payload: required` is marked volatile at registration, a volatile query resolves through
+`get_volatile_*_asset`, and those construct a fresh asset that is inserted nowhere. Every link is
+true at HEAD, but the invariant is a property of the payload, not of volatility, and a registration
+that set `payload: required` without `volatile` would break the chain silently.
+
+Phase 2 states it directly and Phase 3 tests it directly: *no map contains an asset that was
+evaluated with a payload*, asserted against the maps rather than inferred from the volatility flag.
+
+#### A latent violation this exposes
+
+`get_dependency_asset_with_payload` (both managers) begins:
+
+```rust
+let asset = if let Some(key) = query.key() {
+    self.get_resource_asset(&key).await?      // ← non-volatile branch returns the MAP-REGISTERED asset
+} else {
+    self.get_query_asset(query).await?
+};
+asset.set_payload_path(payload_path).await;
+asset.run_immediately(payload).await?;
+```
+
+For a non-volatile key, `get_resource_asset` returns the asset registered in `self.assets`
+(`get_nonvolatile_resource_asset` inserts it, `:4281`). Running *that* asset with a payload would
+put a payload-evaluated value in the key map — precisely what the invariant forbids.
+
+It is unreachable at HEAD: a pure key query reports `PayloadRequirement::None`
+(`interpreter.rs:939`, `Step::GetResource` is not a payload-requiring step), so
+`schedule_payload_dependency_asset` never selects the payload path for one; and a keyed recipe that
+requires a payload is rejected earlier by `to_plan_for_key`. The branch is therefore dead code that
+silently contradicts the invariant, protected by two unrelated facts rather than by design.
+
+**Resolution:** the key branch of the payload path becomes an explicit error — keys are a payload
+boundary, so asking for a keyed asset *with* a payload is a caller error, not a case to serve:
+
+```rust
+// get_dependency_asset_with_payload
+if query.key().is_some() {
+    return Err(Error::general_error(format!(
+        "Query '{}' is a key and cannot be evaluated with a payload: a payload does not cross a \
+         key boundary, so a keyed asset would become unreusable while remaining in the key map.",
+        query.encode()
+    ))
+    .with_query(query));
+}
+```
+
+Cost: one branch removed and one error added, in two managers. Benefit: the invariant holds by
+construction rather than by coincidence, and the failure is named if a future change makes the path
+reachable.
+
 ### Correction to Phase 1: `bound_owner_key` is not the write predicate
 
 Phase 1 proposed writing iff `AssetRef::bound_owner_key().is_some()`. That is **wrong for volatile
@@ -211,9 +269,20 @@ asset.
 
 ### `AssetRef<E>` — three bodies to one, four run entry points to two
 
+**Encapsulation rule (user decision, 2026-09-03):** an `AssetRef` is constructed and managed by
+the asset manager. No evaluation entry point on `AssetRef` is public — `evaluate` is private to the
+module, `run`/`run_inline` stay `pub(crate)`, and the only public way to evaluate anything remains
+`AssetManager` (or `EnvRef`/`Context`, which delegate to it). This *strengthens* the status quo:
+the four methods being removed (`evaluate_recipe`, `evaluate_and_store`, `evaluate_immediately`,
+and `evaluate_recipe_outcome`'s public wrapper) are `pub` today, and nothing outside `assets.rs`
+uses them. The only public addition is a read accessor.
+
 ```rust
 impl<E: Environment> AssetRef<E> {
     /// The single evaluation body. Every entry point reaches evaluation through this.
+    ///
+    /// Private: evaluation is entered through the asset manager, never on a handle a caller
+    /// happens to hold.
     ///
     /// Resolves execution facts, resolves the recipe (delegating to the key's owner when one is
     /// registered), applies it through `Environment::apply_recipe`, records observed
@@ -453,7 +522,7 @@ existing discipline of taking the write lock for the data/metadata assignment on
 
 | Crate / module | Change |
 |---|---|
-| `liquers-core/src/assets.rs` | one `evaluate`; two run entry points; `store_target` field and its ~6 construction sites; `save_to_store` target; `apply` merge in both managers; inline claim |
+| `liquers-core/src/assets.rs` | one private `evaluate`; two `pub(crate)` run entry points; `store_target` field and its 14 construction sites; `save_to_store` target; `apply` merge in both managers; the payload path's key branch becomes an error; inline claim |
 | `liquers-core/src/context.rs` | `Context::apply` loses the payload branch; `Context::set_payload_required` added |
 | `liquers-core/src/interpreter.rs` | one projection line in `apply_plan` beside the existing gate |
 | `liquers-core/src/recipes.rs` | one projection line in `AsyncRecipeProvider::get_asset_info` |
@@ -462,15 +531,14 @@ existing discipline of taking the write lock for the data/metadata assignment on
 
 ## Relevant Commands
 
-**No new commands, and no command namespace is involved.** This is core runtime plumbing below the
+**No new commands, and no command namespace is involved** — confirmed by the user, 2026-09-03. This is core runtime plumbing below the
 command layer: no `register_command!` signature changes, so `specs/command_registry.yaml` does not
 regenerate, and no query syntax changes, so nothing needs `liquers-validate`. The command-facing
 surface that *does* change is `PayloadRequirement`, which commands already declare through
 `payload: required` in `register_command!` — this design only makes the declared fact observable
 after evaluation.
 
-*Confirmation requested at the approval gate: no namespaces (`lui`, `egui`, `pl`, `ns-img`) are
-relevant here — please confirm, since the workflow asks for it explicitly.*
+No namespace (`lui`, `egui`, `pl`, `ns-img`) is in scope.
 
 ## Documentation Architecture
 
@@ -546,7 +614,9 @@ state — the one construction outside the reproducibility closure, now scoped e
 
 ## Open Decisions for Phase 3
 
-1. Whether `RecipeEvaluation.delegated` survives as a field or becomes a local — it is kept here for
+1. Whether the payload path's key branch should return the error above or be removed entirely.
+   The error is proposed because it names the boundary if the path ever becomes reachable.
+2. Whether `RecipeEvaluation.delegated` survives as a field or becomes a local — it is kept here for
    dependency-manager suppression, and Phase 3 pins the persistence equivalence with a test.
-2. Whether the inline claim's `Drop` repair resets to `Status::Recipe` or to the status observed
+3. Whether the inline claim's `Drop` repair resets to `Status::Recipe` or to the status observed
    before the claim. The queued `RunClaim` re-parks; the inline one has nowhere to park.
