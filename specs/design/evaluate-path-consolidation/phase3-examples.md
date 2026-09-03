@@ -29,7 +29,7 @@ something, and the test plan that catches each.
 | U1 | `evaluate(None)` keyed happy path | unit | value + status + dependency records + persistence in one body | no |
 | U2 | Payload requirement recorded | unit | `payload_required` is `Required` in metadata after evaluating a payload plan | **yes** |
 | U3 | Requirement, not presence | unit | a plan needing no payload records `None` even when a payload was supplied | **yes** |
-| U4 | Recipe-preview projection | unit | `get_asset_info` projects `plan.payload_required` beside `is_volatile`/`expires` | **yes** |
+| U4 | ~~Recipe-preview projection~~ | — | Withdrawn: unreachable, because keys are a payload boundary. See the test plan | — |
 | U5 | Payload gate is `apply_plan`'s | unit | the error comes from the interpreter gate; `Context::apply` no longer pre-checks | no¹ |
 | U6 | `key` per construction | unit | the 14 construction sites record the right target | **yes** |
 | U7 | Delegation suppresses the write | unit | a delegating asset does not persist; the owner does | no |
@@ -170,7 +170,7 @@ outside tests, typed error constructors, `#[cfg(test)] mod tests` at file end.
 | `status_is_final_before_persistence` | `assets.rs` | `#[tokio::test]` | the status written to the store equals the asset's terminal status; with a stale dependency both are `Expired`, not `Ready` (C8/C10) |
 | `apply_plan_rejects_missing_payload` | `interpreter.rs` | `#[tokio::test]` | the gate's error, with the query attached |
 | `context_apply_defers_payload_check_to_apply_plan` | `context.rs` | `#[tokio::test]` | the error originates in `apply_plan`; `Context::apply` carries no pre-check |
-| `get_asset_info_projects_payload_required` | `recipes.rs` | `#[tokio::test]` | recipe preview projects `plan.payload_required` beside `is_volatile` and `expires` |
+| ~~`get_asset_info_projects_payload_required`~~ | `recipes.rs` | — | **Withdrawn during implementation: it cannot pass.** Both callers of `create_plan_with_init_metadata` pass `Some(key)`, so the plan is built with `to_plan_for_key`, which rejects a payload-requiring recipe — the preview reports an error instead, which `test_keyed_recipe_requiring_payload_is_rejected` already covers. The projection line is kept for consistency and commented as unreachable |
 
 ### Integration tests
 

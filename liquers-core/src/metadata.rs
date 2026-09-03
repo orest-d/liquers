@@ -2458,6 +2458,39 @@ impl Metadata {
             )),
         }
     }
+
+    /// Records that producing this value required an evaluation payload.
+    ///
+    /// Unlike [`Self::set_volatile`] this sets no status and no expiration: a payload requirement
+    /// is a property of the plan, not a state the asset reaches. Volatility is set separately, by
+    /// the command registration that declares `payload: required`.
+    pub fn set_payload_required(&mut self) -> Result<&mut Self, Error> {
+        match self {
+            Metadata::MetadataRecord(mr) => {
+                mr.set_payload_required();
+                Ok(self)
+            }
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                let value = serde_json::to_value(PayloadRequirement::Required).map_err(|e| {
+                    Error::general_error(format!(
+                        "Failed to serialize payload_required for legacy metadata: {}",
+                        e
+                    ))
+                })?;
+                o.insert("payload_required".to_string(), value);
+                Ok(self)
+            }
+            Metadata::LegacyMetadata(serde_json::Value::Null) => {
+                let mut mr = MetadataRecord::new();
+                mr.set_payload_required();
+                *self = Metadata::MetadataRecord(mr);
+                Ok(self)
+            }
+            Metadata::LegacyMetadata(_) => Err(Error::general_error(
+                "Cannot set payload_required on unsupported legacy metadata".to_string(),
+            )),
+        }
+    }
 }
 
 impl From<MetadataRecord> for Metadata {

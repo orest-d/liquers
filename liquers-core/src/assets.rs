@@ -205,6 +205,7 @@ use async_trait::async_trait;
 use scc;
 use tokio::sync::{mpsc, watch, Mutex, Notify, RwLock};
 
+use crate::command_metadata::PayloadRequirement;
 use crate::expiration::ExpirationTime;
 use crate::interpreter::IsVolatile;
 
@@ -1573,6 +1574,16 @@ impl<E: Environment> AssetRef<E> {
             return Ok(None);
         };
         Ok((owner.id() == self.id()).then_some(candidate))
+    }
+
+    /// Whether this asset's plan required an evaluation payload.
+    ///
+    /// Recorded during evaluation by [`Context::set_payload_required`](crate::context::Context::set_payload_required)
+    /// and read back from metadata, so there is one source of truth rather than a field here and a
+    /// copy in metadata. A `Required` result means the value could not have been produced without
+    /// a payload, which is why such an asset is never cached, shared, or persisted as loadable.
+    pub async fn payload_required(&self) -> PayloadRequirement {
+        self.data.read().await.metadata.payload_required()
     }
 
     /// Create a weak reference to this asset.

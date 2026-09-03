@@ -990,6 +990,22 @@ impl<E: Environment> Context<E> {
         Ok(())
     }
 
+    /// Records that this evaluation's plan required an evaluation payload.
+    ///
+    /// Called by [`apply_plan`](crate::interpreter::apply_plan), beside the gate that already
+    /// reads `Plan::payload_required`, so every execution path records it once rather than each
+    /// entry point re-deriving the requirement. The fact reaches
+    /// [`MetadataRecord::payload_required`](crate::metadata::MetadataRecord::payload_required)
+    /// and from there `AssetInfo`.
+    ///
+    /// Note this records the plan's *requirement*, not whether a payload happened to be supplied:
+    /// a plan that needs no payload stays `None` even when one was in scope.
+    pub async fn set_payload_required(&self) -> Result<(), Error> {
+        let mut lock = self.assetref.data.write().await;
+        lock.metadata.set_payload_required()?;
+        Ok(())
+    }
+
     /// Fails the current asset with an error.
     ///
     /// Unlike [`Self::error`], this changes the asset's terminal state.

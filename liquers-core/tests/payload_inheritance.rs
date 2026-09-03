@@ -685,3 +685,78 @@ async fn test_sibling_payload_evaluations_are_not_a_cycle() -> Result<(), Box<dy
     assert_eq!(asset.get().await?.try_into_string()?, "a=w5 b=w5");
     Ok(())
 }
+
+// ============================================================================
+// Payload requirement recorded on the evaluated asset
+// (ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED, evaluate-path-consolidation Step 1)
+// ============================================================================
+
+/// The plan has known its payload requirement since `PlanBuilder` ran, but until this change
+/// nothing carried it to the asset: every evaluated asset reported `None`, including one that
+/// could not have run without a payload.
+#[tokio::test]
+async fn payload_requirement_is_recorded_in_metadata_and_asset_info(
+) -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = QueuedEnv;
+    let mut env = QueuedEnv::new();
+
+    fn needs_payload(_state: &State<Value>, window_id: WindowId) -> Result<Value, Error> {
+        Ok(Value::from(format!("window:{}", window_id.0)))
+    }
+
+    let cr = &mut env.command_registry;
+    register_command!(cr, fn needs_payload(state, window_id: WindowId injected) -> result
+        payload: required
+    )?;
+
+    let envref = env.to_ref();
+    let asset = envref
+        .evaluate_immediately("/-/needs_payload", TestPayload::new("alice", 42))
+        .await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "window:42");
+
+    assert_eq!(
+        asset.payload_required().await,
+        PayloadRequirement::Required,
+        "an asset whose plan declared `payload: required` must record it"
+    );
+    assert_eq!(
+        asset.get_asset_info().await?.payload_required,
+        PayloadRequirement::Required,
+        "the requirement must reach AssetInfo, which is what a client sees"
+    );
+    Ok(())
+}
+
+/// Reproducibility follows the *requirement*, not the presence of a payload. A plain query
+/// evaluated through `evaluate_immediately` has a payload in scope that no command consumes; it
+/// must still report `None`, or every payload-carrying evaluation would look non-reproducible.
+#[tokio::test]
+async fn payload_supplied_but_not_required_records_none() -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = QueuedEnv;
+    let mut env = QueuedEnv::new();
+
+    fn plain(_state: &State<Value>) -> Result<Value, Error> {
+        Ok(Value::from("no payload needed".to_string()))
+    }
+
+    let cr = &mut env.command_registry;
+    register_command!(cr, fn plain(state) -> result)?;
+
+    let envref = env.to_ref();
+    let asset = envref
+        .evaluate_immediately("/-/plain", TestPayload::new("bob", 7))
+        .await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "no payload needed");
+
+    assert_eq!(
+        asset.payload_required().await,
+        PayloadRequirement::None,
+        "a plan that needs no payload records None even when a payload was supplied"
+    );
+    assert_eq!(
+        asset.get_asset_info().await?.payload_required,
+        PayloadRequirement::None
+    );
+    Ok(())
+}

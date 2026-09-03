@@ -75,8 +75,7 @@ impl<E: Environment> AssetRef<E> {
 ```
 
 **Tests:** `payload_requirement_recorded_in_metadata`, `payload_requirement_reaches_asset_info`,
-`payload_supplied_but_not_required_records_none`, `get_asset_info_projects_payload_required`, and
-`apply_plan_rejects_missing_payload` — the last is a regression guard on the gate this step edits
+`payload_supplied_but_not_required_records_none`, and `apply_plan_rejects_missing_payload` — the last is a regression guard on the gate this step edits
 beside: it pins the error to the interpreter layer, so the `Context::apply` pre-check that Step 5
 deletes cannot creep back.
 
@@ -360,7 +359,7 @@ the current suite cannot see.
 thing: `scenario_persist_apply_bare_key_recipe`, `scenario_persist_apply_recipe_with_filename`,
 `scenario_entry_point_equivalence`, `scenario_key_with_payload_is_an_error`,
 `inline_execute_once_with_yielding_command`, `payload_requirement_recorded_in_metadata`,
-`payload_supplied_but_not_required_records_none`, `get_asset_info_projects_payload_required`.
+`payload_supplied_but_not_required_records_none`.
 Write each and watch it fail before implementing its step; one that passes on arrival is testing
 something else.
 

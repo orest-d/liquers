@@ -340,6 +340,13 @@ pub fn apply_plan<E: Environment>(
             ))
             .with_query(&plan.query));
         }
+        // Record the requirement on the asset, beside the gate that just read it. This is the
+        // only point every execution path passes through, so recording here is what makes
+        // `MetadataRecord.payload_required` (and `AssetInfo`) finally carry what the plan has
+        // known since `PlanBuilder` ran. See `ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED`.
+        if plan.payload_required.is_required() {
+            context.set_payload_required().await?;
+        }
 
         // Pre-pass: schedule known dependencies before executing steps (concurrency +
         // one inline drain so at-capacity dependencies begin executing up front).
