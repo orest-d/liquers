@@ -68,11 +68,13 @@ unchanged.
 
 ## Documentation Intent
 
-**Reference:** Extend `specs/reference/ASSET_LIFECYCLE.md` — it already *is* the evaluation-path
+**Reference:** Rewrite `specs/reference/ASSET_LIFECYCLE.md` — it already *is* the evaluation-path
 catalogue (§2 entry points, §3 Paths A–D, §6 `evaluate_and_store` vs `evaluate_immediately`
-asymmetry). After this change it must describe one path plus a policy table, and §6's asymmetry
-table and §7 Issues 3/5 become obsolete (§6 is already partly stale: it claims immediate evaluation
-never collects dependencies, which HEAD does). A new reference file would split one subject in two.
+asymmetry), and its own Overview names as a purpose "identifying code duplication and
+responsibility boundaries" — a purpose this design completes, leaving most of its body false at
+HEAD (§6 is already partly stale: it claims immediate evaluation never collects dependencies, which
+HEAD does). Phase 2 settles the scope: a rewrite into the flow-and-public-surface reference, with
+the audit content promoted to `archive/`. A new reference file would split one subject in two.
 
 **Guide:** Neither. Choosing an entry point is "what the system is", not a repeatable task; it
 belongs in the reference. Reconsider in Phase 5 if the policy table proves to need worked examples.

@@ -542,10 +542,59 @@ No namespace (`lui`, `egui`, `pl`, `ns-img`) is in scope.
 
 ## Documentation Architecture
 
+### The Phase 5 explanation (user requirement, 2026-09-03)
+
+Phase 5 must document the consolidated design as **technical detail**, not as a summary:
+
+1. the **public surface** — what callers may use, what is framework-facing, and why;
+2. the **surviving methods**, their purposes and their relationships to one another;
+3. the **execution flow, step by step, for each kind of flow**, and *why those kinds exist* —
+   payload, initial state, volatility;
+4. the **high-level public API at the asset-manager module level** (the `//!` rustdoc of
+   `assets.rs`).
+
+**Where it goes: `ASSET_LIFECYCLE.md`, substantially rewritten — no new reference.** The deciding
+fact is in that document's own Overview, which lists as its third purpose:
+
+> "Serve as a basis for potential refactoring — identifying code duplication and responsibility
+> boundaries between `Context` and `AssetRef`/`assets.rs`"
+
+**This design completes that purpose.** Once the duplication is gone, the document's reason for
+existing is gone with it, and most of its body (Paths A–D, §6's asymmetry table, §7's issue list)
+becomes false at HEAD — which a `reference/` document may not be. Creating a new file beside it
+would leave two documents about evaluation flow, one of them stale. So the file is rewritten into
+the reference this requirement describes, and retitled from "Asset Lifecycle — Comprehensive Map"
+to reflect that it now explains the flows rather than cataloguing their divergence.
+
+Its audit content is **not** deleted: §6 and §7 are the evidence trail for
+`CORE-EVALUATE-PATH-CONSOLIDATION` and are "true on a date" material, so they are promoted to
+`specs/archive/<date>-asset-lifecycle-duplication-audit.md` (`DOCS_STRUCTURE_GUIDE.md` §1015: a
+review or audit belongs in `archive/`).
+
+**The flow dimensions to explain, and why each exists.** The rewritten reference must present these
+as the axes that generate every flow, rather than enumerating paths:
+
+| Dimension | Why it exists | What it changes |
+|---|---|---|
+| Keyed / query / ad-hoc identity | what the asset *is*, and whether anything can ask for it again | store target, map membership, reuse |
+| Initial state supplied | the caller injects input the identity does not describe | non-reproducible: no store target, no reuse |
+| Payload present or required | per-call caller context that is deliberately *not* part of identity, and cannot cross a key boundary | unmappable, unreusable, never persisted as loadable |
+| Volatility | the result is valid but single-use | stored but not loadable; never reused |
+| Delegation | another asset owns the key | hand-off: no write, no second dependency edge |
+| Fast-track | a stored value is already valid | evaluation is skipped entirely |
+| Queued / inline | manager policy, not a property of the asset | scheduling and the status sequence only |
+
+The first five are properties of the asset; the sixth is a relationship; only the last is policy.
+That separation is the explanation the requirement asks for, and it is what the design is *for*.
+
+### Document plan
+
 | Path | Kind | Audience | Change | Links |
 |---|---|---|---|---|
-| `specs/reference/ASSET_LIFECYCLE.md` | reference | core developers | **Primary.** §2 entry-point tables collapse; §3 Paths A–D become one path plus the outcome table; §6's asymmetry table and §7 Issues 3 and 5 are removed as resolved; the persistence-outcome table above is added | link from README capability line |
-| `specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md` | reference | integrators | §"Public entry-point contract" (three entry points become two), §"Persistence contract" (the `store_target` predicate), §"Conflicts and unresolved gaps" (remove what this closes) | ↔ `ASSET_LIFECYCLE.md` |
+| `specs/reference/ASSET_LIFECYCLE.md` | reference | core developers | **Primary, rewritten.** The public surface; the surviving methods and their relationships; the flow dimensions above with a step-by-step execution sequence for each; the persistence-outcome table. §2, §3 Paths A–D, §6 and §7 are replaced, not amended | link from README capability line; points at the `assets.rs` rustdoc as primary |
+| `specs/archive/<date>-asset-lifecycle-duplication-audit.md` | archive | — | **New.** The §6 asymmetry table and §7 issue list, preserved as the evidence trail for the issue | referenced from the design folder |
+| `liquers-core/src/assets.rs` `//!` | code | core developers | **The high-level public API at module level** — the requirement's item 4. `DOC_03` already designates this rustdoc "the primary reference", so it carries the API overview and the reference documents point at it. Its current entry-point table is replaced | ↔ `ASSET_LIFECYCLE.md` |
+| `specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md` | reference | integrators | §"Public entry-point contract" (three entry points become two), §"Persistence contract" (the `store_target` predicate), §"Public versus infrastructure APIs" — which today says the boundary "is not enforced by Rust visibility consistently" and that "a future API pass should narrow or separate it": **this design is that pass**, so the section records the narrowed surface — and §"Conflicts and unresolved gaps" (remove what this closes) | ↔ `ASSET_LIFECYCLE.md` |
 | `specs/reference/ASSETS.md` | reference | core developers | §Overview and §AssetManager entry-point list | ↔ both above |
 | `specs/reference/PAYLOAD_GUIDE.md` | reference | command authors | the requirement is now recorded and observable in metadata and `AssetInfo` | ↔ `DOC_03` |
 | `specs/README.md` | map | everyone | capability lines for evaluation and assets point at the updated reference | — |
@@ -556,9 +605,11 @@ Proposed `affects_docs`: `ASSET_LIFECYCLE.md`, `DOC_03_ASSETS_EXECUTION_LIFECYCL
 `ASSETS.md`, `PAYLOAD_GUIDE.md`. `DEPENDENCIES_STATUS.md` is **not** included: the
 `Dependencies` status contract and the delegation hand-off rule are unchanged by this design.
 
-No new reference and no guide, per Phase 1 — reconsidered here and confirmed: the change removes
-concepts rather than adding them, and `ASSET_LIFECYCLE.md` is already the document that would
-own them.
+No new reference and no guide. Reconsidered against the Phase 5 requirement above and confirmed:
+the requirement is satisfied by rewriting the document that already owns the subject, plus the
+module rustdoc that `DOC_03` already designates primary. A new file would split "how evaluation
+works" in two. No guide, because none of this answers "how do I achieve X" for a command author —
+the audience is developers working inside `liquers-core`.
 
 ## Rust Convention Review (rust-best-practices)
 

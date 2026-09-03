@@ -262,6 +262,10 @@ Phase 4 work this document already schedules.
 
 ## Documentation and Learning Log
 
+The Phase 5 documentation requirement (public surface, surviving methods and their relationships,
+step-by-step flows and why the flow kinds exist) is specified in `phase2-architecture.md`
+§"The Phase 5 explanation". The two items below are the parts Phase 3 contributes to it.
+
 **Guide-worthy?** No new guide. Nothing here answers "how do I achieve X" for a command author —
 the workflows are internal. Two items belong in the reference (`ASSET_LIFECYCLE.md`), and Phase 5
 should carry them as prose rather than as a test list:
