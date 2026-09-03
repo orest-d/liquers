@@ -29,19 +29,29 @@ number cited in Phases 2 and 3 was re-verified against `store.rs` after the merg
 ### Step 1 — `ReservedNames` and the two suffix constants
 
 **File:** `liquers-core/src/store.rs`.
-**Placement is load-bearing:** insert **before line 874**, which is where
-`#[cfg(not(target_arch = "wasm32"))]` begins guarding `AsyncFileStore`. Inside that region the type
-would vanish from the wasm32 library build for no reason — it is pure string comparison.
+**Placement is load-bearing:** insert **before line 872**. Line 874 is the
+`#[cfg(not(target_arch = "wasm32"))]` that guards `AsyncFileStore`, and inside that region the type
+would vanish from the wasm32 library build for no reason — it is pure string comparison. But 872-873
+are `AsyncFileStore`'s own doc comment, so inserting at 874 compiles while silently re-attaching
+that comment to `METADATA_SUFFIX` and leaving the struct undocumented. Raised by the Phase 4 final
+review.
 
 ```rust
 pub const METADATA_SUFFIX: &str = ".__metadata__";
 pub const LOCK_SUFFIX: &str = ".__lock__";
+pub const METADATA_FOLDER: &str = "__metadata__";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ReservedNames { suffixes: &'static [&'static str] }
+pub struct ReservedNames {
+    suffixes: &'static [&'static str],
+    exact: &'static [&'static str],
+}
 
 impl ReservedNames {
-    pub const fn new(suffixes: &'static [&'static str]) -> Self { Self { suffixes } }
+    pub const fn new(
+        suffixes: &'static [&'static str],
+        exact: &'static [&'static str],
+    ) -> Self { Self { suffixes, exact } }
     pub fn is_reserved_name(&self, name: &str) -> bool;
     pub fn is_reserved_key(&self, key: &Key) -> bool;
 }
@@ -54,7 +64,10 @@ rather than a fallible function, and why both name forms are reserved — **incl
 repository evidences that layout, so a reader who finds the reservation unexplained is the one
 likely to delete it.
 
-**Validate:** `cargo check -p liquers-core`
+**Validate:** `cargo check -p liquers-core && cargo check -p liquers-core --target
+wasm32-unknown-unknown`. The second half is the point: a native check passes whether or not the
+type landed inside the `wasm32` gate, so it cannot prove the placement. Catching a misplacement
+here rather than at step 9 is the difference between one edit and a re-run of the whole matrix.
 
 ### Step 2 — `reserved01`, and the module that will hold the rest
 
@@ -73,7 +86,7 @@ easily got wrong and the cheapest to get feedback on.
 **File:** `liquers-core/src/store.rs`, `impl AsyncFileStore` (882) and its `AsyncStore` impl (985).
 
 1. Replace `const METADATA` (883) and `const LOCK` (884) with
-   `const RESERVED: ReservedNames = ReservedNames::new(&[METADATA_SUFFIX, LOCK_SUFFIX]);`
+   `const RESERVED: ReservedNames = ReservedNames::new(&[METADATA_SUFFIX, LOCK_SUFFIX], &[METADATA_FOLDER]);`
 2. Add `fn reject_reserved(&self, key: &Key) -> Result<(), Error>`, raising
    `Error::key_not_supported(key, &self.store_name())`. Private; mirrors
    `AsyncOpenDALStore::reject_ambiguous`.
@@ -93,7 +106,7 @@ kept as aliases.
 
 ### Step 4 — the `AsyncFileStore` tests
 
-**File:** same module as step 2. `reserved02`, `reserved03`, `reserved05`, `reserved06`,
+**File:** same module as step 2. `reserved02`, `reserved03`, `reserved05`, `reserved06` and
 `reserved08`, verbatim from Phase 3.
 
 `reserved06` is the one that justifies step 3.5 (the listing filter) existing; if step 3 were done
@@ -105,7 +118,7 @@ without it, `reserved06` is the test that fails, and it fails by the store becom
 
 **File:** `liquers-core/src/store.rs`, `impl FileStore` (1241) and its `Store` impl.
 
-Identical to step 3, **minus the lock**: `ReservedNames::new(&[METADATA_SUFFIX])`, guards in
+Identical to step 3, **minus the lock**: `ReservedNames::new(&[METADATA_SUFFIX], &[METADATA_FOLDER])`, guards in
 `key_to_path` (1255) and `key_to_path_metadata` (1264), `is_supported` (1461), `listdir` (1444).
 There is no `key_to_lock_path` and no lock suffix — that asymmetry is the point of `reserved04`.
 
@@ -119,8 +132,8 @@ Then `reserved04` and `reserved07`.
 removes public API.
 
 1. Replace `const METADATA` (71) with
-   `pub const RESERVED: ReservedNames = ReservedNames::new(&[METADATA_SUFFIX]);` — importing
-   `ReservedNames` and `METADATA_SUFFIX` from `liquers_core::store`.
+   `pub const RESERVED: ReservedNames = ReservedNames::new(&[METADATA_SUFFIX], &[METADATA_FOLDER]);`
+   — importing `ReservedNames`, `METADATA_SUFFIX` and `METADATA_FOLDER` from `liquers_core::store`.
    **`Self::METADATA` has two further uses that are not predicates and must become
    `METADATA_SUFFIX`**, or this step does not compile: `PathMap::metadata` (91), which builds the
    sidecar path, and `PathMap::decode` (120), which strips it. The third use (81) is inside the
@@ -128,6 +141,13 @@ removes public API.
    constant and would have left two errors.
 2. **Delete `pub fn is_suffix_ambiguous`** (79-82).
 3. `reject_ambiguous` (144) and `is_supported` (521) call `PathMap::RESERVED.is_reserved_key(key)`.
+   **Also add `key.as_absolute()?;` as the first line of `reject_ambiguous`.** At HEAD
+   `key_to_path` (154) calls it *before* `PathMap::data` reaches `as_absolute()`, so a key that is
+   both relative and reserved answers `KeyNotSupported` here and `KeyNotAbsolute` in the file
+   stores — the opposite of the "matches exactly" this design claimed. One line makes the ordering
+   `reserved05` pins universal, and lets `STORE_SEMANTICS.md` §8 state it instead of going quiet.
+   Add a relative-and-reserved shape (`../a.__metadata__`) to `pathmap03`. Closes
+   `STORE-KEY-REFUSAL-ORDER-DIVERGES-BETWEEN-STORES`, filed during the Phase 4 review.
 4. `listdir` (459): after the `PathMap::decode` guard, `continue` on a reserved decoded key.
 5. `listdir_keys_deep` (492): the same guard, **before** `list.extend(…)` inserts the prefixes, so a
    reserved interior segment takes its whole subtree with it.
@@ -161,9 +181,15 @@ a fixed issue force its own bookkeeping out — but it means steps 3-7 are one l
 
 ### Step 8 — the issue, and the index
 
-Set `CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS` to `status: closed` with a resolution note,
-and correct its `complexity: M` → `L` (the change reaches `liquers-store`, which the issue did not
-anticipate). Regenerate with `python3 scripts/docs_index.py`.
+Set `CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS` to `status: closed` with a resolution note;
+correct `complexity: M` → `L`; and **set `design: sidecar-colliding-keys`**, which still names
+`store-conformance-suite` — the design that *found* it, not the one that fixes it. The last is not
+cosmetic: §4.5 makes a design folder mandatory at `L`, so raising the complexity without
+re-pointing the field would leave the issue in violation of the rule the same edit invokes. Raised
+by the Phase 4 final review.
+
+Also close `STORE-KEY-REFUSAL-ORDER-DIVERGES-BETWEEN-STORES` (step 6 fixes it) and set its `design`
+field likewise. Regenerate with `python3 scripts/docs_index.py`.
 
 **Validate:** `python3 scripts/docs_index.py --check` — 0 errors.
 

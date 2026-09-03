@@ -30,7 +30,7 @@ Open issues touching `core/store` / `store/backends`, and what each means here.
 | `STORE-METADATA-LAYOUT-HARDCODED-PER-STORE` | P2 L | Filed from the Phase 1 gate; the successor. `ReservedNames` is deliberately the *narrow* half — reserved names only, not where metadata lives — so it becomes a field of a future `MetadataLayout` rather than something that design has to unpick. | No |
 | `CORE-ERROR-STORE-NAME-NOT-STRUCTURED` | P2 S | `Error::key_not_supported` needs a store name, which is why the rule is a predicate and the *store* raises the error (`opendal_store.rs:60-65`). If that issue lands, the refusal could move into the predicate. Design accommodates it; does not depend on it. | No |
 | `CORE-SYNC-STORE-TRAIT-OBSOLETE` | P2 M | The sync `FileStore` is fixed here. If the trait is later removed, this code goes with it — no conflict, and leaving the bug in place is worse than fixing code that may be deleted. | No |
-| `STORE-TEST-IDS-COLLIDE-WITH-CONFORMANCE-RULE-IDS` | P2 M | **Constrains this change.** New unit tests must not reuse a conformance rule family. Confirmed at HEAD the families are `absence`, `data`, `dir`, `explicit`, `keys`, `keyshape`, `nodir`, `nokeys`, `nomakedir`, `noremove`, `noremovedir`, `nowrite`, `prefix`, `remove`, `sibling`, `sidecar`. This design uses **`reserved01`–`reserved05`**, which is unused in both schemes. | No |
+| `STORE-TEST-IDS-COLLIDE-WITH-CONFORMANCE-RULE-IDS` | P2 M | **Constrains this change.** New unit tests must not reuse a conformance rule family. Confirmed at HEAD the families are `absence`, `data`, `dir`, `explicit`, `keys`, `keyshape`, `nodir`, `nokeys`, `nomakedir`, `noremove`, `noremovedir`, `nowrite`, `prefix`, `remove`, `sibling`, `sidecar`. This design uses **`reserved01`–`reserved08`**, which is unused in both schemes. | No |
 | `CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER` | P2 S | Same failure *shape* as the listing hazard in point 3 above — one member erroring kills the enumeration. Independent cause; this design must not add a second instance of it, which is why the listing filters are in scope. | No |
 | `RESOURCE-NAME-ASCII-ONLY` | P2 L | `__metadata__` is `[A-Za-z0-9_.-]` and parses at HEAD and after the planned narrowing to `is_ascii_alphanumeric` plus `_ . -`. No interaction. | No |
 | `STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED` | P3 L | Same theme (a rule re-checked at each call site rather than carried by a type). A future `AbsoluteKey` would carry this refusal too; nothing here obstructs it. | No |
@@ -41,7 +41,7 @@ Open issues touching `core/store` / `store/backends`, and what each means here.
 ## Data Structures
 
 One new type, in `liquers-core/src/store.rs`. No fields on any store change; `ReservedNames` is a
-zero-sized-in-practice `Copy` value holding a `'static` slice, so a store keeps it as a constant
+small `Copy` value — two fat pointers, 32 bytes — holding `'static` slices, so a store keeps it as a constant
 rather than as state.
 
 ```rust
@@ -60,10 +60,25 @@ rather than as state.
 /// (`CORE-ERROR-STORE-NAME-NOT-STRUCTURED`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReservedNames {
-    /// Each entry is a dotted suffix, e.g. `".__metadata__"`. Both the suffix form
-    /// (`x.__metadata__`) and the bare form (`__metadata__`) are reserved by one entry.
+    /// Names reserved as a *suffix*: any segment ending in one, e.g. `".__metadata__"` reserving
+    /// `report.txt.__metadata__`.
     suffixes: &'static [&'static str],
+    /// Names reserved *exactly*, e.g. `"__metadata__"` reserving the legacy metadata folder.
+    /// Separate from `suffixes` rather than derived from it — see the note below.
+    exact: &'static [&'static str],
 }
+
+**Why two slices rather than deriving the bare form from each suffix.** The first draft of this
+design derived it (`suffix.strip_prefix('.')`), which is shorter and wrong: it silently reserves
+the bare name `__lock__` as well, and **no layout, in this project or its predecessor, has ever
+used a `__lock__` directory**. `AsyncFileStore`'s lock for key `foo` is `foo.__lock__`; the bare
+name collides with nothing. Reserving it anyway would contradict this design's own rule that each
+store reserves what its own layout uses, contradict Phase 3 §"Over-reserving is a bug too", and be
+written into `STORE_SEMANTICS.md` §8 at Phase 5 as a reserved name "declared by the store's
+metadata layout" — which for `__lock__` would simply be untrue. Raised by the Phase 4 final review.
+
+This supersedes the Phase 1 reserved-name table, which lists `__lock__` for `AsyncFileStore`.
+Phase 1 is left as approved; Phase 2 is the authority on the reserved set.
 ```
 
 ### Provenance of the bare `__metadata__` reservation
@@ -105,25 +120,35 @@ uses. Instead each store spells out its set, which is self-documenting at the po
 pub const METADATA_SUFFIX: &str = ".__metadata__";
 /// The lock-file suffix the file stores take while writing (`store.rs:884`).
 pub const LOCK_SUFFIX: &str = ".__lock__";
+/// The legacy metadata *folder* name, reserved exactly. See §Provenance: this is the predecessor
+/// Python implementation's layout, not this one's, and it is reserved so that layout stays
+/// readable.
+pub const METADATA_FOLDER: &str = "__metadata__";
 
 impl ReservedNames {
-    /// Declares the suffixes a layout uses. `const` so a store can hold the result as an
-    /// associated constant rather than building it per call.
-    pub const fn new(suffixes: &'static [&'static str]) -> Self { Self { suffixes } }
+    /// Declares what a layout reserves: names reserved as a suffix, and names reserved exactly.
+    /// `const` so a store can hold the result as an associated constant rather than building it
+    /// per call.
+    pub const fn new(
+        suffixes: &'static [&'static str],
+        exact: &'static [&'static str],
+    ) -> Self { Self { suffixes, exact } }
 }
 ```
 
 Read at each store, the declaration says exactly what that store reserves and why:
 
 ```rust
-impl AsyncFileStore {
-    const RESERVED: ReservedNames = ReservedNames::new(&[METADATA_SUFFIX, LOCK_SUFFIX]);
+impl AsyncFileStore {                   // sidecar + lock, and the legacy folder
+    const RESERVED: ReservedNames =
+        ReservedNames::new(&[METADATA_SUFFIX, LOCK_SUFFIX], &[METADATA_FOLDER]);
 }
 impl FileStore {                        // no lock files
-    const RESERVED: ReservedNames = ReservedNames::new(&[METADATA_SUFFIX]);
+    const RESERVED: ReservedNames = ReservedNames::new(&[METADATA_SUFFIX], &[METADATA_FOLDER]);
 }
 impl PathMap {                          // no lock files
-    pub const RESERVED: ReservedNames = ReservedNames::new(&[METADATA_SUFFIX]);
+    pub const RESERVED: ReservedNames =
+        ReservedNames::new(&[METADATA_SUFFIX], &[METADATA_FOLDER]);
 }
 ```
 
@@ -179,9 +204,8 @@ Implementation sketch (Phase 4 writes it; this pins the semantics):
 
 ```rust
 pub fn is_reserved_name(&self, name: &str) -> bool {
-    self.suffixes.iter().any(|suffix| {
-        name.ends_with(suffix) || suffix.strip_prefix('.').is_some_and(|bare| name == bare)
-    })
+    self.suffixes.iter().any(|suffix| name.ends_with(suffix))
+        || self.exact.iter().any(|reserved| name == *reserved)
 }
 
 pub fn is_reserved_key(&self, key: &Key) -> bool {
@@ -263,9 +287,9 @@ that is reserved.
 
 | Crate / file | Change |
 |---|---|
-| `liquers-core/src/store.rs` | `ReservedNames`, `METADATA_SUFFIX`, `LOCK_SUFFIX`; `AsyncFileStore` and `FileStore` path builders, `is_supported`, `listdir`; unit tests `reserved01`-`reserved05` |
+| `liquers-core/src/store.rs` | `ReservedNames`, `METADATA_SUFFIX`, `LOCK_SUFFIX`; `AsyncFileStore` and `FileStore` path builders, `is_supported`, `listdir`; unit tests `reserved01`-`reserved08` |
 | `liquers-core/tests/store_conformance_CONF.rs` | `C2` drops its `AllowedFailure` for `sidecar03` and gains `.with_unsupported_shape(collide.__metadata__)`, which makes `prefix03` and `sibling05` runnable there for the first time |
-| `liquers-store/src/opendal_store.rs` | `PathMap::is_suffix_ambiguous` removed in favour of `PathMap::RESERVED`; `listdir` and `listdir_keys_deep` skip reserved decoded keys; `pathmap03`/`pathmap07` renamed (IDs kept) |
+| `liquers-store/src/opendal_store.rs` | `PathMap::is_suffix_ambiguous` removed in favour of `PathMap::RESERVED`; `listdir` and `listdir_keys_deep` skip reserved decoded keys; `pathmap03`/`pathmap07` renamed (IDs kept), `pathmap08` added |
 | `liquers-store/tests/store_conformance_CONF.rs` | No change needed — its fixture already declares both shapes; re-run confirms no regression |
 | `liquers-axum` | None. Handlers call the store directly (`store/handlers.rs:80`) and now surface `KeyNotSupported` instead of writing through |
 | `liquers-web`, `liquers-py`, `liquers-lib` | None |
@@ -315,6 +339,15 @@ no store-facing command namespace should be considered in scope.*
 `Error::key_not_supported(key, &self.store_name())` → `ErrorType::KeyNotSupported`, matching
 `AsyncOpenDALStore::reject_ambiguous` exactly. Never `Error::new`.
 
+**One correction from the Phase 4 final review:** the claim that this "matches
+`AsyncOpenDALStore::reject_ambiguous` exactly" was false about *ordering*. At HEAD
+`AsyncOpenDALStore::key_to_path` (opendal_store.rs:154) calls `reject_ambiguous` **before**
+`PathMap::data` reaches `as_absolute()`, so a key that is both relative and reserved answers
+`KeyNotSupported` there and `KeyNotAbsolute` in the file stores. This design absorbs the one-line
+fix — `key.as_absolute()?;` at the top of `reject_ambiguous` — so that the ordering `reserved05`
+pins is the ordering every sidecar store has, and §8 can state it. Tracked as
+`STORE-KEY-REFUSAL-ORDER-DIVERGES-BETWEEN-STORES`, closed by this design.
+
 Not `KeyNotAbsolute`: the same path builders raise that for a traversal (`../SECRET.txt`), and it
 means "this is not a store address at all". A reserved key *is* a well-formed address — this store
 cannot represent it. `keyabs08`/`keyabs09` assert `KeyNotAbsolute` for traversal shapes and must
@@ -336,7 +369,7 @@ No `unwrap`/`expect`, no new error type, no `_ =>` match arm (nothing new matche
 
 - **Where the predicate lives** (Phase 1 Q1) → `liquers-core::store`, used by `liquers-store` too.
   One rule, one definition, forward-dependency only, and one *name* — see the gate decision below.
-- **Interior-segment coverage** (Phase 1 Q2) → unit tests `reserved01`-`reserved05` in `store.rs`,
+- **Interior-segment coverage** (Phase 1 Q2) → unit tests `reserved01`-`reserved08` in `store.rs`,
   not a new conformance rule. `GenericFixture` holds one `unsupported_shape` key, and adding a
   second shape to the fixture would change the suite's API for one store's benefit. The suite's job
   is the *contract*; the segment-level rule is checked where it is implemented. `C2` still gains
@@ -380,6 +413,6 @@ here; that `Key::iter()` and `ResourceName::name` are public with the assumed ty
 side effects; that both listing filters match by dotted suffix only and so miss the bare folder
 name; that `PathMap::decode` strips the suffix exactly once (opendal_store.rs:120-126) and still
 collapses `x.__metadata__` to `x` after the widening; that the 16 conformance families leave
-`reserved01`-`reserved05` free; and that nothing in-tree constructs a reserved key. It also
+the `reserved` family free; and that nothing in-tree constructs a reserved key. It also
 confirmed the design reuses `Error::key_not_supported`, the `reject_ambiguous` shape and the
 existing `with_unsupported_shape` fixture builder rather than reinventing them.

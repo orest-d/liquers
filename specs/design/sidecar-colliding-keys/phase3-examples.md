@@ -31,7 +31,7 @@ the issue did not name, then the four things that bite while fixing it.
 | `reserved07` | `FileStore`'s listing uses the same predicate and its *own* reserved set | applied to `AsyncFileStore::listdir` and not its synchronous twin |
 | `reserved08` | The three recovery routes out of an already-corrupted store all work | shipped with an upgrade path that was never run |
 | `C2` conformance | `sidecar03` passes with no allowed failure; `prefix03` and `sibling05` run for the first time | incomplete in any of the above ways |
-| `pathmap03`, `pathmap07`, `pathmap08` | `AsyncOpenDALStore` refuses and skips the same shapes | applied to the file stores only |
+| `pathmap03`, `pathmap07`, `pathmap08` | `AsyncOpenDALStore` refuses and skips the same shapes, **and refuses in the same order** | applied to the file stores only, or leaving OpenDAL answering `KeyNotSupported` where the file stores answer `KeyNotAbsolute` |
 
 Eight unit tests, one fixture change, three OpenDAL tests. Every row names a *specific way to get the
 fix wrong*, which is the standard this list was written to: a test that only passes after the fix,
@@ -256,7 +256,7 @@ mod reserved_name_tests {
         std::env::temp_dir().join(unique)
     }
 
-    // … assert_not_supported, then reserved01 … reserved07.
+    // … assert_not_supported, then reserved01 … reserved08.
 }
 ```
 
@@ -290,13 +290,13 @@ fn assert_not_supported<T>(result: Result<T, Error>, what: &str) {
 /// positives alone would not distinguish a correct implementation from a destructive one.
 #[test]
 fn reserved01_reserved_names_recognises_both_forms() -> Result<(), Error> {
-    let file_store = ReservedNames::new(&[METADATA_SUFFIX, LOCK_SUFFIX]);
+    let file_store =
+        ReservedNames::new(&[METADATA_SUFFIX, LOCK_SUFFIX], &[METADATA_FOLDER]);
 
     for name in [
         "collide.__metadata__",   // the sidecar of `collide`
         "__metadata__",           // the legacy metadata folder
         "collide.__lock__",       // the lock taken while writing `collide`
-        "__lock__",
     ] {
         assert!(file_store.is_reserved_name(name), "{name} must be reserved");
     }
@@ -307,6 +307,10 @@ fn reserved01_reserved_names_recognises_both_forms() -> Result<(), Error> {
         "__metadata__x",          // the bare form is a prefix here, not the whole name
         "x.__metadata",           // truncated
         "x.__lock",
+        // Reserved *exactly* is declared per name, not derived from every suffix: no layout has
+        // ever used a `__lock__` directory, so this is an ordinary name. See Phase 2 §Data
+        // Structures — the Phase 4 review caught the earlier derivation reserving it for nothing.
+        "__lock__",
     ] {
         assert!(!file_store.is_reserved_name(name), "{name} must NOT be reserved");
     }
@@ -669,7 +673,28 @@ async fn c2_async_file_store() {
     // No allowed failures. `sidecar03` was listed here until the path builders learned to refuse
     // a reserved key; `H5` then reported the entry as stale, which is how a fixed issue forces its
     // own bookkeeping out. See CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS.
-    check(run_all(&fixture).await, &[]);
+    let report = run_all(&fixture).await;
+
+    // `assert_conformant` inspects failures and stale allowed-failures; a rule that declined its
+    // precondition is invisible to it, and the report only reaches stderr, which `cargo test`
+    // swallows on success. So a `with_unsupported_shape` that was dropped or mistyped would leave
+    // these two "not run" and this test would still pass — which is exactly how they came to have
+    // never run against a file store in the first place. Assert the outcome, not the absence of a
+    // failure. Raised by the Phase 4 final review.
+    for rule in ["prefix03", "sibling05"] {
+        let entry = report
+            .entries
+            .iter()
+            .find(|entry| entry.id == rule)
+            .unwrap_or_else(|| panic!("{rule} is not in the report at all"));
+        assert!(
+            matches!(entry.outcome, RuleOutcome::Passed),
+            "{rule} must run and pass for C2, not decline its precondition: {:?}",
+            entry.outcome
+        );
+    }
+
+    check(report, &[]);
 
     let _ = tokio::fs::remove_dir_all(&root).await;
 }
