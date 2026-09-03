@@ -29,10 +29,11 @@ the issue did not name, then the four things that bite while fixing it.
 | `reserved05` | Relative-and-reserved reports `KeyNotAbsolute`, not `KeyNotSupported` | reordered so the reserved check runs before `as_absolute()` |
 | `reserved06` | `keys()` skips a real `__metadata__` directory instead of failing on it | applied to the path builders without the listing filters |
 | `reserved07` | `FileStore`'s listing uses the same predicate and its *own* reserved set | applied to `AsyncFileStore::listdir` and not its synchronous twin |
+| `reserved08` | The three recovery routes out of an already-corrupted store all work | shipped with an upgrade path that was never run |
 | `C2` conformance | `sidecar03` passes with no allowed failure; `prefix03` and `sibling05` run for the first time | incomplete in any of the above ways |
 | `pathmap03`, `pathmap07`, `pathmap08` | `AsyncOpenDALStore` refuses and skips the same shapes | applied to the file stores only |
 
-Seven unit tests, one fixture change, three OpenDAL tests. Every row names a *specific way to get the
+Eight unit tests, one fixture change, three OpenDAL tests. Every row names a *specific way to get the
 fix wrong*, which is the standard this list was written to: a test that only passes after the fix,
 without also failing against a plausible half-fix, records the change rather than checking it.
 
@@ -438,10 +439,14 @@ fn reserved04_file_store_reserves_metadata_but_not_lock() -> Result<(), Error> {
     std::fs::create_dir_all(&root).expect("create root");
     let store = FileStore::new(root.to_string_lossy().as_ref(), &Key::new());
 
-    let metadata_shaped = parse_key("file.__metadata__")?;
-    assert!(!store.is_supported(&metadata_shaped));
-    assert_not_supported(store.key_to_path(&metadata_shaped), "key_to_path");
-    assert_not_supported(store.key_to_path_metadata(&metadata_shaped), "key_to_path_metadata");
+    // Both forms, and an interior segment — `FileStore` is "identical to `AsyncFileStore`, minus
+    // the lock", so the segment rule has to hold here too and not only in the async twin.
+    for text in ["file.__metadata__", "__metadata__", "data/__metadata__/file.json"] {
+        let key = parse_key(text)?;
+        assert!(!store.is_supported(&key), "{text}");
+        assert_not_supported(store.key_to_path(&key), text);
+        assert_not_supported(store.key_to_path_metadata(&key), text);
+    }
 
     // The lock suffix belongs to `AsyncFileStore`'s layout, not this one.
     let lock_shaped = parse_key("file.__lock__")?;
@@ -571,6 +576,63 @@ fn reserved07_file_store_listing_uses_its_own_reserved_set() -> Result<(), Error
     Ok(())
 }
 ```
+
+### `reserved08` — the upgrade path, which Example 3 promises and nothing else checks
+
+```rust
+/// `reserved08` — a store that already holds a corrupted sidecar can still be repaired.
+///
+/// Added at the Phase 3 review. The fix refuses the colliding key, which also means the orphan can
+/// no longer be addressed *as a key* in order to clean it up — so Example 3 lists three routes out,
+/// and this is what keeps that list honest. A documented upgrade path nobody exercises is a rumour.
+///
+/// The corruption is written with `tokio::fs` rather than through the store, because after the fix
+/// no API can produce it. That is the point, and it is also why this test cannot be written as a
+/// conformance rule: the suite only ever reaches a store through the trait.
+#[tokio::test]
+async fn reserved08_an_existing_corruption_can_still_be_repaired() -> Result<(), Error> {
+    let sandbox = unique_temp_dir("reserved08");
+    let root = sandbox.join("root");
+    tokio::fs::create_dir_all(&root).await.expect("create root");
+    let store = AsyncFileStore::new(root.to_string_lossy().as_ref(), &Key::new());
+
+    let report = parse_key("report.txt")?;
+    let mut record = MetadataRecord::new();
+    record.with_key(report.clone()).with_title("before".to_owned());
+    store.set(&report, b"body", &Metadata::MetadataRecord(record)).await?;
+
+    // Exactly what a pre-fix `set("report.txt.__metadata__", …)` left behind.
+    let sidecar = root.join("report.txt.__metadata__");
+    tokio::fs::write(&sidecar, b"not json at all").await.expect("corrupt the sidecar");
+    assert!(store.get_metadata(&report).await.is_err(), "the corruption must be real");
+
+    // Route 1 — `get` repairs metadata it cannot parse, and returns the data intact.
+    let (data, _) = store.get(&report).await?;
+    assert_eq!(data, b"body".to_vec());
+    match store.get_metadata(&report).await? {
+        Metadata::MetadataRecord(_) => {}
+        Metadata::LegacyMetadata(_) => panic!("repaired into legacy metadata"),
+    }
+
+    // Route 2 — replace it deliberately.
+    let mut good = MetadataRecord::new();
+    good.with_key(report.clone()).with_title("after".to_owned());
+    store.set_metadata(&report, &Metadata::MetadataRecord(good)).await?;
+    match store.get_metadata(&report).await? {
+        Metadata::MetadataRecord(record) => assert_eq!(record.title, "after"),
+        Metadata::LegacyMetadata(_) => panic!("unexpected legacy metadata"),
+    }
+
+    // Route 3 — `remove` unlinks the data path *and* the metadata path, so the orphan goes too.
+    store.remove(&report).await?;
+    assert!(!sidecar.exists(), "remove must unlink the sidecar");
+    assert!(!root.join("report.txt").exists());
+
+    tokio::fs::remove_dir_all(&sandbox).await.expect("cleanup");
+    Ok(())
+}
+```
+
 
 ## Conformance and OpenDAL Tests
 
@@ -742,6 +804,9 @@ async fn pathmap08_reserved_listing_entries_are_skipped() -> Result<(), Error> {
 | **Metadata-only keys** | The listing filters change *which* predicate they use, not their drop-versus-report behaviour. A sidecar with no data file is still dropped rather than reported as its implied data key, which §8 requires and `AsyncOpenDALStore` does. Pre-existing, out of scope, and filed while it was in view: `CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS` (P2, S) |
 | **Router dispatch** | `AsyncStoreRouter` asks each member's `is_supported`; a reserved key now matches no member and the router answers `KeyNotSupported`. Unchanged behaviour, reached by one more class of key. `C3` covers it |
 | **Serialization, features, memory** | `ReservedNames` derives no `Serialize` and enters no config — that is `STORE-METADATA-LAYOUT-HARDCODED-PER-STORE`'s job. It adds no feature flag, and `is_reserved_key` allocates nothing: it borrows each segment's `String` and compares |
+| **`listdir_asset_info` / `get_asset_info`** | Both build on `listdir_keys`, which is built on the now-filtered `listdir`, so a reserved key never reaches them. No test: they have no path to the shape. Raised by the Phase 3 review and declined with this reason rather than left unanswered |
+| **The router, asked for a reserved key directly** | `C3` already runs the whole suite against `AsyncStoreRouter` over a memory store and a file store. Adding a reserved key to that fixture would test `AsyncFileStore`'s refusal a second time through one more layer of dispatch, which `keyabs10` already establishes works. Declined |
+| **`get` repairs metadata it cannot parse** | Load-bearing for recovery route 1 in `reserved08`, and **not stated anywhere in `STORE_SEMANTICS.md`** — it is behaviour the code has and the contract does not describe. Pre-existing, not introduced here; carried into the Phase 5 documentation pass, where §8 is being edited anyway |
 | **Keys of these shapes parse at all** | Verified with `liquers-validate --no-registry`, not assumed: `-R/collide.__metadata__`, `-R/data/__metadata__/x.json`, `-R/dir.__metadata__/child` and `-R/report.txt.__lock__` all parse, and the third encodes back to `-R/dir.__metadata__/child` with `dir.__metadata__` as its own segment. If they did not parse, most of this test list would be unwritable |
 
 ## Test Plan
@@ -751,7 +816,7 @@ wrong; a failure that first appears in step 2 means a caller was missed.
 
 ```bash
 # 1. The predicate and the two file stores. reserved01-reserved06, plus the keyabs regressions.
-cargo test -p liquers-core --lib reserved   # reserved01-reserved07, in mod reserved_name_tests
+cargo test -p liquers-core --lib reserved   # reserved01-reserved08, in mod reserved_name_tests
 cargo test -p liquers-core --lib keyabs        # must be unchanged — reserved05 exists to protect these
 
 # 2. The contract, against every liquers-core store. C2 is the one that changes.
@@ -803,3 +868,37 @@ What belongs in the two documents Phase 2 committed to, and which executable art
 4. **A fixture that does not declare a shape silently skips the rules about it.** `prefix03` and
    `sibling05` have never run against `AsyncFileStore`. Nothing failed; the report said "not run",
    and no one read it as a gap.
+
+## Review Record
+
+Three independent reviewers (focused tier), run in parallel per the workflow. Two findings were
+acted on, one was found outside the reviews, and four reported findings were rejected — recorded
+here rather than quietly dropped, because a rejected finding that leaves no trace gets re-raised.
+
+**Acted on:**
+
+| From | Finding | Response |
+|---|---|---|
+| Conformity reviewer | `FileStore::listdir` was the one edit in Phase 2 with no test behind it | `reserved07` |
+| Adversarial reviewer | `FileStore::is_supported` interior segments untested — `reserved03` covers the async store only | `reserved04` extended to both forms and an interior segment |
+| Adversarial reviewer | The upgrade path in Example 3 — three recovery routes out of an already-corrupted store — is asserted by nothing | `reserved08`, the best finding of the round |
+| Adversarial reviewer | `listdir_asset_info`, the router, and `get`'s repair-on-read | Answered in Corner Cases with reasons; the third carried to Phase 5 |
+| *Not from a reviewer* | The document said to append to `mod tests`, but `store.rs` has **two** test modules and `unique_temp_dir` lives only in `key_absolute_tests` — the code would not have compiled | New `mod reserved_name_tests`, a sibling of that module |
+
+**Rejected, with reasons:**
+
+- *"`ReservedNames`, `METADATA_SUFFIX` and `PathMap::RESERVED` do not exist — 6 tests cannot
+  compile"* (compile reviewer, filed as blocking). They do not exist **yet**; Phase 4 creates them.
+  A Phase 3 document that only used APIs already at HEAD could not describe a change. The same
+  reviewer's five "advisory" findings are the tests correctly failing against unfixed code, which
+  is the property the overview table is built on.
+- *"`AsyncOpenDALStore::is_supported` is not tested for reserved keys"* (adversarial). It is —
+  `pathmap03` asserts `!store.is_supported(&key)` for all four shapes.
+- *"Phase 3 does not explain that `reserved05` enforces the ordering the `keyabs` tests depend
+  on"* (adversarial). It does, in `reserved05`'s own doc comment and again in the Test Plan.
+
+The compile reviewer's genuine contribution was verification rather than criticism: it confirmed
+against HEAD that `MetadataRecord::with_key(..).with_title(..)` chains, that `set` preserves the
+title through to `get_metadata`, that every `AsyncStore` return type fits the generic
+`assert_not_supported<T>`, that `Key::is_relative()` behaves as `reserved05` assumes, and that
+`AsyncOpenDALStore::new(op, Key::new())` matches the real constructor.
