@@ -89,27 +89,25 @@ impl SimpleSpecApp {
 }
 
 impl eframe::App for SimpleSpecApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Simple UISpec Demo");
-            ui.label("Horizontal layout with 3 children");
-            ui.separator();
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        ui.heading("Simple UISpec Demo");
+        ui.label("Horizontal layout with 3 children");
+        ui.separator();
 
-            // Render all root elements
-            let app_state = self.ui_context.app_state();
-            let roots = match try_sync_lock(app_state) {
-                Ok(state) => state.roots(),
-                Err(e) => {
-                    ui.label(format!("Error: {}", e));
-                    ui.spinner();
-                    return;
-                }
-            };
-
-            for handle in roots {
-                render_element(ui, handle, &self.ui_context);
+        // Render all root elements
+        let app_state = self.ui_context.app_state();
+        let roots = match try_sync_lock(app_state) {
+            Ok(state) => state.roots(),
+            Err(e) => {
+                ui.label(format!("Error: {}", e));
+                ui.spinner();
+                return;
             }
-        });
+        };
+
+        for handle in roots {
+            render_element(ui, handle, &self.ui_context);
+        }
     }
 }
 

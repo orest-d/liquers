@@ -132,7 +132,7 @@ impl InteractiveSpecApp {
 }
 
 impl eframe::App for InteractiveSpecApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let app_state = self.ui_context.app_state();
 
         // Always run AppRunner to drain messages and poll evaluations
@@ -147,10 +147,10 @@ impl eframe::App for InteractiveSpecApp {
             !matches!(state.take_invalidation(), Invalidation::None)
         };
         if model_changed || self.app_runner.needs_repaint() {
-            ctx.request_repaint();
+            ui.ctx().request_repaint();
         }
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        {
             ui.heading("Interactive UISpec Demo");
             ui.label("Click 'Add Hello' in the menu or press Ctrl+H to add children");
             ui.separator();
@@ -168,7 +168,7 @@ impl eframe::App for InteractiveSpecApp {
             for handle in roots {
                 render_element(ui, handle, &self.ui_context);
             }
-        });
+        }
     }
 }
 

@@ -123,7 +123,7 @@ impl SpecDemoApp {
 }
 
 impl eframe::App for SpecDemoApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let app_state = self.ui_context.app_state();
 
         // Process messages and poll evaluations
@@ -138,10 +138,10 @@ impl eframe::App for SpecDemoApp {
             !matches!(state.take_invalidation(), Invalidation::None)
         };
         if model_changed || self.app_runner.needs_repaint() {
-            ctx.request_repaint();
+            ui.ctx().request_repaint();
         }
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        {
             ui.heading("UISpec Demo");
             ui.separator();
 
@@ -157,7 +157,7 @@ impl eframe::App for SpecDemoApp {
             for handle in roots {
                 render_element(ui, handle, &self.ui_context);
             }
-        });
+        }
     }
 }
 

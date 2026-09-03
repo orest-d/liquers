@@ -95,11 +95,12 @@ async fn process_messages(
 }
 
 impl eframe::App for PrototypeApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         // Request periodic repaint so we see async results promptly.
-        ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(100));
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        {
             ui.heading("egui + tokio Async Prototype");
             ui.separator();
 
@@ -135,7 +136,7 @@ impl eframe::App for PrototypeApp {
                     });
                 }
             }
-        });
+        }
     }
 }
 

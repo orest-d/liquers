@@ -54,29 +54,29 @@ itertools = "0.14.0"
 clap = { version = "4", features = ["derive"], optional = true }
 nom = "8.0.0"
 nom_locate = "5.0.0"
-regex = "1.9.3"
-serde = "1.0.181"
-serde_derive = "1.0.181"
-serde_json = "1.0.104"
-serde_yaml = "0.9.33"
+regex = "1.13.1"
+serde = "1.0.229"
+serde_derive = "1.0.229"
+serde_json = "1.0.151"
+serde_yaml = "0.9.34"
 toml = { version = "0.8", optional = true }
-thiserror = "2.0.9"
-chrono = "0.4.31"
-blake3 = "1.8.1"
-scc = "3.4.8"
+thiserror = "2.0.20"
+chrono = "0.4.45"
+blake3 = "1.8.7"
+scc = "3.8.8"
 ansic = "0.1.7"
-futures = "0.3.31"
-async-trait = "0.1.80"
+futures = "0.3.34"
+async-trait = "0.1.92"
 
 # tokio: native keeps `fs` (used by AsyncFileStore); wasm drops `fs`/`net`
 # (not supported on wasm32-unknown-unknown). Both keep sync/rt/macros/time.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tokio = { version = "1.47.1", features = ["sync", "rt", "macros", "time", "fs"] }
+tokio = { version = "1.53.1", features = ["sync", "rt", "macros", "time", "fs"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-tokio = { version = "1.47.1", features = ["sync"] }
+tokio = { version = "1.53.1", features = ["sync"] }
 
 [dev-dependencies]
-tokio = {version="1.47.1", features = ["full"]}
-futures = {version="0.3.31", features=["executor"]}
+tokio = {version="1.53.1", features = ["full"]}
+futures = {version="0.3.34", features=["executor"]}
 liquers-macro={path="../liquers-macro"}
