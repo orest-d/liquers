@@ -3,10 +3,10 @@ id: SIDECAR-COLLIDING-KEYS
 kind: design
 title: Sidecar-colliding keys refused by the path builders
 workflow: liquers-project
-status: in_review
+status:
 phase: documentation
 area: [core/store, store/backends, docs]
-gh_pr: []
+gh_pr: [60]
 issues: [CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS, STORE-METADATA-LAYOUT-HARDCODED-PER-STORE, CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS, STORE-KEY-REFUSAL-ORDER-DIVERGES-BETWEEN-STORES]
 affects_docs: [STORE_SEMANTICS, STORE_IMPLEMENTATION_GUIDE]
 created: 2026-09-03
