@@ -11,9 +11,15 @@ created: 2026-09-03
 
 ## Overview
 
-Eight steps, ordered so that **the tree compiles and the suite passes after every one**, and so the
-single step with externally visible behaviour change (Step 3) is isolated in its own commit and can
-be reverted without touching the rest.
+Seven implementation steps, ordered so that **the tree compiles and the suite passes after every
+one**, and so the only step that changes **durable state** — what reaches a store — is isolated in
+its own commit and can be reverted without touching the rest.
+
+Three steps change observable behaviour, and it is worth being exact about how they differ:
+Step 4 changes *timing* (the `ValueProduced` notification moves after status finalization), Step 5
+changes a *guarantee* (`apply` completes before returning), and **only Step 3 changes what is
+written to a store**. The first two are visible the moment a test looks; a lost store write is
+silent, which is why Step 3 alone gets the isolated commit and the store diff below.
 
 The order is deliberately not "biggest first". Steps 1–3 are additive or mechanical and close
 `ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED` on their own; Step 4 is the consolidation proper and
@@ -29,7 +35,10 @@ Nothing after Step 3 changes what is written to a store.
 | 5 | Merge `apply`/`apply_immediately`; simplify `Context::apply`; key+payload error | `apply` gains an inline guarantee | moderate |
 | 6 | Inline execute-once claim | fixes a double-run window | independent |
 | 7 | Cross-cutting suite, matrix, wasm | none | n/a |
-| 8 | Phase 5 documentation | none | n/a |
+
+Documentation is **not** an implementation step: it is Phase 5, which begins when Steps 1–7 are
+complete. Its content is specified in `phase2-architecture.md` §"The Phase 5 explanation" and
+restated under Phase 5 Entry Criteria below.
 
 ## Implementation Steps
 
@@ -66,7 +75,10 @@ impl<E: Environment> AssetRef<E> {
 ```
 
 **Tests:** `payload_requirement_recorded_in_metadata`, `payload_requirement_reaches_asset_info`,
-`payload_supplied_but_not_required_records_none`, `get_asset_info_projects_payload_required`.
+`payload_supplied_but_not_required_records_none`, `get_asset_info_projects_payload_required`, and
+`apply_plan_rejects_missing_payload` — the last is a regression guard on the gate this step edits
+beside: it pins the error to the interpreter layer, so the `Context::apply` pre-check that Step 5
+deletes cannot creep back.
 
 **Validation:** `cargo test -p liquers-core --lib --tests`
 
@@ -117,6 +129,19 @@ The 14 sites and their values are the table in `phase2-architecture.md` §"Const
 two that matter: `get_volatile_resource_asset` (`:4294`) records `Some(key)` — the case a
 map-derived predicate misses — and `make_volatile` takes the target from its caller.
 
+**Test call sites, counted.** The Phase 2 table lists *production* constructions. Changing these
+signatures also touches call sites inside `#[cfg(test)]` modules, which must be updated in the same
+commit or the step does not compile:
+
+| Constructor | Production | In `#[cfg(test)]` |
+|---|---:|---:|
+| `AssetRef::new_from_recipe` | 9 in `assets.rs` | 8 in `assets.rs`, 4 in `context.rs`, 1 in `interpreter.rs` |
+| `AssetData::new_ext` | 8 in `assets.rs` | 0 |
+| `make_volatile` | 2 in `assets.rs` | 0 |
+
+**13 test call sites**, all in `liquers-core`. None in `liquers-lib`, `liquers-axum`, `liquers-web`
+or `liquers-py` — these constructors are `pub(crate)`.
+
 **Tests:** `store_target_some_for_keyed_construction`,
 `store_target_none_for_query_and_adhoc_construction`, `make_volatile_takes_target_from_caller`.
 
@@ -165,6 +190,17 @@ impl<E: Environment> AssetRef<E> {
 Removed: `evaluate_recipe`, `evaluate_recipe_outcome`, `evaluate_and_store`, `evaluate_immediately`,
 `run_immediately`, `run_immediately_inline`. The two harnesses (`run_with_future`,
 `run_with_future_inline`) are unchanged.
+
+**Caller scope, verified.** `AssetRef::evaluate_immediately` has exactly two callers, both the run
+wrappers in `assets.rs` (`:2117`, `:2170`). `run_immediately` / `run_immediately_inline` have four
+production callers (`:4560`, `:4762`, `:5891`, `:5902`), all inside the two managers and all
+rewritten by Steps 4–5, plus one test call (`:6721`).
+
+> **A trap worth naming.** `EnvRef::evaluate_immediately` (`context.rs:377`) is a *different method
+> with the same name*: it is the public query-evaluation API, it is **kept unchanged**, and it has
+> 30+ callers across `injection.rs` and `payload_inheritance.rs`. A Phase 4 reviewer conflated the
+> two and reported those tests as breakage. They are not affected. Grep for the removed methods by
+> receiver type, not by name.
 
 The invariant order inside `evaluate` is the nine steps in `phase2-architecture.md`
 §"`evaluate` — the invariant order". Two ordering points are not optional:
@@ -268,7 +304,7 @@ testing). Do not run `cargo test --workspace`.
 
 ---
 
-### Step 8 — Phase 5 documentation
+### After Step 7 — Phase 5 (not an implementation step)
 
 Per `phase2-architecture.md` §"The Phase 5 explanation": rewrite `ASSET_LIFECYCLE.md` into the
 flow-and-public-surface reference, promote its audit content to
@@ -291,11 +327,21 @@ add `## History` rows and bump `reviewed:`, update `specs/README.md`, and close 
 the one that distinguishes a *recorded* target from a *map-derived* one, and it is the regression
 the current suite cannot see.
 
-**Tests that must fail first.** `scenario_persist_apply_bare_key_recipe`,
-`scenario_persist_apply_recipe_with_filename`, `scenario_entry_point_equivalence`,
-`scenario_key_with_payload_is_an_error`, `inline_execute_once_with_yielding_command`,
-`payload_requirement_recorded_in_metadata`. Write each and watch it fail before implementing the
-step; a test that passes on arrival is testing something else.
+**Tests that must fail first**, and the distinction that makes the discipline mean something:
+
+*Behaviour tests* — these compile against HEAD and go **red**, which is real evidence they test the
+thing: `scenario_persist_apply_bare_key_recipe`, `scenario_persist_apply_recipe_with_filename`,
+`scenario_entry_point_equivalence`, `scenario_key_with_payload_is_an_error`,
+`inline_execute_once_with_yielding_command`, `payload_requirement_recorded_in_metadata`,
+`payload_supplied_but_not_required_records_none`, `get_asset_info_projects_payload_required`.
+Write each and watch it fail before implementing its step; one that passes on arrival is testing
+something else.
+
+*New-API tests* — these cannot compile against HEAD because they name a field or method that does
+not exist yet (`store_target_some_for_keyed_construction`,
+`store_target_none_for_query_and_adhoc_construction`, `make_volatile_takes_target_from_caller`).
+A compile error is **not** evidence the assertion is meaningful. For these the discipline is
+different: after implementing, invert the assertion once and confirm it goes red.
 
 ## Agent Assignment
 
@@ -333,6 +379,21 @@ commit; only the three intended rows may differ.
 
 **Not a rollback path:** disabling or skipping a failing test. If `scenario_persist_keyed_volatile`
 fails, the predicate is wrong, not the test.
+
+## Review Outcome
+
+Three reviews ran against this plan. All findings are applied above.
+
+| Reviewer | Finding | Resolution |
+|---|---|---|
+| Phase 1+2 conformity | "The single step with externally visible behaviour change" is inaccurate — Steps 4 and 5 also change observable behaviour | Reworded: Step 4 changes timing, Step 5 changes a guarantee, and only Step 3 changes **durable state**. The isolated commit is justified by silence, not by uniqueness |
+| Phase 1+2 conformity | Step 8 was listed as an implementation step while the entry criteria required only Steps 1–7, making the documentation look optional | Documentation is no longer numbered as a step; it is Phase 5, entered when Steps 1–7 are complete |
+| Phase 3 conformity | `apply_plan_rejects_missing_payload` specified in Phase 3, absent from Phase 4 | Added to Step 1, which edits beside that gate |
+| Phase 3 conformity | The must-fail-first list omitted two tests | Completed, and split into behaviour tests (go red — real evidence) and new-API tests (fail to compile — *not* evidence; invert the assertion once instead) |
+| Codebase compatibility | Signature changes in Step 2 touch `#[cfg(test)]` call sites the plan did not count | 13 test call sites counted and tabulated; all in `liquers-core` |
+| Codebase compatibility | *"31+ callers of `evaluate_immediately` will break"* | **False alarm, and recorded as a trap.** Those call `EnvRef::evaluate_immediately` (`context.rs:377`), the public API this design keeps — not `AssetRef::evaluate_immediately` (`assets.rs:2381`), which has exactly two callers. Verified before acting |
+
+The last row is the reason the plan now says to grep by receiver type rather than by name: two methods share a name, one is public and kept, the other private and removed. A reviewer with the whole codebase in front of it still conflated them.
 
 ## Phase 5 Entry Criteria
 
