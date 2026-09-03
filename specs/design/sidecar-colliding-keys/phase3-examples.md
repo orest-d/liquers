@@ -28,10 +28,11 @@ the issue did not name, then the four things that bite while fixing it.
 | `reserved04` | `FileStore` reserves the metadata name and **not** the lock name | one global reserved list shared by every store |
 | `reserved05` | Relative-and-reserved reports `KeyNotAbsolute`, not `KeyNotSupported` | reordered so the reserved check runs before `as_absolute()` |
 | `reserved06` | `keys()` skips a real `__metadata__` directory instead of failing on it | applied to the path builders without the listing filters |
+| `reserved07` | `FileStore`'s listing uses the same predicate and its *own* reserved set | applied to `AsyncFileStore::listdir` and not its synchronous twin |
 | `C2` conformance | `sidecar03` passes with no allowed failure; `prefix03` and `sibling05` run for the first time | incomplete in any of the above ways |
 | `pathmap03`, `pathmap07`, `pathmap08` | `AsyncOpenDALStore` refuses and skips the same shapes | applied to the file stores only |
 
-Six unit tests, one fixture change, three OpenDAL tests. Every row names a *specific way to get the
+Seven unit tests, one fixture change, three OpenDAL tests. Every row names a *specific way to get the
 fix wrong*, which is the standard this list was written to: a test that only passes after the fix,
 without also failing against a plausible half-fix, records the change rather than checking it.
 
@@ -215,9 +216,56 @@ assert!(!PathMap::RESERVED.is_reserved_key(&parse_key("x.__lock__")?));
 
 ## Unit Tests
 
-A shared helper first, beside `unique_temp_dir` in the same `mod tests`. Every `reserved` test
-asserts the same two things about a refusal — that it *is* one, and that it is the right kind — and
-writing that out per method is what makes a test list methods rather than check them.
+### Where these tests go
+
+**Not in `mod tests`.** `liquers-core/src/store.rs` has two test modules at HEAD, and the difference
+matters: `mod tests` (line 2145) is the general store suite, and `mod key_absolute_tests` (line
+2514) is the suite for the absolute-key precondition, carrying `keyabs01`-`keyabs17`, its own
+`use crate::error::ErrorType`, and the `unique_temp_dir` helper at line 2524. **`unique_temp_dir`
+exists only there** — `mod tests`'s one file-store test builds its temp path inline (line 2438) —
+so appending the `reserved` tests to `mod tests` would not compile.
+
+They get a third module, a sibling of the second:
+
+```rust
+/// Tests for the reserved-name rule (`specs/design/sidecar-colliding-keys/`).
+///
+/// A sibling of `key_absolute_tests`, and deliberately not part of it. That module asks whether a
+/// key is an *address* at all; this one asks whether this store can represent it. They are two
+/// refusals with two error types, and they meet in exactly one place — the order they are checked
+/// in, which `reserved05` pins.
+#[cfg(test)]
+mod reserved_name_tests {
+    use super::*;
+    use crate::error::ErrorType;
+    use crate::parse::parse_key;
+
+    /// As `key_absolute_tests` does it — nanosecond-stamped, because `cargo test` runs these in
+    /// parallel. A third copy of six lines, following the precedent rather than introducing a
+    /// shared test-support module in a change this size.
+    fn unique_temp_dir(label: &str) -> std::path::PathBuf {
+        let unique = format!(
+            "liquers_{}_{}",
+            label,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        );
+        std::env::temp_dir().join(unique)
+    }
+
+    // … assert_not_supported, then reserved01 … reserved07.
+}
+```
+
+`Metadata`, `MetadataRecord`, `Error`, `Key`, `AsyncFileStore`, `FileStore`, `AsyncStore` and
+`Store` all arrive through `use super::*` (they are imported or defined at `store.rs:53-56`).
+`ErrorType` and `parse_key` do not, which is why both are named explicitly above.
+
+Then a shared helper. Every `reserved` test asserts the same two things about a refusal — that it
+*is* one, and that it is the right kind — and writing that out per method is what makes a test
+list methods rather than check them.
 
 ```rust
 /// Assert that a store refused a key as unrepresentable, rather than failing some other way.
@@ -484,6 +532,46 @@ async fn reserved06_a_reserved_directory_is_skipped_by_listings() -> Result<(), 
 }
 ```
 
+### `reserved07` — the sync store's listing filter, which nothing else would catch
+
+```rust
+/// `reserved07` — `FileStore` filters its listing by the same predicate, and by *its own* set.
+///
+/// Added at the Phase 3 review, which found this the one edit in Phase 2 with no test behind it.
+/// The synchronous store is obsolete and unreachable (`CORE-SYNC-STORE-TRAIT-OBSOLETE`), and that
+/// is precisely why it needs its own test rather than being trusted to follow `AsyncFileStore`:
+/// nothing else exercises it, so a filter updated in one store and forgotten in the other would
+/// stay invisible until the trait is revived or deleted.
+///
+/// The second assertion is the per-store half. `FileStore` takes no locks, so a file genuinely
+/// named `x.__lock__` is an ordinary asset here and must still be listed — the same claim
+/// `reserved04` makes about the path builders, made about the listing.
+#[test]
+fn reserved07_file_store_listing_uses_its_own_reserved_set() -> Result<(), Error> {
+    let sandbox = unique_temp_dir("reserved07");
+    let root = sandbox.join("root");
+    std::fs::create_dir_all(root.join("__metadata__")).expect("legacy metadata folder");
+    std::fs::write(root.join("__metadata__").join("report.txt.json"), b"{}")
+        .expect("legacy sidecar");
+    std::fs::write(root.join("report.txt"), b"body").expect("data file");
+    std::fs::write(root.join("report.txt.__metadata__"), b"{}").expect("sidecar");
+    std::fs::write(root.join("notes.__lock__"), b"not a lock here").expect("lock-shaped file");
+
+    let store = FileStore::new(root.to_string_lossy().as_ref(), &Key::new());
+    let names = store.listdir(&Key::new())?;
+
+    // Reserved by this store's layout — dropped.
+    assert!(!names.contains(&"__metadata__".to_owned()), "{names:?}");
+    assert!(!names.contains(&"report.txt.__metadata__".to_owned()), "{names:?}");
+    // Not reserved by this store's layout — listed.
+    assert!(names.contains(&"report.txt".to_owned()), "{names:?}");
+    assert!(names.contains(&"notes.__lock__".to_owned()), "{names:?}");
+
+    std::fs::remove_dir_all(&sandbox).expect("cleanup");
+    Ok(())
+}
+```
+
 ## Conformance and OpenDAL Tests
 
 ### The `C2` fixture, and the allowed failure that must go
@@ -663,7 +751,7 @@ wrong; a failure that first appears in step 2 means a caller was missed.
 
 ```bash
 # 1. The predicate and the two file stores. reserved01-reserved06, plus the keyabs regressions.
-cargo test -p liquers-core --lib reserved
+cargo test -p liquers-core --lib reserved   # reserved01-reserved07, in mod reserved_name_tests
 cargo test -p liquers-core --lib keyabs        # must be unchanged — reserved05 exists to protect these
 
 # 2. The contract, against every liquers-core store. C2 is the one that changes.
