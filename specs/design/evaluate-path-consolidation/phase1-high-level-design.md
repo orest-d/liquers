@@ -87,24 +87,76 @@ Audience: framework developers and coding agents working in `liquers-core`. Afte
 evaluating a query do, and what differs between entry points" must be answerable from
 `ASSET_LIFECYCLE.md` alone, without reading this design folder.
 
+## Resolved Before Phase 2
+
+Discussion on 2026-09-02/03 rejected the "policy axes" framing of the original questions. Most of
+what differs between entry points is not policy at all:
+
+| Concern | Verdict | Where it lands |
+|---|---|---|
+| Dependency recording | always done | invariant of the one body |
+| Status finalization | must be correct and correctly ordered — before use, before storing | invariant, one authority |
+| Key-owner delegation | an algorithm preventing one key being evaluated twice | invariant, always applied |
+| Payload | a *requirement of the plan*: fail iff a command needs one and none was supplied | uniform precondition |
+| Persistence | not switchable — it follows from reproducibility | derived from the asset |
+| Queued vs inline | genuine policy, already owned by the asset manager | manager policy |
+| Queue capacity, routing, eviction | genuine policy | manager policy, **out of scope** here |
+
+**The reproducibility predicate.** An asset is *reproducible* when its value is determined by its
+identity alone: no payload, no supplied initial state, not volatile. One predicate governs three
+things the code currently decides in three unrelated places — whether the asset may be shared
+through the key/query maps, whether its stored form may be loaded back, and whether it may *be*
+someone's dependency. `Context::apply` records no dependency edge because the applied asset is not
+reproducible, exactly as a payload asset "may *have* dependencies, it just may not *be* one"
+(`Context::schedule_payload_dependency_asset`) — not because `apply` is a special entry point.
+
+HEAD already believes this in three different spellings: `Recipe::key()` returns `None` when
+`has_arguments()`; `DependencyManager::track_asset` refuses `Volatile` and everything without a
+`bound_owner_key`; `Context` excludes payload assets from the graph. Consolidation states the rule
+once instead of rediscovering it per call site.
+
+**Three words where the code has one:**
+
+- **stored** — bytes written under a key; a user may open the file.
+- **loadable** (persistent) — the stored form may be read back and reused by the system as this
+  asset's value; what `try_fast_track` accepts (`Ready`/`Source`/`Override`, non-stale deps).
+- **owned** — this asset is the registered owner of that key, hence the one allowed to write there.
+
+A volatile keyed asset is stored and owned but not loadable — which is what HEAD does already
+(it writes with status `Volatile`, which fast-track refuses).
+
+**Derived persistence rule to be specified in Phase 2:** write iff the asset owns a store target
+(`key()` or `store_to_key()`, and not delegating — the owner writes, not the delegator); write a
+loadable status iff reproducible, otherwise a status fast-track refuses. No flag, no parameter.
+
+**Consequent behaviour change, intentional:** queued `apply` stops writing to the store. Today it
+runs `evaluate_and_store` → `save_to_store`, targeting `recipe.key().or(store_to_key())` — the
+durable half of `CONTEXT-APPLY-BARE-KEY-ILL-DEFINED`. An ad-hoc asset with a supplied state owns
+nothing, so it writes nothing. Phase 2 must confirm no in-tree caller depends on that write.
+
+**Dependency-manager registration** needs no per-path decision: `track_asset` is already
+self-limiting on status and ownership, so calling it unconditionally in the one body is safe and
+erases the asymmetry.
+
+Consequently the unified body takes **only the asset**. Entry points become constructors that
+differ in the asset they build — recipe, initial state, payload, tracked vs ad hoc — never in how
+it is evaluated, and `AssetData` already carries those facts (`initial_state`, `is_volatile`,
+`save_in_background`, `payload_path`, `expiration_time`).
+
 ## Open Questions
 
-1. What is the policy axis set? Candidates: persist, register in the dependency manager, admit a
-   payload, delegate to the key owner, finalize status here vs in the harness, queued vs inline.
-   Are these independent, or are only three or four combinations legal?
-2. Should `Context::apply` record a dependency edge (making it uniform), or is "applies a query to
-   a state, records nothing" a deliberate contract to be documented and kept? The issue's
-   "dependency recording that does not depend on the entry point" implies the former; the rejected
-   `CONTEXT-APPLY-BARE-KEY-ILL-DEFINED` shows `apply` is deliberately permissive.
-3. Do ad-hoc/immediate assets get `dm.track_asset` registration? They are not persisted and not in
-   any map, so registration may create entries nothing can invalidate.
-4. Does the payload boundary (keys reject payload recipes) stay a key-path check, or become a
-   policy precondition checked once in the unified body?
-5. Can the four run harnesses collapse to two (spawn vs inline) with the body as a parameter, given
-   `run_with_future` is `#[cfg(not(wasm32))]` and `run_with_future_inline` is not?
-6. Is `INLINE-PATH-LACKS-EXECUTE-ONCE` (P2, accepted) a prerequisite, a co-delivery, or out of
-   scope? Consolidation makes the shared claim primitive cheaper, but folding it in widens the
-   blast radius. (Phase 2 known-issue preflight decides.)
+1. **Store-target ownership for a non-key query asset carrying a `filename`.** `store_to_key()`
+   resolves to `cwd/filename` and HEAD writes there. Such an asset is reproducible, so the value is
+   legitimate — but the key belongs to whatever the recipe provider resolves at that path. Owning
+   it lets a query plant a value under a key it does not define; not owning it removes `filename:`
+   as a persistence mechanism for query assets.
+2. **Harness collapse.** Can the four run harnesses become two (spawn vs inline) with the
+   evaluation body as a parameter, given `run_with_future` is `#[cfg(not(wasm32))]` and
+   `run_with_future_inline` is not? With one body, `run`/`run_immediately` and
+   `run_inline`/`run_immediately_inline` differ only in the payload argument.
+3. **`INLINE-PATH-LACKS-EXECUTE-ONCE` (P2, accepted): prerequisite, co-delivery, or out of scope?**
+   Consolidation makes a shared claim primitive cheaper; folding it in widens the blast radius.
+   The Phase 2 known-issue preflight decides.
 
 ## References
 

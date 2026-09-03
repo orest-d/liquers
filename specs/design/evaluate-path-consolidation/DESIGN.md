@@ -33,8 +33,16 @@ harnesses and six manager entry points, diverging on delegation, payload admissi
 finalization, persistence and dependency recording. Target: one body plus policy, entry points as
 thin wrappers.
 
-Phase 1 open questions carried into Phase 2: policy axes, `Context::apply`'s dependency contract,
-DM registration for ad-hoc assets, the payload boundary, harness collapse, and whether
+Discussion resolved most of Phase 1's questions before Phase 2. The "policy axes" framing was
+rejected: dependency recording, status finalization, key-owner delegation and the payload
+precondition are invariants of the one body; persistence is *derived* from a reproducibility
+predicate (no payload, no supplied initial state, not volatile) rather than switchable; only
+queued-vs-inline and queue characteristics are genuine manager policy, the latter out of scope.
+The same predicate governs map reuse, loadable persistence, and eligibility to be a dependency —
+which is why `Context::apply` records no edge. The unified body therefore takes only the asset.
+
+Three questions carried into Phase 2: store-target ownership for a query asset with a `filename`,
+whether the four run harnesses collapse to two given the wasm `cfg` split, and whether
 `INLINE-PATH-LACKS-EXECUTE-ONCE` is a prerequisite.
 
 ## Links
