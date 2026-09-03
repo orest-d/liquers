@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [docs, core/store]
-design:
+design: async-store-wrapper-docs
 created: 2026-09-02
 github:
 ---

@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [build]
-design:
+design: build-sysinfo-rustc-compatibility
 created: 2026-09-02
 github:
 ---

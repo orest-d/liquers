@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/query]
-design:
+design: query-leading-slash-field
 created: 2026-08-17
 github:
 ---

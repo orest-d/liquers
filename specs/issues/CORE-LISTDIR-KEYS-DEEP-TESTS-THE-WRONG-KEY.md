@@ -6,7 +6,7 @@ status: closed
 priority: P2
 complexity: S
 area: [core/store, store/backends]
-design:
+design: listdir-keys-deep-child-check
 created: 2026-09-02
 github:
 ---

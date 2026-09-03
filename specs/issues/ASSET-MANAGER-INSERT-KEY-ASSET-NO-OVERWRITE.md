@@ -6,7 +6,7 @@ status: closed
 priority: P2
 complexity: S
 area: [core/assets]
-design: asset-manager-insert-key-asset-semantics
+design: asset-manager-insert-key-asset-no-overwrite
 created: 2026-08-09
 github:
 ---

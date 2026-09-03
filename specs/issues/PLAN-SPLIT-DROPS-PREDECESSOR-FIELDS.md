@@ -6,7 +6,7 @@ status: closed
 priority: P2
 complexity: S
 area: [core/plan]
-design: predecessor-cut-equivalence
+design: plan-split-predecessor-fields
 created: 2026-08-26
 github:
 ---

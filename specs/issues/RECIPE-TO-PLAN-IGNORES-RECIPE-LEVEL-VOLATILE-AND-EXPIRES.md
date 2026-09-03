@@ -6,7 +6,7 @@ status: closed
 priority: P2
 complexity: S
 area: [core/plan, core/assets]
-design: predecessor-cut-equivalence
+design: recipe-plan-declarations
 created: 2026-08-26
 github:
 ---

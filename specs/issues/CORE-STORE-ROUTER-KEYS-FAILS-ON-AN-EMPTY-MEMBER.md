@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [core/store]
-design: store-conformance-suite
+design: store-router-empty-prefix
 created: 2026-09-02
 github:
 ---

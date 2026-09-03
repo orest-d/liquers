@@ -1,12 +1,5 @@
-# Phase 4: Implementation Plan
+# Phase 4: Implementation Plan - Incomplete
 
-1. In `liquers-core/src/error.rs`, change `Error::with_key` from assigning `query` to assigning
-   `key`; add field-separation, composition, serde, and dependency-constructor tests. This is the
-   behavioural change and can be rolled back as one assignment plus tests.
-2. Run a focused caller test in `recipes.rs` or `plan.rs` if existing coverage exposes the enriched
-   error; do not broaden scope solely to manufacture an integration harness.
-3. Check error/reference documents for an exhaustive context-field claim and update only if needed;
-   update issue/design lifecycle records during implementation.
-4. Run `cargo fmt --all -- --check`, focused and full core tests, clippy for core, and docs-index
-   validation. Review the diff for accidental changes to dependency constructors, historical data
-   migration, debug code, and unrelated errors.
+The previous one-assignment plan was invalidated when the design returned to Phase 2. No executable
+plan is valid until the structured context and compatibility decisions in Phase 2 are resolved.
+This phase is intentionally incomplete while readiness is `phase2-blocked`.

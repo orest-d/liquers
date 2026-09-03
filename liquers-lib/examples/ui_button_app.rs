@@ -199,7 +199,7 @@ impl ButtonApp {
 }
 
 impl eframe::App for ButtonApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         // 1. Run AppRunner (processes messages, auto-evaluates pending, polls results).
         self._runtime.block_on(async {
             if let Err(e) = self.runner.run(&self.app_state).await {
@@ -214,11 +214,11 @@ impl eframe::App for ButtonApp {
             !matches!(state.take_invalidation(), Invalidation::None)
         };
         if model_changed || self.runner.needs_repaint() {
-            ctx.request_repaint();
+            ui.ctx().request_repaint();
         }
 
         // 2. Render UI.
-        egui::CentralPanel::default().show(ctx, |ui| {
+        {
             ui.heading("Liquers Button Example");
             ui.separator();
 
@@ -227,14 +227,14 @@ impl eframe::App for ButtonApp {
                 Ok(state) => state.roots(),
                 Err(_) => {
                     ui.spinner();
-                    ctx.request_repaint();
+                    ui.ctx().request_repaint();
                     return;
                 }
             };
             for handle in roots {
                 render_element(ui, handle, &self.ui_context);
             }
-        });
+        }
     }
 }
 

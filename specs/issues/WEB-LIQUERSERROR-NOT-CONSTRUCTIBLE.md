@@ -6,7 +6,7 @@ status: accepted
 priority: P3
 complexity: S
 area: [web, core/error]
-design:
+design: web-liquers-error-constructor
 created: 2026-08-09
 github:
 ---
