@@ -143,6 +143,42 @@ differ in the asset they build — recipe, initial state, payload, tracked vs ad
 it is evaluated, and `AssetData` already carries those facts (`initial_state`, `is_volatile`,
 `save_in_background`, `payload_path`, `expiration_time`).
 
+## Recorded Execution Facts (requirement added 2026-09-03)
+
+An asset must **know** that its evaluation depends on a payload, be **executed as such**, and
+expose that fact in metadata and `AssetInfo`.
+
+The destination fields already exist and are already plumbed: `MetadataRecord.payload_required`
+(`metadata.rs:913`), `AssetInfo.payload_required` (`:716`), the setter `set_payload_required`
+(`:1386`), legacy-JSON extraction (`:1532`) and a round-trip test (`:2826`). **Nothing sets them.**
+No evaluation path calls the setter, so every evaluated asset reports `PayloadRequirement::None`,
+including one that could not have run without a payload. Filed as
+`ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED` (P2, M) and scheduled into this design.
+
+The requirement is computed twice today and discarded both times — `Context::apply` calls
+`query.requires_payload` only to choose an entry point, and `Recipe::to_plan_for_key` only to
+reject a keyed recipe. That is the same duplication this design exists to remove.
+
+**Design consequence.** Resolve the payload requirement *before* evaluation, symmetrically with
+volatility, which `AssetData` already models this way:
+
+| Volatility (exists) | Payload requirement (to add) |
+|---|---|
+| `AssetData.is_volatile` | `AssetData.payload_required: PayloadRequirement` |
+| `resolve_volatility_before_evaluation()` | resolved in the same pre-evaluation pass |
+| reaches `MetadataRecord.is_volatile` → `AssetInfo` | reaches `MetadataRecord.payload_required` → `AssetInfo` |
+
+The pairing is natural: a `PayloadRequirement::Required` command is already marked volatile at
+registration, so both facts come from the same plan walk.
+
+Once recorded, the payload precondition has one home — `payload_required.is_required() &&
+payload.is_none()` is an error, checked in the one body from the recorded field — and the
+per-entry-point pre-checks disappear.
+
+**Property to preserve:** what makes an asset non-reproducible is the *requirement*, not whether a
+payload happened to be in scope. A plain query evaluated through `EnvRef::evaluate_immediately` has
+a payload available that no command consumes; it stays reproducible.
+
 ## Resolved Questions (2026-09-03)
 
 1. **Store-target ownership for a query asset.** Non-keyed (query) assets are not stored; they need
@@ -162,6 +198,8 @@ it is evaluated, and `AssetData` already carries those facts (`initial_state`, `
 
 | Today | Becomes | Note |
 |---|---|---|
+| `resolve_volatility_before_evaluation()` | resolves volatility **and** `payload_required` | one pre-evaluation pass, one plan walk |
+| *(no field)* | **`AssetData.payload_required`** → `MetadataRecord` → `AssetInfo` | `ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED` |
 | `evaluate_recipe_outcome()` (private) | **`evaluate(payload)`** — the one body | absorbs delegation, provider resolution, dep collection, install, finalize, persist, DM track |
 | `evaluate_recipe()` (pub) | removed | no caller outside `assets.rs` and its tests |
 | `evaluate_and_store()` (pub) | `evaluate(None)` | |

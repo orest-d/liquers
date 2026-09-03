@@ -235,6 +235,7 @@ deliberately folded behind a broader line.
 - design `delegated-value-repersisted`
 - design `docs-dead-links`
 - design `error-with-key-field`
+- design `evaluate-path-consolidation`
 - design `expiration-integration-suite-failing-at-head`
 - design `foreign-value-type-registration`
 - design `lib-integration-test-feature-gates`

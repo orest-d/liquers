@@ -7,7 +7,7 @@ status: draft
 phase: high-level
 area: [core/assets, core/plan]
 gh_pr: []
-issues: [CORE-EVALUATE-PATH-CONSOLIDATION, ASSETS-FIX1]
+issues: [CORE-EVALUATE-PATH-CONSOLIDATION, ASSETS-FIX1, INLINE-PATH-LACKS-EXECUTE-ONCE, ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED]
 affects_docs: []
 created: 2026-09-02
 superseded_by:
@@ -45,6 +45,11 @@ All Phase 1 questions resolved on 2026-09-03: non-keyed (query) assets are not s
 write predicate is the existing `AssetRef::bound_owner_key()`; the harness mapping is settled in
 Phase 1's method-mapping tables (3 evaluation bodies to 1, 4 run entry points to 2, 6 manager
 evaluation entry points to 4); `INLINE-PATH-LACKS-EXECUTE-ONCE` is co-delivered with this work.
+
+Added requirement (2026-09-03): an asset must record that its evaluation depended on a payload,
+and expose it in metadata and `AssetInfo`. The fields exist but nothing sets them — filed as
+`ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED` and scheduled here; the requirement is resolved before
+evaluation, symmetrically with volatility.
 
 One decision left for Phase 2: whether `apply` under a queued manager enqueues or evaluates inline.
 Proposal is inline, derived from reproducibility rather than chosen as policy.
