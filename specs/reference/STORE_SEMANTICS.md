@@ -3,7 +3,7 @@ title: Store Behavioural Semantics
 kind: reference
 audience: internal
 area: [core/store, store/backends, web]
-reviewed: 2026-09-02
+reviewed: 2026-09-03
 ---
 # Store Behavioural Semantics
 
@@ -224,25 +224,60 @@ resolve outside the store's namespace. Only the reads are safe below `Scratch`.
 The `keyabs` family in `liquers-core/src/query.rs` covers `Key`'s own
 relativeness predicate, which is a different subject.
 
-## 8. Metadata sidecars
+## 8. Metadata sidecars and reserved names
 
 A store that keeps metadata beside its data uses the suffix `.__metadata__`: the metadata for `foo`
 lives at `foo.__metadata__`.
 
-This makes one class of key unrepresentable: the *data* path of the key `foo.__metadata__` is
-byte-identical to the *metadata* path of the key `foo`. Such keys are **refused**, by `is_supported`
-and by the path builders alike, rather than silently colliding. A store must not accept a key it
-cannot address unambiguously.
+A layout that does this makes some names unusable as keys, and **a store must refuse a key it
+cannot address unambiguously** rather than let it collide. The reserved set is declared by the
+store's own layout, and there are two ways a name is reserved:
+
+| Form | Example | Reserved by |
+|---|---|---|
+| a suffix | `foo.__metadata__` — its *data* path is byte-identical to the *metadata* path of `foo` | every sidecar store |
+| a suffix | `foo.__lock__` — its data path is the lock `AsyncFileStore` takes while writing `foo`, so a file there blocks every later write to `foo` | `AsyncFileStore` only |
+| an exact name | `__metadata__` — the metadata *folder* of the predecessor Python implementation (`orest-d/liquer`), where the metadata for `sub/foo.txt` is `sub/__metadata__/foo.txt.json` | every sidecar store, so that layout stays readable |
+
+**A key is refused when *any* segment is reserved, not only its filename.** `dir.__metadata__/child`
+needs `dir.__metadata__` to be a directory while the metadata of `dir` needs it to be a file, and a
+filesystem will not be both.
+
+**Each store reserves what its own layout uses, and no more.** Over-reserving is a defect in the
+same family as under-reserving: `x.__lock__` is a key `AsyncOpenDALStore` can address perfectly
+well, because it takes no locks.
+
+Three kinds of caller must consult the rule, and a store that satisfies only the first is the
+defect this section exists to prevent:
+
+1. **`is_supported`** — but this is only a *routing hint*. `AsyncStoreRouter` consults it; a caller
+   holding the store does not have to, and `liquers-axum`'s store handlers do not.
+2. **The path builders**, so that every fallible method inherits the refusal.
+3. **The listing filters.** Not optional: a reserved name left in a listing is handed to `is_dir`
+   by `listdir_keys_deep`, which now refuses it — turning a refusal into a failed enumeration and
+   making the store unlistable. Listings **skip** what the store cannot address.
+
+The refusal is `KeyNotSupported`, and **`as_absolute` is checked first**: a key that is both
+relative and reserved reports `KeyNotAbsolute`, because a relative key is not a store address at
+all (§7). Every store answers this the same way.
 
 A sidecar found in the backend implies its data key: a listing reports `sub/orphan.__metadata__` as
 `sub/orphan`. A path a store cannot decode is **skipped** by listings rather than failing them —
-one unexpected object in a shared bucket must not make a directory unlistable.
+one unexpected object in a shared bucket must not make a directory unlistable. The file stores do
+not yet report the implied data key, only drop the sidecar
+(`CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS`).
 
-*Enforced by:* `sidecar01`, `sidecar02`, `sidecar03`. `is_supported` is a *routing hint* — a caller
-may invoke `get` or `set` without consulting it — so `sidecar01` checking it alone would pass a
-store that refuses to route the key and then accepts it in `set`, overwriting the very metadata the
-refusal exists to protect. `sidecar03` checks the operations themselves.
-The OpenDAL path mapping keeps its own `pathmap02`-`pathmap07`
+One behaviour worth knowing, because recovery from a store corrupted before this rule was enforced
+depends on it: **`get` repairs metadata it cannot parse**, synthesizing a fresh record with warnings
+and writing it back. So a colliding write that already happened is recoverable — by `get`, by
+`set_metadata`, or by `remove`, which unlinks the data path and the metadata path together — even
+though the orphan can no longer be addressed as a key.
+
+*Enforced by:* `sidecar01`, `sidecar02`, `sidecar03`, and `prefix03` and `sibling05` for stores whose
+fixture declares an unsupported shape. `is_supported` is a routing hint, so `sidecar01` checking it
+alone would pass a store that refuses to route the key and then accepts it in `set`, overwriting the
+very metadata the refusal exists to protect; `sidecar03` checks the operations themselves. The file
+stores keep `reserved01`-`reserved08` and the OpenDAL path mapping its own `pathmap02`-`pathmap08`
 unit tests.
 
 ## 9. What `keys()` returns
@@ -269,6 +304,7 @@ and `AsyncOpenDALStore` already behave as specified here.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-03 | §8 restated as **reserved names** rather than one sidecar suffix: reserved in *any* segment rather than only the filename, declared per store by its own layout, and covering both the suffix form and the exact name — the latter being the predecessor Python implementation's `__metadata__` folder, cited because nothing in this repository evidences it. Named the three kinds of caller that must consult the rule, and why satisfying only `is_supported` is the defect the section exists to prevent. Recorded that listings *skip* reserved names, that the refusal is `KeyNotSupported` with `as_absolute` checked first, and that `get` repairs unparseable metadata — which is what makes an already-corrupted store recoverable. | `design/sidecar-colliding-keys/` Phase 5 |
 | 2026-09-02 | Completed the contract. §5 restated as a **postcondition** — `Ok(())` means the directory is gone — from which recursion and the absent-directory case follow, and which makes the trait default's `Err(KeyNotSupported)` correct rather than divergent. §9 settled: `keys()` returns data keys, directories and the prefix, and **every returned key starts with the prefix**; the cost, that an enumerated key is not necessarily readable, is stated rather than hidden. Every *Enforced by* line now names rules in `liquers_core::store_conformance`. Stated trait-neutrally against the possible return of a synchronous store. Two of the three ⚠ rows are gone; §6's was cleared by `async-memory-store-prefix-support`. | `design/store-conformance-suite/` Phase 4 step 1 |
 | 2026-09-02 | Recorded that a recursive `removedir` takes explicit descendant directories with it, that `default_metadata` must honour both arguments, and that the directory path form is subject to the same key refusals as the data and metadata forms. All three from PR #58 review findings. | `design/opendal-path-mapping/` PR review |
 | 2026-09-02 | Defined `is_supported` cumulatively: absolute key, configured-prefix membership, then optional store-specific exclusions. Added the empty-prefix single-file overlay rationale and memory-store conformance tests. | `design/async-memory-store-prefix-support/` Phase 5 |
