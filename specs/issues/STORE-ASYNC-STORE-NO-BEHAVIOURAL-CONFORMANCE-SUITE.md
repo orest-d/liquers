@@ -2,11 +2,11 @@
 id: STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE
 kind: issue
 title: AsyncStore has no written behavioural contract and no suite holding implementations to one
-status: accepted
+status: closed
 priority: P1
 complexity: L
 area: [core/store, store/backends, web, docs]
-design:
+design: store-conformance-suite
 created: 2026-09-02
 github:
 ---
@@ -82,3 +82,35 @@ Opened on 2026-09-02 while designing `STORE-OPENDAL-SLASH-HANDLING` in
 the suite inside a P0 correctness fix. Expanded the same day, at the Phase 4 gate, into the full
 enumeration above after the reviewer asked that disagreeing store contract implementations be
 recorded rather than mentioned.
+
+## Resolution
+
+Closed 2026-09-02 by `design/store-conformance-suite/`. Both deliverables exist.
+
+**The contract.** `specs/reference/STORE_SEMANTICS.md` is complete: §5 is restated as a
+postcondition, from which recursion and the absent-directory case follow rather than being
+stipulated; §9 settles what `keys()` returns; every section names the rules enforcing it. It is
+written trait-neutrally, so a synchronous store reintroduced for a realm with synchronous
+evaluation inherits it. `specs/guides/STORE_IMPLEMENTATION_GUIDE.md` is the operational
+counterpart the review asked for.
+
+**The suite.** `liquers_core::store_conformance` — 32 rules, runtime-agnostic, behind a
+non-default feature — runs against nine in-tree implementations plus the trait defaults, natively
+and under `wasm32`. Rules ask a fixture for key names rather than inventing them, which is what
+lets a store with a restricted key space take part; `assert_conformant` fails in both directions,
+so a fixed issue forces its own allowed-failure entry out.
+
+**Of the eleven divergences enumerated in this issue**, rows 1–4, 7 and 8 were already fixed by
+`opendal-path-mapping` and `async-memory-store-prefix-support` and are now held by rules; rows 5
+and 6, this issue's own, are resolved by the postcondition framing; row 10 is fixed
+(`CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS`); row 11 was `CORE-DIRECTORY-INDEX-NOT-SHARED`. Row 9
+is held by `prefix01`, which needed independent ground truth — comparing `key_prefix()` with itself
+would have passed the store it exists to catch.
+
+**Found by the suite while building it**, and filed: `CORE-LISTDIR-KEYS-DEEP-TESTS-THE-WRONG-KEY`
+(fixed), the OpenDAL not-found mapping (fixed),
+`STORE-SEMANTICS-CHILDREN-RULE-CONTRADICTS-EVERY-STORE`,
+`CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER`,
+`WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND`, `WEB-JS-STORE-HAS-NO-DIRECTORY-METADATA`.
+
+**Deferred**: the validation tool, to `STORE-CONFORMANCE-VALIDATION-TOOL` with its design intact.

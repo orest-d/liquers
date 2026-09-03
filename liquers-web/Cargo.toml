@@ -46,6 +46,10 @@ version = "0.3"
 features = ["console", "Window", "Storage", "Response", "Headers"]
 
 [dev-dependencies]
+# The shared AsyncStore conformance suite. A dev-dependency, so the feature never reaches the
+# published wasm bundle: `cargo build` does not build dev-dependencies, and cargo only unifies it
+# into the `cargo test` graph.
+liquers-core = { path = "../liquers-core", features = ["store-conformance"] }
 wasm-bindgen-test = "0.3"
 # `select`/`pin_mut` for the RUNTIME04 timeouts — a deadlock must fail with a name, not hang.
 futures = "0.3"

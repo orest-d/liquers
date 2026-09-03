@@ -7,6 +7,10 @@ reviewed: 2026-09-02
 ---
 # Functional Specification Document (FSD): Store Configuration
 
+> This document is the **configuration format**. Implementing a store that the format can name is
+> [`guides/STORE_IMPLEMENTATION_GUIDE.md`](../guides/STORE_IMPLEMENTATION_GUIDE.md); the behaviour
+> such a store must have is [`STORE_SEMANTICS.md`](STORE_SEMANTICS.md).
+
 ## Overview
 
 > **Configuration, not behaviour.** What a store *does* once configured — the sibling rule, how
@@ -757,6 +761,7 @@ its store together. Everything on this page applies unchanged to that document's
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-02 | Cross-linked `guides/STORE_IMPLEMENTATION_GUIDE.md` and `STORE_SEMANTICS.md`, separating the configuration format from the store behaviour it names. | `design/store-conformance-suite/` Phase 4 step 14 |
 | 2026-09-02 | Documented the OpenDAL list encoding contract: non-empty scalar lists are comma-joined, top-level nulls are omitted, and ambiguous or structured list values are rejected. | `STORE-OPENDAL-LIST-OPTION-MISPARSED` |
 | 2026-09-02 | Linked `STORE_SEMANTICS.md`, which specifies store *behaviour* as distinct from configuration. No change to the configuration format. | `design/opendal-path-mapping/` Phase 5 |
 | 2026-08-31 | Linked `EnvironmentConfig`, which embeds `StoreRouterConfig` as its `store:` section. No change to the store configuration format itself. | `design/environment-builder/phase-5` |

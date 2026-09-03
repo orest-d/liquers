@@ -142,6 +142,11 @@ pub mod state;
 pub mod store;
 pub mod store_config;
 pub mod store_dir_index;
+/// A behavioural conformance suite for `AsyncStore`. Behind the non-default `store-conformance`
+/// feature: it ships so that `liquers-store`, `liquers-web` and out-of-tree stores can run it, but
+/// nothing links it unless asked.
+#[cfg(feature = "store-conformance")]
+pub mod store_conformance;
 pub mod store_factory;
 pub mod type_system;
 pub mod validate;
