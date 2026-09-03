@@ -2,7 +2,7 @@
 id: STORE-KEY-REFUSAL-ORDER-DIVERGES-BETWEEN-STORES
 kind: issue
 title: A key that is both relative and unrepresentable gets a different error type per store
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/store, store/backends]
@@ -61,3 +61,11 @@ Found on 2026-09-03 in the Phase 4 review of `specs/design/sidecar-colliding-key
 §Error Handling states that the file stores' ordering "matches `AsyncOpenDALStore::reject_ambiguous`
 exactly". On this point it is the opposite. Raised there as an advisory finding; filed here so it
 is not lost if that design declines to widen its scope.
+
+## Resolution
+
+Closed 2026-09-03 by `specs/design/sidecar-colliding-keys/`, which absorbed the one-line fix rather than
+leaving the two sidecar stores disagreeing while it wrote the rule into the contract.
+`AsyncOpenDALStore::reject_ambiguous` now calls `key.as_absolute()?` first, so a key that is both
+relative and unrepresentable reports `KeyNotAbsolute` in every store. `pathmap03` asserts it for
+OpenDAL and `reserved05` for the file stores.
