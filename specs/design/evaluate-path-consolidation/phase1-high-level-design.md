@@ -58,9 +58,13 @@ and is the behavioural canary for the payload path.
 
 ## Crate Placement
 
-`liquers-core` only — `assets.rs` (evaluation bodies, harnesses, managers) and `context.rs`
-(`Context::apply`, `EnvRef::evaluate*`). No dependent crate gains a dependency; the goal is that
-`liquers-lib`, `liquers-axum`, `liquers-web` and `liquers-py` compile unchanged.
+`liquers-core` only. Primarily `assets.rs` (evaluation bodies, harnesses, managers) and
+`context.rs` (`Context::apply`, `EnvRef::evaluate*`); Phase 2 widened this by two single-line
+projections — `interpreter.rs`, where `apply_plan` already holds the authoritative payload gate and
+so is where the requirement is recorded, and `recipes.rs`, where the recipe-preview `AssetInfo`
+projects `is_volatile` and `expires` but not `payload_required`. No dependent crate gains a
+dependency; the goal is that `liquers-lib`, `liquers-axum`, `liquers-web` and `liquers-py` compile
+unchanged.
 
 ## Documentation Intent
 
@@ -165,7 +169,7 @@ volatility, which `AssetData` already models this way:
 | Volatility (exists) | Payload requirement (to add) |
 |---|---|
 | `AssetData.is_volatile` | `AssetData.payload_required: PayloadRequirement` |
-| `resolve_volatility_before_evaluation()` | resolved in the same pre-evaluation pass |
+| `resolve_volatility_before_evaluation()` | *(Phase 2 revised: projected at `apply_plan`, beside the gate that already reads it, rather than joining a pre-evaluation pass that `RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING` reports as misplaced)* |
 | reaches `MetadataRecord.is_volatile` → `AssetInfo` | reaches `MetadataRecord.payload_required` → `AssetInfo` |
 
 The pairing is natural: a `PayloadRequirement::Required` command is already marked volatile at
