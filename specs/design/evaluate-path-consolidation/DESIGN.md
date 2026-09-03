@@ -4,7 +4,7 @@ kind: design
 title: One evaluation path for every entry point
 workflow: liquers-project
 status: draft
-phase: architecture
+phase: examples
 area: [core/assets, core/plan]
 gh_pr: []
 issues: [CORE-EVALUATE-PATH-CONSOLIDATION, ASSETS-FIX1, INLINE-PATH-LACKS-EXECUTE-ONCE, ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED]
@@ -19,8 +19,8 @@ superseded_by:
 ## Phase Status
 
 - [x] Phase 1: High-Level Design (approved 2026-09-03)
-- [x] Phase 2: Solution & Architecture (drafted, in review)
-- [ ] Phase 3: Examples & Testing
+- [x] Phase 2: Solution & Architecture (approved 2026-09-03)
+- [ ] Phase 3: Examples & Testing (in progress)
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
