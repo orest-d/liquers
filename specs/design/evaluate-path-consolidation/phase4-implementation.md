@@ -156,7 +156,34 @@ The only step that changes what reaches a store. Its own commit, revertable alon
 - `liquers-core/src/assets.rs:2447` and `:2479` (`save_to_store`) and `:833`, `:861`
   (`save_metadata_to_store` and its sibling): replace
   `recipe.key()?.or(recipe.store_to_key()?)` with the recorded `store_target`.
+- **`:2682` and `:2699` (`mark_expired_status`)**: replace `bound_owner_key()` with the same
+  `store_target`. See the finding below — this site was missed by Phase 2 and by every reviewer.
 - The write condition becomes `store_target.is_some() && !delegated`.
+
+#### The site the design nearly missed: writing and invalidating use different keys
+
+HEAD derives the store key **two different ways** depending on what it is doing to it:
+
+| Operation | Key derivation | Site |
+|---|---|---|
+| Write the value and metadata | `recipe.key()?.or(recipe.store_to_key()?)` | `save_to_store` `:2447` |
+| Persist `Expired` to invalidate it | `bound_owner_key()` | `mark_expired_status` `:2699`, `:2682` |
+
+These are not the same key. `bound_owner_key` consults the manager's key map and returns `None`
+for a volatile keyed asset, which the manager deliberately never registers — while the write
+derivation returns `Some(key)` for exactly that asset. **So an asset can be written under a key it
+cannot later invalidate.**
+
+It is latent rather than live at HEAD: a volatile asset is the only case where the two disagree,
+and `mark_expired_status` refuses `Status::Volatile` outright, so no invalidation is attempted.
+The divergence is one change away from mattering, and it is a textbook instance of what
+`CORE-EVALUATE-PATH-CONSOLIDATION` is about — the same question answered differently in two places.
+
+Recording `store_target` unifies them: one derivation for writing, invalidating, and deciding
+whether to write at all. That is an additional benefit of the field, not merely a cheaper way to
+compute the old predicate — and it is why Step 3 must convert this site too, or the design would
+leave the two derivations still disagreeing, with one of them now recorded and the other still
+derived.
 
 Three persistence rows narrow: a query asset resolving `store_to_key`, an `apply` with a bare-key
 recipe, and an `apply` whose recipe carries a filename all stop writing. Row 2 — a **volatile keyed
@@ -394,6 +421,54 @@ Three reviews ran against this plan. All findings are applied above.
 | Codebase compatibility | *"31+ callers of `evaluate_immediately` will break"* | **False alarm, and recorded as a trap.** Those call `EnvRef::evaluate_immediately` (`context.rs:377`), the public API this design keeps — not `AssetRef::evaluate_immediately` (`assets.rs:2381`), which has exactly two callers. Verified before acting |
 
 The last row is the reason the plan now says to grep by receiver type rather than by name: two methods share a name, one is public and kept, the other private and removed. A reviewer with the whole codebase in front of it still conflated them.
+
+## Final Review
+
+The workflow's final cross-document pass was run by the author (the delegated reviewer stopped on a
+session rate limit before producing output; the pass was not skipped). It asked five questions.
+
+**1. Does this solve the issue?** The issue asks for "one evaluation path, with the others as thin
+wrappers, and dependency recording that does not depend on which entry point was used." The design
+delivers the first two directly and the third as an invariant of the single body. One qualification
+is recorded rather than glossed: the wrappers are thin *in evaluation logic*, not in construction,
+and construction still decides map membership, persistence and reuse — which is correct, since
+those are properties of what the asset *is*.
+
+**2. What was missing.** The two-key-derivation finding above (`save_to_store` writes under one
+key, `mark_expired_status` invalidates under another). Neither Phase 2 nor any of the four
+reviewers caught it, and Step 3 would have converted one derivation while leaving the other. It is
+now in scope and is independent evidence for `store_target`.
+
+**3. Is any decision wrong?** Re-examined the six load-bearing ones. The one worth re-stating is
+`apply` no longer calling `job_queue.submit`: it removes a bound on concurrent ad-hoc evaluations.
+That is safe here because an ad-hoc apply runs inline in its caller's task, and the caller is
+itself queue-bounded — a command calling `Context::apply` already holds a slot. The change
+therefore *reduces* the resource a nested apply consumes (from two slots to one), which is the
+`ASSETS-FIX1` #17 deadlock shape running in reverse. No new unbounded resource.
+
+**4. Is the risk assessment honest?** Now, yes. The original claim ("the only externally visible
+behaviour change") was not, and was corrected: Step 4 changes timing, Step 5 changes a guarantee,
+only Step 3 changes durable state. The rollback story holds because each step is a commit and no
+later step depends on Step 3's predicate — Step 4 consolidates the body regardless of which key
+derivation it calls.
+
+**5. Scope — this should be two pull requests.** Steps 1–3 and Steps 4–7 are separable, and a
+single PR rewriting the evaluation core *and* changing persistence is hard to review honestly:
+
+- **PR 1 (Steps 1–3):** record the payload requirement, add `store_target`, unify the key
+  derivations and narrow the write predicate. Closes `ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED`,
+  fixes the durable-state behaviour, and is reviewable against the eight-row persistence table
+  alone. It stands on its own if the rest is delayed.
+- **PR 2 (Steps 4–7):** the one evaluation body, the entry-point merge, and the inline claim.
+  Closes `CORE-EVALUATE-PATH-CONSOLIDATION` and `INLINE-PATH-LACKS-EXECUTE-ONCE`.
+
+Phase 5 documentation completes after PR 2, since the reference describes the consolidated state.
+
+**What to watch during implementation**, in order: (a) `scenario_persist_keyed_volatile` — if it
+fails, the predicate is map-derived and the Phase 1 mistake has returned; (b) the wasm loop after
+Step 4, because that is where a `tokio::` primitive could enter shared code; (c) the inline claim
+refusing rather than making the second caller wait, which is the documented way this fix has
+already failed once.
 
 ## Phase 5 Entry Criteria
 
