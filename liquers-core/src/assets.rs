@@ -1283,7 +1283,14 @@ pub struct AssetRef<E: Environment> {
 }
 
 struct RecipeEvaluation<V: ValueInterface> {
-    state: State<V>,
+    /// The produced value.
+    value: Arc<V>,
+    /// Dependencies observed during this evaluation, to be merged into the asset's live metadata.
+    ///
+    /// Carried separately rather than baked into a cloned metadata record: the service-message
+    /// loop writes progress and log entries to the asset's metadata *concurrently* with
+    /// evaluation, so installing a snapshot taken mid-evaluation silently discards them.
+    dependencies: Vec<DependencyRecord>,
     delegated: bool,
 }
 
@@ -1657,7 +1664,7 @@ impl<E: Environment> AssetRef<E> {
     }
 
     /// Estimate the volatility before execution.
-    /// Used e.g. by: `evaluate_and_store`, `evaluate_immediately`, `evaluate_recipe`
+    /// Used e.g. by: `evaluate` in this module
     async fn resolve_volatility_before_evaluation(&self) {
         let mut lock = self.data.write().await;
         let resolved =
@@ -2152,17 +2159,14 @@ impl<E: Environment> AssetRef<E> {
         self.finish_run_with_result(result, psm.await).await
     }
 
-    /// Run the asset evaluation loop.
+    /// Runs this asset's evaluation under the spawning harness.
+    ///
+    /// `payload` is the optional execution payload; `None` is ordinary evaluation. There is one
+    /// evaluation body behind both, so what differs between entry points is the asset they were
+    /// given, never how it is evaluated.
     #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) async fn run(&self) -> Result<(), Error> {
-        self.run_with_future(self.evaluate_and_store()).await
-    }
-
-    /// Run the asset evaluation loop.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) async fn run_immediately(&self, payload: Option<E::Payload>) -> Result<(), Error> {
-        self.run_with_future(self.evaluate_immediately(payload))
-            .await
+    pub(crate) async fn run(&self, payload: Option<E::Payload>) -> Result<(), Error> {
+        self.run_with_future(self.evaluate(payload)).await
     }
 
     /// Single-task (spawn-free) variant of [`run_with_future`] used by immediate-mode managers.
@@ -2204,40 +2208,27 @@ impl<E: Environment> AssetRef<E> {
         self.finish_run_with_result(result, Ok(psm_result)).await
     }
 
-    /// Inline (no-spawn) counterpart of [`run`].
-    pub(crate) async fn run_inline(&self) -> Result<(), Error> {
-        self.run_with_future_inline(self.evaluate_and_store()).await
-    }
-
-    /// Inline (no-spawn) counterpart of [`run_immediately`].
-    pub(crate) async fn run_immediately_inline(
-        &self,
-        payload: Option<E::Payload>,
-    ) -> Result<(), Error> {
-        self.run_with_future_inline(self.evaluate_immediately(payload))
-            .await
+    /// Inline (spawn-free) counterpart of [`Self::run`], used by inline managers and on wasm.
+    pub(crate) async fn run_inline(&self, payload: Option<E::Payload>) -> Result<(), Error> {
+        self.run_with_future_inline(self.evaluate(payload)).await
     }
 
     /// Fetch initial state and recipe of the asset
-    /// Used by: `evaluate_immediately`, `evaluate_recipe` in this module.
+    /// Used by: `evaluate_recipe_outcome` in this module.
     async fn initial_state_and_recipe(&self) -> (State<E::Value>, Recipe) {
         let lock = self.data.read().await;
         (lock.initial_state.clone(), lock.recipe.clone())
     }
 
-    /// Evaluates the asset's recipe and returns the resulting state.
+    /// Resolves the recipe and applies it, returning the produced state.
     ///
-    /// This resolves a key recipe through the recipe provider when necessary and
-    /// records observed dependencies. It does not by itself install the returned
-    /// value as this asset's final data or persist it; those steps are performed by
-    /// [`Self::evaluate_and_store`].
-    pub async fn evaluate_recipe(&self) -> Result<State<E::Value>, Error> {
-        self.evaluate_recipe_outcome()
-            .await
-            .map(|outcome| outcome.state)
-    }
-
-    async fn evaluate_recipe_outcome(&self) -> Result<RecipeEvaluation<E::Value>, Error> {
+    /// Resolves a key recipe through the recipe provider when necessary, hands off to the key's
+    /// registered owner when there is one, and records observed dependencies. It does not install
+    /// the value or persist it; [`Self::evaluate`] does that.
+    async fn evaluate_recipe_outcome(
+        &self,
+        payload: Option<E::Payload>,
+    ) -> Result<RecipeEvaluation<E::Value>, Error> {
         self.resolve_volatility_before_evaluation().await;
         let (input_state, recipe) = {
             let (input_state, recipe) = self.initial_state_and_recipe().await;
@@ -2274,7 +2265,9 @@ impl<E: Environment> AssetRef<E> {
                         let manager = envref.get_asset_manager();
                         let state = manager.wait_for_dependency(self, &asset).await?;
                         return Ok(RecipeEvaluation {
-                            state,
+                            value: state.data_unchecked().clone(),
+                            // A hand-off transfers the value, not the owner's metadata record.
+                            dependencies: Vec::new(),
                             delegated: true,
                         });
                     }
@@ -2325,51 +2318,70 @@ impl<E: Environment> AssetRef<E> {
             recipe.to_plan(cmr)?
         };
         */
-        let context = self.create_context().await;
+        let mut context = self.create_context().await;
+        // The payload is *moved* into the context, never cloned: `PayloadType` is not required to
+        // be `Clone`, and a payload is per-call state that must not be shared between assets.
+        if let Some(payload) = payload {
+            context.set_payload(payload);
+        }
         let context_for_deps = context.clone(); // shares pending_dependencies Arc
         eprintln!("Applying recipe");
         let res = envref.apply_recipe(input_state, recipe, context).await?;
         //eprintln!("Recipe evaluated, result: {:?}", &res);
 
-        // Collect observed dependencies from context into metadata
+        // Observed dependencies travel back as data, to be merged into the live metadata by
+        // `evaluate`. Every entry point records them; this is the asymmetry the issue names.
         let observed_deps = context_for_deps.take_pending_dependencies().await;
 
-        let mut metadata = self.data.read().await.metadata.clone();
-        if let Some(data) = self.data.read().await.data.as_ref() {
-            metadata.with_type_identifier(data.identifier().to_string());
-            metadata.with_type_name(data.type_name().to_string());
-        }
-
-        for dep in observed_deps {
-            let _ = metadata.add_dependency(dep);
-        }
-
         Ok(RecipeEvaluation {
-            state: State::from_parts(res, Arc::new(metadata)),
+            value: res,
+            dependencies: observed_deps,
             delegated: false,
         })
     }
 
-    /// Evaluates the recipe, installs the result, and attempts persistence.
+    /// **The single evaluation body.** Every entry point reaches evaluation through this.
     ///
-    /// The asset is made `Ready` or `Volatile` before persistence begins. The
-    /// persistence outcome is recorded separately in [`PersistenceStatus`].
-    pub async fn evaluate_and_store(&self) -> Result<(), Error> {
+    /// Private on purpose: an `AssetRef` is constructed and managed by the asset manager, so
+    /// evaluation is entered through the manager, never on a handle a caller happens to hold.
+    ///
+    /// The order is invariant and parts of it are load-bearing:
+    ///
+    /// 1. resolve volatility;
+    /// 2. resolve the recipe — hand off to the key's registered owner, or resolve through the
+    ///    recipe provider — and apply it, with `payload` installed on the context;
+    /// 3. record observed dependencies in metadata, for **every** entry point;
+    /// 4. install the value, its type identifier and type name;
+    /// 5. [`Self::try_to_set_ready`] — the single status authority — **before** the notification
+    ///    and **before** persistence, so nothing observes or stores a non-final status;
+    /// 6. notify `ValueProduced`;
+    /// 7. persist, if this is a keyed asset and this evaluation did not hand off;
+    /// 8. register with the dependency manager, which is self-limiting on status and ownership.
+    ///
+    /// `payload` carries per-call caller context. It is deliberately not part of an asset's
+    /// identity, so an asset evaluated with one is never shared, reused, or persisted as loadable.
+    async fn evaluate(&self, payload: Option<E::Payload>) -> Result<(), Error> {
         self.resolve_volatility_before_evaluation().await;
-        let res = self.evaluate_recipe_outcome().await;
+        let res = self.evaluate_recipe_outcome(payload).await;
         match res {
             Ok(outcome) => {
-                let RecipeEvaluation { state, delegated } = outcome;
-                let data = state.data_unchecked().clone();
-                let metadata = state.metadata.clone();
+                let RecipeEvaluation {
+                    value,
+                    dependencies,
+                    delegated,
+                } = outcome;
                 {
+                    // Merge into the live metadata rather than installing a snapshot: the
+                    // service-message loop is writing progress and log entries to this same
+                    // record while evaluation runs, and a wholesale replacement drops them.
                     let mut lock = self.data.write().await;
-                    let mut metadata_clone = (*metadata).clone();
-                    metadata_clone
-                        .with_type_identifier(data.identifier().to_string())
-                        .with_type_name(data.type_name().to_string());
-                    lock.data = Some(data);
-                    lock.metadata = metadata_clone;
+                    lock.metadata
+                        .with_type_identifier(value.identifier().to_string())
+                        .with_type_name(value.type_name().to_string());
+                    for dep in dependencies {
+                        let _ = lock.metadata.add_dependency(dep);
+                    }
+                    lock.data = Some(value);
                 }
                 // Finalize status and expiration in one place (replaces inline match block).
                 // Must happen before persistence so poll_state() returns Some for serialization.
@@ -2386,7 +2398,12 @@ impl<E: Environment> AssetRef<E> {
                     )
                 };
 
-                if !delegated {
+                // Write iff this is a keyed asset and this evaluation did not hand off. A
+                // non-keyed asset has no place in the store, so it must not even attempt a write:
+                // attempting one and failing deep inside `save_to_store` would record a spurious
+                // "cannot determine key" warning on every query and ad-hoc evaluation.
+                let is_keyed = self.data.read().await.key.is_some();
+                if is_keyed && !delegated {
                     self.persist_with_status_tracking(save_in_background, cancelled)
                         .await;
                 }
@@ -2415,41 +2432,6 @@ impl<E: Environment> AssetRef<E> {
                 Err(e)
             }
         }
-    }
-
-    /// Evaluates the recipe with an optional payload and installs the value.
-    ///
-    /// This is the computation used by [`AssetManager::apply_immediately`]. It does
-    /// not persist the result. Lifecycle finalization is performed by the
-    /// surrounding immediate-run harness.
-    ///
-    /// Arguments:
-    /// - `payload`: Optional execution payload injected into evaluation context.
-    pub async fn evaluate_immediately(&self, payload: Option<E::Payload>) -> Result<(), Error> {
-        self.resolve_volatility_before_evaluation().await;
-        let (input_state, recipe) = self.initial_state_and_recipe().await;
-
-        let envref = self.get_envref().await;
-        let mut context = self.create_context().await;
-        let context_for_deps = context.clone();
-        if let Some(payload) = payload {
-            context.set_payload(payload);
-        }
-        let res = envref.apply_recipe(input_state, recipe, context).await?;
-        let observed_deps = context_for_deps.take_pending_dependencies().await;
-
-        let mut lock = self.data.write().await;
-        lock.data = Some(res.clone());
-        lock.metadata
-            .with_type_identifier(res.identifier().to_string())
-            .with_type_name(res.type_name().to_string());
-        for dep in observed_deps {
-            let _ = lock.metadata.add_dependency(dep);
-        }
-        let _ = lock
-            .notification_tx
-            .send(AssetNotificationMessage::ValueProduced);
-        Ok(())
     }
 
     /// Persists metadata updates to the configured async store.
@@ -4634,7 +4616,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             self.get_query_asset(query).await?
         };
         asset.set_payload_path(payload_path).await;
-        asset.run_immediately(payload).await?;
+        asset.run(payload).await?;
         Ok(asset)
     }
 
@@ -4652,7 +4634,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                     // Inline, recursive: dep.run() may itself schedule and drain dep's own
                     // local queue in this same task. Box::pin bounds the future type; depth
                     // is bounded by the (cycle-free) dependency DAG.
-                    let _ = Box::pin(dep.run()).await;
+                    let _ = Box::pin(dep.run(None)).await;
                     claim.complete();
                 }
                 None => {
@@ -4753,7 +4735,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             match dependency.try_claim_for_run(&self.job_queue).await? {
                 Some(claim) => {
                     parent.enter_dependencies(dependency).await?;
-                    let _ = Box::pin(dependency.run()).await;
+                    let _ = Box::pin(dependency.run(None)).await;
                     claim.complete();
                 }
                 None => {
@@ -4836,7 +4818,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             AssetData::new_ext(self.next_id(), recipe, initial_state, None, self.get_envref()).to_ref();
         // No fast track makes sense now, since apply can't be stored, however in the future
         // TODO: support fast-track once it makes sense
-        asset_ref.run_immediately(payload).await?;
+        asset_ref.run(payload).await?;
 
         Ok(asset_ref)
     }
@@ -5571,7 +5553,7 @@ impl<E: Environment + 'static> JobQueue<E> {
                 let queue = self.clone();
                 eprintln!("Starting asset job {} immediately", asset_id);
                 tokio::spawn(async move {
-                    let _ = asset_clone.run().await;
+                    let _ = asset_clone.run(None).await;
                     claim.complete();
                     running_count.fetch_sub(1, Ordering::SeqCst);
                     notify.notify_one();
@@ -5939,14 +5921,14 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             // Backstop against re-entry: if this asset is already being run inline on this
             // manager, running it again is the recursion `owned_key_asset` exists to prevent.
             // Report it instead of exhausting the stack.
-            assetref.run_inline().await?;
+            assetref.run_inline(None).await?;
             return Ok(assetref);
         }
     }
 
     async fn apply(&self, recipe: Recipe, to: State<E::Value>) -> Result<AssetRef<E>, Error> {
         let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, None, self.envref()).to_ref();
-        asset_ref.run_inline().await?;
+        asset_ref.run_inline(None).await?;
         Ok(asset_ref)
     }
 
@@ -5970,7 +5952,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             self.get_query_asset(query).await?
         };
         asset.set_payload_path(payload_path).await;
-        asset.run_immediately_inline(payload).await?;
+        asset.run_inline(payload).await?;
         Ok(asset)
     }
 
@@ -5981,7 +5963,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         payload: Option<E::Payload>,
     ) -> Result<AssetRef<E>, Error> {
         let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, None, self.envref()).to_ref();
-        asset_ref.run_immediately_inline(payload).await?;
+        asset_ref.run_inline(payload).await?;
         Ok(asset_ref)
     }
 
@@ -6028,7 +6010,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 }
             }
             // Backstop against re-entry — see the note in `get_asset`.
-            asset_ref.run_inline().await?;
+            asset_ref.run_inline(None).await?;
             return Ok(asset_ref);
         }
     }
@@ -6539,7 +6521,7 @@ mod tests {
         assert!(state.is_none());
         let bin = assetref.poll_binary().await;
         assert!(bin.is_none());
-        assetref.evaluate_and_store().await.unwrap();
+        assetref.evaluate(None).await.unwrap();
 
         let state = assetref.poll_state().await;
         assert!(state.is_some());
@@ -6561,7 +6543,7 @@ mod tests {
             AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), None, envref.clone());
 
         let assetref = asset_data.to_ref();
-        assetref.run().await.unwrap();
+        assetref.run(None).await.unwrap();
 
         let state = assetref.poll_state().await;
         assert!(state.is_some());
@@ -6587,7 +6569,7 @@ mod tests {
             lock.metadata.set_status(Status::Dependencies).unwrap();
         }
 
-        assetref.run().await.unwrap();
+        assetref.run(None).await.unwrap();
         assert_eq!(assetref.status().await, Status::Ready);
     }
 
@@ -6802,7 +6784,7 @@ mod tests {
             lock.metadata.set_status(Status::Dependencies).unwrap();
         }
 
-        assetref.run_immediately(None).await.unwrap();
+        assetref.run(None).await.unwrap();
         assert_eq!(assetref.status().await, Status::Ready);
     }
 
@@ -6820,7 +6802,7 @@ mod tests {
             AssetData::<SimpleEnvironment<Value>>::new(4321, query.into(), None, envref.clone());
         let assetref = asset_data.to_ref();
 
-        assetref.run().await.unwrap();
+        assetref.run(None).await.unwrap();
 
         let metadata_before = assetref.get_metadata().await.unwrap();
         assert!(metadata_before.primary_progress().is_off());
@@ -6863,7 +6845,7 @@ mod tests {
             async move { assetref.get().await }
         });
         eprintln!("Waiting for asset to run");
-        assetref.run().await.unwrap();
+        assetref.run(None).await.unwrap();
         eprintln!("run completed");
 
         let result = handle.await.unwrap().unwrap().try_into_string().unwrap();
@@ -6904,7 +6886,7 @@ mod tests {
 
         let assetref = asset_data.to_ref();
 
-        assetref.run().await.unwrap();
+        assetref.run(None).await.unwrap();
 
         let result = assetref.get().await.unwrap().try_into_string().unwrap();
         assert_eq!(result, "Hello, world!");
@@ -7343,7 +7325,7 @@ recipes:
             .expect("a retained expired dependency should remain usable mid-evaluation");
         assert_eq!(stale_state.try_into_string().unwrap(), "stale dependency");
 
-        asset.run().await.unwrap();
+        asset.run(None).await.unwrap();
 
         assert_eq!(
             asset.status().await,
@@ -8196,7 +8178,7 @@ recipes:
         asset_data.save_in_background = false;
         let assetref = asset_data.to_ref();
 
-        assetref.run().await.unwrap();
+        assetref.run(None).await.unwrap();
         let state = assetref.get().await.unwrap();
         assert_eq!(state.try_into_string().unwrap(), "Hello, world!");
         assert_eq!(
@@ -8220,8 +8202,15 @@ recipes:
         }
     }
 
+    /// A non-keyed asset does not attempt to persist, so it records no persistence failure.
+    ///
+    /// This replaces `test_evaluate_missing_store_key_sets_warning_and_returns_value`, which
+    /// asserted the opposite: that such an asset tried to write, failed with "Cannot determine
+    /// key to store asset", and warned. Only a keyed asset has a place in the store, so there is
+    /// nothing to attempt and nothing to warn about — a warning on every query evaluation was
+    /// noise reporting a non-problem.
     #[tokio::test]
-    async fn test_evaluate_missing_store_key_sets_warning_and_returns_value() {
+    async fn evaluate_non_keyed_asset_does_not_attempt_persistence() {
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         let key = CommandKey::new_name("test");
         env.command_registry
@@ -8235,25 +8224,22 @@ recipes:
         asset_data.save_in_background = false;
         let assetref = asset_data.to_ref();
 
-        assetref.run().await.unwrap();
+        assetref.run(None).await.unwrap();
         let state = assetref.get().await.unwrap();
         assert_eq!(state.try_into_string().unwrap(), "Hello, world!");
-        assert_eq!(
-            assetref.persistence_status().await,
-            PersistenceStatus::NotPersisted
-        );
+        assert_eq!(assetref.key().await, None, "a query asset is not keyed");
 
         let metadata = assetref.get_metadata().await.unwrap();
         if let Metadata::MetadataRecord(meta) = metadata {
-            let warning = meta.log.iter().find(|entry| {
-                entry.message.contains("Persistence status NotPersisted")
-                    && entry
-                        .message
-                        .contains("Cannot determine key to store asset")
-            });
+            let attempted = meta
+                .log
+                .iter()
+                .find(|entry| entry.message.contains("Cannot determine key to store asset"));
             assert!(
-                warning.is_some(),
-                "Expected warning for missing store key persistence failure"
+                attempted.is_none(),
+                "a non-keyed asset must not attempt a store write, so it must not warn \
+                 about failing one; got: {:?}",
+                attempted
             );
         } else {
             panic!("Expected MetadataRecord");
