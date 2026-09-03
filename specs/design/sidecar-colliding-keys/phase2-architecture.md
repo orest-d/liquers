@@ -66,27 +66,46 @@ pub struct ReservedNames {
 }
 ```
 
-Two constants, because the two layouts in the tree differ and each store must reserve what it
-actually uses — over-reserving refuses keys a store can address perfectly well:
+There are **no named preset constants** — settled at the Phase 2 gate, replacing an earlier
+`SIDECAR` / `SIDECAR_AND_LOCK` pair. "Sidecar" names a layout *style*, which is not what a reader
+of the constant needs to know; and a shared preset forces two stores to agree that one label
+describes them both, when the design's own rule is that each store reserves what its own layout
+uses. Instead each store spells out its set, which is self-documenting at the point it matters:
 
 ```rust
-/// The metadata sidecar suffix. One definition, shared by every sidecar store.
+/// The metadata sidecar suffix — the metadata for `foo` lives at `foo.__metadata__`.
+/// One definition, replacing the three copies of this string literal at HEAD
+/// (`store.rs:883`, `store.rs:1242`, `opendal_store.rs:71`).
 pub const METADATA_SUFFIX: &str = ".__metadata__";
-/// The lock-file suffix used by the file stores while writing.
+/// The lock-file suffix the file stores take while writing (`store.rs:884`).
 pub const LOCK_SUFFIX: &str = ".__lock__";
 
 impl ReservedNames {
-    /// A sidecar metadata layout and nothing else — `AsyncOpenDALStore`, `FileStore`.
-    pub const SIDECAR: Self = Self { suffixes: &[METADATA_SUFFIX] };
-    /// A sidecar layout that also takes a lock file beside the data — `AsyncFileStore`.
-    pub const SIDECAR_AND_LOCK: Self = Self { suffixes: &[METADATA_SUFFIX, LOCK_SUFFIX] };
+    /// Declares the suffixes a layout uses. `const` so a store can hold the result as an
+    /// associated constant rather than building it per call.
+    pub const fn new(suffixes: &'static [&'static str]) -> Self { Self { suffixes } }
+}
+```
+
+Read at each store, the declaration says exactly what that store reserves and why:
+
+```rust
+impl AsyncFileStore {
+    const RESERVED: ReservedNames = ReservedNames::new(&[METADATA_SUFFIX, LOCK_SUFFIX]);
+}
+impl FileStore {                        // no lock files
+    const RESERVED: ReservedNames = ReservedNames::new(&[METADATA_SUFFIX]);
+}
+impl PathMap {                          // no lock files
+    pub const RESERVED: ReservedNames = ReservedNames::new(&[METADATA_SUFFIX]);
 }
 ```
 
 `&'static [&'static str]` rather than `Vec<String>`: the set is fixed at compile time for every
 store in the tree, so this keeps `ReservedNames` `Copy` and usable in a `const`. When
-`STORE-METADATA-LAYOUT-HARDCODED-PER-STORE` makes layouts configurable the field becomes owned;
-that is a change inside this type, not at any call site.
+`STORE-METADATA-LAYOUT-HARDCODED-PER-STORE` makes layouts configurable, that design builds a
+`ReservedNames` from its configured suffixes and the field becomes owned — a change inside this
+type, not at any call site, and one `new` already anticipates.
 
 ## Trait Implementations
 
@@ -151,7 +170,7 @@ so no `Key` API changes.
 
 ```rust
 impl AsyncFileStore {
-    const RESERVED: ReservedNames = ReservedNames::SIDECAR_AND_LOCK;   // replaces METADATA/LOCK consts
+    const RESERVED: ReservedNames = ReservedNames::new(&[METADATA_SUFFIX, LOCK_SUFFIX]);
 
     /// Raises the refusal, because `Error::key_not_supported` needs this store's name.
     fn reject_reserved(&self, key: &Key) -> Result<(), Error>;         // new, private
@@ -161,8 +180,8 @@ impl AsyncFileStore {
     fn key_to_lock_path(&self, key: &Key) -> Result<PathBuf, Error>;         // + reject_reserved
 }
 
-impl FileStore {           // identical, with ReservedNames::SIDECAR — it has no lock files
-    const RESERVED: ReservedNames = ReservedNames::SIDECAR;
+impl FileStore {           // identical, minus the lock file it does not have
+    const RESERVED: ReservedNames = ReservedNames::new(&[METADATA_SUFFIX]);
     fn reject_reserved(&self, key: &Key) -> Result<(), Error>;
     pub fn key_to_path(&self, key: &Key) -> Result<PathBuf, Error>;
     pub fn key_to_path_metadata(&self, key: &Key) -> Result<PathBuf, Error>;
@@ -182,15 +201,37 @@ where it *widens* to the bare folder name.
 
 ```rust
 impl PathMap {
-    /// Retained as a thin wrapper over `ReservedNames::SIDECAR.is_reserved_key`, so existing
-    /// callers and the `pathmap02`-`pathmap07` unit tests keep their name for the rule.
-    pub fn is_suffix_ambiguous(key: &Key) -> bool;   // widens: any segment, plus the bare form
+    /// What this store's layout reserves. Replaces the private `const METADATA` at
+    /// `opendal_store.rs:71`.
+    pub const RESERVED: ReservedNames = ReservedNames::new(&[METADATA_SUFFIX]);
+
+    // pub fn is_suffix_ambiguous(key: &Key) -> bool;   ← REMOVED
 }
 ```
 
-`reject_ambiguous`, `key_to_path`, `key_to_path_metadata` and `key_to_path_dir` are unchanged —
-they already consult the predicate, which is the whole point of copying this store's shape.
-`listdir` and `listdir_keys_deep` gain one `continue` on a decoded key that is reserved.
+**`PathMap::is_suffix_ambiguous` is removed**, settled at the Phase 2 gate. After the widening the
+name is wrong twice over: the rule is no longer about a suffix (the bare `__metadata__` folder
+carries none) and no longer about the filename. Keeping it as a wrapper would leave two names for
+one rule across two crates, which is what the conformance design spent its effort eliminating. Its
+two production call sites — `reject_ambiguous` (`opendal_store.rs:144`) and `is_supported`
+(`:521`) — call `PathMap::RESERVED.is_reserved_key(key)` instead, so the rule has one name
+everywhere.
+
+This removes a `pub` function from `liquers-store`. Nothing in-tree outside those call sites and
+two unit tests uses it, and `liquers-py` does not depend on `liquers-store`.
+
+Two test names lose the wrong word while **keeping their IDs**, so cross-references and `D1` still
+resolve:
+
+| At HEAD | After |
+|---|---|
+| `pathmap03_suffix_ambiguous_keys_are_refused_everywhere` | `pathmap03_reserved_keys_are_refused_everywhere` |
+| `pathmap07_directory_form_refuses_suffix_ambiguous_keys` | `pathmap07_directory_form_refuses_reserved_keys` |
+
+`reject_ambiguous`, `key_to_path`, `key_to_path_metadata` and `key_to_path_dir` keep their
+signatures and their structure — they already consult the predicate, which is the whole point of
+copying this store's shape. `listdir` and `listdir_keys_deep` gain one `continue` on a decoded key
+that is reserved.
 
 ## Integration Points
 
@@ -198,7 +239,7 @@ they already consult the predicate, which is the whole point of copying this sto
 |---|---|
 | `liquers-core/src/store.rs` | `ReservedNames`, `METADATA_SUFFIX`, `LOCK_SUFFIX`; `AsyncFileStore` and `FileStore` path builders, `is_supported`, `listdir`; unit tests `reserved01`-`reserved05` |
 | `liquers-core/tests/store_conformance_CONF.rs` | `C2` drops its `AllowedFailure` for `sidecar03` and gains `.with_unsupported_shape(collide.__metadata__)`, which makes `prefix03` and `sibling05` runnable there for the first time |
-| `liquers-store/src/opendal_store.rs` | `PathMap::is_suffix_ambiguous` delegates to `ReservedNames::SIDECAR`; `listdir` and `listdir_keys_deep` skip reserved decoded keys |
+| `liquers-store/src/opendal_store.rs` | `PathMap::is_suffix_ambiguous` removed in favour of `PathMap::RESERVED`; `listdir` and `listdir_keys_deep` skip reserved decoded keys; `pathmap03`/`pathmap07` renamed (IDs kept) |
 | `liquers-store/tests/store_conformance_CONF.rs` | No change needed — its fixture already declares both shapes; re-run confirms no regression |
 | `liquers-axum` | None. Handlers call the store directly (`store/handlers.rs:80`) and now surface `KeyNotSupported` instead of writing through |
 | `liquers-web`, `liquers-py`, `liquers-lib` | None |
@@ -268,8 +309,7 @@ No `unwrap`/`expect`, no new error type, no `_ =>` match arm (nothing new matche
 ## Open Questions Resolved
 
 - **Where the predicate lives** (Phase 1 Q1) → `liquers-core::store`, used by `liquers-store` too.
-  One rule, one definition, forward-dependency only. `PathMap::is_suffix_ambiguous` stays as a
-  named wrapper so the OpenDAL unit tests and their comments keep their vocabulary.
+  One rule, one definition, forward-dependency only, and one *name* — see the gate decision below.
 - **Interior-segment coverage** (Phase 1 Q2) → unit tests `reserved01`-`reserved05` in `store.rs`,
   not a new conformance rule. `GenericFixture` holds one `unsupported_shape` key, and adding a
   second shape to the fixture would change the suite's API for one store's benefit. The suite's job
@@ -278,14 +318,23 @@ No `unwrap`/`expect`, no new error type, no `_ =>` match arm (nothing new matche
 - **Listing filters** (Phase 1 Q3) → in scope and mandatory, per Overview point 3.
 - **Caller survey** (Phase 1 Q4) → see Integration Points. Nothing in-tree writes a reserved key.
 
+## Settled at the Phase 2 Gate
+
+Both remaining naming questions were decided by the user, and one confirmation given:
+
+1. **`PathMap::is_suffix_ambiguous` is removed**, not renamed — see Function Signatures. One rule,
+   one name (`ReservedNames::is_reserved_key`), across both crates. This supersedes the Phase 1
+   Crate Placement sentence that had the function *widening*; Phase 1 is left as approved, and
+   Phase 2 is the authority on mechanism.
+2. **The `SIDECAR` / `SIDECAR_AND_LOCK` presets are dropped** in favour of
+   `ReservedNames::new(&[...])` declared per store — see Data Structures. "Sidecar" named a layout
+   style rather than what is reserved, and a shared preset contradicted the design's own rule that
+   each store reserves what its own layout uses.
+3. **No commands are relevant** — confirmed. `specs/command_registry.yaml` needs no regeneration.
+
 ## Remaining Open Questions
 
-1. Should `PathMap::is_suffix_ambiguous` be **renamed** (`is_reserved`) now that it is no longer
-   about a suffix? A rename touches its two call sites and the doc comments that name it, and the
-   `pathmap0x` tests. Advisory; Phase 4 can do it cheaply or leave it.
-2. Is `SIDECAR` / `SIDECAR_AND_LOCK` the right constant naming, given
-   `STORE-METADATA-LAYOUT-HARDCODED-PER-STORE` will introduce a `MetadataLayout` vocabulary these
-   should not fight?
+None. Phase 3 can proceed on the architecture as written.
 
 ## Review Record
 
