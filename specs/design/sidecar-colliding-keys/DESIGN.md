@@ -4,10 +4,10 @@ kind: design
 title: Sidecar-colliding keys refused by the path builders
 workflow: liquers-project
 status: in_review
-phase: architecture
+phase: examples
 area: [core/store, store/backends, docs]
 gh_pr: []
-issues: [CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS, STORE-METADATA-LAYOUT-HARDCODED-PER-STORE]
+issues: [CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS, STORE-METADATA-LAYOUT-HARDCODED-PER-STORE, CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS]
 affects_docs: [STORE_SEMANTICS, STORE_IMPLEMENTATION_GUIDE]
 created: 2026-09-03
 superseded_by:
@@ -19,8 +19,8 @@ superseded_by:
 ## Phase Status
 
 - [x] Phase 1: High-Level Design — approved 2026-09-03
-- [ ] Phase 2: Solution & Architecture — awaiting approval
-- [ ] Phase 3: Examples & Testing
+- [x] Phase 2: Solution & Architecture — approved 2026-09-03
+- [ ] Phase 3: Examples & Testing — awaiting approval
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
