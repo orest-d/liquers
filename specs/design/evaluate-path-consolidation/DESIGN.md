@@ -4,7 +4,7 @@ kind: design
 title: One evaluation path for every entry point
 workflow: liquers-project
 status: draft
-phase: high-level
+phase: architecture
 area: [core/assets, core/plan]
 gh_pr: []
 issues: [CORE-EVALUATE-PATH-CONSOLIDATION, ASSETS-FIX1, INLINE-PATH-LACKS-EXECUTE-ONCE, ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED]
@@ -18,8 +18,8 @@ superseded_by:
 
 ## Phase Status
 
-- [x] Phase 1: High-Level Design (awaiting approval)
-- [ ] Phase 2: Solution & Architecture
+- [x] Phase 1: High-Level Design (approved 2026-09-03)
+- [x] Phase 2: Solution & Architecture (drafted, in review)
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
@@ -51,8 +51,11 @@ and expose it in metadata and `AssetInfo`. The fields exist but nothing sets the
 `ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED` and scheduled here; the requirement is resolved before
 evaluation, symmetrically with volatility.
 
-One decision left for Phase 2: whether `apply` under a queued manager enqueues or evaluates inline.
-Proposal is inline, derived from reproducibility rather than chosen as policy.
+Phase 2 settles that decision: `apply` evaluates inline on both managers, extending the rationale
+already written for payload dependencies. Phase 2 also corrects Phase 1 on two points — the write
+predicate is a recorded `store_target`, not `bound_owner_key` (which returns `None` for volatile
+keyed assets, which must keep writing), and the payload requirement lives in metadata only, not in
+a duplicated `AssetData` field.
 
 ## Links
 
