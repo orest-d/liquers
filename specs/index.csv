@@ -49,6 +49,7 @@ EXTENDED-FAST-TRACK,feature,Fast-track covers only simple loading,accepted,local
 LIBRARY-CODE-USES-UNWRAP-AND-EXPECT,issue,Library code uses unwrap and expect despite the no-panic rule,draft,local,,,P2,L,core/query;lib/commands;axum,,,,,,2026-08-17,specs/issues/LIBRARY-CODE-USES-UNWRAP-AND-EXPECT.md
 QUERY-BUILDER-TOOLING,issue,No programmatic builder for constructing queries,accepted,local,,,P2,L,core/query;core/validate,,,,,,2026-08-08,specs/issues/QUERY-BUILDER-TOOLING.md
 RESOURCE-NAME-ASCII-ONLY,issue,Non-ASCII resource names are unaddressable,draft,local,,,P2,L,core/query;core/store,,,,,,2026-08-14,specs/issues/RESOURCE-NAME-ASCII-ONLY.md
+STORE-METADATA-LAYOUT-HARDCODED-PER-STORE,issue,Every writable store hard-codes its own metadata layout,draft,local,,,P2,L,core/store;store/backends;web;docs,,,,,,2026-09-03,specs/issues/STORE-METADATA-LAYOUT-HARDCODED-PER-STORE.md
 TYPE-REGISTRY-NOT-REALM-AWARE,feature,A query spanning two realms cannot know which types the other realm supports,draft,local,,,P2,L,core/value;core/commands;core/plan;web;axum,,,,,,2026-08-18,specs/issues/TYPE-REGISTRY-NOT-REALM-AWARE.md
 VALUE-CONVERSION-CAPABILITY,feature,"Values cannot be converted between types, automatically or explicitly",draft,local,,,P2,L,core/value;core/commands;lib/value,,,,,,2026-08-18,specs/issues/VALUE-CONVERSION-CAPABILITY.md
 WORKSPACE-SERDE-DERIVE-UNDECLARED,issue,Three crates use serde derive macros without declaring the `derive` feature,accepted,local,,,P2,L,build;core/value;lib/ui;axum,,,,,,2026-08-09,specs/issues/WORKSPACE-SERDE-DERIVE-UNDECLARED.md
@@ -86,7 +87,6 @@ CORE-MULTI-REALM-INTERPRETER,issue,The interpreter supports a single realm,accep
 CORE-TOKIO-REMOVAL,issue,Core still depends on tokio primitives on wasm,accepted,local,,,P3,XL,core/assets,,,,,,2026-08-08,specs/issues/CORE-TOKIO-REMOVAL.md
 EXPIRATION-INTEGRATION-SUITE-REPAIR,design,expiration-integration-suite-failing-at-head,draft,local,examples,,P0,M,core/assets,,,,expiration-integration-suite-failing-at-head,,2026-08-11,specs/design/expiration-integration-suite-failing-at-head/DESIGN.md
 EXPIRED-BINARY-READ-SAFETY,design,Expired-safe binary reads,,github,implementation,,P0,M,core/assets;core/store,,22,,expired-binary-read-safety,,2026-08-08,specs/design/expired-binary-read-safety/DESIGN.md
-SIDECAR-COLLIDING-KEYS,design,Sidecar-colliding keys refused by the path builders,in_review,local,high-level,,P1,M,core/store;docs,,,,sidecar-colliding-keys,,2026-09-03,specs/design/sidecar-colliding-keys/DESIGN.md
 ARGUMENT-GUI-INFO-DEFAULT,design,Consistent default GUI metadata for command arguments,in_review,local,implementation,needs-decision,P2,S,core/commands;macro;web,,,,argument-gui-info-default,,2026-09-01,specs/design/argument-gui-info-default/DESIGN.md
 ASSET-MANAGER-INSERT-KEY-ASSET-SEMANTICS,design,asset-manager-insert-key-asset-semantics,draft,local,documentation,,P2,S,core/assets,,,,asset-manager-insert-key-asset-semantics,,2026-08-25,specs/design/asset-manager-insert-key-asset-semantics/DESIGN.md
 ERROR-WITH-KEY-FIELD,design,Error::with_key populates the key field,in_review,local,implementation,ready,P2,S,core/error,,,,error-with-key-field,,2026-08-29,specs/design/error-with-key-field/DESIGN.md
@@ -104,6 +104,7 @@ CONTEXT-PARAM-ORDER,design,Context parameter position in register_command!,draft
 FOREIGN-VALUE-TYPE-REGISTRATION,design,Foreign and Python value types in the type registry,,github,,,,,core/value;lib/value;web;py,,42,,foreign-value-type-registration,,2026-08-26,specs/design/foreign-value-type-registration/DESIGN.md
 PLAN-CWD-FREEZE,design,Freeze CWD in the plan and cut correct predecessor boundaries,,github,documentation,,,,core/plan;core/query;core/context;core/assets,,35,,plan-cwd-freeze,,2026-08-14,specs/design/plan-cwd-freeze/DESIGN.md
 REGISTER-COMMAND-ENUM,design,Enum parameters in register_command!,draft,local,architecture,,,,macro;core/commands,,,,register-command-enum,,2026-03-02,specs/design/register-command-enum/DESIGN.md
+SIDECAR-COLLIDING-KEYS,design,Sidecar-colliding keys refused by the path builders,in_review,local,high-level,,,,core/store;store/backends;docs,,,,sidecar-colliding-keys,,2026-09-03,specs/design/sidecar-colliding-keys/DESIGN.md
 UI-EVENTS,design,UI event delivery to widgets,in_review,local,high-level,,,,lib/ui,,,,ui-events,,2026-03-02,specs/design/ui-events/DESIGN.md
 VALUE-ACCESSOR,design,Value accessor abstraction,draft,local,high-level,,,,core/value,,,,value-accessor,,2026-03-02,specs/design/value-accessor/DESIGN.md
 VALUE-LIST-SUPPORT,design,Typed list values for lui/children and lui/roots,draft,local,architecture,,,,lib/ui,,,,value-list-support,,2026-03-02,specs/design/value-list-support/DESIGN.md
