@@ -471,6 +471,137 @@ async fn volatile_keyed_eval_immediate() -> Result<(), Error> {
     scenario_volatile_keyed_eval(env.to_ref()).await
 }
 
+// ============================================================================
+// The recorded key: is this a keyed asset?
+// (evaluate-path-consolidation Step 2)
+//
+// A keyed asset is an asset associated with a key, and it knows so from the moment it is
+// constructed. Everything that used to re-derive the answer — where to write, what to
+// invalidate, whether two assets are the same node — reads this one field instead.
+// ============================================================================
+
+/// A keyed asset records its key; a query asset records none. The keyed case includes the
+/// **volatile** one, which the manager deliberately never registers — a map-derived predicate
+/// reports `None` for it and would silently stop it being stored.
+async fn scenario_keyed_asset_records_its_key<E>(envref: EnvRef<E>) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    let m = envref.get_asset_manager();
+
+    let key = parse_key("dash.txt")?;
+    let keyed = m.get(&key).await?;
+    keyed.get().await?;
+    assert_eq!(
+        keyed.key().await,
+        Some(key.clone()),
+        "an asset created for a key must record it"
+    );
+
+    let query_asset = m.get_asset(&q("greet")).await?;
+    query_asset.get().await?;
+    assert_eq!(
+        query_asset.key().await,
+        None,
+        "a non-keyed query asset owns no key and must never be stored"
+    );
+
+    // The distinction must be visible in metadata too: a keyed asset and a non-keyed query asset
+    // built from the same query are not the same thing, and their states must differ.
+    let info = keyed.get_asset_info().await?;
+    assert_eq!(info.key, Some(key), "the key must reach AssetInfo");
+    Ok(())
+}
+
+/// An ad-hoc `apply` asset is not keyed, even when its recipe is shaped like a key. This is the
+/// durable half of `CONTEXT-APPLY-BARE-KEY-ILL-DEFINED`: not keyed means it can never be stored.
+async fn scenario_adhoc_apply_is_not_keyed<E>(envref: EnvRef<E>) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    let m = envref.get_asset_manager();
+    let bare_key_recipe: liquers_core::recipes::Recipe = parse_key("dash.txt")?.into();
+    let applied = m
+        .apply(bare_key_recipe, State::new().with_data("ignored".into()))
+        .await?;
+    let _ = applied.get().await;
+    assert_eq!(
+        applied.key().await,
+        None,
+        "an ad-hoc apply asset owns nothing, even with a key-shaped recipe"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn keyed_asset_records_its_key_default() -> Result<(), Error> {
+    let mut env = SimpleEnvironment::<Value>::new();
+    register_greet(&mut env.command_registry);
+    env.with_async_store(Box::new(recipe_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_keyed_asset_records_its_key(env.to_ref()).await
+}
+
+#[tokio::test]
+async fn keyed_asset_records_its_key_immediate() -> Result<(), Error> {
+    let mut env = ImmediateEnvironment::<Value>::new();
+    register_greet(&mut env.command_registry);
+    env.with_async_store(Box::new(recipe_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_keyed_asset_records_its_key(env.to_ref()).await
+}
+
+#[tokio::test]
+async fn volatile_keyed_asset_records_its_key_default() -> Result<(), Error> {
+    let mut env = SimpleEnvironment::<Value>::new();
+    register_vol_cmd(&mut env.command_registry);
+    env.with_async_store(Box::new(volatile_recipe_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    let envref = env.to_ref();
+    let key = parse_key("vol.txt")?;
+    let asset = envref.get_asset_manager().get(&key).await?;
+    asset.get().await?;
+    assert_eq!(
+        asset.key().await,
+        Some(key),
+        "a volatile keyed asset is keyed — it is merely never registered, which is a \
+         caching decision, not an identity one"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn volatile_keyed_asset_records_its_key_immediate() -> Result<(), Error> {
+    let mut env = ImmediateEnvironment::<Value>::new();
+    register_vol_cmd(&mut env.command_registry);
+    env.with_async_store(Box::new(volatile_recipe_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    let envref = env.to_ref();
+    let key = parse_key("vol.txt")?;
+    let asset = envref.get_asset_manager().get(&key).await?;
+    asset.get().await?;
+    assert_eq!(asset.key().await, Some(key));
+    Ok(())
+}
+
+#[tokio::test]
+async fn adhoc_apply_is_not_keyed_default() -> Result<(), Error> {
+    let mut env = SimpleEnvironment::<Value>::new();
+    register_greet(&mut env.command_registry);
+    env.with_async_store(Box::new(recipe_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_adhoc_apply_is_not_keyed(env.to_ref()).await
+}
+
+#[tokio::test]
+async fn adhoc_apply_is_not_keyed_immediate() -> Result<(), Error> {
+    let mut env = ImmediateEnvironment::<Value>::new();
+    register_greet(&mut env.command_registry);
+    env.with_async_store(Box::new(recipe_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_adhoc_apply_is_not_keyed(env.to_ref()).await
+}
+
 // --- immediate-only ---
 
 /// Two concurrent `get_asset` for the same query share one evaluation (the command body runs once).

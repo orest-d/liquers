@@ -1536,6 +1536,7 @@ mod tests {
         let asset = AssetRef::new_from_recipe(
             manager.next_id_for_asset(),
             key.clone().into(),
+            Some(key.clone()),
             envref.clone(),
         );
         assert!(manager.try_insert_key_asset(&key, asset.clone()).await);
@@ -1582,6 +1583,7 @@ mod tests {
         let ad_hoc = AssetRef::new_from_recipe(
             envref.get_asset_manager().next_id_for_asset(),
             ad_hoc_recipe,
+            None,
             envref.clone(),
         );
         assert_eq!(
@@ -1598,6 +1600,7 @@ mod tests {
         let volatile = AssetRef::new_from_recipe(
             manager.next_id_for_asset(),
             volatile_key.clone().into(),
+            Some(volatile_key.clone()),
             envref.clone(),
         );
         volatile
@@ -1623,6 +1626,7 @@ mod tests {
         let asset = AssetRef::new_from_recipe(
             manager.next_id_for_asset(),
             key.clone().into(),
+            Some(key.clone()),
             envref.clone(),
         );
         assert!(manager.try_insert_key_asset(&key, asset.clone()).await);

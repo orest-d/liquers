@@ -448,6 +448,18 @@ pub struct AssetData<E: Environment> {
     /// This is used to prevent race conditions when cancelling long-running tasks.
     cancelled: bool,
 
+    /// The key this asset is associated with — it is a *keyed asset* — or `None` when it is not.
+    ///
+    /// Set at construction by whoever creates the asset, which knows the answer because the key is
+    /// the argument it was called with. Never re-derived from the recipe afterwards: provider
+    /// resolution replaces the recipe mid-evaluation, which is why re-derivation produced
+    /// divergent answers (`CORE-EVALUATE-PATH-CONSOLIDATION`).
+    ///
+    /// Only a keyed asset may be written to the store, and only a stored asset can be loadable.
+    /// Registration in the manager's key map is a separate, manager-owned question about caching
+    /// and sharing — see `ASSET-REGISTRATION-OWNERSHIP-CONTRACT`.
+    key: Option<Key>,
+
     /// If true, this asset is volatile (computed from recipe/plan before execution)
     is_volatile: bool,
 
@@ -755,13 +767,13 @@ impl<E: Environment> AssetData<E> {
     /// - `id`: Unique asset identifier.
     /// - `recipe`: Recipe describing how the asset should be resolved/evaluated.
     /// - `envref`: Environment reference
-    pub fn new(id: u64, recipe: Recipe, envref: EnvRef<E>) -> Self {
-        Self::new_ext(id, recipe, State::new(), envref)
+    pub fn new(id: u64, recipe: Recipe, key: Option<Key>, envref: EnvRef<E>) -> Self {
+        Self::new_ext(id, recipe, State::new(), key, envref)
     }
 
     /// Creates a temporary asset data structure.
     pub fn new_temporary(envref: EnvRef<E>) -> Self {
-        let asset = Self::new_ext(0, Recipe::default(), State::new(), envref);
+        let asset = Self::new_ext(0, Recipe::default(), State::new(), None, envref);
         asset
     }
 
@@ -771,11 +783,14 @@ impl<E: Environment> AssetData<E> {
     /// - `id`: Unique asset identifier.
     /// - `recipe`: Recipe describing how the asset should be resolved/evaluated.
     /// - `initial_state`: Initial input state used when evaluating apply/query recipes.
+    /// - `key`: `Some(key)` when this is a *keyed asset* — an asset associated with that key —
+    ///   `None` otherwise. Only a keyed asset may be written to the store.
     /// - `envref`: Environment reference used to access the store, manager, and runtime services.
     pub fn new_ext(
         id: u64,
         recipe: Recipe,
         initial_state: State<E::Value>,
+        key: Option<Key>,
         envref: EnvRef<E>,
     ) -> Self {
         let (service_tx, service_rx) = mpsc::unbounded_channel();
@@ -793,6 +808,12 @@ impl<E: Environment> AssetData<E> {
             .get_asset_info()
             .unwrap_or_else(|_| AssetInfo::default());
         assetinfo.type_identifier = initial_state.type_identifier().to_string();
+        // A keyed asset and a non-keyed query asset built from the same query are not the same
+        // thing — the keyed one knows its key — so the difference must be visible in metadata,
+        // not only in the runtime record.
+        if let Some(key) = key.as_ref() {
+            assetinfo.with_key(key.clone());
+        }
         let asset = AssetData {
             id,
             envref,
@@ -810,6 +831,7 @@ impl<E: Environment> AssetData<E> {
             save_in_background: true,
             cancelled: false,
             is_volatile: false,
+            key,
             payload_path: Vec::new(),
             expiration_time: ExpirationTime::Never,
             persistence_status: PersistenceStatus::None,
@@ -1508,10 +1530,15 @@ impl<E: Environment> AssetRef<E> {
     }
 
     /// Create a new asset reference from a recipe.
-    pub(crate) fn new_from_recipe(id: u64, recipe: Recipe, envref: EnvRef<E>) -> Self {
+    pub(crate) fn new_from_recipe(
+        id: u64,
+        recipe: Recipe,
+        key: Option<Key>,
+        envref: EnvRef<E>,
+    ) -> Self {
         AssetRef {
             id,
-            data: Arc::new(RwLock::new(AssetData::new(id, recipe, envref))),
+            data: Arc::new(RwLock::new(AssetData::new(id, recipe, key, envref))),
         }
     }
 
@@ -1574,6 +1601,14 @@ impl<E: Environment> AssetRef<E> {
             return Ok(None);
         };
         Ok((owner.id() == self.id()).then_some(candidate))
+    }
+
+    /// The key this asset is associated with, or `None` when it is not a keyed asset.
+    ///
+    /// This is the recorded answer, set at construction — not a derivation from the recipe, which
+    /// provider resolution may replace mid-evaluation.
+    pub async fn key(&self) -> Option<Key> {
+        self.data.read().await.key.clone()
     }
 
     /// Whether this asset's plan required an evaluation payload.
@@ -4253,7 +4288,7 @@ impl<E: Environment> DefaultAssetManager<E> {
     /// Arguments:
     /// - `recipe`: Recipe describing how the asset should be resolved/evaluated.
     pub fn create_asset(&self, recipe: Recipe) -> AssetRef<E> {
-        let asset = AssetRef::new_from_recipe(self.next_id(), recipe, self.get_envref());
+        let asset = AssetRef::new_from_recipe(self.next_id(), recipe, None, self.get_envref());
         asset
     }
 
@@ -4261,7 +4296,7 @@ impl<E: Environment> DefaultAssetManager<E> {
     /// A dummy asset is an asset created from an empty recipe
     pub fn create_dummy_asset(&self) -> AssetRef<E> {
         let recipe = Query::new().into();
-        let asset = AssetRef::new_from_recipe(self.next_id(), recipe, self.get_envref());
+        let asset = AssetRef::new_from_recipe(self.next_id(), recipe, None, self.get_envref());
         asset
     }
 
@@ -4289,7 +4324,7 @@ impl<E: Environment> DefaultAssetManager<E> {
             .entry_async(key.clone())
             .await
             .or_insert_with(|| {
-                AssetRef::<E>::new_from_recipe(self.next_id(), key.into(), self.get_envref())
+                AssetRef::<E>::new_from_recipe(self.next_id(), key.into(), Some(key.clone()), self.get_envref())
             });
 
         Ok(entry.get().clone())
@@ -4302,7 +4337,7 @@ impl<E: Environment> DefaultAssetManager<E> {
     /// - `key`: Store key identifying the target asset/resource.
     async fn get_volatile_resource_asset(&self, key: &Key) -> Result<AssetRef<E>, Error> {
         eprintln!("Getting volatile asset for key {}", key);
-        let asset_ref = AssetRef::new_from_recipe(self.next_id(), key.into(), self.get_envref());
+        let asset_ref = AssetRef::new_from_recipe(self.next_id(), key.into(), Some(key.clone()), self.get_envref());
 
         // Set is_volatile flag in AssetData and Metadata
         {
@@ -4341,7 +4376,7 @@ impl<E: Environment> DefaultAssetManager<E> {
             .entry_async(query.clone())
             .await
             .or_insert_with(|| {
-                AssetRef::<E>::new_from_recipe(self.next_id(), query.into(), self.get_envref())
+                AssetRef::<E>::new_from_recipe(self.next_id(), query.into(), None, self.get_envref())
             });
 
         Ok(entry.get().clone())
@@ -4354,7 +4389,7 @@ impl<E: Environment> DefaultAssetManager<E> {
     /// - `query`: Query used to create an asset
     async fn get_volatile_query_asset(&self, query: &Query) -> Result<AssetRef<E>, Error> {
         eprintln!("Getting volatile asset for query {}", query);
-        let asset_ref = AssetRef::new_from_recipe(self.next_id(), query.into(), self.get_envref());
+        let asset_ref = AssetRef::new_from_recipe(self.next_id(), query.into(), None, self.get_envref());
 
         // Set is_volatile flag in AssetData and Metadata
         {
@@ -4751,7 +4786,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         initial_state: State<E::Value>,
     ) -> Result<AssetRef<E>, Error> {
         let asset_ref =
-            AssetData::new_ext(self.next_id(), recipe, initial_state, self.get_envref()).to_ref();
+            AssetData::new_ext(self.next_id(), recipe, initial_state, None, self.get_envref()).to_ref();
         // No fast track makes sense now, since apply can't be stored, however in the future
         // TODO: support fast-track once it makes sense
         self.job_queue.submit(asset_ref.clone()).await?;
@@ -4767,7 +4802,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         payload: Option<E::Payload>,
     ) -> Result<AssetRef<E>, Error> {
         let asset_ref =
-            AssetData::new_ext(self.next_id(), recipe, initial_state, self.get_envref()).to_ref();
+            AssetData::new_ext(self.next_id(), recipe, initial_state, None, self.get_envref()).to_ref();
         // No fast track makes sense now, since apply can't be stored, however in the future
         // TODO: support fast-track once it makes sense
         asset_ref.run_immediately(payload).await?;
@@ -5077,6 +5112,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             self.next_id(),
             recipe,
             State::new(), // Empty initial state
+            Some(key.clone()),
             self.get_envref(),
         );
         asset_data.data = Some(Arc::new(state.data_unchecked().as_ref().clone()));
@@ -5731,8 +5767,12 @@ impl<E: Environment> ImmediateAssetManager<E> {
         self.envref.clone()
     }
 
-    async fn make_volatile(&self, recipe_src: Recipe) -> AssetRef<E> {
-        let asset_ref = AssetRef::new_from_recipe(self.next_id(), recipe_src, self.envref());
+    /// Builds a fresh volatile asset that is deliberately inserted in no map.
+    ///
+    /// `key` must come from the caller: this serves both a keyed caller and a query caller, so the
+    /// answer cannot be derived here — which is exactly the conflation the recorded key removes.
+    async fn make_volatile(&self, recipe_src: Recipe, key: Option<Key>) -> AssetRef<E> {
+        let asset_ref = AssetRef::new_from_recipe(self.next_id(), recipe_src, key, self.envref());
         {
             let mut data = asset_ref.data.write().await;
             data.is_volatile = true;
@@ -5745,7 +5785,7 @@ impl<E: Environment> ImmediateAssetManager<E> {
 
     async fn get_query_asset(&self, query: &Query) -> Result<AssetRef<E>, Error> {
         if query.is_volatile(self.envref()).await? {
-            return Ok(self.make_volatile(query.into()).await);
+            return Ok(self.make_volatile(query.into(), None).await);
         }
         {
             let map = self.query_assets.lock().unwrap_or_else(|e| e.into_inner());
@@ -5753,7 +5793,7 @@ impl<E: Environment> ImmediateAssetManager<E> {
                 return Ok(existing.clone());
             }
         }
-        let asset_ref = AssetRef::new_from_recipe(self.next_id(), query.into(), self.envref());
+        let asset_ref = AssetRef::new_from_recipe(self.next_id(), query.into(), None, self.envref());
         let mut map = self.query_assets.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(existing) = map.get(query) {
             return Ok(existing.clone());
@@ -5764,7 +5804,7 @@ impl<E: Environment> ImmediateAssetManager<E> {
 
     async fn get_resource_asset(&self, key: &Key) -> Result<AssetRef<E>, Error> {
         if self.is_volatile(key).await? {
-            return Ok(self.make_volatile(key.into()).await);
+            return Ok(self.make_volatile(key.into(), Some(key.clone())).await);
         }
         {
             let map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
@@ -5773,7 +5813,7 @@ impl<E: Environment> ImmediateAssetManager<E> {
             }
         }
         let _mutation = self.key_mutation_lock.lock().await;
-        let asset_ref = AssetRef::new_from_recipe(self.next_id(), key.into(), self.envref());
+        let asset_ref = AssetRef::new_from_recipe(self.next_id(), key.into(), Some(key.clone()), self.envref());
         let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(existing) = map.get(key) {
             return Ok(existing.clone());
@@ -5874,7 +5914,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
     }
 
     async fn apply(&self, recipe: Recipe, to: State<E::Value>) -> Result<AssetRef<E>, Error> {
-        let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, self.envref()).to_ref();
+        let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, None, self.envref()).to_ref();
         asset_ref.run_inline().await?;
         Ok(asset_ref)
     }
@@ -5909,7 +5949,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         to: State<E::Value>,
         payload: Option<E::Payload>,
     ) -> Result<AssetRef<E>, Error> {
-        let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, self.envref()).to_ref();
+        let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, None, self.envref()).to_ref();
         asset_ref.run_immediately_inline(payload).await?;
         Ok(asset_ref)
     }
@@ -6060,7 +6100,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             };
             metadata.set_version(Some(version))?;
         }
-        let mut data = AssetData::new_ext(self.next_id(), key.into(), State::new(), self.envref());
+        let mut data = AssetData::new_ext(self.next_id(), key.into(), State::new(), Some(key.clone()), self.envref());
         data.data = Some(Arc::new(state.data_unchecked().as_ref().clone()));
         data.metadata = metadata.clone();
         data.status = final_status;
@@ -6259,7 +6299,7 @@ mod tests {
         let envref = env.to_ref();
 
         let mut asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(9999, key.clone().into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(9999, key.clone().into(), Some(key.clone()), envref.clone());
 
         for i in 0..8 {
             asset_data
@@ -6284,7 +6324,7 @@ mod tests {
         let dummy_env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         let key = parse_key("test.txt").unwrap();
         let asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(1234, key.into(), dummy_env.to_ref());
+            AssetData::<SimpleEnvironment<Value>>::new(1234, key.clone().into(), Some(key.clone()), dummy_env.to_ref());
         let state = asset_data.poll_state();
         assert!(state.is_none());
         let bin = asset_data.poll_binary();
@@ -6296,7 +6336,7 @@ mod tests {
         let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         let key = parse_key("test/weak_upgrade.txt").unwrap();
         let asset =
-            AssetData::<SimpleEnvironment<Value>>::new(43210, key.into(), env.to_ref()).to_ref();
+            AssetData::<SimpleEnvironment<Value>>::new(43210, key.clone().into(), Some(key.clone()), env.to_ref()).to_ref();
 
         let weak = asset.downgrade();
         assert_eq!(weak.id(), asset.id());
@@ -6311,7 +6351,7 @@ mod tests {
         let weak = {
             let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
             let key = parse_key("test/weak_drop.txt").unwrap();
-            let asset = AssetData::<SimpleEnvironment<Value>>::new(43211, key.into(), env.to_ref())
+            let asset = AssetData::<SimpleEnvironment<Value>>::new(43211, key.clone().into(), Some(key.clone()), env.to_ref())
                 .to_ref();
             let weak = asset.downgrade();
             assert!(weak.upgrade().is_some());
@@ -6344,7 +6384,7 @@ mod tests {
         let envref = env.to_ref();
 
         let mut asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(1234, key.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(1234, key.clone().into(), Some(key.clone()), envref.clone());
 
         let state = asset_data.poll_state();
         assert!(state.is_none());
@@ -6381,7 +6421,7 @@ mod tests {
 
         let envref = env.to_ref();
         let mut asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(1235, key.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(1235, key.clone().into(), Some(key.clone()), envref.clone());
 
         assert!(!asset_data.try_fast_track().await.unwrap());
         assert!(asset_data.poll_state().is_none());
@@ -6410,7 +6450,7 @@ mod tests {
 
         let envref = env.to_ref();
         let mut asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(1236, key.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(1236, key.clone().into(), Some(key.clone()), envref.clone());
 
         assert!(asset_data.try_fast_track().await.unwrap());
         let state = asset_data.poll_state().expect("state must be available");
@@ -6436,7 +6476,7 @@ mod tests {
 
         let envref = env.to_ref();
         let mut asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(1237, key.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(1237, key.clone().into(), Some(key.clone()), envref.clone());
 
         assert!(!asset_data.try_fast_track().await.unwrap());
         assert!(asset_data.poll_state().is_none());
@@ -6456,7 +6496,7 @@ mod tests {
         let envref = env.to_ref();
 
         let mut asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), None, envref.clone());
 
         let state = asset_data.poll_state();
         assert!(state.is_none());
@@ -6487,7 +6527,7 @@ mod tests {
         let envref = env.to_ref();
 
         let asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), None, envref.clone());
 
         let assetref = asset_data.to_ref();
         assetref.run().await.unwrap();
@@ -6508,7 +6548,7 @@ mod tests {
 
         let envref = env.to_ref();
         let asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(2234, query.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(2234, query.into(), None, envref.clone());
         let assetref = asset_data.to_ref();
         {
             let mut lock = assetref.data.write().await;
@@ -6526,6 +6566,7 @@ mod tests {
         let asset = AssetData::<SimpleEnvironment<Value>>::new(
             2236,
             parse_query("test").unwrap().into(),
+            None,
             env.to_ref(),
         )
         .to_ref();
@@ -6545,6 +6586,7 @@ mod tests {
         let asset = AssetData::<SimpleEnvironment<Value>>::new(
             2237,
             parse_query("test").unwrap().into(),
+            None,
             env.to_ref(),
         )
         .to_ref();
@@ -6572,10 +6614,10 @@ mod tests {
         let parent_key = parse_key("parent.txt").unwrap();
         let dep_key = parse_key("dep.txt").unwrap();
         let parent =
-            AssetData::<SimpleEnvironment<Value>>::new(2238, parent_key.into(), envref.clone())
+            AssetData::<SimpleEnvironment<Value>>::new(2238, parent_key.clone().into(), Some(parent_key.clone()), envref.clone())
                 .to_ref();
         let dependency =
-            AssetData::<SimpleEnvironment<Value>>::new(2239, dep_key.clone().into(), envref)
+            AssetData::<SimpleEnvironment<Value>>::new(2239, dep_key.clone().into(), Some(dep_key.clone()), envref)
                 .to_ref();
         let dependency_record_key = DependencyKey::from(&dep_key);
 
@@ -6613,10 +6655,10 @@ mod tests {
         let envref = env.to_ref();
         let key = parse_key("shared.txt").unwrap();
         let delegating =
-            AssetData::<SimpleEnvironment<Value>>::new(2240, key.clone().into(), envref.clone())
+            AssetData::<SimpleEnvironment<Value>>::new(2240, key.clone().into(), Some(key.clone()), envref.clone())
                 .to_ref();
         let owner =
-            AssetData::<SimpleEnvironment<Value>>::new(2241, key.clone().into(), envref.clone())
+            AssetData::<SimpleEnvironment<Value>>::new(2241, key.clone().into(), Some(key.clone()), envref.clone())
                 .to_ref();
 
         delegating.record_dependency_on_asset(&owner).await.unwrap();
@@ -6657,10 +6699,10 @@ mod tests {
         let alias_target = parse_key("source/data.txt").unwrap();
 
         let delegating =
-            AssetData::<SimpleEnvironment<Value>>::new(2244, key.clone().into(), envref.clone())
+            AssetData::<SimpleEnvironment<Value>>::new(2244, key.clone().into(), Some(key.clone()), envref.clone())
                 .to_ref();
         let owner =
-            AssetData::<SimpleEnvironment<Value>>::new(2245, key.clone().into(), envref.clone())
+            AssetData::<SimpleEnvironment<Value>>::new(2245, key.clone().into(), Some(key.clone()), envref.clone())
                 .to_ref();
 
         // What provider resolution does to the owner: the recipe is replaced, the `query` it was
@@ -6693,10 +6735,10 @@ mod tests {
         let parent_key = parse_key("parent.txt").unwrap();
         let dep_key = parse_key("dep.txt").unwrap();
         let parent =
-            AssetData::<SimpleEnvironment<Value>>::new(2242, parent_key.into(), envref.clone())
+            AssetData::<SimpleEnvironment<Value>>::new(2242, parent_key.clone().into(), Some(parent_key.clone()), envref.clone())
                 .to_ref();
         let dependency =
-            AssetData::<SimpleEnvironment<Value>>::new(2243, dep_key.clone().into(), envref)
+            AssetData::<SimpleEnvironment<Value>>::new(2243, dep_key.clone().into(), Some(dep_key.clone()), envref)
                 .to_ref();
 
         parent
@@ -6721,7 +6763,7 @@ mod tests {
 
         let envref = env.to_ref();
         let asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(2235, query.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(2235, query.into(), None, envref.clone());
         let assetref = asset_data.to_ref();
         {
             let mut lock = assetref.data.write().await;
@@ -6744,7 +6786,7 @@ mod tests {
 
         let envref = env.to_ref();
         let asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(4321, query.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(4321, query.into(), None, envref.clone());
         let assetref = asset_data.to_ref();
 
         assetref.run().await.unwrap();
@@ -6780,7 +6822,7 @@ mod tests {
         let envref = env.to_ref();
 
         let asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), None, envref.clone());
 
         let assetref = asset_data.to_ref();
         assert!(assetref.poll_state().await.is_none());
@@ -6820,7 +6862,7 @@ mod tests {
         let envref = env.to_ref();
 
         let mut asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(1234, recipe, envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(1234, recipe, None, envref.clone());
         asset_data.save_in_background = false; // Save synchronously for the test
 
         let assetref = asset_data.to_ref();
@@ -7079,7 +7121,7 @@ recipes:
         let envref = env.to_ref();
         let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(4));
         let asset =
-            AssetData::<SimpleEnvironment<Value>>::new(1, query.into(), envref.clone()).to_ref();
+            AssetData::<SimpleEnvironment<Value>>::new(1, query.into(), None, envref.clone()).to_ref();
         asset.set_status(Status::Submitted).await.unwrap();
 
         let (a, b) = tokio::join!(
@@ -7106,7 +7148,7 @@ recipes:
         let envref = env.to_ref();
         let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(4));
         let asset =
-            AssetData::<SimpleEnvironment<Value>>::new(2, query.into(), envref.clone()).to_ref();
+            AssetData::<SimpleEnvironment<Value>>::new(2, query.into(), None, envref.clone()).to_ref();
 
         asset.set_status(Status::Ready).await.unwrap();
         assert!(asset.try_claim_for_run(&queue).await.unwrap().is_none());
@@ -7121,7 +7163,7 @@ recipes:
         let envref = env.to_ref();
         let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(4));
         let asset =
-            AssetData::<SimpleEnvironment<Value>>::new(3, query.into(), envref.clone()).to_ref();
+            AssetData::<SimpleEnvironment<Value>>::new(3, query.into(), None, envref.clone()).to_ref();
         asset.set_status(Status::Submitted).await.unwrap();
 
         let claim = asset
@@ -7144,7 +7186,7 @@ recipes:
         // Capacity 0 so the repair's submit re-parks as Submitted without spawning run().
         let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(0));
         let asset =
-            AssetData::<SimpleEnvironment<Value>>::new(4, query.into(), envref.clone()).to_ref();
+            AssetData::<SimpleEnvironment<Value>>::new(4, query.into(), None, envref.clone()).to_ref();
         asset.set_status(Status::Submitted).await.unwrap();
 
         {
@@ -7182,7 +7224,7 @@ recipes:
         let envref = env.to_ref();
         let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(4));
         let asset =
-            AssetData::<SimpleEnvironment<Value>>::new(30, query.into(), envref.clone()).to_ref();
+            AssetData::<SimpleEnvironment<Value>>::new(30, query.into(), None, envref.clone()).to_ref();
         asset.set_status(Status::Dependencies).await.unwrap();
         assert!(
             asset.try_claim_for_run(&queue).await.unwrap().is_none(),
@@ -7201,7 +7243,7 @@ recipes:
         // Capacity 0 so the repair's submit re-parks as Submitted without spawning run().
         let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(0));
         let asset =
-            AssetData::<SimpleEnvironment<Value>>::new(31, query.into(), envref.clone()).to_ref();
+            AssetData::<SimpleEnvironment<Value>>::new(31, query.into(), None, envref.clone()).to_ref();
         asset.set_status(Status::Submitted).await.unwrap();
 
         {
@@ -7244,10 +7286,11 @@ recipes:
         let envref = env.to_ref();
 
         let asset =
-            AssetData::<SimpleEnvironment<Value>>::new(32, query.into(), envref.clone()).to_ref();
+            AssetData::<SimpleEnvironment<Value>>::new(32, query.into(), None, envref.clone()).to_ref();
         let dep = AssetData::<SimpleEnvironment<Value>>::new(
             33,
             parse_query("dep").unwrap().into(),
+            None,
             envref.clone(),
         )
         .to_ref();
@@ -7290,12 +7333,14 @@ recipes:
         let parent = AssetData::<SimpleEnvironment<Value>>::new(
             34,
             parse_query("parent").unwrap().into(),
+            None,
             envref.clone(),
         )
         .to_ref();
         let dependency = AssetData::<SimpleEnvironment<Value>>::new(
             35,
             parse_query("dependency").unwrap().into(),
+            None,
             envref.clone(),
         )
         .to_ref();
@@ -7320,7 +7365,7 @@ recipes:
         let envref = env.to_ref();
         let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(0));
         let asset =
-            AssetData::<SimpleEnvironment<Value>>::new(20, query.into(), envref.clone()).to_ref();
+            AssetData::<SimpleEnvironment<Value>>::new(20, query.into(), None, envref.clone()).to_ref();
         asset.set_status(Status::Submitted).await.unwrap();
         assert!(!queue.try_to_start_immediately(&asset).await.unwrap());
         assert_eq!(queue.running_count(), 0);
@@ -7333,7 +7378,7 @@ recipes:
         let envref = env.to_ref();
         let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(4));
         let asset =
-            AssetData::<SimpleEnvironment<Value>>::new(21, query.into(), envref.clone()).to_ref();
+            AssetData::<SimpleEnvironment<Value>>::new(21, query.into(), None, envref.clone()).to_ref();
         asset.set_status(Status::Processing).await.unwrap();
         // Already Processing: no claim available -> true, and the reserved slot is released.
         assert!(queue.try_to_start_immediately(&asset).await.unwrap());
@@ -7347,7 +7392,7 @@ recipes:
         let envref = env.to_ref();
         let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(4));
         let mk = |id: u64| {
-            AssetData::<SimpleEnvironment<Value>>::new(id, query.clone().into(), envref.clone())
+            AssetData::<SimpleEnvironment<Value>>::new(id, query.clone().into(), None, envref.clone())
                 .to_ref()
         };
         let d1 = mk(11);
@@ -7400,7 +7445,7 @@ recipes:
 
         // Create one asset
         let asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), None, envref.clone());
         let assetref = asset_data.to_ref();
 
         // Submit the same asset twice
@@ -7433,7 +7478,7 @@ recipes:
         for i in 0..4 {
             let query = parse_query("slow").unwrap();
             let asset_data =
-                AssetData::<SimpleEnvironment<Value>>::new(i, query.into(), envref.clone());
+                AssetData::<SimpleEnvironment<Value>>::new(i, query.into(), None, envref.clone());
             let assetref = asset_data.to_ref();
             assets.push(assetref.clone());
             queue.submit(assetref).await.unwrap();
@@ -7486,7 +7531,7 @@ recipes:
 
         // Submit one asset
         let asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), None, envref.clone());
         let assetref = asset_data.to_ref();
         queue.submit(assetref.clone()).await.unwrap();
 
@@ -7519,7 +7564,7 @@ recipes:
         for i in 0..3 {
             let query = parse_query("quick").unwrap();
             let asset_data =
-                AssetData::<SimpleEnvironment<Value>>::new(i, query.into(), envref.clone());
+                AssetData::<SimpleEnvironment<Value>>::new(i, query.into(), None, envref.clone());
             let assetref = asset_data.to_ref();
             queue.submit(assetref).await.unwrap();
         }
@@ -7563,7 +7608,7 @@ recipes:
         // Submit one asset
         let query = parse_query("medium").unwrap();
         let asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), None, envref.clone());
         let assetref = asset_data.to_ref();
 
         // Check running count immediately after submit
@@ -7902,10 +7947,11 @@ recipes:
         let first = AssetRef::new_from_recipe(
             manager.next_id_for_asset(),
             key.clone().into(),
+            Some(key.clone()),
             envref.clone(),
         );
         let second =
-            AssetRef::new_from_recipe(manager.next_id_for_asset(), key.clone().into(), envref);
+            AssetRef::new_from_recipe(manager.next_id_for_asset(), key.clone().into(), Some(key.clone()), envref);
 
         assert!(manager.try_insert_key_asset(&key, first.clone()).await);
         assert!(!manager.try_insert_key_asset(&key, second).await);
@@ -7923,10 +7969,11 @@ recipes:
         let first = AssetRef::new_from_recipe(
             manager.next_id_for_asset(),
             key.clone().into(),
+            Some(key.clone()),
             envref.clone(),
         );
         let second =
-            AssetRef::new_from_recipe(manager.next_id_for_asset(), key.clone().into(), envref);
+            AssetRef::new_from_recipe(manager.next_id_for_asset(), key.clone().into(), Some(key.clone()), envref);
 
         assert!(manager.try_insert_key_asset(&key, first.clone()).await);
         assert!(!manager.try_insert_key_asset(&key, second).await);
@@ -8102,7 +8149,7 @@ recipes:
         recipe.cwd = Some("a/b".to_string());
 
         let mut asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(9001, recipe, envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(9001, recipe, None, envref.clone());
         asset_data.save_in_background = false;
         let assetref = asset_data.to_ref();
 
@@ -8141,7 +8188,7 @@ recipes:
         let envref = env.to_ref();
         let query = parse_query("test").unwrap();
         let mut asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(9002, query.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(9002, query.into(), None, envref.clone());
         asset_data.save_in_background = false;
         let assetref = asset_data.to_ref();
 
@@ -8182,7 +8229,7 @@ recipes:
         let store_key = recipe.store_to_key().unwrap().unwrap();
 
         let mut asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(9003, recipe, envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(9003, recipe, None, envref.clone());
         asset_data.save_in_background = false;
         let assetref = asset_data.to_ref();
 
@@ -8233,7 +8280,7 @@ recipes:
         envref: EnvRef<SimpleEnvironment<Value>>,
     ) -> AssetData<SimpleEnvironment<Value>> {
         let key = parse_key("gate/subject.txt").expect("test key");
-        let mut d = AssetData::<SimpleEnvironment<Value>>::new(id, key.into(), envref);
+        let mut d = AssetData::<SimpleEnvironment<Value>>::new(id, key.clone().into(), Some(key.clone()), envref);
         d.binary = Some(Arc::new(b"bytes that must not escape".to_vec()));
         if with_value {
             d.data = Some(Arc::new(Value::from("v")));
@@ -8415,7 +8462,7 @@ recipes:
     ) -> Result<(), Box<dyn std::error::Error>> {
         let envref = test_envref();
         let key = parse_key("gate/retained_no_bytes.txt")?;
-        let mut d = AssetData::<SimpleEnvironment<Value>>::new(9300, key.into(), envref);
+        let mut d = AssetData::<SimpleEnvironment<Value>>::new(9300, key.clone().into(), Some(key.clone()), envref);
         d.data = Some(Arc::new(Value::from("recoverable")));
         d.binary = None; // never serialized — the common case
         d.status = Status::Expired;
@@ -8506,7 +8553,8 @@ recipes:
             let key = parse_key("gate/no_binary_form.txt")?;
             let mut d = AssetData::<SimpleEnvironment<Value>>::new(
                 9340 + i as u64,
-                key.into(),
+                key.clone().into(),
+                Some(key.clone()),
                 envref.clone(),
             );
             d.data = Some(Arc::new(Value::from("not serializable via this path")));
@@ -8530,7 +8578,7 @@ recipes:
     ) -> Result<(), Box<dyn std::error::Error>> {
         let envref = test_envref();
         let key = parse_key("gate/value_no_bytes.txt")?;
-        let mut d = AssetData::<SimpleEnvironment<Value>>::new(9320, key.into(), envref);
+        let mut d = AssetData::<SimpleEnvironment<Value>>::new(9320, key.clone().into(), Some(key.clone()), envref);
         d.data = Some(Arc::new(Value::from("serialize me")));
         d.binary = None;
         d.status = Status::Ready;
@@ -8556,7 +8604,7 @@ recipes:
         let store = envref.get_async_store();
 
         let mut d =
-            AssetData::<SimpleEnvironment<Value>>::new(9330, key.clone().into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(9330, key.clone().into(), Some(key.clone()), envref.clone());
         d.binary = Some(Arc::new(b"persist me anyway".to_vec()));
         d.status = Status::Storing; // Pending exposure: hidden from every normal read
         let assetref = d.to_ref();
@@ -8591,7 +8639,7 @@ recipes:
         let envref = ImmediateEnvironment::<Value>::new().to_ref();
         let original = parse_key("bound/original.txt").expect("original key");
         let replacement = parse_key("provider/replacement.txt").expect("replacement key");
-        let asset = AssetRef::new_from_recipe(1, original.clone().into(), envref);
+        let asset = AssetRef::new_from_recipe(1, original.clone().into(), Some(original.clone()), envref);
 
         {
             let mut data = asset.data.write().await;
@@ -8641,6 +8689,7 @@ recipes:
         let asset = AssetRef::new_from_recipe(
             manager.next_id_for_asset(),
             key.clone().into(),
+            Some(key.clone()),
             envref.clone(),
         );
         {
@@ -9027,6 +9076,7 @@ recipes:
         let first = AssetRef::new_from_recipe(
             manager.next_id_for_asset(),
             key.clone().into(),
+            Some(key.clone()),
             envref.clone(),
         );
         assert!(manager.try_insert_key_asset(&key, first.clone()).await);
@@ -9034,6 +9084,7 @@ recipes:
         let second = AssetRef::new_from_recipe(
             manager.next_id_for_asset(),
             key.clone().into(),
+            Some(key.clone()),
             envref.clone(),
         );
         // Remove first so the second insert represents a genuine replacement rather than a

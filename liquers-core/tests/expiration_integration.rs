@@ -1575,7 +1575,7 @@ async fn test_expired_keyed_asset_does_not_fast_track_back(
 
     // A fresh AssetData over the same store entry refuses to fast-track it.
     let mut reloaded =
-        AssetData::<SimpleEnvironment<Value>>::new(9401, key.clone().into(), envref.clone());
+        AssetData::<SimpleEnvironment<Value>>::new(9401, key.clone().into(), Some(key.clone()), envref.clone());
     assert!(
         !reloaded.try_fast_track().await?,
         "an Expired store entry must not fast-track"

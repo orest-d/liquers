@@ -1726,6 +1726,7 @@ mod tests {
         let owner = AssetRef::new_from_recipe(
             manager.next_id_for_asset(),
             owner_key.clone().into(),
+            Some(owner_key.clone()),
             envref.clone(),
         );
         assert!(
