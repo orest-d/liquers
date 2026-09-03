@@ -1345,12 +1345,25 @@ pub struct FileStore {
 }
 
 impl FileStore {
-    const METADATA: &'static str = ".__metadata__";
+    /// What this store's layout reserves. Unlike [`AsyncFileStore`] it takes **no lock files**, so
+    /// `x.__lock__` is a key it can address and must not refuse — over-reserving is a defect in
+    /// the same family as under-reserving. `reserved04` pins the difference.
+    const RESERVED: ReservedNames = ReservedNames::new(&[METADATA_SUFFIX], &[METADATA_FOLDER]);
+
     pub fn new(path: &str, prefix: &Key) -> FileStore {
         FileStore {
             path: PathBuf::from(path),
             prefix: prefix.to_owned(),
         }
+    }
+
+    /// Raises the refusal for a key this store's layout cannot represent. See
+    /// [`AsyncFileStore::reject_reserved`].
+    fn reject_reserved(&self, key: &Key) -> Result<(), Error> {
+        if Self::RESERVED.is_reserved_key(key) {
+            return Err(Error::key_not_supported(key, &self.store_name()));
+        }
+        Ok(())
     }
 
     /// Maps a key onto a filesystem path under the store root.
@@ -1360,6 +1373,7 @@ impl FileStore {
     /// [module documentation](self#a-store-key-is-absolute).
     pub fn key_to_path(&self, key: &Key) -> Result<PathBuf, Error> {
         let key = key.as_absolute()?;
+        self.reject_reserved(&key)?;
         let mut path = self.path.clone();
         path.push(key.to_string());
         Ok(path)
@@ -1369,8 +1383,9 @@ impl FileStore {
     /// [`Self::key_to_path`].
     pub fn key_to_path_metadata(&self, key: &Key) -> Result<PathBuf, Error> {
         let key = key.as_absolute()?;
+        self.reject_reserved(&key)?;
         let mut path = self.path.clone();
-        path.push(format!("{}{}", key, Self::METADATA));
+        path.push(format!("{}{}", key, METADATA_SUFFIX));
         Ok(path)
     }
 }
@@ -1547,7 +1562,7 @@ impl Store for FileStore {
                         .ok()
                         .map(|e| e.file_name().to_string_lossy().to_string())
                 })
-                .filter(|name| !name.ends_with(Self::METADATA))
+                .filter(|name| !Self::RESERVED.is_reserved_name(name))
                 .collect();
             Ok(names)
         } else if path.exists() {
@@ -1567,9 +1582,7 @@ impl Store for FileStore {
     fn is_supported(&self, key: &Key) -> bool {
         !key.is_relative()
             && key.has_key_prefix(&self.prefix)
-            && (!key
-                .filename()
-                .is_some_and(|file_name| file_name.name.ends_with(Self::METADATA)))
+            && !Self::RESERVED.is_reserved_key(key)
     }
 }
 
@@ -3274,6 +3287,80 @@ mod reserved_name_tests {
         assert!(!root.join("report.txt").exists());
 
         tokio::fs::remove_dir_all(&sandbox).await.expect("cleanup");
+        Ok(())
+    }
+
+    /// `reserved04` — the synchronous `FileStore` reserves the metadata name and **not** the lock.
+    ///
+    /// This is the test that pins the reserved set to the store rather than to the crate.
+    /// `FileStore` takes no lock files, so `x.__lock__` is a key it can address, and a single
+    /// global reserved list would refuse it for nothing.
+    #[test]
+    fn reserved04_file_store_reserves_metadata_but_not_lock() -> Result<(), Error> {
+        let sandbox = unique_temp_dir("reserved04");
+        let root = sandbox.join("root");
+        std::fs::create_dir_all(&root).expect("create root");
+        let store = FileStore::new(root.to_string_lossy().as_ref(), &Key::new());
+
+        // Both forms, and an interior segment — `FileStore` is `AsyncFileStore` minus the lock, so
+        // the segment rule has to hold here too and not only in the async twin.
+        for text in [
+            "file.__metadata__",
+            "__metadata__",
+            "data/__metadata__/file.json",
+        ] {
+            let key = parse_key(text)?;
+            assert!(!store.is_supported(&key), "{text}");
+            assert_not_supported(store.key_to_path(&key), text);
+            assert_not_supported(store.key_to_path_metadata(&key), text);
+        }
+
+        // The lock suffix belongs to `AsyncFileStore`'s layout, not this one.
+        let lock_shaped = parse_key("file.__lock__")?;
+        assert!(
+            store.is_supported(&lock_shaped),
+            "FileStore takes no locks — this key is addressable"
+        );
+        assert!(store.key_to_path(&lock_shaped).is_ok());
+
+        std::fs::remove_dir_all(&sandbox).expect("cleanup");
+        Ok(())
+    }
+
+    /// `reserved07` — `FileStore` filters its listing by the same predicate, and by *its own* set.
+    ///
+    /// The synchronous store is obsolete and unreachable (`CORE-SYNC-STORE-TRAIT-OBSOLETE`), and
+    /// that is precisely why it needs its own test rather than being trusted to follow
+    /// `AsyncFileStore`: nothing else exercises it, so a filter updated in one store and forgotten
+    /// in the other would stay invisible until the trait is revived or deleted.
+    ///
+    /// The last assertion is the per-store half: a file genuinely named `x.__lock__` is an ordinary
+    /// asset here and must still be listed.
+    #[test]
+    fn reserved07_file_store_listing_uses_its_own_reserved_set() -> Result<(), Error> {
+        let sandbox = unique_temp_dir("reserved07");
+        let root = sandbox.join("root");
+        std::fs::create_dir_all(root.join("__metadata__")).expect("legacy metadata folder");
+        std::fs::write(root.join("__metadata__").join("report.txt.json"), b"{}")
+            .expect("legacy sidecar");
+        std::fs::write(root.join("report.txt"), b"body").expect("data file");
+        std::fs::write(root.join("report.txt.__metadata__"), b"{}").expect("sidecar");
+        std::fs::write(root.join("notes.__lock__"), b"not a lock here").expect("lock-shaped file");
+
+        let store = FileStore::new(root.to_string_lossy().as_ref(), &Key::new());
+        let names = store.listdir(&Key::new())?;
+
+        // Reserved by this store's layout — dropped.
+        assert!(!names.contains(&"__metadata__".to_owned()), "{names:?}");
+        assert!(
+            !names.contains(&"report.txt.__metadata__".to_owned()),
+            "{names:?}"
+        );
+        // Not reserved by this store's layout — listed.
+        assert!(names.contains(&"report.txt".to_owned()), "{names:?}");
+        assert!(names.contains(&"notes.__lock__".to_owned()), "{names:?}");
+
+        std::fs::remove_dir_all(&sandbox).expect("cleanup");
         Ok(())
     }
 }
