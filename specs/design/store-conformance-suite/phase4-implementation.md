@@ -1,0 +1,424 @@
+# Phase 4: Implementation Plan — `AsyncStore` conformance
+
+## Overview
+
+**Fourteen active steps in four movements**: **specify** (1), **build the harness and prove it**
+(2, 4), **write the rules and run them** (5–12), **document, adopt and close** (14–16). Steps 3 and
+13 were removed at the gate with the validation tool; their numbers are kept so that references to
+later steps stay stable.
+
+Two ordering rules are load-bearing and not negotiable:
+
+- **The harness is tested before any real rule exists** (step 4). A rule that fails because the
+  gating is wrong is indistinguishable from a store that diverges, and this project's whole output
+  is a claim about which stores diverge.
+- **No existing test is deleted until its replacement passes *and* fails when the behaviour is
+  broken** (step 15, gated on steps 9–12). This is the review decision, expressed as step order.
+
+Everything through step 12 is additive behind a non-default feature. Exactly two steps change
+behaviour a consumer could notice — step 10 (`AsyncMemoryStore::keys`) and step 15 (deletions) —
+and both have explicit rollbacks.
+
+**Effort shape.** Steps 5–8 are the bulk (31 rules); steps 2–4 are the risk. A step that "feels
+uncertain" here is step 12 (`liquers-web` under two harnesses) and it is deliberately last of the
+suites so nothing depends on it.
+
+## Implementation Steps
+
+### Step 1 — Complete the contract
+
+**Files:** `specs/reference/STORE_SEMANTICS.md`
+
+Record the sync/async `keys()` asymmetry step 10 creates, beside the trait-neutral phrasing, so it
+reads as a decision rather than an oversight. Resolve the **two** ⚠ rows this project owns, using the Phase 1 decisions: §5 the `removedir`
+postcondition (`Ok` means the directory is gone; recursion follows; the trait default's
+`Err(KeyNotSupported)` stays valid for a store declaring no `RemoveDirectories`), and §9 `keys()`
+returns data keys plus directories plus the prefix with **every returned key starting with the
+prefix**.
+
+§6's `is_supported` ⚠ was the third; `async-memory-store-prefix-support` merged from `main` on
+2026-09-02 and cleared it. §7's remaining ⚠ is `RESOURCE-NAME-ASCII-ONLY`, a parsing limit rather
+than a store one, and stays. Restate rules
+trait-neutrally where they hold for both traits, noting only `AsyncStore` must satisfy them today
+(`CORE-SYNC-STORE-TRAIT-OBSOLETE`). Replace each *Enforced by* line with the Phase 3 rule IDs. Add a
+`## History` row and bump `reviewed:` in the same commit (§9.2).
+
+**Validation:** `python3 scripts/docs_index.py --check`
+**Agent:** sonnet · skills: none · knowledge: Phase 1 decisions 1–4, Phase 3 rule inventory, the
+current `STORE_SEMANTICS.md`.
+
+### Step 2 — Feature and module skeleton
+
+**Files:** `liquers-core/Cargo.toml`, `liquers-core/src/lib.rs`,
+`liquers-core/src/store_conformance/{mod,fixture,report}.rs`
+
+Add `store-conformance = []`, **not** in `default`. Define `Capability`, `StoreCapabilities` (no
+`Default`, with `has()` matching `Capability` exhaustively), `SafetyLevel` (three variants, `Ord`
+order documented as load-bearing), `KeyRequest`, `Unavailable`, `Fixture`, `RuleOutcome`,
+`From<Error> for RuleOutcome`, `ReportEntry`, `ConformanceReport` (with `created` and `residue`),
+`AllowedFailure`, `RuleMeta`, `Rule`, `RuleFn`, `OutcomeCounts`, an empty `rules()`, `rule(id)`,
+`run_all`, `run_rule`, and the `rule!` macro emitting the wrapper described in Phase 2. The
+`ConformanceReport` methods land here too, not later: `counts() -> OutcomeCounts`, `failures()`,
+`not_run_by_level()`, `assert_conformant(&[AllowedFailure])`, and `Display`. `assert_conformant`
+must fail in **both** directions from the start — a disallowed failure, and an `allowed` rule that
+passed — because step 4's `H5` tests exactly that and steps 9–12 depend on it to keep their
+allowed-failure lists from going stale.
+
+**Validation:**
+```bash
+cargo check -p liquers-core --features store-conformance
+cargo check -p liquers-core                      # feature off must still compile
+cargo check -p liquers-core --target wasm32-unknown-unknown --features store-conformance
+```
+**Agent:** sonnet · skills: `rust-best-practices` · knowledge: Phase 2 Data Structures and Trait
+Implementations verbatim, `maybe_send.rs`, the `#[cfg_attr(..., async_trait)]` pattern at
+`store.rs:327`.
+
+### Step 3 — **removed**
+
+`StoreFactory::create_fixture` went with the validation tool to
+[`STORE-CONFORMANCE-VALIDATION-TOOL`](../../issues/STORE-CONFORMANCE-VALIDATION-TOOL.md); the
+in-tree suites write their fixtures by hand, so nothing here needs it. **`StoreFactory` is
+unchanged by this project.** The step number is kept rather than renumbered, so that references to
+later steps stay stable.
+
+### Step 4 — Harness unit tests (H1–H8) — **before any real rule**
+
+**Files:** `liquers-core/src/store_conformance/mod.rs` (`#[cfg(test)] mod tests`)
+
+A stub store and stub fixture, then H1–H8 from Phase 3. `H5` (an `allowed` rule that passed is an
+error) and `H7` (every rule records every key it creates) are the two that keep the suite honest;
+neither is optional.
+
+**Validation:** `cargo test -p liquers-core --features store-conformance store_conformance`
+**Agent:** sonnet · skills: `liquers-unittest`, `rust-best-practices` · knowledge: Phase 3 H-table.
+
+### Steps 5–8 — The rules
+
+Each step: write the rule bodies as `async fn(&dyn Fixture) -> Result<(), RuleOutcome>`, register
+them through `rule!`, and for **every** rule answer *what implementation change would make this
+fail?* — a rule with no plausible answer is rewritten, not registered.
+
+| Step | Rules | Count | Contract § | File under `store_conformance/rules/` |
+|---|---|---|---|---|
+| 5 | `sibling01`–`sibling05` | 5 | §1 | `sibling.rs` |
+| 6 | `dir01`–`dir07`, `data01` | 8 | §2 | `directories.rs` |
+| 7 | `explicit01`–`explicit03`, `absence01`–`absence03`, `remove01`–`remove03`, `data02` | 10 | §3–§5 | `removal.rs`, `absence.rs` |
+| 8 | `prefix01`–`prefix04`, `keyshape01`, `sidecar01`–`sidecar02`, `keys01`–`keys02` | 8 | §6–§9 | `prefix.rs`, `keyshape.rs`, `sidecar.rs`, `enumerate.rs` |
+
+**5 + 8 + 10 + 8 = 31**, matching the Phase 3 inventory exactly — verified by diffing the ID sets
+rather than by counting rows, since a range like `` `dir01`–`dir07` `` is easy to miscount by hand.
+
+**Constraints (Phase 2, restated because they are violated by habit):** assert on `ErrorType`,
+never message text; `contains`/`is_dir` before the first mutation at `Scratch`; `record_created`
+immediately after every successful create; `?` for a store error, `Err(failed(..))` for a contract
+disagreement, never conflated.
+
+**Validation per step:** `cargo test -p liquers-core --features store-conformance`
+**Agent:** sonnet · skills: `rust-best-practices`, `liquers-unittest` · knowledge: the relevant
+`STORE_SEMANTICS.md` section, Phase 3 rule inventory row, Phase 3 Scenario 3's vacuous/correct pair.
+
+### Step 9 — Fixtures and suites C1–C4 (`liquers-core`)
+
+**Files:** `liquers-core/tests/store_conformance_CONF.rs`
+
+`AsyncMemoryStore`, `AsyncFileStore`, `AsyncStoreRouter` (memory + file), and a local minimal store
+exercising the trait defaults — defined **in the test file**, not exported from the library, so the
+defaults are tested without adding production surface. That store is cheap: `AsyncStore` has only
+**two methods with no default**, `get` and `set_metadata`; everything else the C4 suite exercises is
+inherited, which is exactly what C4 is for. Reuse the `unique_temp_dir` helper pattern from
+`tests/store_key_absolute.rs`.
+
+**This step produces the divergence census** — the first honest answer to "do the implementations
+agree?". Record every failure verbatim; it is Phase 5's most valuable artefact.
+
+**Validation:** `cargo test -p liquers-core --features store-conformance --test store_conformance_CONF`
+**Agent:** sonnet · skills: `liquers-unittest` · knowledge: Phase 3 Scenario 1 and the C-table.
+
+### Step 10 — Fix what step 9 found ⚠ *behaviour change*
+
+**Files:** `liquers-core/src/store.rs`, plus tests it breaks
+
+Known in advance: **`AsyncMemoryStore::keys` must return data keys plus directories plus the
+prefix** (decision 1). `keys()` has **no library consumers** — every call site in the tree is a
+test — so the blast radius is bounded and predictable:
+
+| Call site | Today | After |
+|---|---|---|
+| `store.rs:2141` (`test_async_memory_store_basic`) | asserts `is_empty()` on a fresh store | returns the prefix — assert `== [prefix]` |
+| `store.rs:2146`, `:2148` (same test) | asserts `contains(&key)` and `len() == 1` | key + prefix (+ any directory) |
+
+**The synchronous `MemoryStore` is deliberately left alone**, and this needs saying because the trap
+is well disguised: `test_simple_store` at `store.rs:2110–2131` makes the *identical* assertions
+(`keys().is_empty()`, `len() == 1`) against `MemoryStore`, so an implementer fixing the async test
+will find the sync one failing the same way and "fix" it too. Do not. Phase 1 decision 4 puts the
+synchronous `Store` trait out of scope (`CORE-SYNC-STORE-TRAIT-OBSOLETE`), and `MemoryStore` is
+`pub` and reached from Python — `liquers-py/src/store.rs:131` exposes `PyStore::keys()` straight
+through — so changing it is a Python-visible behaviour change made in a test-suite PR, for a trait
+this project has argued should be deleted.
+
+The consequence is a **documented asymmetry**: until the synchronous trait goes, `MemoryStore::keys`
+and `AsyncMemoryStore::keys` answer differently. Step 1 records that in `STORE_SEMANTICS.md` beside
+the trait-neutral phrasing, so it reads as a decision rather than as an oversight someone should
+tidy up.
+
+Also correct the `removedir` doc comments to the postcondition.
+
+**Any *other* divergence step 9 surfaces**, under decision 5. The `S`/`M` boundary needs a
+criterion rather than a feeling, so: **`S` — the fix touches only that store's own module and the
+tests of it. `M` or larger — it changes a shared type, the `AsyncStore` trait, another store, or a
+public signature.** Anything genuinely ambiguous is treated as `M`, because filing an issue is
+cheap and a half-finished shared-type change inside a test-suite PR is not.
+
+For an `M`+ divergence: file the issue, add the rule to that store's `allowed_failures` citing it,
+and — the half decision 5 spells out — **the store's row in the guide's status matrix reads
+`BLOCKED`, not `PARTIAL`**. `BLOCKED` is the state for "finished, and something it depends on is
+not", which is exactly this; `PARTIAL` would say the store is unfinished, which is a different
+claim and different work. `H5` forces the `allowed_failures` entry out the moment the issue is
+fixed, and step 14's matrix is regenerated from the report, so the row cannot outlive the entry.
+
+**Validation:** `cargo test -p liquers-core --features store-conformance` **and**
+`cargo test -p liquers-lib --lib --tests` (the default loop, to catch anything downstream).
+**Agent:** sonnet · skills: `rust-best-practices` · knowledge: step 9's census, decision 5's M+ rule.
+
+### Step 11 — `liquers-store`: plumbing and C5
+
+**Files:** `liquers-store/Cargo.toml`, `tests/store_conformance_CONF.rs`
+
+New `store-conformance` feature forwarding to core — **that is the whole manifest change**; the
+`cli` feature, the `clap` dependency and the scratch factory all left with the tool. C5 runs
+`AsyncOpenDALStore` over the `fs` service in a temp directory, at `Scratch`.
+
+**Validation:** `cargo test -p liquers-store --features store-conformance` and
+`cargo check -p liquers-store --no-default-features`
+**Agent:** sonnet · skills: `rust-best-practices` · knowledge: `liquers-store/src/store_factory.rs`,
+`OPENDAL_STORE_TYPES`, Phase 2 Integration Points.
+
+### Step 12 — `liquers-web`: C6, C7, C8
+
+**Files:** `liquers-web/Cargo.toml`, `liquers-web/tests/store_conformance_CONF.rs`
+
+`FetchStore` at `ReadOnly` with a stub `fetch` installed on the global object (it reads `fetch` from
+`js_sys::global()` at call time, `fetch.rs:217`) and its known-key set as the `Existing` source;
+`JsStore` at `Scratch` with a stub implementing **every** forwarded method — a partial stub reports
+capability gaps belonging to the stub (`js_store.rs:211–256`); `LocalStorageStore` at `Scratch`
+behind `browser-tests`, clearing its namespace first as `store_local_STORE.rs` already does.
+
+**The riskiest step, deliberately last of the suites.** If `FetchStore` or `JsStore` turns out to
+qualify on its own as `M` or larger, file it and fall back to `ReadOnly` over a hand-placed corpus,
+reporting the unreachable rules as `SkippedPrecondition`.
+
+`liquers-core` is already a normal dependency here, so the feature is added under
+`[dev-dependencies]`. **That cannot reach the wasm bundle**: `cargo build -p liquers-web` does not
+build dev-dependencies, so unification applies only to test builds. The claim is cheap to verify and
+the validation below does, rather than asserting it.
+
+**Validation:**
+```bash
+cargo test -p liquers-web --target wasm32-unknown-unknown          # C6, C8, under Node
+CHROMEDRIVER=$(which chromedriver) cargo test -p liquers-web \
+  --target wasm32-unknown-unknown --features browser-tests         # C7
+# the feature must not reach the shipped artifact:
+cargo tree -p liquers-web --target wasm32-unknown-unknown -e features -i liquers-core
+```
+**Agent:** sonnet · skills: `rust-best-practices`, `liquers-unittest` · knowledge:
+`liquers-web/src/store/*`, `tests/store_local_STORE.rs`, `liquers-web/README.md`, the wasm notes in
+`CLAUDE.md`.
+
+### Step 13 — **removed**
+
+The tool moved to
+[`STORE-CONFORMANCE-VALIDATION-TOOL`](../../issues/STORE-CONFORMANCE-VALIDATION-TOOL.md) with its
+command surface, provenance defaults, residue requirement and exit codes intact. **The one
+requirement that stays**: `ConformanceReport` derives serde — justified by the tool's `--format`,
+but independently required because step 14's status matrix is generated from the reports.
+
+### Step 14 — Documentation
+
+**Files:** `specs/reference/CONFORMANCE_TERMS.md` (new),
+`specs/guides/STORE_IMPLEMENTATION_GUIDE.md` (new),
+`specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` (§3 lines 81–100 → link; §STORE → cross-link),
+`specs/guides/STORE_FACTORY_GUIDE.md`, `specs/reference/STORE_CONFIG_FSD.md`, `CLAUDE.md`,
+`specs/README.md`
+
+**Not** `specs/guides/UNITTEST_GUIDE.md`: its `AsyncStoreWrapper` example belongs to
+`DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS`, which also covers `STORE_CONFIG_FSD.md`'s mention and
+the `liquers-unittest` skill's import block. If that issue has landed by this step, nothing to do;
+if not, leave it — fixing half of an issue's surface in passing makes the issue look done when it
+is not. The two `CLAUDE.md` passages are the exception, because this step edits that file anyway.
+
+The guide follows the nine-part outline in Phase 2, including the worked restricted store and the
+statement that level 3 is rule discipline rather than a guarantee, and that a `create-only` run
+leaves everything it created behind.
+
+**It must also name what the suite does not check.** Phase 3 left one contract claim deliberately
+uncovered — `STORE_SEMANTICS.md` §8's requirement that an undecodable path be *skipped* by a listing
+rather than failing it — because producing one means writing behind the store, which `AsyncStore`
+does not expose. The guide says so plainly, tells the author it is theirs to verify, and points at
+`pathmap02`–`pathmap07` (kept in step 15) as the worked example. A guide that lists only what the
+suite covers implies the suite covers everything, which is the same lie as a green report over
+rules that never ran. `CLAUDE.md` §"Adding a Store Backend" gains a step and loses
+its two `AsyncStoreWrapper` mentions.
+
+**The per-store status matrix is generated, not written.** It comes from the reports steps 9, 11
+and 12 produce — `ConformanceReport` derives serde precisely so this is a transformation rather
+than a transcription — merged with the `allowed_failures` lists to mark `BLOCKED` rows. Hand-
+maintaining it would guarantee it goes stale, which is the failure this whole project exists to
+prevent; a matrix nobody can regenerate is a claim about the past.
+
+**Validation:** `python3 scripts/docs_index.py --check`; every rule ID cited must exist (step 16
+enforces).
+**Agent:** sonnet · skills: none · knowledge: `LANGUAGE-INTEGRATION_GUIDE.md` structure, Phase 1's
+guide-question list, Phase 3 Scenario 3, the step-9 census.
+
+### Step 15 — Adoption deletions — **not carried out, deliberately**
+
+The mapping table this step was to execute assumed each adopted ID generalizes the like-named unit
+test. Reading the actual test names shows it does not: `dir04` and `dir05` are *swapped* between the
+two schemes, three `sibling` IDs name entirely different claims, `remove01` as a unit test is what
+the suite calls `absence03`, and `traitdef01` is the `contains`→`is_dir` fallback — which is rule
+`dir05`, a rule the trait-defaults suite correctly *skips* because it declares no `Directories`
+capability. Deleting on that table would have removed real coverage while looking like tidying.
+
+The step's own gate is what caught it: *confirm the shared rule passes against that store, and
+confirm it fails when the behaviour is broken, then delete*. The first half was never reachable,
+because the rules and the tests are not about the same things.
+
+Filed as [`STORE-TEST-IDS-COLLIDE-WITH-CONFORMANCE-RULE-IDS`](../../issues/STORE-TEST-IDS-COLLIDE-WITH-CONFORMANCE-RULE-IDS.md)
+(P2, M): rename the unit tests first so no ID means two things, *then* delete what is genuinely
+duplicated. Deletion is not urgent; the collision is, because a report naming `dir05` currently
+points a reader at a unit test about something else.
+
+### Step 16 — Synchronization, matrix, and closure
+
+**Files:** `liquers-core/tests/conformance_docs_CONF.rs`, `scripts/check-build-matrix.sh`,
+`specs/issues/*`, `specs/index.csv`
+
+`D1` asserts the ID sets from `rules()`, `STORE_SEMANTICS.md` and `STORE_IMPLEMENTATION_GUIDE.md`
+are equal, printing the difference in both directions; it locates `specs/` as `registry_export.rs:60–63` does — `CARGO_MANIFEST_DIR` then `.parent()`
+once to the workspace root, not a repeated walk — and skips with a warning if the directory is
+absent, as a packaged crate has no `specs/`. Add a
+`store-conformance` row to the build matrix. Close
+`STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE` and
+`CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS` with resolution notes (§4.3).
+
+**Validation:** `bash scripts/check-build-matrix.sh`; `python3 scripts/docs_index.py --check`
+**Agent:** sonnet · skills: `liquers-unittest` · knowledge:
+`liquers-lib/tests/registry_export.rs`, `DOCS_STRUCTURE_GUIDE.md` §4.3.
+
+## Testing Plan
+
+| When | Command |
+|---|---|
+| After every step | `cargo check -p liquers-core --features store-conformance` and with the feature **off** |
+| Steps 4–10 | `cargo test -p liquers-core --features store-conformance` |
+| Step 10 | `cargo test -p liquers-lib --lib --tests` — the default loop |
+| Step 11 | `cargo test -p liquers-store --features store-conformance` |
+| Step 12 | wasm loop under Node; `browser-tests` separately, after `cargo clean` |
+| Step 16 | `bash scripts/check-build-matrix.sh`, `python3 scripts/docs_index.py --check` |
+
+Run the wasm and browser loops **after `cargo clean`**, separately from the native loop: they build
+a different target, and `CLAUDE.md` records that a combined run exhausts the 30 GB session
+allowance.
+
+Manual check, once, at step 13: point `liquers-store-check` at a store containing a pre-existing
+key and confirm at `create-only` that the key is untouched and the residue list names only what the
+run made.
+
+## Agent Assignment
+
+| Step | Model | Skills | Why |
+|---|---|---|---|
+| 1 | sonnet | — | Contract prose; the three ⚠ resolutions are subtle |
+| 2 | sonnet | rust-best-practices | The type design is the whole architecture |
+| 4 | sonnet | liquers-unittest, rust-best-practices | H5/H7 are easy to write vacuously |
+| 5–8 | sonnet | rust-best-practices, liquers-unittest | Each rule needs the "what would make this fail?" test |
+| 9 | sonnet | liquers-unittest | Fixtures plus the census |
+| 10 | sonnet | rust-best-practices | A behaviour change with downstream tests |
+| 11 | sonnet | rust-best-practices | Feature plumbing is where cfg bugs hide |
+| 12 | sonnet | rust-best-practices, liquers-unittest | Two harnesses, one wasm-only crate |
+| 14 | sonnet | — | Long-form documentation |
+| 15 | sonnet | liquers-unittest | Deleting tests demands judgement, not speed |
+| 16 | sonnet | liquers-unittest | Cross-document assertion |
+
+No step is assigned opus: none is architecturally open after Phases 2–3. No step is assigned haiku
+except step 3, because every other step either designs types, deletes tests, or writes an
+assertion that could be vacuous.
+
+## Rollback Plan
+
+| Step | Risk | Rollback |
+|---|---|---|
+| 1 | Contract wrong | Revert the file; nothing depends on it until step 5 |
+| 2, 4–9, 11, 12 | Additive behind a non-default feature | `git revert`; the default build never compiled it |
+| **10** | **Behaviour change** — `AsyncMemoryStore::keys` | Revert the `keys` change and re-add `keys01`/`keys02` to that store's `allowed_failures` citing `CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS`, which stays open. The suite still ships; the divergence is recorded instead of fixed |
+| **15** | **Deletes tests** | `git revert` restores them exactly; this is why deletion is one late step and not spread across steps 5–12 |
+| 14, 16 | Documentation and assertions | Revert; `D1` failing is a signal, not a breakage |
+
+The project degrades gracefully: if everything after step 9 were abandoned, the repository would
+still hold a written contract, a working harness, 31 rules and a census of which stores diverge —
+which is most of what the issue asked for.
+
+## Final-review findings — open before approval
+
+The Phase 4 opus review examined all four phase documents together and found sixteen issues, four
+of them severity 1. Two need **your decision** before Phase 4 can be approved; the rest are
+resolved, or are corrections already applied.
+
+### Applied
+
+| # | Finding | Resolution |
+|---|---|---|
+| F1 | `prefix01` had **no ground truth** — it could only compare `key_prefix()` against itself, so issue **row 9 would have slipped through**, and `keys01` was circular | `Fixture` gains `expected_prefix() -> Key`; rules may not derive anything from `store.key_prefix()`. Phase 3's traceability table corrected |
+| F7 | The adoption table mapped `traitdef01` to `absence01`–`absence03`; it is actually the `contains`→`is_dir` fallback test. Deleting it would have **removed the only trait-default coverage of issue row 3**. `keyabs09` (sync `FileStore`) and `keyabs11` (`is_supported`) were also mis-mapped | Table corrected; `keyabs09` moved to *Kept* |
+| F8 | Rule ID `keyabs01` **collides** with `query.rs:3335`'s existing `keyabs01_is_relative_truth_table`, breaking the one-ID-one-meaning spine `D1` enforces | Renamed `keyshape01`, matching Phase 2's `keyshape.rs` |
+| F12b | The `listdir_keys_deep` trait default tests `is_dir(key)` — the *parent* — instead of `is_dir(&sub_key)` | Filed as `CORE-LISTDIR-KEYS-DEEP-TESTS-THE-WRONG-KEY` (P2/S) |
+
+### To resolve during implementation
+
+| # | Finding | Disposition |
+|---|---|---|
+| F2 | **Nothing verifies a capability declaration.** `explicit_directories: false` skips `explicit01` — so issue row 7, a P0, is caught only if the fixture declares the capability the broken store is least likely to be given | Add one **negative rule per capability**: `write: false` ⇒ `set` errors, `explicit_directories: false` ⇒ `makedir` returns `KeyNotSupported`, and so on. Declaring `false` becomes a claim that can fail rather than a way to skip a rule. ~6 rules |
+| F3 | `explicit02` is **unsatisfiable for `AsyncFileStore`**: `remove` unlinks the file and leaves the directory, `is_dir` stats the path, so the directory does not retire. The contract claim in §3 is true only of index-derived stores, and no capability distinguishes them | Add a `DerivedDirectories` capability mirroring `STORE_SEMANTICS.md` §2's three-sources table, gating `explicit02`; **and** restate §3 so it stops claiming what a real filesystem does not do. Step 1 work |
+| F5 | **`ReadOnly` is not read-only.** `keyshape01` must call `set`/`remove`/`removedir` with a relative key to check refusal — if refusal is broken, the "safe" level mutates. Phase 1 anticipated a buggy *rule* breaching the level, never a correct rule breaching it because the *store* is buggy | `keyshape01` moved to `CreateOnly` (done). The residual case — a store whose refusal is broken — is stated in the guide as a limit of the level, not papered over |
+| F6 | Phase 2 lets the fixture create keys for `Existing`/`ExistingDirectory`, a mutation at level 1, contradicting decision 9 | At `ReadOnly` the fixture must **find** a subject, not create one; if it cannot, it declines and the rule reports `SkippedPrecondition` |
+| F9 | **The router is barely tested**, though the issue's Impact section is entirely about it. `AsyncStoreRouter::is_dir`/`listdir` select on `key_prefix()` alone while `find_store` also consults `is_supported` — no rule reaches it | Add two router rules: a key inside a store's prefix but unsupported by it, and a key whose prefix matches two stores |
+| F10 | `KeyRequest` cannot express what four rules need: a relative key, a `.__metadata__` collision, and **one `Unsupported` variant serving both `prefix02` and `prefix03`** — so answering for one leaves the other vacuous. Adding variants later is breaking, by design | Split into `OutsidePrefix` and `UnsupportedShape`, add `Relative` and `MetadataCollision`, **before** implementation |
+| F11 | C4 exercises **10 of 31 rules**: the minimal store has only `get`/`set_metadata`, so `Write` is false and rows 3, 6, 7 and 10 — all trait-default behaviour — never run. `NoAsyncStore` (`store.rs:570`) is already `pub`, already the `Environment` default, and is an **eighth in-tree implementation nobody counted** | Give the C4 store a backing map so it runs at `Scratch`; test `NoAsyncStore` as C9 |
+| F12a | No rule covers `listdir_keys`, `listdir_keys_deep`, `listdir_asset_info` or `get_asset_info`, though Phase 1 called `get_asset_info` contract surface | Add rules; `listdir_keys_deep` now has a filed bug to pin |
+| F13 | **No rule isolation or defined order.** 31 rules share one store with `cleanup` once at the end, so `keys01`/`keys02` and `explicit02` are order-dependent | Pass the rule ID to `keys_for` so fixtures namespace per rule; document that `run_all` runs in `rules()` order |
+| F14 | `ReportEntry` carries no keys, so a failure says what disagreed but not **on which key**; and nothing prints the report on assertion failure, so CI shows bare IDs | Add `subject: Vec<Key>`; suites `eprintln!` the full report before asserting (stdout belongs to the binary) |
+| F15 | **`Fixture` lacks `MaybeSend + MaybeSync`**, so `RuleFn`'s `BoxFuture` will not compile natively — every rule body holds `&dyn Fixture` across an `.await` | Add the bounds, as `AsyncStore` carries them (`store.rs:335`). Step 2, first compile |
+| F16 | `absence03` is stated in the **two-branch shape Phase 3 itself calls vacuous**; `prefix02`/`prefix03` both assert `is_supported` is *false*, which the trait default returns unconditionally — so both pass for a store that says no to everything | `absence03` asserts `Ok(())`. Add **`prefix04`**: `is_supported` is *true* for a key inside the prefix the store can address — §6 makes layering depend on it and nothing checked it |
+
+### Needing a decision — see the approval gate
+
+**Both resolved at the gate.** The validation tool — and with it F4, the unsolved question of where
+a `--config` store's fixture comes from — moved to
+[`STORE-CONFORMANCE-VALIDATION-TOOL`](../../issues/STORE-CONFORMANCE-VALIDATION-TOOL.md) (P2, M),
+which carries every decision already taken about it so the work does not restart from nothing. That
+removes two steps, a crate feature, a new dependency, a new binary and a trait extension, which is
+what brings this project back to a defensible `L` — the sizing question the review raised.
+
+The remaining findings above still add roughly ten rules, two capabilities, four `KeyRequest`
+variants and a ninth suite, so `L` is the honest label rather than a comfortable one.
+
+## Phase 5 Entry Criteria
+
+Phase 5 begins when **all** of these hold:
+
+1. The fourteen active steps complete, or an incomplete step is filed as an issue and named here.
+   Steps 3 and 13 are `STORE-CONFORMANCE-VALIDATION-TOOL` and are **not** entry criteria.
+2. `cargo test -p liquers-core -p liquers-store --features store-conformance` green; the wasm loop
+   green under Node; the browser loop green or its absence explained.
+3. `bash scripts/check-build-matrix.sh` green, including the feature-off row.
+4. `python3 scripts/docs_index.py --check` reports 0 errors.
+5. Every rule a store is allowed to fail cites an open issue, and `H5` confirms no stale entry.
+6. `D1` green — the rule IDs in code, contract and guide are one set.
+7. Every review comment on the PR is answered or incorporated.
+8. The Phase 5 learning log has its material: the step-9 census, the per-level counts, the
+   `Unavailable` reasons and the residue (Phase 1 decisions 9 and 11), plus any rule found vacuous
+   and the real adoption ratio (added by Phase 3 — the first because five such tests had to be
+   retro-fitted to `LANGUAGE-INTEGRATION_GUIDE.md` after the same mistake, the second because
+   Phase 3's own estimate moved from nine-of-fifteen to twelve-replaced-twenty-kept once the
+   families were counted properly).

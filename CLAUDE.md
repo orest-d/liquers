@@ -110,7 +110,7 @@ doc-comment examples print to stdout.
 - Default to async (`AsyncStore`, `AsyncStoreRouter`)
 - Use `#[async_trait]` for async trait methods
 - Tokio runtime with `sync`, `rt`, `macros`, `time` features
-- Sync wrappers (`AsyncStoreWrapper`) only for Python compatibility
+- The synchronous `Store` trait is obsolete and unreachable (`CORE-SYNC-STORE-TRAIT-OBSOLETE`); implement `AsyncStore`
 
 ### Naming
 - Traits: `ValueInterface`, `ExtValueInterface`, `AsyncStore`, `CommandExecutor`
@@ -140,7 +140,7 @@ mod tests {
 
 - Unit tests in same file, integration tests in `tests/`
 - Use `parse_key()`, `parse_query()` helpers for test setup
-- Memory stores for testing: `MemoryStore::new(&Key::new())`, wrapped via `AsyncStoreWrapper`
+- Memory stores for testing: `AsyncMemoryStore::new(&Key::new())` — no wrapper; `AsyncStoreWrapper` no longer exists
 - See `liquers-core/tests/async_hellow_world.rs` for full flow: Environment with memory store, RecipeProvider, command registration, query evaluation
 
 ## Building and testing
@@ -421,6 +421,10 @@ reformatting is not a failure but a changed argument list is.
 
 ### Adding a Store Backend
 
+**Read `specs/guides/STORE_IMPLEMENTATION_GUIDE.md` first** — it covers the decisions to make
+before writing code, the capability model, and how to run the conformance suite against your store.
+`specs/reference/STORE_SEMANTICS.md` is the contract it checks.
+
 Configuration and construction live in `liquers-core`; only the backends live above it.
 
 1. Implement `AsyncStore` — in `liquers-core/src/store.rs` if it belongs to core, otherwise in the
@@ -434,7 +438,11 @@ Configuration and construction live in `liquers-core`; only the backends live ab
    add the matching `services-<scheme>` feature** to `liquers-store/Cargo.toml` — a type with no
    service feature behind it is advertised but unconstructible, which
    `availability02_advertised_types_match_the_enabled_features` will fail on
-5. See `specs/reference/STORE_CONFIG_FSD.md` §"Building stores: the factory model"
+5. **Run the conformance suite against it.** Write a `Fixture` (usually `GenericFixture`), declare
+   its `StoreCapabilities` honestly, and add a suite beside the others in
+   `tests/store_conformance_CONF.rs`. A store that is not in the suite is a store nobody has
+   checked. See `specs/guides/STORE_IMPLEMENTATION_GUIDE.md` §5
+6. See `specs/reference/STORE_CONFIG_FSD.md` §"Building stores: the factory model"
 
 ### Adding a Value Type
 
