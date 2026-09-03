@@ -6,7 +6,7 @@ status: closed
 priority: P3
 complexity: S
 area: [docs]
-design: docs-dead-links
+design: docs-current-link-validation
 created: 2026-08-08
 github:
 ---

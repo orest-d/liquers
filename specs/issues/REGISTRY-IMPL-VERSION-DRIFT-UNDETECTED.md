@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [lib/commands, build, docs]
-design:
+design: command-registry-impl-version-freshness
 created: 2026-08-25
 github:
 ---

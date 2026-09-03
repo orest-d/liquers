@@ -6,7 +6,7 @@ status: closed
 priority: P3
 complexity: S
 area: [core/commands]
-design: command-registry-issue-fields
+design: command-registry-issue-fields-coverage
 created: 2026-08-12
 github:
 ---

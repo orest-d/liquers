@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [core/error, core/store]
-design:
+design: error-store-name-payload
 created: 2026-09-02
 github:
 ---

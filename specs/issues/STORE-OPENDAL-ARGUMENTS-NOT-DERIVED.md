@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [store/backends, store/config]
-design: store-factories-in-core
+design: opendal-derived-store-arguments
 created: 2026-08-29
 github:
 ---

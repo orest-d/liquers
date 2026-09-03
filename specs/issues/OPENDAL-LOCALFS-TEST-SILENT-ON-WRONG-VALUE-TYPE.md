@@ -6,7 +6,7 @@ status: closed
 priority: P3
 complexity: S
 area: [store/backends]
-design:
+design: opendal-localfs-assetinfo-test
 created: 2026-08-26
 github:
 ---

@@ -1,58 +1,29 @@
-# Phase 1: High-Level Design - Error::with_key Populates the Key Field
-
-## Design Readiness
-
-- **Readiness:** ready
-- **Leading issue:** None
-- **Explanation:** HEAD confirms the builder writes the wrong existing field; the correction is
-  local, signature-compatible, and directly testable.
-- **Open questions:** None
-
-## Problem and Evidence
-
-`Error::with_key` in `liquers-core/src/error.rs` writes the encoded key into `ErrorPayload.query`
-instead of `ErrorPayload.key`, making it indistinguishable from `with_query` and leaving `key`
-empty for callers and serialized metadata.
-
-## Expected Behaviour and Acceptance Criteria
-
-Calling `with_key(&key)` sets `error.key` to `Some(key.encode())` and does not set `error.query`.
-Dedicated constructors keep their documented fields, and serde output keeps separate `query` and
-`key` meanings.
-
-## Affected Systems
-
-Core error handling, metadata error serialization and web/binding consumers that expose query and
-key separately are affected. Query parsing, command dispatch and store implementations do not
-change.
-
-## Scope and Non-Goals
-
-Scope is the builder bug plus tests around field separation. Do not redesign dependency-cycle
-constructor semantics unless Phase 2 confirms they must change to keep the invariant coherent.
-
-## Compatibility, Assumptions and Questions
-
-This intentionally changes serialized field placement for errors enriched through `with_key`.
-Assumption: no workspace caller relies on the incorrect query pollution.
-
-## Documentation Assessment
-
-No new reference or guide is expected. If an error reference exists, add one sentence clarifying
-that `query` and `key` are separate serialized contexts.
-
-## Design Dependencies
-
-None.
-
-## Consolidated Findings
-
-Change only `Error::with_key`; dependency mismatch/cycle constructors intentionally populate both
-fields and are not builder call sites. Future serialized errors place key context under `key`
-instead of `query`; historical diagnostics require no migration. Unit tests must distinguish
-`with_key`, `with_query`, serde output, and one real recipe/planner call path.
-
-## Review
-
-The issue is narrow, has direct evidence, and acceptance is unit-testable. The only known question
-is whether two dependency constructors should continue mirroring key into query.
+# Phase 1: High-Level Design - Structured Error Context
+## Feature Name
+Structured Error Context for Keys and Nested Queries
+## Purpose
+Preserve the distinct roles of asset/recipe keys, evaluated queries, nested resource/link queries,
+actions, and positions instead of overwriting one flat error slot during propagation.
+## Core Interactions
+- **Query:** key-to-query conversion remains lossless; `Query::key()` tests pure-key extraction.
+- **Store:** typed keyed failures and persistence warnings retain the accessed resource key.
+- **Commands:** no new commands; action identity and position remain associated with their query.
+- **Assets:** every keyed asset/recipe boundary adds its owner key without replacing an inner key.
+- **Values/UI:** no value-type change; optional clickable text is derived rendering, not storage.
+- **Web/API:** serde, metadata, web, Python, and Axum receive an explicit compatibility contract.
+## Crate Placement
+Core structure and enrichment belong in `liquers-core`; stores attach access context, while
+`liquers-web`, `liquers-py`, and `liquers-axum` expose the selected representation.
+## Documentation Intent
+- **Reference:** create `specs/reference/ERROR_CONTEXT.md` for the authoritative contract.
+- **Guide:** extend `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` for boundary mapping workflows.
+- **Other documents:** none; the design and source issue retain rationale and unfinished work.
+- **Updates:** `PROJECT_OVERVIEW.md`, `ASSETS.md`, `ASSET_LIFECYCLE.md`,
+  `WEB_API_SPECIFICATION.md`, and `specs/README.md`; Phase 2 defines exact changes and audience.
+## Open Questions
+1. **Blocking:** model, roles/order/dedup/bounds, legacy projection, binding exposure, and rendering;
+   Phase 3/4 cannot be valid until these are chosen. This is why readiness is `phase2-blocked`.
+2. **Non-blocking:** exact helper names and renderer presentation follow the public contract.
+## References
+- `specs/issues/ERROR-WITH-KEY-SETS-QUERY-FIELD.md`; coordinate `ASSETS-IMPROVEMENTS` and related
+  error-payload designs during Phase 2.

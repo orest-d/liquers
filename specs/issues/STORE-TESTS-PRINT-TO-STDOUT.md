@@ -6,7 +6,7 @@ status: closed
 priority: P3
 complexity: S
 area: [store/backends, docs]
-design:
+design: store-test-output-hygiene
 created: 2026-08-25
 github:
 ---

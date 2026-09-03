@@ -6,7 +6,7 @@ status: closed
 priority: P2
 complexity: S
 area: [web, core/value]
-design: foreign-value-type-registration
+design: web-value04-bytes-identifier
 created: 2026-08-25
 github:
 ---

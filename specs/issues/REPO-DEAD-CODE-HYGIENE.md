@@ -6,7 +6,7 @@ status: accepted
 priority: P3
 complexity: S
 area: [build]
-design: 
+design: core-dead-code-hygiene
 created: 2026-08-08
 github:
 ---

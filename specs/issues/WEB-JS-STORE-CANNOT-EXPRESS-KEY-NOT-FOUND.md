@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [web, core/store]
-design: store-conformance-suite
+design: js-store-not-found-sentinel
 created: 2026-09-02
 github:
 ---

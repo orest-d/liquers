@@ -6,7 +6,7 @@ status: closed
 priority: P3
 complexity: S
 area: [store/backends]
-design:
+design: opendal-feature-without-async-store
 created: 2026-08-29
 github:
 ---

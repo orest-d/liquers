@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [core/store, store/backends, web, docs]
-design: store-conformance-suite
+design: store-directory-metadata-children
 created: 2026-09-02
 github:
 ---

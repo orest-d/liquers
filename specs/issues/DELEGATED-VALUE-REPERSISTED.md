@@ -6,7 +6,7 @@ status: closed
 priority: P3
 complexity: S
 area: [core/assets]
-design: delegated-value-repersisted
+design: delegated-value-persistence
 created: 2026-08-12
 github:
 ---
