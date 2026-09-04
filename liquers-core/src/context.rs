@@ -386,7 +386,7 @@ impl<E: Environment> EnvRef<E> {
             let asset_manager = envref.get_asset_manager();
             let query = rquery?;
             asset_manager
-                .apply_immediately(query.into(), State::new(), Some(payload))
+                .apply(query.into(), State::new(), Some(payload))
                 .await
         }
         .maybe_boxed()
@@ -696,33 +696,23 @@ impl<E: Environment> Context<E> {
 
     /// Applies a query to a supplied state as an ad-hoc asset.
     ///
-    /// This does not record the result as a dependency. If the query requires a payload,
-    /// this context's payload is inherited and the application is evaluated immediately via
-    /// [`AssetManager::apply_immediately`]; otherwise it delegates to
-    /// [`AssetManager::apply`] as before.
+    /// The result is not recorded as a dependency, and cannot be: an ad-hoc asset is not
+    /// reproducible from its identity — its value depends on the supplied state — so nothing may
+    /// hold a reference *to* it. This is the same rule that excludes payload-evaluated assets,
+    /// not a special case for `apply`.
+    ///
+    /// This context's payload is inherited unconditionally. Whether a payload is *required* is
+    /// settled by the authoritative gate in [`apply_plan`](crate::interpreter::apply_plan), which
+    /// every execution path passes through; the pre-check that used to live here duplicated that
+    /// gate and its error message.
     pub async fn apply(&self, query: &Query, to: State<E::Value>) -> Result<AssetRef<E>, Error> {
         Self::reject_relative_query(query)?;
         let query = self.resolve_query_from_cwd(query)?;
         let envref = self.assetref.get_envref().await;
-        let requirement = {
-            use crate::interpreter::RequiresPayload;
-            query.requires_payload(envref.clone()).await?
-        };
-        if requirement.is_required() {
-            if self.payload.is_none() {
-                return Err(Error::general_error(format!(
-                    "Query '{}' requires an evaluation payload, but the evaluation was \
-                     started without one.",
-                    query.encode()
-                ))
-                .with_query(&query));
-            }
-            return envref
-                .get_asset_manager()
-                .apply_immediately((&query).into(), to, self.payload.clone())
-                .await;
-        }
-        envref.get_asset_manager().apply((&query).into(), to).await
+        envref
+            .get_asset_manager()
+            .apply((&query).into(), to, self.payload.clone())
+            .await
     }
 
     /// Returns the current asset's structured metadata record.

@@ -185,7 +185,7 @@ where
         "precondition: evaluated once"
     );
 
-    let adhoc = manager.apply((&key).into(), State::new()).await?;
+    let adhoc = manager.apply((&key).into(), State::new(), None).await?;
     // Without this the test could pass trivially: were `apply` ever to return the registered
     // owner, the delegation branch would never be entered at all.
     assert_ne!(adhoc.id(), owner.id(), "precondition: a different asset");
@@ -522,7 +522,7 @@ where
     let m = envref.get_asset_manager();
     let bare_key_recipe: liquers_core::recipes::Recipe = parse_key("dash.txt")?.into();
     let applied = m
-        .apply(bare_key_recipe, State::new().with_data("ignored".into()))
+        .apply(bare_key_recipe, State::new().with_data("ignored".into()), None)
         .await?;
     let _ = applied.get().await;
     assert_eq!(
@@ -852,7 +852,7 @@ where
     // A recipe with cwd + filename, which `store_to_key()` resolves to `applied.txt`.
     let mut recipe: liquers_core::recipes::Recipe = q("greet/applied.txt").into();
     recipe.cwd = Some(String::new());
-    let applied = m.apply(recipe, State::new()).await?;
+    let applied = m.apply(recipe, State::new(), None).await?;
     let _ = applied.get().await;
 
     assert_eq!(applied.key().await, None, "an apply asset is not keyed");

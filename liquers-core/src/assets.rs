@@ -3366,21 +3366,36 @@ pub trait AssetManager<E: Environment>:
     /// depends on [`Self::eval_mode`]: queued managers may return a scheduled
     /// handle, while inline managers return after evaluation.
     async fn get_asset(&self, query: &Query) -> Result<AssetRef<E>, Error>;
-    /// Applies a recipe to a supplied initial state.
+    /// Applies a recipe to a supplied initial state, with an optional execution payload.
     ///
-    /// The operation is ad hoc and does not insert the asset into a key/query
-    /// cache. Queued managers schedule it; inline managers evaluate before return.
-    async fn apply(&self, recipe: Recipe, to: State<E::Value>) -> Result<AssetRef<E>, Error>;
-    /// Applies a recipe to a supplied state and evaluates it before returning.
-    ///
-    /// This ad-hoc path accepts an optional execution payload, bypasses the queued
-    /// manager's job queue, and does not persist the produced result.
-    async fn apply_immediately(
+    /// The operation is ad hoc: the asset is inserted into no key or query cache, is never
+    /// reused, and is not a keyed asset, so it is never written to the store. A supplied state or
+    /// a payload already makes the result unshareable, so there is nothing to gain by queueing it
+    /// — evaluation therefore completes before this returns, on both managers, and consumes no
+    /// job-queue slot. Taking a slot while the caller already holds one is the deadlock shape
+    /// `ASSETS-FIX1` #17 describes.
+    async fn apply(
         &self,
         recipe: Recipe,
         to: State<E::Value>,
         payload: Option<E::Payload>,
     ) -> Result<AssetRef<E>, Error>;
+    /// Applies a recipe to a supplied state and evaluates it before returning.
+    ///
+    /// Superseded by [`Self::apply`], which now carries the payload and always evaluates before
+    /// returning. Kept as a forwarding default so an out-of-tree implementor gets a deprecation
+    /// warning rather than a compile error.
+    #[deprecated(
+        note = "use `apply(recipe, to, payload)`; every apply now evaluates before returning"
+    )]
+    async fn apply_immediately(
+        &self,
+        recipe: Recipe,
+        to: State<E::Value>,
+        payload: Option<E::Payload>,
+    ) -> Result<AssetRef<E>, Error> {
+        self.apply(recipe, to, payload).await
+    }
     /// Resolves a keyed asset.
     ///
     /// Managers may reuse a non-volatile cached entry or fast-track a stored value.
@@ -4610,11 +4625,22 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         // resolves it to a fresh, unshared asset that is in no map and cannot be reused.
         // There is nothing to fast-track and nothing to evict; run it inline in the
         // caller's future rather than consuming a job-queue slot.
-        let asset = if let Some(key) = query.key() {
-            self.get_resource_asset(&key).await?
-        } else {
-            self.get_query_asset(query).await?
-        };
+        // Keys are a payload boundary: a payload is per-call caller context and is deliberately
+        // not part of an asset's identity, so it cannot reach a keyed asset. Resolving a key here
+        // would hand back the *map-registered* asset and then run it with a payload, leaving a
+        // payload-evaluated value in the key map for the next caller to receive without one.
+        // Unreachable at HEAD — a pure key query reports `PayloadRequirement::None` — so this
+        // names the boundary rather than serving a case.
+        if query.key().is_some() {
+            return Err(Error::general_error(format!(
+                "Query '{}' is a key and cannot be evaluated with a payload: a payload does not \
+                 cross a key boundary, so a keyed asset would become unreusable while remaining \
+                 in the key map.",
+                query.encode()
+            ))
+            .with_query(query));
+        }
+        let asset = self.get_query_asset(query).await?;
         asset.set_payload_path(payload_path).await;
         asset.run(payload).await?;
         Ok(asset)
@@ -4792,34 +4818,20 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         }
     }
 
-    /// Create an ad-hoc asset applied to a state
+    /// Create an ad-hoc asset applied to a state, and evaluate it before returning.
+    ///
+    /// Ad hoc means: in no map, never reused, not a keyed asset, never written to the store. It
+    /// therefore runs inline in the caller's future rather than taking a job-queue slot.
     async fn apply(
-        &self,
-        recipe: Recipe,
-        initial_state: State<E::Value>,
-    ) -> Result<AssetRef<E>, Error> {
-        let asset_ref =
-            AssetData::new_ext(self.next_id(), recipe, initial_state, None, self.get_envref()).to_ref();
-        // No fast track makes sense now, since apply can't be stored, however in the future
-        // TODO: support fast-track once it makes sense
-        self.job_queue.submit(asset_ref.clone()).await?;
-
-        Ok(asset_ref)
-    }
-
-    /// Create an ad-hoc asset applied to a state
-    async fn apply_immediately(
         &self,
         recipe: Recipe,
         initial_state: State<E::Value>,
         payload: Option<E::Payload>,
     ) -> Result<AssetRef<E>, Error> {
         let asset_ref =
-            AssetData::new_ext(self.next_id(), recipe, initial_state, None, self.get_envref()).to_ref();
-        // No fast track makes sense now, since apply can't be stored, however in the future
-        // TODO: support fast-track once it makes sense
+            AssetData::new_ext(self.next_id(), recipe, initial_state, None, self.get_envref())
+                .to_ref();
         asset_ref.run(payload).await?;
-
         Ok(asset_ref)
     }
 
@@ -5926,9 +5938,14 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         }
     }
 
-    async fn apply(&self, recipe: Recipe, to: State<E::Value>) -> Result<AssetRef<E>, Error> {
+    async fn apply(
+        &self,
+        recipe: Recipe,
+        to: State<E::Value>,
+        payload: Option<E::Payload>,
+    ) -> Result<AssetRef<E>, Error> {
         let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, None, self.envref()).to_ref();
-        asset_ref.run_inline(None).await?;
+        asset_ref.run_inline(payload).await?;
         Ok(asset_ref)
     }
 
@@ -5946,25 +5963,25 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
     ) -> Result<AssetRef<E>, Error> {
         let _ = parent;
         // Volatile by construction, so this is a fresh unshared asset in no map.
-        let asset = if let Some(key) = query.key() {
-            self.get_resource_asset(&key).await?
-        } else {
-            self.get_query_asset(query).await?
-        };
+        // Keys are a payload boundary: a payload is per-call caller context and is deliberately
+        // not part of an asset's identity, so it cannot reach a keyed asset. Resolving a key here
+        // would hand back the *map-registered* asset and then run it with a payload, leaving a
+        // payload-evaluated value in the key map for the next caller to receive without one.
+        // Unreachable at HEAD — a pure key query reports `PayloadRequirement::None` — so this
+        // names the boundary rather than serving a case.
+        if query.key().is_some() {
+            return Err(Error::general_error(format!(
+                "Query '{}' is a key and cannot be evaluated with a payload: a payload does not \
+                 cross a key boundary, so a keyed asset would become unreusable while remaining \
+                 in the key map.",
+                query.encode()
+            ))
+            .with_query(query));
+        }
+        let asset = self.get_query_asset(query).await?;
         asset.set_payload_path(payload_path).await;
         asset.run_inline(payload).await?;
         Ok(asset)
-    }
-
-    async fn apply_immediately(
-        &self,
-        recipe: Recipe,
-        to: State<E::Value>,
-        payload: Option<E::Payload>,
-    ) -> Result<AssetRef<E>, Error> {
-        let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, None, self.envref()).to_ref();
-        asset_ref.run_inline(payload).await?;
-        Ok(asset_ref)
     }
 
     async fn get(&self, key: &Key) -> Result<AssetRef<E>, Error> {
@@ -6941,7 +6958,7 @@ mod tests {
         let envref = env.to_ref();
         let assetref = envref
             .get_asset_manager()
-            .apply(query.into(), State::new().with_data("WORLD".into()))
+            .apply(query.into(), State::new().with_data("WORLD".into()), None)
             .await
             .unwrap();
 
@@ -6955,6 +6972,9 @@ mod tests {
     }
 
     #[tokio::test]
+    // Exercises the deprecated forwarding shim on purpose: `apply_immediately` must keep working
+    // for an out-of-tree implementor until it is removed.
+    #[allow(deprecated)]
     async fn test_apply_immediately() {
         let query = parse_query("test").unwrap();
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
@@ -7052,6 +7072,8 @@ recipes:
     }
 
     #[tokio::test]
+    // As above: the deprecated shim must still carry a payload.
+    #[allow(deprecated)]
     async fn test_apply_immediately_with_payload() {
         let query = parse_query("test").unwrap();
         let mut env: SimpleEnvironmentWithPayload<Value, String> =

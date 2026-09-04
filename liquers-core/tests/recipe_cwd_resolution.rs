@@ -226,7 +226,7 @@ async fn apply_text(
 ) -> Result<(AssetRef<CommandEnvironment>, String), Error> {
     let asset = envref
         .get_asset_manager()
-        .apply(recipe, State::new())
+        .apply(recipe, State::new(), None)
         .await?;
     let text = asset.get().await?.try_into_string()?;
     Ok((asset, text))
@@ -504,7 +504,7 @@ async fn root_fallback_is_single_warning_under_shared_context(
     )?;
     let error = match envref
         .get_asset_manager()
-        .apply(missing, State::new())
+        .apply(missing, State::new(), None)
         .await
     {
         Ok(asset) => asset.get().await.expect_err("missing resource must fail"),

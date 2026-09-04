@@ -760,3 +760,105 @@ async fn payload_supplied_but_not_required_records_none() -> Result<(), Box<dyn 
     );
     Ok(())
 }
+
+/// Keys are a payload boundary, and the boundary is now named rather than merely unreachable.
+///
+/// Resolving a key on the payload path would hand back the map-registered asset and run it with a
+/// payload, leaving a payload-evaluated value in the key map for the next caller — who would
+/// receive it without supplying one. Unreachable at HEAD, because a pure key query reports
+/// `PayloadRequirement::None`, so the branch was dead code that silently contradicted the
+/// invariant. It now returns an error that says why.
+#[tokio::test]
+async fn keyed_query_cannot_be_evaluated_with_a_payload() -> Result<(), Box<dyn std::error::Error>>
+{
+    use liquers_core::assets::AssetManager;
+
+    type CommandEnvironment = QueuedEnv;
+    let mut env = QueuedEnv::new();
+
+    fn plain(_state: &State<Value>) -> Result<Value, Error> {
+        Ok(Value::from("v".to_string()))
+    }
+    let cr = &mut env.command_registry;
+    register_command!(cr, fn plain(state) -> result)?;
+
+    let envref = env.to_ref();
+    let manager = envref.get_asset_manager();
+    let parent = manager
+        .apply(Recipe::from(parse_query("plain")?), State::new(), None)
+        .await?;
+
+    let key_query = parse_query("-R/some/resource.txt")?;
+    let err = match manager
+        .get_dependency_asset_with_payload(
+            &parent,
+            &key_query,
+            Some(TestPayload::new("carol", 3)),
+            Vec::new(),
+        )
+        .await
+    {
+        Ok(_) => panic!("a keyed query must not be evaluated with a payload"),
+        Err(e) => e,
+    };
+
+    assert!(
+        err.to_string().contains("payload does not cross a key boundary"),
+        "expected the boundary to be named, got: {err}"
+    );
+    Ok(())
+}
+
+/// Only `evaluate(None)` produces an asset the manager may hand out again. An asset evaluated
+/// with a payload is in no map, so a second request cannot receive it.
+///
+/// Asserted against the maps rather than inferred from the volatility flag: the invariant is a
+/// property of the payload, and the chain that currently guarantees it (payload implies volatile
+/// implies unmapped) would break silently if a command were registered `payload: required`
+/// without `volatile`.
+#[tokio::test]
+async fn payload_evaluated_asset_is_in_no_map() -> Result<(), Box<dyn std::error::Error>> {
+    use liquers_core::assets::AssetManager;
+
+    type CommandEnvironment = QueuedEnv;
+    let mut env = QueuedEnv::new();
+
+    fn needs_payload(_state: &State<Value>, window_id: WindowId) -> Result<Value, Error> {
+        Ok(Value::from(format!("window:{}", window_id.0)))
+    }
+    let cr = &mut env.command_registry;
+    register_command!(cr, fn needs_payload(state, window_id: WindowId injected) -> result
+        payload: required
+    )?;
+
+    let envref = env.to_ref();
+    let query = parse_query("needs_payload")?;
+    let asset = envref
+        .evaluate_immediately("/-/needs_payload", TestPayload::new("dave", 9))
+        .await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "window:9");
+
+    let manager = envref.get_asset_manager();
+    let first_id = asset.id();
+
+    // Not in the key map — asserted directly.
+    assert!(
+        manager.lookup_key_asset(&parse_key("needs_payload")?).is_none(),
+        "a payload-evaluated asset must not be reachable through the key map"
+    );
+
+    // Not reusable through the query map either — asserted by its observable consequence, since
+    // there is no public query-map accessor to read: a second request must not be handed the
+    // payload-evaluated asset. It gets a fresh one, which then fails for want of a payload.
+    let second = envref.evaluate(&query).await?;
+    assert_ne!(
+        second.id(),
+        first_id,
+        "a payload-evaluated asset must never be handed out again"
+    );
+    assert!(
+        second.get().await.and_then(|s| s.value_state()).is_err(),
+        "the fresh asset requires a payload and must fail without one"
+    );
+    Ok(())
+}

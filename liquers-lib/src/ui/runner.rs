@@ -226,7 +226,7 @@ where
             Ok(q) => {
                 self.envref
                     .get_asset_manager()
-                    .apply_immediately(Recipe::from(q), input_state, Some(payload))
+                    .apply(Recipe::from(q), input_state, Some(payload))
                     .await
             }
             Err(e) => Err(e),
