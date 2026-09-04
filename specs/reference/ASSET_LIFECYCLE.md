@@ -184,6 +184,11 @@ The payload requirement is the plan's, not the caller's: a plan needing no paylo
 even when one was supplied. A keyed asset and a non-keyed query asset built from the same query are
 therefore distinguishable in metadata, which they were not before.
 
+It is recorded *before* the gate that rejects a missing payload, so the rejected asset carries it
+too. That is the case where it matters most: a client reading `AssetInfo` to decide whether to
+prompt for a payload sees the error and the reason together, rather than an error beside
+`payload_required: None`.
+
 ## 7. Execute-once
 
 An asset's body runs once, on both paths.
@@ -193,7 +198,14 @@ An asset's body runs once, on both paths.
   status instead — there is no queue to re-submit to.
 
 `Status::Dependencies` is an **active** state in both: its runner is merely parked awaiting a
-child, so claiming it would let a second caller re-run a live evaluation.
+child, so claiming it would let a second caller re-run a live evaluation. Both repairs therefore
+cover `Dependencies` as well as `Processing`: a status only a live runner can hold, left behind by
+a runner that is gone, is not merely un-run but — since the claim reads it as active —
+permanently unclaimable.
+
+The inline repair makes the asset claimable again for the *next* caller. It does not release a
+caller already parked on it, which waits for `JobFinished` alone; see
+`INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS`.
 
 A caller that does not win the claim **waits** for the running evaluation. Refusing it is wrong and
 was tried and reverted once: a genuinely async command yields, so a second legitimate request
@@ -215,5 +227,6 @@ arrives mid-evaluation and must join the first rather than be turned away.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-04 | Recorded two corrections from the PR #61 review: the payload requirement is written before the gate that rejects a missing payload, and both `Drop` repairs cover `Dependencies` alongside `Processing`. Added the inline repair's residual limit (`INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS`). | PR #61 review |
 | 2026-09-04 | Rewritten. The document's former purpose — cataloguing duplication between the evaluation paths as a basis for refactoring — was completed by `evaluate-path-consolidation`, leaving most of its body false at HEAD. Now describes the public surface, the surviving methods and their relationships, the step-by-step flow, and the axes along which evaluations differ. Paths A–D, the asymmetry table and the issue list are archived. | `design/evaluate-path-consolidation/` phase 5 |
 | 2026-08-26 | Previous revision, as the "Comprehensive Map". | — |

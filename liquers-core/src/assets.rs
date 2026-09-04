@@ -5524,7 +5524,8 @@ impl<E: Environment + 'static> Drop for RunClaim<E> {
 ///
 /// The queued [`RunClaim`] re-parks a dropped runner by re-submitting to the job queue. The
 /// inline path has no queue to re-submit to, so this guard restores a **re-runnable** status
-/// instead: an asset whose runner vanished before finishing must not be left in `Processing`,
+/// instead: an asset whose runner vanished before finishing must not be left in a status only a
+/// live runner can hold — `Processing`, or `Dependencies` when it was parked awaiting a child —
 /// where nothing could ever claim it again.
 pub(crate) struct InlineRunClaim<E: Environment> {
     asset: AssetRef<E>,
@@ -5548,9 +5549,38 @@ impl<E: Environment> Drop for InlineRunClaim<E> {
         // `try_write` rather than blocking: `Drop` cannot await, and failing to repair is better
         // than deadlocking. A missed repair leaves the asset in `Processing`, which the next
         // caller waits on rather than double-running — the safe direction.
+        //
+        // `Dependencies` is repaired alongside `Processing`, exactly as the queued `RunClaim`
+        // does. Both are statuses only a live runner can hold, and the runner is gone; leaving
+        // `Dependencies` behind is the worse of the two, because `try_claim_for_run_inline`
+        // reads it as *active* and refuses the claim, so the asset is not merely un-run but
+        // permanently unrunnable. (PR #61 review, comment 2.)
         if let Ok(mut lock) = self.asset.data.try_write() {
-            if lock.status == Status::Processing {
-                let _ = lock.set_status(Status::Recipe);
+            match lock.status {
+                Status::Processing | Status::Dependencies => {
+                    let _ = lock.set_status(Status::Recipe);
+                    // Observers (a UI reading status) learn of the repair. It does not release a
+                    // caller already parked in `wait_to_finish`, which waits for `JobFinished`
+                    // alone — see `INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS`.
+                    let _ = lock
+                        .notification_tx
+                        .send(AssetNotificationMessage::StatusChanged(Status::Recipe));
+                }
+                Status::None
+                | Status::Directory
+                | Status::Recipe
+                | Status::Submitted
+                | Status::Partial
+                | Status::Error
+                | Status::Storing
+                | Status::Ready
+                | Status::Expired
+                | Status::Cancelled
+                | Status::Source
+                | Status::Override
+                | Status::Volatile => {
+                    // Finished, or never entered a running status; nothing to repair.
+                }
             }
         }
     }
@@ -7479,6 +7509,95 @@ recipes:
             "armed Drop should re-park a Dependencies-parked asset as Submitted"
         );
     }
+
+    /// The inline claim's repair must cover `Dependencies` exactly as the queued one does.
+    ///
+    /// An inline runner parks its asset in `Dependencies` while awaiting a child (the default
+    /// `wait_for_dependency` does this on every manager, queue or no queue). If that future is
+    /// then dropped, the status is left behind by a runner that no longer exists — and
+    /// `try_claim_for_run_inline` treats `Dependencies` as active, so no later caller can ever
+    /// claim it: it waits for a completion that nothing will produce. (PR #61 review, comment 2;
+    /// the queued `RunClaim` was given the same repair by PR #6 review, comment 1.)
+    #[tokio::test]
+    async fn test_inline_runclaim_drop_repairs_from_dependencies() {
+        let query = parse_query("test").unwrap();
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(32, query.into(), None, envref.clone())
+                .to_ref();
+        asset.set_status(Status::Recipe).await.unwrap();
+
+        {
+            let _claim = asset
+                .try_claim_for_run_inline()
+                .await
+                .unwrap()
+                .expect("should claim");
+            // The runner parks on a child dependency, then vanishes.
+            asset.set_status(Status::Dependencies).await.unwrap();
+        }
+
+        // Synchronous repair: the inline guard has no queue to spawn onto, so `Drop` has
+        // already run by the time the block ends.
+        assert_eq!(
+            asset.status().await,
+            Status::Recipe,
+            "a Dependencies-parked asset whose inline runner was dropped must be re-parked"
+        );
+        assert!(
+            asset
+                .try_claim_for_run_inline()
+                .await
+                .unwrap()
+                .is_some(),
+            "and it must be claimable again, or nothing can ever run it"
+        );
+    }
+
+    /// The same for the ordinary case: dropped while `Processing`, with no child involved.
+    #[tokio::test]
+    async fn test_inline_runclaim_drop_repairs_from_processing() {
+        let query = parse_query("test").unwrap();
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(33, query.into(), None, envref.clone())
+                .to_ref();
+        asset.set_status(Status::Recipe).await.unwrap();
+
+        {
+            let _claim = asset
+                .try_claim_for_run_inline()
+                .await
+                .unwrap()
+                .expect("should claim");
+            assert_eq!(asset.status().await, Status::Processing);
+        }
+
+        assert_eq!(asset.status().await, Status::Recipe);
+    }
+
+    /// `complete()` disarms: a finished run's status is authoritative and must survive the drop.
+    #[tokio::test]
+    async fn test_inline_runclaim_complete_does_not_repair() {
+        let query = parse_query("test").unwrap();
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(34, query.into(), None, envref.clone())
+                .to_ref();
+        asset.set_status(Status::Recipe).await.unwrap();
+
+        let claim = asset
+            .try_claim_for_run_inline()
+            .await
+            .unwrap()
+            .expect("should claim");
+        claim.complete();
+        assert_eq!(asset.status().await, Status::Processing);
+    }
+
 
     /// An asset that consumed a retained dependency which expired mid-execution must complete
     /// through the production dependency wait path and be labeled `Expired` (staleness

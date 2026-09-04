@@ -862,3 +862,48 @@ async fn payload_evaluated_asset_is_in_no_map() -> Result<(), Box<dyn std::error
     );
     Ok(())
 }
+
+/// The rejected case must record the requirement too — recording sits *before* the gate.
+///
+/// The asset a client is handed when a payload-required query is evaluated without one is
+/// precisely the asset whose metadata most needs to say that a payload is what it wants: a UI
+/// reading `AssetInfo` to decide whether to prompt sees the error and the reason together.
+/// Recording after the gate left this asset reporting `None`, i.e. "reproducible, needs
+/// nothing" — the opposite of why it failed. (PR #61 review, comment 1.)
+#[tokio::test]
+async fn payload_requirement_is_recorded_even_when_the_payload_is_missing(
+) -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = QueuedEnv;
+    let mut env = QueuedEnv::new();
+
+    // Tolerant of a missing payload, so only the gate stops it — the command itself would run.
+    fn tolerant(_s: &State<Value>, context: Context<QueuedEnv>) -> Result<Value, Error> {
+        match context.get_payload_clone() {
+            Some(p) => Ok(Value::from(format!("payload:{}", p.window_id))),
+            None => Ok(Value::from("RAN_WITHOUT_PAYLOAD")),
+        }
+    }
+
+    let cr = &mut env.command_registry;
+    register_command!(cr, fn tolerant(state, context) -> result payload: required)?;
+
+    let envref = env.to_ref();
+    let asset = envref.evaluate("/-/tolerant").await?;
+    let state = asset.get().await?;
+    assert!(
+        state.value_state().is_err(),
+        "the evaluation must be rejected for want of a payload"
+    );
+
+    assert_eq!(
+        asset.payload_required().await,
+        PayloadRequirement::Required,
+        "the requirement is known from the plan and must be recorded before the gate rejects"
+    );
+    assert_eq!(
+        asset.get_asset_info().await?.payload_required,
+        PayloadRequirement::Required,
+        "AssetInfo is what a client reads to learn why the evaluation was refused"
+    );
+    Ok(())
+}
