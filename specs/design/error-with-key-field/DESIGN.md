@@ -16,7 +16,9 @@ superseded_by:
 # Structured Error Context Design Tracking
 
 The original one-field repair has returned to Phase 2 because keyed recipes and nested query
-evaluation require multiple role-bearing contexts.
+evaluation require multiple role-bearing contexts. Store access is also provenance: the Phase 2
+contract must decide how a store reference, such as a stable store name, travels with the resource
+key without being confused with an asset or recipe identity.
 
 ## Phase Status
 

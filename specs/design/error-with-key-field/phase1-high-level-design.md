@@ -6,7 +6,8 @@ Preserve the distinct roles of asset/recipe keys, evaluated queries, nested reso
 actions, and positions instead of overwriting one flat error slot during propagation.
 ## Core Interactions
 - **Query:** key-to-query conversion remains lossless; `Query::key()` tests pure-key extraction.
-- **Store:** typed keyed failures and persistence warnings retain the accessed resource key.
+- **Store:** typed keyed failures and persistence warnings retain the accessed resource key and,
+  when relevant, a store reference such as its stable store name.
 - **Commands:** no new commands; action identity and position remain associated with their query.
 - **Assets:** every keyed asset/recipe boundary adds its owner key without replacing an inner key.
 - **Values/UI:** no value-type change; optional clickable text is derived rendering, not storage.

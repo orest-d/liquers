@@ -2,7 +2,7 @@
 id: CORE-ERROR-STORE-NAME-NOT-STRUCTURED
 kind: issue
 title: A store's name is interpolated into the error message instead of being a payload field
-status: draft
+status: rejected
 priority: P2
 complexity: S
 area: [core/error, core/store]
@@ -60,6 +60,14 @@ Err(Error::key_not_supported_unattributed(key))
 `ErrorPayload` derives `Serialize`/`Deserialize`, so the field is additive and `Option`, and existing
 payloads deserialize unchanged. The payload is boxed (`error.rs:95`, with the reasoning recorded
 there), so one more `Option<String>` does not widen `Result<T, Error>`.
+
+## Resolution
+
+Rejected on 2026-09-04. A store name in the human-readable error message is sufficient for the
+current callers. If the broader structured error-context design is implemented, store access may
+gain a structured store reference there; that is part of
+[`ERROR-WITH-KEY-SETS-QUERY-FIELD`](ERROR-WITH-KEY-SETS-QUERY-FIELD.md), not a standalone payload
+field change.
 
 ## Discovery
 

@@ -20,6 +20,10 @@ public binding surface remain blocking decisions; readiness is `phase2-blocked`.
   text in a query slot is parseable and recoverable as a pure key, but loses its semantic role.
 - `ErrorPayload` has one each of `query`, `key`, `position`, and `command_key`; every builder
   overwrites its slot (`error.rs:143-160`). `command_key` is not serialized.
+- Store error constructors currently interpolate the store name into their message rather than
+  carrying it as data. That is sufficient for the current error surface, but a structured context
+  must be able to retain a store reference (for example, the stable store name) alongside the
+  accessed resource key when it becomes relevant to consumers.
 - `Error::key_not_found` does not populate `key` (`error.rs:304-306`). The repository has 44
   source-tree calls across core, native stores, and web stores that inherit this omission.
 - `dependency_version_mismatch` and `dependency_cycle` convert a pure dependency key and copy it
@@ -54,6 +58,7 @@ key while disregarding a nontrivial header (`query.rs:1703-1713`). Use `Query::k
 |---|---|---|
 | Wrong flat assignment | `Error::with_key` | A simple keyed error projects to `key`, not only `query`. |
 | Constructor omits known key | `Error::key_not_found` | Typed keyed constructors always record the key context. |
+| Store access provenance | keyed store constructor / resource access | A resource-access frame can carry a store reference, such as its stable store name, separately from the resource key. |
 | Keyed boundary lacks owner identity | recipe planning/evaluation | Add an asset/recipe-key frame even when an inner query or resource key exists. |
 | Nested query/link/resource failure | link materialization and `GetResource` | Retain inner failure plus the outer query, argument/action position, and owner frame. |
 | Dependency identity | mismatch/cycle constructors | Record dependency role and whether the dependency is a key, directory, recipe, command, or query. |
@@ -77,6 +82,8 @@ pub struct ErrorContextFrame {
     pub query: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store: Option<String>,
     #[serde(default, skip_serializing_if = "Position::is_unknown")]
     pub position: Position,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -104,8 +111,9 @@ is meaningful. An ungrouped list of keys and queries cannot express that associa
 
 This is a **candidate**, not an approved signature. Open questions include whether `role` should be
 a closed enum or forward-compatible string/newtype; whether recipe and asset identities need
-separate roles; whether dependency variants belong in this frame; and whether `label` should encode
-argument names or be replaced by typed operation data.
+separate roles; whether a store reference is always a name or needs a stronger identity; whether
+dependency variants belong in this frame; and whether `label` should encode argument names or be
+replaced by typed operation data.
 
 ## Trait Implementations
 
@@ -130,6 +138,7 @@ pub fn with_context(self, frame: ErrorContextFrame) -> Self;
 pub fn with_asset_key(self, key: &Key) -> Self;
 pub fn with_recipe_key(self, key: &Key) -> Self;
 pub fn with_query_context(self, role: ErrorContextRole, query: &Query) -> Self;
+pub fn with_store_context(self, store_name: &str) -> Self;
 ```
 
 The flat `query`, `key`, `position`, and `command_key` fields remain during migration. A likely
@@ -155,7 +164,7 @@ also unresolved.
 | Issue/design | Status | Priority | Effect | Blocking? |
 |---|---|---|---|---|
 | `CORE-ERROR-PAYLOAD-SIZE` | closed | P2 | `ErrorPayload` is boxed, so an additive vector does not widen every `Result`; preserve pointer-size and flat legacy serde tests. | no |
-| `CORE-ERROR-STORE-NAME-NOT-STRUCTURED` | draft | P2 | Adds another provenance field. Coordinate so store identity is either a frame attribute or an explicitly separate field, not two competing models. | no, but architecture overlap |
+| `CORE-ERROR-STORE-NAME-NOT-STRUCTURED` | rejected | P2 | Store name in the message is sufficient today. If structured context is adopted, the selected frame model must carry any needed store reference (for example, its stable name), rather than reviving a competing flat payload field. | no |
 | `CORE-METADATA-TRACEBACK-SUPPORT` | accepted | P2 | Traceback/cause information is complementary; do not overload context frames with opaque language stacks. | no |
 | `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT` | accepted | P3 | Demonstrates that core transport must own structured data needed after language round trips. | no |
 | `WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE` | accepted | P3 | Constructor work is separate, but its proposed flat surface must not freeze the incomplete model. | no |
@@ -239,7 +248,8 @@ Phase 3 cannot define correct expected values, and Phase 4 cannot name stable si
 following are decided:
 
 1. Choose ordered structured frames or another authoritative model.
-2. Choose the frame role vocabulary/granularity and whether role is a closed enum.
+2. Choose the frame role vocabulary/granularity, including the representation and stability of a
+   store reference, and whether role is a closed enum.
 3. Choose storage order, deduplication, and a maximum frame/depth policy.
 4. Define which frame projects to each legacy flat field and whether old builders overwrite,
    preserve-first, or append context.

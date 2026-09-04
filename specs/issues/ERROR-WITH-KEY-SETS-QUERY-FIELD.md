@@ -65,7 +65,10 @@ public serialized contract.
    position contexts without overwriting the inner cause.
 4. Existing flat fields have an explicit compatibility/projection rule, and metadata, web, and
    Python consumers have a migration contract.
-5. Human-readable or link markup, if provided, is rendered from structured context and is not the
+5. Store-access context can retain a store reference, such as its stable store name, separately
+   from resource, asset, and recipe keys. A store name in the message remains sufficient until this
+   broader model is adopted.
+6. Human-readable or link markup, if provided, is rendered from structured context and is not the
    only authoritative representation.
 
 The structured representation and compatibility projection remain design decisions. Until they
