@@ -228,6 +228,35 @@ being served, and subscribers use it to stop relying on one. Here nothing was ev
 asset is born expired, `ValueProduced` and `JobFinished` are the truthful messages, and adding
 `Expired` would make a waiter believe a value it never received had just been withdrawn.
 
+### The `expired-binary-read-safety` regression is preserved, and stops being racy
+
+Phase 1 open question 5. That design's owner-decided position (its cross-phase finding B1, resolved
+as "Option 2 — accept the regression") is that a stale-dependency completion is uniformly `Expired`:
+normal reads of either family decline it, and the caller opts in explicitly through `to_override()`
+or a `*_any_status` read. This design must not weaken that, and it does not — it makes it hold
+sooner and without a race.
+
+| Read | Today | After |
+|---|---|---|
+| `poll_state` / `poll_binary` between `ValueProduced` and `finish_run_with_result` | status is still `Ready`, so the value **is** served | status is already `Expired`, so it is declined |
+| the same reads after `finish_run_with_result` | declined | declined — unchanged |
+| `poll_state_any_status` / `get_binary_any_status` | retained value returned | unchanged |
+| `to_override()` | promotes `Expired` → `Override` | unchanged; and now also works after an eviction-and-reload, because the store agrees |
+
+The middle window is exactly what B1 called out as racy — "the 10 ms poll may observe either side of
+the relabel". Deciding the status before the notification closes it: there is no instant at which a
+stale-dependency asset is observable as `Ready`. So the accepted regression becomes deterministic
+rather than scheduling-dependent, which is what a test can pin.
+
+The one genuinely new consequence is on the *store* side, and it runs the same way: a
+stale-dependency asset that is evicted and re-requested previously came back from the store as
+`Ready` (the bug), and now comes back refused by `try_fast_track` and recomputed. Recovery of that
+value is then the recovery API's job, which `test_get_any_status_and_to_override_from_store_only`
+(`expiration_integration.rs:1336`) already covers for an ordinary expired keyed asset.
+
+**Confirmed here, proved in Phase 3:** Phase 3 owns re-running the `I5` scenario against the new
+ordering, and asserting the middle row above rather than assuming it.
+
 ## Integration Points
 
 ### Crate: liquers-core
@@ -330,8 +359,9 @@ final — the design is linked from the issue, not from the reference.
   "is the broader cascade acceptable?"
 - Whether `test_wait_for_retained_expired_dependency_labels_asset_expired_on_completion` still
   passes unchanged; it uses a non-keyed asset, so it should, and if it does not the branch is wrong.
-- Whether `expired-binary-read-safety`'s I5 (a stale-dependency completion is not served by normal
-  reads, and `to_override` recovers it) still holds once such an asset is stored `Expired`.
+- Confirmation, in a test, of the middle row of §"The `expired-binary-read-safety` regression is
+  preserved": between `ValueProduced` and the end of the run, a stale-dependency asset is never
+  observable as `Ready`. Phase 2 argues it; only a test settles it.
 - The cross-process scenario as a runnable test — it is the fix's real payoff and nothing exercises
   it today.
 - Any place the rename makes a comment or doc-link inaccurate.
@@ -405,6 +435,10 @@ relies on. No serde annotation is added.
    sites) and makes `ASSET_LIFECYCLE.md` step 6 accurate. It is separable if the owner prefers the
    fix to touch nothing cosmetic.
 4. **Confirm "no commands in scope"** — answered above rather than asked, per the template.
+
+Phase 1's open question 5 is **closed** by §"The `expired-binary-read-safety` regression is
+preserved, and stops being racy": the position is preserved and becomes deterministic. Phase 3
+carries the proof obligation, not an open decision.
 
 ## References
 

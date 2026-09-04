@@ -19,7 +19,7 @@ superseded_by:
 ## Phase Status
 
 - [x] Phase 1: High-Level Design (approved 2026-09-04)
-- [ ] Phase 2: Solution & Architecture (drafted 2026-09-04, in review)
+- [ ] Phase 2: Solution & Architecture (reviewed 2026-09-04, awaiting approval)
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
@@ -56,6 +56,16 @@ Phase 2 also verified an exposure the issue does not record: `try_fast_track` sk
 dependency-version check when the dependency manager holds no version for that key, which is every
 key in a fresh process. A stale-dependency asset stored as `Ready` is therefore **served without
 recomputation after a restart**. Recommended (not applied) priority change P2 → P1.
+
+**Phase 2 review (2 reviewers).** Reviewer A (Phase 1 conformity) — no blocking findings; the
+documentation plan matches Phase 1 exactly and every Phase 1 question is answered, but open
+question 5 was only listed as evidence to collect rather than confirmed. Fixed: Phase 2 now carries
+§"The `expired-binary-read-safety` regression is preserved, and stops being racy", which shows the
+position is not weakened and that deciding the status before the notification closes the window B1
+called racy. Reviewer B (codebase alignment) — every file:line claim verified against HEAD with no
+correction; no consumer outside `liquers-core` breaks (`liquers-axum`'s query handlers already have
+explicit `Status::Expired` arms at `handlers.rs:113` and `:261`); no existing test asserts the
+buggy behaviour, so none breaks. No fixer agent was needed for a single advisory.
 
 ## Links
 
