@@ -80,7 +80,10 @@ Two consequences for whoever takes the decision this issue is waiting on:
 1. **Pinning `sysinfo` alone no longer restores the matrix.** The egui rows need the same treatment
    or the same toolchain bump, so the "select compatible dependency versions" option is now a
    multi-package pin that will keep growing.
-2. **The matrix cannot currently go green on this toolchain**, which means any change — including
-   ones that touch none of the affected crates — cannot use a clean matrix run as evidence. That
-   erodes the check `BUILD-MATRIX-NOT-RUN-IN-CI` was closed to provide.
+2. **The matrix cannot go green on rustc 1.94**, so a contributor on that toolchain cannot use a
+   local matrix run as evidence for any change, including ones touching none of the affected
+   crates. **CI is unaffected** — `.github/workflows/build-matrix.yml` uses
+   `dtolnay/rust-toolchain@stable`, and all 20 configurations pass there (verified on PR #60). So
+   this is a local-development problem, not a gap in the check `BUILD-MATRIX-NOT-RUN-IN-CI` was
+   closed to provide, and the fix can be as small as documenting the required toolchain.
 

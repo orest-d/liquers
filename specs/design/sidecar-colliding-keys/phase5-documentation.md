@@ -6,7 +6,7 @@
 |---|---|
 | Steps 1-9 complete, every validation command run | Yes |
 | `C2` reports no allowed failures; `prefix03` / `sibling05` passing rather than "not run" | Yes, and asserted in the test rather than read off a report |
-| Build matrix clean | **No — 17 of 20.** Three `liquers-lib` test rows fail on `rustc 1.94.1` against packages requiring `1.95`. Pre-existing, unrelated to this change, and already tracked: `BUILD-SYSINFO-REQUIRES-NEWER-RUSTC` |
+| Build matrix clean | **Yes, in CI: all 20 configurations pass** on PR #60 (`dtolnay/rust-toolchain@stable`, 8 minutes). It fails 17/20 *in the authoring sandbox*, whose `rustc 1.94.1` is below what `sysinfo` and `egui 0.36` require — a property of that environment, not of this change or of CI. Recorded on `BUILD-SYSINFO-REQUIRES-NEWER-RUSTC` |
 | Review comments answered | Yes — four review rounds, recorded in Phases 2-4 |
 
 Test results at completion: `liquers-core --lib` 784 passed; `store_conformance_CONF` 5 suites
@@ -100,7 +100,8 @@ Five, all from things noticed in passing rather than the task itself.
 suites are unchanged. `D1` still passes, so code, contract and guide share one rule-ID vocabulary.
 
 Remaining, all tracked above: the pluggable metadata layout (`L`, needs its own design), the
-metadata-only key divergence, the stale matrix count, and the toolchain blocking three matrix rows.
+metadata-only key divergence, the stale matrix count, and the toolchain that blocks three matrix
+rows for a local contributor — CI is unaffected, which is why that issue is `P2` and not higher.
 
 ## Validation
 
@@ -110,6 +111,6 @@ cargo test -p liquers-core --features store-conformance --test store_conformance
 cargo test -p liquers-core --features store-conformance --test conformance_docs_CONF    1 passed
 cargo test -p liquers-store                                              46 passed
 cargo check -p liquers-core --target wasm32-unknown-unknown              clean
-bash scripts/check-build-matrix.sh                                       17/20, 3 pre-existing
+bash scripts/check-build-matrix.sh          20/20 in CI; 17/20 locally on rustc 1.94.1
 python3 scripts/docs_index.py --check                            276 documents, 0 errors
 ```
