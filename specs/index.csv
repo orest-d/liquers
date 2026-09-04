@@ -66,6 +66,7 @@ DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE,issue,Execution-time expired dependen
 DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS,issue,"Three documents teach AsyncStoreWrapper, which no longer exists in the code",closed,local,,ready,P2,S,docs;core/store,,,,async-store-wrapper-docs,,2026-09-02,specs/issues/DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS.md
 DOCS-BUILD-MATRIX-CONFIGURATION-COUNT-STALE,issue,CLAUDE.md states the build matrix has 11 configurations; it runs 20,closed,local,,,P3,S,docs;build,,,,documentation-currentness-small-fixes,,2026-09-03,specs/issues/DOCS-BUILD-MATRIX-CONFIGURATION-COUNT-STALE.md
 DOCS-DEAD-LINKS-OUTSIDE-README,issue,Relative links outside README are never validated,closed,local,,covered,P3,S,docs,,,,docs-current-link-validation,,2026-08-08,specs/issues/DOCS-DEAD-LINKS-OUTSIDE-README.md
+DOCS-INDEX-GENERATION-DIFFERS-BY-HOST,issue,Documentation index generation differs by host filesystem ordering,closed,local,,,P2,S,docs;build,,,,,,2026-09-04,specs/issues/DOCS-INDEX-GENERATION-DIFFERS-BY-HOST.md
 DOCS-STORE-CONFIG-DESCRIBES-ASYNC-FILESTORE-AS-FUTURE-WORK,issue,Store configuration reference describes AsyncFileStore as future work,closed,local,,,P2,S,docs;core/store,,,,documentation-currentness-small-fixes,,2026-09-04,specs/issues/DOCS-STORE-CONFIG-DESCRIBES-ASYNC-FILESTORE-AS-FUTURE-WORK.md
 EGUI-ASSET-MANAGER-INTEGRATION,feature,No stable adapter between egui widgets and the asset manager,accepted,local,,,P2,M,lib/egui,,,,,,2026-08-08,specs/issues/EGUI-ASSET-MANAGER-INTEGRATION.md
 ENVIRONMENT-MANAGER-REFERENCE-CYCLE,issue,"Environment and asset manager hold each other with strong Arcs, so every environment leaks",draft,local,,,P2,M,core/assets;core/context,,,,environment-builder,,2026-08-27,specs/issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md
@@ -166,14 +167,14 @@ COVERED-02,design,Coverage record for COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEG
 COMMAND-DECLARATION,design,A language-neutral command declaration type,complete,local,,,,,core/commands;web;py,,50,,command-declaration,,2026-08-29,specs/design/command-declaration/DESIGN.md
 COMMAND-METADATA-COMMAND-HINTS,design,Command-level metadata hints,in_review,local,implementation,needs-decision,P3,S,core/commands;macro;lib/ui,,,,command-metadata-command-hints,,2026-08-31,specs/design/command-metadata-command-hints/DESIGN.md
 ACTIVE-09,design,Design for REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED,in_review,local,implementation,needs-decision,P3,S,lib/commands;build;docs,,,,command-registry-impl-version-freshness,,2026-09-03,specs/design/command-registry-impl-version-freshness/DESIGN.md
-COMMAND-REGISTRY-ISSUE-FIELDS,design,Preserve command registry issue identity fields,complete,local,,,P3,S,core/commands,,,,command-registry-issue-fields,,2026-08-31,specs/design/command-registry-issue-fields/DESIGN.md
 COVERED-09,design,Coverage record for COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED,in_review,local,architecture,covered,P3,S,core/commands,,,,command-registry-issue-fields-coverage,,2026-09-03,specs/design/command-registry-issue-fields-coverage/DESIGN.md
+COMMAND-REGISTRY-ISSUE-FIELDS,design,Preserve command registry issue identity fields,complete,local,,,P3,S,core/commands,,,,command-registry-issue-fields,,2026-08-31,specs/design/command-registry-issue-fields/DESIGN.md
 CONFIGURATION-ERROR-KIND,design,Classify semantic configuration failures,in_review,local,implementation,needs-decision,P3,S,core/error;store/config,,,,configuration-error-kind,,2026-08-31,specs/design/configuration-error-kind/DESIGN.md
 CONTEXT-PARAM-ORDER,design,Context parameter position in register_command!,draft,local,architecture,,,,core/commands;macro,,,,context-param-order,,2026-03-02,specs/design/context-param-order/DESIGN.md
 ACTIVE-10,design,Design for REPO-DEAD-CODE-HYGIENE,in_review,local,implementation,ready,P3,S,build,,,,core-dead-code-hygiene,,2026-09-03,specs/design/core-dead-code-hygiene/DESIGN.md
 CORE-ERROR-PAYLOAD-SIZE-DESIGN,design,Box the core error payload,complete,local,,ready,P2,S,core/error,,,,core-error-payload-size,,2026-09-01,specs/design/core-error-payload-size/DESIGN.md
-CORE-NO-DEFAULT-FEATURES,design,liquers-core no-default-features build decision,complete,local,,,P2,S,core/store;build,,,,core-no-default-features,,2026-08-29,specs/design/core-no-default-features/DESIGN.md
 COVERED-04,design,Coverage record for CORE-NO-DEFAULT-FEATURES-BROKEN,in_review,local,architecture,covered,P2,S,docs,,,,core-no-default-features-compatibility,,2026-09-03,specs/design/core-no-default-features-compatibility/DESIGN.md
+CORE-NO-DEFAULT-FEATURES,design,liquers-core no-default-features build decision,complete,local,,,P2,S,core/store;build,,,,core-no-default-features,,2026-08-29,specs/design/core-no-default-features/DESIGN.md
 COVERED-10,design,Coverage record for DELEGATED-VALUE-REPERSISTED,in_review,local,architecture,covered,P3,S,docs,,,,delegated-value-persistence,,2026-09-03,specs/design/delegated-value-persistence/DESIGN.md
 DELEGATED-VALUE-REPERSISTENCE,design,Avoid re-persisting delegated asset values,complete,local,,,P3,S,core/assets,,,,delegated-value-repersisted,,2026-08-31,specs/design/delegated-value-repersisted/DESIGN.md
 DEPENDENCY-MANAGEMENT,design,Dependency-wait lifecycle and deadlock-safe delegation,complete,local,,,,,core/assets,,5,,dependency-management,,2026-03-02,specs/design/dependency-management/DESIGN.md
@@ -199,8 +200,8 @@ KEYED-DELEGATION-HAND-OFF,design,"Keyed delegation is a hand-off, not a dependen
 KEYED-RECIPE-OWNERSHIP,design,Non-evaluating ownership test for keyed recipes,complete,local,,,,,core/assets;web,,,,keyed-recipe-ownership,,2026-08-09,specs/design/keyed-recipe-ownership/DESIGN.md
 LIB-INTEGRATION-TEST-FEATURE-GATES,design,Feature-gate liquers-lib integration tests,complete,local,,ready,P2,S,lib/value;build,,,,lib-integration-test-feature-gates,,2026-09-01,specs/design/lib-integration-test-feature-gates/DESIGN.md
 LIB-POLARS-ETHNUM-RUST-1-98,design,Polars dependency compatibility with Rust 1.98,complete,local,,ready,P2,S,lib/polars;build,,,,lib-polars-ethnum-rust-1-98,,2026-09-01,specs/design/lib-polars-ethnum-rust-1-98/DESIGN.md
-LIQUERS-WEB,design,Browser and JavaScript integration via WebAssembly,complete,local,,,,,web,,19,,liquers-web,,2026-03-02,specs/design/liquers-web/DESIGN.md
 LIQUERS-WEB-STORE,design,Browser stores for liquers-web,complete,local,,,,,web;store/config;core/store,,,,liquers-web-store,,2026-08-09,specs/design/liquers-web-store/DESIGN.md
+LIQUERS-WEB,design,Browser and JavaScript integration via WebAssembly,complete,local,,,,,web,,19,,liquers-web,,2026-03-02,specs/design/liquers-web/DESIGN.md
 COVERED-03,design,Coverage record for CORE-LISTDIR-KEYS-DEEP-TESTS-THE-WRONG-KEY,in_review,local,architecture,covered,P2,S,docs,,,,listdir-keys-deep-child-check,,2026-09-03,specs/design/listdir-keys-deep-child-check/DESIGN.md
 MENU-PANE-LAYOUT,design,Menu bar and configurable pane layout,complete,local,,,,,lib/ui,,,,menu-pane-layout,,2026-03-02,specs/design/menu-pane-layout/DESIGN.md
 METADATA-CONSISTENCY,design,Metadata format and type consistency,superseded,local,,,,,core/value,,,,metadata-consistency,,2026-03-02,specs/design/metadata-consistency/DESIGN.md
@@ -249,8 +250,8 @@ VOLATILITY-SYSTEM,design,Volatility tracking across the asset graph,complete,loc
 WEB-API-LIBRARY,design,Web API library,complete,local,,,,,axum,,,,web-api-library,,2026-03-02,specs/design/web-api-library/DESIGN.md
 ACTIVE-12,design,Design for WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE,in_review,local,implementation,needs-decision,P3,S,web;core/error,,,,web-liquers-error-constructor,,2026-09-03,specs/design/web-liquers-error-constructor/DESIGN.md
 COVERED-08,design,Coverage record for WEB-VALUE04-BYTES-IDENTIFIER-CASE-MISMATCH,in_review,local,architecture,covered,P2,S,docs,,,,web-value04-bytes-identifier,,2026-09-03,specs/design/web-value04-bytes-identifier/DESIGN.md
-WEBUI,design,Web-framework-independent rendering with SSR and wasm,complete,local,,,,,lib/ui,,10,,webui,,2026-03-02,specs/design/webui/DESIGN.md
 WEBUI-FIXES,design,Invalidation tracking for retained-mode rendering,complete,local,,,,,lib/ui,,12,,webui-fixes,,2026-03-02,specs/design/webui-fixes/DESIGN.md
+WEBUI,design,Web-framework-independent rendering with SSR and wasm,complete,local,,,,,lib/ui,,10,,webui,,2026-03-02,specs/design/webui/DESIGN.md
 WP2-TERMINAL-OUTCOME,design,Asset terminal outcome contract,complete,local,,,,,core/assets,,7,,wp2-terminal-outcome,,2026-03-02,specs/design/wp2-terminal-outcome/DESIGN.md
 API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,docs,,,,,2026-08-17,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
 DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
