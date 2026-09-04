@@ -2,7 +2,7 @@
 id: ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS
 kind: issue
 title: An argument's default gui_info differs depending on how the command was registered
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/commands, macro, web]
@@ -79,3 +79,14 @@ Pick one default and use it everywhere:
 
 One command, registered through `register_command!` and through a declaration, produces byte-equal
 metadata including `gui_info` and `metadata_version`, with no field excluded from the comparison.
+
+## Resolution
+
+Closed on 2026-09-04. `liquers-core::command_metadata::DEFAULT_GUI` now defines the shared
+`TextField(40)` default. Core constructors, serde omission, command declarations, and
+`register_command!` macro expansion clone that constant; explicit `gui:` metadata remains
+authoritative. Focused serde, macro, and macro/declaration metadata-version parity tests pass.
+
+The full command-registry exporter could not be run locally because the native egui dependency
+graph currently fails in `wgpu-hal` on Windows due to incompatible `windows` crate versions. The
+committed registry was left unchanged rather than replacing it with a reduced-feature export.
