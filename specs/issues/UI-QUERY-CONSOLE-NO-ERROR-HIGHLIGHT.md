@@ -2,7 +2,7 @@
 id: UI-QUERY-CONSOLE-NO-ERROR-HIGHLIGHT
 kind: issue
 title: Query console never highlights the erroring token despite complete plumbing
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [lib/ui, core/query]
@@ -54,3 +54,11 @@ has the same information available and could follow, but is not covered by this 
 Found while designing `PLAN-EXCESS-ACTION-PARAMETERS-DROPPED`, whose value depends on this: raising
 a positioned error for an excess action parameter is what lets an editor point at the parameter, and
 that payoff is only realised once the console consumes the position it is handed.
+
+## Resolution
+
+Closed on 2026-09-04. The egui layouter now accepts an optional error `Position`, and the query
+console passes the position retained from its latest asset error. The compatibility helper keeps
+callers with no error position syntax-only. Focused layout and console-state regression tests cover
+the known-position and no-position paths; the native egui build remains blocked by the pre-existing
+`wgpu-hal` Windows dependency conflict between `windows` 0.61 and 0.62.
