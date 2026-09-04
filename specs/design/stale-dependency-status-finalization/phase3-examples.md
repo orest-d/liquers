@@ -64,6 +64,12 @@ Both environments are then built with `Box::new(shared.clone())`. Each gets its 
 `AssetManager` and its own — empty — `DependencyManager`, which is the property that makes it a
 faithful stand-in for a restarted process, while the store contents survive.
 
+**The delegation is cheap, and that was checked rather than hoped.** `AsyncStore` has **two
+required methods** — `get` and `set_metadata` — and twenty with default implementations. So the
+wrapper is two forwarding bodies, not twenty-two. `ToOverrideGateStore` is the proof: it delegates
+the two required methods and overrides exactly one defaulted method (`set`) to inject its gate.
+`SharedMemoryStore` needs no override at all.
+
 ## Overview Table
 
 | # | Kind | Name | What it demonstrates or checks |
@@ -144,10 +150,24 @@ anything.
 
 `note_expired_dependency` fires only from `wait_for_dependency`, i.e. while the parent is already
 evaluating. Expiring the dependency before the parent starts takes the *scheduling*-time path
-instead (`get_dependency_asset` evicts and recomputes), and the flag is never set. Phase 4 must use
-a gate, following `test_dependency_expiring_during_parent_evaluation_is_allowed`, and the test
-should assert the flag's *effect* early (parent is `Expired`) so that a setup which silently missed
-the window fails loudly instead of quietly proving nothing.
+instead (`get_dependency_asset` evicts and recomputes), and the flag is never set.
+
+The precedent exists and Phase 4 should copy it rather than reinvent it:
+`test_dependency_expiring_during_parent_evaluation_is_allowed`
+(`liquers-core/tests/expiration_integration.rs:749`). Its mechanism, in order:
+
+1. The parent command is registered holding a `tokio::sync::oneshot` receiver.
+2. The parent reads its dependency through `context.get_dependency_state()`, then blocks on
+   `gate_rx.await` — so it is provably *inside* evaluation, having already taken the value.
+3. The test **polls until the child is `Ready`**, bounded (200 iterations × 2 ms) rather than
+   sleeping. This is the step that makes the window deterministic: it is positive proof the parent
+   read the dependency, not an assumption that it had time to.
+4. Only then does the test expire the child, and release the gate.
+
+The bounded poll is the part worth copying carefully. A test that expires the dependency on a
+timer instead will sometimes take the scheduling-time path, pass for the wrong reason, and be
+impossible to distinguish from a working one. Assert the parent ends `Expired` early in the
+scenario, so a run that missed the window fails there rather than deep in a later assertion.
 
 ## Example 2: What `finalize_status` decides
 

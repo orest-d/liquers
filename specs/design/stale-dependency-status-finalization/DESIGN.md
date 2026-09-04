@@ -20,7 +20,7 @@ superseded_by:
 
 - [x] Phase 1: High-Level Design (approved 2026-09-04)
 - [x] Phase 2: Solution & Architecture (approved 2026-09-04)
-- [ ] Phase 3: Examples & Testing
+- [ ] Phase 3: Examples & Testing (reviewed 2026-09-04, awaiting approval)
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
@@ -92,3 +92,27 @@ buggy behaviour, so none breaks. No fixer agent was needed for a single advisory
 
 **Phase 2 approved 2026-09-04.** All four gate questions resolved; no open decision carried into
 Phase 3.
+
+## Phase 3 review (2026-09-04)
+
+Three drafting agents, then two reviewers.
+
+**Drafting produced more corrections than content.** The pitfalls table survived nearly whole; most
+drafted test code did not. Verification against the source found nine wrong assumptions, recorded
+as Phase 3's binding "Verified Setup Facts" table. Two mattered: `set_value` already persists, so a
+draft testing "the reason is recorded before persistence" had persisted in its own setup; and
+`AsyncMemoryStore` is not shareable by cloning, so the cross-process test — the fix's whole payoff —
+could not be built the drafted way. A draft claimed that pattern was "verified feasible against
+existing tests"; the test it cited builds one environment.
+
+**Reviewer 1 (Phase 1/2 conformity)** found two approved Phase 2 decisions with no test. Decision
+(d), `expiration_time` parity, was a real gap — U7 added. Decision (g), that no `Expired`
+notification is sent, gets no test and Phase 3 now explains why: the channel is
+`tokio::sync::watch`, which retains only the latest value, so an absence assertion would pass on a
+broken implementation. Also cross-indexed all ten pitfalls to tests.
+
+**Reviewer 2 (codebase alignment)** verified all nine corrections against source with no
+correction of its own, and supplied two facts that make Phase 4 executable: `AsyncStore` has only
+two required methods (so the shared-store wrapper is two forwarding bodies), and the mid-evaluation
+expiry gate at `expiration_integration.rs:749` achieves its timing with a bounded poll until the
+child is `Ready`, not a sleep.
