@@ -3,7 +3,7 @@ title: Store Implementation Guide
 kind: guide
 audience: internal
 area: [core/store, store/backends, web]
-reviewed: 2026-09-03
+reviewed: 2026-09-04
 ---
 # Store Implementation Guide
 
@@ -118,7 +118,9 @@ the ones that bite later.
 
 - **What does absence look like, and can you tell it from a failure?** An S3 403 reported as
   `Ok(false)` from `is_dir` is a lie about existence. Match the backend's not-found condition
-  specifically. This is the single most commonly failed rule in tree.
+  specifically. `listdir` on an absent addressable directory is `Ok([])`, but a failed existence
+  check or directory read remains an error; never catch every listing error as an empty result.
+  This is the single most commonly failed rule in tree.
 - **How do backend errors map onto `ErrorType`?** Callers match on the type, never on the message.
 - **What does enumeration cost?** Is `keys()` a full backend scan? Is that acceptable?
 - **Atomicity, concurrency and limits.** Are data and metadata written together? What happens on a
@@ -365,5 +367,6 @@ serde for exactly this reason. Regenerate it rather than editing it.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-04 | Added the `listdir` absence rule: an absent addressable directory is empty, but a failed filesystem operation must remain an error. | phase-5 |
 | 2026-09-03 | §"The key space" now says *how* to refuse an unrepresentable key, not only that you must: one `ReservedNames` predicate consulted by `is_supported`, the path builders and the listing filters, declaring what your own layout reserves and no more. Records the three failure modes behind that advice — `is_supported` is a routing hint and does not bind a direct caller; an unfiltered listing turns a refusal into a failed enumeration; over-reserving refuses keys for nothing — and the recovery routes for a store that already holds a colliding file. | `design/sidecar-colliding-keys/` Phase 5 |
 | 2026-09-02 | Created. The operational counterpart to `reference/STORE_SEMANTICS.md`: what implementing a store means, the questions to answer first, the sibling rule, the capability model, how to write a fixture and run the suite, the safety levels and their precautions, a worked restricted store, and the status of the ten in-tree implementations. | `design/store-conformance-suite/` Phase 4 step 14 |

@@ -1,21 +1,40 @@
-# Phase 1: High-Level Design
+# Phase 1: High-Level Design - Empty File-Store Directories
 
-## Design Readiness
+## Feature Name
 
-- **Readiness:** ready
-- **Leading issue:** None.
-- **Explanation:** Make an absent member prefix enumerate as an empty namespace at the AsyncFileStore/listdir boundary, retaining other errors.
-- **Open questions:** None.
+Empty File-Store Directory Enumeration
 
-## Problem, Behaviour, and Scope
+## Purpose
 
-The source issue documents the observed failure and acceptance evidence. The desired behaviour is the source's expected behaviour, with compatibility preserved unless Phase 2 explicitly states otherwise. Affected systems are limited to the inspected files below; implementation, migrations, and test changes remain out of scope for this design-only work.
+An absent directory in a file-backed store represents an empty namespace, not a failed listing.
+This lets an `AsyncStoreRouter` enumerate a newly configured file-store member without hiding
+the keys from its other members.
 
-## Constraints and Documentation
+## Core Interactions
 
-Only KeyNotFound for the member root is normalized; permission and I/O failures still surface. Current documentation that names the affected contract must be updated with implementation, while historical design records remain frozen.
+- **Query, commands, assets, value types, web/UI:** none; no query syntax, command, asset
+  lifecycle, value type, endpoint, or UI behavior changes.
+- **Store:** `AsyncFileStore` and synchronous `FileStore` return an empty listing for an absent,
+  addressable directory. `AsyncStoreRouter::keys()` then inherits the behavior through its
+  existing recursive listing; no router dispatch changes.
 
-## Design Dependencies
+## Crate Placement
 
-- **overlaps:** `store-conformance-suite` — the completed broader design recorded discovery; this one owns the remaining source issue.
+`liquers-core/src/store.rs` owns both file-store implementations and `AsyncStoreRouter`; no
+dependency or public trait signature changes are needed.
 
+## Documentation Intent
+
+**Reference:** extend `specs/reference/STORE_SEMANTICS.md` §4 to state `listdir` on an absent,
+addressable directory returns `Ok([])` while backend failures remain errors.
+
+**Guide:** extend `specs/guides/STORE_IMPLEMENTATION_GUIDE.md` to require that not-found is
+mapped specifically, not by swallowing all listing errors.
+
+**Other documents:** none. **Updates:** close the source issue after proof; Phase 5 reviews the
+two documents above. Audience: store implementers and maintainers need not read this design.
+
+## Open Questions
+
+None. The scope includes both file-store variants because the shared store contract cannot leave
+their identical `listdir` behavior divergent.

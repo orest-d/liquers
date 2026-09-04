@@ -161,12 +161,9 @@ async fn c3_async_store_router() {
         &file_prefix,
     )));
 
-    // The file store's prefix directory has to exist: `keys()` walks every member, and a member
-    // whose prefix path is absent makes the whole enumeration fail rather than contribute nothing.
-    // Filed as CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER.
-    tokio::fs::create_dir_all(root.join("files"))
-        .await
-        .expect("member prefix directory");
+    // `files/` deliberately does not exist. An absent member namespace must contribute an empty
+    // listing, so it cannot abort `keys()` for the router. This is the regression case for
+    // CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER.
 
     let fixture = GenericFixture::new(
         "AsyncStoreRouter(mem + file)",

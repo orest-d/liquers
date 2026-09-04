@@ -53,7 +53,7 @@ CORE-SESSION-AND-KEY-ACL,issue,"No session model, and no way to authorize writes
 CORE-STATE-LOCK-API-CLEANUP,issue,`State` holds an `RwLock` that may not be needed,accepted,local,,,P3,M,core/value,,,,,,2026-08-08,specs/issues/CORE-STATE-LOCK-API-CLEANUP.md
 CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS,issue,keys() returns data keys in one store and data keys plus directories and the root in others,closed,local,,covered,P2,S,core/store;store/backends,,,,store-keys-contract,,2026-09-02,specs/issues/CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS.md
 CORE-STORE-OPENBIN-MISSING,issue,`openbin` is unimplemented in every store,accepted,local,,,P3,M,core/store;store/backends,,,,,,2026-08-08,specs/issues/CORE-STORE-OPENBIN-MISSING.md
-CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER,issue,AsyncStoreRouter::keys fails outright when one member's prefix path does not exist,draft,local,,ready,P2,S,core/store,,,,store-router-empty-prefix,,2026-09-02,specs/issues/CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER.md
+CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER,issue,AsyncStoreRouter::keys fails outright when one member's prefix path does not exist,closed,local,,ready,P2,S,core/store,,,,store-router-empty-prefix,,2026-09-02,specs/issues/CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER.md
 CORE-SYNC-STORE-TRAIT-OBSOLETE,issue,The synchronous Store trait is obsolete and should be removed,draft,local,,,P2,M,core/store;py;docs,,,,,,2026-09-02,specs/issues/CORE-SYNC-STORE-TRAIT-OBSOLETE.md
 CORE-TOKIO-REMOVAL,issue,Core still depends on tokio primitives on wasm,accepted,local,,,P3,XL,core/assets,,,,,,2026-08-08,specs/issues/CORE-TOKIO-REMOVAL.md
 CORE-TRACING-MIGRATION,issue,Diagnostics use `eprintln!` rather than structured logging,accepted,local,,,P2,M,core/error;build,,,,,,2026-08-08,specs/issues/CORE-TRACING-MIGRATION.md
@@ -234,7 +234,7 @@ ACTIVE-05,design,Design for STORE-SEMANTICS-CHILDREN-RULE-CONTRADICTS-EVERY-STOR
 STORE-FACTORIES-IN-CORE,design,Store configuration and factories in liquers-core,complete,local,,,,,core/store;store/config;store/backends;web;docs,,46,,store-factories-in-core,,2026-08-27,specs/design/store-factories-in-core/DESIGN.md
 STORE-KEY-GUARD,design,Absolute store keys — a store refuses a relative key with a dedicated error,complete,local,,,,,core/store;store/backends;core/error;web;axum,,36,,store-key-guard,,2026-08-17,specs/design/store-key-guard/DESIGN.md
 COVERED-05,design,Coverage record for CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS,in_review,local,architecture,covered,P2,S,docs,,,,store-keys-contract,,2026-09-03,specs/design/store-keys-contract/DESIGN.md
-ACTIVE-03,design,Design for CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER,in_review,local,implementation,ready,P2,S,core/store,,,,store-router-empty-prefix,,2026-09-03,specs/design/store-router-empty-prefix/DESIGN.md
+ACTIVE-03,design,Design for CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER,complete,local,,ready,P2,S,core/store,,,,store-router-empty-prefix,,2026-09-03,specs/design/store-router-empty-prefix/DESIGN.md
 COVERED-14,design,Coverage record for STORE-TESTS-PRINT-TO-STDOUT,in_review,local,architecture,covered,P3,S,docs,,,,store-test-output-hygiene,,2026-09-03,specs/design/store-test-output-hygiene/DESIGN.md
 UI-EVENTS,design,UI event delivery to widgets,in_review,local,high-level,,,,lib/ui,,,,ui-events,,2026-03-02,specs/design/ui-events/DESIGN.md
 UI-QUERY-CONSOLE-ERROR-HIGHLIGHT,design,Query console highlights positioned errors,in_review,local,implementation,ready,P2,S,lib/ui;core/query,,,,ui-query-console-error-highlight,,2026-08-29,specs/design/ui-query-console-error-highlight/DESIGN.md
@@ -269,7 +269,7 @@ POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,lo
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-08-18,,specs/reference/PROJECT_OVERVIEW.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,macro;core/commands,,,,,2026-08-30,,specs/reference/REGISTER_COMMAND_FSD.md
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,store/config,,,,,2026-09-02,,specs/reference/STORE_CONFIG_FSD.md
-STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,core/store;store/backends;web,,,,,2026-09-03,,specs/reference/STORE_SEMANTICS.md
+STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,core/store;store/backends;web,,,,,2026-09-04,,specs/reference/STORE_SEMANTICS.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,core/value;lib/value,,,,,2026-08-26,,specs/reference/VALUE_TYPE_SYSTEM.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,axum;web,,,,,2026-08-17,,specs/reference/WEB_API_SPECIFICATION.md
@@ -280,6 +280,6 @@ ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,cur
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-09-02,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,core/query,,,,,2026-08-14,,specs/guides/QUERY_ESCAPING_GUIDE.md
 STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,core/store;store/config,,,,,2026-09-02,,specs/guides/STORE_FACTORY_GUIDE.md
-STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,core/store;store/backends;web,,,,,2026-09-03,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
+STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,core/store;store/backends;web,,,,,2026-09-04,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,core/value;lib/value,,,,,2026-08-26,,specs/guides/TYPE_SYSTEM_GUIDE.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,build,,,,,2026-09-01,,specs/guides/UNITTEST_GUIDE.md

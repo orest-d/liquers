@@ -2,11 +2,12 @@
 id: ACTIVE-03
 kind: design
 title: Design for CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER
-status: in_review
-phase: implementation
+workflow: liquers-project
+status: complete
 readiness: ready
 area: [core/store]
 issues: [CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER]
+affects_docs: [reference/STORE_SEMANTICS.md, guides/STORE_IMPLEMENTATION_GUIDE.md]
 created: 2026-09-03
 ---
 

@@ -3,7 +3,7 @@ title: Store Behavioural Semantics
 kind: reference
 audience: internal
 area: [core/store, store/backends, web]
-reviewed: 2026-09-03
+reviewed: 2026-09-04
 ---
 # Store Behavioural Semantics
 
@@ -129,12 +129,19 @@ removal that was supposed to contain it succeeded.
 | `is_dir` | `Ok(false)` | `Err` |
 | `contains` | `Ok(false)` | `Err` |
 | `get`, `get_bytes`, `get_metadata` | `Err(KeyNotFound)` | `Err` |
+| `listdir` | `Ok([])` | `Err` |
 | `removedir` | `Ok(())` — a no-op | `Err` |
 
 The distinction between "not there" and "could not tell" is load-bearing: a store that reports an S3
 403 as `Ok(false)` from `is_dir` tells a caller a directory does not exist when the truth is that
 permission was refused. Match the backend's not-found condition specifically rather than testing
 whether a result is an error.
+
+`listdir` follows the same distinction: an absent **addressable** directory has no children, so it
+returns `Ok([])`. This is what lets a router enumerate a newly configured member whose prefix has
+not been created on a filesystem yet. A failed existence check, metadata read, or directory read is
+still a backend error, not an empty listing. Key-shape and store-specific refusals are checked
+before absence and remain errors.
 
 *Enforced by:* `absence01`, `absence02`, `absence03`, `dir02`.
 
@@ -304,6 +311,7 @@ and `AsyncOpenDALStore` already behave as specified here.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-04 | §4 now defines `listdir` on an absent addressable directory as `Ok([])`, while retaining errors for failed filesystem operations and invalid or unsupported keys. This lets a router enumerate an uncreated file-store prefix without treating it as a failed backend. | phase-5 |
 | 2026-09-03 | §8 restated as **reserved names** rather than one sidecar suffix: reserved in *any* segment rather than only the filename, declared per store by its own layout, and covering both the suffix form and the exact name — the latter being the predecessor Python implementation's `__metadata__` folder, cited because nothing in this repository evidences it. Named the three kinds of caller that must consult the rule, and why satisfying only `is_supported` is the defect the section exists to prevent. Recorded that listings *skip* reserved names, that the refusal is `KeyNotSupported` with `as_absolute` checked first, and that `get` repairs unparseable metadata — which is what makes an already-corrupted store recoverable. | `design/sidecar-colliding-keys/` Phase 5 |
 | 2026-09-02 | Completed the contract. §5 restated as a **postcondition** — `Ok(())` means the directory is gone — from which recursion and the absent-directory case follow, and which makes the trait default's `Err(KeyNotSupported)` correct rather than divergent. §9 settled: `keys()` returns data keys, directories and the prefix, and **every returned key starts with the prefix**; the cost, that an enumerated key is not necessarily readable, is stated rather than hidden. Every *Enforced by* line now names rules in `liquers_core::store_conformance`. Stated trait-neutrally against the possible return of a synchronous store. Two of the three ⚠ rows are gone; §6's was cleared by `async-memory-store-prefix-support`. | `design/store-conformance-suite/` Phase 4 step 1 |
 | 2026-09-02 | Recorded that a recursive `removedir` takes explicit descendant directories with it, that `default_metadata` must honour both arguments, and that the directory path form is subject to the same key refusals as the data and metadata forms. All three from PR #58 review findings. | `design/opendal-path-mapping/` PR review |

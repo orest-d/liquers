@@ -1295,7 +1295,10 @@ impl AsyncStore for AsyncFileStore {
             .await
             .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?
         {
-            return Err(Error::key_not_found(key));
+            // An absent addressable directory is an empty namespace. Keep failures from
+            // `try_exists` distinct: callers must not mistake a permission or I/O error for
+            // absence. CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER.
+            return Ok(vec![]);
         }
         let metadata = tokio::fs::metadata(&path)
             .await
@@ -1552,7 +1555,18 @@ impl Store for FileStore {
 
     fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
         let path = self.key_to_path(key)?;
-        if path.is_dir() {
+        if !path
+            .try_exists()
+            .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?
+        {
+            // Match AsyncFileStore: absence is empty; a failed existence check is still an error.
+            return Ok(vec![]);
+        }
+        if path
+            .metadata()
+            .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?
+            .is_dir()
+        {
             let dir = path
                 .read_dir()
                 .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?;
@@ -1565,10 +1579,8 @@ impl Store for FileStore {
                 .filter(|name| !Self::RESERVED.is_reserved_name(name))
                 .collect();
             Ok(names)
-        } else if path.exists() {
-            Ok(vec![])
         } else {
-            Err(Error::key_not_found(key))
+            Ok(vec![])
         }
     }
 
@@ -2580,6 +2592,50 @@ mod tests {
         assert!(!store.contains(&key).await?);
 
         tokio::fs::remove_dir_all(root).await.unwrap();
+        Ok(())
+    }
+
+    /// `filestore01` — an absent addressable directory is an empty namespace.
+    #[tokio::test]
+    async fn filestore01_async_missing_directory_lists_empty() -> Result<(), Error> {
+        let root = std::env::temp_dir().join(format!(
+            "liquers_filestore01_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        tokio::fs::create_dir_all(&root).await.expect("create root");
+        let prefix = parse_key("files")?;
+        let store = AsyncFileStore::new(root.to_string_lossy().as_ref(), &prefix);
+
+        assert!(store.listdir(&prefix).await?.is_empty());
+        assert!(!store.is_dir(&prefix).await?);
+        assert_eq!(store.keys().await?, vec![prefix]);
+
+        tokio::fs::remove_dir_all(&root).await.expect("remove root");
+        Ok(())
+    }
+
+    /// `filestore02` — the synchronous file store shares the absence contract.
+    #[test]
+    fn filestore02_sync_missing_directory_lists_empty() -> Result<(), Error> {
+        let root = std::env::temp_dir().join(format!(
+            "liquers_filestore02_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).expect("create root");
+        let prefix = parse_key("files")?;
+        let store = FileStore::new(root.to_string_lossy().as_ref(), &prefix);
+
+        assert!(store.listdir(&prefix)?.is_empty());
+        assert!(!store.is_dir(&prefix)?);
+        assert_eq!(store.keys()?, vec![prefix]);
+
+        std::fs::remove_dir_all(&root).expect("remove root");
         Ok(())
     }
 

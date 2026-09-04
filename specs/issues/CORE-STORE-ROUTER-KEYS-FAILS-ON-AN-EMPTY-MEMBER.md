@@ -2,7 +2,7 @@
 id: CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER
 kind: issue
 title: AsyncStoreRouter::keys fails outright when one member's prefix path does not exist
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/store]
@@ -54,3 +54,11 @@ failure. The contract says absence is not an error, which points at the second.
 Found on 2026-09-02 by `C3` of the conformance suite, at Phase 4 step 9 of
 `design/store-conformance-suite/` — the first time a router was asked the same questions as a plain
 store.
+
+## Resolution
+
+Closed 2026-09-04. `AsyncFileStore::listdir` and `FileStore::listdir` now return an empty listing
+for an absent addressable directory while retaining filesystem errors. C3 no longer creates the
+`files/` prefix directory before its conformance run; the direct async and synchronous regression
+tests and the full feature-gated core conformance target pass. See
+`design/store-router-empty-prefix/` Phase 5.
