@@ -1,0 +1,87 @@
+---
+id: EVALUATE-PATH-CONSOLIDATION
+kind: design
+title: One evaluation path for every entry point
+workflow: liquers-project
+phase: documentation
+area: [core/assets, core/plan]
+gh_pr: [61]
+issues: [CORE-EVALUATE-PATH-CONSOLIDATION, ASSETS-FIX1, INLINE-PATH-LACKS-EXECUTE-ONCE, ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED, ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY, REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED, ASSET-REGISTRATION-OWNERSHIP-CONTRACT]
+affects_docs: [ASSET_LIFECYCLE, DOC_03_ASSETS_EXECUTION_LIFECYCLE]
+created: 2026-09-02
+superseded_by:
+---
+# evaluate-path-consolidation Design Tracking
+
+**Created:** 2026-09-02
+
+## Phase Status
+
+- [x] Phase 1: High-Level Design (approved 2026-09-03)
+- [x] Phase 2: Solution & Architecture (approved 2026-09-03)
+- [x] Phase 3: Examples & Testing (approved 2026-09-03)
+- [x] Phase 4: Implementation Plan (approved 2026-09-03)
+- [x] Phase 5: Documentation (approved 2026-09-04)
+- [x] Implementation Complete (steps 1-7, 2026-09-04)
+
+## Notes
+
+Designs the fix for `CORE-EVALUATE-PATH-CONSOLIDATION` (P1, L): `AssetRef::evaluate_and_store` and
+`AssetRef::evaluate_immediately` are two independent evaluation bodies reached through four run
+harnesses and six manager entry points, diverging on delegation, payload admission, status
+finalization, persistence and dependency recording. Target: one body plus policy, entry points as
+thin wrappers.
+
+Discussion resolved most of Phase 1's questions before Phase 2. The "policy axes" framing was
+rejected: dependency recording, status finalization, key-owner delegation and the payload
+precondition are invariants of the one body; persistence is *derived* from a reproducibility
+predicate (no payload, no supplied initial state, not volatile) rather than switchable; only
+queued-vs-inline and queue characteristics are genuine manager policy, the latter out of scope.
+The same predicate governs map reuse, loadable persistence, and eligibility to be a dependency —
+which is why `Context::apply` records no edge. The unified body therefore takes only the asset.
+
+All Phase 1 questions resolved on 2026-09-03: non-keyed (query) assets are not stored, so the
+write predicate is the existing `AssetRef::bound_owner_key()`; the harness mapping is settled in
+Phase 1's method-mapping tables (3 evaluation bodies to 1, 4 run entry points to 2, 6 manager
+evaluation entry points to 4); `INLINE-PATH-LACKS-EXECUTE-ONCE` is co-delivered with this work.
+
+Added requirement (2026-09-03): an asset must record that its evaluation depended on a payload,
+and expose it in metadata and `AssetInfo`. The fields exist but nothing sets them — filed as
+`ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED` and scheduled here; the requirement is resolved before
+evaluation, symmetrically with volatility.
+
+Phase 2 settles that decision: `apply` evaluates inline on both managers, extending the rationale
+already written for payload dependencies. Phase 2 also corrects Phase 1 on two points — the write
+predicate is the asset's own recorded `key`, not `bound_owner_key` (which returns `None` for
+volatile keyed assets, which must keep writing), and the payload requirement lives in metadata
+only, not in a duplicated `AssetData` field.
+
+Settled with the project owner on 2026-09-03: the **keyed-asset model**. A keyed asset is one
+associated with a key, known and recorded at creation. The layering is `stored ⟹ keyed` and
+`persistent ⟹ stored`, so "not keyed" means never stored and never loadable. Ownership is
+approximated by keyedness, with a metadata warning when a non-registered keyed asset writes; the
+exact registration contract is out of scope and filed as `ASSET-REGISTRATION-OWNERSHIP-CONTRACT`
+(P2, L). The key is also projected into metadata, so a keyed asset and a non-keyed query asset
+built from the same query become distinguishable — which is where delegation originated.
+
+Phase 5 approved 2026-09-04, completing every phase this design owed. It rewrote
+`specs/reference/ASSET_LIFECYCLE.md` around the surviving surface — the public API table, the one
+evaluation path step by step, and the axes along which evaluations still differ (payload, supplied
+initial state, volatility) — with the module-level rustdoc on `assets.rs` carrying the same
+high-level API summary, as the owner asked. The former duplication catalogue is archived rather
+than deleted.
+
+**Status is deliberately absent while PR #61 is open** (§5.5): with `gh_pr` set,
+`in_implementation` is GitHub's to derive and `index.csv` caches it. `complete` — which freezes
+this folder — is written when #61 merges, not before, because the folder must stay editable while
+review can still change the work. Two Codex review findings were fixed after Phase 5 approval was
+requested (payload requirement recorded before the gate; `InlineRunClaim` repairing
+`Dependencies`), which is exactly the case that argues against freezing early.
+
+## Links
+
+- [Phase 1](./phase1-high-level-design.md)
+- [Phase 2](./phase2-architecture.md)
+- [Phase 3](./phase3-examples.md)
+- [Phase 4](./phase4-implementation.md)
+- [Phase 5](./phase5-documentation.md)

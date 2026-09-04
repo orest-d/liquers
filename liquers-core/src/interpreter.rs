@@ -331,14 +331,27 @@ pub fn apply_plan<E: Environment>(
         // keyed evaluation, and nested scheduling alike — where the per-entry-point checks
         // cover only the nested ones. Without it, a command that reads the payload through
         // `Context` and tolerates its absence would run despite declaring that it cannot.
-        if plan.payload_required.is_required() && !context.has_payload() {
-            return Err(Error::general_error(format!(
-                "Query '{}' requires an evaluation payload, but the evaluation was started \
-                 without one. Use EnvRef::evaluate_immediately to supply a payload, or remove \
-                 the 'payload: required' declaration from the commands involved.",
-                plan.query.encode()
-            ))
-            .with_query(&plan.query));
+        if plan.payload_required.is_required() {
+            // Record the requirement first, then gate. This is the only point every execution
+            // path passes through, so recording here is what makes
+            // `MetadataRecord.payload_required` (and `AssetInfo`) finally carry what the plan
+            // has known since `PlanBuilder` ran (`ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED`).
+            //
+            // Before the gate rather than after it, because the *rejected* asset is the one
+            // whose metadata most needs to say that a payload is what it wants: a client
+            // reading `AssetInfo` to decide whether to prompt for one would otherwise see the
+            // error next to `payload_required: None` — "reproducible, needs nothing" — which is
+            // the opposite of why it failed. (PR #61 review, comment 1.)
+            context.set_payload_required().await?;
+            if !context.has_payload() {
+                return Err(Error::general_error(format!(
+                    "Query '{}' requires an evaluation payload, but the evaluation was started \
+                     without one. Use EnvRef::evaluate_immediately to supply a payload, or remove \
+                     the 'payload: required' declaration from the commands involved.",
+                    plan.query.encode()
+                ))
+                .with_query(&plan.query));
+            }
         }
 
         // Pre-pass: schedule known dependencies before executing steps (concurrency +
@@ -1719,6 +1732,7 @@ mod tests {
         let owner = AssetRef::new_from_recipe(
             manager.next_id_for_asset(),
             owner_key.clone().into(),
+            Some(owner_key.clone()),
             envref.clone(),
         );
         assert!(
@@ -1994,7 +2008,17 @@ mod tests {
 
         let value = state.try_into_string()?;
         assert_eq!(value, "Ciao, EARTH!");
-        assert!(state.metadata.primary_progress().is_done());
+        assert!(
+            state.metadata.status().is_finished(),
+            "the payload evaluation must reach a terminal status"
+        );
+        // The previous assertion here was `primary_progress().is_done()`, which passed only by a
+        // race: the command sends `UpdatePrimaryProgress`, and the harness's
+        // `finalize_primary_progress()` *clears* progress at the end of a run. Whether the entry
+        // survived depended on whether the service loop applied it before or after that clear.
+        // Consolidating the evaluation body changed the timing and exposed it. The harness's
+        // intent is that a finished run carries no in-flight progress, so completion is asserted
+        // through the status instead. See `ASSET-FINISHED-PROGRESS-CONTRACT-UNDEFINED`.
         Ok(())
     }
     #[tokio::test]

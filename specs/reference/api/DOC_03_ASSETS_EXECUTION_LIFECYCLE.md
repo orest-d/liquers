@@ -3,7 +3,7 @@ title: Assets and Execution Lifecycle Reference
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-08-31
+reviewed: 2026-09-04
 ---
 # DOC-03: Assets and Execution Lifecycle
 
@@ -268,7 +268,8 @@ a recipe-backed asset can be requested and evaluated again.
 Preferred application-facing APIs:
 
 - `EnvRef::evaluate` and `EnvRef::evaluate_immediately`
-- `AssetManager::get_asset`, `get`, `apply`, and keyed mutation/recovery methods
+- `AssetManager::get_asset`, `get`, `apply` (which takes an optional payload and always evaluates
+  before returning), and keyed mutation/recovery methods
 - `AssetRef::get`, polling, status, metadata, binary, notification, cancellation,
   expiration, and persistence-status methods
 
@@ -282,8 +283,13 @@ Framework-facing or low-level APIs:
 - Manager lifecycle primitives such as `dependency_manager`, insertion/removal,
   and expiration tracking
 
-These groups are not enforced by Rust visibility consistently. The rustdoc now
-labels the boundary, but a future API pass should narrow or separate it.
+**Narrowed on 2026-09-04** by `design/evaluate-path-consolidation/`, which is the API pass this
+paragraph anticipated. The evaluation body is now private to the module and the run entry points
+are crate-internal, so there is no supported way to evaluate an `AssetRef` directly: an asset is
+constructed and managed by an `AssetManager`, and a caller obtains a handle and reads from it.
+`AssetManager::apply` absorbed `apply_immediately`, which remains only as a deprecated forwarding
+default. What is left public and framework-facing — `AssetData`, `JobQueue`, `MetadataSaver`,
+`AssetRef::data` — is still not enforced by visibility.
 
 ## Manager lifecycle
 
@@ -377,6 +383,7 @@ API-surface gap.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-04 | Recorded the narrowed public surface: one private evaluation body, crate-internal run entry points, `apply` absorbing `apply_immediately`. Persistence is now gated on the asset being keyed. | `design/evaluate-path-consolidation/` phase 5 |
 | 2026-08-31 | Documented the manager lifecycle under the new ownership: constructors take the `EnvRef`, `set_envref` is gone, `start` is synchronous and fallible, and `is_started` / `refresh_command_versions` / `refresh_command_versions_and_expire` replace lazy startup. | `design/environment-builder/phase-5` |
 | 2026-08-09 | Reviewed asset reads, expiration, dependency waiting, persistence, and lifecycle behavior against HEAD; documented the unified state/binary exposure policy and corrected links. | ASSET-EXPIRED-CACHED-BINARY-READ |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |

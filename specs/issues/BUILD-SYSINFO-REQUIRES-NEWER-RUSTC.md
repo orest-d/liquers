@@ -52,6 +52,41 @@ cargo update sysinfo --precise <last 1.94-compatible version>
 declared. Pinning is the smaller change; raising the minimum is the honest one if the workspace
 already wants 1.95 features.
 
+## Update 2026-09-03 — the library target now fails too, and the default test loop cannot run
+
+The dependency upgrade in `47757dd` widened this considerably. It is no longer only `sysinfo` in
+the test targets: on rustc 1.94.1, `cargo check -p liquers-lib` — the **library** target — now
+fails outright, listing nine crates:
+
+```
+error: rustc 1.94.1 is not supported by the following packages:
+  ecolor@0.36.1 requires rustc 1.95
+  eframe@0.36.1 requires rustc 1.95
+  egui@0.36.1 requires rustc 1.95
+  egui-wgpu@0.36.1 requires rustc 1.95
+  egui-winit@0.36.1 requires rustc 1.95
+  egui_commonmark@0.25.0 requires rustc 1.95
+  egui_commonmark_backend@0.25.0 requires rustc 1.95
+  egui_extras@0.36.1 requires rustc 1.95
+  …
+```
+
+So the statement above that "the library targets build; only the test targets pull it in" is no
+longer true, and the impact is no longer confined to two matrix rows: **`cargo test -p liquers-lib
+--lib --tests`, which `CLAUDE.md` names as the default test command, cannot run at all** on a 1.94
+toolchain. `liquers-core` is unaffected and its suite runs normally.
+
+Confirmed pre-existing and independent of any branch: `cargo check -p liquers-lib` fails when
+checked out directly at `47757dd`.
+
+This strengthens the case for the second of the two remedies proposed above. Pinning is no longer
+the smaller change — it would mean pinning the whole egui stack back — whereas the workspace has
+now, in effect, adopted a 1.95 minimum by upgrading. Raising the declared minimum deliberately and
+recording it where the toolchain is declared is both the smaller and the honest change.
+
+Suggested priority reconsideration: **P2 → P1**. A documented default command that cannot run is
+closer to "a documented feature that does not work" (§4.4) than to a normal-priority defect.
+
 ## Discovery
 
 Found on 2026-09-02 while adding the `store-conformance` rows to the build matrix, at Phase 4 step
@@ -87,3 +122,17 @@ Two consequences for whoever takes the decision this issue is waiting on:
    this is a local-development problem, not a gap in the check `BUILD-MATRIX-NOT-RUN-IN-CI` was
    closed to provide, and the fix can be as small as documenting the required toolchain.
 
+## Confirmed on 2026-09-04 — CI is green with the same rows red locally
+
+The local-only claim above was, until now, an inference from the workflow's toolchain pin. It is now
+observed directly: on PR #61 (`design/evaluate-path-consolidation`, a `liquers-core` change) the
+three rows in the table were red on the local rustc 1.94.1 while the `build-matrix` job on the same
+head commit (`b32159d`) completed **success**, all configurations included. CI's `stable` toolchain
+compiles the egui stack, so the `liquers-lib --tests` rows pass there.
+
+Worth recording alongside it: the CI failures seen earlier on that PR were *not* this issue. They
+were a two-argument call to `AssetManager::apply` left in `liquers-lib/tests/polars_commands.rs`
+after a signature change — a real break, invisible locally precisely because the toolchain refusal
+stops the build before type checking. That is the concrete cost of this issue: **a contributor on
+1.94 has no local check that can catch a `liquers-lib` compile error at all**, so the first signal
+is CI. It strengthens the P2 → P1 reconsideration suggested above.

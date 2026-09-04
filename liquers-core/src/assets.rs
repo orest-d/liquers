@@ -18,25 +18,124 @@
 //! [`EnvRef::evaluate`](crate::context::EnvRef::evaluate) or an [`AssetManager`].
 //! Direct `AssetData` access is primarily framework infrastructure.
 //!
+//! # Public API, at a glance
+//!
+//! An asset is **constructed and managed by an [`AssetManager`]**. Nothing evaluates an
+//! `AssetRef` directly: the evaluation body is private to this module, and the run entry points
+//! are crate-internal. A caller obtains a handle, then reads from it.
+//!
+//! | You want to… | Call |
+//! |---|---|
+//! | Evaluate a query | [`EnvRef::evaluate`](crate::context::EnvRef::evaluate) → [`AssetManager::get_asset`] |
+//! | Evaluate a query with a payload | [`EnvRef::evaluate_immediately`](crate::context::EnvRef::evaluate_immediately) → [`AssetManager::apply`] |
+//! | Fetch a keyed resource | [`AssetManager::get`] |
+//! | Apply a recipe to a state you supply | [`AssetManager::apply`] |
+//! | Wait for a value | [`AssetRef::get`] |
+//! | Look without waiting | [`AssetRef::poll_state`], [`AssetRef::status`] |
+//! | Describe an asset to a client | [`AssetRef::get_asset_info`] |
+//! | Install or remove a keyed value | [`AssetManager::set_state`], [`set_binary`](AssetManager::set_binary), [`remove`](AssetManager::remove) |
+//!
+//! Everything else here — [`AssetData`], `AssetServiceMessage`, `JobQueue`, `MetadataSaver`, the
+//! run entry points — is framework infrastructure.
+//!
+//! # One evaluation path
+//!
+//! Every entry point reaches the **same** private evaluation body. Entry points differ only in
+//! the asset they construct, never in how it is evaluated, so a behaviour fixed once is fixed for
+//! all of them (`CORE-EVALUATE-PATH-CONSOLIDATION`).
+//!
+//! The body runs in a fixed order, and parts of it are load-bearing:
+//!
+//! 1. resolve volatility;
+//! 2. resolve the recipe — hand off to the key's registered owner, or resolve through the recipe
+//!    provider — and apply it, with any payload installed on the context;
+//! 3. record observed dependencies in metadata, for **every** entry point;
+//! 4. install the value, its type identifier and type name;
+//! 5. finalize status — **before** the notification and **before** persistence, so nothing
+//!    observes or stores a non-final status;
+//! 6. send `ValueProduced`;
+//! 7. persist, if this is a keyed asset and this evaluation did not hand off;
+//! 8. register with the dependency manager.
+//!
+//! Two run harnesses wrap that body: a spawning one natively and a spawn-free one for inline
+//! managers and wasm. That split is a platform difference, not duplication — collapsing it would
+//! mean either giving up the spawned service loop natively or faking a spawn on wasm.
+//!
+//! # Why the flows differ
+//!
+//! There is one path, but assets differ along axes that are properties of the asset, not of the
+//! code that evaluates it. Each axis is decided when the asset is constructed:
+//!
+//! | Axis | Why it exists | What it changes |
+//! |---|---|---|
+//! | **Keyed or not** | whether the asset is associated with a key, and so whether anything can ask for it again | store target, map membership, reuse |
+//! | **Initial state supplied** | the caller injects input the identity does not describe | not reproducible: no key, no reuse |
+//! | **Payload** | per-call caller context, deliberately *not* part of identity, and it cannot cross a key boundary | never mapped, never reused, never loadable |
+//! | **Volatility** | the result is valid but single-use | stored, but written with a status that fast-track refuses |
+//! | **Delegation** | another asset owns the key | hand-off: no write, no second dependency edge |
+//! | **Fast-track** | a stored value is already valid | evaluation is skipped entirely |
+//! | **Queued or inline** | manager policy | scheduling and the status sequence only |
+//!
+//! The first five are properties of the asset, the sixth is a relationship between two assets, and
+//! only the last is policy.
+//!
+//! # Keyed assets, storing, and persistence
+//!
+//! **A keyed asset is an asset associated with a key.** Whether it is keyed, and which key, is
+//! known when the manager creates it and is recorded on the asset — never re-derived from the
+//! recipe afterwards, because provider resolution replaces that recipe mid-evaluation.
+//!
+//! Three properties follow in one direction only:
+//!
+//! ```text
+//! stored     => keyed        (only a keyed asset is written to the store)
+//! persistent => stored       (only a stored asset can be loaded back)
+//! ```
+//!
+//! So **not keyed means never stored and never loadable**. A volatile keyed asset *is* keyed, so
+//! it is stored — it is simply not persistent, because its status is one `try_fast_track` refuses.
+//! An ad-hoc `apply` asset is not keyed, so the question of whether it may write never arises.
+//!
+//! Ownership is approximated by keyedness. Whether the manager *registers* a keyed asset in its
+//! key map is a separate caching-and-sharing decision that belongs to the manager: declining to
+//! register a non-volatile keyed asset still produces correct results, and a volatile keyed asset
+//! is deliberately never registered. A non-volatile keyed asset that writes while not the
+//! registered owner records a warning in its metadata rather than failing
+//! (`ASSET-REGISTRATION-OWNERSHIP-CONTRACT`).
+//!
+//! ## Where the key comes from, and how to read it back
+//!
+//! The [`AssetManager`] that creates the asset supplies the answer, because it is the only party
+//! that knows which request the asset serves:
+//!
+//! | Created by | Keyed? |
+//! |---|---|
+//! | [`AssetManager::get`], or [`AssetManager::get_asset`] on a pure key query | yes, with that key |
+//! | [`AssetManager::get_asset`] on any other query | no |
+//! | [`AssetManager::apply`] | no — ad hoc, never in a map |
+//!
+//! It is then passed to the constructors as `key: Option<Key>`
+//! ([`AssetData::new`], [`AssetData::new_ext`]), recorded on the asset, and read back with
+//! [`AssetRef::key`]. It is also projected into metadata — [`MetadataRecord::key`](crate::metadata::MetadataRecord::key)
+//! and [`AssetInfo::key`](crate::metadata::AssetInfo::key) — so a client can tell a keyed asset
+//! from a non-keyed query asset built from the same query, which it could not before.
+//!
+//! Being keyed is necessary for storing but not sufficient for being *loadable*. Three further
+//! properties of the evaluation each break reproducibility, and any one of them means the result
+//! must not be handed to a later caller as if it were the recipe's own output: a payload (see
+//! [`AssetRef::payload_required`]), a supplied initial state, and volatility. They are the first
+//! rows of the table in [Why the flows differ](#why-the-flows-differ).
+//!
 //! # Evaluation entry points
 //!
-//! The configured manager determines whether ordinary evaluation is queued or
-//! inline:
-//!
-//! | Entry point | Initial state | Payload | `DefaultAssetManager` | `ImmediateAssetManager` |
+//! | Entry point | Initial state | Payload | Keyed | Returns |
 //! |---|---|---|---|---|
-//! | [`AssetManager::get_asset`] / [`AssetManager::get`] | Empty | No | Fast-track or schedule, then return the handle | Fast-track or evaluate inline before returning |
-//! | [`AssetManager::apply`] | Supplied | No | Schedule, then return the handle | Evaluate inline before returning |
-//! | [`AssetManager::apply_immediately`] | Supplied | Optional | Evaluate before returning, bypassing the job queue | Evaluate inline before returning |
+//! | [`AssetManager::get_asset`] / [`AssetManager::get`] | empty | no | for a key | queued: a scheduled handle; inline: after evaluation |
+//! | [`AssetManager::apply`] | supplied | optional | no | after evaluation, on both managers |
 //!
-//! [`EnvRef::evaluate`](crate::context::EnvRef::evaluate) delegates to
-//! [`AssetManager::get_asset`]. Therefore it returns a scheduled handle with
-//! `DefaultAssetManager`, but a completed handle with [`ImmediateAssetManager`].
-//! [`EnvRef::evaluate_immediately`](crate::context::EnvRef::evaluate_immediately)
-//! uses an empty state and delegates to [`AssetManager::apply_immediately`].
-//!
-//! `apply_immediately` is also the only entry point above that accepts an execution
-//! payload. Its immediate evaluation path does not persist the produced value.
+//! `apply` evaluates before returning and takes no job-queue slot: its asset is in no map, never
+//! reused and not keyed, so queueing buys nothing, while taking a slot from inside a command that
+//! already holds one is a deadlock shape.
 //!
 //! # Typical lifecycle
 //!
@@ -77,8 +176,8 @@
 //! A pure key query is resolved through the key-asset map. Other queries use the
 //! query-asset map. Non-volatile entries may be reused by later manager requests.
 //! Volatile requests create a new asset instead of using those maps. Assets created
-//! by `apply` or `apply_immediately` are ad hoc and are not inserted into either
-//! map.
+//! by [`AssetManager::apply`] are ad hoc and are not inserted into either map; being
+//! non-keyed, they are never written to the store either.
 //!
 //! Before evaluating a keyed resource with no supplied initial state, a manager
 //! attempts a fast-track load from the store. Stored `Ready`, `Source`, and
@@ -205,6 +304,7 @@ use async_trait::async_trait;
 use scc;
 use tokio::sync::{mpsc, watch, Mutex, Notify, RwLock};
 
+use crate::command_metadata::PayloadRequirement;
 use crate::expiration::ExpirationTime;
 use crate::interpreter::IsVolatile;
 
@@ -446,6 +546,18 @@ pub struct AssetData<E: Environment> {
     /// Any ValueProduced or store write attempts should be silently dropped.
     /// This is used to prevent race conditions when cancelling long-running tasks.
     cancelled: bool,
+
+    /// The key this asset is associated with — it is a *keyed asset* — or `None` when it is not.
+    ///
+    /// Set at construction by whoever creates the asset, which knows the answer because the key is
+    /// the argument it was called with. Never re-derived from the recipe afterwards: provider
+    /// resolution replaces the recipe mid-evaluation, which is why re-derivation produced
+    /// divergent answers (`CORE-EVALUATE-PATH-CONSOLIDATION`).
+    ///
+    /// Only a keyed asset may be written to the store, and only a stored asset can be loadable.
+    /// Registration in the manager's key map is a separate, manager-owned question about caching
+    /// and sharing — see `ASSET-REGISTRATION-OWNERSHIP-CONTRACT`.
+    key: Option<Key>,
 
     /// If true, this asset is volatile (computed from recipe/plan before execution)
     is_volatile: bool,
@@ -753,14 +865,24 @@ impl<E: Environment> AssetData<E> {
     /// Arguments:
     /// - `id`: Unique asset identifier.
     /// - `recipe`: Recipe describing how the asset should be resolved/evaluated.
+    /// - `key`: `Some(key)` makes this a
+    ///   [**keyed asset**](crate::assets#keyed-assets-storing-and-persistence) associated with
+    ///   that key; `None` makes it non-keyed. This is the argument that decides whether the asset
+    ///   can outlive the process: only a keyed asset is written to the store, and only a stored
+    ///   asset can be loaded back. The caller — normally an [`AssetManager`] — knows the answer
+    ///   because it knows which request the asset serves; it is recorded here and never
+    ///   re-derived from `recipe`, which provider resolution may replace mid-evaluation. Read it
+    ///   back with [`AssetRef::key`].
     /// - `envref`: Environment reference
-    pub fn new(id: u64, recipe: Recipe, envref: EnvRef<E>) -> Self {
-        Self::new_ext(id, recipe, State::new(), envref)
+    pub fn new(id: u64, recipe: Recipe, key: Option<Key>, envref: EnvRef<E>) -> Self {
+        Self::new_ext(id, recipe, State::new(), key, envref)
     }
 
-    /// Creates a temporary asset data structure.
+    /// Creates a temporary asset data structure: id `0`, a default recipe, an empty initial
+    /// state, and **no key**, so it is never stored and never loadable — see
+    /// [keyed assets](crate::assets#keyed-assets-storing-and-persistence).
     pub fn new_temporary(envref: EnvRef<E>) -> Self {
-        let asset = Self::new_ext(0, Recipe::default(), State::new(), envref);
+        let asset = Self::new_ext(0, Recipe::default(), State::new(), None, envref);
         asset
     }
 
@@ -769,12 +891,22 @@ impl<E: Environment> AssetData<E> {
     /// Arguments:
     /// - `id`: Unique asset identifier.
     /// - `recipe`: Recipe describing how the asset should be resolved/evaluated.
-    /// - `initial_state`: Initial input state used when evaluating apply/query recipes.
+    /// - `initial_state`: Initial input state used when evaluating apply/query recipes. A
+    ///   non-empty state is input the asset's identity does not describe, so the result is not
+    ///   reproducible from the recipe alone and must not be reused by a later caller — which is
+    ///   why an [`AssetManager::apply`] asset is never keyed.
+    /// - `key`: `Some(key)` when this is a
+    ///   [**keyed asset**](crate::assets#keyed-assets-storing-and-persistence) — an asset
+    ///   associated with that key — `None` otherwise. Only a keyed asset is written to the store,
+    ///   and only a stored asset can be loaded back, so a non-keyed asset is never persisted and
+    ///   never reused. Recorded as given and never re-derived from `recipe`, which provider
+    ///   resolution may replace mid-evaluation; read it back with [`AssetRef::key`].
     /// - `envref`: Environment reference used to access the store, manager, and runtime services.
     pub fn new_ext(
         id: u64,
         recipe: Recipe,
         initial_state: State<E::Value>,
+        key: Option<Key>,
         envref: EnvRef<E>,
     ) -> Self {
         let (service_tx, service_rx) = mpsc::unbounded_channel();
@@ -792,6 +924,12 @@ impl<E: Environment> AssetData<E> {
             .get_asset_info()
             .unwrap_or_else(|_| AssetInfo::default());
         assetinfo.type_identifier = initial_state.type_identifier().to_string();
+        // A keyed asset and a non-keyed query asset built from the same query are not the same
+        // thing — the keyed one knows its key — so the difference must be visible in metadata,
+        // not only in the runtime record.
+        if let Some(key) = key.as_ref() {
+            assetinfo.with_key(key.clone());
+        }
         let asset = AssetData {
             id,
             envref,
@@ -809,6 +947,7 @@ impl<E: Environment> AssetData<E> {
             save_in_background: true,
             cancelled: false,
             is_volatile: false,
+            key,
             payload_path: Vec::new(),
             expiration_time: ExpirationTime::Never,
             persistence_status: PersistenceStatus::None,
@@ -830,7 +969,8 @@ impl<E: Environment> AssetData<E> {
     /// This is a throttled operation that ensures metadata is not saved too frequently.
     /// Used by: `process_service_messages` in this module.
     async fn save_metadata_to_store(&self) -> Result<(), Error> {
-        let key = self.recipe.key()?.or(self.recipe.store_to_key()?);
+        // The recorded key, not a re-derivation: only a keyed asset has a place in the store.
+        let key = self.key.clone();
         self.metadata_saver
             .save_immediately(self.metadata.clone(), key, self.get_envref())
             .await;
@@ -858,7 +998,7 @@ impl<E: Environment> AssetData<E> {
     /// Get asset info structure for the asset
     pub fn get_asset_info(&self) -> Result<AssetInfo, Error> {
         let mut assetinfo = self.metadata.get_asset_info().unwrap_or_default();
-        if let Some(key) = self.recipe.key()?.or(self.recipe.store_to_key()?) {
+        if let Some(key) = self.key.clone() {
             assetinfo.with_key(key);
         }
         assetinfo.query = Some(self.recipe.get_query()?);
@@ -1140,9 +1280,10 @@ impl<E: Environment> AssetData<E> {
     /// Poll the cached binary data and metadata without any async operations.
     ///
     /// Subject to the same expiration contract as [`Self::poll_state`]: bytes are exposed only
-    /// when the status classifies as [`ReadExposure::Value`]. Retained expired bytes are reachable
-    /// through [`Self::poll_binary_any_status`], and the persistence path uses
-    /// [`Self::binary_unchecked`].
+    /// for the statuses that expose a value at all (`Ready`, `Source`, `Override`, `Volatile` —
+    /// see [Status and reads](crate::assets#status-and-reads)). Retained expired bytes are
+    /// reachable through [`Self::poll_binary_any_status`]; the persistence path reads them
+    /// unconditionally through a crate-internal accessor.
     ///
     /// Returns `None` if no binary is cached, or if the status does not permit exposing it.
     pub fn poll_binary(&self) -> Option<(Arc<Vec<u8>>, Arc<Metadata>)> {
@@ -1259,7 +1400,14 @@ pub struct AssetRef<E: Environment> {
 }
 
 struct RecipeEvaluation<V: ValueInterface> {
-    state: State<V>,
+    /// The produced value.
+    value: Arc<V>,
+    /// Dependencies observed during this evaluation, to be merged into the asset's live metadata.
+    ///
+    /// Carried separately rather than baked into a cloned metadata record: the service-message
+    /// loop writes progress and log entries to the asset's metadata *concurrently* with
+    /// evaluation, so installing a snapshot taken mid-evaluation silently discards them.
+    dependencies: Vec<DependencyRecord>,
     delegated: bool,
 }
 
@@ -1507,14 +1655,23 @@ impl<E: Environment> AssetRef<E> {
     }
 
     /// Create a new asset reference from a recipe.
-    pub(crate) fn new_from_recipe(id: u64, recipe: Recipe, envref: EnvRef<E>) -> Self {
+    ///
+    /// `key` carries the same meaning as in [`AssetData::new`]: `Some` makes this a
+    /// [keyed asset](crate::assets#keyed-assets-storing-and-persistence), `None` does not.
+    pub(crate) fn new_from_recipe(
+        id: u64,
+        recipe: Recipe,
+        key: Option<Key>,
+        envref: EnvRef<E>,
+    ) -> Self {
         AssetRef {
             id,
-            data: Arc::new(RwLock::new(AssetData::new(id, recipe, envref))),
+            data: Arc::new(RwLock::new(AssetData::new(id, recipe, key, envref))),
         }
     }
 
-    /// Creates a temporary asset reference.
+    /// Creates a temporary asset reference — not keyed, so never stored (see
+    /// [`AssetData::new_temporary`]).
     /// This spawns the event processing loop immediately.
     pub fn new_temporary(envref: EnvRef<E>) -> Self {
         let assetref = AssetData::new_temporary(envref).to_ref();
@@ -1575,6 +1732,39 @@ impl<E: Environment> AssetRef<E> {
         Ok((owner.id() == self.id()).then_some(candidate))
     }
 
+    /// The key this asset is associated with, or `None` when it is not a
+    /// [**keyed asset**](crate::assets#keyed-assets-storing-and-persistence).
+    ///
+    /// This is the recorded answer, set at construction — not a derivation from the recipe, which
+    /// provider resolution may replace mid-evaluation.
+    ///
+    /// What the answer implies:
+    ///
+    /// - `Some(key)` — the asset may be written to the store under `key`, and may be loaded back
+    ///   on a later run unless something made this evaluation unreproducible: a payload (see
+    ///   [`Self::payload_required`]), a supplied initial state, or volatility. A volatile keyed
+    ///   asset *is* stored; it is simply written with a status that fast-track loading refuses.
+    /// - `None` — never stored, never loadable, never in the manager's key or query maps, and so
+    ///   never handed to a second caller.
+    ///
+    /// It says nothing about whether the manager *registered* this asset as the owner of that key.
+    /// That is a separate, manager-owned caching decision; a keyed asset writing while not the
+    /// registered owner records a warning in its metadata rather than failing
+    /// (`ASSET-REGISTRATION-OWNERSHIP-CONTRACT`).
+    pub async fn key(&self) -> Option<Key> {
+        self.data.read().await.key.clone()
+    }
+
+    /// Whether this asset's plan required an evaluation payload.
+    ///
+    /// Recorded during evaluation by [`Context::set_payload_required`](crate::context::Context::set_payload_required)
+    /// and read back from metadata, so there is one source of truth rather than a field here and a
+    /// copy in metadata. A `Required` result means the value could not have been produced without
+    /// a payload, which is why such an asset is never cached, shared, or persisted as loadable.
+    pub async fn payload_required(&self) -> PayloadRequirement {
+        self.data.read().await.metadata.payload_required()
+    }
+
     /// Create a weak reference to this asset.
     pub fn downgrade(&self) -> WeakAssetRef<E> {
         WeakAssetRef {
@@ -1610,7 +1800,7 @@ impl<E: Environment> AssetRef<E> {
     }
 
     /// Estimate the volatility before execution.
-    /// Used e.g. by: `evaluate_and_store`, `evaluate_immediately`, `evaluate_recipe`
+    /// Used e.g. by: `evaluate` in this module
     async fn resolve_volatility_before_evaluation(&self) {
         let mut lock = self.data.write().await;
         let resolved =
@@ -1682,7 +1872,20 @@ impl<E: Environment> AssetRef<E> {
         lock.asset_reference()
     }
 
-    /// Returns the asset information derived from metadata and its recipe.
+    /// Returns the asset information derived from metadata and its recipe — the summary a client
+    /// is given to describe this asset.
+    ///
+    /// Among the facts it carries are the two that answer "what *is* this asset":
+    ///
+    /// - [`AssetInfo::key`](crate::metadata::AssetInfo::key) — set when this is a
+    ///   [keyed asset](crate::assets#keyed-assets-storing-and-persistence), so a client can tell a
+    ///   stored, addressable asset from a query result that only exists in this process;
+    /// - [`AssetInfo::payload_required`](crate::metadata::AssetInfo::payload_required) — whether
+    ///   the plan needed an evaluation payload, which is also recorded when the evaluation was
+    ///   *refused* for want of one, so a client can tell "needs a payload" from "failed".
+    ///
+    /// Both come from metadata rather than from a second copy held here, so they cannot drift from
+    /// what a stored asset carries.
     pub async fn get_asset_info(&self) -> Result<AssetInfo, Error> {
         let lock = self.data.read().await;
         lock.get_asset_info()
@@ -2105,17 +2308,14 @@ impl<E: Environment> AssetRef<E> {
         self.finish_run_with_result(result, psm.await).await
     }
 
-    /// Run the asset evaluation loop.
+    /// Runs this asset's evaluation under the spawning harness.
+    ///
+    /// `payload` is the optional execution payload; `None` is ordinary evaluation. There is one
+    /// evaluation body behind both, so what differs between entry points is the asset they were
+    /// given, never how it is evaluated.
     #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) async fn run(&self) -> Result<(), Error> {
-        self.run_with_future(self.evaluate_and_store()).await
-    }
-
-    /// Run the asset evaluation loop.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) async fn run_immediately(&self, payload: Option<E::Payload>) -> Result<(), Error> {
-        self.run_with_future(self.evaluate_immediately(payload))
-            .await
+    pub(crate) async fn run(&self, payload: Option<E::Payload>) -> Result<(), Error> {
+        self.run_with_future(self.evaluate(payload)).await
     }
 
     /// Single-task (spawn-free) variant of [`run_with_future`] used by immediate-mode managers.
@@ -2135,6 +2335,19 @@ impl<E: Environment> AssetRef<E> {
         if self.status().await.is_finished() {
             return Ok(());
         }
+        // Execute-once. The `is_finished()` check above is not sufficient on its own: a command
+        // that yields leaves a window in which two callers both observe "not finished" and both
+        // run the body (`INLINE-PATH-LACKS-EXECUTE-ONCE`). The claim closes it atomically.
+        //
+        // A caller that does not get the claim **waits** for the running evaluation rather than
+        // failing — refusing it breaks the legitimate case of two tasks awaiting the same asset,
+        // which is what a genuinely async command produces.
+        let claim = match self.try_claim_for_run_inline().await? {
+            Some(claim) => claim,
+            None => {
+                return self.wait_to_finish().await;
+            }
+        };
         let eval_side = async {
             let wait = self.wait_to_finish().fuse();
             let ev = evaluate_future.fuse();
@@ -2152,45 +2365,35 @@ impl<E: Environment> AssetRef<E> {
         };
         let psm_side = self.process_service_messages();
         let (result, psm_result) = futures::join!(eval_side, psm_side);
+        // The run reached its end, so the status it leaves behind is the real one; the guard must
+        // not rewind it. A panic or early return skips this and the `Drop` repair applies instead.
+        claim.complete();
         // Wrap the inline psm outcome as the JoinError-free `Ok(..)` variant so the shared
         // `finish_run_with_result` is reused unchanged.
         self.finish_run_with_result(result, Ok(psm_result)).await
     }
 
-    /// Inline (no-spawn) counterpart of [`run`].
-    pub(crate) async fn run_inline(&self) -> Result<(), Error> {
-        self.run_with_future_inline(self.evaluate_and_store()).await
-    }
-
-    /// Inline (no-spawn) counterpart of [`run_immediately`].
-    pub(crate) async fn run_immediately_inline(
-        &self,
-        payload: Option<E::Payload>,
-    ) -> Result<(), Error> {
-        self.run_with_future_inline(self.evaluate_immediately(payload))
-            .await
+    /// Inline (spawn-free) counterpart of [`Self::run`], used by inline managers and on wasm.
+    pub(crate) async fn run_inline(&self, payload: Option<E::Payload>) -> Result<(), Error> {
+        self.run_with_future_inline(self.evaluate(payload)).await
     }
 
     /// Fetch initial state and recipe of the asset
-    /// Used by: `evaluate_immediately`, `evaluate_recipe` in this module.
+    /// Used by: `evaluate_recipe_outcome` in this module.
     async fn initial_state_and_recipe(&self) -> (State<E::Value>, Recipe) {
         let lock = self.data.read().await;
         (lock.initial_state.clone(), lock.recipe.clone())
     }
 
-    /// Evaluates the asset's recipe and returns the resulting state.
+    /// Resolves the recipe and applies it, returning the produced state.
     ///
-    /// This resolves a key recipe through the recipe provider when necessary and
-    /// records observed dependencies. It does not by itself install the returned
-    /// value as this asset's final data or persist it; those steps are performed by
-    /// [`Self::evaluate_and_store`].
-    pub async fn evaluate_recipe(&self) -> Result<State<E::Value>, Error> {
-        self.evaluate_recipe_outcome()
-            .await
-            .map(|outcome| outcome.state)
-    }
-
-    async fn evaluate_recipe_outcome(&self) -> Result<RecipeEvaluation<E::Value>, Error> {
+    /// Resolves a key recipe through the recipe provider when necessary, hands off to the key's
+    /// registered owner when there is one, and records observed dependencies. It does not install
+    /// the value or persist it; [`Self::evaluate`] does that.
+    async fn evaluate_recipe_outcome(
+        &self,
+        payload: Option<E::Payload>,
+    ) -> Result<RecipeEvaluation<E::Value>, Error> {
         self.resolve_volatility_before_evaluation().await;
         let (input_state, recipe) = {
             let (input_state, recipe) = self.initial_state_and_recipe().await;
@@ -2227,7 +2430,9 @@ impl<E: Environment> AssetRef<E> {
                         let manager = envref.get_asset_manager();
                         let state = manager.wait_for_dependency(self, &asset).await?;
                         return Ok(RecipeEvaluation {
-                            state,
+                            value: state.data_unchecked().clone(),
+                            // A hand-off transfers the value, not the owner's metadata record.
+                            dependencies: Vec::new(),
                             delegated: true,
                         });
                     }
@@ -2278,51 +2483,70 @@ impl<E: Environment> AssetRef<E> {
             recipe.to_plan(cmr)?
         };
         */
-        let context = self.create_context().await;
+        let mut context = self.create_context().await;
+        // The payload is *moved* into the context, never cloned: `PayloadType` is not required to
+        // be `Clone`, and a payload is per-call state that must not be shared between assets.
+        if let Some(payload) = payload {
+            context.set_payload(payload);
+        }
         let context_for_deps = context.clone(); // shares pending_dependencies Arc
         eprintln!("Applying recipe");
         let res = envref.apply_recipe(input_state, recipe, context).await?;
         //eprintln!("Recipe evaluated, result: {:?}", &res);
 
-        // Collect observed dependencies from context into metadata
+        // Observed dependencies travel back as data, to be merged into the live metadata by
+        // `evaluate`. Every entry point records them; this is the asymmetry the issue names.
         let observed_deps = context_for_deps.take_pending_dependencies().await;
 
-        let mut metadata = self.data.read().await.metadata.clone();
-        if let Some(data) = self.data.read().await.data.as_ref() {
-            metadata.with_type_identifier(data.identifier().to_string());
-            metadata.with_type_name(data.type_name().to_string());
-        }
-
-        for dep in observed_deps {
-            let _ = metadata.add_dependency(dep);
-        }
-
         Ok(RecipeEvaluation {
-            state: State::from_parts(res, Arc::new(metadata)),
+            value: res,
+            dependencies: observed_deps,
             delegated: false,
         })
     }
 
-    /// Evaluates the recipe, installs the result, and attempts persistence.
+    /// **The single evaluation body.** Every entry point reaches evaluation through this.
     ///
-    /// The asset is made `Ready` or `Volatile` before persistence begins. The
-    /// persistence outcome is recorded separately in [`PersistenceStatus`].
-    pub async fn evaluate_and_store(&self) -> Result<(), Error> {
+    /// Private on purpose: an `AssetRef` is constructed and managed by the asset manager, so
+    /// evaluation is entered through the manager, never on a handle a caller happens to hold.
+    ///
+    /// The order is invariant and parts of it are load-bearing:
+    ///
+    /// 1. resolve volatility;
+    /// 2. resolve the recipe — hand off to the key's registered owner, or resolve through the
+    ///    recipe provider — and apply it, with `payload` installed on the context;
+    /// 3. record observed dependencies in metadata, for **every** entry point;
+    /// 4. install the value, its type identifier and type name;
+    /// 5. [`Self::try_to_set_ready`] — the single status authority — **before** the notification
+    ///    and **before** persistence, so nothing observes or stores a non-final status;
+    /// 6. notify `ValueProduced`;
+    /// 7. persist, if this is a keyed asset and this evaluation did not hand off;
+    /// 8. register with the dependency manager, which is self-limiting on status and ownership.
+    ///
+    /// `payload` carries per-call caller context. It is deliberately not part of an asset's
+    /// identity, so an asset evaluated with one is never shared, reused, or persisted as loadable.
+    async fn evaluate(&self, payload: Option<E::Payload>) -> Result<(), Error> {
         self.resolve_volatility_before_evaluation().await;
-        let res = self.evaluate_recipe_outcome().await;
+        let res = self.evaluate_recipe_outcome(payload).await;
         match res {
             Ok(outcome) => {
-                let RecipeEvaluation { state, delegated } = outcome;
-                let data = state.data_unchecked().clone();
-                let metadata = state.metadata.clone();
+                let RecipeEvaluation {
+                    value,
+                    dependencies,
+                    delegated,
+                } = outcome;
                 {
+                    // Merge into the live metadata rather than installing a snapshot: the
+                    // service-message loop is writing progress and log entries to this same
+                    // record while evaluation runs, and a wholesale replacement drops them.
                     let mut lock = self.data.write().await;
-                    let mut metadata_clone = (*metadata).clone();
-                    metadata_clone
-                        .with_type_identifier(data.identifier().to_string())
-                        .with_type_name(data.type_name().to_string());
-                    lock.data = Some(data);
-                    lock.metadata = metadata_clone;
+                    lock.metadata
+                        .with_type_identifier(value.identifier().to_string())
+                        .with_type_name(value.type_name().to_string());
+                    for dep in dependencies {
+                        let _ = lock.metadata.add_dependency(dep);
+                    }
+                    lock.data = Some(value);
                 }
                 // Finalize status and expiration in one place (replaces inline match block).
                 // Must happen before persistence so poll_state() returns Some for serialization.
@@ -2339,7 +2563,12 @@ impl<E: Environment> AssetRef<E> {
                     )
                 };
 
-                if !delegated {
+                // Write iff this is a keyed asset and this evaluation did not hand off. A
+                // non-keyed asset has no place in the store, so it must not even attempt a write:
+                // attempting one and failing deep inside `save_to_store` would record a spurious
+                // "cannot determine key" warning on every query and ad-hoc evaluation.
+                let is_keyed = self.data.read().await.key.is_some();
+                if is_keyed && !delegated {
                     self.persist_with_status_tracking(save_in_background, cancelled)
                         .await;
                 }
@@ -2368,41 +2597,6 @@ impl<E: Environment> AssetRef<E> {
                 Err(e)
             }
         }
-    }
-
-    /// Evaluates the recipe with an optional payload and installs the value.
-    ///
-    /// This is the computation used by [`AssetManager::apply_immediately`]. It does
-    /// not persist the result. Lifecycle finalization is performed by the
-    /// surrounding immediate-run harness.
-    ///
-    /// Arguments:
-    /// - `payload`: Optional execution payload injected into evaluation context.
-    pub async fn evaluate_immediately(&self, payload: Option<E::Payload>) -> Result<(), Error> {
-        self.resolve_volatility_before_evaluation().await;
-        let (input_state, recipe) = self.initial_state_and_recipe().await;
-
-        let envref = self.get_envref().await;
-        let mut context = self.create_context().await;
-        let context_for_deps = context.clone();
-        if let Some(payload) = payload {
-            context.set_payload(payload);
-        }
-        let res = envref.apply_recipe(input_state, recipe, context).await?;
-        let observed_deps = context_for_deps.take_pending_dependencies().await;
-
-        let mut lock = self.data.write().await;
-        lock.data = Some(res.clone());
-        lock.metadata
-            .with_type_identifier(res.identifier().to_string())
-            .with_type_name(res.type_name().to_string());
-        for dep in observed_deps {
-            let _ = lock.metadata.add_dependency(dep);
-        }
-        let _ = lock
-            .notification_tx
-            .send(AssetNotificationMessage::ValueProduced);
-        Ok(())
     }
 
     /// Persists metadata updates to the configured async store.
@@ -2444,9 +2638,37 @@ impl<E: Environment> AssetRef<E> {
 
             let envref = lock.get_envref();
             let store = envref.get_async_store();
-            let key = lock.recipe.key()?.or(lock.recipe.store_to_key()?);
+            // Only a keyed asset may be written, and the key is the one recorded at construction
+            // — the same one `mark_expired_status` invalidates under, which was a *different*
+            // derivation before this change (with opposite precedence, so the two could disagree
+            // and an asset could be written under a key it could never invalidate).
+            let key = lock.key.clone();
+            let is_volatile = lock.is_volatile;
             drop(lock);
             if let Some(key) = key.as_ref() {
+                // Ownership is approximated by keyedness. Registration is the manager's own
+                // caching decision, and a volatile keyed asset is deliberately never registered,
+                // so only a *non-volatile* keyed asset that is not the registered owner is
+                // suspicious — record it rather than failing, since it is legal today.
+                // See `ASSET-REGISTRATION-OWNERSHIP-CONTRACT`.
+                if !is_volatile {
+                    let manager = envref.get_asset_manager();
+                    let registered_is_self = manager
+                        .owned_key_asset(key)
+                        .await
+                        .map(|owner| owner.id() == self.id())
+                        .unwrap_or(false);
+                    if !registered_is_self {
+                        let mut lock = self.data.write().await;
+                        let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
+                            "Keyed asset {} wrote to '{}' while not the registered owner of that \
+                             key; ownership is approximated by keyedness \
+                             (ASSET-REGISTRATION-OWNERSHIP-CONTRACT)",
+                            self.id(),
+                            key
+                        )));
+                    }
+                }
                 store.set(key, &data, &metadata).await
             } else {
                 Err(Error::general_error(format!(
@@ -2679,7 +2901,7 @@ impl<E: Environment> AssetRef<E> {
     /// `Expired` is idempotent. A `Source` cannot expire because it has no recipe
     /// from which to recover. Other statuses return an error.
     pub async fn expire(&self) -> Result<(), Error> {
-        let key_opt = self.bound_owner_key().await?;
+        let key_opt = self.key().await;
 
         let transitioned_to_expired = self.mark_expired_status().await?;
 
@@ -2696,7 +2918,9 @@ impl<E: Environment> AssetRef<E> {
     }
 
     async fn mark_expired_status(&self) -> Result<bool, Error> {
-        let owner_key = self.bound_owner_key().await?;
+        // The same recorded key `save_to_store` writes under. Before this change these were two
+        // independent derivations with opposite precedence.
+        let owner_key = self.key().await;
         let mut lock = self.data.write().await;
         let mut transitioned_to_expired = false;
         let result = match lock.status {
@@ -3294,8 +3518,14 @@ pub(crate) fn load_command_versions_sync<E: Environment>(
 /// normally performs that lifecycle step.
 ///
 /// Methods such as [`Self::set_binary`], [`Self::set_state`], [`Self::remove`],
-/// [`Self::get_any_status`], and [`Self::to_override`] operate only on keyed
-/// assets. Query evaluation is available through [`Self::get_asset`].
+/// [`Self::get_any_status`], and [`Self::to_override`] operate only on
+/// [keyed assets](crate::assets#keyed-assets-storing-and-persistence) — assets associated with a
+/// key, which are the only ones a store can hold. Query evaluation is available through
+/// [`Self::get_asset`].
+///
+/// The manager is also what *decides* keyedness: it constructs every asset and passes the key
+/// (or `None`) to [`AssetData::new`]. See
+/// [Where the key comes from](crate::assets#where-the-key-comes-from-and-how-to-read-it-back).
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 pub trait AssetManager<E: Environment>:
@@ -3303,26 +3533,47 @@ pub trait AssetManager<E: Environment>:
 {
     /// Resolves a query to an asset.
     ///
-    /// A pure key query delegates to [`Self::get`]. The return-time guarantee
-    /// depends on [`Self::eval_mode`]: queued managers may return a scheduled
-    /// handle, while inline managers return after evaluation.
+    /// A pure key query delegates to [`Self::get`] and therefore yields a
+    /// [keyed asset](crate::assets#keyed-assets-storing-and-persistence); any other query yields
+    /// a non-keyed one, which is cached in the query map but never written to the store. The
+    /// return-time guarantee depends on [`Self::eval_mode`]: queued managers may return a
+    /// scheduled handle, while inline managers return after evaluation.
     async fn get_asset(&self, query: &Query) -> Result<AssetRef<E>, Error>;
-    /// Applies a recipe to a supplied initial state.
+    /// Applies a recipe to a supplied initial state, with an optional execution payload.
     ///
-    /// The operation is ad hoc and does not insert the asset into a key/query
-    /// cache. Queued managers schedule it; inline managers evaluate before return.
-    async fn apply(&self, recipe: Recipe, to: State<E::Value>) -> Result<AssetRef<E>, Error>;
-    /// Applies a recipe to a supplied state and evaluates it before returning.
-    ///
-    /// This ad-hoc path accepts an optional execution payload, bypasses the queued
-    /// manager's job queue, and does not persist the produced result.
-    async fn apply_immediately(
+    /// The operation is ad hoc: the asset is inserted into no key or query cache, is never
+    /// reused, and is not a [keyed asset](crate::assets#keyed-assets-storing-and-persistence), so
+    /// it is never written to the store — [`AssetRef::key`] on the result is always `None`.
+    /// A supplied state or
+    /// a payload already makes the result unshareable, so there is nothing to gain by queueing it
+    /// — evaluation therefore completes before this returns, on both managers, and consumes no
+    /// job-queue slot. Taking a slot while the caller already holds one is the deadlock shape
+    /// `ASSETS-FIX1` #17 describes.
+    async fn apply(
         &self,
         recipe: Recipe,
         to: State<E::Value>,
         payload: Option<E::Payload>,
     ) -> Result<AssetRef<E>, Error>;
-    /// Resolves a keyed asset.
+    /// Applies a recipe to a supplied state and evaluates it before returning.
+    ///
+    /// Superseded by [`Self::apply`], which now carries the payload and always evaluates before
+    /// returning. Kept as a forwarding default so an out-of-tree implementor gets a deprecation
+    /// warning rather than a compile error.
+    #[deprecated(
+        note = "use `apply(recipe, to, payload)`; every apply now evaluates before returning"
+    )]
+    async fn apply_immediately(
+        &self,
+        recipe: Recipe,
+        to: State<E::Value>,
+        payload: Option<E::Payload>,
+    ) -> Result<AssetRef<E>, Error> {
+        self.apply(recipe, to, payload).await
+    }
+    /// Resolves a [keyed asset](crate::assets#keyed-assets-storing-and-persistence) — the
+    /// returned asset records `key`, so it is one of the two ways (with a pure key query through
+    /// [`Self::get_asset`]) to obtain an asset that can be stored and loaded back.
     ///
     /// Managers may reuse a non-volatile cached entry or fast-track a stored value.
     /// Cached `Expired`, `Error`, and `Cancelled` entries are treated as misses.
@@ -3615,7 +3866,7 @@ pub trait AssetManager<E: Environment>:
     ///
     /// **Non-evaluating.** This reads the key→asset map and never starts, submits, fast-tracks
     /// or resolves an evaluation, which is what makes it usable from *inside* an evaluation —
-    /// [`AssetRef::evaluate_recipe`] asks it whether it owns the key it is evaluating. Asking
+    /// the recipe-resolution step asks it whether it owns the key it is evaluating. Asking
     /// [`AssetManager::get`] instead recurses forever under an inline manager, which is the
     /// defect this method exists to remove.
     ///
@@ -4147,6 +4398,11 @@ impl<E: Environment> DefaultAssetManager<E> {
         }
     }
 
+    /// Allocates the next runtime-unique asset id, as reported by [`AssetRef::id`].
+    ///
+    /// Ids identify assets *within one process run*; they are not part of an asset's identity —
+    /// that is the key (or the query), not this number — so nothing persisted refers to them, and
+    /// two runs give the same asset different ids.
     pub fn next_id(&self) -> u64 {
         self.id.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
     }
@@ -4242,7 +4498,7 @@ impl<E: Environment> DefaultAssetManager<E> {
     /// Arguments:
     /// - `recipe`: Recipe describing how the asset should be resolved/evaluated.
     pub fn create_asset(&self, recipe: Recipe) -> AssetRef<E> {
-        let asset = AssetRef::new_from_recipe(self.next_id(), recipe, self.get_envref());
+        let asset = AssetRef::new_from_recipe(self.next_id(), recipe, None, self.get_envref());
         asset
     }
 
@@ -4250,7 +4506,7 @@ impl<E: Environment> DefaultAssetManager<E> {
     /// A dummy asset is an asset created from an empty recipe
     pub fn create_dummy_asset(&self) -> AssetRef<E> {
         let recipe = Query::new().into();
-        let asset = AssetRef::new_from_recipe(self.next_id(), recipe, self.get_envref());
+        let asset = AssetRef::new_from_recipe(self.next_id(), recipe, None, self.get_envref());
         asset
     }
 
@@ -4278,7 +4534,7 @@ impl<E: Environment> DefaultAssetManager<E> {
             .entry_async(key.clone())
             .await
             .or_insert_with(|| {
-                AssetRef::<E>::new_from_recipe(self.next_id(), key.into(), self.get_envref())
+                AssetRef::<E>::new_from_recipe(self.next_id(), key.into(), Some(key.clone()), self.get_envref())
             });
 
         Ok(entry.get().clone())
@@ -4291,7 +4547,7 @@ impl<E: Environment> DefaultAssetManager<E> {
     /// - `key`: Store key identifying the target asset/resource.
     async fn get_volatile_resource_asset(&self, key: &Key) -> Result<AssetRef<E>, Error> {
         eprintln!("Getting volatile asset for key {}", key);
-        let asset_ref = AssetRef::new_from_recipe(self.next_id(), key.into(), self.get_envref());
+        let asset_ref = AssetRef::new_from_recipe(self.next_id(), key.into(), Some(key.clone()), self.get_envref());
 
         // Set is_volatile flag in AssetData and Metadata
         {
@@ -4330,7 +4586,7 @@ impl<E: Environment> DefaultAssetManager<E> {
             .entry_async(query.clone())
             .await
             .or_insert_with(|| {
-                AssetRef::<E>::new_from_recipe(self.next_id(), query.into(), self.get_envref())
+                AssetRef::<E>::new_from_recipe(self.next_id(), query.into(), None, self.get_envref())
             });
 
         Ok(entry.get().clone())
@@ -4343,7 +4599,7 @@ impl<E: Environment> DefaultAssetManager<E> {
     /// - `query`: Query used to create an asset
     async fn get_volatile_query_asset(&self, query: &Query) -> Result<AssetRef<E>, Error> {
         eprintln!("Getting volatile asset for query {}", query);
-        let asset_ref = AssetRef::new_from_recipe(self.next_id(), query.into(), self.get_envref());
+        let asset_ref = AssetRef::new_from_recipe(self.next_id(), query.into(), None, self.get_envref());
 
         // Set is_volatile flag in AssetData and Metadata
         {
@@ -4551,13 +4807,24 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         // resolves it to a fresh, unshared asset that is in no map and cannot be reused.
         // There is nothing to fast-track and nothing to evict; run it inline in the
         // caller's future rather than consuming a job-queue slot.
-        let asset = if let Some(key) = query.key() {
-            self.get_resource_asset(&key).await?
-        } else {
-            self.get_query_asset(query).await?
-        };
+        // Keys are a payload boundary: a payload is per-call caller context and is deliberately
+        // not part of an asset's identity, so it cannot reach a keyed asset. Resolving a key here
+        // would hand back the *map-registered* asset and then run it with a payload, leaving a
+        // payload-evaluated value in the key map for the next caller to receive without one.
+        // Unreachable at HEAD — a pure key query reports `PayloadRequirement::None` — so this
+        // names the boundary rather than serving a case.
+        if query.key().is_some() {
+            return Err(Error::general_error(format!(
+                "Query '{}' is a key and cannot be evaluated with a payload: a payload does not \
+                 cross a key boundary, so a keyed asset would become unreusable while remaining \
+                 in the key map.",
+                query.encode()
+            ))
+            .with_query(query));
+        }
+        let asset = self.get_query_asset(query).await?;
         asset.set_payload_path(payload_path).await;
-        asset.run_immediately(payload).await?;
+        asset.run(payload).await?;
         Ok(asset)
     }
 
@@ -4575,7 +4842,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                     // Inline, recursive: dep.run() may itself schedule and drain dep's own
                     // local queue in this same task. Box::pin bounds the future type; depth
                     // is bounded by the (cycle-free) dependency DAG.
-                    let _ = Box::pin(dep.run()).await;
+                    let _ = Box::pin(dep.run(None)).await;
                     claim.complete();
                 }
                 None => {
@@ -4676,7 +4943,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             match dependency.try_claim_for_run(&self.job_queue).await? {
                 Some(claim) => {
                     parent.enter_dependencies(dependency).await?;
-                    let _ = Box::pin(dependency.run()).await;
+                    let _ = Box::pin(dependency.run(None)).await;
                     claim.complete();
                 }
                 None => {
@@ -4733,34 +5000,20 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         }
     }
 
-    /// Create an ad-hoc asset applied to a state
+    /// Create an ad-hoc asset applied to a state, and evaluate it before returning.
+    ///
+    /// Ad hoc means: in no map, never reused, not a keyed asset, never written to the store. It
+    /// therefore runs inline in the caller's future rather than taking a job-queue slot.
     async fn apply(
-        &self,
-        recipe: Recipe,
-        initial_state: State<E::Value>,
-    ) -> Result<AssetRef<E>, Error> {
-        let asset_ref =
-            AssetData::new_ext(self.next_id(), recipe, initial_state, self.get_envref()).to_ref();
-        // No fast track makes sense now, since apply can't be stored, however in the future
-        // TODO: support fast-track once it makes sense
-        self.job_queue.submit(asset_ref.clone()).await?;
-
-        Ok(asset_ref)
-    }
-
-    /// Create an ad-hoc asset applied to a state
-    async fn apply_immediately(
         &self,
         recipe: Recipe,
         initial_state: State<E::Value>,
         payload: Option<E::Payload>,
     ) -> Result<AssetRef<E>, Error> {
         let asset_ref =
-            AssetData::new_ext(self.next_id(), recipe, initial_state, self.get_envref()).to_ref();
-        // No fast track makes sense now, since apply can't be stored, however in the future
-        // TODO: support fast-track once it makes sense
-        asset_ref.run_immediately(payload).await?;
-
+            AssetData::new_ext(self.next_id(), recipe, initial_state, None, self.get_envref())
+                .to_ref();
+        asset_ref.run(payload).await?;
         Ok(asset_ref)
     }
 
@@ -4878,7 +5131,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
     /// Set binary value ot the asset
     /// Equivalent of store set method.
     /// For assets with recipes, this can be considered an Override, and the status is set accordingly.
-    /// For assers without a recipe this simply creates a Source value and persists the data in store.
+    /// For assets without a recipe this simply creates a Source value and persists the data in store.
     ///
     /// Arguments:
     /// - `key`: Store key identifying the target asset/resource.
@@ -5066,6 +5319,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             self.next_id(),
             recipe,
             State::new(), // Empty initial state
+            Some(key.clone()),
             self.get_envref(),
         );
         asset_data.data = Some(Arc::new(state.data_unchecked().as_ref().clone()));
@@ -5356,6 +5610,111 @@ impl<E: Environment + 'static> Drop for RunClaim<E> {
     }
 }
 
+/// Execute-once guard for the inline (queue-less) run path.
+///
+/// The queued [`RunClaim`] re-parks a dropped runner by re-submitting to the job queue. The
+/// inline path has no queue to re-submit to, so this guard restores a **re-runnable** status
+/// instead: an asset whose runner vanished before finishing must not be left in a status only a
+/// live runner can hold — `Processing`, or `Dependencies` when it was parked awaiting a child —
+/// where nothing could ever claim it again.
+pub(crate) struct InlineRunClaim<E: Environment> {
+    asset: AssetRef<E>,
+    armed: bool,
+}
+
+impl<E: Environment> InlineRunClaim<E> {
+    /// Disarms the guard after a completed run, so `Drop` does not undo a finished status.
+    pub(crate) fn complete(mut self) {
+        self.armed = false;
+    }
+}
+
+impl<E: Environment> Drop for InlineRunClaim<E> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        // The runner vanished mid-flight (an error, a cancelled future, a panic unwinding past
+        // the claim). Return the asset to a claimable status so a later caller can run it.
+        // `try_write` rather than blocking: `Drop` cannot await, and failing to repair is better
+        // than deadlocking. A missed repair leaves the asset in `Processing`, which the next
+        // caller waits on rather than double-running — the safe direction.
+        //
+        // `Dependencies` is repaired alongside `Processing`, exactly as the queued `RunClaim`
+        // does. Both are statuses only a live runner can hold, and the runner is gone; leaving
+        // `Dependencies` behind is the worse of the two, because `try_claim_for_run_inline`
+        // reads it as *active* and refuses the claim, so the asset is not merely un-run but
+        // permanently unrunnable. (PR #61 review, comment 2.)
+        if let Ok(mut lock) = self.asset.data.try_write() {
+            match lock.status {
+                Status::Processing | Status::Dependencies => {
+                    let _ = lock.set_status(Status::Recipe);
+                    // Observers (a UI reading status) learn of the repair. It does not release a
+                    // caller already parked in `wait_to_finish`, which waits for `JobFinished`
+                    // alone — see `INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS`.
+                    let _ = lock
+                        .notification_tx
+                        .send(AssetNotificationMessage::StatusChanged(Status::Recipe));
+                }
+                Status::None
+                | Status::Directory
+                | Status::Recipe
+                | Status::Submitted
+                | Status::Partial
+                | Status::Error
+                | Status::Storing
+                | Status::Ready
+                | Status::Expired
+                | Status::Cancelled
+                | Status::Source
+                | Status::Override
+                | Status::Volatile => {
+                    // Finished, or never entered a running status; nothing to repair.
+                }
+            }
+        }
+    }
+}
+
+impl<E: Environment> AssetRef<E> {
+    /// Atomically claim the exclusive right to execute this asset's body, without a job queue.
+    ///
+    /// Available on both targets, unlike [`RunClaim`], which is native-only and needs a
+    /// `JobQueue` for its repair. The status match mirrors that one exactly — `Dependencies` is
+    /// an *active* state and is therefore not claimable, since its runner is merely parked.
+    ///
+    /// Returning `None` means someone else is running or has run it; the caller must then
+    /// **wait**, not fail. Refusing the second caller is the wrong answer and was tried and
+    /// reverted once already (see `INLINE-PATH-LACKS-EXECUTE-ONCE`): a JavaScript `async` command
+    /// genuinely yields, so a second legitimate request arrives mid-evaluation and must join the
+    /// first rather than be turned away.
+    pub(crate) async fn try_claim_for_run_inline(&self) -> Result<Option<InlineRunClaim<E>>, Error> {
+        let mut lock = self.data.write().await;
+        match lock.status {
+            Status::None | Status::Recipe | Status::Submitted => {
+                lock.set_status(Status::Processing)?;
+                drop(lock);
+                Ok(Some(InlineRunClaim {
+                    asset: self.clone(),
+                    armed: true,
+                }))
+            }
+            Status::Directory
+            | Status::Processing
+            | Status::Dependencies
+            | Status::Partial
+            | Status::Error
+            | Status::Storing
+            | Status::Ready
+            | Status::Expired
+            | Status::Cancelled
+            | Status::Source
+            | Status::Override
+            | Status::Volatile => Ok(None),
+        }
+    }
+}
+
 impl<E: Environment + 'static> AssetRef<E> {
     /// Atomically claim the exclusive right to execute this asset's body.
     ///
@@ -5402,6 +5761,13 @@ impl<E: Environment + 'static> AssetRef<E> {
     }
 }
 
+/// Bounded-concurrency execution queue behind [`DefaultAssetManager`] (native only).
+///
+/// Holds submitted assets, runs at most `capacity` of them at a time, and keeps a per-dependent
+/// local queue so a dependency that cannot get a slot is still drained inline by the asset waiting
+/// for it. Framework infrastructure: applications reach it only indirectly, through
+/// [`AssetManager`]. The inline managers have no queue at all — see
+/// [`AssetManager::eval_mode`].
 #[cfg(not(target_arch = "wasm32"))]
 pub struct JobQueue<E: Environment> {
     jobs: Arc<Mutex<Vec<AssetRef<E>>>>,
@@ -5493,7 +5859,7 @@ impl<E: Environment + 'static> JobQueue<E> {
                 let queue = self.clone();
                 eprintln!("Starting asset job {} immediately", asset_id);
                 tokio::spawn(async move {
-                    let _ = asset_clone.run().await;
+                    let _ = asset_clone.run(None).await;
                     claim.complete();
                     running_count.fetch_sub(1, Ordering::SeqCst);
                     notify.notify_one();
@@ -5631,6 +5997,10 @@ impl<E: Environment + 'static> JobQueue<E> {
         }
     }
 
+    /// Signals the worker loop to stop and wakes everything waiting on the queue.
+    ///
+    /// Assets already running are not cancelled; the loop stops taking new ones. Submitting after
+    /// this leaves an asset parked in `Submitted` with nothing to start it.
     pub fn shutdown(&self) {
         self.shutdown.store(true, Ordering::SeqCst);
         self.notify.notify_waiters();
@@ -5720,8 +6090,12 @@ impl<E: Environment> ImmediateAssetManager<E> {
         self.envref.clone()
     }
 
-    async fn make_volatile(&self, recipe_src: Recipe) -> AssetRef<E> {
-        let asset_ref = AssetRef::new_from_recipe(self.next_id(), recipe_src, self.envref());
+    /// Builds a fresh volatile asset that is deliberately inserted in no map.
+    ///
+    /// `key` must come from the caller: this serves both a keyed caller and a query caller, so the
+    /// answer cannot be derived here — which is exactly the conflation the recorded key removes.
+    async fn make_volatile(&self, recipe_src: Recipe, key: Option<Key>) -> AssetRef<E> {
+        let asset_ref = AssetRef::new_from_recipe(self.next_id(), recipe_src, key, self.envref());
         {
             let mut data = asset_ref.data.write().await;
             data.is_volatile = true;
@@ -5734,7 +6108,7 @@ impl<E: Environment> ImmediateAssetManager<E> {
 
     async fn get_query_asset(&self, query: &Query) -> Result<AssetRef<E>, Error> {
         if query.is_volatile(self.envref()).await? {
-            return Ok(self.make_volatile(query.into()).await);
+            return Ok(self.make_volatile(query.into(), None).await);
         }
         {
             let map = self.query_assets.lock().unwrap_or_else(|e| e.into_inner());
@@ -5742,7 +6116,7 @@ impl<E: Environment> ImmediateAssetManager<E> {
                 return Ok(existing.clone());
             }
         }
-        let asset_ref = AssetRef::new_from_recipe(self.next_id(), query.into(), self.envref());
+        let asset_ref = AssetRef::new_from_recipe(self.next_id(), query.into(), None, self.envref());
         let mut map = self.query_assets.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(existing) = map.get(query) {
             return Ok(existing.clone());
@@ -5753,7 +6127,7 @@ impl<E: Environment> ImmediateAssetManager<E> {
 
     async fn get_resource_asset(&self, key: &Key) -> Result<AssetRef<E>, Error> {
         if self.is_volatile(key).await? {
-            return Ok(self.make_volatile(key.into()).await);
+            return Ok(self.make_volatile(key.into(), Some(key.clone())).await);
         }
         {
             let map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
@@ -5762,7 +6136,7 @@ impl<E: Environment> ImmediateAssetManager<E> {
             }
         }
         let _mutation = self.key_mutation_lock.lock().await;
-        let asset_ref = AssetRef::new_from_recipe(self.next_id(), key.into(), self.envref());
+        let asset_ref = AssetRef::new_from_recipe(self.next_id(), key.into(), Some(key.clone()), self.envref());
         let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(existing) = map.get(key) {
             return Ok(existing.clone());
@@ -5857,14 +6231,19 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             // Backstop against re-entry: if this asset is already being run inline on this
             // manager, running it again is the recursion `owned_key_asset` exists to prevent.
             // Report it instead of exhausting the stack.
-            assetref.run_inline().await?;
+            assetref.run_inline(None).await?;
             return Ok(assetref);
         }
     }
 
-    async fn apply(&self, recipe: Recipe, to: State<E::Value>) -> Result<AssetRef<E>, Error> {
-        let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, self.envref()).to_ref();
-        asset_ref.run_inline().await?;
+    async fn apply(
+        &self,
+        recipe: Recipe,
+        to: State<E::Value>,
+        payload: Option<E::Payload>,
+    ) -> Result<AssetRef<E>, Error> {
+        let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, None, self.envref()).to_ref();
+        asset_ref.run_inline(payload).await?;
         Ok(asset_ref)
     }
 
@@ -5882,25 +6261,25 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
     ) -> Result<AssetRef<E>, Error> {
         let _ = parent;
         // Volatile by construction, so this is a fresh unshared asset in no map.
-        let asset = if let Some(key) = query.key() {
-            self.get_resource_asset(&key).await?
-        } else {
-            self.get_query_asset(query).await?
-        };
+        // Keys are a payload boundary: a payload is per-call caller context and is deliberately
+        // not part of an asset's identity, so it cannot reach a keyed asset. Resolving a key here
+        // would hand back the *map-registered* asset and then run it with a payload, leaving a
+        // payload-evaluated value in the key map for the next caller to receive without one.
+        // Unreachable at HEAD — a pure key query reports `PayloadRequirement::None` — so this
+        // names the boundary rather than serving a case.
+        if query.key().is_some() {
+            return Err(Error::general_error(format!(
+                "Query '{}' is a key and cannot be evaluated with a payload: a payload does not \
+                 cross a key boundary, so a keyed asset would become unreusable while remaining \
+                 in the key map.",
+                query.encode()
+            ))
+            .with_query(query));
+        }
+        let asset = self.get_query_asset(query).await?;
         asset.set_payload_path(payload_path).await;
-        asset.run_immediately_inline(payload).await?;
+        asset.run_inline(payload).await?;
         Ok(asset)
-    }
-
-    async fn apply_immediately(
-        &self,
-        recipe: Recipe,
-        to: State<E::Value>,
-        payload: Option<E::Payload>,
-    ) -> Result<AssetRef<E>, Error> {
-        let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, self.envref()).to_ref();
-        asset_ref.run_immediately_inline(payload).await?;
-        Ok(asset_ref)
     }
 
     async fn get(&self, key: &Key) -> Result<AssetRef<E>, Error> {
@@ -5946,7 +6325,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 }
             }
             // Backstop against re-entry — see the note in `get_asset`.
-            asset_ref.run_inline().await?;
+            asset_ref.run_inline(None).await?;
             return Ok(asset_ref);
         }
     }
@@ -6049,7 +6428,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             };
             metadata.set_version(Some(version))?;
         }
-        let mut data = AssetData::new_ext(self.next_id(), key.into(), State::new(), self.envref());
+        let mut data = AssetData::new_ext(self.next_id(), key.into(), State::new(), Some(key.clone()), self.envref());
         data.data = Some(Arc::new(state.data_unchecked().as_ref().clone()));
         data.metadata = metadata.clone();
         data.status = final_status;
@@ -6248,7 +6627,7 @@ mod tests {
         let envref = env.to_ref();
 
         let mut asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(9999, key.clone().into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(9999, key.clone().into(), Some(key.clone()), envref.clone());
 
         for i in 0..8 {
             asset_data
@@ -6273,7 +6652,7 @@ mod tests {
         let dummy_env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         let key = parse_key("test.txt").unwrap();
         let asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(1234, key.into(), dummy_env.to_ref());
+            AssetData::<SimpleEnvironment<Value>>::new(1234, key.clone().into(), Some(key.clone()), dummy_env.to_ref());
         let state = asset_data.poll_state();
         assert!(state.is_none());
         let bin = asset_data.poll_binary();
@@ -6285,7 +6664,7 @@ mod tests {
         let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         let key = parse_key("test/weak_upgrade.txt").unwrap();
         let asset =
-            AssetData::<SimpleEnvironment<Value>>::new(43210, key.into(), env.to_ref()).to_ref();
+            AssetData::<SimpleEnvironment<Value>>::new(43210, key.clone().into(), Some(key.clone()), env.to_ref()).to_ref();
 
         let weak = asset.downgrade();
         assert_eq!(weak.id(), asset.id());
@@ -6300,7 +6679,7 @@ mod tests {
         let weak = {
             let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
             let key = parse_key("test/weak_drop.txt").unwrap();
-            let asset = AssetData::<SimpleEnvironment<Value>>::new(43211, key.into(), env.to_ref())
+            let asset = AssetData::<SimpleEnvironment<Value>>::new(43211, key.clone().into(), Some(key.clone()), env.to_ref())
                 .to_ref();
             let weak = asset.downgrade();
             assert!(weak.upgrade().is_some());
@@ -6333,7 +6712,7 @@ mod tests {
         let envref = env.to_ref();
 
         let mut asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(1234, key.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(1234, key.clone().into(), Some(key.clone()), envref.clone());
 
         let state = asset_data.poll_state();
         assert!(state.is_none());
@@ -6370,7 +6749,7 @@ mod tests {
 
         let envref = env.to_ref();
         let mut asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(1235, key.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(1235, key.clone().into(), Some(key.clone()), envref.clone());
 
         assert!(!asset_data.try_fast_track().await.unwrap());
         assert!(asset_data.poll_state().is_none());
@@ -6399,7 +6778,7 @@ mod tests {
 
         let envref = env.to_ref();
         let mut asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(1236, key.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(1236, key.clone().into(), Some(key.clone()), envref.clone());
 
         assert!(asset_data.try_fast_track().await.unwrap());
         let state = asset_data.poll_state().expect("state must be available");
@@ -6425,7 +6804,7 @@ mod tests {
 
         let envref = env.to_ref();
         let mut asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(1237, key.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(1237, key.clone().into(), Some(key.clone()), envref.clone());
 
         assert!(!asset_data.try_fast_track().await.unwrap());
         assert!(asset_data.poll_state().is_none());
@@ -6445,7 +6824,7 @@ mod tests {
         let envref = env.to_ref();
 
         let mut asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), None, envref.clone());
 
         let state = asset_data.poll_state();
         assert!(state.is_none());
@@ -6457,7 +6836,7 @@ mod tests {
         assert!(state.is_none());
         let bin = assetref.poll_binary().await;
         assert!(bin.is_none());
-        assetref.evaluate_and_store().await.unwrap();
+        assetref.evaluate(None).await.unwrap();
 
         let state = assetref.poll_state().await;
         assert!(state.is_some());
@@ -6476,10 +6855,10 @@ mod tests {
         let envref = env.to_ref();
 
         let asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), None, envref.clone());
 
         let assetref = asset_data.to_ref();
-        assetref.run().await.unwrap();
+        assetref.run(None).await.unwrap();
 
         let state = assetref.poll_state().await;
         assert!(state.is_some());
@@ -6497,7 +6876,7 @@ mod tests {
 
         let envref = env.to_ref();
         let asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(2234, query.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(2234, query.into(), None, envref.clone());
         let assetref = asset_data.to_ref();
         {
             let mut lock = assetref.data.write().await;
@@ -6505,7 +6884,7 @@ mod tests {
             lock.metadata.set_status(Status::Dependencies).unwrap();
         }
 
-        assetref.run().await.unwrap();
+        assetref.run(None).await.unwrap();
         assert_eq!(assetref.status().await, Status::Ready);
     }
 
@@ -6515,6 +6894,7 @@ mod tests {
         let asset = AssetData::<SimpleEnvironment<Value>>::new(
             2236,
             parse_query("test").unwrap().into(),
+            None,
             env.to_ref(),
         )
         .to_ref();
@@ -6534,6 +6914,7 @@ mod tests {
         let asset = AssetData::<SimpleEnvironment<Value>>::new(
             2237,
             parse_query("test").unwrap().into(),
+            None,
             env.to_ref(),
         )
         .to_ref();
@@ -6561,10 +6942,10 @@ mod tests {
         let parent_key = parse_key("parent.txt").unwrap();
         let dep_key = parse_key("dep.txt").unwrap();
         let parent =
-            AssetData::<SimpleEnvironment<Value>>::new(2238, parent_key.into(), envref.clone())
+            AssetData::<SimpleEnvironment<Value>>::new(2238, parent_key.clone().into(), Some(parent_key.clone()), envref.clone())
                 .to_ref();
         let dependency =
-            AssetData::<SimpleEnvironment<Value>>::new(2239, dep_key.clone().into(), envref)
+            AssetData::<SimpleEnvironment<Value>>::new(2239, dep_key.clone().into(), Some(dep_key.clone()), envref)
                 .to_ref();
         let dependency_record_key = DependencyKey::from(&dep_key);
 
@@ -6602,10 +6983,10 @@ mod tests {
         let envref = env.to_ref();
         let key = parse_key("shared.txt").unwrap();
         let delegating =
-            AssetData::<SimpleEnvironment<Value>>::new(2240, key.clone().into(), envref.clone())
+            AssetData::<SimpleEnvironment<Value>>::new(2240, key.clone().into(), Some(key.clone()), envref.clone())
                 .to_ref();
         let owner =
-            AssetData::<SimpleEnvironment<Value>>::new(2241, key.clone().into(), envref.clone())
+            AssetData::<SimpleEnvironment<Value>>::new(2241, key.clone().into(), Some(key.clone()), envref.clone())
                 .to_ref();
 
         delegating.record_dependency_on_asset(&owner).await.unwrap();
@@ -6646,10 +7027,10 @@ mod tests {
         let alias_target = parse_key("source/data.txt").unwrap();
 
         let delegating =
-            AssetData::<SimpleEnvironment<Value>>::new(2244, key.clone().into(), envref.clone())
+            AssetData::<SimpleEnvironment<Value>>::new(2244, key.clone().into(), Some(key.clone()), envref.clone())
                 .to_ref();
         let owner =
-            AssetData::<SimpleEnvironment<Value>>::new(2245, key.clone().into(), envref.clone())
+            AssetData::<SimpleEnvironment<Value>>::new(2245, key.clone().into(), Some(key.clone()), envref.clone())
                 .to_ref();
 
         // What provider resolution does to the owner: the recipe is replaced, the `query` it was
@@ -6682,10 +7063,10 @@ mod tests {
         let parent_key = parse_key("parent.txt").unwrap();
         let dep_key = parse_key("dep.txt").unwrap();
         let parent =
-            AssetData::<SimpleEnvironment<Value>>::new(2242, parent_key.into(), envref.clone())
+            AssetData::<SimpleEnvironment<Value>>::new(2242, parent_key.clone().into(), Some(parent_key.clone()), envref.clone())
                 .to_ref();
         let dependency =
-            AssetData::<SimpleEnvironment<Value>>::new(2243, dep_key.clone().into(), envref)
+            AssetData::<SimpleEnvironment<Value>>::new(2243, dep_key.clone().into(), Some(dep_key.clone()), envref)
                 .to_ref();
 
         parent
@@ -6710,7 +7091,7 @@ mod tests {
 
         let envref = env.to_ref();
         let asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(2235, query.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(2235, query.into(), None, envref.clone());
         let assetref = asset_data.to_ref();
         {
             let mut lock = assetref.data.write().await;
@@ -6718,7 +7099,7 @@ mod tests {
             lock.metadata.set_status(Status::Dependencies).unwrap();
         }
 
-        assetref.run_immediately(None).await.unwrap();
+        assetref.run(None).await.unwrap();
         assert_eq!(assetref.status().await, Status::Ready);
     }
 
@@ -6733,10 +7114,10 @@ mod tests {
 
         let envref = env.to_ref();
         let asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(4321, query.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(4321, query.into(), None, envref.clone());
         let assetref = asset_data.to_ref();
 
-        assetref.run().await.unwrap();
+        assetref.run(None).await.unwrap();
 
         let metadata_before = assetref.get_metadata().await.unwrap();
         assert!(metadata_before.primary_progress().is_off());
@@ -6769,7 +7150,7 @@ mod tests {
         let envref = env.to_ref();
 
         let asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), None, envref.clone());
 
         let assetref = asset_data.to_ref();
         assert!(assetref.poll_state().await.is_none());
@@ -6779,7 +7160,7 @@ mod tests {
             async move { assetref.get().await }
         });
         eprintln!("Waiting for asset to run");
-        assetref.run().await.unwrap();
+        assetref.run(None).await.unwrap();
         eprintln!("run completed");
 
         let result = handle.await.unwrap().unwrap().try_into_string().unwrap();
@@ -6808,13 +7189,19 @@ mod tests {
 
         let envref = env.to_ref();
 
-        let mut asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(1234, recipe, envref.clone());
+        // Keyed: in production an asset for this recipe is created by `get_resource_asset(key)`,
+        // which records the key. Only a keyed asset is written to the store.
+        let mut asset_data = AssetData::<SimpleEnvironment<Value>>::new(
+            1234,
+            recipe,
+            Some(store_key.clone()),
+            envref.clone(),
+        );
         asset_data.save_in_background = false; // Save synchronously for the test
 
         let assetref = asset_data.to_ref();
 
-        assetref.run().await.unwrap();
+        assetref.run(None).await.unwrap();
 
         let result = assetref.get().await.unwrap().try_into_string().unwrap();
         assert_eq!(result, "Hello, world!");
@@ -6869,7 +7256,7 @@ mod tests {
         let envref = env.to_ref();
         let assetref = envref
             .get_asset_manager()
-            .apply(query.into(), State::new().with_data("WORLD".into()))
+            .apply(query.into(), State::new().with_data("WORLD".into()), None)
             .await
             .unwrap();
 
@@ -6883,6 +7270,9 @@ mod tests {
     }
 
     #[tokio::test]
+    // Exercises the deprecated forwarding shim on purpose: `apply_immediately` must keep working
+    // for an out-of-tree implementor until it is removed.
+    #[allow(deprecated)]
     async fn test_apply_immediately() {
         let query = parse_query("test").unwrap();
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
@@ -6980,6 +7370,8 @@ recipes:
     }
 
     #[tokio::test]
+    // As above: the deprecated shim must still carry a payload.
+    #[allow(deprecated)]
     async fn test_apply_immediately_with_payload() {
         let query = parse_query("test").unwrap();
         let mut env: SimpleEnvironmentWithPayload<Value, String> =
@@ -7068,7 +7460,7 @@ recipes:
         let envref = env.to_ref();
         let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(4));
         let asset =
-            AssetData::<SimpleEnvironment<Value>>::new(1, query.into(), envref.clone()).to_ref();
+            AssetData::<SimpleEnvironment<Value>>::new(1, query.into(), None, envref.clone()).to_ref();
         asset.set_status(Status::Submitted).await.unwrap();
 
         let (a, b) = tokio::join!(
@@ -7095,7 +7487,7 @@ recipes:
         let envref = env.to_ref();
         let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(4));
         let asset =
-            AssetData::<SimpleEnvironment<Value>>::new(2, query.into(), envref.clone()).to_ref();
+            AssetData::<SimpleEnvironment<Value>>::new(2, query.into(), None, envref.clone()).to_ref();
 
         asset.set_status(Status::Ready).await.unwrap();
         assert!(asset.try_claim_for_run(&queue).await.unwrap().is_none());
@@ -7110,7 +7502,7 @@ recipes:
         let envref = env.to_ref();
         let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(4));
         let asset =
-            AssetData::<SimpleEnvironment<Value>>::new(3, query.into(), envref.clone()).to_ref();
+            AssetData::<SimpleEnvironment<Value>>::new(3, query.into(), None, envref.clone()).to_ref();
         asset.set_status(Status::Submitted).await.unwrap();
 
         let claim = asset
@@ -7133,7 +7525,7 @@ recipes:
         // Capacity 0 so the repair's submit re-parks as Submitted without spawning run().
         let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(0));
         let asset =
-            AssetData::<SimpleEnvironment<Value>>::new(4, query.into(), envref.clone()).to_ref();
+            AssetData::<SimpleEnvironment<Value>>::new(4, query.into(), None, envref.clone()).to_ref();
         asset.set_status(Status::Submitted).await.unwrap();
 
         {
@@ -7171,7 +7563,7 @@ recipes:
         let envref = env.to_ref();
         let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(4));
         let asset =
-            AssetData::<SimpleEnvironment<Value>>::new(30, query.into(), envref.clone()).to_ref();
+            AssetData::<SimpleEnvironment<Value>>::new(30, query.into(), None, envref.clone()).to_ref();
         asset.set_status(Status::Dependencies).await.unwrap();
         assert!(
             asset.try_claim_for_run(&queue).await.unwrap().is_none(),
@@ -7190,7 +7582,7 @@ recipes:
         // Capacity 0 so the repair's submit re-parks as Submitted without spawning run().
         let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(0));
         let asset =
-            AssetData::<SimpleEnvironment<Value>>::new(31, query.into(), envref.clone()).to_ref();
+            AssetData::<SimpleEnvironment<Value>>::new(31, query.into(), None, envref.clone()).to_ref();
         asset.set_status(Status::Submitted).await.unwrap();
 
         {
@@ -7219,6 +7611,95 @@ recipes:
         );
     }
 
+    /// The inline claim's repair must cover `Dependencies` exactly as the queued one does.
+    ///
+    /// An inline runner parks its asset in `Dependencies` while awaiting a child (the default
+    /// `wait_for_dependency` does this on every manager, queue or no queue). If that future is
+    /// then dropped, the status is left behind by a runner that no longer exists — and
+    /// `try_claim_for_run_inline` treats `Dependencies` as active, so no later caller can ever
+    /// claim it: it waits for a completion that nothing will produce. (PR #61 review, comment 2;
+    /// the queued `RunClaim` was given the same repair by PR #6 review, comment 1.)
+    #[tokio::test]
+    async fn test_inline_runclaim_drop_repairs_from_dependencies() {
+        let query = parse_query("test").unwrap();
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(32, query.into(), None, envref.clone())
+                .to_ref();
+        asset.set_status(Status::Recipe).await.unwrap();
+
+        {
+            let _claim = asset
+                .try_claim_for_run_inline()
+                .await
+                .unwrap()
+                .expect("should claim");
+            // The runner parks on a child dependency, then vanishes.
+            asset.set_status(Status::Dependencies).await.unwrap();
+        }
+
+        // Synchronous repair: the inline guard has no queue to spawn onto, so `Drop` has
+        // already run by the time the block ends.
+        assert_eq!(
+            asset.status().await,
+            Status::Recipe,
+            "a Dependencies-parked asset whose inline runner was dropped must be re-parked"
+        );
+        assert!(
+            asset
+                .try_claim_for_run_inline()
+                .await
+                .unwrap()
+                .is_some(),
+            "and it must be claimable again, or nothing can ever run it"
+        );
+    }
+
+    /// The same for the ordinary case: dropped while `Processing`, with no child involved.
+    #[tokio::test]
+    async fn test_inline_runclaim_drop_repairs_from_processing() {
+        let query = parse_query("test").unwrap();
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(33, query.into(), None, envref.clone())
+                .to_ref();
+        asset.set_status(Status::Recipe).await.unwrap();
+
+        {
+            let _claim = asset
+                .try_claim_for_run_inline()
+                .await
+                .unwrap()
+                .expect("should claim");
+            assert_eq!(asset.status().await, Status::Processing);
+        }
+
+        assert_eq!(asset.status().await, Status::Recipe);
+    }
+
+    /// `complete()` disarms: a finished run's status is authoritative and must survive the drop.
+    #[tokio::test]
+    async fn test_inline_runclaim_complete_does_not_repair() {
+        let query = parse_query("test").unwrap();
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(34, query.into(), None, envref.clone())
+                .to_ref();
+        asset.set_status(Status::Recipe).await.unwrap();
+
+        let claim = asset
+            .try_claim_for_run_inline()
+            .await
+            .unwrap()
+            .expect("should claim");
+        claim.complete();
+        assert_eq!(asset.status().await, Status::Processing);
+    }
+
+
     /// An asset that consumed a retained dependency which expired mid-execution must complete
     /// through the production dependency wait path and be labeled `Expired` (staleness
     /// propagation): the produced value is kept but the asset is recomputed on next access.
@@ -7233,10 +7714,11 @@ recipes:
         let envref = env.to_ref();
 
         let asset =
-            AssetData::<SimpleEnvironment<Value>>::new(32, query.into(), envref.clone()).to_ref();
+            AssetData::<SimpleEnvironment<Value>>::new(32, query.into(), None, envref.clone()).to_ref();
         let dep = AssetData::<SimpleEnvironment<Value>>::new(
             33,
             parse_query("dep").unwrap().into(),
+            None,
             envref.clone(),
         )
         .to_ref();
@@ -7252,7 +7734,7 @@ recipes:
             .expect("a retained expired dependency should remain usable mid-evaluation");
         assert_eq!(stale_state.try_into_string().unwrap(), "stale dependency");
 
-        asset.run().await.unwrap();
+        asset.run(None).await.unwrap();
 
         assert_eq!(
             asset.status().await,
@@ -7279,12 +7761,14 @@ recipes:
         let parent = AssetData::<SimpleEnvironment<Value>>::new(
             34,
             parse_query("parent").unwrap().into(),
+            None,
             envref.clone(),
         )
         .to_ref();
         let dependency = AssetData::<SimpleEnvironment<Value>>::new(
             35,
             parse_query("dependency").unwrap().into(),
+            None,
             envref.clone(),
         )
         .to_ref();
@@ -7309,7 +7793,7 @@ recipes:
         let envref = env.to_ref();
         let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(0));
         let asset =
-            AssetData::<SimpleEnvironment<Value>>::new(20, query.into(), envref.clone()).to_ref();
+            AssetData::<SimpleEnvironment<Value>>::new(20, query.into(), None, envref.clone()).to_ref();
         asset.set_status(Status::Submitted).await.unwrap();
         assert!(!queue.try_to_start_immediately(&asset).await.unwrap());
         assert_eq!(queue.running_count(), 0);
@@ -7322,7 +7806,7 @@ recipes:
         let envref = env.to_ref();
         let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(4));
         let asset =
-            AssetData::<SimpleEnvironment<Value>>::new(21, query.into(), envref.clone()).to_ref();
+            AssetData::<SimpleEnvironment<Value>>::new(21, query.into(), None, envref.clone()).to_ref();
         asset.set_status(Status::Processing).await.unwrap();
         // Already Processing: no claim available -> true, and the reserved slot is released.
         assert!(queue.try_to_start_immediately(&asset).await.unwrap());
@@ -7336,7 +7820,7 @@ recipes:
         let envref = env.to_ref();
         let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(4));
         let mk = |id: u64| {
-            AssetData::<SimpleEnvironment<Value>>::new(id, query.clone().into(), envref.clone())
+            AssetData::<SimpleEnvironment<Value>>::new(id, query.clone().into(), None, envref.clone())
                 .to_ref()
         };
         let d1 = mk(11);
@@ -7389,7 +7873,7 @@ recipes:
 
         // Create one asset
         let asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), None, envref.clone());
         let assetref = asset_data.to_ref();
 
         // Submit the same asset twice
@@ -7422,7 +7906,7 @@ recipes:
         for i in 0..4 {
             let query = parse_query("slow").unwrap();
             let asset_data =
-                AssetData::<SimpleEnvironment<Value>>::new(i, query.into(), envref.clone());
+                AssetData::<SimpleEnvironment<Value>>::new(i, query.into(), None, envref.clone());
             let assetref = asset_data.to_ref();
             assets.push(assetref.clone());
             queue.submit(assetref).await.unwrap();
@@ -7475,7 +7959,7 @@ recipes:
 
         // Submit one asset
         let asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), None, envref.clone());
         let assetref = asset_data.to_ref();
         queue.submit(assetref.clone()).await.unwrap();
 
@@ -7508,7 +7992,7 @@ recipes:
         for i in 0..3 {
             let query = parse_query("quick").unwrap();
             let asset_data =
-                AssetData::<SimpleEnvironment<Value>>::new(i, query.into(), envref.clone());
+                AssetData::<SimpleEnvironment<Value>>::new(i, query.into(), None, envref.clone());
             let assetref = asset_data.to_ref();
             queue.submit(assetref).await.unwrap();
         }
@@ -7552,7 +8036,7 @@ recipes:
         // Submit one asset
         let query = parse_query("medium").unwrap();
         let asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), None, envref.clone());
         let assetref = asset_data.to_ref();
 
         // Check running count immediately after submit
@@ -7891,10 +8375,11 @@ recipes:
         let first = AssetRef::new_from_recipe(
             manager.next_id_for_asset(),
             key.clone().into(),
+            Some(key.clone()),
             envref.clone(),
         );
         let second =
-            AssetRef::new_from_recipe(manager.next_id_for_asset(), key.clone().into(), envref);
+            AssetRef::new_from_recipe(manager.next_id_for_asset(), key.clone().into(), Some(key.clone()), envref);
 
         assert!(manager.try_insert_key_asset(&key, first.clone()).await);
         assert!(!manager.try_insert_key_asset(&key, second).await);
@@ -7912,10 +8397,11 @@ recipes:
         let first = AssetRef::new_from_recipe(
             manager.next_id_for_asset(),
             key.clone().into(),
+            Some(key.clone()),
             envref.clone(),
         );
         let second =
-            AssetRef::new_from_recipe(manager.next_id_for_asset(), key.clone().into(), envref);
+            AssetRef::new_from_recipe(manager.next_id_for_asset(), key.clone().into(), Some(key.clone()), envref);
 
         assert!(manager.try_insert_key_asset(&key, first.clone()).await);
         assert!(!manager.try_insert_key_asset(&key, second).await);
@@ -8089,13 +8575,19 @@ recipes:
         let query = parse_query("test/out.txt").unwrap();
         let mut recipe: Recipe = query.into();
         recipe.cwd = Some("a/b".to_string());
+        let store_key = recipe.store_to_key().unwrap().unwrap();
 
-        let mut asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(9001, recipe, envref.clone());
+        // Keyed, as the production construction for such a recipe would be.
+        let mut asset_data = AssetData::<SimpleEnvironment<Value>>::new(
+            9001,
+            recipe,
+            Some(store_key),
+            envref.clone(),
+        );
         asset_data.save_in_background = false;
         let assetref = asset_data.to_ref();
 
-        assetref.run().await.unwrap();
+        assetref.run(None).await.unwrap();
         let state = assetref.get().await.unwrap();
         assert_eq!(state.try_into_string().unwrap(), "Hello, world!");
         assert_eq!(
@@ -8119,8 +8611,15 @@ recipes:
         }
     }
 
+    /// A non-keyed asset does not attempt to persist, so it records no persistence failure.
+    ///
+    /// This replaces `test_evaluate_missing_store_key_sets_warning_and_returns_value`, which
+    /// asserted the opposite: that such an asset tried to write, failed with "Cannot determine
+    /// key to store asset", and warned. Only a keyed asset has a place in the store, so there is
+    /// nothing to attempt and nothing to warn about — a warning on every query evaluation was
+    /// noise reporting a non-problem.
     #[tokio::test]
-    async fn test_evaluate_missing_store_key_sets_warning_and_returns_value() {
+    async fn evaluate_non_keyed_asset_does_not_attempt_persistence() {
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         let key = CommandKey::new_name("test");
         env.command_registry
@@ -8130,29 +8629,26 @@ recipes:
         let envref = env.to_ref();
         let query = parse_query("test").unwrap();
         let mut asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(9002, query.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(9002, query.into(), None, envref.clone());
         asset_data.save_in_background = false;
         let assetref = asset_data.to_ref();
 
-        assetref.run().await.unwrap();
+        assetref.run(None).await.unwrap();
         let state = assetref.get().await.unwrap();
         assert_eq!(state.try_into_string().unwrap(), "Hello, world!");
-        assert_eq!(
-            assetref.persistence_status().await,
-            PersistenceStatus::NotPersisted
-        );
+        assert_eq!(assetref.key().await, None, "a query asset is not keyed");
 
         let metadata = assetref.get_metadata().await.unwrap();
         if let Metadata::MetadataRecord(meta) = metadata {
-            let warning = meta.log.iter().find(|entry| {
-                entry.message.contains("Persistence status NotPersisted")
-                    && entry
-                        .message
-                        .contains("Cannot determine key to store asset")
-            });
+            let attempted = meta
+                .log
+                .iter()
+                .find(|entry| entry.message.contains("Cannot determine key to store asset"));
             assert!(
-                warning.is_some(),
-                "Expected warning for missing store key persistence failure"
+                attempted.is_none(),
+                "a non-keyed asset must not attempt a store write, so it must not warn \
+                 about failing one; got: {:?}",
+                attempted
             );
         } else {
             panic!("Expected MetadataRecord");
@@ -8170,8 +8666,12 @@ recipes:
         recipe.cwd = Some("persist".to_owned());
         let store_key = recipe.store_to_key().unwrap().unwrap();
 
-        let mut asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(9003, recipe, envref.clone());
+        let mut asset_data = AssetData::<SimpleEnvironment<Value>>::new(
+            9003,
+            recipe,
+            Some(store_key.clone()),
+            envref.clone(),
+        );
         asset_data.save_in_background = false;
         let assetref = asset_data.to_ref();
 
@@ -8222,7 +8722,7 @@ recipes:
         envref: EnvRef<SimpleEnvironment<Value>>,
     ) -> AssetData<SimpleEnvironment<Value>> {
         let key = parse_key("gate/subject.txt").expect("test key");
-        let mut d = AssetData::<SimpleEnvironment<Value>>::new(id, key.into(), envref);
+        let mut d = AssetData::<SimpleEnvironment<Value>>::new(id, key.clone().into(), Some(key.clone()), envref);
         d.binary = Some(Arc::new(b"bytes that must not escape".to_vec()));
         if with_value {
             d.data = Some(Arc::new(Value::from("v")));
@@ -8404,7 +8904,7 @@ recipes:
     ) -> Result<(), Box<dyn std::error::Error>> {
         let envref = test_envref();
         let key = parse_key("gate/retained_no_bytes.txt")?;
-        let mut d = AssetData::<SimpleEnvironment<Value>>::new(9300, key.into(), envref);
+        let mut d = AssetData::<SimpleEnvironment<Value>>::new(9300, key.clone().into(), Some(key.clone()), envref);
         d.data = Some(Arc::new(Value::from("recoverable")));
         d.binary = None; // never serialized — the common case
         d.status = Status::Expired;
@@ -8495,7 +8995,8 @@ recipes:
             let key = parse_key("gate/no_binary_form.txt")?;
             let mut d = AssetData::<SimpleEnvironment<Value>>::new(
                 9340 + i as u64,
-                key.into(),
+                key.clone().into(),
+                Some(key.clone()),
                 envref.clone(),
             );
             d.data = Some(Arc::new(Value::from("not serializable via this path")));
@@ -8519,7 +9020,7 @@ recipes:
     ) -> Result<(), Box<dyn std::error::Error>> {
         let envref = test_envref();
         let key = parse_key("gate/value_no_bytes.txt")?;
-        let mut d = AssetData::<SimpleEnvironment<Value>>::new(9320, key.into(), envref);
+        let mut d = AssetData::<SimpleEnvironment<Value>>::new(9320, key.clone().into(), Some(key.clone()), envref);
         d.data = Some(Arc::new(Value::from("serialize me")));
         d.binary = None;
         d.status = Status::Ready;
@@ -8545,7 +9046,7 @@ recipes:
         let store = envref.get_async_store();
 
         let mut d =
-            AssetData::<SimpleEnvironment<Value>>::new(9330, key.clone().into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(9330, key.clone().into(), Some(key.clone()), envref.clone());
         d.binary = Some(Arc::new(b"persist me anyway".to_vec()));
         d.status = Status::Storing; // Pending exposure: hidden from every normal read
         let assetref = d.to_ref();
@@ -8580,7 +9081,7 @@ recipes:
         let envref = ImmediateEnvironment::<Value>::new().to_ref();
         let original = parse_key("bound/original.txt").expect("original key");
         let replacement = parse_key("provider/replacement.txt").expect("replacement key");
-        let asset = AssetRef::new_from_recipe(1, original.clone().into(), envref);
+        let asset = AssetRef::new_from_recipe(1, original.clone().into(), Some(original.clone()), envref);
 
         {
             let mut data = asset.data.write().await;
@@ -8630,6 +9131,7 @@ recipes:
         let asset = AssetRef::new_from_recipe(
             manager.next_id_for_asset(),
             key.clone().into(),
+            Some(key.clone()),
             envref.clone(),
         );
         {
@@ -9016,6 +9518,7 @@ recipes:
         let first = AssetRef::new_from_recipe(
             manager.next_id_for_asset(),
             key.clone().into(),
+            Some(key.clone()),
             envref.clone(),
         );
         assert!(manager.try_insert_key_asset(&key, first.clone()).await);
@@ -9023,6 +9526,7 @@ recipes:
         let second = AssetRef::new_from_recipe(
             manager.next_id_for_asset(),
             key.clone().into(),
+            Some(key.clone()),
             envref.clone(),
         );
         // Remove first so the second insert represents a genuine replacement rather than a

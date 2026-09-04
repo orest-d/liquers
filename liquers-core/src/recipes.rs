@@ -524,6 +524,15 @@ pub trait AsyncRecipeProvider<E: Environment>:
         match create_plan_with_init_metadata(&recipe, envref, Some(key)).await {
             Ok(plan) => {
                 asset_info.is_volatile = plan.is_volatile;
+                // Currently always `None`, and deliberately kept: both callers of
+                // `create_plan_with_init_metadata` pass `Some(key)`, so the plan is built with
+                // `to_plan_for_key`, which rejects a recipe requiring a payload — keys are a
+                // payload boundary. A payload-requiring recipe therefore takes the `Err` arm
+                // below and is reported as an error, never reaching this projection. The line
+                // stays so the three plan-derived fields are projected consistently and so this
+                // stays correct if the boundary rule ever changes; do not write a test expecting
+                // a non-`None` value here.
+                asset_info.payload_required = plan.payload_required;
                 asset_info.expires = plan.expires;
                 if let Some(error) = plan.error {
                     asset_info.is_error = true;

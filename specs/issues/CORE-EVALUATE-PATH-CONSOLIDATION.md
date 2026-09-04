@@ -2,14 +2,29 @@
 id: CORE-EVALUATE-PATH-CONSOLIDATION
 kind: issue
 title: Several evaluation paths duplicate each other
-status: accepted
+status: closed
 priority: P1
 complexity: L
 area: [core/assets, core/plan]
-design: 
+design: evaluate-path-consolidation
 created: 2026-08-08
 github:
 ---
+
+## Resolution
+
+Closed 2026-09-04 by `design/evaluate-path-consolidation/`. `AssetRef` now has one private
+`evaluate(payload)` reached by two run harnesses (spawning and spawn-free — a platform split, not
+duplication) behind four manager entry-point implementations, down from two bodies, four run entry
+points and six implementations. Dependency recording is unconditional in that body, so it no longer
+depends on which entry point was used.
+
+The work also unified a second duplication it uncovered: the store **write** target and the
+**invalidation** target were independent derivations with opposite precedence, disagreeing for
+volatile keyed assets, so an asset could be written under a key it could never invalidate. Both now
+read the key recorded on the asset at construction.
+
+See `phase5-documentation.md` for what was omitted and the six issues filed.
 ## Problem
 
 Evaluation happens through more than one route — the asset lifecycle, the immediate path, and

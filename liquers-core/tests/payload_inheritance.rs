@@ -685,3 +685,274 @@ async fn test_sibling_payload_evaluations_are_not_a_cycle() -> Result<(), Box<dy
     assert_eq!(asset.get().await?.try_into_string()?, "a=w5 b=w5");
     Ok(())
 }
+
+// ============================================================================
+// Payload requirement recorded on the evaluated asset
+// (ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED, evaluate-path-consolidation Step 1)
+// ============================================================================
+
+/// The plan has known its payload requirement since `PlanBuilder` ran, but until this change
+/// nothing carried it to the asset: every evaluated asset reported `None`, including one that
+/// could not have run without a payload.
+#[tokio::test]
+async fn payload_requirement_is_recorded_in_metadata_and_asset_info(
+) -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = QueuedEnv;
+    let mut env = QueuedEnv::new();
+
+    fn needs_payload(_state: &State<Value>, window_id: WindowId) -> Result<Value, Error> {
+        Ok(Value::from(format!("window:{}", window_id.0)))
+    }
+
+    let cr = &mut env.command_registry;
+    register_command!(cr, fn needs_payload(state, window_id: WindowId injected) -> result
+        payload: required
+    )?;
+
+    let envref = env.to_ref();
+    let asset = envref
+        .evaluate_immediately("/-/needs_payload", TestPayload::new("alice", 42))
+        .await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "window:42");
+
+    assert_eq!(
+        asset.payload_required().await,
+        PayloadRequirement::Required,
+        "an asset whose plan declared `payload: required` must record it"
+    );
+    assert_eq!(
+        asset.get_asset_info().await?.payload_required,
+        PayloadRequirement::Required,
+        "the requirement must reach AssetInfo, which is what a client sees"
+    );
+    Ok(())
+}
+
+/// Reproducibility follows the *requirement*, not the presence of a payload. A plain query
+/// evaluated through `evaluate_immediately` has a payload in scope that no command consumes; it
+/// must still report `None`, or every payload-carrying evaluation would look non-reproducible.
+#[tokio::test]
+async fn payload_supplied_but_not_required_records_none() -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = QueuedEnv;
+    let mut env = QueuedEnv::new();
+
+    fn plain(_state: &State<Value>) -> Result<Value, Error> {
+        Ok(Value::from("no payload needed".to_string()))
+    }
+
+    let cr = &mut env.command_registry;
+    register_command!(cr, fn plain(state) -> result)?;
+
+    let envref = env.to_ref();
+    let asset = envref
+        .evaluate_immediately("/-/plain", TestPayload::new("bob", 7))
+        .await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "no payload needed");
+
+    assert_eq!(
+        asset.payload_required().await,
+        PayloadRequirement::None,
+        "a plan that needs no payload records None even when a payload was supplied"
+    );
+    assert_eq!(
+        asset.get_asset_info().await?.payload_required,
+        PayloadRequirement::None
+    );
+    Ok(())
+}
+
+/// Keys are a payload boundary, and the boundary is now named rather than merely unreachable.
+///
+/// Resolving a key on the payload path would hand back the map-registered asset and run it with a
+/// payload, leaving a payload-evaluated value in the key map for the next caller — who would
+/// receive it without supplying one. Unreachable at HEAD, because a pure key query reports
+/// `PayloadRequirement::None`, so the branch was dead code that silently contradicted the
+/// invariant. It now returns an error that says why.
+#[tokio::test]
+async fn keyed_query_cannot_be_evaluated_with_a_payload() -> Result<(), Box<dyn std::error::Error>>
+{
+    use liquers_core::assets::AssetManager;
+
+    type CommandEnvironment = QueuedEnv;
+    let mut env = QueuedEnv::new();
+
+    fn plain(_state: &State<Value>) -> Result<Value, Error> {
+        Ok(Value::from("v".to_string()))
+    }
+    let cr = &mut env.command_registry;
+    register_command!(cr, fn plain(state) -> result)?;
+
+    let envref = env.to_ref();
+    let manager = envref.get_asset_manager();
+    let parent = manager
+        .apply(Recipe::from(parse_query("plain")?), State::new(), None)
+        .await?;
+
+    let key_query = parse_query("-R/some/resource.txt")?;
+    let err = match manager
+        .get_dependency_asset_with_payload(
+            &parent,
+            &key_query,
+            Some(TestPayload::new("carol", 3)),
+            Vec::new(),
+        )
+        .await
+    {
+        Ok(_) => panic!("a keyed query must not be evaluated with a payload"),
+        Err(e) => e,
+    };
+
+    assert!(
+        err.to_string().contains("payload does not cross a key boundary"),
+        "expected the boundary to be named, got: {err}"
+    );
+    Ok(())
+}
+
+/// Only `evaluate(None)` produces an asset the manager may hand out again. An asset evaluated
+/// with a payload is in no map, so a second request cannot receive it.
+///
+/// Asserted against the maps rather than inferred from the volatility flag: the invariant is a
+/// property of the payload, and the chain that currently guarantees it (payload implies volatile
+/// implies unmapped) would break silently if a command were registered `payload: required`
+/// without `volatile`.
+#[tokio::test]
+async fn payload_evaluated_asset_is_in_no_map() -> Result<(), Box<dyn std::error::Error>> {
+    use liquers_core::assets::AssetManager;
+
+    type CommandEnvironment = QueuedEnv;
+    let mut env = QueuedEnv::new();
+
+    fn needs_payload(_state: &State<Value>, window_id: WindowId) -> Result<Value, Error> {
+        Ok(Value::from(format!("window:{}", window_id.0)))
+    }
+    let cr = &mut env.command_registry;
+    register_command!(cr, fn needs_payload(state, window_id: WindowId injected) -> result
+        payload: required
+    )?;
+
+    let envref = env.to_ref();
+    let query = parse_query("needs_payload")?;
+    let asset = envref
+        .evaluate_immediately("/-/needs_payload", TestPayload::new("dave", 9))
+        .await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "window:9");
+
+    let manager = envref.get_asset_manager();
+    let first_id = asset.id();
+
+    // Not in the key map — asserted directly.
+    assert!(
+        manager.lookup_key_asset(&parse_key("needs_payload")?).is_none(),
+        "a payload-evaluated asset must not be reachable through the key map"
+    );
+
+    // Not reusable through the query map either — asserted by its observable consequence, since
+    // there is no public query-map accessor to read: a second request must not be handed the
+    // payload-evaluated asset. It gets a fresh one, which then fails for want of a payload.
+    let second = envref.evaluate(&query).await?;
+    assert_ne!(
+        second.id(),
+        first_id,
+        "a payload-evaluated asset must never be handed out again"
+    );
+    assert!(
+        second.get().await.and_then(|s| s.value_state()).is_err(),
+        "the fresh asset requires a payload and must fail without one"
+    );
+    Ok(())
+}
+
+/// The rejected case must record the requirement too — recording sits *before* the gate.
+///
+/// The asset a client is handed when a payload-required query is evaluated without one is
+/// precisely the asset whose metadata most needs to say that a payload is what it wants: a UI
+/// reading `AssetInfo` to decide whether to prompt sees the error and the reason together.
+/// Recording after the gate left this asset reporting `None`, i.e. "reproducible, needs
+/// nothing" — the opposite of why it failed. (PR #61 review, comment 1.)
+#[tokio::test]
+async fn payload_requirement_is_recorded_even_when_the_payload_is_missing(
+) -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = QueuedEnv;
+    let mut env = QueuedEnv::new();
+
+    // Tolerant of a missing payload, so only the gate stops it — the command itself would run.
+    fn tolerant(_s: &State<Value>, context: Context<QueuedEnv>) -> Result<Value, Error> {
+        match context.get_payload_clone() {
+            Some(p) => Ok(Value::from(format!("payload:{}", p.window_id))),
+            None => Ok(Value::from("RAN_WITHOUT_PAYLOAD")),
+        }
+    }
+
+    let cr = &mut env.command_registry;
+    register_command!(cr, fn tolerant(state, context) -> result payload: required)?;
+
+    let envref = env.to_ref();
+    let asset = envref.evaluate("/-/tolerant").await?;
+    let state = asset.get().await?;
+    assert!(
+        state.value_state().is_err(),
+        "the evaluation must be rejected for want of a payload"
+    );
+
+    assert_eq!(
+        asset.payload_required().await,
+        PayloadRequirement::Required,
+        "the requirement is known from the plan and must be recorded before the gate rejects"
+    );
+    assert_eq!(
+        asset.get_asset_info().await?.payload_required,
+        PayloadRequirement::Required,
+        "AssetInfo is what a client reads to learn why the evaluation was refused"
+    );
+    Ok(())
+}
+
+
+/// A payload requirement does **not** imply volatility, and the metadata docs now say so.
+///
+/// `MetadataRecord::payload_required` claimed the opposite until 2026-09-04 — that the
+/// operational consequence was "already carried by `is_volatile`, which a payload requirement
+/// always implies". The planner marks the two independently (`mark_payload_required` does not
+/// touch `is_volatile`), so a payload-requiring evaluation finishes `Ready` with `is_volatile`
+/// false. What actually keeps such a result from being reused is construction: the asset is ad
+/// hoc, not keyed, and in no map. This pins the fact so the corrected documentation stays true.
+#[tokio::test]
+async fn payload_requirement_does_not_imply_volatility() -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = QueuedEnv;
+    let mut env = QueuedEnv::new();
+
+    fn needs_payload(_state: &State<Value>, window_id: WindowId) -> Result<Value, Error> {
+        Ok(Value::from(format!("window:{}", window_id.0)))
+    }
+
+    let cr = &mut env.command_registry;
+    register_command!(cr, fn needs_payload(state, window_id: WindowId injected) -> result
+        payload: required
+    )?;
+
+    let envref = env.to_ref();
+    let asset = envref
+        .evaluate_immediately("/-/needs_payload", TestPayload::new("erin", 3))
+        .await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "window:3");
+
+    let info = asset.get_asset_info().await?;
+    assert_eq!(info.payload_required, PayloadRequirement::Required);
+    assert!(
+        !info.is_volatile,
+        "a payload requirement is not volatility: the two are marked independently"
+    );
+    assert_eq!(
+        info.status,
+        liquers_core::metadata::Status::Ready,
+        "and it finishes Ready, not Volatile"
+    );
+
+    // The asset is nonetheless unreusable — by construction, not by a flag.
+    assert!(
+        asset.key().await.is_none(),
+        "a payload-evaluated asset is not keyed, so it is never stored"
+    );
+    Ok(())
+}

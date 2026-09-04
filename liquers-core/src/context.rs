@@ -386,7 +386,7 @@ impl<E: Environment> EnvRef<E> {
             let asset_manager = envref.get_asset_manager();
             let query = rquery?;
             asset_manager
-                .apply_immediately(query.into(), State::new(), Some(payload))
+                .apply(query.into(), State::new(), Some(payload))
                 .await
         }
         .maybe_boxed()
@@ -675,8 +675,10 @@ impl<E: Environment> Context<E> {
 
     /// Schedules a dependency, records it, and waits for its state.
     ///
-    /// If the nested query requires a payload, this context's payload is inherited; see
-    /// [`Self::schedule_dependency_asset`].
+    /// If the nested query requires a payload, this context's payload is inherited, and the
+    /// nested asset is evaluated inline rather than queued — a payload-evaluated asset enters no
+    /// map and is never reused, so there is nothing to schedule it for. The dependency edge is
+    /// recorded either way.
     pub async fn get_dependency_state(&self, query: &Query) -> Result<State<E::Value>, Error> {
         let asset = self.schedule_dependency_asset(query).await?;
         self.wait_for_dependency(&asset).await
@@ -696,33 +698,23 @@ impl<E: Environment> Context<E> {
 
     /// Applies a query to a supplied state as an ad-hoc asset.
     ///
-    /// This does not record the result as a dependency. If the query requires a payload,
-    /// this context's payload is inherited and the application is evaluated immediately via
-    /// [`AssetManager::apply_immediately`]; otherwise it delegates to
-    /// [`AssetManager::apply`] as before.
+    /// The result is not recorded as a dependency, and cannot be: an ad-hoc asset is not
+    /// reproducible from its identity — its value depends on the supplied state — so nothing may
+    /// hold a reference *to* it. This is the same rule that excludes payload-evaluated assets,
+    /// not a special case for `apply`.
+    ///
+    /// This context's payload is inherited unconditionally. Whether a payload is *required* is
+    /// settled by the authoritative gate in [`apply_plan`](crate::interpreter::apply_plan), which
+    /// every execution path passes through; the pre-check that used to live here duplicated that
+    /// gate and its error message.
     pub async fn apply(&self, query: &Query, to: State<E::Value>) -> Result<AssetRef<E>, Error> {
         Self::reject_relative_query(query)?;
         let query = self.resolve_query_from_cwd(query)?;
         let envref = self.assetref.get_envref().await;
-        let requirement = {
-            use crate::interpreter::RequiresPayload;
-            query.requires_payload(envref.clone()).await?
-        };
-        if requirement.is_required() {
-            if self.payload.is_none() {
-                return Err(Error::general_error(format!(
-                    "Query '{}' requires an evaluation payload, but the evaluation was \
-                     started without one.",
-                    query.encode()
-                ))
-                .with_query(&query));
-            }
-            return envref
-                .get_asset_manager()
-                .apply_immediately((&query).into(), to, self.payload.clone())
-                .await;
-        }
-        envref.get_asset_manager().apply((&query).into(), to).await
+        envref
+            .get_asset_manager()
+            .apply((&query).into(), to, self.payload.clone())
+            .await
     }
 
     /// Returns the current asset's structured metadata record.
@@ -987,6 +979,22 @@ impl<E: Environment> Context<E> {
             lock.metadata.expiration_time()
         };
         self.assetref.set_expiration_time(expiration_time).await;
+        Ok(())
+    }
+
+    /// Records that this evaluation's plan required an evaluation payload.
+    ///
+    /// Called by [`apply_plan`](crate::interpreter::apply_plan), beside the gate that already
+    /// reads `Plan::payload_required`, so every execution path records it once rather than each
+    /// entry point re-deriving the requirement. The fact reaches
+    /// [`MetadataRecord::payload_required`](crate::metadata::MetadataRecord::payload_required)
+    /// and from there `AssetInfo`.
+    ///
+    /// Note this records the plan's *requirement*, not whether a payload happened to be supplied:
+    /// a plan that needs no payload stays `None` even when one was in scope.
+    pub async fn set_payload_required(&self) -> Result<(), Error> {
+        let mut lock = self.assetref.data.write().await;
+        lock.metadata.set_payload_required()?;
         Ok(())
     }
 
@@ -1520,6 +1528,7 @@ mod tests {
         let asset = AssetRef::new_from_recipe(
             manager.next_id_for_asset(),
             key.clone().into(),
+            Some(key.clone()),
             envref.clone(),
         );
         assert!(manager.try_insert_key_asset(&key, asset.clone()).await);
@@ -1566,6 +1575,7 @@ mod tests {
         let ad_hoc = AssetRef::new_from_recipe(
             envref.get_asset_manager().next_id_for_asset(),
             ad_hoc_recipe,
+            None,
             envref.clone(),
         );
         assert_eq!(
@@ -1582,6 +1592,7 @@ mod tests {
         let volatile = AssetRef::new_from_recipe(
             manager.next_id_for_asset(),
             volatile_key.clone().into(),
+            Some(volatile_key.clone()),
             envref.clone(),
         );
         volatile
@@ -1607,6 +1618,7 @@ mod tests {
         let asset = AssetRef::new_from_recipe(
             manager.next_id_for_asset(),
             key.clone().into(),
+            Some(key.clone()),
             envref.clone(),
         );
         assert!(manager.try_insert_key_asset(&key, asset.clone()).await);
