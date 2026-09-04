@@ -122,3 +122,17 @@ Two consequences for whoever takes the decision this issue is waiting on:
    this is a local-development problem, not a gap in the check `BUILD-MATRIX-NOT-RUN-IN-CI` was
    closed to provide, and the fix can be as small as documenting the required toolchain.
 
+## Confirmed on 2026-09-04 — CI is green with the same rows red locally
+
+The local-only claim above was, until now, an inference from the workflow's toolchain pin. It is now
+observed directly: on PR #61 (`design/evaluate-path-consolidation`, a `liquers-core` change) the
+three rows in the table were red on the local rustc 1.94.1 while the `build-matrix` job on the same
+head commit (`b32159d`) completed **success**, all configurations included. CI's `stable` toolchain
+compiles the egui stack, so the `liquers-lib --tests` rows pass there.
+
+Worth recording alongside it: the CI failures seen earlier on that PR were *not* this issue. They
+were a two-argument call to `AssetManager::apply` left in `liquers-lib/tests/polars_commands.rs`
+after a signature change — a real break, invisible locally precisely because the toolchain refusal
+stops the build before type checking. That is the concrete cost of this issue: **a contributor on
+1.94 has no local check that can catch a `liquers-lib` compile error at all**, so the first signal
+is CI. It strengthens the P2 → P1 reconsideration suggested above.
