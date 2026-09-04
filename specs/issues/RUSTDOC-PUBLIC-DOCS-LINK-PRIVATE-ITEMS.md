@@ -2,10 +2,11 @@
 id: RUSTDOC-PUBLIC-DOCS-LINK-PRIVATE-ITEMS
 kind: issue
 title: Public rustdoc in three modules links to private or absent items, so the links render as plain text
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/value, core/plan, core/store]
+design: documentation-currentness-small-fixes
 created: 2026-09-04
 github:
 ---
@@ -44,3 +45,9 @@ Found on 2026-09-04 while reviewing the asset API documentation. The two warning
 `context.rs` (`get_dependency_state` → `schedule_dependency_asset`) were fixed there, since those
 are the docs that review covered; these three are in modules it did not touch and are recorded
 rather than swept in.
+
+## Resolution
+
+Closed on 2026-09-04. The three inaccessible targets are now code prose rather than intra-doc
+links. `cargo doc -p liquers-core --no-deps` passed with both
+`rustdoc::broken_intra_doc_links` and `rustdoc::private_intra_doc_links` denied.

@@ -2,11 +2,11 @@
 id: DOCS-BUILD-MATRIX-CONFIGURATION-COUNT-STALE
 kind: issue
 title: CLAUDE.md states the build matrix has 11 configurations; it runs 20
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [docs, build]
-design:
+design: documentation-currentness-small-fixes
 created: 2026-09-03
 github:
 ---
@@ -59,3 +59,8 @@ again.
 Found on 2026-09-03 while writing the Phase 4 implementation plan for `SIDECAR-COLLIDING-KEYS`,
 which cites the matrix as its final validation step. Counting the arrays to check the plan's own
 wording did not reproduce the documented figure.
+
+## Resolution
+
+Closed on 2026-09-04. `CLAUDE.md` no longer duplicates a configuration count and directs readers
+to `check-build-matrix.sh`'s computed final total instead.
