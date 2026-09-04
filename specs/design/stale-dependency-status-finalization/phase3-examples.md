@@ -77,6 +77,7 @@ faithful stand-in for a restarted process, while the store contents survive.
 | U4 | Unit | `finalize_status_volatile_wins_over_stale_dependency` | Precedence, in the one combination that has two right-looking answers |
 | U5 | Unit | `finalize_status_without_data_is_error_regardless_of_flag` | The error arm is untouched by the new input |
 | U6 | Unit | `finish_run_fallback_finalizes_with_the_same_rule` | The `:2224` call site gained the rule, and did so deliberately |
+| U7 | Unit | `finalize_status_expiration_time_agrees_across_arms` | Phase 2 decision (d): the `Expired` arm mirrors the `Ready` arm's `expiration_time`, so the scheduling step behaves identically |
 | I1 | Integration | `scenario_cross_process_stale_dependency_recomputes` | Scenario 1, on both managers |
 | I2 | Integration | `scenario_keyed_stale_dependency_is_stored_expired` | The store entry says `Expired`, not the memory copy |
 | I3 | Integration | `scenario_non_keyed_stale_dependency_writes_nothing` | No write is attempted, so no spurious "cannot determine key" warning |
@@ -84,7 +85,7 @@ faithful stand-in for a restarted process, while the store contents survive.
 | I5 | Integration | `scenario_stale_dependency_never_observable_as_ready` | The `expired-binary-read-safety` position, now deterministic |
 | I6 | Integration | `scenario_stale_dependency_recovery_from_store` | `get_any_status` / `to_override` still recover the value once the store says `Expired` |
 | I7 | Integration | `scenario_volatile_keyed_stale_dependency_stays_volatile` | Volatile keyed assets keep being written, with `Volatile` |
-| — | Regression | `test_wait_for_retained_expired_dependency_labels_asset_expired_on_completion` | Must pass **unchanged**. It uses a non-keyed asset, so it should — and if it does not, the branch is wrong |
+| — | Regression | `test_wait_for_retained_expired_dependency_labels_asset_expired_on_completion` (`liquers-core/src/assets.rs:7707`) | Must pass **unchanged** — not adjusted to fit. It uses a non-keyed asset, so it should; if it does not, the branch is wrong, and editing the test to agree would hide that |
 
 ## Example 1: A restarted process must not serve the stale value
 
@@ -198,6 +199,23 @@ relocated.
 | P9 | **Dependency waits moved after finalization** | The flag is set after the decision reads it; the asset stays `Ready` | Restructuring `evaluate` so `apply_recipe` is not awaited to completion first | Keep `evaluate_recipe_outcome` fully awaited before finalization | I1/I5 fail — the parent is `Ready` where `Expired` is asserted |
 | P10 | **Volatility checked after the stale-dependency branch** | A volatile asset becomes `Expired`, losing its volatility in the stored metadata | Branch order reversed or wrongly nested | `if volatile … else if stale_dependency … else …` | U4, I7 |
 
+### Pitfall-to-test map
+
+Every row above is claimed by at least one test; no pitfall relies on inference.
+
+| Pitfall | Caught by |
+|---|---|
+| P1 status without `set_status` | U2 |
+| P2 warning after persistence | U3 (in memory at finalization), I2 (read back from the store) |
+| P3 fallback call site missed | Compile error, plus U6 |
+| P4 assuming a status gate on writes | I2 — and the assumption is already disproved above |
+| P5 `expiration_time` diverges | **U7** |
+| P6 cascade under the lock | I4, which fails by timing out rather than asserting |
+| P7 cascade for a non-keyed asset | I3 (non-keyed arm) and I4 (keyed arm), plus the existing regression test |
+| P8 routing through `expire()` | I2 — the stored status stays `Ready` and the test fails |
+| P9 waits moved after finalization | I1 and I5 |
+| P10 volatility checked second | U4, I7 |
+
 **One drafted pitfall was rejected.** A draft proposed guarding the ordering with
 `debug_assert!(!lock.stale_dependency)` inside `finalize_status`. That asserts the negation of the
 case the design exists to handle: it would fire on every stale-dependency evaluation in a debug
@@ -225,6 +243,7 @@ the value **directly under the write lock**, not through `set_value` (see Verifi
 | `finalize_status_volatile_wins_over_stale_dependency` | `is_volatile` **and** `stale_dependency` set → `Volatile`, and the warning is still recorded |
 | `finalize_status_without_data_is_error_regardless_of_flag` | `data = None` + flag set → `Error` |
 | `finish_run_fallback_finalizes_with_the_same_rule` | An asset finishing through the `:2224` fallback with the flag set ends `Expired` |
+| `finalize_status_expiration_time_agrees_across_arms` | Two assets with identical metadata, one with the flag and one without, report the same `expiration_time()` — the `Expired` arm mirrors the `Ready` arm rather than dropping it (P5) |
 
 ### Integration tests — `liquers-core/tests/expiration_integration.rs`
 
@@ -241,6 +260,27 @@ Scenario bodies are generic over the environment and run against both managers v
 | `scenario_stale_dependency_never_observable_as_ready` | On receipt of `ValueProduced`, the status is already `Expired` | New; the deterministic form of the window B1 called racy |
 | `scenario_stale_dependency_recovery_from_store` | Normal reads decline; `get_any_status` returns the value (`Result<Option<State>>`); `to_override` promotes it | New; guards `expired-binary-read-safety` |
 | `scenario_volatile_keyed_stale_dependency_stays_volatile` | Status `Volatile`, and the key is present in the store | New; declared `volatile: true` in the macro |
+
+### Decision (g) — "no `Expired` notification" — and why it gets no test
+
+Phase 2 decided this path must **not** send `AssetNotificationMessage::Expired`. A review asked for
+a test asserting that absence, and it cannot be written honestly: notifications go through a
+**`tokio::sync::watch` channel** (`assets.rs:518`, `subscribe_to_notifications` at `:1177`), which
+retains only the latest value. A subscriber that polls is not guaranteed to observe every message
+sent, so draining one and finding no `Expired` proves nothing — the message could have been sent
+and coalesced away. A test built that way would pass on a broken implementation.
+
+What is verifiable stands in its place, and is enough:
+
+- **Positively**, I5 asserts the property the decision exists to protect: on receipt of
+  `ValueProduced`, the status is already `Expired`. A subscriber never sees a value withdrawn
+  because it never sees one offered.
+- **Structurally**, the absence is a property of the code, not of a run: the new arm in
+  `finalize_status` contains no `notification_tx.send(...)` call, which Phase 4 checks by reading
+  the diff. `mark_expired_status` (`:2920`) remains the only sender of `Expired`.
+
+This is recorded rather than quietly dropped: a decision with no test is worth naming as such, so
+that the next reader does not assume it was forgotten.
 
 ### Guide-worthy material
 
