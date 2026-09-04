@@ -2,11 +2,11 @@
 id: CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS
 kind: issue
 title: AsyncFileStore refuses a sidecar-colliding key in is_supported but writes it in set
-status: draft
+status: closed
 priority: P1
-complexity: M
+complexity: L
 area: [core/store]
-design: store-conformance-suite
+design: sidecar-colliding-keys
 created: 2026-09-02
 github:
 ---
@@ -53,3 +53,26 @@ moment it is fixed.
 Found on 2026-09-02 by conformance rule `sidecar03`, which exists because a Codex review of PR #59
 pointed out that `sidecar01` checked only `is_supported` and "a sidecar-backed implementation that
 reports false here yet accepts the key in `set` would still pass". It does, and it did.
+
+## Resolution
+
+Closed 2026-09-03 by `specs/design/sidecar-colliding-keys/`.
+
+`ReservedNames` in `liquers-core::store` now owns the rule, and `is_supported`, the path builders
+and the listing filters all consult it — in `AsyncFileStore`, `FileStore` and
+`AsyncOpenDALStore`. `acquire_lock` builds the lock path first, so `set`, `set_metadata`, `remove`
+and `removedir` refuse before any directory is created or byte written; there is no half-done
+state. `C2`'s allowed failure for `sidecar03` is gone.
+
+Two things went beyond what this issue described, both settled at the design's gates:
+
+- **The rule covers every segment, not just the filename**, and reserves the bare `__metadata__`
+  folder name as well as the `.__metadata__` suffix. The predecessor Python implementation
+  (`orest-d/liquer`, `liquer/store.py`) refuses the name as a filename *and* in any interior
+  position and filters it from listings; the Rust port had narrowed all three. This restores them.
+- **The listing filters were not optional.** `listdir_keys_deep` calls `is_dir` on every child, so
+  guarding the path builders alone would have turned silent corruption into a store whose `keys()`
+  fails outright.
+
+`complexity` raised `M` → `L`: the change reaches `liquers-store` and removes a `pub fn`.
+`design` re-pointed from `store-conformance-suite`, which found this, to the one that fixed it.

@@ -18,7 +18,7 @@ use liquers_core::parse::parse_key;
 use liquers_core::query::Key;
 use liquers_core::store::{AsyncFileStore, AsyncMemoryStore, AsyncStore, AsyncStoreRouter, NoAsyncStore};
 use liquers_core::store_conformance::{
-    run_all, AllowedFailure, GenericFixture, SafetyLevel, StoreCapabilities,
+    run_all, AllowedFailure, GenericFixture, RuleOutcome, SafetyLevel, StoreCapabilities,
 };
 
 /// A unique temporary directory, as `store_key_absolute.rs` does it — nanosecond-stamped, because
@@ -105,18 +105,37 @@ async fn c2_async_file_store() {
         SafetyLevel::Scratch,
     )
     // The sidecar suffix makes this key's data path collide with `collide`'s metadata path.
-    .with_metadata_collision(parse_key("collide.__metadata__").expect("key"));
+    .with_metadata_collision(parse_key("collide.__metadata__").expect("key"))
+    // The same key, declared as a shape the store cannot address. Until this was declared,
+    // `prefix03` and `sibling05` had never run against a file store: the report said "not run"
+    // and nothing failed, which is the quiet way for coverage to be missing.
+    .with_unsupported_shape(parse_key("collide.__metadata__").expect("key"));
 
-    check(
-        run_all(&fixture).await,
-        &[AllowedFailure {
-            // `is_supported` refuses the sidecar-colliding key, but `set` writes it — corrupting
-            // the metadata of the key it collides with. A behaviour change to which keys the store
-            // accepts, so it gets its own change rather than riding along here.
-            rule: "sidecar03",
-            issue: "CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS",
-        }],
-    );
+    // No allowed failures. `sidecar03` was listed here until the path builders learned to refuse a
+    // reserved key; `H5` then reported the entry as stale, which is how a fixed issue forces its
+    // own bookkeeping out. See CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS.
+    let report = run_all(&fixture).await;
+
+    // `assert_conformant` inspects failures and stale allowed-failures; a rule that declined its
+    // precondition is invisible to it, and the report only reaches stderr, which `cargo test`
+    // swallows on success. So a `with_unsupported_shape` that was dropped or mistyped would leave
+    // these two "not run" and this test would still pass — which is exactly how they came to have
+    // never run against a file store in the first place. Assert the outcome, not the absence of a
+    // failure.
+    for rule in ["prefix03", "sibling05"] {
+        let entry = report
+            .entries
+            .iter()
+            .find(|entry| entry.id == rule)
+            .unwrap_or_else(|| panic!("{rule} is not in the report at all"));
+        assert!(
+            matches!(entry.outcome, RuleOutcome::Passed),
+            "{rule} must run and pass for C2, not decline its precondition: {:?}",
+            entry.outcome
+        );
+    }
+
+    check(report, &[]);
 
     let _ = tokio::fs::remove_dir_all(&root).await;
 }
