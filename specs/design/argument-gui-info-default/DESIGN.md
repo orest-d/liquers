@@ -2,9 +2,8 @@
 id: ARGUMENT-GUI-INFO-DEFAULT
 kind: design
 title: Consistent default GUI metadata for command arguments
-status: in_review
-phase: implementation
-readiness: needs-decision
+status: complete
+readiness: ready
 area: [core/commands, macro, web]
 issues: [ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS]
 gh_pr: []

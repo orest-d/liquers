@@ -20,7 +20,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::command_metadata::{ArgumentGUIInfo, ArgumentInfo, CommandMetadata};
+#[cfg(test)]
+use crate::command_metadata::ArgumentGUIInfo;
+use crate::command_metadata::{ArgumentInfo, CommandMetadata, DEFAULT_GUI};
 use crate::error::{Error, ErrorType};
 
 /// How the input state reaches the callable.
@@ -739,7 +741,7 @@ fn fill_argument_defaults(argument: &mut Value) {
     // every other registration path uses — sets `TextField(40)`. Matching the constructor keeps
     // `metadata_version` stable for commands registered either way.
     if map.get("gui_info").is_none() {
-        if let Ok(default_gui) = serde_json::to_value(ArgumentGUIInfo::TextField(40)) {
+        if let Ok(default_gui) = serde_json::to_value(DEFAULT_GUI.clone()) {
             map.insert("gui_info".to_string(), default_gui);
         }
     }

@@ -2,9 +2,10 @@
 
 ## Chosen Solution
 
-Add a reusable core default function returning `ArgumentGUIInfo::TextField(40)`. Apply it to
-`ArgumentInfo.gui_info` deserialization and make the macro's initial `gui_info` expression emit the
-same value. Keep explicit macro `gui:` statements authoritative. `command_declaration.rs` and
+Add `command_metadata::DEFAULT_GUI`, a reusable core constant holding
+`ArgumentGUIInfo::TextField(40)`. Apply a clone of it to `ArgumentInfo.gui_info` deserialization
+and make the macro's implicit `gui_info` expression clone the same value. Keep explicit macro
+`gui:` statements authoritative. `command_declaration.rs` and
 `liquers-web/src/command/spec.rs` already construct arguments through the 40-column core path and
 need verification, not behavioural edits.
 
@@ -28,9 +29,8 @@ requires a separate compatibility policy.
 
 ## Rust Feasibility
 
-The helper returns a small owned enum with no borrowing, async, trait, or error changes. Reuse one
-function for serde and constructors to prevent a fourth default from emerging. No clone or panic is
-needed.
+The constant is a small enum value with no borrowing, async, trait, or error changes. Serde and
+each consumer clone the one value, preventing a fourth default from emerging. No panic is needed.
 
 ## Risk Assessment
 

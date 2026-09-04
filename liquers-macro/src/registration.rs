@@ -757,7 +757,7 @@ impl CommandParameter {
                             }
                         }
                     } else {
-                        quote! { #gui }
+                        quote! { liquers_core::command_metadata::DEFAULT_GUI.clone() }
                     }
                 } else {
                     quote! { #gui }
@@ -1707,7 +1707,7 @@ impl Parse for CommandParameter {
                 };
 
                 let mut label = None;
-                let mut gui = ArgumentGUIInfo::TextField(20);
+                let mut gui = ArgumentGUIInfo::TextField(40);
                 let mut gui_explicit = false;
                 let mut enum_spec: Option<EnumParameterSpec> = None;
                 if input.peek(syn::token::Paren) {
@@ -2680,7 +2680,7 @@ mod tests {
                 argument_type: liquers_core::command_metadata::ArgumentType::Integer,
                 multiple: false,
                 injected: false,
-                gui_info: liquers_core::command_metadata::ArgumentGUIInfo::TextField(20usize),
+                gui_info: liquers_core::command_metadata::DEFAULT_GUI.clone(),
                 ..Default::default()
             }];
             cm.with_filename("");
@@ -2750,7 +2750,7 @@ mod tests {
                 argument_type: liquers_core::command_metadata::ArgumentType::Integer,
                 multiple: false,
                 injected: false,
-                gui_info: liquers_core::command_metadata::ArgumentGUIInfo::TextField(20usize),
+                gui_info: liquers_core::command_metadata::DEFAULT_GUI.clone(),
                 ..Default::default()
             }];
             cm.with_filename("");
@@ -2904,6 +2904,20 @@ mod tests {
         assert!(info_string.contains(
             "argument_type : liquers_core :: command_metadata :: ArgumentType :: Integer"
         ));
+    }
+
+    #[test]
+    fn implicit_gui_uses_the_core_default_and_explicit_gui_overrides_it() {
+        let implicit: CommandParameter = syn::parse_quote! { value: String };
+        let implicit_info = implicit.argument_info_expression().unwrap().to_string();
+        assert!(implicit_info.contains("DEFAULT_GUI . clone"));
+
+        let explicit: CommandParameter = syn::parse_quote! {
+            value: String (gui: TextField 12)
+        };
+        let explicit_info = explicit.argument_info_expression().unwrap().to_string();
+        assert!(explicit_info.contains("ArgumentGUIInfo :: TextField (12usize)"));
+        assert!(!explicit_info.contains("DEFAULT_GUI"));
     }
 
     #[test]

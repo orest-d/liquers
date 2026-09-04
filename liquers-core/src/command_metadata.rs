@@ -261,7 +261,7 @@ impl ArgumentType {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum ArgumentGUIInfo {
     /// Text field for entering a short text, e.g. a name or a title.
     /// Argument is a width hint specified in characters.
@@ -330,8 +330,20 @@ pub enum ArgumentGUIInfo {
     /// Parameter should not appear in the GUI
     Hide,
     /// No GUI information
-    #[default]
     None,
+}
+
+/// GUI hint used when an argument declaration omits `gui_info`.
+pub const DEFAULT_GUI: ArgumentGUIInfo = ArgumentGUIInfo::TextField(40);
+
+fn default_gui() -> ArgumentGUIInfo {
+    DEFAULT_GUI.clone()
+}
+
+impl Default for ArgumentGUIInfo {
+    fn default() -> Self {
+        default_gui()
+    }
 }
 
 /// CommandParameterValue represents a value of a command parameter.
@@ -567,7 +579,7 @@ pub struct ArgumentInfo {
     /// Preferred GUI entry widget, used to edit the argument in the UI.
     /// UI may ignore it and use a simple string input field.
     #[serde(skip_serializing_if = "gui_info_is_none")]
-    #[serde(default)]
+    #[serde(default = "default_gui")]
     pub gui_info: ArgumentGUIInfo,
 
     /// Free dictionary of hints for the argument.
@@ -593,7 +605,7 @@ impl ArgumentInfo {
             argument_type: ArgumentType::Any,
             multiple: false,
             injected: false,
-            gui_info: ArgumentGUIInfo::TextField(40),
+            gui_info: DEFAULT_GUI.clone(),
             hints: serde_json::Map::new(),
             presets: Vec::new(),
         }
@@ -616,7 +628,7 @@ impl ArgumentInfo {
             argument_type: ArgumentType::Any,
             multiple: false,
             injected: false,
-            gui_info: ArgumentGUIInfo::TextField(40),
+            gui_info: DEFAULT_GUI.clone(),
             hints: serde_json::Map::new(),
             presets: Vec::new(),
         }
@@ -629,7 +641,7 @@ impl ArgumentInfo {
             argument_type: ArgumentType::String,
             multiple: false,
             injected: false,
-            gui_info: ArgumentGUIInfo::TextField(40),
+            gui_info: DEFAULT_GUI.clone(),
             hints: serde_json::Map::new(),
             presets: Vec::new(),
         }
@@ -1346,6 +1358,27 @@ impl CommandMetadataRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn argument_gui_info_omission_uses_the_shared_text_field_default() {
+        let expected = DEFAULT_GUI.clone();
+        assert_eq!(ArgumentGUIInfo::default(), expected);
+        assert_eq!(ArgumentInfo::default().gui_info, expected);
+
+        let from_json: ArgumentInfo = serde_json::from_str(r#"{"name":"count"}"#).unwrap();
+        let from_yaml: ArgumentInfo = serde_yaml::from_str("name: count\n").unwrap();
+        assert_eq!(from_json.gui_info, expected);
+        assert_eq!(from_yaml.gui_info, expected);
+    }
+
+    #[test]
+    fn argument_gui_info_default_round_trips() {
+        let argument = ArgumentInfo::any_argument("count");
+        let json = serde_json::to_string(&argument).unwrap();
+        let restored: ArgumentInfo = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(restored.gui_info, DEFAULT_GUI.clone());
+    }
 
     #[test]
     fn test_with_async_setter() {

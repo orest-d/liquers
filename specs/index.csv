@@ -1,7 +1,7 @@
 id,kind,title,status,status_source,phase,readiness,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
 ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES,issue,ActionParameter::set_value double-encodes its value,closed,local,,,P1,S,core/query,,,,parameter-entity-escaping,,2026-08-14,specs/issues/ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES.md
 ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING,feature,Declared arguments replace inferred ones instead of augmenting them,closed,local,,,P3,M,core/commands;web;py,,,,,,2026-08-29,specs/issues/ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING.md
-ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS,issue,An argument's default gui_info differs depending on how the command was registered,draft,local,,needs-decision,P2,S,core/commands;macro;web,,,,argument-gui-info-default,,2026-08-30,specs/issues/ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS.md
+ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS,issue,An argument's default gui_info differs depending on how the command was registered,closed,local,,ready,P2,S,core/commands;macro;web,,,,argument-gui-info-default,,2026-08-30,specs/issues/ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS.md
 ASSET-EXPIRED-CACHED-BINARY-READ,issue,Expired asset can still return its cached binary on read,closed,local,,,P0,M,core/assets;core/store,,,,expiration-safety,,2026-08-08,specs/issues/ASSET-EXPIRED-CACHED-BINARY-READ.md
 ASSET-FINISHED-PROGRESS-CONTRACT-UNDEFINED,issue,"What progress a finished asset reports is undefined, and was asserted by a race",draft,local,,,P3,S,core/assets,,,,,,2026-09-03,specs/issues/ASSET-FINISHED-PROGRESS-CONTRACT-UNDEFINED.md
 ASSET-KEYED-DELEGATION-ALWAYS-CYCLES,issue,The keyed delegation branch cannot succeed - it always records a self-dependency,closed,local,,,P0,M,core/assets,,,,keyed-delegation-hand-off,,2026-08-09,specs/issues/ASSET-KEYED-DELEGATION-ALWAYS-CYCLES.md
@@ -155,7 +155,7 @@ WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT,issue,Enter key does not submit in the brow
 WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED,issue,Submitted query state is not preserved in the browser,accepted,local,,,P2,M,lib/ui,,,,ui-events,,2026-08-08,specs/issues/WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED.md
 WORKSPACE-NOT-RUSTFMT-CLEAN,issue,"The workspace is not rustfmt-clean, so formatting drift hides in every diff",draft,local,,,P3,M,build;docs,,,,,,2026-08-29,specs/issues/WORKSPACE-NOT-RUSTFMT-CLEAN.md
 WORKSPACE-SERDE-DERIVE-UNDECLARED,issue,Three crates use serde derive macros without declaring the `derive` feature,accepted,local,,,P2,L,build;core/value;lib/ui;axum,,,,,,2026-08-09,specs/issues/WORKSPACE-SERDE-DERIVE-UNDECLARED.md
-ARGUMENT-GUI-INFO-DEFAULT,design,Consistent default GUI metadata for command arguments,in_review,local,implementation,needs-decision,P2,S,core/commands;macro;web,,,,argument-gui-info-default,,2026-09-01,specs/design/argument-gui-info-default/DESIGN.md
+ARGUMENT-GUI-INFO-DEFAULT,design,Consistent default GUI metadata for command arguments,complete,local,,ready,P2,S,core/commands;macro;web,,,,argument-gui-info-default,,2026-09-01,specs/design/argument-gui-info-default/DESIGN.md
 COVERED-01,design,Coverage record for ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE,in_review,local,architecture,covered,P2,S,docs,,,,asset-manager-insert-key-asset-no-overwrite,,2026-09-03,specs/design/asset-manager-insert-key-asset-no-overwrite/DESIGN.md
 ASSET-MANAGER-INSERT-KEY-ASSET-SEMANTICS,design,asset-manager-insert-key-asset-semantics,draft,local,documentation,,P2,S,core/assets,,,,asset-manager-insert-key-asset-semantics,,2026-08-25,specs/design/asset-manager-insert-key-asset-semantics/DESIGN.md
 ASYNC-MEMORY-STORE-PREFIX-SUPPORT,design,Memory-store support predicates respect prefixes,complete,local,,,P1,S,core/store,,,,async-memory-store-prefix-support,,2026-09-02,specs/design/async-memory-store-prefix-support/DESIGN.md
@@ -271,7 +271,7 @@ IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,loca
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,core/context;core/commands,,,,,2026-09-04,,specs/reference/PAYLOAD_GUIDE.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,lib/polars,,,,,2026-09-04,,specs/reference/POLARS_COMMAND_LIBRARY.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-08-18,,specs/reference/PROJECT_OVERVIEW.md
-REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,macro;core/commands,,,,,2026-08-30,,specs/reference/REGISTER_COMMAND_FSD.md
+REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,macro;core/commands,,,,,2026-09-04,,specs/reference/REGISTER_COMMAND_FSD.md
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,store/config,,,,,2026-09-04,,specs/reference/STORE_CONFIG_FSD.md
 STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,core/store;store/backends;web,,,,,2026-09-04,,specs/reference/STORE_SEMANTICS.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md

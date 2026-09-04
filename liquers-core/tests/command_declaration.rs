@@ -182,12 +182,8 @@ async fn int02_declaration_and_macro_agree_including_metadata_version() {
         "label": "repeat",
         "state_argument": { "name": "state", "label": "state", "default": "None",
                             "gui_info": { "TextField": 40 } },
-        // `gui_info` is declared on both sides rather than defaulted: the two paths disagree
-        // about the default — the macro says TextField(20), `ArgumentInfo::any_argument` says
-        // TextField(40) — which is ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS, not something this
-        // design can settle. Declaring it keeps the test measuring what it is for.
-        "arguments": [ { "name": "count", "label": "count", "argument_type": "int",
-                         "gui_info": { "TextField": 20 } } ],
+        // Omitted `gui_info` must follow the shared default on both registration paths.
+        "arguments": [ { "name": "count", "label": "count", "argument_type": "int" } ],
     }))
     .finish()
     .expect("the declaration builds");
