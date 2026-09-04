@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [core/assets]
-design: evaluate-path-consolidation
+design: stale-dependency-status-finalization
 created: 2026-09-03
 github:
 ---
@@ -64,4 +64,5 @@ Found on 2026-09-03 during Phase 3 of `specs/design/evaluate-path-consolidation/
 test for the ordering invariant "status is finalized before persistence". The consolidated design
 states that invariant explicitly; checking whether HEAD already honours it showed that it does not.
 The design makes the ordering visible but does not by itself fix it — the stale-dependency rule
-lives in the harness, which the consolidation keeps.
+lives in the harness, which the consolidation keeps. The fix is designed separately in
+`specs/design/stale-dependency-status-finalization/`, which is what `design:` now points at.

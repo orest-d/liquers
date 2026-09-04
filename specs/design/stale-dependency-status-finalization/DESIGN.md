@@ -7,7 +7,7 @@ status: draft
 phase: architecture
 area: [core/assets]
 gh_pr: []
-issues: [ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY]
+issues: [ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY, EXPIRY-RECORDS-NO-REASON]
 affects_docs: [ASSET_LIFECYCLE, ASSETS, DOC_03_ASSETS_EXECUTION_LIFECYCLE]
 created: 2026-09-04
 superseded_by:
@@ -74,3 +74,17 @@ buggy behaviour, so none breaks. No fixer agent was needed for a single advisory
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
 - [Phase 5](./phase5-documentation.md)
+
+## Phase 2 gate decisions (2026-09-04)
+
+- **DM branch: `cascade_expire_dependents`** — confirmed by the project owner. A stale-dependency
+  keyed asset invalidates its dependents instead of registering an uncacheable value as the key's
+  current version.
+- **Diagnostics** — the owner asked that an expiry record its reason ("expired due to dependency X
+  expiring while evaluating Y"), and that the requirement be treated as general. Filed as
+  `EXPIRY-RECORDS-NO-REASON` (P2, S): `mark_expired_status` logs nothing on any route, so a cascade
+  expires assets silently, and `note_expired_dependency` names the dependency by its runtime asset
+  id. Not absorbed into this design — it spans four expiry routes and carries an `info`/`warning`
+  choice that is not this design's to make.
+- **Still open at the gate:** the P2 → P1 recommendation on the originating issue, and the
+  `try_to_set_ready` → `finalize_status` rename.

@@ -1,7 +1,7 @@
 ---
 id: DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS
 kind: issue
-title: The generated index.md embeds absolute machine-local paths and unordered phase links
+title: The generated index.md emits design phase links in filesystem order
 status: draft
 priority: P2
 complexity: S
@@ -10,6 +10,12 @@ design:
 created: 2026-09-04
 github:
 ---
+
+> **Partly fixed upstream (2026-09-04).** `e326a45` ("Fix docs index markdown links to be
+> path-independent") changed the emitted link to `x.relative_to(REPO).as_posix()`, which resolves
+> the absolute-path half described below. The `iterdir()` ordering half is unchanged and is what
+> this issue now tracks; the original text is kept so the fixed half stays legible.
+
 
 ## Problem
 

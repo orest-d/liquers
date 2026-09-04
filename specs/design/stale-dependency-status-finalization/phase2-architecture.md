@@ -210,8 +210,20 @@ The non-keyed arm does nothing because `track_asset`'s query branch registers th
 **Rejected alternative — do nothing (let `track_asset` early-return).** Simpler by three lines, and
 defensible on the argument that an expired asset should not be a graph node. Rejected because it
 silently drops the dependent invalidation that happens today, trading a persistence bug for a
-smaller invalidation bug. **This is the one place the design makes a judgement the owner may want
-to overturn**; the alternative is one `else if` away.
+smaller invalidation bug. **Confirmed by the project owner at the Phase 2 gate (2026-09-04):
+`cascade_expire_dependents` is the approach.**
+
+**The cascade must not be silent.** The owner's confirmation came with a requirement attached: an
+asset that becomes `Expired` should record why — "expired due to dependency X expiring while
+evaluating Y" — and that gap is general, not specific to this path. `mark_expired_status` adds no
+log entry at all, so every asset a cascade reaches records nothing, and the one path that does
+record something (`note_expired_dependency`) names the dependency by its runtime `u64` id. Filed as
+`EXPIRY-RECORDS-NO-REASON` (P2, S) rather than absorbed here: it spans the deadline, cascade,
+explicit-`expire()` and stale-dependency routes, only one of which this design touches, and it
+carries a choice — `info` versus `warning` per route — that is not this design's to make. What this
+design does owe it is the ordering precedent: §"The decision inside `finalize_status`" already moves
+the stale-dependency warning ahead of persistence so the reason reaches the store with the status,
+which is the shape `EXPIRY-RECORDS-NO-REASON` has to follow for the other routes.
 
 **Rejected alternative — route the relabel through `expire()`/`mark_expired_status` (`:2920`).**
 Phase 1 open question 3. That helper already persists `Expired` for a keyed asset (the WP-3 rule),
@@ -426,9 +438,8 @@ relies on. No serde annotation is added.
 
 ## Open Questions
 
-1. **Confirm the DM branch** (the design's one judgement call): invalidate dependents via
-   `cascade_expire_dependents`, or let `track_asset` early-return and accept losing that? The
-   document argues the former; the latter is smaller.
+1. ~~**Confirm the DM branch**~~ — **resolved 2026-09-04 (owner): `cascade_expire_dependents`.**
+   The accompanying diagnostics requirement is filed as `EXPIRY-RECORDS-NO-REASON`.
 2. **Confirm the priority recommendation** for `ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY`: P2 → P1
    on the cross-process evidence. Not applied.
 3. **Confirm the rename.** `try_to_set_ready` → `finalize_status` is mechanical (private, two call
