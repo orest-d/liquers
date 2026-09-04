@@ -136,7 +136,7 @@ async fn eval_over_csv(csv: &str, action: &str) -> Result<Arc<polars::prelude::D
 
     let assetref = envref
         .get_asset_manager()
-        .apply(query.into(), create_csv_state(csv))
+        .apply(query.into(), create_csv_state(csv), None)
         .await?;
     let state = assetref.get().await?;
     liquers_lib::polars::util::try_to_polars_dataframe(&state)
