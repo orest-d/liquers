@@ -32,16 +32,56 @@ from pathlib import Path
 # which fails when a document uses a value absent here.
 
 AREAS = {
-    "core/query", "core/plan", "core/commands", "core/assets", "core/store", "core/value",
-    "core/context", "core/error", "core/validate", "macro", "store/backends", "store/config",
-    "lib/commands", "lib/value", "lib/polars", "lib/image", "lib/egui", "lib/ui",
-    "axum", "web", "py", "docs", "build",
+    "core/query",
+    "core/plan",
+    "core/commands",
+    "core/assets",
+    "core/store",
+    "core/value",
+    "core/context",
+    "core/error",
+    "core/validate",
+    "macro",
+    "store/backends",
+    "store/config",
+    "lib/commands",
+    "lib/value",
+    "lib/polars",
+    "lib/image",
+    "lib/egui",
+    "lib/ui",
+    "axum",
+    "web",
+    "py",
+    "docs",
+    "build",
 }
-ISSUE_STATUS = {"draft", "accepted", "rejected", "duplicate",
-                "in_progress", "closed", "closed_not_planned"}
-DESIGN_STATUS = {"draft", "in_review", "approved", "in_implementation",
-                 "implemented", "complete", "superseded", "abandoned"}
-DESIGN_STATUS_NEEDING_PHASE = {"draft", "in_review", "approved", "in_implementation", "implemented"}
+ISSUE_STATUS = {
+    "draft",
+    "accepted",
+    "rejected",
+    "duplicate",
+    "in_progress",
+    "closed",
+    "closed_not_planned",
+}
+DESIGN_STATUS = {
+    "draft",
+    "in_review",
+    "approved",
+    "in_implementation",
+    "implemented",
+    "complete",
+    "superseded",
+    "abandoned",
+}
+DESIGN_STATUS_NEEDING_PHASE = {
+    "draft",
+    "in_review",
+    "approved",
+    "in_implementation",
+    "implemented",
+}
 DESIGN_READINESS = {"ready", "needs-decision", "blocked", "phase2-blocked", "covered"}
 # §5.5: the statuses a human may write on a design that has a gh_pr. "" means "derived — ask
 # GitHub"; the rest are terminal conclusions GitHub cannot draw.
@@ -51,17 +91,27 @@ TERMINAL_STATUS_WITH_PR = {"", "complete", "superseded", "abandoned"}
 # for an issue or design owned by GitHub it means "not yet synced", not "done".
 FINISHED_ISSUE_STATUS = {"closed", "closed_not_planned", "rejected", "duplicate"}
 FINISHED_DESIGN_STATUS = {"complete", "superseded", "abandoned"}
-PHASES = {"high-level": 1, "architecture": 2, "examples": 3, "implementation": 4,
-          "documentation": 5}
-RETIRED_PHASES: set[str] = set()          # §5.3 rule 2: never delete, only mark retired
+PHASES = {
+    "high-level": 1,
+    "architecture": 2,
+    "examples": 3,
+    "implementation": 4,
+    "documentation": 5,
+}
+RETIRED_PHASES: set[str] = set()  # §5.3 rule 2: never delete, only mark retired
 # Ordered, because §6 sorts on them: most urgent and smallest first. The vocabularies §4.4 and
 # §4.5 validate against are the keys, so a value can never be rankable but unlisted.
 PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
 COMPLEXITY_ORDER = {"S": 0, "M": 1, "L": 2, "XL": 3}
 # The active-work board puts work that is safe to implement before work that needs more
 # design attention. An omitted readiness is last: it is an unknown, not a claim of readiness.
-READINESS_ORDER = {"ready": 0, "needs-decision": 1, "blocked": 2,
-                   "phase2-blocked": 3, "covered": 4}
+READINESS_ORDER = {
+    "ready": 0,
+    "needs-decision": 1,
+    "blocked": 2,
+    "phase2-blocked": 3,
+    "covered": 4,
+}
 PRIORITIES = set(PRIORITY_ORDER)
 COMPLEXITIES = set(COMPLEXITY_ORDER)
 NEEDS_DESIGN = {"L", "XL"}
@@ -69,11 +119,27 @@ NEEDS_DESIGN = {"L", "XL"}
 # answers. `feature` shares the issues block; it is an issue whose problem is an absence.
 KIND_ORDER = {"issue": 0, "feature": 0, "design": 1, "guide": 2, "reference": 3}
 AUDIENCES = {"internal", "user", "both"}
-REVIEW_DAYS = 92                          # §9.4
+REVIEW_DAYS = 92  # §9.4
 
-COLUMNS = ["id", "kind", "title", "status", "status_source", "phase", "readiness", "priority",
-           "complexity", "area", "gh_issue", "gh_pr", "branch", "design", "reviewed", "created",
-           "file"]
+COLUMNS = [
+    "id",
+    "kind",
+    "title",
+    "status",
+    "status_source",
+    "phase",
+    "readiness",
+    "priority",
+    "complexity",
+    "area",
+    "gh_issue",
+    "gh_pr",
+    "branch",
+    "design",
+    "reviewed",
+    "created",
+    "file",
+]
 
 # No "# GENERATED" banner line: CSV has no comment syntax, so GitHub's renderer reads line 1
 # as the header, finds one column, and refuses to render the table. The file is marked generated
@@ -132,10 +198,12 @@ def parse_front_matter(text: str) -> tuple[dict, str]:
         key, value = key.strip(), value.strip()
         if value.startswith("[") and value.endswith("]"):
             inner = value[1:-1].strip()
-            fields[key] = [v.strip() for v in inner.split(",") if v.strip()] if inner else []
+            fields[key] = (
+                [v.strip() for v in inner.split(",") if v.strip()] if inner else []
+            )
         else:
             fields[key] = value
-    return fields, text[end + 5:]
+    return fields, text[end + 5 :]
 
 
 def _list(fields: dict, key: str) -> list[str]:
@@ -176,11 +244,15 @@ def sort_key(row: dict) -> tuple:
     """
     kind = row["kind"]
     if kind in ("issue", "feature"):
-        rank = (PRIORITY_ORDER.get(row["priority"], len(PRIORITY_ORDER)),
-                COMPLEXITY_ORDER.get(row["complexity"], len(COMPLEXITY_ORDER)))
+        rank = (
+            PRIORITY_ORDER.get(row["priority"], len(PRIORITY_ORDER)),
+            COMPLEXITY_ORDER.get(row["complexity"], len(COMPLEXITY_ORDER)),
+        )
     elif kind == "design":
-        rank = (PRIORITY_ORDER.get(row["priority"], len(PRIORITY_ORDER)),
-                COMPLEXITY_ORDER.get(row["complexity"], len(COMPLEXITY_ORDER)))
+        rank = (
+            PRIORITY_ORDER.get(row["priority"], len(PRIORITY_ORDER)),
+            COMPLEXITY_ORDER.get(row["complexity"], len(COMPLEXITY_ORDER)),
+        )
     else:
         rank = (0 if row["status"] == "overdue" else 1, 0)
     return (finished(row), KIND_ORDER.get(kind, len(KIND_ORDER)), rank, row["id"])
@@ -197,36 +269,61 @@ def collect() -> list[dict]:
 
     for path in sorted((SPECS / "issues").glob("*.md")):
         f, _ = parse_front_matter(path.read_text(encoding="utf-8"))
-        rows.append({
-            "id": f.get("id", path.stem), "kind": f.get("kind", "issue"),
-            "title": f.get("title", ""), "status": f.get("status", ""),
-            # Issue and feature documents always own their status (§4.3). `github` is a link,
-            # not a transfer of authority.
-            "status_source": "local",
-            "phase": "", "readiness": "", "priority": f.get("priority", ""),
-            "complexity": f.get("complexity", ""), "area": ";".join(_list(f, "area")),
-            "gh_issue": f.get("github", ""), "gh_pr": ";".join(_list(f, "gh_pr")),
-            "branch": "", "design": f.get("design", ""), "reviewed": "",
-            "created": f.get("created", ""), "file": path.relative_to(REPO).as_posix(),
-            "_fm": f, "_path": path,
-        })
+        rows.append(
+            {
+                "id": f.get("id", path.stem),
+                "kind": f.get("kind", "issue"),
+                "title": f.get("title", ""),
+                "status": f.get("status", ""),
+                # Issue and feature documents always own their status (§4.3). `github` is a link,
+                # not a transfer of authority.
+                "status_source": "local",
+                "phase": "",
+                "readiness": "",
+                "priority": f.get("priority", ""),
+                "complexity": f.get("complexity", ""),
+                "area": ";".join(_list(f, "area")),
+                "gh_issue": f.get("github", ""),
+                "gh_pr": ";".join(_list(f, "gh_pr")),
+                "branch": "",
+                "design": f.get("design", ""),
+                "reviewed": "",
+                "created": f.get("created", ""),
+                "file": path.relative_to(REPO).as_posix(),
+                "_fm": f,
+                "_path": path,
+            }
+        )
 
     for path in sorted((SPECS / "design").glob("*/DESIGN.md")):
         f, _ = parse_front_matter(path.read_text(encoding="utf-8"))
         slug = path.parent.name
         gh_pr = _list(f, "gh_pr")
-        rows.append({
-            "id": f.get("id", slug.upper()), "kind": "design", "title": f.get("title", ""),
-            "status": f.get("status", ""),
-            # Who owns the value in the status column, not whether a PR exists (§5.5). A design
-            # that has reached a hand-written terminal status owns it locally, gh_pr or not.
-            "status_source": "github" if gh_pr and not f.get("status") else "local",
-            "phase": f.get("phase", ""), "readiness": "",
-            "priority": "", "complexity": "",
-            "area": ";".join(_list(f, "area")), "gh_issue": "", "gh_pr": ";".join(gh_pr),
-            "branch": "", "design": slug, "reviewed": "", "created": f.get("created", ""),
-            "file": path.relative_to(REPO).as_posix(), "_fm": f, "_path": path,
-        })
+        rows.append(
+            {
+                "id": f.get("id", slug.upper()),
+                "kind": "design",
+                "title": f.get("title", ""),
+                "status": f.get("status", ""),
+                # Who owns the value in the status column, not whether a PR exists (§5.5). A design
+                # that has reached a hand-written terminal status owns it locally, gh_pr or not.
+                "status_source": "github" if gh_pr and not f.get("status") else "local",
+                "phase": f.get("phase", ""),
+                "readiness": "",
+                "priority": "",
+                "complexity": "",
+                "area": ";".join(_list(f, "area")),
+                "gh_issue": "",
+                "gh_pr": ";".join(gh_pr),
+                "branch": "",
+                "design": slug,
+                "reviewed": "",
+                "created": f.get("created", ""),
+                "file": path.relative_to(REPO).as_posix(),
+                "_fm": f,
+                "_path": path,
+            }
+        )
 
     today = _dt.date.today()
     for sub, kind in (("reference", "reference"), ("guides", "guide")):
@@ -240,15 +337,29 @@ def collect() -> list[dict]:
                     status = "current" if age <= REVIEW_DAYS else "overdue"
                 except ValueError:
                     status = ""
-            rows.append({
-                "id": path.stem, "kind": f.get("kind", kind), "title": f.get("title", ""),
-                "status": status, "status_source": "local", "phase": "", "readiness": "",
-                "priority": "",
-                "complexity": "", "area": ";".join(_list(f, "area")), "gh_issue": "",
-                "gh_pr": "", "branch": "", "design": "", "reviewed": str(reviewed),
-                "created": "", "file": path.relative_to(REPO).as_posix(),
-                "_fm": f, "_path": path,
-            })
+            rows.append(
+                {
+                    "id": path.stem,
+                    "kind": f.get("kind", kind),
+                    "title": f.get("title", ""),
+                    "status": status,
+                    "status_source": "local",
+                    "phase": "",
+                    "readiness": "",
+                    "priority": "",
+                    "complexity": "",
+                    "area": ";".join(_list(f, "area")),
+                    "gh_issue": "",
+                    "gh_pr": "",
+                    "branch": "",
+                    "design": "",
+                    "reviewed": str(reviewed),
+                    "created": "",
+                    "file": path.relative_to(REPO).as_posix(),
+                    "_fm": f,
+                    "_path": path,
+                }
+            )
 
     # A design with one known source inherits its source-owned queue fields. A readiness design
     # also projects its design-owned readiness back onto that source. Invalid or ambiguous links
@@ -285,12 +396,16 @@ def render_csv(rows: list[dict]) -> str:
 def active_work_rows(rows: list[dict]) -> list[dict]:
     """Return active issue/feature rows in the order used by the Markdown work board."""
     active = [r for r in rows if r["kind"] in ("issue", "feature") and not finished(r)]
-    return sorted(active, key=lambda r: (
-        PRIORITY_ORDER.get(r["priority"], len(PRIORITY_ORDER)),
-        COMPLEXITY_ORDER.get(r["complexity"], len(COMPLEXITY_ORDER)),
-        READINESS_ORDER.get(r["readiness"], len(READINESS_ORDER)),
-        r["readiness"], r["id"],
-    ))
+    return sorted(
+        active,
+        key=lambda r: (
+            PRIORITY_ORDER.get(r["priority"], len(PRIORITY_ORDER)),
+            COMPLEXITY_ORDER.get(r["complexity"], len(COMPLEXITY_ORDER)),
+            READINESS_ORDER.get(r["readiness"], len(READINESS_ORDER)),
+            r["readiness"],
+            r["id"],
+        ),
+    )
 
 
 def relative_specs_path(row: dict) -> str:
@@ -323,15 +438,32 @@ def render_index_markdown(rows: list[dict]) -> str:
         issue = f"[`{markdown_cell(r['id'])}`]({relative_specs_path(r)})"
         design = r["design"]
         if design and design in designs:
-            design = f"[`{markdown_cell(design)}`]({relative_specs_path(designs[design])})"
+            design_phases = ' '.join(
+                f"[{x.name.split('-')[0]}]({x}) "
+                for x in Path(designs[design]["_path"]).parent.iterdir()
+                if x.name != "DESIGN.md" and x.name.endswith(".md")
+            )
+            design = design_phases
         elif design:
             design = f"`{markdown_cell(design)}`"
-        lines.append("| " + " | ".join((
-            issue, markdown_cell(r["kind"]), markdown_cell(r["title"]),
-            markdown_cell(r["status"]), markdown_cell(r["readiness"]),
-            markdown_cell(r["priority"]), markdown_cell(r["complexity"]),
-            markdown_cell(r["area"]), design, markdown_cell(r["created"]),
-        )) + " |")
+        lines.append(
+            "| "
+            + " | ".join(
+                (
+                    issue,
+                    markdown_cell(r["kind"]),
+                    markdown_cell(r["title"]),
+                    markdown_cell(r["status"]),
+                    markdown_cell(r["readiness"]),
+                    markdown_cell(r["priority"]),
+                    markdown_cell(r["complexity"]),
+                    markdown_cell(r["area"]),
+                    design,
+                    markdown_cell(r["created"]),
+                )
+            )
+            + " |"
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -342,29 +474,58 @@ def html_link(label: str, target: str) -> str:
 def render_index_html(rows: list[dict]) -> str:
     """Render an untracked HTML counterpart of the generated Markdown board."""
     designs = {r["design"]: r for r in rows if r["kind"] == "design"}
-    headings = ("Issue", "Kind", "Title", "Status", "Readiness", "Priority", "Complexity",
-                "Area", "Design", "Created")
+    headings = (
+        "Issue",
+        "Kind",
+        "Title",
+        "Status",
+        "Readiness",
+        "Priority",
+        "Complexity",
+        "Area",
+        "Design",
+        "Created",
+    )
     body = []
     for r in active_work_rows(rows):
         design = r["design"]
-        design_cell = (html_link(design, relative_specs_path(designs[design]))
-                       if design and design in designs else html.escape(design))
-        cells = (
-            html_link(r["id"], relative_specs_path(r)), r["kind"], r["title"], r["status"],
-            r["readiness"], r["priority"], r["complexity"], r["area"], design_cell, r["created"],
+        design_cell = (
+            html_link(design, relative_specs_path(designs[design]))
+            if design and design in designs
+            else html.escape(design)
         )
-        rendered = [cell if i in (0, 8) else html.escape(str(cell))
-                    for i, cell in enumerate(cells)]
+        cells = (
+            html_link(r["id"], relative_specs_path(r)),
+            r["kind"],
+            r["title"],
+            r["status"],
+            r["readiness"],
+            r["priority"],
+            r["complexity"],
+            r["area"],
+            design_cell,
+            r["created"],
+        )
+        rendered = [
+            cell if i in (0, 8) else html.escape(str(cell))
+            for i, cell in enumerate(cells)
+        ]
         body.append("<tr>" + "".join(f"<td>{cell}</td>" for cell in rendered) + "</tr>")
     header = "".join(f"<th>{html.escape(h)}</th>" for h in headings)
-    return """<!doctype html>
+    return (
+        """<!doctype html>
 <html lang="en">
 <meta charset="utf-8">
 <title>Active issues and features</title>
 <style>body { font-family: system-ui, sans-serif; margin: 2rem; } table { border-collapse: collapse; } th, td { border: 1px solid #bbb; padding: .4rem; text-align: left; vertical-align: top; } th { background: #eee; }</style>
 <h1>Active issues and features</h1>
 <p>Generated by <code>scripts/docs_index.py</code>. The committed source view is <a href="index.md">index.md</a>.</p>
-<table><thead><tr>""" + header + "</tr></thead><tbody>\n" + "\n".join(body) + "\n</tbody></table>\n</html>\n"
+<table><thead><tr>"""
+        + header
+        + "</tr></thead><tbody>\n"
+        + "\n".join(body)
+        + "\n</tbody></table>\n</html>\n"
+    )
 
 
 def replace_block(text: str, name: str, body: str) -> str:
@@ -373,17 +534,22 @@ def replace_block(text: str, name: str, body: str) -> str:
     i, j = text.find(begin), text.find(end)
     if i == -1 or j == -1 or j < i:
         return text
-    return text[:i + len(begin)] + "\n" + body.rstrip("\n") + "\n" + text[j:]
+    return text[: i + len(begin)] + "\n" + body.rstrip("\n") + "\n" + text[j:]
 
 
 def render_readme_blocks(rows: list[dict], readme: str) -> str:
     # This README table is a queue, independent from the merge-friendly CSV source order.
-    issues = [r for r in active_work_rows(rows)
-              if r["design"] and r["priority"] in ("P0", "P1")]
+    issues = [
+        r
+        for r in active_work_rows(rows)
+        if r["design"] and r["priority"] in ("P0", "P1")
+    ]
     if issues:
         body = ["| Issue | Pri | Cx | Design |", "|---|---|---|---|"] + [
             f"| [`{r['id']}`]({Path(r['file']).relative_to('specs').as_posix()}) "
-            f"| {r['priority']} | {r['complexity']} | `{r['design']}` |" for r in issues]
+            f"| {r['priority']} | {r['complexity']} | `{r['design']}` |"
+            for r in issues
+        ]
     else:
         body = ["*None.*"]
     readme = replace_block(readme, "issues", "\n".join(body))
@@ -391,8 +557,12 @@ def render_readme_blocks(rows: list[dict], readme: str) -> str:
     # Only the hand-written prose counts as "placed". Generated blocks must be stripped first:
     # the issues table names every design slug, so leaving them in makes every design look
     # referenced — and on a second run the unplaced list would mark itself placed.
-    referenced = re.sub(r"<!-- BEGIN generated: .*?<!-- END generated: [a-z]+ -->", "",
-                        readme, flags=re.S)
+    referenced = re.sub(
+        r"<!-- BEGIN generated: .*?<!-- END generated: [a-z]+ -->",
+        "",
+        readme,
+        flags=re.S,
+    )
     unplaced = []
     for r in rows:
         if r["kind"] == "design" and r["status"] != "superseded":
@@ -405,8 +575,11 @@ def render_readme_blocks(rows: list[dict], readme: str) -> str:
         elif r["kind"] == "feature" and not finished(r):
             if r["id"] not in referenced:
                 unplaced.append(f"- feature `{r['id']}`")
-    body = ("\n".join(sorted(unplaced)) if unplaced else
-            "*Everything is placed in the capability map.*")
+    body = (
+        "\n".join(sorted(unplaced))
+        if unplaced
+        else "*Everything is placed in the capability map.*"
+    )
     readme = replace_block(readme, "unplaced", body)
 
     # By name, not in §6 order: this block is how a reader finds a guide, and someone looking
@@ -416,12 +589,17 @@ def render_readme_blocks(rows: list[dict], readme: str) -> str:
         if r["kind"] != "guide":
             continue
         _, text = parse_front_matter((REPO / r["file"]).read_text(encoding="utf-8"))
-        first = next((l.strip() for l in text.split("\n")
-                      if l.strip() and not l.startswith("#")), "")
+        first = next(
+            (
+                l.strip()
+                for l in text.split("\n")
+                if l.strip() and not l.startswith("#")
+            ),
+            "",
+        )
         rel = Path(r["file"]).relative_to("specs").as_posix()
         guides.append(f"- [`{Path(rel).name}`]({rel}) — {first[:160]}")
-    readme = replace_block(readme, "guides",
-                           "\n".join(guides) if guides else "*None.*")
+    readme = replace_block(readme, "guides", "\n".join(guides) if guides else "*None.*")
     return readme
 
 
@@ -460,7 +638,9 @@ def check(rows: list[dict]) -> tuple[list[str], list[str]]:
             if f.get("priority") not in PRIORITIES:
                 errors.append(f"{where}: priority '{f.get('priority')}' not in §4.4")
             if f.get("complexity") not in COMPLEXITIES:
-                errors.append(f"{where}: complexity '{f.get('complexity')}' not in §4.5")
+                errors.append(
+                    f"{where}: complexity '{f.get('complexity')}' not in §4.5"
+                )
             # CHECK 3 — L/XL implies a design that exists
             if f.get("complexity") in NEEDS_DESIGN:
                 d = f.get("design")
@@ -468,7 +648,9 @@ def check(rows: list[dict]) -> tuple[list[str], list[str]]:
                     # Work owed, not a malformed document: guide §4.8.3 explicitly tells a
                     # filer to record L/XL without a design rather than understate complexity
                     # to dodge the check. A hard error would make understating it the easy path.
-                    warnings.append(f"{where}: complexity {f['complexity']} has no design (§4.5)")
+                    warnings.append(
+                        f"{where}: complexity {f['complexity']} has no design (§4.5)"
+                    )
                 elif d not in designs:
                     errors.append(f"{where}: design '{d}' does not exist")
             elif f.get("design") and f["design"] not in designs:
@@ -486,8 +668,10 @@ def check(rows: list[dict]) -> tuple[list[str], list[str]]:
             # outstanding, which is a question about this folder rather than about GitHub.
             if gh_pr:
                 if status not in TERMINAL_STATUS_WITH_PR:
-                    errors.append(f"{where}: has gh_pr and status '{status}' — with a PR linked, "
-                                  f"write nothing (derived) or a terminal status (§5.5)")
+                    errors.append(
+                        f"{where}: has gh_pr and status '{status}' — with a PR linked, "
+                        f"write nothing (derived) or a terminal status (§5.5)"
+                    )
             elif status not in DESIGN_STATUS:
                 errors.append(f"{where}: status '{status}' not in §5.1")
             # CHECK 6 — phase present exactly when the status requires it. Checked for every
@@ -496,29 +680,43 @@ def check(rows: list[dict]) -> tuple[list[str], list[str]]:
                 if status in DESIGN_STATUS_NEEDING_PHASE and not f.get("phase"):
                     errors.append(f"{where}: status '{status}' requires a phase (§5.1)")
                 if status not in DESIGN_STATUS_NEEDING_PHASE and f.get("phase"):
-                    errors.append(f"{where}: status '{status}' must not carry a phase (§5.1)")
-            if f.get("phase") and f["phase"] not in PHASES and f["phase"] not in RETIRED_PHASES:
+                    errors.append(
+                        f"{where}: status '{status}' must not carry a phase (§5.1)"
+                    )
+            if (
+                f.get("phase")
+                and f["phase"] not in PHASES
+                and f["phase"] not in RETIRED_PHASES
+            ):
                 errors.append(f"{where}: unknown phase '{f['phase']}' (see guide §5.2)")
             if f.get("readiness") and f["readiness"] not in DESIGN_READINESS:
                 errors.append(f"{where}: readiness '{f['readiness']}' not in §5.1.1")
             if f.get("readiness"):
                 sources = _list(f, "issues")
                 if len(sources) != 1:
-                    errors.append(f"{where}: readiness-labeled design must name exactly one "
-                                  f"source issue or feature (§5.1.1)")
+                    errors.append(
+                        f"{where}: readiness-labeled design must name exactly one "
+                        f"source issue or feature (§5.1.1)"
+                    )
                 else:
                     source = sources[0]
                     if source not in issue_rows:
-                        errors.append(f"{where}: source issue or feature '{source}' does not exist")
+                        errors.append(
+                            f"{where}: source issue or feature '{source}' does not exist"
+                        )
                     else:
                         linked_design = issue_rows[source]["_fm"].get("design")
                         if linked_design != r["design"]:
-                            errors.append(f"{where}: source '{source}' links to design "
-                                          f"'{linked_design}', expected '{r['design']}' (§5.1.1)")
+                            errors.append(
+                                f"{where}: source '{source}' links to design "
+                                f"'{linked_design}', expected '{r['design']}' (§5.1.1)"
+                            )
                         owner = readiness_design_by_issue.get(source)
                         if owner:
-                            errors.append(f"{where}: source '{source}' is already owned by "
-                                          f"readiness-labeled design '{owner}' (§5.1.1)")
+                            errors.append(
+                                f"{where}: source '{source}' is already owned by "
+                                f"readiness-labeled design '{owner}' (§5.1.1)"
+                            )
                         else:
                             readiness_design_by_issue[source] = r["design"]
             sb = f.get("superseded_by")
@@ -534,11 +732,18 @@ def check(rows: list[dict]) -> tuple[list[str], list[str]]:
             body = r["_path"].read_text(encoding="utf-8")
             if "## History" not in body:
                 errors.append(f"{where}: no ## History section (§9.5)")
-            elif f.get("reviewed") and str(f["reviewed"]) not in body.split("## History", 1)[1]:
-                errors.append(f"{where}: History has no row dated {f['reviewed']} (§9.5)")
+            elif (
+                f.get("reviewed")
+                and str(f["reviewed"]) not in body.split("## History", 1)[1]
+            ):
+                errors.append(
+                    f"{where}: History has no row dated {f['reviewed']} (§9.5)"
+                )
             # CHECK 13 — staleness is a warning, never an error
             if r["status"] == "overdue":
-                warnings.append(f"{where}: last reviewed {f['reviewed']} (>{REVIEW_DAYS} days, §9.4)")
+                warnings.append(
+                    f"{where}: last reviewed {f['reviewed']} (>{REVIEW_DAYS} days, §9.4)"
+                )
 
     # CHECK 7 — committed generated indexes match what regeneration would produce.
     idx = SPECS / "index.csv"
@@ -566,12 +771,40 @@ def check(rows: list[dict]) -> tuple[list[str], list[str]]:
 
 
 # --------------------------------------------------------------------------- new
-STOP = {"the", "a", "an", "is", "are", "to", "of", "in", "on", "for", "and", "or", "not",
-        "does", "do", "with", "when", "that", "this", "it", "its", "can", "cannot", "but"}
+STOP = {
+    "the",
+    "a",
+    "an",
+    "is",
+    "are",
+    "to",
+    "of",
+    "in",
+    "on",
+    "for",
+    "and",
+    "or",
+    "not",
+    "does",
+    "do",
+    "with",
+    "when",
+    "that",
+    "this",
+    "it",
+    "its",
+    "can",
+    "cannot",
+    "but",
+}
 
 
 def significant(text: str) -> set[str]:
-    return {w for w in re.findall(r"[a-z0-9]+", text.lower()) if len(w) > 2 and w not in STOP}
+    return {
+        w
+        for w in re.findall(r"[a-z0-9]+", text.lower())
+        if len(w) > 2 and w not in STOP
+    }
 
 
 def cmd_new(args) -> int:
@@ -597,7 +830,12 @@ def cmd_new(args) -> int:
             print("Re-run with --force to file anyway.")
             return 1
 
-    ident = args.id or re.sub(r"-+", "-", re.sub(r"[^A-Z0-9]+", "-", args.title.upper())).strip("-")[:60]
+    ident = (
+        args.id
+        or re.sub(r"-+", "-", re.sub(r"[^A-Z0-9]+", "-", args.title.upper())).strip(
+            "-"
+        )[:60]
+    )
     path = SPECS / "issues" / f"{ident}.md"
     if path.exists():
         print(f"error: {path.relative_to(REPO)} already exists", file=sys.stderr)
@@ -607,14 +845,15 @@ def cmd_new(args) -> int:
             print(f"error: unknown area '{a}' (see guide §3)", file=sys.stderr)
             return 2
 
-    path.write_text(f"""---
+    path.write_text(
+        f"""---
 id: {ident}
 kind: {args.kind}
 title: {args.title}
 status: draft
 priority: {args.priority}
 complexity: {args.complexity}
-area: [{', '.join(args.area)}]
+area: [{", ".join(args.area)}]
 design: {args.design}
 created: {_dt.date.today().isoformat()}
 github:
@@ -635,11 +874,15 @@ What should happen instead.
 ## Discovery
 
 How this surfaced.
-""", encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
     print(f"created {path.relative_to(REPO)}")
     write_all(collect())
     print("regenerated specs/index.csv")
-    print("\nNow fill in the body. Do not open a GitHub issue — that happens when work starts.")
+    print(
+        "\nNow fill in the body. Do not open a GitHub issue — that happens when work starts."
+    )
     return 0
 
 
@@ -651,13 +894,16 @@ def write_all(rows: list[dict], *, sort_csv: bool = False) -> None:
     (SPECS / "index.html").write_text(render_index_html(rows), encoding="utf-8")
     readme = SPECS / "README.md"
     if readme.exists():
-        readme.write_text(render_readme_blocks(rows, readme.read_text(encoding="utf-8")),
-                          encoding="utf-8")
+        readme.write_text(
+            render_readme_blocks(rows, readme.read_text(encoding="utf-8")),
+            encoding="utf-8",
+        )
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     sub = ap.add_subparsers(dest="cmd")
     n = sub.add_parser("new", help="scaffold an issue file (§7.1)")
     n.add_argument("title")
@@ -669,18 +915,28 @@ def main() -> int:
     n.add_argument("--id", default="")
     n.add_argument("--force", action="store_true", help="file despite near-duplicates")
     ap.add_argument("--check", action="store_true", help="validate only; never writes")
-    ap.add_argument("--sort", action="store_true",
-                    help="write index.csv in work-queue order (priority, complexity, and status)")
-    ap.add_argument("--sync", action="store_true", help="refresh GitHub metadata; never issue status")
+    ap.add_argument(
+        "--sort",
+        action="store_true",
+        help="write index.csv in work-queue order (priority, complexity, and status)",
+    )
+    ap.add_argument(
+        "--sync",
+        action="store_true",
+        help="refresh GitHub metadata; never issue status",
+    )
     args = ap.parse_args()
 
     if args.cmd == "new":
         return cmd_new(args)
 
     if args.sync:
-        print("--sync is not implemented yet: it needs the GitHub API and a token.\n"
-              "When implemented, it may refresh GitHub metadata but never overwrites the\n"
-              "authoritative local status of an issue or feature (guide §4.3).", file=sys.stderr)
+        print(
+            "--sync is not implemented yet: it needs the GitHub API and a token.\n"
+            "When implemented, it may refresh GitHub metadata but never overwrites the\n"
+            "authoritative local status of an issue or feature (guide §4.3).",
+            file=sys.stderr,
+        )
         return 2
 
     rows = collect()
@@ -690,12 +946,16 @@ def main() -> int:
             print(f"warning: {w}")
         for e in errors:
             print(f"error: {e}", file=sys.stderr)
-        print(f"\n{len(rows)} documents · {len(errors)} errors · {len(warnings)} warnings")
+        print(
+            f"\n{len(rows)} documents · {len(errors)} errors · {len(warnings)} warnings"
+        )
         return 1 if errors else 0
 
     write_all(rows, sort_csv=args.sort)
-    print(f"wrote specs/index.csv, specs/index.md, and untracked specs/index.html "
-          f"({len(rows)} documents), plus the specs/README.md blocks")
+    print(
+        f"wrote specs/index.csv, specs/index.md, and untracked specs/index.html "
+        f"({len(rows)} documents), plus the specs/README.md blocks"
+    )
     return 0
 
 
