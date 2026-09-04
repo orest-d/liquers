@@ -1,105 +1,416 @@
-# Phase 2: Solution & Architecture - stale-dependency-status-finalization
+# Phase 2: Solution & Architecture - Stale-Dependency Status Finalization
 
 ## Overview
 
-[2-3 sentences summarizing the architectural approach]
+The stale-dependency rule moves out of the run harness and into the status authority, which is
+renamed from `try_to_set_ready` to `finalize_status` because deciding `Ready` is only one of the
+four outcomes it already produces. Deciding there makes the decision atomic with the status write
+and puts it *before* persistence, which is what the store needs. One consequence is not free and is
+designed for rather than accepted silently: `DependencyManager::track_asset` refuses an `Expired`
+asset, so `evaluate`'s last step branches explicitly — a stale-dependency keyed asset invalidates
+its dependents instead of registering itself as their current version.
+
+No type is added, no signature changes but the rename, no crate but `liquers-core` is touched.
 
 ## Known-Issue Preflight
 
-[Search issues linked to the design, overlapping affected areas, and touching integration points,
-dependencies, public APIs, or architecture assumptions. Include relevant locally open issues,
-including `accepted` and `in_progress` items, from `specs/index.csv`.]
+Searched: issues linked from `DESIGN.md` and Phase 1; every `draft`/`accepted`/`in_progress` row in
+`specs/index.csv` whose `area` includes `core/assets`, `core/store` or `axum`; and the design
+folders touching expiry (`expiration-mechanism`, `expiration-safety`, `expired-binary-read-safety`,
+`dependency-scheduling`, `wp2-terminal-outcome`, `evaluate-path-consolidation`).
 
 | Issue | Status | Current priority | Relevance and solution impact | Must be addressed first? | Blocking? | Required action | Priority action |
 |---|---|---|---|---|---|---|---|
-| [Issue ID or `None found`] | [open status] | [P0-P3] | [Impact on solution] | [yes/no] | [yes/no] | [Resolve, redesign, or monitor] | [Keep or recommend change] |
+| `ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY` | draft | P2 | The issue this design fixes | — | no | Fix here; correct its four stale citations | **Recommend P1** — see below |
+| `EXPIRATION-RECOVERY-WEB-API` | accepted | P2 | This fix increases how often a store entry is `Expired`, so the recovery surface it asks for gets more valuable. It does not change what that surface must be | no | no | Monitor; link from the design | Keep P2 |
+| `ASSET-FINISHED-PROGRESS-CONTRACT-UNDEFINED` | draft | P3 | Same region: `finalize_primary_progress` races the service loop at the end of a run. The architecture must not add a second decision whose outcome depends on that loop's timing — and it does not: the rule is decided under the `data` write lock, not by a service message | no | no | Independent; Phase 3 asserts the ordering rather than relying on it | Keep P3 |
+| `QUEUED-MANAGER-EVICTION-RACE` | accepted | P2 | Touches `remove_expired_from_maps` and `get_asset`, which run *after* an asset is expired. Orthogonal: this design changes when a status is decided, not how an entry is evicted | no | no | Independent | Keep P2 |
+| `INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS` | draft | P2 | Touches `run_with_future_inline`, one of the two harnesses the rule is being removed from. Removing the relabel block does not touch claim or waiter handling | no | no | Independent | Keep P2 |
+| `ASSET-REGISTRATION-OWNERSHIP-CONTRACT` | draft (feature) | P2 | Registration is what `track_asset` and `save_to_store` approximate ownership with. This design changes *whether* a stale-dependency asset registers, inside that same approximation | no | no | Monitor; record the new branch as another consumer of the unwritten contract | Keep P2 |
+| `ASSETS-FIX1` | accepted (feature) | P2 | Catalogue of TODO/FIXME markers in the asset lifecycle. The relabel block being removed carries no marker | no | no | Independent | Keep P2 |
+| `CORE-TOKIO-REMOVAL` | accepted | P3 | The rule currently lives in `finish_run_with_result`, which both harnesses share. Moving it into `finalize_status` removes one more thing the harnesses must agree on, which helps rather than hinders | no | no | Independent | Keep P3 |
 
-### Blocking and Priority Decision
+**No blocker.** Nothing on the list must be resolved before this design is implementable, and no
+architecture assumption here depends on an unresolved issue.
 
-[Resolve blockers first or redesign to remove the dependency; do not approve Phase 2 with an
-unresolved blocker. Every blocker must be at least P1. Use P0 only when the issue also meets
-`DOCS_STRUCTURE_GUIDE.md` §4.4 impact criteria. Record and confirm priority changes.]
+### Priority action: recommend P1 for the originating issue
+
+The issue states "no wrong value is served in-process, which is why this is P2 rather than P1", and
+that is true. It is also not the whole exposure, and Phase 2 verified the rest:
+
+`AssetRef::try_fast_track` (`assets.rs:1048`) accepts a stored asset when its status is
+`Ready | Source | Override`, then validates recorded dependency versions against the dependency
+manager — but only where the DM *has* a version:
+
+> `if let Some(dm_version) = dm.get_version(&dep_record.key).await { … }`
+
+In a fresh process the DM is empty, so that guard is vacuous and every recorded dependency passes.
+A stale-dependency asset stored as `Ready` is therefore loaded and served **without
+recomputation** by the next process that asks for it. The in-process masking the issue describes is
+real and is exactly what does not survive a restart — which is the case the persisted status exists
+for.
+
+That is a correctness risk with a workaround (recompute deliberately, or `expire()` the key), so it
+reads as `P1` under `DOCS_STRUCTURE_GUIDE.md` §4.4, not `P0`: no computation is wrong, nothing is
+lost, and it needs both a mid-flight dependency expiry and a process boundary. **Recommended, not
+applied** — a priority change is confirmed with the owner (skill Phase 2 step 3).
 
 ## Data Structures
 
 ### New Structs
 
-[Define structs with fields, types, ownership rationale]
+None.
 
 ### New Enums
 
-[Define enums with variants and their semantics]
+None. No `match` over a Liquers-owned enum is added, so the no-default-arm rule has nothing new to
+police; the two `match`es this design touches (`finish_run_with_result`'s status match,
+`finalize_status`'s branch) keep their existing exhaustive form.
 
-### ExtValue Extensions (if applicable)
+### Changed Structs
 
-[If adding new ExtValue variants, document them here]
+`AssetData<E>` is unchanged. `stale_dependency: bool` (`assets.rs:584`) keeps its type, its
+initializer (`:955`) and its only writer, `note_expired_dependency` (`:1516`). Only its *reader*
+moves.
+
+**Why no new field.** The natural-looking alternative — record the finalized status separately, or
+add a `terminal_status: Option<Status>` — reintroduces exactly the duplication that
+`evaluate-path-consolidation` Phase 5 §2 rejected for `payload_required`: a second source for a
+fact `status` already holds, which then has to be kept in step with it.
 
 ## Trait Implementations
 
-[List traits to implement, for which types, with signatures]
+None added or changed. `AssetManager<E>`'s trait surface is untouched, so no implementor —
+`DefaultAssetManager`, `ImmediateAssetManager`, or anything in `liquers-py` — needs a change. The
+DM branch in `evaluate` uses `cascade_expire_dependents`, an **existing shared default method**
+(`assets.rs:3960`).
 
 ## Generic Parameters & Bounds
 
-[Document generic parameters and justify bounds]
+No bound is added or relaxed. Everything stays inside `impl<E: Environment> AssetRef<E>`, whose
+existing bounds already cover the two calls being introduced.
 
 ## Sync vs Async Decisions
 
-[Table or list of functions with async/sync choice and rationale]
+| Function | Async? | Rationale |
+|---|---|---|
+| `finalize_status` (renamed `try_to_set_ready`) | Yes — unchanged | Holds `self.data.write().await`. No new I/O; the decision is pure computation over fields already under that lock |
+| `cascade_expire_dependents` | Yes — existing | Already async; takes the DM's `expiration_lock` and may touch other assets |
+
+No blocking I/O is introduced, and no lock is newly held across an `.await`: `finalize_status`
+takes the write lock, decides, and releases it before `evaluate` continues, exactly as today.
+
+**Atomicity, and why it holds.** `stale_dependency` is written by `note_expired_dependency` under
+`data.write()` and read by `finalize_status` under the same lock, so no interleaving can lose the
+flag. Ordering is stronger than that: every dependency wait happens inside `apply_recipe`, which
+`evaluate_recipe_outcome` awaits to completion before `evaluate` reaches finalization, so the flag
+cannot be set after the decision. Phase 3 asserts this rather than assuming it.
 
 ## Function Signatures
 
-[Provide function signatures for all public functions]
+### `liquers-core/src/assets.rs` — `impl<E: Environment> AssetRef<E>`
+
+```rust
+/// Decide and install this asset's terminal status — the single status authority.
+///
+/// Was `try_to_set_ready`. Renamed because `Ready` is one of four outcomes it produces
+/// (`Volatile`, `Expired`, `Ready`, `Error`), and because the old name is why the
+/// stale-dependency rule was written somewhere else.
+///
+/// Runs **before** the `ValueProduced` notification and **before** persistence, so nothing
+/// observes or stores a non-final status (`ASSET_LIFECYCLE.md` §"the one evaluation path", step 6).
+async fn finalize_status(&self);
+```
+
+The signature is otherwise unchanged: no parameters, no return value. `evaluate` does not need the
+outcome returned — it already performs one read of `save_in_background`, `cancelled` and
+`is_volatile` after finalization, and that read gains `stale_dependency`.
+
+**Why not `-> Status`.** Returning the installed status would force `evaluate` to `match` 15
+variants to make a three-way decision, or to use the default arm the project forbids. Two booleans
+read from the lock `evaluate` already takes express the same branch with no new match.
+
+### The decision inside `finalize_status`
+
+Structure only; the body lands in Phase 4:
+
+```
+if data is present:
+    volatile (is_volatile || metadata.expires().is_volatile())  -> Status::Volatile   [unchanged]
+    else if stale_dependency                                    -> Status::Expired    [moved here]
+    else                                                        -> Status::Ready      [unchanged]
+else:
+                                                                -> Status::Error      [unchanged]
+```
+
+Three properties of the moved branch:
+
+1. **It writes metadata, not just the field.** It goes through `AssetData::set_status` (`:1183`),
+   which sets `self.status` *and* `self.metadata.set_status(status)`. The harness block it replaces
+   already did this; stating it because the whole defect is metadata and memory disagreeing.
+2. **The warning moves with it.** The existing "evaluated with an expired dependency value" log
+   entry is written here, so it reaches the store with the value. Today it is added after
+   persistence and is therefore absent from the stored sidecar — the quieter half of the same bug:
+   the store keeps neither the status nor the reason.
+3. **`expiration_time` follows the `Ready` arm.** `Expired` uses the same
+   `set_expiration_time_from(&metadata_expires)` and `lock.expiration_time` update as `Ready`, so
+   `finish_run_with_result`'s "schedule expiration if finite" step behaves as before. Its
+   `!exp_time.is_expired()` guard already declines to schedule for an already-expired asset.
+
+### The removed block
+
+`finish_run_with_result` (`:2249-2261`) loses the relabel and its comment entirely. Its own
+fallback `try_to_set_ready()` call (`:2224`, for a run that finished without `evaluate` finalizing)
+becomes `finalize_status()` and therefore gains the rule — correct, and free: that path does not
+persist.
+
+### The dependency-manager branch in `evaluate`
+
+Today, step 8:
+
+```rust
+if !lock_is_volatile {
+    let expired = dm.track_asset(self).await;
+    manager.expire_dependencies_result(expired).await;
+}
+```
+
+`DependencyManager::track_asset` (`dependencies.rs:282`) processes only
+`Ready | Source | Override` and returns early for `Expired`. So finalizing earlier would silently
+stop this step from running — including the dependent invalidation it performs today as a side
+effect of `register_version`. The branch is therefore made explicit:
+
+```
+if lock_is_volatile           -> nothing                       [unchanged: not a graph node]
+else if stale_dependency:
+        keyed                 -> cascade_expire_dependents(DependencyKey::from(key))
+        non-keyed             -> nothing
+else                          -> track_asset + expire_dependencies_result   [unchanged]
+```
+
+**Rationale.** `track_asset` does two things for a keyed asset: it registers this value as the
+key's current version, and — as a side effect of that registration changing the version — it
+expires dependents that recorded an older one. The first is wrong here: advertising an
+uncacheable value as the key's current version is the same category of lie as storing it `Ready`.
+The second is right and must be kept. `cascade_expire_dependents` is exactly the second without
+the first, is an existing shared default method, and is what `AssetRef::expire` already does for an
+ordinary expiry of the same key — so the stale-dependency completion and a normal expiry converge
+on one mechanism instead of two.
+
+It is *broader* than today in one respect: `expire(key)` invalidates every dependent, where
+`register_version` invalidated only those whose recorded version differed. That is deliberate and
+conservative — the key's newest value is expired, so every dependent recorded against that key is
+built on a superseded input — and it is the cost `AssetRef::expire` already pays on every keyed
+expiry.
+
+The non-keyed arm does nothing because `track_asset`'s query branch registers the asset as a
+*dependent* of its own dependencies, so that a later expiry reaches it. An asset that is already
+`Expired` gains nothing from being reachable that way.
+
+**Rejected alternative — do nothing (let `track_asset` early-return).** Simpler by three lines, and
+defensible on the argument that an expired asset should not be a graph node. Rejected because it
+silently drops the dependent invalidation that happens today, trading a persistence bug for a
+smaller invalidation bug. **This is the one place the design makes a judgement the owner may want
+to overturn**; the alternative is one `else if` away.
+
+**Rejected alternative — route the relabel through `expire()`/`mark_expired_status` (`:2920`).**
+Phase 1 open question 3. That helper already persists `Expired` for a keyed asset (the WP-3 rule),
+notifies, and cascades — so it looks like the fix already exists. It does not fit: it writes
+metadata only `if store.contains(&key)`, and at finalization time the entry has not been written
+yet, so the write would be skipped; used after persistence instead, it costs a second store
+round-trip and leaves the invariant violated in between. Its `Ready | Override`-only guard would
+also have to grow a `Volatile` answer. What survives from it is the *cascade*, which the branch
+above adopts.
+
+**No `Expired` notification.** `mark_expired_status` sends `AssetNotificationMessage::Expired`;
+this path deliberately does not. That message announces a transition away from a value that was
+being served, and subscribers use it to stop relying on one. Here nothing was ever served: the
+asset is born expired, `ValueProduced` and `JobFinished` are the truthful messages, and adding
+`Expired` would make a waiter believe a value it never received had just been withdrawn.
 
 ## Integration Points
 
-[Which crates, which files, which modules to modify or create]
+### Crate: liquers-core
+
+**File:** `liquers-core/src/assets.rs` — the only file changed.
+
+| Site | Line (HEAD) | Change |
+|---|---|---|
+| `try_to_set_ready` | `:1818` | Rename to `finalize_status`; add the `stale_dependency` branch and move the warning into it |
+| `evaluate` — finalize | `:2553` | Call site rename |
+| `evaluate` — post-finalize read | `:2555-2566` | Read `stale_dependency` alongside the three facts already read |
+| `evaluate` — DM step | `:2575-2582` | Explicit three-way branch |
+| `finish_run_with_result` — fallback | `:2224` | Call site rename |
+| `finish_run_with_result` — relabel | `:2249-2261` | Removed |
+| module rustdoc | `:~200` | The read-exposure table's `Expired` row and the flow summary name `finish_run_with_result` as where the label is applied |
+
+**File:** `liquers-core/src/dependencies.rs` — **read only.** `track_asset`'s status gate is the
+reason for the branch, and is left exactly as it is: it is right to refuse an expired asset.
+
+### Crates not touched
+
+`liquers-store`, `liquers-lib`, `liquers-axum`, `liquers-web`, `liquers-py`, `liquers-macro`. No
+public item changes: `finalize_status` is private (`async fn`, no `pub`), and the two behaviours
+that change — the status in a stored sidecar, and which DM call a stale-dependency asset makes —
+are internal. The dependency flow is respected; nothing new is imported in either direction.
+
+### Dependencies
+
+None added or changed. No `Cargo.toml` in the workspace is touched, and no feature gate is
+involved: `assets.rs` is unconditional core code, so the `check-build-matrix.sh` configurations
+compile the same source in every one.
 
 ## Documentation Architecture
 
 ### Reference Plan
-[New, extend existing, or none; exact path, kind, audience, area, purpose, sections/claims, links]
+
+**Extend three existing references. Create none.** The behaviour has no surface a reader reaches
+directly, so it belongs in the documents that already describe evaluation and expiry.
+
+| Path | Audience | Area | Change |
+|---|---|---|---|
+| `specs/reference/ASSET_LIFECYCLE.md` | internal | `core/assets` | Step 6 of "the one evaluation path" already says status is finalized before the notification and before persistence. Name the four outcomes it decides between, including the stale-dependency one, so the step is a specification rather than an ordering note. Add the DM branch to step 8 |
+| `specs/reference/ASSETS.md` | internal | `core/assets` | §Expiry (`:241-244`) attributes the `Ready`→`Expired` relabel to `finish_run_with_result`. Retarget to `finalize_status`, and say the asset is *born* expired rather than relabelled — which is what makes the `*_any_status`/`to_override` recovery sentence beside it still correct |
+| `specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md` | both | `core/assets` | `:246-248` says the parent "records the stale dependency and finishes as `Expired`". True, and now also true of the store — add that, since the paragraph's next sentence is about what manager access does next |
+
+Each gets a `## History` row and a `reviewed:` bump in the same commit
+(`DOCS_STRUCTURE_GUIDE.md` §9.2).
 
 ### Guide Plan
-[New, extend existing, or none; exact path, kind, audience, area, workflow, examples/snippets, links]
+
+**None.** Phase 1's rationale stands and Phase 2 did not disturb it: there is no repeatable task a
+developer performs here, and the recovery workflow a caller *does* perform is already documented
+with the `*_any_status` family in `ASSETS.md`. The condition for reconsidering is unchanged — an
+architecture that changed what a caller must do — and the chosen architecture does not.
 
 ### Other Documents to Create
-[Exact paths, kinds, audiences, purposes, and link destinations; or `None` with rationale]
+
+**None.** The two adjacent findings this phase produced are recorded where they belong rather than
+written up here: the cross-process fast-track exposure goes into the originating issue (with the
+priority recommendation), and if Phase 3 shows the missing `Expired` notification or the DM branch
+is wrong in a way this design should not absorb, that is a new issue under §4.8.
+
+### New Reference or Guide Documents
+
+None.
 
 ### Existing Documents to Review or Update
-[Every specific Phase 1 update plus area candidates, exact changes, discarded candidates, and the
-proposed authoritative `affects_docs` set]
+
+Candidates were generated by `area` (`core/assets`) and each was decided, not skipped:
+
+| Document | In `affects_docs`? | Why |
+|---|---|---|
+| `ASSET_LIFECYCLE` | **yes** | Owns the ordering invariant this restores |
+| `ASSETS` | **yes** | §Expiry names the old location |
+| `DOC_03_ASSETS_EXECUTION_LIFECYCLE` | **yes** | Describes the execution-time expiry outcome |
+| `ASSET_SET_OPERATION` | no | `set`/`set_state` do not enter `evaluate` and have no dependency wait |
+| `DEPENDENCIES_STATUS` | no | Specifies `Status::Dependencies` — a *scheduling* state left before evaluation finishes; untouched |
+| `PROJECT_OVERVIEW` | no | Core-concept level; no concept changes |
+| `DOC_01_ARCHITECTURE_REFERENCE` | no | Architecture level; the evaluation path's shape is unchanged |
+| `DOC_08_RECIPES_PLANS` | no | Recipes and plans; no plan or recipe behaviour changes |
+| `ENVIRONMENT_CONFIG`, `ENVIRONMENT_CONSTRUCTION_GUIDE` | no | Construction and configuration; nothing configurable changes |
+| `LANGUAGE-INTEGRATION_GUIDE` | no | No public item changes, so no binding changes |
+
+`DESIGN.md`'s `affects_docs` is therefore `[ASSET_LIFECYCLE, ASSETS, DOC_03_ASSETS_EXECUTION_LIFECYCLE]`
+— already set, and confirmed rather than assumed.
+
+Also updated, as documents rather than as `affects_docs` entries:
+`specs/issues/ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY.md` (four stale citations, the cross-process
+exposure, and the status/priority outcome at Phase 5), `specs/README.md` and `specs/index.csv`.
 
 ### Design and Capability Links
-[Where links to design artifacts must be added, updated, or replaced, including `specs/README.md`]
+
+`specs/README.md` carries the design-folder line added in Phase 1. At Phase 5 the capability is
+anchored in `ASSET_LIFECYCLE.md`, and no reader should need this folder to learn when a status is
+final — the design is linked from the issue, not from the reference.
+
+### Evidence to Collect During Implementation
+
+- Whether the DM branch changes any existing test's expectations — that is the measurable form of
+  "is the broader cascade acceptable?"
+- Whether `test_wait_for_retained_expired_dependency_labels_asset_expired_on_completion` still
+  passes unchanged; it uses a non-keyed asset, so it should, and if it does not the branch is wrong.
+- Whether `expired-binary-read-safety`'s I5 (a stale-dependency completion is not served by normal
+  reads, and `to_override` recovers it) still holds once such an asset is stored `Expired`.
+- The cross-process scenario as a runnable test — it is the fix's real payoff and nothing exercises
+  it today.
+- Any place the rename makes a comment or doc-link inaccurate.
 
 ## Relevant Commands
 
 ### New Commands
-[List all new commands with full signatures]
+
+**None.** No `register_command!` invocation is added, changed or removed, so
+`specs/command_registry.yaml` is not regenerated and `cargo test -p liquers-lib --test
+registry_export` is unaffected.
 
 ### Relevant Existing Namespaces
-[Which existing command namespaces interact with this feature?]
 
-## Web Endpoints (if applicable)
+**None.** This design has no query-reachable surface at all: it changes what an evaluation writes
+about itself, which no command names and no query selects. There is nothing here for a namespace to
+be relevant to, so the Phase 2 command question is answered rather than asked — flagged at the gate
+for confirmation, as `expired-binary-read-safety` did for the same reason.
 
-[Document new or modified HTTP endpoints]
+## Web Endpoints
+
+**None.** No route, handler or response shape changes. `liquers-axum` is not edited. The visible
+difference is that `AssetInfo` for a stored stale-dependency asset reports `Expired` instead of
+`Ready`, which is the correction, and which the existing handlers already have arms for.
 
 ## Error Handling
 
-[Error scenarios, which ErrorType to use, error propagation strategy]
+No new error type, no new `ErrorType` variant, and no `Error::new`. The moved branch inherits the
+existing failure discipline of `finalize_status`: a metadata write that fails becomes a warning log
+entry on the asset rather than an error return, because the status decision itself cannot fail and
+losing the record of it must not lose the value.
+
+| Scenario | Handling |
+|---|---|
+| `metadata.set_status(Expired)` fails | `LogEntry::warning` on the asset, as the `Ready` arm already does for its own metadata writes |
+| Persisting the `Expired` value fails | Unchanged: `persist_with_status_tracking` → `record_persistence_result`, which records `PersistenceStatus` and keeps the value |
+| `cascade_expire_dependents` finds nothing | Not an error; it returns an empty set |
+
+No `unwrap()` or `expect()` is introduced. The design adds no `?` in a path that previously could
+not fail.
 
 ## Serialization Strategy
 
-[Serde annotations, round-trip compatibility]
+Unchanged. `Status` already serializes as part of `MetadataRecord`, and `Expired` already round-trips
+— `try_fast_track` reads it back and refuses it (`:1063`), which is the mechanism the whole fix
+relies on. No serde annotation is added.
 
 ## Concurrency Considerations
 
-[Thread safety, locks, shared state]
+- **The decision is atomic.** Flag write and flag read take the same `data.write()` lock; and the
+  only writer runs strictly before the reader (dependency waits complete inside `apply_recipe`).
+- **No new lock, no new lock ordering.** `finalize_status` takes the lock it already takes.
+  `cascade_expire_dependents` takes the DM's `expiration_lock` — as `AssetRef::expire` already does
+  from a comparable position, and with no asset `data` lock held across it.
+- **Both harnesses, one rule.** `run_with_future` (`:2287`) and `run_with_future_inline` (`:2326`)
+  share `finish_run_with_result`, so the bug is present on both today and the fix reaches both.
+  Moving the rule into `evaluate`'s finalization keeps that property without depending on the
+  service-message loop, whose termination point is what made the current placement unfixable in
+  place.
+- **wasm.** No `tokio::` primitive is introduced. The branch uses `futures`-free, executor-agnostic
+  calls, so the inline path stays spawn-free and `liquers-web` is unaffected.
 
-## Compilation Validation
+## Open Questions
 
-[Mental check: would this compile with cargo check?]
+1. **Confirm the DM branch** (the design's one judgement call): invalidate dependents via
+   `cascade_expire_dependents`, or let `track_asset` early-return and accept losing that? The
+   document argues the former; the latter is smaller.
+2. **Confirm the priority recommendation** for `ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY`: P2 → P1
+   on the cross-process evidence. Not applied.
+3. **Confirm the rename.** `try_to_set_ready` → `finalize_status` is mechanical (private, two call
+   sites) and makes `ASSET_LIFECYCLE.md` step 6 accurate. It is separable if the owner prefers the
+   fix to touch nothing cosmetic.
+4. **Confirm "no commands in scope"** — answered above rather than asked, per the template.
 
-## References to liquers-patterns.md
+## References
 
-[Verify alignment with established patterns]
+- Phase 1: `./phase1-high-level-design.md`
+- `specs/reference/ASSET_LIFECYCLE.md` §"the one evaluation path" — the invariant restored
+- `specs/design/expired-binary-read-safety/` §"Expiry is an error" and the B1 resolution — the
+  owner-decided semantics this design must not disturb
+- `specs/design/dependency-scheduling/` — the execution-time expiry policy the rule implements
+- `specs/design/evaluate-path-consolidation/phase3-examples.md` C8/C10 — the corner cases

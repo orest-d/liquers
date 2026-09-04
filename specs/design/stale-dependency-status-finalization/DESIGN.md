@@ -4,7 +4,7 @@ kind: design
 title: Status is finalized before persistence for a stale-dependency evaluation
 workflow: liquers-project
 status: draft
-phase: high-level
+phase: architecture
 area: [core/assets]
 gh_pr: []
 issues: [ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY]
@@ -18,8 +18,8 @@ superseded_by:
 
 ## Phase Status
 
-- [ ] Phase 1: High-Level Design (drafted 2026-09-04, awaiting approval)
-- [ ] Phase 2: Solution & Architecture
+- [x] Phase 1: High-Level Design (approved 2026-09-04)
+- [ ] Phase 2: Solution & Architecture (drafted 2026-09-04, in review)
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
@@ -41,6 +41,21 @@ Two facts widen the issue as written and are carried into Phase 1's open questio
 before `evaluate`'s step 8 would stop `DependencyManager::track_asset` registering the asset (it
 early-returns for `Expired`), and the relabel bypasses `expire()`/`mark_expired_status`, which
 already persists `Expired` for a keyed asset, notifies, and cascades to dependents.
+
+**Phase 2 drafted 2026-09-04.** Settles all five Phase 1 questions: the rule moves into the status
+authority (renamed `try_to_set_ready` → `finalize_status`) so it is decided under the same write
+lock, before persistence; volatility keeps precedence over the stale-dependency label; the
+`expire()`/`mark_expired_status` route is rejected because it writes metadata only for a key the
+store already has, which at finalization time it does not. The one judgement call is the
+dependency-manager branch: rather than let `track_asset` silently early-return for `Expired`, a
+stale-dependency **keyed** asset calls `cascade_expire_dependents`, keeping the dependent
+invalidation `register_version` performs today without advertising an uncacheable value as the
+key's current version.
+
+Phase 2 also verified an exposure the issue does not record: `try_fast_track` skips its recorded
+dependency-version check when the dependency manager holds no version for that key, which is every
+key in a fresh process. A stale-dependency asset stored as `Ready` is therefore **served without
+recomputation after a restart**. Recommended (not applied) priority change P2 → P1.
 
 ## Links
 
