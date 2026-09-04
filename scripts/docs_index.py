@@ -152,12 +152,17 @@ SPECS = REPO / "specs"
 RELATIVE_LINK_RE = re.compile(r"\]\((?!https?://)([^)]+)\)")
 
 
+def stable_paths(paths) -> list[Path]:
+    """Sort paths identically on case-sensitive and case-insensitive hosts."""
+    return sorted(paths, key=lambda path: (path.as_posix().casefold(), path.as_posix()))
+
+
 def tracked_markdown_paths(specs: Path) -> list[Path]:
     """Return current-state Markdown documents whose local links are validated."""
     paths = [specs / "README.md"]
     for directory in ("issues", "design", "reference", "guides"):
         paths.extend((specs / directory).rglob("*.md"))
-    return sorted(path for path in paths if path.is_file())
+    return stable_paths(path for path in paths if path.is_file())
 
 
 def relative_link_errors(specs: Path) -> list[str]:
@@ -267,7 +272,7 @@ def collect() -> list[dict]:
     """
     rows: list[dict] = []
 
-    for path in sorted((SPECS / "issues").glob("*.md")):
+    for path in stable_paths((SPECS / "issues").glob("*.md")):
         f, _ = parse_front_matter(path.read_text(encoding="utf-8"))
         rows.append(
             {
@@ -295,7 +300,7 @@ def collect() -> list[dict]:
             }
         )
 
-    for path in sorted((SPECS / "design").glob("*/DESIGN.md")):
+    for path in stable_paths((SPECS / "design").glob("*/DESIGN.md")):
         f, _ = parse_front_matter(path.read_text(encoding="utf-8"))
         slug = path.parent.name
         gh_pr = _list(f, "gh_pr")
@@ -327,7 +332,7 @@ def collect() -> list[dict]:
 
     today = _dt.date.today()
     for sub, kind in (("reference", "reference"), ("guides", "guide")):
-        for path in sorted((SPECS / sub).rglob("*.md")):
+        for path in stable_paths((SPECS / sub).rglob("*.md")):
             f, _ = parse_front_matter(path.read_text(encoding="utf-8"))
             reviewed = f.get("reviewed", "")
             status = ""
@@ -447,7 +452,7 @@ def render_index_markdown(rows: list[dict]) -> str:
         if design and design in designs:
             design_phases = ' '.join(
                 f"[{x.name.split('-')[0]}]({x.relative_to(REPO).as_posix()}) "
-                for x in Path(designs[design]["_path"]).parent.iterdir()
+                for x in stable_paths(Path(designs[design]["_path"]).parent.iterdir())
                 if x.name != "DESIGN.md" and x.name.endswith(".md")
             )
             design = design_phases

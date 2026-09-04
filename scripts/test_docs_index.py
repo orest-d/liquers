@@ -6,6 +6,22 @@ from scripts import docs_index
 
 
 class RelativeLinkTests(unittest.TestCase):
+    def test_stable_paths_ignore_host_case_ordering(self):
+        paths = [
+            Path("specs/guides/UNITTEST_GUIDE.md"),
+            Path("specs/guides/autonomous_issue_fixing.md"),
+            Path("specs/guides/COMMAND_REGISTRATION_GUIDE.md"),
+        ]
+
+        self.assertEqual(
+            [path.as_posix() for path in docs_index.stable_paths(reversed(paths))],
+            [
+                "specs/guides/autonomous_issue_fixing.md",
+                "specs/guides/COMMAND_REGISTRATION_GUIDE.md",
+                "specs/guides/UNITTEST_GUIDE.md",
+            ],
+        )
+
     def test_valid_links_fragments_and_urls(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

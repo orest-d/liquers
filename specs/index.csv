@@ -66,6 +66,7 @@ DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE,issue,Execution-time expired dependen
 DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS,issue,"Three documents teach AsyncStoreWrapper, which no longer exists in the code",closed,local,,ready,P2,S,docs;core/store,,,,async-store-wrapper-docs,,2026-09-02,specs/issues/DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS.md
 DOCS-BUILD-MATRIX-CONFIGURATION-COUNT-STALE,issue,CLAUDE.md states the build matrix has 11 configurations; it runs 20,closed,local,,,P3,S,docs;build,,,,documentation-currentness-small-fixes,,2026-09-03,specs/issues/DOCS-BUILD-MATRIX-CONFIGURATION-COUNT-STALE.md
 DOCS-DEAD-LINKS-OUTSIDE-README,issue,Relative links outside README are never validated,closed,local,,covered,P3,S,docs,,,,docs-current-link-validation,,2026-08-08,specs/issues/DOCS-DEAD-LINKS-OUTSIDE-README.md
+DOCS-INDEX-GENERATION-DIFFERS-BY-HOST,issue,Documentation index generation differs by host filesystem ordering,closed,local,,,P2,S,docs;build,,,,,,2026-09-04,specs/issues/DOCS-INDEX-GENERATION-DIFFERS-BY-HOST.md
 DOCS-STORE-CONFIG-DESCRIBES-ASYNC-FILESTORE-AS-FUTURE-WORK,issue,Store configuration reference describes AsyncFileStore as future work,closed,local,,,P2,S,docs;core/store,,,,documentation-currentness-small-fixes,,2026-09-04,specs/issues/DOCS-STORE-CONFIG-DESCRIBES-ASYNC-FILESTORE-AS-FUTURE-WORK.md
 EGUI-ASSET-MANAGER-INTEGRATION,feature,No stable adapter between egui widgets and the asset manager,accepted,local,,,P2,M,lib/egui,,,,,,2026-08-08,specs/issues/EGUI-ASSET-MANAGER-INTEGRATION.md
 ENVIRONMENT-MANAGER-REFERENCE-CYCLE,issue,"Environment and asset manager hold each other with strong Arcs, so every environment leaks",draft,local,,,P2,M,core/assets;core/context,,,,environment-builder,,2026-08-27,specs/issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md
@@ -96,7 +97,7 @@ PAYLOAD-SOURCED-INJECTION-NOT-DECLARED,issue,An injection that reads the payload
 PLAN-EXCESS-ACTION-PARAMETERS-DROPPED,issue,Plan builder silently drops excess action parameters,closed,local,,,P0,M,core/plan,,,,excess-action-parameters-error,,2026-08-08,specs/issues/PLAN-EXCESS-ACTION-PARAMETERS-DROPPED.md
 PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS,issue,Plan split drops predecessor fields,closed,local,,covered,P2,S,core/plan,,,,plan-split-predecessor-fields,,2026-08-26,specs/issues/PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS.md
 POLARS-COMMAND-TESTS-BYPASS-COMMANDS,issue,The polars command integration tests never invoke a polars command,draft,local,,,P2,M,lib/polars;build,,,,,,2026-08-25,specs/issues/POLARS-COMMAND-TESTS-BYPASS-COMMANDS.md
-POLARS-DOC-EXAMPLES-OMIT-NAMESPACE,issue,Polars reference example queries omit the ns-pl namespace and do not resolve,draft,local,,ready,P2,S,docs;lib/commands,,,,polars-doc-example-namespace,,2026-08-12,specs/issues/POLARS-DOC-EXAMPLES-OMIT-NAMESPACE.md
+POLARS-DOC-EXAMPLES-OMIT-NAMESPACE,issue,Polars reference example queries omit the ns-pl namespace and do not resolve,closed,local,,ready,P2,S,docs;lib/commands,,,,polars-doc-example-namespace,,2026-08-12,specs/issues/POLARS-DOC-EXAMPLES-OMIT-NAMESPACE.md
 POST-INIT-COMMAND-REGISTRATION,issue,Registering a command after Environment::to_ref requires a rebuild,accepted,local,,,P3,M,core/commands;web,,,,,,2026-08-08,specs/issues/POST-INIT-COMMAND-REGISTRATION.md
 PREDECESSOR-CUT-NOT-YET-EQUIVALENT,issue,Cutting a predecessor boundary is not yet equivalent to expanding it,closed,local,,,P1,M,core/plan;core/assets,,,,predecessor-cut-equivalence,,2026-08-15,specs/issues/PREDECESSOR-CUT-NOT-YET-EQUIVALENT.md
 PY-MODULES-NOT-DECLARED-IN-LIB,issue,Half of liquers-py's source files are not declared as modules and never compile,draft,local,,,P2,M,py,,,,,,2026-08-25,specs/issues/PY-MODULES-NOT-DECLARED-IN-LIB.md
@@ -166,14 +167,14 @@ COVERED-02,design,Coverage record for COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEG
 COMMAND-DECLARATION,design,A language-neutral command declaration type,complete,local,,,,,core/commands;web;py,,50,,command-declaration,,2026-08-29,specs/design/command-declaration/DESIGN.md
 COMMAND-METADATA-COMMAND-HINTS,design,Command-level metadata hints,in_review,local,implementation,needs-decision,P3,S,core/commands;macro;lib/ui,,,,command-metadata-command-hints,,2026-08-31,specs/design/command-metadata-command-hints/DESIGN.md
 ACTIVE-09,design,Design for REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED,in_review,local,implementation,needs-decision,P3,S,lib/commands;build;docs,,,,command-registry-impl-version-freshness,,2026-09-03,specs/design/command-registry-impl-version-freshness/DESIGN.md
-COMMAND-REGISTRY-ISSUE-FIELDS,design,Preserve command registry issue identity fields,complete,local,,,P3,S,core/commands,,,,command-registry-issue-fields,,2026-08-31,specs/design/command-registry-issue-fields/DESIGN.md
 COVERED-09,design,Coverage record for COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED,in_review,local,architecture,covered,P3,S,core/commands,,,,command-registry-issue-fields-coverage,,2026-09-03,specs/design/command-registry-issue-fields-coverage/DESIGN.md
+COMMAND-REGISTRY-ISSUE-FIELDS,design,Preserve command registry issue identity fields,complete,local,,,P3,S,core/commands,,,,command-registry-issue-fields,,2026-08-31,specs/design/command-registry-issue-fields/DESIGN.md
 CONFIGURATION-ERROR-KIND,design,Classify semantic configuration failures,in_review,local,implementation,needs-decision,P3,S,core/error;store/config,,,,configuration-error-kind,,2026-08-31,specs/design/configuration-error-kind/DESIGN.md
 CONTEXT-PARAM-ORDER,design,Context parameter position in register_command!,draft,local,architecture,,,,core/commands;macro,,,,context-param-order,,2026-03-02,specs/design/context-param-order/DESIGN.md
 ACTIVE-10,design,Design for REPO-DEAD-CODE-HYGIENE,in_review,local,implementation,ready,P3,S,build,,,,core-dead-code-hygiene,,2026-09-03,specs/design/core-dead-code-hygiene/DESIGN.md
 CORE-ERROR-PAYLOAD-SIZE-DESIGN,design,Box the core error payload,complete,local,,ready,P2,S,core/error,,,,core-error-payload-size,,2026-09-01,specs/design/core-error-payload-size/DESIGN.md
-CORE-NO-DEFAULT-FEATURES,design,liquers-core no-default-features build decision,complete,local,,,P2,S,core/store;build,,,,core-no-default-features,,2026-08-29,specs/design/core-no-default-features/DESIGN.md
 COVERED-04,design,Coverage record for CORE-NO-DEFAULT-FEATURES-BROKEN,in_review,local,architecture,covered,P2,S,docs,,,,core-no-default-features-compatibility,,2026-09-03,specs/design/core-no-default-features-compatibility/DESIGN.md
+CORE-NO-DEFAULT-FEATURES,design,liquers-core no-default-features build decision,complete,local,,,P2,S,core/store;build,,,,core-no-default-features,,2026-08-29,specs/design/core-no-default-features/DESIGN.md
 COVERED-10,design,Coverage record for DELEGATED-VALUE-REPERSISTED,in_review,local,architecture,covered,P3,S,docs,,,,delegated-value-persistence,,2026-09-03,specs/design/delegated-value-persistence/DESIGN.md
 DELEGATED-VALUE-REPERSISTENCE,design,Avoid re-persisting delegated asset values,complete,local,,,P3,S,core/assets,,,,delegated-value-repersisted,,2026-08-31,specs/design/delegated-value-repersisted/DESIGN.md
 DEPENDENCY-MANAGEMENT,design,Dependency-wait lifecycle and deadlock-safe delegation,complete,local,,,,,core/assets,,5,,dependency-management,,2026-03-02,specs/design/dependency-management/DESIGN.md
@@ -199,8 +200,8 @@ KEYED-DELEGATION-HAND-OFF,design,"Keyed delegation is a hand-off, not a dependen
 KEYED-RECIPE-OWNERSHIP,design,Non-evaluating ownership test for keyed recipes,complete,local,,,,,core/assets;web,,,,keyed-recipe-ownership,,2026-08-09,specs/design/keyed-recipe-ownership/DESIGN.md
 LIB-INTEGRATION-TEST-FEATURE-GATES,design,Feature-gate liquers-lib integration tests,complete,local,,ready,P2,S,lib/value;build,,,,lib-integration-test-feature-gates,,2026-09-01,specs/design/lib-integration-test-feature-gates/DESIGN.md
 LIB-POLARS-ETHNUM-RUST-1-98,design,Polars dependency compatibility with Rust 1.98,complete,local,,ready,P2,S,lib/polars;build,,,,lib-polars-ethnum-rust-1-98,,2026-09-01,specs/design/lib-polars-ethnum-rust-1-98/DESIGN.md
-LIQUERS-WEB,design,Browser and JavaScript integration via WebAssembly,complete,local,,,,,web,,19,,liquers-web,,2026-03-02,specs/design/liquers-web/DESIGN.md
 LIQUERS-WEB-STORE,design,Browser stores for liquers-web,complete,local,,,,,web;store/config;core/store,,,,liquers-web-store,,2026-08-09,specs/design/liquers-web-store/DESIGN.md
+LIQUERS-WEB,design,Browser and JavaScript integration via WebAssembly,complete,local,,,,,web,,19,,liquers-web,,2026-03-02,specs/design/liquers-web/DESIGN.md
 COVERED-03,design,Coverage record for CORE-LISTDIR-KEYS-DEEP-TESTS-THE-WRONG-KEY,in_review,local,architecture,covered,P2,S,docs,,,,listdir-keys-deep-child-check,,2026-09-03,specs/design/listdir-keys-deep-child-check/DESIGN.md
 MENU-PANE-LAYOUT,design,Menu bar and configurable pane layout,complete,local,,,,,lib/ui,,,,menu-pane-layout,,2026-03-02,specs/design/menu-pane-layout/DESIGN.md
 METADATA-CONSISTENCY,design,Metadata format and type consistency,superseded,local,,,,,core/value,,,,metadata-consistency,,2026-03-02,specs/design/metadata-consistency/DESIGN.md
@@ -216,7 +217,7 @@ PAYLOAD-NESTED-EVALUATION-INHERITANCE,design,Payload inheritance in nested evalu
 PLAN-CWD-FREEZE,design,Freeze CWD in the plan and cut correct predecessor boundaries,,github,documentation,,,,core/plan;core/query;core/context;core/assets,,35,,plan-cwd-freeze,,2026-08-14,specs/design/plan-cwd-freeze/DESIGN.md
 PLAN-RELATIVE-RESOLUTION,design,CWD-relative query resolution in plans,complete,local,,,P1,M,core/query;core/plan;core/assets;core/context,,,,plan-relative-resolution,,2026-08-10,specs/design/plan-relative-resolution/DESIGN.md
 COVERED-06,design,Coverage record for PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS,in_review,local,architecture,covered,P2,S,docs,,,,plan-split-predecessor-fields,,2026-09-03,specs/design/plan-split-predecessor-fields/DESIGN.md
-POLARS-DOC-EXAMPLE-NAMESPACE,design,Polars reference examples select the pl namespace,in_review,local,implementation,ready,P2,S,docs;lib/commands,,,,polars-doc-example-namespace,,2026-08-29,specs/design/polars-doc-example-namespace/DESIGN.md
+POLARS-DOC-EXAMPLE-NAMESPACE,design,Polars reference examples select the pl namespace,complete,local,,ready,P2,S,docs;lib/commands,,,,polars-doc-example-namespace,,2026-08-29,specs/design/polars-doc-example-namespace/DESIGN.md
 PREDECESSOR-CUT-EQUIVALENCE,design,Make cutting a predecessor boundary observably equivalent to expanding it,complete,local,,,,,core/plan;core/assets;core/context,,43,,predecessor-cut-equivalence,,2026-08-26,specs/design/predecessor-cut-equivalence/DESIGN.md
 PYTHON-WRAPPER,design,Python wrapper architecture for liquers-py,complete,local,,,,,py,,,,python-wrapper,,2026-03-02,specs/design/python-wrapper/DESIGN.md
 QUERY-CONSOLE-ELEMENT,design,Query console UI element,complete,local,,,,,lib/ui,,,,query-console-element,,2026-03-02,specs/design/query-console-element/DESIGN.md
@@ -249,19 +250,25 @@ VOLATILITY-SYSTEM,design,Volatility tracking across the asset graph,complete,loc
 WEB-API-LIBRARY,design,Web API library,complete,local,,,,,axum,,,,web-api-library,,2026-03-02,specs/design/web-api-library/DESIGN.md
 ACTIVE-12,design,Design for WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE,in_review,local,implementation,needs-decision,P3,S,web;core/error,,,,web-liquers-error-constructor,,2026-09-03,specs/design/web-liquers-error-constructor/DESIGN.md
 COVERED-08,design,Coverage record for WEB-VALUE04-BYTES-IDENTIFIER-CASE-MISMATCH,in_review,local,architecture,covered,P2,S,docs,,,,web-value04-bytes-identifier,,2026-09-03,specs/design/web-value04-bytes-identifier/DESIGN.md
-WEBUI,design,Web-framework-independent rendering with SSR and wasm,complete,local,,,,,lib/ui,,10,,webui,,2026-03-02,specs/design/webui/DESIGN.md
 WEBUI-FIXES,design,Invalidation tracking for retained-mode rendering,complete,local,,,,,lib/ui,,12,,webui-fixes,,2026-03-02,specs/design/webui-fixes/DESIGN.md
+WEBUI,design,Web-framework-independent rendering with SSR and wasm,complete,local,,,,,lib/ui,,10,,webui,,2026-03-02,specs/design/webui/DESIGN.md
 WP2-TERMINAL-OUTCOME,design,Asset terminal outcome contract,complete,local,,,,,core/assets,,7,,wp2-terminal-outcome,,2026-03-02,specs/design/wp2-terminal-outcome/DESIGN.md
-ASSETS,reference,Assets Specification,current,local,,,,,core/assets,,,,,2026-08-26,,specs/reference/ASSETS.md
+API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,docs,,,,,2026-08-17,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
+DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
+DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,core/query,,,,,2026-08-17,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
+DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,core/assets,,,,,2026-09-04,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
+DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,core/context;core/plan,,,,,2026-08-31,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
+DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,core/plan;core/assets;core/context,,,,,2026-08-29,,specs/reference/api/DOC_08_RECIPES_PLANS.md
 ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,core/assets,,,,,2026-09-04,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,core/assets,,,,,2026-08-26,,specs/reference/ASSET_SET_OPERATION.md
+ASSETS,reference,Assets Specification,current,local,,,,,core/assets,,,,,2026-08-26,,specs/reference/ASSETS.md
 COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,core/commands;web;py,,,,,2026-08-31,,specs/reference/COMMAND_DECLARATION.md
 CONFORMANCE_TERMS,reference,Conformance Terms,current,local,,,,,docs,,,,,2026-09-02,,specs/reference/CONFORMANCE_TERMS.md
 DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,,core/assets,,,,,2026-08-12,,specs/reference/DEPENDENCIES_STATUS.md
 ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,core/context;core/store;core/assets,,,,,2026-08-31,,specs/reference/ENVIRONMENT_CONFIG.md
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,local,,,,,lib/image,,,,,2026-03-02,,specs/reference/IMAGE_COMMAND_LIBRARY.md
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,core/context;core/commands,,,,,2026-09-04,,specs/reference/PAYLOAD_GUIDE.md
-POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,lib/polars,,,,,2026-08-25,,specs/reference/POLARS_COMMAND_LIBRARY.md
+POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,lib/polars,,,,,2026-09-04,,specs/reference/POLARS_COMMAND_LIBRARY.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-08-18,,specs/reference/PROJECT_OVERVIEW.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,macro;core/commands,,,,,2026-08-30,,specs/reference/REGISTER_COMMAND_FSD.md
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,store/config,,,,,2026-09-04,,specs/reference/STORE_CONFIG_FSD.md
@@ -269,12 +276,8 @@ STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,core/sto
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,core/value;lib/value,,,,,2026-08-26,,specs/reference/VALUE_TYPE_SYSTEM.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,axum;web,,,,,2026-08-17,,specs/reference/WEB_API_SPECIFICATION.md
-API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,docs,,,,,2026-08-17,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
-DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
-DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,core/query,,,,,2026-08-17,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
-DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,core/assets,,,,,2026-09-04,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
-DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,core/context;core/plan,,,,,2026-08-31,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
-DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,core/plan;core/assets;core/context,,,,,2026-08-29,,specs/reference/api/DOC_08_RECIPES_PLANS.md
+autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,docs;build,,,,,2026-08-31,,specs/guides/autonomous_bulk_design.md
+autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,,docs;build,,,,,2026-08-11,,specs/guides/autonomous_issue_fixing.md
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,core/commands;macro,,,,,2026-08-31,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,core/context;core/assets;core/store,,,,,2026-08-31,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-09-02,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
@@ -283,5 +286,3 @@ STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,core/store;store
 STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,core/store;store/backends;web,,,,,2026-09-04,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,core/value;lib/value,,,,,2026-08-26,,specs/guides/TYPE_SYSTEM_GUIDE.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,build,,,,,2026-09-04,,specs/guides/UNITTEST_GUIDE.md
-autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,docs;build,,,,,2026-08-31,,specs/guides/autonomous_bulk_design.md
-autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,,docs;build,,,,,2026-08-11,,specs/guides/autonomous_issue_fixing.md
