@@ -3,11 +3,10 @@ id: SIDECAR-COLLIDING-KEYS
 kind: design
 title: Sidecar-colliding keys refused by the path builders
 workflow: liquers-project
-status:
-phase: documentation
+status: complete
 area: [core/store, store/backends, docs]
 gh_pr: [60]
-issues: [CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS, STORE-METADATA-LAYOUT-HARDCODED-PER-STORE, CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS, STORE-KEY-REFUSAL-ORDER-DIVERGES-BETWEEN-STORES]
+issues: [CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS, STORE-METADATA-LAYOUT-HARDCODED-PER-STORE, CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS, STORE-KEY-REFUSAL-ORDER-DIVERGES-BETWEEN-STORES, DOCS-BUILD-MATRIX-CONFIGURATION-COUNT-STALE]
 affects_docs: [STORE_SEMANTICS, STORE_IMPLEMENTATION_GUIDE]
 created: 2026-09-03
 superseded_by:
@@ -23,7 +22,7 @@ superseded_by:
 - [x] Phase 3: Examples & Testing — approved 2026-09-03
 - [x] Phase 4: Implementation Plan — approved 2026-09-03
 - [x] Implementation — steps 1-9 complete
-- [ ] Phase 5: Documentation — awaiting approval
+- [x] Phase 5: Documentation — approved 2026-09-04
 
 ## Notes
 
@@ -48,6 +47,13 @@ Making the metadata layout itself pluggable is **out of scope**, filed as
 `STORE-METADATA-LAYOUT-HARDCODED-PER-STORE` (P2, L), which records that its implementation must
 revisit `is_supported` and the path builders: the reserved-name set becomes a property of the
 configured layout rather than a constant.
+
+## Outcome
+
+Complete. Two issues closed (`CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS`, raised to `L`; and
+`STORE-KEY-REFUSAL-ORDER-DIVERGES-BETWEEN-STORES`, found and fixed within this design). Three left
+open for later, listed in `issues:` and detailed in Phase 5. Shipped as PR #60, with all 20 build
+matrix configurations green in CI.
 
 ## Links
 
