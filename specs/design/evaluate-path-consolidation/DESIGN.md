@@ -4,11 +4,11 @@ kind: design
 title: One evaluation path for every entry point
 workflow: liquers-project
 status: draft
-phase: implementation
+phase: documentation
 area: [core/assets, core/plan]
 gh_pr: []
 issues: [CORE-EVALUATE-PATH-CONSOLIDATION, ASSETS-FIX1, INLINE-PATH-LACKS-EXECUTE-ONCE, ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED, ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY, REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED, ASSET-REGISTRATION-OWNERSHIP-CONTRACT]
-affects_docs: [ASSET_LIFECYCLE, DOC_03_ASSETS_EXECUTION_LIFECYCLE, ASSETS, PAYLOAD_GUIDE]
+affects_docs: [ASSET_LIFECYCLE, DOC_03_ASSETS_EXECUTION_LIFECYCLE]
 created: 2026-09-02
 superseded_by:
 ---
@@ -21,9 +21,9 @@ superseded_by:
 - [x] Phase 1: High-Level Design (approved 2026-09-03)
 - [x] Phase 2: Solution & Architecture (approved 2026-09-03)
 - [x] Phase 3: Examples & Testing (approved 2026-09-03)
-- [x] Phase 4: Implementation Plan (drafted, in review)
-- [ ] Phase 5: Documentation
-- [ ] Implementation Complete
+- [x] Phase 4: Implementation Plan (approved 2026-09-03)
+- [x] Phase 5: Documentation (awaiting approval)
+- [x] Implementation Complete (steps 1-7, 2026-09-04)
 
 ## Notes
 

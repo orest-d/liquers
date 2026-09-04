@@ -40,6 +40,7 @@ encoding, and the interpreter that turns a plan into asset evaluation.
 
 - **Query language and Key encoding** — documented → [`reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md`](reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md)
 - **Plan building and evaluation** — documented → [`reference/api/DOC_01_ARCHITECTURE_REFERENCE.md`](reference/api/DOC_01_ARCHITECTURE_REFERENCE.md)
+- **One evaluation path: flows and public surface** — documented → [`reference/ASSET_LIFECYCLE.md`](reference/ASSET_LIFECYCLE.md) *(design in [`design/evaluate-path-consolidation/`](design/evaluate-path-consolidation/))*
 - **Recipes and plan contracts** — documented → [`reference/api/DOC_08_RECIPES_PLANS.md`](reference/api/DOC_08_RECIPES_PLANS.md)
 - **Offline query and recipe validation** — built → [`design/query-validation/`](design/query-validation/)
 - **Action-parameter links (`~X~~E`)** — built → [`design/query-link-parser/`](design/query-link-parser/)
@@ -244,7 +245,6 @@ deliberately folded behind a broader line.
 - design `docs-dead-links`
 - design `error-store-name-payload`
 - design `error-with-key-field`
-- design `evaluate-path-consolidation`
 - design `expiration-integration-suite-failing-at-head`
 - design `foreign-value-type-registration`
 - design `js-store-directory-metadata`

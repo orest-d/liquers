@@ -2,14 +2,29 @@
 id: INLINE-PATH-LACKS-EXECUTE-ONCE
 kind: issue
 title: The inline run path has no execute-once claim, only an is_finished check
-status: accepted
+status: closed
 priority: P2
 complexity: M
 area: [core/assets, web]
-design:
+design: evaluate-path-consolidation
 created: 2026-08-09
 github:
 ---
+
+## Resolution
+
+Closed 2026-09-04 by `design/evaluate-path-consolidation/` Step 6. `InlineRunClaim` is the
+queue-less counterpart of `RunClaim`: the same atomic status transition under one write lock, the
+same explicit status match in which `Dependencies` is active and therefore not claimable, but a
+`Drop` repair that restores a re-runnable status rather than re-submitting to a queue the inline
+path does not have.
+
+As this issue insisted, a caller that does not win the claim **waits** rather than being refused —
+the cheap refusing guard was tried and reverted before, and this records why that was right.
+
+The existing `immediate_concurrent_same_query_runs_once` could not catch the gap because its
+command is a synchronous closure that never suspends. The new test uses a command with a real
+yield point, and was observed running the body twice before the fix.
 
 ## Problem
 

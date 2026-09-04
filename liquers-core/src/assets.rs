@@ -18,25 +18,101 @@
 //! [`EnvRef::evaluate`](crate::context::EnvRef::evaluate) or an [`AssetManager`].
 //! Direct `AssetData` access is primarily framework infrastructure.
 //!
+//! # Public API, at a glance
+//!
+//! An asset is **constructed and managed by an [`AssetManager`]**. Nothing evaluates an
+//! `AssetRef` directly: the evaluation body is private to this module, and the run entry points
+//! are crate-internal. A caller obtains a handle, then reads from it.
+//!
+//! | You want to… | Call |
+//! |---|---|
+//! | Evaluate a query | [`EnvRef::evaluate`](crate::context::EnvRef::evaluate) → [`AssetManager::get_asset`] |
+//! | Evaluate a query with a payload | [`EnvRef::evaluate_immediately`](crate::context::EnvRef::evaluate_immediately) → [`AssetManager::apply`] |
+//! | Fetch a keyed resource | [`AssetManager::get`] |
+//! | Apply a recipe to a state you supply | [`AssetManager::apply`] |
+//! | Wait for a value | [`AssetRef::get`] |
+//! | Look without waiting | [`AssetRef::poll_state`], [`AssetRef::status`] |
+//! | Describe an asset to a client | [`AssetRef::get_asset_info`] |
+//! | Install or remove a keyed value | [`AssetManager::set_state`], [`set_binary`](AssetManager::set_binary), [`remove`](AssetManager::remove) |
+//!
+//! Everything else here — [`AssetData`], `AssetServiceMessage`, `JobQueue`, `MetadataSaver`, the
+//! run entry points — is framework infrastructure.
+//!
+//! # One evaluation path
+//!
+//! Every entry point reaches the **same** private evaluation body. Entry points differ only in
+//! the asset they construct, never in how it is evaluated, so a behaviour fixed once is fixed for
+//! all of them (`CORE-EVALUATE-PATH-CONSOLIDATION`).
+//!
+//! The body runs in a fixed order, and parts of it are load-bearing:
+//!
+//! 1. resolve volatility;
+//! 2. resolve the recipe — hand off to the key's registered owner, or resolve through the recipe
+//!    provider — and apply it, with any payload installed on the context;
+//! 3. record observed dependencies in metadata, for **every** entry point;
+//! 4. install the value, its type identifier and type name;
+//! 5. finalize status — **before** the notification and **before** persistence, so nothing
+//!    observes or stores a non-final status;
+//! 6. send `ValueProduced`;
+//! 7. persist, if this is a keyed asset and this evaluation did not hand off;
+//! 8. register with the dependency manager.
+//!
+//! Two run harnesses wrap that body: a spawning one natively and a spawn-free one for inline
+//! managers and wasm. That split is a platform difference, not duplication — collapsing it would
+//! mean either giving up the spawned service loop natively or faking a spawn on wasm.
+//!
+//! # Why the flows differ
+//!
+//! There is one path, but assets differ along axes that are properties of the asset, not of the
+//! code that evaluates it. Each axis is decided when the asset is constructed:
+//!
+//! | Axis | Why it exists | What it changes |
+//! |---|---|---|
+//! | **Keyed or not** | whether the asset is associated with a key, and so whether anything can ask for it again | store target, map membership, reuse |
+//! | **Initial state supplied** | the caller injects input the identity does not describe | not reproducible: no key, no reuse |
+//! | **Payload** | per-call caller context, deliberately *not* part of identity, and it cannot cross a key boundary | never mapped, never reused, never loadable |
+//! | **Volatility** | the result is valid but single-use | stored, but written with a status that fast-track refuses |
+//! | **Delegation** | another asset owns the key | hand-off: no write, no second dependency edge |
+//! | **Fast-track** | a stored value is already valid | evaluation is skipped entirely |
+//! | **Queued or inline** | manager policy | scheduling and the status sequence only |
+//!
+//! The first five are properties of the asset, the sixth is a relationship between two assets, and
+//! only the last is policy.
+//!
+//! # Keyed assets, storing, and persistence
+//!
+//! **A keyed asset is an asset associated with a key.** Whether it is keyed, and which key, is
+//! known when the manager creates it and is recorded on the asset — never re-derived from the
+//! recipe afterwards, because provider resolution replaces that recipe mid-evaluation.
+//!
+//! Three properties follow in one direction only:
+//!
+//! ```text
+//! stored     => keyed        (only a keyed asset is written to the store)
+//! persistent => stored       (only a stored asset can be loaded back)
+//! ```
+//!
+//! So **not keyed means never stored and never loadable**. A volatile keyed asset *is* keyed, so
+//! it is stored — it is simply not persistent, because its status is one `try_fast_track` refuses.
+//! An ad-hoc `apply` asset is not keyed, so the question of whether it may write never arises.
+//!
+//! Ownership is approximated by keyedness. Whether the manager *registers* a keyed asset in its
+//! key map is a separate caching-and-sharing decision that belongs to the manager: declining to
+//! register a non-volatile keyed asset still produces correct results, and a volatile keyed asset
+//! is deliberately never registered. A non-volatile keyed asset that writes while not the
+//! registered owner records a warning in its metadata rather than failing
+//! (`ASSET-REGISTRATION-OWNERSHIP-CONTRACT`).
+//!
 //! # Evaluation entry points
 //!
-//! The configured manager determines whether ordinary evaluation is queued or
-//! inline:
-//!
-//! | Entry point | Initial state | Payload | `DefaultAssetManager` | `ImmediateAssetManager` |
+//! | Entry point | Initial state | Payload | Keyed | Returns |
 //! |---|---|---|---|---|
-//! | [`AssetManager::get_asset`] / [`AssetManager::get`] | Empty | No | Fast-track or schedule, then return the handle | Fast-track or evaluate inline before returning |
-//! | [`AssetManager::apply`] | Supplied | No | Schedule, then return the handle | Evaluate inline before returning |
-//! | [`AssetManager::apply_immediately`] | Supplied | Optional | Evaluate before returning, bypassing the job queue | Evaluate inline before returning |
+//! | [`AssetManager::get_asset`] / [`AssetManager::get`] | empty | no | for a key | queued: a scheduled handle; inline: after evaluation |
+//! | [`AssetManager::apply`] | supplied | optional | no | after evaluation, on both managers |
 //!
-//! [`EnvRef::evaluate`](crate::context::EnvRef::evaluate) delegates to
-//! [`AssetManager::get_asset`]. Therefore it returns a scheduled handle with
-//! `DefaultAssetManager`, but a completed handle with [`ImmediateAssetManager`].
-//! [`EnvRef::evaluate_immediately`](crate::context::EnvRef::evaluate_immediately)
-//! uses an empty state and delegates to [`AssetManager::apply_immediately`].
-//!
-//! `apply_immediately` is also the only entry point above that accepts an execution
-//! payload. Its immediate evaluation path does not persist the produced value.
+//! `apply` evaluates before returning and takes no job-queue slot: its asset is in no map, never
+//! reused and not keyed, so queueing buys nothing, while taking a slot from inside a command that
+//! already holds one is a deadlock shape.
 //!
 //! # Typical lifecycle
 //!
@@ -3705,7 +3781,7 @@ pub trait AssetManager<E: Environment>:
     ///
     /// **Non-evaluating.** This reads the key→asset map and never starts, submits, fast-tracks
     /// or resolves an evaluation, which is what makes it usable from *inside* an evaluation —
-    /// [`AssetRef::evaluate_recipe`] asks it whether it owns the key it is evaluating. Asking
+    /// the recipe-resolution step asks it whether it owns the key it is evaluating. Asking
     /// [`AssetManager::get`] instead recurses forever under an inline manager, which is the
     /// defect this method exists to remove.
     ///

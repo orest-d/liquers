@@ -2,7 +2,7 @@
 id: ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED
 kind: issue
 title: An asset never records that its evaluation required a payload
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [core/assets, core/context]
@@ -10,6 +10,18 @@ design: evaluate-path-consolidation
 created: 2026-09-03
 github:
 ---
+
+## Resolution
+
+Closed 2026-09-04 by `design/evaluate-path-consolidation/` Step 1. The plan's payload requirement
+is recorded in `interpreter::apply_plan`, beside the authoritative gate that already read it, and
+reaches `MetadataRecord.payload_required` and `AssetInfo`. `AssetRef::payload_required()` reads it
+back from metadata rather than duplicating it in an `AssetData` field.
+
+Two tests, one verified to fail with the projection disabled. The recipe-preview projection in
+`AsyncRecipeProvider::get_asset_info` is added for consistency but is unreachable and says so:
+both callers pass `Some(key)`, so the plan is built with `to_plan_for_key`, which rejects a
+payload-requiring recipe because keys are a payload boundary.
 
 ## Problem
 
