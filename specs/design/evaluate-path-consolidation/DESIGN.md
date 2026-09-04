@@ -3,7 +3,6 @@ id: EVALUATE-PATH-CONSOLIDATION
 kind: design
 title: One evaluation path for every entry point
 workflow: liquers-project
-status: draft
 phase: documentation
 area: [core/assets, core/plan]
 gh_pr: [61]
