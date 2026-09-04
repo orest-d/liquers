@@ -632,6 +632,48 @@ async fn immediate_concurrent_same_query_runs_once() -> Result<(), Error> {
     Ok(())
 }
 
+/// Execute-once on the inline path, with a command that actually yields.
+///
+/// `immediate_concurrent_same_query_runs_once` above has the right shape but cannot expose the
+/// gap: its command is a synchronous closure with no `.await`, so the first evaluation always
+/// finishes before the second caller is polled. A command that yields opens the window that
+/// `run_with_future_inline`'s `is_finished()`-only guard leaves — two callers both observe "not
+/// finished" and both run the body (`INLINE-PATH-LACKS-EXECUTE-ONCE`).
+///
+/// Two `get_asset` calls, not two `apply` calls: each `apply` builds a separate ad-hoc asset and
+/// would legitimately run twice. Execute-once is about two callers converging on one mapped asset.
+#[tokio::test]
+async fn immediate_concurrent_yielding_command_runs_once() -> Result<(), Error> {
+    static YIELDING_COUNT: AtomicUsize = AtomicUsize::new(0);
+    let mut env = ImmediateEnvironment::<Value>::new();
+    env.command_registry
+        .register_async_command(
+            CommandKey::new_name("yielding"),
+            |_state, _args, _ctx| {
+                Box::pin(async move {
+                    YIELDING_COUNT.fetch_add(1, Ordering::SeqCst);
+                    // A real suspension point: this is what a JavaScript async command or any
+                    // I/O does, and it is what the synchronous test command never did.
+                    tokio::task::yield_now().await;
+                    Ok(Value::from("y"))
+                })
+            },
+        )
+        .expect("register");
+    let envref = env.to_ref();
+    let m = envref.get_asset_manager();
+    let query = q("yielding");
+    let (a, b) = futures::join!(m.get_asset(&query), m.get_asset(&query));
+    a?.get().await?;
+    b?.get().await?;
+    assert_eq!(
+        YIELDING_COUNT.load(Ordering::SeqCst),
+        1,
+        "the command body must run once even when it yields mid-evaluation"
+    );
+    Ok(())
+}
+
 /// **No-tokio-runtime proof.** The immediate path runs under `futures::executor::block_on`
 /// with NO tokio runtime present. A reintroduced `tokio::spawn` on the inline path would panic
 /// here ("no reactor running") — green means browser-ready. (Non-keyed query ⇒ no persistence.)

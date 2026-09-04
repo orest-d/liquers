@@ -2186,6 +2186,19 @@ impl<E: Environment> AssetRef<E> {
         if self.status().await.is_finished() {
             return Ok(());
         }
+        // Execute-once. The `is_finished()` check above is not sufficient on its own: a command
+        // that yields leaves a window in which two callers both observe "not finished" and both
+        // run the body (`INLINE-PATH-LACKS-EXECUTE-ONCE`). The claim closes it atomically.
+        //
+        // A caller that does not get the claim **waits** for the running evaluation rather than
+        // failing — refusing it breaks the legitimate case of two tasks awaiting the same asset,
+        // which is what a genuinely async command produces.
+        let claim = match self.try_claim_for_run_inline().await? {
+            Some(claim) => claim,
+            None => {
+                return self.wait_to_finish().await;
+            }
+        };
         let eval_side = async {
             let wait = self.wait_to_finish().fuse();
             let ev = evaluate_future.fuse();
@@ -2203,6 +2216,9 @@ impl<E: Environment> AssetRef<E> {
         };
         let psm_side = self.process_service_messages();
         let (result, psm_result) = futures::join!(eval_side, psm_side);
+        // The run reached its end, so the status it leaves behind is the real one; the guard must
+        // not rewind it. A panic or early return skips this and the `Drop` repair applies instead.
+        claim.complete();
         // Wrap the inline psm outcome as the JoinError-free `Ok(..)` variant so the shared
         // `finish_run_with_result` is reused unchanged.
         self.finish_run_with_result(result, Ok(psm_result)).await
@@ -5425,6 +5441,81 @@ impl<E: Environment + 'static> Drop for RunClaim<E> {
                 }
             }
         });
+    }
+}
+
+/// Execute-once guard for the inline (queue-less) run path.
+///
+/// The queued [`RunClaim`] re-parks a dropped runner by re-submitting to the job queue. The
+/// inline path has no queue to re-submit to, so this guard restores a **re-runnable** status
+/// instead: an asset whose runner vanished before finishing must not be left in `Processing`,
+/// where nothing could ever claim it again.
+pub(crate) struct InlineRunClaim<E: Environment> {
+    asset: AssetRef<E>,
+    armed: bool,
+}
+
+impl<E: Environment> InlineRunClaim<E> {
+    /// Disarms the guard after a completed run, so `Drop` does not undo a finished status.
+    pub(crate) fn complete(mut self) {
+        self.armed = false;
+    }
+}
+
+impl<E: Environment> Drop for InlineRunClaim<E> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        // The runner vanished mid-flight (an error, a cancelled future, a panic unwinding past
+        // the claim). Return the asset to a claimable status so a later caller can run it.
+        // `try_write` rather than blocking: `Drop` cannot await, and failing to repair is better
+        // than deadlocking. A missed repair leaves the asset in `Processing`, which the next
+        // caller waits on rather than double-running — the safe direction.
+        if let Ok(mut lock) = self.asset.data.try_write() {
+            if lock.status == Status::Processing {
+                let _ = lock.set_status(Status::Recipe);
+            }
+        }
+    }
+}
+
+impl<E: Environment> AssetRef<E> {
+    /// Atomically claim the exclusive right to execute this asset's body, without a job queue.
+    ///
+    /// Available on both targets, unlike [`RunClaim`], which is native-only and needs a
+    /// `JobQueue` for its repair. The status match mirrors that one exactly — `Dependencies` is
+    /// an *active* state and is therefore not claimable, since its runner is merely parked.
+    ///
+    /// Returning `None` means someone else is running or has run it; the caller must then
+    /// **wait**, not fail. Refusing the second caller is the wrong answer and was tried and
+    /// reverted once already (see `INLINE-PATH-LACKS-EXECUTE-ONCE`): a JavaScript `async` command
+    /// genuinely yields, so a second legitimate request arrives mid-evaluation and must join the
+    /// first rather than be turned away.
+    pub(crate) async fn try_claim_for_run_inline(&self) -> Result<Option<InlineRunClaim<E>>, Error> {
+        let mut lock = self.data.write().await;
+        match lock.status {
+            Status::None | Status::Recipe | Status::Submitted => {
+                lock.set_status(Status::Processing)?;
+                drop(lock);
+                Ok(Some(InlineRunClaim {
+                    asset: self.clone(),
+                    armed: true,
+                }))
+            }
+            Status::Directory
+            | Status::Processing
+            | Status::Dependencies
+            | Status::Partial
+            | Status::Error
+            | Status::Storing
+            | Status::Ready
+            | Status::Expired
+            | Status::Cancelled
+            | Status::Source
+            | Status::Override
+            | Status::Volatile => Ok(None),
+        }
     }
 }
 
