@@ -21,7 +21,7 @@ superseded_by:
 - [x] Phase 2: Solution & Architecture (approved 2026-09-03)
 - [x] Phase 3: Examples & Testing (approved 2026-09-03)
 - [x] Phase 4: Implementation Plan (approved 2026-09-03)
-- [x] Phase 5: Documentation (awaiting approval)
+- [x] Phase 5: Documentation (approved 2026-09-04)
 - [x] Implementation Complete (steps 1-7, 2026-09-04)
 
 ## Notes
@@ -63,6 +63,20 @@ approximated by keyedness, with a metadata warning when a non-registered keyed a
 exact registration contract is out of scope and filed as `ASSET-REGISTRATION-OWNERSHIP-CONTRACT`
 (P2, L). The key is also projected into metadata, so a keyed asset and a non-keyed query asset
 built from the same query become distinguishable — which is where delegation originated.
+
+Phase 5 approved 2026-09-04, completing every phase this design owed. It rewrote
+`specs/reference/ASSET_LIFECYCLE.md` around the surviving surface — the public API table, the one
+evaluation path step by step, and the axes along which evaluations still differ (payload, supplied
+initial state, volatility) — with the module-level rustdoc on `assets.rs` carrying the same
+high-level API summary, as the owner asked. The former duplication catalogue is archived rather
+than deleted.
+
+**Status is deliberately absent while PR #61 is open** (§5.5): with `gh_pr` set,
+`in_implementation` is GitHub's to derive and `index.csv` caches it. `complete` — which freezes
+this folder — is written when #61 merges, not before, because the folder must stay editable while
+review can still change the work. Two Codex review findings were fixed after Phase 5 approval was
+requested (payload requirement recorded before the gate; `InlineRunClaim` repairing
+`Dependencies`), which is exactly the case that argues against freezing early.
 
 ## Links
 
