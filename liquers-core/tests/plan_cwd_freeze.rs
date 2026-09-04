@@ -210,11 +210,11 @@ async fn dependency_failure_reports_its_cause() -> Result<(), Box<dyn std::error
 
 use liquers_core::{
     assets::AssetRef,
-    command_metadata::{CommandMetadataRegistry, PayloadRequirement},
+    command_metadata::PayloadRequirement,
     context::ImmediateEnvironmentWithPayload,
     interpreter::{apply_plan, finalize_plan, finalize_plan_expanded},
     metadata::{Metadata, MetadataRecord, Status},
-    recipes::{AsyncRecipeProvider, DefaultRecipeProvider, Recipe},
+    recipes::{DefaultRecipeProvider, Recipe},
     store::{AsyncMemoryStore, AsyncStore},
     value::ValueInterface,
 };

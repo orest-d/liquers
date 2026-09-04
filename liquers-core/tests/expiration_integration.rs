@@ -4,7 +4,6 @@ use std::task::Poll;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use itertools::Itertools;
 // Integration tests for expiration system
 use liquers_core::{
     assets::{AssetData, AssetManager, AssetRef, PersistenceStatus},
@@ -271,7 +270,7 @@ async fn test_timed_expiration() -> Result<(), Box<dyn std::error::Error>> {
     let asset = envref.evaluate("hello").await?;
     assert_eq!(asset.get().await?.try_into_string()?, "Hello");
     assert_eq!(asset.status().await, Status::Ready);
-    let state = asset.get().await?;
+    let _state = asset.get().await?;
     tokio::time::sleep(Duration::from_millis(600)).await;
     assert_eq!(asset.status().await, Status::Expired);
 

@@ -4,7 +4,6 @@
 //! PAYLOAD-NESTED-EVALUATION-INHERITANCE — a nested query whose plan requires a payload
 //! inherits the parent evaluation's payload, together with the boundaries that limit it.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use liquers_core::{

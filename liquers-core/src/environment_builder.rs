@@ -463,9 +463,8 @@ mod tests {
 
     /// T2 — **the original bug**, as a direct assertion.
     ///
-    /// `AssetManager::register_plan_dependencies` reads
-    /// `if let Some(ver) = self.dependency_manager().get_version(&plan_dep.key).await`. When
-    /// startup had not run, `get_version` returned `None`, the `if let` skipped, and the plan's
+    /// `AssetManager::register_plan_dependencies` reads a known version for each plan dependency.
+    /// When startup had not run, that read returned `None`, the registration skipped, and the plan's
     /// dependency edges were **silently** not registered — no error, no log, just a dependency
     /// graph that would never invalidate anything. That is `QUEUED-MANAGER-STARTUP-READINESS`, and
     /// this asserts the inverse: an edge registered against a command key immediately after

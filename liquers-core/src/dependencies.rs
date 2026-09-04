@@ -104,16 +104,6 @@ pub(crate) enum ScheduleNode {
     Expression(DependencyKey),
 }
 
-impl ScheduleNode {
-    /// The underlying `DependencyKey` regardless of variant.
-    pub(crate) fn key(&self) -> &DependencyKey {
-        match self {
-            ScheduleNode::Keyed(k) => k,
-            ScheduleNode::Expression(q) => q,
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // DependencyManager<E>
 // ---------------------------------------------------------------------------
