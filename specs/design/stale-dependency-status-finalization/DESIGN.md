@@ -4,7 +4,7 @@ kind: design
 title: Status is finalized before persistence for a stale-dependency evaluation
 workflow: liquers-project
 status: draft
-phase: examples
+phase: implementation
 area: [core/assets]
 gh_pr: []
 issues: [ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY, EXPIRY-RECORDS-NO-REASON]
@@ -20,7 +20,7 @@ superseded_by:
 
 - [x] Phase 1: High-Level Design (approved 2026-09-04)
 - [x] Phase 2: Solution & Architecture (approved 2026-09-04)
-- [ ] Phase 3: Examples & Testing (reviewed 2026-09-04, awaiting approval)
+- [x] Phase 3: Examples & Testing (approved 2026-09-04)
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
