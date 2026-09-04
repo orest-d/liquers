@@ -223,14 +223,25 @@ impl AsyncStore for SharedMemoryStore {
     async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
         self.inner.set_metadata(key, metadata).await
     }
-    // Every other method has a default implementation. Delegate any that the tests exercise
-    // (`set`, `contains`, `remove`) — the defaults route through `get`/`set_metadata` and are
-    // not necessarily what a memory store should do.
+    // `AsyncMemoryStore` OVERRIDES these rather than inheriting the defaults, so a wrapper that
+    // delegates only the two required methods would silently get different behaviour:
+    async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> { … }
+    async fn contains(&self, key: &Key) -> Result<bool, Error> { … }
+    async fn remove(&self, key: &Key) -> Result<(), Error> { … }
 }
 ```
 
-`AsyncStore` has **two required methods** and twenty defaulted. `ToOverrideGateStore` (`:880`) is
-the proven precedent for this exact shape.
+`AsyncStore` has **two required methods** — `get` (`store.rs:391`) and `set_metadata` (`:427`) —
+and twenty defaulted. But "required" is the wrong list to delegate by: what matters is which
+methods `AsyncMemoryStore` *overrides*, because those are where its behaviour differs from the
+trait defaults. It overrides `set`, `contains` and `remove`, so `SharedMemoryStore` must forward
+those three as well as the two required ones. Delegating only the required pair would compile and
+then behave differently from the store it is supposed to be sharing — the kind of failure that
+surfaces as a confusing test result rather than an error.
+
+If a test later exercises another method, check whether `AsyncMemoryStore` overrides it before
+relying on the default. `ToOverrideGateStore` (`expiration_integration.rs:880`) is the proven
+precedent for the wrapper shape itself.
 
 **Validation:**
 ```bash
