@@ -101,7 +101,7 @@ use std::sync::{Arc, Mutex};
 use crate::maybe_send::MaybeBoxed;
 
 use crate::{
-    assets::{AssetManager, AssetRef, AssetServiceMessage},
+    assets::{AssetManager, AssetRef, AssetServiceMessage, DependencyManagerAccess},
     command_metadata::CommandMetadataRegistry,
     commands::{CommandExecutor, CommandRegistry},
     dependencies::ScheduleNode,
@@ -954,20 +954,6 @@ impl<E: Environment> Context<E> {
         }
     }
 
-    pub(crate) async fn set_value(&self, value: E::Value) -> Result<(), Error> {
-        self.assetref.set_value(value).await
-    }
-
-    pub(crate) async fn set_metadata_value(&self, metadata: MetadataRecord) -> Result<(), Error> {
-        self.assetref
-            .set_value(E::Value::from_metadata(metadata))
-            .await
-    }
-
-    pub(crate) async fn set_state(&self, state: State<E::Value>) -> Result<(), Error> {
-        self.assetref.set_state(state).await
-    }
-
     /// Applies an expiration policy to the current asset metadata and deadline.
     ///
     /// This is a framework hook used by `Environment::apply_recipe`
@@ -1090,7 +1076,6 @@ impl<
     /// The registry is never written after this point, which is what lets
     /// [`Environment::get_type_registry`] hand out a shared reference with no lock.
     pub fn new_with_type_registry(type_registry: crate::type_system::TypeRegistry) -> Self {
-        use crate::environment_builder::AssetManagerKind as _;
         Self::assemble(
             type_registry,
             Arc::new(crate::store::NoAsyncStore),

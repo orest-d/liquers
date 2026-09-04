@@ -835,12 +835,12 @@ impl<E: Environment> IsVolatile<E> for Step {
             Self::GetAssetDirectory(_) => {
                 Ok(true) // TODO: Is asset directory volatilile?
             }
-            Step::GetResource(key) => {
+            Step::GetResource(_key) => {
                 eprintln!("ADD SUPPORT FOR RESOURCE VOLATILITY CHECK! (A)");
                 // TODO: support for resource volatility check
                 Ok(false)
             }
-            Step::GetResourceMetadata(key) => {
+            Step::GetResourceMetadata(_key) => {
                 eprintln!("ADD SUPPORT FOR RESOURCE VOLATILITY CHECK! (B)");
                 // TODO: support for resource volatility check
                 Ok(false)
@@ -849,7 +849,7 @@ impl<E: Environment> IsVolatile<E> for Step {
                 Ok(true) // TODO: Is directory volatilile?
             }
             Step::Evaluate(query) => query.is_volatile(env).await,
-            Step::UseQueryValue(query) => Ok(false),
+            Step::UseQueryValue(_query) => Ok(false),
             Step::Filename(_) => Ok(false),
             Step::Info(_) => Ok(false),
             Step::Warning(_) => Ok(false),
@@ -970,7 +970,7 @@ mod tests {
     #![allow(non_snake_case)]
     use super::*;
     use crate as liquers_core;
-    use crate::assets::{AssetManager, AssetRef};
+    use crate::assets::{AssetManager, AssetRef, DependencyManagerAccess};
     use crate::command_metadata::CommandKey;
     use crate::context::{ImmediateEnvironment, SimpleEnvironment, SimpleEnvironmentWithPayload};
     use crate::error::ErrorType;
