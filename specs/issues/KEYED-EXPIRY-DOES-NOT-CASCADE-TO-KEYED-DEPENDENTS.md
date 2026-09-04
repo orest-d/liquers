@@ -1,0 +1,100 @@
+---
+id: KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS
+kind: issue
+title: Expiring a computed keyed asset never invalidates the keyed assets that depend on it
+status: draft
+priority: P1
+complexity: M
+area: [core/assets]
+design:
+created: 2026-09-04
+github:
+---
+
+## Problem
+
+`DependencyManager::expire_internal` (`liquers-core/src/dependencies.rs:555`) walks the dependency
+graph breadth-first. Before walking on from a node it consults that node's registered version, and
+declines to continue when the version is unknown:
+
+```rust
+let mut skip_cascade = false;
+if include_root || current != *key {
+    if let Some(entry) = self.versions.get_async(&current).await {
+        if (*entry.get()).is_unknown() { skip_cascade = true; }
+    }
+}
+self.versions.remove_async(&current).await;
+expired_keys.push(current.clone());
+if !skip_cascade {
+    /* collect keyed dependents into the BFS frontier */
+}
+self.keyed_dependents.remove_async(&current).await;
+/* collect dependent_assets — OUTSIDE the guard */
+```
+
+The rule is deliberate and tested (`expire_skips_version_zero_cascade`, `:943`): without a real
+version you cannot conclude a dependent is stale.
+
+**But a computed asset never has a real version.** `MetadataRecord::version` is set in exactly four
+places — `set_binary` and `set_state` on each of the two managers (`assets.rs:5203`, `:5313`,
+`:6379`, `:6429`), i.e. the paths where a value is *handed in*. The evaluation path never sets it,
+so `track_asset` registers `mr.version.unwrap_or(Version::new(0))` — unknown — for every keyed
+asset the system computes (`dependencies.rs:312`).
+
+Consequence: for any keyed asset produced by evaluation, `skip_cascade` is true on the very first
+iteration, and **no keyed dependent is ever reached**. Expiring `c.txt` does not invalidate
+`b.txt` or `a.txt` in a keyed chain.
+
+Two things hide this:
+
+1. **Non-keyed dependents still expire.** `dependent_assets` (weak refs from *query* assets) are
+   collected outside the `skip_cascade` guard, so they are invalidated normally. The existing
+   end-to-end test `test_dependent_expiration`
+   (`liquers-core/tests/expiration_integration.rs:283`) exercises exactly this shape — its
+   dependent is `envref.evaluate("-R/hello.txt/-/world")`, a query asset — so it passes while the
+   keyed→keyed path is untested.
+2. **The unit tests supply versions by hand.** Every cascade test in `dependencies.rs` calls
+   `register_version(&k, Version::new(1))` and friends, which no production evaluate path does.
+
+A second, possibly related discrepancy sits in the same condition. The comment above it reads
+"…we don't cascade to its dependents **(except for the root key)**", but `include_root || current
+!= *key` *enables* the version check for the root when `include_root` is true, rather than
+exempting it — and when `include_root` is false the root is not in the queue at all, so the guard
+is always true. Either the comment or the condition states the intent; they do not agree.
+
+## Impact
+
+Dependency-driven invalidation is one of the system's central promises, and for keyed-to-keyed
+relationships between computed assets it does not happen. A stale `a.txt` keeps serving after the
+`b.txt` it was derived from has expired, until something else expires it — a TTL, an explicit
+call, or eviction.
+
+P1 rather than P0: the value served is not *wrong* in the sense of being miscomputed, it is stale;
+there are workarounds (expire the dependent explicitly, use TTLs); and the query-asset path, which
+is the common shape in the tests and probably in use, does work.
+
+## Expected behaviour
+
+Decide, and then make the code and the comment agree, which of these is intended:
+
+1. **The root of an explicit expiry always cascades**, regardless of its version — the caller has
+   just declared the asset invalid, so "we don't know the version" is not a reason to doubt that
+   its dependents are affected. This is what the comment's "(except for the root key)" appears to
+   describe, and it would make keyed chains propagate.
+2. **Computed assets get real versions**, so the existing version logic has something to work
+   with. Larger, and it interacts with what a version is supposed to mean for a value produced by
+   a recipe rather than supplied.
+3. **The current behaviour is correct** and keyed→keyed propagation is intentionally left to
+   TTL/eviction — in which case the comment should say so, and a test should pin it.
+
+Whichever is chosen, a test covering a keyed→keyed chain of *computed* assets is missing and should
+exist; today no test distinguishes the three.
+
+## Discovery
+
+Found on 2026-09-04 while designing `stale-dependency-status-finalization`. That design proposed
+routing a stale-dependency asset through `cascade_expire_dependents` on the belief that it would
+invalidate the key's dependents; tracing `expire_internal` to check showed that for a computed
+asset it invalidates no keyed dependent at all. The design dropped the cascade as a result; this
+issue records the underlying gap, which is independent of it.

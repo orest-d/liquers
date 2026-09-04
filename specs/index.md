@@ -8,14 +8,15 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 90
-- P1: 1
+Total rows: 91
+- P1: 2
 - P2: 57
 - P3: 32
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
 | [`ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY`](issues/ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY.md) | issue | An asset evaluated from a stale dependency is persisted as Ready and only then labelled Expired | draft |  | P1 | M | core/assets | [phase4](specs/design/stale-dependency-status-finalization/phase4-implementation.md)  [phase3](specs/design/stale-dependency-status-finalization/phase3-examples.md)  [phase5](specs/design/stale-dependency-status-finalization/phase5-documentation.md)  [phase1](specs/design/stale-dependency-status-finalization/phase1-high-level-design.md)  [phase2](specs/design/stale-dependency-status-finalization/phase2-architecture.md)  | 2026-09-03 |
+| [`KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS`](issues/KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS.md) | issue | Expiring a computed keyed asset never invalidates the keyed assets that depend on it | draft |  | P1 | M | core/assets |  | 2026-09-04 |
 | [`POLARS-DOC-EXAMPLES-OMIT-NAMESPACE`](issues/POLARS-DOC-EXAMPLES-OMIT-NAMESPACE.md) | issue | Polars reference example queries omit the ns-pl namespace and do not resolve | draft | ready | P2 | S | docs;lib/commands | [phase4](specs/design/polars-doc-example-namespace/phase4-implementation.md)  [phase3](specs/design/polars-doc-example-namespace/phase3-examples.md)  [phase1](specs/design/polars-doc-example-namespace/phase1-high-level-design.md)  [phase2](specs/design/polars-doc-example-namespace/phase2-architecture.md)  | 2026-08-12 |
 | [`QUEUED-MANAGER-EVICTION-RACE`](issues/QUEUED-MANAGER-EVICTION-RACE.md) | issue | The queued manager's cache evictions can delete a replacement asset | accepted | ready | P2 | S | core/assets | [phase4](specs/design/queued-manager-conditional-eviction/phase4-implementation.md)  [phase3](specs/design/queued-manager-conditional-eviction/phase3-examples.md)  [phase1](specs/design/queued-manager-conditional-eviction/phase1-high-level-design.md)  [phase2](specs/design/queued-manager-conditional-eviction/phase2-architecture.md)  | 2026-08-09 |
 | [`UI-QUERY-CONSOLE-NO-ERROR-HIGHLIGHT`](issues/UI-QUERY-CONSOLE-NO-ERROR-HIGHLIGHT.md) | issue | Query console never highlights the erroring token despite complete plumbing | draft | ready | P2 | S | lib/ui;core/query | [phase4](specs/design/ui-query-console-error-highlight/phase4-implementation.md)  [phase3](specs/design/ui-query-console-error-highlight/phase3-examples.md)  [phase1](specs/design/ui-query-console-error-highlight/phase1-high-level-design.md)  [phase2](specs/design/ui-query-console-error-highlight/phase2-architecture.md)  | 2026-08-12 |
