@@ -2,8 +2,7 @@
 id: ACTIVE-04
 kind: design
 title: Design for DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS
-status: in_review
-phase: implementation
+status: complete
 readiness: ready
 area: [docs, core/store]
 issues: [DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS]

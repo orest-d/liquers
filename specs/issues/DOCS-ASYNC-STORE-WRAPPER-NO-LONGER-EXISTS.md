@@ -2,7 +2,7 @@
 id: DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS
 kind: issue
 title: Three documents teach AsyncStoreWrapper, which no longer exists in the code
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [docs, core/store]
@@ -48,3 +48,9 @@ this falls out of it; if not, it is a small independent fix and should not wait.
 
 Found on 2026-09-02 while scoping `design/store-conformance-suite/` and checking whether the
 synchronous store had a live bridge to the async API. It does not.
+
+## Resolution
+
+Closed on 2026-09-04. `UNITTEST_GUIDE.md`, `STORE_CONFIG_FSD.md`, and the `liquers-unittest`
+skill now use the direct `AsyncMemoryStore`/`AsyncStore` API; `CLAUDE.md` was already correct at
+HEAD. Focused stale-reference searches and the documentation-index check passed.

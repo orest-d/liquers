@@ -63,9 +63,10 @@ CWD-KEY-LINK-NOT-CONSUMABLE-BY-COMMAND,issue,A `-R-key/` link cannot be consumed
 DATA-FORMAT-CONSTANTS-AND-TOOLING,feature,"Data formats are bare string literals with no constants, validation, or generic serde path",draft,local,,,P2,L,core/value;lib/value;lib/commands;macro,,,,,,2026-08-18,specs/issues/DATA-FORMAT-CONSTANTS-AND-TOOLING.md
 DELEGATED-VALUE-REPERSISTED,issue,An asset that delegates to a key's owner writes the owner's value to the store again,closed,local,,covered,P3,S,core/assets,,,,delegated-value-persistence,,2026-08-12,specs/issues/DELEGATED-VALUE-REPERSISTED.md
 DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE,issue,Execution-time expired dependency always fails its dependent; the stale-value branch is dead,closed,local,,,P0,S,core/assets,,,,expired-binary-read-safety,,2026-08-08,specs/issues/DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE.md
-DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS,issue,"Three documents teach AsyncStoreWrapper, which no longer exists in the code",draft,local,,ready,P2,S,docs;core/store,,,,async-store-wrapper-docs,,2026-09-02,specs/issues/DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS.md
+DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS,issue,"Three documents teach AsyncStoreWrapper, which no longer exists in the code",closed,local,,ready,P2,S,docs;core/store,,,,async-store-wrapper-docs,,2026-09-02,specs/issues/DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS.md
 DOCS-BUILD-MATRIX-CONFIGURATION-COUNT-STALE,issue,CLAUDE.md states the build matrix has 11 configurations; it runs 20,draft,local,,,P3,S,docs;build,,,,,,2026-09-03,specs/issues/DOCS-BUILD-MATRIX-CONFIGURATION-COUNT-STALE.md
 DOCS-DEAD-LINKS-OUTSIDE-README,issue,Relative links outside README are never validated,closed,local,,covered,P3,S,docs,,,,docs-current-link-validation,,2026-08-08,specs/issues/DOCS-DEAD-LINKS-OUTSIDE-README.md
+DOCS-STORE-CONFIG-DESCRIBES-ASYNC-FILESTORE-AS-FUTURE-WORK,issue,Store configuration reference describes AsyncFileStore as future work,draft,local,,,P2,S,docs;core/store,,,,,,2026-09-04,specs/issues/DOCS-STORE-CONFIG-DESCRIBES-ASYNC-FILESTORE-AS-FUTURE-WORK.md
 EGUI-ASSET-MANAGER-INTEGRATION,feature,No stable adapter between egui widgets and the asset manager,accepted,local,,,P2,M,lib/egui,,,,,,2026-08-08,specs/issues/EGUI-ASSET-MANAGER-INTEGRATION.md
 ENVIRONMENT-MANAGER-REFERENCE-CYCLE,issue,"Environment and asset manager hold each other with strong Arcs, so every environment leaks",draft,local,,,P2,M,core/assets;core/context,,,,environment-builder,,2026-08-27,specs/issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md
 ERROR-WITH-KEY-SETS-QUERY-FIELD,issue,Error context cannot distinguish asset keys from nested queries,draft,local,,phase2-blocked,P2,L,core/error;core/query;core/assets;core/store;web;py;axum,,,,error-with-key-field,,2026-08-25,specs/issues/ERROR-WITH-KEY-SETS-QUERY-FIELD.md
@@ -156,7 +157,7 @@ ARGUMENT-GUI-INFO-DEFAULT,design,Consistent default GUI metadata for command arg
 COVERED-01,design,Coverage record for ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE,in_review,local,architecture,covered,P2,S,docs,,,,asset-manager-insert-key-asset-no-overwrite,,2026-09-03,specs/design/asset-manager-insert-key-asset-no-overwrite/DESIGN.md
 ASSET-MANAGER-INSERT-KEY-ASSET-SEMANTICS,design,asset-manager-insert-key-asset-semantics,draft,local,documentation,,P2,S,core/assets,,,,asset-manager-insert-key-asset-semantics,,2026-08-25,specs/design/asset-manager-insert-key-asset-semantics/DESIGN.md
 ASYNC-MEMORY-STORE-PREFIX-SUPPORT,design,Memory-store support predicates respect prefixes,complete,local,,,P1,S,core/store,,,,async-memory-store-prefix-support,,2026-09-02,specs/design/async-memory-store-prefix-support/DESIGN.md
-ACTIVE-04,design,Design for DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS,in_review,local,implementation,ready,P2,S,docs;core/store,,,,async-store-wrapper-docs,,2026-09-03,specs/design/async-store-wrapper-docs/DESIGN.md
+ACTIVE-04,design,Design for DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS,complete,local,,ready,P2,S,docs;core/store,,,,async-store-wrapper-docs,,2026-09-03,specs/design/async-store-wrapper-docs/DESIGN.md
 ASYNC-WASM-REFACTOR,design,Async evaluation on wasm,complete,local,,,,,core/assets;web,,,,async-wasm-refactor,,2026-03-02,specs/design/async-wasm-refactor/DESIGN.md
 AXUM-ASSETS-RECIPES-API,design,Assets and recipes HTTP API,complete,local,,,,,axum,,,,axum-assets-recipes-api,,2026-03-02,specs/design/axum-assets-recipes-api/DESIGN.md
 BUILD-MATRIX-CI,design,Run the feature and target build matrix in CI,complete,local,,ready,P2,S,build;docs,,,,build-matrix-ci,,2026-09-01,specs/design/build-matrix-ci/DESIGN.md
@@ -268,7 +269,7 @@ PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,core/c
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,lib/polars,,,,,2026-08-25,,specs/reference/POLARS_COMMAND_LIBRARY.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-08-18,,specs/reference/PROJECT_OVERVIEW.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,macro;core/commands,,,,,2026-08-30,,specs/reference/REGISTER_COMMAND_FSD.md
-STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,store/config,,,,,2026-09-02,,specs/reference/STORE_CONFIG_FSD.md
+STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,store/config,,,,,2026-09-04,,specs/reference/STORE_CONFIG_FSD.md
 STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,core/store;store/backends;web,,,,,2026-09-04,,specs/reference/STORE_SEMANTICS.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,core/value;lib/value,,,,,2026-08-26,,specs/reference/VALUE_TYPE_SYSTEM.md
@@ -282,4 +283,4 @@ QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,core/query,,,,
 STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,core/store;store/config,,,,,2026-09-02,,specs/guides/STORE_FACTORY_GUIDE.md
 STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,core/store;store/backends;web,,,,,2026-09-04,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,core/value;lib/value,,,,,2026-08-26,,specs/guides/TYPE_SYSTEM_GUIDE.md
-UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,build,,,,,2026-09-01,,specs/guides/UNITTEST_GUIDE.md
+UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,build,,,,,2026-09-04,,specs/guides/UNITTEST_GUIDE.md

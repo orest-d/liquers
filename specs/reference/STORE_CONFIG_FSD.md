@@ -3,7 +3,7 @@ title: Store Configuration Functional Specification
 kind: reference
 audience: internal
 area: [store/config]
-reviewed: 2026-09-02
+reviewed: 2026-09-04
 ---
 # Functional Specification Document (FSD): Store Configuration
 
@@ -400,8 +400,7 @@ A simple in-memory store. Data is lost when the process exits.
   prefix: cache
 ```
 
-Currently memory store can be implemented via AsyncStoreWrapper.
-A proper AsyncMemoryStore should be implemented.
+The built-in `AsyncMemoryStore` implements `AsyncStore` directly; no synchronous wrapper is used.
 
 ### 3. Filesystem Store (Built-in)
 - **Type:** `filesystem`
@@ -761,6 +760,7 @@ its store together. Everything on this page applies unchanged to that document's
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-04 | Corrected the memory-store description: the built-in `AsyncMemoryStore` is already a native `AsyncStore`, without `AsyncStoreWrapper`. | `DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS` |
 | 2026-09-02 | Cross-linked `guides/STORE_IMPLEMENTATION_GUIDE.md` and `STORE_SEMANTICS.md`, separating the configuration format from the store behaviour it names. | `design/store-conformance-suite/` Phase 4 step 14 |
 | 2026-09-02 | Documented the OpenDAL list encoding contract: non-empty scalar lists are comma-joined, top-level nulls are omitted, and ambiguous or structured list values are rejected. | `STORE-OPENDAL-LIST-OPTION-MISPARSED` |
 | 2026-09-02 | Linked `STORE_SEMANTICS.md`, which specifies store *behaviour* as distinct from configuration. No change to the configuration format. | `design/opendal-path-mapping/` Phase 5 |

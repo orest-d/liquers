@@ -3,7 +3,7 @@ title: Unit Testing Guide
 kind: guide
 audience: internal
 area: [build]
-reviewed: 2026-09-01
+reviewed: 2026-09-04
 ---
 # Liquers Unit Testing Guide
 
@@ -97,23 +97,24 @@ registered later will not be included in either lifecycle step automatically.
 ### Memory Store (for testing)
 
 ```rust
-use liquers_core::store::{AsyncStoreWrapper, MemoryStore, Store};
-use liquers_core::query::Key;
-use std::sync::Arc;
+use liquers_core::{
+    metadata::Metadata,
+    parse::parse_key,
+    query::Key,
+    store::{AsyncMemoryStore, AsyncStore},
+};
 
 // Create memory store at root
-let memory_store = MemoryStore::new(&Key::new());
+let memory_store = AsyncMemoryStore::new(&Key::new());
 
 // Add data to the store
-let key = Key::parse("data/test.txt")?;
-let value = Value::from("test content");
-memory_store.set(&key, value)?;
-
-// Wrap in AsyncStoreWrapper
-let async_store = AsyncStoreWrapper::new(memory_store);
+let key = parse_key("data/test.txt")?;
+memory_store
+    .set(&key, b"test content", &Metadata::new())
+    .await?;
 
 // Add to environment (DefaultEnvironment only)
-env.with_async_store(Box::new(async_store));
+env.with_async_store(Box::new(memory_store));
 ```
 
 ### Accessing Store Data in Tests
@@ -519,17 +520,24 @@ async fn test_chained_commands() -> Result<(), Box<dyn std::error::Error>> {
 ```rust
 #[tokio::test]
 async fn test_with_store_and_recipes() -> Result<(), Box<dyn std::error::Error>> {
-    use liquers_core::store::{AsyncStoreWrapper, MemoryStore, Store};
+    use liquers_core::{
+        metadata::Metadata,
+        parse::parse_key,
+        query::Key,
+        store::{AsyncMemoryStore, AsyncStore},
+    };
     use liquers_core::recipes::{RecipeList, Recipe};
     use liquers_lib::environment::DefaultEnvironment;
     use liquers_lib::value::Value;
 
     // Create memory store
-    let memory_store = MemoryStore::new(&Key::new());
+    let memory_store = AsyncMemoryStore::new(&Key::new());
 
     // Add data to store
-    let data_key = Key::parse("data/input.txt")?;
-    memory_store.set(&data_key, Value::from("test data"))?;
+    let data_key = parse_key("data/input.txt")?;
+    memory_store
+        .set(&data_key, b"test data", &Metadata::new())
+        .await?;
 
     // Create recipes
     let mut recipe_list = RecipeList::new();
@@ -542,13 +550,15 @@ async fn test_with_store_and_recipes() -> Result<(), Box<dyn std::error::Error>>
     )?;
 
     // Store recipes
-    let recipes_key = Key::parse("-R/recipes.yaml")?;
+    let recipes_key = parse_key("recipes.yaml")?;
     let yaml_content = serde_yaml::to_string(&recipe_list)?;
-    memory_store.set(&recipes_key, Value::from(yaml_content))?;
+    memory_store
+        .set(&recipes_key, yaml_content.as_bytes(), &Metadata::new())
+        .await?;
 
     // Setup environment
     let mut env = DefaultEnvironment::<Value>::new();
-    env.with_async_store(Box::new(AsyncStoreWrapper::new(memory_store)));
+    env.with_async_store(Box::new(memory_store));
     env.with_default_recipe_provider();
 
     // Register command
@@ -759,6 +769,7 @@ async fn test_error_handling() -> Result<(), Box<dyn std::error::Error>> {
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-04 | Replaced the removed synchronous `AsyncStoreWrapper` example with direct `AsyncMemoryStore` setup and async byte writes. | `DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS` |
 | 2026-09-01 | Corrected repository-relative links in the See Also section. | `DOCS-DEAD-LINKS-OUTSIDE-README` |
 | 2026-08-31 | Updated `to_ref()` setup guidance to include command metadata-version refresh before environment sharing. | `design/refresh-command-metadata-versions/phase-5` |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |

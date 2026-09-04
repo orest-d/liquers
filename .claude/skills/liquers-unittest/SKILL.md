@@ -55,7 +55,7 @@ use liquers_core::{
     context::{SimpleEnvironment, Environment, EnvRef},
     error::{Error, ErrorType},
     state::State,
-    store::{MemoryStore, Store},
+    store::{AsyncMemoryStore, AsyncStore},
     value::Value,
     metadata::{Metadata, MetadataRecord},
     query::{Key, Query, TryToQuery},
