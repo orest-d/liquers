@@ -576,13 +576,14 @@ it, and one that a query for "designed but not built" will find.
 
 ---
 
-## 6. `specs/index.csv`
+## 6. Generated indexes
 
-**Generated. Never hand-edited.** The file carries **no banner comment**: CSV has no comment
-syntax, so a leading `#` line is read as a one-column header and GitHub refuses to render the
-table. It is marked generated in `.gitattributes` (`linguist-generated=true`), which collapses it
-in diffs and labels it in the UI, and `--check` fails when it does not match regeneration. That
-check is the protection that holds; a comment was only ever advisory.
+`index.csv` and `index.md` are **generated. Never hand-edited.** `index.csv` carries no banner
+comment: CSV has no comment syntax, so a leading `#` line is read as a one-column header and GitHub
+refuses to render the table. It is marked generated in `.gitattributes`
+(`linguist-generated=true`), which collapses it in diffs and labels it in the UI. `index.md` is the
+committed, reader-oriented active-work board. `--check` fails when either committed index does not
+match regeneration. `index.html` is an untracked local HTML rendering of that board.
 
 Columns, in this exact order:
 
@@ -611,7 +612,26 @@ For `kind: reference` and `kind: guide`, `status` carries the review state rathe
 `current` while `reviewed` is within 92 days, `overdue` beyond it. It is computed, never written —
 which is why those documents have no `status` in their front-matter.
 
-### 6.1 Row order
+### 6.1 Row order and merge behaviour
+
+The default `index.csv` keeps stable source-path grouping: issues and features, then designs,
+guides, and reference documents. It is not a priority queue. Changing status, priority,
+complexity, readiness, or review age therefore does not relocate a CSV row and create unrelated
+merge churn. Regenerate without `--sort` before committing, so `--check` continues to validate the
+canonical CSV.
+
+`index.md` is the reader-facing queue. It contains only active issues and features (not terminal
+`closed`, `closed_not_planned`, `rejected`, or `duplicate` rows), has hyperlinks to each issue and
+its linked design, and omits CSV-only operational columns: `status_source`, `phase`, `gh_issue`,
+`gh_pr`, `branch`, `reviewed`, and `file`. Its rows sort by priority, complexity, then readiness:
+`ready`, `needs-decision`, `blocked`, `phase2-blocked`, `covered`, and finally no assessment.
+
+Because `index.md` is a generated table, it can still conflict when branches add work. Keep either
+generated version while resolving the merge, complete the merge, then run
+`python scripts/docs_index.py` and commit the regenerated file. The source issue/design files are
+authoritative; never hand-merge the table.
+
+#### Optional `--sort` queue order
 
 **Live work first, finished work last.** GitHub renders this file as a table with no default
 sort, so whatever order it is written in is the order everyone reads. Row 2 should therefore be
@@ -634,7 +654,7 @@ Then the rank each kind actually has:
 
 `id` breaks every remaining tie. Columns are never padded for alignment.
 
-Ordering on `id` alone would be more stable, and stability is why it was the original rule: a
+The default source-path grouping is more stable, which is why it is canonical: a
 regeneration should touch only the rows that actually changed, rather than making this file the
 merge-conflict magnet the old single `ISSUES.md` was. Sorting on status trades a little of that
 away — closing an issue now moves its row as well as changing it, and a reference document
@@ -652,8 +672,8 @@ exactly two places: there and here.
 **There is no `synced_at` column.** It would change on every run and dirty the tree on every sync.
 Staleness is already recoverable: `git log -1 --format=%cd specs/index.csv`.
 
-GitHub renders `.csv` as a searchable table, so this file doubles as the browsable index and no
-parallel markdown table is generated.
+GitHub renders `.csv` as a searchable complete index; `index.md` is the compact browsable work
+queue.
 
 ---
 
@@ -663,7 +683,8 @@ Four modes.
 
 | Mode | Does | Network |
 |---|---|---|
-| *(default)* | Regenerates `index.csv` from front-matter. | No |
+| *(default)* | Regenerates `index.csv`, committed `index.md`, untracked `index.html`, and the README blocks from front-matter. | No |
+| `--sort` | Writes a temporary queue-ordered `index.csv`; regenerate without it before committing. | No |
 | `new` | Scaffolds an issue file (§7.1). | No |
 | `--sync` | Refreshes GitHub metadata such as `gh_pr` and `branch`, imports GitHub issues not yet present locally (§4.7), and re-hashes imported bodies. It never writes issue or feature status. | Yes |
 | `--check` | Validates and exits non-zero on failure. Never writes. | Optional |
@@ -683,7 +704,7 @@ python3 scripts/docs_index.py new "Expired asset returns stale cached binary" \
    override it.
 3. **Writes `specs/issues/<ID>.md`** from the §4.8.2 template with the given fields filled and the
    body headings stubbed.
-4. **Regenerates `index.csv`.**
+4. **Regenerates the indexes** (`index.csv`, `index.md`, and local `index.html`).
 
 It never opens a GitHub issue, and it always writes `status: draft` — those are not options.
 
@@ -706,7 +727,7 @@ tooling, no network and no Python can still record what it found.
 7. When a design carries `readiness`, it uses one of the values in §5.1.1, names exactly one
    existing source issue or feature, owns that source reciprocally, and does not share it with
    another readiness-labeled design.
-8. `index.csv` matches what regeneration would produce.
+8. `index.csv` and `index.md` match what regeneration would produce.
 9. Every relative link target in current `README.md`, issue, design, reference, and guide
    documents exists, and every issue ID referenced by `specs/README.md` exists. Fragment-only,
    absolute-path, and HTTP(S) links are outside this filesystem check; archived documents are
@@ -836,7 +857,7 @@ guidance half of the document. Roughly:
 | Understand the architecture and vocabulary | `reference/PROJECT_OVERVIEW.md` |
 | Add a command | `guides/COMMAND_REGISTRATION_GUIDE.md` |
 | Know why something was built this way | the `design/<slug>/` for that capability |
-| Know what is broken or missing | `index.csv` |
+| Know what is broken or missing | `index.md` |
 | Know what a document is allowed to claim | this guide, §2 |
 
 Individual `reference/` and `guides/` documents are listed by the generated guides index, so this

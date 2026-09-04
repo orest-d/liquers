@@ -21,3 +21,4 @@ liquers-axum/xxx/*
 *.skill
 __pycache__/
 *.pyc
+specs/index.html
