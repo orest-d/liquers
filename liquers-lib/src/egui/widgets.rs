@@ -424,9 +424,23 @@ fn styled_query_to_layout_job(styled_query: &StyledQuery) -> LayoutJob {
 }
 
 pub fn query_to_layout_job<Q: TryToQuery + Display + Clone>(q: Q) -> LayoutJob {
+    query_to_layout_job_with_position(q, None)
+}
+
+/// Convert a query to an egui layout job, highlighting the token at `position` when known.
+///
+/// Passing `None` preserves the ordinary syntax-only rendering used by query editors that do not
+/// have an associated error location.
+pub fn query_to_layout_job_with_position<Q: TryToQuery + Display + Clone>(
+    q: Q,
+    position: Option<&Position>,
+) -> LayoutJob {
     let rquery = q.clone().try_to_query();
     if let Ok(query) = rquery {
-        let styled_query = StyledQuery::from(query);
+        let styled_query = match position {
+            Some(position) => StyledQuery::from_query(&query, position),
+            None => StyledQuery::from(query),
+        };
         styled_query_to_layout_job(&styled_query)
     } else {
         let mut layout_job = LayoutJob::default();
@@ -440,6 +454,27 @@ pub fn query_to_layout_job<Q: TryToQuery + Display + Clone>(q: Q) -> LayoutJob {
                 Align::LEFT,
             );
         layout_job
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn query_layout_underlines_the_positioned_token_only() {
+        let position = Position::new(0, 1, 1);
+        let highlighted = query_to_layout_job_with_position("broken", Some(&position));
+        let ordinary = query_to_layout_job("broken");
+
+        assert!(highlighted
+            .sections
+            .iter()
+            .any(|section| section.format.underline.width > 0.0));
+        assert!(ordinary
+            .sections
+            .iter()
+            .all(|section| section.format.underline.width == 0.0));
     }
 }
 

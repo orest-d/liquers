@@ -8,14 +8,13 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 85
-- P2: 53
+Total rows: 84
+- P2: 52
 - P3: 32
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
 | [`QUEUED-MANAGER-EVICTION-RACE`](issues/QUEUED-MANAGER-EVICTION-RACE.md) | issue | The queued manager's cache evictions can delete a replacement asset | accepted | ready | P2 | S | core/assets | [phase1](specs/design/queued-manager-conditional-eviction/phase1-high-level-design.md)  [phase2](specs/design/queued-manager-conditional-eviction/phase2-architecture.md)  [phase3](specs/design/queued-manager-conditional-eviction/phase3-examples.md)  [phase4](specs/design/queued-manager-conditional-eviction/phase4-implementation.md)  | 2026-08-09 |
-| [`UI-QUERY-CONSOLE-NO-ERROR-HIGHLIGHT`](issues/UI-QUERY-CONSOLE-NO-ERROR-HIGHLIGHT.md) | issue | Query console never highlights the erroring token despite complete plumbing | draft | ready | P2 | S | lib/ui;core/query | [phase1](specs/design/ui-query-console-error-highlight/phase1-high-level-design.md)  [phase2](specs/design/ui-query-console-error-highlight/phase2-architecture.md)  [phase3](specs/design/ui-query-console-error-highlight/phase3-examples.md)  [phase4](specs/design/ui-query-console-error-highlight/phase4-implementation.md)  | 2026-08-12 |
 | [`WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND`](issues/WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND.md) | issue | A JsStore delegate has no way to signal absence, so a missing key reads as a read error | draft | ready | P2 | S | web;core/store | [phase1](specs/design/js-store-not-found-sentinel/phase1-high-level-design.md)  [phase2](specs/design/js-store-not-found-sentinel/phase2-architecture.md)  [phase3](specs/design/js-store-not-found-sentinel/phase3-examples.md)  [phase4](specs/design/js-store-not-found-sentinel/phase4-implementation.md)  | 2026-09-02 |
 | [`WEB-JS-STORE-HAS-NO-DIRECTORY-METADATA`](issues/WEB-JS-STORE-HAS-NO-DIRECTORY-METADATA.md) | issue | JsStore::get_metadata delegates a directory key to get, which throws | draft | ready | P2 | S | web;core/store | [phase1](specs/design/js-store-directory-metadata/phase1-high-level-design.md)  [phase2](specs/design/js-store-directory-metadata/phase2-architecture.md)  [phase3](specs/design/js-store-directory-metadata/phase3-examples.md)  [phase4](specs/design/js-store-directory-metadata/phase4-implementation.md)  | 2026-09-02 |
 | [`ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS`](issues/ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS.md) | issue | An argument's default gui_info differs depending on how the command was registered | draft | needs-decision | P2 | S | core/commands;macro;web | [phase1](specs/design/argument-gui-info-default/phase1-high-level-design.md)  [phase2](specs/design/argument-gui-info-default/phase2-architecture.md)  [phase3](specs/design/argument-gui-info-default/phase3-examples.md)  [phase4](specs/design/argument-gui-info-default/phase4-implementation.md)  | 2026-08-30 |

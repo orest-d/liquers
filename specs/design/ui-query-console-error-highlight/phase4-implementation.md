@@ -6,8 +6,8 @@
 2. In `liquers-lib/src/ui/widgets/query_console_element.rs::show_toolbar`, capture the current
    error position alongside query text and call the new helper from the layouter. Prefer borrowing;
    clone the small position only when the closure lifetime requires ownership.
-3. Add console update-state tests for known, unknown, and absent errors and core query token tests
-   for exact matching. Keep HTML rendering explicitly out of scope.
+3. Add a console update-state test for a known error position and a layout conversion test covering
+   both known and absent positions. Keep HTML rendering explicitly out of scope.
 4. Review `UI_INTERFACE_FSD.md` for an error-presentation claim and update only if needed; update
    source issue/design lifecycle records during implementation.
 5. Run formatting, `cargo test -p liquers-core --lib query`, relevant `liquers-lib` tests,
