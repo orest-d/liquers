@@ -3,7 +3,7 @@ title: Payload Specification and Usage
 kind: reference
 audience: internal
 area: [core/context, core/commands]
-reviewed: 2026-08-31
+reviewed: 2026-09-04
 ---
 # Payload Usage Guide
 
@@ -86,10 +86,18 @@ type Payload: Clone + Send + Sync + 'static;
 > payload directly) and silently receives **no** payload when evaluated as a nested
 > dependency. Nothing in its plan says it needs one, so nothing forwards one.
 
-**Requiring a payload implies `volatile`.** A payload-evaluated result is fresh per
-evaluation, never cached, never shared, and never registered as a dependency of another
-asset — a payload is not part of the dependency key, so nothing may hold a reference to
-such an asset. It may still *have* dependencies of its own.
+**A payload-evaluated result is never reused.** It is fresh per evaluation, never cached,
+never shared, and never registered as a dependency of another asset — a payload is not part
+of the dependency key, so nothing may hold a reference to such an asset. It may still *have*
+dependencies of its own.
+
+That holds **by construction, not by volatility**: the asset is built ad hoc, is not a keyed
+asset, and is inserted into no map, so there is nothing to reuse it from. It is not marked
+volatile — a payload-requiring evaluation finishes `Ready` with `is_volatile` false, and
+`PlanBuilder::mark_payload_required` does not touch `is_volatile`. (This document said
+"requiring a payload implies `volatile`" until 2026-09-04; the consequences it listed were
+right, the mechanism was not. `payload_requirement_does_not_imply_volatility` in
+`liquers-core/tests/payload_inheritance.rs` pins it.)
 
 **Keys are a payload boundary.** A key names one shared, global asset while a payload is
 supplied per evaluation, so a keyed recipe may not require one: such a recipe is rejected
@@ -1159,7 +1167,7 @@ pub struct UserId(pub String);  // Field is public
 | **Injection** | Requires type to implement `InjectedFromContext<E>` trait |
 | **Newtype Pattern** | **Recommended** - Use newtypes for specific payload fields |
 | **Inheritance** | Passed to nested queries that declare `payload: required` |
-| **Implies** | `volatile` — never cached, shared, or usable as a dependency |
+| **Reuse** | none — never cached, shared, or usable as a dependency; by construction (ad hoc, non-keyed, in no map), *not* by the `volatile` flag |
 | **Boundary** | Keyed recipes cannot require a payload |
 | **Common uses** | UI handles, HTTP request context, user sessions |
 
@@ -1197,5 +1205,6 @@ When creating a newtype for injection:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-04 | Corrected the claim that requiring a payload implies `volatile`. The consequences (never cached, shared, or held as a dependency) are right; the mechanism is construction — ad hoc, non-keyed, in no map — and a payload-requiring evaluation finishes `Ready` with `is_volatile` false. Verified against the planner and pinned by a test. | asset API doc review |
 | 2026-08-31 | Recorded that the payload environments are now type aliases of `GenericEnvironment<V, P, K>` rather than distinct structs, and pointed at the builder for construction. Payload semantics themselves are unchanged and were not otherwise re-reviewed. | `design/environment-builder/phase-5` |
 | 2026-08-01 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |

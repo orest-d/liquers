@@ -907,3 +907,52 @@ async fn payload_requirement_is_recorded_even_when_the_payload_is_missing(
     );
     Ok(())
 }
+
+
+/// A payload requirement does **not** imply volatility, and the metadata docs now say so.
+///
+/// `MetadataRecord::payload_required` claimed the opposite until 2026-09-04 — that the
+/// operational consequence was "already carried by `is_volatile`, which a payload requirement
+/// always implies". The planner marks the two independently (`mark_payload_required` does not
+/// touch `is_volatile`), so a payload-requiring evaluation finishes `Ready` with `is_volatile`
+/// false. What actually keeps such a result from being reused is construction: the asset is ad
+/// hoc, not keyed, and in no map. This pins the fact so the corrected documentation stays true.
+#[tokio::test]
+async fn payload_requirement_does_not_imply_volatility() -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = QueuedEnv;
+    let mut env = QueuedEnv::new();
+
+    fn needs_payload(_state: &State<Value>, window_id: WindowId) -> Result<Value, Error> {
+        Ok(Value::from(format!("window:{}", window_id.0)))
+    }
+
+    let cr = &mut env.command_registry;
+    register_command!(cr, fn needs_payload(state, window_id: WindowId injected) -> result
+        payload: required
+    )?;
+
+    let envref = env.to_ref();
+    let asset = envref
+        .evaluate_immediately("/-/needs_payload", TestPayload::new("erin", 3))
+        .await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "window:3");
+
+    let info = asset.get_asset_info().await?;
+    assert_eq!(info.payload_required, PayloadRequirement::Required);
+    assert!(
+        !info.is_volatile,
+        "a payload requirement is not volatility: the two are marked independently"
+    );
+    assert_eq!(
+        info.status,
+        liquers_core::metadata::Status::Ready,
+        "and it finishes Ready, not Volatile"
+    );
+
+    // The asset is nonetheless unreusable — by construction, not by a flag.
+    assert!(
+        asset.key().await.is_none(),
+        "a payload-evaluated asset is not keyed, so it is never stored"
+    );
+    Ok(())
+}

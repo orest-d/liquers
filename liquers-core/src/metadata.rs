@@ -660,7 +660,10 @@ pub struct AssetInfo {
     /// If a key is available, this is a query representation of a key
     #[serde(with = "option_query_format")]
     pub query: Option<Query>,
-    /// If value is an asset (e.g. a file in a store), the key is key of the asset
+    /// The key this value is associated with, when it is a
+    /// [keyed asset](crate::assets#keyed-assets-storing-and-persistence) — an asset a store can
+    /// hold, addressable and loadable under that key. `None` means the value came from a query
+    /// with no key of its own: valid, but never written to a store and never reused under a key.
     #[serde(with = "option_key_format")]
     pub key: Option<Key>,
     /// Status of the value
@@ -710,8 +713,15 @@ pub struct AssetInfo {
 
     /// Whether producing this asset needed an evaluation payload.
     ///
-    /// Diagnostic only: the operational consequence (never cached, never shared) is already
-    /// carried by [`Self::is_volatile`], which a payload requirement always implies.
+    /// Reported, not enforced. What keeps such a result from being reused is *construction*: a
+    /// payload-evaluated asset is created ad hoc, is not a
+    /// [keyed asset](crate::assets#keyed-assets-storing-and-persistence) and is inserted into no
+    /// map, so it is never stored and never handed to a second caller. It is **not** marked
+    /// volatile — a payload-requiring evaluation finishes `Ready` with `is_volatile` false — so
+    /// this field is the only place the fact appears.
+    ///
+    /// It is recorded even when the evaluation was *refused* for want of a payload, which is what
+    /// lets a client tell "needs a payload" from "failed".
     #[serde(default)] // Legacy support: old AssetInfo without this field defaults to None
     pub payload_required: PayloadRequirement,
 
@@ -844,7 +854,10 @@ pub struct MetadataRecord {
     /// Query constructing the value with which the metadata is associated with
     #[serde(with = "query_format")]
     pub query: Query,
-    /// If value is an asset (e.g. a file in a store), the key is key of the asset
+    /// The key this value is associated with, when it is a
+    /// [keyed asset](crate::assets#keyed-assets-storing-and-persistence) — an asset a store can
+    /// hold, addressable and loadable under that key. `None` means the value came from a query
+    /// with no key of its own: valid, but never written to a store and never reused under a key.
     #[serde(with = "option_key_format")]
     pub key: Option<Key>,
     /// Status of the value
@@ -903,9 +916,12 @@ pub struct MetadataRecord {
 
     /// Whether producing this value needed an evaluation payload.
     ///
-    /// Diagnostic only: the operational consequence is already carried by
-    /// [`Self::is_volatile`], which a payload requirement always implies. Unlike
-    /// `is_volatile` this field DOES have `#[serde(default)]` — records written before the
+    /// Reported, not enforced, and independent of `is_volatile`: a payload-requiring evaluation
+    /// finishes `Ready` with `is_volatile` false. What keeps the result from being reused is that
+    /// a payload-evaluated asset is built ad hoc — not keyed, in no map (see
+    /// [keyed assets](crate::assets#keyed-assets-storing-and-persistence)).
+    ///
+    /// Unlike `is_volatile` this field DOES have `#[serde(default)]` — records written before the
     /// field existed must still load — and is skipped when `None` so that metadata of
     /// payload-free assets serializes unchanged.
     #[serde(skip_serializing_if = "PayloadRequirement::is_none")]
@@ -1104,6 +1120,9 @@ impl MetadataRecord {
         Ok(metadata)
     }
     */
+    /// Records the key, making this the metadata of a
+    /// [keyed asset](crate::assets#keyed-assets-storing-and-persistence). The filename is taken
+    /// from the key when it has one.
     pub fn with_key(&mut self, key: Key) -> &mut Self {
         self.key = Some(key);
         if let Some(filename) = self.key.as_ref().unwrap().filename() {

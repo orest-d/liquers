@@ -103,6 +103,29 @@
 //! registered owner records a warning in its metadata rather than failing
 //! (`ASSET-REGISTRATION-OWNERSHIP-CONTRACT`).
 //!
+//! ## Where the key comes from, and how to read it back
+//!
+//! The [`AssetManager`] that creates the asset supplies the answer, because it is the only party
+//! that knows which request the asset serves:
+//!
+//! | Created by | Keyed? |
+//! |---|---|
+//! | [`AssetManager::get`], or [`AssetManager::get_asset`] on a pure key query | yes, with that key |
+//! | [`AssetManager::get_asset`] on any other query | no |
+//! | [`AssetManager::apply`] | no — ad hoc, never in a map |
+//!
+//! It is then passed to the constructors as `key: Option<Key>`
+//! ([`AssetData::new`], [`AssetData::new_ext`]), recorded on the asset, and read back with
+//! [`AssetRef::key`]. It is also projected into metadata — [`MetadataRecord::key`](crate::metadata::MetadataRecord::key)
+//! and [`AssetInfo::key`](crate::metadata::AssetInfo::key) — so a client can tell a keyed asset
+//! from a non-keyed query asset built from the same query, which it could not before.
+//!
+//! Being keyed is necessary for storing but not sufficient for being *loadable*. Three further
+//! properties of the evaluation each break reproducibility, and any one of them means the result
+//! must not be handed to a later caller as if it were the recipe's own output: a payload (see
+//! [`AssetRef::payload_required`]), a supplied initial state, and volatility. They are the first
+//! rows of the table in [Why the flows differ](#why-the-flows-differ).
+//!
 //! # Evaluation entry points
 //!
 //! | Entry point | Initial state | Payload | Keyed | Returns |
@@ -153,8 +176,8 @@
 //! A pure key query is resolved through the key-asset map. Other queries use the
 //! query-asset map. Non-volatile entries may be reused by later manager requests.
 //! Volatile requests create a new asset instead of using those maps. Assets created
-//! by `apply` or `apply_immediately` are ad hoc and are not inserted into either
-//! map.
+//! by [`AssetManager::apply`] are ad hoc and are not inserted into either map; being
+//! non-keyed, they are never written to the store either.
 //!
 //! Before evaluating a keyed resource with no supplied initial state, a manager
 //! attempts a fast-track load from the store. Stored `Ready`, `Source`, and
@@ -842,12 +865,22 @@ impl<E: Environment> AssetData<E> {
     /// Arguments:
     /// - `id`: Unique asset identifier.
     /// - `recipe`: Recipe describing how the asset should be resolved/evaluated.
+    /// - `key`: `Some(key)` makes this a
+    ///   [**keyed asset**](crate::assets#keyed-assets-storing-and-persistence) associated with
+    ///   that key; `None` makes it non-keyed. This is the argument that decides whether the asset
+    ///   can outlive the process: only a keyed asset is written to the store, and only a stored
+    ///   asset can be loaded back. The caller — normally an [`AssetManager`] — knows the answer
+    ///   because it knows which request the asset serves; it is recorded here and never
+    ///   re-derived from `recipe`, which provider resolution may replace mid-evaluation. Read it
+    ///   back with [`AssetRef::key`].
     /// - `envref`: Environment reference
     pub fn new(id: u64, recipe: Recipe, key: Option<Key>, envref: EnvRef<E>) -> Self {
         Self::new_ext(id, recipe, State::new(), key, envref)
     }
 
-    /// Creates a temporary asset data structure.
+    /// Creates a temporary asset data structure: id `0`, a default recipe, an empty initial
+    /// state, and **no key**, so it is never stored and never loadable — see
+    /// [keyed assets](crate::assets#keyed-assets-storing-and-persistence).
     pub fn new_temporary(envref: EnvRef<E>) -> Self {
         let asset = Self::new_ext(0, Recipe::default(), State::new(), None, envref);
         asset
@@ -858,9 +891,16 @@ impl<E: Environment> AssetData<E> {
     /// Arguments:
     /// - `id`: Unique asset identifier.
     /// - `recipe`: Recipe describing how the asset should be resolved/evaluated.
-    /// - `initial_state`: Initial input state used when evaluating apply/query recipes.
-    /// - `key`: `Some(key)` when this is a *keyed asset* — an asset associated with that key —
-    ///   `None` otherwise. Only a keyed asset may be written to the store.
+    /// - `initial_state`: Initial input state used when evaluating apply/query recipes. A
+    ///   non-empty state is input the asset's identity does not describe, so the result is not
+    ///   reproducible from the recipe alone and must not be reused by a later caller — which is
+    ///   why an [`AssetManager::apply`] asset is never keyed.
+    /// - `key`: `Some(key)` when this is a
+    ///   [**keyed asset**](crate::assets#keyed-assets-storing-and-persistence) — an asset
+    ///   associated with that key — `None` otherwise. Only a keyed asset is written to the store,
+    ///   and only a stored asset can be loaded back, so a non-keyed asset is never persisted and
+    ///   never reused. Recorded as given and never re-derived from `recipe`, which provider
+    ///   resolution may replace mid-evaluation; read it back with [`AssetRef::key`].
     /// - `envref`: Environment reference used to access the store, manager, and runtime services.
     pub fn new_ext(
         id: u64,
@@ -1240,9 +1280,10 @@ impl<E: Environment> AssetData<E> {
     /// Poll the cached binary data and metadata without any async operations.
     ///
     /// Subject to the same expiration contract as [`Self::poll_state`]: bytes are exposed only
-    /// when the status classifies as [`ReadExposure::Value`]. Retained expired bytes are reachable
-    /// through [`Self::poll_binary_any_status`], and the persistence path uses
-    /// [`Self::binary_unchecked`].
+    /// for the statuses that expose a value at all (`Ready`, `Source`, `Override`, `Volatile` —
+    /// see [Status and reads](crate::assets#status-and-reads)). Retained expired bytes are
+    /// reachable through [`Self::poll_binary_any_status`]; the persistence path reads them
+    /// unconditionally through a crate-internal accessor.
     ///
     /// Returns `None` if no binary is cached, or if the status does not permit exposing it.
     pub fn poll_binary(&self) -> Option<(Arc<Vec<u8>>, Arc<Metadata>)> {
@@ -1614,6 +1655,9 @@ impl<E: Environment> AssetRef<E> {
     }
 
     /// Create a new asset reference from a recipe.
+    ///
+    /// `key` carries the same meaning as in [`AssetData::new`]: `Some` makes this a
+    /// [keyed asset](crate::assets#keyed-assets-storing-and-persistence), `None` does not.
     pub(crate) fn new_from_recipe(
         id: u64,
         recipe: Recipe,
@@ -1626,7 +1670,8 @@ impl<E: Environment> AssetRef<E> {
         }
     }
 
-    /// Creates a temporary asset reference.
+    /// Creates a temporary asset reference — not keyed, so never stored (see
+    /// [`AssetData::new_temporary`]).
     /// This spawns the event processing loop immediately.
     pub fn new_temporary(envref: EnvRef<E>) -> Self {
         let assetref = AssetData::new_temporary(envref).to_ref();
@@ -1687,10 +1732,25 @@ impl<E: Environment> AssetRef<E> {
         Ok((owner.id() == self.id()).then_some(candidate))
     }
 
-    /// The key this asset is associated with, or `None` when it is not a keyed asset.
+    /// The key this asset is associated with, or `None` when it is not a
+    /// [**keyed asset**](crate::assets#keyed-assets-storing-and-persistence).
     ///
     /// This is the recorded answer, set at construction — not a derivation from the recipe, which
     /// provider resolution may replace mid-evaluation.
+    ///
+    /// What the answer implies:
+    ///
+    /// - `Some(key)` — the asset may be written to the store under `key`, and may be loaded back
+    ///   on a later run unless something made this evaluation unreproducible: a payload (see
+    ///   [`Self::payload_required`]), a supplied initial state, or volatility. A volatile keyed
+    ///   asset *is* stored; it is simply written with a status that fast-track loading refuses.
+    /// - `None` — never stored, never loadable, never in the manager's key or query maps, and so
+    ///   never handed to a second caller.
+    ///
+    /// It says nothing about whether the manager *registered* this asset as the owner of that key.
+    /// That is a separate, manager-owned caching decision; a keyed asset writing while not the
+    /// registered owner records a warning in its metadata rather than failing
+    /// (`ASSET-REGISTRATION-OWNERSHIP-CONTRACT`).
     pub async fn key(&self) -> Option<Key> {
         self.data.read().await.key.clone()
     }
@@ -1812,7 +1872,20 @@ impl<E: Environment> AssetRef<E> {
         lock.asset_reference()
     }
 
-    /// Returns the asset information derived from metadata and its recipe.
+    /// Returns the asset information derived from metadata and its recipe — the summary a client
+    /// is given to describe this asset.
+    ///
+    /// Among the facts it carries are the two that answer "what *is* this asset":
+    ///
+    /// - [`AssetInfo::key`](crate::metadata::AssetInfo::key) — set when this is a
+    ///   [keyed asset](crate::assets#keyed-assets-storing-and-persistence), so a client can tell a
+    ///   stored, addressable asset from a query result that only exists in this process;
+    /// - [`AssetInfo::payload_required`](crate::metadata::AssetInfo::payload_required) — whether
+    ///   the plan needed an evaluation payload, which is also recorded when the evaluation was
+    ///   *refused* for want of one, so a client can tell "needs a payload" from "failed".
+    ///
+    /// Both come from metadata rather than from a second copy held here, so they cannot drift from
+    /// what a stored asset carries.
     pub async fn get_asset_info(&self) -> Result<AssetInfo, Error> {
         let lock = self.data.read().await;
         lock.get_asset_info()
@@ -3445,8 +3518,14 @@ pub(crate) fn load_command_versions_sync<E: Environment>(
 /// normally performs that lifecycle step.
 ///
 /// Methods such as [`Self::set_binary`], [`Self::set_state`], [`Self::remove`],
-/// [`Self::get_any_status`], and [`Self::to_override`] operate only on keyed
-/// assets. Query evaluation is available through [`Self::get_asset`].
+/// [`Self::get_any_status`], and [`Self::to_override`] operate only on
+/// [keyed assets](crate::assets#keyed-assets-storing-and-persistence) — assets associated with a
+/// key, which are the only ones a store can hold. Query evaluation is available through
+/// [`Self::get_asset`].
+///
+/// The manager is also what *decides* keyedness: it constructs every asset and passes the key
+/// (or `None`) to [`AssetData::new`]. See
+/// [Where the key comes from](crate::assets#where-the-key-comes-from-and-how-to-read-it-back).
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 pub trait AssetManager<E: Environment>:
@@ -3454,14 +3533,18 @@ pub trait AssetManager<E: Environment>:
 {
     /// Resolves a query to an asset.
     ///
-    /// A pure key query delegates to [`Self::get`]. The return-time guarantee
-    /// depends on [`Self::eval_mode`]: queued managers may return a scheduled
-    /// handle, while inline managers return after evaluation.
+    /// A pure key query delegates to [`Self::get`] and therefore yields a
+    /// [keyed asset](crate::assets#keyed-assets-storing-and-persistence); any other query yields
+    /// a non-keyed one, which is cached in the query map but never written to the store. The
+    /// return-time guarantee depends on [`Self::eval_mode`]: queued managers may return a
+    /// scheduled handle, while inline managers return after evaluation.
     async fn get_asset(&self, query: &Query) -> Result<AssetRef<E>, Error>;
     /// Applies a recipe to a supplied initial state, with an optional execution payload.
     ///
     /// The operation is ad hoc: the asset is inserted into no key or query cache, is never
-    /// reused, and is not a keyed asset, so it is never written to the store. A supplied state or
+    /// reused, and is not a [keyed asset](crate::assets#keyed-assets-storing-and-persistence), so
+    /// it is never written to the store — [`AssetRef::key`] on the result is always `None`.
+    /// A supplied state or
     /// a payload already makes the result unshareable, so there is nothing to gain by queueing it
     /// — evaluation therefore completes before this returns, on both managers, and consumes no
     /// job-queue slot. Taking a slot while the caller already holds one is the deadlock shape
@@ -3488,7 +3571,9 @@ pub trait AssetManager<E: Environment>:
     ) -> Result<AssetRef<E>, Error> {
         self.apply(recipe, to, payload).await
     }
-    /// Resolves a keyed asset.
+    /// Resolves a [keyed asset](crate::assets#keyed-assets-storing-and-persistence) — the
+    /// returned asset records `key`, so it is one of the two ways (with a pure key query through
+    /// [`Self::get_asset`]) to obtain an asset that can be stored and loaded back.
     ///
     /// Managers may reuse a non-volatile cached entry or fast-track a stored value.
     /// Cached `Expired`, `Error`, and `Cancelled` entries are treated as misses.
@@ -4313,6 +4398,11 @@ impl<E: Environment> DefaultAssetManager<E> {
         }
     }
 
+    /// Allocates the next runtime-unique asset id, as reported by [`AssetRef::id`].
+    ///
+    /// Ids identify assets *within one process run*; they are not part of an asset's identity —
+    /// that is the key (or the query), not this number — so nothing persisted refers to them, and
+    /// two runs give the same asset different ids.
     pub fn next_id(&self) -> u64 {
         self.id.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
     }
@@ -5041,7 +5131,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
     /// Set binary value ot the asset
     /// Equivalent of store set method.
     /// For assets with recipes, this can be considered an Override, and the status is set accordingly.
-    /// For assers without a recipe this simply creates a Source value and persists the data in store.
+    /// For assets without a recipe this simply creates a Source value and persists the data in store.
     ///
     /// Arguments:
     /// - `key`: Store key identifying the target asset/resource.
@@ -5671,6 +5761,13 @@ impl<E: Environment + 'static> AssetRef<E> {
     }
 }
 
+/// Bounded-concurrency execution queue behind [`DefaultAssetManager`] (native only).
+///
+/// Holds submitted assets, runs at most `capacity` of them at a time, and keeps a per-dependent
+/// local queue so a dependency that cannot get a slot is still drained inline by the asset waiting
+/// for it. Framework infrastructure: applications reach it only indirectly, through
+/// [`AssetManager`]. The inline managers have no queue at all — see
+/// [`AssetManager::eval_mode`].
 #[cfg(not(target_arch = "wasm32"))]
 pub struct JobQueue<E: Environment> {
     jobs: Arc<Mutex<Vec<AssetRef<E>>>>,
@@ -5900,6 +5997,10 @@ impl<E: Environment + 'static> JobQueue<E> {
         }
     }
 
+    /// Signals the worker loop to stop and wakes everything waiting on the queue.
+    ///
+    /// Assets already running are not cancelled; the loop stops taking new ones. Submitting after
+    /// this leaves an asset parked in `Submitted` with nothing to start it.
     pub fn shutdown(&self) {
         self.shutdown.store(true, Ordering::SeqCst);
         self.notify.notify_waiters();

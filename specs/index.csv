@@ -63,6 +63,7 @@ DOCS-BUILD-MATRIX-CONFIGURATION-COUNT-STALE,issue,CLAUDE.md states the build mat
 QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS,issue,"Query::absolute names a leading slash, colliding with two other meanings of absolute",draft,local,,needs-decision,P3,S,core/query,,,,query-leading-slash-field,,2026-08-17,specs/issues/QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS.md
 REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED,issue,The committed command registry carries stale impl_versions and no test detects it,draft,local,,needs-decision,P3,S,lib/commands;build;docs,,,,command-registry-impl-version-freshness,,2026-08-25,specs/issues/REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED.md
 REPO-DEAD-CODE-HYGIENE,issue,Dead modules and untracked files in the repository,accepted,local,,ready,P3,S,build,,,,core-dead-code-hygiene,,2026-08-08,specs/issues/REPO-DEAD-CODE-HYGIENE.md
+RUSTDOC-PUBLIC-DOCS-LINK-PRIVATE-ITEMS,issue,"Public rustdoc in three modules links to private or absent items, so the links render as plain text",draft,local,,,P3,S,core/value;core/plan;core/store,,,,,,2026-09-04,specs/issues/RUSTDOC-PUBLIC-DOCS-LINK-PRIVATE-ITEMS.md
 STORE-OPENDAL-ARGUMENTS-NOT-DERIVED,feature,OpenDAL store types have no derived argument descriptions and no offline construction test,draft,local,,ready,P3,S,store/backends;store/config,,,,opendal-derived-store-arguments,,2026-08-29,specs/issues/STORE-OPENDAL-ARGUMENTS-NOT-DERIVED.md
 WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE,issue,"JavaScript cannot construct a LiquersError, so a page cannot raise a typed error",accepted,local,,needs-decision,P3,S,web;core/error,,,,web-liquers-error-constructor,,2026-08-09,specs/issues/WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE.md
 AXUM-WEBSOCKET-HARDENING,issue,WebSocket endpoint is not hardened,accepted,local,,,P3,M,axum,,,,,,2026-08-08,specs/issues/AXUM-WEBSOCKET-HARDENING.md
@@ -163,7 +164,7 @@ DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Refer
 DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,core/context;core/plan,,,,,2026-08-31,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
 DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,core/plan;core/assets;core/context,,,,,2026-08-29,,specs/reference/api/DOC_08_RECIPES_PLANS.md
 ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,core/context;core/store;core/assets,,,,,2026-08-31,,specs/reference/ENVIRONMENT_CONFIG.md
-PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,core/context;core/commands,,,,,2026-08-31,,specs/reference/PAYLOAD_GUIDE.md
+PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,core/context;core/commands,,,,,2026-09-04,,specs/reference/PAYLOAD_GUIDE.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,lib/polars,,,,,2026-08-25,,specs/reference/POLARS_COMMAND_LIBRARY.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-08-18,,specs/reference/PROJECT_OVERVIEW.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,macro;core/commands,,,,,2026-08-30,,specs/reference/REGISTER_COMMAND_FSD.md

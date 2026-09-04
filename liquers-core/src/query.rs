@@ -1421,6 +1421,10 @@ impl IndexMut<usize> for TransformQuerySegment {
 ///
 /// Parse textual keys with [`crate::parse::parse_key`]. In general, a key is not
 /// an operating-system path; it is a key in an [`crate::store::AsyncStore`].
+///
+/// A key is also what makes an asset storable: an asset created *for* a key is a
+/// [keyed asset](crate::assets#keyed-assets-storing-and-persistence), and only a keyed asset is
+/// written to a store or loaded back from one.
 pub struct Key(pub Vec<ResourceName>);
 impl Key {
     /// Creates an empty key.

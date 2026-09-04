@@ -675,8 +675,10 @@ impl<E: Environment> Context<E> {
 
     /// Schedules a dependency, records it, and waits for its state.
     ///
-    /// If the nested query requires a payload, this context's payload is inherited; see
-    /// [`Self::schedule_dependency_asset`].
+    /// If the nested query requires a payload, this context's payload is inherited, and the
+    /// nested asset is evaluated inline rather than queued — a payload-evaluated asset enters no
+    /// map and is never reused, so there is nothing to schedule it for. The dependency edge is
+    /// recorded either way.
     pub async fn get_dependency_state(&self, query: &Query) -> Result<State<E::Value>, Error> {
         let asset = self.schedule_dependency_asset(query).await?;
         self.wait_for_dependency(&asset).await
