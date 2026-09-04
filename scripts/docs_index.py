@@ -420,6 +420,11 @@ def markdown_cell(value: object) -> str:
 def render_index_markdown(rows: list[dict]) -> str:
     """Render the committed, active-work view of issues and features."""
     designs = {r["design"]: r for r in rows if r["kind"] == "design"}
+
+    total_rows = len(active_work_rows(rows))
+    statistics = f"Total rows: {total_rows}"
+    for priority in sorted(set(r["priority"] for r in active_work_rows(rows))):
+        statistics += f"\n- {priority}: {sum(1 for r in active_work_rows(rows) if r['priority'] == priority)}"
     lines = [
         "# Active issues and features",
         "",
@@ -430,6 +435,8 @@ def render_index_markdown(rows: list[dict]) -> str:
         "",
         "> Merge-conflict recovery: keep either generated version while resolving the merge, then",
         "> run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.",
+        "",
+        statistics,
         "",
         "| Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |",
         "|---|---|---|---|---|---|---|---|---|---|",
@@ -464,6 +471,7 @@ def render_index_markdown(rows: list[dict]) -> str:
             )
             + " |"
         )
+
     return "\n".join(lines) + "\n"
 
 

@@ -8,6 +8,10 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
+Total rows: 90
+- P2: 56
+- P3: 34
+
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
 | [`CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER`](issues/CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER.md) | issue | AsyncStoreRouter::keys fails outright when one member's prefix path does not exist | draft | ready | P2 | S | core/store | [phase1](C:\Users\orest\Documents\GitHub\liquers\specs\design\store-router-empty-prefix\phase1-high-level-design.md)  [phase2](C:\Users\orest\Documents\GitHub\liquers\specs\design\store-router-empty-prefix\phase2-architecture.md)  [phase3](C:\Users\orest\Documents\GitHub\liquers\specs\design\store-router-empty-prefix\phase3-examples.md)  [phase4](C:\Users\orest\Documents\GitHub\liquers\specs\design\store-router-empty-prefix\phase4-implementation.md)  | 2026-09-02 |
