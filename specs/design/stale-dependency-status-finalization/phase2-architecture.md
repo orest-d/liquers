@@ -21,7 +21,7 @@ folders touching expiry (`expiration-mechanism`, `expiration-safety`, `expired-b
 
 | Issue | Status | Current priority | Relevance and solution impact | Must be addressed first? | Blocking? | Required action | Priority action |
 |---|---|---|---|---|---|---|---|
-| `ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY` | draft | P2 | The issue this design fixes | — | no | Fix here; correct its four stale citations | **Recommend P1** — see below |
+| `ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY` | draft | **P1** | The issue this design fixes | — | no | Fix here; correct its four stale citations | **Raised P2 → P1, applied 2026-09-04** |
 | `EXPIRATION-RECOVERY-WEB-API` | accepted | P2 | This fix increases how often a store entry is `Expired`, so the recovery surface it asks for gets more valuable. It does not change what that surface must be | no | no | Monitor; link from the design | Keep P2 |
 | `ASSET-FINISHED-PROGRESS-CONTRACT-UNDEFINED` | draft | P3 | Same region: `finalize_primary_progress` races the service loop at the end of a run. The architecture must not add a second decision whose outcome depends on that loop's timing — and it does not: the rule is decided under the `data` write lock, not by a service message | no | no | Independent; Phase 3 asserts the ordering rather than relying on it | Keep P3 |
 | `QUEUED-MANAGER-EVICTION-RACE` | accepted | P2 | Touches `remove_expired_from_maps` and `get_asset`, which run *after* an asset is expired. Orthogonal: this design changes when a status is decided, not how an entry is evicted | no | no | Independent | Keep P2 |
@@ -440,11 +440,11 @@ relies on. No serde annotation is added.
 
 1. ~~**Confirm the DM branch**~~ — **resolved 2026-09-04 (owner): `cascade_expire_dependents`.**
    The accompanying diagnostics requirement is filed as `EXPIRY-RECORDS-NO-REASON`.
-2. **Confirm the priority recommendation** for `ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY`: P2 → P1
-   on the cross-process evidence. Not applied.
-3. **Confirm the rename.** `try_to_set_ready` → `finalize_status` is mechanical (private, two call
-   sites) and makes `ASSET_LIFECYCLE.md` step 6 accurate. It is separable if the owner prefers the
-   fix to touch nothing cosmetic.
+2. ~~**Confirm the priority recommendation**~~ — **resolved 2026-09-04 (owner): raised to P1**, and
+   applied to the issue.
+3. ~~**Confirm the rename**~~ — **resolved 2026-09-04 (owner): rename.** `try_to_set_ready` becomes
+   `finalize_status`, so `ASSET_LIFECYCLE.md` step 6 describes a function whose name matches what it
+   decides.
 4. **Confirm "no commands in scope"** — answered above rather than asked, per the template.
 
 Phase 1's open question 5 is **closed** by §"The `expired-binary-read-safety` regression is

@@ -3,7 +3,7 @@ id: ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY
 kind: issue
 title: An asset evaluated from a stale dependency is persisted as Ready and only then labelled Expired
 status: draft
-priority: P2
+priority: P1
 complexity: M
 area: [core/assets]
 design: stale-dependency-status-finalization
@@ -49,7 +49,19 @@ The exposure is outside that check — another process, a later run against the 
 reader that trusts the sidecar's status sees `Ready` for a value the producing run concluded was
 expired. `AssetInfo` served from the store reports it too.
 
-No data is lost and no wrong value is served in-process, which is why this is P2 rather than P1.
+No data is lost and no wrong value is served **in-process**. Across a process boundary one is:
+`AssetRef::try_fast_track` accepts a stored asset whose status is `Ready | Source | Override`, then
+validates recorded dependency versions against the dependency manager — but only where the DM has a
+version for that key (`if let Some(dm_version) = dm.get_version(...)`). In a fresh process the DM is
+empty, so that guard is vacuous and every recorded dependency passes. A stale-dependency asset
+stored as `Ready` is therefore **loaded and served without recomputation** by the next process that
+asks for it. The in-process masking is exactly what does not survive a restart, which is the case
+the persisted status exists for.
+
+Raised to **P1** on 2026-09-04 (project owner, at the Phase 2 gate of
+`stale-dependency-status-finalization`, which established the above): a correctness risk with a
+workaround — expire the key or recompute deliberately — rather than P0, since no computation is
+wrong, nothing is lost, and it needs both a mid-flight dependency expiry and a process boundary.
 
 ## Expected behaviour
 

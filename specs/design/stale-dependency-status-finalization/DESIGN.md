@@ -4,7 +4,7 @@ kind: design
 title: Status is finalized before persistence for a stale-dependency evaluation
 workflow: liquers-project
 status: draft
-phase: architecture
+phase: examples
 area: [core/assets]
 gh_pr: []
 issues: [ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY, EXPIRY-RECORDS-NO-REASON]
@@ -19,7 +19,7 @@ superseded_by:
 ## Phase Status
 
 - [x] Phase 1: High-Level Design (approved 2026-09-04)
-- [ ] Phase 2: Solution & Architecture (reviewed 2026-09-04, awaiting approval)
+- [x] Phase 2: Solution & Architecture (approved 2026-09-04)
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
@@ -86,5 +86,9 @@ buggy behaviour, so none breaks. No fixer agent was needed for a single advisory
   expires assets silently, and `note_expired_dependency` names the dependency by its runtime asset
   id. Not absorbed into this design — it spans four expiry routes and carries an `info`/`warning`
   choice that is not this design's to make.
-- **Still open at the gate:** the P2 → P1 recommendation on the originating issue, and the
-  `try_to_set_ready` → `finalize_status` rename.
+- **Priority raised P2 → P1** on `ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY` (owner), and applied
+  to the issue with the cross-process reasoning that earned it.
+- **Rename confirmed** (owner): `try_to_set_ready` → `finalize_status`.
+
+**Phase 2 approved 2026-09-04.** All four gate questions resolved; no open decision carried into
+Phase 3.
