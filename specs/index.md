@@ -8,9 +8,9 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 88
+Total rows: 90
 - P1: 1
-- P2: 55
+- P2: 57
 - P3: 32
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
@@ -29,8 +29,10 @@ Total rows: 88
 | [`VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS`](issues/VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS.md) | issue | An argument declared after a multiple argument is unreachable and unchecked | draft | phase2-blocked | P2 | S | core/commands;core/plan;macro | [phase1](specs/design/variadic-metadata-tail-check/phase1-high-level-design.md)  [phase2](specs/design/variadic-metadata-tail-check/phase2-architecture.md)  | 2026-08-12 |
 | [`CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS`](issues/CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS.md) | issue | AsyncFileStore listings drop a metadata-only key instead of reporting it | draft |  | P2 | S | core/store;store/backends;docs |  | 2026-09-03 |
 | [`DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS`](issues/DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS.md) | issue | The generated index.md emits design phase links in filesystem order | draft |  | P2 | S | docs;build |  | 2026-09-04 |
+| [`EVALUATE-DOES-NOT-CLEAR-CACHED-BINARY`](issues/EVALUATE-DOES-NOT-CLEAR-CACHED-BINARY.md) | issue | The evaluation body installs a new value without invalidating the cached binary | draft |  | P2 | S | core/assets |  | 2026-09-04 |
 | [`EXPIRY-RECORDS-NO-REASON`](issues/EXPIRY-RECORDS-NO-REASON.md) | issue | An asset that becomes Expired records no reason, and the one path that does names the dependency by asset id | draft |  | P2 | S | core/assets |  | 2026-09-04 |
 | [`REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED`](issues/REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED.md) | issue | The `payload: required` metadata statement is implemented but documented nowhere | draft |  | P2 | S | docs;core/commands;macro |  | 2026-09-03 |
+| [`SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED`](issues/SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED.md) | issue | A write skipped because the asset was cancelled is recorded as a successful persist | draft |  | P2 | S | core/assets |  | 2026-09-04 |
 | [`AXUM-HANDLER-TEST-COVERAGE`](issues/AXUM-HANDLER-TEST-COVERAGE.md) | issue | liquers-axum has no handler test scaffolding, so handler behaviour is verified only by review | accepted |  | P2 | M | axum | [phase4](specs/design/expired-binary-read-safety/phase4-implementation.md)  [phase3](specs/design/expired-binary-read-safety/phase3-examples.md)  [phase1](specs/design/expired-binary-read-safety/phase1-high-level-design.md)  [phase2](specs/design/expired-binary-read-safety/phase2-architecture.md)  | 2026-08-08 |
 | [`COMBINED-VALUE-DISCRIMINATION`](issues/COMBINED-VALUE-DISCRIMINATION.md) | feature | Deserialization cannot discriminate base from extended values | accepted |  | P2 | M | core/value;lib/value |  | 2026-08-08 |
 | [`COMMAND-ALIAS-DEFINITION-UNTESTED`](issues/COMMAND-ALIAS-DEFINITION-UNTESTED.md) | issue | CommandDefinition::Alias has no test and no user, and its head-parameter semantics are unexercised | draft |  | P2 | M | core/plan;core/commands |  | 2026-08-29 |

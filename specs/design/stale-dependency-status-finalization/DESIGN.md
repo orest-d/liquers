@@ -4,7 +4,7 @@ kind: design
 title: Status is finalized before persistence for a stale-dependency evaluation
 workflow: liquers-project
 status: draft
-phase: implementation
+phase: architecture
 area: [core/assets]
 gh_pr: []
 issues: [ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY, EXPIRY-RECORDS-NO-REASON]
@@ -21,7 +21,7 @@ superseded_by:
 - [x] Phase 1: High-Level Design (approved 2026-09-04)
 - [x] Phase 2: Solution & Architecture (approved 2026-09-04)
 - [x] Phase 3: Examples & Testing (approved 2026-09-04)
-- [ ] Phase 4: Implementation Plan
+- [ ] Phase 4: Implementation Plan (drafted, **not approvable** — returned to Phase 2)
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
 
@@ -116,3 +116,54 @@ correction of its own, and supplied two facts that make Phase 4 executable: `Asy
 two required methods (so the shared-store wrapper is two forwarding bodies), and the mid-evaluation
 expiry gate at `expiration_integration.rs:749` achieves its timing with a bounded poll until the
 child is `Ready`, not a sleep.
+
+## Phase 4 review: three blocking findings, design returned to Phase 2 (2026-09-04)
+
+Two reviewers passed the plan clean. The holistic pass over all four documents did not, and its
+central finding is verified against source:
+
+**B1 — finalizing `Expired` before persistence stops the value being written at all.**
+`evaluate` installs `lock.data` and never `lock.binary`, so `save_to_store`'s `binary_unchecked()`
+returns `None` and it falls through to `serialize_to_binary` (`assets.rs:2718`) — which calls
+`self.poll_state()`, and `poll_state` returns `None` for `Expired` (`:1199`, `metadata.rs:368`).
+So the write fails with "Failed to obtain binary value for storing of the asset" and **nothing
+reaches the store**. The comment already in the source at `assets.rs:2552` states the constraint
+outright: *"Must happen before persistence so poll_state() returns Some for serialization."*
+
+Phase 3's "Verified Setup Facts" asserted the opposite — that `save_to_store` has no status gate —
+and Phase 3 pitfall P4 repeated it, telling implementers not to worry about this exact thing. That
+verification checked `save_to_store` and stopped one call short of `serialize_to_binary`. It was
+written into a table labelled binding, which is the worst place for a wrong fact.
+
+The fix is principled and already has two precedents in this repository: `serialize_to_binary`
+needs the ungated read (`poll_state_any_status`), for the same reason `save_to_store` already uses
+`binary_unchecked` — *persisting is not a read of the exposed value*. It is the same defect class as
+`ASSET-EXPIRED-CACHED-BINARY-READ` and `DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE`: a gate was
+added to a read and an internal caller that needed the ungated one was not moved across. But it
+changes the persistence path, so it is a Phase 2 decision, not a Phase 4 detail.
+
+**B2 — Step 3 uses the wrong key derivation, and the delegated case falls in the gap.**
+`track_asset` uses `bound_owner_key()` (ownership-aware, `None` for a keyed non-owner);
+Phase 4 Step 3 uses `lock.key` (ownership-blind by design). A *delegating* asset can carry
+`stale_dependency` — delegation goes through `wait_for_dependency`, the same call that sets it —
+and `evaluate` skips persistence for `delegated` but runs the DM step unconditionally. So the new
+branch would cascade on a key the asset does not own, tearing down the real owner's version and
+edges. Today that asset reaches `track_asset`, gets `None`, and does nothing.
+
+**B3 — the cascade is not "`track_asset`'s invalidation without the version registration".**
+That description is what the Phase 2 gate decision was approved on, and it is wrong three ways.
+`track_asset` also calls `load_from_records`, registering *incoming* edges, which the cascade drops.
+And `expire_internal` (`dependencies.rs:596-635`) skips the cascade when the stored version
+`is_unknown()` — `Version(0)`, which is what the evaluate path registers — while removing
+`keyed_dependents[K]` **regardless**. So for a previously-tracked key the dependents are *not*
+expired and *lose their edges*: a new invalidation hole rather than the preservation of one. For a
+never-tracked key it expires every transitive dependent. The branch is both broader and narrower
+than today depending on history, which no phase noticed. It also removes `versions[K]`, which makes
+`try_fast_track`'s version guard vacuous in-process — the very mechanism the P1 raise rests on.
+
+Also raised, for the owner: staleness now propagates transitively within a run (a parent polling a
+stale-dependency child sees `Expired` instead of a brief `Ready`), and the issue's "or not written
+at all" option needs deciding explicitly given B1.
+
+Filed separately from this design: `EVALUATE-DOES-NOT-CLEAR-CACHED-BINARY` and
+`SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED`.
