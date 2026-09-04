@@ -244,6 +244,7 @@ deliberately folded behind a broader line.
 - design `delegated-value-repersisted`
 - design `docs-current-link-validation`
 - design `docs-dead-links`
+- design `documentation-currentness-small-fixes`
 - design `error-store-name-payload`
 - design `error-with-key-field`
 - design `expiration-integration-suite-failing-at-head`

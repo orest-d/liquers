@@ -1996,7 +1996,7 @@ impl Plan {
     /// a plan needing no CWD stays silent.
     ///
     /// Idempotent: freezing an already-frozen plan against the same key is a no-op, because
-    /// [`CwdCursor::resolve_key`] returns a non-relative key unchanged. Returns the CWD in effect
+    /// `CwdCursor::resolve_key` returns a non-relative key unchanged. Returns the CWD in effect
     /// after the last step together with that fallback flag.
     ///
     /// Errors when the plan is already frozen against a *different* key, which means a caller

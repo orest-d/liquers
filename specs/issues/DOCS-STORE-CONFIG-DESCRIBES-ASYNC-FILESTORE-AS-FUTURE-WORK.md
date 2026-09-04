@@ -2,11 +2,11 @@
 id: DOCS-STORE-CONFIG-DESCRIBES-ASYNC-FILESTORE-AS-FUTURE-WORK
 kind: issue
 title: Store configuration reference describes AsyncFileStore as future work
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [docs, core/store]
-design:
+design: documentation-currentness-small-fixes
 created: 2026-09-04
 github:
 ---
@@ -31,3 +31,9 @@ future-work statement, while preserving the configuration schema.
 
 Found on 2026-09-04 while fixing `DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS`. It is adjacent to,
 but independent from, that issue's approved memory-store scope.
+
+## Resolution
+
+Closed on 2026-09-04. `STORE_CONFIG_FSD.md` now identifies `AsyncFileStore` as the built-in
+filesystem implementation and no longer describes it as future work. The configuration schema is
+unchanged; focused text validation and the documentation-index check passed.

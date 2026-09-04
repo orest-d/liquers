@@ -64,9 +64,9 @@ DATA-FORMAT-CONSTANTS-AND-TOOLING,feature,"Data formats are bare string literals
 DELEGATED-VALUE-REPERSISTED,issue,An asset that delegates to a key's owner writes the owner's value to the store again,closed,local,,covered,P3,S,core/assets,,,,delegated-value-persistence,,2026-08-12,specs/issues/DELEGATED-VALUE-REPERSISTED.md
 DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE,issue,Execution-time expired dependency always fails its dependent; the stale-value branch is dead,closed,local,,,P0,S,core/assets,,,,expired-binary-read-safety,,2026-08-08,specs/issues/DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE.md
 DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS,issue,"Three documents teach AsyncStoreWrapper, which no longer exists in the code",closed,local,,ready,P2,S,docs;core/store,,,,async-store-wrapper-docs,,2026-09-02,specs/issues/DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS.md
-DOCS-BUILD-MATRIX-CONFIGURATION-COUNT-STALE,issue,CLAUDE.md states the build matrix has 11 configurations; it runs 20,draft,local,,,P3,S,docs;build,,,,,,2026-09-03,specs/issues/DOCS-BUILD-MATRIX-CONFIGURATION-COUNT-STALE.md
+DOCS-BUILD-MATRIX-CONFIGURATION-COUNT-STALE,issue,CLAUDE.md states the build matrix has 11 configurations; it runs 20,closed,local,,,P3,S,docs;build,,,,documentation-currentness-small-fixes,,2026-09-03,specs/issues/DOCS-BUILD-MATRIX-CONFIGURATION-COUNT-STALE.md
 DOCS-DEAD-LINKS-OUTSIDE-README,issue,Relative links outside README are never validated,closed,local,,covered,P3,S,docs,,,,docs-current-link-validation,,2026-08-08,specs/issues/DOCS-DEAD-LINKS-OUTSIDE-README.md
-DOCS-STORE-CONFIG-DESCRIBES-ASYNC-FILESTORE-AS-FUTURE-WORK,issue,Store configuration reference describes AsyncFileStore as future work,draft,local,,,P2,S,docs;core/store,,,,,,2026-09-04,specs/issues/DOCS-STORE-CONFIG-DESCRIBES-ASYNC-FILESTORE-AS-FUTURE-WORK.md
+DOCS-STORE-CONFIG-DESCRIBES-ASYNC-FILESTORE-AS-FUTURE-WORK,issue,Store configuration reference describes AsyncFileStore as future work,closed,local,,,P2,S,docs;core/store,,,,documentation-currentness-small-fixes,,2026-09-04,specs/issues/DOCS-STORE-CONFIG-DESCRIBES-ASYNC-FILESTORE-AS-FUTURE-WORK.md
 EGUI-ASSET-MANAGER-INTEGRATION,feature,No stable adapter between egui widgets and the asset manager,accepted,local,,,P2,M,lib/egui,,,,,,2026-08-08,specs/issues/EGUI-ASSET-MANAGER-INTEGRATION.md
 ENVIRONMENT-MANAGER-REFERENCE-CYCLE,issue,"Environment and asset manager hold each other with strong Arcs, so every environment leaks",draft,local,,,P2,M,core/assets;core/context,,,,environment-builder,,2026-08-27,specs/issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md
 ERROR-WITH-KEY-SETS-QUERY-FIELD,issue,Error context cannot distinguish asset keys from nested queries,draft,local,,phase2-blocked,P2,L,core/error;core/query;core/assets;core/store;web;py;axum,,,,error-with-key-field,,2026-08-25,specs/issues/ERROR-WITH-KEY-SETS-QUERY-FIELD.md
@@ -114,7 +114,7 @@ REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED,issue,The `payload: required` me
 REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED,issue,The committed command registry carries stale impl_versions and no test detects it,draft,local,,needs-decision,P3,S,lib/commands;build;docs,,,,command-registry-impl-version-freshness,,2026-08-25,specs/issues/REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED.md
 REPO-DEAD-CODE-HYGIENE,issue,Dead modules and untracked files in the repository,accepted,local,,ready,P3,S,build,,,,core-dead-code-hygiene,,2026-08-08,specs/issues/REPO-DEAD-CODE-HYGIENE.md
 RESOURCE-NAME-ASCII-ONLY,issue,Non-ASCII resource names are unaddressable,draft,local,,,P2,L,core/query;core/store,,,,,,2026-08-14,specs/issues/RESOURCE-NAME-ASCII-ONLY.md
-RUSTDOC-PUBLIC-DOCS-LINK-PRIVATE-ITEMS,issue,"Public rustdoc in three modules links to private or absent items, so the links render as plain text",draft,local,,,P3,S,core/value;core/plan;core/store,,,,,,2026-09-04,specs/issues/RUSTDOC-PUBLIC-DOCS-LINK-PRIVATE-ITEMS.md
+RUSTDOC-PUBLIC-DOCS-LINK-PRIVATE-ITEMS,issue,"Public rustdoc in three modules links to private or absent items, so the links render as plain text",closed,local,,,P3,S,core/value;core/plan;core/store,,,,documentation-currentness-small-fixes,,2026-09-04,specs/issues/RUSTDOC-PUBLIC-DOCS-LINK-PRIVATE-ITEMS.md
 STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE,issue,Constructing and deserializing the same CommandMetadata give different state arguments,draft,local,,needs-decision,P2,S,core/commands,,,,state-argument-serde-default,,2026-08-29,specs/issues/STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE.md
 STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED,issue,Store key absoluteness is enforced by convention rather than by the type system,draft,local,,,P3,L,core/store;store/backends;core/query,,,,,,2026-08-17,specs/issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md
 STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE,issue,AsyncStore has no written behavioural contract and no suite holding implementations to one,closed,local,,,P1,L,core/store;store/backends;web;docs,,,,store-conformance-suite,,2026-09-02,specs/issues/STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE.md
@@ -180,6 +180,7 @@ DEPENDENCY-MANAGEMENT,design,Dependency-wait lifecycle and deadlock-safe delegat
 DEPENDENCY-SCHEDULING,design,Non-blocking dependency scheduling with atomic run claims,complete,local,,,,,core/assets,,6,,dependency-scheduling,,2026-03-02,specs/design/dependency-scheduling/DESIGN.md
 COVERED-11,design,Coverage record for DOCS-DEAD-LINKS-OUTSIDE-README,in_review,local,architecture,covered,P3,S,docs,,,,docs-current-link-validation,,2026-09-03,specs/design/docs-current-link-validation/DESIGN.md
 DOCS-DEAD-LINKS,design,Validate relative links in tracked specifications,complete,local,,,P3,S,docs;build,,,,docs-dead-links,,2026-08-31,specs/design/docs-dead-links/DESIGN.md
+DOCS-CURRENTNESS-SMALL-FIXES,design,Keep small current documentation claims and rustdoc links accurate,complete,local,,,,,docs;build;core/plan;core/store;core/value,,,,documentation-currentness-small-fixes,,2026-09-04,specs/design/documentation-currentness-small-fixes/DESIGN.md
 ENVIRONMENT-BUILDER,design,Environment builder,complete,local,,,,,core/assets;core/context,,44;53,,environment-builder,,2026-08-27,specs/design/environment-builder/DESIGN.md
 ACTIVE-02,design,Design for CORE-ERROR-STORE-NAME-NOT-STRUCTURED,abandoned,local,,,P2,S,core/error;core/store,,,,error-store-name-payload,,2026-09-03,specs/design/error-store-name-payload/DESIGN.md
 ERROR-WITH-KEY-FIELD,design,Structured error context for keys and nested queries,in_review,local,architecture,phase2-blocked,P2,L,core/error;core/query;core/assets;core/store;web;py;axum,,,,error-with-key-field,,2026-08-29,specs/design/error-with-key-field/DESIGN.md
@@ -251,15 +252,9 @@ COVERED-08,design,Coverage record for WEB-VALUE04-BYTES-IDENTIFIER-CASE-MISMATCH
 WEBUI,design,Web-framework-independent rendering with SSR and wasm,complete,local,,,,,lib/ui,,10,,webui,,2026-03-02,specs/design/webui/DESIGN.md
 WEBUI-FIXES,design,Invalidation tracking for retained-mode rendering,complete,local,,,,,lib/ui,,12,,webui-fixes,,2026-03-02,specs/design/webui-fixes/DESIGN.md
 WP2-TERMINAL-OUTCOME,design,Asset terminal outcome contract,complete,local,,,,,core/assets,,7,,wp2-terminal-outcome,,2026-03-02,specs/design/wp2-terminal-outcome/DESIGN.md
-API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,docs,,,,,2026-08-17,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
-DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
-DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,core/query,,,,,2026-08-17,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
-DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,core/assets,,,,,2026-09-04,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
-DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,core/context;core/plan,,,,,2026-08-31,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
-DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,core/plan;core/assets;core/context,,,,,2026-08-29,,specs/reference/api/DOC_08_RECIPES_PLANS.md
+ASSETS,reference,Assets Specification,current,local,,,,,core/assets,,,,,2026-08-26,,specs/reference/ASSETS.md
 ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,core/assets,,,,,2026-09-04,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,core/assets,,,,,2026-08-26,,specs/reference/ASSET_SET_OPERATION.md
-ASSETS,reference,Assets Specification,current,local,,,,,core/assets,,,,,2026-08-26,,specs/reference/ASSETS.md
 COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,core/commands;web;py,,,,,2026-08-31,,specs/reference/COMMAND_DECLARATION.md
 CONFORMANCE_TERMS,reference,Conformance Terms,current,local,,,,,docs,,,,,2026-09-02,,specs/reference/CONFORMANCE_TERMS.md
 DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,,core/assets,,,,,2026-08-12,,specs/reference/DEPENDENCIES_STATUS.md
@@ -274,8 +269,12 @@ STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,core/sto
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,core/value;lib/value,,,,,2026-08-26,,specs/reference/VALUE_TYPE_SYSTEM.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,axum;web,,,,,2026-08-17,,specs/reference/WEB_API_SPECIFICATION.md
-autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,docs;build,,,,,2026-08-31,,specs/guides/autonomous_bulk_design.md
-autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,,docs;build,,,,,2026-08-11,,specs/guides/autonomous_issue_fixing.md
+API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,docs,,,,,2026-08-17,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
+DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
+DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,core/query,,,,,2026-08-17,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
+DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,core/assets,,,,,2026-09-04,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
+DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,core/context;core/plan,,,,,2026-08-31,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
+DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,core/plan;core/assets;core/context,,,,,2026-08-29,,specs/reference/api/DOC_08_RECIPES_PLANS.md
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,core/commands;macro,,,,,2026-08-31,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,core/context;core/assets;core/store,,,,,2026-08-31,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-09-02,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
@@ -284,3 +283,5 @@ STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,core/store;store
 STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,core/store;store/backends;web,,,,,2026-09-04,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,core/value;lib/value,,,,,2026-08-26,,specs/guides/TYPE_SYSTEM_GUIDE.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,build,,,,,2026-09-04,,specs/guides/UNITTEST_GUIDE.md
+autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,docs;build,,,,,2026-08-31,,specs/guides/autonomous_bulk_design.md
+autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,,docs;build,,,,,2026-08-11,,specs/guides/autonomous_issue_fixing.md
