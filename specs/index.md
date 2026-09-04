@@ -8,8 +8,8 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 84
-- P2: 52
+Total rows: 85
+- P2: 53
 - P3: 32
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
@@ -63,6 +63,7 @@ Total rows: 84
 | [`RESOURCE-NAME-ASCII-ONLY`](issues/RESOURCE-NAME-ASCII-ONLY.md) | issue | Non-ASCII resource names are unaddressable | draft |  | P2 | L | core/query;core/store |  | 2026-08-14 |
 | [`STORE-METADATA-LAYOUT-HARDCODED-PER-STORE`](issues/STORE-METADATA-LAYOUT-HARDCODED-PER-STORE.md) | issue | Every writable store hard-codes its own metadata layout | draft |  | P2 | L | core/store;store/backends;web;docs |  | 2026-09-03 |
 | [`TYPE-REGISTRY-NOT-REALM-AWARE`](issues/TYPE-REGISTRY-NOT-REALM-AWARE.md) | feature | A query spanning two realms cannot know which types the other realm supports | draft |  | P2 | L | core/value;core/commands;core/plan;web;axum |  | 2026-08-18 |
+| [`UI-QUERY-EDITOR-LACKS-LIVE-VALIDATION`](issues/UI-QUERY-EDITOR-LACKS-LIVE-VALIDATION.md) | issue | Query editor cannot validate the current text with command metadata | draft |  | P2 | L | lib/ui;lib/egui;web;core/plan;core/query |  | 2026-09-04 |
 | [`VALUE-CONVERSION-CAPABILITY`](issues/VALUE-CONVERSION-CAPABILITY.md) | feature | Values cannot be converted between types, automatically or explicitly | draft |  | P2 | L | core/value;core/commands;lib/value |  | 2026-08-18 |
 | [`WORKSPACE-SERDE-DERIVE-UNDECLARED`](issues/WORKSPACE-SERDE-DERIVE-UNDECLARED.md) | issue | Three crates use serde derive macros without declaring the `derive` feature | accepted |  | P2 | L | build;core/value;lib/ui;axum |  | 2026-08-09 |
 | [`VALUE-TYPE-DEFINITION-MACRO`](issues/VALUE-TYPE-DEFINITION-MACRO.md) | feature | Value types and their registry entries are hand-written instead of generated | draft |  | P2 | XL | macro;lib/value;core/value |  | 2026-08-18 |
