@@ -4,7 +4,7 @@
 //! mnemonics, the numeric entities, and [`encode_token`]. The named entities `~n<name>~` live in
 //! [`crate::entities`]. Both directions derive from the tables here and there, so the encoder and
 //! the parser cannot drift — [`crate::parse`] contains no entity knowledge of its own, only the
-//! `nom` plumbing that calls [`match_entity`].
+//! `nom` plumbing that calls `match_entity`.
 //!
 //! # The invariant
 //!

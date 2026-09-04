@@ -176,7 +176,7 @@ minimal or wasm build. `scripts/check-build-matrix.sh` checks every configuratio
 test targets**, plus the wasm32 target and `liquers-store`'s feature split:
 
 ```bash
-bash scripts/check-build-matrix.sh          # 11 configurations, ~cargo check cost
+bash scripts/check-build-matrix.sh          # see the script's final computed total
 ```
 
 Run it after touching a `#[cfg(feature = …)]`, an optional dependency, or a `match` over

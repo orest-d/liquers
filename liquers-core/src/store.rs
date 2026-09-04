@@ -913,7 +913,7 @@ pub const METADATA_FOLDER: &str = "__metadata__";
 /// needs a store name this type cannot reach (`CORE-ERROR-STORE-NAME-NOT-STRUCTURED`).
 ///
 /// Each store declares what its **own** layout uses. Over-reserving is a defect in the same family
-/// as under-reserving: `x.__lock__` is a key [`AsyncOpenDALStore`] can address perfectly well,
+/// as under-reserving: `x.__lock__` is a key `AsyncOpenDALStore` can address perfectly well,
 /// because it takes no locks.
 ///
 /// See `specs/design/sidecar-colliding-keys/` and `specs/reference/STORE_SEMANTICS.md` §8.

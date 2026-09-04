@@ -446,7 +446,7 @@ def render_index_markdown(rows: list[dict]) -> str:
         design = r["design"]
         if design and design in designs:
             design_phases = ' '.join(
-                f"[{x.name.split('-')[0]}]({x}) "
+                f"[{x.name.split('-')[0]}]({x.relative_to(REPO).as_posix()}) "
                 for x in Path(designs[design]["_path"]).parent.iterdir()
                 if x.name != "DESIGN.md" and x.name.endswith(".md")
             )
