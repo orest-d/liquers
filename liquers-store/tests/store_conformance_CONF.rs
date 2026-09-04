@@ -46,7 +46,13 @@ fn fixture(
     prefix: Key,
     capabilities: StoreCapabilities,
 ) -> GenericFixture {
-    GenericFixture::new(label, Box::new(store), prefix, capabilities, SafetyLevel::Scratch)
+    GenericFixture::new(
+        label,
+        Box::new(store),
+        prefix,
+        capabilities,
+        SafetyLevel::Scratch,
+    )
     // The suffix that makes a key's data path identical to another key's metadata path. Refused by
     // `is_supported`, which is what `prefix03`, `sibling05` and `sidecar01` are about.
     .with_unsupported_shape(parse_key("collide.__metadata__").expect("key"))

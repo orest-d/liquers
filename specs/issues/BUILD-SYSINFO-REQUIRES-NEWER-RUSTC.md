@@ -58,3 +58,32 @@ Found on 2026-09-02 while adding the `store-conformance` rows to the build matri
 16 of `design/store-conformance-suite/`. Pre-existing and unrelated to that work: the two failing
 rows fail identically without any of its changes. The CI/local split was established afterwards, by
 reading the workflow's toolchain pin rather than inferring from the local failure.
+
+## Observed again, and widened, on 2026-09-03
+
+Hit while running `scripts/check-build-matrix.sh` for `SIDECAR-COLLIDING-KEYS` (a `core/store`
+change that touches no `liquers-lib` code). Three of the twenty configurations fail, all three on
+this, and **two distinct packages now demand rustc 1.95** rather than the one this issue was filed
+for:
+
+| Configuration | Package demanding 1.95 |
+|---|---|
+| `-p liquers-lib --no-default-features --features polars --tests` | `sysinfo@0.39.6` |
+| `-p liquers-lib --no-default-features --features egui --tests` | `ecolor`, `eframe`, `egui`, `egui-wgpu`, `egui-winit`, `egui_commonmark`, `egui_extras` @ 0.36.x |
+| `-p liquers-lib --tests` | the egui set, as above |
+
+The egui half arrived with the dependency upgrade on `main` (`47757dd`), after this issue was
+filed. Toolchain here is `rustc 1.94.1 (e408947bf 2026-03-25)`.
+
+Two consequences for whoever takes the decision this issue is waiting on:
+
+1. **Pinning `sysinfo` alone no longer restores the matrix.** The egui rows need the same treatment
+   or the same toolchain bump, so the "select compatible dependency versions" option is now a
+   multi-package pin that will keep growing.
+2. **The matrix cannot go green on rustc 1.94**, so a contributor on that toolchain cannot use a
+   local matrix run as evidence for any change, including ones touching none of the affected
+   crates. **CI is unaffected** — `.github/workflows/build-matrix.yml` uses
+   `dtolnay/rust-toolchain@stable`, and all 20 configurations pass there (verified on PR #60). So
+   this is a local-development problem, not a gap in the check `BUILD-MATRIX-NOT-RUN-IN-CI` was
+   closed to provide, and the fix can be as small as documenting the required toolchain.
+

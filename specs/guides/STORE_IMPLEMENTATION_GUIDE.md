@@ -3,7 +3,7 @@ title: Store Implementation Guide
 kind: guide
 audience: internal
 area: [core/store, store/backends, web]
-reviewed: 2026-09-02
+reviewed: 2026-09-03
 ---
 # Store Implementation Guide
 
@@ -51,10 +51,45 @@ the ones that bite later.
 - **What plays the role of an internal key?** A path, an object name, a row ID, a URL, a
   `localStorage` string.
 - **How do Liquers keys map onto internal keys, and does the mapping round-trip?**
-- **Which Liquers keys are *unrepresentable*?** Refuse them from `is_supported` and from the path
-  builders rather than letting them collide silently. The in-tree instance is the `.__metadata__`
-  suffix: the *data* path of key `foo.__metadata__` is byte-identical to the *metadata* path of key
-  `foo`, so that key is refused.
+- **Which Liquers keys are *unrepresentable*?** Refuse them from `is_supported`, from the path
+  builders, **and from the listing filters**. The in-tree instance is the `.__metadata__` suffix:
+  the *data* path of key `foo.__metadata__` is byte-identical to the *metadata* path of key `foo`,
+  so that key is refused — as is any key with a reserved segment anywhere, and the bare
+  `__metadata__` folder name. See `reference/STORE_SEMANTICS.md` §8 for the rule.
+
+  **Put the rule in one predicate and have all three consult it.** `liquers_core::store` provides
+  `ReservedNames` for exactly this; declare what *your* layout reserves and nothing more:
+
+  ```rust
+  const RESERVED: ReservedNames =
+      ReservedNames::new(&[METADATA_SUFFIX, LOCK_SUFFIX], &[METADATA_FOLDER]);
+  ```
+
+  It is a predicate rather than a fallible function because `is_supported` returns `bool` and cannot
+  carry an error; your store raises `Error::key_not_supported`, which needs a store name the
+  predicate cannot reach.
+
+  Three things go wrong when the rule is spread across call sites instead, and all three have
+  happened here:
+
+  1. **`is_supported` alone is not enough.** It is a *routing hint*: `AsyncStoreRouter` consults it,
+     a caller holding your store does not have to, and `liquers-axum`'s handlers do not. A store
+     that refuses only there accepts the key in `set` and corrupts what it collides with —
+     `CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS`, which `sidecar01` could not catch and
+     `sidecar03` was written to.
+  2. **The listing filter is not optional.** `listdir_keys_deep` calls `is_dir` on every child, so a
+     reserved name left in a listing turns a refusal into a *failed enumeration* — guarding the path
+     builders alone makes the store unlistable, which is worse than the bug.
+  3. **Over-reserving is a defect too.** Reserve what your layout uses and no more: `x.__lock__` is
+     an ordinary key for a store that takes no locks.
+
+  Check `as_absolute` **first**, so a key that is both relative and reserved reports
+  `KeyNotAbsolute` — every store answers this the same way.
+
+  If your store may already hold a colliding file from before you enforced this, the way out is
+  `get` (which repairs unparseable metadata), `set_metadata`, or `remove` (which unlinks the data
+  and metadata paths together). The key itself is no longer addressable, so there is no fourth
+  route — a leftover lock file needs a filesystem-level delete.
 - **Is the key space constrained in shape, not just extent?** A store addressing database rows by
   numeric ID cannot accept `sub/a.txt` and has no directories. That is a legitimate store; see §6.
 - **Does the backend address by string prefix?** If so, read §3 before anything else.
@@ -302,7 +337,7 @@ the two sets agree, so a rule cannot be added without the contract naming it.
 | §5 removal | `remove01` `remove02` `remove03` `data02` |
 | §6 prefixes | `prefix01` `prefix02` `prefix03` `prefix04` |
 | §7 key shape | `keyshape01` `keyshape02` |
-| §8 sidecars | `sidecar01` `sidecar02` `sidecar03` |
+| §8 sidecars and reserved names | `sidecar01` `sidecar02` `sidecar03`, plus `prefix03` and `sibling05` when the fixture declares an unsupported shape |
 | §9 enumeration | `keys01` `keys02` |
 | refuting rules | `nowrite01` `noremove01` `nodir01` `nomakedir01` `noremovedir01` `nokeys01` |
 
@@ -330,4 +365,5 @@ serde for exactly this reason. Regenerate it rather than editing it.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-03 | §"The key space" now says *how* to refuse an unrepresentable key, not only that you must: one `ReservedNames` predicate consulted by `is_supported`, the path builders and the listing filters, declaring what your own layout reserves and no more. Records the three failure modes behind that advice — `is_supported` is a routing hint and does not bind a direct caller; an unfiltered listing turns a refusal into a failed enumeration; over-reserving refuses keys for nothing — and the recovery routes for a store that already holds a colliding file. | `design/sidecar-colliding-keys/` Phase 5 |
 | 2026-09-02 | Created. The operational counterpart to `reference/STORE_SEMANTICS.md`: what implementing a store means, the questions to answer first, the sibling rule, the capability model, how to write a fixture and run the suite, the safety levels and their precautions, a worked restricted store, and the status of the ten in-tree implementations. | `design/store-conformance-suite/` Phase 4 step 14 |

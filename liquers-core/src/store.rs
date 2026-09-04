@@ -869,6 +869,97 @@ impl AsyncStore for AsyncMemoryStore {
     }
 }
 
+/// The metadata sidecar suffix: the metadata for `foo` lives at `foo.__metadata__`.
+pub const METADATA_SUFFIX: &str = ".__metadata__";
+
+/// The lock-file suffix [`AsyncFileStore`] takes while writing: the lock for `foo` is
+/// `foo.__lock__`.
+pub const LOCK_SUFFIX: &str = ".__lock__";
+
+/// The legacy metadata *folder* name, reserved exactly rather than as a suffix.
+///
+/// This is not a layout any store in this repository uses. It is the predecessor Python
+/// implementation's: in [`orest-d/liquer`](https://github.com/orest-d/liquer), `liquer/store.py`
+/// (at `2eb4e64`) declares `METADATA = "__metadata__"` and puts the metadata for `sub/foo.txt` at
+/// `sub/__metadata__/foo.txt.json`. That implementation refuses the name as a filename *and* in
+/// any interior position, and filters it out of listings — the same three rules this module
+/// applies.
+///
+/// It is reserved here so that layout stays readable if support for it is ever wanted, and the
+/// citation is in this doc comment because **nothing in this repository evidences the layout**: a
+/// reservation whose reason is invisible is the one a future reader deletes.
+pub const METADATA_FOLDER: &str = "__metadata__";
+
+/// The names a store's metadata layout reserves, and therefore the keys it must refuse.
+///
+/// A sidecar layout keeps the metadata for `foo` at `foo.__metadata__`, which makes the key
+/// `foo.__metadata__` unaddressable — its *data* path is that same byte string. Such keys are
+/// refused rather than silently colliding, because a store must not accept a key it cannot address
+/// unambiguously (`STORE_SEMANTICS.md` §8).
+///
+/// Three kinds of caller ask the same question through this type, and all three must:
+///
+/// 1. [`AsyncStore::is_supported`], which is only a **routing hint** — `AsyncStoreRouter` consults
+///    it and a direct caller need not.
+/// 2. The path builders, so that every fallible method inherits the refusal. This is the half that
+///    was missing, and `liquers-axum`'s store handlers are the callers that reached the filesystem
+///    through it (`CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS`).
+/// 3. The listing filters. Not optional: `listdir_keys_deep` calls `is_dir` on every child, so an
+///    unfiltered reserved name turns a refusal into a *failed enumeration* — the store stops being
+///    listable at all. §8 requires listings to skip what they cannot address, not fail on it.
+///
+/// A predicate rather than a fallible function because [`AsyncStore::is_supported`] returns `bool`
+/// and cannot carry an error; the *store* raises the refusal, because `Error::key_not_supported`
+/// needs a store name this type cannot reach (`CORE-ERROR-STORE-NAME-NOT-STRUCTURED`).
+///
+/// Each store declares what its **own** layout uses. Over-reserving is a defect in the same family
+/// as under-reserving: `x.__lock__` is a key [`AsyncOpenDALStore`] can address perfectly well,
+/// because it takes no locks.
+///
+/// See `specs/design/sidecar-colliding-keys/` and `specs/reference/STORE_SEMANTICS.md` §8.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReservedNames {
+    /// Reserved as a suffix: any segment *ending* in one of these.
+    suffixes: &'static [&'static str],
+    /// Reserved exactly: a segment equal to one of these.
+    ///
+    /// Deliberately separate from `suffixes` rather than derived from it by stripping a leading
+    /// dot. Deriving is shorter and wrong — it would reserve the bare name `__lock__`, and no
+    /// layout has ever used a `__lock__` directory, so the store would refuse a key for no reason
+    /// and the contract would claim a layout that does not exist.
+    exact: &'static [&'static str],
+}
+
+impl ReservedNames {
+    /// Declares what a layout reserves. `const` so a store holds the result as an associated
+    /// constant rather than rebuilding it per call.
+    pub const fn new(
+        suffixes: &'static [&'static str],
+        exact: &'static [&'static str],
+    ) -> Self {
+        Self { suffixes, exact }
+    }
+
+    /// True when one directory-entry name is reserved.
+    ///
+    /// Takes `&str` because the listing filters have a name and no key, and building a key per
+    /// entry in order to ask would allocate for nothing.
+    pub fn is_reserved_name(&self, name: &str) -> bool {
+        self.suffixes.iter().any(|suffix| name.ends_with(suffix))
+            || self.exact.iter().any(|reserved| name == *reserved)
+    }
+
+    /// True when **any** segment of the key is reserved.
+    ///
+    /// Any, not the last: `dir.__metadata__/child` needs `dir.__metadata__` to be a directory,
+    /// while the metadata of `dir` needs it to be a file, so the key is unaddressable even though
+    /// its filename is innocent. [`Key::filename`] is the last segment only, which is how the
+    /// original check missed this shape.
+    pub fn is_reserved_key(&self, key: &Key) -> bool {
+        key.iter().any(|segment| self.is_reserved_name(&segment.name))
+    }
+}
+
 /// Async-native file store implementation.
 /// Uses `tokio::fs`, unavailable on wasm — excluded from `wasm32` targets.
 #[cfg(not(target_arch = "wasm32"))]
@@ -880,14 +971,27 @@ pub struct AsyncFileStore {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl AsyncFileStore {
-    const METADATA: &'static str = ".__metadata__";
-    const LOCK: &'static str = ".__lock__";
+    /// What this store's layout reserves: the metadata sidecar, the lock it takes while writing,
+    /// and the legacy metadata folder name.
+    const RESERVED: ReservedNames =
+        ReservedNames::new(&[METADATA_SUFFIX, LOCK_SUFFIX], &[METADATA_FOLDER]);
 
     pub fn new(path: &str, prefix: &Key) -> Self {
         Self {
             path: PathBuf::from(path),
             prefix: prefix.to_owned(),
         }
+    }
+
+    /// Raises the refusal for a key this store's layout cannot represent.
+    ///
+    /// The rule lives in [`ReservedNames`]; the error is raised here because
+    /// `Error::key_not_supported` needs this store's name, which the predicate cannot reach.
+    fn reject_reserved(&self, key: &Key) -> Result<(), Error> {
+        if Self::RESERVED.is_reserved_key(key) {
+            return Err(Error::key_not_supported(key, &self.store_name()));
+        }
+        Ok(())
     }
 
     /// Maps a key onto a filesystem path under the store root.
@@ -898,6 +1002,7 @@ impl AsyncFileStore {
     /// having passed. See the [module documentation](self#a-store-key-is-absolute).
     pub fn key_to_path(&self, key: &Key) -> Result<PathBuf, Error> {
         let key = key.as_absolute()?;
+        self.reject_reserved(&key)?;
         let mut path = self.path.clone();
         path.push(key.to_string());
         Ok(path)
@@ -907,15 +1012,17 @@ impl AsyncFileStore {
     /// [`Self::key_to_path`].
     pub fn key_to_path_metadata(&self, key: &Key) -> Result<PathBuf, Error> {
         let key = key.as_absolute()?;
+        self.reject_reserved(&key)?;
         let mut path = self.path.clone();
-        path.push(format!("{}{}", key, Self::METADATA));
+        path.push(format!("{}{}", key, METADATA_SUFFIX));
         Ok(path)
     }
 
     fn key_to_lock_path(&self, key: &Key) -> Result<PathBuf, Error> {
         let key = key.as_absolute()?;
+        self.reject_reserved(&key)?;
         let mut path = self.path.clone();
-        path.push(format!("{}{}", key, Self::LOCK));
+        path.push(format!("{}{}", key, LOCK_SUFFIX));
         Ok(path)
     }
 
@@ -1206,7 +1313,10 @@ impl AsyncStore for AsyncFileStore {
             .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?
         {
             let name = entry.file_name().to_string_lossy().to_string();
-            if !(name.ends_with(Self::METADATA) || name.ends_with(Self::LOCK)) {
+            // The same predicate the path builders use. Skipping rather than failing is what
+            // §8 requires, and it is not optional: `listdir_keys_deep` calls `is_dir` on every
+            // child, so a reserved name left in a listing would make `keys()` fail outright.
+            if !Self::RESERVED.is_reserved_name(&name) {
                 names.push(name);
             }
         }
@@ -1222,13 +1332,9 @@ impl AsyncStore for AsyncFileStore {
     }
 
     fn is_supported(&self, key: &Key) -> bool {
-        !key.is_relative() && key.has_key_prefix(&self.prefix)
-            && (!key
-                .filename()
-                .is_some_and(|file_name| file_name.name.ends_with(Self::METADATA)))
-            && (!key
-                .filename()
-                .is_some_and(|file_name| file_name.name.ends_with(Self::LOCK)))
+        !key.is_relative()
+            && key.has_key_prefix(&self.prefix)
+            && !Self::RESERVED.is_reserved_key(key)
     }
 }
 
@@ -1239,12 +1345,25 @@ pub struct FileStore {
 }
 
 impl FileStore {
-    const METADATA: &'static str = ".__metadata__";
+    /// What this store's layout reserves. Unlike [`AsyncFileStore`] it takes **no lock files**, so
+    /// `x.__lock__` is a key it can address and must not refuse — over-reserving is a defect in
+    /// the same family as under-reserving. `reserved04` pins the difference.
+    const RESERVED: ReservedNames = ReservedNames::new(&[METADATA_SUFFIX], &[METADATA_FOLDER]);
+
     pub fn new(path: &str, prefix: &Key) -> FileStore {
         FileStore {
             path: PathBuf::from(path),
             prefix: prefix.to_owned(),
         }
+    }
+
+    /// Raises the refusal for a key this store's layout cannot represent. See
+    /// [`AsyncFileStore::reject_reserved`].
+    fn reject_reserved(&self, key: &Key) -> Result<(), Error> {
+        if Self::RESERVED.is_reserved_key(key) {
+            return Err(Error::key_not_supported(key, &self.store_name()));
+        }
+        Ok(())
     }
 
     /// Maps a key onto a filesystem path under the store root.
@@ -1254,6 +1373,7 @@ impl FileStore {
     /// [module documentation](self#a-store-key-is-absolute).
     pub fn key_to_path(&self, key: &Key) -> Result<PathBuf, Error> {
         let key = key.as_absolute()?;
+        self.reject_reserved(&key)?;
         let mut path = self.path.clone();
         path.push(key.to_string());
         Ok(path)
@@ -1263,8 +1383,9 @@ impl FileStore {
     /// [`Self::key_to_path`].
     pub fn key_to_path_metadata(&self, key: &Key) -> Result<PathBuf, Error> {
         let key = key.as_absolute()?;
+        self.reject_reserved(&key)?;
         let mut path = self.path.clone();
-        path.push(format!("{}{}", key, Self::METADATA));
+        path.push(format!("{}{}", key, METADATA_SUFFIX));
         Ok(path)
     }
 }
@@ -1441,7 +1562,7 @@ impl Store for FileStore {
                         .ok()
                         .map(|e| e.file_name().to_string_lossy().to_string())
                 })
-                .filter(|name| !name.ends_with(Self::METADATA))
+                .filter(|name| !Self::RESERVED.is_reserved_name(name))
                 .collect();
             Ok(names)
         } else if path.exists() {
@@ -1461,9 +1582,7 @@ impl Store for FileStore {
     fn is_supported(&self, key: &Key) -> bool {
         !key.is_relative()
             && key.has_key_prefix(&self.prefix)
-            && (!key
-                .filename()
-                .is_some_and(|file_name| file_name.name.ends_with(Self::METADATA)))
+            && !Self::RESERVED.is_reserved_key(key)
     }
 }
 
@@ -2834,6 +2953,414 @@ mod key_absolute_tests {
         }
 
         tokio::fs::remove_dir_all(&root).await.expect("cleanup");
+        Ok(())
+    }
+}
+
+/// Tests for the reserved-name rule (`specs/design/sidecar-colliding-keys/`).
+///
+/// A sibling of `key_absolute_tests`, and deliberately not part of it. That module asks whether a
+/// key is an *address* at all; this one asks whether a given store can represent it. They are two
+/// refusals with two error types, and they meet in exactly one place — the order the two checks
+/// run in, which `reserved05` pins.
+#[cfg(test)]
+mod reserved_name_tests {
+    use super::*;
+    use crate::error::ErrorType;
+    use crate::parse::parse_key;
+
+    /// As `key_absolute_tests` does it — nanosecond-stamped, because `cargo test` runs these in
+    /// parallel.
+    fn unique_temp_dir(label: &str) -> std::path::PathBuf {
+        let unique = format!(
+            "liquers_{}_{}",
+            label,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        );
+        std::env::temp_dir().join(unique)
+    }
+
+    /// Assert that a store refused a key as unrepresentable, rather than failing some other way.
+    ///
+    /// Generic over the success type so one helper covers `PathBuf`, `Vec<u8>`, `bool`, `Metadata`,
+    /// `Vec<String>` and `()`. Asserting the *type* matters: `KeyNotAbsolute`, `KeyNotSupported`
+    /// and `KeyReadError` are three different refusals, and `is_err()` would conflate them.
+    fn assert_not_supported<T>(result: Result<T, Error>, what: &str) {
+        match result {
+            Ok(_) => panic!("{what} must be refused"),
+            Err(error) => assert_eq!(error.error_type, ErrorType::KeyNotSupported, "{what}"),
+        }
+    }
+
+    /// `reserved01` — `ReservedNames` recognises both forms of a reserved name, and nothing else.
+    ///
+    /// The negatives are the half that matters. A predicate written as
+    /// `name.contains("__metadata__")` passes every positive below and refuses five keys a store
+    /// can address perfectly well, so the positives alone would not distinguish a correct
+    /// implementation from a destructive one.
+    #[test]
+    fn reserved01_reserved_names_recognises_both_forms() -> Result<(), Error> {
+        let file_store = ReservedNames::new(&[METADATA_SUFFIX, LOCK_SUFFIX], &[METADATA_FOLDER]);
+
+        for name in [
+            "collide.__metadata__", // the sidecar of `collide`
+            "__metadata__",         // the legacy metadata folder
+            "collide.__lock__",     // the lock taken while writing `collide`
+        ] {
+            assert!(file_store.is_reserved_name(name), "{name} must be reserved");
+        }
+
+        for name in [
+            "metadata",           // not the reserved name at all
+            "x.__metadata__.txt", // the suffix is not final — an ordinary file
+            "__metadata__x",      // the bare form is a prefix here, not the whole name
+            "x.__metadata",       // truncated
+            "x.__lock",
+            // Reserved *exactly* is declared per name, not derived from every suffix: no layout
+            // has ever used a `__lock__` directory, so this is an ordinary name.
+            "__lock__",
+        ] {
+            assert!(
+                !file_store.is_reserved_name(name),
+                "{name} must NOT be reserved"
+            );
+        }
+
+        // A key is reserved when ANY segment is — the filename is not privileged.
+        for text in [
+            "collide.__metadata__",
+            "data/collide.__metadata__",
+            "data/__metadata__/x.json",
+        ] {
+            assert!(file_store.is_reserved_key(&parse_key(text)?), "{text}");
+        }
+        for text in [
+            "data/report.txt",
+            "metadata/report.txt",
+            "data/x.__metadata__.txt",
+        ] {
+            assert!(!file_store.is_reserved_key(&parse_key(text)?), "{text}");
+        }
+
+        // The root must never be reserved: an empty key has no segments, and a store whose root
+        // is refused is a store that refuses everything.
+        assert!(!file_store.is_reserved_key(&Key::new()));
+        Ok(())
+    }
+
+    /// `reserved02` — `AsyncFileStore` refuses a sidecar-colliding key from every fallible method,
+    /// and the metadata it collides with is still intact afterwards.
+    ///
+    /// This is the reproduction of `CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS`, and three
+    /// details are what make it one rather than a restatement of the guard:
+    ///
+    /// 1. **Every fallible method, not a representative sample.** The bug was precisely that
+    ///    `is_supported` and the operations disagreed; a test checking two operations could pick
+    ///    the two that happened to be guarded.
+    /// 2. **The metadata of `collide` is read back after the refused write.** Asserting only
+    ///    `KeyNotSupported` would still pass a fix that wrote the bytes and then returned an
+    ///    error — the exact failure being fixed, merely with a better return value.
+    /// 3. **`get_metadata` is asserted, not `get`.** `get` *repairs* metadata it cannot parse, by
+    ///    synthesizing a fresh record and writing it back, so against unfixed code it returns `Ok`
+    ///    and hides the corruption.
+    #[tokio::test]
+    async fn reserved02_async_file_store_refuses_a_colliding_key_uniformly() -> Result<(), Error> {
+        let sandbox = unique_temp_dir("reserved02");
+        let root = sandbox.join("root");
+        tokio::fs::create_dir_all(&root).await.expect("create root");
+        let store = AsyncFileStore::new(root.to_string_lossy().as_ref(), &Key::new());
+
+        // An ordinary asset whose metadata is worth protecting.
+        let victim = parse_key("collide")?;
+        let mut record = MetadataRecord::new();
+        record
+            .with_key(victim.clone())
+            .with_title("do not lose me".to_owned());
+        store
+            .set(&victim, b"body", &Metadata::MetadataRecord(record))
+            .await?;
+
+        // Its data path is byte-identical to the metadata path of `collide`.
+        let collide = parse_key("collide.__metadata__")?;
+        assert!(
+            !store.is_supported(&collide),
+            "the routing hint already refused it before the fix"
+        );
+
+        let blank = Metadata::MetadataRecord(MetadataRecord::new());
+        // Detail 1: every fallible method.
+        assert_not_supported(store.key_to_path(&collide), "key_to_path");
+        assert_not_supported(store.key_to_path_metadata(&collide), "key_to_path_metadata");
+        assert_not_supported(store.get_bytes(&collide).await, "get_bytes");
+        assert_not_supported(store.get(&collide).await, "get");
+        assert_not_supported(store.get_metadata(&collide).await, "get_metadata");
+        assert_not_supported(store.contains(&collide).await, "contains");
+        assert_not_supported(store.is_dir(&collide).await, "is_dir");
+        assert_not_supported(store.listdir(&collide).await, "listdir");
+        assert_not_supported(store.set(&collide, b"corrupt", &blank).await, "set");
+        assert_not_supported(store.set_metadata(&collide, &blank).await, "set_metadata");
+        assert_not_supported(store.remove(&collide).await, "remove");
+        assert_not_supported(store.makedir(&collide).await, "makedir");
+        assert_not_supported(store.removedir(&collide).await, "removedir");
+
+        // Details 2 and 3: the write did not happen, and the victim can still be described.
+        match store.get_metadata(&victim).await? {
+            Metadata::MetadataRecord(record) => assert_eq!(record.title, "do not lose me"),
+            Metadata::LegacyMetadata(_) => panic!("the sidecar was overwritten"),
+        }
+        assert_eq!(store.get_bytes(&victim).await?, b"body".to_vec());
+
+        tokio::fs::remove_dir_all(&sandbox).await.expect("cleanup");
+        Ok(())
+    }
+
+    /// `reserved03` — a reserved name anywhere in the key is refused, not only as the filename.
+    ///
+    /// `dir.__metadata__/child` has an innocent filename. It is still unaddressable: this key needs
+    /// `dir.__metadata__` to be a directory, while the metadata of `dir` needs it to be a file, and
+    /// a filesystem will not be both. [`Key::filename`] returns the last segment only, which is how
+    /// the original check missed this shape.
+    #[tokio::test]
+    async fn reserved03_a_reserved_segment_anywhere_is_refused() -> Result<(), Error> {
+        let sandbox = unique_temp_dir("reserved03");
+        let root = sandbox.join("root");
+        tokio::fs::create_dir_all(&root).await.expect("create root");
+        let store = AsyncFileStore::new(root.to_string_lossy().as_ref(), &Key::new());
+        let blank = Metadata::MetadataRecord(MetadataRecord::new());
+
+        for text in [
+            "dir.__metadata__/child",  // interior sidecar name
+            "a/__metadata__/b.json",   // the legacy metadata folder
+            "a/x.__lock__/b",          // interior lock name
+            "__metadata__",            // the folder itself, as a key
+        ] {
+            let key = parse_key(text)?;
+            assert!(!store.is_supported(&key), "{text} must not route here");
+            assert_not_supported(store.key_to_path(&key), text);
+            assert_not_supported(store.key_to_path_metadata(&key), text);
+            assert_not_supported(store.get_bytes(&key).await, text);
+            assert_not_supported(store.set(&key, b"x", &blank).await, text);
+        }
+
+        tokio::fs::remove_dir_all(&sandbox).await.expect("cleanup");
+        Ok(())
+    }
+
+    /// `reserved05` — a key that is both relative and reserved reports `KeyNotAbsolute`.
+    ///
+    /// `as_absolute()?` runs before the reserved-name check in every path builder, and this pins
+    /// that order. A relative key is not a store address at all, so it is the more fundamental
+    /// answer; `keyabs08` and `keyabs09` assert `KeyNotAbsolute` for traversal shapes and would
+    /// start failing if someone reordered the two checks while tidying them into one guard.
+    #[tokio::test]
+    async fn reserved05_relative_and_reserved_reports_key_not_absolute() -> Result<(), Error> {
+        let sandbox = unique_temp_dir("reserved05");
+        let root = sandbox.join("root");
+        tokio::fs::create_dir_all(&root).await.expect("create root");
+        let store = AsyncFileStore::new(root.to_string_lossy().as_ref(), &Key::new());
+
+        for text in [
+            "../x.__metadata__",
+            "a/../x.__metadata__",
+            "a/./x.__metadata__",
+        ] {
+            let key = parse_key(text)?;
+            assert!(
+                key.is_relative(),
+                "{text} must be relative for this test to mean anything"
+            );
+            let error = store.key_to_path(&key).expect_err("refused");
+            assert_eq!(error.error_type, ErrorType::KeyNotAbsolute, "{text}");
+            let error = store.get_bytes(&key).await.expect_err("refused");
+            assert_eq!(error.error_type, ErrorType::KeyNotAbsolute, "{text}");
+        }
+
+        tokio::fs::remove_dir_all(&sandbox).await.expect("cleanup");
+        Ok(())
+    }
+
+    /// `reserved06` — a real `__metadata__` directory is skipped by `keys()`, not fallen over.
+    ///
+    /// The test for the half a partial fix forgets. The chain is `keys()` → `listdir_keys_deep` →
+    /// `listdir_keys` → `listdir`; `listdir_keys_deep` calls `is_dir` on every child it was handed,
+    /// and `is_dir` goes through `key_to_path`. So an unfiltered reserved name turns a refusal into
+    /// a **failed enumeration** — the store stops being listable at all.
+    ///
+    /// The directory is created on the filesystem directly rather than through `makedir`, because
+    /// after the fix `makedir` refuses it: this state is left behind by an older Liquers or an
+    /// outside process, not reachable through the API.
+    #[tokio::test]
+    async fn reserved06_a_reserved_directory_is_skipped_by_listings() -> Result<(), Error> {
+        let sandbox = unique_temp_dir("reserved06");
+        let root = sandbox.join("root");
+        tokio::fs::create_dir_all(root.join("__metadata__"))
+            .await
+            .expect("legacy metadata folder");
+        tokio::fs::write(root.join("__metadata__").join("report.txt.json"), b"{}")
+            .await
+            .expect("legacy sidecar");
+        // An ordinary asset beside it, so a pass means "skipped", not "listed nothing".
+        tokio::fs::write(root.join("report.txt"), b"body")
+            .await
+            .expect("data file");
+
+        let store = AsyncFileStore::new(root.to_string_lossy().as_ref(), &Key::new());
+
+        let names = store.listdir(&Key::new()).await?;
+        assert!(!names.contains(&"__metadata__".to_owned()), "{names:?}");
+        assert!(names.contains(&"report.txt".to_owned()), "{names:?}");
+
+        // The enumeration must succeed. Against a path-builders-only fix this line is where it
+        // fails.
+        let keys = store.keys().await?;
+        let encoded: Vec<String> = keys.iter().map(|k| k.encode()).collect();
+        assert!(
+            !encoded.iter().any(|k| k.starts_with("__metadata__")),
+            "keys() must skip the reserved subtree: {encoded:?}"
+        );
+        assert!(encoded.iter().any(|k| k == "report.txt"), "{encoded:?}");
+
+        tokio::fs::remove_dir_all(&sandbox).await.expect("cleanup");
+        Ok(())
+    }
+
+    /// `reserved08` — a store that already holds a corrupted sidecar can still be repaired.
+    ///
+    /// The fix refuses the colliding key, which also means the orphan can no longer be addressed
+    /// *as a key* in order to clean it up. Three routes out remain, and this is what keeps them
+    /// honest: a documented upgrade path nobody exercises is a rumour.
+    ///
+    /// The corruption is written with `tokio::fs` rather than through the store, because after the
+    /// fix no API can produce it. That is the point, and it is also why this cannot be a
+    /// conformance rule: the suite only ever reaches a store through the trait.
+    #[tokio::test]
+    async fn reserved08_an_existing_corruption_can_still_be_repaired() -> Result<(), Error> {
+        let sandbox = unique_temp_dir("reserved08");
+        let root = sandbox.join("root");
+        tokio::fs::create_dir_all(&root).await.expect("create root");
+        let store = AsyncFileStore::new(root.to_string_lossy().as_ref(), &Key::new());
+
+        let report = parse_key("report.txt")?;
+        let mut record = MetadataRecord::new();
+        record
+            .with_key(report.clone())
+            .with_title("before".to_owned());
+        store
+            .set(&report, b"body", &Metadata::MetadataRecord(record))
+            .await?;
+
+        // Exactly what a pre-fix `set("report.txt.__metadata__", …)` left behind.
+        let sidecar = root.join("report.txt.__metadata__");
+        tokio::fs::write(&sidecar, b"not json at all")
+            .await
+            .expect("corrupt the sidecar");
+        assert!(
+            store.get_metadata(&report).await.is_err(),
+            "the corruption must be real"
+        );
+
+        // Route 1 — `get` repairs metadata it cannot parse, and returns the data intact.
+        let (data, _) = store.get(&report).await?;
+        assert_eq!(data, b"body".to_vec());
+        match store.get_metadata(&report).await? {
+            Metadata::MetadataRecord(_) => {}
+            Metadata::LegacyMetadata(_) => panic!("repaired into legacy metadata"),
+        }
+
+        // Route 2 — replace it deliberately.
+        let mut good = MetadataRecord::new();
+        good.with_key(report.clone()).with_title("after".to_owned());
+        store
+            .set_metadata(&report, &Metadata::MetadataRecord(good))
+            .await?;
+        match store.get_metadata(&report).await? {
+            Metadata::MetadataRecord(record) => assert_eq!(record.title, "after"),
+            Metadata::LegacyMetadata(_) => panic!("unexpected legacy metadata"),
+        }
+
+        // Route 3 — `remove` unlinks the data path *and* the metadata path, so the orphan goes too.
+        store.remove(&report).await?;
+        assert!(!sidecar.exists(), "remove must unlink the sidecar");
+        assert!(!root.join("report.txt").exists());
+
+        tokio::fs::remove_dir_all(&sandbox).await.expect("cleanup");
+        Ok(())
+    }
+
+    /// `reserved04` — the synchronous `FileStore` reserves the metadata name and **not** the lock.
+    ///
+    /// This is the test that pins the reserved set to the store rather than to the crate.
+    /// `FileStore` takes no lock files, so `x.__lock__` is a key it can address, and a single
+    /// global reserved list would refuse it for nothing.
+    #[test]
+    fn reserved04_file_store_reserves_metadata_but_not_lock() -> Result<(), Error> {
+        let sandbox = unique_temp_dir("reserved04");
+        let root = sandbox.join("root");
+        std::fs::create_dir_all(&root).expect("create root");
+        let store = FileStore::new(root.to_string_lossy().as_ref(), &Key::new());
+
+        // Both forms, and an interior segment — `FileStore` is `AsyncFileStore` minus the lock, so
+        // the segment rule has to hold here too and not only in the async twin.
+        for text in [
+            "file.__metadata__",
+            "__metadata__",
+            "data/__metadata__/file.json",
+        ] {
+            let key = parse_key(text)?;
+            assert!(!store.is_supported(&key), "{text}");
+            assert_not_supported(store.key_to_path(&key), text);
+            assert_not_supported(store.key_to_path_metadata(&key), text);
+        }
+
+        // The lock suffix belongs to `AsyncFileStore`'s layout, not this one.
+        let lock_shaped = parse_key("file.__lock__")?;
+        assert!(
+            store.is_supported(&lock_shaped),
+            "FileStore takes no locks — this key is addressable"
+        );
+        assert!(store.key_to_path(&lock_shaped).is_ok());
+
+        std::fs::remove_dir_all(&sandbox).expect("cleanup");
+        Ok(())
+    }
+
+    /// `reserved07` — `FileStore` filters its listing by the same predicate, and by *its own* set.
+    ///
+    /// The synchronous store is obsolete and unreachable (`CORE-SYNC-STORE-TRAIT-OBSOLETE`), and
+    /// that is precisely why it needs its own test rather than being trusted to follow
+    /// `AsyncFileStore`: nothing else exercises it, so a filter updated in one store and forgotten
+    /// in the other would stay invisible until the trait is revived or deleted.
+    ///
+    /// The last assertion is the per-store half: a file genuinely named `x.__lock__` is an ordinary
+    /// asset here and must still be listed.
+    #[test]
+    fn reserved07_file_store_listing_uses_its_own_reserved_set() -> Result<(), Error> {
+        let sandbox = unique_temp_dir("reserved07");
+        let root = sandbox.join("root");
+        std::fs::create_dir_all(root.join("__metadata__")).expect("legacy metadata folder");
+        std::fs::write(root.join("__metadata__").join("report.txt.json"), b"{}")
+            .expect("legacy sidecar");
+        std::fs::write(root.join("report.txt"), b"body").expect("data file");
+        std::fs::write(root.join("report.txt.__metadata__"), b"{}").expect("sidecar");
+        std::fs::write(root.join("notes.__lock__"), b"not a lock here").expect("lock-shaped file");
+
+        let store = FileStore::new(root.to_string_lossy().as_ref(), &Key::new());
+        let names = store.listdir(&Key::new())?;
+
+        // Reserved by this store's layout — dropped.
+        assert!(!names.contains(&"__metadata__".to_owned()), "{names:?}");
+        assert!(
+            !names.contains(&"report.txt.__metadata__".to_owned()),
+            "{names:?}"
+        );
+        // Not reserved by this store's layout — listed.
+        assert!(names.contains(&"report.txt".to_owned()), "{names:?}");
+        assert!(names.contains(&"notes.__lock__".to_owned()), "{names:?}");
+
+        std::fs::remove_dir_all(&sandbox).expect("cleanup");
         Ok(())
     }
 }
