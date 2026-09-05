@@ -64,7 +64,8 @@ not a consequence to discover afterwards.
 
 The version is also read by `AssetRef::record_dependency_on_asset` out of the *child's live
 metadata*, so **when** in the evaluation sequence the version is set is observable by a concurrent
-parent, not an internal detail.
+parent, not an internal detail. The owner has decided that point — as early as the version can be
+final, never provisionally — under "Owner decisions" below.
 
 ### Value Types
 
@@ -124,14 +125,54 @@ Audience: contributors and coding agents working on `core/assets`. What must be 
 without reading this folder: *what a version means for a computed asset, when it is assigned, and
 what an unregistered dependency version implies.*
 
+## Owner decisions
+
+### Assignment point: as early as possible, but never provisional (2026-09-05)
+
+> "The version should become available as soon as possible (even before `track_asset`), as long as
+> it is stable — e.g. version would be created immediately on asset creation from a timestamp, but
+> that would be not stable since the hash-based version would overwrite it."
+
+This settles what was Phase 1's first open question and gives the rule that decides it:
+
+**A version is published once and never revised.** Earliness is the objective; stability is the
+constraint that bounds it. The earliest point at which a *final* version can be known is the
+earliest legal assignment point, and anything earlier than that would have to be provisional, which
+is forbidden — a parent that has already recorded a provisional version in its own
+`DependencyRecord` would hold a version the child no longer has, and the next comparison would read
+as staleness that never happened.
+
+For a hash-based version, "final" means "the value exists and its bytes can be computed", which is
+after the value is installed and before the `ValueProduced` notification. That places the
+assignment in status finalization (`try_to_set_ready`), not in persistence — persistence is too
+late, because `record_dependency_on_asset` may already have read the child's metadata and recorded
+`Version::unknown()` — and not at asset creation, which is what the timestamp counter-example rules
+out.
+
+Consequences carried into Phase 2:
+
+- Finalization must serialize keyed non-volatile assets to get the bytes to hash. Serializing twice
+  is not acceptable, so the bytes are cached and persistence reuses them. This intersects
+  `EVALUATE-DOES-NOT-CLEAR-CACHED-BINARY` and `SERIALIZE-TO-BINARY-CONSULTS-THE-READ-GATE`, both
+  already filed.
+- "Available before `track_asset`" is stronger than "assigned before `track_asset`": the dependency
+  manager's `versions` map is what `add_dependency` consults, and it is written by `track_asset` at
+  the very end of `evaluate`. Whether the metadata assignment alone is enough, or the manager
+  registration must move earlier with it, is Phase 2's to settle — it is the same window that open
+  question 2 below is about.
+- The fallback for a non-serializable keyed asset (open question 3) is bound by the same rule: a
+  timestamp taken at finalization is final for that evaluation, whereas one taken at creation is
+  not.
+
+A third possibility this rule admits and Phase 2 should record as considered: a version derived
+from the recipe and the dependency versions would be knowable *before* evaluation and would be
+stable. It is rejected here as a different versioning model — it would make a version describe how
+a value was produced rather than what it is, losing the "recomputed to identical bytes does not
+invalidate dependents" property that is the reason for hashing.
+
 ## Open Questions
 
-1. **Where in the evaluation sequence is the version assigned?** `serialize_to_binary` is where the
-   bytes exist but runs only during persistence, so a keyed asset whose persist is skipped or fails
-   gets none; status finalization (`try_to_set_ready`) is more consistent and runs before the
-   `ValueProduced` notification a parent can observe, but has no bytes yet. Leading answer:
-   serialize once during finalization for keyed non-volatile assets, cache the bytes, and let
-   persistence reuse them.
+1. *(decided — see "Owner decisions" above)*
 2. **What does an unregistered dependency key mean?** Today `version_consistent` answers `false`
    ("mismatch") for a key the manager has never seen, and `add_dependency` expires the dependent on
    that answer. Options: treat absence as unverifiable and record the edge; or register the

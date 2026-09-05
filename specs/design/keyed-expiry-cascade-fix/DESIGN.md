@@ -70,6 +70,14 @@ Both are Phase 2 material and both are named as Phase 1 open questions rather th
    a parent that has already read the child, and a version set at finalization is visible before
    the dependency manager knows it. Whichever is chosen has to be chosen deliberately.
 
+   **Decided by the owner, 2026-09-05** (Phase 1 §"Owner decisions"): as early as possible, even
+   before `track_asset`, subject to the version being **stable** — published once, never revised.
+   That rules out a provisional timestamp at asset creation, which a later hash would overwrite,
+   and it rules out assignment during persistence, which is after a parent can have read the child.
+   The earliest final point for a hash is status finalization, once the value is installed and its
+   bytes can be computed. Whether the dependency manager's `versions` registration must move
+   earlier alongside the metadata assignment is left to Phase 2.
+
 ### Not a duplicate
 
 The completed `dependency-management` design already *intended* this: its Phase 4 Step 3 documents
@@ -92,8 +100,10 @@ Against the Phase 1 checklist:
 - **Documentation needs** — all four questions answered with rationale: extend
   `DEPENDENCIES_STATUS.md` (it owns the statements this change falsifies), no guide, no other new
   documents, five specific updates listed.
-- **Open questions** — six, none blocking. Questions 2 and 3 are the two that change what is built;
-  1, 4 and 5 are decisions with a leading answer; 6 is deferred to Phase 5 by design.
+- **Open questions** — six as drafted, none blocking. Question 1 (assignment point) was decided by
+  the owner on 2026-09-05 and is now recorded as a decision rather than a question; questions 2 and
+  3 are the two that still change what is built; 4 and 5 are decisions with a leading answer; 6 is
+  deferred to Phase 5 by design.
 
 One checklist item is deliberately not met: the document exceeds 30 lines. The scope is a
 three-line guard whose *consequences* span four mechanisms, and compressing the consequence list is
