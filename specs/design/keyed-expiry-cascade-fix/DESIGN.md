@@ -112,6 +112,24 @@ Both are Phase 2 material and both are named as Phase 1 open questions rather th
    working unchanged as its implementation. That is the reason to keep `skip_cascade` rather than
    delete it, and it simplifies open question 4 to "correct the comment".
 
+   **Durability, decided the same day:** the net does **not** re-persist, and losing a
+   fallback-versioned asset's dependents across a restart is the intended outcome. The owner's
+   rule — an asset that is not durable and cannot be provably reconstructed with the same value
+   should be effectively expired on restart — matches the path exactly: a non-serializable computed
+   keyed asset leaves *no* durable trace, because the evaluate path's `save_to_store` propagates
+   the `SerializationError` and writes nothing, not even metadata-only (unlike `set_state`, which
+   falls back to `store.set_metadata`). Version persistence for such assets is future work if it is
+   ever needed, recorded on the issue rather than built here.
+
+   This **sharpens** open question 2 without answering it. "Expire when the version cannot be
+   verified" is narrower than what the code does — "expire when the manager has not registered the
+   dependency yet" — and they differ precisely in the durable case: `K` on disk carrying `v1`,
+   dependent `D` recording `K@v1`, restart, `D` loaded first, `D` expired for a dependency that
+   could have been confirmed. Phase 2's leading answer is a provisional registration of the
+   recorded version on an unregistered edge, which yields the warm cache in the durable branch and
+   the owner's required expiry in the non-durable one, from the existing `register_version`
+   comparison and no new structure.
+
 ### Not a duplicate
 
 The completed `dependency-management` design already *intended* this: its Phase 4 Step 3 documents

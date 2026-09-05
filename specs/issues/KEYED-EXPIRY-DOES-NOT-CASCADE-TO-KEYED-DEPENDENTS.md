@@ -152,3 +152,14 @@ option-2 decision recorded above. The design's Phase 1 records two consequences 
 and expires the dependent, which real versions would make reachable on every cold start; and the
 point at which the version is assigned is observable by a concurrent parent, because
 `record_dependency_on_asset` reads it from the child's live metadata.
+
+## Future work (owner, 2026-09-05)
+
+**Version persistence for non-durable assets** is explicitly out of this issue's scope, to be
+introduced "if needed". A keyed asset whose value does not serialize leaves no durable trace at all
+— the evaluate path's `save_to_store` propagates the `SerializationError` and writes nothing, not
+even metadata-only — so its version exists only in memory, and its dependents are expired after a
+restart. That is the intended behaviour: an asset that is not durable and cannot be provably
+reconstructed with the same value should be effectively expired on restart. A mechanism that
+persisted such a version would be what changes it, and nothing in the current design depends on
+having one.

@@ -284,10 +284,9 @@ has to say which it is claiming.
   carries it and the next process agrees. This is where the durability comes from, and it obeys the
   stability rule already decided: a timestamp taken at finalization is final for that evaluation.
 - *Net, at tracking:* anything that still arrives with no version gets one, written back into the
-  asset's metadata so the asset and the manager cannot disagree. Whether it also triggers a
-  re-persist, or the design accepts that these assets lose their dependents on restart, is Phase 2's
-  to settle — the set should be nearly empty once the primary path exists, which is what makes
-  accepting the loss defensible.
+  asset's metadata so the asset and the manager cannot disagree. **It does not re-persist** — see
+  the decision immediately below, which reclassifies the restart behaviour from a limitation into
+  the correct outcome.
 
 **A fallback that fires silently is a bug detector switched off.** If the primary path stops running
 for some class of assets, the net makes everything keep working while quietly turning
@@ -311,21 +310,64 @@ stays and the comment is corrected.
 Phase 2 owes the vocabulary for it — whether a zero version is declared on the recipe, the type, or
 the asset — but not the mechanism, which already exists.
 
+### Non-durable means expired on restart, and that is correct (2026-09-05)
+
+> "If an asset is not durable and it would not necessarily be provably reconstructed with the same
+> value — then on restart it should be effectively expired and the behaviour you describe seems
+> correct. In the future we might introduce some mechanism for version persistence if needed."
+
+This settles the second half of open question 3: **the tracking-time net does not re-persist**, and
+losing the dependents of a fallback-versioned asset across a restart is the intended outcome rather
+than a cost to mitigate.
+
+The reasoning is sound on inspection of the path, not only in principle. An asset that reaches the
+tracking-time net is one whose value did not serialize — the evaluate path's `save_to_store`
+returns a `SerializationError` and writes *nothing*, not even metadata-only, unlike `set_state`
+which falls back to `store.set_metadata`. So such an asset leaves no durable trace at all. After a
+restart nothing can establish that recomputing it would produce the same value, and a dependent
+that recorded its in-memory version is entitled to no confidence. Expiring the dependent is the
+honest answer, and it is what the current code produces.
+
+This also removes the last argument for a version-persistence mechanism inside this design's scope.
+Recorded as future work in the issue rather than built now.
+
+**It sharpens open question 2 rather than answering it.** The rule stated here — *expire when the
+dependency's version cannot be verified* — is not the same as *expire when the manager has not yet
+registered the dependency*, which is what the code does today. The two differ exactly in the
+durable case: `K` persisted with version `v1`, dependent `D` persisted recording `K@v1`, restart, `D`
+loaded before `K`. `K` is on disk carrying precisely `v1` — verifiable, and reconstructible with
+the same value — yet the manager has not seen it, so `add_dependency` expires `D`. That is the
+cross-process cache emptying itself for a dependency it could have confirmed. The owner's rule does
+not endorse it; only the non-durable branch is endorsed.
+
+Phase 2's leading answer, which satisfies both branches with one mechanism: on an edge whose
+dependency key is unregistered, **register the recorded version provisionally** instead of judging
+it. Then
+
+- *durable:* `K` later registers `v1`, the entry is occupied and equal, nothing cascades, `D` stays
+  warm;
+- *non-durable:* `K` is recomputed with a fresh time-based version, the entry is occupied and
+  differs, `register_version` cascades and `D` is expired — exactly what this decision requires.
+
+No new structure, no second map, and the two outcomes fall out of the existing
+`register_version` comparison. Phase 2 verifies it against conflicting expectations (two dependents
+recording different versions of the same unloaded key) before adopting it.
+
 ## Open Questions
 
 1. *(decided — see "Owner decisions" above)*
 2. **What does an unregistered dependency key mean?** Today `version_consistent` answers `false`
    ("mismatch") for a key the manager has never seen, and `add_dependency` expires the dependent on
-   that answer. Options: treat absence as unverifiable and record the edge; or register the
-   recorded version provisionally so a later real registration cascades if it differs. This is the
-   question that decides whether cross-process caching survives.
+   that answer — conflating "not loaded yet" with "changed". The owner's durability rule says to
+   expire when a dependency's version *cannot be verified*, which is a narrower condition. Leading
+   answer, with its reasoning under "Non-durable means expired on restart": register the recorded
+   version provisionally and let the later real registration decide. This is the question that
+   decides whether cross-process caching survives.
 3. **Which clock, and does the tracking-time net re-persist?** The fallback itself is decided —
    a time-based version, layered as above. What remains: `chrono::Utc::now()` (wasm-safe, what the
    rest of the codebase uses for wall time) or `std::time::SystemTime`, which is what
    `Version::from_time_now` and `Version::new_unique` use today and which is not a supported clock
-   on `wasm32-unknown-unknown`; and whether the tracking-time net writes the asset back to the
-   store so its version survives a restart, or accepts that those assets lose their dependents on
-   reload.
+   on `wasm32-unknown-unknown`. The re-persist half is decided — it does not.
 4. **Does the `expire_internal` root guard change?** `include_root || current != *key` is
    vacuously true on both call paths, and its comment claims an exemption the code does not
    implement. Decide between implementing the comment (an explicit expiry's root always cascades)
