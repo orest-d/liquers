@@ -130,6 +130,16 @@ Both are Phase 2 material and both are named as Phase 1 open questions rather th
    the owner's required expiry in the non-durable one, from the existing `register_version`
    comparison and no new structure.
 
+   **Durable versions, decided the same day:** they are correct, and the manager should consult
+   them — by loading at startup or verifying dynamically. Scoped out as
+   `DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE` (P1, M), since `DependencyManager` holds
+   no store handle at all (five `scc` maps and a mutex; it is generic over `E` but holds no
+   environment) and `AssetManager::start` loads command versions and nothing else. Open question 2
+   becomes a *sequencing* judgement: this design ships an approximation, or the new issue is a
+   prerequisite. Relaxing the check instead is not available — it fixes the durable branch and
+   breaks the non-durable one, because fast-track serves a dependent without evaluating it, so the
+   dependency is never consulted and the staleness never surfaces.
+
 ### Not a duplicate
 
 The completed `dependency-management` design already *intended* this: its Phase 4 Step 3 documents
@@ -168,6 +178,7 @@ what let the previous design mis-scope this work.
 | `SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY` | P2 | M | Filed 2026-09-05 at the owner's request when scoping the one-serialization decision. Pre-existing at HEAD; this design makes the retention deliberate rather than incidental, and explicitly does not fix it |
 | `SERIALIZE-TO-BINARY-CONSULTS-THE-READ-GATE` | P2 | — | Already filed. Serializing at finalization needs the ungated read; the same correction `stale-dependency-status-finalization` needs as its C1 |
 | `EVALUATE-DOES-NOT-CLEAR-CACHED-BINARY` | P2 | S | Already filed. Latent today; finalization writing the binary cache on the same path makes the invariant worth stating |
+| `DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE` | P1 | M | Filed 2026-09-05 at the owner's request. The capability the durable branch of open question 2 needs; may be a prerequisite rather than follow-up work |
 
 ## Links
 

@@ -8,14 +8,15 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 91
-- P1: 2
+Total rows: 92
+- P1: 3
 - P2: 56
 - P3: 33
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
 | [`ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY`](issues/ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY.md) | issue | An asset evaluated from a stale dependency is persisted as Ready and only then labelled Expired | draft |  | P1 | M | core/assets | [phase1](specs/design/stale-dependency-status-finalization/phase1-high-level-design.md)  [phase2](specs/design/stale-dependency-status-finalization/phase2-architecture.md)  [phase3](specs/design/stale-dependency-status-finalization/phase3-examples.md)  [phase4](specs/design/stale-dependency-status-finalization/phase4-implementation.md)  [phase5](specs/design/stale-dependency-status-finalization/phase5-documentation.md)  | 2026-09-03 |
+| [`DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE`](issues/DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE.md) | issue | The dependency manager treats an unloaded dependency as a mismatch instead of consulting its durable version | draft |  | P1 | M | core/assets |  | 2026-09-05 |
 | [`KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS`](issues/KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS.md) | issue | Expiring a computed keyed asset never invalidates the keyed assets that depend on it | in_progress |  | P1 | L | core/assets | [phase1](specs/design/keyed-expiry-cascade-fix/phase1-high-level-design.md)  [phase2](specs/design/keyed-expiry-cascade-fix/phase2-architecture.md)  [phase3](specs/design/keyed-expiry-cascade-fix/phase3-examples.md)  [phase4](specs/design/keyed-expiry-cascade-fix/phase4-implementation.md)  [phase5](specs/design/keyed-expiry-cascade-fix/phase5-documentation.md)  | 2026-09-04 |
 | [`QUEUED-MANAGER-EVICTION-RACE`](issues/QUEUED-MANAGER-EVICTION-RACE.md) | issue | The queued manager's cache evictions can delete a replacement asset | accepted | ready | P2 | S | core/assets | [phase1](specs/design/queued-manager-conditional-eviction/phase1-high-level-design.md)  [phase2](specs/design/queued-manager-conditional-eviction/phase2-architecture.md)  [phase3](specs/design/queued-manager-conditional-eviction/phase3-examples.md)  [phase4](specs/design/queued-manager-conditional-eviction/phase4-implementation.md)  | 2026-08-09 |
 | [`WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND`](issues/WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND.md) | issue | A JsStore delegate has no way to signal absence, so a missing key reads as a read error | draft | ready | P2 | S | web;core/store | [phase1](specs/design/js-store-not-found-sentinel/phase1-high-level-design.md)  [phase2](specs/design/js-store-not-found-sentinel/phase2-architecture.md)  [phase3](specs/design/js-store-not-found-sentinel/phase3-examples.md)  [phase4](specs/design/js-store-not-found-sentinel/phase4-implementation.md)  | 2026-09-02 |

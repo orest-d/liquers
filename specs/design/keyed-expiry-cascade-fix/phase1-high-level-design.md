@@ -340,29 +340,56 @@ the same value — yet the manager has not seen it, so `add_dependency` expires 
 cross-process cache emptying itself for a dependency it could have confirmed. The owner's rule does
 not endorse it; only the non-durable branch is endorsed.
 
-Phase 2's leading answer, which satisfies both branches with one mechanism: on an edge whose
-dependency key is unregistered, **register the recorded version provisionally** instead of judging
-it. Then
+### Durable versions are correct, and consulting them is separate work (2026-09-05)
 
-- *durable:* `K` later registers `v1`, the entry is occupied and equal, nothing cascades, `D` stays
-  warm;
-- *non-durable:* `K` is recomputed with a fresh time-based version, the entry is occupied and
-  differs, `register_version` cascades and `D` is expired — exactly what this decision requires.
+> "The durable versions should be considered correct. Dependency manager should probably
+> dynamically verify them or load them on startup. This looks like a new issue…"
 
-No new structure, no second map, and the two outcomes fall out of the existing
-`register_version` comparison. Phase 2 verifies it against conflicting expectations (two dependents
-recording different versions of the same unloaded key) before adopting it.
+Filed as `DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE` (P1, M). It is the capability the
+durable branch above needs and the manager does not have: `DependencyManager` is generic over
+`E: Environment` but holds no environment, envref or store handle — five `scc` maps and a mutex —
+so a version it was not handed does not exist as far as it is concerned, and `AssetManager::start`
+loads command versions and nothing else.
+
+With that capability, the three cases separate cleanly and the whole question dissolves:
+
+| Dependency's durable version | Outcome |
+|---|---|
+| present and equal to the record | keep the dependent — verified fresh |
+| present and different | expire the dependent — verified stale |
+| absent | expire the dependent — not durable, cannot be proved to reconstruct identically |
+
+The third row is the decision immediately above. The first is the one nothing can reach today.
+
+**What this design still owes: an interim rule, chosen with that issue in view.** Turning real
+versions on makes today's behaviour — absence read as mismatch — the ordinary cold-start path, so
+this design cannot leave it untouched and cannot simply relax it either:
+
+- *Relaxing it* (absence means unverifiable, so record the edge and keep the dependent) fixes the
+  durable branch and breaks the non-durable one. A dependent whose dependency left no durable trace
+  would be fast-tracked warm, and because fast-track serves it without evaluating, the dependency
+  is never consulted and the staleness never surfaces.
+- *Provisional registration* (register the recorded version on an unregistered edge, and let the
+  later real registration decide) gets both branches right eventually: the durable case matches and
+  stays warm, the non-durable case cascades when the dependency is recomputed with a fresh
+  time-based version. Its weakness is "eventually" — a dependent can be served once from a version
+  that was never durable, if nothing evaluates the dependency in between. It is best read as a
+  cheap approximation of the store consultation, which is why it should be judged against that
+  issue rather than on its own.
+
+Phase 2 chooses between these, or declares
+`DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE` a **prerequisite** and sequences the two
+efforts. That sequencing judgement is now the substance of open question 2.
 
 ## Open Questions
 
 1. *(decided — see "Owner decisions" above)*
-2. **What does an unregistered dependency key mean?** Today `version_consistent` answers `false`
-   ("mismatch") for a key the manager has never seen, and `add_dependency` expires the dependent on
-   that answer — conflating "not loaded yet" with "changed". The owner's durability rule says to
-   expire when a dependency's version *cannot be verified*, which is a narrower condition. Leading
-   answer, with its reasoning under "Non-durable means expired on restart": register the recorded
-   version provisionally and let the later real registration decide. This is the question that
-   decides whether cross-process caching survives.
+2. **Interim rule for an unregistered dependency key, or sequence behind the new issue?** The
+   end state is settled — consult the durable version, per
+   `DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE` (P1, M). What is open is whether this
+   design ships an approximation (provisional registration) or waits for that issue, since turning
+   real versions on makes today's "absence means mismatch" the ordinary cold-start path. Reasoning
+   under "Durable versions are correct, and consulting them is separate work".
 3. **Which clock, and does the tracking-time net re-persist?** The fallback itself is decided —
    a time-based version, layered as above. What remains: `chrono::Utc::now()` (wasm-safe, what the
    rest of the codebase uses for wall time) or `std::time::SystemTime`, which is what
