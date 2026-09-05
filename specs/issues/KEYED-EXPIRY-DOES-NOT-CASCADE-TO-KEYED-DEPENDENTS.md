@@ -4,7 +4,7 @@ kind: issue
 title: Expiring a computed keyed asset never invalidates the keyed assets that depend on it
 status: draft
 priority: P1
-complexity: M
+complexity: L
 area: [core/assets]
 design:
 created: 2026-09-04
@@ -90,6 +90,50 @@ Decide, and then make the code and the comment agree, which of these is intended
 
 Whichever is chosen, a test covering a keyed→keyed chain of *computed* assets is missing and should
 exist; today no test distinguishes the three.
+
+### Decision (project owner, 2026-09-05): option 2
+
+**Computed assets should have real versions. This is an old omission, not intended behaviour.**
+The rule:
+
+- an asset that **serializes to a binary** — which every stored asset must — takes its version from
+  the hash of those bytes;
+- an asset that does not takes a fallback version, e.g. a timestamp.
+
+Both primitives already exist and are used elsewhere: `Version::from_bytes` (BLAKE3 over the bytes,
+`metadata.rs:33`), already used by `set_binary` (`assets.rs:6379`); and `Version::new_unique`
+(`metadata.rs:69`), a nanosecond timestamp shifted over an atomic counter. What is missing is
+*calling* them on the evaluation path.
+
+This is why the issue is `complexity: L` and needs a design folder rather than a patch — the work
+is small but the consequences are not:
+
+1. **It switches on a cascade that has never run.** Keyed→keyed invalidation currently never fires
+   for computed assets. Giving them versions turns it on for every such chain at once. The blast
+   radius is "what gets recomputed, and when" — correctness *and* cost.
+2. **The two version sources behave oppositely.** A content hash is stable: recomputing an asset
+   that produces identical bytes yields the same version, so dependents are *not* invalidated —
+   which is the desirable property and the reason to prefer hashing. A timestamp is the reverse:
+   every evaluation yields a new version, so every evaluation invalidates all dependents. The
+   fallback therefore turns non-serializable keyed assets into permanent cascade sources. Whether
+   that is acceptable, or whether such assets should keep `Version::unknown()`, is the central
+   design question.
+3. **It makes `try_fast_track`'s dependency check non-vacuous for the first time.** That guard
+   (`assets.rs:1119`) is currently skipped or trivially satisfied because versions are unknown.
+   Real versions make it bite, changing cache-hit behaviour across the board — including across a
+   process boundary, where it is what `ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY` relies on.
+4. **Where the version is set is itself a decision.** `serialize_to_binary` is the obvious place —
+   it is where the bytes exist — but it runs only during persistence, so a keyed asset whose
+   persist is skipped or fails would have no version. Setting it as part of *finalizing the value*
+   instead is more consistent but touches a different function.
+5. **Stored metadata changes shape.** `version` is persisted in the sidecar; entries written before
+   this have none. The field is `Option`, so this should be compatible, but it wants confirming
+   rather than assuming.
+
+Once real versions exist, the `stale-dependency-status-finalization` design's decision to leave the
+dependency-manager step alone (`track_asset` early-returns for `Expired`) is worth revisiting:
+`register_version` would then see a genuine version change and cascade, which is the behaviour that
+design originally wanted and could not get.
 
 ## Discovery
 
