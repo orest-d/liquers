@@ -427,6 +427,47 @@ authority replaces one approximation, one special case, and one deferred issue.
 One question is open for the re-gate: whether `version(key)` belongs on the public `AssetManager`
 trait as a defaulted method (recommended) or only on the concrete managers.
 
+## Phase 2 Revision 2 re-gate (2026-09-05)
+
+Owner confirmed `version(key)` on the trait, defaulted. One reviewer over Revision 2; **two
+compile-time blockers**, both verified independently before acceptance, both now answered as
+Revision 2.1.
+
+**D1 — the resolver could not reach three of its four callers.** Revision 2 claimed "every caller
+is inside the asset manager, which passes `self`". False for the three that carry the load —
+`evaluate → track_asset` (`assets.rs:2557`), `try_fast_track → load_from_records` (`:1116`) and
+`record_dependency_on_asset → add_dependency` (`:1608`) — all generic code holding
+`Arc<E::AssetManager>`, with no `VersionResolver` bound anywhere on `Environment::AssetManager`.
+The fix is cheaper than the review supposed, and its stated objection does not apply: `AssetManager`
+is **already** sealed by a `pub(crate)` supertrait (`DependencyManagerAccess<E>` under
+`#[allow(private_bounds)]`, `:3446`/`:3470`), so adding `VersionResolver` beside it costs nothing
+that is not already paid, and every generic call site then gets the coercion for free.
+
+**D2 — `Send + Sync` would break wasm32.** `maybe_send.rs`'s own module doc states the convention
+and every async trait in the crate follows it. `VersionResolver` takes the `#[cfg_attr]` pair and
+`MaybeSend + MaybeSync`, so an `ImmediateAssetManager` holding `!Send` browser data still
+implements it — which is precisely what `liquers-web` is.
+
+**D3/D4, from the same pass.** The hard-coded zero is in `finalize_plan_expanded`, not
+`finalize_plan`. `Context::wait_for_dependency` must take the `DependencyKey` as a parameter rather
+than deriving one — a derived key differing from the schedule-time key would create a *second*
+record instead of upgrading the first, silently, since the upsert matches on key equality. And
+C3's safety turns out to rest on an unnamed convention: a concrete version reaches `add_dependency`
+only for a dependency that had one, and every spurious-expiry candidate the reviewer traced
+(volatile, non-keyed, command, non-serializable, concurrently evaluating) is safe *because* those
+paths pass `Version::unknown()`. That invariant is now written down and belongs in the reference.
+
+Confirmed clean: C1's default body, the `contains`-before-`get_metadata` ordering, and
+`Context::add_dependency`'s upsert rule. One overclaim corrected — "keeps every implementor
+compiling" is trivially true, since the two concrete managers are the only implementors in the
+workspace.
+
+**Phases 3 and 4 rebuilt on Revision 2**: seven tests removed (they tested the deleted provisional
+mechanism), thirteen added — including the two direct regression tests for the newly filed record
+defects, and `a_record_written_before_versions_existed_still_matches`, which pins the property that
+makes this deployable against an existing store. Phase 4 is fifteen steps in the same four groups,
+and its B-before-C ordering argument is now real rather than hypothetical.
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)

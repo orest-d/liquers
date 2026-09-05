@@ -424,3 +424,144 @@ in the reference. There is no data migration and no stored-format change to undo
 3. **Cost, not correctness, is the live-fire unknown.** Nothing measures how much recomputation the
    cascade adds on a real workload, because nothing in the repository measures that today
    (`BENCHMARK-SUITE` is open). Phase 5 states the exposure rather than pretending it was measured.
+
+
+---
+
+# Revision 2 (2026-09-05) — the plan under the version authority
+
+Supersedes Step 3 and Group B's contents; Steps 1, 2, 4, 6, 8–11 stand, Steps 5 and 7 gain one
+change each. **Fifteen steps in the same four groups**, and the group ordering argument becomes
+*real* rather than hypothetical: with B3 in place, records genuinely carry concrete versions, so
+B1/B2 must exist before them.
+
+## Group A — inert preparation (unchanged)
+
+Steps 1 and 2 as written above: the chrono clock, and `serialize_to_binary`'s ungated read.
+
+## Group B — the version authority
+
+### B1 — `AssetManager::version(key)`, defaulted on the trait
+
+**File:** `liquers-core/src/assets.rs`, in the `AssetManager` trait (`:3470`).
+
+Body as given in Phase 2 Revision 2's gate decision. Uses only `lookup_key_asset` (`:3781`) and
+`get_envref` (`:3826`), both already required, so **no implementor changes** — verify by building
+`liquers-py` and, at Step 14, `liquers-web`.
+
+Two rules that are the whole point of the method and must survive review: it **never evaluates**
+(`lookup_key_asset`, not `get`), and it asks `contains` before `get_metadata` so an absent key is
+`Ok(None)` while a failing store is `Err`.
+
+**Tests:** the five `AssetManager::version` tests (Phase 3 Revision 2), `version_never_evaluates`
+modelled on the existing `owned_key_asset_does_not_evaluate` (`assets.rs:9090`).
+
+**Validate:** `cargo test -p liquers-core --lib --tests` · `cargo check -p liquers-py`
+
+**Agent:** sonnet · rust-best-practices · knowledge: the `AssetManager` trait, `owned_key_asset`'s
+non-evaluating precedent and the `keyed-recipe-ownership` design behind it.
+
+### B2 — `VersionResolver`, and `add_dependency` under it
+
+**Files:** `liquers-core/src/dependencies.rs` (trait + `add_dependency` + `load_from_records` +
+`track_asset` signatures), `assets.rs` (two impls, both delegating to B1).
+
+**Per Revision 2.1 D1/D2**, `VersionResolver` is declared with the `maybe_send` convention
+(`#[cfg_attr]` pair, `MaybeSend + MaybeSync` — *not* `Send + Sync`, which breaks wasm32) and added
+as a **supertrait of `AssetManager<E>`** alongside the existing `DependencyManagerAccess<E>`. That
+is what makes `&*manager as &dyn VersionResolver` available at the three generic call sites
+(`assets.rs:2557`, `:1116`, `:1608`) that hold `Arc<E::AssetManager>` rather than a concrete
+manager. It costs nothing new: `AssetManager` is already sealed by a `pub(crate)` supertrait under
+`#[allow(private_bounds)]`.
+
+The trait carries the leak rule in its doc comment — **`&dyn`, for one call, never stored** — and
+that comment is a completion criterion, as with the ordering comment. A field here would close a
+third cycle on top of the two `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` records, and no test can catch
+it.
+
+**Tests:** the four `add_dependency` resolver tests (Phase 3 Revision 2), with a stub resolver.
+**Delete** `add_dependency_fails_unregistered_dep` — replaced, not rewritten.
+
+**Validate:** `cargo test -p liquers-core --lib dependencies::`
+
+**Agent:** sonnet · rust-best-practices · knowledge: `dependencies.rs` in full, Phase 2 Revision 2
+C2/C3, `ENVIRONMENT-MANAGER-REFERENCE-CYCLE`.
+
+### B3 — the record carries the dependency's real version
+
+**Files:** `liquers-core/src/context.rs:657` (`wait_for_dependency`), `interpreter.rs:71`
+(`finalize_plan`).
+
+`wait_for_dependency` upserts after the wait, using the version from the returned `State`'s
+metadata; `Context::add_dependency`'s existing preserve-known-over-unknown rule makes it an
+upgrade rather than a second record. **It takes the `DependencyKey` as a parameter** from
+`get_dependency_state` rather than deriving one from the asset (Revision 2.1 D3): a derived key
+that differed from the one `schedule_dependency_asset` wrote would create a second record instead
+of upgrading the first, silently. **`finalize_plan_expanded`** — not `finalize_plan`, which only
+calls it — uses the version `register_plan_dependencies` looks up eleven lines below instead of the
+literal `Version::new(0)`.
+
+**This is the step that turns the mechanisms on.** Everything before it is inert.
+
+**Tests:** `dependency_record_carries_the_dependencys_post_evaluation_version`,
+`plan_dependency_record_carries_the_command_version`, and — the one that matters for deployment —
+`a_record_written_before_versions_existed_still_matches`.
+
+**Validate:** `cargo test -p liquers-core --lib --tests` · **and `--test expiration_integration`
+must still be 34/34**, which is the check that the upgrade transition is genuinely gentle.
+
+**Agent:** sonnet · rust-best-practices · knowledge: `context.rs` dependency scheduling,
+`interpreter.rs` `finalize_plan`, both new issues.
+
+### B4 — `expire_internal` (was Step 4, unchanged)
+
+### B5 — `version_for_tracking` (was Step 5), with C7 correction
+
+As written, plus: the doc comment must **not** claim `track_asset` is the single funnel. It is not —
+four of five `register_version` sites are elsewhere and `try_fast_track` never calls `track_asset`.
+Say what it is: a net on the evaluation and `set_state` paths.
+
+## Group C — evaluation path
+
+### C1 — `ValueOrigin` (was Step 6, unchanged)
+
+### C2 — assignment atomic with the status transition (replaces Step 7)
+
+Per Phase 2 Revision 2 C5: `prepare_version(origin)` serializes outside any lock and returns the
+bytes and version; `finalize_status_with_version(prepared)` installs binary, version and status in
+**one** write transaction. The ordering comment stays, but it now documents a structure rather than
+substituting for one.
+
+Also C6: the fallback's log entry is `lock.metadata.add_log_entry(...)` inside that same
+transaction — never the service channel, which persists.
+
+**Agent:** sonnet · rust-best-practices · knowledge: `try_to_set_ready`, `evaluate`, Phase 2
+Revision 2 C5/C6, and the Phase 4 review finding about waiters re-polling on any wake-up.
+
+## Group D — tests and verification
+
+Steps 8–11 as written, with Phase 3 Revision 2's test set: I8/I9 now assert real behaviour, and the
+`SharedMemoryStore` fixture is still sized by compiling.
+
+Add **Step 14**: `cargo check -p liquers-web --target wasm32-unknown-unknown` alongside the matrix,
+since B1 adds a trait method and `liquers-web` implements `AssetManager`.
+
+## Revised risk order
+
+1. **B2's supertrait change.** Settled by the re-gate: the resolver reaches its callers through a
+   supertrait on `AssetManager<E>`, and the wasm32 build needs `MaybeSend + MaybeSync` plus the
+   `#[cfg_attr]` pair. The residual risk is ordinary compile churn across the three generic call
+   sites. **Do not** store the resolver to make it easier.
+2. **B3 turning the mechanisms on.** The gentle-transition property is argued from `Version(0)`
+   matching everything and is tested, but it is the change with real deployment consequences.
+3. The wasm claim, unverified until Step 10/14.
+4. The shared-store fixture, still discovery work.
+
+## Phase 5 entry criteria, added
+
+6. `DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE`,
+   `DEPENDENCY-RECORD-VERSION-CAPTURED-BEFORE-DEPENDENCY-EVALUATES` and
+   `PLAN-DEPENDENCY-RECORDS-HARDCODE-VERSION-ZERO` closed with evidence, since Revision 2 absorbs
+   all three.
+7. The two "no test can hold this" comments exist: the ordering comment (C2) and the
+   never-store-the-resolver comment (B2).

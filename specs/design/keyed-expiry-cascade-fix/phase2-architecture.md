@@ -511,7 +511,8 @@ replaces one approximation plus one exception plus one deferred issue.
 /// The authoritative version of a keyed asset, without evaluating it.
 ///
 /// Three sources, in order:
-/// 1. a live asset registered for `key` — its `MetadataRecord.version`;
+/// 1. a live asset registered for `key`, **if it has a version yet** — an asset that is
+///    mid-evaluation does not, and must not shadow the durable answer below;
 /// 2. otherwise, the store's metadata for `key`, if it holds any;
 /// 3. otherwise `None` — the key has no durable version, which is not the same as
 ///    `Version::unknown()` and must not be conflated with it.
@@ -670,12 +671,163 @@ write lock the assignment already holds.
 | Phase 4 Step 3 | Rewritten around C3. Group B grows: the resolver, the trait method, and the two record fixes. |
 | Phase 4 ordering | The B-before-C argument becomes **real** rather than hypothetical: with C4 in place, records do carry concrete versions, so C3 must exist before them. |
 
-## Open question for the re-gate
+## Gate decision: `version` goes on the trait, defaulted (owner, 2026-09-05)
 
-**Does `AssetManager::version` belong on the public `AssetManager` trait, or on the concrete
-managers?** The trait is public API; a defaulted method is additive and safe, but it also
-advertises "ask me for a version" to every implementor, including the bindings. The alternative is
-an inherent method on the two concrete managers plus the `VersionResolver` impl, which keeps the
-trait unchanged at the cost of duplicating a short body. Recommendation: **on the trait, defaulted**
-— the question "what version does this key have" is a reasonable thing to ask an asset manager, and
-a binding that answers `None` is answering correctly.
+Confirmed. The default body needs nothing the trait does not already require — `lookup_key_asset`
+(a required sync map read, `:3781`) and `get_envref` (required, `:3826`) — so no implementor has to
+do anything, and `liquers-py`, `liquers-web` and any out-of-tree manager keep compiling unchanged:
+
+```rust
+async fn version(&self, key: &Key) -> Result<Option<Version>, Error> {
+    // 1. A live asset registered for this key, if it has a version yet.
+    if let Some(asset) = self.lookup_key_asset(key) {
+        if let Some(v) = asset.get_metadata().await?.version() {
+            return Ok(Some(v));
+        }
+        // Deliberately falls through rather than returning None: an asset that is mid-evaluation
+        // carries no version yet, while the store still holds the last durable one. Returning
+        // None here would make C3 read "no durable version" and expire a dependent whose
+        // dependency is merely being recomputed.
+    }
+    // 2. The store's metadata. `contains` first, so an absent key is `Ok(None)` and a failing
+    //    store is `Err` — see below.
+    let store = self.get_envref().get_async_store();
+    if !store.contains(key).await? {
+        return Ok(None);
+    }
+    Ok(store.get_metadata(key).await?.version())
+}
+```
+
+`lookup_key_asset`, not `owned_key_asset`: the map entry for the key *is* the authority here, and
+the ownership question is a different one. Both are map reads, neither evaluates.
+
+**`contains` before `get_metadata` is load-bearing.** `AsyncStore::get_metadata` returns `Err` for a
+missing key, and mapping that error to `Ok(None)` would make a store outage indistinguishable from
+"this key has no version" — which under C3 expires every dependent. Asking `contains` first keeps
+the two answers apart, at the cost of one extra store round-trip on the cold path.
+
+A directory key yields synthesized metadata with no version, hence `None`, which is correct: a
+directory is not a versioned asset.
+
+
+---
+
+# Revision 2.1 (2026-09-05) — corrections from the re-gate review
+
+Two compile-time blockers, both verified independently before acceptance. Revision 2's C1, C3–C7
+stand; **C2 is replaced**.
+
+## D1 — the resolver could not reach three of its four callers (replaces C2)
+
+Revision 2 said "every caller is inside the asset manager, which passes `self`". That is false for
+the three call sites that carry the load. They are generic code holding
+`Arc<E::AssetManager>`, not a concrete manager:
+
+| Caller | Site |
+|---|---|
+| `AssetRef::evaluate` → `track_asset` | `assets.rs:2557–2560` |
+| `AssetData::try_fast_track` → `load_from_records` | `assets.rs:1116–1143` |
+| `AssetRef::record_dependency_on_asset` → `add_dependency` | `assets.rs:1608–1610` |
+
+`Environment::AssetManager` is bound only `AssetManager<Self>` (`context.rs:159`), so there is no
+path from `Arc<E::AssetManager>` to `&dyn VersionResolver` and the code as specified does not
+compile. The same applies inside `AssetManager`'s own default methods
+(`register_plan_dependencies`, `cascade_expire_dependents`, `assets.rs:3897–3936`), where `Self` is
+only known to be an `AssetManager<E>`.
+
+**The fix is cheaper than it looks, because the cost is already paid.** `AssetManager` is *already*
+sealed by a `pub(crate)` supertrait:
+
+```rust
+pub(crate) trait DependencyManagerAccess<E: Environment> { … }   // :3446
+
+#[allow(private_bounds)]
+pub trait AssetManager<E: Environment>:
+    crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSync
+    + DependencyManagerAccess<E>                                  // :3470–3472
+```
+
+So "no crate outside `liquers-core` can implement `AssetManager`" is the **status quo**, not a new
+cost — and the review's stated objection to the supertrait route does not apply here. Adding
+`VersionResolver` alongside `DependencyManagerAccess<E>` follows an established precedent in the
+same declaration, and every generic call site then gets `&*manager as &dyn VersionResolver` for
+free, because `E::AssetManager: AssetManager<E>` implies it.
+
+The alternative — a blanket `impl<T: AssetManager<E>> VersionResolver for T` — is rejected: it
+needs `E` to be inferable at the impl, which it is not for an object-safe `E`-free trait, and it
+would collide with any future hand-written impl.
+
+## D2 — `VersionResolver` must follow the `maybe_send` convention
+
+Revision 2 wrote `#[async_trait] pub(crate) trait VersionResolver: Send + Sync`. That breaks
+`wasm32`, which is the platform `liquers-web` is. `maybe_send.rs`'s own module documentation states
+the rule, and every async trait in this crate follows it (`AssetManager` at `:3467`, `AsyncStore`,
+the recipe providers, the command traits):
+
+```rust
+/// Resolves a dependency key's authoritative version for the dependency manager.
+///
+/// **Passed as `&dyn VersionResolver` for the duration of one call and never retained.** Storing
+/// it — in a `DependencyManager` field, or anywhere reachable from one — would close a third
+/// reference cycle on top of the two `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` records. A borrow
+/// cannot leak; that is the whole reason for the shape, and no test can catch its violation.
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+pub(crate) trait VersionResolver:
+    crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSync
+{
+    async fn resolve_version(&self, key: &DependencyKey) -> Option<Version>;
+}
+```
+
+`MaybeSend + MaybeSync`, not `Send + Sync`: on `wasm32` the markers are vacuous so an
+`ImmediateAssetManager` holding `!Send` browser data still implements it, which is exactly what
+`liquers-web` needs and what a hard `Send + Sync` would have broken. Two hand-written impls, one
+per concrete manager, each delegating to C1's `version()` for asset keys and answering `None` for
+command keys (which the manager's own `versions` map already holds authoritatively).
+
+## D3 — C4 corrections
+
+- **A4, naming.** The hard-coded `Version::new(0)` is in **`finalize_plan_expanded`**
+  (`interpreter.rs:71`); `finalize_plan` (`:114`) merely calls it. Fix the function that contains
+  the line.
+- **Q2, the key must be passed, not re-derived.** `Context::wait_for_dependency` receives only
+  `&AssetRef<E>`, and deriving a `DependencyKey` from the asset would risk producing a *different*
+  key from the one `schedule_dependency_asset` wrote at `context.rs:535` — which, since
+  `Context::add_dependency` upserts by key equality (`context.rs:945`), would silently create a
+  **second** record rather than upgrading the first. So `wait_for_dependency` takes the
+  `DependencyKey` as a parameter from `get_dependency_state`, which already has the query. No
+  derivation, no mismatch possible.
+- **Q1, the two writers converge by design.** A `PlanDependency` may name an asset key, not only a
+  command key. That is not a problem: both writers go through `Context::add_dependency`, which
+  matches on key equality and prefers a concrete version over an unknown one, so a plan record for
+  an asset key is *upgraded* by the wait-time upsert rather than duplicated. The plan-time value
+  remains a schedule-time snapshot, and for command keys — which nothing waits on — it is the only
+  writer and is correct there.
+
+## D4 — A3: C3's safety rests on an unnamed convention, so name it
+
+The re-gate traced every spurious-expiry candidate (volatile, non-keyed, command, non-serializable,
+concurrently evaluating) and found all of them safe — but safe *because upstream callers pass
+`Version::unknown()` for exactly those cases*, and C3's resolver consultation is gated on
+`!version.is_unknown()`. That is load-bearing and was nowhere written down.
+
+**Stated as an invariant, and it belongs in `DEPENDENCIES_STATUS.md`:** a concrete version reaches
+`add_dependency` only for a dependency that had one, and `Version::unknown()` is the answer for a
+volatile, non-keyed, or not-yet-versioned dependency. A future change that made
+`record_dependency_on_asset` always produce a concrete version would reactivate the
+spurious-expiry risk C3 appears to have designed away.
+
+The re-gate also supplied the sentence that replaces the provisional rule in the reference: the
+in-process race Revision 1 needed provisional registration for is now closed by C1's live-asset
+check, not by anything in the dependency manager.
+
+## Confirmed clean by the re-gate
+
+C1's default body (both required methods genuinely available to a defaulted method; `get_metadata`
+callable), the `contains`-before-`get_metadata` ordering and why it is load-bearing, and
+`Context::add_dependency`'s preserve-known-over-unknown upsert. One overclaim corrected: "keeps
+every implementor compiling" is trivially true — `DefaultAssetManager` and `ImmediateAssetManager`
+are the only implementors in the workspace, and `liquers-py` names the former as its associated
+type rather than implementing the trait.

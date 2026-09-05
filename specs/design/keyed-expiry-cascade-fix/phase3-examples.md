@@ -368,3 +368,88 @@ noting the pattern twice is not yet evidence of a pattern.
 5. **Two constraints have no reliable test** — P3's ordering and P2's single serialization. The ordering constraint between version assignment and the
    `ValueProduced` notification can only be violated into flakiness, not into red. It is documented
    at the call site instead, which is the honest place for a constraint tests cannot hold.
+
+
+---
+
+# Revision 2 (2026-09-05) — tests for the version authority
+
+Phase 2 Revision 2 replaced provisional registration with an authoritative `version(key)` lookup.
+This section supersedes the affected entries above; everything not named here stands.
+
+## Removed
+
+| Was | Why it goes |
+|---|---|
+| U1 `add_dependency_registers_unregistered_asset_dep_provisionally` | Provisional registration no longer exists. The **original** `add_dependency_fails_unregistered_dep` (`dependencies.rs:835`) is not rewritten either — it is **replaced** by V2/V3 below, because "unregistered" is no longer the question being asked. |
+| U2 `add_dependency_expires_on_unregistered_command_dep` | The command-key exception is gone; one rule covers both key kinds. |
+| U3, U4 | They test the provisional-then-corrected sequence, which no longer happens. |
+| U9 | `version_consistent` and `add_dependency` no longer disagree — `add_dependency` stops consulting `version_consistent` for the unregistered case at all. |
+| P6, P12 | Pitfalls of the deleted mechanism. |
+
+Seven tests removed, six added, and the six assert facts rather than an approximation's behaviour.
+
+## Added
+
+### `AssetManager::version` — the authority (`liquers-core/tests/keyed_version_cascade.rs`)
+
+| Test | Assertion |
+|---|---|
+| `version_of_a_live_asset_is_its_metadata_version` | Evaluate `a.txt`, then `manager.version(&a_key)` equals `Version::from_bytes(b"Hello")`. |
+| `version_of_a_store_only_asset_is_read_from_the_sidecar` | Write via `set_binary`, never evaluate, then `version()` returns the stored version. This is the branch that makes `DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE` closable. |
+| `version_of_an_absent_key_is_none` | `Ok(None)`, **not** `Err`. |
+| `version_never_evaluates` | Modelled on the existing `owned_key_asset_does_not_evaluate` (`assets.rs:9090`): a counting command behind a recipe, `version()` called on its key, counter still zero. Guards the recursion hazard that `keyed-recipe-ownership` was written for. |
+| `version_of_a_mid_evaluation_asset_falls_through_to_the_store` | The refinement in C1's gate note: a live asset with no version yet must not shadow the durable answer, or C3 expires a dependent whose dependency is merely being recomputed. |
+
+A store-error case (`version()` returns `Err`, not `Ok(None)`) is wanted but needs a failing store
+fixture; deferred to Phase 4's discovery unless the conformance suite already offers one.
+
+### `add_dependency` under the resolver (unit, `dependencies.rs`)
+
+The three rows of the outcome table, one test each, with a stub `VersionResolver` — no asset
+manager needed, which is why these stay unit tests:
+
+| Test | Resolver answers | Expected |
+|---|---|---|
+| `add_dependency_keeps_dependent_when_authority_confirms_the_version` | `Some(v_recorded)` | edge recorded, nothing expired |
+| `add_dependency_expires_dependent_when_authority_reports_a_different_version` | `Some(v_other)` | dependent expired |
+| `add_dependency_expires_dependent_when_authority_has_no_version` | `None` | dependent expired — the owner's durability rule |
+| `add_dependency_does_not_consult_the_authority_for_an_unknown_version` | resolver panics if called | `Version(0)` short-circuits before any lookup; this is what keeps the upgrade transition gentle |
+
+The last one is the cheapest possible guard on the property the whole upgrade path rests on.
+
+### The record now carries a real version
+
+| Test | Where | Assertion |
+|---|---|---|
+| `dependency_record_carries_the_dependencys_post_evaluation_version` | integration | Evaluate `-R/b.txt`; `b`'s record for `-R/a.txt` equals `a`'s own version — **not** zero. This is the direct regression test for `DEPENDENCY-RECORD-VERSION-CAPTURED-BEFORE-DEPENDENCY-EVALUATES`, and the probe output in "What HEAD Actually Does" is its failing baseline. |
+| `plan_dependency_record_carries_the_command_version` | integration | `b`'s record for `ns-dep/command_impl---world` equals the declared `version: 2`, not zero. Regression test for `PLAN-DEPENDENCY-RECORDS-HARDCODE-VERSION-ZERO`. |
+| `a_record_written_before_versions_existed_still_matches` | integration | Hand-write a stored asset whose records carry `Version(0)`, load it, assert it is served `Ready`. **The upgrade-transition test.** Without it nothing pins the property that makes this change safe to deploy against an existing store. |
+
+### I8/I9 become real
+
+They stop testing an approximation. I8: a dependent reloaded before its dependency is **kept**,
+because the authority reads the dependency's version from the store. I9: with the dependency's
+stored bytes changed, the dependent is **expired** — and now it can pass, which it could not under
+Revision 1.
+
+## Pitfalls, revised
+
+| # | Replaces | Corner case | Pinned by |
+|---|---|---|---|
+| P6′ | P6 | Mapping `get_metadata`'s not-found `Err` to `Ok(None)` instead of asking `contains` first | `version_of_an_absent_key_is_none` plus the store-error test |
+| P12′ | P12 | Making `version()` reach for the asset **manager**'s `get` rather than `lookup_key_asset`, so asking a question evaluates an asset | `version_never_evaluates` |
+| P13 | new | Storing the `VersionResolver` in a `DependencyManager` field "to avoid passing it everywhere" | No test can catch a leak; the doc comment on the trait is the guard, as with P3 |
+| P14 | new | Returning `None` from `version()` for a live asset that has not finished evaluating | `version_of_a_mid_evaluation_asset_falls_through_to_the_store` |
+
+P13 joins P3 and P2 as a constraint no test can hold. That is now three, which is worth noticing:
+all three are structural properties that only a comment or a type can enforce.
+
+## Learning, added
+
+6. **A test can be written against an approximation and look thorough.** U1–U4 and U9 were a
+   careful, cross-checked test suite for a mechanism that turned out to be the wrong mechanism.
+   They were reviewed twice and neither pass questioned whether the thing under test should exist —
+   because the reviews were scoped to conformity with the phase above them, and the wrong premise
+   was three phases up. The check that caught it was reading the actual bytes of a
+   `DependencyRecord`.
