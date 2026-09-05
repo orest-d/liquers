@@ -4,7 +4,7 @@ kind: design
 title: Versions for computed keyed assets, so keyed expiry cascades
 workflow: liquers-project
 status: in_review
-phase: examples
+phase: implementation
 area: [core/assets]
 issues: [KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS]
 gh_pr: []
@@ -20,8 +20,8 @@ superseded_by:
 
 - [x] Phase 1: High-Level Design (approved 2026-09-05)
 - [x] Phase 2: Solution & Architecture (approved 2026-09-05)
-- [x] Phase 3: Examples & Testing (in review)
-- [ ] Phase 4: Implementation Plan
+- [x] Phase 3: Examples & Testing (approved 2026-09-05)
+- [x] Phase 4: Implementation Plan (drafted; **blocked at the gate on a scope decision**)
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
 
@@ -308,6 +308,85 @@ the query's trailing filename, so `Recipe::new("-R/a.txt/-/world/b.txt", …)` r
 `b.txt`. One over-read to note: it cited the probe as evidence that "expiry cascades", which is
 what the probe's own output disproves at the second level — a reminder that a reviewer reading a
 transcript is not a substitute for reading the numbers.
+
+## Phase 4 review: one blocking finding, and the design needs a scope decision (2026-09-05)
+
+Two reviewers passed the plan — conformity clean, executability clean, including the item flagged
+as highest-risk (`track_asset`'s lock discipline is safe, because the existing `drop(lock)` at
+`dependencies.rs:297` precedes the call site). Their advisories were applied: U3/U4 named in Step 3,
+R1 in the final test row, and Step 5's placement rules made explicit.
+
+**The holistic pass found something all four phase documents assumed and none had checked.**
+
+### B1 — persisted `DependencyRecord.version` is always zero
+
+Verified independently before acceptance, with a probe over this design's own fixture:
+
+```
+--- b.txt own version = None
+      dep -R/a.txt                        version = 00000000000000000000000000000000
+      dep ns-dep/command_impl---world     version = 00000000000000000000000000000000
+stored b.txt deps:
+      stored dep -R/a.txt                 version = 00000000000000000000000000000000
+```
+
+Two independent causes, both confirmed in source:
+
+1. `Context::schedule_dependency_asset` (`context.rs:553`) reads the dependency's version from the
+   manager **at schedule time** — before `get_dependency_asset` at `:582`, therefore before the
+   dependency has evaluated, therefore before `track_asset` could have registered it. Nothing
+   revisits the record afterwards. `record_dependency_on_asset` is the one function that reads a
+   dependency's live metadata version, and its only non-test caller is the delegation branch
+   (`assets.rs:2407`), where it returns immediately as a same-node hand-off.
+2. `finalize_plan` (`interpreter.rs:71`) writes plan dependency records with a literal
+   `Version::new(0)`, although `register_plan_dependencies` looks up the real command versions a
+   few lines below.
+
+Filed as `DEPENDENCY-RECORD-VERSION-CAPTURED-BEFORE-DEPENDENCY-EVALUATES` (P1, M) and
+`PLAN-DEPENDENCY-RECORDS-HARDCODE-VERSION-ZERO` (P2, S).
+
+**What survives and what does not.** The core fix is unaffected: graph edges are registered by
+`register_scheduled_dependency` regardless of version, `track_asset` will register a real version
+for the dependency, `skip_cascade` becomes false, and I2's `c` assertion flips. **In-process
+transitive cascade works.**
+
+Everything built on *recorded* versions does not. Because `Version(0)` short-circuits every
+comparison, `add_dependency`'s check is never reached from a production caller, so Step 3's
+provisional rule and its command-key exception implement a policy nothing can trigger; I9 cannot
+pass as written; and Phase 1's central cold-start risk — "turning versions on would expire
+persisted dependents on first load" — is not real, because the recorded versions are zero.
+
+### Other findings from the same pass, accepted
+
+- **A1 (architecture-level).** The version window is not closed by placing `assign_version` after
+  `try_to_set_ready`. `try_to_set_ready` sets `Ready` with `data` already present, so `poll_state`
+  returns `Some` the instant its write lock drops, and both `AssetRef::get` and
+  `wait_for_dependency` re-poll at the top of their loops on *any* wake-up, not only on
+  `ValueProduced`. A delegate polled inside that window yields
+  `ValueOrigin::Delegated { version: None }` — Phase 1's first named delegation failure mode.
+  The fix is to serialize *before* the status transaction and install bytes, version and status
+  together under one write lock, which also matches the "published once" rule more exactly.
+- **A2.** The net's log entry must be written as `lock.metadata.add_log_entry(...)` under the
+  asset's own write lock, never through the service channel — `AssetServiceMessage::LogMessage`
+  calls `save_metadata_to_store` (`assets.rs:2060`), which would persist the fallback version and
+  contradict both the "does not re-persist" decision and I4's assertion that the store holds
+  nothing.
+- **A3.** Step 1's validation gate (`grep SystemTime::now`) has five pre-existing hits in
+  `store.rs` test modules; scope it or an agent will "fix" unrelated code.
+- **A5.** A key registered while non-volatile and later resolved volatile keeps its `versions`
+  entry — `DependencyManager::remove` has no production caller. Pre-existing; matters because
+  Phase 5 was about to publish the exclusion as contract.
+- **A6.** `set_state` on a key already evaluated in-process does not expire first, so it will now
+  cascade where it could not before. Correct behaviour, but new, and it is the one path where the
+  evaluate-path hash and the `set_state` hash must agree. Wants a test.
+- **A7, and it is fair.** The Phase 3 probe printed versions, bytes and statuses but not
+  `metadata.get_dependencies()` — which is exactly where B1 lives. Phase 3's own learning ("assert
+  against a running binary before writing the sentence down") applied to itself: the probe was run
+  and the wrong fields were read.
+
+### The decision this needs
+
+Recorded for the owner, not taken here. See the Phase 4 gate question in the session.
 
 ## Links
 
