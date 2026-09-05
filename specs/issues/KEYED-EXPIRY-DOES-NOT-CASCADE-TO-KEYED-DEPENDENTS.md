@@ -143,6 +143,33 @@ invalidate the key's dependents; tracing `expire_internal` to check showed that 
 asset it invalidates no keyed dependent at all. The design dropped the cascade as a result; this
 issue records the underlying gap, which is independent of it.
 
+## Correction (measured at HEAD, 2026-09-05)
+
+**The claim above — "no keyed dependent is ever reached" — is wrong, and the correct statement is
+narrower.** A probe of a three-link chain of computed keyed assets (`a.txt` ← `hello`,
+`b.txt` ← `-R/a.txt/-/world/b.txt`, `c.txt` ← `-R/b.txt/-/world/c.txt`) gives:
+
+```
+statuses AFTER expire(a) : a=Expired  b=Expired  c=Ready
+after recompute, expire(b): b=Expired  c=Expired
+```
+
+Invalidation reaches **direct** dependents and never propagates beyond them. One level per explicit
+expiry, always exactly one.
+
+The reason is that a keyed asset is recorded twice. `Context::evaluate` calls `add_dependent_asset`
+whenever the current asset is keyed, so a keyed dependent appears in `dependent_assets` as a weak
+reference *as well as* in `keyed_dependents` as a graph edge. `expire_internal` collects
+`dependent_assets` outside the `skip_cascade` guard and traverses `keyed_dependents` inside it —
+so the weak-reference route always fires once, and the graph route, which is the only one that
+enqueues a node and therefore the only one that can reach a second level, never runs.
+
+This does not change the fix, the priority, or the owner's decision. It changes what a regression
+test must look like: **a two-asset test passes at HEAD.** Three links are the minimum that fails,
+which is why the existing 34 expiration tests are green and why the defect survived several
+designs. The paragraph above ("Consequence: … no keyed dependent is ever reached") should be read
+as "no *transitive* keyed dependent is ever reached".
+
 ## Status
 
 `in_progress` since 2026-09-05: designed in

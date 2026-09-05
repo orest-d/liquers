@@ -24,6 +24,14 @@ Four changes, all inside `liquers-core`, all decided by Phase 1's owner decision
    is made true, and the `skip_cascade` branch it guards becomes the mechanism a future
    zero-version policy will use.
 
+**One correction to the problem statement, established by measurement after this phase was
+drafted** (Phase 3, "What HEAD Actually Does"): the issue, Phase 1 and this document's first draft
+all said no keyed dependent is reached today. In fact the *direct* one is, through the weak-
+reference route `expire_internal` collects outside the guard; what never runs is the graph
+traversal, which is the only route that enqueues a node and so the only one that can reach a second
+level. Nothing in the architecture changes — the fix is the same and the guard is the same — but
+the regression test must have three links, because a two-asset test passes at HEAD.
+
 Two supporting corrections are unavoidable rather than optional: `serialize_to_binary` must read
 through the ungated accessor (`SERIALIZE-TO-BINARY-CONSULTS-THE-READ-GATE`), and `evaluate` must
 clear a stale cached binary (`EVALUATE-DOES-NOT-CLEAR-CACHED-BINARY`), because this design makes
@@ -362,7 +370,7 @@ set is not complete without these.
 | `add_dependency_version_zero_skips_check` | `dependencies.rs:846` | Unaffected — `Version(0)` short-circuits before the provisional branch. | None. |
 | `version_consistent_unregistered_returns_false` | `dependencies.rs:792` | Unaffected — `version_consistent` keeps its behaviour; only `add_dependency`'s *use* of the unregistered case changes. | None, but Phase 3 should note the two now deliberately disagree, and why. |
 | `expire_skips_version_zero_cascade` | `dependencies.rs:934` | Unaffected. Removing the vacuous `include_root \|\| current != *key` condition changes no outcome, because the condition was already true on both call paths; the test registers `Version(0)` by hand, which is exactly the policy case the branch now exists for. | None — it becomes the regression test for the zero-version policy, and its comment should say so. |
-| `test_dependent_expiration`, `test_dependent_expiration2` | `tests/expiration_integration.rs:282`, `:355` | Expected to keep passing. Their dependent is a *query* asset, invalidated through `dependent_assets` outside the version guard, so they never exercised the keyed→keyed path. | None. They are the reason the defect survived; Phase 3 adds the keyed→keyed sibling they lack. |
+| `test_dependent_expiration`, `test_dependent_expiration2` | `tests/expiration_integration.rs:282`, `:355` | Expected to keep passing. Their dependent is invalidated through `dependent_assets` outside the version guard, and there is only one level of it. | None. **They are the reason the defect survived** — measurement (Phase 3) shows a *direct* keyed dependent is invalidated at HEAD too, so no two-asset test of any shape fails. Phase 3 adds the three-link chain that does. |
 
 Baseline before any change (2026-09-05, `CARGO_INCREMENTAL=0`): `liquers-core` 793 lib, 34
 `expiration_integration`, 5 `dependency_manager_integration`, 4 `dependency_scheduling` — 0 failures.

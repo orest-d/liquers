@@ -4,7 +4,7 @@ kind: design
 title: Versions for computed keyed assets, so keyed expiry cascades
 workflow: liquers-project
 status: in_review
-phase: architecture
+phase: examples
 area: [core/assets]
 issues: [KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS]
 gh_pr: []
@@ -20,7 +20,7 @@ superseded_by:
 
 - [x] Phase 1: High-Level Design (approved 2026-09-05)
 - [x] Phase 2: Solution & Architecture (approved 2026-09-05)
-- [ ] Phase 3: Examples & Testing
+- [x] Phase 3: Examples & Testing (in review)
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
@@ -262,6 +262,52 @@ non-existent root exemption).
   installed here. Phase 4 adds it and runs the existing build-matrix wasm rows.
 
 **Phase 2 approved 2026-09-05.** No open question carried into Phase 3.
+
+## Phase 3 review (2026-09-05), and a correction to the problem statement
+
+**The measurement matters more than the reviews.** Before writing the tests, a throwaway probe
+built the three-link chain fixture and ran it against HEAD. It disproves a sentence the issue,
+Phase 1 and Phase 2 all carry:
+
+```
+statuses AFTER expire(a) : a=Expired  b=Expired  c=Ready
+after recompute, expire(b): b=Expired  c=Expired
+```
+
+Invalidation reaches **direct** dependents today and never propagates. One level per expiry, always
+exactly one. A keyed asset sits in both maps — `Context::evaluate` calls `add_dependent_asset`
+whenever the current asset is keyed — and `expire_internal` collects `dependent_assets` outside the
+`skip_cascade` guard while traversing `keyed_dependents` inside it. So the weak-reference route
+always fires once, and the graph route, the only one that enqueues a node, never runs.
+
+Nothing about the fix changes. What changes is the test: **a two-asset test passes at HEAD**, which
+is why 34 expiration tests are green over a P1 defect, and why the regression test needs three
+links. The issue, Phase 1 and Phase 2 are corrected.
+
+The probe also settled four facts the tests depend on, none of which were assumptions any more:
+`a.txt` stores exactly `b"Hello"` (so I1's expected hash is known); a non-serializable keyed asset
+ends `Ready` with `PersistenceStatus::NonSerializable` and **nothing in the store** — the empirical
+confirmation of the durability decision's premise; a query asset carries no version; and
+`evaluate()` returns an asset that may still be `Processing`, so `get()` must be awaited before
+`status()` is read (this cost two probe runs, and is now pitfall P11).
+
+**Reviewer 1 (Phase 1/2 conformity) — two blocking findings, both accepted.**
+(a) Phase 2 explicitly asked Phase 3 to record why `version_consistent` and `add_dependency` now
+disagree about an unregistered key, and Phase 3 had not. Added as U9, a single test asserting both
+halves, because the asymmetry is the point and a reader who sees only one half "fixes" it.
+(b) The P3 ordering constraint was left as "Phase 4 should" — it is now a stated Phase 4
+precondition, since a code comment is the only artefact that survives a refactor for a constraint
+no test can hold. Three advisories also accepted: the test count was wrong and is now derived from
+the table; I1 cannot prove the single-serialization property because `Value::Text` encodes
+deterministically, which is now said outright; and U5 asserts on the transitive node rather than on
+a count, so it forces the root-guard change.
+
+**Reviewer 2 (test realism) — no blocking findings.** It verified seventeen claims against source,
+including the one the whole fixture rests on: `Recipe::store_to_key()` derives the target key from
+the query's trailing filename, so `Recipe::new("-R/a.txt/-/world/b.txt", …)` really produces
+`b.txt`. One over-read to note: it cited the probe as evidence that "expiry cascades", which is
+what the probe's own output disproves at the second level — a reminder that a reviewer reading a
+transcript is not a substitute for reading the numbers.
 
 ## Links
 

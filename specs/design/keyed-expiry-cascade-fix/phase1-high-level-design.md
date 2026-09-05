@@ -47,7 +47,11 @@ This is the whole of the change. Four mechanisms currently see `Version::unknown
 keyed asset and start seeing a concrete one:
 
 1. `DependencyManager::expire_internal` — its `skip_cascade` guard stops being always-taken, so
-   keyed dependents are reached for the first time.
+   the keyed graph is traversed for the first time and invalidation propagates past the first
+   dependent. **Corrected 2026-09-05 by measurement** (Phase 3, "What HEAD Actually Does"): direct
+   dependents *are* invalidated today, through the weak-reference route that runs outside the
+   guard; what never happens is the second step. The defect is transitive propagation, not
+   propagation.
 2. `DependencyManager::register_version` — a recomputation with different bytes cascades; with
    identical bytes it does not, which is the property that makes hashing preferable to a timestamp.
 3. `DependencyManager::add_dependency` / `load_from_records` — their version-consistency check
