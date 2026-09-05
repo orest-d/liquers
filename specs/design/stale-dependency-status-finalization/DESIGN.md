@@ -167,3 +167,49 @@ at all" option needs deciding explicitly given B1.
 
 Filed separately from this design: `EVALUATE-DOES-NOT-CLEAR-CACHED-BINARY` and
 `SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED`.
+
+## Where this stands, and how to resume (2026-09-05)
+
+**Blocked, deliberately, on `KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS` (P1, L).** This
+folder is published as preparatory design work so the reasoning survives the gap; it is not ready to
+implement.
+
+### Why it is blocked
+
+The Phase 4 review established that computed keyed assets never carry a content version, which makes
+keyed-to-keyed expiry propagation inert. The project owner has decided that is an old omission to be
+fixed — computed assets should take their version from the hash of their serialized bytes, with a
+timestamp fallback — and that it is separate work with its own design. This design waits because its
+own dependency-manager decision (C2: leave `track_asset` alone) is *correct given today's
+versionless behaviour* and is worth revisiting once versions are real: `register_version` would then
+see a genuine change and cascade, which is the behaviour Phase 2 originally wanted and could not get.
+
+### State of each phase
+
+| Phase | State |
+|---|---|
+| 1 High-level | Approved 2026-09-04. Unaffected by the review; no correction owed |
+| 2 Architecture | Approved 2026-09-04, then **invalidated in three places**. Not edited in place; the corrections are listed in `phase2-architecture.md` §"Corrections owed before this phase is re-approved" |
+| 3 Examples | Approved 2026-09-04. Two entries are marked wrong in place — the `save_to_store` row of "Verified Setup Facts", and pitfall P4 — because a wrong fact in a table labelled binding is worth leaving visible. The rest stands, including the cross-process test design and the `SharedMemoryStore` pattern |
+| 4 Implementation | Drafted, **not approvable**. Steps 1, 2 and 4–8 survive the corrections; Step 3 is deleted by C2 and Step 2 gains the `serialize_to_binary` change from C1 |
+
+### Resuming
+
+1. Land `KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS`.
+2. Apply C1–C5 to `phase2-architecture.md` and take Phase 2 back through its gate. Reconsider C2
+   in the light of real versions — that is the one decision the versions work may change.
+3. Re-run the Phase 3 tests against the corrected architecture; the `I2` store-status assertion is
+   the one that could not have passed before C1.
+4. Rebuild Phase 4 Step 2 and drop Step 3.
+
+### Issues this work produced
+
+| Issue | P | Relationship |
+|---|---|---|
+| `ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY` | P1 | The one being fixed; raised from P2 on cross-process evidence found here |
+| `KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS` | P1 | **The blocker.** Carries the owner's decision on computed-asset versions |
+| `EXPIRY-RECORDS-NO-REASON` | P2 | Requested by the owner; every route into `Expired` is silent |
+| `SERIALIZE-TO-BINARY-CONSULTS-THE-READ-GATE` | P2 | The C1 defect, filed independently since it predates this design |
+| `EVALUATE-DOES-NOT-CLEAR-CACHED-BINARY` | P2 | Adjacent, found while tracing the persistence path |
+| `SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED` | P2 | Adjacent, same trace |
+| `DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS` | P2 | Unrelated; found while regenerating the index. Half fixed upstream since |

@@ -8,9 +8,9 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 89
+Total rows: 90
 - P1: 2
-- P2: 54
+- P2: 55
 - P3: 33
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
@@ -30,6 +30,7 @@ Total rows: 89
 | [`EXPIRY-RECORDS-NO-REASON`](issues/EXPIRY-RECORDS-NO-REASON.md) | issue | An asset that becomes Expired records no reason, and the one path that does names the dependency by asset id | draft |  | P2 | S | core/assets |  | 2026-09-04 |
 | [`REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED`](issues/REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED.md) | issue | The `payload: required` metadata statement is implemented but documented nowhere | draft |  | P2 | S | docs;core/commands;macro |  | 2026-09-03 |
 | [`SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED`](issues/SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED.md) | issue | A write skipped because the asset was cancelled is recorded as a successful persist | draft |  | P2 | S | core/assets |  | 2026-09-04 |
+| [`SERIALIZE-TO-BINARY-CONSULTS-THE-READ-GATE`](issues/SERIALIZE-TO-BINARY-CONSULTS-THE-READ-GATE.md) | issue | The persistence path serializes through a gated read, so an asset at a hidden status cannot be stored | draft |  | P2 | S | core/assets | [phase1](specs/design/stale-dependency-status-finalization/phase1-high-level-design.md)  [phase2](specs/design/stale-dependency-status-finalization/phase2-architecture.md)  [phase3](specs/design/stale-dependency-status-finalization/phase3-examples.md)  [phase4](specs/design/stale-dependency-status-finalization/phase4-implementation.md)  [phase5](specs/design/stale-dependency-status-finalization/phase5-documentation.md)  | 2026-09-05 |
 | [`AXUM-HANDLER-TEST-COVERAGE`](issues/AXUM-HANDLER-TEST-COVERAGE.md) | issue | liquers-axum has no handler test scaffolding, so handler behaviour is verified only by review | accepted |  | P2 | M | axum | [phase1](specs/design/expired-binary-read-safety/phase1-high-level-design.md)  [phase2](specs/design/expired-binary-read-safety/phase2-architecture.md)  [phase3](specs/design/expired-binary-read-safety/phase3-examples.md)  [phase4](specs/design/expired-binary-read-safety/phase4-implementation.md)  | 2026-08-08 |
 | [`COMBINED-VALUE-DISCRIMINATION`](issues/COMBINED-VALUE-DISCRIMINATION.md) | feature | Deserialization cannot discriminate base from extended values | accepted |  | P2 | M | core/value;lib/value |  | 2026-08-08 |
 | [`COMMAND-ALIAS-DEFINITION-UNTESTED`](issues/COMMAND-ALIAS-DEFINITION-UNTESTED.md) | issue | CommandDefinition::Alias has no test and no user, and its head-parameter semantics are unexercised | draft |  | P2 | M | core/plan;core/commands |  | 2026-08-29 |

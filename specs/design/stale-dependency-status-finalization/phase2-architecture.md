@@ -12,6 +12,31 @@ its dependents instead of registering itself as their current version.
 
 No type is added, no signature changes but the rename, no crate but `liquers-core` is touched.
 
+## Corrections owed before this phase is re-approved
+
+**This document is the version approved on 2026-09-04. The Phase 4 review invalidated three of its
+decisions, and it has deliberately NOT been edited in place** — the phase must go back through its
+gate, and silently rewriting an approved architecture would hide that. The corrections below are
+settled; applying them is the first task when work resumes.
+
+| # | Section to change | Correction |
+|---|---|---|
+| C1 | §Store System, §"The decision inside `finalize_status`" | **Finalizing `Expired` before persistence prevents the write.** `evaluate` never sets `lock.binary`, so `save_to_store` falls through to `serialize_to_binary` (`assets.rs:2718`), which calls the *gated* `poll_state()` — `None` for `Expired`. The write fails and nothing is stored. Fix: `serialize_to_binary` uses `poll_state_any_status()`, and is renamed `serialize_to_binary_unchecked`. Verified: its only two callers are `save_to_store` (needs ungated) and `get_binary` (`:3140`, which already returned `Err` for `Expired` before reaching it), so no gated twin is needed and none should be created |
+| C2 | §"The dependency-manager branch in `evaluate`" | **Drop the cascade.** `track_asset`'s early return for `Expired` is correct after all. `cascade_expire_dependents` would not expire keyed dependents anyway — `expire_internal` skips the walk when the source's version is unknown, which it always is for a computed asset — while still removing `keyed_dependents[K]` and `versions[K]`. The dependent invalidation this branch was meant to preserve **does not happen today**: `register_version(0 over 0)` reports no change. The branch becomes: volatile → nothing; otherwise → `track_asset` unchanged. |
+| C3 | (dissolves with C2) | The `bound_owner_key()`-versus-`lock.key` correction and the delegated-asset gap only mattered because of the cascade. With C2 there is no new key derivation and no new branch, so both disappear. Do not carry them forward |
+| C4 | §Error Handling | The `Ready` arm's discipline is to record a failed metadata write as a `LogEntry::warning`. Phase 4's sketch used `let _ =` on `set_status` and `set_expiration_time_from`, silently discarding both. Match the `Ready` arm |
+| C5 | §"The `expired-binary-read-safety` regression is preserved" | Add the transitive consequence raised at review: a parent polling a stale-dependency child through `wait_for_dependency` now always sees `Expired` rather than a brief `Ready`, so whole dependent chains in one run finish `Expired`. Probably correct, but it is a behaviour change this design should name |
+
+Two facts recorded during the review that this phase should state rather than leave implicit:
+
+- `AssetData::reset` (`:1332`) clears data, binary, metadata, status and persistence status but **not**
+  `stale_dependency`. `AssetRef::reset` has no callers today, so nothing is broken; with the rule
+  moved into finalization, any future in-place re-evaluation would make the asset permanently born
+  `Expired`.
+- `set_value` (`:3330`) and `set_state` (`:3368`) also persist and never consult `stale_dependency`.
+  They are unreachable with the flag set, so the "single status authority" claim should be scoped to
+  the evaluate path rather than stated globally.
+
 ## Known-Issue Preflight
 
 Searched: issues linked from `DESIGN.md` and Phase 1; every `draft`/`accepted`/`in_progress` row in
