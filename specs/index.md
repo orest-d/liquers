@@ -8,9 +8,9 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 94
+Total rows: 95
 - P1: 4
-- P2: 57
+- P2: 58
 - P3: 33
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
@@ -42,6 +42,7 @@ Total rows: 94
 | [`CORE-SYNC-STORE-TRAIT-OBSOLETE`](issues/CORE-SYNC-STORE-TRAIT-OBSOLETE.md) | issue | The synchronous Store trait is obsolete and should be removed | draft |  | P2 | M | core/store;py;docs |  | 2026-09-02 |
 | [`CORE-TRACING-MIGRATION`](issues/CORE-TRACING-MIGRATION.md) | issue | Diagnostics use `eprintln!` rather than structured logging | accepted |  | P2 | M | core/error;build |  | 2026-08-08 |
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies 704 bytes because three variants are stored unboxed | draft |  | P2 | M | core/value;lib/value |  | 2026-08-18 |
+| [`DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE`](issues/DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE.md) | feature | There is no way to say when dependency versions should be verified, so the strict and the exploratory workflow cannot both be served | draft |  | P2 | M | core/assets |  | 2026-09-05 |
 | [`EGUI-ASSET-MANAGER-INTEGRATION`](issues/EGUI-ASSET-MANAGER-INTEGRATION.md) | feature | No stable adapter between egui widgets and the asset manager | accepted |  | P2 | M | lib/egui |  | 2026-08-08 |
 | [`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`](issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md) | issue | Environment and asset manager hold each other with strong Arcs, so every environment leaks | draft |  | P2 | M | core/assets;core/context | [phase1](specs/design/environment-builder/phase1-high-level-design.md)  [phase2](specs/design/environment-builder/phase2-architecture.md)  [phase3](specs/design/environment-builder/phase3-examples.md)  [phase4](specs/design/environment-builder/phase4-implementation.md)  [phase5](specs/design/environment-builder/phase5-documentation.md)  | 2026-08-27 |
 | [`EXPIRATION-RECOVERY-WEB-API`](issues/EXPIRATION-RECOVERY-WEB-API.md) | issue | Expiration recovery has no web API surface | accepted |  | P2 | M | axum;core/assets |  | 2026-08-08 |

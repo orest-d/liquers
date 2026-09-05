@@ -6,7 +6,7 @@ workflow: liquers-project
 status: in_review
 phase: architecture
 area: [core/assets]
-issues: [KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS, DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE, DEPENDENCY-RECORD-VERSION-CAPTURED-BEFORE-DEPENDENCY-EVALUATES, PLAN-DEPENDENCY-RECORDS-HARDCODE-VERSION-ZERO]
+issues: [KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS, DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE, DEPENDENCY-RECORD-VERSION-CAPTURED-BEFORE-DEPENDENCY-EVALUATES, PLAN-DEPENDENCY-RECORDS-HARDCODE-VERSION-ZERO, DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE]
 gh_pr: []
 affects_docs: [DEPENDENCIES_STATUS, ASSETS, ASSET_LIFECYCLE]
 created: 2026-09-05
@@ -467,6 +467,47 @@ mechanism), thirteen added — including the two direct regression tests for the
 defects, and `a_record_written_before_versions_existed_still_matches`, which pins the property that
 makes this deployable against an existing store. Phase 4 is fifteen steps in the same four groups,
 and its B-before-C ordering argument is now real rather than hypothetical.
+
+## Revision 2.2 — record vs. verify (2026-09-05)
+
+The owner asked whether anything like `trigger_dependency_audit(query)` /
+`trigger_dependency_audit_all_registered()` exists in this design. **It did not**, and the question
+exposed a conflation worth fixing.
+
+**Async was already handled** — `version` and `resolve_version` are `async`, and the three
+dependency-manager entry points always were. But the consequence deserved naming: Revision 2's C3
+put a *store read* inside `add_dependency`, a function also reached from schedule-time registration
+and cycle checking, so the dependency graph stopped being I/O-free. That inversion is where the
+policy question lands.
+
+**The conflation.** `add_dependency` was doing two jobs: *recording* an edge and its observed
+version (in-memory, constant, policy-free) and *verifying* that the version still holds (possibly a
+store read, meaningful only on load or on demand, entirely policy-dependent). Fused, verification
+happens on the hot path and there is nowhere to stand for a policy — which hard-codes the strict
+service and makes the exploratory workflow unreachable.
+
+**The decisive observation: the cascade this design exists to fix does not need the verification at
+all.** Propagation is driven by `register_version` and `expire_internal`; `add_dependency`'s check
+answers a different question that happens to share a function. And removing it costs nothing today —
+the probe established a concrete version never reaches `add_dependency` in production, so its
+expire branch has never fired. Leaving it in and letting C4 make records concrete would switch it
+on by side effect, which is exactly the decision the owner wants to be able to make deliberately.
+
+So `add_dependency` records, and verification becomes `DependencyManager::audit(key, resolver,
+depth)` behind the two named manager entry points. **Policy is then just who calls them and when**,
+with a default of "never" that reproduces today's behaviour exactly.
+
+**One property is already right and was not aimed at.** `version(key)` reads *metadata only* and
+never the value, so the owner's "keep the metadata, delete the data" workflow works with no policy
+at all — a dependent verifies clean against a key whose data is gone. That needs protecting in the
+reference, since an "optimization" that computed a version from the value would silently break it.
+
+The policy vocabulary itself is filed as `DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE` (P2, feature).
+This design builds the seam, not the policy.
+
+**Net effect on scope: smaller.** C3 shrinks to recording, the resolver moves off the hot path (and
+may no longer need the supertrait — Phase 4 decides), I8/I9 become tests of a *named* operation
+rather than of emergent behaviour, and C1/C4 are unchanged.
 
 ## Links
 

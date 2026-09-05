@@ -831,3 +831,118 @@ callable), the `contains`-before-`get_metadata` ordering and why it is load-bear
 every implementor compiling" is trivially true — `DefaultAssetManager` and `ImmediateAssetManager`
 are the only implementors in the workspace, and `liquers-py` names the former as its associated
 type rather than implementing the trait.
+
+
+---
+
+# Revision 2.2 (2026-09-05) — record vs. verify, and where an audit would live
+
+Prompted by the owner's question: *does anything like `trigger_dependency_audit(query)` /
+`trigger_dependency_audit_all_registered()` exist in this design?*
+
+**No. It does not, and the design as written cannot express the second use case at all.** That is
+worth fixing structurally now, because the fix is a simplification.
+
+## Async: already true, but it has a consequence worth naming
+
+`AssetManager::version` and `VersionResolver::resolve_version` are `async` in Revision 2, and
+`add_dependency`, `load_from_records` and `track_asset` were already `async`. So nothing changes
+mechanically.
+
+What *does* change is a property the codebase had: **the dependency graph performed no I/O.**
+Revision 2's C3 puts a store read inside `add_dependency` — a function also reached from
+schedule-time edge registration and cycle checking. That is an inversion, not a detail, and it is
+the same place the policy question lands.
+
+## The conflation
+
+Revision 2 makes `add_dependency` do two different jobs:
+
+| Job | Cost | Frequency | Policy-dependent? |
+|---|---|---|---|
+| **Record** that `dependent` depends on `dependency` at an observed version | in-memory | every edge, constantly | no |
+| **Verify** that the recorded version still holds | possibly a store read | only meaningful on load or on demand | **yes** |
+
+Fusing them means verification happens wherever an edge is registered, which is the hot path, and
+gives no place to stand for a policy. It hard-codes the strict service, use case (a), and makes use
+case (b) unreachable.
+
+## The two use cases, and what each needs
+
+**(a) Strict service.** Every guarantee available that a served value is valid. Verify on load, and
+possibly on every `get`.
+
+**(b) Long calculation with large intermediates.** The user deletes intermediate files by hand;
+the end result stays technically valid and is worth building on. Two sub-cases, and the design
+already serves the first one *by accident*:
+
+- **Metadata kept, data deleted.** `AssetManager::version(key)` reads *metadata only* — it never
+  touches the value. So the authority can still answer "`a.txt` was version `v1`", and every
+  dependent verifies clean, even though the data is gone. **This works today under Revision 2 with
+  no policy at all**, and it is a genuinely useful property that fell out of the design rather than
+  being aimed at. Worth stating in the reference so nobody "optimizes" `version()` into reading the
+  value.
+- **Metadata deleted too.** `version()` returns `None`, and Revision 2's C3 reads that as "not
+  durable" and expires the dependent. Under a policy where nothing audits, nobody ever asks, and
+  the result stays valid. **This is the case that needs the split.**
+
+## The correction: `add_dependency` records; verification becomes an entry point
+
+The decisive observation is that **the keyed→keyed cascade — the defect this design exists to fix —
+does not need `add_dependency` to verify anything.** Propagation is driven by `register_version`
+and `expire_internal`; `add_dependency`'s check is about detecting a *stale dependent on load*,
+which is a different question that happens to share a function.
+
+And removing it costs nothing today: the probe established that a concrete version never reaches
+`add_dependency` in production, so its expire branch has **never fired**. Taking it out is removing
+a branch that has never run; leaving it in and letting C4 make records concrete would switch it on
+by side effect, which is exactly the decision the owner is asking to be able to make deliberately.
+
+So:
+
+```rust
+// dependencies.rs — records, never verifies, no I/O, no resolver.
+pub async fn add_dependency(&self, dependent: &DependencyKey, dependency: &DependencyKey,
+                            version: Version) -> Result<ExpiredDependents<E>, Error>;
+
+/// Verify one key's recorded dependency versions against the authority, and expire it if any
+/// no longer hold. `depth` bounds transitive descent; `Depth::Shallow` checks only this key's
+/// own records.
+pub(crate) async fn audit(&self, key: &DependencyKey, resolver: &dyn VersionResolver,
+                          depth: AuditDepth) -> ExpiredDependents<E>;
+```
+
+with the manager-level entry points the owner named:
+
+```rust
+async fn trigger_dependency_audit(&self, query: &Query) -> Result<AuditReport, Error>;
+async fn trigger_dependency_audit_all_registered(&self) -> Result<AuditReport, Error>;
+```
+
+**Policy is then simply: who calls these, and when.** On startup; on every `get`; on an explicit
+user action; never. This design does **not** build that vocabulary — it builds the seam. The
+default is `never`, which is precisely today's behaviour, so this design ships the cascade fix and
+no change in when staleness is detected.
+
+## What this does to the rest of the design
+
+| Item | Effect |
+|---|---|
+| C3 | **Reduced to recording.** The resolver is not consulted on the hot path. |
+| C2 / D1 / D2 | **Still needed, and now better placed:** the resolver is passed to `audit`, which is called from the manager, so the `&dyn` borrow is natural and the supertrait may not even be required. Phase 4 determines which. |
+| C4 | **Unchanged and still essential** — an audit is worthless if the records it audits carry zeros. |
+| C1 | Unchanged. |
+| I8 / I9 | Become **audit** tests: I8 asserts a dependent reloaded before its dependency is served (nothing audits), I9 asserts that an explicit `trigger_dependency_audit` expires it. Sharper than before: they now test a named operation rather than an emergent behaviour. |
+| The `add_dependency` resolver tests | Move to `audit`. |
+| `DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE` | Still absorbed — the authority exists and the audit uses it. |
+| Scope | **Net smaller.** One function gains a job it can do without I/O; one new function has the job that needs it. |
+
+## The question this leaves for the owner
+
+The seam costs little and is worth having. **Should this design ship the two `trigger_*` entry
+points, or only the internal `audit` plus the `add_dependency` simplification?** Shipping the entry
+points means a public API addition with no caller yet, which normally argues against — but here it
+is what makes the policy question answerable later without reopening the dependency manager.
+Recommendation: **ship `audit` and the entry points, default policy "never", and file the policy
+vocabulary as a separate feature** — the entry points are the thing that is expensive to add later,
+and they are three lines each over a mechanism this design already builds.
