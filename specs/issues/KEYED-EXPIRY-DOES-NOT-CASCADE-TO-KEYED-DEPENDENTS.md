@@ -2,11 +2,11 @@
 id: KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS
 kind: issue
 title: Expiring a computed keyed asset never invalidates the keyed assets that depend on it
-status: draft
+status: in_progress
 priority: P1
 complexity: L
 area: [core/assets]
-design:
+design: keyed-expiry-cascade-fix
 created: 2026-09-04
 github:
 ---
@@ -142,3 +142,13 @@ routing a stale-dependency asset through `cascade_expire_dependents` on the beli
 invalidate the key's dependents; tracing `expire_internal` to check showed that for a computed
 asset it invalidates no keyed dependent at all. The design dropped the cascade as a result; this
 issue records the underlying gap, which is independent of it.
+
+## Status
+
+`in_progress` since 2026-09-05: designed in
+[`specs/design/keyed-expiry-cascade-fix/`](../design/keyed-expiry-cascade-fix/), under the owner's
+option-2 decision recorded above. The design's Phase 1 records two consequences this file does not:
+`DependencyManager::add_dependency` treats an *unregistered* dependency key as a version mismatch
+and expires the dependent, which real versions would make reachable on every cold start; and the
+point at which the version is assigned is observable by a concurrent parent, because
+`record_dependency_on_asset` reads it from the child's live metadata.

@@ -1,0 +1,108 @@
+---
+id: KEYED-EXPIRY-CASCADE-FIX
+kind: design
+title: Versions for computed keyed assets, so keyed expiry cascades
+workflow: liquers-project
+status: in_review
+phase: high-level
+area: [core/assets]
+issues: [KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS]
+gh_pr: []
+affects_docs: [DEPENDENCIES_STATUS, ASSETS, ASSET_LIFECYCLE]
+created: 2026-09-05
+superseded_by:
+---
+# keyed-expiry-cascade-fix Design Tracking
+
+**Created:** 2026-09-05
+
+## Phase Status
+
+- [x] Phase 1: High-Level Design (in review)
+- [ ] Phase 2: Solution & Architecture
+- [ ] Phase 3: Examples & Testing
+- [ ] Phase 4: Implementation Plan
+- [ ] Phase 5: Documentation
+- [ ] Implementation Complete
+
+## Notes
+
+Designs the fix for `KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS` (P1, L), under the project
+owner's decision of 2026-09-05 recorded on that issue: **option 2 — computed assets get real
+versions**, hashed from the bytes they serialize to, with a fallback for those that do not
+serialize. It unblocks `stale-dependency-status-finalization`, which is parked on this gap.
+
+### Verified live at HEAD before drafting Phase 1
+
+- `MetadataRecord.version` is written in exactly four places, all hand-in paths:
+  `DefaultAssetManager::set_binary` (`assets.rs:5136`), `set_state` (`:5244`), and the immediate
+  manager's pair (`:6316`, `:6363`). `evaluate` (`:2507`), `try_to_set_ready` (`:1803`),
+  `serialize_to_binary` (`:2697`) and `save_to_store` (`:2583`) never set it. The issue's line
+  numbers (5203/5313/6379/6429) predate a later edit; the four sites are the same four.
+- `track_asset` therefore registers `mr.version.unwrap_or(Version::new(0))` — unknown — for every
+  computed keyed asset (`dependencies.rs:302`), and `expire_internal`'s `skip_cascade`
+  (`:591-599`) is taken on the first iteration for all of them.
+- The condition guarding that check, `include_root || current != *key` (`:592`), is **vacuously
+  true on both call paths**: with `include_root` the root is the first queue entry and the
+  left disjunct holds; without it the root is never enqueued and the right one does. Its comment
+  claims an exemption "(except for the root key)" that the code does not implement.
+- Baseline is green before any change: `liquers-core` 793 lib tests, `expiration_integration` 34,
+  `dependency_manager_integration` 5, `dependency_scheduling` 4 — 0 failures
+  (2026-09-05, `CARGO_INCREMENTAL=0`).
+
+### Two consequences found while drafting, beyond the issue's list
+
+Both are Phase 2 material and both are named as Phase 1 open questions rather than assumed away:
+
+1. **Real versions make `add_dependency`'s consistency check reachable, and its answer for an
+   unregistered dependency is "mismatch".** `version_consistent` returns `false` when the manager
+   holds no version for the key (`dependencies.rs:215`), and `add_dependency` turns that into
+   `expire(dependent)` (`:242`). Today a computed dependency's recorded version is unknown, so the
+   check is skipped. With real versions, `load_from_records` on a cold start — from
+   `try_fast_track` or `track_asset` — would expire a persisted dependent loaded before its
+   dependency, which is the ordinary order. That would trade stale reads for a cold cross-process
+   cache rather than fix anything. `load_from_records`'s own doc comment ("Ignores
+   `DependencyVersionMismatch` errors") already misdescribes this: `add_dependency` returns
+   `Ok(expired)`, not an error, so nothing is ignored.
+2. **The assignment point is observable.** `record_dependency_on_asset` reads the version out of
+   the child's *live metadata* (`assets.rs:1564`), and `try_to_set_ready` publishes `ValueProduced`
+   before persistence and before `track_asset`. So a version set during persistence is invisible to
+   a parent that has already read the child, and a version set at finalization is visible before
+   the dependency manager knows it. Whichever is chosen has to be chosen deliberately.
+
+### Not a duplicate
+
+The completed `dependency-management` design already *intended* this: its Phase 4 Step 3 documents
+`version` as "the content-hash version of the asset computed at save time
+(`Version::from_bytes(content)`)", and the field carries that sentence as its doc comment in
+`metadata.rs:938` today. The field and both constructors landed; the evaluate-path call never did.
+This folder is the omission, not a second design of the same thing. No open design covers it —
+`refresh-command-metadata-versions` (complete) is about `ns-dep/command_*` versions, which are
+already real.
+
+## Phase 1 critical review (2026-09-05)
+
+Against the Phase 1 checklist:
+
+- **Scope clarity** — purpose states one defect and one cause. Interactions are enumerated by
+  mechanism (four of them) rather than by file, so the blast radius is legible.
+- **No duplication** — checked against `dependency-management`, `refresh-command-metadata-versions`
+  and `stale-dependency-status-finalization`; recorded above.
+- **Philosophy/layering** — `liquers-core` only, no API change, async paths unchanged.
+- **Documentation needs** — all four questions answered with rationale: extend
+  `DEPENDENCIES_STATUS.md` (it owns the statements this change falsifies), no guide, no other new
+  documents, five specific updates listed.
+- **Open questions** — six, none blocking. Questions 2 and 3 are the two that change what is built;
+  1, 4 and 5 are decisions with a leading answer; 6 is deferred to Phase 5 by design.
+
+One checklist item is deliberately not met: the document exceeds 30 lines. The scope is a
+three-line guard whose *consequences* span four mechanisms, and compressing the consequence list is
+what let the previous design mis-scope this work.
+
+## Links
+
+- [Phase 1](./phase1-high-level-design.md)
+- [Phase 2](./phase2-architecture.md)
+- [Phase 3](./phase3-examples.md)
+- [Phase 4](./phase4-implementation.md)
+- [Phase 5](./phase5-documentation.md)
