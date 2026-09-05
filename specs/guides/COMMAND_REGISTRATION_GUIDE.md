@@ -3,7 +3,7 @@ title: Command Registration Guide
 kind: guide
 audience: internal
 area: [core/commands, macro]
-reviewed: 2026-08-31
+reviewed: 2026-09-05
 ---
 # Command Registration Guide
 
@@ -179,6 +179,11 @@ parentheses — and the two are mutually exclusive:
 ```
 <name>: <Type> [injected | multiple] [= <default_value>] [(label: "...", gui: ..., ...)]
 ```
+
+For hand-built or imported `CommandMetadata`, the same rule is checked by
+`EnvironmentBuilder::build()`. Call `builder.validate()` before the consuming `build()` when a
+GUI or custom logger needs the complete `IssueReport`; otherwise `build()` emits the full report
+and returns a compact error when validation finds an error.
 
 **The type must be a container.** `Vec<T>` is what is recognised, and the element type `T` is what
 the argument's `ArgumentType` is derived from. That derivation is not cosmetic: each action
@@ -784,6 +789,7 @@ fn apply(...) -> Result<...> { ... }
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-05 | Documented builder-time validation for hand-built and imported metadata, including preflight access to the full report. | `design/variadic-metadata-tail-check` |
 | 2026-08-31 | Documented that metadata customizations should happen before `env.to_ref()`, which refreshes command metadata versions before sharing. | `design/refresh-command-metadata-versions/phase-5` |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
 | 2026-08-12 | Added "Accepting a variable number of parameters": declared arity is binding, `multiple` is the only variadic mechanism and is not yet declarable, and the `~_` escape is the interim spelling. | design/excess-action-parameters-error |

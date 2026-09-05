@@ -29,6 +29,7 @@ use crate::assets::AssetManager;
 use crate::commands::{CommandRegistry, PayloadType};
 use crate::context::{EnvRef, Environment, GenericEnvironment};
 use crate::error::Error;
+use crate::issue_report::IssueReport;
 use crate::recipes::{AsyncRecipeProvider, RecipeProviderChoice};
 use crate::store::AsyncStore;
 use crate::store_config::StoreRouterConfig;
@@ -180,8 +181,11 @@ pub type DefaultKind = Inline;
 /// register_command!(&mut builder.command_registry, fn greet(state) -> result)?;
 /// let envref = builder.build()?;
 /// ```
-pub struct EnvironmentBuilder<V: ValueInterface, P: PayloadType = (), K: AssetManagerKind = DefaultKind>
-{
+pub struct EnvironmentBuilder<
+    V: ValueInterface,
+    P: PayloadType = (),
+    K: AssetManagerKind = DefaultKind,
+> {
     type_registry: TypeRegistry,
     async_store: Option<Arc<dyn AsyncStore>>,
     store_config: Option<(StoreRouterConfig, Box<dyn StoreFactory>, bool)>,
@@ -192,6 +196,7 @@ pub struct EnvironmentBuilder<V: ValueInterface, P: PayloadType = (), K: AssetMa
     pub command_registry: CommandRegistry<GenericEnvironment<V, P, K>>,
     recipe_provider: Option<Arc<dyn AsyncRecipeProvider<GenericEnvironment<V, P, K>>>>,
     manager_options: AssetManagerOptions,
+    validation_report: IssueReport,
     _payload: PhantomData<P>,
     _kind: PhantomData<K>,
 }
@@ -219,6 +224,7 @@ impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<
             command_registry: CommandRegistry::new(),
             recipe_provider: None,
             manager_options: AssetManagerOptions::default(),
+            validation_report: IssueReport::default(),
             _payload: PhantomData,
             _kind: PhantomData,
         }
@@ -291,31 +297,48 @@ impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<
         self
     }
 
+    /// Rebuilds and returns diagnostics for the configuration currently held by this builder.
+    pub fn validate(&mut self) -> &IssueReport {
+        self.validation_report = self.command_registry.command_metadata_registry.check();
+        &self.validation_report
+    }
+
+    /// The report produced by the latest [`Self::validate`] call, initially empty.
+    pub fn validation_report(&self) -> &IssueReport {
+        &self.validation_report
+    }
+
     /// Constructs the environment, installs and starts its asset manager, and shares it.
     ///
     /// The returned reference is ready to evaluate: command metadata versions have been refreshed
     /// and registered into the dependency manager before it is handed back. Delegates to
     /// [`Environment::try_to_ref`] rather than reimplementing that sequence.
-    pub fn build(self) -> Result<EnvRef<GenericEnvironment<V, P, K>>, Error> {
-        let async_store: Arc<dyn AsyncStore> = match (self.async_store, self.store_config) {
-            (Some(store), None) => store,
-            (None, Some((config, factory, expand))) => {
-                let builder = StoreRouterBuilder::new(config, factory);
-                let router = if expand {
-                    builder.build()?
-                } else {
-                    builder.build_without_env_expansion()?
-                };
-                Arc::new(router)
-            }
-            (Some(_), Some(_)) => {
-                return Err(Error::general_error(
+    pub fn build(mut self) -> Result<EnvRef<GenericEnvironment<V, P, K>>, Error> {
+        let validation_report = self.validate().clone();
+        if !validation_report.is_empty() {
+            validation_report.emit();
+        }
+        if let Some(error) = validation_report.to_error("Command metadata registry") {
+            return Err(error);
+        }
+        let async_store: Arc<dyn AsyncStore> =
+            match (self.async_store, self.store_config) {
+                (Some(store), None) => store,
+                (None, Some((config, factory, expand))) => {
+                    let builder = StoreRouterBuilder::new(config, factory);
+                    let router = if expand {
+                        builder.build()?
+                    } else {
+                        builder.build_without_env_expansion()?
+                    };
+                    Arc::new(router)
+                }
+                (Some(_), Some(_)) => return Err(Error::general_error(
                     "both a store and a store configuration were supplied; use one or the other"
                         .to_string(),
-                ))
-            }
-            (None, None) => Arc::new(crate::store::NoAsyncStore),
-        };
+                )),
+                (None, None) => Arc::new(crate::store::NoAsyncStore),
+            };
 
         let recipe_provider = self
             .recipe_provider
@@ -338,6 +361,26 @@ mod tests {
     use crate::command_metadata::{CommandKey, CommandMetadata};
     use crate::metadata::DependencyKey;
     use crate::value::Value;
+
+    #[test]
+    fn validation_report_is_available_before_build() {
+        let mut builder = EnvironmentBuilder::<Value, (), Inline>::new();
+        let mut metadata = CommandMetadata::new("invalid");
+        let mut multiple = crate::command_metadata::ArgumentInfo::argument("values");
+        multiple.multiple = true;
+        metadata.arguments.push(multiple);
+        metadata
+            .arguments
+            .push(crate::command_metadata::ArgumentInfo::argument("tail"));
+        builder
+            .command_registry
+            .command_metadata_registry
+            .add_command(&metadata);
+
+        assert!(builder.validate().has_errors());
+        assert_eq!(builder.validation_report().error_count(), 1);
+        assert!(builder.build().is_err());
+    }
 
     /// Registers one command so startup has a version to register.
     fn probe(builder: &mut EnvironmentBuilder<Value>) -> CommandKey {
@@ -421,8 +464,14 @@ mod tests {
         let envref = builder.build().expect("build");
         let manager = envref.get_asset_manager();
 
-        assert!(manager.refresh_command_versions().expect("refresh").is_empty());
-        assert!(manager.refresh_command_versions().expect("refresh").is_empty());
+        assert!(manager
+            .refresh_command_versions()
+            .expect("refresh")
+            .is_empty());
+        assert!(manager
+            .refresh_command_versions()
+            .expect("refresh")
+            .is_empty());
     }
 
     /// T7: a changed metadata version *is* reported by a refresh, which is what makes the barrier
@@ -439,7 +488,10 @@ mod tests {
 
         // Nothing changed yet.
         let manager = envref.get_asset_manager();
-        assert!(manager.refresh_command_versions().expect("refresh").is_empty());
+        assert!(manager
+            .refresh_command_versions()
+            .expect("refresh")
+            .is_empty());
 
         // Register a *different* version for the same key, simulating a metadata edit that a
         // future dynamic-registration path would make.
@@ -594,9 +646,8 @@ mod tests {
             "an unconfigured builder holds no provider; build() resolves Trivial"
         );
 
-        let configured =
-            EnvironmentBuilder::<Value, (), Inline>::new()
-                .with_recipe_provider_choice(RecipeProviderChoice::Default);
+        let configured = EnvironmentBuilder::<Value, (), Inline>::new()
+            .with_recipe_provider_choice(RecipeProviderChoice::Default);
         assert!(configured.recipe_provider.is_some());
     }
 

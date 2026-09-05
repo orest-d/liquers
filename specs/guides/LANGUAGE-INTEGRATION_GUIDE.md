@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets]
-reviewed: 2026-09-02
+reviewed: 2026-09-05
 ---
 # Liquers Language Integration Guide
 
@@ -542,6 +542,8 @@ def test_VALUE05_unknown_object_uses_opaque_value():
 
 - A language-visible environment/`EnvRef` *wrapper*
 - An environment builder or configuration object
+- A language-visible validation-report value, or an equivalent collection of diagnostics with
+  severity, message, and command identity where present
 - `CommandMetadataRegistry` access
 - Handles for the selected `CommandExecutor`, `AsyncStore`, `AsyncRecipeProvider`, and `AssetManager`
 - `User`, `Session`, and payload configuration where supported
@@ -551,6 +553,16 @@ def test_VALUE05_unknown_object_uses_opaque_value():
 
 **Issues and patterns.** Avoid hidden creation of multiple incompatible environments. Builders are preferable before publication; after publication, either reject mutation or define atomic replacement. A global Python environment may be ergonomic, while embedders and tests still need explicit instances. Browser startup should return a `Promise`; do not expose a blocking initializer.
 
+**Validation reports are part of the integration boundary.** Before publishing an environment,
+an integration using `EnvironmentBuilder` must make the builder's `validate()` result available to
+the host language. It may wrap `IssueReport` directly or map each `Issue` into a language-native
+diagnostic, but it must preserve severity and message and preserve command identity for
+command-registry issues. The normal language-visible build/initialization operation may raise the
+compact error summary; a GUI, editor, or custom logger needs the complete report before that
+consuming operation. On wasm, the default full-report emission goes to the browser console, but
+it does not replace this programmatic access. See
+[Building and Configuring an Environment](./ENVIRONMENT_CONSTRUCTION_GUIDE.md#validating-imported-command-metadata).
+
 **Registration after publication is the shape of the problem, and it is not a core limitation.** Rust code builds the registry, then the environment, then calls `to_ref` — but `Environment::to_ref` *consumes* the environment into an `Arc`, registration needs `&mut CommandRegistry`, and `get_command_executor` hands back a reference, so the executor cannot live behind a lock either. Once the environment is shared there is no mutable path to it. An *integration* whose host registers commands *at runtime* therefore cannot simply hold an `EnvRef` from the start, and it is easy to misdiagnose this as a missing core capability. It is not: the resolution is to do what Rust does, twice.
 
 - Keep the environment **un-shared and mutable** until something actually needs to share it, and create the `EnvRef` lazily on first evaluation. Registering everything before the first evaluation then costs nothing, which is the path to document.
@@ -559,7 +571,7 @@ def test_VALUE05_unknown_object_uses_opaque_value():
 
 **An environment with an empty registry passes almost every `ENVIRON` test.** `ENVIRON01`'s contract is that a default environment *evaluates a built-in command*, and the other five are about lifecycle, so a design can satisfy five of six while registering no Rust commands at all. Register the host's built-in command set as part of environment construction, and make `ENVIRON01` evaluate one of those commands. This is also what makes composition testable — a *language command* feeding a Rust command in a single query — which is the practical argument for structural conversion over opaque pass-through.
 
-**Meaningful tests:** `ENVIRON01` default environment evaluates a built-in command; `ENVIRON02` custom services are the services returned by the environment; `ENVIRON03` repeated initialization follows policy; `ENVIRON04` failed initialization is recoverable; `ENVIRON05` isolated test environments do not leak registration, asserted **through the language-visible API**; `ENVIRON06` shutdown is idempotent; `ENVIRON07` every documented environment operation is callable, in every state the documented lifecycle can be in.
+**Meaningful tests:** `ENVIRON01` default environment evaluates a built-in command; `ENVIRON02` custom services are the services returned by the environment; `ENVIRON03` repeated initialization follows policy; `ENVIRON04` failed initialization is recoverable; `ENVIRON05` isolated test environments do not leak registration, asserted **through the language-visible API**; `ENVIRON06` shutdown is idempotent; `ENVIRON07` every documented environment operation is callable, in every state the documented lifecycle can be in; `ENVIRON08` invalid imported metadata exposes a complete language-visible validation report before initialization returns its compact error.
 
 ### EVAL — Query evaluation API
 
@@ -2588,6 +2600,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-05 | ENVIRON now requires language-visible builder validation reports before environment publication, including severity, message, command identity, and a preflight test. | `design/variadic-metadata-tail-check` |
 | 2026-09-02 | §3's requirement levels and implementation states moved to `reference/CONFORMANCE_TERMS.md`, so the store implementation guide shares one definition rather than copying it. The `NA` discipline and its language-specific examples stay here. §STORE's direction-2 questions now cross-link `guides/STORE_IMPLEMENTATION_GUIDE.md` instead of answering them twice. | `design/store-conformance-suite/` Phase 4 step 14 |
 | 2026-09-01 | Repaired current design, reference, and archive links so the tracked-document link check can validate this guide. | `DOCS-DEAD-LINKS-OUTSIDE-README` |
 | 2026-08-31 | §VALUE shows `EnvironmentBuilder::with_type_registry` alongside `new_with_type_registry`, and records that an integration defining its own `Environment` carries the readiness obligation in `init_with_envref`. Links to the new construction guide. | `design/environment-builder/phase-5` |

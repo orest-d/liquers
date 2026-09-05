@@ -1,32 +1,33 @@
 ---
 id: VARIADIC-METADATA-TAIL-CHECK
 kind: design
-title: Hand-built variadic metadata tail validation
-status: in_review
-phase: architecture
-readiness: phase2-blocked
-area: [core/commands, core/plan, macro]
+title: Runtime validation of variadic command metadata
+workflow: liquers-project
+status: complete
+area: [core/commands, core/context, core/validate]
 issues: [VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS]
+affects_docs: [specs/reference/COMMAND_DECLARATION.md, specs/guides/COMMAND_REGISTRATION_GUIDE.md, specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md]
 gh_pr: []
 created: 2026-08-29
 superseded_by:
 ---
 # variadic-metadata-tail-check Design Tracking
 
-Simplified autonomous follow-up design for the remaining open part of
-`VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS`. The completed
-`variadic-arguments-declaration` design handled macro-registered commands; this design covers
-hand-built `CommandMetadata`.
+The completed `variadic-arguments-declaration` design guards macro-registered commands. This
+design covers the remaining hand-built and deserialized `CommandMetadata` path.
 
 ## Phase Status
 
 - [x] Phase 1: High-Level Design
 - [x] Phase 2: Solution & Architecture
-- [ ] Phase 3: Examples and Tests - intentionally not produced
-- [ ] Phase 4: Implementation - intentionally not produced
-- [ ] Phase 5: Documentation
+- [x] Phase 3: Examples and Tests
+- [x] Phase 4: Implementation
+- [x] Phase 5: Documentation
 
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)
 - [Phase 2](./phase2-architecture.md)
+- [Phase 3](./phase3-examples.md)
+- [Phase 4](./phase4-implementation.md)
+- [Phase 5](./phase5-documentation.md)
