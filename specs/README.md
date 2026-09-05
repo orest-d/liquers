@@ -208,7 +208,9 @@ question are both measure-first items.
 ## Open issues attached to live design work
 
 <!-- BEGIN generated: issues -->
-*None.*
+| Issue | Pri | Cx | Design |
+|---|---|---|---|
+| [`ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY`](issues/ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY.md) | P1 | M | `stale-dependency-status-finalization` |
 <!-- END generated: issues -->
 
 ## Not yet placed
@@ -269,6 +271,7 @@ deliberately folded behind a broader line.
 - design `recipe-plan-declarations`
 - design `refresh-command-metadata-versions`
 - design `sidecar-colliding-keys`
+- design `stale-dependency-status-finalization`
 - design `state-argument-serde-default`
 - design `store-conformance-suite`
 - design `store-directory-metadata-children`
