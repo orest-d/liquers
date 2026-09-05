@@ -93,6 +93,25 @@ Both are Phase 2 material and both are named as Phase 1 open questions rather th
    `add_dependency` expire a fresh parent. It also settles the redundant-serialization concern: a
    delegating asset does not serialize at all.
 
+   **Nonzero-version guarantee, proposed by the owner and accepted with a limit:** a fallback at
+   the start of tracking replaces `Version(0)` with a time-based version, so `track_asset` — the
+   single funnel for a keyed asset's version — is a net under every way the primary path can fail.
+   The limit answers the owner's own "when would that be a problem": `track_asset` runs *after*
+   persistence, so a version invented there never reaches the store; the parent persists it in its
+   `DependencyRecord`, and after a restart the child registers a different one or none, which
+   expires the parent. It is therefore an **in-process guarantee, not a durable one**, and the
+   fallback is layered: the time-based version is assigned at *finalization* (before persistence,
+   so the store carries it) and the tracking-time net catches only the residue, recording in the
+   metadata log that it fired so a silently-broken primary path cannot hide behind it.
+
+   **`Version(0)` stays supported and gains a single meaning.** It currently conflates an accident
+   ("nobody computed one") with a policy ("does not participate in version-based invalidation").
+   Once every path assigns a version, a zero can only have arrived deliberately, so zero becomes
+   the policy sentinel by construction — no new type, field or migration, and `matches`,
+   `version_consistent`, `add_dependency` and `expire_internal`'s `skip_cascade` branch all keep
+   working unchanged as its implementation. That is the reason to keep `skip_cascade` rather than
+   delete it, and it simplifies open question 4 to "correct the comment".
+
 ### Not a duplicate
 
 The completed `dependency-management` design already *intended* this: its Phase 4 Step 3 documents

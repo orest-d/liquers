@@ -243,6 +243,74 @@ stable. It is rejected here as a different versioning model — it would make a 
 a value was produced rather than what it is, losing the "recomputed to identical bytes does not
 invalidate dependents" property that is the reason for hashing.
 
+### A nonzero-version guarantee, with `Version(0)` kept for policy (2026-09-05)
+
+> "There could be a fallback mechanism on the start of tracking, that would replace the version 0
+> with a time-based version. It would effectively guarantee that version would be nonzero. I can't
+> think when would that be a problem — but it could, or we could e.g. come up with a policy allowing
+> certain assets to have a zero version, so the dependency manager should still support it."
+
+Accepted in principle, with one limit that has to be stated because it decides where the fallback
+goes.
+
+**What it buys.** `track_asset` is the single funnel through which a keyed asset's version reaches
+the manager (`dependencies.rs:302`, `mr.version.unwrap_or(Version::new(0))`), so a fallback there
+is a net under *every* way a version can fail to arrive — a serialization that failed, a
+`Metadata::LegacyMetadata` record which yields `Version(0)` unconditionally, a sidecar written
+before this change, a path nobody anticipated. The cascade then works for all of them, rather than
+for the assets whose primary mechanism happened to fire.
+
+**The limit, and the answer to "when would that be a problem": a version invented at tracking time
+is not durable.** `track_asset` is step 8 of `evaluate` — *after* persistence at step 7. A version
+invented there is never written to the store, so:
+
+1. the sidecar keeps `version: null`, while the manager holds `v_t`;
+2. a parent that evaluates in the same process records `v_t` — `record_dependency_on_asset` falls
+   back to `dm.get_version()` when metadata has none — and persists it in its own
+   `DependencyRecord`;
+3. after a restart the child registers nothing (`try_fast_track` only registers a version its
+   metadata carries) or invents a *fresh* `v_t2`;
+4. the parent's stored record says `v_t`, so `add_dependency` sees an unregistered key or a
+   different one, and expires the parent.
+
+So a restart would invalidate every dependent of every fallback-versioned asset. That does not make
+the idea wrong — it makes it an **in-process guarantee rather than a durable one**, and the design
+has to say which it is claiming.
+
+**Consequence: the fallback is layered, not sited in one place.**
+
+- *Primary, at finalization:* the hash, and — for a keyed asset whose value does not serialize —
+  a time-based version, assigned into `MetadataRecord.version` **before** persistence so the store
+  carries it and the next process agrees. This is where the durability comes from, and it obeys the
+  stability rule already decided: a timestamp taken at finalization is final for that evaluation.
+- *Net, at tracking:* anything that still arrives with no version gets one, written back into the
+  asset's metadata so the asset and the manager cannot disagree. Whether it also triggers a
+  re-persist, or the design accepts that these assets lose their dependents on restart, is Phase 2's
+  to settle — the set should be nearly empty once the primary path exists, which is what makes
+  accepting the loss defensible.
+
+**A fallback that fires silently is a bug detector switched off.** If the primary path stops running
+for some class of assets, the net makes everything keep working while quietly turning
+content-stable assets into permanent cascade sources — a correctness-shaped mechanism degrading
+into a cost-shaped one that no test will notice. The net therefore records that it fired, in the
+asset's metadata log. This is the same requirement as `EXPIRY-RECORDS-NO-REASON` from the other
+direction, and Phase 3 should assert it rather than only asserting the version is nonzero.
+
+**`Version(0)` stays supported, and this change makes it mean one thing instead of two.** Today
+`Version::unknown()` conflates an accident ("nobody computed one") with a policy ("this asset does
+not participate in version-based invalidation"). Once every path assigns a version, a zero in the
+manager can only have arrived deliberately — so zero *becomes* the policy sentinel by construction,
+with no new type, no new field and no migration. Everything that already implements the semantics
+stays exactly as it is: `Version::matches` treating zero as compatible with anything,
+`version_consistent` short-circuiting on a zero expectation, `add_dependency` recording the edge
+while skipping the check, and `expire_internal`'s `skip_cascade` branch — which stops being dead in
+the "always taken" direction and becomes the mechanism that implements the policy. That is a
+reason to keep that branch rather than delete it, and it simplifies open question 4: the code
+stays and the comment is corrected.
+
+Phase 2 owes the vocabulary for it — whether a zero version is declared on the recipe, the type, or
+the asset — but not the mechanism, which already exists.
+
 ## Open Questions
 
 1. *(decided — see "Owner decisions" above)*
@@ -251,10 +319,13 @@ invalidate dependents" property that is the reason for hashing.
    that answer. Options: treat absence as unverifiable and record the edge; or register the
    recorded version provisionally so a later real registration cascades if it differs. This is the
    question that decides whether cross-process caching survives.
-3. **Timestamp fallback, or `Version::unknown()`, for a keyed asset that does not serialize?** The
-   owner's rule says a fallback, and `set_state` already uses one — but a timestamp makes such an
-   asset invalidate all its dependents on every evaluation. If a fallback, which clock: `chrono`
-   (wasm-safe, used everywhere else) or `SystemTime` (what `Version::from_time_now` uses today)?
+3. **Which clock, and does the tracking-time net re-persist?** The fallback itself is decided —
+   a time-based version, layered as above. What remains: `chrono::Utc::now()` (wasm-safe, what the
+   rest of the codebase uses for wall time) or `std::time::SystemTime`, which is what
+   `Version::from_time_now` and `Version::new_unique` use today and which is not a supported clock
+   on `wasm32-unknown-unknown`; and whether the tracking-time net writes the asset back to the
+   store so its version survives a restart, or accepts that those assets lose their dependents on
+   reload.
 4. **Does the `expire_internal` root guard change?** `include_root || current != *key` is
    vacuously true on both call paths, and its comment claims an exemption the code does not
    implement. Decide between implementing the comment (an explicit expiry's root always cascades)
