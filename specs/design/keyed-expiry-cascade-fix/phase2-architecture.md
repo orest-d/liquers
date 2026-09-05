@@ -475,3 +475,207 @@ registered at `Version(0)` does not propagate invalidation, root or not. The cla
 "(except for the root key)" exemption is deleted rather than implemented, because under the
 zero-as-policy reading an asset that has opted out of version-based invalidation should stay out
 even when it is the root of an explicit expiry.
+
+
+---
+
+# Revision 2 (2026-09-05) — the version authority
+
+**Status of this section: it supersedes parts of everything above.** The Phase 4 review established
+that persisted `DependencyRecord.version` is always zero (`DESIGN.md`, B1), which made the
+cross-process half of Revision 1 rest on a false premise. The owner chose **Option B — fix the
+record here** — on the grounds that there is more context to reason about correctness with while
+these mechanisms are in hand, and proposed the architecture below.
+
+> "We probably need some authoritative way to obtain a version — perhaps a `version(key)` method on
+> the asset manager? If the asset is known, it is just returned from the asset. If it is in store
+> only, then metadata are loaded and the version is extracted. This may eventually be passed as a
+> closure to dependency manager, e.g. to verify dependencies on a specific asset. Limited time use
+> would be desirable to prevent dependency manager to create yet another cyclic arc leak."
+
+## What this replaces, and what it simplifies away
+
+| Revision 1 | Revision 2 |
+|---|---|
+| Provisional registration in `add_dependency` | **Deleted.** With an authority that can answer "what version does this key have", absence is no longer something to guess about. This removes U1's rewrite premise, U3, U4, U9, P12 and I8/I9's approximation framing. |
+| The command-key exception | **Deleted as a special case.** It existed because absence meant different things for the two key kinds. The authority answers for asset keys and the manager already holds command versions, so one rule covers both. |
+| `DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE` as follow-up | **Absorbed.** The store lookup *is* the authority's second branch. That issue closes with this design. |
+| `assign_version` after `try_to_set_ready` | **Merged into it.** See C5. |
+
+Revision 2 is a larger change than Revision 1 but a *smaller* set of concepts: one authority
+replaces one approximation plus one exception plus one deferred issue.
+
+## C1 — `AssetManager::version(key)`, the single authority
+
+```rust
+/// The authoritative version of a keyed asset, without evaluating it.
+///
+/// Three sources, in order:
+/// 1. a live asset registered for `key` — its `MetadataRecord.version`;
+/// 2. otherwise, the store's metadata for `key`, if it holds any;
+/// 3. otherwise `None` — the key has no durable version, which is not the same as
+///    `Version::unknown()` and must not be conflated with it.
+///
+/// **This never evaluates and never submits.** It is a map read and at most one metadata read,
+/// for the same reason `owned_key_asset` is (`specs/design/keyed-recipe-ownership/`): asking a
+/// question about an asset must not be able to run it, or an inline manager recurses until the
+/// stack is gone.
+async fn version(&self, key: &Key) -> Result<Option<Version>, Error>;
+```
+
+Added to the `AssetManager` trait with a **default implementation** so `liquers-py`,
+`liquers-web` and any out-of-tree implementor keep compiling — the project rule is to extend traits
+with defaulted methods rather than change them.
+
+`Ok(None)` and `Err` are different answers and stay different: a store that fails to read is not a
+key without a version, and collapsing them would silently expire dependents on a transient store
+error.
+
+## C2 — `VersionResolver`, borrowed and never stored
+
+```rust
+/// Resolves a dependency key's authoritative version for the dependency manager.
+///
+/// **Passed as `&dyn VersionResolver` for the duration of one call and never retained.** The
+/// dependency manager is a field of the asset manager, so storing an `Arc` to the manager here
+/// would close a third reference cycle on top of the two `ENVIRONMENT-MANAGER-REFERENCE-CYCLE`
+/// already records. A borrow cannot leak; that is the whole reason for the shape.
+#[async_trait]
+pub(crate) trait VersionResolver: Send + Sync {
+    async fn resolve_version(&self, key: &DependencyKey) -> Option<Version>;
+}
+```
+
+`DefaultAssetManager` and `ImmediateAssetManager` implement it by delegating to C1 for asset keys
+and returning `None` for command keys, which the manager's own `versions` map already holds
+authoritatively from startup.
+
+Call sites take it as a parameter:
+
+```rust
+pub async fn add_dependency(&self, dependent: &DependencyKey, dependency: &DependencyKey,
+                            version: Version, resolver: &dyn VersionResolver)
+    -> Result<ExpiredDependents<E>, Error>;
+pub async fn load_from_records(&self, dependent: &DependencyKey, records: &[DependencyRecord],
+                               resolver: &dyn VersionResolver) -> ExpiredDependents<E>;
+pub async fn track_asset(&self, asset: &AssetRef<E>, resolver: &dyn VersionResolver)
+    -> ExpiredDependents<E>;
+```
+
+Every caller is inside the asset manager, which passes `self` — two immutable borrows of the same
+value, no refcount, no lifetime beyond the call. **No `DependencyManager` field is added.**
+
+## C3 — `add_dependency` asks the authority instead of guessing
+
+```rust
+if !version.is_unknown() {
+    let known = match self.versions.get_async(dependency).await {
+        Some(entry) => { let v = *entry.get(); drop(entry); Some(v) }
+        None => resolver.resolve_version(dependency).await,   // live asset, else the store
+    };
+    match known {
+        Some(known) if !known.matches(&version) => return Ok(self.expire(dependent).await),
+        Some(_) => {}
+        // No durable version anywhere: the dependency cannot be shown to reconstruct
+        // identically, so the dependent is not entitled to be served. This is the owner's
+        // durability rule, and it is the row `DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE`
+        // was filed for.
+        None => return Ok(self.expire(dependent).await),
+    }
+}
+```
+
+Three outcomes, matching the table that issue defined: verified fresh, verified stale, not durable.
+No provisional entry, no ordering dependence, no command-key branch.
+
+## C4 — the record carries the version the dependency actually had
+
+Two writes, both currently wrong (`DEPENDENCY-RECORD-VERSION-CAPTURED-BEFORE-DEPENDENCY-EVALUATES`,
+`PLAN-DEPENDENCY-RECORDS-HARDCODE-VERSION-ZERO`):
+
+- **`Context::wait_for_dependency` (`context.rs:657`) upserts after the wait.** This is the single
+  funnel where a dependency's `State` — and therefore its settled version — becomes available to
+  the dependent's context. `Context::add_dependency` already preserves a known version over a later
+  unknown one, so a second call upgrades the schedule-time zero and nothing else has to change.
+  The schedule-time capture at `context.rs:553` stays: it is what feeds the *cycle check*, which
+  must happen before the dependency runs.
+- **`finalize_plan` (`interpreter.rs:71`) stops hard-coding `Version::new(0)`** and uses the
+  version `register_plan_dependencies` looks up eleven lines later.
+
+**Known and accepted gap:** a command that calls `Context::evaluate` and then awaits
+`asset.get()` directly — permitted by `DEPENDENCIES_STATUS.md` Flow B step 5 — bypasses
+`wait_for_dependency`, so its record stays unknown. Unknown is *compatible*, so this under-detects
+staleness rather than inventing it. Recorded rather than fixed; closing it means routing every
+consumption through one place, which is `CORE-EVALUATE-PATH-CONSOLIDATION`'s business.
+
+**The upgrade transition is gentle, and this is worth checking rather than hoping.** Every record
+persisted before this change is zero, and zero matches anything — so the first run against an
+existing store invalidates nothing. Only assets persisted *after* the change carry real versions
+and become subject to verification. There is no migration and no invalidation storm.
+
+## C5 — assignment is atomic with the status transition (supersedes the Revision 1 placement)
+
+The Phase 4 review showed the Revision 1 placement does not close the window it was chosen to
+close: `try_to_set_ready` sets `Ready` while `data` is already present, so `poll_state` returns
+`Some` the moment its write lock drops, and both `AssetRef::get` (`assets.rs:3043`) and
+`AssetManager::wait_for_dependency` (`:4801`) re-poll at the top of their loops on *any* wake-up —
+including the log and progress messages the service loop is sending concurrently. A delegate
+observed inside that window yields `Delegated { version: None }`, which is the failure mode Phase 1
+named.
+
+So: **serialize first, then install bytes, version and status in one write transaction.**
+
+```rust
+// evaluate(), after the value is installed and the binary cleared
+let prepared = self.prepare_version(origin).await;   // serializes OUTSIDE any lock; no status change
+self.finalize_status_with_version(prepared).await;   // one write lock: binary + version + status
+```
+
+`prepare_version` reads the value through an ungated accessor — it runs *before* the status is
+final, so it cannot depend on the read gate. This is the same rule `binary_unchecked` and
+(after Step 2) `serialize_to_binary` already follow.
+
+This makes the ordering an invariant of the code rather than of a comment. Phase 3's P3 stops being
+"a constraint no test can hold"; the comment stays, but it now documents a structure rather than
+substituting for one.
+
+## C6 — the fallback's log entry is written under the asset's own write lock
+
+`AssetServiceMessage::LogMessage` handling calls `save_metadata_to_store` (`assets.rs:2060`). A
+fallback warning routed through the service channel would therefore **persist** the fallback
+version, contradicting the "the net does not re-persist" decision and creating the metadata-only
+store entry that I4 asserts does not exist. It must be `lock.metadata.add_log_entry(...)` under the
+write lock the assignment already holds.
+
+## C7 — two pre-existing facts that Phase 5 must not publish as contract
+
+- **`track_asset` is not the single funnel.** There are five `register_version` call sites, four
+  outside it (`assets.rs:1138` in `try_fast_track`, `:5165`, `:5295`, `:6331`/`:6390`), and
+  `try_fast_track` never calls `track_asset` at all. The tracking-time net therefore does not cover
+  a fast-tracked asset. Benign — an *absent* entry does not set `skip_cascade`, only a *zero* one
+  does — but the "single funnel" wording in Phase 1 is wrong and must not reach the reference.
+- **`versions` retains an entry for a key that later becomes volatile.** `DependencyManager::remove`
+  has no production caller. Pre-existing; it matters now only because Phase 5 was about to publish
+  the volatile exclusion as a contract.
+
+## Consequences for Phase 3 and Phase 4
+
+| Item | Change |
+|---|---|
+| U1, U3, U4, U9, P6, P12 | **Removed** — they test the provisional rule, which no longer exists. |
+| U2 (`add_dependency_expires_on_unregistered_command_dep`) | **Replaced** by a resolver-based trio: verified-fresh, verified-stale, no-durable-version. |
+| I8, I9 | **Kept, and now meaningful.** They become the real cross-process tests rather than tests of an approximation, and I9 can pass. |
+| New | A test that a record carries the dependency's post-evaluation version (C4), and one that an old zero record still matches (the gentle-transition property). |
+| New | `AssetManager::version` unit tests: live asset, store-only, absent, store error. |
+| Phase 4 Step 3 | Rewritten around C3. Group B grows: the resolver, the trait method, and the two record fixes. |
+| Phase 4 ordering | The B-before-C argument becomes **real** rather than hypothetical: with C4 in place, records do carry concrete versions, so C3 must exist before them. |
+
+## Open question for the re-gate
+
+**Does `AssetManager::version` belong on the public `AssetManager` trait, or on the concrete
+managers?** The trait is public API; a defaulted method is additive and safe, but it also
+advertises "ask me for a version" to every implementor, including the bindings. The alternative is
+an inherent method on the two concrete managers plus the `VersionResolver` impl, which keeps the
+trait unchanged at the cost of duplicating a short body. Recommendation: **on the trait, defaulted**
+— the question "what version does this key have" is a reasonable thing to ask an asset manager, and
+a binding that answers `None` is answering correctly.

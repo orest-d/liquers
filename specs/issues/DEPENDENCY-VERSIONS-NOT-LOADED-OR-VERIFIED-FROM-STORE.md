@@ -6,7 +6,7 @@ status: draft
 priority: P1
 complexity: M
 area: [core/assets]
-design:
+design: keyed-expiry-cascade-fix
 created: 2026-09-05
 github:
 ---

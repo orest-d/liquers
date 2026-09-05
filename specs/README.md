@@ -212,6 +212,8 @@ question are both measure-first items.
 | Issue | Pri | Cx | Design |
 |---|---|---|---|
 | [`ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY`](issues/ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY.md) | P1 | M | `stale-dependency-status-finalization` |
+| [`DEPENDENCY-RECORD-VERSION-CAPTURED-BEFORE-DEPENDENCY-EVALUATES`](issues/DEPENDENCY-RECORD-VERSION-CAPTURED-BEFORE-DEPENDENCY-EVALUATES.md) | P1 | M | `keyed-expiry-cascade-fix` |
+| [`DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE`](issues/DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE.md) | P1 | M | `keyed-expiry-cascade-fix` |
 | [`KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS`](issues/KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS.md) | P1 | L | `keyed-expiry-cascade-fix` |
 <!-- END generated: issues -->
 

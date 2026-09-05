@@ -4,9 +4,9 @@ kind: design
 title: Versions for computed keyed assets, so keyed expiry cascades
 workflow: liquers-project
 status: in_review
-phase: implementation
+phase: architecture
 area: [core/assets]
-issues: [KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS]
+issues: [KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS, DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE, DEPENDENCY-RECORD-VERSION-CAPTURED-BEFORE-DEPENDENCY-EVALUATES, PLAN-DEPENDENCY-RECORDS-HARDCODE-VERSION-ZERO]
 gh_pr: []
 affects_docs: [DEPENDENCIES_STATUS, ASSETS, ASSET_LIFECYCLE]
 created: 2026-09-05
@@ -20,8 +20,8 @@ superseded_by:
 
 - [x] Phase 1: High-Level Design (approved 2026-09-05)
 - [x] Phase 2: Solution & Architecture (approved 2026-09-05)
-- [x] Phase 3: Examples & Testing (approved 2026-09-05)
-- [x] Phase 4: Implementation Plan (drafted; **blocked at the gate on a scope decision**)
+- [x] Phase 3: Examples & Testing (approved 2026-09-05; **partly superseded by Phase 2 Revision 2**)
+- [x] Phase 4: Implementation Plan (drafted; **returned to Phase 2** — Step 3 and Group B are rewritten by Revision 2)
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
 
@@ -384,9 +384,48 @@ persisted dependents on first load" — is not real, because the recorded versio
   against a running binary before writing the sentence down") applied to itself: the probe was run
   and the wrong fields were read.
 
-### The decision this needs
+### Decision: Option B, with a version authority (owner, 2026-09-05)
 
-Recorded for the owner, not taken here. See the Phase 4 gate question in the session.
+> "I am inclined to Option B — there is more context to work with those issues and it should be
+> thus easier to reason about the correctness of the solutions. We probably need some authoritative
+> way to obtain a version — perhaps a `version(key)` method on the asset manager? … This may
+> eventually be passed as a closure to dependency manager … Limited time use would be desirable to
+> prevent dependency manager to create yet another cyclic arc leak."
+
+The design **returns to Phase 2**, which now carries `Revision 2 — the version authority`. Its
+seven corrections (C1–C7) are the contract for re-approval.
+
+The proposed architecture turns out to be a net *simplification* despite being a larger change: one
+authority replaces one approximation, one special case, and one deferred issue.
+
+- **C1 `AssetManager::version(key)`** — live asset, else store metadata, else `None`. Never
+  evaluates, never submits, for the same reason `owned_key_asset` does not
+  (`keyed-recipe-ownership`); `Ok(None)` and `Err` stay distinct so a transient store error cannot
+  expire dependents.
+- **C2 `VersionResolver`, `&dyn`, never stored.** The leak concern is well founded and the shape
+  answers it structurally: `DependencyManager` is a *field* of the asset manager, so every caller
+  can pass `self` as a borrow. No `Arc`, no field, no third cycle on top of the two
+  `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` records.
+- **C3** `add_dependency` asks the authority instead of guessing, giving exactly the three outcomes
+  `DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE` defined — so that issue is **absorbed**,
+  and provisional registration plus the command-key exception are **deleted**.
+- **C4** the record carries the dependency's *post-evaluation* version, upserted in
+  `Context::wait_for_dependency` (the single funnel where a dependency's `State` reaches the
+  dependent), and `finalize_plan` stops hard-coding zero. **The upgrade transition is gentle:**
+  every pre-existing record is zero, zero matches anything, so the first run against an existing
+  store invalidates nothing.
+- **C5** version assignment merges into the status transaction — the Phase 4 review showed the
+  Revision 1 placement does not close the window, because both waiters re-poll on any wake-up.
+  This turns Phase 3's untestable P3 constraint into a structural invariant.
+- **C6** the fallback's log entry goes under the write lock, not through the service channel, which
+  persists metadata.
+- **C7** two pre-existing facts corrected so Phase 5 does not publish them as contract:
+  `track_asset` is not the single funnel (four of five `register_version` sites are elsewhere, and
+  `try_fast_track` never calls it), and `versions` retains an entry for a key that later becomes
+  volatile.
+
+One question is open for the re-gate: whether `version(key)` belongs on the public `AssetManager`
+trait as a defaulted method (recommended) or only on the concrete managers.
 
 ## Links
 
