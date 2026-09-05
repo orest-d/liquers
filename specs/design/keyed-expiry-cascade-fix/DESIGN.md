@@ -4,7 +4,7 @@ kind: design
 title: Versions for computed keyed assets, so keyed expiry cascades
 workflow: liquers-project
 status: in_review
-phase: high-level
+phase: architecture
 area: [core/assets]
 issues: [KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS]
 gh_pr: []
@@ -18,8 +18,8 @@ superseded_by:
 
 ## Phase Status
 
-- [x] Phase 1: High-Level Design (in review)
-- [ ] Phase 2: Solution & Architecture
+- [x] Phase 1: High-Level Design (approved 2026-09-05)
+- [x] Phase 2: Solution & Architecture (in review)
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
@@ -201,6 +201,41 @@ what let the previous design mis-scope this work.
 | `SERIALIZE-TO-BINARY-CONSULTS-THE-READ-GATE` | P2 | — | Already filed. Serializing at finalization needs the ungated read; the same correction `stale-dependency-status-finalization` needs as its C1 |
 | `EVALUATE-DOES-NOT-CLEAR-CACHED-BINARY` | P2 | S | Already filed. Latent today; finalization writing the binary cache on the same path makes the invariant worth stating |
 | `DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE` | P1 | M | Filed 2026-09-05 at the owner's request. **Follow-up, not a prerequisite** — this design ships provisional registration as the approximation, and that issue replaces it with real verification |
+
+## Phase 2 review (2026-09-05)
+
+Two reviewers in parallel, then the fix applied directly.
+
+**Reviewer A (Phase 1 conformity) — no findings.** All four owner decisions are implemented, all
+six Phase 1 questions are decided, carried to the gate, or deferred to Phase 5, the two invariants
+Phase 1 asked Phase 2 to state are stated, and the documentation plan covers everything Phase 1
+promised. No scope drift: the two absorbed issues were already named by Phase 1 as consequences.
+
+**Reviewer B (codebase alignment) — one blocking finding, and every other claim verified.** It
+checked thirteen factual claims against source and confirmed all of them, including the two that
+carry load-bearing arguments: `load_command_versions_sync` really registers every command at
+`start()` and skips `is_unknown()` versions, and `register_plan_dependencies` only records an edge
+when `get_version` returns `Some` — which is what makes the command-key exception sound. It also
+confirmed no entry guard is held across an `.await` in the proposed `add_dependency` change.
+
+The blocking finding is a test the architecture invalidates and the document had not listed:
+`add_dependency_fails_unregistered_dep` (`dependencies.rs:835`) registers `-R/a`, leaves `-R/b`
+unregistered, and asserts the dependent expires. Those are asset keys, so under the provisional
+rule `a` must **not** expire. Phase 2 now carries an "Existing Tests This Changes" table covering
+it and six neighbours — including the one it pairs with, a new
+`add_dependency_expires_on_unregistered_command_dep`, so the two branches cannot be collapsed
+later. Its old name is worth noting: `..._fails_unregistered_dep` records a behaviour nobody chose,
+which is how the conflation of "not loaded" with "changed" survived this long.
+
+**No fixer agent was launched.** The workflow calls for one when reviewers surface issues; a single
+finding whose fix was already fully understood did not warrant a cold agent re-deriving the
+context, and the correction was applied directly. Reviewer B's two "advisory" items were the
+absorbed issues restated as code changes, already in the document.
+
+Also added after the review: the `wasmbind` evidence for the clock recommendation, and a section
+recording the two in-code doc comments this change makes load-bearing and must correct
+(`load_from_records`'s non-existent `DependencyVersionMismatch`, and `expire_internal`'s
+non-existent root exemption).
 
 ## Links
 
