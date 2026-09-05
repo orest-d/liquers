@@ -509,6 +509,32 @@ This design builds the seam, not the policy.
 may no longer need the supertrait — Phase 4 decides), I8/I9 become tests of a *named* operation
 rather than of emergent behaviour, and C1/C4 are unchanged.
 
+## Revision 2.2 gate decision: ship the entry points (owner, 2026-09-05)
+
+`DependencyManager::audit`, `AssetManager::trigger_dependency_audit(query)` and
+`trigger_dependency_audit_all_registered()` are in scope, defaulted on the trait like `version`,
+with **default policy "never"** — nothing in `liquers-core` calls them, so behaviour is unchanged
+until something does.
+
+Two obligations that come with shipping a public API that has no in-tree caller, both now written
+into Phases 3 and 4:
+
+- **It is tested as a user would call it.** I8/I9 become the only callers, which is the point
+  rather than a shortcoming: `cold_start_dependent_is_served_because_nothing_audits` and
+  `explicit_audit_expires_a_dependent_whose_dependency_changed`.
+- **`AuditReport` is API from the moment it ships** — a plain owned struct, no borrowed lifetimes,
+  naming keys checked, keys expired, and for each expiry the dependency and both versions. Not a
+  counts-only summary a later caller would have to reconstruct.
+
+Two new tests exist purely to keep the seam from closing again:
+`add_dependency_performs_no_io` (over a store fixture that panics on any read — the guard for the
+property Revision 2 broke and 2.2 restored) and `nothing_audits_by_default`, which is the owner's
+exploratory workflow written down as an assertion rather than an intention.
+
+**The structural payoff:** Group C's cascade fix no longer depends on any verification at all. The
+defect fix and the verification policy are separable, and only the first is required — which is
+what makes this design shippable independently of every question about audit policy.
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)

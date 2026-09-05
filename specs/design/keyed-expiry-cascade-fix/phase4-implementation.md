@@ -565,3 +565,63 @@ since B1 adds a trait method and `liquers-web` implements `AssetManager`.
    all three.
 7. The two "no test can hold this" comments exist: the ordering comment (C2) and the
    never-store-the-resolver comment (B2).
+
+
+---
+
+# Revision 2.2 — plan delta for the audit seam
+
+## B2 shrinks
+
+`add_dependency` loses the resolver parameter and the version check entirely; it records and
+performs no I/O. The `VersionResolver` trait is still introduced (D2's `maybe_send` shape stands),
+but its only consumers are `audit` and the manager entry points — **both of which are called from
+concrete manager code**, so the supertrait of D1 may no longer be required. **Determine this by
+compiling, not by reasoning**: if `&*self as &dyn VersionResolver` suffices at the two new call
+sites, drop the supertrait and say so in Phase 5; if a generic site still needs it, keep it.
+
+`load_from_records` and `track_asset` also lose the resolver: they record.
+
+## New step B6 — `DependencyManager::audit`
+
+```rust
+pub(crate) enum AuditDepth { Shallow, Transitive }
+
+pub(crate) async fn audit(&self, key: &DependencyKey, resolver: &dyn VersionResolver,
+                          depth: AuditDepth) -> (ExpiredDependents<E>, AuditReport);
+```
+
+Walks the key's recorded dependencies, skips any carrying `Version(0)` **before** consulting the
+resolver, and expires the key when a record no longer holds or names a dependency with no durable
+version. `Transitive` descends into each dependency's own records with a visited set, reusing
+`expire_internal`'s cycle-safety shape rather than inventing a second walk.
+
+Reads the records from the asset's metadata where the asset is live, and from the store otherwise —
+via the same authority, so a key with no live asset is still auditable.
+
+## New step B7 — the manager entry points
+
+```rust
+async fn trigger_dependency_audit(&self, query: &Query) -> Result<AuditReport, Error>;
+async fn trigger_dependency_audit_all_registered(&self) -> Result<AuditReport, Error>;
+```
+
+Defaulted on the `AssetManager` trait, like `version`. `AuditReport` is a plain owned struct — keys
+checked, keys expired, and for each expiry the dependency and the two versions — with no borrowed
+lifetimes, since it is API from the moment it ships. **Nothing in `liquers-core` calls either**;
+that is the "never" default, and the tests are the only callers by design.
+
+## Ordering
+
+B6 and B7 land after B3 (records must be real for an audit to mean anything) and are independent
+of Group C. Group C's cascade fix does not depend on them at all — which is the structural point:
+**the defect fix and the verification policy are now separable, and only the first is required.**
+
+## Risk order, revised
+
+1. **B3 turning the record mechanism on** — now the only step with deployment consequences, since
+   verification no longer happens implicitly.
+2. **Whether the D1 supertrait is still needed** — settled by compiling B2.
+3. wasm (Step 10/14), then the shared-store fixture.
+
+The B2 borrow-checker risk drops off the list: the resolver's callers are concrete manager methods.

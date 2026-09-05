@@ -453,3 +453,40 @@ all three are structural properties that only a comment or a type can enforce.
    because the reviews were scoped to conformity with the phase above them, and the wrong premise
    was three phases up. The check that caught it was reading the actual bytes of a
    `DependencyRecord`.
+
+
+---
+
+# Revision 2.2 — tests for the audit seam
+
+`add_dependency` no longer verifies, so the tests written for its resolver behaviour move to
+`audit`, and I8/I9 become tests of a named operation.
+
+## Moved from `add_dependency` to `audit`
+
+| Test | Resolver answers | Expected |
+|---|---|---|
+| `audit_keeps_dependent_when_authority_confirms_every_version` | `Some(v_recorded)` for each record | nothing expired, report says checked-and-clean |
+| `audit_expires_dependent_when_a_recorded_version_no_longer_holds` | `Some(v_other)` | dependent expired, report names the key and both versions |
+| `audit_expires_dependent_when_a_dependency_has_no_durable_version` | `None` | dependent expired — the durability rule, now reached only on request |
+| `audit_ignores_records_with_an_unknown_version` | resolver panics if called for such a key | `Version(0)` is skipped before any lookup — the property that makes an old store auditable without mass invalidation |
+
+## New — the seam itself
+
+| Test | Assertion |
+|---|---|
+| `add_dependency_performs_no_io` | A resolver-free `add_dependency` over a store fixture that panics on any read. The regression guard for "the dependency graph does no I/O", which Revision 2 had broken and 2.2 restores. |
+| `nothing_audits_by_default` | Evaluate a chain, delete the dependency's stored metadata, re-request the dependent: still served. **This is the owner's use case (b)**, and it is a test rather than a hope. |
+| `metadata_kept_data_deleted_still_verifies_clean` | Delete only the *data* for `a.txt`, keep the sidecar, then `trigger_dependency_audit` on `c.txt`: clean. Pins that `version()` reads metadata only — an "optimization" that read the value would fail here. |
+| `trigger_dependency_audit_reports_without_a_query_match` | A non-keyed query yields an empty report, not an error. |
+| `trigger_dependency_audit_all_registered_visits_every_keyed_asset` | Two independent chains, one stale; only the stale one is expired, and the report names it. |
+
+I8 becomes `cold_start_dependent_is_served_because_nothing_audits`, and I9 becomes
+`explicit_audit_expires_a_dependent_whose_dependency_changed` — the same two situations, now
+asserting a decision rather than an emergent behaviour.
+
+## Pitfall added
+
+| # | Corner case | Pinned by |
+|---|---|---|
+| P15 | Calling `audit` from `get`, `evaluate` or `track_asset` "so it is always correct" — reintroducing the conflation and hard-coding policy (a) | `add_dependency_performs_no_io` and `nothing_audits_by_default`; the second fails loudly if anything starts auditing implicitly |

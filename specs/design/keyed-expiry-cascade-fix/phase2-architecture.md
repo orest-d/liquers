@@ -937,12 +937,22 @@ no change in when staleness is detected.
 | `DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE` | Still absorbed — the authority exists and the audit uses it. |
 | Scope | **Net smaller.** One function gains a job it can do without I/O; one new function has the job that needs it. |
 
-## The question this leaves for the owner
+## Gate decision: ship the entry points (owner, 2026-09-05)
 
-The seam costs little and is worth having. **Should this design ship the two `trigger_*` entry
-points, or only the internal `audit` plus the `add_dependency` simplification?** Shipping the entry
-points means a public API addition with no caller yet, which normally argues against — but here it
-is what makes the policy question answerable later without reopening the dependency manager.
-Recommendation: **ship `audit` and the entry points, default policy "never", and file the policy
-vocabulary as a separate feature** — the entry points are the thing that is expensive to add later,
-and they are three lines each over a mechanism this design already builds.
+`DependencyManager::audit`, `AssetManager::trigger_dependency_audit(query)` and
+`trigger_dependency_audit_all_registered()` are all in scope, with **default policy "never"** —
+nothing in `liquers-core` calls them, so behaviour is unchanged until something does. The policy
+vocabulary is `DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE` (P2, feature).
+
+Two consequences of shipping a public API with no in-tree caller, both of which have to be met or
+the addition is worse than nothing:
+
+- **It must be tested as a user would call it**, not merely compiled. I8/I9 do exactly that — they
+  are the only callers, and that is the point rather than a shortcoming.
+- **`AuditReport` is API from the moment it ships.** Keep it minimal and additive-friendly: which
+  keys were checked, which were expired, and why. No counts-only summary that a later caller will
+  need to reconstruct, and no borrowed lifetimes that would pin it to the manager.
+
+`trigger_dependency_audit` takes a `Query` rather than a `Key` to match the surrounding API surface
+(`get_asset`, `apply`); a non-keyed query has no recorded dependencies to audit and yields an empty
+report rather than an error.
