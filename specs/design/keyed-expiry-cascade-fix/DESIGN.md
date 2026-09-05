@@ -85,6 +85,14 @@ Both are Phase 2 material and both are named as Phase 1 open questions rather th
    `SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY` (P2, M); the retention it describes already
    exists at HEAD and this design does not enlarge the retained set.
 
+   **Delegation, decided the same day:** a delegating asset takes the delegate's version rather
+   than computing one, so the two are equal by construction. Required, not cosmetic — both resolve
+   to the same key and therefore the same graph node, a parent reads the version from the
+   *delegating* asset's metadata while the manager holds the one registered by the *delegate*
+   (`track_asset` uses `bound_owner_key`, `None` for a keyed non-owner), so any inequality makes
+   `add_dependency` expire a fresh parent. It also settles the redundant-serialization concern: a
+   delegating asset does not serialize at all.
+
 ### Not a duplicate
 
 The completed `dependency-management` design already *intended* this: its Phase 4 Step 3 documents

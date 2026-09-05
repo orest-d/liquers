@@ -176,12 +176,50 @@ finalization are the same ones that persist today. What changes is that the rete
 deliberate part of the design rather than a side effect of one function, which is why it is worth a
 policy rather than silence.
 
-Consequences carried into Phase 2:
+### Delegation carries the version across the hand-off (2026-09-05)
 
-- The serialization moves *earlier*, so it now happens for a keyed non-volatile asset whose
-  persistence is skipped because the evaluation `delegated`. Phase 2 decides whether such an asset
-  serializes at all: its value belongs to the key's registered owner, which versions it on its own
-  evaluation, so a second hash of the same bytes under the same key is at best redundant.
+> "The delegation should end up with an identical asset (perhaps different in metadata — whether it
+> knows the key) — both delegating and delegated asset must have the same version."
+
+This answers what would otherwise have been a Phase 2 question about the delegated case, and it
+answers it the strong way: the delegating asset does **not** compute its own version. It takes the
+delegate's, transferred across the hand-off, so the two are equal by construction rather than by
+two hashes agreeing.
+
+The rule is required for correctness, not only for tidiness. Both assets resolve to the **same
+key**, which is the same dependency-graph node — that is the established hand-off rule
+(`DEPENDENCIES_STATUS.md`, "Delegation is a hand-off, not a dependency"). A parent depending on the
+delegating asset records `DependencyRecord { key, version }` with the key taken from that shared
+node and the version read out of the *delegating* asset's live metadata
+(`record_dependency_on_asset`). The dependency manager, meanwhile, holds the version registered by
+the **delegate**, because `track_asset` uses `bound_owner_key`, which returns `None` for a keyed
+non-owner — so the delegating asset registers nothing. Two ways to get this wrong, both live:
+
+- the delegating asset carries no version, and the parent records `Version::unknown()` — the
+  original defect, reintroduced through the delegation path;
+- the delegating asset carries an *independently computed* version that differs by a byte, and the
+  parent records a version the manager will never hold, so `add_dependency`'s consistency check
+  reads it as staleness and expires a parent that is perfectly fresh.
+
+Only equality avoids both. Since `wait_for_dependency` already returns the delegate's `State`, the
+delegate's version is in hand at the delegation site; today the hand-off deliberately discards the
+owner's metadata record ("A hand-off transfers the value, not the owner's metadata record",
+`assets.rs:2412`). The version becomes the one field that must cross it. Whether the delegate's
+*serialized bytes* cross too is a Phase 2 optimization, not a requirement — the delegating asset
+never persists.
+
+Two invariants Phase 2 states rather than assumes:
+
+- **A delegated evaluation still must not persist.** The `is_keyed && !delegated` guard already
+  enforces it; it now has a second reason. The hand-off transfers no dependency records, so a
+  persisted delegating asset would put a record in the store claiming a real version with an empty
+  dependency list — which `try_fast_track` would later read as "nothing to check" and serve as
+  fresh.
+- **A delegating asset does not serialize.** It takes a version instead of computing one, so the
+  finalization serialization is skipped for it — which also disposes of the redundant-work concern
+  raised when the one-serialization decision was made.
+
+Consequences carried into Phase 2:
 - Serializing at finalization requires the ungated read. `serialize_to_binary` calls `poll_state`,
   which returns `None` at statuses this path must still handle — this is
   `SERIALIZE-TO-BINARY-CONSULTS-THE-READ-GATE`, already filed, and the same correction the blocked
