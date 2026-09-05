@@ -19,7 +19,7 @@ superseded_by:
 ## Phase Status
 
 - [x] Phase 1: High-Level Design (approved 2026-09-05)
-- [x] Phase 2: Solution & Architecture (in review)
+- [x] Phase 2: Solution & Architecture (approved 2026-09-05)
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
@@ -236,6 +236,32 @@ Also added after the review: the `wasmbind` evidence for the clock recommendatio
 recording the two in-code doc comments this change makes load-bearing and must correct
 (`load_from_records`'s non-existent `DependencyVersionMismatch`, and `expire_internal`'s
 non-existent root exemption).
+
+## Phase 2 gate decisions (2026-09-05)
+
+- **Clock: chrono, and the purpose is uniqueness rather than time.** Cross-platform confirmed —
+  `chrono`'s default `wasmbind` routes `Utc::now()` through `js_sys::Date` on
+  `wasm32-unknown-unknown`, and the repository already relies on it (every metadata timestamp and
+  expiry comparison), while `std::time::SystemTime::now()` is the unsupported one. The reframing
+  narrows the build: the clock's only job is separating *processes* — a counter alone restarts at
+  zero and could re-issue a version another process handed out, which is the case the durability
+  decision needs to expire — so `Version::new_unique()` is reimplemented on chrono, keeping its
+  atomic counter, and the fallback path calls it rather than `from_time_now()`.
+- **Scope addition accepted at the gate:** `from_time_now` also moves to chrono and the two
+  existing non-serializable fallbacks (`set_state` on both managers) call `new_unique()`, removing
+  `SystemTime::now()` from `liquers-core` and closing a reachable wasm hazard rather than fixing
+  the new path and leaving the old one. Three lines.
+- **Test surface: no new value type, no new code.** `Value::as_bytes` already refuses an integer
+  for the `bin` data format and accepts a string, and `data_format` is seeded from the key's
+  extension — so `count.bin` returning `I32` is the non-serializable case and `greeting.txt`
+  returning `Text` the serializable control, differing in one character of a filename.
+- **`expire_internal` root guard: delete the vacuous condition** — confirmed. The comment's claimed
+  root exemption is deleted rather than implemented, because an asset opted out of version-based
+  invalidation should stay out even as the root of an explicit expiry.
+- **Not verified by compilation:** the wasm claims are reasoning, not evidence — the target is not
+  installed here. Phase 4 adds it and runs the existing build-matrix wasm rows.
+
+**Phase 2 approved 2026-09-05.** No open question carried into Phase 3.
 
 ## Links
 

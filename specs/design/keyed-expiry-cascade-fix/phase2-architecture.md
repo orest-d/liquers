@@ -384,25 +384,86 @@ change makes them load-bearing rather than merely wrong:
    invalidation, root or not, and after this change no path produces such a registration by
    accident — it is reserved for a declared policy.
 
-## Open Questions for the Gate
+## Gate Decisions (2026-09-05)
 
-1. **Fallback clock** (Phase 1 open question 3). `Version::from_time_now` and `Version::new_unique`
-   both call `std::time::SystemTime::now()`, which is not a supported clock on
-   `wasm32-unknown-unknown`, while the rest of the codebase takes wall time from
-   `chrono::Utc::now()` (which `metadata.rs` already uses for every timestamp — `:561`, `:1385`,
-   `:2268` — and `expiration.rs` for every expiry comparison). `liquers-web` is wasm32-only, and
-   that those chrono paths work there is the evidence: `chrono`'s default features include
-   `wasmbind`, which routes `Utc::now()` through `js_sys::Date`. `Version::from_time_now` is
-   currently reachable on wasm only through `register_command!`'s opt-in `version: now`, which is
-   why nothing has tripped over it. Recommendation: **add a `chrono`-based constructor and use it
-   on this path**, leaving the existing constructors alone rather than changing behaviour under
-   other callers. Needs a decision because it adds a public constructor to `Version`. Not verified
-   by compilation — the `wasm32-unknown-unknown` target is not installed in this environment, so
-   Phase 4 should add it and check rather than trust this reasoning.
-2. **Test surface** (see "Relevant Commands"): default-namespace commands inside `liquers-core`,
-   or a `liquers-lib` rich value type for the non-serializable case?
-3. **`expire_internal` root guard** (Phase 1 open question 4). Recommendation recorded above:
-   delete the vacuous condition so the version is always consulted, and correct the comment. Under
-   the zero-as-policy reading this is right — an asset that declares itself out of version-based
-   invalidation stays out even when it is the root of an explicit expiry. Flagging it because it is
-   the one place where "make the code match the comment" was also available and is being declined.
+All three questions answered by the project owner; nothing is left open at this gate.
+
+### 1. Clock: chrono, and the purpose is uniqueness rather than time
+
+> "Use chrono — do I understand that it works crossplatform? It is not the purpose to provide
+> system time, it should just generate reasonably unique versions."
+
+**Yes, cross-platform.** `chrono`'s default features include `wasmbind`, which routes
+`Utc::now()` through `js_sys::Date` on `wasm32-unknown-unknown`; on native it reads the OS clock.
+The evidence is in this repository rather than in the changelog: every metadata timestamp
+(`metadata.rs:561`, `:1385`, `:2268`) and every expiry comparison (`expiration.rs:823`, `:853`)
+already takes wall time from `chrono::Utc::now()`, and those paths run inside `liquers-web`, which
+is wasm32-only. `std::time::SystemTime::now()` is the one that is not supported there.
+
+**The reframing changes what to build.** If the goal is uniqueness rather than a timestamp, the
+clock is doing exactly one job: separating *processes*. Uniqueness *within* a process comes from a
+counter, and a counter alone would be wrong — it restarts at zero, so a second process could
+re-issue a version a first process already handed out, and a dependent recording the old one would
+match and be served warm. That is precisely the case the durability decision requires to expire. So
+a coarse clock is sufficient and a clock is necessary.
+
+`Version::new_unique()` (`metadata.rs:69`) already has exactly this shape — nanoseconds shifted
+left 64 bits, OR'd with an atomic counter. Only its clock source is wrong. So:
+
+- **Reimplement `Version::new_unique()` on `chrono::Utc::now()`**, keeping the counter. No new
+  constructor, and nothing depends on its current value — its only use today is one test
+  (`dependencies.rs:742`).
+- **The fallback path calls `new_unique()`, not `from_time_now()`.** Uniqueness is the requirement;
+  a bare timestamp can repeat within a clock tick.
+- Resolution differs by platform and that is fine by construction: `js_sys::Date::now()` is
+  milliseconds, so on wasm the counter carries the uniqueness and the clock only separates
+  processes — which is all it is being asked to do.
+
+**Scope addition, small and same-defect:** switch `Version::from_time_now()` to chrono as well, and
+point the two existing non-serializable fallbacks (`set_state` at `assets.rs:5245` and the
+immediate manager's at `:6364`) at `new_unique()`. That removes `std::time::SystemTime::now()` from
+`liquers-core` entirely and closes a *reachable* wasm hazard — `set_state` with a non-serializable
+value, callable from `liquers-web` today. Three lines. Split it out if the gate would rather keep
+this design to the evaluate path; leaving it would mean fixing the new path and leaving the old one
+to panic on the platform the new one was made safe for.
+
+**Not verified by compilation.** `wasm32-unknown-unknown` is not installed in this environment, so
+the claim that `SystemTime::now()` panics there — and that the chrono replacement does not — is
+reasoning, not evidence. **Phase 4 adds the target and checks**; it is a `rustup target add` plus
+the existing `scripts/check-build-matrix.sh` wasm rows.
+
+### 2. Test surface: no new value type, no new code
+
+> "Whatever is the easiest/shortest code. A non-serializable Value type — or serializable string,
+> but non-serializable int should also be implemented for the purpose of the test."
+
+The second option already exists and needs **zero new code**. `Value::as_bytes` refuses an integer
+for the `bytes`/`b`/`bin` data format and accepts a string (`value.rs:965-975`):
+
+```rust
+"bytes" | "b" | "bin" => match self {
+    Value::Bytes(x) => Ok(x.clone()),
+    Value::Text(x) => Ok(x.as_bytes().to_vec()),
+    _ => Err(Error::new(ErrorType::SerializationError, …)),   // I32/I64/F64/None land here
+},
+```
+
+and `data_format` is seeded from the key's extension (`metadata.rs:777`, `:1203`). So:
+
+| Recipe target | Command returns | `as_bytes` | Version assigned |
+|---|---|---|---|
+| `count.bin` | `Value::I32` | `Err(SerializationError)` | time-based fallback, logged |
+| `greeting.txt` | `Value::Text` | `Ok(bytes)` | `Version::from_bytes` |
+
+Both are ordinary default-namespace commands, both stay in `liquers-core` where the change lives,
+and the pair differs in one character of a filename — which also makes the test readable. Phase 3
+builds the keyed→keyed chain from these.
+
+### 3. `expire_internal` root guard: delete the vacuous condition — **agreed**
+
+Confirmed by the owner. `include_root || current != *key` is removed so the version is always
+consulted, and the comment is corrected to describe the rule the branch implements: a key
+registered at `Version(0)` does not propagate invalidation, root or not. The claimed
+"(except for the root key)" exemption is deleted rather than implemented, because under the
+zero-as-policy reading an asset that has opted out of version-based invalidation should stay out
+even when it is the root of an explicit expiry.
