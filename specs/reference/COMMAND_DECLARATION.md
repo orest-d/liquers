@@ -3,7 +3,7 @@ title: Command Declaration Format
 kind: reference
 audience: internal
 area: [core/commands, web, py]
-reviewed: 2026-08-31
+reviewed: 2026-09-05
 ---
 # Command Declaration Format
 
@@ -275,8 +275,8 @@ shared. `impl_version` is supplied at registration.
 | `label` | `label` | Derived from `name` when absent — §4 |
 | `type` | `argument_type` | `type` is an accepted spelling of `argument_type` |
 | `default` | `default` | §3.3 |
-| `multiple` | `multiple` | Variadic: consumes every remaining action parameter. Must be last |
-| `injected` | `injected` | Supplied from the context, never from the query |
+| `multiple` | `multiple` | Variadic: consumes every remaining action parameter. Must be the last query-consuming argument; it cannot be injected |
+| `injected` | `injected` | Supplied from the context, never from the query; may follow `multiple` |
 | `gui_info` | `gui_info` | Preferred entry widget |
 | `hints`, `presets` | same | `hints` here are **usage** hints and reach the metadata — §6 |
 
@@ -417,7 +417,7 @@ Stage 4 reports, naming the command and where relevant the argument:
 
 - an empty or missing `name`;
 - an argument entry naming an argument that does not exist (§2.1);
-- a `multiple` argument that is not the last argument;
+- a `multiple` argument followed by another query-consuming argument, or one also marked `injected`;
 - a default that does not fit its declared type;
 - an unrecognised argument type.
 
@@ -512,6 +512,7 @@ so no query parameter is consumed by either — that is conventions.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-05 | Defined the query-consuming variadic-tail rule, the injected exception, and rejection of `multiple` combined with `injected`. | `design/variadic-metadata-tail-check` |
 | 2026-08-31 | Reviewed command-version behavior against `CommandMetadataRegistry::refresh_metadata_versions` and the `Environment::to_ref` refresh boundary. | `design/refresh-command-metadata-versions/phase-5` |
 | 2026-08-30 | §3.2.3 restated: a document declares its state with `state_argument` **or** `registration.state`, and an authored delivery mode is honoured rather than skipped. Corrects a case the first implementation did not cover, found by review on PR #50. | `design/command-declaration/` |
 | 2026-08-30 | Promoted to `reference/` on implementation. The format is true at `HEAD`: `liquers-core::command_declaration`, with 54 unit tests and 5 integration tests, and `liquers-web` parses its declarations through it. | `design/command-declaration/` |

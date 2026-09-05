@@ -130,6 +130,7 @@ pub mod error;
 pub mod escape;
 pub mod expiration;
 pub mod icons;
+pub mod issue_report;
 pub mod interpreter;
 pub mod maybe_send;
 pub mod media_type;

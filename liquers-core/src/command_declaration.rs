@@ -751,29 +751,10 @@ fn fill_argument_defaults(argument: &mut Value) {
 /// argument. Global-enum references are deliberately not resolved: that needs a
 /// `CommandMetadataRegistry` and happens at registry insertion and plan building.
 fn validate(metadata: &CommandMetadata) -> Result<(), Error> {
-    if metadata.name.is_empty() {
-        return Err(parameter_error(
-            "a command declaration must have a non-empty `name`".to_string(),
-        ));
+    match metadata.check().short_summary("Command metadata") {
+        Some(summary) => Err(parameter_error(summary)),
+        None => Ok(()),
     }
-    let command = &metadata.name;
-    let last = metadata.arguments.len().saturating_sub(1);
-    for (position, argument) in metadata.arguments.iter().enumerate() {
-        if argument.name.is_empty() {
-            return Err(parameter_error(format!(
-                "command {command:?}: argument {position} must have a non-empty `name`"
-            )));
-        }
-        if argument.multiple && position != last {
-            return Err(parameter_error(format!(
-                "command {command:?}: the `multiple` argument {:?} must be the last argument, \
-                 but {:?} follows it",
-                argument.name,
-                metadata.arguments[position + 1].name
-            )));
-        }
-    }
-    Ok(())
 }
 
 /// Convenience for a host that has both halves in hand.
