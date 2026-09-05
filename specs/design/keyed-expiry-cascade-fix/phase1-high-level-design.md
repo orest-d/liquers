@@ -149,12 +149,47 @@ late, because `record_dependency_on_asset` may already have read the child's met
 `Version::unknown()` — and not at asset creation, which is what the timestamp counter-example rules
 out.
 
+### One serialization, at finalization, reused by persistence (2026-09-05)
+
+> "One possible is to prepare a binary on finalization, calculate hash and then simply use the same
+> binary. This needs to only be done on non-volatile keyed assets. The binary may be disposed later
+> based on the policy (out of scope, but make a note)."
+
+Confirmed as the mechanism. Status finalization serializes the value once, hashes those bytes into
+`MetadataRecord.version`, and leaves them in `AssetData::binary`; `save_to_store` then finds them
+through `binary_unchecked()` and writes them without serializing again. The version and the stored
+bytes are the same bytes by construction, which is a stronger guarantee than serializing twice and
+trusting the two runs to agree — a value whose serialization is not byte-deterministic (map
+iteration order, a float format, an embedded timestamp) would otherwise produce a version that does
+not describe what the store holds.
+
+**Only non-volatile keyed assets.** A volatile asset is never registered with the dependency
+manager and needs no version; a non-keyed query asset is not a graph node and is never persisted,
+so serializing one would be pure cost on the commonest path in the system. Both exclusions are
+about avoiding work, not just about correctness.
+
+**Binary disposal is out of scope**, and is now recorded as
+`SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY` (P2, M). The retention it describes already
+exists at HEAD — `serialize_to_binary` has always cached its bytes and nothing has ever released
+them — and this design does not enlarge the retained set, since the assets it serializes at
+finalization are the same ones that persist today. What changes is that the retention becomes a
+deliberate part of the design rather than a side effect of one function, which is why it is worth a
+policy rather than silence.
+
 Consequences carried into Phase 2:
 
-- Finalization must serialize keyed non-volatile assets to get the bytes to hash. Serializing twice
-  is not acceptable, so the bytes are cached and persistence reuses them. This intersects
-  `EVALUATE-DOES-NOT-CLEAR-CACHED-BINARY` and `SERIALIZE-TO-BINARY-CONSULTS-THE-READ-GATE`, both
-  already filed.
+- The serialization moves *earlier*, so it now happens for a keyed non-volatile asset whose
+  persistence is skipped because the evaluation `delegated`. Phase 2 decides whether such an asset
+  serializes at all: its value belongs to the key's registered owner, which versions it on its own
+  evaluation, so a second hash of the same bytes under the same key is at best redundant.
+- Serializing at finalization requires the ungated read. `serialize_to_binary` calls `poll_state`,
+  which returns `None` at statuses this path must still handle — this is
+  `SERIALIZE-TO-BINARY-CONSULTS-THE-READ-GATE`, already filed, and the same correction the blocked
+  `stale-dependency-status-finalization` design needs as its C1.
+- `evaluate` installs a value without clearing a stale `lock.binary`
+  (`EVALUATE-DOES-NOT-CLEAR-CACHED-BINARY`, already filed). Latent today; with finalization writing
+  the cache on the same path, Phase 2 states the invariant explicitly rather than leaving it to
+  luck.
 - "Available before `track_asset`" is stronger than "assigned before `track_asset`": the dependency
   manager's `versions` map is what `add_dependency` consults, and it is written by `track_asset` at
   the very end of `evaluate`. Whether the metadata assignment alone is enough, or the manager

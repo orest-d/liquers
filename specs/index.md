@@ -8,9 +8,9 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 90
+Total rows: 91
 - P1: 2
-- P2: 55
+- P2: 56
 - P3: 33
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
@@ -49,6 +49,7 @@ Total rows: 90
 | [`POLARS-COMMAND-TESTS-BYPASS-COMMANDS`](issues/POLARS-COMMAND-TESTS-BYPASS-COMMANDS.md) | issue | The polars command integration tests never invoke a polars command | draft |  | P2 | M | lib/polars;build |  | 2026-08-25 |
 | [`PY-MODULES-NOT-DECLARED-IN-LIB`](issues/PY-MODULES-NOT-DECLARED-IN-LIB.md) | issue | Half of liquers-py's source files are not declared as modules and never compile | draft |  | P2 | M | py |  | 2026-08-25 |
 | [`PY-VALUE-SERIALIZER-IS-A-STUB`](issues/PY-VALUE-SERIALIZER-IS-A-STUB.md) | issue | liquers-py's value serializer writes almost nothing and reads nothing back | draft |  | P2 | M | py;core/value |  | 2026-08-26 |
+| [`SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY`](issues/SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY.md) | issue | A serialized binary is cached on the asset forever, with no policy for releasing it | draft |  | P2 | M | core/assets |  | 2026-09-05 |
 | [`STORE-CONFORMANCE-VALIDATION-TOOL`](issues/STORE-CONFORMANCE-VALIDATION-TOOL.md) | issue | No way to run the conformance suite against a store outside a test binary | accepted |  | P2 | M | store/backends;core/store |  | 2026-09-02 |
 | [`STORE-TEST-IDS-COLLIDE-WITH-CONFORMANCE-RULE-IDS`](issues/STORE-TEST-IDS-COLLIDE-WITH-CONFORMANCE-RULE-IDS.md) | issue | Store unit tests share IDs with conformance rules that check different contracts | draft |  | P2 | M | core/store;store/backends;docs | [phase1](specs/design/store-conformance-suite/phase1-high-level-design.md)  [phase2](specs/design/store-conformance-suite/phase2-architecture.md)  [phase3](specs/design/store-conformance-suite/phase3-examples.md)  [phase4](specs/design/store-conformance-suite/phase4-implementation.md)  [phase5](specs/design/store-conformance-suite/phase5-documentation.md)  | 2026-09-02 |
 | [`WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT`](issues/WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT.md) | issue | Enter key does not submit in the browser query console | accepted |  | P2 | M | lib/ui | [phase1](specs/design/ui-events/phase1-high-level-design.md)  [phase2](specs/design/ui-events/phase2-architecture.md)  [phase3](specs/design/ui-events/phase3-examples.md)  [phase4](specs/design/ui-events/phase4-implementation.md)  | 2026-08-08 |

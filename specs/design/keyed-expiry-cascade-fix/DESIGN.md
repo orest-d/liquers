@@ -78,6 +78,13 @@ Both are Phase 2 material and both are named as Phase 1 open questions rather th
    bytes can be computed. Whether the dependency manager's `versions` registration must move
    earlier alongside the metadata assignment is left to Phase 2.
 
+   **Mechanism confirmed by the owner, same day:** finalization serializes once, hashes those
+   bytes, and leaves them in `AssetData::binary` for `save_to_store` to reuse — so the version and
+   the stored bytes are the same bytes by construction, not two serializations trusted to agree.
+   Only non-volatile keyed assets. Binary *disposal* is explicitly out of scope and is filed as
+   `SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY` (P2, M); the retention it describes already
+   exists at HEAD and this design does not enlarge the retained set.
+
 ### Not a duplicate
 
 The completed `dependency-management` design already *intended* this: its Phase 4 Step 3 documents
@@ -108,6 +115,14 @@ Against the Phase 1 checklist:
 One checklist item is deliberately not met: the document exceeds 30 lines. The scope is a
 three-line guard whose *consequences* span four mechanisms, and compressing the consequence list is
 what let the previous design mis-scope this work.
+
+## Issues this work has produced
+
+| Issue | P | Cx | Relationship |
+|---|---|---|---|
+| `SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY` | P2 | M | Filed 2026-09-05 at the owner's request when scoping the one-serialization decision. Pre-existing at HEAD; this design makes the retention deliberate rather than incidental, and explicitly does not fix it |
+| `SERIALIZE-TO-BINARY-CONSULTS-THE-READ-GATE` | P2 | — | Already filed. Serializing at finalization needs the ungated read; the same correction `stale-dependency-status-finalization` needs as its C1 |
+| `EVALUATE-DOES-NOT-CLEAR-CACHED-BINARY` | P2 | S | Already filed. Latent today; finalization writing the binary cache on the same path makes the invariant worth stating |
 
 ## Links
 
