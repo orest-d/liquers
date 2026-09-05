@@ -204,6 +204,11 @@ impl QueryConsoleElement {
         self.submit_query(ctx);
     }
 
+    /// Returns the error location available to the egui query layouter, if any.
+    fn error_position(&self) -> Option<&liquers_core::query::Position> {
+        self.error.as_ref().map(|error| &error.position)
+    }
+
     /// Render the single-row toolbar.
     /// Layout: [<] [>] [query_field] [Data/Metadata] [Presets v] [status]
     #[cfg(feature = "egui")]
@@ -233,8 +238,13 @@ impl QueryConsoleElement {
 
             // Query text field with syntax highlighting (expanding)
             let qt = self.query_text.clone();
+            // The layouter may outlive this borrow of `self`, so retain the small position value.
+            let error_position = self.error_position().cloned();
             let mut layouter = |ui: &egui::Ui, _buf: &dyn egui::TextBuffer, _wrap_width: f32| {
-                let layout_job = crate::egui::widgets::query_to_layout_job(&qt);
+                let layout_job = crate::egui::widgets::query_to_layout_job_with_position(
+                    &qt,
+                    error_position.as_ref(),
+                );
                 ui.fonts_mut(|f| f.layout_job(layout_job))
             };
             let response = ui.add(
@@ -708,6 +718,23 @@ mod tests {
         c.update(&UpdateMessage::AssetUpdate(snapshot), &ctx);
         assert!(c.error.is_some());
         assert!(c.value.is_none());
+    }
+
+    #[test]
+    fn test_asset_update_exposes_error_position_for_egui_layout() {
+        let mut c = QueryConsoleElement::new("C".to_string(), "broken".to_string());
+        let (ctx, _rx) = create_test_context();
+        let position = liquers_core::query::Position::new(0, 1, 1);
+        let snapshot = AssetSnapshot {
+            value: None,
+            metadata: Metadata::new(),
+            error: Some(Error::general_error("fail".to_string()).with_position(&position)),
+            status: Status::Error,
+        };
+
+        c.update(&UpdateMessage::AssetUpdate(snapshot), &ctx);
+
+        assert_eq!(c.error_position(), Some(&position));
     }
 
     #[test]

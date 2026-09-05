@@ -1,60 +1,55 @@
-# Phase 1: High-Level Design - Hand-Built Variadic Metadata Tail Validation
+# Phase 1: High-Level Design - Runtime validation of variadic command metadata
 
-## Design Readiness
+## Feature Name
 
-- **Readiness:** phase2-blocked
-- **Leading issue:** **Blocking - validation boundary:** Runtime registration returns a mutable
-  `&mut CommandMetadata` before callers finish adding arguments, so it cannot reject a non-final
-  variadic argument at the existing registration call.
-- **Explanation:** The validation rule is clear, and the previously cited issue-attribution defect
-  is fixed at HEAD, but no current API marks metadata construction complete.
-- **Open questions:** **Blocking - validation boundary:** Choose an explicit finalize/validate API,
-  validate lazily during planning/export, or redesign registration to accept complete metadata.
-  These options produce incompatible error timing and public API behaviour.
+Runtime validation of variadic command metadata
 
-## Problem and Evidence
+## Purpose
 
-The macro now rejects a consuming argument after a `multiple` argument, but hand-built
-`CommandMetadata` can still set `multiple` on a non-final parameter. Resolution then lets the
-variadic parameter consume all remaining query arguments and starve later declared arguments.
+Reject invalid command metadata before an environment becomes usable. In particular, a variadic
+(`multiple`) argument must not be followed by a non-injected argument, since it consumes every
+remaining query parameter and starves the later argument.
+Metadata that marks one argument as both `multiple` and `injected` is invalid for the same reason:
+an injected argument cannot consume query parameters.
 
-## Expected Behaviour and Acceptance Criteria
+## Core Interactions
 
-Every runtime metadata validation path reports an error when a non-injected argument follows a
-`multiple` argument. Injected arguments, including context, remain allowed after the variadic
-argument because they do not consume query parameters.
+### Query System
+No syntax change; this protects existing positional action-parameter interpretation.
+### Store System / Asset System / Value Types / Web/API / UI
+None.
+### Command System
+`CommandMetadata::check()` is the command-metadata source of truth. The environment builder
+composes it into a stored, printable issue report; it emits non-empty reports, refuses error
+reports, and therefore protects metadata deserialized from JSON or YAML.
 
-## Affected Systems
+## Crate Placement
 
-Command metadata validation and any hand-built command registry path are affected. Macro parsing
-is already handled and should not be changed. Query syntax and planner resolution semantics should
-not change.
+`liquers-core` only: metadata owns the invariant and the core environment builder owns startup.
+No dependency or public cross-crate registration surface is needed.
 
-## Scope and Non-Goals
+## Documentation Intent
 
-Scope is adding the missing validation rule and ensuring reachable registration/export paths call
-it. Do not redesign variadic values, composite variadics or UI list editors.
+**Reference:** Extend `specs/reference/COMMAND_DECLARATION.md` with the invariant and builder-time
+validation behavior, so metadata producers know what is valid.
+**Guide:** Extend `specs/guides/COMMAND_REGISTRATION_GUIDE.md` with the practical constraint for
+hand-built or imported metadata; no new guide is warranted.
+**Other documents to create:** None; this is a safety rule for an existing model.
+**Specific documents to update:** `specs/README.md` (design index), the linked issue (resolution),
+and generated registry documentation only if validation-driven tests alter it.
 
-## Compatibility, Assumptions and Questions
+Command authors and metadata importers should understand that `multiple` consumes the tail and a
+successful environment build is the safety check for serialized metadata.
 
-The change may reject previously accepted invalid hand-built metadata. Assumption:
-`CommandMetadata::check()` is the right rule home, but Phase 2 must account for the fact it is not
-currently called by registration.
+## Open Questions
 
-## Documentation Assessment
+1. Should validation run in shared `Environment::try_to_ref` as well as through
+   `EnvironmentBuilder::build`, so manually assembled environments get the same protection?
+2. How should all error-level `CommandRegistryIssue`s be represented in returned core `Error`
+   while retaining each command and argument diagnostic?
 
-Small maintenance may be needed in `specs/reference/REGISTER_COMMAND_FSD.md` or
-`specs/guides/COMMAND_REGISTRATION_GUIDE.md` to state the runtime metadata rule. No new guide.
+## References
 
-## Design Dependencies
-
-- `requires` `variadic-arguments-declaration`: completed macro validation defines the tail rule and
-  leaves only hand-built metadata in this design.
-- `overlaps` `command-declaration`: declaration conversion builds complete metadata and could host
-  one validation call, but it cannot protect all direct registry mutation paths.
-
-## Review
-
-The rule remains scoped, but acceptance cannot be written truthfully until the repository chooses
-when mutable metadata becomes final. Example: checking inside `register_command` sees zero arguments
-and passes; a later caller adds `multiple a, b`, recreating the defect after validation.
+- `specs/issues/VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS.md`
+- `specs/design/variadic-arguments-declaration/` (the existing macro-only guard)
+- `liquers-core/src/command_metadata.rs`, `liquers-core/src/environment_builder.rs`

@@ -2,11 +2,11 @@
 id: POLARS-DOC-EXAMPLE-NAMESPACE
 kind: design
 title: Polars reference examples select the pl namespace
-status: in_review
-phase: implementation
+status: complete
 readiness: ready
 area: [docs, lib/commands]
 issues: [POLARS-DOC-EXAMPLES-OMIT-NAMESPACE]
+affects_docs: [reference/POLARS_COMMAND_LIBRARY.md]
 gh_pr: []
 created: 2026-08-29
 superseded_by:
@@ -21,7 +21,7 @@ Simplified autonomous issue design for `POLARS-DOC-EXAMPLES-OMIT-NAMESPACE`.
 - [x] Phase 2: Solution & Architecture
 - [x] Phase 3: Examples and Tests
 - [x] Phase 4: Implementation
-- [ ] Phase 5: Documentation
+- [x] Phase 5: Documentation
 
 ## Links
 
@@ -29,3 +29,4 @@ Simplified autonomous issue design for `POLARS-DOC-EXAMPLES-OMIT-NAMESPACE`.
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
+- [Phase 5](./phase5-documentation.md)

@@ -2,7 +2,7 @@
 id: VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS
 kind: issue
 title: An argument declared after a multiple argument is unreachable and unchecked
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/commands, core/plan, macro]
@@ -90,3 +90,11 @@ applies the flag to `cmd.arguments.last_mut()`, so it satisfies the rule by cons
 nothing enforces that, and any other hand-built registration could violate it freely. The
 `CommandMetadata::check()` route described above is untouched and still blocked on `check()` having
 no caller anywhere in the workspace.
+
+## Resolution 2026-09-05
+
+`CommandMetadata::check()` now returns the composable core `IssueReport` and rejects an ordinary
+argument after a `multiple` argument, while preserving the valid injected-argument exception and
+rejecting `multiple` plus `injected` on one argument. `EnvironmentBuilder::build()` performs that
+check before constructing a store or environment; callers that need the complete report call
+`validate()` before consuming the builder. Macro registration remains protected at compile time.

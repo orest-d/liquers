@@ -3,7 +3,7 @@ title: Building and Configuring an Environment
 kind: guide
 audience: both
 area: [core/context, core/assets, core/store]
-reviewed: 2026-08-31
+reviewed: 2026-09-05
 ---
 # Building and Configuring an Environment
 
@@ -200,6 +200,29 @@ not reachable rather than merely unlikely.
 re-registers versions and returns the dependency keys that changed;
 `refresh_command_versions_and_expire()` also cascades the expiration those changes imply.
 
+## Validating imported command metadata
+
+`EnvironmentBuilder::build()` validates its command metadata before it constructs a configured
+store or assembles the environment. A metadata error is returned as a compact summary and the
+complete report is emitted to stderr on native targets or the browser console on wasm. A GUI or
+custom logger that needs every diagnostic must inspect the builder before consuming it:
+
+```rust,ignore
+let report = builder.validate();
+if report.has_errors() {
+    for issue in report.issues() {
+        log_issue(issue.severity(), issue.message());
+    }
+    return;
+}
+let envref = builder.build()?;
+```
+
+`validation_report()` returns the latest preflight report and is empty on a new builder. Calling
+`build()` consumes the builder, so it cannot provide that full report afterward. Hand-assembled
+environments using `try_to_ref()` retain their readiness behavior but do not receive this
+builder-owned metadata validation.
+
 ## When `to_ref` is the right call
 
 The builder is recommended, not mandatory. `Environment::to_ref` and `Environment::try_to_ref`
@@ -272,4 +295,5 @@ is the moment when that is safe: it runs before anything else can observe the re
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-05 | Added command-metadata preflight, full-report access, bounded build errors, and the builder-only validation boundary. | `design/variadic-metadata-tail-check` |
 | 2026-08-31 | Created: builder, kind selection, configuration document, the readiness guarantee, when `to_ref` applies, and implementing a custom environment. | `design/environment-builder/phase-5` |

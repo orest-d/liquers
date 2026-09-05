@@ -6,89 +6,53 @@ use std::fmt::Display;
 
 use crate::error::Error;
 use crate::expiration::Expires;
+use crate::issue_report::{Issue, IssueReport, IssueSeverity};
 use crate::metadata::Version;
 use crate::query::{ActionParameter, ActionRequest, Query, TryToQuery};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// A structure holding a description of an identified issue with a command registry
-/// Issue can be either a warning or an error (when is_error is true)
-/// Command can be identified by realm, name and namespace
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct CommandRegistryIssue {
-    pub realm: String,
-    pub namespace: String,
-    pub name: String,
-    pub is_error: bool,
-    pub message: String,
-}
-
-impl CommandRegistryIssue {
-    pub fn new(realm: &str, namespace: &str, name: &str, is_error: bool, message: String) -> Self {
-        CommandRegistryIssue {
-            realm: realm.to_string(),
-            namespace: namespace.to_string(),
-            name: name.to_string(),
-            is_error,
-            message: message.to_string(),
-        }
-    }
-    pub fn warning(realm: &str, namespace: &str, name: &str, message: String) -> Self {
-        CommandRegistryIssue::new(realm, namespace, name, false, message)
-    }
-    pub fn error(realm: &str, namespace: &str, name: &str, message: String) -> Self {
-        CommandRegistryIssue::new(realm, namespace, name, true, message)
-    }
-}
-
 #[cfg(test)]
-mod command_registry_issue_tests {
-    use super::{CommandMetadata, CommandRegistryIssue};
+mod validation_tests {
+    use super::*;
 
-    #[test]
-    fn warning_preserves_realm_namespace_and_name() {
-        let issue = CommandRegistryIssue::warning(
-            "warning-realm",
-            "warning-namespace",
-            "warning-command",
-            "warning".to_owned(),
-        );
-
-        assert_eq!(issue.realm, "warning-realm");
-        assert_eq!(issue.namespace, "warning-namespace");
-        assert_eq!(issue.name, "warning-command");
-        assert!(!issue.is_error);
+    fn argument(name: &str, multiple: bool, injected: bool) -> ArgumentInfo {
+        let mut argument = ArgumentInfo::argument(name);
+        argument.multiple = multiple;
+        argument.injected = injected;
+        argument
     }
 
     #[test]
-    fn error_preserves_realm_namespace_and_name() {
-        let issue = CommandRegistryIssue::error(
-            "error-realm",
-            "error-namespace",
-            "error-command",
-            "error".to_owned(),
-        );
-
-        assert_eq!(issue.realm, "error-realm");
-        assert_eq!(issue.namespace, "error-namespace");
-        assert_eq!(issue.name, "error-command");
-        assert!(issue.is_error);
+    fn multiple_must_be_last_query_consuming_argument() {
+        let mut metadata = CommandMetadata::new("test");
+        metadata.arguments = vec![
+            argument("values", true, false),
+            argument("tail", false, false),
+        ];
+        let report = metadata.check();
+        assert!(report.has_errors());
+        assert!(report
+            .issues()
+            .iter()
+            .any(|issue| issue.message().contains("starved")));
     }
 
     #[test]
-    fn check_reports_reserved_name_in_its_namespace() {
-        let mut metadata = CommandMetadata::default();
-        metadata.realm = "custom-realm".to_owned();
-        metadata.namespace = "custom-namespace".to_owned();
-        metadata.name = "ns".to_owned();
+    fn injected_argument_may_follow_multiple() {
+        let mut metadata = CommandMetadata::new("test");
+        metadata.arguments = vec![
+            argument("values", true, false),
+            argument("context", false, true),
+        ];
+        assert!(!metadata.check().has_errors());
+    }
 
-        let issues = metadata.check();
-
-        assert_eq!(issues.len(), 1);
-        assert_eq!(issues[0].realm, "custom-realm");
-        assert_eq!(issues[0].namespace, "custom-namespace");
-        assert_eq!(issues[0].name, "ns");
-        assert!(issues[0].is_error);
+    #[test]
+    fn injected_multiple_is_invalid() {
+        let mut metadata = CommandMetadata::new("test");
+        metadata.arguments = vec![argument("values", true, true)];
+        assert!(metadata.check().has_errors());
     }
 }
 
@@ -261,7 +225,7 @@ impl ArgumentType {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum ArgumentGUIInfo {
     /// Text field for entering a short text, e.g. a name or a title.
     /// Argument is a width hint specified in characters.
@@ -330,8 +294,20 @@ pub enum ArgumentGUIInfo {
     /// Parameter should not appear in the GUI
     Hide,
     /// No GUI information
-    #[default]
     None,
+}
+
+/// GUI hint used when an argument declaration omits `gui_info`.
+pub const DEFAULT_GUI: ArgumentGUIInfo = ArgumentGUIInfo::TextField(40);
+
+fn default_gui() -> ArgumentGUIInfo {
+    DEFAULT_GUI.clone()
+}
+
+impl Default for ArgumentGUIInfo {
+    fn default() -> Self {
+        default_gui()
+    }
 }
 
 /// CommandParameterValue represents a value of a command parameter.
@@ -567,7 +543,7 @@ pub struct ArgumentInfo {
     /// Preferred GUI entry widget, used to edit the argument in the UI.
     /// UI may ignore it and use a simple string input field.
     #[serde(skip_serializing_if = "gui_info_is_none")]
-    #[serde(default)]
+    #[serde(default = "default_gui")]
     pub gui_info: ArgumentGUIInfo,
 
     /// Free dictionary of hints for the argument.
@@ -593,13 +569,35 @@ impl ArgumentInfo {
             argument_type: ArgumentType::Any,
             multiple: false,
             injected: false,
-            gui_info: ArgumentGUIInfo::TextField(40),
+            gui_info: DEFAULT_GUI.clone(),
             hints: serde_json::Map::new(),
             presets: Vec::new(),
         }
     }
-    fn check(&self, _realm: &str, _namespace: &str, _name: &str) -> Vec<CommandRegistryIssue> {
-        Vec::new()
+    fn check(&self, realm: &str, namespace: &str, name: &str) -> IssueReport {
+        let mut report = IssueReport::default();
+        if self.name.is_empty() {
+            report.extend([Issue::command_registry(
+                IssueSeverity::Error,
+                realm,
+                namespace,
+                name,
+                "Argument name is empty",
+            )]);
+        }
+        if self.multiple && self.injected {
+            report.extend([Issue::command_registry(
+                IssueSeverity::Error,
+                realm,
+                namespace,
+                name,
+                format!(
+                    "Argument '{}' cannot be both multiple and injected",
+                    self.name
+                ),
+            )]);
+        }
+        report
     }
 
     pub fn resolve_global_enums(&self, cmr: &CommandMetadataRegistry) -> Result<Self, Error> {
@@ -616,7 +614,7 @@ impl ArgumentInfo {
             argument_type: ArgumentType::Any,
             multiple: false,
             injected: false,
-            gui_info: ArgumentGUIInfo::TextField(40),
+            gui_info: DEFAULT_GUI.clone(),
             hints: serde_json::Map::new(),
             presets: Vec::new(),
         }
@@ -629,7 +627,7 @@ impl ArgumentInfo {
             argument_type: ArgumentType::String,
             multiple: false,
             injected: false,
-            gui_info: ArgumentGUIInfo::TextField(40),
+            gui_info: DEFAULT_GUI.clone(),
             hints: serde_json::Map::new(),
             presets: Vec::new(),
         }
@@ -1122,26 +1120,41 @@ impl CommandMetadata {
     pub fn key(&self) -> CommandKey {
         CommandKey::new(&self.realm, &self.namespace, &self.name)
     }
-    pub fn check(&self) -> Vec<CommandRegistryIssue> {
-        let mut issues = Vec::new();
+    pub fn check(&self) -> IssueReport {
+        let mut issues = IssueReport::default();
         if self.name.is_empty() {
-            issues.push(CommandRegistryIssue::error(
+            issues.extend([Issue::command_registry(
+                IssueSeverity::Error,
                 &self.realm,
                 &self.namespace,
                 &self.name,
-                "Command name is empty".to_string(),
-            ));
+                "Command name is empty",
+            )]);
         }
         if self.name == "ns" {
-            issues.push(CommandRegistryIssue::error(
+            issues.extend([Issue::command_registry(
+                IssueSeverity::Error,
                 &self.realm,
                 &self.namespace,
                 &self.name,
-                "Command name 'ns' is reserved".to_string(),
-            ));
+                "Command name 'ns' is reserved",
+            )]);
         }
         for a in self.arguments.iter() {
-            issues.append(&mut a.check(&self.realm, &self.namespace, &self.name));
+            issues.append(a.check(&self.realm, &self.namespace, &self.name));
+        }
+        let mut multiple_argument = None;
+        for argument in &self.arguments {
+            if !argument.injected && argument.multiple && multiple_argument.is_none() {
+                multiple_argument = Some(&argument.name);
+            } else if !argument.injected {
+                if let Some(blocker) = multiple_argument {
+                    issues.extend([Issue::command_registry(
+                        IssueSeverity::Error, &self.realm, &self.namespace, &self.name,
+                        format!("Argument '{argument_name}' is starved by multiple argument '{blocker}'", argument_name = argument.name),
+                    )]);
+                }
+            }
         }
         issues
     }
@@ -1228,6 +1241,14 @@ impl CommandMetadataRegistry {
             default_namespaces: vec!["".to_string(), "root".to_string()],
             global_enums: HashMap::new(),
         }
+    }
+
+    pub fn check(&self) -> IssueReport {
+        let mut report = IssueReport::default();
+        for command in &self.commands {
+            report.append(command.check());
+        }
+        report
     }
 
     pub fn get_global_enum(&self, name: &str) -> Option<&EnumArgument> {
@@ -1346,6 +1367,27 @@ impl CommandMetadataRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn argument_gui_info_omission_uses_the_shared_text_field_default() {
+        let expected = DEFAULT_GUI.clone();
+        assert_eq!(ArgumentGUIInfo::default(), expected);
+        assert_eq!(ArgumentInfo::default().gui_info, expected);
+
+        let from_json: ArgumentInfo = serde_json::from_str(r#"{"name":"count"}"#).unwrap();
+        let from_yaml: ArgumentInfo = serde_yaml::from_str("name: count\n").unwrap();
+        assert_eq!(from_json.gui_info, expected);
+        assert_eq!(from_yaml.gui_info, expected);
+    }
+
+    #[test]
+    fn argument_gui_info_default_round_trips() {
+        let argument = ArgumentInfo::any_argument("count");
+        let json = serde_json::to_string(&argument).unwrap();
+        let restored: ArgumentInfo = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(restored.gui_info, DEFAULT_GUI.clone());
+    }
 
     #[test]
     fn test_with_async_setter() {

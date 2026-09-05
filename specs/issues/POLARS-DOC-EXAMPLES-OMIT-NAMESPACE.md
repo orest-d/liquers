@@ -2,7 +2,7 @@
 id: POLARS-DOC-EXAMPLES-OMIT-NAMESPACE
 kind: issue
 title: Polars reference example queries omit the ns-pl namespace and do not resolve
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [docs, lib/commands]
@@ -68,3 +68,9 @@ Found while correcting the `select_columns` / `drop_columns` spelling in the sam
 `specs/design/excess-action-parameters-error/`. Validating those examples to confirm the arity fix
 showed that they had never resolved for an unrelated reason. Kept separate because the namespace
 defect predates that design and is independent of it.
+
+## Resolution
+
+Closed on 2026-09-04. Every complete resource pipeline in `POLARS_COMMAND_LIBRARY.md` now includes
+`ns-pl` before its first Polars command. All ten corrected pipelines validate against the committed
+command registry; command fragments and historical sketches remain intentionally unqualified.

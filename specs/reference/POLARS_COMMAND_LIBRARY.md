@@ -3,7 +3,7 @@ title: Polars Command Library Specification
 kind: reference
 audience: internal
 area: [lib/polars]
-reviewed: 2026-08-25
+reviewed: 2026-09-04
 ---
 # Polars Command Library Specification
 
@@ -45,7 +45,7 @@ Commands are registered in the **`pl` namespace** and use **verbose, mnemonic na
 
 Queries use the format:
 ```
--R/data/file.csv/-/<command>-<arg1>-<arg2>/<command>-<arg1>...
+-R/data/file.csv/-/ns-pl/<command>-<arg1>-<arg2>/<command>-<arg1>...
 ```
 
 Where:
@@ -53,11 +53,12 @@ Where:
 - `/-/` separates the resource from operations
 - Operations are chained with `/` (not `/-/`)
 - Arguments within a command are separated by `-`
-- Namespace is selected with `ns-pl` command before first Polars operation (or default if in pl namespace)
+- Select the `pl` namespace with `ns-pl` before the first Polars operation, unless the caller has
+  already selected that namespace.
 
 Example:
 ```
--R/data/sales.csv/-/from_csv/select_columns-date-amount-status/gt-amount-1000/eq-status-completed/head-10
+-R/data/sales.csv/-/ns-pl/from_csv/select_columns-date-amount-status/gt-amount-1000/eq-status-completed/head-10
 ```
 
 ## Module Structure
@@ -160,7 +161,7 @@ Filter rows where condition is true. Can be chained for AND logic.
 - Works for numeric, string (lexicographic), and date/datetime columns
 - If multiple rows have the same min/max, all are returned
 
-**Example chain**: `-R/sales.csv/-/gt-amount-1000/eq-status-completed`
+**Example chain**: `-R/sales.csv/-/ns-pl/gt-amount-1000/eq-status-completed`
 
 ### Sorting (1-2 arguments: column [direction])
 
@@ -236,10 +237,10 @@ Out of scope.
 | `from_parquet` | *(none)* | Read Parquet from key | `ParquetReader::new()` | State provides path |
 
 **Examples**:
-- `-R/data/sales.csv/-/from_csv` (default comma separator)
-- `-R/data/sales.tsv/-/from_csv-tab` (tab-separated)
-- `-R/data/sales.txt/-/from_csv-semicolon` (semicolon-separated)
-- `-R/data/sales.txt/-/from_csv-pipe` (pipe-separated)
+- `-R/data/sales.csv/-/ns-pl/from_csv` (default comma separator)
+- `-R/data/sales.tsv/-/ns-pl/from_csv-tab` (tab-separated)
+- `-R/data/sales.txt/-/ns-pl/from_csv-semicolon` (semicolon-separated)
+- `-R/data/sales.txt/-/ns-pl/from_csv-pipe` (pipe-separated)
 
 **Note on `from_csv` vs automatic detection**:
 
@@ -258,13 +259,13 @@ With the `try_to_polars_dataframe` utility, many operations can work directly wi
 **Examples**:
 ```
 # Explicit - required for custom separator
--R/data/sales.tsv/-/from_csv-tab/head-10
+-R/data/sales.tsv/-/ns-pl/from_csv-tab/head-10
 
 # Automatic - works if sales.csv has proper extension
--R/data/sales.csv/-/head-10
+-R/data/sales.csv/-/ns-pl/head-10
 
 # Mixed - explicit first, then automatic
--R/data/sales.csv/-/from_csv/select_columns-date-amount/head-10
+-R/data/sales.csv/-/ns-pl/from_csv/select_columns-date-amount/head-10
 ```
 
 ---
@@ -276,7 +277,7 @@ With the `try_to_polars_dataframe` utility, many operations can work directly wi
 Filter sales where amount > 1000 and status is completed, select specific columns:
 
 ```
--R/data/sales.csv/-/from_csv/select_columns-date-amount-status/gt-amount-1000/eq-status-completed/head-10
+-R/data/sales.csv/-/ns-pl/from_csv/select_columns-date-amount-status/gt-amount-1000/eq-status-completed/head-10
 ```
 
 ---
@@ -464,7 +465,8 @@ The `try_to_polars_dataframe` utility function is the foundation of the entire c
    - Commands can also load DataFrames from CSV/Parquet in binary/text state
    - Single extraction point for all DataFrame operations
    - Consistent error messages
-   - Enables chaining: `-R/data.csv/-/from_csv/head-10` is equivalent to `-R/data.csv/-/head-10` if metadata indicates CSV format
+   - Enables chaining: `-R/data.csv/-/ns-pl/from_csv/head-10` is equivalent to
+     `-R/data.csv/-/ns-pl/head-10` if metadata indicates CSV format
 
 3. **Parameter Parsing**:
    - Parsing of arguments is done by the framework.   
@@ -854,6 +856,7 @@ To minimize dependencies and enable incremental testing:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-04 | Qualified every complete Polars resource pipeline with `ns-pl` and documented the namespace selection rule. | `POLARS-DOC-EXAMPLES-OMIT-NAMESPACE` |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
 | 2026-08-12 | Corrected `select_columns` / `drop_columns` usage to the `~_` escape and explained why: `-` separates parameters, so the plain dash form is an arity error since `EXCESS-ACTION-PARAMETERS-ERROR`. Other command examples verified against the registry with `liquers-validate`. | design/excess-action-parameters-error |
 | 2026-08-25 | `select_columns` / `drop_columns` are variadic: reverted the `~_` spelling to plain dashes, and rewrote the escaping note - `a-b` is now two columns and `a~_b` one column named `a-b`, a distinction the previous internal split could not express. | design/variadic-arguments-declaration |

@@ -1,11 +1,8 @@
 // Integration tests for volatility system
 use liquers_core::{
     assets::AssetManager,
-    command_metadata::{
-        ArgumentInfo, CommandMetadata, CommandMetadataRegistry, PayloadRequirement,
-    },
-    commands::{CommandArguments, CommandRegistry},
-    context::{Context, EnvRef, Environment, SimpleEnvironment},
+    command_metadata::PayloadRequirement,
+    context::{Context, Environment, SimpleEnvironment},
     error::Error,
     interpreter::make_plan,
     metadata::Status,
@@ -14,7 +11,6 @@ use liquers_core::{
     value::Value,
 };
 use liquers_macro::register_command;
-use std::sync::Arc;
 
 /// Test that volatile query creates plan with is_volatile = true
 #[tokio::test]

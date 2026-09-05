@@ -2,13 +2,12 @@
 
 ## Design Readiness
 
-- **Readiness:** needs-decision
-- **Leading issue:** **Proposed resolution - canonical default:** Use `TextField(40)` for an
-  otherwise unspecified argument in the macro, core constructor, declaration, and serde paths.
-- **Explanation:** A working compatible solution is fully specified, but the default is observable
-  UI metadata and changes metadata versions for macro-registered commands.
-- **Open questions:** **Proposed resolution - canonical default:** Approve `TextField(40)` rather
-  than a new type-aware policy; type-aware defaults are broader and should be a separate design.
+- **Readiness:** ready
+- **Leading issue:** Resolved: `TextField(40)` is the canonical default for an otherwise
+  unspecified argument.
+- **Explanation:** The shared constant keeps macro, core constructor, declaration, and serde
+  paths aligned while retaining explicit GUI metadata unchanged.
+- **Open questions:** None. Type-aware defaults remain a separate, broader design.
 
 ## Problem and Evidence
 

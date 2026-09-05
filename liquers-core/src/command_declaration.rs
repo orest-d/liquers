@@ -20,7 +20,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::command_metadata::{ArgumentGUIInfo, ArgumentInfo, CommandMetadata};
+#[cfg(test)]
+use crate::command_metadata::ArgumentGUIInfo;
+use crate::command_metadata::{ArgumentInfo, CommandMetadata, DEFAULT_GUI};
 use crate::error::{Error, ErrorType};
 
 /// How the input state reaches the callable.
@@ -739,7 +741,7 @@ fn fill_argument_defaults(argument: &mut Value) {
     // every other registration path uses — sets `TextField(40)`. Matching the constructor keeps
     // `metadata_version` stable for commands registered either way.
     if map.get("gui_info").is_none() {
-        if let Ok(default_gui) = serde_json::to_value(ArgumentGUIInfo::TextField(40)) {
+        if let Ok(default_gui) = serde_json::to_value(DEFAULT_GUI.clone()) {
             map.insert("gui_info".to_string(), default_gui);
         }
     }
@@ -749,29 +751,10 @@ fn fill_argument_defaults(argument: &mut Value) {
 /// argument. Global-enum references are deliberately not resolved: that needs a
 /// `CommandMetadataRegistry` and happens at registry insertion and plan building.
 fn validate(metadata: &CommandMetadata) -> Result<(), Error> {
-    if metadata.name.is_empty() {
-        return Err(parameter_error(
-            "a command declaration must have a non-empty `name`".to_string(),
-        ));
+    match metadata.check().short_summary("Command metadata") {
+        Some(summary) => Err(parameter_error(summary)),
+        None => Ok(()),
     }
-    let command = &metadata.name;
-    let last = metadata.arguments.len().saturating_sub(1);
-    for (position, argument) in metadata.arguments.iter().enumerate() {
-        if argument.name.is_empty() {
-            return Err(parameter_error(format!(
-                "command {command:?}: argument {position} must have a non-empty `name`"
-            )));
-        }
-        if argument.multiple && position != last {
-            return Err(parameter_error(format!(
-                "command {command:?}: the `multiple` argument {:?} must be the last argument, \
-                 but {:?} follows it",
-                argument.name,
-                metadata.arguments[position + 1].name
-            )));
-        }
-    }
-    Ok(())
 }
 
 /// Convenience for a host that has both halves in hand.

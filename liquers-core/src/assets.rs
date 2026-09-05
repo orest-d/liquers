@@ -1459,18 +1459,6 @@ impl<E: Environment> AssetRef<E> {
         Ok(())
     }
 
-    /// Leave dependency wait before retrying/resuming evaluation.
-    pub(crate) async fn leave_dependencies_for_resubmit(&self) -> Result<(), Error> {
-        let mut lock = self.data.write().await;
-        if lock.status == Status::Dependencies {
-            lock.set_status(Status::Submitted)?;
-            let _ = lock
-                .notification_tx
-                .send(AssetNotificationMessage::StatusChanged(Status::Submitted));
-        }
-        Ok(())
-    }
-
     /// Fail this asset because a dependency failed.
     pub(crate) async fn fail_due_to_dependency(&self, error: Error) -> Result<(), Error> {
         let mut lock = self.data.write().await;
@@ -1491,9 +1479,6 @@ impl<E: Environment> AssetRef<E> {
     ///
     /// Counterpart of [`enter_dependencies`](Self::enter_dependencies) for the inline
     /// wait path (truthful status flow `Processing → Dependencies → Processing`).
-    /// Unlike [`leave_dependencies_for_resubmit`](Self::leave_dependencies_for_resubmit)
-    /// — which re-parks as `Submitted` for the genuine resubmission path — this keeps
-    /// the caller's future as the live runner.
     pub(crate) async fn leave_dependencies_and_resume(&self) -> Result<(), Error> {
         let mut lock = self.data.write().await;
         if lock.status == Status::Dependencies {
@@ -2021,12 +2006,6 @@ impl<E: Environment> AssetRef<E> {
             .map_err(|e| {
                 Error::general_error(format!("Failed to send JobSubmitted message: {}", e))
             })
-    }
-
-    /// Reset the asset
-    pub(crate) async fn reset(&self) {
-        let mut lock = self.data.write().await;
-        lock.reset();
     }
 
     /// Process messages from the service channel
@@ -3327,6 +3306,7 @@ impl<E: Environment> AssetRef<E> {
     /// This is not a public method and should not be used outside the core.
     /// Only certain assets are allowed to be set (overriden) by the user.
     /// Use AssetManager::set_state instead.
+    #[cfg(test)]
     pub(crate) async fn set_value(&self, value: <E as Environment>::Value) -> Result<(), Error> {
         // TODO: Remove?
         eprintln!("Setting value for asset {}", self.id());
@@ -3355,56 +3335,6 @@ impl<E: Environment> AssetRef<E> {
             .map_err(|e| {
                 Error::general_error(format!("Failed to send JobFinishing message: {}", e))
             })?;
-        drop(lock);
-        self.persist_with_status_tracking(save_in_background, cancelled)
-            .await;
-        Ok(())
-    }
-
-    /// Set the complete state of the asset
-    /// This is not a public method and should not be used outside the core.
-    /// Only certain assets are allowed to be set (overriden) by the user.
-    /// Use AssetManager::set_state instead.
-    pub(crate) async fn set_state(
-        &self,
-        state: State<<E as Environment>::Value>,
-    ) -> Result<(), Error> {
-        eprintln!("Setting state for asset {}", self.id());
-        let mut lock = self.data.write().await;
-        let data = state.data_unchecked().clone();
-        lock.data = Some(data);
-        let mut merged_metadata = (*state.metadata).clone();
-        merged_metadata.with_type_identifier(state.data_unchecked().identifier().to_string());
-        merged_metadata.with_type_name(state.data_unchecked().type_name().to_string());
-        lock.metadata = merged_metadata;
-        lock.binary = None; // Invalidate binary
-        let status = lock.metadata.status();
-        let save_in_background = lock.save_in_background;
-        let cancelled = lock.is_cancelled();
-        if status == Status::Ready {
-            let _ = lock
-                .notification_tx
-                .send(AssetNotificationMessage::ValueProduced);
-            lock.service_sender()
-                .send(AssetServiceMessage::JobFinishing)
-                .map_err(|e| {
-                    Error::general_error(format!("Failed to send JobFinishing message: {}", e))
-                })?;
-        } else {
-            let res = lock.set_status(status);
-            if res.is_err() {
-                eprintln!(
-                    "WARNING: Asset {} set_state failed to set status: {}",
-                    lock.id,
-                    res.err().unwrap()
-                );
-            } else {
-                eprintln!(
-                    "WARNING: Asset {} set_state called with non-ready state, status set to {:?}",
-                    lock.id, lock.status
-                );
-            }
-        }
         drop(lock);
         self.persist_with_status_tracking(save_in_background, cancelled)
             .await;
@@ -3509,6 +3439,14 @@ pub(crate) fn load_command_versions_sync<E: Environment>(
     changed
 }
 
+/// Internal access to the runtime dependency graph.
+///
+/// Dependency tracking is automatic. Keeping this separate from [`AssetManager`]'s public
+/// operations prevents the graph implementation from becoming part of the supported API.
+pub(crate) trait DependencyManagerAccess<E: Environment> {
+    fn dependency_manager(&self) -> &crate::dependencies::DependencyManager<E>;
+}
+
 /// Asset evaluation, keyed mutation, recovery, directory, and lifecycle service.
 ///
 /// An [`Environment`] selects one implementation through its `AssetManager`
@@ -3528,8 +3466,10 @@ pub(crate) fn load_command_versions_sync<E: Environment>(
 /// [Where the key comes from](crate::assets#where-the-key-comes-from-and-how-to-read-it-back).
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[allow(private_bounds)]
 pub trait AssetManager<E: Environment>:
     crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSync
+    + DependencyManagerAccess<E>
 {
     /// Resolves a query to an asset.
     ///
@@ -3833,9 +3773,6 @@ pub trait AssetManager<E: Environment>:
     }
 
     // --- lifecycle / manager-primitive methods (moved from the concrete manager) ---
-
-    /// Access the runtime dependency manager.
-    fn dependency_manager(&self) -> &crate::dependencies::DependencyManager<E>;
 
     /// This manager's evaluation mode (constant per implementation).
     fn eval_mode(&self) -> EvalMode;
@@ -4179,8 +4116,6 @@ pub struct DefaultAssetManager<E: Environment> {
     monitor_tx: mpsc::UnboundedSender<ExpirationMonitorMessage<E>>,
     /// Runtime dependency graph for cascade expiration
     dependency_manager: crate::dependencies::DependencyManager<E>,
-    /// Maximum retries for DependencyVersionMismatch during evaluation
-    max_dependency_retries: u32,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -4211,7 +4146,6 @@ impl<E: Environment> DefaultAssetManager<E> {
             job_queue: job_queue.clone(),
             monitor_tx,
             dependency_manager: crate::dependencies::DependencyManager::new(),
-            max_dependency_retries: 3,
         };
         tokio::spawn(async move {
             job_queue.run().await;
@@ -5145,7 +5079,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
     ) -> Result<(), Error> {
         let _mutation = self.key_mutation_lock.lock().await;
 
-        /// Adds non-fatal metadata consistency warnings for externally supplied values.
+        // Adds non-fatal metadata consistency warnings for externally supplied values.
         // 1. Cancel any existing processing asset for this key
         if self.assets.contains_async(key).await {
             if let Some(asset_entry) = self.assets.get_async(key).await {
@@ -5247,7 +5181,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
     async fn set_state(&self, key: &Key, state: State<E::Value>) -> Result<(), Error> {
         let _mutation = self.key_mutation_lock.lock().await;
 
-        /// Adds non-fatal metadata consistency warnings for externally supplied state.
+        // Adds non-fatal metadata consistency warnings for externally supplied state.
         // 1. Cancel any existing processing asset for this key
         if self.assets.contains_async(key).await {
             if let Some(asset_entry) = self.assets.get_async(key).await {
@@ -5459,10 +5393,6 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
 
     // --- manager-primitive methods (delegate to inherent bodies / provide new ones) ---
 
-    fn dependency_manager(&self) -> &crate::dependencies::DependencyManager<E> {
-        DefaultAssetManager::dependency_manager(self)
-    }
-
     fn eval_mode(&self) -> EvalMode {
         EvalMode::Queued
     }
@@ -5533,6 +5463,13 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         key: Option<&Key>,
     ) -> bool {
         DefaultAssetManager::remove_expired_from_maps(self, asset_id, query, key).await
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl<E: Environment> DependencyManagerAccess<E> for DefaultAssetManager<E> {
+    fn dependency_manager(&self) -> &crate::dependencies::DependencyManager<E> {
+        DefaultAssetManager::dependency_manager(self)
     }
 }
 
@@ -6462,10 +6399,6 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
 
     // --- primitives ---
 
-    fn dependency_manager(&self) -> &crate::dependencies::DependencyManager<E> {
-        &self.dependency_manager
-    }
-
     fn eval_mode(&self) -> EvalMode {
         EvalMode::Inline
     }
@@ -6551,6 +6484,12 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             }
         }
         removed
+    }
+}
+
+impl<E: Environment> DependencyManagerAccess<E> for ImmediateAssetManager<E> {
+    fn dependency_manager(&self) -> &crate::dependencies::DependencyManager<E> {
+        &self.dependency_manager
     }
 }
 

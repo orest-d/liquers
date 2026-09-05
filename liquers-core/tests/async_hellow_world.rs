@@ -54,7 +54,7 @@ async fn test_async_hello_world() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn try_to_query() {
     let query_str = "-R/config/config.yaml/-/from_yaml";
-    let q = liquers_core::query::TryToQuery::try_to_query(query_str).unwrap();
+    let _q = liquers_core::query::TryToQuery::try_to_query(query_str).unwrap();
 }
 
 #[tokio::test]

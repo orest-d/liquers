@@ -1761,7 +1761,7 @@ impl Store for MemoryStore {
     }
 
     fn makedir(&self, key: &Key) -> Result<(), Error> {
-        let key = key.as_absolute()?;
+        let _ = key.as_absolute()?;
         // TODO: implement correct makedir
         Ok(())
     }

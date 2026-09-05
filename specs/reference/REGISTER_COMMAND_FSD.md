@@ -3,7 +3,7 @@ title: register_command! Macro Functional Specification
 kind: reference
 audience: internal
 area: [macro, core/commands]
-reviewed: 2026-08-30
+reviewed: 2026-09-04
 ---
 # register_command! Macro Functional Specification
 
@@ -30,6 +30,10 @@ Where they *deliberately* differ is the default label. This macro derives `foo b
 the declaration path derives `Foo bar`, and `liquers-web` keeps the name verbatim. Unifying them is
 a behaviour change that would move existing commands' `metadata_version`, so it has been left
 alone — see `specs/design/command-declaration/phase2-architecture.md` open question 2.
+
+An argument with no explicit `gui:` statement uses `command_metadata::DEFAULT_GUI`. The same
+constant supplies the serde default and declaration path, so every registration route uses the
+same `TextField(40)` hint.
 
 ## Basic Usage Pattern
 
@@ -454,7 +458,7 @@ Generates (simplified):
             argument_type: ArgumentType::String,
             multiple: false,   // `true` when the parameter is declared `multiple`
             injected: false,
-            gui_info: ArgumentGUIInfo::TextField(20),
+            gui_info: DEFAULT_GUI.clone(),
             ..Default::default()
         }];
         cm.with_filename("");
@@ -607,6 +611,7 @@ pub fn register_commands(mut env: DefaultEnvironment<Value>) -> Result<DefaultEn
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-04 | Made omitted argument `gui_info` use the shared `command_metadata::DEFAULT_GUI` (`TextField(40)`) in macro, declaration, and serde paths. | `ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS` |
 | 2026-08-30 | Added §The runtime counterpart, pointing at the new `COMMAND_DECLARATION.md` and naming the one deliberate divergence (the default label rule) and the test that holds the rest in agreement. | `design/command-declaration/` |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
 | 2026-08-25 | Documented the `multiple` argument flag: grammar slot shared with `injected`, the container-type requirement, element-derived `ArgumentType`, the empty-list default, the last-argument rule, `get_multiple` retrieval, and the six compile-time rejections. | design/variadic-arguments-declaration |

@@ -1,7 +1,7 @@
 # Phase 4: Implementation Plan
 
-1. In `liquers-core/src/command_metadata.rs`, add the shared serde-compatible 40-column default,
-   wire `ArgumentInfo.gui_info` to it, and add the Phase 3 omission/round-trip tests. Prove with the
+1. In `liquers-core/src/command_metadata.rs`, add the shared `DEFAULT_GUI` 40-column constant,
+   wire `ArgumentInfo.gui_info` to a clone of it, and add the Phase 3 omission/round-trip tests. Prove with the
    focused core tests; rollback is confined to the helper and attribute.
 2. In `liquers-macro/src/registration.rs`, replace the implicit 20-column expression while leaving
    parsed `gui:` statements untouched; update and add expansion tests. This depends on step 1 and is

@@ -322,7 +322,11 @@ mod tests {
         let json = std::fs::read_to_string(root.join("data/entities.json"))?;
         let table: std::collections::BTreeMap<String, String> = serde_json::from_str(&json)?;
         let expected = codegen::generate(&table)?;
-        let actual = std::fs::read_to_string(root.join("src/entities_data.rs"))?;
+        // The generator produces LF text, while a Windows checkout may materialize the tracked
+        // file with CRLF. The generated tokens, not the checkout's line-ending policy, are the
+        // invariant this test verifies.
+        let actual = std::fs::read_to_string(root.join("src/entities_data.rs"))?
+            .replace("\r\n", "\n");
         assert_eq!(
             actual, expected,
             "src/entities_data.rs is stale — run \
