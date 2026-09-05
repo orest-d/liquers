@@ -81,6 +81,15 @@ Either way the outcome should distinguish three cases that are currently one:
 The third row is the rule already decided on `KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS`;
 the first is the one no mechanism can reach today.
 
+**Relationship to `keyed-expiry-cascade-fix`: follow-up, not a prerequisite.** That design ships an
+approximation — on an unregistered dependency key, register the recorded version *provisionally*
+and let the later real registration decide. That is deferred verification rather than absent
+verification: a persisted asset's version enters the manager the moment anything loads it, and
+`register_version` then compares and cascades on a difference. It leaves one case for this issue to
+close, which is the third row above: a dependent persisted against a dependency that was never
+persisted is fast-tracked warm, nothing ever loads the dependency, and the correction never
+arrives. Whichever mechanism this issue adopts must expire that dependent rather than confirm it.
+
 Where the store access lives is the design question. The manager holding a store handle is the
 direct route and the largest change to what `DependencyManager` is; performing the lookup in
 `DefaultAssetManager` before calling `add_dependency`, and passing the result in, keeps the graph

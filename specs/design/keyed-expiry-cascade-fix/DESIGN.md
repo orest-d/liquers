@@ -140,6 +140,18 @@ Both are Phase 2 material and both are named as Phase 1 open questions rather th
    breaks the non-durable one, because fast-track serves a dependent without evaluating it, so the
    dependency is never consulted and the staleness never surfaces.
 
+   **Sequencing, decided the same day: the approximation ships and the new issue is follow-up.**
+   Provisional registration is deferred verification, not absent verification — a persisted asset's
+   version enters the manager the moment anything loads it (`try_fast_track` registers
+   `metadata.version()` then replays the record's edges; `track_asset` does the same after an
+   evaluation), and `register_version` compares it against the provisional entry and cascades on a
+   difference. It is also continuous with what `add_dependency` already does for an unknown
+   version. The one residual case — a dependent persisted against a dependency that was never
+   persisted, so nothing ever loads it and the correction never arrives — is exactly the new
+   issue's *absent → expire* row, and falls inside the owner's stated exception for an inconsistent
+   persisted state. Phase 3 pins the accepted behaviour with a test so the follow-up has something
+   to change.
+
 ### Not a duplicate
 
 The completed `dependency-management` design already *intended* this: its Phase 4 Step 3 documents
@@ -149,6 +161,17 @@ The completed `dependency-management` design already *intended* this: its Phase 
 This folder is the omission, not a second design of the same thing. No open design covers it —
 `refresh-command-metadata-versions` (complete) is about `ns-dep/command_*` versions, which are
 already real.
+
+## Open questions at the Phase 1 gate
+
+| # | State |
+|---|---|
+| 1 Assignment point | Decided — as early as it can be final, never provisional |
+| 2 Unregistered dependency key | Decided — provisional registration, with `DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE` as follow-up |
+| 3 Fallback clock | Open — `chrono::Utc::now()` (wasm-safe, used everywhere else) vs `SystemTime` (what `Version::from_time_now` uses, unsupported on `wasm32-unknown-unknown`). Not blocking |
+| 4 `expire_internal` root guard | Open with a leading answer — keep `skip_cascade` as the zero-version policy mechanism, correct the comment. Not blocking |
+| 5 `try_fast_track` version ordering | Open — largely absorbed by decision 2; Phase 2 confirms |
+| 6 Does this discharge the `stale-dependency-status-finalization` blocker | Deferred to Phase 5 by design |
 
 ## Phase 1 critical review (2026-09-05)
 
@@ -162,10 +185,9 @@ Against the Phase 1 checklist:
 - **Documentation needs** — all four questions answered with rationale: extend
   `DEPENDENCIES_STATUS.md` (it owns the statements this change falsifies), no guide, no other new
   documents, five specific updates listed.
-- **Open questions** — six as drafted, none blocking. Question 1 (assignment point) was decided by
-  the owner on 2026-09-05 and is now recorded as a decision rather than a question; questions 2 and
-  3 are the two that still change what is built; 4 and 5 are decisions with a leading answer; 6 is
-  deferred to Phase 5 by design.
+- **Open questions** — six as drafted; the owner settled 1 and 2 during the Phase 1 gate, and both
+  are recorded as decisions with their reasoning rather than as questions. Nothing outstanding
+  blocks Phase 2 — see the table above.
 
 One checklist item is deliberately not met: the document exceeds 30 lines. The scope is a
 three-line guard whose *consequences* span four mechanisms, and compressing the consequence list is
@@ -178,7 +200,7 @@ what let the previous design mis-scope this work.
 | `SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY` | P2 | M | Filed 2026-09-05 at the owner's request when scoping the one-serialization decision. Pre-existing at HEAD; this design makes the retention deliberate rather than incidental, and explicitly does not fix it |
 | `SERIALIZE-TO-BINARY-CONSULTS-THE-READ-GATE` | P2 | — | Already filed. Serializing at finalization needs the ungated read; the same correction `stale-dependency-status-finalization` needs as its C1 |
 | `EVALUATE-DOES-NOT-CLEAR-CACHED-BINARY` | P2 | S | Already filed. Latent today; finalization writing the binary cache on the same path makes the invariant worth stating |
-| `DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE` | P1 | M | Filed 2026-09-05 at the owner's request. The capability the durable branch of open question 2 needs; may be a prerequisite rather than follow-up work |
+| `DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE` | P1 | M | Filed 2026-09-05 at the owner's request. **Follow-up, not a prerequisite** — this design ships provisional registration as the approximation, and that issue replaces it with real verification |
 
 ## Links
 

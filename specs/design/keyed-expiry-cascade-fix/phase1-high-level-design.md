@@ -377,19 +377,41 @@ this design cannot leave it untouched and cannot simply relax it either:
   cheap approximation of the store consultation, which is why it should be judged against that
   issue rather than on its own.
 
-Phase 2 chooses between these, or declares
-`DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE` a **prerequisite** and sequences the two
-efforts. That sequencing judgement is now the substance of open question 2.
+### The approximation is accepted; the new issue is follow-up, not a prerequisite (2026-09-05)
+
+> "I think approximation is ok. Dependency manager deals already with situation when some dependency
+> versions are not known. The version of a persistent asset becomes known after it is loaded and at
+> that point the dependency manager would react. This behavior is only incorrect when the persisted
+> state is inconsistent — corrupted or tampered with."
+
+**Provisional registration it is**, and
+`DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE` becomes follow-up work rather than a gate.
+The reasoning holds against the code: a persisted asset's version enters the manager the moment
+anything loads it — `try_fast_track` registers `self.metadata.version()` and then replays the
+record's edges, and `track_asset` does the same after an evaluation — and `register_version`
+compares against the provisional entry and cascades on a difference. The dependent is corrected at
+that point without anything new being built. Deferred verification, not absent verification.
+
+It is also the smaller change: `add_dependency` already tolerates an unknown version by recording
+the edge and skipping the check, so extending "we do not know yet" to cover an unregistered key is
+continuous with what the manager does rather than a new posture.
+
+**One residual case, and it is already the new issue's third row.** The correction depends on
+something eventually loading the dependency. A dependent persisted against a dependency that was
+*never* persisted — the non-serializable keyed asset from the durability decision above — is
+fast-tracked warm, and because fast-track serves it without evaluating, nothing loads the
+dependency and the correction never arrives. This is not a fourth thing to solve: it is exactly
+`DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE`'s *absent → expire the dependent* row, and
+it also sits inside the exception the owner names, since a record referencing a version the store
+never held is an inconsistent persisted state. Phase 3 should have a test that pins the accepted
+behaviour so the follow-up has something to change.
+
+With this, open question 2 is closed and no open question blocks Phase 2.
 
 ## Open Questions
 
 1. *(decided — see "Owner decisions" above)*
-2. **Interim rule for an unregistered dependency key, or sequence behind the new issue?** The
-   end state is settled — consult the durable version, per
-   `DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE` (P1, M). What is open is whether this
-   design ships an approximation (provisional registration) or waits for that issue, since turning
-   real versions on makes today's "absence means mismatch" the ordinary cold-start path. Reasoning
-   under "Durable versions are correct, and consulting them is separate work".
+2. *(decided — provisional registration; see "The approximation is accepted" above)*
 3. **Which clock, and does the tracking-time net re-persist?** The fallback itself is decided —
    a time-based version, layered as above. What remains: `chrono::Utc::now()` (wasm-safe, what the
    rest of the codebase uses for wall time) or `std::time::SystemTime`, which is what
