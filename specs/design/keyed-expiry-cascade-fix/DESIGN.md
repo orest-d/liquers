@@ -1,0 +1,692 @@
+---
+id: KEYED-EXPIRY-CASCADE-FIX
+kind: design
+title: Versions for computed keyed assets, so keyed expiry cascades
+workflow: liquers-project
+status: complete
+area: [core/assets]
+issues: [KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS, DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE, DEPENDENCY-RECORD-VERSION-CAPTURED-BEFORE-DEPENDENCY-EVALUATES, PLAN-DEPENDENCY-RECORDS-HARDCODE-VERSION-ZERO, DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE]
+gh_pr: []
+affects_docs: [DEPENDENCIES_STATUS, ASSETS, ASSET_LIFECYCLE]
+created: 2026-09-05
+superseded_by:
+---
+# keyed-expiry-cascade-fix Design Tracking
+
+**Created:** 2026-09-05
+
+## Phase Status
+
+- [x] Phase 1: High-Level Design (approved 2026-09-05)
+- [x] Phase 2: Solution & Architecture (approved 2026-09-05)
+- [x] Phase 3: Examples & Testing (approved 2026-09-05; **partly superseded by Phase 2 Revision 2**)
+- [x] Phase 4: Implementation Plan (approved 2026-09-06, after Revisions 2.1-2.6)
+- [x] Phase 5: Documentation (2026-09-06)
+- [x] Implementation Complete
+
+## Notes
+
+Designs the fix for `KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS` (P1, L), under the project
+owner's decision of 2026-09-05 recorded on that issue: **option 2 — computed assets get real
+versions**, hashed from the bytes they serialize to, with a fallback for those that do not
+serialize. It unblocks `stale-dependency-status-finalization`, which is parked on this gap.
+
+### Verified live at HEAD before drafting Phase 1
+
+- `MetadataRecord.version` is written in exactly four places, all hand-in paths:
+  `DefaultAssetManager::set_binary` (`assets.rs:5136`), `set_state` (`:5244`), and the immediate
+  manager's pair (`:6316`, `:6363`). `evaluate` (`:2507`), `try_to_set_ready` (`:1803`),
+  `serialize_to_binary` (`:2697`) and `save_to_store` (`:2583`) never set it. The issue's line
+  numbers (5203/5313/6379/6429) predate a later edit; the four sites are the same four.
+- `track_asset` therefore registers `mr.version.unwrap_or(Version::new(0))` — unknown — for every
+  computed keyed asset (`dependencies.rs:302`), and `expire_internal`'s `skip_cascade`
+  (`:591-599`) is taken on the first iteration for all of them.
+- The condition guarding that check, `include_root || current != *key` (`:592`), is **vacuously
+  true on both call paths**: with `include_root` the root is the first queue entry and the
+  left disjunct holds; without it the root is never enqueued and the right one does. Its comment
+  claims an exemption "(except for the root key)" that the code does not implement.
+- Baseline is green before any change: `liquers-core` 793 lib tests, `expiration_integration` 34,
+  `dependency_manager_integration` 5, `dependency_scheduling` 4 — 0 failures
+  (2026-09-05, `CARGO_INCREMENTAL=0`).
+
+### Two consequences found while drafting, beyond the issue's list
+
+Both are Phase 2 material and both are named as Phase 1 open questions rather than assumed away:
+
+1. **Real versions make `add_dependency`'s consistency check reachable, and its answer for an
+   unregistered dependency is "mismatch".** `version_consistent` returns `false` when the manager
+   holds no version for the key (`dependencies.rs:215`), and `add_dependency` turns that into
+   `expire(dependent)` (`:242`). Today a computed dependency's recorded version is unknown, so the
+   check is skipped. With real versions, `load_from_records` on a cold start — from
+   `try_fast_track` or `track_asset` — would expire a persisted dependent loaded before its
+   dependency, which is the ordinary order. That would trade stale reads for a cold cross-process
+   cache rather than fix anything. `load_from_records`'s own doc comment ("Ignores
+   `DependencyVersionMismatch` errors") already misdescribes this: `add_dependency` returns
+   `Ok(expired)`, not an error, so nothing is ignored.
+2. **The assignment point is observable.** `record_dependency_on_asset` reads the version out of
+   the child's *live metadata* (`assets.rs:1564`), and `try_to_set_ready` publishes `ValueProduced`
+   before persistence and before `track_asset`. So a version set during persistence is invisible to
+   a parent that has already read the child, and a version set at finalization is visible before
+   the dependency manager knows it. Whichever is chosen has to be chosen deliberately.
+
+   **Decided by the owner, 2026-09-05** (Phase 1 §"Owner decisions"): as early as possible, even
+   before `track_asset`, subject to the version being **stable** — published once, never revised.
+   That rules out a provisional timestamp at asset creation, which a later hash would overwrite,
+   and it rules out assignment during persistence, which is after a parent can have read the child.
+   The earliest final point for a hash is status finalization, once the value is installed and its
+   bytes can be computed. Whether the dependency manager's `versions` registration must move
+   earlier alongside the metadata assignment is left to Phase 2.
+
+   **Mechanism confirmed by the owner, same day:** finalization serializes once, hashes those
+   bytes, and leaves them in `AssetData::binary` for `save_to_store` to reuse — so the version and
+   the stored bytes are the same bytes by construction, not two serializations trusted to agree.
+   Only non-volatile keyed assets. Binary *disposal* is explicitly out of scope and is filed as
+   `SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY` (P2, M); the retention it describes already
+   exists at HEAD and this design does not enlarge the retained set.
+
+   **Delegation, decided the same day:** a delegating asset takes the delegate's version rather
+   than computing one, so the two are equal by construction. Required, not cosmetic — both resolve
+   to the same key and therefore the same graph node, a parent reads the version from the
+   *delegating* asset's metadata while the manager holds the one registered by the *delegate*
+   (`track_asset` uses `bound_owner_key`, `None` for a keyed non-owner), so any inequality makes
+   `add_dependency` expire a fresh parent. It also settles the redundant-serialization concern: a
+   delegating asset does not serialize at all.
+
+   **Nonzero-version guarantee, proposed by the owner and accepted with a limit:** a fallback at
+   the start of tracking replaces `Version(0)` with a time-based version, so `track_asset` — the
+   single funnel for a keyed asset's version — is a net under every way the primary path can fail.
+   The limit answers the owner's own "when would that be a problem": `track_asset` runs *after*
+   persistence, so a version invented there never reaches the store; the parent persists it in its
+   `DependencyRecord`, and after a restart the child registers a different one or none, which
+   expires the parent. It is therefore an **in-process guarantee, not a durable one**, and the
+   fallback is layered: the time-based version is assigned at *finalization* (before persistence,
+   so the store carries it) and the tracking-time net catches only the residue, recording in the
+   metadata log that it fired so a silently-broken primary path cannot hide behind it.
+
+   **`Version(0)` stays supported and gains a single meaning.** It currently conflates an accident
+   ("nobody computed one") with a policy ("does not participate in version-based invalidation").
+   Once every path assigns a version, a zero can only have arrived deliberately, so zero becomes
+   the policy sentinel by construction — no new type, field or migration, and `matches`,
+   `version_consistent`, `add_dependency` and `expire_internal`'s `skip_cascade` branch all keep
+   working unchanged as its implementation. That is the reason to keep `skip_cascade` rather than
+   delete it, and it simplifies open question 4 to "correct the comment".
+
+   **Durability, decided the same day:** the net does **not** re-persist, and losing a
+   fallback-versioned asset's dependents across a restart is the intended outcome. The owner's
+   rule — an asset that is not durable and cannot be provably reconstructed with the same value
+   should be effectively expired on restart — matches the path exactly: a non-serializable computed
+   keyed asset leaves *no* durable trace, because the evaluate path's `save_to_store` propagates
+   the `SerializationError` and writes nothing, not even metadata-only (unlike `set_state`, which
+   falls back to `store.set_metadata`). Version persistence for such assets is future work if it is
+   ever needed, recorded on the issue rather than built here.
+
+   This **sharpens** open question 2 without answering it. "Expire when the version cannot be
+   verified" is narrower than what the code does — "expire when the manager has not registered the
+   dependency yet" — and they differ precisely in the durable case: `K` on disk carrying `v1`,
+   dependent `D` recording `K@v1`, restart, `D` loaded first, `D` expired for a dependency that
+   could have been confirmed. Phase 2's leading answer is a provisional registration of the
+   recorded version on an unregistered edge, which yields the warm cache in the durable branch and
+   the owner's required expiry in the non-durable one, from the existing `register_version`
+   comparison and no new structure.
+
+   **Durable versions, decided the same day:** they are correct, and the manager should consult
+   them — by loading at startup or verifying dynamically. Scoped out as
+   `DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE` (P1, M), since `DependencyManager` holds
+   no store handle at all (five `scc` maps and a mutex; it is generic over `E` but holds no
+   environment) and `AssetManager::start` loads command versions and nothing else. Open question 2
+   becomes a *sequencing* judgement: this design ships an approximation, or the new issue is a
+   prerequisite. Relaxing the check instead is not available — it fixes the durable branch and
+   breaks the non-durable one, because fast-track serves a dependent without evaluating it, so the
+   dependency is never consulted and the staleness never surfaces.
+
+   **Sequencing, decided the same day: the approximation ships and the new issue is follow-up.**
+   Provisional registration is deferred verification, not absent verification — a persisted asset's
+   version enters the manager the moment anything loads it (`try_fast_track` registers
+   `metadata.version()` then replays the record's edges; `track_asset` does the same after an
+   evaluation), and `register_version` compares it against the provisional entry and cascades on a
+   difference. It is also continuous with what `add_dependency` already does for an unknown
+   version. The one residual case — a dependent persisted against a dependency that was never
+   persisted, so nothing ever loads it and the correction never arrives — is exactly the new
+   issue's *absent → expire* row, and falls inside the owner's stated exception for an inconsistent
+   persisted state. Phase 3 pins the accepted behaviour with a test so the follow-up has something
+   to change.
+
+### Not a duplicate
+
+The completed `dependency-management` design already *intended* this: its Phase 4 Step 3 documents
+`version` as "the content-hash version of the asset computed at save time
+(`Version::from_bytes(content)`)", and the field carries that sentence as its doc comment in
+`metadata.rs:938` today. The field and both constructors landed; the evaluate-path call never did.
+This folder is the omission, not a second design of the same thing. No open design covers it —
+`refresh-command-metadata-versions` (complete) is about `ns-dep/command_*` versions, which are
+already real.
+
+## Open questions at the Phase 1 gate
+
+| # | State |
+|---|---|
+| 1 Assignment point | Decided — as early as it can be final, never provisional |
+| 2 Unregistered dependency key | Decided — provisional registration, with `DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE` as follow-up |
+| 3 Fallback clock | Open — `chrono::Utc::now()` (wasm-safe, used everywhere else) vs `SystemTime` (what `Version::from_time_now` uses, unsupported on `wasm32-unknown-unknown`). Not blocking |
+| 4 `expire_internal` root guard | Open with a leading answer — keep `skip_cascade` as the zero-version policy mechanism, correct the comment. Not blocking |
+| 5 `try_fast_track` version ordering | Open — largely absorbed by decision 2; Phase 2 confirms |
+| 6 Does this discharge the `stale-dependency-status-finalization` blocker | Deferred to Phase 5 by design |
+
+## Phase 1 critical review (2026-09-05)
+
+Against the Phase 1 checklist:
+
+- **Scope clarity** — purpose states one defect and one cause. Interactions are enumerated by
+  mechanism (four of them) rather than by file, so the blast radius is legible.
+- **No duplication** — checked against `dependency-management`, `refresh-command-metadata-versions`
+  and `stale-dependency-status-finalization`; recorded above.
+- **Philosophy/layering** — `liquers-core` only, no API change, async paths unchanged.
+- **Documentation needs** — all four questions answered with rationale: extend
+  `DEPENDENCIES_STATUS.md` (it owns the statements this change falsifies), no guide, no other new
+  documents, five specific updates listed.
+- **Open questions** — six as drafted; the owner settled 1 and 2 during the Phase 1 gate, and both
+  are recorded as decisions with their reasoning rather than as questions. Nothing outstanding
+  blocks Phase 2 — see the table above.
+
+One checklist item is deliberately not met: the document exceeds 30 lines. The scope is a
+three-line guard whose *consequences* span four mechanisms, and compressing the consequence list is
+what let the previous design mis-scope this work.
+
+## Issues this work has produced
+
+| Issue | P | Cx | Relationship |
+|---|---|---|---|
+| `SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY` | P2 | M | Filed 2026-09-05 at the owner's request when scoping the one-serialization decision. Pre-existing at HEAD; this design makes the retention deliberate rather than incidental, and explicitly does not fix it |
+| `SERIALIZE-TO-BINARY-CONSULTS-THE-READ-GATE` | P2 | — | Already filed. Serializing at finalization needs the ungated read; the same correction `stale-dependency-status-finalization` needs as its C1 |
+| `EVALUATE-DOES-NOT-CLEAR-CACHED-BINARY` | P2 | S | Already filed. Latent today; finalization writing the binary cache on the same path makes the invariant worth stating |
+| `DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE` | P1 | M | Filed 2026-09-05 at the owner's request. **Follow-up, not a prerequisite** — this design ships provisional registration as the approximation, and that issue replaces it with real verification |
+
+## Phase 2 review (2026-09-05)
+
+Two reviewers in parallel, then the fix applied directly.
+
+**Reviewer A (Phase 1 conformity) — no findings.** All four owner decisions are implemented, all
+six Phase 1 questions are decided, carried to the gate, or deferred to Phase 5, the two invariants
+Phase 1 asked Phase 2 to state are stated, and the documentation plan covers everything Phase 1
+promised. No scope drift: the two absorbed issues were already named by Phase 1 as consequences.
+
+**Reviewer B (codebase alignment) — one blocking finding, and every other claim verified.** It
+checked thirteen factual claims against source and confirmed all of them, including the two that
+carry load-bearing arguments: `load_command_versions_sync` really registers every command at
+`start()` and skips `is_unknown()` versions, and `register_plan_dependencies` only records an edge
+when `get_version` returns `Some` — which is what makes the command-key exception sound. It also
+confirmed no entry guard is held across an `.await` in the proposed `add_dependency` change.
+
+The blocking finding is a test the architecture invalidates and the document had not listed:
+`add_dependency_fails_unregistered_dep` (`dependencies.rs:835`) registers `-R/a`, leaves `-R/b`
+unregistered, and asserts the dependent expires. Those are asset keys, so under the provisional
+rule `a` must **not** expire. Phase 2 now carries an "Existing Tests This Changes" table covering
+it and six neighbours — including the one it pairs with, a new
+`add_dependency_expires_on_unregistered_command_dep`, so the two branches cannot be collapsed
+later. Its old name is worth noting: `..._fails_unregistered_dep` records a behaviour nobody chose,
+which is how the conflation of "not loaded" with "changed" survived this long.
+
+**No fixer agent was launched.** The workflow calls for one when reviewers surface issues; a single
+finding whose fix was already fully understood did not warrant a cold agent re-deriving the
+context, and the correction was applied directly. Reviewer B's two "advisory" items were the
+absorbed issues restated as code changes, already in the document.
+
+Also added after the review: the `wasmbind` evidence for the clock recommendation, and a section
+recording the two in-code doc comments this change makes load-bearing and must correct
+(`load_from_records`'s non-existent `DependencyVersionMismatch`, and `expire_internal`'s
+non-existent root exemption).
+
+## Phase 2 gate decisions (2026-09-05)
+
+- **Clock: chrono, and the purpose is uniqueness rather than time.** Cross-platform confirmed —
+  `chrono`'s default `wasmbind` routes `Utc::now()` through `js_sys::Date` on
+  `wasm32-unknown-unknown`, and the repository already relies on it (every metadata timestamp and
+  expiry comparison), while `std::time::SystemTime::now()` is the unsupported one. The reframing
+  narrows the build: the clock's only job is separating *processes* — a counter alone restarts at
+  zero and could re-issue a version another process handed out, which is the case the durability
+  decision needs to expire — so `Version::new_unique()` is reimplemented on chrono, keeping its
+  atomic counter, and the fallback path calls it rather than `from_time_now()`.
+- **Scope addition accepted at the gate:** `from_time_now` also moves to chrono and the two
+  existing non-serializable fallbacks (`set_state` on both managers) call `new_unique()`, removing
+  `SystemTime::now()` from `liquers-core` and closing a reachable wasm hazard rather than fixing
+  the new path and leaving the old one. Three lines.
+- **Test surface: no new value type, no new code.** `Value::as_bytes` already refuses an integer
+  for the `bin` data format and accepts a string, and `data_format` is seeded from the key's
+  extension — so `count.bin` returning `I32` is the non-serializable case and `greeting.txt`
+  returning `Text` the serializable control, differing in one character of a filename.
+- **`expire_internal` root guard: delete the vacuous condition** — confirmed. The comment's claimed
+  root exemption is deleted rather than implemented, because an asset opted out of version-based
+  invalidation should stay out even as the root of an explicit expiry.
+- **Not verified by compilation:** the wasm claims are reasoning, not evidence — the target is not
+  installed here. Phase 4 adds it and runs the existing build-matrix wasm rows.
+
+**Phase 2 approved 2026-09-05.** No open question carried into Phase 3.
+
+## Phase 3 review (2026-09-05), and a correction to the problem statement
+
+**The measurement matters more than the reviews.** Before writing the tests, a throwaway probe
+built the three-link chain fixture and ran it against HEAD. It disproves a sentence the issue,
+Phase 1 and Phase 2 all carry:
+
+```
+statuses AFTER expire(a) : a=Expired  b=Expired  c=Ready
+after recompute, expire(b): b=Expired  c=Expired
+```
+
+Invalidation reaches **direct** dependents today and never propagates. One level per expiry, always
+exactly one. A keyed asset sits in both maps — `Context::evaluate` calls `add_dependent_asset`
+whenever the current asset is keyed — and `expire_internal` collects `dependent_assets` outside the
+`skip_cascade` guard while traversing `keyed_dependents` inside it. So the weak-reference route
+always fires once, and the graph route, the only one that enqueues a node, never runs.
+
+Nothing about the fix changes. What changes is the test: **a two-asset test passes at HEAD**, which
+is why 34 expiration tests are green over a P1 defect, and why the regression test needs three
+links. The issue, Phase 1 and Phase 2 are corrected.
+
+The probe also settled four facts the tests depend on, none of which were assumptions any more:
+`a.txt` stores exactly `b"Hello"` (so I1's expected hash is known); a non-serializable keyed asset
+ends `Ready` with `PersistenceStatus::NonSerializable` and **nothing in the store** — the empirical
+confirmation of the durability decision's premise; a query asset carries no version; and
+`evaluate()` returns an asset that may still be `Processing`, so `get()` must be awaited before
+`status()` is read (this cost two probe runs, and is now pitfall P11).
+
+**Reviewer 1 (Phase 1/2 conformity) — two blocking findings, both accepted.**
+(a) Phase 2 explicitly asked Phase 3 to record why `version_consistent` and `add_dependency` now
+disagree about an unregistered key, and Phase 3 had not. Added as U9, a single test asserting both
+halves, because the asymmetry is the point and a reader who sees only one half "fixes" it.
+(b) The P3 ordering constraint was left as "Phase 4 should" — it is now a stated Phase 4
+precondition, since a code comment is the only artefact that survives a refactor for a constraint
+no test can hold. Three advisories also accepted: the test count was wrong and is now derived from
+the table; I1 cannot prove the single-serialization property because `Value::Text` encodes
+deterministically, which is now said outright; and U5 asserts on the transitive node rather than on
+a count, so it forces the root-guard change.
+
+**Reviewer 2 (test realism) — no blocking findings.** It verified seventeen claims against source,
+including the one the whole fixture rests on: `Recipe::store_to_key()` derives the target key from
+the query's trailing filename, so `Recipe::new("-R/a.txt/-/world/b.txt", …)` really produces
+`b.txt`. One over-read to note: it cited the probe as evidence that "expiry cascades", which is
+what the probe's own output disproves at the second level — a reminder that a reviewer reading a
+transcript is not a substitute for reading the numbers.
+
+## Phase 4 review: one blocking finding, and the design needs a scope decision (2026-09-05)
+
+Two reviewers passed the plan — conformity clean, executability clean, including the item flagged
+as highest-risk (`track_asset`'s lock discipline is safe, because the existing `drop(lock)` at
+`dependencies.rs:297` precedes the call site). Their advisories were applied: U3/U4 named in Step 3,
+R1 in the final test row, and Step 5's placement rules made explicit.
+
+**The holistic pass found something all four phase documents assumed and none had checked.**
+
+### B1 — persisted `DependencyRecord.version` is always zero
+
+Verified independently before acceptance, with a probe over this design's own fixture:
+
+```
+--- b.txt own version = None
+      dep -R/a.txt                        version = 00000000000000000000000000000000
+      dep ns-dep/command_impl---world     version = 00000000000000000000000000000000
+stored b.txt deps:
+      stored dep -R/a.txt                 version = 00000000000000000000000000000000
+```
+
+Two independent causes, both confirmed in source:
+
+1. `Context::schedule_dependency_asset` (`context.rs:553`) reads the dependency's version from the
+   manager **at schedule time** — before `get_dependency_asset` at `:582`, therefore before the
+   dependency has evaluated, therefore before `track_asset` could have registered it. Nothing
+   revisits the record afterwards. `record_dependency_on_asset` is the one function that reads a
+   dependency's live metadata version, and its only non-test caller is the delegation branch
+   (`assets.rs:2407`), where it returns immediately as a same-node hand-off.
+2. `finalize_plan` (`interpreter.rs:71`) writes plan dependency records with a literal
+   `Version::new(0)`, although `register_plan_dependencies` looks up the real command versions a
+   few lines below.
+
+Filed as `DEPENDENCY-RECORD-VERSION-CAPTURED-BEFORE-DEPENDENCY-EVALUATES` (P1, M) and
+`PLAN-DEPENDENCY-RECORDS-HARDCODE-VERSION-ZERO` (P2, S).
+
+**What survives and what does not.** The core fix is unaffected: graph edges are registered by
+`register_scheduled_dependency` regardless of version, `track_asset` will register a real version
+for the dependency, `skip_cascade` becomes false, and I2's `c` assertion flips. **In-process
+transitive cascade works.**
+
+Everything built on *recorded* versions does not. Because `Version(0)` short-circuits every
+comparison, `add_dependency`'s check is never reached from a production caller, so Step 3's
+provisional rule and its command-key exception implement a policy nothing can trigger; I9 cannot
+pass as written; and Phase 1's central cold-start risk — "turning versions on would expire
+persisted dependents on first load" — is not real, because the recorded versions are zero.
+
+### Other findings from the same pass, accepted
+
+- **A1 (architecture-level).** The version window is not closed by placing `assign_version` after
+  `try_to_set_ready`. `try_to_set_ready` sets `Ready` with `data` already present, so `poll_state`
+  returns `Some` the instant its write lock drops, and both `AssetRef::get` and
+  `wait_for_dependency` re-poll at the top of their loops on *any* wake-up, not only on
+  `ValueProduced`. A delegate polled inside that window yields
+  `ValueOrigin::Delegated { version: None }` — Phase 1's first named delegation failure mode.
+  The fix is to serialize *before* the status transaction and install bytes, version and status
+  together under one write lock, which also matches the "published once" rule more exactly.
+- **A2.** The net's log entry must be written as `lock.metadata.add_log_entry(...)` under the
+  asset's own write lock, never through the service channel — `AssetServiceMessage::LogMessage`
+  calls `save_metadata_to_store` (`assets.rs:2060`), which would persist the fallback version and
+  contradict both the "does not re-persist" decision and I4's assertion that the store holds
+  nothing.
+- **A3.** Step 1's validation gate (`grep SystemTime::now`) has five pre-existing hits in
+  `store.rs` test modules; scope it or an agent will "fix" unrelated code.
+- **A5.** A key registered while non-volatile and later resolved volatile keeps its `versions`
+  entry — `DependencyManager::remove` has no production caller. Pre-existing; matters because
+  Phase 5 was about to publish the exclusion as contract.
+- **A6.** `set_state` on a key already evaluated in-process does not expire first, so it will now
+  cascade where it could not before. Correct behaviour, but new, and it is the one path where the
+  evaluate-path hash and the `set_state` hash must agree. Wants a test.
+- **A7, and it is fair.** The Phase 3 probe printed versions, bytes and statuses but not
+  `metadata.get_dependencies()` — which is exactly where B1 lives. Phase 3's own learning ("assert
+  against a running binary before writing the sentence down") applied to itself: the probe was run
+  and the wrong fields were read.
+
+### Decision: Option B, with a version authority (owner, 2026-09-05)
+
+> "I am inclined to Option B — there is more context to work with those issues and it should be
+> thus easier to reason about the correctness of the solutions. We probably need some authoritative
+> way to obtain a version — perhaps a `version(key)` method on the asset manager? … This may
+> eventually be passed as a closure to dependency manager … Limited time use would be desirable to
+> prevent dependency manager to create yet another cyclic arc leak."
+
+The design **returns to Phase 2**, which now carries `Revision 2 — the version authority`. Its
+seven corrections (C1–C7) are the contract for re-approval.
+
+The proposed architecture turns out to be a net *simplification* despite being a larger change: one
+authority replaces one approximation, one special case, and one deferred issue.
+
+- **C1 `AssetManager::version(key)`** — live asset, else store metadata, else `None`. Never
+  evaluates, never submits, for the same reason `owned_key_asset` does not
+  (`keyed-recipe-ownership`); `Ok(None)` and `Err` stay distinct so a transient store error cannot
+  expire dependents.
+- **C2 `VersionResolver`, `&dyn`, never stored.** The leak concern is well founded and the shape
+  answers it structurally: `DependencyManager` is a *field* of the asset manager, so every caller
+  can pass `self` as a borrow. No `Arc`, no field, no third cycle on top of the two
+  `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` records.
+- **C3** `add_dependency` asks the authority instead of guessing, giving exactly the three outcomes
+  `DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE` defined — so that issue is **absorbed**,
+  and provisional registration plus the command-key exception are **deleted**.
+- **C4** the record carries the dependency's *post-evaluation* version, upserted in
+  `Context::wait_for_dependency` (the single funnel where a dependency's `State` reaches the
+  dependent), and `finalize_plan` stops hard-coding zero. **The upgrade transition is gentle:**
+  every pre-existing record is zero, zero matches anything, so the first run against an existing
+  store invalidates nothing.
+- **C5** version assignment merges into the status transaction — the Phase 4 review showed the
+  Revision 1 placement does not close the window, because both waiters re-poll on any wake-up.
+  This turns Phase 3's untestable P3 constraint into a structural invariant.
+- **C6** the fallback's log entry goes under the write lock, not through the service channel, which
+  persists metadata.
+- **C7** two pre-existing facts corrected so Phase 5 does not publish them as contract:
+  `track_asset` is not the single funnel (four of five `register_version` sites are elsewhere, and
+  `try_fast_track` never calls it), and `versions` retains an entry for a key that later becomes
+  volatile.
+
+One question is open for the re-gate: whether `version(key)` belongs on the public `AssetManager`
+trait as a defaulted method (recommended) or only on the concrete managers.
+
+## Phase 2 Revision 2 re-gate (2026-09-05)
+
+Owner confirmed `version(key)` on the trait, defaulted. One reviewer over Revision 2; **two
+compile-time blockers**, both verified independently before acceptance, both now answered as
+Revision 2.1.
+
+**D1 — the resolver could not reach three of its four callers.** Revision 2 claimed "every caller
+is inside the asset manager, which passes `self`". False for the three that carry the load —
+`evaluate → track_asset` (`assets.rs:2557`), `try_fast_track → load_from_records` (`:1116`) and
+`record_dependency_on_asset → add_dependency` (`:1608`) — all generic code holding
+`Arc<E::AssetManager>`, with no `VersionResolver` bound anywhere on `Environment::AssetManager`.
+The fix is cheaper than the review supposed, and its stated objection does not apply: `AssetManager`
+is **already** sealed by a `pub(crate)` supertrait (`DependencyManagerAccess<E>` under
+`#[allow(private_bounds)]`, `:3446`/`:3470`), so adding `VersionResolver` beside it costs nothing
+that is not already paid, and every generic call site then gets the coercion for free.
+
+**D2 — `Send + Sync` would break wasm32.** `maybe_send.rs`'s own module doc states the convention
+and every async trait in the crate follows it. `VersionResolver` takes the `#[cfg_attr]` pair and
+`MaybeSend + MaybeSync`, so an `ImmediateAssetManager` holding `!Send` browser data still
+implements it — which is precisely what `liquers-web` is.
+
+**D3/D4, from the same pass.** The hard-coded zero is in `finalize_plan_expanded`, not
+`finalize_plan`. `Context::wait_for_dependency` must take the `DependencyKey` as a parameter rather
+than deriving one — a derived key differing from the schedule-time key would create a *second*
+record instead of upgrading the first, silently, since the upsert matches on key equality. And
+C3's safety turns out to rest on an unnamed convention: a concrete version reaches `add_dependency`
+only for a dependency that had one, and every spurious-expiry candidate the reviewer traced
+(volatile, non-keyed, command, non-serializable, concurrently evaluating) is safe *because* those
+paths pass `Version::unknown()`. That invariant is now written down and belongs in the reference.
+
+Confirmed clean: C1's default body, the `contains`-before-`get_metadata` ordering, and
+`Context::add_dependency`'s upsert rule. One overclaim corrected — "keeps every implementor
+compiling" is trivially true, since the two concrete managers are the only implementors in the
+workspace.
+
+**Phases 3 and 4 rebuilt on Revision 2**: seven tests removed (they tested the deleted provisional
+mechanism), thirteen added — including the two direct regression tests for the newly filed record
+defects, and `a_record_written_before_versions_existed_still_matches`, which pins the property that
+makes this deployable against an existing store. Phase 4 is fifteen steps in the same four groups,
+and its B-before-C ordering argument is now real rather than hypothetical.
+
+## Revision 2.2 — record vs. verify (2026-09-05)
+
+The owner asked whether anything like `trigger_dependency_audit(query)` /
+`trigger_dependency_audit_all_registered()` exists in this design. **It did not**, and the question
+exposed a conflation worth fixing.
+
+**Async was already handled** — `version` and `resolve_version` are `async`, and the three
+dependency-manager entry points always were. But the consequence deserved naming: Revision 2's C3
+put a *store read* inside `add_dependency`, a function also reached from schedule-time registration
+and cycle checking, so the dependency graph stopped being I/O-free. That inversion is where the
+policy question lands.
+
+**The conflation.** `add_dependency` was doing two jobs: *recording* an edge and its observed
+version (in-memory, constant, policy-free) and *verifying* that the version still holds (possibly a
+store read, meaningful only on load or on demand, entirely policy-dependent). Fused, verification
+happens on the hot path and there is nowhere to stand for a policy — which hard-codes the strict
+service and makes the exploratory workflow unreachable.
+
+**The decisive observation: the cascade this design exists to fix does not need the verification at
+all.** Propagation is driven by `register_version` and `expire_internal`; `add_dependency`'s check
+answers a different question that happens to share a function. And removing it costs nothing today —
+the probe established a concrete version never reaches `add_dependency` in production, so its
+expire branch has never fired. Leaving it in and letting C4 make records concrete would switch it
+on by side effect, which is exactly the decision the owner wants to be able to make deliberately.
+
+So `add_dependency` records, and verification becomes `DependencyManager::audit(key, resolver,
+depth)` behind the two named manager entry points. **Policy is then just who calls them and when**,
+with a default of "never" that reproduces today's behaviour exactly.
+
+**One property is already right and was not aimed at.** `version(key)` reads *metadata only* and
+never the value, so the owner's "keep the metadata, delete the data" workflow works with no policy
+at all — a dependent verifies clean against a key whose data is gone. That needs protecting in the
+reference, since an "optimization" that computed a version from the value would silently break it.
+
+The policy vocabulary itself is filed as `DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE` (P2, feature).
+This design builds the seam, not the policy.
+
+**Net effect on scope: smaller.** C3 shrinks to recording, the resolver moves off the hot path (and
+may no longer need the supertrait — Phase 4 decides), I8/I9 become tests of a *named* operation
+rather than of emergent behaviour, and C1/C4 are unchanged.
+
+## Revision 2.2 gate decision: ship the entry points (owner, 2026-09-05)
+
+`DependencyManager::audit`, `AssetManager::trigger_dependency_audit(query)` and
+`trigger_dependency_audit_all_registered()` are in scope, defaulted on the trait like `version`,
+with **default policy "never"** — nothing in `liquers-core` calls them, so behaviour is unchanged
+until something does.
+
+Two obligations that come with shipping a public API that has no in-tree caller, both now written
+into Phases 3 and 4:
+
+- **It is tested as a user would call it.** I8/I9 become the only callers, which is the point
+  rather than a shortcoming: `cold_start_dependent_is_served_because_nothing_audits` and
+  `explicit_audit_expires_a_dependent_whose_dependency_changed`.
+- **`AuditReport` is API from the moment it ships** — a plain owned struct, no borrowed lifetimes,
+  naming keys checked, keys expired, and for each expiry the dependency and both versions. Not a
+  counts-only summary a later caller would have to reconstruct.
+
+Two new tests exist purely to keep the seam from closing again:
+`add_dependency_performs_no_io` (over a store fixture that panics on any read — the guard for the
+property Revision 2 broke and 2.2 restored) and `nothing_audits_by_default`, which is the owner's
+exploratory workflow written down as an assertion rather than an intention.
+
+**The structural payoff:** Group C's cascade fix no longer depends on any verification at all. The
+defect fix and the verification policy are separable, and only the first is required — which is
+what makes this design shippable independently of every question about audit policy.
+
+## Revision 2.3 (2026-09-06) — the "report missing versions" alternative, evaluated and recommended
+
+The owner proposed inverting the audit: the dependency manager reports the keys whose versions it
+does not know, the asset manager fills the gaps, and the manager reacts to each fill with
+expiration events.
+
+**Recommended for adoption.** Better on both axes the owner named — no closure to pass, and
+separately testable — and on two more. It deletes more than it adds.
+
+- **Layering.** Revision 2.2 had a low-level graph structure calling the layer above it. Every
+  complication that came with it — `VersionResolver`, the `&dyn` discipline, the never-store rule
+  no test can enforce, the D1 supertrait, the D2 `maybe_send` shape, the borrow analysis — existed
+  only to make that inversion safe. All deleted.
+- **Synchronous.** `missing_versions()` is a scan of two in-memory maps. This answers the owner's
+  earlier point directly: an async `version(key)` does *not* force asynchronous dependency
+  verification, because verification leaves the dependency manager entirely.
+- **The expiry mechanism already exists.** Filling a gap *is* `register_version`, which already
+  compares and cascades — so Phase 4's B6 `audit`, with its own traversal, depth parameter and
+  visited set, largely disappears. Each `trigger_*` becomes: ask for gaps, resolve, push back,
+  collect.
+
+**One thing it needs, and the finding is the interesting part.** As stated the alternative detects
+nothing: `register_version` compares against the *previous value in the `versions` map*, not against
+what dependents expected, and filling a gap inserts into a **vacant** entry, which deliberately does
+not cascade. Expectations live in dependents' `DependencyRecord`s, outside the manager.
+
+The fix is small and half-present already: **`add_dependency` receives the expected version and
+throws it away.** `keyed_dependents` is `HashMap<DepKey, HashSet<DepKey>>` — edges with no version.
+Storing it (`HashMap<DepKey, HashMap<DepKey, Version>>`, six mechanical touch points, 16 bytes per
+edge) makes the dependency manager a **complete model** — nodes with a current version, edges with
+an expected one — so every question is answerable without asking anyone. `report_no_version(key)` is
+the companion for "the manager could not resolve it", which `Version::unknown()` cannot express
+because unknown means *compatible with anything*.
+
+**Unlooked-for benefit:** with expectations stored, `register_version` can expire only the
+dependents whose recorded version actually differs, instead of all of them. That is the per-edge
+form of "recomputing to the same value must not invalidate" — the property that made content
+hashing worth choosing — which Revision 2.2 had only at the node level.
+
+Cautions recorded: `add_dependency` must still not compare on the hot path; last-writer-wins on the
+edge version is correct but should be stated; and the gap list is a snapshot, which is fine for a
+policy-triggered operation and should not acquire a lock.
+
+## Revision 2.4 (2026-09-06) — a registered `Version(0)` is missing, not known
+
+The owner: `missing_versions()` should report a key registered at `Version(0)` alongside keys with
+no entry, because that is what zero means. **Adopted**, and it settles a conflict the design had
+left standing rather than creating one.
+
+The rule makes `missing_versions()` *the targets of edges expecting a concrete version, whose own
+current version is absent or unknown* — both halves using `is_unknown()`, applied to the edge's
+expectation and to the node's value. An edge expecting zero is unverifiable and skipped; a node
+holding zero is unverified and reported.
+
+**It matters beyond tidiness.** A zero can be registered for reasons that are nobody's decision —
+`track_asset` registers one for a `Metadata::LegacyMetadata` record, and any future path that fails
+to produce a version lands there. Without this rule such a key is permanently invisible to the one
+mechanism that exists to fix it. With it, the gap is reported, resolved, and the graph heals.
+
+**It retires the "zero as policy sentinel" reading, which is an improvement.** Revision 1 proposed
+that a zero could later be read as "this asset opts out of version-based invalidation". That
+collides with this rule: an audit would report a policy zero as a gap, fill it, and silently revoke
+the opt-out. The collision resolves in this direction because the policy reading was the weaker
+idea — it made `Version(0)` mean two things, *nobody computed one* and *nobody should*, which is the
+exact conflation this design has spent its length unpicking. Zero now means one thing everywhere.
+
+The dependency manager still supports zero, which was the original requirement; it simply means
+"unknown" consistently, and the audit resolves it. *"Never audit this key"* is a statement about
+when verification runs, and belongs to `DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE`, not to a value in
+a version field.
+
+`expire_internal`'s `skip_cascade` is unchanged: a node with an unknown version still does not
+propagate, for the original reason. The two mechanisms now cover each other — the cascade declines
+to guess, and the audit turns the unknown into a known.
+
+## Final gate (2026-09-06) — two blocking findings, both self-inflicted, both corrected
+
+The design fixes the original defect: the reviewer traced the three-link chain independently and
+confirmed that atomic version assignment plus the corrected `skip_cascade` guard walks root → B → C
+with no resolver, audit or closure involved. The gap-reporting machinery is for *verification*, not
+for the cascade — which is the separation Revision 2.2 set out to achieve.
+
+**E1 — the plan contradicted its own architecture.** Phase 2 and 3 require that filling a gap expire
+only the dependents whose expectation differs; Phase 4 then described `expire_internal`'s frontier
+as "ignores the value" and `skip_cascade` as "unchanged". Both cannot hold, because
+`register_version`'s only cascade path runs through that frontier. Resolved by putting the filter
+where the evidence is: `register_version` is the only operation holding a concrete new version, so
+it consults the edges directly and expires each dependent that is not provably unaffected;
+`expire_internal` stays a blanket expiry and is untouched. Beyond the first hop there is nothing to
+compare against, so ordinary expiry applies — which is what the existing machinery already does.
+
+**E2 — a rule I wrote in Revision 2.3 was simply wrong.** It said a dependent whose edge recorded
+`Version::unknown()` is "left alone". `propagate_attribution` (`dependencies.rs:511`) records
+*every* attribution edge with an explicit `Version::unknown()` — that is how a keyed asset
+depending on another keyed asset **through a non-keyed expression** enters `keyed_dependents`. The
+rule would have exempted every join and sub-query from the cascade: today's code expires them, the
+new code would not. Stale-serving reintroduced in a path no phase document had looked at.
+
+Corrected: skip **only** on a concrete expectation equal to the new version. Better stated as the
+invariant now carried into Phase 3 and Phase 4 as the validation criterion — **the new cascade
+expires a subset of what today's expires, and drops a dependent from that set only on positive
+evidence.** It can never expire more, and never fewer without proof. The enumeration of cases is
+what went wrong in 2.3; the invariant is what should be tested.
+
+The asymmetry with `report_no_version` — where an unknown-expecting edge *is* left alone — is
+deliberate and now stated: `register_version` is a change event, so anything not provably
+unaffected is affected; `report_no_version` is an audit finding that does not contradict an edge
+which never expected anything.
+
+Advisories accepted: a test for the last-writer-wins rule on an edge's version (stated in prose,
+enforced by nothing, and `scc`'s `or_insert` is the easy inversion), and a Phase 5 requirement that
+`DEPENDENCIES_STATUS.md` say plainly that `add_dependency` no longer verifies inline — HEAD does,
+and that is where someone will look for the old guarantee.
+
+## Revision 2.6 (2026-09-06) — one traversal, and the same treatment for `report_no_version`
+
+A second pass over the 2.5 corrections found two more, both real, both about the mechanics of one
+function rather than about whether the design is right. Worth noting that the rounds are converging:
+the last three findings have been progressively more local.
+
+**F1 — the selective path must be one BFS, not N calls.** E1 proposed `register_version` calling
+`expire(dependent)` per differing dependent, which looked like the conservative choice — compose the
+existing primitive. It is not the same machinery: `expire_internal` holds a *per-call* `visited` set
+and the `expiration_lock` for the whole call, so N calls means a descendant reachable from two
+dependents is visited twice and appears twice in `expired.keys`, the lock is taken N times, and it
+raised a spurious question about whether to remove the edge before or after each call. The one
+consumer today absorbs the duplicate silently, which is luck, not correctness.
+
+All three dissolve under the right factoring, which was available in the existing body all along:
+`expire_internal` already separates "seed a frontier" from "walk it". Split it —
+`expire_from_frontier(frontier, seed_assets)` — and `expire`, `expire_dependents`,
+`register_version`'s selective path and `report_no_version` all become thin seeders over **one**
+traversal, one lock, one visited set. Less new code than N calls, since the part that must not
+differ is shared rather than re-entered.
+
+**F2 — `report_no_version` had asserted semantics and no construction.** The design stated that it
+spares unknown-expecting edges and never said how it is built. Built the obvious way, on
+`expire_dependents`, it would expire *every* dependent including the ones it must spare, and clear
+the edge map wholesale — the identical bug E1/E3 had just corrected for `register_version`, one
+function over, inside the round that fixed it. Under F1 it is one more seeder with a different
+filter, and the two asymmetries between it and `register_version` are now stated in one table
+rather than inferred from prose.
+
+Three smaller corrections: "`expire_internal` is untouched" was sloppy (its *behaviour* is
+unchanged; two lines still need the mechanical edit for the value type); selective removal must
+evict the outer entry when the inner map empties, which the blanket path did unconditionally; and
+the edge expectation is caller-trusted now that `add_dependency` no longer compares — which is fine,
+and is exactly the kind of assumption Revision 2.3 got wrong once, so it is written down.
+
+## Links
+
+- [Phase 1](./phase1-high-level-design.md)
+- [Phase 2](./phase2-architecture.md)
+- [Phase 3](./phase3-examples.md)
+- [Phase 4](./phase4-implementation.md)
+- [Phase 5](./phase5-documentation.md)

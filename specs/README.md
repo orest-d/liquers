@@ -72,6 +72,7 @@ volatility work all landed in `assets.rs`.
 - **Weak references in the expiration monitor** — built → [`design/expiration-monitor-assetref/`](design/expiration-monitor-assetref/)
 - **Expired-safe binary reads** — built → [`design/expired-binary-read-safety/`](design/expired-binary-read-safety/)
 - **Volatility tracking** — built → [`design/volatility-system/`](design/volatility-system/)
+- **Versions for computed keyed assets, and dependency audit** — built → [`design/keyed-expiry-cascade-fix/`](design/keyed-expiry-cascade-fix/) *(contract in [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md))*
 - **Keyed-recipe ownership** — built → [`design/keyed-recipe-ownership/`](design/keyed-recipe-ownership/)
 - **Keyed delegation as a hand-off** — built → [`design/keyed-delegation-hand-off/`](design/keyed-delegation-hand-off/) *(rule documented in [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md))*
 - **Terminal outcome contract** — built → [`design/wp2-terminal-outcome/`](design/wp2-terminal-outcome/)
@@ -288,6 +289,7 @@ deliberately folded behind a broader line.
 - feature `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`
 - feature `COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS`
 - feature `DATA-FORMAT-CONSTANTS-AND-TOOLING`
+- feature `DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE`
 - feature `ISSUE-REPORT-PLAN-AND-METADATA-LOGGING`
 - feature `JS-COMMAND-CANNOT-ACCESS-CONTEXT`
 - feature `LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION`

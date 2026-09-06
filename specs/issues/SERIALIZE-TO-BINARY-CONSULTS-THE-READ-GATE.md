@@ -2,7 +2,7 @@
 id: SERIALIZE-TO-BINARY-CONSULTS-THE-READ-GATE
 kind: issue
 title: The persistence path serializes through a gated read, so an asset at a hidden status cannot be stored
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/assets]
@@ -100,3 +100,11 @@ that runs only when no binary is cached.
 The fix is owned by `stale-dependency-status-finalization` (correction C1) since that design needs
 it; filed separately because it predates that design and stands on its own if the design is
 abandoned or delayed.
+
+## Resolution (2026-09-06)
+
+Fixed as part of `keyed-expiry-cascade-fix`, which made it live rather than latent: that design
+serializes on the evaluation path, where the status is deliberately not yet final.
+`serialize_to_binary` now reads through `poll_state_any_status`, matching the rule `save_to_store`
+already states six lines above for `binary_unchecked` — persisting is not a read of the asset's
+exposed value.

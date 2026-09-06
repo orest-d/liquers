@@ -66,13 +66,30 @@ pub async fn finalize_plan_expanded<E: Environment>(
     has_expirable_dependencies(envref.clone(), plan).await?;
 
     if !plan.is_volatile {
+        let manager = envref.get_asset_manager();
         for plan_dep in &plan.dependencies {
+            // The dependency manager already holds real versions for these keys — command
+            // metadata and implementation versions are registered by `AssetManager::start` before
+            // any asset is evaluated, and `register_plan_dependencies` below looks them up for the
+            // graph edge. Recording `Version::new(0)` here while the edge carried the real value
+            // meant a stored asset could never be invalidated by a command version change across a
+            // restart (`PLAN-DEPENDENCY-RECORDS-HARDCODE-VERSION-ZERO`).
+            //
+            // `Version::unknown()` remains the answer for a key the manager genuinely has none
+            // for — a command that declared no version is never registered at all.
+            let version = {
+                use crate::assets::DependencyManagerAccess;
+                manager
+                    .dependency_manager()
+                    .get_version(&plan_dep.key)
+                    .await
+                    .unwrap_or_else(Version::unknown)
+            };
             context
-                .add_dependency(DependencyRecord::new(plan_dep.key.clone(), Version::new(0)))
+                .add_dependency(DependencyRecord::new(plan_dep.key.clone(), version))
                 .await;
         }
         if let Some(key) = context.owner_key().await? {
-            let manager = envref.get_asset_manager();
             let _ = manager
                 .register_plan_dependencies(&key, &plan.dependencies)
                 .await;

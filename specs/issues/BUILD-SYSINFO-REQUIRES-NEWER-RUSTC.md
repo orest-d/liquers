@@ -136,3 +136,16 @@ after a signature change — a real break, invisible locally precisely because t
 stops the build before type checking. That is the concrete cost of this issue: **a contributor on
 1.94 has no local check that can catch a `liquers-lib` compile error at all**, so the first signal
 is CI. It strengthens the P2 → P1 reconsideration suggested above.
+
+## Update 2026-09-06 — `--no-default-features` is a working local loop
+
+Confirmed while implementing `keyed-expiry-cascade-fix`, which needed a `liquers-lib` regression
+run and could not get one. `cargo test -p liquers-lib --lib --tests` still fails on rustc 1.94.1,
+now naming the `egui`/`eframe`/`ecolor`/`egui-wgpu` 0.36.1 family alongside the crates listed above.
+
+`cargo test -p liquers-lib --no-default-features --lib --tests` **runs green** (221 lib tests plus
+the integration targets). That is not a fix — it skips exactly the feature-gated code the matrix
+exists to check — but it is the difference between "no local signal at all" and "signal for the
+default-off configurations", and it is worth naming here so the next contributor does not have to
+rediscover it.
+

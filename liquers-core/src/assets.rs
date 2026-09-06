@@ -1399,6 +1399,48 @@ pub struct AssetRef<E: Environment> {
     pub data: Arc<RwLock<AssetData<E>>>,
 }
 
+/// What a dependency audit checked and what it invalidated.
+///
+/// A plain owned struct with no borrowed lifetimes: this is public API from the moment it ships,
+/// and it names what happened rather than counting it, so a later caller does not have to
+/// reconstruct the detail.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AuditReport {
+    /// The dependency keys whose versions the audit tried to resolve.
+    pub checked: Vec<crate::metadata::DependencyKey>,
+    /// The keys expired as a result, including transitive ones.
+    pub expired: Vec<crate::metadata::DependencyKey>,
+}
+
+/// The bytes and version an evaluation settled on, ready to be installed alongside its status.
+struct PreparedVersion {
+    /// The serialized value, when it serialized. Reused by the store write rather than recomputed.
+    binary: Option<Arc<Vec<u8>>>,
+    /// Content hash when the value serialized, a unique fallback when it did not.
+    version: Version,
+    /// Set when the fallback was taken, so the asset's log records that it fired.
+    serialization_error: Option<Error>,
+}
+
+/// Where an evaluation's value came from. Decides both persistence and versioning.
+///
+/// This replaced a `delegated: bool`, which was already the discriminator for persistence and is
+/// the same discriminator for versioning — and a bool cannot carry the delegate's version. Adding
+/// a third origin is now a compile error at both decisions rather than a silent fallthrough.
+#[derive(Debug, Clone, Copy)]
+enum ValueOrigin {
+    /// Produced by applying this asset's own recipe. The asset owns the value, so it owns the
+    /// version: serialize once, hash the bytes, keep them for the store write.
+    Computed,
+    /// Handed over by the key's registered owner in pure-key delegation.
+    ///
+    /// Both assets resolve to the same key and are therefore one dependency-graph node, so they
+    /// must report the same version — carried here verbatim rather than recomputed, since two
+    /// serializations of the same value are not guaranteed to agree byte for byte. `None` when
+    /// the owner had none.
+    Delegated { version: Option<Version> },
+}
+
 struct RecipeEvaluation<V: ValueInterface> {
     /// The produced value.
     value: Arc<V>,
@@ -1408,7 +1450,7 @@ struct RecipeEvaluation<V: ValueInterface> {
     /// loop writes progress and log entries to the asset's metadata *concurrently* with
     /// evaluation, so installing a snapshot taken mid-evaluation silently discards them.
     dependencies: Vec<DependencyRecord>,
-    delegated: bool,
+    origin: ValueOrigin,
 }
 
 /// Weak handle that preserves an asset id without keeping its data alive.
@@ -1797,16 +1839,156 @@ impl<E: Environment> AssetRef<E> {
         }
     }
 
+    /// The version to register when this asset enters the dependency graph, assigning a
+    /// time-based one first if it has none.
+    ///
+    /// The last-resort net under the routes that can reach the graph without a version — a
+    /// serialization that failed, a `Metadata::LegacyMetadata` record, a sidecar written before
+    /// versions existed. It writes the assigned version back into the asset's metadata, so the
+    /// asset and the manager cannot disagree, and records that it fired.
+    ///
+    /// **It is not a universal funnel**, and the doc comment says so because the design once
+    /// claimed otherwise: four of the five `register_version` call sites are elsewhere, and
+    /// `try_fast_track` never calls `track_asset` at all. This covers the evaluation and
+    /// `set_state` paths.
+    ///
+    /// **It does not re-persist.** An asset reaching this net left no durable trace, so it cannot
+    /// be shown to reconstruct identically and its dependents *should* expire on restart.
+    ///
+    /// Returns `Version::unknown()` for a non-keyed or volatile asset, neither of which is a
+    /// graph node.
+    pub(crate) async fn version_for_tracking(&self) -> Version {
+        let mut lock = self.data.write().await;
+        if let Some(version) = lock.metadata.version() {
+            return version;
+        }
+        if lock.is_volatile || lock.key.is_none() {
+            return Version::unknown();
+        }
+        let version = Version::new_unique();
+        if let Err(e) = lock.metadata.set_version(Some(version)) {
+            let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
+                "Failed to record a fallback version on asset {}: {}",
+                self.id(),
+                e,
+            )));
+            return Version::unknown();
+        }
+        // A net that fires silently is a bug detector switched off: a broken primary path would
+        // keep working while content-stable assets quietly became permanent cascade sources.
+        let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
+            "Asset {} entered the dependency graph without a version; assigned a unique fallback. \
+             It is not persisted, so this asset's dependents expire on restart.",
+            self.id(),
+        )));
+        version
+    }
+
+    /// Serialize the finalized value once and derive its version — **before** the status
+    /// transition, so both can be installed in the same write transaction.
+    ///
+    /// Assigning after the status is set does not work: `try_to_set_ready` marks the asset `Ready`
+    /// while its value is already present, so `poll_state` starts answering the moment that write
+    /// lock drops, and both `AssetRef::get` and `AssetManager::wait_for_dependency` re-poll at the
+    /// top of their loops on *any* wake-up — including the log and progress messages the service
+    /// loop is sending concurrently. An observer could therefore read the asset between the status
+    /// change and the version, which for a delegate means handing on `None`.
+    ///
+    /// A no-op for a non-keyed or volatile asset: neither is a dependency-graph node, so neither
+    /// needs a version, and serializing every query result would cost the commonest path in the
+    /// system.
+    ///
+    /// Infallible. A value that cannot be serialized takes a time-based version rather than
+    /// failing an evaluation that has already produced a correct result — the same fallback
+    /// `set_state` uses.
+    async fn prepare_version(&self, origin: ValueOrigin) -> Option<PreparedVersion> {
+        let state = {
+            let lock = self.data.read().await;
+            if lock.is_volatile || lock.key.is_none() {
+                return None;
+            }
+            match origin {
+                // A delegating asset takes the delegate's version verbatim and never serializes:
+                // the value belongs to the key's registered owner, which versioned it already.
+                ValueOrigin::Delegated { version } => {
+                    return version.map(|version| PreparedVersion {
+                        binary: None,
+                        version,
+                        serialization_error: None,
+                    });
+                }
+                ValueOrigin::Computed => {}
+            }
+            // Not `poll_state`: the status is deliberately not final yet, so the read gate has
+            // nothing meaningful to say. This is the same "persisting is not a read" rule
+            // `binary_unchecked` and `serialize_to_binary` already follow.
+            lock.exposed_value_state()?
+        };
+
+        match state.as_bytes() {
+            Ok(bytes) => Some(PreparedVersion {
+                version: Version::from_bytes(&bytes),
+                binary: Some(Arc::new(bytes)),
+                serialization_error: None,
+            }),
+            Err(e) => Some(PreparedVersion {
+                binary: None,
+                // `new_unique`, not a bare timestamp: two assets finalized in the same clock tick
+                // must not share a version.
+                version: Version::new_unique(),
+                serialization_error: Some(e),
+            }),
+        }
+    }
+
     /// Manages asset expiration timing and expiration state transitions.
     /// Labels asset as Ready or Volatile when it has data, Error otherwise.
     /// Used by: `finish_run_with_result` in this module.
     async fn try_to_set_ready(&self) {
+        self.finalize_status_with_version(None).await
+    }
+
+    /// [`Self::try_to_set_ready`], additionally installing a prepared version and its bytes in the
+    /// **same** write transaction as the status change.
+    ///
+    /// One transaction is the point: it is what makes "the version is available as soon as the
+    /// asset is readable" an invariant of the code rather than of a comment, since no observer can
+    /// see the asset between the two.
+    async fn finalize_status_with_version(&self, prepared: Option<PreparedVersion>) {
         eprintln!(
             "Trying to set asset {} to ready - status {:?}",
             self.id(),
             self.status().await
         );
         let mut lock = self.data.write().await;
+        if let Some(prepared) = prepared {
+            if let Err(e) = lock.metadata.set_version(Some(prepared.version)) {
+                let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
+                    "Failed to record version on asset {}: {}",
+                    self.id(),
+                    e,
+                )));
+            }
+            if let Some(binary) = prepared.binary {
+                // Keep the bytes the version was computed from, so `save_to_store` writes exactly
+                // those rather than serializing a second time. A value whose encoding is not
+                // byte-deterministic would otherwise carry a version describing bytes the store
+                // does not hold.
+                lock.binary = Some(binary);
+            }
+            if let Some(e) = prepared.serialization_error {
+                // The net firing silently would be a bug detector switched off: a broken primary
+                // path would keep working while content-stable assets quietly became permanent
+                // cascade sources. Written under this lock, never through the service channel,
+                // which would persist the metadata.
+                let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
+                    "Asset {} could not be serialized ({}); assigned a unique fallback version. \
+                     Its dependents are invalidated on every recomputation.",
+                    self.id(),
+                    e,
+                )));
+            }
+        }
         if lock.data.is_some() {
             let metadata_expires = lock.metadata.expires();
             let should_be_volatile = lock.is_volatile || metadata_expires.is_volatile();
@@ -2410,9 +2592,15 @@ impl<E: Environment> AssetRef<E> {
                         let state = manager.wait_for_dependency(self, &asset).await?;
                         return Ok(RecipeEvaluation {
                             value: state.data_unchecked().clone(),
-                            // A hand-off transfers the value, not the owner's metadata record.
+                            // A hand-off transfers the value, not the owner's metadata record —
+                            // except for the version, which is the one field that must cross.
+                            // Both assets are the same graph node, and a parent reads the version
+                            // from *this* asset while the manager holds the one registered by the
+                            // owner, so any inequality makes a fresh parent look stale.
                             dependencies: Vec::new(),
-                            delegated: true,
+                            origin: ValueOrigin::Delegated {
+                                version: state.metadata.version(),
+                            },
                         });
                     }
                     // This asset is the registered owner, or nothing is registered — a
@@ -2480,7 +2668,7 @@ impl<E: Environment> AssetRef<E> {
         Ok(RecipeEvaluation {
             value: res,
             dependencies: observed_deps,
-            delegated: false,
+            origin: ValueOrigin::Computed,
         })
     }
 
@@ -2512,7 +2700,7 @@ impl<E: Environment> AssetRef<E> {
                 let RecipeEvaluation {
                     value,
                     dependencies,
-                    delegated,
+                    origin,
                 } = outcome;
                 {
                     // Merge into the live metadata rather than installing a snapshot: the
@@ -2526,10 +2714,25 @@ impl<E: Environment> AssetRef<E> {
                         let _ = lock.metadata.add_dependency(dep);
                     }
                     lock.data = Some(value);
+                    // Every other value-installing path clears this (`set_value`, `set_state`),
+                    // and this one is about to write it. Leaving a stale binary here would let
+                    // `save_to_store` persist the *old* bytes under the *new* metadata, silently
+                    // (`EVALUATE-DOES-NOT-CLEAR-CACHED-BINARY`).
+                    lock.binary = None;
                 }
+
+                // ORDERING IS LOAD-BEARING. The version is derived *before* the status changes and
+                // installed *with* it, in one write transaction, so no observer can see this asset
+                // readable without its version. Deriving it afterwards would leave a window — both
+                // `AssetRef::get` and `wait_for_dependency` re-poll on any wake-up, not only on
+                // `ValueProduced` — in which a delegate hands on `None`, and a parent records
+                // `Version::unknown()` for a dependency that does have one.
+                //
+                // See `specs/design/keyed-expiry-cascade-fix/` Phase 2, Revision 2.5 (C5).
+                let prepared = self.prepare_version(origin).await;
                 // Finalize status and expiration in one place (replaces inline match block).
                 // Must happen before persistence so poll_state() returns Some for serialization.
-                self.try_to_set_ready().await;
+                self.finalize_status_with_version(prepared).await;
                 let (save_in_background, cancelled, lock_is_volatile) = {
                     let lock = self.data.read().await;
                     let _ = lock
@@ -2546,8 +2749,12 @@ impl<E: Environment> AssetRef<E> {
                 // non-keyed asset has no place in the store, so it must not even attempt a write:
                 // attempting one and failing deep inside `save_to_store` would record a spurious
                 // "cannot determine key" warning on every query and ad-hoc evaluation.
+                // A delegated evaluation must not persist. The `is_keyed` half is the original
+                // reason; the second is that the hand-off carries no dependency records, so a
+                // stored delegating asset would hold a real version with an empty dependency list
+                // — which `try_fast_track` later reads as "nothing to check".
                 let is_keyed = self.data.read().await.key.is_some();
-                if is_keyed && !delegated {
+                if is_keyed && matches!(origin, ValueOrigin::Computed) {
                     self.persist_with_status_tracking(save_in_background, cancelled)
                         .await;
                 }
@@ -2694,8 +2901,14 @@ impl<E: Environment> AssetRef<E> {
     /// Data format from the metadata is used
     /// This always serializes the asset, even when binary is available
     /// If data is not available, None is returned
+    ///
+    /// Reads through `poll_state_any_status`, not `poll_state`, for the reason `save_to_store`
+    /// already gives for `binary_unchecked`: **persisting is not a read of the asset's exposed
+    /// value.** `poll_state` hides `Status::Expired`, so a gated status here would serialize to
+    /// `Ok(None)` and turn a successful persist into "Failed to obtain binary value"
+    /// (`SERIALIZE-TO-BINARY-CONSULTS-THE-READ-GATE`).
     async fn serialize_to_binary(&self) -> Result<Option<(Arc<Vec<u8>>, Arc<Metadata>)>, Error> {
-        if let Some(data) = self.poll_state().await {
+        if let Some(data) = self.poll_state_any_status().await {
             let binary = data.as_bytes()?;
             let mut lock = self.data.write().await;
             let arc_binary = Arc::new(binary);
@@ -3828,6 +4041,107 @@ pub trait AssetManager<E: Environment>:
     /// Cancel any pending expiration tracking for the given asset id. Immediate managers no-op.
     fn untrack_expiration(&self, asset_id: u64) {
         let _ = asset_id;
+    }
+
+    /// Verify the recorded dependency versions reachable from `query`, expiring what no longer
+    /// holds.
+    ///
+    /// **Nothing in `liquers-core` calls this.** Verification is opt-in, and the default policy is
+    /// "never" — which is exactly the behaviour before this existed. Deciding *when* an audit runs
+    /// (at startup, on every request, on an explicit user action, never) is a policy question this
+    /// method exists to make answerable without reopening the dependency manager; see
+    /// `DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE`.
+    ///
+    /// Three outcomes per gap, from [`Self::version`]: a version that matches leaves the dependent
+    /// alone, one that differs expires it, and no durable version at all expires it — an asset
+    /// that left no trace cannot be shown to reconstruct identically.
+    ///
+    /// A non-keyed query has no recorded dependencies to audit and yields an empty report rather
+    /// than an error.
+    async fn trigger_dependency_audit(&self, query: &Query) -> Result<AuditReport, Error> {
+        let Some(key) = query.key() else {
+            return Ok(AuditReport::default());
+        };
+        let dep_key = crate::metadata::DependencyKey::from(&key);
+        let gaps = self.dependency_manager().missing_versions_for(&dep_key);
+        self.audit_gaps(gaps).await
+    }
+
+    /// [`Self::trigger_dependency_audit`] over every gap the dependency manager knows of.
+    async fn trigger_dependency_audit_all_registered(&self) -> Result<AuditReport, Error> {
+        let gaps = self.dependency_manager().missing_versions();
+        self.audit_gaps(gaps).await
+    }
+
+    /// Resolve each gap through [`Self::version`] and push the answer back into the graph, which
+    /// is what produces the expirations.
+    ///
+    /// The gap list is a snapshot and the graph may change under it. That is fine for a
+    /// policy-triggered operation, and deliberately takes no lock: locking here would put
+    /// contention on the cascade path to protect an operation that tolerates being slightly out
+    /// of date.
+    async fn audit_gaps(
+        &self,
+        gaps: Vec<crate::metadata::DependencyKey>,
+    ) -> Result<AuditReport, Error> {
+        let mut report = AuditReport::default();
+        for dep_key in gaps {
+            report.checked.push(dep_key.clone());
+            let key = match dep_key.key() {
+                Ok(Some(key)) => key,
+                // Not an asset key (a command dependency, say): the manager holds those
+                // authoritatively already and there is nothing to resolve from a store.
+                Ok(None) | Err(_) => continue,
+            };
+            let expired = match self.version(&key).await? {
+                Some(version) => {
+                    self.dependency_manager()
+                        .register_version(&dep_key, version)
+                        .await
+                }
+                None => self.dependency_manager().report_no_version(&dep_key).await,
+            };
+            report.expired.extend(expired.keys.iter().cloned());
+            self.expire_dependencies_result(expired).await;
+        }
+        Ok(report)
+    }
+
+    /// The authoritative version of a keyed asset, **without evaluating it**.
+    ///
+    /// Three sources, in order:
+    ///
+    /// 1. a live asset registered for `key`, *if it has a version yet* — an asset that is
+    ///    mid-evaluation does not, and must not shadow the durable answer below;
+    /// 2. otherwise, the store's metadata for `key`, if it holds any;
+    /// 3. otherwise `None` — the key has no durable version, which is **not** the same as
+    ///    [`Version::unknown()`] and must not be conflated with it.
+    ///
+    /// This never evaluates and never submits, for the same reason [`Self::owned_key_asset`] does
+    /// not (`specs/design/keyed-recipe-ownership/`): asking a question about an asset must not be
+    /// able to run it, or an inline manager recurses until the stack is gone. It reads
+    /// `lookup_key_asset`, a map read, and at most one metadata read.
+    ///
+    /// A version is read from **metadata only**, never from the value — so a key whose data has
+    /// been deleted but whose sidecar remains still answers. That is deliberate and load-bearing:
+    /// it is what lets a user delete large intermediates and keep the results that were derived
+    /// from them.
+    ///
+    /// `Ok(None)` and `Err` are different answers and stay different: a store that fails to read
+    /// is not a key without a version, and collapsing them would expire dependents on a transient
+    /// store error. `contains` is asked first for exactly this reason, since
+    /// [`AsyncStore::get_metadata`] reports a missing key as `Err`.
+    async fn version(&self, key: &Key) -> Result<Option<Version>, Error> {
+        if let Some(asset) = self.lookup_key_asset(key) {
+            if let Some(version) = asset.get_metadata().await?.version() {
+                return Ok(Some(version));
+            }
+        }
+        let store = self.get_envref().get_async_store();
+        if !store.contains(key).await? {
+            return Ok(None);
+        }
+        Ok(store.get_metadata(key).await?.version())
     }
 
     /// The recipe provider (via the environment).
@@ -5242,7 +5556,9 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         if final_status != Status::Volatile && final_status != Status::Error {
             let version = match state.as_bytes() {
                 Ok(binary) => crate::metadata::Version::from_bytes(&binary),
-                Err(_) => crate::metadata::Version::from_time_now(),
+                // `new_unique`, not `from_time_now`: what is needed here is a *distinct* version
+                // per set, and a bare timestamp can repeat within one clock tick.
+                Err(_) => crate::metadata::Version::new_unique(),
             };
             metadata.set_version(Some(version))?;
         }
@@ -6361,7 +6677,9 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         if final_status != Status::Volatile && final_status != Status::Error {
             let version = match state.as_bytes() {
                 Ok(binary) => crate::metadata::Version::from_bytes(&binary),
-                Err(_) => crate::metadata::Version::from_time_now(),
+                // `new_unique`, not `from_time_now`: what is needed here is a *distinct* version
+                // per set, and a bare timestamp can repeat within one clock tick.
+                Err(_) => crate::metadata::Version::new_unique(),
             };
             metadata.set_version(Some(version))?;
         }
@@ -9079,6 +9397,89 @@ recipes:
         }
         assert!(manager.try_insert_key_asset(key, asset.clone()).await);
         asset
+    }
+
+    /// Asking for a version must not run the recipe, for the same reason asking who owns a key
+    /// must not: an inline manager would recurse until the stack is gone.
+    #[tokio::test]
+    async fn version_never_evaluates() {
+        let (envref, calls) = ownership_env().await;
+        let manager = envref.get_asset_manager();
+        let key = parse_key("counted.txt").expect("key");
+
+        assert_eq!(manager.version(&key).await.expect("version"), None);
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "asking for a version must not evaluate a recipe"
+        );
+    }
+
+    #[tokio::test]
+    async fn version_of_an_absent_key_is_none() {
+        let (envref, _calls) = ownership_env().await;
+        let manager = envref.get_asset_manager();
+        let key = parse_key("nothing-here.txt").expect("key");
+
+        assert_eq!(
+            manager.version(&key).await.expect("absent is not an error"),
+            None,
+            "an absent key is Ok(None), never Err — a store failure must stay distinguishable"
+        );
+    }
+
+    #[tokio::test]
+    async fn version_of_a_live_asset_is_its_metadata_version() {
+        let (envref, _calls) = ownership_env().await;
+        let manager = envref.get_asset_manager();
+        let key = parse_key("counted.txt").expect("key");
+        let asset = manager.get(&key).await.expect("get");
+        asset.get().await.expect("evaluate");
+
+        {
+            let mut data = asset.data.write().await;
+            data.metadata
+                .set_version(Some(Version::new(4242)))
+                .expect("set version");
+        }
+
+        assert_eq!(
+            manager.version(&key).await.expect("version"),
+            Some(Version::new(4242))
+        );
+    }
+
+    /// A live asset with no version yet must not shadow the durable answer, or a dependent whose
+    /// dependency is merely being recomputed would be read as depending on nothing durable.
+    #[tokio::test]
+    async fn version_of_a_mid_evaluation_asset_falls_through_to_the_store() {
+        let (envref, _calls) = ownership_env().await;
+        let manager = envref.get_asset_manager();
+        let key = parse_key("counted.txt").expect("key");
+
+        let mut stored = MetadataRecord::new();
+        stored.version = Some(Version::new(77));
+        stored.type_identifier = "text".to_string();
+        envref
+            .get_async_store()
+            .set(&key, b"counted", &Metadata::MetadataRecord(stored))
+            .await
+            .expect("seed store");
+
+        // A registered asset that has not produced a version yet.
+        let asset = AssetRef::new_from_recipe(
+            manager.next_id_for_asset(),
+            key.clone().into(),
+            Some(key.clone()),
+            envref.clone(),
+        );
+        assert!(manager.try_insert_key_asset(&key, asset).await);
+
+        assert_eq!(
+            manager.version(&key).await.expect("version"),
+            Some(Version::new(77)),
+            "fall through to the store rather than reporting no durable version"
+        );
     }
 
     /// T10 — the property the whole design rests on: the ownership query must not evaluate.

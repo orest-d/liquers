@@ -2,11 +2,11 @@
 id: EVALUATE-DOES-NOT-CLEAR-CACHED-BINARY
 kind: issue
 title: The evaluation body installs a new value without invalidating the cached binary
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/assets]
-design:
+design: keyed-expiry-cascade-fix
 created: 2026-09-04
 github:
 ---
@@ -53,3 +53,9 @@ an accident.
 Found on 2026-09-04 during the cross-document review of
 `specs/design/stale-dependency-status-finalization/` Phase 4, while tracing the persistence path
 to establish which reads `save_to_store` depends on.
+
+## Resolution (2026-09-06)
+
+Fixed as part of `keyed-expiry-cascade-fix`. `evaluate` now clears `lock.binary` in the same locked
+block that installs the value, matching `set_value` and `set_state`. The issue judged this latent;
+that design made it live, because version assignment writes that cache on the same path.

@@ -37,9 +37,16 @@ impl Version {
         ))
     }
 
-    /// Creates a version from the current system time (nanoseconds since UNIX epoch).
+    /// Creates a version from the current wall-clock time.
+    ///
+    /// Uses `chrono::Utc::now()` rather than `std::time::SystemTime::now()`: the latter is not a
+    /// supported clock on `wasm32-unknown-unknown`, and `liquers-web` is wasm32-only. Every other
+    /// wall-clock read in this crate already goes through chrono for the same reason.
+    ///
+    /// Prefer [`Self::new_unique`] when what is wanted is a *distinct* version rather than a
+    /// timestamp — two calls within one clock tick return the same value here.
     pub fn from_time_now() -> Self {
-        Self::from_specific_time(std::time::SystemTime::now())
+        Version(chrono_nanos())
     }
 
     /// Creates a version from a specific `SystemTime`.
@@ -66,16 +73,29 @@ impl Version {
         self.is_unknown() || other.is_unknown() || self == other
     }
 
+    /// A version that is unique within this process and, in practice, across processes.
+    ///
+    /// The counter provides the uniqueness; the clock only separates processes, so its resolution
+    /// does not matter — on wasm `Utc::now()` is millisecond-grained and the counter carries the
+    /// rest. A bare clock would be wrong here: two assets finalized in the same tick would share a
+    /// version, and a bare counter would be wrong too, since it restarts at zero and a second
+    /// process could re-issue a version a first one already handed out.
     pub fn new_unique() -> Self {
         static UNIQUE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .ok()
-            .unwrap_or_default()
-            .as_nanos();
         let counter = UNIQUE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed) as u128;
-        Version(nanos.wrapping_shl(64) | counter)
+        Version(chrono_nanos().wrapping_shl(64) | counter)
     }
+}
+
+/// Nanoseconds since the UNIX epoch, from the same clock the rest of this crate uses.
+///
+/// `timestamp_nanos_opt` returns `None` outside 1677-2262; a version constructor is not a place to
+/// panic over that, so the range failure degrades to zero rather than aborting.
+fn chrono_nanos() -> u128 {
+    chrono::Utc::now()
+        .timestamp_nanos_opt()
+        .unwrap_or_default()
+        .max(0) as u128
 }
 
 impl serde::Serialize for Version {
@@ -2629,6 +2649,31 @@ mod tests {
     fn test_version_deserialize_rejects_non_hex() {
         let result: Result<Version, _> = serde_json::from_str("\"xyz\"");
         assert!(result.is_err());
+    }
+
+    /// The counter, not the clock, is what makes `new_unique` unique.
+    ///
+    /// Two calls (which `version_new_unique_produces_distinct_values` in `dependencies.rs` covers)
+    /// pass even with a bare clock on a nanosecond-resolution platform. A tight loop does not —
+    /// and on wasm, where `Utc::now()` is millisecond-grained, a bare clock would fail this
+    /// immediately. Two assets finalized in one tick must not share a version.
+    #[test]
+    fn version_new_unique_is_distinct_within_one_clock_tick() {
+        let versions: std::collections::HashSet<Version> =
+            (0..1000).map(|_| Version::new_unique()).collect();
+        assert_eq!(
+            versions.len(),
+            1000,
+            "new_unique must not collide within a clock tick"
+        );
+    }
+
+    /// A fallback that produced `Version(0)` would be indistinguishable from having no fallback,
+    /// which is the defect the fallback exists to close.
+    #[test]
+    fn version_from_chrono_clock_is_never_unknown() {
+        assert!(!Version::new_unique().is_unknown());
+        assert!(!Version::from_time_now().is_unknown());
     }
 
     #[test]

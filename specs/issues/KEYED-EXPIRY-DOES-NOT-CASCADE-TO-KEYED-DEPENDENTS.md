@@ -2,11 +2,11 @@
 id: KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS
 kind: issue
 title: Expiring a computed keyed asset never invalidates the keyed assets that depend on it
-status: draft
+status: closed
 priority: P1
 complexity: L
 area: [core/assets]
-design:
+design: keyed-expiry-cascade-fix
 created: 2026-09-04
 github:
 ---
@@ -142,3 +142,72 @@ routing a stale-dependency asset through `cascade_expire_dependents` on the beli
 invalidate the key's dependents; tracing `expire_internal` to check showed that for a computed
 asset it invalidates no keyed dependent at all. The design dropped the cascade as a result; this
 issue records the underlying gap, which is independent of it.
+
+## Correction (measured at HEAD, 2026-09-05)
+
+**The claim above — "no keyed dependent is ever reached" — is wrong, and the correct statement is
+narrower.** A probe of a three-link chain of computed keyed assets (`a.txt` ← `hello`,
+`b.txt` ← `-R/a.txt/-/world/b.txt`, `c.txt` ← `-R/b.txt/-/world/c.txt`) gives:
+
+```
+statuses AFTER expire(a) : a=Expired  b=Expired  c=Ready
+after recompute, expire(b): b=Expired  c=Expired
+```
+
+Invalidation reaches **direct** dependents and never propagates beyond them. One level per explicit
+expiry, always exactly one.
+
+The reason is that a keyed asset is recorded twice. `Context::evaluate` calls `add_dependent_asset`
+whenever the current asset is keyed, so a keyed dependent appears in `dependent_assets` as a weak
+reference *as well as* in `keyed_dependents` as a graph edge. `expire_internal` collects
+`dependent_assets` outside the `skip_cascade` guard and traverses `keyed_dependents` inside it —
+so the weak-reference route always fires once, and the graph route, which is the only one that
+enqueues a node and therefore the only one that can reach a second level, never runs.
+
+This does not change the fix, the priority, or the owner's decision. It changes what a regression
+test must look like: **a two-asset test passes at HEAD.** Three links are the minimum that fails,
+which is why the existing 34 expiration tests are green and why the defect survived several
+designs. The paragraph above ("Consequence: … no keyed dependent is ever reached") should be read
+as "no *transitive* keyed dependent is ever reached".
+
+## Status
+
+`in_progress` since 2026-09-05: designed in
+[`specs/design/keyed-expiry-cascade-fix/`](../design/keyed-expiry-cascade-fix/), under the owner's
+option-2 decision recorded above. The design's Phase 1 records two consequences this file does not:
+`DependencyManager::add_dependency` treats an *unregistered* dependency key as a version mismatch
+and expires the dependent, which real versions would make reachable on every cold start; and the
+point at which the version is assigned is observable by a concurrent parent, because
+`record_dependency_on_asset` reads it from the child's live metadata.
+
+## Future work (owner, 2026-09-05)
+
+**Version persistence for non-durable assets** is explicitly out of this issue's scope, to be
+introduced "if needed". A keyed asset whose value does not serialize leaves no durable trace at all
+— the evaluate path's `save_to_store` propagates the `SerializationError` and writes nothing, not
+even metadata-only — so its version exists only in memory, and its dependents are expired after a
+restart. That is the intended behaviour: an asset that is not durable and cannot be provably
+reconstructed with the same value should be effectively expired on restart. A mechanism that
+persisted such a version would be what changes it, and nothing in the current design depends on
+having one.
+
+## Resolution (2026-09-06)
+
+Fixed. Computed keyed assets now carry a content version, assigned on the evaluation path in the
+same write transaction as the status change. Measured on a three-link chain of computed keyed
+assets:
+
+```
+before: expire(a) -> a=Expired b=Expired c=Ready
+after:  expire(a) -> a=Expired b=Expired c=Expired
+```
+
+The "Correction" section above stands: the defect was never that *no* dependent was invalidated —
+the direct one always was, through the weak-reference route outside the version guard. What never
+happened was the second hop.
+
+Evidence: `liquers-core/tests/keyed_version_cascade.rs`, whose three-link fixture is deliberate
+because a two-asset test passes either way. Four of its six tests were verified to fail when the
+version assignment is skipped.
+
+Design: `specs/design/keyed-expiry-cascade-fix/`.
