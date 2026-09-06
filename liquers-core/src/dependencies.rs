@@ -114,8 +114,17 @@ pub(crate) enum ScheduleNode {
 pub(crate) struct DependencyManager<E: Environment> {
     /// Current version per tracked dependency key.
     versions: scc::HashMap<DependencyKey, Version>,
-    /// Keyed dependents: for key K, the DependencyKeys of keyed assets that depend on K.
-    keyed_dependents: scc::HashMap<DependencyKey, scc::HashSet<DependencyKey>>,
+    /// Keyed dependents: for key K, the keyed assets that depend on K **and the version each of
+    /// them observed for K** when the edge was recorded.
+    ///
+    /// The expected version is what lets [`Self::register_version`] be precise — expiring only the
+    /// dependents a change actually affects — and what lets [`Self::missing_versions`] tell an
+    /// edge that wants a concrete version from one that never knew any. It is caller-trusted:
+    /// nothing here validates that a stored expectation was ever true, because
+    /// [`Self::add_dependency`] deliberately records without comparing.
+    ///
+    /// **Last writer wins** on an edge's version: a later observation is the fresher one.
+    keyed_dependents: scc::HashMap<DependencyKey, scc::HashMap<DependencyKey, Version>>,
     /// Untracked dependents: for key K, the WeakAssetRefs of query/ad-hoc assets depending on K.
     dependent_assets: scc::HashMap<DependencyKey, Vec<WeakAssetRef<E>>>,
     /// Serializes cascade expiration to prevent concurrent interleaved updates.
@@ -227,36 +236,46 @@ impl<E: Environment> DependencyManager<E> {
 
     /// Register a dependency edge: `dependent` depends on `dependency` at `version`.
     ///
-    /// **Version 0 semantics:** If `version == Version(0)`, skip the version-consistency
-    /// check and just register the edge. No error is returned.
+    /// **Records; it does not verify.** The two are different jobs: recording is in-memory, happens
+    /// on every edge, and is policy-free, while verifying that a recorded version still holds may
+    /// need a store read and is meaningful only on load or on demand. Fusing them put verification
+    /// on the hot path and left nowhere to stand for a policy — see
+    /// `specs/design/keyed-expiry-cascade-fix/` and `DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE`.
     ///
-    /// Returns `Err` if the version is inconsistent or a cycle would be created.
+    /// Verification now happens in [`Self::register_version`], which is an event that already
+    /// means "something changed", and in the audit flow that
+    /// [`AssetManager::trigger_dependency_audit`](crate::assets::AssetManager) drives. This
+    /// function performs **no I/O**.
+    ///
+    /// The `version` is stored on the edge as the dependent's expectation. It is caller-trusted:
+    /// nothing here checks that it was ever true.
+    ///
+    /// Returns `Err` only if a cycle would be created.
     pub async fn add_dependency(
         &self,
         dependent: &DependencyKey,
         dependency: &DependencyKey,
         version: Version,
     ) -> Result<ExpiredDependents<E>, Error> {
-        // Version 0 — skip consistency check
-        if !version.is_unknown() {
-            if !self.version_consistent(dependency, version).await {
-                // Dependency is stale: expire the dependent cascade.
-                return Ok(self.expire(dependent).await);
-            }
-        }
-
         // Cycle check
         if self.would_create_cycle(dependent, dependency).await {
             return Err(Error::dependency_cycle(dependent));
         }
 
-        // Insert the edge
+        // Insert the edge, recording the version the dependent observed. Last writer wins:
+        // `insert_async` fails on a duplicate key, so an existing edge is updated explicitly
+        // rather than left pinned to its first-ever observation.
         let entry = self
             .keyed_dependents
             .entry_async(dependency.clone())
             .await
-            .or_insert(scc::HashSet::new());
-        let _ = entry.get().insert_async(dependent.clone()).await;
+            .or_insert(scc::HashMap::new());
+        let edges = entry.get();
+        if edges.insert_async(dependent.clone(), version).await.is_err() {
+            if let Some(mut existing) = edges.get_async(dependent).await {
+                *existing.get_mut() = version;
+            }
+        }
         drop(entry);
 
         Ok(ExpiredDependents::new())
@@ -365,13 +384,14 @@ impl<E: Environment> DependencyManager<E> {
 
         while let Some(current) = queue.pop_front() {
             if let Some(entry) = self.keyed_dependents.get_async(&current).await {
-                let set = entry.get();
+                let edges = entry.get();
                 let mut dependents_vec = Vec::new();
-                set.iter_async(|dk| {
-                    dependents_vec.push(dk.clone());
-                    true
-                })
-                .await;
+                edges
+                    .iter_async(|dk, _version| {
+                        dependents_vec.push(dk.clone());
+                        true
+                    })
+                    .await;
                 drop(entry);
 
                 for dk in dependents_vec {
@@ -547,55 +567,126 @@ impl<E: Environment> DependencyManager<E> {
         key: &DependencyKey,
         include_root: bool,
     ) -> ExpiredDependents<E> {
-        let _lock = self.expiration_lock.lock().await;
-
-        let mut expired_keys = Vec::new();
-        let mut expired_assets: Vec<WeakAssetRef<E>> = Vec::new();
-        let mut queue = VecDeque::new();
-        let mut visited = std::collections::HashSet::new();
-
         if include_root {
-            queue.push_back(key.clone());
-            visited.insert(key.clone());
+            self.expire_from_frontier(vec![key.clone()], Vec::new())
+                .await
         } else {
-            if let Some(entry) = self.keyed_dependents.get_async(key).await {
-                let set = entry.get();
-                set.iter_async(|dk| {
-                    if visited.insert(dk.clone()) {
-                        queue.push_back(dk.clone());
-                    }
+            // Seed from every dependent, and take the root's own bookkeeping down with it: the
+            // root stays alive but its dependent lists are now stale.
+            let frontier = self.snapshot_dependent_keys(key).await;
+            let seed_assets = self.take_dependent_assets(key).await;
+            self.keyed_dependents.remove_async(key).await;
+            self.expire_from_frontier(frontier, seed_assets).await
+        }
+    }
+
+    /// The keyed dependents of `key`, without their expected versions.
+    async fn snapshot_dependent_keys(&self, key: &DependencyKey) -> Vec<DependencyKey> {
+        let mut out = Vec::new();
+        if let Some(entry) = self.keyed_dependents.get_async(key).await {
+            entry
+                .get()
+                .iter_async(|dk, _version| {
+                    out.push(dk.clone());
                     true
                 })
                 .await;
-                drop(entry);
-            }
+            drop(entry);
+        }
+        out
+    }
 
-            if let Some(entry) = self.dependent_assets.get_async(key).await {
-                let assets = entry.get().clone();
-                drop(entry);
-                for weak in assets {
-                    if weak.upgrade().is_some() {
-                        expired_assets.push(weak);
-                    }
+    /// The keyed dependents of `key` paired with the version each observed.
+    async fn snapshot_dependent_edges(&self, key: &DependencyKey) -> Vec<(DependencyKey, Version)> {
+        let mut out = Vec::new();
+        if let Some(entry) = self.keyed_dependents.get_async(key).await {
+            entry
+                .get()
+                .iter_async(|dk, version| {
+                    out.push((dk.clone(), *version));
+                    true
+                })
+                .await;
+            drop(entry);
+        }
+        out
+    }
+
+    /// Remove `key`'s weak-reference dependents, returning the ones still alive.
+    async fn take_dependent_assets(&self, key: &DependencyKey) -> Vec<WeakAssetRef<E>> {
+        let mut out = Vec::new();
+        if let Some(entry) = self.dependent_assets.get_async(key).await {
+            let assets = entry.get().clone();
+            drop(entry);
+            for weak in assets {
+                if weak.upgrade().is_some() {
+                    out.push(weak);
                 }
             }
-            // Root key remains live, but its stale dependent lists should be dropped.
-            self.keyed_dependents.remove_async(key).await;
-            self.dependent_assets.remove_async(key).await;
+        }
+        self.dependent_assets.remove_async(key).await;
+        out
+    }
+
+    /// Drop one edge, and the outer entry with it when it was the last one.
+    ///
+    /// The blanket paths remove `keyed_dependents[dependency]` wholesale, which is right when
+    /// every dependent has just been invalidated. A *selective* expiry must not: an edge whose
+    /// dependent was deliberately spared has to survive, or sparing it would silently unhook it
+    /// from every future invalidation.
+    async fn remove_edge(&self, dependency: &DependencyKey, dependent: &DependencyKey) {
+        let mut now_empty = false;
+        if let Some(entry) = self.keyed_dependents.get_async(dependency).await {
+            let edges = entry.get();
+            edges.remove_async(dependent).await;
+            now_empty = edges.is_empty();
+            drop(entry);
+        }
+        if now_empty {
+            self.keyed_dependents.remove_async(dependency).await;
+        }
+    }
+
+    /// The single cascade traversal, shared by every expiry entry point.
+    ///
+    /// One [`Self::expiration_lock`] hold, one `visited` set, one breadth-first walk. Callers
+    /// differ only in the frontier they seed and in whether they seed weak references — which is
+    /// what keeps a *selective* expiry from being N separate traversals: those would each carry
+    /// their own `visited` set, so a descendant reachable from two frontier entries would be
+    /// expired twice and reported twice.
+    async fn expire_from_frontier(
+        &self,
+        frontier: Vec<DependencyKey>,
+        seed_assets: Vec<WeakAssetRef<E>>,
+    ) -> ExpiredDependents<E> {
+        let _lock = self.expiration_lock.lock().await;
+
+        let mut expired_keys = Vec::new();
+        let mut expired_assets: Vec<WeakAssetRef<E>> = seed_assets;
+        let mut queue = VecDeque::new();
+        let mut visited = std::collections::HashSet::new();
+
+        for key in frontier {
+            if visited.insert(key.clone()) {
+                queue.push_back(key);
+            }
         }
 
         while let Some(current) = queue.pop_front() {
-            // Check version BEFORE removing — Version(0) means "unknown".
-            // The key itself is always expired, but if its version was 0,
-            // we don't cascade to its dependents (except for the root key).
+            // Check the version BEFORE removing it. A key registered at `Version(0)` — unknown —
+            // does not propagate: without a version, staleness cannot be concluded for its
+            // dependents. The key itself is expired either way. An *absent* entry is not the same
+            // as a zero one and does not stop the walk.
+            //
+            // The audit is what turns an unknown into a known one, so the two mechanisms cover
+            // each other rather than compete: this branch declines to guess, and
+            // `missing_versions` reports the key so something can resolve it.
             let mut skip_cascade = false;
-            if include_root || current != *key {
-                if let Some(entry) = self.versions.get_async(&current).await {
-                    let ver = *entry.get();
-                    drop(entry);
-                    if ver.is_unknown() {
-                        skip_cascade = true;
-                    }
+            if let Some(entry) = self.versions.get_async(&current).await {
+                let ver = *entry.get();
+                drop(entry);
+                if ver.is_unknown() {
+                    skip_cascade = true;
                 }
             }
 
@@ -604,39 +695,15 @@ impl<E: Environment> DependencyManager<E> {
             expired_keys.push(current.clone());
 
             if !skip_cascade {
-                // Collect keyed dependents (BFS frontier)
-                if let Some(entry) = self.keyed_dependents.get_async(&current).await {
-                    let set = entry.get();
-                    let mut dependents_vec = Vec::new();
-                    set.iter_async(|dk| {
-                        dependents_vec.push(dk.clone());
-                        true
-                    })
-                    .await;
-                    drop(entry);
-
-                    for dk in dependents_vec {
-                        if visited.insert(dk.clone()) {
-                            queue.push_back(dk);
-                        }
+                for dk in self.snapshot_dependent_keys(&current).await {
+                    if visited.insert(dk.clone()) {
+                        queue.push_back(dk);
                     }
                 }
             }
 
-            // Remove the keyed_dependents entry
             self.keyed_dependents.remove_async(&current).await;
-
-            // Collect dependent_assets (prune dead WeakAssetRefs)
-            if let Some(entry) = self.dependent_assets.get_async(&current).await {
-                let assets = entry.get().clone();
-                drop(entry);
-                for weak in assets {
-                    if weak.upgrade().is_some() {
-                        expired_assets.push(weak);
-                    }
-                }
-            }
-            self.dependent_assets.remove_async(&current).await;
+            expired_assets.extend(self.take_dependent_assets(&current).await);
         }
 
         ExpiredDependents {
@@ -820,26 +887,75 @@ mod tests {
         assert!(dm.add_dependency(&a, &b, Version::new(2)).await.is_ok());
     }
 
+    /// `add_dependency` records; it does not verify. A recorded version that disagrees with the
+    /// dependency's current one is not an error and expires nothing — that comparison belongs to
+    /// `register_version`, which is an event that already means "something changed".
+    ///
+    /// Replaces `add_dependency_fails_stale_version`, which asserted the inline check.
     #[tokio::test]
-    async fn add_dependency_fails_stale_version() {
+    async fn add_dependency_records_a_disagreeing_version_without_expiring() {
         let dm = DependencyManager::<TestEnv>::new();
         let a = DependencyKey::new("-R/a");
         let b = DependencyKey::new("-R/b");
         dm.register_version(&a, Version::new(1)).await;
         dm.register_version(&b, Version::new(2)).await;
+
         let expired = dm.add_dependency(&a, &b, Version::new(99)).await.unwrap();
-        assert!(expired.keys.contains(&a));
+
+        assert!(expired.keys.is_empty(), "recording must not expire");
+        assert_eq!(dm.snapshot_dependent_edges(&b).await, vec![(a, Version::new(99))]);
     }
 
+    /// An unregistered dependency is *not loaded yet*, which is not the same as *changed*.
+    ///
+    /// Replaces `add_dependency_fails_unregistered_dep`, whose name recorded a behaviour nobody
+    /// chose: absence read as staleness. The dependency's absence is now reported by
+    /// `missing_versions` and resolved by the audit instead.
     #[tokio::test]
-    async fn add_dependency_fails_unregistered_dep() {
+    async fn add_dependency_records_an_unregistered_dependency_without_expiring() {
         let dm = DependencyManager::<TestEnv>::new();
         let a = DependencyKey::new("-R/a");
         let b = DependencyKey::new("-R/b");
         dm.register_version(&a, Version::new(1)).await;
-        // b not registered
+        // b deliberately not registered
+
         let expired = dm.add_dependency(&a, &b, Version::new(42)).await.unwrap();
-        assert!(expired.keys.contains(&a));
+
+        assert!(expired.keys.is_empty());
+        assert_eq!(dm.snapshot_dependent_edges(&b).await, vec![(a, Version::new(42))]);
+    }
+
+    /// The enabling fact for per-edge precision: the version `add_dependency` is given is
+    /// retained on the edge rather than discarded.
+    #[tokio::test]
+    async fn add_dependency_stores_the_expected_version_on_the_edge() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let a = DependencyKey::new("-R/a");
+        let b = DependencyKey::new("-R/b");
+        dm.register_version(&b, Version::new(7)).await;
+        dm.add_dependency(&a, &b, Version::new(7)).await.unwrap();
+
+        let edges = dm.snapshot_dependent_edges(&b).await;
+        assert_eq!(edges, vec![(a, Version::new(7))]);
+    }
+
+    /// Last writer wins. `scc`'s `insert_async` fails on a duplicate key rather than overwriting,
+    /// so getting this wrong pins an edge to its first-ever observation forever — and a dependent
+    /// that has since observed a newer version would then be spared expiry it deserves.
+    #[tokio::test]
+    async fn add_dependency_overwrites_an_earlier_edge_version() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let a = DependencyKey::new("-R/a");
+        let b = DependencyKey::new("-R/b");
+        dm.add_dependency(&a, &b, Version::new(1)).await.unwrap();
+        dm.add_dependency(&a, &b, Version::new(2)).await.unwrap();
+
+        let edges = dm.snapshot_dependent_edges(&b).await;
+        assert_eq!(
+            edges,
+            vec![(a, Version::new(2))],
+            "a later observation must replace an earlier one, not be dropped"
+        );
     }
 
     #[tokio::test]
