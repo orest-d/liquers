@@ -649,6 +649,41 @@ enforced by nothing, and `scc`'s `or_insert` is the easy inversion), and a Phase
 `DEPENDENCIES_STATUS.md` say plainly that `add_dependency` no longer verifies inline — HEAD does,
 and that is where someone will look for the old guarantee.
 
+## Revision 2.6 (2026-09-06) — one traversal, and the same treatment for `report_no_version`
+
+A second pass over the 2.5 corrections found two more, both real, both about the mechanics of one
+function rather than about whether the design is right. Worth noting that the rounds are converging:
+the last three findings have been progressively more local.
+
+**F1 — the selective path must be one BFS, not N calls.** E1 proposed `register_version` calling
+`expire(dependent)` per differing dependent, which looked like the conservative choice — compose the
+existing primitive. It is not the same machinery: `expire_internal` holds a *per-call* `visited` set
+and the `expiration_lock` for the whole call, so N calls means a descendant reachable from two
+dependents is visited twice and appears twice in `expired.keys`, the lock is taken N times, and it
+raised a spurious question about whether to remove the edge before or after each call. The one
+consumer today absorbs the duplicate silently, which is luck, not correctness.
+
+All three dissolve under the right factoring, which was available in the existing body all along:
+`expire_internal` already separates "seed a frontier" from "walk it". Split it —
+`expire_from_frontier(frontier, seed_assets)` — and `expire`, `expire_dependents`,
+`register_version`'s selective path and `report_no_version` all become thin seeders over **one**
+traversal, one lock, one visited set. Less new code than N calls, since the part that must not
+differ is shared rather than re-entered.
+
+**F2 — `report_no_version` had asserted semantics and no construction.** The design stated that it
+spares unknown-expecting edges and never said how it is built. Built the obvious way, on
+`expire_dependents`, it would expire *every* dependent including the ones it must spare, and clear
+the edge map wholesale — the identical bug E1/E3 had just corrected for `register_version`, one
+function over, inside the round that fixed it. Under F1 it is one more seeder with a different
+filter, and the two asymmetries between it and `register_version` are now stated in one table
+rather than inferred from prose.
+
+Three smaller corrections: "`expire_internal` is untouched" was sloppy (its *behaviour* is
+unchanged; two lines still need the mechanical edit for the value type); selective removal must
+evict the outer entry when the inner map empties, which the blanket path did unconditionally; and
+the edge expectation is caller-trusted now that `add_dependency` no longer compares — which is fine,
+and is exactly the kind of assumption Revision 2.3 got wrong once, so it is written down.
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)

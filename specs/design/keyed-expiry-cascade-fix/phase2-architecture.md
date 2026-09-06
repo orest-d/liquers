@@ -1286,3 +1286,93 @@ silent and permanent. Phase 3 gets the test:
 |---|---|
 | `sparing_a_dependent_keeps_its_edge` | Register `v1`; a dependent expecting `v1` is spared; register `v2`; **the same dependent is now expired.** Proves the spared edge survived the first call. Without it, E1's optimisation quietly converts a spared dependent into an orphaned one. |
 | `register_version_always_expires_weak_ref_dependents` | A query asset depending on the key is expired on a version change regardless of the keyed filtering — the behaviour that already works at HEAD, preserved. |
+
+
+---
+
+# Revision 2.6 (2026-09-06) — one traversal, and `report_no_version` gets the same treatment
+
+## F1 — the selective path must be one BFS, not N calls
+
+E1 proposed `register_version` calling `self.expire(&dependent)` once per differing dependent. That
+is wrong in a way worth stating precisely, because "compose the existing primitive N times" looked
+like the conservative choice.
+
+`expire_internal` holds a **per-call** `visited` set (`dependencies.rs:555`) and the
+`expiration_lock` for the **whole** call (`:550`). Today's `expire_dependents(K)` is therefore one
+traversal, one lock, one visited set. N separate `expire` calls are not the same machinery composed
+— they are a different composition of it:
+
+- a descendant reachable from two different not-spared dependents (a diamond) is visited twice,
+  appears twice in `expired_keys`, and is re-walked on the second visit — its `versions` entry is
+  already gone, and absence means `skip_cascade = false`, so the second walk proceeds rather than
+  stopping;
+- the lock is taken and released N times, opening an interleaving window today's single hold closes;
+- and it raised a question that should not have existed: whether to remove the edge before or after
+  the `expire` call.
+
+**All three dissolve under the right factoring.** `expire_internal`'s body is already "seed a
+frontier, then BFS". Split the seeding from the walking:
+
+```rust
+// unchanged callers, unchanged behaviour
+pub async fn expire(&self, key)            -> ExpiredDependents<E>;
+pub async fn expire_dependents(&self, key) -> ExpiredDependents<E>;
+
+// the shared core: one lock, one visited set, one traversal
+async fn expire_from_frontier(&self, frontier: Vec<DependencyKey>,
+                              seed_assets: Vec<WeakAssetRef<E>>) -> ExpiredDependents<E>;
+```
+
+`register_version`'s selective path then computes its own frontier — the not-spared dependents —
+and its own seed assets — `dependent_assets[key]`, always, since they hold no expectation — and
+hands both to the same core. **One traversal, one lock, no duplicates, and the edge removal happens
+in the seeding step where it belongs.**
+
+This is also strictly less new code than N calls: the seeding logic that differs is a dozen lines,
+and the BFS that must not differ is shared rather than re-entered.
+
+## F2 — `report_no_version` needs E3's treatment too, and did not have it
+
+The design asserted its semantics — an edge expecting unknown is left alone — and then never said
+how it is built. Built the obvious way, on `expire_dependents`, it would expire **every** dependent
+including the unknown-expecting ones it is supposed to spare, and clear `keyed_dependents[key]`
+wholesale, orphaning every spared edge. That is exactly the bug E1/E3 had just corrected for
+`register_version`, one function over, inside the correction round that fixed it.
+
+Under F1 it is the same shape with a different filter, which is the point of the factoring:
+
+| | frontier | seed assets |
+|---|---|---|
+| `expire_dependents(K)` | every dependent | `dependent_assets[K]` |
+| `register_version(K, v)` | dependents **not** spared: expectation unknown, or concrete and ≠ `v` | `dependent_assets[K]` |
+| `report_no_version(K)` | dependents expecting a **concrete** version | **none** |
+
+The two asymmetries are deliberate and now stated in one place rather than inferred:
+
+- `register_version` expires unknown-expecting edges (a change event: no evidence of safety);
+  `report_no_version` spares them (an audit finding that a key has no durable version does not
+  contradict an edge which never expected one).
+- `register_version` always expires the weak-ref dependents; `report_no_version` does not, by the
+  same rule — a query asset records no expectation.
+
+## F3 — smaller corrections from the same pass
+
+- **"`expire_internal` is untouched" was sloppy.** Its *behaviour* is unchanged; two lines inside it
+  (`:561`, `:608`) still need the mechanical edit for the `keyed_dependents` value type, and the
+  closures gain a second binding. An implementer skimming E1 could read "untouched" as "no edit".
+- **Evict the outer entry when the inner map empties.** The blanket path removed
+  `keyed_dependents[key]` unconditionally; selective removal must drop the outer entry when the last
+  inner entry goes, or empty maps accumulate silently forever.
+- **The edge expectation is caller-trusted, and that should be said once.** With `add_dependency` no
+  longer comparing, nothing validates that a stored expectation was ever true — it is whatever the
+  caller observed. That is fine, and it is precisely the kind of assumption Revision 2.3 got wrong
+  once already, so it is written down rather than left implicit.
+
+## Tests added
+
+| Test | Assertion |
+|---|---|
+| `selective_expiry_visits_a_shared_descendant_once` | Two not-spared dependents converging on one descendant: it appears in `expired.keys` **exactly once**. The direct guard on F1, and the shape no existing test builds. |
+| `report_no_version_spares_an_unknown_expecting_edge_and_keeps_it` | Both halves of F2 in one test: the unknown-expecting dependent is not expired, **and** its edge survives, so a later `register_version` still reaches it. |
+| `selective_expiry_evicts_an_emptied_edge_map` | The F3 housekeeping rule. |

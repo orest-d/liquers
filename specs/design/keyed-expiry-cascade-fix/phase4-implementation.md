@@ -779,3 +779,38 @@ other caller.
 `keyed_dependents[key]` wholesale, as the blanket path does, unhooks every spared dependent from
 all future invalidation. It would pass the first-order test (`filling_a_gap_expires_only_…`) and
 fail only on the *second* version change, which is why `sparing_a_dependent_keeps_its_edge` exists.
+
+
+## F1/F2 — final shape of the expiry family
+
+Refactor first, then build on it. `expire_internal`'s body already separates "seed a frontier" from
+"walk it"; make that split explicit:
+
+```rust
+async fn expire_from_frontier(&self, frontier: Vec<DependencyKey>,
+                              seed_assets: Vec<WeakAssetRef<E>>) -> ExpiredDependents<E>;
+```
+
+One `expiration_lock` hold, one `visited` set, one BFS — unchanged from today's. `expire` and
+`expire_dependents` become thin seeders over it and keep their behaviour exactly.
+`register_version`'s selective path and `report_no_version` are two more seeders, differing only in
+which dependents they select and whether they seed the weak refs:
+
+| Caller | frontier | seed assets | removes |
+|---|---|---|---|
+| `expire(K)` | `[K]` | — | as today |
+| `expire_dependents(K)` | all of `keyed_dependents[K]` | `dependent_assets[K]` | as today |
+| `register_version(K, v)` | not-spared dependents | `dependent_assets[K]` | only the expired edges; evict the outer entry if it empties |
+| `report_no_version(K)` | concrete-expecting dependents | none | same |
+
+**Do not implement the selective paths as N calls to `expire`.** Each such call carries its own
+`visited` set, so a descendant reachable from two dependents is expired twice and appears twice in
+`expired.keys`; it also takes the lock N times. The one consumer today
+(`expire_dependencies_result` → `mark_expired_status`) happens to absorb the duplicate silently,
+which is luck rather than correctness and will not protect the next consumer.
+
+`ExpiredDependents` needs no `extend` under this factoring — there is one traversal producing one
+result.
+
+**Validation:** `selective_expiry_visits_a_shared_descendant_once` is the test that distinguishes
+this implementation from the wrong one, and it is the only one that does.
