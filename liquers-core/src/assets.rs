@@ -2694,8 +2694,14 @@ impl<E: Environment> AssetRef<E> {
     /// Data format from the metadata is used
     /// This always serializes the asset, even when binary is available
     /// If data is not available, None is returned
+    ///
+    /// Reads through `poll_state_any_status`, not `poll_state`, for the reason `save_to_store`
+    /// already gives for `binary_unchecked`: **persisting is not a read of the asset's exposed
+    /// value.** `poll_state` hides `Status::Expired`, so a gated status here would serialize to
+    /// `Ok(None)` and turn a successful persist into "Failed to obtain binary value"
+    /// (`SERIALIZE-TO-BINARY-CONSULTS-THE-READ-GATE`).
     async fn serialize_to_binary(&self) -> Result<Option<(Arc<Vec<u8>>, Arc<Metadata>)>, Error> {
-        if let Some(data) = self.poll_state().await {
+        if let Some(data) = self.poll_state_any_status().await {
             let binary = data.as_bytes()?;
             let mut lock = self.data.write().await;
             let arc_binary = Arc::new(binary);
@@ -5242,7 +5248,9 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         if final_status != Status::Volatile && final_status != Status::Error {
             let version = match state.as_bytes() {
                 Ok(binary) => crate::metadata::Version::from_bytes(&binary),
-                Err(_) => crate::metadata::Version::from_time_now(),
+                // `new_unique`, not `from_time_now`: what is needed here is a *distinct* version
+                // per set, and a bare timestamp can repeat within one clock tick.
+                Err(_) => crate::metadata::Version::new_unique(),
             };
             metadata.set_version(Some(version))?;
         }
@@ -6361,7 +6369,9 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         if final_status != Status::Volatile && final_status != Status::Error {
             let version = match state.as_bytes() {
                 Ok(binary) => crate::metadata::Version::from_bytes(&binary),
-                Err(_) => crate::metadata::Version::from_time_now(),
+                // `new_unique`, not `from_time_now`: what is needed here is a *distinct* version
+                // per set, and a bare timestamp can repeat within one clock tick.
+                Err(_) => crate::metadata::Version::new_unique(),
             };
             metadata.set_version(Some(version))?;
         }
