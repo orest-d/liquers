@@ -528,11 +528,28 @@ impl<E: Environment> Context<E> {
         &self,
         query: &Query,
     ) -> Result<AssetRef<E>, Error> {
+        self.schedule_dependency_asset_with_key(query)
+            .await
+            .map(|(asset, _)| asset)
+    }
+
+    /// As [`Self::schedule_dependency_asset`], but also returns the `DependencyKey` the record was
+    /// written under.
+    ///
+    /// Handing the key back is what lets [`Self::get_dependency_state`] *upgrade* that record with
+    /// the dependency's settled version once the wait completes, rather than deriving a key of its
+    /// own — `Context::add_dependency` upserts by key equality, so a key derived differently would
+    /// silently write a second record instead.
+    pub(crate) async fn schedule_dependency_asset_with_key(
+        &self,
+        query: &Query,
+    ) -> Result<(AssetRef<E>, DependencyKey), Error> {
         Self::reject_relative_query(query)?;
         let query = self.resolve_query_from_cwd(query)?;
         let envref = self.assetref.get_envref().await;
         let manager = envref.get_asset_manager();
         let query_dep_key = DependencyKey::from(&query);
+        let recorded_key = query_dep_key.clone();
 
         // Does this dependency need a payload to run? Known from the plan, so the path is
         // chosen without speculatively evaluating anything.
@@ -542,7 +559,10 @@ impl<E: Environment> Context<E> {
         };
 
         if requirement.is_required() {
-            return self.schedule_payload_dependency_asset(&query).await;
+            return self
+                .schedule_payload_dependency_asset(&query)
+                .await
+                .map(|asset| (asset, recorded_key));
         }
 
         // Only an asset that still owns its immutable construction-time key may act as a
@@ -591,7 +611,7 @@ impl<E: Environment> Context<E> {
         self.add_dependency(DependencyRecord::new(query_dep_key, version))
             .await;
 
-        Ok(asset)
+        Ok((asset, recorded_key))
     }
 
     /// Schedule a dependency whose plan requires an evaluation payload.
@@ -654,13 +674,45 @@ impl<E: Environment> Context<E> {
 
     /// Wait on a previously-scheduled dependency AssetRef on behalf of the current asset.
     /// Thin wrapper over `AssetManager::wait_for_dependency`; idempotent.
+    ///
+    /// When `dep_key` is supplied, the dependency's **settled** version is recorded once the wait
+    /// completes. That is the correction for
+    /// `DEPENDENCY-RECORD-VERSION-CAPTURED-BEFORE-DEPENDENCY-EVALUATES`: the version captured by
+    /// [`Self::schedule_dependency_asset`] is read *before* the dependency has evaluated, so for
+    /// the ordinary recipe chain it is `Version::unknown()` and nothing ever revisited it. This is
+    /// the one point at which a dependency's `State` — and therefore its final version — is in
+    /// hand.
+    ///
+    /// The key is **passed in, never derived from the asset**: it has to be the same
+    /// `DependencyKey` [`Self::schedule_dependency_asset`] wrote, because
+    /// [`Self::add_dependency`] upserts by key equality. A key derived differently here would
+    /// silently produce a *second* record instead of upgrading the first.
+    pub(crate) async fn wait_for_dependency_recording(
+        &self,
+        asset: &AssetRef<E>,
+        dep_key: Option<&DependencyKey>,
+    ) -> Result<State<E::Value>, Error> {
+        let envref = self.assetref.get_envref().await;
+        let manager = envref.get_asset_manager();
+        let state = manager.wait_for_dependency(&self.assetref, asset).await?;
+        if let Some(dep_key) = dep_key {
+            if let Some(version) = state.metadata.version() {
+                // `add_dependency` prefers a concrete version over an unknown one, so this
+                // upgrades the schedule-time record rather than competing with it.
+                self.add_dependency(DependencyRecord::new(dep_key.clone(), version))
+                    .await;
+            }
+        }
+        Ok(state)
+    }
+
+    /// Wait on a previously-scheduled dependency AssetRef on behalf of the current asset.
+    /// Thin wrapper over `AssetManager::wait_for_dependency`; idempotent.
     pub(crate) async fn wait_for_dependency(
         &self,
         asset: &AssetRef<E>,
     ) -> Result<State<E::Value>, Error> {
-        let envref = self.assetref.get_envref().await;
-        let manager = envref.get_asset_manager();
-        manager.wait_for_dependency(&self.assetref, asset).await
+        self.wait_for_dependency_recording(asset, None).await
     }
 
     /// Drains the current asset's scheduled local dependency queue.
@@ -680,8 +732,9 @@ impl<E: Environment> Context<E> {
     /// map and is never reused, so there is nothing to schedule it for. The dependency edge is
     /// recorded either way.
     pub async fn get_dependency_state(&self, query: &Query) -> Result<State<E::Value>, Error> {
-        let asset = self.schedule_dependency_asset(query).await?;
-        self.wait_for_dependency(&asset).await
+        let (asset, dep_key) = self.schedule_dependency_asset_with_key(query).await?;
+        self.wait_for_dependency_recording(&asset, Some(&dep_key))
+            .await
     }
 
     /// Schedules and records a dependency, then returns its asset handle.
