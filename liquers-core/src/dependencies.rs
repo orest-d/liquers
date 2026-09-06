@@ -372,18 +372,20 @@ impl<E: Environment> DependencyManager<E> {
         let weak_ref = asset.downgrade();
         drop(lock);
 
-        // Extract dependencies and version from metadata
-        let (deps, version) = match &metadata {
-            crate::metadata::Metadata::MetadataRecord(mr) => {
-                let v = mr.version.unwrap_or(Version::new(0));
-                (mr.dependencies.clone(), v)
-            }
-            crate::metadata::Metadata::LegacyMetadata(_) => (Vec::new(), Version::new(0)),
+        // Dependency records come from the snapshot; the version does not — see below.
+        let deps = match &metadata {
+            crate::metadata::Metadata::MetadataRecord(mr) => mr.dependencies.clone(),
+            crate::metadata::Metadata::LegacyMetadata(_) => Vec::new(),
         };
 
         if let Some(key) = key_opt {
-            // Keyed asset: register version and load dependency records
+            // Keyed asset: register version and load dependency records.
+            //
+            // The version comes from `version_for_tracking`, not from the snapshot above: the
+            // snapshot predates any fallback that call assigns, and only a keyed asset needs one,
+            // so asking here rather than unconditionally keeps a write lock off the query path.
             let dep_key = DependencyKey::from(&key);
+            let version = asset.version_for_tracking().await;
             let mut e = self.register_version(&dep_key, version).await;
             expired.keys.append(&mut e.keys);
             expired.assets.append(&mut e.assets);

@@ -1399,6 +1399,19 @@ pub struct AssetRef<E: Environment> {
     pub data: Arc<RwLock<AssetData<E>>>,
 }
 
+/// What a dependency audit checked and what it invalidated.
+///
+/// A plain owned struct with no borrowed lifetimes: this is public API from the moment it ships,
+/// and it names what happened rather than counting it, so a later caller does not have to
+/// reconstruct the detail.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AuditReport {
+    /// The dependency keys whose versions the audit tried to resolve.
+    pub checked: Vec<crate::metadata::DependencyKey>,
+    /// The keys expired as a result, including transitive ones.
+    pub expired: Vec<crate::metadata::DependencyKey>,
+}
+
 /// The bytes and version an evaluation settled on, ready to be installed alongside its status.
 struct PreparedVersion {
     /// The serialized value, when it serialized. Reused by the store write rather than recomputed.
@@ -1824,6 +1837,51 @@ impl<E: Environment> AssetRef<E> {
             let metadata = &mut lock.metadata;
             let _ = metadata.set_volatile();
         }
+    }
+
+    /// The version to register when this asset enters the dependency graph, assigning a
+    /// time-based one first if it has none.
+    ///
+    /// The last-resort net under the routes that can reach the graph without a version — a
+    /// serialization that failed, a `Metadata::LegacyMetadata` record, a sidecar written before
+    /// versions existed. It writes the assigned version back into the asset's metadata, so the
+    /// asset and the manager cannot disagree, and records that it fired.
+    ///
+    /// **It is not a universal funnel**, and the doc comment says so because the design once
+    /// claimed otherwise: four of the five `register_version` call sites are elsewhere, and
+    /// `try_fast_track` never calls `track_asset` at all. This covers the evaluation and
+    /// `set_state` paths.
+    ///
+    /// **It does not re-persist.** An asset reaching this net left no durable trace, so it cannot
+    /// be shown to reconstruct identically and its dependents *should* expire on restart.
+    ///
+    /// Returns `Version::unknown()` for a non-keyed or volatile asset, neither of which is a
+    /// graph node.
+    pub(crate) async fn version_for_tracking(&self) -> Version {
+        let mut lock = self.data.write().await;
+        if let Some(version) = lock.metadata.version() {
+            return version;
+        }
+        if lock.is_volatile || lock.key.is_none() {
+            return Version::unknown();
+        }
+        let version = Version::new_unique();
+        if let Err(e) = lock.metadata.set_version(Some(version)) {
+            let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
+                "Failed to record a fallback version on asset {}: {}",
+                self.id(),
+                e,
+            )));
+            return Version::unknown();
+        }
+        // A net that fires silently is a bug detector switched off: a broken primary path would
+        // keep working while content-stable assets quietly became permanent cascade sources.
+        let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
+            "Asset {} entered the dependency graph without a version; assigned a unique fallback. \
+             It is not persisted, so this asset's dependents expire on restart.",
+            self.id(),
+        )));
+        version
     }
 
     /// Serialize the finalized value once and derive its version — **before** the status
@@ -3983,6 +4041,70 @@ pub trait AssetManager<E: Environment>:
     /// Cancel any pending expiration tracking for the given asset id. Immediate managers no-op.
     fn untrack_expiration(&self, asset_id: u64) {
         let _ = asset_id;
+    }
+
+    /// Verify the recorded dependency versions reachable from `query`, expiring what no longer
+    /// holds.
+    ///
+    /// **Nothing in `liquers-core` calls this.** Verification is opt-in, and the default policy is
+    /// "never" — which is exactly the behaviour before this existed. Deciding *when* an audit runs
+    /// (at startup, on every request, on an explicit user action, never) is a policy question this
+    /// method exists to make answerable without reopening the dependency manager; see
+    /// `DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE`.
+    ///
+    /// Three outcomes per gap, from [`Self::version`]: a version that matches leaves the dependent
+    /// alone, one that differs expires it, and no durable version at all expires it — an asset
+    /// that left no trace cannot be shown to reconstruct identically.
+    ///
+    /// A non-keyed query has no recorded dependencies to audit and yields an empty report rather
+    /// than an error.
+    async fn trigger_dependency_audit(&self, query: &Query) -> Result<AuditReport, Error> {
+        let Some(key) = query.key() else {
+            return Ok(AuditReport::default());
+        };
+        let dep_key = crate::metadata::DependencyKey::from(&key);
+        let gaps = self.dependency_manager().missing_versions_for(&dep_key);
+        self.audit_gaps(gaps).await
+    }
+
+    /// [`Self::trigger_dependency_audit`] over every gap the dependency manager knows of.
+    async fn trigger_dependency_audit_all_registered(&self) -> Result<AuditReport, Error> {
+        let gaps = self.dependency_manager().missing_versions();
+        self.audit_gaps(gaps).await
+    }
+
+    /// Resolve each gap through [`Self::version`] and push the answer back into the graph, which
+    /// is what produces the expirations.
+    ///
+    /// The gap list is a snapshot and the graph may change under it. That is fine for a
+    /// policy-triggered operation, and deliberately takes no lock: locking here would put
+    /// contention on the cascade path to protect an operation that tolerates being slightly out
+    /// of date.
+    async fn audit_gaps(
+        &self,
+        gaps: Vec<crate::metadata::DependencyKey>,
+    ) -> Result<AuditReport, Error> {
+        let mut report = AuditReport::default();
+        for dep_key in gaps {
+            report.checked.push(dep_key.clone());
+            let key = match dep_key.key() {
+                Ok(Some(key)) => key,
+                // Not an asset key (a command dependency, say): the manager holds those
+                // authoritatively already and there is nothing to resolve from a store.
+                Ok(None) | Err(_) => continue,
+            };
+            let expired = match self.version(&key).await? {
+                Some(version) => {
+                    self.dependency_manager()
+                        .register_version(&dep_key, version)
+                        .await
+                }
+                None => self.dependency_manager().report_no_version(&dep_key).await,
+            };
+            report.expired.extend(expired.keys.iter().cloned());
+            self.expire_dependencies_result(expired).await;
+        }
+        Ok(report)
     }
 
     /// The authoritative version of a keyed asset, **without evaluating it**.

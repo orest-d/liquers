@@ -227,3 +227,92 @@ async fn query_asset_has_no_version() -> Result<(), Box<dyn std::error::Error>> 
     assert_eq!(q.get().await?.metadata.version(), None);
     Ok(())
 }
+
+// --- The audit seam ---
+//
+// Nothing in `liquers-core` calls these, by design: the default policy is "never". These tests are
+// the only callers, which is the point rather than a shortcoming — a public API with no in-tree
+// caller has to be exercised as a user would call it.
+
+/// **The exploratory workflow.** A user deletes an intermediate by hand; the result stays valid
+/// and keeps being served, because nothing audits unless asked.
+#[tokio::test]
+async fn nothing_audits_by_default() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = chain_env(Arc::new(AtomicUsize::new(0))).await?;
+    let c = envref.evaluate("-R/c.txt").await?;
+    let _ = c.get().await?;
+
+    // Delete the intermediate outright — data and metadata.
+    envref.get_async_store().remove(&parse_key("a.txt")?).await?;
+
+    let again = envref.evaluate("-R/c.txt").await?;
+    let _ = again.get().await?;
+    assert_eq!(
+        again.status().await,
+        Status::Ready,
+        "a deleted intermediate must not invalidate a result nobody asked about"
+    );
+    Ok(())
+}
+
+/// `version(key)` reads metadata, never the value — so keeping the sidecar and deleting the data
+/// still verifies clean. An "optimization" that computed a version from the value breaks here.
+#[tokio::test]
+async fn metadata_kept_data_deleted_still_verifies_clean(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let envref = chain_env(Arc::new(AtomicUsize::new(0))).await?;
+    let c = envref.evaluate("-R/c.txt").await?;
+    let _ = c.get().await?;
+    let a_key = parse_key("a.txt")?;
+    let a_metadata = envref.get_async_store().get_metadata(&a_key).await?;
+
+    // Data gone, sidecar kept.
+    envref.get_async_store().remove(&a_key).await?;
+    envref
+        .get_async_store()
+        .set_metadata(&a_key, &a_metadata)
+        .await?;
+
+    let manager = envref.get_asset_manager();
+    assert_eq!(
+        manager.version(&a_key).await?,
+        a_metadata.version(),
+        "a version is a fact about metadata, not about the value being present"
+    );
+    Ok(())
+}
+
+/// An audit over a graph with nothing missing reports nothing and expires nothing.
+#[tokio::test]
+async fn audit_of_a_complete_graph_expires_nothing() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = chain_env(Arc::new(AtomicUsize::new(0))).await?;
+    let c = envref.evaluate("-R/c.txt").await?;
+    let _ = c.get().await?;
+
+    let report = envref
+        .get_asset_manager()
+        .trigger_dependency_audit_all_registered()
+        .await?;
+
+    assert!(
+        report.expired.is_empty(),
+        "everything is known and consistent: {report:?}"
+    );
+    assert_eq!(c.status().await, Status::Ready);
+    Ok(())
+}
+
+/// A non-keyed query has nothing to audit, and that is an empty report rather than an error.
+#[tokio::test]
+async fn audit_of_a_non_keyed_query_is_an_empty_report() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = chain_env(Arc::new(AtomicUsize::new(0))).await?;
+    let query = liquers_core::parse::parse_query("hello/world")?;
+
+    let report = envref
+        .get_asset_manager()
+        .trigger_dependency_audit(&query)
+        .await?;
+
+    assert_eq!(report, liquers_core::assets::AuditReport::default());
+    Ok(())
+}
