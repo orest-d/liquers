@@ -3836,6 +3836,43 @@ pub trait AssetManager<E: Environment>:
         let _ = asset_id;
     }
 
+    /// The authoritative version of a keyed asset, **without evaluating it**.
+    ///
+    /// Three sources, in order:
+    ///
+    /// 1. a live asset registered for `key`, *if it has a version yet* — an asset that is
+    ///    mid-evaluation does not, and must not shadow the durable answer below;
+    /// 2. otherwise, the store's metadata for `key`, if it holds any;
+    /// 3. otherwise `None` — the key has no durable version, which is **not** the same as
+    ///    [`Version::unknown()`] and must not be conflated with it.
+    ///
+    /// This never evaluates and never submits, for the same reason [`Self::owned_key_asset`] does
+    /// not (`specs/design/keyed-recipe-ownership/`): asking a question about an asset must not be
+    /// able to run it, or an inline manager recurses until the stack is gone. It reads
+    /// `lookup_key_asset`, a map read, and at most one metadata read.
+    ///
+    /// A version is read from **metadata only**, never from the value — so a key whose data has
+    /// been deleted but whose sidecar remains still answers. That is deliberate and load-bearing:
+    /// it is what lets a user delete large intermediates and keep the results that were derived
+    /// from them.
+    ///
+    /// `Ok(None)` and `Err` are different answers and stay different: a store that fails to read
+    /// is not a key without a version, and collapsing them would expire dependents on a transient
+    /// store error. `contains` is asked first for exactly this reason, since
+    /// [`AsyncStore::get_metadata`] reports a missing key as `Err`.
+    async fn version(&self, key: &Key) -> Result<Option<Version>, Error> {
+        if let Some(asset) = self.lookup_key_asset(key) {
+            if let Some(version) = asset.get_metadata().await?.version() {
+                return Ok(Some(version));
+            }
+        }
+        let store = self.get_envref().get_async_store();
+        if !store.contains(key).await? {
+            return Ok(None);
+        }
+        Ok(store.get_metadata(key).await?.version())
+    }
+
     /// The recipe provider (via the environment).
     fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<E>> {
         self.get_envref().get_recipe_provider()
@@ -9089,6 +9126,89 @@ recipes:
         }
         assert!(manager.try_insert_key_asset(key, asset.clone()).await);
         asset
+    }
+
+    /// Asking for a version must not run the recipe, for the same reason asking who owns a key
+    /// must not: an inline manager would recurse until the stack is gone.
+    #[tokio::test]
+    async fn version_never_evaluates() {
+        let (envref, calls) = ownership_env().await;
+        let manager = envref.get_asset_manager();
+        let key = parse_key("counted.txt").expect("key");
+
+        assert_eq!(manager.version(&key).await.expect("version"), None);
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "asking for a version must not evaluate a recipe"
+        );
+    }
+
+    #[tokio::test]
+    async fn version_of_an_absent_key_is_none() {
+        let (envref, _calls) = ownership_env().await;
+        let manager = envref.get_asset_manager();
+        let key = parse_key("nothing-here.txt").expect("key");
+
+        assert_eq!(
+            manager.version(&key).await.expect("absent is not an error"),
+            None,
+            "an absent key is Ok(None), never Err — a store failure must stay distinguishable"
+        );
+    }
+
+    #[tokio::test]
+    async fn version_of_a_live_asset_is_its_metadata_version() {
+        let (envref, _calls) = ownership_env().await;
+        let manager = envref.get_asset_manager();
+        let key = parse_key("counted.txt").expect("key");
+        let asset = manager.get(&key).await.expect("get");
+        asset.get().await.expect("evaluate");
+
+        {
+            let mut data = asset.data.write().await;
+            data.metadata
+                .set_version(Some(Version::new(4242)))
+                .expect("set version");
+        }
+
+        assert_eq!(
+            manager.version(&key).await.expect("version"),
+            Some(Version::new(4242))
+        );
+    }
+
+    /// A live asset with no version yet must not shadow the durable answer, or a dependent whose
+    /// dependency is merely being recomputed would be read as depending on nothing durable.
+    #[tokio::test]
+    async fn version_of_a_mid_evaluation_asset_falls_through_to_the_store() {
+        let (envref, _calls) = ownership_env().await;
+        let manager = envref.get_asset_manager();
+        let key = parse_key("counted.txt").expect("key");
+
+        let mut stored = MetadataRecord::new();
+        stored.version = Some(Version::new(77));
+        stored.type_identifier = "text".to_string();
+        envref
+            .get_async_store()
+            .set(&key, b"counted", &Metadata::MetadataRecord(stored))
+            .await
+            .expect("seed store");
+
+        // A registered asset that has not produced a version yet.
+        let asset = AssetRef::new_from_recipe(
+            manager.next_id_for_asset(),
+            key.clone().into(),
+            Some(key.clone()),
+            envref.clone(),
+        );
+        assert!(manager.try_insert_key_asset(&key, asset).await);
+
+        assert_eq!(
+            manager.version(&key).await.expect("version"),
+            Some(Version::new(77)),
+            "fall through to the store rather than reporting no durable version"
+        );
     }
 
     /// T10 — the property the whole design rests on: the ownership query must not evaluate.
