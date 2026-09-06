@@ -2,7 +2,7 @@
 id: KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS
 kind: issue
 title: Expiring a computed keyed asset never invalidates the keyed assets that depend on it
-status: in_progress
+status: closed
 priority: P1
 complexity: L
 area: [core/assets]
@@ -190,3 +190,24 @@ restart. That is the intended behaviour: an asset that is not durable and cannot
 reconstructed with the same value should be effectively expired on restart. A mechanism that
 persisted such a version would be what changes it, and nothing in the current design depends on
 having one.
+
+## Resolution (2026-09-06)
+
+Fixed. Computed keyed assets now carry a content version, assigned on the evaluation path in the
+same write transaction as the status change. Measured on a three-link chain of computed keyed
+assets:
+
+```
+before: expire(a) -> a=Expired b=Expired c=Ready
+after:  expire(a) -> a=Expired b=Expired c=Expired
+```
+
+The "Correction" section above stands: the defect was never that *no* dependent was invalidated —
+the direct one always was, through the weak-reference route outside the version guard. What never
+happened was the second hop.
+
+Evidence: `liquers-core/tests/keyed_version_cascade.rs`, whose three-link fixture is deliberate
+because a two-asset test passes either way. Four of its six tests were verified to fail when the
+version assignment is skipped.
+
+Design: `specs/design/keyed-expiry-cascade-fix/`.

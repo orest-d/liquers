@@ -2,7 +2,7 @@
 id: DEPENDENCY-RECORD-VERSION-CAPTURED-BEFORE-DEPENDENCY-EVALUATES
 kind: issue
 title: A dependency record captures the dependency's version before the dependency has been evaluated, so it is always unknown
-status: draft
+status: closed
 priority: P1
 complexity: M
 area: [core/assets]
@@ -97,3 +97,18 @@ assumed persisted records carry concrete versions and built its cold-start reaso
 probe printing `metadata.get_dependencies()` over that design's own fixture showed every version
 zero. See `PLAN-DEPENDENCY-RECORDS-HARDCODE-VERSION-ZERO` for the second, independent cause of the
 same symptom.
+
+## Resolution (2026-09-06)
+
+Fixed as part of `keyed-expiry-cascade-fix`. `Context::get_dependency_state` upgrades the record
+with the dependency's settled version once the wait completes — the one point at which a
+dependency's `State` is in hand. The key is handed back by the scheduler rather than re-derived,
+because `Context::add_dependency` upserts by key equality and a differently-derived key would write
+a second record instead of upgrading the first.
+
+Known and accepted gap, recorded in `reference/DEPENDENCIES_STATUS.md`: a command that calls
+`Context::evaluate` and awaits `AssetRef::get` directly bypasses the upgrade and keeps an unknown
+record. Unknown is compatible, so this under-detects staleness rather than inventing it.
+
+Evidence: `dependency_record_carries_the_dependencys_post_evaluation_version` in
+`liquers-core/tests/keyed_version_cascade.rs`.

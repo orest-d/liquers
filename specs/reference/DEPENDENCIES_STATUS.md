@@ -3,7 +3,7 @@ title: Status::Dependencies Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-08-12
+reviewed: 2026-09-06
 ---
 # Dependencies Status Specification
 
@@ -102,9 +102,43 @@ fails fast with `Error::dependency_cycle`. That is pinned by
   cancellable like `Processing`.
 - Dependency edges are graph/metadata facts, not status facts. Scheduler-local wait bookkeeping is
   diagnostic only.
-- `Version::unknown()` (`Version(0)`) means the dependency version is not known yet. Unknown
-  versions may record edges, but they must not replace an already-known dependency version in
-  metadata.
+- **Every non-volatile keyed asset carries a concrete version.** It is assigned on the evaluation
+  path — `Version::from_bytes` of the serialized value, or `Version::new_unique()` when the value
+  does not serialize — in the same write transaction as the status change, so no observer can read
+  an asset that is ready but unversioned. A **non-keyed (query) asset gets none**: it is not a
+  graph node, and serializing one would cost the commonest path in the system for a version
+  nothing reads. A **volatile** asset gets none either.
+- `Version::unknown()` (`Version(0)`) means the version is not known — and **only** that. It is not
+  a marker for "this asset does not participate in invalidation". Unknown versions may record
+  edges, but they must not replace an already-known dependency version in metadata.
+- **A version is a fact about metadata, never about the value.** `AssetManager::version(key)` reads
+  a live asset's metadata, else the store's sidecar, and never the value itself — so a key whose
+  data has been deleted but whose sidecar remains still answers. That is deliberate: it is what
+  lets a user delete large intermediates and keep the results derived from them.
+- **`add_dependency` records; it does not verify.** This changed: it used to compare the recorded
+  version against the manager's and expire the dependent on a mismatch. Recording is in-memory and
+  happens on every edge; verifying may need a store read and is meaningful only on load or on
+  demand, so fusing them put verification on the hot path and left nowhere to express a policy.
+  The dependency graph now performs **no I/O**.
+- **Verification is opt-in and defaults to never.** `AssetManager::trigger_dependency_audit(query)`
+  and `trigger_dependency_audit_all_registered()` ask the graph which versions it is missing,
+  resolve each through `AssetManager::version`, and push the answer back with `register_version` or
+  `report_no_version` — which is what produces the expirations. Nothing in `liquers-core` calls
+  them. Deciding *when* an audit runs is a policy question
+  (`DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE`).
+- **A change expires only what it provably affects.** Each edge records the version its dependent
+  observed, and `register_version` spares a dependent only when that expectation is concrete and
+  equal to the new version. An edge recording `Version::unknown()` is expired: no evidence either
+  way is not evidence of safety, and `propagate_attribution` records every attribution edge that
+  way, so sparing them would drop every keyed dependent reached through a non-keyed expression out
+  of the cascade. The invariant, which is stronger than the case list: **this expires a subset of
+  what an unconditional cascade expires, and drops a dependent from that set only on positive
+  evidence.**
+- **The edge's expected version is caller-trusted.** Nothing validates that it was ever true; it is
+  whatever the caller observed. That is only sound because a concrete version reaches
+  `add_dependency` solely for a dependency that had one — a volatile, non-keyed or not-yet-versioned
+  dependency yields `Version::unknown()`. A change that made any caller synthesize a concrete
+  version would reintroduce spurious expiry.
 - Dependency-cycle checks use `DependencyManager::would_create_cycle()` / `add_dependency()` and
   static dependency discovery. There is no separate canonical wait-cycle graph.
 
@@ -138,8 +172,9 @@ This is the F-1 path.
      glossary: it finds the best available version (child metadata version, `DependencyManager`
      version, or `Version::unknown()`), upserts the parent metadata dependency, and — if parent `A`
      is keyed — checks `would_create_cycle(A, B)` before `DependencyManager::add_dependency(A, B,
-     version)`. With `Version::unknown()` the edge is still recorded, but stale-version comparison
-     is skipped: graph shape is preserved without pretending to know a concrete version.
+     version)`. The edge is recorded either way; `add_dependency` no longer compares versions at
+     all, so an unknown version costs only the precision of a later `register_version`, which
+     cannot spare an unknown-expecting dependent.
 
 4. **Enter dependency wait**
    - If `B.poll_state()` is `None`, `A.enter_dependencies(B)` sets `A` to
@@ -196,7 +231,13 @@ This is the runtime dependency path for commands that discover dependencies whil
 
 4. **Record pending dependency**
    - `Context::evaluate()` computes the dependency key and version.
-   - Missing versions are represented as `Version::unknown()`.
+   - Missing versions are represented as `Version::unknown()`. The version read at *schedule* time
+     is taken before the dependency has evaluated, so for an ordinary recipe chain it is unknown;
+     `Context::get_dependency_state` upgrades the record with the dependency's settled version once
+     the wait completes, using the key the scheduler handed back rather than one derived at the
+     wait — a differently-derived key would write a second record instead of upgrading the first.
+     A command that calls `Context::evaluate` and awaits `AssetRef::get` directly bypasses that
+     upgrade and keeps an unknown record, which under-detects staleness rather than inventing it.
    - `Context::add_dependency(record)` upserts into `pending_dependencies`; if a known version is
      already present, a later unknown observation is ignored instead of downgrading it.
    - If the current asset is keyed, `add_dependent_asset()` also records the current asset as an
@@ -295,5 +336,6 @@ Dependency evaluation is now non-blocking and deadlock-free (see
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-06 | Computed keyed assets now carry a concrete version, assigned atomically with their status; `add_dependency` records without verifying and the graph does no I/O; verification moves to opt-in `trigger_dependency_audit*` with a default of never; edges carry the dependent's expected version so a change expires only what it provably affects; `Version(0)` means "unknown" and nothing else. Current-contract bullets rewritten, Flow A step 3 and Flow B step 4 corrected. | `specs/design/keyed-expiry-cascade-fix/` |
 | 2026-08-12 | Delegation no longer records a dependency: two assets sharing a key are one graph node, compared by construction-time key rather than by the mutable resolved recipe (PR 32 review). New section "Delegation is a hand-off, not a dependency"; F-1 bullet, Flow A step 3 and the `record_dependency_on_asset` glossary entry corrected. Reviewed only for the delegation-recording claim — Flow A steps 5, 7 and 8 still describe the pre-2026-07-15 wait mechanics and are superseded by "Non-blocking dependency scheduling"; not re-verified here. | `specs/design/keyed-delegation-hand-off/` |
 | 2026-07-15 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |

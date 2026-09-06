@@ -213,3 +213,28 @@ see a genuine change and cascade, which is the behaviour Phase 2 originally want
 | `EVALUATE-DOES-NOT-CLEAR-CACHED-BINARY` | P2 | Adjacent, found while tracing the persistence path |
 | `SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED` | P2 | Adjacent, same trace |
 | `DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS` | P2 | Unrelated; found while regenerating the index. Half fixed upstream since |
+
+## Blocker discharged (2026-09-06)
+
+`KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS` is closed:
+`specs/design/keyed-expiry-cascade-fix/` shipped, and computed keyed assets now carry real
+versions. **This design is unblocked**, with three corrections to what it will find:
+
+- **C2 is revisitable, and the ground has moved further than expected.** That decision routed a
+  stale-dependency asset through `cascade_expire_dependents` because `register_version` could not
+  be made to cascade. It now can — but `add_dependency` no longer verifies at all, and expiry
+  precision moved into `register_version`, which spares a dependent only when its edge records a
+  concrete version equal to the new one. Re-derive C2 against that rather than against the note
+  above.
+- **C1 is already done.** `serialize_to_binary` reads through `poll_state_any_status`
+  (`SERIALIZE-TO-BINARY-CONSULTS-THE-READ-GATE`, closed), so the B1 finding that returned this
+  design to Phase 2 no longer applies.
+- **The `try_to_set_ready` → `finalize_status` rename was deliberately not taken.** It is this
+  design's approved decision and remains available. The function now has a sibling,
+  `finalize_status_with_version`, which the rename should take into account.
+
+One correction this design's Phase 3 carries: its "Verified Setup Facts" claim that `AsyncStore`
+having two required methods makes a shared-store wrapper "two forwarding bodies" is wrong — the
+other twenty are defaulted, but `set`'s default is an error rather than a forward. Recorded in
+`CROSS-PROCESS-RELOAD-IS-UNTESTED`, which now owns that fixture.
+

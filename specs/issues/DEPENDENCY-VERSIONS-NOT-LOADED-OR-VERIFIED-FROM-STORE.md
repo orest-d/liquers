@@ -2,7 +2,7 @@
 id: DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE
 kind: issue
 title: The dependency manager treats an unloaded dependency as a mismatch instead of consulting its durable version
-status: draft
+status: closed
 priority: P1
 complexity: M
 area: [core/assets]
@@ -101,3 +101,20 @@ Raised by the project owner on 2026-09-05 during Phase 1 of `keyed-expiry-cascad
 durable versions should be considered correct — the dependency manager should probably dynamically
 verify them or load them on startup". Found while tracing what happens when computed keyed assets
 start carrying real versions and the `add_dependency` consistency check stops being skipped.
+
+## Resolution (2026-09-06)
+
+Absorbed by `keyed-expiry-cascade-fix`, which built the capability this issue describes.
+
+`AssetManager::version(key)` is the authority: a live asset's metadata, else the store's sidecar,
+else `None` — never evaluating, and keeping `Ok(None)` distinct from `Err` so a transient store
+failure cannot be read as "no version". The three outcomes this issue defined are implemented as
+`register_version` (present and equal, or present and different) and `report_no_version` (absent).
+
+The mechanism differs from what this issue proposed, and better: the dependency manager does not
+call out to a resolver. It **reports** the keys whose versions it does not know
+(`missing_versions`), the asset manager fills the gaps, and the manager reacts to each fill. That
+keeps the graph free of I/O and of any handle to the layer above it.
+
+Reached through `trigger_dependency_audit(query)` and `trigger_dependency_audit_all_registered()`,
+with a default policy of never — the policy itself is `DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE`.

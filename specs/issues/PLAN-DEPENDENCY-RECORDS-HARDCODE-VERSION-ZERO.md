@@ -2,7 +2,7 @@
 id: PLAN-DEPENDENCY-RECORDS-HARDCODE-VERSION-ZERO
 kind: issue
 title: Plan dependency records are written with a hard-coded zero version although real versions are available
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/plan, core/assets]
@@ -73,3 +73,15 @@ Found on 2026-09-05 during the final cross-document review of `keyed-expiry-casc
 to be unreachable in production: no production caller ever passes a concrete command version to
 `DependencyManager::add_dependency`. Independent of, but symptomatic with,
 `DEPENDENCY-RECORD-VERSION-CAPTURED-BEFORE-DEPENDENCY-EVALUATES`.
+
+## Resolution (2026-09-06)
+
+Fixed as part of `keyed-expiry-cascade-fix`. `finalize_plan_expanded` now reads the version
+`register_plan_dependencies` looks up eleven lines below, instead of writing `Version::new(0)`.
+
+Evidence: `plan_dependency_record_carries_the_command_version` asserts a command declared
+`version: 2` is recorded as `2`, measured as zero before the change.
+
+The consequence the issue asked to be turned on deliberately — that a command version change
+invalidates persisted dependents — is now reachable, but only through an explicit audit:
+verification is opt-in and defaults to never.

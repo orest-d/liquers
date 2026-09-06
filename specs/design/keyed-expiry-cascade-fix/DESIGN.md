@@ -3,8 +3,7 @@ id: KEYED-EXPIRY-CASCADE-FIX
 kind: design
 title: Versions for computed keyed assets, so keyed expiry cascades
 workflow: liquers-project
-status: in_review
-phase: architecture
+status: complete
 area: [core/assets]
 issues: [KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS, DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE, DEPENDENCY-RECORD-VERSION-CAPTURED-BEFORE-DEPENDENCY-EVALUATES, PLAN-DEPENDENCY-RECORDS-HARDCODE-VERSION-ZERO, DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE]
 gh_pr: []
@@ -21,9 +20,9 @@ superseded_by:
 - [x] Phase 1: High-Level Design (approved 2026-09-05)
 - [x] Phase 2: Solution & Architecture (approved 2026-09-05)
 - [x] Phase 3: Examples & Testing (approved 2026-09-05; **partly superseded by Phase 2 Revision 2**)
-- [x] Phase 4: Implementation Plan (drafted; **returned to Phase 2** — Step 3 and Group B are rewritten by Revision 2)
-- [ ] Phase 5: Documentation
-- [ ] Implementation Complete
+- [x] Phase 4: Implementation Plan (approved 2026-09-06, after Revisions 2.1-2.6)
+- [x] Phase 5: Documentation (2026-09-06)
+- [x] Implementation Complete
 
 ## Notes
 
