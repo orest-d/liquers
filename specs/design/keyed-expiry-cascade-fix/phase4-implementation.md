@@ -750,3 +750,32 @@ unchanged. Before this correction those two claims contradicted Phase 2 and Phas
 **Validation for this step is the invariant, not the cases:** the set of dependents expired by
 `register_version` must be a subset of `keyed_dependents[key]`, and a dependent may be absent from
 it only when its stored expectation is concrete and equal to the new version.
+
+
+## E3 — `register_version`'s selective path, in full
+
+Not "iterate the edges and expire some". Three obligations, from reading
+`expire_internal(key, include_root = false)` (`dependencies.rs:558-585`):
+
+```rust
+if version_changed {
+    // (a) keyed dependents: selective — spare only a concrete, equal expectation
+    for (dependent, expected) in edges_of(key) {
+        if expected.is_unknown() || expected != version {
+            expired.extend(self.expire(&dependent).await);
+            remove_edge(key, &dependent);          // only the ones actually expired
+        }
+        // else: KEEP the edge. Dropping it orphans a dependent that is still subscribed.
+    }
+    // (b) weak-ref (query-asset) dependents hold no expectation: always expired, as today
+    expired.assets.extend(take(dependent_assets[key]));
+}
+```
+
+`expire_dependents`/`expire_internal` are **not** used for this path and remain unchanged for every
+other caller.
+
+**The failure mode to watch for in review is silent and permanent:** clearing
+`keyed_dependents[key]` wholesale, as the blanket path does, unhooks every spared dependent from
+all future invalidation. It would pass the first-order test (`filling_a_gap_expires_only_…`) and
+fail only on the *second* version change, which is why `sparing_a_dependent_keeps_its_edge` exists.

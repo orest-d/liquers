@@ -1251,3 +1251,38 @@ one. Both doc comments say which they are.
   inline. HEAD does verify there (`dependencies.rs:241-246`); after this design it records, and
   verification is opt-in through the audit with a default of never. That is a real behaviour change
   and the reference is where someone will look for the old guarantee.
+
+
+## E3 — what the blanket path does that a filtered loop must not drop
+
+Found while writing E1 up, by reading `expire_internal(key, include_root = false)` rather than
+assuming it only walks keyed edges. It does three things, and a naive per-edge loop keeps only the
+first:
+
+1. enqueues every entry of `keyed_dependents[key]` — the part E1 makes selective;
+2. collects **`dependent_assets[key]`** — the weak references belonging to *query* assets, which
+   carry no version expectation at all (`:571-579`);
+3. **removes both maps' entries for `key`** wholesale (`:583-584`).
+
+So `register_version` must keep (2) and must change (3):
+
+- **Weak-ref dependents are always expired.** They hold no expectation, so there is no evidence
+  they are unaffected, and the invariant — drop a dependent only on positive evidence — requires
+  expiring them. Skipping them would silently stop invalidating every query asset built on a keyed
+  one, which is the *one* dependent shape that works correctly at HEAD today. Losing it while
+  fixing the keyed path would be an unusually poor trade.
+- **The edge set must not be cleared wholesale.** `expire_dependents` drops `keyed_dependents[key]`
+  entirely, which is right when every dependent has just been invalidated. Under E1 some dependents
+  are deliberately kept, and their edges must survive — otherwise the first `register_version` that
+  spares a dependent also silently unhooks it from all future invalidation. Remove only the entries
+  for the dependents actually expired; `dependent_assets[key]` may still be cleared, since all of
+  them are expired.
+
+This is the sharpest edge in the whole change: it turns an unconditional teardown into a selective
+one, and the failure mode — a dependent that stays subscribed but is never notified again — is
+silent and permanent. Phase 3 gets the test:
+
+| Test | Assertion |
+|---|---|
+| `sparing_a_dependent_keeps_its_edge` | Register `v1`; a dependent expecting `v1` is spared; register `v2`; **the same dependent is now expired.** Proves the spared edge survived the first call. Without it, E1's optimisation quietly converts a spared dependent into an orphaned one. |
+| `register_version_always_expires_weak_ref_dependents` | A query asset depending on the key is expired on a version change regardless of the keyed filtering — the behaviour that already works at HEAD, preserved. |
