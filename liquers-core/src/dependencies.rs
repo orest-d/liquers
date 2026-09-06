@@ -769,6 +769,86 @@ impl<E: Environment> DependencyManager<E> {
         }
     }
 
+    /// Dependency keys whose version this manager does not know, and which at least one edge
+    /// expects at a concrete version.
+    ///
+    /// "Does not know" is one predicate applied in two places, both `Version::is_unknown()`:
+    ///
+    /// - an edge expecting `Version(0)` is **unverifiable**, so it is skipped — it makes no demand
+    ///   on its target, and this is what keeps an audit over a store written before versions
+    ///   existed from reporting everything;
+    /// - a node registered at `Version(0)` is **unverified**, so it is reported, exactly like a
+    ///   node with no entry at all. A zero gets registered for reasons that are nobody's decision
+    ///   — `track_asset` registers one for a `Metadata::LegacyMetadata` record — and without this
+    ///   such a key would be permanently invisible to the one mechanism that can resolve it.
+    ///
+    /// Synchronous and allocation-light by design: this is a scan of two in-memory maps and
+    /// performs no I/O. Resolving the gaps is the asset manager's job, through
+    /// `AssetManager::version`, and pushing the answers back is
+    /// [`Self::register_version`] or [`Self::report_no_version`].
+    ///
+    /// The result is a snapshot; the graph may change under it. That is fine for a
+    /// policy-triggered operation and deliberately takes no lock — locking here would put
+    /// contention on the cascade path to protect an operation that tolerates being slightly out
+    /// of date.
+    pub(crate) fn missing_versions(&self) -> Vec<DependencyKey> {
+        let mut out = Vec::new();
+        self.keyed_dependents.iter_sync(|dependency, edges| {
+            if self.is_missing_version(dependency, edges) {
+                out.push(dependency.clone());
+            }
+            true
+        });
+        out
+    }
+
+    /// The gaps that checking `key` alone requires: the subset of [`Self::missing_versions`]
+    /// reachable from `key`'s own recorded dependencies.
+    ///
+    /// `keyed_dependents` is indexed by *dependency*, so this scans for entries in which `key`
+    /// appears as a dependent rather than walking outward from `key`.
+    pub(crate) fn missing_versions_for(&self, key: &DependencyKey) -> Vec<DependencyKey> {
+        let mut out = Vec::new();
+        self.keyed_dependents.iter_sync(|dependency, edges| {
+            let expected = edges.read_sync(key, |_, version| *version);
+            if let Some(expected) = expected {
+                if !expected.is_unknown() && self.version_is_unknown(dependency) {
+                    out.push(dependency.clone());
+                }
+            }
+            true
+        });
+        out
+    }
+
+    /// Whether any edge makes a concrete demand on `dependency` that this manager cannot answer.
+    fn is_missing_version(
+        &self,
+        dependency: &DependencyKey,
+        edges: &scc::HashMap<DependencyKey, Version>,
+    ) -> bool {
+        if !self.version_is_unknown(dependency) {
+            return false;
+        }
+        let mut demanded = false;
+        edges.iter_sync(|_dependent, expected| {
+            if !expected.is_unknown() {
+                demanded = true;
+                return false; // one concrete expectation is enough
+            }
+            true
+        });
+        demanded
+    }
+
+    /// `true` when this manager holds no version for `key`, or holds `Version(0)` — which means
+    /// the same thing.
+    fn version_is_unknown(&self, key: &DependencyKey) -> bool {
+        self.versions
+            .read_sync(key, |_, version| version.is_unknown())
+            .unwrap_or(true)
+    }
+
     /// Remove a key from all tracking structures.
     pub async fn remove(&self, key: &DependencyKey) {
         self.versions.remove_async(key).await;
@@ -1121,6 +1201,115 @@ mod tests {
         assert!(expired.keys.contains(&b)); // b is in the list (it was a direct dependent)
                                             // c should NOT be expired because b had Version(0) — cascade stopped
         assert!(!expired.keys.contains(&c));
+    }
+
+    // --- Gap reporting ---
+
+    #[tokio::test]
+    async fn missing_versions_reports_a_key_with_no_entry() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let a = DependencyKey::new("-R/a");
+        let b = DependencyKey::new("-R/b");
+        dm.add_dependency(&a, &b, Version::new(42)).await.unwrap();
+
+        assert_eq!(dm.missing_versions(), vec![b]);
+    }
+
+    /// A zero registered for reasons nobody chose — `track_asset` does it for a `LegacyMetadata`
+    /// record — must not be permanently invisible to the audit.
+    #[tokio::test]
+    async fn missing_versions_reports_a_registered_zero() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let a = DependencyKey::new("-R/a");
+        let b = DependencyKey::new("-R/b");
+        dm.register_version(&b, Version::unknown()).await;
+        dm.add_dependency(&a, &b, Version::new(42)).await.unwrap();
+
+        assert_eq!(
+            dm.missing_versions(),
+            vec![b],
+            "a registered zero means unknown, exactly like no entry"
+        );
+    }
+
+    /// The other half of the symmetry, and what keeps an audit over a store written before
+    /// versions existed from reporting every key in it.
+    #[tokio::test]
+    async fn missing_versions_skips_an_edge_expecting_zero() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let a = DependencyKey::new("-R/a");
+        let b = DependencyKey::new("-R/b");
+        dm.add_dependency(&a, &b, Version::unknown()).await.unwrap();
+
+        assert!(
+            dm.missing_versions().is_empty(),
+            "an edge that expects nothing demands nothing"
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_versions_omits_a_known_target() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let a = DependencyKey::new("-R/a");
+        let b = DependencyKey::new("-R/b");
+        dm.register_version(&b, Version::new(9)).await;
+        dm.add_dependency(&a, &b, Version::new(42)).await.unwrap();
+
+        assert!(
+            dm.missing_versions().is_empty(),
+            "gap reporting answers 'do I know?', never 'does it match?'"
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_versions_for_restricts_to_one_keys_dependencies() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let a = DependencyKey::new("-R/a");
+        let b = DependencyKey::new("-R/b");
+        let other = DependencyKey::new("-R/other");
+        let other_dep = DependencyKey::new("-R/other_dep");
+        dm.add_dependency(&a, &b, Version::new(1)).await.unwrap();
+        dm.add_dependency(&other, &other_dep, Version::new(1))
+            .await
+            .unwrap();
+
+        assert_eq!(dm.missing_versions_for(&a), vec![b]);
+        assert_eq!(dm.missing_versions_for(&other), vec![other_dep]);
+    }
+
+    #[test]
+    fn missing_versions_is_empty_on_a_fresh_manager() {
+        let dm = DependencyManager::<TestEnv>::new();
+        assert!(dm.missing_versions().is_empty());
+    }
+
+    /// The self-healing path end to end: a zero is reported, the resolved version is pushed back,
+    /// and the dependent whose expectation differs is expired.
+    #[tokio::test]
+    async fn filling_a_registered_zero_expires_the_stale_dependent() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let d = DependencyKey::new("-R/d");
+        let k = DependencyKey::new("-R/k");
+        dm.register_version(&k, Version::unknown()).await;
+        dm.add_dependency(&d, &k, Version::new(1)).await.unwrap();
+        assert_eq!(dm.missing_versions(), vec![k.clone()]);
+
+        let expired = dm.register_version(&k, Version::new(2)).await;
+
+        assert!(expired.keys.contains(&d));
+    }
+
+    #[tokio::test]
+    async fn filling_a_registered_zero_keeps_a_matching_dependent() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let d = DependencyKey::new("-R/d");
+        let k = DependencyKey::new("-R/k");
+        dm.register_version(&k, Version::unknown()).await;
+        dm.add_dependency(&d, &k, Version::new(2)).await.unwrap();
+
+        let expired = dm.register_version(&k, Version::new(2)).await;
+
+        assert!(!expired.keys.contains(&d), "resolved to what it expected");
     }
 
     // --- Selective expiry on a version change ---
