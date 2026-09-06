@@ -625,3 +625,105 @@ of Group C. Group C's cascade fix does not depend on them at all — which is th
 3. wasm (Step 10/14), then the shared-store fixture.
 
 The B2 borrow-checker risk drops off the list: the resolver's callers are concrete manager methods.
+
+
+---
+
+# Revisions 2.3 / 2.4 — final plan shape
+
+Supersedes Revision 2.2's B2, B6 and B7. **Deletions dominate.**
+
+## Deleted from the plan
+
+`VersionResolver` in every form: the trait, the `maybe_send` shape question (D2), the supertrait
+decision (D1), the resolver parameters on `add_dependency` / `load_from_records` / `track_asset`,
+the borrow analysis, and B6's traversal with its depth parameter and visited set. The
+"is the supertrait still needed" question is answered by not needing the trait.
+
+## B2′ — edges carry the version that was expected
+
+**File:** `liquers-core/src/dependencies.rs`
+
+```rust
+// was: HashMap<DependencyKey, HashSet<DependencyKey>>
+keyed_dependents: scc::HashMap<DependencyKey, scc::HashMap<DependencyKey, Version>>,
+```
+
+`add_dependency` stores the `version` parameter it currently discards. Six touch points, all
+mechanical: `:255` (insert), `:367` (cycle BFS — iterates keys, ignores the value), `:561` and
+`:608` (frontier collection — same), and the three `remove_async` sites, which are unchanged.
+
+**Two rules to write into the code, because neither is enforced by the type:**
+- *Last writer wins* on an edge's version, and that is correct — a later observation is the fresher
+  one. State it; do not let it be an accident of `scc` semantics.
+- **`add_dependency` still does not compare.** With the expectation stored it now *could*, and it
+  must not: comparison belongs to `register_version` (an event that already means "something
+  changed") and to the audit flow. This is Revision 2.2's record/verify split, and storing the
+  expectation is exactly what makes violating it tempting.
+
+**Tests:** `add_dependency_stores_the_expected_version_on_the_edge`, plus
+`add_dependency_performs_no_io`.
+
+## B6′ — gap reporting, synchronous
+
+```rust
+/// Keys whose current version is absent or `Version(0)`, and which at least one edge expects at a
+/// concrete version. Both halves use `Version::is_unknown()`: an edge expecting zero is
+/// unverifiable and is skipped, a node holding zero is unverified and is reported.
+pub(crate) fn missing_versions(&self) -> Vec<DependencyKey>;
+pub(crate) fn missing_versions_for(&self, key: &DependencyKey) -> Vec<DependencyKey>;
+```
+
+**No `async`, no I/O, no parameters beyond the key.** A scan of two in-memory maps — which is why
+its six tests need no environment at all.
+
+## B6″ — gap filling gains precision
+
+`register_version(K, v)` compares `v` against each dependent's stored expectation and expires only
+those that differ, instead of every dependent of a changed key. This is the per-edge form of
+"recomputing to the same value must not invalidate".
+
+```rust
+/// The manager could not resolve a version for `K`. Expires the dependents that expected a
+/// concrete one. Necessary because `Version::unknown()` cannot express it — unknown means
+/// *compatible with anything*, so registering it would confirm rather than invalidate.
+pub(crate) async fn report_no_version(&self, key: &DependencyKey) -> ExpiredDependents<E>;
+```
+
+**Nothing in the existing suite asserts `register_version`'s cascade** — the closest test goes
+through `expire()` — so this is additive, with no rewrites.
+
+## B7′ — the entry points are loops
+
+```rust
+async fn trigger_dependency_audit(&self, query: &Query) -> Result<AuditReport, Error> {
+    // gaps -> resolve each with self.version(key) -> push back -> collect
+}
+```
+
+Ask `missing_versions_for`, resolve each with C1's `version(key)`, push the answer back with
+`register_version` or `report_no_version`, collect the `ExpiredDependents`. Transitive behaviour is
+the existing cascade doing what it already does — **no traversal in the audit itself.**
+
+`trigger_dependency_audit_all_registered` is the same over `missing_versions()`.
+
+The gap list is a snapshot; the graph may change under it. That is fine for a policy-triggered
+operation and **must not acquire a lock** — say so in the doc comment, since the instinct to add one
+is strong and it would put contention on the cascade path.
+
+## B4′ — `expire_internal` comment, corrected again
+
+The `skip_cascade` branch is unchanged in behaviour, but its doc comment must **not** describe
+`Version(0)` as a policy sentinel (Revision 1's reading, retired by 2.4). It says what is now true:
+a node with an unknown version does not propagate, because without a version staleness cannot be
+concluded — and the audit is the mechanism that turns that unknown into a known one, so the two
+cover each other rather than compete.
+
+## Revised risk order
+
+1. **B3 (records carry real versions)** — still the only step with deployment consequences.
+2. **B2′'s map type change** — six mechanical sites, but it is the data structure the cascade walks;
+   a mistake there is a wrong invalidation rather than a compile error.
+3. wasm (Step 10/14), then the shared-store fixture.
+
+The resolver's borrow-checker and layering risks are gone, along with the trait.

@@ -490,3 +490,62 @@ asserting a decision rather than an emergent behaviour.
 | # | Corner case | Pinned by |
 |---|---|---|
 | P15 | Calling `audit` from `get`, `evaluate` or `track_asset` "so it is always correct" — reintroducing the conflation and hard-coding policy (a) | `add_dependency_performs_no_io` and `nothing_audits_by_default`; the second fails loudly if anything starts auditing implicitly |
+
+
+---
+
+# Revisions 2.3 / 2.4 — tests for the gap-reporting model
+
+Supersedes the Revision 2.2 audit tests. The resolver is gone, so the tests that stubbed it are
+gone; the dependency-manager half becomes **synchronous, environment-free and pure**, which is most
+of the point.
+
+## Removed
+
+| Was | Why |
+|---|---|
+| The four `audit_*` tests taking a stub `VersionResolver` | No resolver, no stub. Replaced by the pair below: gap reporting (pure) and gap filling (existing `register_version`). |
+| P13 (never store the resolver) | The trait does not exist. |
+| Phase 3 Revision 2's `add_dependency` resolver trio | Same. |
+
+## Added — gap reporting (unit, `dependencies.rs`, **synchronous**)
+
+No environment, no store, no async, no stub. A graph built by hand and a `Vec<DependencyKey>`
+asserted against.
+
+| Test | Assertion |
+|---|---|
+| `missing_versions_reports_a_key_with_no_entry` | Edge expects `v42`, target unregistered → target listed. |
+| `missing_versions_reports_a_registered_zero` | Target registered at `Version(0)` → **still listed** (Revision 2.4). The self-healing case: a zero registered by `track_asset` for a `LegacyMetadata` record would otherwise be invisible forever. |
+| `missing_versions_skips_an_edge_expecting_zero` | Edge expects `Version(0)` → target **not** listed. The other half of the symmetry, and the guard on the gentle upgrade transition: an old store's records are all zero, so an audit over it reports nothing. |
+| `missing_versions_omits_a_known_target` | Concrete expectation, concrete current version → not listed, whether or not they match. Gap reporting answers "do I know?", never "does it match?". |
+| `missing_versions_for_restricts_to_one_keys_dependencies` | The owner's second variant: only what checking that key requires. |
+| `missing_versions_is_empty_on_a_fresh_manager` | Degenerate case, and it documents that an audit over nothing is not an error. |
+
+## Added — gap filling and the precision it buys
+
+`register_version` is the fill, and with expectations stored on edges it can be precise.
+
+| Test | Assertion |
+|---|---|
+| `filling_a_gap_expires_only_the_dependents_whose_expectation_differs` | Two dependents on one key, expecting different versions; the fill matches one. **Exactly one is expired.** Today's code expires both — this is the precision the edge-stored expectation buys, and no existing test asserts the current all-or-nothing behaviour, so nothing breaks. |
+| `filling_a_registered_zero_expires_the_stale_dependent` | Revision 2.4 end to end: zero registered → reported → concrete version pushed back → the dependent whose expectation differs is expired. |
+| `filling_a_registered_zero_keeps_a_matching_dependent` | The same, resolved to a matching version → nothing expired. Pairs with the above so the mechanism is pinned in both directions rather than only in the expiring one. |
+| `report_no_version_expires_dependents_expecting_a_concrete_version` | The manager could not resolve a gap. `Version::unknown()` cannot express this — it means *compatible with anything* — so the explicit call is what implements the durability rule. |
+| `report_no_version_leaves_dependents_expecting_zero_alone` | An edge that never knew anything is not made stale by learning that nothing is known. |
+| `add_dependency_stores_the_expected_version_on_the_edge` | The enabling fact, asserted directly: the parameter `add_dependency` currently discards is retained and readable. |
+
+## Unchanged and still required
+
+`AssetManager::version`'s five tests (C1 is untouched), the two record-version regression tests, the
+upgrade-transition test, `add_dependency_performs_no_io`, `nothing_audits_by_default`,
+`metadata_kept_data_deleted_still_verifies_clean`, and P15 (nothing audits implicitly).
+
+I8/I9 stay as the two audit-flow integration tests, now over `trigger_dependency_audit` in its
+final shape: ask for gaps, resolve, push back.
+
+## Note on the existing suite
+
+No test in `dependencies.rs` asserts `register_version`'s cascade behaviour at all — the closest,
+`expire_cascade_chain`, goes through `expire()`. So the precision change is additive: nothing to
+rewrite, and the new tests are the first coverage this path has had.
