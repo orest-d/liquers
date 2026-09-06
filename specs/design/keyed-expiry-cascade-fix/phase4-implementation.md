@@ -727,3 +727,26 @@ cover each other rather than compete.
 3. wasm (Step 10/14), then the shared-store fixture.
 
 The resolver's borrow-checker and layering risks are gone, along with the trait.
+
+
+---
+
+# Revision 2.5 — corrected placement of the precision
+
+**B6″ replaced.** The per-edge comparison lives in `register_version`, which is the only operation
+holding a concrete new version, and **not** in `expire_internal`, which is a blanket expiry with
+nothing to compare against. `register_version` consults `keyed_dependents[key]` directly, expires
+each dependent that is not provably unaffected, and lets `expire` cascade from each of those.
+
+Skip **only** on a concrete expectation equal to the new version. An edge expecting
+`Version::unknown()` is expired — `propagate_attribution` (`dependencies.rs:511`) records every
+attribution edge that way, and exempting them would drop every keyed dependent reached through a
+non-keyed expression out of the cascade.
+
+**B2′ and B4′ are correct as written after this change**, and only after it: `expire_internal`'s
+frontier sites (`:561`, `:608`) genuinely do ignore the edge value, and `skip_cascade` is genuinely
+unchanged. Before this correction those two claims contradicted Phase 2 and Phase 3.
+
+**Validation for this step is the invariant, not the cases:** the set of dependents expired by
+`register_version` must be a subset of `keyed_dependents[key]`, and a dependent may be absent from
+it only when its stored expectation is concrete and equal to the new version.

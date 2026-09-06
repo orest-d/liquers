@@ -549,3 +549,19 @@ final shape: ask for gaps, resolve, push back.
 No test in `dependencies.rs` asserts `register_version`'s cascade behaviour at all — the closest,
 `expire_cascade_chain`, goes through `expire()`. So the precision change is additive: nothing to
 rewrite, and the new tests are the first coverage this path has had.
+
+
+---
+
+# Revision 2.5 — two tests the final gate found missing
+
+| Test | Assertion |
+|---|---|
+| `filling_a_gap_expires_a_dependent_whose_edge_expects_unknown` | An edge recorded with `Version::unknown()` — the shape `propagate_attribution` (`dependencies.rs:511`) creates for every keyed dependent reached through a non-keyed expression — **is** expired when the dependency's version changes. Without this, per-edge precision silently exempts every join and sub-query from the cascade, which is stale-serving reintroduced in a path no phase document had examined. |
+| `add_dependency_overwrites_an_earlier_edge_version` | A second `add_dependency(d, k, v2)` replaces `v1` rather than being a no-op. The last-writer-wins rule is stated in prose and enforced by nothing; `scc`'s entry API makes `or_insert` the easy mistake, and that mistake would pin an edge to its first-ever observed version forever. |
+
+The first test is better stated as the invariant it protects: **the new cascade expires a subset of
+what today's expires, and removes a dependent from that set only on positive evidence — a concrete
+expectation equal to the new version.** Any implementation that expires *more* is wrong, and any
+that expires fewer without that evidence is wrong. Worth asserting in that form as well as by case,
+since the enumeration is what went wrong in Revision 2.3.

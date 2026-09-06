@@ -1155,3 +1155,99 @@ known one. Its doc comment says that instead of the policy-sentinel wording Revi
 | `missing_versions_skips_an_edge_expecting_zero` | An edge expecting `Version(0)` does not make its target missing — the other half of the symmetry, and the guard on the gentle upgrade transition. |
 | `filling_a_registered_zero_expires_the_stale_dependent` | The self-healing path end to end: zero registered, gap reported, concrete version pushed back, dependent whose expectation differs is expired. |
 | `filling_a_registered_zero_keeps_a_matching_dependent` | Same, where the resolved version matches — nothing expired. Pairs with the above so the mechanism is pinned in both directions. |
+
+
+---
+
+# Revision 2.5 (2026-09-06) — two corrections from the final gate
+
+Both findings are self-inflicted: Revision 2.3 stated a rule that is wrong, and Revision 2.4's
+plan then contradicted its own architecture. Verified against source before accepting.
+
+## E1 — the precision lives in `register_version`, not in `expire_internal`
+
+**The contradiction.** Phase 2 and Phase 3 require that filling a gap expire only the dependents
+whose expectation differs. Phase 4's B2′ then described `expire_internal`'s frontier collection
+(`dependencies.rs:561`, `:608`) as "iterates keys, ignores the value" and B4′ said `skip_cascade`
+is "unchanged in behaviour". Those cannot both hold: `register_version`'s only cascade path is
+`expire_dependents(key)` → `expire_internal(key, false)`, whose frontier is exactly `:561`. Follow
+Phase 4 literally and `register_version` keeps expiring every dependent, and
+`filling_a_gap_expires_only_the_dependents_whose_expectation_differs` fails.
+
+**The resolution is to put the filter where the evidence is.** `expire_internal` is a *blanket*
+expiry — the caller has already decided the key is invalid — and it has no version to compare
+against, so it should keep ignoring the edge value. `register_version` is the only operation that
+holds a concrete new version, so it is the only one that can be precise:
+
+```rust
+pub async fn register_version(&self, key, version) -> ExpiredDependents<E> {
+    // …store the version as today…
+    if version_changed {
+        // Precision at the FIRST hop only, which is the only hop with evidence: consult
+        // keyed_dependents[key] directly and expire each dependent that is not provably
+        // unaffected. `expire` then cascades from each of those normally.
+        for (dependent, expected) in edges_of(key) {
+            if !(expected.is_known() && expected == version) {
+                expired.extend(self.expire(&dependent).await);
+            }
+        }
+    }
+}
+```
+
+Beyond the first hop there is no new version to compare against — the expired dependent's own
+version is now unknown — so ordinary `expire` semantics apply, which is exactly what the existing
+machinery does. **`expire_internal` is untouched, `skip_cascade` is untouched, and B2′'s
+"mechanical" and B4′'s "unchanged" both become true.**
+
+## E2 — an edge expecting `Version::unknown()` must still be expired
+
+Revision 2.3 said: *"a dependent that already observed the new version, **or that recorded
+`Version::unknown()`**, is left alone."* The second half is wrong, and there is a live path that
+proves it.
+
+`propagate_attribution` (`dependencies.rs:511`) records every attribution edge with an explicit
+`Version::unknown()`:
+
+```rust
+let _ = self.add_dependency(r, x, Version::unknown()).await?;
+```
+
+That is how a keyed asset depending on another keyed asset *through a non-keyed expression* — a
+join, a sub-query, anything routed through `ScheduleNode::Expression` — gets its edge into
+`keyed_dependents`. Under the rule as written, every such dependent would be permanently exempt
+from `register_version`'s cascade: today's code expires it, the new code would not. That is
+stale-serving reintroduced for a whole class of edges, in a code path no phase document had looked
+at.
+
+**Corrected rule: skip only on a concrete, equal expectation.**
+
+| Edge's expected version | On `register_version(K, v)` |
+|---|---|
+| concrete, equal to `v` | **skip** — positive evidence this dependent is unaffected |
+| concrete, different | expire |
+| unknown | **expire** — no evidence either way, and today's behaviour |
+
+Stated as a property rather than a table: the new behaviour expires a **subset** of what today's
+code expires, and removes a dependent from that set only on positive evidence. It can never expire
+more, and never fewer without proof. That is the invariant to test, and it is stronger than any
+enumeration of cases.
+
+**The asymmetry with `report_no_version` is deliberate, not an oversight.** There, an edge
+expecting unknown is left alone. The two operations mean different things: `register_version` is a
+*change* event, so anything not provably unaffected is affected; `report_no_version` is an *audit
+finding* that a key has no durable version, which does not contradict an edge that never expected
+one. Both doc comments say which they are.
+
+## Consequences
+
+- **Phase 3:** two tests added — `filling_a_gap_expires_a_dependent_whose_edge_expects_unknown`
+  (the `propagate_attribution` shape, and the direct regression guard for E2), and
+  `add_dependency_overwrites_an_earlier_edge_version` (the last-writer-wins rule, which the gate
+  noted is stated but untested and is easy to invert with `scc`'s entry API).
+- **Phase 4:** B6″ moves the comparison into `register_version`; B2′ and B4′ keep their
+  "mechanical" and "unchanged" claims, which are now accurate.
+- **Phase 5:** `DEPENDENCIES_STATUS.md` must say plainly that `add_dependency` no longer verifies
+  inline. HEAD does verify there (`dependencies.rs:241-246`); after this design it records, and
+  verification is opt-in through the audit with a default of never. That is a real behaviour change
+  and the reference is where someone will look for the old guarantee.

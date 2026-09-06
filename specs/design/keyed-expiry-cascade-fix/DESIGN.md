@@ -610,6 +610,45 @@ a version field.
 propagate, for the original reason. The two mechanisms now cover each other — the cascade declines
 to guess, and the audit turns the unknown into a known.
 
+## Final gate (2026-09-06) — two blocking findings, both self-inflicted, both corrected
+
+The design fixes the original defect: the reviewer traced the three-link chain independently and
+confirmed that atomic version assignment plus the corrected `skip_cascade` guard walks root → B → C
+with no resolver, audit or closure involved. The gap-reporting machinery is for *verification*, not
+for the cascade — which is the separation Revision 2.2 set out to achieve.
+
+**E1 — the plan contradicted its own architecture.** Phase 2 and 3 require that filling a gap expire
+only the dependents whose expectation differs; Phase 4 then described `expire_internal`'s frontier
+as "ignores the value" and `skip_cascade` as "unchanged". Both cannot hold, because
+`register_version`'s only cascade path runs through that frontier. Resolved by putting the filter
+where the evidence is: `register_version` is the only operation holding a concrete new version, so
+it consults the edges directly and expires each dependent that is not provably unaffected;
+`expire_internal` stays a blanket expiry and is untouched. Beyond the first hop there is nothing to
+compare against, so ordinary expiry applies — which is what the existing machinery already does.
+
+**E2 — a rule I wrote in Revision 2.3 was simply wrong.** It said a dependent whose edge recorded
+`Version::unknown()` is "left alone". `propagate_attribution` (`dependencies.rs:511`) records
+*every* attribution edge with an explicit `Version::unknown()` — that is how a keyed asset
+depending on another keyed asset **through a non-keyed expression** enters `keyed_dependents`. The
+rule would have exempted every join and sub-query from the cascade: today's code expires them, the
+new code would not. Stale-serving reintroduced in a path no phase document had looked at.
+
+Corrected: skip **only** on a concrete expectation equal to the new version. Better stated as the
+invariant now carried into Phase 3 and Phase 4 as the validation criterion — **the new cascade
+expires a subset of what today's expires, and drops a dependent from that set only on positive
+evidence.** It can never expire more, and never fewer without proof. The enumeration of cases is
+what went wrong in 2.3; the invariant is what should be tested.
+
+The asymmetry with `report_no_version` — where an unknown-expecting edge *is* left alone — is
+deliberate and now stated: `register_version` is a change event, so anything not provably
+unaffected is affected; `report_no_version` is an audit finding that does not contradict an edge
+which never expected anything.
+
+Advisories accepted: a test for the last-writer-wins rule on an edge's version (stated in prose,
+enforced by nothing, and `scc`'s `or_insert` is the easy inversion), and a Phase 5 requirement that
+`DEPENDENCIES_STATUS.md` say plainly that `add_dependency` no longer verifies inline — HEAD does,
+and that is where someone will look for the old guarantee.
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)
