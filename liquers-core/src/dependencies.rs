@@ -172,10 +172,67 @@ impl<E: Environment> DependencyManager<E> {
         }
 
         if version_changed {
-            self.expire_dependents(key).await
+            self.expire_stale_dependents(key, version).await
         } else {
             ExpiredDependents::new()
         }
+    }
+
+    /// Expire the dependents of `key` that a change to `version` actually affects.
+    ///
+    /// A dependent is **spared only on positive evidence** — its edge records a concrete version
+    /// equal to the new one, so it already observed exactly this content. Everything else is
+    /// expired, including an edge recording `Version::unknown()`: no evidence either way is not
+    /// evidence of safety, and [`Self::propagate_attribution`] records *every* attribution edge
+    /// that way, so sparing them would drop every keyed dependent reached through a non-keyed
+    /// expression out of the cascade.
+    ///
+    /// The property to hold on to, which is stronger than any enumeration of cases: **this expires
+    /// a subset of what an unconditional cascade expires, and removes a dependent from that set
+    /// only on positive evidence.**
+    ///
+    /// Weak-reference dependents — query assets — record no expectation at all, so they are always
+    /// expired, exactly as before.
+    async fn expire_stale_dependents(
+        &self,
+        key: &DependencyKey,
+        version: Version,
+    ) -> ExpiredDependents<E> {
+        let mut frontier = Vec::new();
+        for (dependent, expected) in self.snapshot_dependent_edges(key).await {
+            if expected.is_unknown() || expected != version {
+                self.remove_edge(key, &dependent).await;
+                frontier.push(dependent);
+            }
+            // else: KEEP the edge. Dropping a spared dependent's edge would silently unhook it
+            // from every future invalidation — it would pass a first-order test and fail only on
+            // the *second* version change.
+        }
+        let seed_assets = self.take_dependent_assets(key).await;
+        self.expire_from_frontier(frontier, seed_assets).await
+    }
+
+    /// Report that `key` has no durable version, expiring the dependents that expected one.
+    ///
+    /// The companion to [`Self::register_version`] for the audit flow: when the asset manager
+    /// cannot resolve a version for a gap that [`Self::missing_versions`] reported, this is how it
+    /// says so. `Version::unknown()` cannot express it — unknown is *compatible with anything*, so
+    /// registering it would confirm the dependents rather than invalidate them.
+    ///
+    /// The asymmetry with `register_version` is deliberate. That is a *change* event, so anything
+    /// not provably unaffected is affected. This is an *audit finding* that a key has no durable
+    /// version, which does not contradict an edge that never expected one — so an edge recording
+    /// `Version::unknown()` is spared here, and weak-reference dependents, which record no
+    /// expectation at all, are not touched.
+    pub(crate) async fn report_no_version(&self, key: &DependencyKey) -> ExpiredDependents<E> {
+        let mut frontier = Vec::new();
+        for (dependent, expected) in self.snapshot_dependent_edges(key).await {
+            if !expected.is_unknown() {
+                self.remove_edge(key, &dependent).await;
+                frontier.push(dependent);
+            }
+        }
+        self.expire_from_frontier(frontier, Vec::new()).await
     }
 
     /// Synchronous counterpart of [`Self::register_version`], for the uncontended startup path.
@@ -1064,6 +1121,139 @@ mod tests {
         assert!(expired.keys.contains(&b)); // b is in the list (it was a direct dependent)
                                             // c should NOT be expired because b had Version(0) — cascade stopped
         assert!(!expired.keys.contains(&c));
+    }
+
+    // --- Selective expiry on a version change ---
+
+    #[tokio::test]
+    async fn filling_a_gap_expires_only_the_dependents_whose_expectation_differs() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let k = DependencyKey::new("-R/k");
+        let stale = DependencyKey::new("-R/stale");
+        let fresh = DependencyKey::new("-R/fresh");
+        dm.register_version(&k, Version::new(1)).await;
+        dm.add_dependency(&stale, &k, Version::new(1)).await.unwrap();
+        dm.add_dependency(&fresh, &k, Version::new(2)).await.unwrap();
+
+        let expired = dm.register_version(&k, Version::new(2)).await;
+
+        assert!(expired.keys.contains(&stale), "expectation differs -> expired");
+        assert!(
+            !expired.keys.contains(&fresh),
+            "expectation equals the new version -> spared"
+        );
+    }
+
+    /// `propagate_attribution` records every attribution edge with `Version::unknown()`, which is
+    /// how a keyed asset depending on another *through a non-keyed expression* enters the graph.
+    /// Sparing unknown-expecting edges would drop every join and sub-query out of the cascade.
+    #[tokio::test]
+    async fn filling_a_gap_expires_a_dependent_whose_edge_expects_unknown() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let k = DependencyKey::new("-R/k");
+        let d = DependencyKey::new("-R/d");
+        dm.register_version(&k, Version::new(1)).await;
+        dm.add_dependency(&d, &k, Version::unknown()).await.unwrap();
+
+        let expired = dm.register_version(&k, Version::new(2)).await;
+
+        assert!(
+            expired.keys.contains(&d),
+            "no evidence of safety is not evidence of safety"
+        );
+    }
+
+    /// Sparing a dependent must not unhook it. This fails on the second version change, not the
+    /// first, which is exactly why it is worth writing.
+    #[tokio::test]
+    async fn sparing_a_dependent_keeps_its_edge() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let k = DependencyKey::new("-R/k");
+        let d = DependencyKey::new("-R/d");
+        dm.register_version(&k, Version::new(1)).await;
+        dm.add_dependency(&d, &k, Version::new(2)).await.unwrap();
+
+        let first = dm.register_version(&k, Version::new(2)).await;
+        assert!(!first.keys.contains(&d), "precondition: spared");
+
+        let second = dm.register_version(&k, Version::new(3)).await;
+        assert!(
+            second.keys.contains(&d),
+            "a spared dependent must still be reachable by the next change"
+        );
+    }
+
+    /// The distinguishing test for one-traversal-not-N-calls: N calls to `expire` would each carry
+    /// their own `visited` set, so a descendant reachable from two frontier entries is expired and
+    /// reported twice.
+    #[tokio::test]
+    async fn selective_expiry_visits_a_shared_descendant_once() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let k = DependencyKey::new("-R/k");
+        let d1 = DependencyKey::new("-R/d1");
+        let d2 = DependencyKey::new("-R/d2");
+        let x = DependencyKey::new("-R/x");
+        for (key, v) in [(&k, 1u128), (&d1, 10), (&d2, 20), (&x, 30)] {
+            dm.register_version(key, Version::new(v)).await;
+        }
+        dm.add_dependency(&d1, &k, Version::new(1)).await.unwrap();
+        dm.add_dependency(&d2, &k, Version::new(1)).await.unwrap();
+        dm.add_dependency(&x, &d1, Version::new(10)).await.unwrap();
+        dm.add_dependency(&x, &d2, Version::new(20)).await.unwrap();
+
+        let expired = dm.register_version(&k, Version::new(2)).await;
+
+        let x_count = expired.keys.iter().filter(|key| **key == x).count();
+        assert_eq!(x_count, 1, "shared descendant expired exactly once");
+    }
+
+    #[tokio::test]
+    async fn selective_expiry_evicts_an_emptied_edge_map() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let k = DependencyKey::new("-R/k");
+        let d = DependencyKey::new("-R/d");
+        dm.register_version(&k, Version::new(1)).await;
+        dm.add_dependency(&d, &k, Version::new(1)).await.unwrap();
+
+        dm.register_version(&k, Version::new(2)).await;
+
+        assert!(
+            dm.snapshot_dependent_edges(&k).await.is_empty(),
+            "the only edge was expired, so the outer entry must be gone too"
+        );
+    }
+
+    // --- report_no_version ---
+
+    #[tokio::test]
+    async fn report_no_version_expires_dependents_expecting_a_concrete_version() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let k = DependencyKey::new("-R/k");
+        let d = DependencyKey::new("-R/d");
+        dm.add_dependency(&d, &k, Version::new(5)).await.unwrap();
+
+        let expired = dm.report_no_version(&k).await;
+
+        assert!(expired.keys.contains(&d));
+    }
+
+    /// An audit finding that a key has no durable version does not contradict an edge that never
+    /// expected one — and the spared edge must survive, or the next real change misses it.
+    #[tokio::test]
+    async fn report_no_version_spares_an_unknown_expecting_edge_and_keeps_it() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let k = DependencyKey::new("-R/k");
+        let d = DependencyKey::new("-R/d");
+        dm.add_dependency(&d, &k, Version::unknown()).await.unwrap();
+
+        let expired = dm.report_no_version(&k).await;
+
+        assert!(!expired.keys.contains(&d), "no expectation, no contradiction");
+        assert_eq!(
+            dm.snapshot_dependent_edges(&k).await,
+            vec![(d, Version::unknown())],
+            "the spared edge must survive"
+        );
     }
 
     // --- Cycle detection tests ---
