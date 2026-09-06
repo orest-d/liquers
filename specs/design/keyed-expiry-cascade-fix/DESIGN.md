@@ -578,6 +578,38 @@ Cautions recorded: `add_dependency` must still not compare on the hot path; last
 edge version is correct but should be stated; and the gap list is a snapshot, which is fine for a
 policy-triggered operation and should not acquire a lock.
 
+## Revision 2.4 (2026-09-06) — a registered `Version(0)` is missing, not known
+
+The owner: `missing_versions()` should report a key registered at `Version(0)` alongside keys with
+no entry, because that is what zero means. **Adopted**, and it settles a conflict the design had
+left standing rather than creating one.
+
+The rule makes `missing_versions()` *the targets of edges expecting a concrete version, whose own
+current version is absent or unknown* — both halves using `is_unknown()`, applied to the edge's
+expectation and to the node's value. An edge expecting zero is unverifiable and skipped; a node
+holding zero is unverified and reported.
+
+**It matters beyond tidiness.** A zero can be registered for reasons that are nobody's decision —
+`track_asset` registers one for a `Metadata::LegacyMetadata` record, and any future path that fails
+to produce a version lands there. Without this rule such a key is permanently invisible to the one
+mechanism that exists to fix it. With it, the gap is reported, resolved, and the graph heals.
+
+**It retires the "zero as policy sentinel" reading, which is an improvement.** Revision 1 proposed
+that a zero could later be read as "this asset opts out of version-based invalidation". That
+collides with this rule: an audit would report a policy zero as a gap, fill it, and silently revoke
+the opt-out. The collision resolves in this direction because the policy reading was the weaker
+idea — it made `Version(0)` mean two things, *nobody computed one* and *nobody should*, which is the
+exact conflation this design has spent its length unpicking. Zero now means one thing everywhere.
+
+The dependency manager still supports zero, which was the original requirement; it simply means
+"unknown" consistently, and the audit resolves it. *"Never audit this key"* is a statement about
+when verification runs, and belongs to `DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE`, not to a value in
+a version field.
+
+`expire_internal`'s `skip_cascade` is unchanged: a node with an unknown version still does not
+propagate, for the original reason. The two mechanisms now cover each other — the cascade declines
+to guess, and the audit turns the unknown into a known.
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)

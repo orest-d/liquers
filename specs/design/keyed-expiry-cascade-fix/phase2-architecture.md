@@ -1082,3 +1082,76 @@ no depth parameter, no visited set** — the transitive behaviour is the existin
 it already does.
 
 Recommendation: **adopt as Revision 2.3**, superseding C2/D1/D2 and Phase 4's B2 and B6.
+
+
+---
+
+# Revision 2.4 (2026-09-06) — a registered `Version(0)` is missing, not known
+
+The owner: `missing_versions()` should report a key whose *registered* version is `Version(0)`
+alongside keys with no entry at all, because that is what zero means.
+
+**Adopted.** It is the correct reading, it is self-healing, and it settles a conflict this design
+had left standing.
+
+## The rule
+
+Two states currently spell the same thing and would have been reported differently:
+
+| State of `versions[K]` | Means | Reported as missing? |
+|---|---|---|
+| no entry | unknown | yes (Revision 2.3) |
+| `Version(0)` | **unknown — that is its documented meaning** | **yes (this revision)** |
+| a concrete version | known | no |
+
+So `missing_versions()` is: *the targets of edges expecting a **concrete** version, whose own
+current version is absent or unknown.* Both halves use `Version::is_unknown()`, applied to the two
+different things — the edge's expectation and the node's current value. The symmetry is not
+decorative: an edge expecting zero is unverifiable and is skipped, and a node holding zero is
+unverified and is reported. One predicate, one meaning, two places.
+
+## Why it matters beyond tidiness
+
+A zero can be registered for reasons that are nobody's decision: `track_asset` registers
+`mr.version.unwrap_or(Version::new(0))` for a `Metadata::LegacyMetadata` record, and any future path
+that fails to produce a version lands there too. Without this rule such a key is **permanently
+invisible to the audit** — the one mechanism that exists to fix exactly that. With it, the gap is
+reported, the manager resolves it, and the graph heals. The owner's phrasing is the test: an
+intermediate zero registered for whatever reason, resolved later, is caught.
+
+## It retires the "zero as policy sentinel" reading, which is an improvement
+
+Revision 1 had proposed that once no path produces a zero by accident, a zero in `versions` could
+be read as a *declared policy* — "this asset opts out of version-based invalidation". That collides
+with this rule head-on: an audit would report a policy zero as a gap, fill it, and silently revoke
+the opt-out.
+
+The collision is worth resolving in this direction, because the policy reading was always the
+weaker idea. It made `Version(0)` mean two things — *nobody computed one* and *nobody should* —
+which is precisely the class of conflation this whole design has spent its length unpicking:
+absence read as change; unknown standing in for both an accident and an intention. Under this
+revision `Version(0)` means exactly one thing, everywhere, and `is_unknown()` is a complete answer
+to what it means.
+
+**The dependency manager still supports zero**, which was the owner's original requirement — it
+simply means "unknown" consistently, and the audit is the mechanism that resolves it. The policy use
+case moves to where it belongs: *"never audit this key"* is a statement about **when verification
+runs**, not a value in a version field, and it is already
+`DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE`'s subject.
+
+## What does not change
+
+`expire_internal`'s `skip_cascade` branch stays exactly as it is. A node whose version is unknown
+still does not propagate invalidation, for the original reason — without a version you cannot
+conclude a dependent is stale. The two mechanisms now cover each other rather than competing: the
+cascade declines to guess about an unknown version, and the audit is what turns that unknown into a
+known one. Its doc comment says that instead of the policy-sentinel wording Revision 1 gave it.
+
+## Tests
+
+| Test | Assertion |
+|---|---|
+| `missing_versions_reports_a_registered_zero` | Register `K` at `Version(0)`, add an edge expecting a concrete version: `K` appears in the gap list. The direct test of this revision. |
+| `missing_versions_skips_an_edge_expecting_zero` | An edge expecting `Version(0)` does not make its target missing — the other half of the symmetry, and the guard on the gentle upgrade transition. |
+| `filling_a_registered_zero_expires_the_stale_dependent` | The self-healing path end to end: zero registered, gap reported, concrete version pushed back, dependent whose expectation differs is expired. |
+| `filling_a_registered_zero_keeps_a_matching_dependent` | Same, where the resolved version matches — nothing expired. Pairs with the above so the mechanism is pinned in both directions. |
