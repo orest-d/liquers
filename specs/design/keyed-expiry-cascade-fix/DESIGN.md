@@ -535,6 +535,49 @@ exploratory workflow written down as an assertion rather than an intention.
 defect fix and the verification policy are separable, and only the first is required — which is
 what makes this design shippable independently of every question about audit policy.
 
+## Revision 2.3 (2026-09-06) — the "report missing versions" alternative, evaluated and recommended
+
+The owner proposed inverting the audit: the dependency manager reports the keys whose versions it
+does not know, the asset manager fills the gaps, and the manager reacts to each fill with
+expiration events.
+
+**Recommended for adoption.** Better on both axes the owner named — no closure to pass, and
+separately testable — and on two more. It deletes more than it adds.
+
+- **Layering.** Revision 2.2 had a low-level graph structure calling the layer above it. Every
+  complication that came with it — `VersionResolver`, the `&dyn` discipline, the never-store rule
+  no test can enforce, the D1 supertrait, the D2 `maybe_send` shape, the borrow analysis — existed
+  only to make that inversion safe. All deleted.
+- **Synchronous.** `missing_versions()` is a scan of two in-memory maps. This answers the owner's
+  earlier point directly: an async `version(key)` does *not* force asynchronous dependency
+  verification, because verification leaves the dependency manager entirely.
+- **The expiry mechanism already exists.** Filling a gap *is* `register_version`, which already
+  compares and cascades — so Phase 4's B6 `audit`, with its own traversal, depth parameter and
+  visited set, largely disappears. Each `trigger_*` becomes: ask for gaps, resolve, push back,
+  collect.
+
+**One thing it needs, and the finding is the interesting part.** As stated the alternative detects
+nothing: `register_version` compares against the *previous value in the `versions` map*, not against
+what dependents expected, and filling a gap inserts into a **vacant** entry, which deliberately does
+not cascade. Expectations live in dependents' `DependencyRecord`s, outside the manager.
+
+The fix is small and half-present already: **`add_dependency` receives the expected version and
+throws it away.** `keyed_dependents` is `HashMap<DepKey, HashSet<DepKey>>` — edges with no version.
+Storing it (`HashMap<DepKey, HashMap<DepKey, Version>>`, six mechanical touch points, 16 bytes per
+edge) makes the dependency manager a **complete model** — nodes with a current version, edges with
+an expected one — so every question is answerable without asking anyone. `report_no_version(key)` is
+the companion for "the manager could not resolve it", which `Version::unknown()` cannot express
+because unknown means *compatible with anything*.
+
+**Unlooked-for benefit:** with expectations stored, `register_version` can expire only the
+dependents whose recorded version actually differs, instead of all of them. That is the per-edge
+form of "recomputing to the same value must not invalidate" — the property that made content
+hashing worth choosing — which Revision 2.2 had only at the node level.
+
+Cautions recorded: `add_dependency` must still not compare on the hot path; last-writer-wins on the
+edge version is correct but should be stated; and the gap list is a snapshot, which is fine for a
+policy-triggered operation and should not acquire a lock.
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)

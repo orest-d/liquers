@@ -956,3 +956,129 @@ the addition is worse than nothing:
 `trigger_dependency_audit` takes a `Query` rather than a `Key` to match the surrounding API surface
 (`get_asset`, `apply`); a non-keyed query has no recorded dependencies to audit and yields an empty
 report rather than an error.
+
+
+---
+
+# Revision 2.3 (2026-09-06) — evaluation of the "report missing versions" alternative
+
+The owner proposed inverting the audit: instead of the dependency manager calling out to resolve
+versions, it **reports the keys whose versions it does not know**, the asset manager fills those
+gaps, and the manager reacts to the fill with expiration events. Either all missing versions, or
+only those needed to check one key.
+
+**Verdict: adopt it.** It is better than Revision 2.2 on every axis the owner named and on two
+they did not, and it *deletes* more than it adds. One thing has to be added for it to work at all,
+and that addition turns out to improve the cascade independently.
+
+## Why it is better
+
+**1. It restores the layering, rather than patching around it.** Revision 2.2 has a low-level graph
+structure calling the layer above it. That is an inversion of control, and every complication it
+brought — the `VersionResolver` trait, the `&dyn` discipline, the leak rule that no test can
+enforce, the D1 supertrait, the D2 `maybe_send` shape — exists only to make that inversion safe.
+Under the alternative the dependency manager only *answers questions* and *receives facts*, which
+is what it did before this design touched it.
+
+**Deleted outright:** `VersionResolver` (C2/D1/D2), the supertrait question, the never-store rule
+and pitfall P13, the borrow analysis, and Phase 4's B2 resolver plumbing.
+
+**2. It is synchronous.** `missing_versions()` is a scan of two in-memory maps. No `async`, no I/O,
+no store. That answers the owner's earlier observation directly: an async `version(key)` does *not*
+force asynchronous dependency verification, because the verification stops living in the dependency
+manager. The async part is the asset manager's gap-filling, which is where I/O belongs.
+
+**3. The expiry mechanism already exists.** `register_version(key, v)` compares and cascades. So
+"fill a gap" *is* `register_version`, and expiration falls out with **no new expiry logic and no
+second graph walk**. Phase 4's B6 `audit` — with its own traversal, depth parameter and visited set
+— largely disappears.
+
+**4. Testability, as the owner predicted, and more of it.** Two independently testable halves with
+no stub resolver, no environment, no async:
+   - *Does the manager know what it is missing?* Build a graph by hand, assert `missing_versions()`.
+     A pure function of state.
+   - *Does filling a gap invalidate the right dependents?* Feed versions in, assert
+     `ExpiredDependents`.
+
+   Revision 2.2 could only test these fused, through a stub that had to imitate a store.
+
+## What it needs to work: the graph must store expectations
+
+**As stated, the alternative does not detect anything.** `register_version` compares the new version
+against the *previous value in the `versions` map*, not against what dependents expected. Filling a
+gap inserts into a **vacant** entry, and vacant insertion deliberately does not cascade
+(`dependencies.rs:160-162`). So: gap filled, nothing compared, nothing expired.
+
+The reason is that expectations live in dependents' `DependencyRecord`s — in metadata, outside the
+dependency manager entirely.
+
+**The fix is small and is already half-present.** `add_dependency` receives the expected version as
+a parameter and *throws it away*: `keyed_dependents` is
+`HashMap<DependencyKey, HashSet<DependencyKey>>` — edges with no version. Store it:
+
+```rust
+// for key K: which keys depend on K, and at what version each observed it
+keyed_dependents: scc::HashMap<DependencyKey, scc::HashMap<DependencyKey, Version>>,
+```
+
+Then the dependency manager is a **complete model** — nodes carrying a current version, edges
+carrying an expected one — and every question is answerable from it without asking anyone:
+
+- `missing_versions()` — edges expecting a concrete version whose target has no entry in `versions`;
+- `missing_versions_for(key)` — the same, restricted to what checking `key` requires (the owner's
+  second variant, and it is a filter over the same scan);
+- `register_version(K, v)` — expires the dependents whose stored expectation differs from `v`;
+- `report_no_version(K)` — the manager could not resolve one; expires the dependents that expected a
+  concrete version. Needed because `Version::unknown()` cannot express it: unknown means *compatible
+  with anything*, so registering it would confirm rather than invalidate.
+
+Six touch points in `dependencies.rs` (`:255` insert, `:367` cycle BFS, `:561`/`:608` iteration;
+the three `remove_async` sites are unchanged) — mechanical, and 16 bytes per edge.
+
+## The unlooked-for benefit: the cascade becomes precise
+
+Today `register_version` expires **every** dependent of a changed key. With expectations stored it
+can expire only those whose recorded version actually differs — so a dependent that already
+observed the new version, or that recorded `Version::unknown()`, is left alone.
+
+That is the per-edge form of the property that made content hashing worth choosing in the first
+place: *recomputing to the same value must not invalidate*. Revision 2.2 had it only at the node
+level. This is strictly less spurious invalidation, and it arrives as a side effect of making the
+audit work.
+
+## Costs and cautions, stated plainly
+
+- **`add_dependency` must still not compare.** With expectations stored it *could* check on the hot
+  path, and it must not — Revision 2.2's record/verify split stands. Comparison happens on
+  `register_version` (an event that already means "something changed") and in the audit flow.
+- **Two writers, one map.** `keyed_dependents` gains a value where it had none; concurrent
+  `add_dependency` calls for the same pair now write a version rather than a set membership. Last
+  writer wins, which is correct — the later observation is the fresher one — but it should be a
+  stated rule rather than an accident of `scc` semantics.
+- **The gap list is a snapshot.** Between `missing_versions()` and the fills, the graph can change.
+  Benign for a policy-triggered operation; the next audit sees the difference. Worth one sentence
+  so nobody adds a lock for it.
+- **`AssetManager::version(key)` survives unchanged** (C1). It is what the manager uses to fill a
+  gap, and it remains the only place that touches the store.
+
+## Revised shape
+
+```rust
+// dependencies.rs — sync, pure, no I/O, no resolver
+pub(crate) fn missing_versions(&self) -> Vec<DependencyKey>;
+pub(crate) fn missing_versions_for(&self, key: &DependencyKey) -> Vec<DependencyKey>;
+pub async fn register_version(&self, key: &DependencyKey, version: Version) -> ExpiredDependents<E>;
+pub(crate) async fn report_no_version(&self, key: &DependencyKey) -> ExpiredDependents<E>;
+
+// assets.rs — the policy layer, and the only async part
+async fn version(&self, key: &Key) -> Result<Option<Version>, Error>;              // C1, unchanged
+async fn trigger_dependency_audit(&self, query: &Query) -> Result<AuditReport, Error>;
+async fn trigger_dependency_audit_all_registered(&self) -> Result<AuditReport, Error>;
+```
+
+Each `trigger_*` is now a short loop: ask for the gaps, resolve each with `version()`, push the
+answer back with `register_version` or `report_no_version`, collect what came out. **No traversal,
+no depth parameter, no visited set** — the transitive behaviour is the existing cascade doing what
+it already does.
+
+Recommendation: **adopt as Revision 2.3**, superseding C2/D1/D2 and Phase 4's B2 and B6.
