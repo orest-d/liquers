@@ -168,7 +168,7 @@ at all" option needs deciding explicitly given B1.
 Filed separately from this design: `EVALUATE-DOES-NOT-CLEAR-CACHED-BINARY` and
 `SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED`.
 
-## Where this stands, and how to resume (2026-09-05)
+## Where this stands, and how to resume (superseded — see the 2026-09-11 update below)
 
 **Blocked, deliberately, on `KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS` (P1, L).** This
 folder is published as preparatory design work so the reasoning survives the gap; it is not ready to
@@ -238,3 +238,30 @@ having two required methods makes a shared-store wrapper "two forwarding bodies"
 other twenty are defaulted, but `set`'s default is an error rather than a forward. Recorded in
 `CROSS-PROCESS-RELOAD-IS-UNTESTED`, which now owns that fixture.
 
+
+## Unblocked 2026-09-11: what the versions work changed
+
+`KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS` is **closed**; `keyed-expiry-cascade-fix`
+(PR #69) is merged. Computed keyed assets now carry a content version — the hash of their
+serialized bytes, with `Version::new_unique` as the fallback — assigned by `prepare_version` in the
+same write transaction as the status.
+
+The defect this design fixes is **still live at HEAD**: the stale-dependency relabel is still in
+`finish_run_with_result` (`assets.rs:2414`), after `evaluate` has finalized and persisted.
+
+Three of the seven issues this design's review produced were closed by that work:
+`SERIALIZE-TO-BINARY-CONSULTS-THE-READ-GATE` (which was blocking correction C1),
+`EVALUATE-DOES-NOT-CLEAR-CACHED-BINARY`, and the blocker itself.
+
+**The corrections in `phase2-architecture.md` are rewritten against the new HEAD.** The headline is
+that C2 reverses for the second time, and this is worth stating plainly because the reasoning is
+easy to lose: the choice of what the dependency-manager step should do has now been "cascade",
+"nothing", and "register the version directly", each correct for the code as it stood at the time.
+Only the last is correct for code in which computed assets have versions — and it is the option
+that could not have worked before, because there was no version to register.
+
+Phase 4's Step 3 is rewritten by C2 rather than deleted, Step 1 (the rename) is dropped entirely
+since `finalize_status_with_version` already exists, and Step 2 loses the `serialize_to_binary`
+change it inherited from C1.
+
+Phase 2 goes back to its gate with these corrections applied.
