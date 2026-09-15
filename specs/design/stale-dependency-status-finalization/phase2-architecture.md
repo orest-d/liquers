@@ -8,15 +8,27 @@
 
 ## Overview
 
-The stale-dependency rule moves out of the run harness and into the status authority,
-`finalize_status_with_version`, so an asset that consumed a stale dependency is decided `Expired`
-*before* the `ValueProduced` notification and *before* persistence. The store then agrees with the
-runtime about the status whose only job is to force recomputation.
+**The asset manager is the authority on status; the store is a mirror of it.** The rule that
+follows — stated by the project owner at the Revision 2 gate and adopted here as this design's
+governing principle — is that *whenever an asset expires, the store metadata is brought up to date*.
+Best-effort: it does not close every window, but the store should never be knowingly left
+disagreeing with the manager.
 
-One consequence is designed for rather than absorbed: `DependencyManager::track_asset` refuses an
-`Expired` asset, and since computed keyed assets now carry real content versions, that refusal
-would silently drop the dependent invalidation such an asset genuinely owes. `evaluate`'s last step
-therefore registers the version directly for this one case.
+Verified against HEAD, the codebase already honours that rule **everywhere but one place**. There
+are exactly two production writers of `Status::Expired`: `mark_expired_status` (`assets.rs:3112`),
+which persists the new status for any keyed asset the store already holds, and the stale-dependency
+relabel in `finish_run_with_result` (`:2415`), which writes nothing. This design closes that one
+exception.
+
+It closes it in the strongest available form. Rather than writing the value as `Ready` and issuing a
+second, corrective metadata write, the status is *decided before the single write already happening*
+— in `finalize_status_with_version`, the authority that already chooses between `Ready`, `Volatile`
+and `Error`. One write, and no interval in which the store is knowingly wrong.
+
+A second consequence is designed for rather than absorbed: `DependencyManager::track_asset` refuses
+an `Expired` asset, and since computed keyed assets now carry real content versions, that refusal
+would silently drop the dependent invalidation such an asset owes. `evaluate`'s last step therefore
+registers the version directly for this one case.
 
 No type is added, no public item changes, and only `liquers-core` is touched.
 
@@ -24,6 +36,13 @@ No type is added, no public item changes, and only `liquers-core` is touched.
 
 Revision 1 was written against code in which computed keyed assets had no version. Three of its
 decisions do not survive that assumption being fixed.
+
+**Revision 2 was also corrected at its own gate**, by the project owner, on two points that are
+folded in above rather than appended: the governing principle is that the manager is authoritative
+and the store is kept up to date on every expiry (§Overview), and `Expired` has a single meaning —
+stale data — with routes differing only in provenance (§"The dependency-manager step"). Revision 2
+argued for two meanings; that argument is withdrawn, and the decision it supported survives on a
+better one.
 
 | Revision 1 said | Now |
 |---|---|
@@ -163,16 +182,27 @@ then for a keyed asset does two things:
 - `load_from_records(dep_key, &deps)` — registers this asset's incoming edges, so a later expiry of
   its dependencies reaches it.
 
-The gate means **"this asset has no valid value; keep it out of the graph."** That is right for
-`Error`, for `Cancelled`, and for an asset expired by a TTL, whose content has not changed and
-whose registered version is therefore still accurate.
+**`Expired` has one meaning: the data is stale.** What differs between routes into it is
+provenance — data that was valid and has since gone stale, versus an execution that never produced
+valid data, only expired data. The exceptional flow that produces the second (use the stale input
+rather than restart) exists to avoid an unbounded recompute loop; it does not give the status a
+second meaning. This is the project owner's correction to Revision 2, which argued the opposite and
+was wrong.
 
-A stale-dependency asset is the one `Expired` that does not fit. It has a valid, freshly computed
-value with a **new content version**, and it is `Expired` solely to say *"do not cache me."* Its
-dependents are built on the key's previous content and genuinely must recompute. This is the
-two-meanings-of-`Expired` problem that `expired-binary-read-safety` identified as finding B1 and
-deliberately collapsed **for reads**; the dependency graph is where the two meanings have to come
-apart, because here they imply opposite actions.
+The gate is therefore not conflating two meanings of `Expired`. It is conflating **status with
+version** — freshness with content identity. Those are independent facts:
+
+- the **version** answers *"what content does this key hold?"*;
+- the **status** answers *"is that content fresh?"*.
+
+An asset expired by a TTL holds the same content it registered, so the gate costs nothing there:
+re-registering would be a no-op. A stale-dependency asset holds **new content** — the evaluation ran
+and produced a different value, with a different hash — and is stale from birth. Refusing to record
+that content leaves the graph asserting that the key still holds the *previous* content, which is
+simply untrue, and leaves every dependent built on that previous content uninvalidated.
+
+So the registration is not an assertion that the asset is fresh. It is an assertion about what the
+key contains, which the status then independently qualifies.
 
 ### The branch
 
@@ -345,6 +375,8 @@ back and refuses it (`:1066`) — the mechanism the whole fix relies on. No serd
 - Phase 1: `./phase1-high-level-design.md`
 - `specs/design/keyed-expiry-cascade-fix/` — versions for computed keyed assets; the work that
   unblocked this design and reversed its DM decision
-- `specs/design/expired-binary-read-safety/` §"Expiry is an error" and finding B1 — the
-  owner-decided read semantics this design preserves, and the two-meanings problem it separates
+- `specs/design/expired-binary-read-safety/` §"Expiry is an error" — the owner-decided read
+  semantics this design preserves. Its uniform treatment of `Expired` on every read is consistent
+  with the one-meaning reading above; its finding B1 described the two *provenances*, not two
+  meanings
 - `specs/design/evaluate-path-consolidation/` — the one evaluation path and the C8/C10 corner cases
