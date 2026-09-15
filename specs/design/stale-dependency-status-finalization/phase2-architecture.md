@@ -25,6 +25,11 @@ second, corrective metadata write, the status is *decided before the single writ
 — in `finalize_status_with_version`, the authority that already chooses between `Ready`, `Volatile`
 and `Error`. One write, and no interval in which the store is knowingly wrong.
 
+The same principle has a **reading** half, added at the Revision 2 gate: `try_fast_track` validates
+a stored asset's dependencies by version only, and never asks whether a dependency is *currently*
+expired. Writing an expiry to the store pays off only if something consults it, so this design
+closes both halves — see §"Fast-track must verify that no dependency has expired".
+
 A second consequence is designed for rather than absorbed: `DependencyManager::track_asset` refuses
 an `Expired` asset, and since computed keyed assets now carry real content versions, that refusal
 would silently drop the dependent invalidation such an asset owes. `evaluate`'s last step therefore
@@ -245,6 +250,98 @@ Scope note for the claim: `mark_expired_status` remains the only sender of `Expi
 asset*. Dependents invalidated by `expire_stale_dependents` are expired through that helper and do
 notify, which is correct — for them, a served value is being withdrawn.
 
+## Fast-track must verify that no dependency has expired
+
+Added at the Revision 2 gate (project owner, 2026-09-15). This is the **reading** half of the
+principle in §Overview: writing an expiry to the store only pays off if something consults it.
+
+### The gap
+
+`AssetRef::try_fast_track` (`assets.rs:1048`) checks two things before reusing a stored asset: that
+the asset's own stored status is `Ready | Source | Override` (`:1066`), and that each recorded
+dependency's version still matches what the dependency manager holds (`:1121`):
+
+```rust
+if let Some(dm_version) = dm.get_version(&dep_record.key).await {
+    if !dm_version.matches(&dep_record.version) { /* refuse */ }
+}
+```
+
+It never asks whether a dependency is **currently expired**. The version check answers a different
+question — *"was this dependency recomputed into different content?"* — and is silent on
+*"is this dependency stale right now?"*, which is the state of a dependency that has expired and has
+not been recomputed yet. There is no version change to detect, because nothing has been recomputed.
+
+In-process this is masked: the dependency's expiry cascades to its dependents through the manager,
+so the dependent is already `Expired` in memory and never reaches fast-track. **Across a restart it
+is not masked.** The manager and dependency manager start empty, the store holds the dependent as
+`Ready` with a dependency record, and the dependency's own sidecar says `Expired` — and nobody
+reads it. The dependent is served as fresh, built on data the system knows is stale.
+
+### The rule
+
+Before accepting a fast track, every recorded dependency must — **where it can be determined** — be
+in a status fast-track would itself accept. Any dependency positively found in another status
+refuses the fast track and forces re-evaluation.
+
+Reuse the predicate rather than testing for `Expired` specifically. Fast-track already decides which
+statuses make a stored value reusable; a dependency should have to clear the same bar. That
+automatically covers `Expired`, and also `Volatile` (a value never meant to be reused),
+`Error` and `Cancelled`, without a list that can drift out of step with the one above it.
+
+### Where the answer comes from, in order
+
+| Source | Cost | Authority |
+|---|---|---|
+| The manager's live asset — `lookup_key_asset(&key)` then `status()` | a map lookup | **Authoritative.** The manager is the authority on status (§Overview), so a live asset settles the question and the store is not consulted |
+| The dependency's stored sidecar — `store.get_metadata(&key)` | one metadata read | The restart case, and the reason this requirement exists |
+| Neither | — | **Inconclusive** |
+
+`Key::try_from(&DependencyKey)` (`metadata.rs:256`) is what turns a dependency node into a store key;
+it fails for nodes that are not store-backed — a command-implementation node such as
+`ns-dep/command_impl---world` — and those are simply inconclusive.
+
+### Inconclusive must not mean expired
+
+This is the rule that keeps the change safe. A missing sidecar, an unreadable one, or a
+non-store-backed dependency node is **not evidence of staleness**, and must not refuse the fast
+track. Treating absence as expiry would disable fast-tracking for every asset with a
+command-implementation dependency — which is most of them — and would look like a severe
+performance regression rather than a correctness bug. **Fail open on absence, closed only on
+positive evidence.**
+
+### Scope of the walk
+
+**One level, not transitive.** A dependency that is itself fast-tracked runs this same check on its
+own dependencies, and in-process transitive staleness is already the dependency manager's cascade.
+Walking the graph here would duplicate both and turn a bounded check into an unbounded one.
+
+### Cost
+
+One metadata read per recorded dependency that is not already in memory, on the fast-track path
+only — and only until the first dependency that refuses, since the loop can stop there. Dependency
+lists are short, the reads are metadata-only, and the alternative is serving stale data. Phase 3
+should nonetheless assert that a fast track with all dependencies live in memory performs **no**
+store reads for this check, so the live-asset branch is not quietly bypassed.
+
+### Relationship to this design's other half
+
+The two halves close one loop:
+
+- finalization (§"Function Signatures") makes sure an asset that consumed a stale dependency is
+  **written** as `Expired`;
+- this check makes sure a later process **reads** that and declines to build on it.
+
+Either alone leaves the restart case broken, which is why both belong in this design rather than
+one of them in a follow-up.
+
+### Phase 1 scope amendment
+
+Phase 1 §"Store System" said this design changes *what* is written and not how the store is read.
+That is no longer true: the fast-track path gains a bounded metadata read per dependency. The
+crate placement, the public surface and the "no query, command or value-type change" statements are
+unaffected. Recorded here rather than by silently editing Phase 1.
+
 ## Integration Points
 
 **`liquers-core/src/assets.rs`** — the only file with behaviour changes.
@@ -255,6 +352,7 @@ notify, which is correct — for them, a served value is being withdrawn.
 | `evaluate` — post-finalize read | `:2736-2746` | Read `stale_dependency` alongside the three facts already read |
 | `evaluate` — DM step | `:2762-2769` | The three-way branch above |
 | `finish_run_with_result` — relabel | `:2409-2422` | Removed |
+| `try_fast_track` — dependency validation | `:1119-1132` | Add the dependency-status check beside the existing version check (§"Fast-track must verify…") |
 | module rustdoc | `:~200` | The read-exposure table's `Expired` row names `finish_run_with_result` as where the label is applied |
 
 **`liquers-core/src/dependencies.rs`** — one extraction, no behaviour change (`:348`).
@@ -311,6 +409,11 @@ Also updated as documents rather than `affects_docs` entries:
   middle asset is stale-dependency rather than TTL-expired.
 - Confirmation, in a test, that between `ValueProduced` and the end of the run the asset is never
   observable as `Ready`.
+- That a fast track whose dependencies are all live in memory performs no store reads for the new
+  dependency-status check — the live-asset branch must not be quietly bypassed.
+- That an inconclusive dependency (a command-implementation node, or one with no sidecar) still
+  fast-tracks. This is the regression that would look like a performance collapse rather than a
+  bug.
 
 ## Relevant Commands
 
