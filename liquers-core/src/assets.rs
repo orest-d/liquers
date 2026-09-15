@@ -9104,6 +9104,147 @@ recipes:
         SimpleEnvironment::<Value>::new().to_ref()
     }
 
+    // ==================================================================================
+    // Stale-dependency status finalization — `stale-dependency-status-finalization` U1-U8.
+    //
+    // These build the asset the way `evaluate` does — value installed under the write lock —
+    // and deliberately NOT through `set_value`, which sets `Ready`, notifies, *and persists*.
+    // A U3 written on `set_value` would assert "before persistence" after persisting.
+    // ==================================================================================
+
+    /// Installs a value the way `evaluate` does, leaving the status untouched.
+    async fn stale_dep_fixture(
+        id: u64,
+        stale: bool,
+        volatile: bool,
+    ) -> AssetRef<SimpleEnvironment<Value>> {
+        let envref = test_envref();
+        let asset = AssetData::<SimpleEnvironment<Value>>::new(
+            id,
+            parse_query("test").expect("query").into(),
+            None,
+            envref,
+        )
+        .to_ref();
+        {
+            let mut lock = asset.data.write().await;
+            lock.data = Some(Arc::new(Value::from("value")));
+            lock.stale_dependency = stale;
+            lock.is_volatile = volatile;
+        }
+        asset
+    }
+
+    /// U1 — the branch must not over-trigger.
+    #[tokio::test]
+    async fn finalize_without_stale_dependency_is_ready() {
+        let asset = stale_dep_fixture(9601, false, false).await;
+        asset.finalize_status_with_version(None).await;
+        assert_eq!(asset.status().await, Status::Ready);
+        let lock = asset.data.read().await;
+        assert_eq!(lock.metadata.status(), Status::Ready);
+    }
+
+    /// U2 — the metadata half is the defect. A field-only write would pass the first assertion
+    /// and fail the second, and the store follows the second.
+    #[tokio::test]
+    async fn finalize_with_stale_dependency_is_expired_in_metadata_too() {
+        let asset = stale_dep_fixture(9602, true, false).await;
+        asset.finalize_status_with_version(None).await;
+        assert_eq!(asset.status().await, Status::Expired);
+        let lock = asset.data.read().await;
+        assert_eq!(
+            lock.metadata.status(),
+            Status::Expired,
+            "metadata is what save_to_store persists; memory and store disagreeing was the bug"
+        );
+    }
+
+    /// U3 — the reason is in metadata when finalization returns, so it reaches the store with the
+    /// status. It used to be added after the write, leaving the stored metadata with neither.
+    #[tokio::test]
+    async fn finalize_records_the_reason_before_persistence() {
+        let asset = stale_dep_fixture(9603, true, false).await;
+        asset.finalize_status_with_version(None).await;
+        let lock = asset.data.read().await;
+        let Metadata::MetadataRecord(ref mr) = lock.metadata else {
+            panic!("expected a MetadataRecord");
+        };
+        assert!(
+            mr.log.iter().any(|e| e.kind == LogEntryKind::Warning
+                && e.message.contains("expired dependency value")),
+            "the reason must be recorded in the same locked decision as the status"
+        );
+    }
+
+    /// U4 — volatility wins. A volatile result is never reused, so `Expired` would add nothing and
+    /// would erase the fact that it was volatile.
+    #[tokio::test]
+    async fn finalize_volatile_wins_over_stale_dependency() {
+        let asset = stale_dep_fixture(9604, true, true).await;
+        asset.finalize_status_with_version(None).await;
+        assert_eq!(asset.status().await, Status::Volatile);
+    }
+
+    /// U5 — the error arm is untouched by the new input.
+    #[tokio::test]
+    async fn finalize_without_data_is_error_regardless_of_flag() {
+        let asset = stale_dep_fixture(9605, true, false).await;
+        {
+            let mut lock = asset.data.write().await;
+            lock.data = None;
+        }
+        asset.finalize_status_with_version(None).await;
+        assert_eq!(asset.status().await, Status::Error);
+    }
+
+    /// U6 — `try_to_set_ready` is the wrapper `finish_run_with_result` calls for a run that
+    /// finished without `evaluate` finalizing. It gains the rule deliberately, and free: that
+    /// path does not persist, so there is no ordering cost.
+    #[tokio::test]
+    async fn finish_run_fallback_finalizes_with_the_same_rule() {
+        let asset = stale_dep_fixture(9606, true, false).await;
+        asset.try_to_set_ready().await;
+        assert_eq!(asset.status().await, Status::Expired);
+    }
+
+    /// U7 — the `Expired` arm mirrors the `Ready` arm's expiration handling, which
+    /// `finish_run_with_result` reads when deciding whether to schedule expiration.
+    #[tokio::test]
+    async fn finalize_expiration_time_agrees_across_arms() {
+        let ready = stale_dep_fixture(9607, false, false).await;
+        let stale = stale_dep_fixture(9608, true, false).await;
+        ready.finalize_status_with_version(None).await;
+        stale.finalize_status_with_version(None).await;
+        assert_eq!(
+            ready.data.read().await.expiration_time,
+            stale.data.read().await.expiration_time,
+            "identical metadata must yield identical expiration handling in both arms"
+        );
+    }
+
+    /// U8 — staleness is a claim about freshness, not about content. Two evaluations producing
+    /// identical bytes must carry identical versions whether or not a dependency expired, or every
+    /// stale-dependency asset becomes a permanent cascade source.
+    #[tokio::test]
+    async fn finalize_does_not_alter_the_prepared_version() {
+        let version = Version::from_bytes(b"value");
+        let asset = stale_dep_fixture(9609, true, false).await;
+        asset
+            .finalize_status_with_version(Some(PreparedVersion {
+                binary: None,
+                version,
+                serialization_error: None,
+            }))
+            .await;
+        assert_eq!(asset.status().await, Status::Expired);
+        assert_eq!(
+            asset.data.read().await.metadata.version(),
+            Some(version),
+            "the stale-dependency branch must not touch the prepared version"
+        );
+    }
+
     /// U4 — the claim that extracting the classifier changes no state-read behaviour.
     /// Asserts the behaviour *class* for every status, not merely that something is returned.
     #[tokio::test]
