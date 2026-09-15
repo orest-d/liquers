@@ -4,7 +4,7 @@ kind: design
 title: Status is finalized before persistence for a stale-dependency evaluation
 workflow: liquers-project
 status: draft
-phase: examples
+phase: implementation
 area: [core/assets]
 gh_pr: []
 issues: [ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY, EXPIRY-RECORDS-NO-REASON]
@@ -283,3 +283,17 @@ arms, a bindings break, and a store forward-compatibility break.
 
 Phase 3 Revision 2 follows, rebuilt on `chain_env` from `keyed-expiry-cascade-fix` rather than
 inventing its own chain fixture.
+
+## Phase 3 approved 2026-09-15; Phase 4 Revision 2 drafted
+
+Phase 4 is nine steps, ordered so every prefix is a coherent state: Steps 1-2 close the defect,
+Step 3 adds dependent invalidation and Step 4 the reading half, each revertible alone.
+
+Two stash checkpoints are the plan's real teeth — the keyed-persistence test and the fast-track
+test must each be observed **failing** with their source step stashed, then passing. A test green
+both before and after is testing nothing.
+
+`liquers-lib`'s default test loop does not run on rustc 1.94.1
+(`BUILD-SYSINFO-REQUIRES-NEWER-RUSTC`); Step 9 uses the `--no-default-features` substitute that
+issue records, and requires the substitution to be stated in the PR rather than reported as a clean
+run.
