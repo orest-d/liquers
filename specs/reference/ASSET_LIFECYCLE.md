@@ -90,8 +90,7 @@ load-bearing and must not be reordered.
 | 6 | Finalize status | the single status authority. It decides between four outcomes — `Volatile`, `Expired` (the evaluation consumed a stale dependency), `Ready`, `Error` — and must run **before** the notification and **before** persistence, so nothing observes or stores a non-final status. The manager is the authority on status; this ordering is what lets the store follow it |
 | 7 | Send `ValueProduced` | after step 6, so a client that polls on the notification sees a terminal status |
 | 8 | Persist | only if this is a **keyed** asset and this evaluation did not hand off |
-| 9 | Register in the dependency graph | a volatile asset is not a node. An asset that consumed a stale dependency has its version registered **directly**, because `DependencyManager::track_asset` refuses an `Expired` asset and that refusal would leave the graph asserting the key still holds its previous content. Only the key's registered owner registers, so a delegating asset registers nothing |
-| 9 | Register with the dependency manager | self-limiting on status and ownership, so ad-hoc assets register nothing |
+| 9 | Register in the dependency graph | self-limiting on status and ownership, so ad-hoc assets register nothing and a volatile asset is not a node at all. An asset that consumed a stale dependency has its version registered **directly**, because `DependencyManager::track_asset` refuses an `Expired` asset and that refusal would leave the graph asserting the key still holds its previous content. Only the key's registered owner registers, so a delegating asset registers nothing |
 
 On failure the body propagates with `?` and the harness's failure routine is the single authority:
 it clears the value, records the error in metadata, sets `Status::Error` and notifies.
@@ -155,6 +154,39 @@ Read the contrapositive: **not keyed means never stored and never loadable.**
 | `apply`, recipe with a filename | no | no |
 | `apply` with a payload | no | no |
 | `set_state(key, state)` | yes | yes — an explicit install, which never evaluates |
+
+### Reusing a stored asset: what the fast track verifies
+
+`try_fast_track` loads a stored entry instead of evaluating it. It admits only a stored status the
+system would itself reuse — `Ready`, `Source`, `Override` — and then asks two independent questions
+about every recorded dependency.
+
+| Question | Answered from | Catches |
+|---|---|---|
+| Was this dependency recomputed into *different content*? | the dependency manager's version for the key | a dependency that ran again |
+| Is this dependency stale *right now*? | the dependency's live asset status, or failing that its stored metadata status | a dependency that expired and was never recomputed |
+
+The second exists because the first is silent exactly where it matters most. A version comparison
+needs a version to compare against, and a freshly started process's dependency manager holds none —
+so across a restart the guard passes every recorded dependency vacuously. In-process the manager's
+cascade hides that; across a process boundary nothing does.
+
+**The manager is asked first, the store only as a fallback.** The manager is the authority on
+status (see §Who decides status in [`ASSETS.md`](ASSETS.md)); the store is kept in agreement with
+it, but it is the follower. A check that read the store first would agree with the manager in every
+test that happens to have both, and disagree in production the moment they differ.
+
+**Inconclusive is not expired.** A dependency the check cannot address — a command-implementation
+node, or a key the store holds no metadata for — does not block the fast track. Refuse on positive
+evidence of staleness, never on absence of evidence.
+
+That asymmetry is deliberate and worth stating as a rule, because the two failure directions are
+not equally visible. Failing *open* on a genuinely stale dependency serves wrong data: a test
+catches it. Failing *closed* on an undeterminable one produces results that are still correct,
+merely recomputed — every assertion in the suite still passes, and the loss arrives months later as
+"everything got slow" rather than as a red test. **Where one direction of a mistake is invisible to
+the test suite, the code must lean the other way, and a test must assert the lean.**
+(`keyed_version_cascade::fast_track_proceeds_when_the_dependency_check_is_inconclusive`.)
 
 ### Ownership versus registration
 
@@ -228,7 +260,7 @@ arrives mid-evaluation and must join the first rather than be turned away.
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-09-15 | Step 6 now names the four outcomes the status authority decides between, including the stale-dependency one, and step 9 records the dependency-graph branch. Added the fast-track dependency-status rule. | `stale-dependency-status-finalization` |
+| 2026-09-15 | Step 6 now names the four outcomes the status authority decides between, including the stale-dependency one, and step 9 records the dependency-graph branch. Added §Reusing a stored asset: what the fast track verifies — the two dependency questions, manager-before-store, and "inconclusive is not expired" with the reason that rule has to be stated. | `stale-dependency-status-finalization` |
 | 2026-09-04 | Recorded two corrections from the PR #61 review: the payload requirement is written before the gate that rejects a missing payload, and both `Drop` repairs cover `Dependencies` alongside `Processing`. Added the inline repair's residual limit (`INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS`). | PR #61 review |
 | 2026-09-04 | Rewritten. The document's former purpose — cataloguing duplication between the evaluation paths as a basis for refactoring — was completed by `evaluate-path-consolidation`, leaving most of its body false at HEAD. Now describes the public surface, the surviving methods and their relationships, the step-by-step flow, and the axes along which evaluations differ. Paths A–D, the asymmetry table and the issue list are archived. | `design/evaluate-path-consolidation/` phase 5 |
 | 2026-08-26 | Previous revision, as the "Comprehensive Map". | — |

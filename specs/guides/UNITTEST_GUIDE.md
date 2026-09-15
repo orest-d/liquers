@@ -2,8 +2,8 @@
 title: Unit Testing Guide
 kind: guide
 audience: internal
-area: [build]
-reviewed: 2026-09-04
+area: [build, core/assets]
+reviewed: 2026-09-15
 ---
 # Liquers Unit Testing Guide
 
@@ -20,6 +20,7 @@ This guide explains how to write comprehensive unit tests for the Liquers query 
 7. [Query Evaluation](#query-evaluation)
 8. [Result Extraction and Testing](#result-extraction-and-testing)
 9. [Complete Examples](#complete-examples)
+10. [Testing Assets](#testing-assets)
 
 ---
 
@@ -658,6 +659,103 @@ async fn test_polars_dataframe() -> Result<(), Box<dyn std::error::Error>> {
 
 ---
 
+## Testing Assets
+
+Asset tests fail for a small number of recurring reasons that have nothing to do with the behaviour
+under test. Each rule below cost at least one debugging session, and each is stated because the
+mistake it prevents looks like a passing test or like a bug in the code.
+
+### `get().await` before `status()`
+
+```rust
+let asset = envref.evaluate("-R/b.txt").await?;
+let _ = asset.get().await?;             // wait for a terminal status
+assert_eq!(asset.status().await, Status::Ready);
+```
+
+`evaluate()` returns a **handle**, not a finished asset. On the queued path it commonly returns
+while the asset is still `Processing`, so reading `status()` first reports a transient value.
+Worse, it does not merely read wrong — `expire()` refuses a `Processing` asset, so the test fails
+several lines later with an error about expiry and nothing pointing at the real cause.
+
+`get()` is the wait. Discard the state if the test does not need it; the point is the `await`.
+
+### `set_value` and `set_state` write to the store
+
+They are *installs*, not inert test setup. For a keyed asset they persist, and they persist at
+statuses the normal read gate hides. A test that uses one to "just put something in memory" has
+also written the store, and a later assertion about what the store holds will be measuring the
+setup rather than the behaviour.
+
+### Simulate a restart by re-hydrating, never by sharing a store
+
+Two environments over one live store is not a supported configuration, and a fixture for it would
+exercise a coordination point the system does not have: the asset manager is the synchronization
+mechanism, and the store is not equipped for that (see
+[`reference/ASSETS.md`](../reference/ASSETS.md) §Who decides status).
+
+Re-hydration is both the cheaper fixture and the more faithful one. A second process does not share
+a live store object either — it reads persisted bytes:
+
+```rust
+let snapshot = {
+    let envref = chain_env(...).await?;      // first environment, dropped at the end of this block
+    let b = envref.evaluate("-R/b.txt").await?;
+    let _ = b.get().await?;
+    StoreSnapshot::capture(&envref.get_async_store(), &[recipes, a_key, b_key]).await?
+};
+let envref2 = rehydrated_env(&snapshot, ...).await?;   // fresh manager, fresh dependency manager
+```
+
+`StoreSnapshot` lives in `liquers-core/tests/fixtures/`. Capture *before* the state you want to
+preserve is disturbed — expiring one asset cascades and rewrites its dependents — and use
+`absorb` to merge entries captured at different moments.
+
+Register **the same commands** in both environments. A command registered with a different
+implementation version is a different command, and everything in the store will be invalidated for
+a reason that has nothing to do with the test.
+
+### A cache test asserts an evaluation counter, not a value
+
+If a command is deterministic, a test that checks the value cannot tell a cache hit from a
+recomputation — both produce the same string. Register a counting command, or count through an
+`Arc<AtomicUsize>` the command closes over, and assert on the count. The same applies in reverse:
+a test that asserts a *value* after a fast track is asserting that deserialization worked, which is
+worth having, but it is not a test that the fast track happened.
+
+### Size a store wrapper by compiling it
+
+`AsyncStore` has two required methods. That number is misleading: the other twenty defaults are
+**error stubs, not forwarding defaults** — `set`'s default is `Err(key_not_supported)`. A wrapper
+that overrides only the required pair compiles cleanly and then fails every write at runtime.
+
+Write the wrapper, compile the test that uses it, and add the forwards the failures name. Never
+estimate the size of one from the trait's required-method count. See
+[`STORE_IMPLEMENTATION_GUIDE.md`](./STORE_IMPLEMENTATION_GUIDE.md) §1.
+
+### Assert a delta, not an absolute count
+
+A counting fixture is counting environment construction as well as the code under test. Take a
+baseline immediately before the call and assert on the difference, so the test does not break when
+recipe loading changes for unrelated reasons.
+
+```rust
+let before = store.reads();
+assert!(reloaded.try_fast_track().await?);
+assert_eq!(store.reads() - before, 0, "the manager answers for a live dependency");
+```
+
+### Assert that the success path can succeed
+
+Before adding a check that can *refuse* something, make sure a test asserts the un-refused path.
+`try_fast_track` had no such test: the only test naming it asserted `false`. A check that failed
+closed on everything would have left the whole suite green — every result still correct, merely
+recomputed — and surfaced months later as a complaint about speed. Where one direction of a mistake
+is invisible to the suite, write the test that makes it visible *first*, on unmodified code, so you
+have seen it pass for the right reason.
+
+---
+
 ## Best Practices
 
 1. **Use `SimpleEnvironment` for simple tests** - faster and less setup
@@ -769,6 +867,7 @@ async fn test_error_handling() -> Result<(), Box<dyn std::error::Error>> {
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-15 | Added §Testing Assets: wait with `get().await` before reading `status()`; `set_value`/`set_state` persist; simulate a restart by re-hydrating rather than sharing a store, with `StoreSnapshot`; assert an evaluation counter rather than a value; size a store wrapper by compiling it; assert deltas; assert that the success path can succeed. Promoted from `CROSS-PROCESS-RELOAD-IS-UNTESTED`, whose own condition for promotion was a third recurrence. | `stale-dependency-status-finalization` |
 | 2026-09-04 | Replaced the removed synchronous `AsyncStoreWrapper` example with direct `AsyncMemoryStore` setup and async byte writes. | `DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS` |
 | 2026-09-01 | Corrected repository-relative links in the See Also section. | `DOCS-DEAD-LINKS-OUTSIDE-README` |
 | 2026-08-31 | Updated `to_ref()` setup guidance to include command metadata-version refresh before environment sharing. | `design/refresh-command-metadata-versions/phase-5` |

@@ -1902,9 +1902,9 @@ impl<E: Environment> AssetRef<E> {
     /// time-based one first if it has none.
     ///
     /// The last-resort net under the routes that can reach the graph without a version — a
-    /// serialization that failed, a `Metadata::LegacyMetadata` record, a sidecar written before
-    /// versions existed. It writes the assigned version back into the asset's metadata, so the
-    /// asset and the manager cannot disagree, and records that it fired.
+    /// serialization that failed, a `Metadata::LegacyMetadata` record, stored metadata written
+    /// before versions existed. It writes the assigned version back into the asset's metadata, so
+    /// the asset and the manager cannot disagree, and records that it fired.
     ///
     /// **It is not a universal funnel**, and the doc comment says so because the design once
     /// claimed otherwise: four of the five `register_version` call sites are elsewhere, and
@@ -4235,7 +4235,7 @@ pub trait AssetManager<E: Environment>:
     /// `lookup_key_asset`, a map read, and at most one metadata read.
     ///
     /// A version is read from **metadata only**, never from the value — so a key whose data has
-    /// been deleted but whose sidecar remains still answers. That is deliberate and load-bearing:
+    /// been deleted but whose stored metadata remains still answers. That is deliberate and load-bearing:
     /// it is what lets a user delete large intermediates and keep the results that were derived
     /// from them.
     ///

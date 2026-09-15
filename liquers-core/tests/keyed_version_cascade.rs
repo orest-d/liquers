@@ -280,7 +280,7 @@ async fn nothing_audits_by_default() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// `version(key)` reads metadata, never the value — so keeping the sidecar and deleting the data
+/// `version(key)` reads metadata, never the value — so keeping the stored metadata and deleting the data
 /// still verifies clean. An "optimization" that computed a version from the value breaks here.
 #[tokio::test]
 async fn metadata_kept_data_deleted_still_verifies_clean(
@@ -291,7 +291,7 @@ async fn metadata_kept_data_deleted_still_verifies_clean(
     let a_key = parse_key("a.txt")?;
     let a_metadata = envref.get_async_store().get_metadata(&a_key).await?;
 
-    // Data gone, sidecar kept.
+    // Data gone, stored metadata kept.
     envref.get_async_store().remove(&a_key).await?;
     envref
         .get_async_store()

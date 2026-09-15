@@ -301,6 +301,6 @@ ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,cur
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-09-05,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,core/query,,,,,2026-08-14,,specs/guides/QUERY_ESCAPING_GUIDE.md
 STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,core/store;store/config,,,,,2026-09-02,,specs/guides/STORE_FACTORY_GUIDE.md
-STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,core/store;store/backends;web,,,,,2026-09-04,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
+STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,core/store;store/backends;web,,,,,2026-09-15,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,core/value;lib/value,,,,,2026-08-26,,specs/guides/TYPE_SYSTEM_GUIDE.md
-UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,build,,,,,2026-09-04,,specs/guides/UNITTEST_GUIDE.md
+UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,build;core/assets,,,,,2026-09-15,,specs/guides/UNITTEST_GUIDE.md

@@ -177,7 +177,7 @@ pub enum Status {
 - **Error**: Computation finished with an error
 - **Storing**: Transient state during store write; if loaded from store with this status, treat as corrupted/Error
 - **Ready**: Successfully computed, data available
-- **Expired**: Was ready but invalidated (e.g., dependency changed)
+- **Expired**: The data is stale — see §The one meaning of `Expired` below
 - **Cancelled**: Processing was cancelled via Cancel message
 - **Source**: Data provided externally via set(), no recipe exists
 - **Override**: Data provided externally via set(), recipe exists but was not used
@@ -200,6 +200,51 @@ pub enum Status {
 | Cancelled    | false    | true        | false         | false         | MetadataOnly  |
 | Source       | true     | true        | false         | false         | Value         |
 | Override     | true     | true        | false         | false         | Value         |
+
+### The one meaning of `Expired`
+
+**`Expired` means one thing: the data is stale.** It never means anything else, and no read, store
+or client should branch on how an asset came to hold it.
+
+Two provenances reach it, and they are provenance, not meaning:
+
+| Provenance | How it arises |
+|---|---|
+| Data that *was* valid and now is not | a dependency changed, an expiration time passed, `expire()` was called |
+| An execution that never produced valid data | the evaluation consumed a dependency that expired mid-run and used its retained value rather than recomputing it (§Status and reads, below) |
+
+The second gets exceptional handling on the *evaluation* path — the run finishes on the stale value
+instead of restarting, which is what prevents an unbounded recompute loop — but that exception is
+about how the run ends, not about what the resulting status means. The asset is stale either way.
+
+This is why the second case is *not* a distinct status. A `Stale` variant would split one meaning
+across two values, oblige roughly sixty-five `match` sites to handle both identically, break the
+language bindings, and break forward compatibility for every store holding a status string a
+previous build wrote. Provenance that is worth recording belongs in metadata beside the status —
+the shape proposed in [`../issues/EXPIRY-RECORDS-NO-REASON`](../issues/EXPIRY-RECORDS-NO-REASON.md)
+— where reading it is opt-in and ignoring it is free.
+
+### Who decides status
+
+**The asset manager is authoritative. The store follows.**
+
+The manager holds the live asset and decides its status; the store is kept in agreement as far as
+it can be, and is consulted only for what the manager does not hold. Two consequences are load-bearing
+and are the reason this is stated as a rule rather than left implicit:
+
+- **Every expiry of a keyed asset writes the new status through to the store**
+  (`AssetRef::mark_expired_status`), so an entry the manager later evicts is not resurrected as
+  `Ready` by the next process. The write is best-effort and skipped for a key the store does not
+  already hold — `set_metadata` on a missing key would otherwise mint a phantom entry with empty
+  bytes — and a failure is logged rather than propagated: the manager's decision stands either way.
+- **Anything asking about status asks the manager first** and the store only as a fallback. This is
+  what `try_fast_track`'s dependency check does; see §Reusing a stored asset in
+  [`ASSET_LIFECYCLE.md`](ASSET_LIFECYCLE.md).
+
+The corollary is that two environments over one live store is **not** a supported configuration.
+Synchronization is the manager's job and the store is not equipped for it. A second *process*
+does not share a live store object anyway — it reads persisted bytes, which is what makes
+"persist the status, then reload" the whole of the cross-process contract.
 
 ### Status and reads
 
@@ -852,6 +897,7 @@ re-evaluation is a property of *requesting* the asset, not of awaiting an in-fli
 | Date | Change | Source |
 |---|---|---|
 | 2026-09-15 | §Expiry: a stale-dependency completion is *born* `Expired` in `finalize_status_with_version` rather than relabelled afterwards by `finish_run_with_result`, so the stored status agrees with the manager. | `stale-dependency-status-finalization` |
+| 2026-09-15 | Added §The one meaning of `Expired` (one meaning, two provenances, and why a `Stale` variant is not the answer) and §Who decides status (the manager is authoritative, every keyed expiry writes through to the store, ask the manager before the store, and two environments over one live store is not a supported configuration). | `stale-dependency-status-finalization` |
 | 2026-08-26 | Recorded that a failed asset is typed by the value it holds, which is none; there is no `error` type identifier. | `design/foreign-value-type-registration/` |
 | 2026-08-09 | Added §Key ownership and §Volatile assets are never owned to §AssetManager: the non-evaluating `owned_key_asset` contract, and the rule that a volatile asset is never served from either map. | `design/keyed-recipe-ownership` |
 | 2026-08-08 | Added §Status and reads with the `ReadExposure` classification and the read behaviour matrix; added a `read_exposure` column to §Status Properties; amended §Terminal Outcome Contract → Accessors for `get`'s pre-wait expiry check. | `design/expired-binary-read-safety` |
