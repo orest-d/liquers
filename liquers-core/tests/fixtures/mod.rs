@@ -56,6 +56,25 @@ impl StoreSnapshot {
         Ok(())
     }
 
+    /// Merge another snapshot in. Useful when entries must be captured at different moments —
+    /// a dependent before its dependency expires, the dependency after.
+    pub fn absorb(&mut self, other: StoreSnapshot) {
+        self.entries.extend(other.entries);
+    }
+
+    /// Rewrite every dependency record in every captured entry to `Version::unknown()`, the way
+    /// records written before computed assets carried versions look on disk. Used to prove the
+    /// versions change is safe to deploy against a store that predates it.
+    pub fn downgrade_dependency_versions_to_unknown(&mut self) {
+        for (_key, _bytes, metadata) in self.entries.iter_mut() {
+            if let Metadata::MetadataRecord(mr) = metadata {
+                for record in mr.dependencies.iter_mut() {
+                    record.version = liquers_core::metadata::Version::unknown();
+                }
+            }
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.entries.len()
     }

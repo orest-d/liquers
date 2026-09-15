@@ -26,6 +26,9 @@ use liquers_core::{
 };
 use liquers_macro::register_command;
 
+mod fixtures;
+use fixtures::StoreSnapshot;
+
 type TestEnv = SimpleEnvironment<Value>;
 
 /// `a.txt` <- hello · `b.txt` <- a.txt/world · `c.txt` <- b.txt/world · `n.bin` <- a.txt/count
@@ -361,6 +364,239 @@ async fn fast_track_succeeds_for_a_ready_stored_asset() -> Result<(), Box<dyn st
             .try_into_string()?,
         "Hello, world!",
         "the fast-tracked asset exposes the stored value, so it was loaded not recomputed"
+    );
+    Ok(())
+}
+
+/// Build a second environment over a replayed snapshot — the restart simulation. The first
+/// environment must already be dropped by the caller, so the new manager and dependency manager
+/// start genuinely empty.
+async fn rehydrated_env(
+    snapshot: &StoreSnapshot,
+    counter: Arc<AtomicUsize>,
+) -> Result<EnvRef<TestEnv>, Box<dyn std::error::Error>> {
+    type CommandEnvironment = TestEnv;
+    let mut env = TestEnv::new();
+    fn hello() -> Result<Value, Error> {
+        Ok(Value::from("Hello"))
+    }
+    fn world(state: &State<Value>) -> Result<Value, Error> {
+        Ok(Value::from(format!("{}, world!", state.try_into_string()?)))
+    }
+    let cr = &mut env.command_registry;
+    register_command!(cr, fn hello() -> result version: 1)?;
+    register_command!(cr, fn world(state) -> result version: 2)?;
+    let c = counter.clone();
+    env.command_registry.register_command(
+        liquers_core::command_metadata::CommandKey::new_name("count"),
+        move |_, _, _| Ok(Value::I32(c.fetch_add(1, Ordering::SeqCst) as i32)),
+    )?;
+    let store = AsyncMemoryStore::new(&Key::new());
+    snapshot.replay_into(&store).await?;
+    env.with_async_store(Box::new(store));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    Ok(env.to_ref())
+}
+
+/// F1 — the restart case, and the reason the writing half is worth anything.
+///
+/// A fresh process holds `b.txt` as `Ready` with a dependency record on `a.txt`, and the store
+/// says `a.txt` is `Expired`. The version check cannot see this: `a.txt` has not been recomputed,
+/// so there is no version change to detect, and the dependency manager of a fresh process knows
+/// no versions at all. Only reading the dependency's stored status catches it.
+#[tokio::test]
+async fn fast_track_declines_a_dependency_expired_in_the_store(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let recipes = parse_key("recipes.yaml")?;
+    let a_key = parse_key("a.txt")?;
+    let b_key = parse_key("b.txt")?;
+
+    let snapshot = {
+        let envref = chain_env(Arc::new(AtomicUsize::new(0))).await?;
+        let b = envref.evaluate("-R/b.txt").await?;
+        let _ = b.get().await?;
+        let a = envref.evaluate("-R/a.txt").await?;
+        let _ = a.get().await?;
+
+        // Snapshot b.txt while it is still Ready — expiring a.txt cascades and would rewrite it.
+        let store = envref.get_async_store();
+        let mut snap = StoreSnapshot::capture(&store, &[recipes.clone(), b_key.clone()]).await?;
+
+        a.expire().await?;
+        let a_snap = StoreSnapshot::capture(&store, &[a_key.clone()]).await?;
+        snap.absorb(a_snap);
+        snap
+    };
+
+    let envref2 = rehydrated_env(&snapshot, Arc::new(AtomicUsize::new(0))).await?;
+    let store2 = envref2.get_async_store();
+    assert_eq!(
+        store2.get(&b_key).await?.1.status(),
+        Status::Ready,
+        "precondition: b.txt must look reusable, or this tests the status gate instead"
+    );
+    assert_eq!(
+        store2.get(&a_key).await?.1.status(),
+        Status::Expired,
+        "precondition: its dependency must be stale in the store"
+    );
+
+    let mut reloaded =
+        AssetData::<TestEnv>::new(9502, b_key.clone().into(), Some(b_key.clone()), envref2.clone());
+    assert!(
+        !reloaded.try_fast_track().await?,
+        "a dependency the store reports as Expired must refuse the fast track"
+    );
+    Ok(())
+}
+
+/// F2 — the live-asset branch. The manager is the authority on status, so when it holds the
+/// dependency the store is never consulted.
+#[tokio::test]
+async fn fast_track_declines_a_dependency_expired_in_memory(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let recipes = parse_key("recipes.yaml")?;
+    let a_key = parse_key("a.txt")?;
+    let b_key = parse_key("b.txt")?;
+
+    let snapshot = {
+        let envref = chain_env(Arc::new(AtomicUsize::new(0))).await?;
+        let b = envref.evaluate("-R/b.txt").await?;
+        let _ = b.get().await?;
+        let store = envref.get_async_store();
+        StoreSnapshot::capture(&store, &[recipes.clone(), a_key.clone(), b_key.clone()]).await?
+    };
+
+    let envref2 = rehydrated_env(&snapshot, Arc::new(AtomicUsize::new(0))).await?;
+    // Bring a.txt into this manager and expire it there. b.txt is not a live asset here and no
+    // edge to it has been registered, so nothing cascades — its store entry stays Ready and the
+    // only thing wrong is the live dependency.
+    let a = envref2.evaluate("-R/a.txt").await?;
+    let _ = a.get().await?;
+    a.expire().await?;
+    assert_eq!(a.status().await, Status::Expired);
+    assert_eq!(
+        envref2.get_async_store().get(&b_key).await?.1.status(),
+        Status::Ready,
+        "precondition: b.txt must still look reusable in the store"
+    );
+
+    let mut reloaded =
+        AssetData::<TestEnv>::new(9503, b_key.clone().into(), Some(b_key.clone()), envref2.clone());
+    assert!(
+        !reloaded.try_fast_track().await?,
+        "a dependency the manager reports as Expired must refuse the fast track"
+    );
+    Ok(())
+}
+
+/// F3 — **the guard whose failure would be invisible.**
+///
+/// `b.txt` depends on a command-implementation node as well as on `a.txt`, and
+/// `Key::try_from` cannot address one. If the check treated "cannot determine" as "expired", it
+/// would refuse the fast track for nearly every asset in the system: every result would still be
+/// correct, merely recomputed, so no assertion anywhere would fail and the loss would surface as
+/// a performance complaint rather than a bug. Fail open on absence, closed only on evidence.
+#[tokio::test]
+async fn fast_track_proceeds_when_the_dependency_check_is_inconclusive(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let envref = chain_env(Arc::new(AtomicUsize::new(0))).await?;
+    let b = envref.evaluate("-R/b.txt").await?;
+    let state = b.get().await?;
+
+    // The premise: at least one recorded dependency is not store-addressable.
+    let inconclusive = state
+        .metadata
+        .get_dependencies()
+        .iter()
+        .filter(|d| Key::try_from(&d.key).is_err())
+        .count();
+    assert!(
+        inconclusive > 0,
+        "premise of this test: b.txt must carry a dependency the store cannot address"
+    );
+
+    let b_key = parse_key("b.txt")?;
+    let mut reloaded =
+        AssetData::<TestEnv>::new(9504, b_key.clone().into(), Some(b_key.clone()), envref.clone());
+    assert!(
+        reloaded.try_fast_track().await?,
+        "a dependency that cannot be determined is not evidence of staleness"
+    );
+    Ok(())
+}
+
+// ======================================================================================
+// Reload — `CROSS-PROCESS-RELOAD-IS-UNTESTED` R1-R3, on the re-hydration helper.
+// ======================================================================================
+
+/// R1 — nothing audits by default, across a restart. The in-process form of this is
+/// `nothing_audits_by_default`; this is the dimension the persisted `DependencyRecord` exists for.
+#[tokio::test]
+async fn reloaded_dependent_is_served_without_audit() -> Result<(), Box<dyn std::error::Error>> {
+    let recipes = parse_key("recipes.yaml")?;
+    let a_key = parse_key("a.txt")?;
+    let b_key = parse_key("b.txt")?;
+    let counter = Arc::new(AtomicUsize::new(0));
+
+    let snapshot = {
+        let envref = chain_env(counter.clone()).await?;
+        let b = envref.evaluate("-R/b.txt").await?;
+        let _ = b.get().await?;
+        let store = envref.get_async_store();
+        StoreSnapshot::capture(&store, &[recipes.clone(), a_key.clone(), b_key.clone()]).await?
+    };
+
+    let envref2 = rehydrated_env(&snapshot, counter.clone()).await?;
+    let mut reloaded =
+        AssetData::<TestEnv>::new(9505, b_key.clone().into(), Some(b_key.clone()), envref2.clone());
+    assert!(
+        reloaded.try_fast_track().await?,
+        "a process that has never evaluated the dependency must still serve the stored dependent"
+    );
+    assert_eq!(
+        reloaded
+            .poll_state()
+            .expect("fast-tracked")
+            .try_into_string()?,
+        "Hello, world!"
+    );
+    Ok(())
+}
+
+/// R3 — **deployment safety, and the claim the issue calls the least-tested in the versions
+/// design.** Every dependency record written before computed assets carried versions holds
+/// `Version(0)`. If such a record did not match, upgrading would invalidate an entire existing
+/// store on first contact.
+#[tokio::test]
+async fn a_pre_versions_record_with_version_zero_still_matches(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let recipes = parse_key("recipes.yaml")?;
+    let a_key = parse_key("a.txt")?;
+    let b_key = parse_key("b.txt")?;
+
+    let mut snapshot = {
+        let envref = chain_env(Arc::new(AtomicUsize::new(0))).await?;
+        let b = envref.evaluate("-R/b.txt").await?;
+        let _ = b.get().await?;
+        let store = envref.get_async_store();
+        StoreSnapshot::capture(&store, &[recipes.clone(), a_key.clone(), b_key.clone()]).await?
+    };
+    // Make the store look like one written before the versions work landed.
+    snapshot.downgrade_dependency_versions_to_unknown();
+
+    let envref2 = rehydrated_env(&snapshot, Arc::new(AtomicUsize::new(0))).await?;
+    // Give the dependency manager a real version for a.txt, so the recorded unknown is compared
+    // against something concrete — which is exactly the upgrade situation.
+    let a = envref2.evaluate("-R/a.txt").await?;
+    let _ = a.get().await?;
+
+    let mut reloaded =
+        AssetData::<TestEnv>::new(9506, b_key.clone().into(), Some(b_key.clone()), envref2.clone());
+    assert!(
+        reloaded.try_fast_track().await?,
+        "a pre-versions record carrying Version(0) must still match, or upgrading invalidates \
+         every existing store entry on first contact"
     );
     Ok(())
 }
