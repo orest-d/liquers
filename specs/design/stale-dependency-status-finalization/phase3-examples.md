@@ -85,9 +85,10 @@ The one fixture that does not exist is the shared store. Building it closes
 | I6 | Integration | `stale_dependency_recovery_from_store` | `get_any_status` / `to_override` still recover it |
 | I7 | Integration | `volatile_keyed_stale_dependency_stays_volatile` | Volatile keyed assets keep being written, as `Volatile` |
 | I8 | Integration | `delegating_stale_dependency_registers_nothing` | `bound_owner_key()` returns `None`, so no version is written under the owner's key |
+| **F0** | Integration | `fast_track_succeeds_for_a_ready_stored_asset` | **The missing baseline.** No test today asserts `try_fast_track` can return `true` at all |
 | F1 | Integration | `fast_track_declines_a_dependency_expired_in_the_store` | The reading half, restart case |
 | F2 | Integration | `fast_track_declines_a_dependency_expired_in_memory` | The live-asset branch |
-| F3 | Integration | `fast_track_proceeds_when_the_dependency_check_is_inconclusive` | **The guard that matters most** — a command-implementation dependency must not block fast-track |
+| F3 | Integration | `fast_track_proceeds_when_the_dependency_check_is_inconclusive` | A command-implementation dependency must not block fast-track |
 | F4 | Integration | `fast_track_reads_no_metadata_when_dependencies_are_live` | The live-asset branch is not bypassed |
 | — | Regression | `test_wait_for_retained_expired_dependency_labels_asset_expired_on_completion` (`assets.rs:7964`) | Must pass **unchanged**, not adjusted to agree |
 | — | Regression | `keyed_expiry_cascades_to_keyed_dependents` (`keyed_version_cascade.rs:119`) | The versions work's own guard must stay green |
@@ -175,7 +176,18 @@ Phase 2's reading half. Writing an expiry to the store pays off only if somethin
 | Expired, only in the store | `store.get_metadata()` | **decline** (F1) |
 | Not determinable — a command-implementation node, or no stored metadata | — | **proceed** (F3) |
 
-**F3 is the test that matters most.** Nearly every asset has a command-implementation dependency
+**There is no baseline today, and that is why this is dangerous.** Searching the suite for
+`try_fast_track` finds exactly one test — `test_expired_keyed_asset_does_not_fast_track_back`
+(`expiration_integration.rs:1557`) — and it asserts the function returns **`false`**. Nothing
+asserts it can return `true`. Every other store-path test either works from an in-memory asset or
+goes through the `get_any_status` / `to_override` recovery branch, not through fast-track.
+
+So a Step 4 that fails closed would make fast-track stop working entirely, and **the suite would
+stay green**: results would still be correct, just recomputed every time. F0 exists to give that
+failure somewhere to land, and it should be written *before* the check in Step 4 so it is known to
+pass beforehand.
+
+**F3 is the test that matters most** among the refusal cases. Nearly every asset has a command-implementation dependency
 (`ns-dep/command_impl---world`), which `Key::try_from` cannot address. Treating that as expired
 would disable fast-tracking almost everywhere — and it would present as a severe performance
 regression, not as a failing assertion, which is why it needs a test rather than a code review.
@@ -223,7 +235,24 @@ I1–I8 in `liquers-core/tests/expiration_integration.rs`, generic over the envi
 shape, so consider whether `keyed_version_cascade.rs` is the better home for the fast-track four
 given that file already owns the chain fixture.
 
-### New fixture: the shared store
+### Building the second environment: two options, one already proven
+
+Revision 1 assumed a shareable store was required. It is not, for the reload scenario.
+`test_get_any_status_and_to_override_from_store_only` (`expiration_integration.rs:1336`) already
+does it by **re-hydration**: read the bytes and metadata out of the first store, drop the whole
+first environment, then `set` those bytes into a *fresh* `AsyncMemoryStore` behind a second
+environment. That is an independent manager and dependency manager over equivalent store contents,
+with no wrapper at all, and it is in the tree and working.
+
+Re-hydration is a snapshot, not a share — which is exactly right for I1 and F1, where the first
+environment is finished before the second starts. A counting wrapper is still needed for F4, but a
+counting wrapper over a plain store is much less than a full shared store.
+
+**Phase 4 should prefer re-hydration and build only the counting wrapper**, and should note that
+whether this still closes `CROSS-PROCESS-RELOAD-IS-UNTESTED` depends on whether that issue wants a
+snapshot or genuine sharing — re-hydration cannot exercise concurrent access to one store.
+
+### Optional fixture: the shared store
 
 ```rust
 #[derive(Clone)]
@@ -257,10 +286,14 @@ and the `get()`-before-`status()` discipline would stop the next person losing a
 3. **The dangerous failure of the reading half is a performance collapse, not a wrong answer.**
    Failing closed on an undeterminable dependency would be caught by nobody's assertion. F3 exists
    because the bug would be reported as "everything got slow".
-4. **Two designs needed the same missing fixture.** `keyed-expiry-cascade-fix` filed
+4. **The positive path of `try_fast_track` has never been tested.** One test names the function and
+   it asserts a refusal. A change that broke fast-tracking outright would leave the suite green, and
+   arrive as a performance report rather than a bug. A baseline for the success path of a
+   cache is worth as much as the tests for its refusals.
+5. **Two designs needed the same missing fixture.** `keyed-expiry-cascade-fix` filed
    `CROSS-PROCESS-RELOAD-IS-UNTESTED` for the shared store this design also needs. A fixture that
    two designs defer is worth building on the first ask.
-5. **Reuse beat invention.** `chain_env` already builds the three-link keyed chain, the counting
+6. **Reuse beat invention.** `chain_env` already builds the three-link keyed chain, the counting
    command and the non-serializable case. Revision 1 planned to build all of that from scratch.
 
 ## References

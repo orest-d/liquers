@@ -163,7 +163,32 @@ dependent-invalidation half and is separable.
 
 ---
 
-### Step 4 — Fast-track declines an expired dependency
+### Step 4a — Write F0 first: the fast-track success baseline
+
+**File:** `liquers-core/tests/keyed_version_cascade.rs`
+
+**Action:** Before touching `try_fast_track`, add `fast_track_succeeds_for_a_ready_stored_asset` and
+confirm it passes against unmodified code.
+
+**Why this comes first.** Searching the suite for `try_fast_track` finds one test, and it asserts
+the function returns **`false`**. Nothing asserts it can return `true`. A Step 4 that fails closed
+would stop fast-tracking entirely and **leave the suite green** — every result still correct, just
+recomputed. There is currently nowhere for that failure to land.
+
+Writing F0 first, and seeing it pass before the change, is what turns Step 4 from "hope the review
+catches it" into a checkpoint.
+
+**Validation:**
+```bash
+cargo test -p liquers-core --test keyed_version_cascade fast_track_succeeds
+# Expected: PASSES, against code with no Step 4 in it.
+```
+
+**Agent:** sonnet · rust-best-practices, liquers-unittest.
+
+---
+
+### Step 4b — Fast-track declines an expired dependency
 
 **File:** `liquers-core/src/assets.rs`
 
@@ -195,7 +220,9 @@ in-process transitivity is the cascade's job. Stop at the first refusal.
 **Validation:**
 ```bash
 cargo check -p liquers-core && cargo test -p liquers-core --lib --tests
-# Expected: green. A large slowdown or a broad failure here is P4 inverted.
+cargo test -p liquers-core --test keyed_version_cascade fast_track_succeeds
+# Expected: green, and F0 still passes. F0 failing here is P4 inverted — the check is
+# refusing a dependency it merely cannot determine.
 ```
 
 **Rollback:** revert this hunk. Steps 1–3 are the writing half and stand without it.
@@ -225,25 +252,30 @@ cargo check -p liquers-core && cargo test -p liquers-core --lib --tests
 
 ---
 
-### Step 6 — `SharedMemoryStore`
+### Step 6 — The second environment, and a counting store
 
-**File:** `liquers-core/tests/` (beside the suite that will use it)
+**File:** `liquers-core/tests/`
+
+**Prefer re-hydration over a shared store.** `test_get_any_status_and_to_override_from_store_only`
+(`expiration_integration.rs:1336`) already builds an independent second environment by reading the
+bytes and metadata out of the first store, dropping the first environment entirely, and `set`-ing
+those bytes into a fresh `AsyncMemoryStore`. No wrapper, already in the tree, already working. Use
+it for I1 and F1.
+
+**Build only what re-hydration cannot give: a read counter for F4.**
 
 ```rust
 #[derive(Clone)]
-struct SharedMemoryStore {
-    inner: Arc<AsyncMemoryStore>,
-    metadata_reads: Arc<AtomicUsize>,
-}
+struct CountingStore { inner: Arc<AsyncMemoryStore>, metadata_reads: Arc<AtomicUsize> }
 ```
 
 Delegate the two **required** methods (`get`, `set_metadata`) **and** the three `AsyncMemoryStore`
 **overrides** (`set`, `contains`, `remove`) — delegating only the required pair compiles and then
-behaves differently from the store it is supposed to be sharing. Count reads in `get_metadata` for
-F4. `ToOverrideGateStore` (`expiration_integration.rs:880`) is the proven shape.
+behaves differently from the store it wraps. `ToOverrideGateStore` (`:880`) is the proven shape.
 
-**This step also closes `CROSS-PROCESS-RELOAD-IS-UNTESTED`**, filed by `keyed-expiry-cascade-fix`
-for the same missing fixture. Update that issue in the same change set.
+**On `CROSS-PROCESS-RELOAD-IS-UNTESTED`:** re-hydration is a snapshot, not genuine sharing, so
+whether this closes that issue depends on what it asks for. Read it before claiming the close; if it
+wants concurrent access to one store, say so and leave it open.
 
 **Agent:** haiku · rust-best-practices · `ToOverrideGateStore`, the `AsyncStore` trait.
 
@@ -327,7 +359,8 @@ reaches wasm is a `tokio::` primitive slipping into a new branch, which it must 
 |---|---|---|
 | After Step 1 | `cargo test -p liquers-core --lib test_wait_for_retained_expired_dependency` | **Passes unchanged** — the non-keyed guard |
 | After Step 2 | `cargo test -p liquers-core --test keyed_version_cascade` | Green — the extraction is a pure refactor |
-| After Step 4 | `cargo test -p liquers-core --lib --tests` | Green. A broad failure or slowdown is P4 inverted |
+| Before Step 4b | `cargo test … fast_track_succeeds` | **Passes on unmodified code** — the baseline, established before the change |
+| After Step 4b | `cargo test -p liquers-core --lib --tests` + F0 | Green, F0 still passing. F0 failing is P4 inverted |
 | After Step 5 | `cargo test -p liquers-core --lib` | 8 new unit tests pass |
 | During Step 7 | the two stash checkpoints | **Fail**, then pass |
 | After Step 7 | `cargo test -p liquers-core --tests` | I1–I8 and F1–F4 pass |
@@ -345,7 +378,8 @@ directly. Saying so beats inventing a ritual command.
 | 1 Finalization branch | sonnet | rust-best-practices | Five silent failure modes |
 | 2 DM extraction | haiku | rust-best-practices | Mechanical; covered by an existing suite |
 | 3 Register directly | sonnet | rust-best-practices | Ownership-aware key derivation; deliberate behaviour change |
-| 4 Fast-track check | sonnet | rust-best-practices | Failure mode is systemic and silent |
+| 4a F0 baseline | sonnet | rust-best-practices, liquers-unittest | Must exist before 4b, or 4b has no failure mode |
+| 4b Fast-track check | sonnet | rust-best-practices | Failure mode is systemic and silent |
 | 5 Unit tests | sonnet | rust-best-practices, liquers-unittest | The setup traps |
 | 6 Shared store | haiku | rust-best-practices | Copying a proven local pattern |
 | 7 Integration tests | sonnet | rust-best-practices, liquers-unittest | Subtle timing; failure mode is a false pass |
@@ -360,7 +394,7 @@ Ordered so each prefix is coherent:
 
 - **Steps 1–2** fix the persisted status. The defect is closed.
 - **Step 3** adds dependent invalidation; revertible alone without reopening the bug.
-- **Step 4** adds the reading half; revertible alone, leaving the writing half intact.
+- **Steps 4a–4b** add the reading half; revertible alone, leaving the writing half intact.
 - **Steps 5–7** add no source behaviour; reverting loses coverage, not correctness.
 
 If Step 3 or Step 4 proves wrong in review, revert that hunk and file the gap rather than widening
@@ -391,6 +425,7 @@ precedent and the recommended shape.
       **unchanged** — not edited to agree
 - [ ] `keyed_expiry_cascades_to_keyed_dependents` still green
 - [ ] Both stash checkpoints observed failing, then passing
+- [ ] F0 passed on unmodified code before Step 4b was written, and still passes after
 - [ ] F3 passes: an inconclusive dependency still fast-tracks
 - [ ] Step 9's matrix green, wasm included, with the `liquers-lib` substitution stated
 - [ ] Three references updated with `## History` rows and `reviewed:` bumps
