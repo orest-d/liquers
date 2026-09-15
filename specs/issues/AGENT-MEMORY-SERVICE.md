@@ -22,8 +22,9 @@ one machine.
 That arrangement has three costs.
 
 1. **Retrieval is all-or-nothing.** An agent that wants to know whether an issue is relevant must
-   read the whole issue. There is no cheap summary tier, so context is spent on documents that
-   turn out not to matter.
+   read the whole issue. Nothing serves the cheap summary that `MetadataRecord.title` and
+   `.description` are already shaped to hold, so context is spent on documents that turn out not
+   to matter.
 2. **It is local-only.** Nothing outside a checkout can ask what the project knows, and nothing
    persists across a session except what was committed.
 3. **The mechanism is not reusable.** `docs_index.py` implements indexing, front-matter parsing,
@@ -50,18 +51,27 @@ documents with a real schema, a real consumer and an existing generator to measu
 
 A memory service composed of existing Liquers parts:
 
-- `liquers-store` / `liquers-core` stores hold the corpus, mounted under a `mem/` prefix by
-  `AsyncStoreRouter`.
-- A `ns-mem` command namespace derives the tiers — abstract, overview, index — and the searches.
-- Recipes declare the derived keys so tier files are addressable and cached, and the asset layer
-  invalidates them when a source document changes.
-- `liquers-axum` serves it over HTTP and WebSocket, unchanged.
-- An MCP adapter and a skill make it reachable by an agent.
+- Stores hold the corpus and an agent-writable area, mounted under a `mem/` prefix by
+  `AsyncStoreRouter`. Storage only — not the interface a client talks to.
+- **The assets API is the client interface.** It answers about assets rather than about stored
+  bytes, so it can report evaluation status, volatility and expiration, and can address a computed
+  query. Six of its ten endpoints are 501 stubs today, `listdir` included, which makes
+  `AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED` (P0) this feature's first prerequisite.
+- **The tiers already exist in metadata.** `MetadataRecord` and `AssetInfo` both carry `title` and
+  `description` — L0 and L1 respectively, with the data as L2 — so one `listdir` describes a whole
+  directory without reading any of it. What is needed is a way to *populate* those fields for
+  documents that arrive without them, not a new set of tier-accessor commands.
+- A `ns-mem` command namespace covers that population, plus selection and search. Writing is a
+  command reaching the store or asset manager through `Context`, not a raw store `POST`.
+- Recipes declare derived entries, and the asset layer invalidates them when a source's
+  content-hash version changes.
+- An MCP adapter and a skill make the service reachable by an agent.
 
-The design is in [`design/agent-memory-mvp/`](../design/agent-memory-mvp/). The MVP is
-defined there, along with the three gaps it has to work around
+The design is in [`design/agent-memory-mvp/`](../design/agent-memory-mvp/), following the
+`liquers-project` five-phase workflow. Phase 1 is written and awaiting approval; it names the
+blocker above and the three gaps the MVP is meant to work around without fixing
 (`CORE-METADATA-NO-APPLICATION-ATTRIBUTES`, `STORE-NO-CONTENT-OR-METADATA-SEARCH`,
-`STORE-WRITE-HAS-NO-PRECONDITION`) and what it deliberately leaves out.
+`STORE-WRITE-HAS-NO-PRECONDITION`).
 
 ## Discovery
 

@@ -200,13 +200,20 @@ submit, and submitted query state is not preserved.
 - **Executor-agnostic core** — planned → [`issues/CORE-TOKIO-REMOVAL.md`](issues/CORE-TOKIO-REMOVAL.md)
 - **Browser stores (localStorage, fetch, JS, routing)** — built → [`design/liquers-web-store/`](design/liquers-web-store/)
 - **Browser-native store and command backend** — planned → [`issues/WEB-NATIVE-IO-TIER2.md`](issues/WEB-NATIVE-IO-TIER2.md)
+- **Assets HTTP API completeness** — planned → [`issues/AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED.md`](issues/AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED.md)
 - **Agent memory service** — designing → [`design/agent-memory-mvp/`](design/agent-memory-mvp/)
 
 The memory service is the first line here that is an *application* of Liquers rather than a way
-into it: a store router, a `ns-mem` command namespace and `liquers-axum` serving `specs/` as
-tiered, searchable agent memory. Phase 1 only. It needs no core change to start, and it is what
-put `STORE-NO-CONTENT-OR-METADATA-SEARCH`, `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` and
-`STORE-WRITE-HAS-NO-PRECONDITION` on the board.
+into it: a store router holding the corpus, a `ns-mem` command namespace, and the assets API as the
+client interface serving `specs/` as tiered, searchable agent memory — where the tiers are
+`AssetInfo`'s existing `title` and `description`. Phase 1 of `liquers-project`, awaiting approval.
+
+Designing it is what found `AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED`: six of the assets API's ten
+endpoints, all of them specified in `WEB_API_SPECIFICATION.md` §5.1, return 501. `GET /listdir` is
+the one that matters most — an asset listing is the only call that returns a directory's
+descriptive metadata without reading data — and it is the service's first prerequisite. Three
+further gaps are worked around rather than fixed: `STORE-NO-CONTENT-OR-METADATA-SEARCH`,
+`CORE-METADATA-NO-APPLICATION-ATTRIBUTES` and `STORE-WRITE-HAS-NO-PRECONDITION`.
 
 ### Build and repository
 

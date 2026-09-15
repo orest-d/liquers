@@ -2,40 +2,51 @@
 id: AGENT-MEMORY-MVP
 kind: design
 title: MVP for an agent memory service on the liquers stack
-status: draft
+workflow: liquers-project
+status: in_review
 phase: high-level
-area: [axum, lib/commands, core/store, docs]
+area: [axum, lib/commands, core/assets, docs]
+gh_pr: []
 issues: [AGENT-MEMORY-SERVICE]
+affects_docs: []
 created: 2026-09-15
+superseded_by:
 ---
-# Agent memory service
+# Agent memory service (MVP) — design tracking
 
-## Question
+**Created:** 2026-09-15
 
-What would it take to turn Liquers into a memory system for coding agents — comparable in role to
-[OpenViking](https://github.com/volcengine/OpenViking) — using `liquers-axum` as the interface,
-stores for storage, and the command system as the tool layer? At a minimum it should manage this
-project's own issues, design lifecycle, skills and documentation.
+## Phase Status
 
-## Answer, in one paragraph
+- [ ] Phase 1: High-Level Design
+- [ ] Phase 2: Solution & Architecture
+- [ ] Phase 3: Examples & Testing
+- [ ] Phase 4: Implementation Plan
+- [ ] Phase 5: Documentation
+- [ ] Implementation Complete
 
-Less than it looks, because the hard half is already built. A store is the filesystem an agent
-memory needs; a `Key` is the path; a `Query` is a path *plus a derivation*; a recipe declares a
-derived key; and the asset layer caches that derivation with a content-hash version and a
-dependency record, so it recomputes when its source changes. That last property — lazy, cached,
-dependency-invalidated derivation — is exactly what a tiered memory (abstract / overview / full)
-needs, and it is the part a memory system normally has to build from scratch. What Liquers does
-not have is a corpus-facing command namespace, content search, a service binary, and a tool
-surface an agent can call. That is the MVP.
+## Notes
 
-## Documents
+Phase 1 written 2026-09-15 from a brainstorming question: what would it take to turn Liquers into
+a memory system for coding agents, in the role OpenViking fills, with `liquers-axum` as the
+interface, stores for storage and commands as the tool layer.
 
-- [`phase1-high-level-design.md`](phase1-high-level-design.md) — the analysis, the mapping onto
-  existing parts, the gaps, and the proposed MVP with its milestones and acceptance test.
+Three corrections from the first draft shaped the current Phase 1, and each is load-bearing:
 
-## Status
+1. **The design structure is this skill's**, not an ad-hoc folder. The earlier 300-line "phase 1"
+   was Phase 2 material wearing a Phase 1 label.
+2. **`title` and `description` are already the L0 and L1 tiers.** `MetadataRecord` and `AssetInfo`
+   both carry them, so tiering needs no new accessor commands — only a way to populate them for
+   documents that arrive without them.
+3. **The client interface is the assets API, not the store API.** Which made the blocker visible:
+   six of its ten endpoints are 501 stubs
+   (`AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED`, P0), `listdir` among them. Writes likewise belong
+   in a command reaching the store or asset manager through `Context`, not in a raw store POST.
 
-Phase 1 only, written as an analysis in response to a brainstorming question. Nothing here is
-approved and nothing is implemented. The gaps it identified are filed separately:
-`CORE-METADATA-NO-APPLICATION-ATTRIBUTES`, `STORE-NO-CONTENT-OR-METADATA-SEARCH` and
-`STORE-WRITE-HAS-NO-PRECONDITION`. The MVP is designed to need none of them fixed first.
+## Links
+
+- [Phase 1](./phase1-high-level-design.md)
+- [Phase 2](./phase2-architecture.md)
+- [Phase 3](./phase3-examples.md)
+- [Phase 4](./phase4-implementation.md)
+- [Phase 5](./phase5-documentation.md)
