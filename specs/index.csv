@@ -11,6 +11,7 @@ ASSET-REGISTRATION-OWNERSHIP-CONTRACT,feature,"Registration of a keyed asset is 
 ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY,issue,An asset evaluated from a stale dependency is persisted as Ready and only then labelled Expired,draft,local,,,P1,M,core/assets,,,,stale-dependency-status-finalization,,2026-09-03,specs/issues/ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY.md
 ASSETS-FIX1,feature,Unresolved TODO and FIXME markers in the asset lifecycle,accepted,local,,,P2,L,core/assets,,,,,,2026-08-08,specs/issues/ASSETS-FIX1.md
 ASSETS-IMPROVEMENTS,feature,"Asset persistence, eviction safety and upload limits",accepted,local,,,P2,L,core/assets;core/store,,,,,,2026-08-08,specs/issues/ASSETS-IMPROVEMENTS.md
+AUDIT-CANNOT-EXPIRE-ON-A-FIRST-OBSERVED-VERSION,issue,An explicit dependency audit cannot expire a dependent whose dependency version merely moved,draft,local,,,P2,S,core/assets,,,,,,2026-09-15,specs/issues/AUDIT-CANNOT-EXPIRE-ON-A-FIRST-OBSERVED-VERSION.md
 AXUM-HANDLER-TEST-COVERAGE,issue,"liquers-axum has no handler test scaffolding, so handler behaviour is verified only by review",accepted,local,,,P2,M,axum,,,,expired-binary-read-safety,,2026-08-08,specs/issues/AXUM-HANDLER-TEST-COVERAGE.md
 AXUM-WEBSOCKET-HARDENING,issue,WebSocket endpoint is not hardened,accepted,local,,,P3,M,axum,,,,,,2026-08-08,specs/issues/AXUM-WEBSOCKET-HARDENING.md
 BENCHMARK-SUITE,feature,No reproducible benchmarks for core runtime paths,accepted,local,,,P3,M,build,,,,,,2026-08-08,specs/issues/BENCHMARK-SUITE.md

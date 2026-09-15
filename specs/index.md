@@ -8,9 +8,9 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 91
+Total rows: 92
 - P1: 1
-- P2: 57
+- P2: 58
 - P3: 33
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
@@ -23,6 +23,7 @@ Total rows: 91
 | [`CORE-METADATA-TRACEBACK-SUPPORT`](issues/CORE-METADATA-TRACEBACK-SUPPORT.md) | issue | Metadata has no place for an error traceback | accepted | needs-decision | P2 | S | core/value;core/error | [phase1](specs/design/metadata-error-traceback/phase1-high-level-design.md)  [phase2](specs/design/metadata-error-traceback/phase2-architecture.md)  [phase3](specs/design/metadata-error-traceback/phase3-examples.md)  [phase4](specs/design/metadata-error-traceback/phase4-implementation.md)  | 2026-08-08 |
 | [`STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE`](issues/STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE.md) | issue | Constructing and deserializing the same CommandMetadata give different state arguments | draft | needs-decision | P2 | S | core/commands | [phase1](specs/design/state-argument-serde-default/phase1-high-level-design.md)  [phase2](specs/design/state-argument-serde-default/phase2-architecture.md)  [phase3](specs/design/state-argument-serde-default/phase3-examples.md)  [phase4](specs/design/state-argument-serde-default/phase4-implementation.md)  | 2026-08-29 |
 | [`STORE-SEMANTICS-CHILDREN-RULE-CONTRADICTS-EVERY-STORE`](issues/STORE-SEMANTICS-CHILDREN-RULE-CONTRADICTS-EVERY-STORE.md) | issue | STORE_SEMANTICS forbids children in directory metadata; seven stores populate it and one does not | draft | needs-decision | P2 | S | core/store;store/backends;web;docs | [phase1](specs/design/store-directory-metadata-children/phase1-high-level-design.md)  [phase2](specs/design/store-directory-metadata-children/phase2-architecture.md)  [phase3](specs/design/store-directory-metadata-children/phase3-examples.md)  [phase4](specs/design/store-directory-metadata-children/phase4-implementation.md)  | 2026-09-02 |
+| [`AUDIT-CANNOT-EXPIRE-ON-A-FIRST-OBSERVED-VERSION`](issues/AUDIT-CANNOT-EXPIRE-ON-A-FIRST-OBSERVED-VERSION.md) | issue | An explicit dependency audit cannot expire a dependent whose dependency version merely moved | draft |  | P2 | S | core/assets |  | 2026-09-15 |
 | [`CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS`](issues/CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS.md) | issue | AsyncFileStore listings drop a metadata-only key instead of reporting it | draft |  | P2 | S | core/store;store/backends;docs |  | 2026-09-03 |
 | [`DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS`](issues/DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS.md) | issue | The generated index.md emits design phase links in filesystem order | draft |  | P2 | S | docs;build |  | 2026-09-04 |
 | [`REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED`](issues/REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED.md) | issue | The `payload: required` metadata statement is implemented but documented nowhere | draft |  | P2 | S | docs;core/commands;macro |  | 2026-09-03 |

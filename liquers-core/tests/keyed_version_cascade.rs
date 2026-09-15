@@ -27,7 +27,7 @@ use liquers_core::{
 use liquers_macro::register_command;
 
 mod fixtures;
-use fixtures::StoreSnapshot;
+use fixtures::{CountingStore, StoreSnapshot};
 
 type TestEnv = SimpleEnvironment<Value>;
 
@@ -38,8 +38,19 @@ type TestEnv = SimpleEnvironment<Value>;
 /// key's extension — so the pair differs by one character of a filename.
 async fn chain_env(counter: Arc<AtomicUsize>) -> Result<EnvRef<TestEnv>, Box<dyn std::error::Error>>
 {
+    let store = AsyncMemoryStore::new(&Key::new());
+    seed_recipes(&store).await?;
+    env_over_store(Box::new(store), counter)
+}
+
+/// The commands the chain is built from. Shared by every environment helper here, so a test that
+/// rebuilds an environment over the same store cannot accidentally register a *different*
+/// implementation version and invalidate everything for the wrong reason.
+fn register_chain_commands(
+    env: &mut TestEnv,
+    counter: Arc<AtomicUsize>,
+) -> Result<(), Box<dyn std::error::Error>> {
     type CommandEnvironment = TestEnv;
-    let mut env = TestEnv::new();
 
     fn hello() -> Result<Value, Error> {
         Ok(Value::from("Hello"))
@@ -52,13 +63,16 @@ async fn chain_env(counter: Arc<AtomicUsize>) -> Result<EnvRef<TestEnv>, Box<dyn
     register_command!(cr, fn world(state) -> result version: 2)?;
 
     // A counting command, so a second evaluation can produce different content.
-    let c = counter.clone();
-    env.command_registry
-        .register_command(
-            liquers_core::command_metadata::CommandKey::new_name("count"),
-            move |_, _, _| Ok(Value::I32(c.fetch_add(1, Ordering::SeqCst) as i32)),
-        )?;
+    env.command_registry.register_command(
+        liquers_core::command_metadata::CommandKey::new_name("count"),
+        move |_, _, _| Ok(Value::I32(counter.fetch_add(1, Ordering::SeqCst) as i32)),
+    )?;
+    Ok(())
+}
 
+/// Write `recipes.yaml` describing the chain. Takes `&dyn AsyncStore` so the same seeding works
+/// for a plain memory store and for a wrapper around one.
+async fn seed_recipes(store: &dyn AsyncStore) -> Result<(), Box<dyn std::error::Error>> {
     let mut rl = RecipeList::new();
     rl.add_recipe(Recipe::new(
         "hello/a.txt".to_string(),
@@ -80,8 +94,6 @@ async fn chain_env(counter: Arc<AtomicUsize>) -> Result<EnvRef<TestEnv>, Box<dyn
         "N".into(),
         "non-serializable at .bin".into(),
     )?);
-
-    let store = AsyncMemoryStore::new(&Key::new());
     store
         .set(
             &parse_key("recipes.yaml")?,
@@ -89,7 +101,17 @@ async fn chain_env(counter: Arc<AtomicUsize>) -> Result<EnvRef<TestEnv>, Box<dyn
             &Metadata::new(),
         )
         .await?;
-    env.with_async_store(Box::new(store));
+    Ok(())
+}
+
+/// An environment over an already-seeded store.
+fn env_over_store(
+    store: Box<dyn AsyncStore>,
+    counter: Arc<AtomicUsize>,
+) -> Result<EnvRef<TestEnv>, Box<dyn std::error::Error>> {
+    let mut env = TestEnv::new();
+    register_chain_commands(&mut env, counter)?;
+    env.with_async_store(store);
     env.with_recipe_provider(Box::new(DefaultRecipeProvider));
     Ok(env.to_ref())
 }
@@ -375,27 +397,9 @@ async fn rehydrated_env(
     snapshot: &StoreSnapshot,
     counter: Arc<AtomicUsize>,
 ) -> Result<EnvRef<TestEnv>, Box<dyn std::error::Error>> {
-    type CommandEnvironment = TestEnv;
-    let mut env = TestEnv::new();
-    fn hello() -> Result<Value, Error> {
-        Ok(Value::from("Hello"))
-    }
-    fn world(state: &State<Value>) -> Result<Value, Error> {
-        Ok(Value::from(format!("{}, world!", state.try_into_string()?)))
-    }
-    let cr = &mut env.command_registry;
-    register_command!(cr, fn hello() -> result version: 1)?;
-    register_command!(cr, fn world(state) -> result version: 2)?;
-    let c = counter.clone();
-    env.command_registry.register_command(
-        liquers_core::command_metadata::CommandKey::new_name("count"),
-        move |_, _, _| Ok(Value::I32(c.fetch_add(1, Ordering::SeqCst) as i32)),
-    )?;
     let store = AsyncMemoryStore::new(&Key::new());
     snapshot.replay_into(&store).await?;
-    env.with_async_store(Box::new(store));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
-    Ok(env.to_ref())
+    env_over_store(Box::new(store), counter)
 }
 
 /// F1 — the restart case, and the reason the writing half is worth anything.
@@ -597,6 +601,135 @@ async fn a_pre_versions_record_with_version_zero_still_matches(
         reloaded.try_fast_track().await?,
         "a pre-versions record carrying Version(0) must still match, or upgrading invalidates \
          every existing store entry on first contact"
+    );
+    Ok(())
+}
+
+/// R2 — the audit half of the restart story: a dependent reloaded into a fresh process **is**
+/// expired by an explicit audit when its dependency can no longer be shown to reconstruct.
+///
+/// This is the counterpart of `reloaded_dependent_is_served_without_audit`, and the pair is the
+/// point. Fast-track serves the stored dependent because a fresh dependency manager knows no
+/// versions and therefore cannot contradict the record. The recorded version is not thereby
+/// useless — it is the evidence an audit resolves against, and this is where that evidence is
+/// spent.
+///
+/// It is also the **only** test in the suite in which an audit expires anything. Every other one
+/// asserts an empty report, so without this the whole expire path of `audit_gaps` was unexercised.
+///
+/// The dependency is removed rather than rewritten. Removing it is the case the audit answers
+/// today; a dependency whose stored version has *moved* is not, because `register_version` treats
+/// a first observation as "no change" — see `AUDIT-CANNOT-EXPIRE-ON-A-FIRST-OBSERVED-VERSION`,
+/// filed from this test.
+#[tokio::test]
+async fn explicit_audit_expires_a_reloaded_dependent_whose_dependency_vanished(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let recipes = parse_key("recipes.yaml")?;
+    let a_key = parse_key("a.txt")?;
+    let b_key = parse_key("b.txt")?;
+
+    let snapshot = {
+        let envref = chain_env(Arc::new(AtomicUsize::new(0))).await?;
+        let b = envref.evaluate("-R/b.txt").await?;
+        let _ = b.get().await?;
+        let store = envref.get_async_store();
+        StoreSnapshot::capture(&store, &[recipes.clone(), a_key.clone(), b_key.clone()]).await?
+    };
+
+    let envref2 = rehydrated_env(&snapshot, Arc::new(AtomicUsize::new(0))).await?;
+
+    // Reload the dependent first. It fast-tracks — the store says Ready and this manager holds no
+    // version to compare against, which is precisely R1's situation — and reloading is what
+    // registers the recorded edge the audit will later resolve.
+    let b = envref2.evaluate("-R/b.txt").await?;
+    let _ = b.get().await?;
+    assert_eq!(
+        b.status().await,
+        Status::Ready,
+        "precondition: the reloaded dependent must be served, or the audit has nothing to expire"
+    );
+
+    // The dependency leaves no trace: data and metadata both gone, so it has no durable version.
+    envref2.get_async_store().remove(&a_key).await?;
+    assert!(
+        !envref2.get_async_store().contains(&a_key).await?,
+        "precondition: the dependency must be genuinely absent"
+    );
+
+    let report = envref2
+        .get_asset_manager()
+        .trigger_dependency_audit(&liquers_core::parse::parse_query("-R/b.txt")?)
+        .await?;
+
+    assert!(
+        report
+            .expired
+            .contains(&liquers_core::metadata::DependencyKey::from(&b_key)),
+        "the audit must name the dependent it expired: {report:?}"
+    );
+    assert_eq!(
+        b.status().await,
+        Status::Expired,
+        "an asset that left no trace cannot be shown to reconstruct identically, so a dependent \
+         audited against it is expired"
+    );
+    Ok(())
+}
+
+/// `chain_env`, but over a store that counts `get_metadata` calls, so a test can assert that a
+/// code path performed **no** store read. The handle is a clone sharing the counter and the inner
+/// store with the one the environment owns.
+async fn counting_chain_env(
+    counter: Arc<AtomicUsize>,
+) -> Result<(EnvRef<TestEnv>, CountingStore), Box<dyn std::error::Error>> {
+    let store = CountingStore::new(AsyncMemoryStore::new(&Key::new()));
+    seed_recipes(&store).await?;
+    let handle = store.clone();
+    Ok((env_over_store(Box::new(store), counter)?, handle))
+}
+
+/// F4 — the live-asset branch is not merely *correct*, it is *taken*.
+///
+/// F2 shows the check declines a dependency the manager reports as `Expired`, but a check that
+/// consulted the store first and the manager second would pass F2 as well. The manager is the
+/// authority on status; the store read exists only for a dependency the manager has never heard
+/// of. So with every addressable dependency live in memory, the check must read no metadata at
+/// all.
+///
+/// The assertion is on a **delta**, not on an absolute count: building the environment reads the
+/// recipe list, and pinning that number would make this test fail whenever recipe loading changes,
+/// for a reason having nothing to do with what it guards.
+#[tokio::test]
+async fn fast_track_reads_no_metadata_when_dependencies_are_live(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (envref, store) = counting_chain_env(Arc::new(AtomicUsize::new(0))).await?;
+
+    let b = envref.evaluate("-R/b.txt").await?;
+    let _ = b.get().await?;
+    // Hold the dependency live in the manager for the duration of the check.
+    let a = envref.evaluate("-R/a.txt").await?;
+    let _ = a.get().await?;
+    assert_eq!(a.status().await, Status::Ready);
+    assert!(
+        envref
+            .get_asset_manager()
+            .lookup_key_asset(&parse_key("a.txt")?)
+            .is_some(),
+        "premise of this test: the dependency must be registered in the manager"
+    );
+
+    let b_key = parse_key("b.txt")?;
+    let before = store.reads();
+    let mut reloaded =
+        AssetData::<TestEnv>::new(9507, b_key.clone().into(), Some(b_key.clone()), envref.clone());
+    assert!(
+        reloaded.try_fast_track().await?,
+        "with every dependency live and Ready the fast track must succeed"
+    );
+    assert_eq!(
+        store.reads() - before,
+        0,
+        "the manager answers for a live dependency; the store read is the fallback, not the path"
     );
     Ok(())
 }
