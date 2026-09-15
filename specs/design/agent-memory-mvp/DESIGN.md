@@ -43,6 +43,16 @@ Three corrections from the first draft shaped the current Phase 1, and each is l
    (`AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED`, P0), `listdir` among them. Writes likewise belong
    in a command reaching the store or asset manager through `Context`, not in a raw store POST.
 
+## Out of scope
+
+**Sessions and identity.** Liquers aims to be stateless in the way HTTP is
+(`reference/PROJECT_OVERVIEW.md` §"Queries and Recipes define stateless executions"), and there
+are at least three routes to session support — extending the existing `Session`/`User` mechanism,
+carrying it in the payload, or a dedicated session folder holding sessions as assets. The routes
+are recorded on `CORE-SESSION-AND-KEY-ACL`. **None of them is in scope here**: this design assumes
+a single writer and no identity, and must not drift into choosing one. If the MVP turns out to
+need identity, that is a finding to report, not a decision to make inside this folder.
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)
