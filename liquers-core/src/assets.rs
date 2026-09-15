@@ -1045,6 +1045,50 @@ impl<E: Environment> AssetData<E> {
     /// For example - if the queue is blocked by long running task(s),
     /// a server can still reply immediately if the asset is in the store.
     /// This can be generalized further to support volatile and fast queries.
+    /// Whether a recorded dependency is in a state that forbids reusing this stored asset.
+    ///
+    /// **Inconclusive is not expired, and that is the load-bearing rule.** A dependency node that
+    /// is not store-addressable — a command-implementation node such as
+    /// `ns-dep/command_impl---world`, which nearly every asset has — or one the store holds no
+    /// metadata for, is *not evidence of staleness*. Answering `true` for those would refuse the
+    /// fast track for almost every asset: every result would still be correct, merely recomputed,
+    /// so nothing would fail and the loss would surface as "everything got slow". Fail open on
+    /// absence, closed only on positive evidence. `fast_track_succeeds_for_a_ready_stored_asset`
+    /// and `fast_track_proceeds_when_the_dependency_check_is_inconclusive` guard this.
+    ///
+    /// The manager is consulted first and settles the question when it answers: it is the
+    /// authority on status, so a live asset needs no store read.
+    ///
+    /// One level only. A dependency that is itself fast-tracked runs this same check on its own
+    /// dependencies, and in-process transitive staleness is the dependency manager's cascade.
+    async fn dependency_blocks_fast_track(
+        &self,
+        manager: &Arc<E::AssetManager>,
+        dep_key: &DependencyKey,
+    ) -> bool {
+        let Ok(key) = Key::try_from(dep_key) else {
+            return false; // not store-addressable — inconclusive
+        };
+        if let Some(asset) = manager.lookup_key_asset(&key) {
+            return !Self::status_permits_reuse(asset.status().await);
+        }
+        match self.get_envref().get_async_store().get_metadata(&key).await {
+            Ok(metadata) => !Self::status_permits_reuse(metadata.status()),
+            Err(_) => false, // absent or unreadable — inconclusive
+        }
+    }
+
+    /// The statuses a stored value may be reused from — the same bar `try_fast_track` applies to
+    /// the asset itself, so a dependency must clear what the dependent must. Reusing the predicate
+    /// rather than testing for `Expired` also covers `Volatile` (never meant to be reused),
+    /// `Error` and `Cancelled`, without a second list that can drift out of step with the first.
+    fn status_permits_reuse(status: Status) -> bool {
+        matches!(
+            status,
+            Status::Ready | Status::Source | Status::Override
+        )
+    }
+
     pub async fn try_fast_track(&mut self) -> Result<bool, Error> {
         eprintln!("Trying fast track for asset {}", self.id());
         if !self.is_resource()? {
@@ -1127,6 +1171,21 @@ impl<E: Environment> AssetData<E> {
                                 self.clear_fast_track_payload();
                                 return Ok(false); // Force re-evaluation
                             }
+                        }
+                        // The version check above answers "was this dependency recomputed into
+                        // different content?" and is silent on "is it stale *right now*?" — the
+                        // state of a dependency that expired and has not been recomputed, where
+                        // there is no version change to detect. In-process the manager's cascade
+                        // hides that; across a restart nothing does, and this asset would be
+                        // served as fresh on data the system knows is stale.
+                        if self.dependency_blocks_fast_track(&manager, &dep_record.key).await {
+                            eprintln!(
+                                "Asset {} stale: dependency {} is not in a reusable state",
+                                self.id(),
+                                dep_record.key
+                            );
+                            self.clear_fast_track_payload();
+                            return Ok(false);
                         }
                     }
                 }

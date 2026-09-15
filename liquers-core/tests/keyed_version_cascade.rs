@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use liquers_core::{
-    assets::{AssetManager, PersistenceStatus},
+    assets::{AssetData, AssetManager, PersistenceStatus},
     context::{Context, EnvRef, Environment, SimpleEnvironment},
     error::Error,
     metadata::{Metadata, Status, Version},
@@ -314,5 +314,53 @@ async fn audit_of_a_non_keyed_query_is_an_empty_report() -> Result<(), Box<dyn s
         .await?;
 
     assert_eq!(report, liquers_core::assets::AuditReport::default());
+    Ok(())
+}
+
+// ======================================================================================
+// Fast-track: the success baseline, and the dependency-status check that gates it.
+// `stale-dependency-status-finalization`, Phase 3 F0-F4.
+// ======================================================================================
+
+/// **The baseline, and it did not exist before this design.**
+///
+/// Searching the suite for `try_fast_track` found exactly one test, and it asserted the function
+/// returns `false` (`expiration_integration.rs`, an `Expired` store entry). Nothing asserted it can
+/// return `true`. That matters because the dependency check added beside it fails *open* by design:
+/// an implementation that failed closed instead would stop fast-tracking entirely, every result
+/// would still be correct, and the suite would stay green. The bug would arrive as "everything got
+/// slow" rather than as a red test. This test is where that failure lands.
+#[tokio::test]
+async fn fast_track_succeeds_for_a_ready_stored_asset() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = chain_env(Arc::new(AtomicUsize::new(0))).await?;
+
+    // Evaluate b.txt so the store holds it as Ready, with a dependency record on a.txt.
+    let b = envref.evaluate("-R/b.txt").await?;
+    assert_eq!(b.get().await?.try_into_string()?, "Hello, world!");
+    assert_eq!(b.status().await, Status::Ready);
+
+    let key = parse_key("b.txt")?;
+    let (_bytes, stored) = envref.get_async_store().get(&key).await?;
+    assert_eq!(
+        stored.status(),
+        Status::Ready,
+        "precondition: the store must hold b.txt as Ready for this to be the success path"
+    );
+
+    // A fresh AssetData over that entry must load it rather than re-evaluate.
+    let mut reloaded =
+        AssetData::<TestEnv>::new(9501, key.clone().into(), Some(key.clone()), envref.clone());
+    assert!(
+        reloaded.try_fast_track().await?,
+        "a Ready store entry whose dependencies are all fine must fast-track"
+    );
+    assert_eq!(
+        reloaded
+            .poll_state()
+            .expect("a fast-tracked asset exposes its state")
+            .try_into_string()?,
+        "Hello, world!",
+        "the fast-tracked asset exposes the stored value, so it was loaded not recomputed"
+    );
     Ok(())
 }
