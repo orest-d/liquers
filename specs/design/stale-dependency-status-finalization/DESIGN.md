@@ -4,7 +4,7 @@ kind: design
 title: Status is finalized before persistence for a stale-dependency evaluation
 workflow: liquers-project
 status: draft
-phase: architecture
+phase: examples
 area: [core/assets]
 gh_pr: []
 issues: [ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY, EXPIRY-RECORDS-NO-REASON]
@@ -265,3 +265,21 @@ since `finalize_status_with_version` already exists, and Step 2 loses the `seria
 change it inherited from C1.
 
 Phase 2 goes back to its gate with these corrections applied.
+
+## Phase 2 approved 2026-09-15 (Revision 2)
+
+Approved as written, including both recommendations: register the version directly for a
+stale-dependency keyed asset, and share the keyed-registration body through a `pub(crate)`
+`DependencyManager` method rather than duplicating it at the call site.
+
+Two owner corrections were folded into Revision 2 before approval — the governing principle (the
+manager is authoritative, the store is kept up to date on every expiry) and the single meaning of
+`Expired` — and one requirement was added: **fast-track must verify that no dependency has expired**,
+the reading half of the same principle.
+
+Separately analysed and recorded on `EXPIRY-RECORDS-NO-REASON`: a distinct `Stale` status is
+**not** recommended; a typed `ExpiryReason` in metadata carries the provenance without ~65 match
+arms, a bindings break, and a store forward-compatibility break.
+
+Phase 3 Revision 2 follows, rebuilt on `chain_env` from `keyed-expiry-cascade-fix` rather than
+inventing its own chain fixture.
