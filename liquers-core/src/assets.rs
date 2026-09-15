@@ -9135,6 +9135,244 @@ recipes:
         asset
     }
 
+    /// **I4 — the dependency-manager decision.**
+    ///
+    /// `track_asset` refuses an `Expired` asset. Letting that refusal stand would leave the graph
+    /// asserting the key still holds its previous content, and every dependent recorded against
+    /// the old version uninvalidated. A stale-dependency asset holds *new* content with a new
+    /// version and is `Expired` only in the "do not cache me" sense, so its version is registered
+    /// directly.
+    ///
+    /// Asserted through the dependency manager rather than through a dependent asset: the
+    /// registration is the decision, and `register_version` invalidating dependents on a change is
+    /// existing, separately tested behaviour.
+    #[tokio::test]
+    async fn stale_dependency_registers_its_version() -> Result<(), Box<dyn std::error::Error>> {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let cmd = CommandKey::new_name("i4_value");
+        env.command_registry
+            .register_command(cmd, |_, _, _| Ok(Value::from("i4 content")))?;
+
+        // A real recipe, resolved through a provider: `bound_owner_key` needs the asset's *query*
+        // to be key-shaped and the *recipe* to target that same key, which is what a recipes.yaml
+        // entry produces. A bare command query answers `None` and the branch correctly does
+        // nothing — see `delegating_stale_dependency_registers_nothing`.
+        let key = parse_key("i4.txt")?;
+        let mut rl = crate::recipes::RecipeList::new();
+        rl.add_recipe(crate::recipes::Recipe::new(
+            "i4_value/i4.txt".to_string(),
+            "i4".into(),
+            "keyed, owned".into(),
+        )?);
+        let store = crate::store::AsyncMemoryStore::new(&Key::new());
+        store
+            .set(
+                &parse_key("recipes.yaml")?,
+                serde_yaml::to_string(&rl)?.as_bytes(),
+                &Metadata::new(),
+            )
+            .await?;
+        env.with_async_store(Box::new(store));
+        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider));
+        let envref = env.to_ref();
+        let dep_key = crate::metadata::DependencyKey::from(&key);
+        let manager = envref.get_asset_manager();
+        let dm = manager.dependency_manager();
+
+        // The graph already believes this key holds some earlier content.
+        let old = Version::new(4242);
+        let _ = dm.register_version(&dep_key, old).await;
+        assert_eq!(dm.get_version(&dep_key).await, Some(old));
+
+        let asset = AssetData::<SimpleEnvironment<Value>>::new(
+            9703,
+            key.clone().into(),
+            Some(key.clone()),
+            envref.clone(),
+        )
+        .to_ref();
+        // Only the key's *registered owner* registers a version — `bound_owner_key` returns
+        // `None` otherwise. Without this the branch correctly does nothing, which is what
+        // `delegating_stale_dependency_registers_nothing` asserts.
+        assert!(
+            manager.try_insert_key_asset(&key, asset.clone()).await,
+            "the asset must be the registered owner of its key for this path"
+        );
+
+        let dep = AssetData::<SimpleEnvironment<Value>>::new(
+            9704,
+            parse_query("dep")?.into(),
+            None,
+            envref.clone(),
+        )
+        .to_ref();
+        dep.set_value(Value::from("stale input")).await?;
+        dep.set_status(Status::Expired).await?;
+        let _ = manager.wait_for_dependency(&asset, &dep).await?;
+
+        asset.run(None).await?;
+        assert_eq!(asset.status().await, Status::Expired);
+
+        let registered = dm.get_version(&dep_key).await;
+        assert!(
+            registered.is_some() && registered != Some(old),
+            "the new content's version must be registered even though the asset is Expired; \
+             leaving the old one would tell the graph the key still holds what it held before"
+        );
+        Ok(())
+    }
+
+    /// **I8 — a keyed non-owner registers nothing**, which is what keeps a *delegating* asset from
+    /// writing under the real owner's key. Delegation waits through `wait_for_dependency`, the same
+    /// call that sets the stale flag, so a delegating asset can reach this branch carrying it.
+    ///
+    /// The guard is `bound_owner_key()` rather than `lock.key`: the former is ownership-aware and
+    /// returns `None` here, the latter would have returned the key and overwritten the owner's
+    /// version.
+    #[tokio::test]
+    async fn delegating_stale_dependency_registers_nothing() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let cmd = CommandKey::new_name("i8_value");
+        env.command_registry
+            .register_command(cmd, |_, _, _| Ok(Value::from("i8 content")))?;
+        env.with_async_store(Box::new(crate::store::AsyncMemoryStore::new(&Key::new())));
+        let envref = env.to_ref();
+
+        let key = parse_key("i8.txt")?;
+        let dep_key = crate::metadata::DependencyKey::from(&key);
+        let manager = envref.get_asset_manager();
+        let dm = manager.dependency_manager();
+
+        let owners_version = Version::new(8888);
+        let _ = dm.register_version(&dep_key, owners_version).await;
+
+        // Keyed, with a recipe that does target the key — so the only thing making
+        // `bound_owner_key` answer `None` is that this asset is not the registered owner. That
+        // is the shape of a delegating asset, and it is what must register nothing.
+        let asset = AssetData::<SimpleEnvironment<Value>>::new(
+            9709,
+            parse_query("i8_value/i8.txt")?.into(),
+            Some(key.clone()),
+            envref.clone(),
+        )
+        .to_ref();
+        let dep = AssetData::<SimpleEnvironment<Value>>::new(
+            9710,
+            parse_query("dep")?.into(),
+            None,
+            envref.clone(),
+        )
+        .to_ref();
+        dep.set_value(Value::from("stale input")).await?;
+        dep.set_status(Status::Expired).await?;
+        let _ = manager.wait_for_dependency(&asset, &dep).await?;
+
+        asset.run(None).await?;
+        assert_eq!(asset.status().await, Status::Expired);
+        assert_eq!(
+            dm.get_version(&dep_key).await,
+            Some(owners_version),
+            "a non-owner must not overwrite the registered owner's version"
+        );
+        Ok(())
+    }
+
+    /// I7 — volatility wins, and a volatile keyed asset keeps being written.
+    #[tokio::test]
+    async fn volatile_keyed_stale_dependency_stays_volatile() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let cmd = CommandKey::new_name("i7_value");
+        env.command_registry
+            .register_command(cmd, |_, _, _| Ok(Value::from("volatile content")))?;
+        env.with_async_store(Box::new(crate::store::AsyncMemoryStore::new(&Key::new())));
+        let envref = env.to_ref();
+
+        let key = parse_key("i7.txt")?;
+        let asset = AssetData::<SimpleEnvironment<Value>>::new(
+            9705,
+            parse_query("i7_value")?.into(),
+            Some(key.clone()),
+            envref.clone(),
+        )
+        .to_ref();
+        {
+            let mut lock = asset.data.write().await;
+            lock.is_volatile = true;
+        }
+
+        let dep = AssetData::<SimpleEnvironment<Value>>::new(
+            9706,
+            parse_query("dep")?.into(),
+            None,
+            envref.clone(),
+        )
+        .to_ref();
+        dep.set_value(Value::from("stale input")).await?;
+        dep.set_status(Status::Expired).await?;
+        let _ = envref
+            .get_asset_manager()
+            .wait_for_dependency(&asset, &dep)
+            .await?;
+
+        asset.run(None).await?;
+        assert_eq!(
+            asset.status().await,
+            Status::Volatile,
+            "a volatile result is never reused, so Expired would add nothing and would erase \
+             the fact that it was volatile"
+        );
+        Ok(())
+    }
+
+    /// I3 — a non-keyed asset must not attempt a write at all. Attempting and failing deep inside
+    /// `save_to_store` would record a spurious "cannot determine key" warning on every query.
+    #[tokio::test]
+    async fn non_keyed_stale_dependency_writes_nothing() -> Result<(), Box<dyn std::error::Error>> {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let cmd = CommandKey::new_name("i3_value");
+        env.command_registry
+            .register_command(cmd, |_, _, _| Ok(Value::from("i3 content")))?;
+        env.with_async_store(Box::new(crate::store::AsyncMemoryStore::new(&Key::new())));
+        let envref = env.to_ref();
+
+        let asset = AssetData::<SimpleEnvironment<Value>>::new(
+            9707,
+            parse_query("i3_value")?.into(),
+            None, // not keyed
+            envref.clone(),
+        )
+        .to_ref();
+        let dep = AssetData::<SimpleEnvironment<Value>>::new(
+            9708,
+            parse_query("dep")?.into(),
+            None,
+            envref.clone(),
+        )
+        .to_ref();
+        dep.set_value(Value::from("stale input")).await?;
+        dep.set_status(Status::Expired).await?;
+        let _ = envref
+            .get_asset_manager()
+            .wait_for_dependency(&asset, &dep)
+            .await?;
+
+        asset.run(None).await?;
+        assert_eq!(asset.status().await, Status::Expired);
+
+        let metadata = asset.get_metadata().await?;
+        if let Metadata::MetadataRecord(ref mr) = metadata {
+            assert!(
+                !mr.log
+                    .iter()
+                    .any(|e| e.message.contains("Cannot determine key")),
+                "a non-keyed asset must not attempt a write, so no key warning may appear"
+            );
+        }
+        Ok(())
+    }
+
     /// **I2 — the test the whole design exists for.**
     ///
     /// A *keyed* asset that consumed a stale dependency must be written to the store as `Expired`.
