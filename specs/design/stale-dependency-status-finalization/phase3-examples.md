@@ -190,7 +190,7 @@ Two properties the table does not show, both asserted:
    only the field reproduces the original defect one layer down, which is pitfall 1.
 2. **The reason is recorded before the write.** The "evaluated with an expired dependency value"
    warning is added inside the same locked decision, so it reaches the store with the status.
-   Today it is added after persistence and the stored sidecar has neither.
+   Today it is added after persistence and the stored metadata has neither.
 
 ### Volatility wins, and that is a decision
 
@@ -209,7 +209,7 @@ relocated.
 | # | Case | Symptom if wrong | Cause | Correction | The assertion that catches it |
 |---|---|---|---|---|---|
 | P1 | **Status set without `set_status`** | Store says `Ready`, memory says `Expired` — the original bug, one layer down | `lock.status = Status::Expired` updates the field but not `metadata`, and `save_to_store` writes `metadata` | Go through `AssetData::set_status` (`:1183`), as the `Ready` arm does | U2 asserts `metadata.status()`, not just `status()` |
-| P2 | **Warning added after persistence again** | Stored sidecar says `Expired` with no reason; an operator cannot tell a stale-dependency completion from an ordinary expiry | The log entry is left in `finish_run_with_result`, or added after the lock is released | Add it inside the same locked decision as the status | U3, and I2 re-reads it from the store |
+| P2 | **Warning added after persistence again** | Stored metadata says `Expired` with no reason; an operator cannot tell a stale-dependency completion from an ordinary expiry | The log entry is left in `finish_run_with_result`, or added after the lock is released | Add it inside the same locked decision as the status | U3, and I2 re-reads it from the store |
 | P3 | **The `:2224` fallback call site is missed** | A run that finished without `evaluate` finalizing skips the rule | The rename is applied at the definition but not at the second call site | Rename both; the fallback *gains* the rule deliberately — it does not persist, so there is no ordering cost | Compile error if `try_to_set_ready` is gone; U6 asserts the behaviour |
 | P4 | ~~Assuming the store refuses a non-`Ready` status~~ | — | — | **This row was wrong and is withdrawn.** There *is* an effective status gate, one call down in `serialize_to_binary`. It is now blocking finding B1, not a pitfall | I2 — which cannot pass until B1 is resolved |
 | P5 | **`expiration_time` diverges between arms** | An `Expired` asset carries no expiration, so `finish_run_with_result`'s scheduling step behaves differently than for `Ready` | The new arm omits `set_expiration_time_from` / `lock.expiration_time` | Mirror the `Ready` arm exactly | A test asserting `expiration_time()` agrees for the two arms given identical metadata |

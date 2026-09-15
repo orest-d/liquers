@@ -131,7 +131,7 @@ Four properties of the moved branch, each the correction of a way to get it wron
    `self.metadata.set_status(...)`. Setting only the field reproduces the original defect one layer
    down — the store would still receive `Ready`.
 2. **The warning moves with it**, written under the same lock, so the reason reaches the store with
-   the value. Today it is added after persistence and the stored sidecar carries neither the status
+   the value. Today it is added after persistence and the stored metadata carries neither the status
    nor the explanation. This is the ordering `EXPIRY-RECORDS-NO-REASON` will need for the other
    expiry routes.
 3. **`expiration_time` mirrors the `Ready` arm** — the same `set_expiration_time_from(&metadata_expires)`
@@ -275,7 +275,7 @@ not been recomputed yet. There is no version change to detect, because nothing h
 In-process this is masked: the dependency's expiry cascades to its dependents through the manager,
 so the dependent is already `Expired` in memory and never reaches fast-track. **Across a restart it
 is not masked.** The manager and dependency manager start empty, the store holds the dependent as
-`Ready` with a dependency record, and the dependency's own sidecar says `Expired` — and nobody
+`Ready` with a dependency record, and the store's metadata for the dependency says `Expired` — and nobody
 reads it. The dependent is served as fresh, built on data the system knows is stale.
 
 ### The rule
@@ -289,12 +289,18 @@ statuses make a stored value reusable; a dependency should have to clear the sam
 automatically covers `Expired`, and also `Volatile` (a value never meant to be reused),
 `Error` and `Cancelled`, without a list that can drift out of step with the one above it.
 
+**Terminology.** This document says *stored metadata* — what `AsyncStore::get_metadata(&key)`
+returns — and deliberately not *sidecar*. `STORE_SEMANTICS.md` §8 reserves "sidecar" for one
+particular **layout**, in which metadata lives beside the data at a companion key
+(`foo.__metadata__`). Not every store uses it, and this check must work for any store, so naming the
+layout here would understate where the rule applies.
+
 ### Where the answer comes from, in order
 
 | Source | Cost | Authority |
 |---|---|---|
 | The manager's live asset — `lookup_key_asset(&key)` then `status()` | a map lookup | **Authoritative.** The manager is the authority on status (§Overview), so a live asset settles the question and the store is not consulted |
-| The dependency's stored sidecar — `store.get_metadata(&key)` | one metadata read | The restart case, and the reason this requirement exists |
+| The dependency's stored metadata — `store.get_metadata(&key)` | one metadata read | The restart case, and the reason this requirement exists |
 | Neither | — | **Inconclusive** |
 
 `Key::try_from(&DependencyKey)` (`metadata.rs:256`) is what turns a dependency node into a store key;
@@ -303,9 +309,9 @@ it fails for nodes that are not store-backed — a command-implementation node s
 
 ### Inconclusive must not mean expired
 
-This is the rule that keeps the change safe. A missing sidecar, an unreadable one, or a
-non-store-backed dependency node is **not evidence of staleness**, and must not refuse the fast
-track. Treating absence as expiry would disable fast-tracking for every asset with a
+This is the rule that keeps the change safe. Metadata that is missing, unreadable, or belongs to a
+dependency node the store cannot address at all is **not evidence of staleness**, and must not
+refuse the fast track. Treating absence as expiry would disable fast-tracking for every asset with a
 command-implementation dependency — which is most of them — and would look like a severe
 performance regression rather than a correctness bug. **Fail open on absence, closed only on
 positive evidence.**
@@ -411,7 +417,7 @@ Also updated as documents rather than `affects_docs` entries:
   observable as `Ready`.
 - That a fast track whose dependencies are all live in memory performs no store reads for the new
   dependency-status check — the live-asset branch must not be quietly bypassed.
-- That an inconclusive dependency (a command-implementation node, or one with no sidecar) still
+- That an inconclusive dependency (a command-implementation node, or one the store has no metadata for) still
   fast-tracks. This is the regression that would look like a performance collapse rather than a
   bug.
 

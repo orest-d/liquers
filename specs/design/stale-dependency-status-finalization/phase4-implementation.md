@@ -368,7 +368,7 @@ reach wasm is a `tokio::` primitive slipping into the new branch, which it must 
 | After Step 8 | the full matrix above | Green, wasm included |
 
 **No manual validation.** There is no binary to run and no query whose output changes: the entire
-observable difference is a status byte in a stored sidecar, which I2 asserts directly. Saying so is
+observable difference is a status byte in the stored metadata, which I2 asserts directly. Saying so is
 better than inventing a ritual command.
 
 ## Task Splitting (Agent Assignments)

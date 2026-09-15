@@ -46,7 +46,7 @@ force recomputation.
 In-process the disagreement is masked: `try_fast_track` accepts a stored `Ready` only when the
 recorded dependency versions are not stale, and they are stale here, so the value is not reused.
 The exposure is outside that check — another process, a later run against the same store, or any
-reader that trusts the sidecar's status sees `Ready` for a value the producing run concluded was
+reader that trusts the stored metadata's status sees `Ready` for a value the producing run concluded was
 expired. `AssetInfo` served from the store reports it too.
 
 No data is lost and no wrong value is served **in-process**. Across a process boundary one is:
