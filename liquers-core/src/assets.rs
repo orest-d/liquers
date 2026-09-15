@@ -9135,6 +9135,80 @@ recipes:
         asset
     }
 
+    /// **I2 — the test the whole design exists for.**
+    ///
+    /// A *keyed* asset that consumed a stale dependency must be written to the store as `Expired`.
+    /// Before the fix it was written `Ready` and only then relabelled in memory, with nothing
+    /// writing again, so a later process reading that entry served a result the producing run had
+    /// already concluded was stale.
+    ///
+    /// **Why this is a unit test rather than an end-to-end one.** Reaching
+    /// `wait_for_dependency`'s expired arm through a command requires the dependency to become
+    /// `Expired` in the window between being scheduled and being waited on: scheduling evicts and
+    /// recomputes an already-expired dependency, and a dependency that is `Ready` when waited on
+    /// returns immediately. That window is a race, not something a gate can open — a gate placed
+    /// after the dependency read (as `test_dependency_expiring_during_parent_evaluation_is_allowed`
+    /// does) proves the parent *completes*, not that it goes stale. So the flag is set here through
+    /// its real production caller, `AssetManager::wait_for_dependency`, and the evaluation then
+    /// runs normally. See `STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST`.
+    #[tokio::test]
+    async fn keyed_stale_dependency_is_stored_expired() -> Result<(), Box<dyn std::error::Error>> {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let cmd = CommandKey::new_name("sd_value");
+        env.command_registry
+            .register_command(cmd, |_, _, _| Ok(Value::from("computed")))?;
+        let store = crate::store::AsyncMemoryStore::new(&Key::new());
+        env.with_async_store(Box::new(store));
+        let envref = env.to_ref();
+
+        let key = parse_key("p.txt")?;
+        let asset = AssetData::<SimpleEnvironment<Value>>::new(
+            9701,
+            parse_query("sd_value")?.into(),
+            Some(key.clone()),
+            envref.clone(),
+        )
+        .to_ref();
+
+        // A dependency that is expired but has retained its value — the case
+        // `wait_for_dependency` is documented to use rather than recompute.
+        let dep = AssetData::<SimpleEnvironment<Value>>::new(
+            9702,
+            parse_query("dep")?.into(),
+            None,
+            envref.clone(),
+        )
+        .to_ref();
+        dep.set_value(Value::from("stale input")).await?;
+        dep.set_status(Status::Expired).await?;
+
+        // The production caller. This is what sets `stale_dependency`.
+        let stale = envref
+            .get_asset_manager()
+            .wait_for_dependency(&asset, &dep)
+            .await?;
+        assert_eq!(stale.try_into_string()?, "stale input");
+
+        asset.run(None).await?;
+
+        // Asserted first so a setup that failed to set the flag fails here, loudly, rather than
+        // in the store assertion where it would look like the fix had regressed.
+        assert_eq!(
+            asset.status().await,
+            Status::Expired,
+            "an asset that used a stale dependency must finish Expired"
+        );
+
+        // THE ASSERTION. Before the fix this reads Ready.
+        let (_bytes, stored) = envref.get_async_store().get(&key).await?;
+        assert_eq!(
+            stored.status(),
+            Status::Expired,
+            "the store must agree with the manager; it held Ready before this fix"
+        );
+        Ok(())
+    }
+
     /// U1 — the branch must not over-trigger.
     #[tokio::test]
     async fn finalize_without_stale_dependency_is_ready() {
