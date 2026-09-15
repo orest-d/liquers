@@ -40,7 +40,7 @@ test would otherwise get wrong.
 |---|---|
 | `set_value` is inert test setup | **No.** It sets `Ready`, notifies, **and persists**. A test asserting "the reason is recorded before persistence" that sets up with it has already persisted. Install the value under the write lock, as `evaluate` does |
 | Two environments share a store by cloning it | **No.** `AsyncMemoryStore` owns its `scc::HashMap` and is not `Clone`. Needs a `#[derive(Clone)]` wrapper over `Arc<AsyncMemoryStore>`, delegating `AsyncStore`. `ToOverrideGateStore` (`expiration_integration.rs:880`) is the proven shape |
-| Delegate only `AsyncStore`'s two required methods | **Not enough.** Required is `get` and `set_metadata`, but `AsyncMemoryStore` *overrides* `set`, `contains` and `remove`, so those must be forwarded too or the wrapper silently behaves differently from the store it shares |
+| Delegate only `AsyncStore`'s two required methods | **Not enough, and not for the reason it first appears.** The other twenty defaults are *not forwarding defaults*: `set`'s default is `Err(key_not_supported)`. A wrapper overriding only the required pair compiles and then fails every write. Size the wrapper by compiling, not by counting |
 | A generic `scenario_*<E>` can call `E::new()` | **No.** `Environment` has no `new()`. The shape is `scenario_x<E>(envref: EnvRef<E>)` with the concrete environment built in the wrapper tests (`manager_parametric.rs:33`) |
 | `manager.get_any_status(&key)` yields a `State` | **No.** `Result<Option<State>, Error>` at the manager (`assets.rs:4006`); `Option<State>` on the `AssetRef` |
 | `LogEntry` has a `level` field | **No.** `kind: LogEntryKind`; compare `entry.kind == LogEntryKind::Warning` |

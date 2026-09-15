@@ -269,9 +269,11 @@ it for I1 and F1.
 struct CountingStore { inner: Arc<AsyncMemoryStore>, metadata_reads: Arc<AtomicUsize> }
 ```
 
-Delegate the two **required** methods (`get`, `set_metadata`) **and** the three `AsyncMemoryStore`
-**overrides** (`set`, `contains`, `remove`) — delegating only the required pair compiles and then
-behaves differently from the store it wraps. `ToOverrideGateStore` (`:880`) is the proven shape.
+**Size it by compiling, not by counting required methods.** `AsyncStore` has two required methods,
+but the other twenty defaults are **not forwarding defaults** — `set`'s default is
+`Err(key_not_supported)` (`store.rs`). A wrapper overriding only the required pair compiles and then
+fails every write. Forward every method the tests touch and let the failures tell you which.
+`ToOverrideGateStore` (`:880`) is the proven shape.
 
 **On `CROSS-PROCESS-RELOAD-IS-UNTESTED`:** re-hydration is a snapshot, not genuine sharing, so
 whether this closes that issue depends on what it asks for. Read it before claiming the close; if it
