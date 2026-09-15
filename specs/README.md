@@ -100,6 +100,7 @@ simply stop being wanted.
 - **Value accessor abstraction** — designing → [`design/value-accessor/`](design/value-accessor/)
 - **`ValueInterface` capability split** — planned → [`issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md`](issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md)
 - **Auto-generated value descriptions** — planned → [`issues/VALUE-DESCRIPTION.md`](issues/VALUE-DESCRIPTION.md)
+- **Application-defined metadata attributes** — planned → [`issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md`](issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md)
 - **Base/extended value discrimination** — planned → [`issues/COMBINED-VALUE-DISCRIMINATION.md`](issues/COMBINED-VALUE-DISCRIMINATION.md)
 
 `CORE-METADATA-TRACEBACK-SUPPORT` and `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT` are one defect
@@ -133,6 +134,8 @@ expansion time rather than at runtime. That is the cheapest item here.
 - **Store behavioural semantics** — documented → [`reference/STORE_SEMANTICS.md`](reference/STORE_SEMANTICS.md)
 - **Shared directory support for backends without directories** — documented → `liquers-core/src/store_dir_index.rs` *(design in [`design/opendal-path-mapping/`](design/opendal-path-mapping/))*
 - **Streaming binary access (`openbin`)** — planned → [`issues/CORE-STORE-OPENBIN-MISSING.md`](issues/CORE-STORE-OPENBIN-MISSING.md)
+- **Content and metadata search** — planned → [`issues/STORE-NO-CONTENT-OR-METADATA-SEARCH.md`](issues/STORE-NO-CONTENT-OR-METADATA-SEARCH.md)
+- **Conditional writes and concurrent-writer semantics** — planned → [`issues/STORE-WRITE-HAS-NO-PRECONDITION.md`](issues/STORE-WRITE-HAS-NO-PRECONDITION.md)
 - **Sessions and key-level authorization** — planned → [`issues/CORE-SESSION-AND-KEY-ACL.md`](issues/CORE-SESSION-AND-KEY-ACL.md)
 
 A key given to a store must be absolute: no element may be `.` or `..`. Relative keys are resolved
@@ -197,6 +200,13 @@ submit, and submitted query state is not preserved.
 - **Executor-agnostic core** — planned → [`issues/CORE-TOKIO-REMOVAL.md`](issues/CORE-TOKIO-REMOVAL.md)
 - **Browser stores (localStorage, fetch, JS, routing)** — built → [`design/liquers-web-store/`](design/liquers-web-store/)
 - **Browser-native store and command backend** — planned → [`issues/WEB-NATIVE-IO-TIER2.md`](issues/WEB-NATIVE-IO-TIER2.md)
+- **Agent memory service** — designing → [`design/agent-memory-mvp/`](design/agent-memory-mvp/)
+
+The memory service is the first line here that is an *application* of Liquers rather than a way
+into it: a store router, a `ns-mem` command namespace and `liquers-axum` serving `specs/` as
+tiered, searchable agent memory. Phase 1 only. It needs no core change to start, and it is what
+put `STORE-NO-CONTENT-OR-METADATA-SEARCH`, `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` and
+`STORE-WRITE-HAS-NO-PRECONDITION` on the board.
 
 ### Build and repository
 
@@ -285,6 +295,7 @@ deliberately folded behind a broader line.
 - design `variadic-metadata-tail-check`
 - design `web-liquers-error-constructor`
 - design `web-value04-bytes-identifier`
+- feature `AGENT-MEMORY-SERVICE`
 - feature `ASSET-REGISTRATION-OWNERSHIP-CONTRACT`
 - feature `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`
 - feature `COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS`
