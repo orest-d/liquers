@@ -297,3 +297,33 @@ both before and after is testing nothing.
 (`BUILD-SYSINFO-REQUIRES-NEWER-RUSTC`); Step 9 uses the `--no-default-features` substitute that
 issue records, and requires the substitution to be stated in the PR rather than reported as a clean
 run.
+
+## Implementation 2026-09-15
+
+Steps 1-8 landed on this branch. Both behavioural halves are in and both stash checkpoints were
+run and observed failing before passing.
+
+**The checkpoint that mattered most.** I2 was run against the original behaviour reconstructed
+exactly — the relabel restored in `finish_run_with_result`, after persistence — and failed at the
+*store* assertion while the in-memory assertion passed: the defect as the issue describes it,
+reproduced and then closed. The fast-track checkpoint split as it should, F1/F2 failing without the
+check while F0/F3 kept passing, which is what makes F3 a guard rather than a restatement.
+
+**Two things the implementation found that the design had wrong.**
+
+1. **`I2` cannot be an integration test.** Phase 3 planned it end to end on the gate test in
+   `expiration_integration`, and the early assertion that design insisted on fired at once. Reaching
+   `wait_for_dependency`'s expired arm from a command needs the dependency to expire between being
+   scheduled and being waited on — scheduling evicts and recomputes an already-expired dependency,
+   and one that is `Ready` when waited on returns immediately. That window is a race, not a state a
+   gate can arrange, and the gate test proves the parent *completes*, not that it goes stale. Filed
+   as `STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST`.
+2. **`I4` needed three corrections, each the design working.** `bound_owner_key` answers `None`
+   unless the asset is the key's registered owner *and* its query is key-shaped *and* its recipe
+   targets that key. The first failure accidentally demonstrated I8, which is now its own test.
+
+**Outstanding:** R2 and F4 (breadth, not behaviour), and Phase 5.
+
+Tests: U1-U8, I2, I3, I4, I7, I8, F0-F3, R1, R3. `liquers-core` 828 lib tests and 25 binaries green;
+`liquers-lib --no-default-features` green (the `BUILD-SYSINFO-REQUIRES-NEWER-RUSTC` substitute);
+`liquers-py` checks; `liquers-core` compiles for `wasm32-unknown-unknown`.

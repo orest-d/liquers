@@ -3,7 +3,7 @@ title: Asset Evaluation — Flows and Public Surface
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-09-04
+reviewed: 2026-09-15
 ---
 # Asset Evaluation — Flows and Public Surface
 
@@ -87,9 +87,10 @@ load-bearing and must not be reordered.
 | 3 | Apply the recipe, with any payload installed on the context | `Environment::apply_recipe` → `interpreter::apply_plan`, which holds the authoritative payload gate |
 | 4 | Record observed dependencies into metadata | **unconditional, for every entry point** — this is the asymmetry `CORE-EVALUATE-PATH-CONSOLIDATION` named |
 | 5 | Install the value, its type identifier and type name | merged into the live metadata, never installed as a snapshot: the service loop is writing progress and log entries to the same record concurrently |
-| 6 | Finalize status | the single status authority, and it must run **before** the notification and **before** persistence, so nothing observes or stores a non-final status |
+| 6 | Finalize status | the single status authority. It decides between four outcomes — `Volatile`, `Expired` (the evaluation consumed a stale dependency), `Ready`, `Error` — and must run **before** the notification and **before** persistence, so nothing observes or stores a non-final status. The manager is the authority on status; this ordering is what lets the store follow it |
 | 7 | Send `ValueProduced` | after step 6, so a client that polls on the notification sees a terminal status |
 | 8 | Persist | only if this is a **keyed** asset and this evaluation did not hand off |
+| 9 | Register in the dependency graph | a volatile asset is not a node. An asset that consumed a stale dependency has its version registered **directly**, because `DependencyManager::track_asset` refuses an `Expired` asset and that refusal would leave the graph asserting the key still holds its previous content. Only the key's registered owner registers, so a delegating asset registers nothing |
 | 9 | Register with the dependency manager | self-limiting on status and ownership, so ad-hoc assets register nothing |
 
 On failure the body propagates with `?` and the harness's failure routine is the single authority:
@@ -227,6 +228,7 @@ arrives mid-evaluation and must join the first rather than be turned away.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-15 | Step 6 now names the four outcomes the status authority decides between, including the stale-dependency one, and step 9 records the dependency-graph branch. Added the fast-track dependency-status rule. | `stale-dependency-status-finalization` |
 | 2026-09-04 | Recorded two corrections from the PR #61 review: the payload requirement is written before the gate that rejects a missing payload, and both `Drop` repairs cover `Dependencies` alongside `Processing`. Added the inline repair's residual limit (`INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS`). | PR #61 review |
 | 2026-09-04 | Rewritten. The document's former purpose — cataloguing duplication between the evaluation paths as a basis for refactoring — was completed by `evaluate-path-consolidation`, leaving most of its body false at HEAD. Now describes the public surface, the surviving methods and their relationships, the step-by-step flow, and the axes along which evaluations differ. Paths A–D, the asymmetry table and the issue list are archived. | `design/evaluate-path-consolidation/` phase 5 |
 | 2026-08-26 | Previous revision, as the "Comprehensive Map". | — |

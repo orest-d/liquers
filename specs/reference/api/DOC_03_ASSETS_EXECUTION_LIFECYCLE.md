@@ -3,7 +3,7 @@ title: Assets and Execution Lifecycle Reference
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-09-04
+reviewed: 2026-09-15
 ---
 # DOC-03: Assets and Execution Lifecycle
 
@@ -247,6 +247,15 @@ current run uses the retained value rather than recursively restarting. The pare
 records the stale dependency and finishes as `Expired`, causing the next manager
 access to recompute it.
 
+That status is decided before the parent is written, so the store holds `Expired`
+too and a later process reloading the entry recomputes rather than serving it. The
+parent's new content version is registered in the dependency graph even though it
+is `Expired`, so assets recorded against the key's previous content are
+invalidated. Reading in the other direction, `try_fast_track` declines a stored
+asset when a recorded dependency is in a status it would not itself reuse; a
+dependency whose state cannot be determined — a command-implementation node, or one
+the store has no metadata for — is not evidence of staleness and does not block.
+
 Normal manager access does not serve expired cached state. Explicit keyed recovery
 uses:
 
@@ -383,6 +392,7 @@ API-surface gap.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-15 | Execution-time expiry: the parent's `Expired` status reaches the store, its version is still registered, and `try_fast_track` declines a dependency it can see is stale while treating an undeterminable one as inconclusive. | `stale-dependency-status-finalization` |
 | 2026-09-04 | Recorded the narrowed public surface: one private evaluation body, crate-internal run entry points, `apply` absorbing `apply_immediately`. Persistence is now gated on the asset being keyed. | `design/evaluate-path-consolidation/` phase 5 |
 | 2026-08-31 | Documented the manager lifecycle under the new ownership: constructors take the `EnvRef`, `set_envref` is gone, `start` is synchronous and fallible, and `is_started` / `refresh_command_versions` / `refresh_command_versions_and_expire` replace lazy startup. | `design/environment-builder/phase-5` |
 | 2026-08-09 | Reviewed asset reads, expiration, dependency waiting, persistence, and lifecycle behavior against HEAD; documented the unified state/binary exposure policy and corrected links. | ASSET-EXPIRED-CACHED-BINARY-READ |

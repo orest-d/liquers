@@ -3,7 +3,7 @@ title: Assets Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-08-26
+reviewed: 2026-09-15
 ---
 # Assets Specification
 
@@ -239,9 +239,11 @@ is populated at two sites and cleared at roughly ten, so an expired asset common
 and no bytes — precisely when recovery is wanted — so the `get_` form serializes on demand.
 
 **Expiry is uniform, and opting out of it is explicit.** `Expired` is a cache miss for every normal
-read of either family, even when serialized bytes are still cached. This includes an asset labelled
-`Expired` by `finish_run_with_result` because its evaluation consumed a stale dependency: that
-result is fresh but uncacheable, and whether it is acceptable is the caller's judgement. The caller
+read of either family, even when serialized bytes are still cached. This includes an asset that is
+**born** `Expired` — decided so in `finalize_status_with_version`, before it is persisted — because
+its evaluation consumed a stale dependency: that result is fresh but uncacheable, and whether it is
+acceptable is the caller's judgement. It is not relabelled after the fact; deciding before the write
+is what keeps the store in agreement with the manager, which is the authority on status. The caller
 makes it explicitly, through the `*_any_status` reads or `to_override`.
 
 `AssetRef::save_to_store` deliberately bypasses this gate via `AssetData::binary_unchecked`:
@@ -849,6 +851,7 @@ re-evaluation is a property of *requesting* the asset, not of awaiting an in-fli
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-15 | §Expiry: a stale-dependency completion is *born* `Expired` in `finalize_status_with_version` rather than relabelled afterwards by `finish_run_with_result`, so the stored status agrees with the manager. | `stale-dependency-status-finalization` |
 | 2026-08-26 | Recorded that a failed asset is typed by the value it holds, which is none; there is no `error` type identifier. | `design/foreign-value-type-registration/` |
 | 2026-08-09 | Added §Key ownership and §Volatile assets are never owned to §AssetManager: the non-evaluating `owned_key_asset` contract, and the rule that a volatile asset is never served from either map. | `design/keyed-recipe-ownership` |
 | 2026-08-08 | Added §Status and reads with the `ReadExposure` classification and the read behaviour matrix; added a `read_exposure` column to §Status Properties; amended §Terminal Outcome Contract → Accessors for `get`'s pre-wait expiry check. | `design/expired-binary-read-safety` |
