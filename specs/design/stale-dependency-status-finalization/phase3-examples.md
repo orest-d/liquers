@@ -90,6 +90,9 @@ The one fixture that does not exist is the shared store. Building it closes
 | F2 | Integration | `fast_track_declines_a_dependency_expired_in_memory` | The live-asset branch |
 | F3 | Integration | `fast_track_proceeds_when_the_dependency_check_is_inconclusive` | A command-implementation dependency must not block fast-track |
 | F4 | Integration | `fast_track_reads_no_metadata_when_dependencies_are_live` | The live-asset branch is not bypassed |
+| R1 | Integration | `reloaded_dependent_is_served_without_audit` | Nothing audits by default: a dependent reloaded before its dependency is served |
+| R2 | Integration | `explicit_audit_expires_a_reloaded_dependent_whose_dependency_changed` | An explicit audit expires it when the dependency's stored version has changed |
+| R3 | Integration | `a_pre_versions_record_with_version_zero_still_matches` | A record written before versions existed still matches — deployment safety against an existing store |
 | — | Regression | `test_wait_for_retained_expired_dependency_labels_asset_expired_on_completion` (`assets.rs:7964`) | Must pass **unchanged**, not adjusted to agree |
 | — | Regression | `keyed_expiry_cascades_to_keyed_dependents` (`keyed_version_cascade.rs:119`) | The versions work's own guard must stay green |
 
@@ -248,11 +251,26 @@ Re-hydration is a snapshot, not a share — which is exactly right for I1 and F1
 environment is finished before the second starts. A counting wrapper is still needed for F4, but a
 counting wrapper over a plain store is much less than a full shared store.
 
-**Phase 4 should prefer re-hydration and build only the counting wrapper**, and should note that
-whether this still closes `CROSS-PROCESS-RELOAD-IS-UNTESTED` depends on whether that issue wants a
-snapshot or genuine sharing — re-hydration cannot exercise concurrent access to one store.
+**Decided at the Phase 4 gate (project owner, 2026-09-15): re-hydration, and the shared store is
+out of scope.** The reason is architectural rather than expedient, and is worth recording because it
+is what stops a future reader reintroducing the wrapper:
 
-### Optional fixture: the shared store
+> The asset manager has been designed as the main way to assure synchronization. The store is not
+> equipped for that.
+
+So two environments sharing one live store is not a scenario the system supports, and a fixture
+built to exercise it would be testing a coordination point that does not exist. What a restart
+actually looks like — a fresh process reading persisted bytes — is exactly what re-hydration models,
+which makes it the more faithful mechanism as well as the cheaper one. A shared store may have
+interesting uses later; it is not this.
+
+**This design therefore closes `CROSS-PROCESS-RELOAD-IS-UNTESTED`** by writing the three reload
+tests it names (R1–R3 above), with the re-hydration helper in `tests/fixtures/`, and by recording
+the mechanism correction in the resolution note. The three tests belong to
+`keyed-expiry-cascade-fix`'s debt rather than to this defect; taking them on is a deliberate
+widening, agreed at the gate, because the setup they need is the setup this design already builds.
+
+### The counting store (F4 only)
 
 ```rust
 #[derive(Clone)]

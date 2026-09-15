@@ -53,6 +53,41 @@ and a record written before versions existed, carrying `Version(0)`, still match
 that makes the change safe to deploy against an existing store, and currently the least-tested
 claim in the design.
 
+## Decision 2026-09-15 — re-hydration, not a shared store
+
+Taken at the Phase 4 gate of `stale-dependency-status-finalization`, which adopts this issue's three
+tests. Recorded here because it corrects the *mechanism* this issue proposed, and without the note
+the wrapper would be reintroduced later for the reason this issue gives.
+
+**The shared-store fixture is out of scope, and not only on cost.** The project owner:
+
+> The asset manager has been designed as the main way to assure synchronization. The store is not
+> equipped for that.
+
+Two environments over one live store is therefore not a scenario the system supports, and a fixture
+built to exercise it would be testing a coordination point that does not exist. A shared store may
+have interesting uses later; covering *reload* is not one of them.
+
+**Re-hydration is the more faithful mechanism, as well as the cheaper one.** A second process does
+not share a live store object — it reads persisted bytes. Reading the bytes and metadata out of the
+first store, dropping the first environment entirely, and `set`-ing them into a fresh
+`AsyncMemoryStore` behind a second environment is what a restart actually looks like. The technique
+is already proven inline in `test_get_any_status_and_to_override_from_store_only`
+(`liquers-core/tests/expiration_integration.rs:1336`); what was missing was only that nobody had
+lifted it out of that one test.
+
+This issue's own condition for promotion — "`guides/UNITTEST_GUIDE.md` if it recurs a third time" —
+is met, so the helper goes to `liquers-core/tests/fixtures/`, which today holds only data files and
+gains its first Rust module.
+
+**All three named tests are in scope**, including the `Version(0)` back-compat case this issue calls
+the least-tested claim in the versions design — it is the only one whose failure would mean an
+existing deployment invalidates everything on upgrade.
+
+The wrapper-sizing warning in §Problem stands and has been carried into that design's Phase 3 and 4:
+`AsyncStore`'s defaults are error stubs, not forwarding defaults, so any wrapper — including the
+small counting store still needed for one test — must be sized by compiling.
+
 ## Discovery
 
 Recorded on 2026-09-06 in Phase 5 of `keyed-expiry-cascade-fix`, as a deviation from its approved

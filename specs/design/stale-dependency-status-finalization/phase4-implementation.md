@@ -252,17 +252,31 @@ cargo test -p liquers-core --test keyed_version_cascade fast_track_succeeds
 
 ---
 
-### Step 6 — The second environment, and a counting store
+### Step 6 — The re-hydration helper, in `tests/fixtures`
 
-**File:** `liquers-core/tests/`
+**File:** `liquers-core/tests/fixtures/mod.rs` (new — the directory currently holds only data files,
+so this is the first Rust module in it), reached from each consumer with `mod fixtures;`
 
-**Prefer re-hydration over a shared store.** `test_get_any_status_and_to_override_from_store_only`
-(`expiration_integration.rs:1336`) already builds an independent second environment by reading the
-bytes and metadata out of the first store, dropping the first environment entirely, and `set`-ing
-those bytes into a fresh `AsyncMemoryStore`. No wrapper, already in the tree, already working. Use
-it for I1 and F1.
+**Action:** Factor the re-hydration technique into a reusable helper. It is already proven inline in
+`test_get_any_status_and_to_override_from_store_only` (`expiration_integration.rs:1336`): read the
+bytes and metadata for the keys of interest out of the first store, drop the first environment
+entirely, then `set` them into a fresh `AsyncMemoryStore` behind a second environment.
 
-**Build only what re-hydration cannot give: a read counter for F4.**
+Three designs have now needed this, which is the condition
+`CROSS-PROCESS-RELOAD-IS-UNTESTED` itself set for promoting it out of one test file.
+
+**The shared-store wrapper is deliberately NOT built.** Decided at the Phase 4 gate:
+
+> The asset manager has been designed as the main way to assure synchronization. The store is not
+> equipped for that.
+
+Two environments over one live store is not a supported scenario, so a fixture for it would exercise
+a coordination point the system does not have. Re-hydration models what a restart actually is — a
+fresh process reading persisted bytes — so it is the more faithful mechanism, not merely the cheaper
+one. Record this in the issue's resolution note so the wrapper is not reintroduced later for the
+wrong reason.
+
+**Also build: a counting store, for F4 only.**
 
 ```rust
 #[derive(Clone)]
@@ -271,15 +285,49 @@ struct CountingStore { inner: Arc<AsyncMemoryStore>, metadata_reads: Arc<AtomicU
 
 **Size it by compiling, not by counting required methods.** `AsyncStore` has two required methods,
 but the other twenty defaults are **not forwarding defaults** — `set`'s default is
-`Err(key_not_supported)` (`store.rs`). A wrapper overriding only the required pair compiles and then
-fails every write. Forward every method the tests touch and let the failures tell you which.
-`ToOverrideGateStore` (`:880`) is the proven shape.
+`Err(key_not_supported)`. A wrapper overriding only the required pair compiles and then fails every
+write. Forward every method the tests touch and let the failures tell you which.
+`ToOverrideGateStore` (`expiration_integration.rs:880`) is the proven shape.
 
-**On `CROSS-PROCESS-RELOAD-IS-UNTESTED`:** re-hydration is a snapshot, not genuine sharing, so
-whether this closes that issue depends on what it asks for. Read it before claiming the close; if it
-wants concurrent access to one store, say so and leave it open.
+**Validation:**
+```bash
+cargo test -p liquers-core --tests
+# Expected: the existing suite is unaffected; nothing uses the new module yet.
+```
 
-**Agent:** haiku · rust-best-practices · `ToOverrideGateStore`, the `AsyncStore` trait.
+**Agent:** sonnet · rust-best-practices · the inline re-hydration at `:1336`, `ToOverrideGateStore`.
+*Rationale:* a new test module reached from several files, plus a wrapper whose sizing rule is a
+known trap.
+
+---
+
+### Step 6b — The three reload tests (R1–R3)
+
+**File:** `liquers-core/tests/keyed_version_cascade.rs`
+
+**Action:** Write the three tests `CROSS-PROCESS-RELOAD-IS-UNTESTED` names, on the Step 6 helper.
+
+| Test | Asserts |
+|---|---|
+| R1 `reloaded_dependent_is_served_without_audit` | A dependent reloaded in a fresh environment, before its dependency has been evaluated there, is served — nothing audits by default |
+| R2 `explicit_audit_expires_a_reloaded_dependent_whose_dependency_changed` | With the dependency's stored version changed, an explicit `trigger_dependency_audit` expires the reloaded dependent |
+| R3 `a_pre_versions_record_with_version_zero_still_matches` | A `DependencyRecord` carrying `Version(0)` — as every record written before the versions work does — still matches, so the change is safe to deploy against an existing store |
+
+**R3 is the one to write first and the one not to skip.** The issue calls it *"the least-tested
+claim in the design"*, and it is the only one of the three whose failure would mean an existing
+deployment invalidates everything on upgrade. `Version::matches` treats unknown as compatible with
+anything (`metadata.rs:65`), so the test is cheap — but the claim is currently taken on faith.
+
+These three are `keyed-expiry-cascade-fix`'s debt, taken on deliberately at the Phase 4 gate because
+this design already builds the setup they need.
+
+**Validation:**
+```bash
+cargo test -p liquers-core --test keyed_version_cascade
+```
+
+**Agent:** sonnet · rust-best-practices, liquers-unittest · the issue's Expected behaviour section,
+`trigger_dependency_audit`, `AssetManager::version`.
 
 ---
 
@@ -383,7 +431,8 @@ directly. Saying so beats inventing a ritual command.
 | 4a F0 baseline | sonnet | rust-best-practices, liquers-unittest | Must exist before 4b, or 4b has no failure mode |
 | 4b Fast-track check | sonnet | rust-best-practices | Failure mode is systemic and silent |
 | 5 Unit tests | sonnet | rust-best-practices, liquers-unittest | The setup traps |
-| 6 Shared store | haiku | rust-best-practices | Copying a proven local pattern |
+| 6 Re-hydration helper + counting store | sonnet | rust-best-practices | New shared test module; the wrapper sizing rule is a known trap |
+| 6b Reload tests R1-R3 | sonnet | rust-best-practices, liquers-unittest | Another design's debt; R3 is deployment safety |
 | 7 Integration tests | sonnet | rust-best-practices, liquers-unittest | Subtle timing; failure mode is a false pass |
 | 8 Documentation | sonnet | — | Prose that must be true |
 | 9 Validation | haiku | — | Running listed commands |
@@ -412,7 +461,9 @@ Phase 5 owns four things this phase does not:
 
 1. The one-to-three-page summary of what was actually implemented, with deviations and reasons.
 2. Closing `ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY` and `CROSS-PROCESS-RELOAD-IS-UNTESTED` with
-   resolution notes (§4.3). **Step 8 corrects the first issue's text but does not close it** — an
+   resolution notes (§4.3). The second one's note must record **why the shared-store fixture it
+   proposed was not built** — the asset manager, not the store, is the synchronization mechanism —
+   or the wrapper will be reintroduced later for the wrong reason. **Step 8 corrects the first issue's text but does not close it** — an
    issue closes when the work is done and validated, not when the plan says it will be.
 3. Re-reviewing the three references against the behaviour that shipped, not this plan's account.
 4. Deciding whether Phase 3's Verified Setup Facts belong in `specs/guides/UNITTEST_GUIDE.md`.
@@ -429,6 +480,7 @@ precedent and the recommended shape.
 - [ ] Both stash checkpoints observed failing, then passing
 - [ ] F0 passed on unmodified code before Step 4b was written, and still passes after
 - [ ] F3 passes: an inconclusive dependency still fast-tracks
+- [ ] R1-R3 pass, and R3 specifically — a `Version(0)` record still matches
 - [ ] Step 9's matrix green, wasm included, with the `liquers-lib` substitution stated
 - [ ] Three references updated with `## History` rows and `reviewed:` bumps
 - [ ] `docs_index.py --check` at 0 errors
