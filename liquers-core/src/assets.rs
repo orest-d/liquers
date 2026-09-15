@@ -2003,6 +2003,42 @@ impl<E: Environment> AssetRef<E> {
                     )));
                 }
                 lock.expiration_time = lock.metadata.expiration_time();
+            } else if lock.stale_dependency {
+                // A dependency expired mid-execution and its stale value was used rather than
+                // recomputed (see `AssetManager::wait_for_dependency`, which sets the flag to
+                // avoid an unbounded recompute loop). The result is correct but must not be
+                // cached, so it is `Expired` from birth.
+                //
+                // Deciding it *here* is the point. The rule used to run in
+                // `finish_run_with_result`, after this asset had already been written to the
+                // store as `Ready`, and nothing wrote again — so the store kept `Ready` while
+                // memory held `Expired` (`ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY`). The
+                // manager is the authority on status; the store must be able to follow it.
+                //
+                // `set_status`, not a bare field write: it updates `self.status` *and* the
+                // metadata, and the metadata is what `save_to_store` persists.
+                if let Err(e) = lock.set_status(Status::Expired) {
+                    let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
+                        "Failed to set expired status in metadata on asset {}: {}",
+                        self.id(),
+                        e,
+                    )));
+                }
+                let _ = lock.metadata.add_log_entry(LogEntry::warning(
+                    "Asset evaluated with an expired dependency value; labeled expired \
+                     for recomputation on next access"
+                        .to_string(),
+                ));
+                // Mirrors the `Ready` arm: `finish_run_with_result` reads what these set when it
+                // decides whether to schedule expiration.
+                if let Err(e) = lock.metadata.set_expiration_time_from(&metadata_expires) {
+                    let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
+                        "Failed to set expiration metadata on asset {}: {}",
+                        self.id(),
+                        e,
+                    )));
+                }
+                lock.expiration_time = lock.metadata.expiration_time();
             } else {
                 lock.status = Status::Ready;
                 if let Err(e) = lock.metadata.set_status(Status::Ready) {
@@ -2406,20 +2442,6 @@ impl<E: Environment> AssetRef<E> {
                 | Status::Override
                 | Status::Volatile => {}
             }
-            // If a dependency expired mid-evaluation, we used its stale value rather than
-            // recompute (see `wait_for_dependency`). Do not cache this result as fresh:
-            // label the asset `Expired` so the next access recomputes it.
-            {
-                let mut lock = self.data.write().await;
-                if lock.stale_dependency && lock.status == Status::Ready {
-                    let _ = lock.set_status(Status::Expired);
-                    let _ = lock.metadata.add_log_entry(LogEntry::warning(
-                        "Asset evaluated with an expired dependency value; labeled expired \
-                         for recomputation on next access"
-                            .to_string(),
-                    ));
-                }
-            }
             // Schedule expiration if asset has a finite expiration time
             let exp_time = self.expiration_time().await;
             if !exp_time.is_never() && !exp_time.is_expired() {
@@ -2733,7 +2755,7 @@ impl<E: Environment> AssetRef<E> {
                 // Finalize status and expiration in one place (replaces inline match block).
                 // Must happen before persistence so poll_state() returns Some for serialization.
                 self.finalize_status_with_version(prepared).await;
-                let (save_in_background, cancelled, lock_is_volatile) = {
+                let (save_in_background, cancelled, lock_is_volatile, stale_dependency) = {
                     let lock = self.data.read().await;
                     let _ = lock
                         .notification_tx
@@ -2742,6 +2764,7 @@ impl<E: Environment> AssetRef<E> {
                         lock.save_in_background,
                         lock.is_cancelled(),
                         lock.is_volatile,
+                        lock.stale_dependency,
                     )
                 };
 
@@ -2759,8 +2782,38 @@ impl<E: Environment> AssetRef<E> {
                         .await;
                 }
 
-                // Register in DM for non-volatile assets
-                if !lock_is_volatile {
+                // Register in DM for non-volatile assets.
+                if lock_is_volatile {
+                    // A volatile asset is not a dependency-graph node.
+                } else if stale_dependency {
+                    // `track_asset` refuses an `Expired` asset, and this one is `Expired` — but
+                    // only in the "do not cache me" sense. It holds a freshly computed value with
+                    // a NEW content version, so its dependents are built on the key's previous
+                    // content and must be invalidated. Letting the gate refuse it would leave the
+                    // graph asserting the key still holds what it held before.
+                    //
+                    // `bound_owner_key`, not `lock.key`: it returns `None` for a keyed
+                    // non-owner, which is what makes a *delegating* asset — which can carry this
+                    // same flag, since delegation waits through `wait_for_dependency` — register
+                    // nothing under the real owner's key.
+                    let owner_key = self.bound_owner_key().await.ok().flatten();
+                    if let Some(key) = owner_key {
+                        let records = {
+                            let lock = self.data.read().await;
+                            match &lock.metadata {
+                                Metadata::MetadataRecord(mr) => mr.dependencies.clone(),
+                                Metadata::LegacyMetadata(_) => Vec::new(),
+                            }
+                        };
+                        let envref = self.get_envref().await;
+                        let manager = envref.get_asset_manager();
+                        let dm = manager.dependency_manager();
+                        // No `data` lock is held across this: the DM takes its own locks and,
+                        // through `version_for_tracking`, this asset's write lock.
+                        let expired = dm.track_keyed_asset(self, &key, &records).await;
+                        manager.expire_dependencies_result(expired).await;
+                    }
+                } else {
                     let envref = self.get_envref().await;
                     let manager = envref.get_asset_manager();
                     let dm = manager.dependency_manager();
