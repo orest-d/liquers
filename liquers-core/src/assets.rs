@@ -1045,6 +1045,50 @@ impl<E: Environment> AssetData<E> {
     /// For example - if the queue is blocked by long running task(s),
     /// a server can still reply immediately if the asset is in the store.
     /// This can be generalized further to support volatile and fast queries.
+    /// Whether a recorded dependency is in a state that forbids reusing this stored asset.
+    ///
+    /// **Inconclusive is not expired, and that is the load-bearing rule.** A dependency node that
+    /// is not store-addressable — a command-implementation node such as
+    /// `ns-dep/command_impl---world`, which nearly every asset has — or one the store holds no
+    /// metadata for, is *not evidence of staleness*. Answering `true` for those would refuse the
+    /// fast track for almost every asset: every result would still be correct, merely recomputed,
+    /// so nothing would fail and the loss would surface as "everything got slow". Fail open on
+    /// absence, closed only on positive evidence. `fast_track_succeeds_for_a_ready_stored_asset`
+    /// and `fast_track_proceeds_when_the_dependency_check_is_inconclusive` guard this.
+    ///
+    /// The manager is consulted first and settles the question when it answers: it is the
+    /// authority on status, so a live asset needs no store read.
+    ///
+    /// One level only. A dependency that is itself fast-tracked runs this same check on its own
+    /// dependencies, and in-process transitive staleness is the dependency manager's cascade.
+    async fn dependency_blocks_fast_track(
+        &self,
+        manager: &Arc<E::AssetManager>,
+        dep_key: &DependencyKey,
+    ) -> bool {
+        let Ok(key) = Key::try_from(dep_key) else {
+            return false; // not store-addressable — inconclusive
+        };
+        if let Some(asset) = manager.lookup_key_asset(&key) {
+            return !Self::status_permits_reuse(asset.status().await);
+        }
+        match self.get_envref().get_async_store().get_metadata(&key).await {
+            Ok(metadata) => !Self::status_permits_reuse(metadata.status()),
+            Err(_) => false, // absent or unreadable — inconclusive
+        }
+    }
+
+    /// The statuses a stored value may be reused from — the same bar `try_fast_track` applies to
+    /// the asset itself, so a dependency must clear what the dependent must. Reusing the predicate
+    /// rather than testing for `Expired` also covers `Volatile` (never meant to be reused),
+    /// `Error` and `Cancelled`, without a second list that can drift out of step with the first.
+    fn status_permits_reuse(status: Status) -> bool {
+        matches!(
+            status,
+            Status::Ready | Status::Source | Status::Override
+        )
+    }
+
     pub async fn try_fast_track(&mut self) -> Result<bool, Error> {
         eprintln!("Trying fast track for asset {}", self.id());
         if !self.is_resource()? {
@@ -1127,6 +1171,21 @@ impl<E: Environment> AssetData<E> {
                                 self.clear_fast_track_payload();
                                 return Ok(false); // Force re-evaluation
                             }
+                        }
+                        // The version check above answers "was this dependency recomputed into
+                        // different content?" and is silent on "is it stale *right now*?" — the
+                        // state of a dependency that expired and has not been recomputed, where
+                        // there is no version change to detect. In-process the manager's cascade
+                        // hides that; across a restart nothing does, and this asset would be
+                        // served as fresh on data the system knows is stale.
+                        if self.dependency_blocks_fast_track(&manager, &dep_record.key).await {
+                            eprintln!(
+                                "Asset {} stale: dependency {} is not in a reusable state",
+                                self.id(),
+                                dep_record.key
+                            );
+                            self.clear_fast_track_payload();
+                            return Ok(false);
                         }
                     }
                 }
@@ -1843,9 +1902,9 @@ impl<E: Environment> AssetRef<E> {
     /// time-based one first if it has none.
     ///
     /// The last-resort net under the routes that can reach the graph without a version — a
-    /// serialization that failed, a `Metadata::LegacyMetadata` record, a sidecar written before
-    /// versions existed. It writes the assigned version back into the asset's metadata, so the
-    /// asset and the manager cannot disagree, and records that it fired.
+    /// serialization that failed, a `Metadata::LegacyMetadata` record, stored metadata written
+    /// before versions existed. It writes the assigned version back into the asset's metadata, so
+    /// the asset and the manager cannot disagree, and records that it fired.
     ///
     /// **It is not a universal funnel**, and the doc comment says so because the design once
     /// claimed otherwise: four of the five `register_version` call sites are elsewhere, and
@@ -1998,6 +2057,42 @@ impl<E: Environment> AssetRef<E> {
                 if let Err(e) = lock.metadata.set_volatile() {
                     let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
                         "Failed to set volatile metadata on asset {}: {}",
+                        self.id(),
+                        e,
+                    )));
+                }
+                lock.expiration_time = lock.metadata.expiration_time();
+            } else if lock.stale_dependency {
+                // A dependency expired mid-execution and its stale value was used rather than
+                // recomputed (see `AssetManager::wait_for_dependency`, which sets the flag to
+                // avoid an unbounded recompute loop). The result is correct but must not be
+                // cached, so it is `Expired` from birth.
+                //
+                // Deciding it *here* is the point. The rule used to run in
+                // `finish_run_with_result`, after this asset had already been written to the
+                // store as `Ready`, and nothing wrote again — so the store kept `Ready` while
+                // memory held `Expired` (`ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY`). The
+                // manager is the authority on status; the store must be able to follow it.
+                //
+                // `set_status`, not a bare field write: it updates `self.status` *and* the
+                // metadata, and the metadata is what `save_to_store` persists.
+                if let Err(e) = lock.set_status(Status::Expired) {
+                    let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
+                        "Failed to set expired status in metadata on asset {}: {}",
+                        self.id(),
+                        e,
+                    )));
+                }
+                let _ = lock.metadata.add_log_entry(LogEntry::warning(
+                    "Asset evaluated with an expired dependency value; labeled expired \
+                     for recomputation on next access"
+                        .to_string(),
+                ));
+                // Mirrors the `Ready` arm: `finish_run_with_result` reads what these set when it
+                // decides whether to schedule expiration.
+                if let Err(e) = lock.metadata.set_expiration_time_from(&metadata_expires) {
+                    let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
+                        "Failed to set expiration metadata on asset {}: {}",
                         self.id(),
                         e,
                     )));
@@ -2406,20 +2501,6 @@ impl<E: Environment> AssetRef<E> {
                 | Status::Override
                 | Status::Volatile => {}
             }
-            // If a dependency expired mid-evaluation, we used its stale value rather than
-            // recompute (see `wait_for_dependency`). Do not cache this result as fresh:
-            // label the asset `Expired` so the next access recomputes it.
-            {
-                let mut lock = self.data.write().await;
-                if lock.stale_dependency && lock.status == Status::Ready {
-                    let _ = lock.set_status(Status::Expired);
-                    let _ = lock.metadata.add_log_entry(LogEntry::warning(
-                        "Asset evaluated with an expired dependency value; labeled expired \
-                         for recomputation on next access"
-                            .to_string(),
-                    ));
-                }
-            }
             // Schedule expiration if asset has a finite expiration time
             let exp_time = self.expiration_time().await;
             if !exp_time.is_never() && !exp_time.is_expired() {
@@ -2733,7 +2814,7 @@ impl<E: Environment> AssetRef<E> {
                 // Finalize status and expiration in one place (replaces inline match block).
                 // Must happen before persistence so poll_state() returns Some for serialization.
                 self.finalize_status_with_version(prepared).await;
-                let (save_in_background, cancelled, lock_is_volatile) = {
+                let (save_in_background, cancelled, lock_is_volatile, stale_dependency) = {
                     let lock = self.data.read().await;
                     let _ = lock
                         .notification_tx
@@ -2742,6 +2823,7 @@ impl<E: Environment> AssetRef<E> {
                         lock.save_in_background,
                         lock.is_cancelled(),
                         lock.is_volatile,
+                        lock.stale_dependency,
                     )
                 };
 
@@ -2759,8 +2841,38 @@ impl<E: Environment> AssetRef<E> {
                         .await;
                 }
 
-                // Register in DM for non-volatile assets
-                if !lock_is_volatile {
+                // Register in DM for non-volatile assets.
+                if lock_is_volatile {
+                    // A volatile asset is not a dependency-graph node.
+                } else if stale_dependency {
+                    // `track_asset` refuses an `Expired` asset, and this one is `Expired` — but
+                    // only in the "do not cache me" sense. It holds a freshly computed value with
+                    // a NEW content version, so its dependents are built on the key's previous
+                    // content and must be invalidated. Letting the gate refuse it would leave the
+                    // graph asserting the key still holds what it held before.
+                    //
+                    // `bound_owner_key`, not `lock.key`: it returns `None` for a keyed
+                    // non-owner, which is what makes a *delegating* asset — which can carry this
+                    // same flag, since delegation waits through `wait_for_dependency` — register
+                    // nothing under the real owner's key.
+                    let owner_key = self.bound_owner_key().await.ok().flatten();
+                    if let Some(key) = owner_key {
+                        let records = {
+                            let lock = self.data.read().await;
+                            match &lock.metadata {
+                                Metadata::MetadataRecord(mr) => mr.dependencies.clone(),
+                                Metadata::LegacyMetadata(_) => Vec::new(),
+                            }
+                        };
+                        let envref = self.get_envref().await;
+                        let manager = envref.get_asset_manager();
+                        let dm = manager.dependency_manager();
+                        // No `data` lock is held across this: the DM takes its own locks and,
+                        // through `version_for_tracking`, this asset's write lock.
+                        let expired = dm.track_keyed_asset(self, &key, &records).await;
+                        manager.expire_dependencies_result(expired).await;
+                    }
+                } else {
                     let envref = self.get_envref().await;
                     let manager = envref.get_asset_manager();
                     let dm = manager.dependency_manager();
@@ -4123,7 +4235,7 @@ pub trait AssetManager<E: Environment>:
     /// `lookup_key_asset`, a map read, and at most one metadata read.
     ///
     /// A version is read from **metadata only**, never from the value — so a key whose data has
-    /// been deleted but whose sidecar remains still answers. That is deliberate and load-bearing:
+    /// been deleted but whose stored metadata remains still answers. That is deliberate and load-bearing:
     /// it is what lets a user delete large intermediates and keep the results that were derived
     /// from them.
     ///
@@ -8990,6 +9102,459 @@ recipes:
 
     fn test_envref() -> EnvRef<SimpleEnvironment<Value>> {
         SimpleEnvironment::<Value>::new().to_ref()
+    }
+
+    // ==================================================================================
+    // Stale-dependency status finalization — `stale-dependency-status-finalization` U1-U8.
+    //
+    // These build the asset the way `evaluate` does — value installed under the write lock —
+    // and deliberately NOT through `set_value`, which sets `Ready`, notifies, *and persists*.
+    // A U3 written on `set_value` would assert "before persistence" after persisting.
+    // ==================================================================================
+
+    /// Installs a value the way `evaluate` does, leaving the status untouched.
+    async fn stale_dep_fixture(
+        id: u64,
+        stale: bool,
+        volatile: bool,
+    ) -> AssetRef<SimpleEnvironment<Value>> {
+        let envref = test_envref();
+        let asset = AssetData::<SimpleEnvironment<Value>>::new(
+            id,
+            parse_query("test").expect("query").into(),
+            None,
+            envref,
+        )
+        .to_ref();
+        {
+            let mut lock = asset.data.write().await;
+            lock.data = Some(Arc::new(Value::from("value")));
+            lock.stale_dependency = stale;
+            lock.is_volatile = volatile;
+        }
+        asset
+    }
+
+    /// **I4 — the dependency-manager decision.**
+    ///
+    /// `track_asset` refuses an `Expired` asset. Letting that refusal stand would leave the graph
+    /// asserting the key still holds its previous content, and every dependent recorded against
+    /// the old version uninvalidated. A stale-dependency asset holds *new* content with a new
+    /// version and is `Expired` only in the "do not cache me" sense, so its version is registered
+    /// directly.
+    ///
+    /// Asserted through the dependency manager rather than through a dependent asset: the
+    /// registration is the decision, and `register_version` invalidating dependents on a change is
+    /// existing, separately tested behaviour.
+    #[tokio::test]
+    async fn stale_dependency_registers_its_version() -> Result<(), Box<dyn std::error::Error>> {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let cmd = CommandKey::new_name("i4_value");
+        env.command_registry
+            .register_command(cmd, |_, _, _| Ok(Value::from("i4 content")))?;
+
+        // A real recipe, resolved through a provider: `bound_owner_key` needs the asset's *query*
+        // to be key-shaped and the *recipe* to target that same key, which is what a recipes.yaml
+        // entry produces. A bare command query answers `None` and the branch correctly does
+        // nothing — see `delegating_stale_dependency_registers_nothing`.
+        let key = parse_key("i4.txt")?;
+        let mut rl = crate::recipes::RecipeList::new();
+        rl.add_recipe(crate::recipes::Recipe::new(
+            "i4_value/i4.txt".to_string(),
+            "i4".into(),
+            "keyed, owned".into(),
+        )?);
+        let store = crate::store::AsyncMemoryStore::new(&Key::new());
+        store
+            .set(
+                &parse_key("recipes.yaml")?,
+                serde_yaml::to_string(&rl)?.as_bytes(),
+                &Metadata::new(),
+            )
+            .await?;
+        env.with_async_store(Box::new(store));
+        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider));
+        let envref = env.to_ref();
+        let dep_key = crate::metadata::DependencyKey::from(&key);
+        let manager = envref.get_asset_manager();
+        let dm = manager.dependency_manager();
+
+        // The graph already believes this key holds some earlier content.
+        let old = Version::new(4242);
+        let _ = dm.register_version(&dep_key, old).await;
+        assert_eq!(dm.get_version(&dep_key).await, Some(old));
+
+        let asset = AssetData::<SimpleEnvironment<Value>>::new(
+            9703,
+            key.clone().into(),
+            Some(key.clone()),
+            envref.clone(),
+        )
+        .to_ref();
+        // Only the key's *registered owner* registers a version — `bound_owner_key` returns
+        // `None` otherwise. Without this the branch correctly does nothing, which is what
+        // `delegating_stale_dependency_registers_nothing` asserts.
+        assert!(
+            manager.try_insert_key_asset(&key, asset.clone()).await,
+            "the asset must be the registered owner of its key for this path"
+        );
+
+        let dep = AssetData::<SimpleEnvironment<Value>>::new(
+            9704,
+            parse_query("dep")?.into(),
+            None,
+            envref.clone(),
+        )
+        .to_ref();
+        dep.set_value(Value::from("stale input")).await?;
+        dep.set_status(Status::Expired).await?;
+        let _ = manager.wait_for_dependency(&asset, &dep).await?;
+
+        asset.run(None).await?;
+        assert_eq!(asset.status().await, Status::Expired);
+
+        let registered = dm.get_version(&dep_key).await;
+        assert!(
+            registered.is_some() && registered != Some(old),
+            "the new content's version must be registered even though the asset is Expired; \
+             leaving the old one would tell the graph the key still holds what it held before"
+        );
+        Ok(())
+    }
+
+    /// **I8 — a keyed non-owner registers nothing**, which is what keeps a *delegating* asset from
+    /// writing under the real owner's key. Delegation waits through `wait_for_dependency`, the same
+    /// call that sets the stale flag, so a delegating asset can reach this branch carrying it.
+    ///
+    /// The guard is `bound_owner_key()` rather than `lock.key`: the former is ownership-aware and
+    /// returns `None` here, the latter would have returned the key and overwritten the owner's
+    /// version.
+    #[tokio::test]
+    async fn delegating_stale_dependency_registers_nothing() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let cmd = CommandKey::new_name("i8_value");
+        env.command_registry
+            .register_command(cmd, |_, _, _| Ok(Value::from("i8 content")))?;
+        env.with_async_store(Box::new(crate::store::AsyncMemoryStore::new(&Key::new())));
+        let envref = env.to_ref();
+
+        let key = parse_key("i8.txt")?;
+        let dep_key = crate::metadata::DependencyKey::from(&key);
+        let manager = envref.get_asset_manager();
+        let dm = manager.dependency_manager();
+
+        let owners_version = Version::new(8888);
+        let _ = dm.register_version(&dep_key, owners_version).await;
+
+        // Keyed, with a recipe that does target the key — so the only thing making
+        // `bound_owner_key` answer `None` is that this asset is not the registered owner. That
+        // is the shape of a delegating asset, and it is what must register nothing.
+        let asset = AssetData::<SimpleEnvironment<Value>>::new(
+            9709,
+            parse_query("i8_value/i8.txt")?.into(),
+            Some(key.clone()),
+            envref.clone(),
+        )
+        .to_ref();
+        let dep = AssetData::<SimpleEnvironment<Value>>::new(
+            9710,
+            parse_query("dep")?.into(),
+            None,
+            envref.clone(),
+        )
+        .to_ref();
+        dep.set_value(Value::from("stale input")).await?;
+        dep.set_status(Status::Expired).await?;
+        let _ = manager.wait_for_dependency(&asset, &dep).await?;
+
+        asset.run(None).await?;
+        assert_eq!(asset.status().await, Status::Expired);
+        assert_eq!(
+            dm.get_version(&dep_key).await,
+            Some(owners_version),
+            "a non-owner must not overwrite the registered owner's version"
+        );
+        Ok(())
+    }
+
+    /// I7 — volatility wins, and a volatile keyed asset keeps being written.
+    #[tokio::test]
+    async fn volatile_keyed_stale_dependency_stays_volatile() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let cmd = CommandKey::new_name("i7_value");
+        env.command_registry
+            .register_command(cmd, |_, _, _| Ok(Value::from("volatile content")))?;
+        env.with_async_store(Box::new(crate::store::AsyncMemoryStore::new(&Key::new())));
+        let envref = env.to_ref();
+
+        let key = parse_key("i7.txt")?;
+        let asset = AssetData::<SimpleEnvironment<Value>>::new(
+            9705,
+            parse_query("i7_value")?.into(),
+            Some(key.clone()),
+            envref.clone(),
+        )
+        .to_ref();
+        {
+            let mut lock = asset.data.write().await;
+            lock.is_volatile = true;
+        }
+
+        let dep = AssetData::<SimpleEnvironment<Value>>::new(
+            9706,
+            parse_query("dep")?.into(),
+            None,
+            envref.clone(),
+        )
+        .to_ref();
+        dep.set_value(Value::from("stale input")).await?;
+        dep.set_status(Status::Expired).await?;
+        let _ = envref
+            .get_asset_manager()
+            .wait_for_dependency(&asset, &dep)
+            .await?;
+
+        asset.run(None).await?;
+        assert_eq!(
+            asset.status().await,
+            Status::Volatile,
+            "a volatile result is never reused, so Expired would add nothing and would erase \
+             the fact that it was volatile"
+        );
+        Ok(())
+    }
+
+    /// I3 — a non-keyed asset must not attempt a write at all. Attempting and failing deep inside
+    /// `save_to_store` would record a spurious "cannot determine key" warning on every query.
+    #[tokio::test]
+    async fn non_keyed_stale_dependency_writes_nothing() -> Result<(), Box<dyn std::error::Error>> {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let cmd = CommandKey::new_name("i3_value");
+        env.command_registry
+            .register_command(cmd, |_, _, _| Ok(Value::from("i3 content")))?;
+        env.with_async_store(Box::new(crate::store::AsyncMemoryStore::new(&Key::new())));
+        let envref = env.to_ref();
+
+        let asset = AssetData::<SimpleEnvironment<Value>>::new(
+            9707,
+            parse_query("i3_value")?.into(),
+            None, // not keyed
+            envref.clone(),
+        )
+        .to_ref();
+        let dep = AssetData::<SimpleEnvironment<Value>>::new(
+            9708,
+            parse_query("dep")?.into(),
+            None,
+            envref.clone(),
+        )
+        .to_ref();
+        dep.set_value(Value::from("stale input")).await?;
+        dep.set_status(Status::Expired).await?;
+        let _ = envref
+            .get_asset_manager()
+            .wait_for_dependency(&asset, &dep)
+            .await?;
+
+        asset.run(None).await?;
+        assert_eq!(asset.status().await, Status::Expired);
+
+        let metadata = asset.get_metadata().await?;
+        if let Metadata::MetadataRecord(ref mr) = metadata {
+            assert!(
+                !mr.log
+                    .iter()
+                    .any(|e| e.message.contains("Cannot determine key")),
+                "a non-keyed asset must not attempt a write, so no key warning may appear"
+            );
+        }
+        Ok(())
+    }
+
+    /// **I2 — the test the whole design exists for.**
+    ///
+    /// A *keyed* asset that consumed a stale dependency must be written to the store as `Expired`.
+    /// Before the fix it was written `Ready` and only then relabelled in memory, with nothing
+    /// writing again, so a later process reading that entry served a result the producing run had
+    /// already concluded was stale.
+    ///
+    /// **Why this is a unit test rather than an end-to-end one.** Reaching
+    /// `wait_for_dependency`'s expired arm through a command requires the dependency to become
+    /// `Expired` in the window between being scheduled and being waited on: scheduling evicts and
+    /// recomputes an already-expired dependency, and a dependency that is `Ready` when waited on
+    /// returns immediately. That window is a race, not something a gate can open — a gate placed
+    /// after the dependency read (as `test_dependency_expiring_during_parent_evaluation_is_allowed`
+    /// does) proves the parent *completes*, not that it goes stale. So the flag is set here through
+    /// its real production caller, `AssetManager::wait_for_dependency`, and the evaluation then
+    /// runs normally. See `STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST`.
+    #[tokio::test]
+    async fn keyed_stale_dependency_is_stored_expired() -> Result<(), Box<dyn std::error::Error>> {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let cmd = CommandKey::new_name("sd_value");
+        env.command_registry
+            .register_command(cmd, |_, _, _| Ok(Value::from("computed")))?;
+        let store = crate::store::AsyncMemoryStore::new(&Key::new());
+        env.with_async_store(Box::new(store));
+        let envref = env.to_ref();
+
+        let key = parse_key("p.txt")?;
+        let asset = AssetData::<SimpleEnvironment<Value>>::new(
+            9701,
+            parse_query("sd_value")?.into(),
+            Some(key.clone()),
+            envref.clone(),
+        )
+        .to_ref();
+
+        // A dependency that is expired but has retained its value — the case
+        // `wait_for_dependency` is documented to use rather than recompute.
+        let dep = AssetData::<SimpleEnvironment<Value>>::new(
+            9702,
+            parse_query("dep")?.into(),
+            None,
+            envref.clone(),
+        )
+        .to_ref();
+        dep.set_value(Value::from("stale input")).await?;
+        dep.set_status(Status::Expired).await?;
+
+        // The production caller. This is what sets `stale_dependency`.
+        let stale = envref
+            .get_asset_manager()
+            .wait_for_dependency(&asset, &dep)
+            .await?;
+        assert_eq!(stale.try_into_string()?, "stale input");
+
+        asset.run(None).await?;
+
+        // Asserted first so a setup that failed to set the flag fails here, loudly, rather than
+        // in the store assertion where it would look like the fix had regressed.
+        assert_eq!(
+            asset.status().await,
+            Status::Expired,
+            "an asset that used a stale dependency must finish Expired"
+        );
+
+        // THE ASSERTION. Before the fix this reads Ready.
+        let (_bytes, stored) = envref.get_async_store().get(&key).await?;
+        assert_eq!(
+            stored.status(),
+            Status::Expired,
+            "the store must agree with the manager; it held Ready before this fix"
+        );
+        Ok(())
+    }
+
+    /// U1 — the branch must not over-trigger.
+    #[tokio::test]
+    async fn finalize_without_stale_dependency_is_ready() {
+        let asset = stale_dep_fixture(9601, false, false).await;
+        asset.finalize_status_with_version(None).await;
+        assert_eq!(asset.status().await, Status::Ready);
+        let lock = asset.data.read().await;
+        assert_eq!(lock.metadata.status(), Status::Ready);
+    }
+
+    /// U2 — the metadata half is the defect. A field-only write would pass the first assertion
+    /// and fail the second, and the store follows the second.
+    #[tokio::test]
+    async fn finalize_with_stale_dependency_is_expired_in_metadata_too() {
+        let asset = stale_dep_fixture(9602, true, false).await;
+        asset.finalize_status_with_version(None).await;
+        assert_eq!(asset.status().await, Status::Expired);
+        let lock = asset.data.read().await;
+        assert_eq!(
+            lock.metadata.status(),
+            Status::Expired,
+            "metadata is what save_to_store persists; memory and store disagreeing was the bug"
+        );
+    }
+
+    /// U3 — the reason is in metadata when finalization returns, so it reaches the store with the
+    /// status. It used to be added after the write, leaving the stored metadata with neither.
+    #[tokio::test]
+    async fn finalize_records_the_reason_before_persistence() {
+        let asset = stale_dep_fixture(9603, true, false).await;
+        asset.finalize_status_with_version(None).await;
+        let lock = asset.data.read().await;
+        let Metadata::MetadataRecord(ref mr) = lock.metadata else {
+            panic!("expected a MetadataRecord");
+        };
+        assert!(
+            mr.log.iter().any(|e| e.kind == LogEntryKind::Warning
+                && e.message.contains("expired dependency value")),
+            "the reason must be recorded in the same locked decision as the status"
+        );
+    }
+
+    /// U4 — volatility wins. A volatile result is never reused, so `Expired` would add nothing and
+    /// would erase the fact that it was volatile.
+    #[tokio::test]
+    async fn finalize_volatile_wins_over_stale_dependency() {
+        let asset = stale_dep_fixture(9604, true, true).await;
+        asset.finalize_status_with_version(None).await;
+        assert_eq!(asset.status().await, Status::Volatile);
+    }
+
+    /// U5 — the error arm is untouched by the new input.
+    #[tokio::test]
+    async fn finalize_without_data_is_error_regardless_of_flag() {
+        let asset = stale_dep_fixture(9605, true, false).await;
+        {
+            let mut lock = asset.data.write().await;
+            lock.data = None;
+        }
+        asset.finalize_status_with_version(None).await;
+        assert_eq!(asset.status().await, Status::Error);
+    }
+
+    /// U6 — `try_to_set_ready` is the wrapper `finish_run_with_result` calls for a run that
+    /// finished without `evaluate` finalizing. It gains the rule deliberately, and free: that
+    /// path does not persist, so there is no ordering cost.
+    #[tokio::test]
+    async fn finish_run_fallback_finalizes_with_the_same_rule() {
+        let asset = stale_dep_fixture(9606, true, false).await;
+        asset.try_to_set_ready().await;
+        assert_eq!(asset.status().await, Status::Expired);
+    }
+
+    /// U7 — the `Expired` arm mirrors the `Ready` arm's expiration handling, which
+    /// `finish_run_with_result` reads when deciding whether to schedule expiration.
+    #[tokio::test]
+    async fn finalize_expiration_time_agrees_across_arms() {
+        let ready = stale_dep_fixture(9607, false, false).await;
+        let stale = stale_dep_fixture(9608, true, false).await;
+        ready.finalize_status_with_version(None).await;
+        stale.finalize_status_with_version(None).await;
+        assert_eq!(
+            ready.data.read().await.expiration_time,
+            stale.data.read().await.expiration_time,
+            "identical metadata must yield identical expiration handling in both arms"
+        );
+    }
+
+    /// U8 — staleness is a claim about freshness, not about content. Two evaluations producing
+    /// identical bytes must carry identical versions whether or not a dependency expired, or every
+    /// stale-dependency asset becomes a permanent cascade source.
+    #[tokio::test]
+    async fn finalize_does_not_alter_the_prepared_version() {
+        let version = Version::from_bytes(b"value");
+        let asset = stale_dep_fixture(9609, true, false).await;
+        asset
+            .finalize_status_with_version(Some(PreparedVersion {
+                binary: None,
+                version,
+                serialization_error: None,
+            }))
+            .await;
+        assert_eq!(asset.status().await, Status::Expired);
+        assert_eq!(
+            asset.data.read().await.metadata.version(),
+            Some(version),
+            "the stale-dependency branch must not touch the prepared version"
+        );
     }
 
     /// U4 — the claim that extracting the classifier changes no state-read behaviour.

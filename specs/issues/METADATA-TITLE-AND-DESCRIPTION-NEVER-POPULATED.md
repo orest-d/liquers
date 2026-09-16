@@ -19,9 +19,9 @@ to be one of them.
 **Recipes are the main mechanism, and they work.** `Recipe` carries `title` and `description`
 (`recipes.rs:67`, `:73`) precisely because, as its module docs say, they are "human facing data
 ... which would be difficult in a compact query string". When an asset resolves its own recipe it
-makes them authoritative: `assets.rs:2627-2628` calls
+makes them authoritative: `assets.rs:2708-2709` calls
 `.with_title(recipe.title.clone()).with_description(recipe.description.clone())`, and
-`assets.rs:7619` asserts the result. `Recipe::to_asset_info` (`recipes.rs:375-376`) does the same
+`assets.rs:7731` asserts the result. `Recipe::to_asset_info` (`recipes.rs:375-376`) does the same
 for a key that has a recipe but has never been evaluated, which is the branch
 `AssetManager::get_asset_info` reaches through the recipe provider.
 

@@ -9,9 +9,10 @@ ASSET-KEYED-DELEGATION-ALWAYS-CYCLES,issue,The keyed delegation branch cannot su
 ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE,issue,insert_key_asset silently does nothing on the queued manager when the key is taken,closed,local,,covered,P2,S,core/assets,,,,asset-manager-insert-key-asset-no-overwrite,,2026-08-09,specs/issues/ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE.md
 ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED,issue,An asset never records that its evaluation required a payload,closed,local,,,P2,M,core/assets;core/context,,,,evaluate-path-consolidation,,2026-09-03,specs/issues/ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED.md
 ASSET-REGISTRATION-OWNERSHIP-CONTRACT,feature,"Registration of a keyed asset is a manager convenience, not a contract anything can rely on",draft,local,,,P2,L,core/assets,,,,,,2026-09-03,specs/issues/ASSET-REGISTRATION-OWNERSHIP-CONTRACT.md
-ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY,issue,An asset evaluated from a stale dependency is persisted as Ready and only then labelled Expired,draft,local,,,P1,M,core/assets,,,,stale-dependency-status-finalization,,2026-09-03,specs/issues/ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY.md
+ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY,issue,An asset evaluated from a stale dependency is persisted as Ready and only then labelled Expired,closed,local,,,P1,M,core/assets,,,,stale-dependency-status-finalization,,2026-09-03,specs/issues/ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY.md
 ASSETS-FIX1,feature,Unresolved TODO and FIXME markers in the asset lifecycle,accepted,local,,,P2,L,core/assets,,,,,,2026-08-08,specs/issues/ASSETS-FIX1.md
 ASSETS-IMPROVEMENTS,feature,"Asset persistence, eviction safety and upload limits",accepted,local,,,P2,L,core/assets;core/store,,,,,,2026-08-08,specs/issues/ASSETS-IMPROVEMENTS.md
+AUDIT-CANNOT-EXPIRE-ON-A-FIRST-OBSERVED-VERSION,issue,An explicit dependency audit cannot expire a dependent whose dependency version merely moved,draft,local,,,P2,S,core/assets,,,,,,2026-09-15,specs/issues/AUDIT-CANNOT-EXPIRE-ON-A-FIRST-OBSERVED-VERSION.md
 AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED,issue,Six documented assets API endpoints return 501 Not Implemented,draft,local,,,P0,M,axum;core/assets,,,,,,2026-09-15,specs/issues/AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED.md
 AXUM-HANDLER-TEST-COVERAGE,issue,"liquers-axum has no handler test scaffolding, so handler behaviour is verified only by review",accepted,local,,,P2,M,axum,,,,expired-binary-read-safety,,2026-08-08,specs/issues/AXUM-HANDLER-TEST-COVERAGE.md
 AXUM-QUERY-TIMEOUT-HARDCODED,issue,The query handler's 30-second timeout is hardcoded,draft,local,,,P2,S,axum,,,,,,2026-09-16,specs/issues/AXUM-QUERY-TIMEOUT-HARDCODED.md
@@ -64,7 +65,7 @@ CORE-TOKIO-REMOVAL,issue,Core still depends on tokio primitives on wasm,accepted
 CORE-TRACING-MIGRATION,issue,Diagnostics use `eprintln!` rather than structured logging,accepted,local,,,P2,M,core/error;build,,,,,,2026-08-08,specs/issues/CORE-TRACING-MIGRATION.md
 CORE-VALUE-ENUM-OVERSIZED,issue,Every Value occupies 704 bytes because three variants are stored unboxed,draft,local,,,P2,M,core/value;lib/value,,,,,,2026-08-18,specs/issues/CORE-VALUE-ENUM-OVERSIZED.md
 CORE-VALUE-INTERFACE-CAPABILITY-SPLIT,issue,`ValueInterface` bundles capabilities every implementor must provide,accepted,local,,,P2,L,core/value;lib/value;py,,,,,,2026-08-08,specs/issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md
-CROSS-PROCESS-RELOAD-IS-UNTESTED,issue,No test exercises reloading a persisted dependent in a fresh environment,draft,local,,,P2,M,core/assets;build,,,,,,2026-09-06,specs/issues/CROSS-PROCESS-RELOAD-IS-UNTESTED.md
+CROSS-PROCESS-RELOAD-IS-UNTESTED,issue,No test exercises reloading a persisted dependent in a fresh environment,closed,local,,,P2,M,core/assets;build,,,,stale-dependency-status-finalization,,2026-09-06,specs/issues/CROSS-PROCESS-RELOAD-IS-UNTESTED.md
 CWD-KEY-LINK-NOT-CONSUMABLE-BY-COMMAND,issue,A `-R-key/` link cannot be consumed as a command argument,closed,local,,,P1,S,core/commands;core/query,,,,plan-cwd-freeze,,2026-08-15,specs/issues/CWD-KEY-LINK-NOT-CONSUMABLE-BY-COMMAND.md
 DATA-FORMAT-CONSTANTS-AND-TOOLING,feature,"Data formats are bare string literals with no constants, validation, or generic serde path",draft,local,,,P2,L,core/value;lib/value;lib/commands;macro,,,,,,2026-08-18,specs/issues/DATA-FORMAT-CONSTANTS-AND-TOOLING.md
 DELEGATED-VALUE-REPERSISTED,issue,An asset that delegates to a key's owner writes the owner's value to the store again,closed,local,,covered,P3,S,core/assets,,,,delegated-value-persistence,,2026-08-12,specs/issues/DELEGATED-VALUE-REPERSISTED.md
@@ -84,7 +85,7 @@ ERROR-WITH-KEY-SETS-QUERY-FIELD,issue,Error context cannot distinguish asset key
 EVALUATE-DOES-NOT-CLEAR-CACHED-BINARY,issue,The evaluation body installs a new value without invalidating the cached binary,closed,local,,,P2,S,core/assets,,,,keyed-expiry-cascade-fix,,2026-09-04,specs/issues/EVALUATE-DOES-NOT-CLEAR-CACHED-BINARY.md
 EXPIRATION-INTEGRATION-SUITE-FAILING-AT-HEAD,issue,Five expiration_integration tests fail at HEAD,closed,local,,,P0,M,core/assets,,,,,,2026-08-09,specs/issues/EXPIRATION-INTEGRATION-SUITE-FAILING-AT-HEAD.md
 EXPIRATION-RECOVERY-WEB-API,issue,Expiration recovery has no web API surface,accepted,local,,,P2,M,axum;core/assets,,,,,,2026-08-08,specs/issues/EXPIRATION-RECOVERY-WEB-API.md
-EXPIRY-RECORDS-NO-REASON,issue,"An asset that becomes Expired records no reason, and the one path that does names the dependency by asset id",draft,local,,,P2,S,core/assets,,,,,,2026-09-04,specs/issues/EXPIRY-RECORDS-NO-REASON.md
+EXPIRY-RECORDS-NO-REASON,issue,"An asset that becomes Expired records no reason, and the one path that does names the dependency by asset id",draft,local,,,P2,M,core/assets,,,,,,2026-09-04,specs/issues/EXPIRY-RECORDS-NO-REASON.md
 EXTENDED-FAST-TRACK,feature,Fast-track covers only simple loading,accepted,local,,,P2,L,core/assets,,,,,,2026-08-08,specs/issues/EXTENDED-FAST-TRACK.md
 FOREIGN-VALUE-TYPES-NOT-REGISTERED,issue,A foreign language value cannot be registered in the type registry,closed,local,,,P1,M,core/value;lib/value;web;py,,,,foreign-value-type-registration,,2026-08-18,specs/issues/FOREIGN-VALUE-TYPES-NOT-REGISTERED.md
 IMMEDIATE-MANAGER-NO-FAST-TRACK,issue,"ImmediateAssetManager never fast-tracks, so a stored file cannot be read by key on wasm",closed,local,,,P1,M,core/assets;web,,,,,,2026-08-09,specs/issues/IMMEDIATE-MANAGER-NO-FAST-TRACK.md
@@ -135,6 +136,7 @@ RUSTDOC-PUBLIC-DOCS-LINK-PRIVATE-ITEMS,issue,"Public rustdoc in three modules li
 SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED,issue,A write skipped because the asset was cancelled is recorded as a successful persist,draft,local,,,P2,S,core/assets,,,,,,2026-09-04,specs/issues/SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED.md
 SERIALIZE-TO-BINARY-CONSULTS-THE-READ-GATE,issue,"The persistence path serializes through a gated read, so an asset at a hidden status cannot be stored",closed,local,,,P2,S,core/assets,,,,stale-dependency-status-finalization,,2026-09-05,specs/issues/SERIALIZE-TO-BINARY-CONSULTS-THE-READ-GATE.md
 SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY,issue,"A serialized binary is cached on the asset forever, with no policy for releasing it",draft,local,,,P2,M,core/assets,,,,,,2026-09-05,specs/issues/SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY.md
+STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST,issue,"The stale-dependency path cannot be reached deterministically from a command, so no test drives it end to end",draft,local,,,P2,M,core/assets,,,,stale-dependency-status-finalization,,2026-09-15,specs/issues/STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST.md
 STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE,issue,Constructing and deserializing the same CommandMetadata give different state arguments,draft,local,,needs-decision,P2,S,core/commands,,,,state-argument-serde-default,,2026-08-29,specs/issues/STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE.md
 STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED,issue,Store key absoluteness is enforced by convention rather than by the type system,draft,local,,,P3,L,core/store;store/backends;core/query,,,,,,2026-08-17,specs/issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md
 STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE,issue,AsyncStore has no written behavioural contract and no suite holding implementations to one,closed,local,,,P1,L,core/store;store/backends;web;docs,,,,store-conformance-suite,,2026-09-02,specs/issues/STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE.md
@@ -254,7 +256,7 @@ RECIPE-PROVIDER-SELECTION,design,Selecting a recipe provider by name,complete,lo
 REFRESH-COMMAND-METADATA-VERSIONS,design,Refresh command metadata versions before environment sharing,complete,local,,,P1,S,core/commands;macro;core/context;core/assets,,,,refresh-command-metadata-versions,,2026-08-30,specs/design/refresh-command-metadata-versions/DESIGN.md
 REGISTER-COMMAND-ENUM,design,Enum parameters in register_command!,draft,local,architecture,,,,macro;core/commands,,,,register-command-enum,,2026-03-02,specs/design/register-command-enum/DESIGN.md
 SIDECAR-COLLIDING-KEYS,design,Sidecar-colliding keys refused by the path builders,complete,local,,,,,core/store;store/backends;docs,,60,,sidecar-colliding-keys,,2026-09-03,specs/design/sidecar-colliding-keys/DESIGN.md
-STALE-DEPENDENCY-STATUS-FINALIZATION,design,Status is finalized before persistence for a stale-dependency evaluation,draft,local,architecture,,,,core/assets,,,,stale-dependency-status-finalization,,2026-09-04,specs/design/stale-dependency-status-finalization/DESIGN.md
+STALE-DEPENDENCY-STATUS-FINALIZATION,design,Status is finalized before persistence for a stale-dependency evaluation,,github,documentation,,,,core/assets,,71,,stale-dependency-status-finalization,,2026-09-04,specs/design/stale-dependency-status-finalization/DESIGN.md
 STATE-ARGUMENT-SERDE-DEFAULT,design,Consistent state argument default in command metadata,in_review,local,implementation,needs-decision,P2,S,core/commands,,,,state-argument-serde-default,,2026-09-01,specs/design/state-argument-serde-default/DESIGN.md
 STORE-CONFIG-URI,design,Configuring a store from a URI,in_review,local,architecture,,P3,M,store/config;store/backends;core/store,,,,store-config-uri,,2026-08-29,specs/design/store-config-uri/DESIGN.md
 STORE-CONFORMANCE-SUITE,design,"An implemented conformance suite, a completed contract, and a store implementation guide",complete,local,,,,,core/store;store/backends;web;docs,,59,,store-conformance-suite,,2026-09-02,specs/design/store-conformance-suite/DESIGN.md
@@ -281,12 +283,12 @@ WP2-TERMINAL-OUTCOME,design,Asset terminal outcome contract,complete,local,,,,,c
 API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,docs,,,,,2026-08-17,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
 DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
 DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,core/query,,,,,2026-08-17,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
-DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,core/assets,,,,,2026-09-04,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
+DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,core/assets,,,,,2026-09-15,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
 DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,core/context;core/plan,,,,,2026-08-31,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
 DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,core/plan;core/assets;core/context,,,,,2026-08-29,,specs/reference/api/DOC_08_RECIPES_PLANS.md
-ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,core/assets,,,,,2026-09-04,,specs/reference/ASSET_LIFECYCLE.md
+ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,core/assets,,,,,2026-09-15,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,core/assets,,,,,2026-08-26,,specs/reference/ASSET_SET_OPERATION.md
-ASSETS,reference,Assets Specification,current,local,,,,,core/assets,,,,,2026-08-26,,specs/reference/ASSETS.md
+ASSETS,reference,Assets Specification,current,local,,,,,core/assets,,,,,2026-09-15,,specs/reference/ASSETS.md
 COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,core/commands;web;py,,,,,2026-09-05,,specs/reference/COMMAND_DECLARATION.md
 CONFORMANCE_TERMS,reference,Conformance Terms,current,local,,,,,docs,,,,,2026-09-02,,specs/reference/CONFORMANCE_TERMS.md
 DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,,core/assets,,,,,2026-09-06,,specs/reference/DEPENDENCIES_STATUS.md
@@ -308,6 +310,6 @@ ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,cur
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-09-05,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,core/query,,,,,2026-08-14,,specs/guides/QUERY_ESCAPING_GUIDE.md
 STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,core/store;store/config,,,,,2026-09-02,,specs/guides/STORE_FACTORY_GUIDE.md
-STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,core/store;store/backends;web,,,,,2026-09-04,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
+STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,core/store;store/backends;web,,,,,2026-09-15,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,core/value;lib/value,,,,,2026-08-26,,specs/guides/TYPE_SYSTEM_GUIDE.md
-UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,build,,,,,2026-09-04,,specs/guides/UNITTEST_GUIDE.md
+UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,build;core/assets,,,,,2026-09-15,,specs/guides/UNITTEST_GUIDE.md

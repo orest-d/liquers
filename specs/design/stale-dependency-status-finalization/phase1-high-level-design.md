@@ -21,9 +21,9 @@ None. No query syntax, parsing, planning or `Key` encoding changes.
 ### Store System
 
 Changes **what** is written for one asset shape, not how. The value is written once, as today; only
-the status carried in its sidecar metadata changes from `Ready` to `Expired`. The existing load
+the status carried in its stored metadata changes from `Ready` to `Expired`. The existing load
 gate already honours this: `AssetRef::try_fast_track` (`assets.rs:1048`) refuses a stored status
-outside `{Ready, Source, Override}`, so an `Expired` sidecar becomes a cache miss with no further
+outside `{Ready, Source, Override}`, so `Expired` stored metadata becomes a cache miss with no further
 work.
 
 ### Command System

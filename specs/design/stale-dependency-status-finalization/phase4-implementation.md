@@ -1,444 +1,487 @@
 # Phase 4: Implementation Plan - Stale-Dependency Status Finalization
 
+> **Revision 2 (2026-09-15).** Rewritten against HEAD and against Phase 2/3 Revision 2. Revision 1's
+> Step 1 (a rename) is gone, its Step 2 lost the `serialize_to_binary` change to an upstream fix, and
+> its Step 3 is replaced. Two steps are new: the dependency-manager extraction and the fast-track
+> check.
+
 ## Overview
 
 **Feature:** Stale-dependency status finalization (`ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY`, P1)
 
-**Architecture:** The stale-dependency rule moves from the run harness into the status authority,
-which is renamed `try_to_set_ready` → `finalize_status`, so the status is final before the
-`ValueProduced` notification and before persistence. `evaluate`'s dependency-manager step becomes a
-three-way branch: volatile → nothing; stale-dependency + keyed → `cascade_expire_dependents`;
-otherwise → `track_asset` as today.
+**Architecture:** An asset that consumed a stale dependency is decided `Expired` in
+`finalize_status_with_version`, before the notification and before persistence, so the store agrees
+with the manager. Because `track_asset` refuses an `Expired` asset and computed assets now carry real
+versions, `evaluate` registers the version directly for that case. And `try_fast_track` gains the
+reading half: a dependency it can see is expired refuses the fast track.
 
-**Estimated complexity:** Low for the source change (roughly 40 lines across one file), Medium for
-the tests — two of them need machinery that does not exist yet (`SharedMemoryStore`) or timing that
-is easy to get silently wrong (the mid-evaluation gate).
+**Estimated complexity:** Low for the source (about 60 lines across two files), Medium for the tests
+— the shared-store fixture and the mid-evaluation gate are where the time goes.
 
-**Estimated time:** 3–5 hours. The ratio is the point: Steps 1–4 are perhaps 45 minutes, and the
-rest is tests. That is expected for a defect whose whole nature is that it was invisible.
+**Estimated time:** 4–6 hours. Steps 1–4 are perhaps an hour; the rest is tests, which is expected
+for a defect whose whole nature is that it was invisible.
 
-**Prerequisites:** Phases 1–3 approved; all gate questions resolved (DM branch = cascade, priority
-P1, rename confirmed). No unresolved blocker in the Phase 2 preflight. No dependency, feature flag
-or `Cargo.toml` change anywhere in the workspace.
+**Prerequisites:** Phases 1–3 approved (Revision 2). No blocker in the Phase 2 preflight. No
+dependency, feature flag or `Cargo.toml` change.
 
-**Line numbers below are HEAD at 2026-09-04** and were re-verified immediately before writing this
-plan. They shift as soon as Step 1 lands, so later steps name *what* to change, not only where.
+**Line numbers are HEAD at 2026-09-15**, re-verified while writing this plan. They shift as soon as
+Step 1 lands, so later steps name *what* to change, not only where.
 
 ## Implementation Steps
 
-### Step 1 — Rename `try_to_set_ready` to `finalize_status`
+### Step 1 — The stale-dependency branch in `finalize_status_with_version`
 
 **File:** `liquers-core/src/assets.rs`
 
-**Action:** Rename the definition (`:1818`) and both call sites (`:2224` in
-`finish_run_with_result`, `:2553` in `evaluate`). Update the rustdoc to describe four outcomes
-rather than one. No behaviour change in this step — it is deliberately separated so that Step 2's
-diff shows only the rule.
+**Action:** Add the branch between the volatile and ready arms of `finalize_status_with_version`
+(`:1957`). Delete the relabel block from `finish_run_with_result` (`:2409-2422`).
 
 ```rust
-/// Decide and install this asset's terminal status — the single status authority.
-///
-/// Produces exactly one of `Volatile`, `Expired`, `Ready` or `Error`. Runs **before** the
-/// `ValueProduced` notification and **before** persistence, so nothing observes or stores a
-/// non-final status (`ASSET_LIFECYCLE.md` §"the one evaluation path", step 6).
-async fn finalize_status(&self) { /* body unchanged in this step */ }
-```
-
-**Validation:**
-```bash
-cargo check -p liquers-core
-grep -rn "try_to_set_ready" liquers-core/ liquers-lib/ liquers-axum/ liquers-web/ liquers-py/
-# Expected: compiles; grep returns nothing. A surviving occurrence is Phase 3 pitfall P3.
-```
-
-**Rollback:** `git checkout liquers-core/src/assets.rs`
-
-**Agent:** haiku · skills: none · knowledge: the three line numbers above.
-*Rationale:* a mechanical rename of a private method with two call sites; the compiler is the check.
-
----
-
-### Step 2 — Move the stale-dependency rule into `finalize_status`
-
-**File:** `liquers-core/src/assets.rs`
-
-**Action:** Add the branch between the volatile and ready arms, and move the warning into it.
-Delete the block at `:2249-2261` in `finish_run_with_result` (the `if lock.stale_dependency &&
-lock.status == Status::Ready` block, at `:2253`) together with its comment.
-
-```rust
-// inside finalize_status, where `lock.data.is_some()`:
+// inside finalize_status_with_version, where `lock.data.is_some()`:
 if should_be_volatile {
     // unchanged
 } else if lock.stale_dependency {
     // A dependency expired mid-execution and its stale value was used (see
-    // `wait_for_dependency`). The result is fresh but uncacheable: label it `Expired`
-    // here, before persistence, so the store agrees and the next access recomputes.
-    let _ = lock.set_status(Status::Expired);           // status AND metadata — P1
+    // `wait_for_dependency`). The result is fresh but uncacheable: decide `Expired` here,
+    // before persistence, so the store agrees and the next access recomputes.
+    if let Err(e) = lock.set_status(Status::Expired) {          // status AND metadata — P1
+        let _ = lock.metadata.add_log_entry(LogEntry::warning(/* … */));
+    }
     let _ = lock.metadata.add_log_entry(LogEntry::warning(
         "Asset evaluated with an expired dependency value; labeled expired \
          for recomputation on next access".to_string(),
     ));
-    let _ = lock.metadata.set_expiration_time_from(&metadata_expires);  // mirror Ready — P5
+    if let Err(e) = lock.metadata.set_expiration_time_from(&metadata_expires) {  // mirror Ready — P5
+        let _ = lock.metadata.add_log_entry(LogEntry::warning(/* … */));
+    }
     lock.expiration_time = lock.metadata.expiration_time();
 } else {
     // unchanged Ready arm
 }
 ```
 
-**Three things this step must not get wrong**, each a Phase 3 pitfall:
+**Five ways to get this wrong**, each a Phase 3 pitfall:
 
-- **P1** — go through `lock.set_status(...)`, never `lock.status = ...`. The metadata half is the
-  entire defect; setting only the field reproduces it one layer down.
-- **P2** — the warning is added *here*, under the same lock, not left behind in the harness.
-- **P5** — the two `expiration_time` lines are not optional; the `Ready` arm has them and the
-  scheduling step in `finish_run_with_result` reads what they set.
+- **P1** — go through `lock.set_status(...)`, never `lock.status = ...`. The metadata half *is* the defect.
+- **P2** — the warning is written here, under the same lock, not left in the harness.
+- **P5** — the two `expiration_time` lines are not optional; the `Ready` arm has them.
+- **P6** — do **not** touch `prepared.version`. Staleness is freshness, not content.
 - **P10** — `else if`, not a separate `if`. Volatility wins.
+
+Errors are surfaced as `LogEntry::warning`, matching every other arm of this function — not
+discarded with a bare `let _ =` on the `Result`.
 
 **Validation:**
 ```bash
 cargo check -p liquers-core
 grep -n "stale_dependency" liquers-core/src/assets.rs
-# Expected: the field (:584), its initializer (:955), note_expired_dependency, and exactly
-# ONE reader — in finalize_status. A reader still in finish_run_with_result means the delete
-# was missed.
+# Expected: the field, its initializer, note_expired_dependency, and exactly ONE reader —
+# in finalize_status_with_version. A reader left in finish_run_with_result means the delete was missed.
 cargo test -p liquers-core --lib test_wait_for_retained_expired_dependency
-# Expected: PASSES UNCHANGED. It uses a non-keyed asset, so Steps 1-2 must not disturb it.
+# Expected: PASSES UNCHANGED — the non-keyed regression guard.
 ```
 
-**Rollback:** `git checkout liquers-core/src/assets.rs` and redo Step 1 alone.
+**Rollback:** `git checkout liquers-core/src/assets.rs`
 
-**Agent:** sonnet · skills: rust-best-practices · knowledge: Phase 2 §"The decision inside
-`finalize_status`", Phase 3 pitfalls P1/P2/P5/P10, and the existing `Ready` arm to mirror.
-*Rationale:* small but load-bearing; the four ways to get it wrong are all silent.
+**Agent:** sonnet · rust-best-practices · Phase 2 §"Function Signatures", Phase 3 pitfalls
+P1/P2/P5/P6/P10, and the existing `Ready` arm to mirror.
+*Rationale:* small but load-bearing; all five failure modes are silent.
 
 ---
 
-### Step 3 — The dependency-manager branch in `evaluate`
+### Step 2 — Extract the keyed registration in `DependencyManager`
+
+**File:** `liquers-core/src/dependencies.rs`
+
+**Action:** Lift the keyed branch of `track_asset` (`:348`) into a `pub(crate)` method so both
+callers share one definition. Behaviour unchanged; `track_asset` calls it after its status gate and
+`bound_owner_key()` lookup.
+
+```rust
+pub(crate) async fn track_keyed_asset(
+    &self,
+    asset: &crate::assets::AssetRef<E>,
+    key: &Key,
+    records: &[DependencyRecord],
+) -> ExpiredDependents<E>;
+```
+
+**Validation:**
+```bash
+cargo check -p liquers-core
+cargo test -p liquers-core --test keyed_version_cascade
+# Expected: green — this step must be a pure refactor.
+```
+
+**Rollback:** revert the file; Step 1 stands alone.
+
+**Agent:** haiku · rust-best-practices · the body being extracted.
+*Rationale:* mechanical extraction with a test suite that already covers it.
+
+---
+
+### Step 3 — Register the version for a stale-dependency keyed asset
 
 **File:** `liquers-core/src/assets.rs`
 
-**Action:** Extend the post-finalize read (`:2555-2566`) to also take `stale_dependency`, then
-replace the `if !lock_is_volatile { track_asset }` block (`:2580-2586`) with the three-way branch.
+**Action:** Extend the post-finalize read (`:2736`) to carry `stale_dependency`, then replace the
+DM step (`:2762-2769`) with the three-way branch.
 
 ```rust
-let (save_in_background, cancelled, lock_is_volatile, stale_dependency) = {
-    let lock = self.data.read().await;
-    let _ = lock.notification_tx.send(AssetNotificationMessage::ValueProduced);
-    (lock.save_in_background, lock.is_cancelled(), lock.is_volatile, lock.stale_dependency)
-};
-
-// … persistence, unchanged …
-
-// The DM step. `track_asset` refuses `Expired`, so a stale-dependency asset would silently
-// skip registration *and* the dependent invalidation that registration performs as a side
-// effect. Cascading keeps the second without the first: an uncacheable value must not be
-// advertised as this key's current version.
 if lock_is_volatile {
     // unchanged: a volatile asset is not a graph node
 } else if stale_dependency {
-    let key = { self.data.read().await.key.clone() };          // P7: keyed only
-    if let Some(key) = key {
-        let envref = self.get_envref().await;
-        envref
-            .get_asset_manager()
-            .cascade_expire_dependents(&DependencyKey::from(&key))
-            .await;                                             // P6: no data lock held
+    // `track_asset` refuses `Expired`, and that refusal would drop the dependent invalidation
+    // this asset owes: it holds NEW content with a new version, and is `Expired` only to say
+    // "do not cache me". The gate means "no valid value"; this asset has one.
+    if let Some(key) = self.bound_owner_key().await.ok().flatten() {   // P7: ownership-aware
+        let deps = { self.data.read().await.metadata.get_dependencies().to_vec() };
+        let expired = dm.track_keyed_asset(self, &key, &deps).await;
+        manager.expire_dependencies_result(expired).await;
     }
 } else {
     // unchanged: track_asset + expire_dependencies_result
 }
 ```
 
-- **P6** — the `key` read takes and releases its own short-lived read guard. No `data` lock may be
-  held across `cascade_expire_dependents`, which takes the DM's `expiration_lock`.
-- **P7** — a non-keyed asset does nothing. There is no key to cascade on.
-- **P8** — `cascade_expire_dependents`, never `expire()` or `mark_expired_status()`. The latter
-  writes metadata only `if store.contains(&key)`, which is false at this point in the run.
+- **P7** — `bound_owner_key()`, not `lock.key`. It returns `None` for a keyed non-owner, which is
+  what makes a *delegating* stale-dependency asset register nothing, with no special branch.
+- **P8** — do not let the gate refuse it; that is the bug this step exists to avoid.
+- No `data` lock is held across the DM call — take the facts, release, then call.
 
 **Validation:**
 ```bash
-cargo check -p liquers-core
-cargo test -p liquers-core --lib
-# Expected: green, including test_wait_for_retained_expired_dependency_labels_asset_expired_on_completion
+cargo check -p liquers-core && cargo test -p liquers-core --lib
+cargo test -p liquers-core --test keyed_version_cascade --test expiration_integration
 ```
 
-**Rollback:** revert this hunk only; Steps 1–2 stand alone and already fix the persisted status.
+**Rollback:** revert this hunk only. Steps 1–2 already fix the persisted status; Step 3 is the
+dependent-invalidation half and is separable.
 
-**Agent:** sonnet · skills: rust-best-practices · knowledge: Phase 2 §"The dependency-manager
-branch in `evaluate`", `dependencies.rs:282` (`track_asset`'s status gate), `assets.rs:3960`
-(`cascade_expire_dependents`).
-*Rationale:* lock discipline and a deliberate behaviour change; not pattern-following.
+**Agent:** sonnet · rust-best-practices · Phase 2 §"The dependency-manager step",
+`dependencies.rs:348`, `assets.rs:1741` (`bound_owner_key`).
 
 ---
 
-### Step 4 — Unit tests U1–U7
+### Step 4a — Write F0 first: the fast-track success baseline
+
+**File:** `liquers-core/tests/keyed_version_cascade.rs`
+
+**Action:** Before touching `try_fast_track`, add `fast_track_succeeds_for_a_ready_stored_asset` and
+confirm it passes against unmodified code.
+
+**Why this comes first.** Searching the suite for `try_fast_track` finds one test, and it asserts
+the function returns **`false`**. Nothing asserts it can return `true`. A Step 4 that fails closed
+would stop fast-tracking entirely and **leave the suite green** — every result still correct, just
+recomputed. There is currently nowhere for that failure to land.
+
+Writing F0 first, and seeing it pass before the change, is what turns Step 4 from "hope the review
+catches it" into a checkpoint.
+
+**Validation:**
+```bash
+cargo test -p liquers-core --test keyed_version_cascade fast_track_succeeds
+# Expected: PASSES, against code with no Step 4 in it.
+```
+
+**Agent:** sonnet · rust-best-practices, liquers-unittest.
+
+---
+
+### Step 4b — Fast-track declines an expired dependency
+
+**File:** `liquers-core/src/assets.rs`
+
+**Action:** In `try_fast_track`'s dependency validation loop (`:1119-1132`), add the status check
+beside the existing version check.
+
+```rust
+for dep_record in mr.get_dependencies() {
+    // existing version check, unchanged
+    if let Some(dm_version) = dm.get_version(&dep_record.key).await { /* … */ }
+
+    // NEW. Reuse the same predicate this function applies to the asset itself, so the two
+    // cannot drift: a dependency must be in a status we would fast-track from.
+    //   1. live in the manager  -> its status is authoritative, no store read
+    //   2. otherwise            -> store.get_metadata(&key).status()
+    //   3. not determinable     -> INCONCLUSIVE, proceed
+}
+```
+
+**The rule that keeps this safe (P4):** inconclusive is **not** expired. `Key::try_from(&DependencyKey)`
+fails for a command-implementation node such as `ns-dep/command_impl---world`, which nearly every
+asset depends on; a missing or unreadable metadata read is equally inconclusive. Fail **open** on
+absence, **closed** only on positive evidence. Getting this backwards disables fast-tracking almost
+everywhere and presents as a performance collapse, not a failing test.
+
+One level only — a fast-tracked dependency runs this same check on its own dependencies, and
+in-process transitivity is the cascade's job. Stop at the first refusal.
+
+**Validation:**
+```bash
+cargo check -p liquers-core && cargo test -p liquers-core --lib --tests
+cargo test -p liquers-core --test keyed_version_cascade fast_track_succeeds
+# Expected: green, and F0 still passes. F0 failing here is P4 inverted — the check is
+# refusing a dependency it merely cannot determine.
+```
+
+**Rollback:** revert this hunk. Steps 1–3 are the writing half and stand without it.
+
+**Agent:** sonnet · rust-best-practices · Phase 2 §"Fast-track must verify…", Phase 3 Example 3.
+*Rationale:* the failure mode is silent and systemic rather than local.
+
+---
+
+### Step 5 — Unit tests U1–U8
 
 **File:** `liquers-core/src/assets.rs`, existing `#[cfg(test)] mod tests`
 
-**Action:** Add the seven tests from Phase 3's unit table.
+**Binding setup rules** (Phase 3 §"Verified Setup Facts"):
 
-**Binding setup rules** (Phase 3 §"Verified Setup Facts" — these are what three drafts got wrong):
+- construct with `AssetData::<SimpleEnvironment<Value>>::new(id, query.into(), None, envref).to_ref()`;
+- **install the value under the write lock** — `lock.data = Some(Arc::new(value))`. **Never
+  `set_value`**: it sets `Ready`, notifies, *and persists*, which would make U3 assert "before
+  persistence" after persisting;
+- read status back with `lock.metadata.status()`, not by matching `Metadata`;
+- log assertions compare `entry.kind == LogEntryKind::Warning`; there is no `level` field;
+- no `_ =>` arms.
 
-- Construct with `AssetData::<SimpleEnvironment<Value>>::new(id, query.into(), None, envref).to_ref()`.
-- **Install the value under the write lock** — `lock.data = Some(Arc::new(value))` — the way
-  `evaluate` does. **Do not use `set_value`**: it sets `Ready`, notifies, *and persists*
-  (`:3330`), which would make U3 assert "before persistence" after persisting.
-- Read status back with `lock.metadata.status()` (`metadata.rs:1966`), not by matching `Metadata`.
-- Log assertions compare `entry.kind == LogEntryKind::Warning`; there is no `level` field.
-- No `_ =>` arms anywhere.
+**Validation:** `cargo test -p liquers-core --lib finalize` then `cargo test -p liquers-core --lib`
 
-**Validation:**
-```bash
-cargo test -p liquers-core --lib finalize_status
-cargo test -p liquers-core --lib
-# Expected: seven new tests pass; nothing else changes.
-```
-
-**Rollback:** delete the added tests; Steps 1–3 are unaffected.
-
-**Agent:** sonnet · skills: rust-best-practices, liquers-unittest · knowledge: Phase 3's unit table
-and Verified Setup Facts, plus the neighbouring tests in the module for style.
-*Rationale:* the setup traps are exactly what a fast agent walked into three times.
+**Agent:** sonnet · rust-best-practices, liquers-unittest.
 
 ---
 
-### Step 5 — `SharedMemoryStore`, the test-only shared store
+### Step 6 — The re-hydration helper, in `tests/fixtures`
 
-**File:** `liquers-core/tests/expiration_integration.rs`
+**File:** `liquers-core/tests/fixtures/mod.rs` (new — the directory currently holds only data files,
+so this is the first Rust module in it), reached from each consumer with `mod fixtures;`
 
-**Action:** Add a `#[derive(Clone)]` wrapper holding `inner: Arc<AsyncMemoryStore>` and delegating
-`AsyncStore`. `AsyncMemoryStore` owns its `scc::HashMap` (`store.rs:609`) and is **not** shareable
-by cloning, so this is what lets two environments see one store.
+**Action:** Factor the re-hydration technique into a reusable helper. It is already proven inline in
+`test_get_any_status_and_to_override_from_store_only` (`expiration_integration.rs:1336`): read the
+bytes and metadata for the keys of interest out of the first store, drop the first environment
+entirely, then `set` them into a fresh `AsyncMemoryStore` behind a second environment.
+
+Three designs have now needed this, which is the condition
+`CROSS-PROCESS-RELOAD-IS-UNTESTED` itself set for promoting it out of one test file.
+
+**The shared-store wrapper is deliberately NOT built.** Decided at the Phase 4 gate:
+
+> The asset manager has been designed as the main way to assure synchronization. The store is not
+> equipped for that.
+
+Two environments over one live store is not a supported scenario, so a fixture for it would exercise
+a coordination point the system does not have. Re-hydration models what a restart actually is — a
+fresh process reading persisted bytes — so it is the more faithful mechanism, not merely the cheaper
+one. Record this in the issue's resolution note so the wrapper is not reintroduced later for the
+wrong reason.
+
+**Also build: a counting store, for F4 only.**
 
 ```rust
 #[derive(Clone)]
-struct SharedMemoryStore {
-    inner: Arc<AsyncMemoryStore>,
-}
-
-#[async_trait]
-impl AsyncStore for SharedMemoryStore {
-    async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> { self.inner.get(key).await }
-    async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
-        self.inner.set_metadata(key, metadata).await
-    }
-    // `AsyncMemoryStore` OVERRIDES these rather than inheriting the defaults, so a wrapper that
-    // delegates only the two required methods would silently get different behaviour:
-    async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> { … }
-    async fn contains(&self, key: &Key) -> Result<bool, Error> { … }
-    async fn remove(&self, key: &Key) -> Result<(), Error> { … }
-}
+struct CountingStore { inner: Arc<AsyncMemoryStore>, metadata_reads: Arc<AtomicUsize> }
 ```
 
-`AsyncStore` has **two required methods** — `get` (`store.rs:391`) and `set_metadata` (`:427`) —
-and twenty defaulted. But "required" is the wrong list to delegate by: what matters is which
-methods `AsyncMemoryStore` *overrides*, because those are where its behaviour differs from the
-trait defaults. It overrides `set`, `contains` and `remove`, so `SharedMemoryStore` must forward
-those three as well as the two required ones. Delegating only the required pair would compile and
-then behave differently from the store it is supposed to be sharing — the kind of failure that
-surfaces as a confusing test result rather than an error.
-
-If a test later exercises another method, check whether `AsyncMemoryStore` overrides it before
-relying on the default. `ToOverrideGateStore` (`expiration_integration.rs:880`) is the proven
-precedent for the wrapper shape itself.
+**Size it by compiling, not by counting required methods.** `AsyncStore` has two required methods,
+but the other twenty defaults are **not forwarding defaults** — `set`'s default is
+`Err(key_not_supported)`. A wrapper overriding only the required pair compiles and then fails every
+write. Forward every method the tests touch and let the failures tell you which.
+`ToOverrideGateStore` (`expiration_integration.rs:880`) is the proven shape.
 
 **Validation:**
 ```bash
-cargo test -p liquers-core --test expiration_integration
-# Expected: compiles and the existing suite is unaffected (nothing uses the new type yet).
+cargo test -p liquers-core --tests
+# Expected: the existing suite is unaffected; nothing uses the new module yet.
 ```
 
-**Rollback:** delete the struct.
-
-**Agent:** haiku · skills: rust-best-practices · knowledge: `ToOverrideGateStore` at
-`expiration_integration.rs:880`, the `AsyncStore` trait.
-*Rationale:* copying a proven local pattern; the compiler catches a missed method.
+**Agent:** sonnet · rust-best-practices · the inline re-hydration at `:1336`, `ToOverrideGateStore`.
+*Rationale:* a new test module reached from several files, plus a wrapper whose sizing rule is a
+known trap.
 
 ---
 
-### Step 6 — Integration tests I1–I7
+### Step 6b — The three reload tests (R1–R3)
 
-**File:** `liquers-core/tests/expiration_integration.rs`
+**File:** `liquers-core/tests/keyed_version_cascade.rs`
 
-**Action:** Add the seven scenarios from Phase 3, each generic over the environment with
-`*_default` / `*_immediate` wrappers, per `manager_parametric.rs`.
+**Action:** Write the three tests `CROSS-PROCESS-RELOAD-IS-UNTESTED` names, on the Step 6 helper.
 
-**Two things decide whether these tests are worth anything:**
+| Test | Asserts |
+|---|---|
+| R1 `reloaded_dependent_is_served_without_audit` | A dependent reloaded in a fresh environment, before its dependency has been evaluated there, is served — nothing audits by default |
+| R2 `explicit_audit_expires_a_reloaded_dependent_whose_dependency_changed` | With the dependency's stored version changed, an explicit `trigger_dependency_audit` expires the reloaded dependent |
+| R3 `a_pre_versions_record_with_version_zero_still_matches` | A `DependencyRecord` carrying `Version(0)` — as every record written before the versions work does — still matches, so the change is safe to deploy against an existing store |
 
-1. **The mid-evaluation window must be forced, not hoped for.** Copy
-   `test_dependency_expiring_during_parent_evaluation_is_allowed` (`:749`): the parent holds a
-   `tokio::sync::oneshot`, reads its dependency through `context.get_dependency_state()`, then
-   blocks; the test **polls until the child is `Ready`** (bounded, 200 × 2 ms) before expiring it
-   and releasing the gate. The bounded poll is positive proof the parent already took the value.
-   A `sleep` instead will sometimes take the scheduling-time path and pass for the wrong reason.
-   Assert the parent is `Expired` early in each scenario so a missed window fails there.
-2. **I1 asserts an evaluation counter, not a value.** The recomputed value equals the stale value,
-   so a value assertion passes whether or not the fix works. Use an `Arc<AtomicUsize>` incremented
-   in the command, reset before the second environment's request.
+**R3 is the one to write first and the one not to skip.** The issue calls it *"the least-tested
+claim in the design"*, and it is the only one of the three whose failure would mean an existing
+deployment invalidates everything on upgrade. `Version::matches` treats unknown as compatible with
+anything (`metadata.rs:65`), so the test is cheap — but the claim is currently taken on faith.
 
-Scenario bodies take `envref: EnvRef<E>` — `Environment` has no `new()`. `register_command!`
-needs `type CommandEnvironment` in scope. Recipes are built with `RecipeList` + `Recipe::new` +
-`serde_yaml::to_string`, as at `:1010`. Volatility for I7 is declared
-`register_command!(cr, fn vol_cmd() -> result volatile: true)?`.
+These three are `keyed-expiry-cascade-fix`'s debt, taken on deliberately at the Phase 4 gate because
+this design already builds the setup they need.
 
 **Validation:**
 ```bash
-cargo test -p liquers-core --test expiration_integration
-# Expected: all 14 new integration tests pass, existing suite green.
+cargo test -p liquers-core --test keyed_version_cascade
 ```
 
-**Checkpoint that proves the fix.** Before Step 6 is complete, run I2 against a build with Steps
-2–3 reverted:
+**Agent:** sonnet · rust-best-practices, liquers-unittest · the issue's Expected behaviour section,
+`trigger_dependency_audit`, `AssetManager::version`.
+
+---
+
+### Step 7 — Integration tests I1–I8 and F1–F4
+
+**Files:** `liquers-core/tests/expiration_integration.rs` (I1–I8),
+`liquers-core/tests/keyed_version_cascade.rs` (F1–F4, which already owns `chain_env`)
+
+**Reuse `chain_env` (`keyed_version_cascade.rs:36`)** — the three-link chain, the counting command
+and the non-serializable case already exist. This design introduces no new query strings.
+
+**Three things decide whether these tests are worth anything:**
+
+1. **Force the mid-evaluation window.** Copy `test_dependency_expiring_during_parent_evaluation_is_allowed`
+   (`expiration_integration.rs:748`): the parent holds a `oneshot`, reads its dependency, then
+   blocks; the test **polls until the child is `Ready`** (bounded, 200 × 2 ms) before expiring it.
+   A `sleep` takes the scheduling-time path sometimes and passes for the wrong reason.
+2. **I1 asserts a counter, not a value.** The recomputed value equals the stale one.
+3. **`get().await` before every `status()`** — `evaluate()` can return while `Processing`.
+
+**Two checkpoints that prove the tests test something.** Before this step is complete, run each
+against a build with the relevant source step stashed:
+
 ```bash
-git stash && cargo test -p liquers-core --test expiration_integration scenario_keyed_stale_dependency_is_stored_expired
+git stash && cargo test -p liquers-core --test expiration_integration keyed_stale_dependency_is_stored_expired
 # Expected: FAILS — stored status is Ready. Then `git stash pop` and confirm it passes.
+git stash && cargo test -p liquers-core --test keyed_version_cascade fast_track_declines_a_dependency_expired_in_the_store
+# Expected: FAILS. Same pop-and-confirm.
 ```
-A test that passes both before and after is testing nothing; this is the cheapest way to find that
-out.
 
-**Rollback:** delete the added scenarios.
+A test green both before and after is testing nothing, and this is the cheapest way to find out.
 
-**Agent:** sonnet · skills: rust-best-practices, liquers-unittest · knowledge: Phase 3's
-integration table, the gate test at `:749`, `manager_parametric.rs`'s parametric shape.
-*Rationale:* the timing is subtle and the failure mode is a false pass.
+**Agent:** sonnet · rust-best-practices, liquers-unittest.
 
 ---
 
-### Step 7 — Documentation and issue bookkeeping
+### Step 8 — Documentation and issue bookkeeping
 
 **Files:** `specs/reference/ASSET_LIFECYCLE.md`, `specs/reference/ASSETS.md`,
-`specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md`, `liquers-core/src/assets.rs`
-(module rustdoc), `specs/issues/ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY.md`
+`specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md`, `liquers-core/src/assets.rs` module
+rustdoc, `specs/issues/ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY.md`,
+`specs/issues/CROSS-PROCESS-RELOAD-IS-UNTESTED.md`
 
-**Action:** Per Phase 2's documentation plan.
+Per Phase 2 §"Documentation Architecture". Each reference gets a `## History` row and a `reviewed:`
+bump **in the same commit** (§9.2). `ASSETS.md` §Expiry must say the asset is *born* expired rather
+than relabelled, and the fast-track rule belongs in `ASSET_LIFECYCLE.md` beside the load path.
 
-- `ASSET_LIFECYCLE.md` step 6: name the four outcomes `finalize_status` decides between, including
-  the stale-dependency one; add the DM branch to step 8.
-- `ASSETS.md` §Expiry (`:241-244`): retarget from `finish_run_with_result` to `finalize_status`,
-  and say such an asset is *born* expired rather than relabelled — which is what keeps the
-  `*_any_status` / `to_override` sentence beside it correct.
-- `DOC_03` (`:246-248`): add that the store agrees, since the next sentence is about what manager
-  access does.
-- Module rustdoc in `assets.rs`: the read-exposure table's `Expired` row names the old location.
-- The issue: correct its four pre-consolidation citations.
+**Validation:** `python3 scripts/docs_index.py && python3 scripts/docs_index.py --check`
+— expected 0 errors, warning count unchanged.
 
-Each reference gets a `## History` row and a `reviewed:` bump **in the same commit** (§9.2).
-
-**Validation:**
-```bash
-python3 scripts/docs_index.py && python3 scripts/docs_index.py --check
-# Expected: 0 errors. Warning count unchanged from before this work.
-```
-
-**Rollback:** `git checkout specs/`
-
-**Agent:** sonnet · skills: none · knowledge: Phase 2 §"Documentation Architecture", the three
-target sections, `DOCS_STRUCTURE_GUIDE.md` §9.2.
-*Rationale:* prose that must be true; a wrong reference is worse than none.
+**Agent:** sonnet · Phase 2 §"Documentation Architecture", `DOCS_STRUCTURE_GUIDE.md` §9.2.
 
 ---
 
-### Step 8 — Full validation
+### Step 9 — Full validation
 
 ```bash
 cargo test -p liquers-core --lib --tests
-cargo test -p liquers-lib --lib --tests
+cargo test -p liquers-lib --no-default-features --lib --tests   # see note
 cargo check -p liquers-py
 bash scripts/check-build-matrix.sh
 cargo clean && cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles
 ```
 
-`liquers-lib` and `liquers-py` are compile-only confirmations that nothing public moved. The wasm
-loop matters because `assets.rs` is shared with the inline path — the one way this change could
-reach wasm is a `tokio::` primitive slipping into the new branch, which it must not.
+**Note on `liquers-lib`.** `cargo test -p liquers-lib --lib --tests` does not run on this
+toolchain (rustc 1.94.1) — `BUILD-SYSINFO-REQUIRES-NEWER-RUSTC`. Its 2026-09-06 update records the
+`--no-default-features` loop as the working substitute, which `keyed-expiry-cascade-fix` used for
+the same reason. Use it, and **say so in the PR** rather than reporting a clean `liquers-lib` run
+that did not happen.
 
-**Agent:** haiku · skills: none · knowledge: `CLAUDE.md` §"Building and testing".
+The wasm loop matters because `assets.rs` is shared with the inline path: the one way this change
+reaches wasm is a `tokio::` primitive slipping into a new branch, which it must not.
+
+**Agent:** haiku · `CLAUDE.md` §"Building and testing".
 
 ## Testing Plan
 
 | When | Command | Expected |
 |---|---|---|
-| After Step 1 | `cargo check -p liquers-core` + the `try_to_set_ready` grep | Compiles; grep empty |
-| After Step 2 | `cargo test -p liquers-core --lib test_wait_for_retained_expired_dependency` | **Passes unchanged** — the non-keyed regression guard |
-| After Step 4 | `cargo test -p liquers-core --lib` | 7 new unit tests pass, no regressions |
-| During Step 6 | I2 with Steps 2–3 stashed | **Fails**, then passes — proves the test tests the fix |
-| After Step 6 | `cargo test -p liquers-core --test expiration_integration` | 14 new integration tests pass |
-| After Step 7 | `docs_index.py --check` | 0 errors |
-| After Step 8 | the full matrix above | Green, wasm included |
+| After Step 1 | `cargo test -p liquers-core --lib test_wait_for_retained_expired_dependency` | **Passes unchanged** — the non-keyed guard |
+| After Step 2 | `cargo test -p liquers-core --test keyed_version_cascade` | Green — the extraction is a pure refactor |
+| Before Step 4b | `cargo test … fast_track_succeeds` | **Passes on unmodified code** — the baseline, established before the change |
+| After Step 4b | `cargo test -p liquers-core --lib --tests` + F0 | Green, F0 still passing. F0 failing is P4 inverted |
+| After Step 5 | `cargo test -p liquers-core --lib` | 8 new unit tests pass |
+| During Step 7 | the two stash checkpoints | **Fail**, then pass |
+| After Step 7 | `cargo test -p liquers-core --tests` | I1–I8 and F1–F4 pass |
+| After Step 8 | `docs_index.py --check` | 0 errors |
+| After Step 9 | the matrix above | Green, wasm included |
 
-**No manual validation.** There is no binary to run and no query whose output changes: the entire
-observable difference is a status byte in a stored sidecar, which I2 asserts directly. Saying so is
-better than inventing a ritual command.
+**No manual validation.** There is no binary to run and no query whose output changes; the entire
+observable difference is a status in stored metadata and a refused fast track, both asserted
+directly. Saying so beats inventing a ritual command.
 
-## Task Splitting (Agent Assignments)
+## Task Splitting (Agent Assignment)
 
 | Step | Model | Skills | Rationale |
 |---|---|---|---|
-| 1 Rename | haiku | — | Mechanical; compiler-checked |
-| 2 Move the rule | sonnet | rust-best-practices | Four silent failure modes (P1, P2, P5, P10) |
-| 3 DM branch | sonnet | rust-best-practices | Lock discipline; deliberate behaviour change |
-| 4 Unit tests | sonnet | rust-best-practices, liquers-unittest | The setup traps that defeated three drafts |
-| 5 `SharedMemoryStore` | haiku | rust-best-practices | Copying a proven local pattern |
-| 6 Integration tests | sonnet | rust-best-practices, liquers-unittest | Subtle timing; failure mode is a false pass |
-| 7 Documentation | sonnet | — | Prose that must be true |
-| 8 Validation | haiku | — | Running listed commands |
+| 1 Finalization branch | sonnet | rust-best-practices | Five silent failure modes |
+| 2 DM extraction | haiku | rust-best-practices | Mechanical; covered by an existing suite |
+| 3 Register directly | sonnet | rust-best-practices | Ownership-aware key derivation; deliberate behaviour change |
+| 4a F0 baseline | sonnet | rust-best-practices, liquers-unittest | Must exist before 4b, or 4b has no failure mode |
+| 4b Fast-track check | sonnet | rust-best-practices | Failure mode is systemic and silent |
+| 5 Unit tests | sonnet | rust-best-practices, liquers-unittest | The setup traps |
+| 6 Re-hydration helper + counting store | sonnet | rust-best-practices | New shared test module; the wrapper sizing rule is a known trap |
+| 6b Reload tests R1-R3 | sonnet | rust-best-practices, liquers-unittest | Another design's debt; R3 is deployment safety |
+| 7 Integration tests | sonnet | rust-best-practices, liquers-unittest | Subtle timing; failure mode is a false pass |
+| 8 Documentation | sonnet | — | Prose that must be true |
+| 9 Validation | haiku | — | Running listed commands |
 
-No step needs opus: there is no cross-crate reasoning and no open architectural question — Phase 2
-closed all four.
+No step needs opus: Phase 2 closed every architectural question.
 
 ## Rollback Plan
 
-The steps are ordered so that each prefix is a coherent state:
+Ordered so each prefix is coherent:
 
-- **After Steps 1–2** the defect is fixed and the store is correct. Step 3 is a separate concern
-  (dependent invalidation) and can be reverted alone without reopening the bug.
-- **After Step 4** the fix is proven in-process.
-- **Steps 5–6** add no source behaviour; reverting them loses coverage, not correctness.
+- **Steps 1–2** fix the persisted status. The defect is closed.
+- **Step 3** adds dependent invalidation; revertible alone without reopening the bug.
+- **Steps 4a–4b** add the reading half; revertible alone, leaving the writing half intact.
+- **Steps 5–7** add no source behaviour; reverting loses coverage, not correctness.
 
-If Step 3 proves wrong in review — the broader cascade turns out to be too aggressive — revert that
-hunk only and file the invalidation gap as an issue, per the Phase 2 alternative the owner
-considered and rejected. That is the one place this plan can partially retreat without returning to
-Phase 2.
-
-If Step 2 cannot be made to work as specified, the design's premise is wrong and the correct move
-is Phase 2, not a workaround in Phase 4.
+If Step 3 or Step 4 proves wrong in review, revert that hunk and file the gap rather than widening
+the change. If Step 1 cannot be made to work as specified, the design's premise is wrong and the
+correct move is Phase 2, not a workaround here.
 
 ## Phase 5 Entry Criteria
 
-Phase 5 is **mandatory** for `workflow: liquers-project`. It starts when, and only when:
+Phase 5 is **mandatory** for `workflow: liquers-project`. It starts when Steps 1–9 are complete and
+green, every review comment is answered, and nothing in the Definition of Done is outstanding.
 
-- Steps 1–8 are complete and Step 8's matrix is green;
-- every review comment on the implementation is answered or incorporated — including anything the
-  Claude Approvals check raises, if the repository runs it on the PR;
-- nothing in the Definition of Done below is outstanding.
+Phase 5 owns four things this phase does not:
 
-Phase 5 then owns four things this phase deliberately does not:
+1. The one-to-three-page summary of what was actually implemented, with deviations and reasons.
+2. Closing `ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY` and `CROSS-PROCESS-RELOAD-IS-UNTESTED` with
+   resolution notes (§4.3). The second one's note must record **why the shared-store fixture it
+   proposed was not built** — the asset manager, not the store, is the synchronization mechanism —
+   or the wrapper will be reintroduced later for the wrong reason. **Step 8 corrects the first issue's text but does not close it** — an
+   issue closes when the work is done and validated, not when the plan says it will be.
+3. Re-reviewing the three references against the behaviour that shipped, not this plan's account.
+4. Deciding whether Phase 3's Verified Setup Facts belong in `specs/guides/UNITTEST_GUIDE.md`.
 
-1. The one-to-three-page summary of what was actually implemented, and any deviation from this plan
-   with its reason.
-2. Closing `ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY` with a resolution note (§4.3). **Step 7
-   corrects the issue's stale citations but does not close it** — an issue is closed when the work
-   is done and validated, not when the plan says it will be.
-3. Re-reviewing the three references against the behaviour that actually shipped, rather than
-   against this plan's description of it.
-4. Deciding whether the Phase 3 testing knowledge — `set_value` persists; `AsyncMemoryStore` is not
-   shareable by cloning; a cross-process test must count evaluations — belongs in
-   `specs/guides/UNITTEST_GUIDE.md`. Phase 3 recommends it; Phase 5 decides, since by then it will
-   be clear whether the knowledge generalizes or was specific to this change.
-
-`EXPIRY-RECORDS-NO-REASON` stays open regardless: it is separate work, and this design's Step 2
-only establishes the ordering precedent it must follow.
+`EXPIRY-RECORDS-NO-REASON` stays open: separate work, for which this design only sets the ordering
+precedent and the recommended shape.
 
 ## Definition of Done
 
-- [ ] `try_to_set_ready` appears nowhere in the workspace
-- [ ] Exactly one reader of `stale_dependency`, in `finalize_status`
-- [ ] I2 fails with Steps 2–3 reverted and passes with them
+- [ ] Exactly one reader of `stale_dependency`, in `finalize_status_with_version`
 - [ ] `test_wait_for_retained_expired_dependency_labels_asset_expired_on_completion` passes
       **unchanged** — not edited to agree
-- [ ] Step 8's full matrix green, wasm included
+- [ ] `keyed_expiry_cascades_to_keyed_dependents` still green
+- [ ] Both stash checkpoints observed failing, then passing
+- [ ] F0 passed on unmodified code before Step 4b was written, and still passes after
+- [ ] F3 passes: an inconclusive dependency still fast-tracks
+- [ ] R1-R3 pass, and R3 specifically — a `Version(0)` record still matches
+- [ ] Step 9's matrix green, wasm included, with the `liquers-lib` substitution stated
 - [ ] Three references updated with `## History` rows and `reviewed:` bumps
 - [ ] `docs_index.py --check` at 0 errors
-- [ ] Phase 5 entered — it is mandatory for `workflow: liquers-project`, and the issue's status is
-      settled there, not here
+- [ ] Phase 5 entered

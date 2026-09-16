@@ -3,7 +3,7 @@ title: Store Implementation Guide
 kind: guide
 audience: internal
 area: [core/store, store/backends, web]
-reviewed: 2026-09-04
+reviewed: 2026-09-15
 ---
 # Store Implementation Guide
 
@@ -40,6 +40,26 @@ adds is *which* of these paths applies to you.
 
 **A store nobody can construct from configuration is half delivered.** The most common way to
 finish a store and have nothing work is to implement the trait and stop.
+
+### A wrapper is not two methods
+
+`AsyncStore` has **two required methods**, and that number is a trap. The other twenty come with
+defaults, but they are **error stubs, not forwarding defaults** — `set`'s default is
+`Err(key_not_supported)`, and the rest are the same shape. The count measures what the compiler
+insists on, not what a working store owes.
+
+This matters most for a *wrapper*: a store that delegates to an inner one to add counting, tracing,
+read-only enforcement or a prefix. Overriding only the required pair compiles without a warning and
+then fails every write at runtime, in a store that looks finished.
+
+Write the wrapper, compile the code that uses it, and add the forwards the failures name — never
+size it from the required-method count. `liquers-core/tests/fixtures/mod.rs::CountingStore` is a
+small worked example.
+
+The same applies to a store that genuinely does not support an operation: leaving the default in
+place is a deliberate, declared choice, matched by a `StoreCapabilities` entry (§4) so the
+conformance suite skips it rather than failing on it. An undeclared default is not a declined
+capability, it is an oversight.
 
 ## 2. The questions to answer first
 
@@ -367,6 +387,7 @@ serde for exactly this reason. Regenerate it rather than editing it.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-15 | §1: added "A wrapper is not two methods" — `AsyncStore`'s twenty defaults are error stubs rather than forwarding defaults, so a wrapper must be sized by compiling and an undeclared default is an oversight rather than a declined capability. | `stale-dependency-status-finalization` |
 | 2026-09-04 | Added the `listdir` absence rule: an absent addressable directory is empty, but a failed filesystem operation must remain an error. | phase-5 |
 | 2026-09-03 | §"The key space" now says *how* to refuse an unrepresentable key, not only that you must: one `ReservedNames` predicate consulted by `is_supported`, the path builders and the listing filters, declaring what your own layout reserves and no more. Records the three failure modes behind that advice — `is_supported` is a routing hint and does not bind a direct caller; an unfiltered listing turns a refusal into a failed enumeration; over-reserving refuses keys for nothing — and the recovery routes for a store that already holds a colliding file. | `design/sidecar-colliding-keys/` Phase 5 |
 | 2026-09-02 | Created. The operational counterpart to `reference/STORE_SEMANTICS.md`: what implementing a store means, the questions to answer first, the sibling rule, the capability model, how to write a fixture and run the suite, the safety levels and their precautions, a worked restricted store, and the status of the ten in-tree implementations. | `design/store-conformance-suite/` Phase 4 step 14 |

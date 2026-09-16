@@ -63,6 +63,7 @@ The largest subsystem and the one carrying the most history — the dependency, 
 volatility work all landed in `assets.rs`.
 
 - **Asset model and lifecycle** — documented → [`reference/ASSETS.md`](reference/ASSETS.md) *(also: [lifecycle map](reference/ASSET_LIFECYCLE.md), [execution lifecycle](reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md), [set operations](reference/ASSET_SET_OPERATION.md))*
+- **Status authority, and reuse across a restart** — documented → [`reference/ASSETS.md`](reference/ASSETS.md) §Who decides status *(also [`reference/ASSET_LIFECYCLE.md`](reference/ASSET_LIFECYCLE.md) §Reusing a stored asset; design in [`design/stale-dependency-status-finalization/`](design/stale-dependency-status-finalization/))*
 - **Environment construction and manager readiness** — documented → [`guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md`](guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md) *(design in [`design/environment-builder/`](design/environment-builder/))*
 - **`Status::Dependencies` semantics** — documented → [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md)
 - **Dependency-wait lifecycle and deadlock-safe delegation** — built → [`design/dependency-management/`](design/dependency-management/)
@@ -228,9 +229,7 @@ question are both measure-first items.
 ## Open issues attached to live design work
 
 <!-- BEGIN generated: issues -->
-| Issue | Pri | Cx | Design |
-|---|---|---|---|
-| [`ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY`](issues/ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY.md) | P1 | M | `stale-dependency-status-finalization` |
+*None.*
 <!-- END generated: issues -->
 
 ## Not yet placed
@@ -291,7 +290,6 @@ deliberately folded behind a broader line.
 - design `recipe-plan-declarations`
 - design `refresh-command-metadata-versions`
 - design `sidecar-colliding-keys`
-- design `stale-dependency-status-finalization`
 - design `state-argument-serde-default`
 - design `store-conformance-suite`
 - design `store-directory-metadata-children`

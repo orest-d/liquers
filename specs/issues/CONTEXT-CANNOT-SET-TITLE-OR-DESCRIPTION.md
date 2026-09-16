@@ -19,7 +19,7 @@ their fields, and the log and progress methods add entries. There is no `set_tit
 `set_description`.
 
 The fields are not inaccessible in principle: `MetadataRecord::with_title` and `with_description`
-exist (`metadata.rs:1174`, `:1179`), and `assets.rs:2627` calls both when an asset adopts its
+exist (`metadata.rs:1174`, `:1179`), and `assets.rs:2708` calls both when an asset adopts its
 recipe's human-facing metadata. A command simply has no route to them.
 
 ## Impact
@@ -46,7 +46,7 @@ shaped like `set_filename` — async, writing through to the asset's `MetadataRe
 
 Questions for whoever picks this up:
 
-- **Precedence against a recipe.** `assets.rs:2627` makes the recipe's title authoritative when
+- **Precedence against a recipe.** `assets.rs:2708` makes the recipe's title authoritative when
   the asset resolves its own recipe. Does a command's later call override it, or is a
   recipe-declared title final? Overriding seems right — it happens later and knows more — but it
   must be a decision, and the recipe's comment calls its metadata "authoritative".
