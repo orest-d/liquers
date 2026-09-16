@@ -3,12 +3,12 @@ id: STALE-DEPENDENCY-STATUS-FINALIZATION
 kind: design
 title: Status is finalized before persistence for a stale-dependency evaluation
 workflow: liquers-project
-status: draft
-phase: architecture
+status:
+phase: documentation
 area: [core/assets]
-gh_pr: []
-issues: [ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY, EXPIRY-RECORDS-NO-REASON]
-affects_docs: [ASSET_LIFECYCLE, ASSETS, DOC_03_ASSETS_EXECUTION_LIFECYCLE]
+gh_pr: [71]
+issues: [ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY, CROSS-PROCESS-RELOAD-IS-UNTESTED, EXPIRY-RECORDS-NO-REASON, STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST, AUDIT-CANNOT-EXPIRE-ON-A-FIRST-OBSERVED-VERSION]
+affects_docs: [ASSETS, ASSET_LIFECYCLE, DOC_03_ASSETS_EXECUTION_LIFECYCLE, UNITTEST_GUIDE, STORE_IMPLEMENTATION_GUIDE]
 created: 2026-09-04
 superseded_by:
 ---
@@ -21,8 +21,8 @@ superseded_by:
 - [x] Phase 1: High-Level Design (approved 2026-09-04)
 - [x] Phase 2: Solution & Architecture (approved 2026-09-04)
 - [x] Phase 3: Examples & Testing (approved 2026-09-04)
-- [ ] Phase 4: Implementation Plan (drafted, **not approvable** — returned to Phase 2)
-- [ ] Phase 5: Documentation
+- [x] Phase 4: Implementation Plan (Revision 2 approved 2026-09-15)
+- [ ] Phase 5: Documentation (drafted 2026-09-15, awaiting approval)
 - [ ] Implementation Complete
 
 ## Notes
@@ -168,7 +168,7 @@ at all" option needs deciding explicitly given B1.
 Filed separately from this design: `EVALUATE-DOES-NOT-CLEAR-CACHED-BINARY` and
 `SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED`.
 
-## Where this stands, and how to resume (2026-09-05)
+## Where this stands, and how to resume (superseded — see the 2026-09-11 update below)
 
 **Blocked, deliberately, on `KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS` (P1, L).** This
 folder is published as preparatory design work so the reasoning survives the gap; it is not ready to
@@ -238,3 +238,116 @@ having two required methods makes a shared-store wrapper "two forwarding bodies"
 other twenty are defaulted, but `set`'s default is an error rather than a forward. Recorded in
 `CROSS-PROCESS-RELOAD-IS-UNTESTED`, which now owns that fixture.
 
+
+## Unblocked 2026-09-11: what the versions work changed
+
+`KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS` is **closed**; `keyed-expiry-cascade-fix`
+(PR #69) is merged. Computed keyed assets now carry a content version — the hash of their
+serialized bytes, with `Version::new_unique` as the fallback — assigned by `prepare_version` in the
+same write transaction as the status.
+
+The defect this design fixes is **still live at HEAD**: the stale-dependency relabel is still in
+`finish_run_with_result` (`assets.rs:2414`), after `evaluate` has finalized and persisted.
+
+Three of the seven issues this design's review produced were closed by that work:
+`SERIALIZE-TO-BINARY-CONSULTS-THE-READ-GATE` (which was blocking correction C1),
+`EVALUATE-DOES-NOT-CLEAR-CACHED-BINARY`, and the blocker itself.
+
+**The corrections in `phase2-architecture.md` are rewritten against the new HEAD.** The headline is
+that C2 reverses for the second time, and this is worth stating plainly because the reasoning is
+easy to lose: the choice of what the dependency-manager step should do has now been "cascade",
+"nothing", and "register the version directly", each correct for the code as it stood at the time.
+Only the last is correct for code in which computed assets have versions — and it is the option
+that could not have worked before, because there was no version to register.
+
+Phase 4's Step 3 is rewritten by C2 rather than deleted, Step 1 (the rename) is dropped entirely
+since `finalize_status_with_version` already exists, and Step 2 loses the `serialize_to_binary`
+change it inherited from C1.
+
+Phase 2 goes back to its gate with these corrections applied.
+
+## Phase 2 approved 2026-09-15 (Revision 2)
+
+Approved as written, including both recommendations: register the version directly for a
+stale-dependency keyed asset, and share the keyed-registration body through a `pub(crate)`
+`DependencyManager` method rather than duplicating it at the call site.
+
+Two owner corrections were folded into Revision 2 before approval — the governing principle (the
+manager is authoritative, the store is kept up to date on every expiry) and the single meaning of
+`Expired` — and one requirement was added: **fast-track must verify that no dependency has expired**,
+the reading half of the same principle.
+
+Separately analysed and recorded on `EXPIRY-RECORDS-NO-REASON`: a distinct `Stale` status is
+**not** recommended; a typed `ExpiryReason` in metadata carries the provenance without ~65 match
+arms, a bindings break, and a store forward-compatibility break.
+
+Phase 3 Revision 2 follows, rebuilt on `chain_env` from `keyed-expiry-cascade-fix` rather than
+inventing its own chain fixture.
+
+## Phase 3 approved 2026-09-15; Phase 4 Revision 2 drafted
+
+Phase 4 is nine steps, ordered so every prefix is a coherent state: Steps 1-2 close the defect,
+Step 3 adds dependent invalidation and Step 4 the reading half, each revertible alone.
+
+Two stash checkpoints are the plan's real teeth — the keyed-persistence test and the fast-track
+test must each be observed **failing** with their source step stashed, then passing. A test green
+both before and after is testing nothing.
+
+`liquers-lib`'s default test loop does not run on rustc 1.94.1
+(`BUILD-SYSINFO-REQUIRES-NEWER-RUSTC`); Step 9 uses the `--no-default-features` substitute that
+issue records, and requires the substitution to be stated in the PR rather than reported as a clean
+run.
+
+## Implementation 2026-09-15
+
+Steps 1-8 landed on this branch. Both behavioural halves are in and both stash checkpoints were
+run and observed failing before passing.
+
+**The checkpoint that mattered most.** I2 was run against the original behaviour reconstructed
+exactly — the relabel restored in `finish_run_with_result`, after persistence — and failed at the
+*store* assertion while the in-memory assertion passed: the defect as the issue describes it,
+reproduced and then closed. The fast-track checkpoint split as it should, F1/F2 failing without the
+check while F0/F3 kept passing, which is what makes F3 a guard rather than a restatement.
+
+**Two things the implementation found that the design had wrong.**
+
+1. **`I2` cannot be an integration test.** Phase 3 planned it end to end on the gate test in
+   `expiration_integration`, and the early assertion that design insisted on fired at once. Reaching
+   `wait_for_dependency`'s expired arm from a command needs the dependency to expire between being
+   scheduled and being waited on — scheduling evicts and recomputes an already-expired dependency,
+   and one that is `Ready` when waited on returns immediately. That window is a race, not a state a
+   gate can arrange, and the gate test proves the parent *completes*, not that it goes stale. Filed
+   as `STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST`.
+2. **`I4` needed three corrections, each the design working.** `bound_owner_key` answers `None`
+   unless the asset is the key's registered owner *and* its query is key-shaped *and* its recipe
+   targets that key. The first failure accidentally demonstrated I8, which is now its own test.
+
+**Outstanding:** R2 and F4 (breadth, not behaviour), and Phase 5.
+
+Tests: U1-U8, I2, I3, I4, I7, I8, F0-F3, R1, R3. `liquers-core` 828 lib tests and 25 binaries green;
+`liquers-lib --no-default-features` green (the `BUILD-SYSINFO-REQUIRES-NEWER-RUSTC` substitute);
+`liquers-py` checks; `liquers-core` compiles for `wasm32-unknown-unknown`.
+
+## Phase 5 drafted 2026-09-15
+
+`phase5-documentation.md` is the summary. Two things finished here rather than in Phase 4.
+
+**R2 and F4 shipped.** F4 pins that the fast-track dependency check reads no store metadata when
+every addressable dependency is live, which is what makes F2 a test of the branch it names rather
+than of the fallback. R2 shipped as the *vanished* case rather than the *moved-version* case,
+because the planned form does not pass and the reason is a defect: `audit_gaps` resolves a gap
+through `register_version`, which compares only against a version the manager previously held, and
+a fresh process holds none. Filed as `AUDIT-CANNOT-EXPIRE-ON-A-FIRST-OBSERVED-VERSION`, with the
+withdrawn test as its reproduction. It is the same shape as the `try_fast_track` gap this design
+found earlier: a path whose *success* was asserted nowhere, so nothing failed when it could not
+succeed.
+
+**The rules left the design folder.** The request at this gate was that findings with the character
+of a rule be placed where they will be found. `reference/ASSETS.md` gains §The one meaning of
+`Expired` and §Who decides status; `reference/ASSET_LIFECYCLE.md` gains §Reusing a stored asset:
+what the fast track verifies; `guides/UNITTEST_GUIDE.md` gains §Testing Assets (the promotion
+`CROSS-PROCESS-RELOAD-IS-UNTESTED` asked for); `guides/STORE_IMPLEMENTATION_GUIDE.md` §1 gains "A
+wrapper is not two methods". `affects_docs` is widened to the five documents actually reviewed.
+
+`ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY` and `CROSS-PROCESS-RELOAD-IS-UNTESTED` are closed with
+resolution notes. `EXPIRY-RECORDS-NO-REASON` stays open by design.

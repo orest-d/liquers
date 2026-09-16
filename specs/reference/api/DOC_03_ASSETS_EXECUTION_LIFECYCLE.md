@@ -3,7 +3,7 @@ title: Assets and Execution Lifecycle Reference
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-09-04
+reviewed: 2026-09-15
 ---
 # DOC-03: Assets and Execution Lifecycle
 
@@ -137,12 +137,21 @@ then:
 
 1. Deserializes the stored value
 2. Checks known dependency versions
-3. Loads dependency records into the dependency manager
-4. Installs data, binary, metadata, and stored status
-5. Sends a `JobFinished` notification
+3. Checks that no recorded dependency is in a status it would not itself reuse
+4. Loads dependency records into the dependency manager
+5. Installs data, binary, metadata, and stored status
+6. Sends a `JobFinished` notification
 
-Other stored statuses, deserialization errors, or stale known dependency versions
-reject the fast track and continue with evaluation.
+Other stored statuses, deserialization errors, stale known dependency versions, or
+a dependency in a non-reusable status reject the fast track and continue with
+evaluation.
+
+Steps 2 and 3 answer different questions and neither subsumes the other. Step 2
+detects a dependency that was recomputed into different content, and is vacuous in
+a process whose dependency manager holds no versions yet. Step 3 detects a
+dependency that is stale right now, asking the live asset first and the stored
+metadata only as a fallback. A dependency neither can address is inconclusive, not
+expired, and does not reject the fast track.
 
 ## Status and read contract
 
@@ -246,6 +255,15 @@ If a dependency expires after it has already been admitted to an evaluation, the
 current run uses the retained value rather than recursively restarting. The parent
 records the stale dependency and finishes as `Expired`, causing the next manager
 access to recompute it.
+
+That status is decided before the parent is written, so the store holds `Expired`
+too and a later process reloading the entry recomputes rather than serving it. The
+parent's new content version is registered in the dependency graph even though it
+is `Expired`, so assets recorded against the key's previous content are
+invalidated. Reading in the other direction, `try_fast_track` declines a stored
+asset when a recorded dependency is in a status it would not itself reuse; a
+dependency whose state cannot be determined — a command-implementation node, or one
+the store has no metadata for — is not evidence of staleness and does not block.
 
 Normal manager access does not serve expired cached state. Explicit keyed recovery
 uses:
@@ -383,6 +401,8 @@ API-surface gap.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-15 | Execution-time expiry: the parent's `Expired` status reaches the store, its version is still registered, and `try_fast_track` declines a dependency it can see is stale while treating an undeterminable one as inconclusive. | `stale-dependency-status-finalization` |
+| 2026-09-15 | §Identity, caching, and fast track: the dependency-status check is now a numbered step of its own, with a note on why the version check and the status check are independent and what "inconclusive" means. | `stale-dependency-status-finalization` |
 | 2026-09-04 | Recorded the narrowed public surface: one private evaluation body, crate-internal run entry points, `apply` absorbing `apply_immediately`. Persistence is now gated on the asset being keyed. | `design/evaluate-path-consolidation/` phase 5 |
 | 2026-08-31 | Documented the manager lifecycle under the new ownership: constructors take the `EnvRef`, `set_envref` is gone, `start` is synchronous and fallible, and `is_started` / `refresh_command_versions` / `refresh_command_versions_and_expire` replace lazy startup. | `design/environment-builder/phase-5` |
 | 2026-08-09 | Reviewed asset reads, expiration, dependency waiting, persistence, and lifecycle behavior against HEAD; documented the unified state/binary exposure policy and corrected links. | ASSET-EXPIRED-CACHED-BINARY-READ |

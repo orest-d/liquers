@@ -379,17 +379,7 @@ impl<E: Environment> DependencyManager<E> {
         };
 
         if let Some(key) = key_opt {
-            // Keyed asset: register version and load dependency records.
-            //
-            // The version comes from `version_for_tracking`, not from the snapshot above: the
-            // snapshot predates any fallback that call assigns, and only a keyed asset needs one,
-            // so asking here rather than unconditionally keeps a write lock off the query path.
-            let dep_key = DependencyKey::from(&key);
-            let version = asset.version_for_tracking().await;
-            let mut e = self.register_version(&dep_key, version).await;
-            expired.keys.append(&mut e.keys);
-            expired.assets.append(&mut e.assets);
-            let mut e = self.load_from_records(&dep_key, &deps).await;
+            let mut e = self.track_keyed_asset(asset, &key, &deps).await;
             expired.keys.append(&mut e.keys);
             expired.assets.append(&mut e.assets);
         } else {
@@ -399,6 +389,38 @@ impl<E: Environment> DependencyManager<E> {
                     .await;
             }
         }
+        expired
+    }
+
+    /// Register a keyed asset as a graph node: its current version, and its incoming edges.
+    ///
+    /// Split out of [`Self::track_asset`] so the evaluation path can reach it for an asset whose
+    /// status that method's gate refuses. The gate means *"this asset has no valid value, keep it
+    /// out of the graph"* — right for `Error`, `Cancelled`, and a deadline expiry, whose content
+    /// has not changed and whose registered version is therefore still accurate. An asset that
+    /// consumed a stale dependency is the one `Expired` that does not fit: it holds a freshly
+    /// computed value with a **new** content version and is `Expired` only to say "do not cache
+    /// me", so its dependents are built on the key's previous content and must be invalidated.
+    /// See `specs/design/stale-dependency-status-finalization/`.
+    ///
+    /// The version comes from [`AssetRef::version_for_tracking`], not from a metadata snapshot: a
+    /// snapshot predates any fallback that call assigns, and only a keyed asset needs one, so
+    /// asking here rather than unconditionally keeps a write lock off the query path.
+    pub(crate) async fn track_keyed_asset(
+        &self,
+        asset: &crate::assets::AssetRef<E>,
+        key: &crate::query::Key,
+        records: &[DependencyRecord],
+    ) -> ExpiredDependents<E> {
+        let mut expired = ExpiredDependents::new();
+        let dep_key = DependencyKey::from(key);
+        let version = asset.version_for_tracking().await;
+        let mut e = self.register_version(&dep_key, version).await;
+        expired.keys.append(&mut e.keys);
+        expired.assets.append(&mut e.assets);
+        let mut e = self.load_from_records(&dep_key, records).await;
+        expired.keys.append(&mut e.keys);
+        expired.assets.append(&mut e.assets);
         expired
     }
 
