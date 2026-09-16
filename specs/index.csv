@@ -12,7 +12,7 @@ ASSET-REGISTRATION-OWNERSHIP-CONTRACT,feature,"Registration of a keyed asset is 
 ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY,issue,An asset evaluated from a stale dependency is persisted as Ready and only then labelled Expired,draft,local,,,P1,M,core/assets,,,,stale-dependency-status-finalization,,2026-09-03,specs/issues/ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY.md
 ASSETS-FIX1,feature,Unresolved TODO and FIXME markers in the asset lifecycle,accepted,local,,,P2,L,core/assets,,,,,,2026-08-08,specs/issues/ASSETS-FIX1.md
 ASSETS-IMPROVEMENTS,feature,"Asset persistence, eviction safety and upload limits",accepted,local,,,P2,L,core/assets;core/store,,,,,,2026-08-08,specs/issues/ASSETS-IMPROVEMENTS.md
-AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED,issue,Six documented assets API endpoints return 501 Not Implemented,draft,local,,,P0,L,axum;core/assets,,,,,,2026-09-15,specs/issues/AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED.md
+AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED,issue,Six documented assets API endpoints return 501 Not Implemented,draft,local,,,P0,M,axum;core/assets,,,,,,2026-09-15,specs/issues/AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED.md
 AXUM-HANDLER-TEST-COVERAGE,issue,"liquers-axum has no handler test scaffolding, so handler behaviour is verified only by review",accepted,local,,,P2,M,axum,,,,expired-binary-read-safety,,2026-08-08,specs/issues/AXUM-HANDLER-TEST-COVERAGE.md
 AXUM-WEBSOCKET-HARDENING,issue,WebSocket endpoint is not hardened,accepted,local,,,P3,M,axum,,,,,,2026-08-08,specs/issues/AXUM-WEBSOCKET-HARDENING.md
 BENCHMARK-SUITE,feature,No reproducible benchmarks for core runtime paths,accepted,local,,,P3,M,build,,,,,,2026-08-08,specs/issues/BENCHMARK-SUITE.md

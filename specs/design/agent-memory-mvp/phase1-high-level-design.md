@@ -76,9 +76,10 @@ work from the reference and the skill without opening this folder.
 
 ## Open Questions
 
-1. What is an asset *directory listing* — stored keys, recipe-declared keys, cached query assets,
-   or the union? `AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED` must answer this before the memory
-   service can consume it.
+1. `AssetManager::get_asset_info` already resolves a key as live asset, else store, else recipe
+   provider — so an asset listing is the union, and a never-evaluated recipe key is described from
+   its recipe. Is that the contract the memory service wants, and is it what
+   `AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED` should specify?
 2. Where do `title` and `description` come from for a file store over `specs/`? A recipe that
    derives metadata from front-matter, a metadata-populating command run on write, or a store that
    reads front-matter itself.

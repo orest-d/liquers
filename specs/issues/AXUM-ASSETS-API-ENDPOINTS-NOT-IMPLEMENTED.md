@@ -4,7 +4,7 @@ kind: issue
 title: Six documented assets API endpoints return 501 Not Implemented
 status: draft
 priority: P0
-complexity: L
+complexity: M
 area: [axum, core/assets]
 design: 
 created: 2026-09-15
@@ -31,10 +31,22 @@ POST data §5.1.4, POST metadata §5.1.5, DELETE data §5.1.6, DELETE entry §5.
 
 Only `GET /data`, `GET /metadata`, `GET /entry` and `POST /cancel` do anything.
 
-Two of the stubs name their own prerequisite in a comment: deletion "would require
+Two of the stubs claim a prerequisite in a comment: deletion "would require
 AssetManager.delete() method which needs to be added to the AssetManager trait", and listing
-"would require AssetManager.list_assets()". Neither method exists on the trait, so this is not
-purely an `liquers-axum` defect — the asset layer has no listing or removal surface to expose.
+"would require AssetManager.list_assets()". **Both comments are stale.** No method by either name
+exists, but the capability does, under other names — every stubbed endpoint has a method waiting
+for it on `AssetManager`:
+
+| Stubbed endpoint | Method that already exists |
+|---|---|
+| `GET /listdir` | `listdir_asset_info(&Key) -> Vec<AssetInfo>` — defaulted, sorts directories first then by filename |
+| `POST /data` | `set_binary(&Key, &[u8], MetadataRecord)` — required, so every implementor has it |
+| `POST /entry` | `set_binary`, or `set_state(&Key, State<V>)` |
+| `POST /metadata` | no direct equivalent; the closest is `set_binary` carrying a record |
+| `DELETE /data`, `DELETE /entry` | `remove(&Key)` — required — and `remove_asset(&Query)` |
+
+So this is an `liquers-axum` defect after all: the handlers were never wired to an asset layer that
+was ready for them.
 
 ## Impact
 
@@ -58,16 +70,21 @@ endpoint is specified to provide.
 
 ## Expected behaviour
 
-The six endpoints behave as `WEB_API_SPECIFICATION.md` §5.1 specifies, which requires first
-deciding what they mean at the asset level and adding the missing `AssetManager` surface:
+The six endpoints behave as `WEB_API_SPECIFICATION.md` §5.1 specifies. Most of the work is
+wiring, not design:
 
-- **Listing.** What a directory of assets *is* — stored keys, recipe-declared keys, cached query
-  assets, or the union — and what `AssetInfo` reports for one that has never been evaluated.
-- **Removal.** Whether `DELETE` evicts the cached asset, deletes the stored value, or both, and
-  what happens to dependents. `CORE-ASSET-GC` and `QUEUED-MANAGER-EVICTION-RACE` are adjacent.
-- **Writing.** What `POST /data` means for a computed asset: rejecting it for a query that is not
-  a pure key is defensible, but it has to be a specified refusal with the documented error
-  envelope, not a blanket 501.
+- **Listing** is a thin wrapper over `listdir_asset_info`. What a directory of assets *is* turns
+  out to be already decided in `get_asset_info`, which resolves a key in three steps — a live
+  keyed asset, else the store, else the recipe provider — so a listing is the union, and a
+  recipe-declared key that has never evaluated is described from its recipe. That behaviour should
+  be specified rather than left implicit, but it does not have to be invented.
+- **Removal** needs one decision that the trait does not make for us: whether `DELETE` evicts the
+  cached asset (`remove_asset`), deletes the stored value (`remove`), or both, and what happens to
+  dependents. `CORE-ASSET-GC` and `QUEUED-MANAGER-EVICTION-RACE` are adjacent.
+- **Writing** needs the same kind of decision: what `POST /data` means for a query that is not a
+  pure key. Refusing it is defensible, but it has to be a specified refusal carrying the documented
+  error envelope, not a blanket 501.
+- **`POST /metadata`** is the one endpoint with no ready equivalent and needs the most thought.
 
 Until then, a handler that cannot do its job should return the documented error envelope naming
 `ErrorType::NotSupported` rather than a bare status with a plain-text body — `api_core/error.rs`
@@ -77,7 +94,8 @@ If any endpoint is decided against, the specification is what changes, in the sa
 
 ## Discovery
 
-Analysis for `AGENT-MEMORY-SERVICE`, 2026-09-15. Read at HEAD in
+Analysis for `AGENT-MEMORY-SERVICE`, 2026-09-15; corrected 2026-09-16 after reading the
+`AssetManager` trait rather than trusting the handlers' comments about it. Read at HEAD in
 `liquers-axum/src/assets/handlers.rs` and cross-checked against
 `reference/WEB_API_SPECIFICATION.md` §5.1. `AXUM-HANDLER-TEST-COVERAGE` is the reason nothing
 caught it: there is no handler test scaffolding, so a stub and an implementation are
