@@ -101,7 +101,7 @@ simply stop being wanted.
 - **`ValueInterface` capability split** — planned → [`issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md`](issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md)
 - **Auto-generated value descriptions** — planned → [`issues/VALUE-DESCRIPTION.md`](issues/VALUE-DESCRIPTION.md)
 - **Application-defined metadata attributes** — planned → [`issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md`](issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md)
-- **Descriptive metadata: title and description** — planned → [`issues/METADATA-TITLE-AND-DESCRIPTION-NEVER-POPULATED.md`](issues/METADATA-TITLE-AND-DESCRIPTION-NEVER-POPULATED.md)
+- **Setting title and description from a command** — planned → [`issues/CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION.md`](issues/CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION.md)
 - **Base/extended value discrimination** — planned → [`issues/COMBINED-VALUE-DISCRIMINATION.md`](issues/COMBINED-VALUE-DISCRIMINATION.md)
 
 `CORE-METADATA-TRACEBACK-SUPPORT` and `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT` are one defect

@@ -80,9 +80,10 @@ work from the reference and the skill without opening this folder.
    provider — so an asset listing is the union, and a never-evaluated recipe key is described from
    its recipe. Is that the contract the memory service wants, and is it what
    `AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED` should specify?
-2. Where do `title` and `description` come from for a file store over `specs/`? A recipe that
-   derives metadata from front-matter, a metadata-populating command run on write, or a store that
-   reads front-matter itself.
+2. Recipes are the mechanism that populates `title` and `description`, so the corpus needs
+   recipes rather than a new command. What generates them for ~300 existing documents — a
+   committed `recipes.yaml` derived from front-matter, or a recipe provider that reads
+   front-matter directly?
 3. How far does the MVP go on search, given `STORE-NO-CONTENT-OR-METADATA-SEARCH`? A command over
    a subtree is honest at ~300 documents and wrong at 100×.
 4. Does the agent-writable area live in the same store as the corpus, and what stops a note from
