@@ -43,6 +43,24 @@ Three corrections from the first draft shaped the current Phase 1, and each is l
    (`AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED`, P0), `listdir` among them. Writes likewise belong
    in a command reaching the store or asset manager through `Context`, not in a raw store POST.
 
+## Review findings carried forward
+
+Codex reviewed the first draft on PR #70 and raised five findings. The document they were written
+against was replaced, so all five threads read as outdated — but every one of them is a true
+statement about the codebase, verified independently at HEAD, and Phase 2 must not rediscover them:
+
+| Finding | Status |
+|---|---|
+| Mounting `specs/` through a raw `AsyncFileStore` is not read-only: `get` persists synthesized metadata, and `StoreApiBuilder` exposes `PUT`/`DELETE` on every mounted key | Filed as `STORE-NO-READ-ONLY-ADAPTER`. Blocks the "no `specs/` write path" non-goal |
+| `recipes.yaml` deserializes as `RecipeList`, whose root is a **mapping with a `recipes:` key**, not a bare sequence | Carried here. Phase 2 must write the mapping form |
+| The store entry write is `PUT`, not `POST` | Filed as `WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION` |
+| `FullApiBuilder` does not exist; the four builders are merged by the caller | Same issue |
+| The assets WebSocket defaults to `{base_path}/ws`, not `/liquer/ws/assets` | Same issue |
+
+Three of the five came from copying forms out of `reference/WEB_API_SPECIFICATION.md` in good
+faith. That the specification was wrong in each case is the finding behind the finding, and it is
+why this design now verifies API shapes against the builders rather than against the reference.
+
 ## Out of scope
 
 **Sessions and identity.** Liquers aims to be stateless in the way HTTP is

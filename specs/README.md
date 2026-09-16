@@ -137,6 +137,7 @@ expansion time rather than at runtime. That is the cheapest item here.
 - **Shared directory support for backends without directories** — documented → `liquers-core/src/store_dir_index.rs` *(design in [`design/opendal-path-mapping/`](design/opendal-path-mapping/))*
 - **Streaming binary access (`openbin`)** — planned → [`issues/CORE-STORE-OPENBIN-MISSING.md`](issues/CORE-STORE-OPENBIN-MISSING.md)
 - **Content and metadata search** — planned → [`issues/STORE-NO-CONTENT-OR-METADATA-SEARCH.md`](issues/STORE-NO-CONTENT-OR-METADATA-SEARCH.md)
+- **Read-only mounts** — planned → [`issues/STORE-NO-READ-ONLY-ADAPTER.md`](issues/STORE-NO-READ-ONLY-ADAPTER.md)
 - **Conditional writes and concurrent-writer semantics** — planned → [`issues/STORE-WRITE-HAS-NO-PRECONDITION.md`](issues/STORE-WRITE-HAS-NO-PRECONDITION.md)
 - **Sessions and key-level authorization** — planned → [`issues/CORE-SESSION-AND-KEY-ACL.md`](issues/CORE-SESSION-AND-KEY-ACL.md)
 
@@ -193,6 +194,7 @@ submit, and submitted query state is not preserved.
 ### Bindings and servers
 
 - **Web API** — documented → [`reference/WEB_API_SPECIFICATION.md`](reference/WEB_API_SPECIFICATION.md)
+- **Web API specification currentness** — planned → [`issues/WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION.md`](issues/WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION.md)
 - **Language integration** — documented → [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md)
 - **Assets and recipes HTTP API** — built → [`design/axum-assets-recipes-api/`](design/axum-assets-recipes-api/)
 - **Web API library** — built → [`design/web-api-library/`](design/web-api-library/)

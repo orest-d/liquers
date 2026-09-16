@@ -8,14 +8,16 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 97
+Total rows: 99
 - P0: 1
-- P2: 63
+- P1: 1
+- P2: 64
 - P3: 33
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
 | [`AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED`](issues/AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED.md) | issue | Six documented assets API endpoints return 501 Not Implemented | draft |  | P0 | M | axum;core/assets |  | 2026-09-15 |
+| [`WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION`](issues/WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION.md) | issue | The web API specification diverges from the implementation in three further ways | draft |  | P1 | S | axum;docs |  | 2026-09-16 |
 | [`QUEUED-MANAGER-EVICTION-RACE`](issues/QUEUED-MANAGER-EVICTION-RACE.md) | issue | The queued manager's cache evictions can delete a replacement asset | accepted | ready | P2 | S | core/assets | [phase1](specs/design/queued-manager-conditional-eviction/phase1-high-level-design.md)  [phase2](specs/design/queued-manager-conditional-eviction/phase2-architecture.md)  [phase3](specs/design/queued-manager-conditional-eviction/phase3-examples.md)  [phase4](specs/design/queued-manager-conditional-eviction/phase4-implementation.md)  | 2026-08-09 |
 | [`WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND`](issues/WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND.md) | issue | A JsStore delegate has no way to signal absence, so a missing key reads as a read error | draft | ready | P2 | S | web;core/store | [phase1](specs/design/js-store-not-found-sentinel/phase1-high-level-design.md)  [phase2](specs/design/js-store-not-found-sentinel/phase2-architecture.md)  [phase3](specs/design/js-store-not-found-sentinel/phase3-examples.md)  [phase4](specs/design/js-store-not-found-sentinel/phase4-implementation.md)  | 2026-09-02 |
 | [`WEB-JS-STORE-HAS-NO-DIRECTORY-METADATA`](issues/WEB-JS-STORE-HAS-NO-DIRECTORY-METADATA.md) | issue | JsStore::get_metadata delegates a directory key to get, which throws | draft | ready | P2 | S | web;core/store | [phase1](specs/design/js-store-directory-metadata/phase1-high-level-design.md)  [phase2](specs/design/js-store-directory-metadata/phase2-architecture.md)  [phase3](specs/design/js-store-directory-metadata/phase3-examples.md)  [phase4](specs/design/js-store-directory-metadata/phase4-implementation.md)  | 2026-09-02 |
@@ -54,6 +56,7 @@ Total rows: 97
 | [`SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY`](issues/SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY.md) | issue | A serialized binary is cached on the asset forever, with no policy for releasing it | draft |  | P2 | M | core/assets |  | 2026-09-05 |
 | [`STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST`](issues/STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST.md) | issue | The stale-dependency path cannot be reached deterministically from a command, so no test drives it end to end | draft |  | P2 | M | core/assets | [phase1](specs/design/stale-dependency-status-finalization/phase1-high-level-design.md)  [phase2](specs/design/stale-dependency-status-finalization/phase2-architecture.md)  [phase3](specs/design/stale-dependency-status-finalization/phase3-examples.md)  [phase4](specs/design/stale-dependency-status-finalization/phase4-implementation.md)  [phase5](specs/design/stale-dependency-status-finalization/phase5-documentation.md)  | 2026-09-15 |
 | [`STORE-CONFORMANCE-VALIDATION-TOOL`](issues/STORE-CONFORMANCE-VALIDATION-TOOL.md) | issue | No way to run the conformance suite against a store outside a test binary | accepted |  | P2 | M | store/backends;core/store |  | 2026-09-02 |
+| [`STORE-NO-READ-ONLY-ADAPTER`](issues/STORE-NO-READ-ONLY-ADAPTER.md) | feature | No read-only store adapter, so reading a file store writes to it | draft |  | P2 | M | core/store |  | 2026-09-16 |
 | [`STORE-TEST-IDS-COLLIDE-WITH-CONFORMANCE-RULE-IDS`](issues/STORE-TEST-IDS-COLLIDE-WITH-CONFORMANCE-RULE-IDS.md) | issue | Store unit tests share IDs with conformance rules that check different contracts | draft |  | P2 | M | core/store;store/backends;docs | [phase1](specs/design/store-conformance-suite/phase1-high-level-design.md)  [phase2](specs/design/store-conformance-suite/phase2-architecture.md)  [phase3](specs/design/store-conformance-suite/phase3-examples.md)  [phase4](specs/design/store-conformance-suite/phase4-implementation.md)  [phase5](specs/design/store-conformance-suite/phase5-documentation.md)  | 2026-09-02 |
 | [`STORE-WRITE-HAS-NO-PRECONDITION`](issues/STORE-WRITE-HAS-NO-PRECONDITION.md) | issue | A store write has no precondition, so concurrent writers clobber silently | draft |  | P2 | M | core/store |  | 2026-09-15 |
 | [`WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT`](issues/WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT.md) | issue | Enter key does not submit in the browser query console | accepted |  | P2 | M | lib/ui | [phase1](specs/design/ui-events/phase1-high-level-design.md)  [phase2](specs/design/ui-events/phase2-architecture.md)  [phase3](specs/design/ui-events/phase3-examples.md)  [phase4](specs/design/ui-events/phase4-implementation.md)  | 2026-08-08 |
