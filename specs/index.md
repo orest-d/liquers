@@ -8,14 +8,12 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 92
-- P1: 1
-- P2: 58
+Total rows: 90
+- P2: 57
 - P3: 33
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
-| [`ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY`](issues/ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY.md) | issue | An asset evaluated from a stale dependency is persisted as Ready and only then labelled Expired | draft |  | P1 | M | core/assets | [phase1](specs/design/stale-dependency-status-finalization/phase1-high-level-design.md)  [phase2](specs/design/stale-dependency-status-finalization/phase2-architecture.md)  [phase3](specs/design/stale-dependency-status-finalization/phase3-examples.md)  [phase4](specs/design/stale-dependency-status-finalization/phase4-implementation.md)  [phase5](specs/design/stale-dependency-status-finalization/phase5-documentation.md)  | 2026-09-03 |
 | [`QUEUED-MANAGER-EVICTION-RACE`](issues/QUEUED-MANAGER-EVICTION-RACE.md) | issue | The queued manager's cache evictions can delete a replacement asset | accepted | ready | P2 | S | core/assets | [phase1](specs/design/queued-manager-conditional-eviction/phase1-high-level-design.md)  [phase2](specs/design/queued-manager-conditional-eviction/phase2-architecture.md)  [phase3](specs/design/queued-manager-conditional-eviction/phase3-examples.md)  [phase4](specs/design/queued-manager-conditional-eviction/phase4-implementation.md)  | 2026-08-09 |
 | [`WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND`](issues/WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND.md) | issue | A JsStore delegate has no way to signal absence, so a missing key reads as a read error | draft | ready | P2 | S | web;core/store | [phase1](specs/design/js-store-not-found-sentinel/phase1-high-level-design.md)  [phase2](specs/design/js-store-not-found-sentinel/phase2-architecture.md)  [phase3](specs/design/js-store-not-found-sentinel/phase3-examples.md)  [phase4](specs/design/js-store-not-found-sentinel/phase4-implementation.md)  | 2026-09-02 |
 | [`WEB-JS-STORE-HAS-NO-DIRECTORY-METADATA`](issues/WEB-JS-STORE-HAS-NO-DIRECTORY-METADATA.md) | issue | JsStore::get_metadata delegates a directory key to get, which throws | draft | ready | P2 | S | web;core/store | [phase1](specs/design/js-store-directory-metadata/phase1-high-level-design.md)  [phase2](specs/design/js-store-directory-metadata/phase2-architecture.md)  [phase3](specs/design/js-store-directory-metadata/phase3-examples.md)  [phase4](specs/design/js-store-directory-metadata/phase4-implementation.md)  | 2026-09-02 |
@@ -36,7 +34,6 @@ Total rows: 92
 | [`CORE-SYNC-STORE-TRAIT-OBSOLETE`](issues/CORE-SYNC-STORE-TRAIT-OBSOLETE.md) | issue | The synchronous Store trait is obsolete and should be removed | draft |  | P2 | M | core/store;py;docs |  | 2026-09-02 |
 | [`CORE-TRACING-MIGRATION`](issues/CORE-TRACING-MIGRATION.md) | issue | Diagnostics use `eprintln!` rather than structured logging | accepted |  | P2 | M | core/error;build |  | 2026-08-08 |
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies 704 bytes because three variants are stored unboxed | draft |  | P2 | M | core/value;lib/value |  | 2026-08-18 |
-| [`CROSS-PROCESS-RELOAD-IS-UNTESTED`](issues/CROSS-PROCESS-RELOAD-IS-UNTESTED.md) | issue | No test exercises reloading a persisted dependent in a fresh environment | draft |  | P2 | M | core/assets;build |  | 2026-09-06 |
 | [`DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE`](issues/DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE.md) | feature | There is no way to say when dependency versions should be verified, so the strict and the exploratory workflow cannot both be served | draft |  | P2 | M | core/assets |  | 2026-09-05 |
 | [`EGUI-ASSET-MANAGER-INTEGRATION`](issues/EGUI-ASSET-MANAGER-INTEGRATION.md) | feature | No stable adapter between egui widgets and the asset manager | accepted |  | P2 | M | lib/egui |  | 2026-08-08 |
 | [`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`](issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md) | issue | Environment and asset manager hold each other with strong Arcs, so every environment leaks | draft |  | P2 | M | core/assets;core/context | [phase1](specs/design/environment-builder/phase1-high-level-design.md)  [phase2](specs/design/environment-builder/phase2-architecture.md)  [phase3](specs/design/environment-builder/phase3-examples.md)  [phase4](specs/design/environment-builder/phase4-implementation.md)  [phase5](specs/design/environment-builder/phase5-documentation.md)  | 2026-08-27 |

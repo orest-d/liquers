@@ -3,12 +3,12 @@ id: STALE-DEPENDENCY-STATUS-FINALIZATION
 kind: design
 title: Status is finalized before persistence for a stale-dependency evaluation
 workflow: liquers-project
-status: draft
-phase: implementation
+status:
+phase: documentation
 area: [core/assets]
-gh_pr: []
-issues: [ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY, EXPIRY-RECORDS-NO-REASON]
-affects_docs: [ASSET_LIFECYCLE, ASSETS, DOC_03_ASSETS_EXECUTION_LIFECYCLE]
+gh_pr: [71]
+issues: [ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY, CROSS-PROCESS-RELOAD-IS-UNTESTED, EXPIRY-RECORDS-NO-REASON, STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST, AUDIT-CANNOT-EXPIRE-ON-A-FIRST-OBSERVED-VERSION]
+affects_docs: [ASSETS, ASSET_LIFECYCLE, DOC_03_ASSETS_EXECUTION_LIFECYCLE, UNITTEST_GUIDE, STORE_IMPLEMENTATION_GUIDE]
 created: 2026-09-04
 superseded_by:
 ---
@@ -21,8 +21,8 @@ superseded_by:
 - [x] Phase 1: High-Level Design (approved 2026-09-04)
 - [x] Phase 2: Solution & Architecture (approved 2026-09-04)
 - [x] Phase 3: Examples & Testing (approved 2026-09-04)
-- [ ] Phase 4: Implementation Plan (drafted, **not approvable** — returned to Phase 2)
-- [ ] Phase 5: Documentation
+- [x] Phase 4: Implementation Plan (Revision 2 approved 2026-09-15)
+- [ ] Phase 5: Documentation (drafted 2026-09-15, awaiting approval)
 - [ ] Implementation Complete
 
 ## Notes
@@ -327,3 +327,27 @@ check while F0/F3 kept passing, which is what makes F3 a guard rather than a res
 Tests: U1-U8, I2, I3, I4, I7, I8, F0-F3, R1, R3. `liquers-core` 828 lib tests and 25 binaries green;
 `liquers-lib --no-default-features` green (the `BUILD-SYSINFO-REQUIRES-NEWER-RUSTC` substitute);
 `liquers-py` checks; `liquers-core` compiles for `wasm32-unknown-unknown`.
+
+## Phase 5 drafted 2026-09-15
+
+`phase5-documentation.md` is the summary. Two things finished here rather than in Phase 4.
+
+**R2 and F4 shipped.** F4 pins that the fast-track dependency check reads no store metadata when
+every addressable dependency is live, which is what makes F2 a test of the branch it names rather
+than of the fallback. R2 shipped as the *vanished* case rather than the *moved-version* case,
+because the planned form does not pass and the reason is a defect: `audit_gaps` resolves a gap
+through `register_version`, which compares only against a version the manager previously held, and
+a fresh process holds none. Filed as `AUDIT-CANNOT-EXPIRE-ON-A-FIRST-OBSERVED-VERSION`, with the
+withdrawn test as its reproduction. It is the same shape as the `try_fast_track` gap this design
+found earlier: a path whose *success* was asserted nowhere, so nothing failed when it could not
+succeed.
+
+**The rules left the design folder.** The request at this gate was that findings with the character
+of a rule be placed where they will be found. `reference/ASSETS.md` gains §The one meaning of
+`Expired` and §Who decides status; `reference/ASSET_LIFECYCLE.md` gains §Reusing a stored asset:
+what the fast track verifies; `guides/UNITTEST_GUIDE.md` gains §Testing Assets (the promotion
+`CROSS-PROCESS-RELOAD-IS-UNTESTED` asked for); `guides/STORE_IMPLEMENTATION_GUIDE.md` §1 gains "A
+wrapper is not two methods". `affects_docs` is widened to the five documents actually reviewed.
+
+`ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY` and `CROSS-PROCESS-RELOAD-IS-UNTESTED` are closed with
+resolution notes. `EXPIRY-RECORDS-NO-REASON` stays open by design.
