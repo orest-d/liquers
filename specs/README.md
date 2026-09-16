@@ -101,6 +101,7 @@ simply stop being wanted.
 - **`ValueInterface` capability split** — planned → [`issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md`](issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md)
 - **Auto-generated value descriptions** — planned → [`issues/VALUE-DESCRIPTION.md`](issues/VALUE-DESCRIPTION.md)
 - **Application-defined metadata attributes** — planned → [`issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md`](issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md)
+- **Descriptive metadata: title and description** — planned → [`issues/METADATA-TITLE-AND-DESCRIPTION-NEVER-POPULATED.md`](issues/METADATA-TITLE-AND-DESCRIPTION-NEVER-POPULATED.md)
 - **Base/extended value discrimination** — planned → [`issues/COMBINED-VALUE-DISCRIMINATION.md`](issues/COMBINED-VALUE-DISCRIMINATION.md)
 
 `CORE-METADATA-TRACEBACK-SUPPORT` and `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT` are one defect
@@ -201,6 +202,7 @@ submit, and submitted query state is not preserved.
 - **Browser stores (localStorage, fetch, JS, routing)** — built → [`design/liquers-web-store/`](design/liquers-web-store/)
 - **Browser-native store and command backend** — planned → [`issues/WEB-NATIVE-IO-TIER2.md`](issues/WEB-NATIVE-IO-TIER2.md)
 - **Assets HTTP API completeness** — planned → [`issues/AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED.md`](issues/AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED.md)
+- **Query endpoint timeout configuration** — planned → [`issues/AXUM-QUERY-TIMEOUT-HARDCODED.md`](issues/AXUM-QUERY-TIMEOUT-HARDCODED.md)
 - **Agent memory service** — designing → [`design/agent-memory-mvp/`](design/agent-memory-mvp/)
 
 The memory service is the first line here that is an *application* of Liquers rather than a way
