@@ -3,8 +3,8 @@ id: ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET
 kind: feature
 title: Asset expiration events cannot be observed except per asset
 status: draft
-priority: P1
-complexity: M
+priority: P2
+complexity: L
 area: [core/assets]
 design: 
 created: 2026-09-17
@@ -39,19 +39,39 @@ There is no subscription on `AssetManager`. Three consequences, each independent
 
 ## Impact
 
-P1 because it blocks a designed capability rather than breaking an existing one, and because the
-workarounds are all bad: poll every key's metadata, hold a reference to everything, or accept
-unbounded staleness.
-
-`design/store-and-asset-search/` needs exactly this. Its interoperability layer lets an external
-search engine, vector store or SQL mirror be fed from a Liquers query and refreshed when sources
-change; the refresh trigger is an expiration event for a scope. The design deliberately makes
-reconciliation — not notification — the correctness guarantee, so this gap does not make it
-*incorrect*. It makes every external view as stale as its polling interval, which is the difference
-between a usable integration and a demonstration.
+`design/store-and-asset-search/` is the motivating consumer. Its interoperability layer lets an
+external search engine, vector store or SQL mirror be fed from a Liquers query and refreshed when
+sources change, and the natural refresh trigger is an expiration event for a scope. That design
+deliberately makes **reconciliation, not notification, the correctness guarantee**, so this gap does
+not make anything incorrect. It makes an external view as stale as its polling interval, which is
+the difference between a usable integration and a demonstration.
 
 The same gap limits any out-of-process observer: a cache warmer, an audit log of invalidations, a
 metrics exporter, or a second process mirroring a corpus.
+
+### Why P2 and not P1
+
+P1 is for a significant limitation with a bad workaround, or something blocking planned work. This
+is neither, on the design's own terms:
+
+- It **blocks nothing**. The search design's roadmap puts the interoperability layer at its last
+  milestone, behind three that do not need events at all, and that layer is correct without them by
+  construction.
+- The **workaround is acceptable** where it applies: poll on an interval. Polling is what
+  reconciliation does anyway; events only make it prompt.
+
+It was filed P1 on the reasoning that it blocks a *designed* capability. That reasoning does not
+survive contact with §4.4 — the capability is designed, not planned, and it is not blocked. P2 is
+the honest reading: real, wanted before any external sink runs in production, not before the design
+lands.
+
+### Why complexity L, and why this issue is deliberately under-specified
+
+A scope subscription is a new method on the `AssetManager` trait, which crosses a public trait API
+(§4.5) and therefore carries a design requirement. It is also genuinely unsettled: the questions
+below are open rather than rhetorical, and the shape of the answer depends on whether the observer
+is in-process or not. **This issue records a gap; it is not ready to be picked up**, and the empty
+`design` field on an `L` is the normal way of saying so.
 
 ## Expected behaviour
 
@@ -84,7 +104,9 @@ Questions for the design:
 
 ## Discovery
 
-Raised while designing `store-and-asset-search`'s interoperability layer, 2026-09-17. Verified at
+Raised while designing `store-and-asset-search`'s interoperability layer, 2026-09-17. Filed as P1
+and corrected to P2 the same day, after checking the claim that it blocked planned work: it does
+not. Verified at
 HEAD: `AssetNotificationMessage::Expired` is sent at `assets.rs:3237`; the only subscribe methods
 are at `assets.rs:1236` and `assets.rs:3039`, both on an asset rather than on a manager; the
 channel type is `watch` at `assets.rs:518`; and the cascade's expiry loop is guarded by

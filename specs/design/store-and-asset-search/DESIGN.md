@@ -50,6 +50,9 @@ many use cases as possible. The folder therefore carries three documents beside 
 - `record-model.md` — what a record, a record stream, a chunk, a batch and a schema are. Added in
   the fourth round, when partial refresh turned out to need a unit smaller than the stream, and
   extended in the fifth when memory turned out to need a second, smaller one.
+- `roadmap.md` — which decisions are foundational and which are additive, the milestones, and what
+  the agent memory MVP actually needs. Added in the sixth round against a fair objection: making
+  Level 1 "specialized commands" appears to put the whole specification's burden on Level 0.
 
 ### The sweet spot
 
@@ -114,7 +117,13 @@ component that sees every write, so it is the only one that can hold an index).
    only Level 0 (one record per asset, no ids, no batching), which must be the *degenerate case* of
    Level 1 rather than a second type. Whether Level 1 graduates to its own design is a decision to
    take deliberately.
-11. **Borrow tinysearch's data structure, not tinysearch.** It builds its index at build time and
+11. **Only seven decisions are foundational.** The test is whether a thing can be added later
+   without changing what Level 0 shipped. Seven cannot — the record's shape with the id field present
+   but unused, identity as a pair, fields as a named `Value::Object`, a bounded opaque result rather
+   than a `Vec`, the ordering promise, the text/field distinction, and non-exhaustive enums. Schema,
+   chunks, batches, locator rules, streaming, projection identity and reconciliation are all
+   additive. Milestones M0–M3 are the deliverable and are exactly what the agent memory MVP needs.
+12. **Borrow tinysearch's data structure, not tinysearch.** It builds its index at build time and
    emits a compiled wasm module, which does not fit a corpus mutated at runtime. But a per-document
    word filter is a derived asset of *one* document, so it has no dependency fan-out — which is the
    problem that makes a monolithic derived index unattractive. In-tree indexes ride the asset layer
@@ -149,7 +158,9 @@ deserves, its own mechanism.
 - [Use cases](./use-cases.md)
 - [Research questions](./research-questions.md)
 - [Options analysis](./options-analysis.md)
+- [Record model](./record-model.md)
 - [Interoperability layer](./interoperability-layer.md)
+- [Roadmap](./roadmap.md)
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)

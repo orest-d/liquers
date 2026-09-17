@@ -151,7 +151,22 @@ a seat at a table the dependency manager already runs, not to build a second tab
 five-minute-old view"; `Immediately` means "reconcile before answering". The staleness budget
 becomes configuration instead of folklore.
 
-**Two honest caveats, both consequences of the sink being outside the process:**
+### The push path does not exist yet
+
+Expiration *is* notified — `mark_expired_status` sends `AssetNotificationMessage::Expired`
+(`assets.rs:3237`) and the assets WebSocket already maps it. But the only way to receive it is
+`subscribe_to_notifications` on an `Asset` or an `AssetRef`, which requires **already holding the
+asset**. There is no manager-level, scope-level subscription; only live assets have a channel at
+all; and the channel is a `watch`, which retains the latest value rather than the sequence.
+
+So an observer cannot ask "tell me what expired under this folder". Filed as
+`ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET` (P2, complexity L — a new
+`AssetManager` method, and genuinely unsettled). It blocks nothing: this layer is the roadmap's last
+milestone, behind three that need no events at all, and reconciliation is the guarantee by
+construction. What it costs is promptness — without it an external view is exactly as stale as its
+polling interval.
+
+**Three honest caveats, all consequences of the sink being outside the process:**
 
 1. The dependency manager is in-process and in-memory. A sink may be in another process, on another
    machine, down, or shared by several Liquers instances. So the cascade is **the fast path**, and
@@ -160,6 +175,10 @@ becomes configuration instead of folklore.
    recorded and then silently dropped today
    (`DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED`). That blocks the push path only.
    The pull path is unaffected, which is a third argument for making pull the guarantee.
+3. A lagging observer must be told it lagged. A coalescing channel that quietly serves the latest
+   state is a correctness trap for a sink, although it is exactly right for the UI it was built for.
+   The remedy is in the filed issue: a bounded broadcast with an explicit lag signal, where
+   "resynchronize" is an acceptable answer *because* reconciliation exists.
 
 ---
 

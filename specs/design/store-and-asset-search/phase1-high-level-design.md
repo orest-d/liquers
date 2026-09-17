@@ -52,12 +52,18 @@ without the design tying itself to any one of them; and a baseline that runs on 
 maintained index, whether per-document filters or a monolithic one; any actual external sink; tags;
 facets and ranges; router fan-out across mounts; a dedicated HTTP endpoint.
 
-**Prerequisites, none blocking:** `ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET`
-(P1) — the interoperability layer is correct without it and merely slow, so this design proceeds and
-the issue is what turns a demonstration into an integration. `CORE-STORE-OPENBIN-MISSING` (P3) and
-`VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER` (P2) bound how far streaming can actually go: without
-them, batching bounds the consumer's memory but not the reader's or the serializer's. All three
-matter only at Level 1.
+**Milestones:** M0 foundations, M1 metadata search, M2 text search and the search box, M3 asset union
+and command discovery — one coherent deliverable, and **exactly what the agent memory MVP needs**. M4
+(a per-document filter index) is an optional performance step that changes no contract. M5–M7 —
+record streams, batching and streaming, the interoperability layer with a first sink — are separate
+efforts the foundations admit. [`roadmap.md`](./roadmap.md) §2–§3.
+
+**Prerequisites, none blocking.** `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` (P2) is the one that
+affects the MVP's quality: without it, filtering by front-matter facts such as `kind` or `status`
+degrades to text matching. Building M1 so field predicates resolve **by name against the record**
+makes fixing it a pure upgrade. `CORE-STORE-OPENBIN-MISSING` (P3) and
+`VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER` (P2) bound how far streaming can go at M6;
+`ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET` (P2) costs M7 latency, not correctness.
 
 **Separate task — considered only where it intersects:** SQL. An external SQL database is fed and
 kept fresh by the same interoperability layer as a search engine or vector store, so the intersection
@@ -93,8 +99,8 @@ an external index instead of leaving it looking fresh.
 The **push path does not exist yet**: expiration is notified, but only on a channel you can reach by
 already holding the asset, only for live assets, and through a `watch` that retains the latest state
 rather than the sequence. Filed as `ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET`
-(P1). It does not make the layer incorrect — reconciliation is the guarantee — but until it is
-fixed, every external view is as stale as its polling interval.
+(P2). It blocks nothing — reconciliation is the guarantee, and this layer is the roadmap's last
+milestone — but until it is fixed, every external view is as stale as its polling interval.
 
 **Command system** — a namespace in `liquers-lib` building the predicate from arguments; further
 filtering is ordinary commands over the returned list. Separately, the **command registry becomes a
@@ -117,8 +123,17 @@ a command description take.
 per asset, no record id, fields from metadata, text from content. That is what agent memory and a
 user's search box are about — finding documents, not rows. **Level 1** — many records per asset, with
 ids, chunks, batches, locator rules and schema — is what SQL, external sinks, serialization and
-searching *inside* structured data need, and all of those are optional. The requirement this places
-on the type is that **Level 0 is the degenerate case of Level 1, not a second type**.
+searching *inside* structured data need, and all of those are optional.
+
+Level 1 arriving as specialized commands would put the whole contract's specification on Level 0,
+which is a fair worry and a smaller one than it looks: [`roadmap.md`](./roadmap.md) §1 shows that
+**exactly seven decisions are foundational** — the record's shape with the id field present but
+unused, identity as a pair, fields as a named `Value::Object`, a bounded opaque result rather than a
+`Vec`, the ordering promise, the text/field distinction, and non-exhaustive enums. Schema, chunks,
+batches, locator rules, streaming, projection identity and the reconciliation contract are all
+additive, because those seven left room for them. The rest of `record-model.md` specifies where the
+design is going, which is what keeps Level 1 from being a redesign — not what the first version must
+contain.
 
 **Built-in engine** — a scan in the first version: field tests against metadata, text tests against
 bytes only when a text clause demands them. The designed second step is a per-document word filter —
@@ -194,6 +209,8 @@ search. Both should work from the reference and the guide without opening this f
 
 ## References
 
+- [Roadmap](./roadmap.md) — the seven foundational decisions, the milestones, and the agent-memory
+  MVP cut
 - [Use cases](./use-cases.md) — the survey and the essential/optional classification
 - [Research questions](./research-questions.md) — the nine questions, answered with evidence
 - [Options analysis](./options-analysis.md) — ground truth, the model, the axes, the recommendation
