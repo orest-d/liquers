@@ -166,11 +166,15 @@ Sessions and ACL are one item because there is no identity on `Context` to autho
 
 Search is the newest of these and the one with the widest blast radius: a store can enumerate and
 fetch but cannot *select*, so every consumer that wants a subset reads the whole subtree and filters
-in its own code. `design/store-and-asset-search/` delimits that task — selection over keys, metadata
-and stored text, unioning store entries with live assets and recipe-declared keys — and holds an
-options analysis of the eight decisions it turns on. Its hard invariant is that **a search never
-evaluates**: a content search that reached through to an unevaluated recipe could recompute a whole
-corpus. Phase 1 of `liquers-project`, awaiting approval.
+in its own code. `design/store-and-asset-search/` delimits that task and carries a use-case survey,
+nine answered research questions and an options analysis beside its Phase 1. Its model is that every
+essential use case is one operation — select records by a predicate over their fields and their text
+— so commands become a *record source* rather than a search feature, SQL and vector similarity become
+engines and clauses over the same records, and a third-party engine becomes an implementation of
+selection rather than an event hook. Projection is a command because it varies with the value type;
+selection is a trait method because it varies with the backend. Its hard invariant is that **a search
+never evaluates**: a content search reaching an unevaluated recipe could recompute a whole corpus.
+Phase 1 of `liquers-project`, awaiting approval.
 
 ### Command libraries
 

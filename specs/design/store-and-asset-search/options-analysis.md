@@ -1,12 +1,11 @@
 # Options analysis — searchable stores and assets
 
-Companion to [Phase 1](./phase1-high-level-design.md). Phase 1 delimits the task; this document
-holds the analysis that the delimitation rests on, because it is too long to live inside a 30-line
-Phase 1.
+Companion to [Phase 1](./phase1-high-level-design.md), which states the delimitation. The use-case
+survey is in [`use-cases.md`](./use-cases.md); the nine research questions are answered in
+[`research-questions.md`](./research-questions.md). **This document is the design analysis**: the
+ground truth it rests on, the unifying model, the decision axes, and the recommended combination.
 
-It is **not** an architecture. It does not name types, signatures or modules — that is Phase 2. It
-names the decisions that have to be made, the options for each, what each option costs, and which
-combination is recommended.
+It names no types, signatures or modules — that is Phase 2.
 
 ---
 
@@ -18,349 +17,328 @@ what exists is worse than none.
 | Fact | Where |
 |---|---|
 | `AsyncStore` can enumerate (`keys`, `listdir`, `listdir_keys`, `listdir_keys_deep`, `listdir_asset_info`) and fetch (`get`, `get_metadata`, `get_asset_info`). It has **no** selection method. | `liquers-core/src/store.rs` |
-| `AssetManager` resolves a key as live asset → store → recipe provider. It exposes `get`, `get_asset`, `apply`, `recipe_opt`, `is_volatile`, `listdir_asset_info`. No enumeration of *live* assets, no selection. | `liquers-core/src/assets.rs:3795` |
+| `AssetManager` resolves a key as live asset → store → recipe provider. No enumeration of *live* assets, no selection. | `liquers-core/src/assets.rs:3795` |
 | `AssetInfo` already carries `title`, `description`, `type_identifier`, `media_type`, `data_format`, `file_size`, `status`, `updated`, `unicode_icon`, `is_dir`, `is_error`, `is_volatile`. | `liquers-core/src/metadata.rs:678` |
-| `Value::AssetInfo(Vec<AssetInfo>)` is already a core value variant, with serialization and an HTTP representation. | `liquers-core/src/value.rs:33` |
-| `MetadataRecord` is a closed struct — no application-defined attributes. | `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` |
-| `StoreCapabilities` has eight flags (`write`, `remove`, `directories`, `derived_directories`, `explicit_directories`, `remove_directories`, `stored_metadata`, `enumerate_keys`) and a conformance suite keyed to them. | `liquers-core/src/store_conformance/mod.rs:97` |
-| Query parameters can carry **any** string; `ActionRequest::encode` escapes. Hand-written URLs get noisy, programmatic ones do not. | `specs/guides/QUERY_ESCAPING_GUIDE.md` |
-| A dependency on **one directory's listing** is expressible and is recorded: `Step::GetAssetDirectory` inserts `DependencyKey::from_dir_key`. It is one directory level, not a subtree prefix. `Key::try_from(&DependencyKey)` rejects the `-R-dir/` form, so the fast-track staleness check treats such a dependency as inconclusive rather than as a change signal. | `liquers-core/src/plan.rs:2647`, `liquers-core/src/metadata.rs:256`, `liquers-core/src/assets.rs:1064` |
+| `Value::AssetInfo(Vec<AssetInfo>)` and `Value::CommandMetadata(CommandMetadata)` are already core value variants. A command's description is already a first-class value. | `liquers-core/src/value.rs:33,35` |
+| `CommandMetadata` carries `namespace`, `name`, `label`, `doc`, `arguments`, `presets`, `next`, `volatile`, `is_async` and more. `ns-dep/command_metadata-…` returns one; nothing enumerates the set as records. | `liquers-core/src/command_metadata.rs:944`, `liquers-lib/src/commands.rs:286` |
+| `MetadataRecord` is a closed struct — no application-defined attributes, so no tags. | `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` |
+| `StoreCapabilities` has eight flags and a conformance suite keyed to them. | `liquers-core/src/store_conformance/mod.rs:97` |
+| Query parameters can carry **any** string; `ActionRequest::encode` escapes. `-` is `~_`, space is `~.`, `/` is `~/`. | `specs/guides/QUERY_ESCAPING_GUIDE.md` |
+| A dependency on **one directory's listing** is expressible (`Step::GetAssetDirectory` → `DependencyKey::from_dir_key`) but nothing ever registers a version for it, so the edge is silently dropped. | `liquers-core/src/plan.rs:2647`; filed as `DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED` |
+| UI elements are query-driven: an element carries a query producing its content, and events are queries. A search field is therefore an input whose value is substituted into a search query. | `specs/reference/UI_INTERFACE_FSD.md` |
+| `liquers-web` is **wasm32-only**. Tantivy, the mature Rust full-text engine, is server-oriented and has never committed to wasm. | `CLAUDE.md`; Tantivy wasm RFC |
 | Six of ten assets API endpoints are 501 stubs, `listdir` among them. | `AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED` (P0) |
-| No code in `liquers-core`, `liquers-lib` or `liquers-store` implements anything search-shaped. The name space is clear. | grep, 2026-09-17 |
-
-Two consumers already want this and have written down what they need:
-`STORE-NO-CONTENT-OR-METADATA-SEARCH` (P2, complexity L) states the capability gap and lists five
-questions; `agent-memory-mvp` Phase 1 open question 3 asks how far an MVP goes on search, noting
-that "a command over a subtree is honest at ~300 documents and wrong at 100×".
+| No code in `liquers-core`, `liquers-lib` or `liquers-store` implements anything search-shaped. | grep, 2026-09-17 |
 
 ---
 
-## 1. The decision axes
+## 1. The unifying model
 
-Eight decisions, each independently choosable, which is why they are separated. A design that
-answers only some of them will be reopened by the first one it skipped.
+Every essential use case in `use-cases.md` is the same operation:
+
+> **Select records from a set, by a predicate over their fields and their text, and return enough of
+> each record to judge it and to address it.**
+
+They differ only in **where records come from** and **which clause of the predicate is used**. That
+gives three contracts and nothing else:
+
+```
+        record sources                predicate                     result
+  ┌──────────────────────────┐   ┌──────────────────┐   ┌────────────────────────┐
+  │ store subtree            │   │ text clause      │   │ identity  = a query    │
+  │ asset listing            │──▶│ field clauses    │──▶│ fields to judge by     │
+  │ command registry         │   │ (later: sql,     │   │ why it matched         │
+  │ (later: rows, chunks)    │   │  similarity)     │   │ (later: score)         │
+  └──────────────────────────┘   └──────────────────┘   └────────────────────────┘
+        open set                    open set of clauses      one shape, forever
+```
+
+**Why this is the simplest common denominator**, rather than one abstraction among several:
+
+- Full text and field filtering are *clauses of one predicate*, so the essential pair ships together
+  (`use-cases.md` A1+A3).
+- Command discovery is *a record source*, not a feature — nothing in the search path knows what a
+  command is (`research-questions.md` §5).
+- SQL is *an engine over the same records*, so a GlueSQL table's columns are the predicate's fields
+  and neither needs its own view of the corpus (§4).
+- RAG is *a record source plus a clause*: chunks are records, embeddings are derived assets, nearest-
+  *k* is a clause. Hybrid lexical+semantic retrieval falls out of clauses composing (§8, §9).
+- A third-party engine is *an implementation of selection*, so it can be added and removed without
+  the consumers noticing (§3).
+
+And the split between the two halves follows the axis each varies along
+(`research-questions.md` §1): **projection is a command** (varies with the value type, open set),
+**selection is a trait method** (varies with the backend, closed set, and the only place an index
+can live).
+
+### What the MVP of this actually is
+
+The model is what keeps the design extensible. The *first version* is small:
+
+- one record type and one predicate type in `liquers-core`;
+- one selection method on `AsyncStore` with a default scan, plus a capability flag and conformance
+  rules;
+- one asset-level union that does not evaluate;
+- one command in `liquers-lib` and one syntax front end for the user's search box.
+
+Everything else in this document is an extension point, not first-version work.
+
+---
+
+## 2. Decision axes
 
 | Axis | Question | Recommended |
 |---|---|---|
-| A | What is searched? | A3 — store entries plus known assets, without evaluating |
-| B | Where does the capability live? | B2 + B3 + B5 — predicate and default scan in core, store hook, asset-level union, command surface in lib |
-| C | How is a search expressed? | C2 — a serializable predicate built from command arguments, with C4 composition after it |
-| D | What comes back? | D2+ — `Vec<AssetInfo>` plus an optional per-hit match record |
-| E | How is it executed? | E1 as the contract, with the trait shaped so E3/E4/E5 can override |
-| F | What counts as a match? | F1 — boolean, substring and field predicates; scoring field reserved |
-| G | How is it reached? | G1 — a query command; G3 maps onto it; G2 deferred |
-| H | How wide is one search? | H2 — rooted at a key, router fans out across mounts below it |
+| A | What is searched? | A3 — store entries, live assets and recipe-declared keys, without evaluating; commands as a further record source |
+| B | Where does the capability live? | B2+B3+B5 — predicate and default scan in core, store hook, asset-level union, command surface in lib |
+| C | How is a search expressed? | C2 — a serializable predicate; a small syntax front end compiles to it; C4 composition after it |
+| D | What comes back? | D2+ — `AssetInfo` plus a per-hit match record, identity as a query, score reserved |
+| E | How is it executed? | E1 as the contract; E3 (a store decorator) as the sanctioned index route; E4/E5 as overrides |
+| F | What counts as a match? | F1 — text and field clauses; ordering promise stated from day one |
+| G | How is it reached? | G1 — a query command; the UI search field and MCP both build queries; G2 deferred |
+| H | How wide is one search? | H2 — rooted at a key, router fan-out specified |
 
----
+### Axis A — What is searched
 
-## Axis A — What is searched
+**A1. Store entries only.** Keys, stored metadata, stored bytes. What
+`STORE-NO-CONTENT-OR-METADATA-SEARCH` literally asks for. Cannot see a derived asset that exists
+only because a recipe declares it, which is half of what makes Liquers interesting.
 
-**A1. Store entries only.** Keys, stored metadata, stored bytes. The smallest honest thing; it is
-also what `STORE-NO-CONTENT-OR-METADATA-SEARCH` literally asks for. Weakness: it cannot see a
-derived asset that exists only because a recipe declares it, which is half of what makes Liquers
-interesting. A user asking "what do I have about expiration" does not distinguish stored from
-derived.
+**A2. Assets only.** Matches the position that the assets API is the client interface. Strictly more
+work than A1 *and* dependent on it, since asset enumeration bottoms out in store enumeration.
 
-**A2. Assets only.** Search the asset layer. Matches the agent-memory design's position that the
-assets API — not the store API — is the client interface. Weakness: `AssetManager` has no
-enumeration primitive at all today, so A2 is strictly more work than A1 *and* depends on it,
-because asset enumeration below a key bottoms out in store enumeration.
+**A3. The union, without evaluating.** Every store entry under the root; every live asset; every key
+a recipe declares — described the way `get_asset_info` already resolves them. **Content matching
+applies only where bytes already exist.** A recipe-declared key with no stored data matches on
+fields or not at all.
 
-**A3. The union, without evaluating.** Search returns: every store entry under the root; every
-live asset the manager holds under it; every key a recipe provider declares under it. Metadata
-for an unevaluated recipe key comes from the recipe, exactly as `get_asset_info` already resolves
-it. **Content matching applies only to entries whose bytes already exist.** A recipe-declared key
-with no stored data matches on metadata or not at all.
+Recommended: **A3**, with non-evaluation as a hard invariant (§4). A content search that reached
+through to unevaluated recipes could recompute a corpus from one query.
 
-Recommended: **A3**, with the non-evaluation rule stated as a hard invariant (§2). A3 is the
-contract users and agents expect, and the "do not evaluate" clause is what keeps it from being a
-self-inflicted denial of service — a content search over a corpus of unevaluated recipes would
-otherwise recompute the corpus.
+Commands (`research-questions.md` §5) are a *fourth* source under the same union, added when it is
+built rather than designed around later.
 
----
+### Axis B — Where the capability lives
 
-## Axis B — Where the capability lives
+**B1. A command only.** Zero core change, days of work. Also exactly the failure on file: retrieval
+logic in the caller, O(corpus) reads, no backend may do better, and a third copy next time.
 
-**B1. A command in `liquers-lib`, nothing else.** A `ns-search` namespace whose implementation
-walks `listdir_keys_deep` and filters. Zero core change, days of work, unblocks agent-memory-mvp
-immediately. Weakness: exactly the failure `STORE-NO-CONTENT-OR-METADATA-SEARCH` describes — the
-retrieval logic lands in a consumer, a backend that could filter server-side is not allowed to,
-and the next consumer writes a third copy. It is the right *first commit* and the wrong *design*.
+**B2. A method on `AsyncStore` with a default implementation.** Every existing store keeps
+compiling; a capable backend overrides. Needs a capability flag and conformance rules checking that
+default and override agree.
 
-**B2. A method on `AsyncStore` with a default implementation.** The issue's own proposal. Every
-existing store keeps compiling; a backend that can do better overrides. It needs a
-`StoreCapabilities` flag and conformance rules that check the default and an override agree —
-which the suite is already built to express. Weakness: it widens a trait with many implementors,
-and it says nothing about assets (Axis A).
+**B3. An operation at the `AssetManager` level.** Required by A3 — only the asset layer knows about
+live assets and recipes. Composes over B2.
 
-**B3. An operation at the `AssetManager` level.** Required by A3: only the asset layer knows about
-live assets and recipes. It composes *over* B2 rather than replacing it.
+**B4. A separate `SearchProvider` service on `Environment`.** Keeps the store trait narrow and makes
+engines swappable by configuration. Costs a fourth service to construct, configure and document, and
+re-raises "which store does it search" — which the router already answers for B2. Live alternative
+if index lifecycle turns out to need its own home; Phase 2 should say why it is not needed rather
+than ignore it.
 
-**B4. A separate `SearchProvider` service on `Environment`,** registered like the recipe provider
-and the store factory. Attraction: the store trait stays narrow, and the scan engine, an indexed
-engine and an external engine are swappable by configuration. Weakness: a fourth service to
-construct, configure, document and test, and it re-raises "which store does it search" — the
-router already answers that for B2.
+**B5. A command surface in `liquers-lib`.** Not an alternative — every option needs it, because a
+capability with no query surface is unreachable from HTTP, the UI, Python and wasm.
 
-**B5. A command surface in `liquers-lib`,** over whichever of the above exists. Not an
-alternative — every option needs it, because a capability with no query surface is not reachable
-from HTTP, the UI, Python or WASM.
+Recommended: **B2 + B3 + B5**, predicate and record types in `liquers-core` so all three speak one
+vocabulary.
 
-Recommended: **B2 + B3 + B5**, with the predicate type itself in `liquers-core` so that core, lib
-and any backend speak the same one. B4 is a live alternative *if* indexing (E3/E5) turns out to
-need its own lifecycle — Phase 2 should say why it is not needed rather than ignore it.
+### Axis C — How a search is expressed
 
----
+**C1. Fixed command arguments.** Trivial; every new dimension becomes a new positional argument.
 
-## Axis C — How a search is expressed
+**C2. A serializable predicate.** A structure a command can build, and an HTTP or MCP caller can send
+as JSON. Because it is data, a backend can inspect it and decide what it can push down. This is what
+makes B2's override worth having, and what lets a UI or an agent skip parsing entirely.
 
-**C1. Fixed command arguments.** `search-<text>-<field>-<value>`. Trivial to implement and to
-validate. Weakness: every new matching dimension is a new positional argument or a new command.
-
-**C2. A serializable predicate value.** A small typed structure — root key, key-glob, metadata
-field/value tests, content substring, limit — that is `Serialize`/`Deserialize`, and that a
-command builds from its arguments while HTTP and MCP callers can send directly as JSON. Because
-it is data rather than code, a backend can inspect it and decide what it can push down and what
-it must scan. This is the form that makes B2's override worth having.
-
-**C3. An expression mini-language in a string.** `title~"store" and area="core/store"`. The most
-expressive per character, and the most expensive: a second grammar beside the query language, its
-own parser, its own error reporting, its own escaping interaction, and a much harder push-down
-story. Not for a first version; C2 does not prevent it later, since a parser can emit C2.
+**C3. An expression mini-language.** The most expressive per character and the most expensive: a
+second grammar, its own parser and errors, a much harder push-down story. A *small* front end
+(`research-questions.md` §7) that compiles to C2 gets the ergonomics without the commitment.
 
 **C4. Composition in the query language.** The search command returns a list; further commands
-filter, sort, cut and project it. This is the Liquers-native answer and it costs nothing new — but
-alone it cannot be pushed down, because the predicate is hidden behind command boundaries that the
-store never sees.
+filter, sort and cut it. Liquers-native, costs nothing new, and cannot be pushed down — so it is the
+right home for everything the predicate deliberately omits.
 
-**C5. Regex.** Powerful, and the single hardest thing to push down to any backend. Worth a flag
-on C2 later; not worth being the primary interface.
+**C5. Regex.** The single hardest clause to push down anywhere. A later flag, not the interface.
 
-Recommended: **C2 as the predicate, C4 for everything beyond it.** The cheap, pushable, common
-cases live in the predicate; anything exotic is a follow-on command over the result list. C1 is
-how the command's arguments *look*; it is a spelling of C2, not a rival to it.
+Recommended: **C2 as the predicate, a §7-sized syntax as its front end, C4 for the rest.**
 
-A note on escaping: search terms contain spaces, colons and slashes, and `ActionRequest::encode`
-handles all of them, so no term is unexpressible. Hand-written search URLs will be ugly
-(`search-expiration~.safety`), which is an argument for a UI/MCP surface that builds the
-query, not an argument against C2.
+### Axis D — What comes back
 
----
+**D1. Keys.** The caller immediately fetches metadata for every hit — the read amplification this is
+meant to remove.
 
-## Axis D — What comes back
+**D2. `Vec<AssetInfo>`.** Already a value variant, already serialized, already rendered, already
+carrying the tiers that make a hit judgeable. Missing exactly two things: why it matched, and how
+well.
 
-**D1. Keys.** Minimal, honest, and useless on its own: the caller immediately fetches metadata for
-every hit, which is the read amplification the whole exercise is meant to remove.
+**D2+. `AssetInfo` plus a per-hit match record** — matched field, short excerpt, reserved score — and
+an identity that is a **query** rather than a key, because a command's address is not a store key
+(§5) and a derived hit may have no key at all.
 
-**D2. `Vec<AssetInfo>`.** Already a `Value` variant, already serialized by the HTTP layer, already
-rendered by the UI, and already carries the title/description tiers that make a hit judgeable
-without reading the document. It is the obvious answer, and it is missing exactly two things: why
-the entry matched, and how well.
+**D3. A new rich value type in `liquers-lib`.** Only if the result outgrows D2+; costs an `ExtValue`
+variant, conversions and a `TypeInfo`.
 
-**D2+. `Vec<AssetInfo>` plus an optional per-hit match record** (matched field, a short excerpt, an
-optional score). Agents need the excerpt — an agent that gets only keys spends its context opening
-documents to find out which one it meant. Keeping the match record *beside* `AssetInfo` rather
-than inside it avoids pushing search concerns into a structure used by everything else.
+**D4. A DataFrame.** Excellent for analysing a corpus; wrong as the primary result, since it puts an
+optional feature on the critical path of a core capability. A conversion command from D2+.
 
-**D3. A new rich value type in `liquers-lib`.** Needed only if the result grows beyond what D2+
-covers; costs an `ExtValue` variant, conversions, serialization and a `TypeInfo` entry. Deferrable.
+Recommended: **D2+**.
 
-**D4. A DataFrame.** Excellent for analysing a corpus, wrong as the primary result: it is behind an
-optional feature and it puts `liquers-lib`'s polars dependency on the critical path of a core
-capability. Better as a conversion command from D2+.
+### Axis E — How it is executed
 
-Recommended: **D2+**. Reserve the score field from the first version even though F1 leaves it
-unset, so that adding ranking later is not a breaking change to a serialized shape.
+**E1. Scan on every search.** Walk from the root, fetch metadata, fetch bytes only when a text clause
+demands it, filter, stop at the limit. O(corpus) at the caller. Correct everywhere — **including
+wasm** — and the default that lets every existing store claim the capability.
 
----
+**E2. The index as a derived asset.** The most Liquers-native idea available, and better supported
+than it first appears: a dependency on a *directory listing* already exists, so "a document was
+added" is in principle visible to the dependency machinery. Three things must be established first:
+the listing dependency is one level deep, not a prefix; nothing registers a version for it, so the
+edge is currently dropped (`DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED`); and the
+fan-out of a few hundred dependencies on one asset is unmeasured. A well-founded experiment, not a
+first version.
 
-## Axis E — How it is executed
+**E3. A store decorator that maintains an index.** `IndexedStore<S>` wrapping any `AsyncStore`,
+updating its index on the writes it performs and declaring the capability. This is the corrected form
+of the Whoosh prototype's idea: the component that owns the invariant is the one that can enforce it,
+and decoration is an established shape here. Honest limitation: it sees only writes made *through
+it*, so a backend written by someone else falls back to scanning.
 
-**E1. Scan on every search.** Walk `listdir_keys_deep` from the root, fetch metadata, fetch bytes
-only when the predicate has a content test, filter, stop at the limit. O(corpus) per search, at
-the caller. Correct everywhere, needs nothing new, and is the default implementation that lets
-every existing store claim the capability.
+**E4. Push-down to the backend.** The point of B2's override — a service with server-side filtering,
+a SQL-backed store, a store that already keeps a directory index. Free when available, absent
+otherwise, which is why the default must exist.
 
-**E2. The index as a derived asset.** The most Liquers-native idea available: an index is a value
-derived from a corpus, the asset layer recomputes a derived value when its sources' content hashes
-change, so the index cannot go quietly stale. The substrate is better than it first appears — a
-dependency on a *directory listing* already exists (`Step::GetAssetDirectory` records
-`DependencyKey::from_dir_key`), so "a document was added to this directory" is in principle a
-change the dependency machinery can see, not only "a document I already knew about changed".
+**E5. An external engine.** Tantivy behind a feature, or a remote engine. Right at 100× scale, and
+**not available on wasm**, so it can never be the baseline.
 
-Three things still have to be established before an index is built on it:
+Recommended: **E1 as the specified contract, E3 as the sanctioned route to an index, E4/E5 as
+overrides.**
 
-- **The listing dependency is one level, not a prefix.** An index over a nested corpus needs a
-  dependency per subdirectory, and a *newly created* subdirectory is seen only by its parent's
-  listing.
-- **The listing dependency is recorded and then dropped.** Nothing ever registers a version under
-  an `-R-dir/` key, so `register_plan_dependencies` skips the edge silently, and both places that
-  would later check it reject the form. Filed as
-  `DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED`. Until that is fixed, a directory
-  dependency cannot expire a dependent at all.
-- **Fan-out is unmeasured.** An index over ~300 documents is one asset with a few hundred
-  dependency entries, rebuilt in full when any one of them changes. That is a measurement, and it
-  should be taken before it is designed around.
+### Axis F — What counts as a match
 
-E2 is therefore a well-founded experiment rather than a speculative one — and still a poor basis
-for a first version, because all three questions above are open.
+**F1. Text and field clauses.** Case-folded substring or term match on projected text; equality,
+prefix and membership on named fields; glob or prefix on the key. Implementable identically in a
+scan and in most backends, which is what makes push-down realistic.
 
-**E3. A store-maintained index.** The store updates an index on `set`/`remove`, in memory or in
-sidecar keys. Fast and always fresh for stores that own their writes; wrong for a store whose
-backend is written by someone else, and sidecar keys collide with `SIDECAR-COLLIDING-KEYS`
-territory.
+**F2. Ranked full-text.** Tokenization, stemming, stop words, BM25. Changes the result contract —
+order becomes meaningful — is language-dependent, and effectively forces E5.
 
-**E4. Push-down to the backend.** The point of B2's override: an OpenDAL backend over a service
-with server-side filtering, a SQL-backed store, a store that already keeps a directory index. Free
-when available, absent otherwise — which is precisely why the default implementation must exist.
+**F3. Similarity.** §8/§9. A clause over a vector field, with the machinery living in commands and
+derived assets rather than in search.
 
-**E5. An external index engine** (a Tantivy-backed store or service). The right answer at 100×
-scale and a large dependency at 1×. It fits behind B2's override or B4's provider, so committing to
-either leaves the door open.
+Recommended: **F1**, with the **ordering promise written from the first version**: results are
+unordered unless a scoring clause was used; when one was, they are ordered by descending score and
+each hit carries it. That single sentence is what lets F2 and F3 arrive without breaking a consumer
+that learned to trust the order.
 
-Recommended: **E1 as the specified contract**, shaped so E3, E4 and E5 are overrides rather than
-rewrites. E2 gets an explicit measurement task, not a commitment.
+### Axis G — How it is reached
 
----
+**G1. A query command.** Reachable through `/q`, the UI query console, `liquers-web` and
+`liquers-py` with no per-surface work; cacheable as an asset; declarable in a recipe, so a saved
+search is a first-class object. The UI search field is an input element whose value is substituted
+into such a query — which is already how UI elements work.
 
-## Axis F — What counts as a match
+**G2. A dedicated HTTP endpoint.** More conventional for non-Liquers clients; needs a specification
+change to a document that six existing endpoints already contradict. Adding a tenth
+specified-but-unimplemented endpoint to that surface is not the move.
 
-**F1. Boolean matching.** Case-folded substring on chosen metadata fields and on content;
-glob or prefix on the key; equality on typed fields (`type_identifier`, `status`, `is_dir`). No
-tokenizer, no stemmer, no ranking. Everything here is implementable identically in a scan and in
-most backends, which is what makes push-down realistic.
+**G3. An MCP tool.** Owned by `agent-memory-mvp`'s adapter; it builds a query rather than growing its
+own engine (`research-questions.md` §6).
 
-**F2. Ranked full-text.** Tokenization, stemming, stop words, BM25. A real search engine's job.
-It changes the result contract (order becomes meaningful), it is language-dependent, and it
-effectively forces E5.
+Recommended: **G1**, G3 mapping onto it, G2 deferred until the assets API is whole.
 
-**F3. Semantic / embedding search.** What agents ultimately want, and a different system: an
-embedding model, a vector index, chunking, and a runtime dependency Liquers does not have. It is
-a *consumer* of this design rather than a variant of it — a store or provider whose selection
-happens to be vector-based can implement the same predicate contract's "match" with a `nearest`
-clause later.
+### Axis H — How wide one search is
 
-Recommended: **F1**, with F2 and F3 named as out of scope in Phase 1 rather than left ambiguous,
-and with the result shape (D2+) chosen so neither requires a breaking change.
+**H1. Whole store.** Unbounded, and wrong the moment a store is large.
 
----
+**H2. Rooted at a key.** The natural unit for the router too: a root at or below a mount dispatches
+to one store; a root above one requires fan-out across the mounts beneath it, and merging. If the
+router does not implement it, a search above a mount boundary silently sees one store — so it must
+be specified either way, even if the first version refuses such a root.
 
-## Axis G — How it is reached
+**H3. Explicit multi-root.** Cheap once H2 exists; a later predicate field.
 
-**G1. A query command.** `-R/specs/issues/-/ns-search/search-expiration`. Reachable through `/q`, the UI query
-console, `liquers-web` and `liquers-py` with no per-surface work; cacheable as an asset;
-declarable in a recipe, which makes a saved search a first-class object. This is the Liquers answer.
-
-**G2. A dedicated HTTP endpoint.** A `GET /search` on the assets API. More conventional for
-non-Liquers clients, and it needs a specification change to `WEB_API_SPECIFICATION.md` — a document
-that six existing endpoints already contradict (`AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED`,
-`WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION`). Adding a tenth specified-but-unimplemented
-endpoint to that surface is not the move.
-
-**G3. An MCP tool.** The agent-facing form, owned by `agent-memory-mvp`'s adapter. It maps onto G1
-by constructing a query; it should not grow its own search engine.
-
-Recommended: **G1**, with G3 mapping onto it and G2 deferred until the assets API is whole.
-
----
-
-## Axis H — How wide one search is
-
-**H1. Whole store.** Simple, unbounded, and wrong the moment a store is large.
-
-**H2. Rooted at a key.** Every search names a root; the subtree below it is the corpus. This is
-also the natural unit for the store router: a root at or below a mount point dispatches to one
-store, and a root above one requires the router to fan out across the mounts beneath it and merge.
-That fan-out is a design item, not an accident — if the router does not implement it, a search
-above a mount boundary silently sees only one store.
-
-**H3. Explicit multi-root.** A list of roots in the predicate. Cheap once H2 exists; a superset.
-
-Recommended: **H2**, with the router fan-out specified rather than assumed, and H3 as a later
-predicate field.
-
----
-
-## 2. Invariants that constrain every option
-
-These hold regardless of which branch each axis takes. They belong in the reference document that
-this design produces.
-
-1. **A search never evaluates.** It reads what exists — stored bytes, stored metadata, live asset
-   metadata, recipe declarations. It never triggers a computation, never changes an asset's status,
-   and never populates a cache. A search that can recompute a corpus is an outage waiting for a
-   careless client.
-2. **A search is bounded.** Every search has a root and a result limit, and it can be truncated.
-   The `/q` handler's 30-second timeout is reachable, so "it returned everything" must never be the
-   only outcome.
-3. **A search is addressable.** The result is a value produced by a query, so it composes with
-   other commands, can be cached, and can be declared in a recipe. A saved search is a recipe, not
-   a new kind of object.
-4. **Ordering is not promised** unless a matching mode that defines one (F2) is chosen. Until then,
-   results are deterministic for a fixed store state — sorted by key — but that order carries no
-   relevance meaning.
-5. **No identity, no access control.** Consistent with `agent-memory-mvp`'s exclusion and
-   `CORE-SESSION-AND-KEY-ACL`: a search sees what the environment sees. Adding per-user visibility
-   later is a filter over the same contract, not a change to it.
-6. **A store that cannot select says so.** The capability is declared, and the conformance suite
-   checks that a declared override agrees with the default implementation on the same corpus.
+Recommended: **H2**.
 
 ---
 
 ## 3. Recommended combination
 
-> **A3 · B2+B3+B5 · C2 with C4 · D2+ · E1 (overridable) · F1 · G1 · H2**
+> **A3 · B2+B3+B5 · C2 with a small syntax front end · D2+ · E1 (E3 sanctioned, E4/E5 overriding) ·
+> F1 with the ordering promise · G1 · H2**
 
-In one paragraph: a small serializable predicate type in `liquers-core`; an `AsyncStore` selection
-method with a default scan implementation, a capability flag and conformance rules; an asset-level
-search that unions store hits with live assets and recipe-declared keys without evaluating
-anything; a `liquers-lib` command namespace that builds the predicate from query arguments and
-returns asset infos with match records; further filtering by ordinary commands over that list.
+A record type and a predicate type in `liquers-core`; an `AsyncStore` selection method with a default
+scan, a capability flag and conformance rules; an asset-level union that never evaluates; a command
+namespace in `liquers-lib` that builds the predicate from arguments or from a small search syntax and
+returns hits carrying an address, the fields to judge by, and why they matched.
 
-Why this and not something smaller: B1 alone would ship faster and would have to be undone, because
-it puts retrieval logic in a consumer and forecloses push-down — the exact complaint on file.
+**Why not smaller.** B1 alone ships faster and has to be undone: it puts retrieval in the consumer
+and forecloses push-down, which is the complaint already on file.
 
-Why this and not something larger: E2, E5, F2 and F3 each add a dependency or a lifecycle that the
-known consumers do not need at ~300 documents, and every one of them remains reachable afterwards
-because the predicate and the result shape were chosen to accommodate them.
+**Why not larger.** E2, E5, F2, F3 and the SQL adapter each add a dependency or a lifecycle no
+essential use case needs, and each remains reachable because the record and the predicate were shaped
+to admit it.
 
-What it unblocks:
-
-- `STORE-NO-CONTENT-OR-METADATA-SEARCH` — closed by the store capability.
-- `agent-memory-mvp` open question 3 — answered: search is a core capability with a command
-  surface, not a bespoke command inside the memory namespace.
-- `scripts/docs_index.py` — its selection half becomes expressible as a query, which is the
-  dogfooding oracle the memory design was already reaching for.
+**What it unblocks:** `STORE-NO-CONTENT-OR-METADATA-SEARCH` closes; `agent-memory-mvp`'s open
+question 3 is answered (search is a capability with a query surface, not a command private to
+`ns-mem`); the user's search field and the agent's retrieval are the same mechanism with two front
+ends.
 
 ---
 
-## 4. What is deliberately deferred, and why it stays cheap
+## 4. Invariants
 
-| Deferred | Why now is wrong | What keeps it cheap later |
+These hold regardless of which branch each axis takes, and belong in the reference document this
+design produces.
+
+1. **A search never evaluates.** It reads stored bytes, stored metadata, live asset metadata and
+   recipe declarations. It never triggers computation, changes a status, or populates a cache.
+2. **A search is bounded.** Every search has a root and a limit, and reports truthfully when it
+   truncated. The `/q` handler's 30-second timeout is reachable.
+3. **A search is addressable.** The result is a value produced by a query, so it composes, caches and
+   can be declared in a recipe. A saved search is a recipe.
+4. **Ordering is promised only with a score.** Unordered otherwise; deterministic for a fixed store
+   state, but carrying no relevance meaning.
+5. **The baseline runs everywhere, wasm included.** Any engine that does not is an optional override.
+6. **No identity, no access control.** A search sees what the environment sees
+   (`CORE-SESSION-AND-KEY-ACL`). Per-user visibility later is a filter over the same contract.
+7. **A store that cannot select says so**, and the conformance suite checks that a declared override
+   agrees with the default on the same corpus.
+
+---
+
+## 5. Deferred, and what keeps each cheap
+
+| Deferred | Why not now | What keeps it cheap later |
 |---|---|---|
-| Ranked full-text (F2) | Language-dependent, forces an engine | Score field reserved in the result; ordering promised as unspecified |
-| Semantic search (F3) | New runtime dependency, chunking, model choice | It is a selection implementation behind the same contract |
-| Index as a derived asset (E2) | Directory-listing dependencies exist but are one level deep, unverified for staleness, and unmeasured at fan-out | Measurement and verification tasks recorded; nothing in the contract prevents it |
-| External engine (E5) | Large dependency at current scale | Lands as a store override or a provider |
+| Ranked full text (F2) | Language-dependent; forces an engine that is not available on wasm | Score on the hit; ordering promise stated from day one |
+| Semantic search and RAG (F3) | New runtime dependency, chunking and model choice | Chunks are a record source, embeddings are derived assets, nearest-*k* is a clause |
+| SQL over records (GlueSQL) | An engine, not a predicate; optional dependency | Records carry *named typed fields*, so a column and a predicate field are the same thing |
+| Index as a derived asset (E2) | Directory dependency is one level deep, currently dropped, and unmeasured at fan-out | Issue filed; nothing in the contract prevents it |
+| Index in a store decorator (E3) | Not needed at current scale | It is an `AsyncStore` implementation — no consumer changes |
+| External engine (E5) | Large dependency; unavailable on wasm | Lands as a selection override behind a feature |
+| Tags | `MetadataRecord` is closed | Field lookup is by *name against a record*, not against struct fields |
 | A `/search` endpoint (G2) | The assets API has six unimplemented endpoints already | The command is reachable through `/q` meanwhile |
-| Application-defined metadata attributes | Separate gap, separately filed | Predicate field tests are defined over metadata generally |
+| Router fan-out (S4) | Merge semantics and partial capability need specifying | Specified now, implemented later; a refused root is an honest first version |
 
 ---
 
-## 5. Decisions Phase 2 must make
+## 6. Decisions Phase 2 must make
 
-These are the questions this analysis frames but deliberately does not answer.
-
-1. The exact predicate structure, and which of its clauses a backend is allowed to partially push
-   down (a partial push-down that silently drops a clause is a correctness bug, so the contract
-   must be "push down and re-check" or "push down all or nothing").
-2. Whether the store-level and asset-level searches are one trait method or two, and how the union
-   deduplicates a key that exists both as a live asset and in a store.
-3. Router fan-out semantics for a root above a mount boundary, including what happens when one
-   mounted store cannot select.
-4. Whether the match record carries an excerpt for binary values (it should not) and how excerpt
-   extraction decides that a value is text.
-5. Whether the result limit is a hard cut with a truncation flag, or pagination with a cursor —
-   and if a cursor, what it is stable against.
-6. Whether `listdir_asset_info` and the new selection share an implementation, since a search with
-   an empty predicate and depth 1 is a listing.
+1. The predicate's exact clause set, and whether a backend may push down *part* of it — a partial
+   push-down that silently drops a clause is a correctness bug, so the contract must be "push down
+   and re-check" or "all or nothing".
+2. Whether store-level and asset-level selection are one trait method or two, and how the union
+   deduplicates a key present both as a live asset and in a store.
+3. Router fan-out for a root above a mount boundary, including what happens when one mounted store
+   cannot select — and whether the first version refuses such a root instead.
+4. Whether a hit's identity is always a query, and how a store key renders as one.
+5. How a record's text is obtained: directly from bytes for text media types, or through a projection
+   command for values whose text is not their bytes — and how that decision is made without reading
+   every byte in the corpus.
+6. Whether the limit is a hard cut with a truncation flag or a cursor, and if a cursor, what it is
+   stable against.
+7. Whether search subsumes `listdir_asset_info` — an empty predicate at depth 1 is a listing — or
+   stays separate.
+8. Which of §5's two command-discovery routes to take: a record source over the registry, or a
+   read-only virtual store that makes commands enumerable by `listdir` with nothing
+   command-specific in the search path.
