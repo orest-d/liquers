@@ -4,6 +4,10 @@ Companion to [Phase 1](./phase1-high-level-design.md). This is the design's most
 question and it has its own document: **can one mechanism serve an external search engine, a vector
 database, a RAG pipeline and an external SQL database — and can it handle updates and expiration?**
 
+The record model those systems are fed — what a record, a stream and a chunk are — is
+[`record-model.md`](./record-model.md). This document is about the *mechanism*: how a view is fed,
+how it learns it is stale, and what refreshes it.
+
 The answer is yes, and the reason is that all four are the same thing wearing different clothes:
 **a materialized view of a Liquers corpus, living outside Liquers, answering questions Liquers
 cannot answer cheaply itself.** Each has exactly three obligations — be fed, answer, and stay
@@ -65,27 +69,35 @@ It is also why the SQL task can be split off cleanly (§6).
 
 ### Role 1 — the feed (Liquers side)
 
-For a scope (a root key, optionally narrowed):
+For a scope — which in the general case is a **stream query**, and in the simplest case a root key:
 
-- **`versions(scope)` → `(RecordId, Version)`** — cheap, metadata only, no data reads.
-- **`fetch(ids)` → `Record`** — the full projection, for the ids the sink actually needs.
+- **`partition(scope)` → `(ChunkId, Version, refresh query)`** — cheap, metadata only, no data reads.
+- **`fetch(chunk)` → `[Record]`** — evaluate one chunk's refresh query.
 
 Two calls rather than one, deliberately: the diff is cheap and proportional to the corpus in
 *metadata*, while the fetch is proportional to what actually **changed**.
 
-**Liquers already has both.** `MetadataRecord.version` is a content hash computed at save time
-(`liquers-core/src/metadata.rs:961`), and `listdir_asset_info` returns per-entry descriptions
-without reading data. Nothing new is required to make a corpus feedable.
+**The granularity is the chunk, not the record** ([`record-model.md`](./record-model.md) §3). A
+record has no independent existence — it is derived, so versioning one costs a full read of its
+source. A chunk is the smallest unit whose staleness is decidable from metadata alone, which is what
+makes it the right unit and not an arbitrary batching convenience. Refresh replaces a chunk's
+records wholesale; there is no record-level merge.
+
+**Liquers already supplies the pieces.** `MetadataRecord.version` is a content hash computed at save
+time (`liquers-core/src/metadata.rs:961`), `MetadataRecord.dependencies` is already
+`Vec<DependencyRecord { key, version }>` — the observed-versions shape a chunk version hashes over —
+and `listdir_asset_info` returns per-entry descriptions without reading data.
 
 ### Role 2 — the sink (external side)
 
-- **`observed(scope)` → `(RecordId, Version)`** — what it currently holds, or a digest of it (§4).
+- **`observed(scope)` → `(ChunkId, Version)`** — what it currently holds, or a digest of it (§4).
 - **`apply(upserts, deletions)`** — idempotent, so a repeated or partial sync is safe.
 - **`freshness()`** — what it reflects, and how confident it is.
 
-Reconciliation is then a set-diff of two version streams: upsert where the version differs or the
-id is new; delete where the sink holds an id the feed no longer offers. **Deletion detection is the
-half a push hook usually gets wrong**, and a diff gets it right for free.
+Reconciliation is then a set-diff of two version streams: re-evaluate and replace where a chunk's
+version differs or the chunk is new; drop where the sink holds a chunk the feed no longer offers.
+**Deletion detection is the half a push hook usually gets wrong**, and a diff gets it right for
+free.
 
 ### Role 3 — the selector (query side)
 
@@ -186,7 +198,8 @@ Naming these now prevents them being discovered as surprises:
   new embedding model), every record's record changed although no document did. The layer needs a
   projection identity that participates in the diff — otherwise a model upgrade silently leaves a
   stale index looking fresh. **This is the one genuinely new concept the layer requires**, and
-  Phase 2 must design it.
+  Phase 2 must design it. [`record-model.md`](./record-model.md) §6 places it in the chunk version,
+  where it invalidates by the same mechanism as a content change.
 
 ---
 

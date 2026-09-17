@@ -141,6 +141,7 @@ expansion time rather than at runtime. That is the cheapest item here.
 - **Read-only mounts** — planned → [`issues/STORE-NO-READ-ONLY-ADAPTER.md`](issues/STORE-NO-READ-ONLY-ADAPTER.md)
 - **Conditional writes and concurrent-writer semantics** — planned → [`issues/STORE-WRITE-HAS-NO-PRECONDITION.md`](issues/STORE-WRITE-HAS-NO-PRECONDITION.md)
 - **Sessions and key-level authorization** — planned → [`issues/CORE-SESSION-AND-KEY-ACL.md`](issues/CORE-SESSION-AND-KEY-ACL.md)
+- **Observable expiration events for external systems** — planned → [`issues/ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET.md`](issues/ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET.md)
 
 A key given to a store must be absolute: no element may be `.` or `..`. Relative keys are resolved
 at plan level and a store never resolves them, so one reaching a store is refused with
@@ -180,7 +181,16 @@ reconciliation, never from a delivered notification** — the generalized lesson
 prototype's indexer hook, where every missed delivery was permanent and undetectable. An external
 search engine, vector store, RAG pipeline and SQL mirror differ only in what they answer, so one
 layer feeds and reconciles all four, built almost entirely from vocabulary the dependency and
-expiration machinery already has. Phase 1 of `liquers-project`, awaiting approval.
+expiration machinery already has.
+
+What that layer is fed is a **record stream**, partitioned into **chunks**: a chunk is the unit of
+refresh and a record the unit of retrieval, because a record is derived and versioning one would
+cost a full read of its source, while a chunk's staleness is decidable from metadata alone. A stream
+query depends on a directory and a chunk query on one file — a distinction the resource header
+instructions `-R-key` and `-R-bin` already express — so one changed file re-derives one chunk.
+Designing this found `ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET`: expiration is
+notified, but only to something already holding the asset. Phase 1 of `liquers-project`, awaiting
+approval.
 
 ### Command libraries
 

@@ -2,7 +2,8 @@
 
 Companion to [Phase 1](./phase1-high-level-design.md), which states the delimitation. The use-case
 survey is in [`use-cases.md`](./use-cases.md); the research questions are answered in
-[`research-questions.md`](./research-questions.md); the layer for plugging in external engines is
+[`research-questions.md`](./research-questions.md); the record, stream, chunk and schema model is
+[`record-model.md`](./record-model.md); the layer for plugging in external engines is
 [`interoperability-layer.md`](./interoperability-layer.md). **This document is the design
 analysis**: the ground truth it rests on, the unifying model, the decision axes, and the
 recommended combination.
@@ -27,6 +28,9 @@ what exists is worse than none.
 | `StoreCapabilities` has eight flags and a conformance suite keyed to them. | `liquers-core/src/store_conformance/mod.rs:97` |
 | Query parameters can carry **any** string; `ActionRequest::encode` escapes. `-` is `~_`, space is `~.`, `/` is `~/`. | `specs/guides/QUERY_ESCAPING_GUIDE.md` |
 | A dependency on **one directory's listing** is expressible (`Step::GetAssetDirectory` → `DependencyKey::from_dir_key`) but nothing ever registers a version for it, so the edge is silently dropped. | `liquers-core/src/plan.rs:2647`; filed as `DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED` |
+| A resource header takes one instruction. `-R-key` is `Step::UseKeyValue` (the key *is* the value), `-R-bin` is `Step::GetAssetBinary`, alongside `meta`, `dir`, `sdir`, `recipe`, `data`, `stored`, `stored_meta` and `cwd`; an unknown instruction is an error. This is what lets a stream query depend on a directory while a chunk query depends on one file. | `liquers-core/src/plan.rs:1439-1488` |
+| `MetadataRecord.dependencies` is already `Vec<DependencyRecord { key, version }>` — observed versions, the shape a chunk version hashes over. | `liquers-core/src/metadata.rs:285,963` |
+| `AssetNotificationMessage::Expired` **is** sent, but only on a per-asset `watch` channel reachable by already holding the asset, and only for live assets. | `assets.rs:3237,1236,3039,518`; filed as `ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET` |
 | UI elements are query-driven: an element carries a query producing its content, and events are queries. A search field is therefore an input whose value is substituted into a search query. | `specs/reference/UI_INTERFACE_FSD.md` |
 | `liquers-web` is **wasm32-only**. Tantivy, the mature Rust full-text engine, is server-oriented and has never committed to wasm. | `CLAUDE.md`; Tantivy wasm RFC |
 | Six of ten assets API endpoints are 501 stubs, `listdir` among them. | `AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED` (P0) |
@@ -176,7 +180,9 @@ well.
 
 **D2+. `AssetInfo` plus a per-hit match record** — matched field, short excerpt, reserved score — and
 an identity that is a **query** rather than a key, because a command's address is not a store key
-(§5) and a derived hit may have no key at all.
+(§5) and a derived hit may have no key at all. A hit over a record stream carries the record's
+optional **locator** too, so "row 42 of this CSV" is addressable rather than merely described
+([`record-model.md`](./record-model.md) §1).
 
 **D3. A new rich value type in `liquers-lib`.** Only if the result outgrows D2+; costs an `ExtValue`
 variant, conversions and a `TypeInfo`.
@@ -382,9 +388,13 @@ design produces.
 9. **Projection identity** — how a change to the projection *rule* (a new field, a different
    tokenizer, a new embedding model) participates in the reconciliation diff. Without it a model
    upgrade leaves a stale external index looking fresh. Cheap to design now, expensive later
-   (`interoperability-layer.md` §7).
-10. Whether the reconciliation contract ships in the first version alongside the scan, or after it —
+   (`interoperability-layer.md` §7); `record-model.md` §6 places it in the chunk version.
+10. The six record-model decisions in `record-model.md` §7 — descriptive locators, whether the
+   partition is itself a record stream, chunk-id stability, where the schema is declared, whether
+   `text` is a role rather than a part, and whether chunk versions derive generically from the
+   chunk query's dependency set.
+11. Whether the reconciliation contract ships in the first version alongside the scan, or after it —
    noting that a trait with one implementation is a guess, so it should ship with a test double
    either way.
-11. The exact grammar the small search syntax accepts, and its error behaviour when a user types
+12. The exact grammar the small search syntax accepts, and its error behaviour when a user types
    something it does not support — silently literal, or a reported parse error.

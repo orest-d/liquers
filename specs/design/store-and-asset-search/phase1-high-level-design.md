@@ -29,6 +29,10 @@ is the whole design:
 - **External systems are materialized views, reconciled rather than notified.** A search engine, a
   vector store, a RAG pipeline and an external SQL database differ only in what they answer; the
   feed and the freshness are identical, so one layer serves all four.
+- **A chunk is the unit of refresh; a record is the unit of retrieval.** A stream query yields a
+  partition of chunks, each with its own narrower dependency set and its own refresh query, so a
+  changed source re-derives one chunk rather than the stream. Chunking also bounds memory, since
+  Liquers values are materialized.
 
 ## Scope
 
@@ -44,6 +48,10 @@ without the design tying itself to any one of them; and a baseline that runs on 
 **Optional — reachable later, not built now:** ranked full text; semantic search and RAG; a
 maintained index, whether per-document filters or a monolithic one; any actual external sink; tags;
 facets and ranges; router fan-out across mounts; a dedicated HTTP endpoint.
+
+**Prerequisite, not blocking:** `ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET`
+(P1) — the layer is correct without it and merely slow, so this design proceeds and the issue is
+what turns a demonstration into an integration.
 
 **Separate task — considered only where it intersects:** SQL. An external SQL database is fed and
 kept fresh by the same interoperability layer as a search engine or vector store, so the intersection
@@ -68,13 +76,19 @@ predicate or a short search syntax; `ActionRequest::encode` escapes arbitrary te
 so no existing store breaks and a capable backend can override. Needs a `StoreCapabilities` flag and
 conformance rules. Router fan-out across mounts below a root is specified now, implemented later.
 
-**Interoperability** — a feed of `(record id, version)` plus a fetch, a reconciliation diff, and a
-staleness declaration. It needs almost no new vocabulary: `Version` is already a content hash on
-every stored record, `DependencyRecord { key, version }` is already the shape of "what I observed",
-`Expires` already expresses how stale a view may be, and `ExpirationMonitor` is already a background
-worker of this shape. One new concept is required — an identity for the *projection rule*, so that
-changing a tokenizer or an embedding model invalidates an external index instead of leaving it
-looking fresh.
+**Interoperability** — a partition of `(chunk id, version, refresh query)` plus a per-chunk fetch, a
+reconciliation diff, and a staleness declaration. It needs almost no new vocabulary: `Version` is
+already a content hash, `DependencyRecord { key, version }` is already the shape a chunk version
+hashes over, `Expires` already expresses how stale a view may be, and `ExpirationMonitor` is already
+a background worker of this shape. One new concept is required — an identity for the *projection
+rule*, carried in the chunk version, so that changing a tokenizer or an embedding model invalidates
+an external index instead of leaving it looking fresh.
+
+The **push path does not exist yet**: expiration is notified, but only on a channel you can reach by
+already holding the asset, only for live assets, and through a `watch` that retains the latest state
+rather than the sequence. Filed as `ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET`
+(P1). It does not make the layer incorrect — reconciliation is the guarantee — but until it is
+fixed, every external view is as stale as its polling interval.
 
 **Command system** — a namespace in `liquers-lib` building the predicate from arguments; further
 filtering is ordinary commands over the returned list. Separately, the **command registry becomes a
@@ -83,8 +97,11 @@ record source**, so "which commands mention resize" needs no command-specific se
 **Asset system** — search unions store entries, live assets and recipe-declared keys as
 `AssetManager::get_asset_info` already resolves them, without triggering evaluation.
 
-**Value types** — none new. `Value::AssetInfo(Vec<AssetInfo>)` and `Value::CommandMetadata` already
-exist; a per-hit match record sits beside the asset info rather than inside it.
+**Value types** — a record type: identity (the asset as a query, plus an optional evaluable
+locator), named typed fields carried as the existing `Value::Object`, and text. The representation
+is not new; what the type adds is a guaranteed address and a field/text distinction that a bare map
+cannot express. `Value::AssetInfo(Vec<AssetInfo>)` and `Value::CommandMetadata` remain the shapes a
+search result and a command description take.
 
 **Built-in engine** — a scan in the first version: field tests against metadata, text tests against
 bytes only when a text clause demands them. The designed second step is a per-document word filter —
@@ -146,12 +163,20 @@ search. Both should work from the reference and the guide without opening this f
    double either way — a trait with one implementation is a guess.
 10. What exactly does the small search syntax accept, and what does it do with input it does not
    support: treat it literally, or report a parse error?
+11. Is a chunk version derived generically from its query's dependency set, or computed by the
+   stream command? Generic derivation is much better if possible — it cannot be got wrong per
+   command.
+12. Is the partition itself a record stream (one mechanism, recursive base case) or a separate,
+   lighter type?
+13. Is `text` a field carrying the `text` role, or a distinct part of the record?
 
 ## References
 
 - [Use cases](./use-cases.md) — the survey and the essential/optional classification
 - [Research questions](./research-questions.md) — the nine questions, answered with evidence
 - [Options analysis](./options-analysis.md) — ground truth, the model, the axes, the recommendation
+- [Record model](./record-model.md) — what a record, a stream, a chunk and a schema are, and why
+  the refresh unit is the chunk
 - [Interoperability layer](./interoperability-layer.md) — feeding and reconciling external search
   engines, vector stores, RAG pipelines and SQL mirrors with one mechanism
 - `specs/issues/STORE-NO-CONTENT-OR-METADATA-SEARCH.md` — the gap this closes
