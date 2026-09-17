@@ -8,10 +8,10 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 99
+Total rows: 100
 - P0: 1
 - P1: 1
-- P2: 64
+- P2: 65
 - P3: 33
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
@@ -42,6 +42,7 @@ Total rows: 99
 | [`CORE-TRACING-MIGRATION`](issues/CORE-TRACING-MIGRATION.md) | issue | Diagnostics use `eprintln!` rather than structured logging | accepted |  | P2 | M | core/error;build |  | 2026-08-08 |
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies 704 bytes because three variants are stored unboxed | draft |  | P2 | M | core/value;lib/value |  | 2026-08-18 |
 | [`DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE`](issues/DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE.md) | feature | There is no way to say when dependency versions should be verified, so the strict and the exploratory workflow cannot both be served | draft |  | P2 | M | core/assets |  | 2026-09-05 |
+| [`DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED`](issues/DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED.md) | issue | Directory listing dependency is never registered or checked | draft |  | P2 | M | core/assets |  | 2026-09-17 |
 | [`EGUI-ASSET-MANAGER-INTEGRATION`](issues/EGUI-ASSET-MANAGER-INTEGRATION.md) | feature | No stable adapter between egui widgets and the asset manager | accepted |  | P2 | M | lib/egui |  | 2026-08-08 |
 | [`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`](issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md) | issue | Environment and asset manager hold each other with strong Arcs, so every environment leaks | draft |  | P2 | M | core/assets;core/context | [phase1](specs/design/environment-builder/phase1-high-level-design.md)  [phase2](specs/design/environment-builder/phase2-architecture.md)  [phase3](specs/design/environment-builder/phase3-examples.md)  [phase4](specs/design/environment-builder/phase4-implementation.md)  [phase5](specs/design/environment-builder/phase5-documentation.md)  | 2026-08-27 |
 | [`EXPIRATION-RECOVERY-WEB-API`](issues/EXPIRATION-RECOVERY-WEB-API.md) | issue | Expiration recovery has no web API surface | accepted |  | P2 | M | axum;core/assets |  | 2026-08-08 |
@@ -75,7 +76,7 @@ Total rows: 99
 | [`QUERY-BUILDER-TOOLING`](issues/QUERY-BUILDER-TOOLING.md) | issue | No programmatic builder for constructing queries | accepted |  | P2 | L | core/query;core/validate |  | 2026-08-08 |
 | [`RESOURCE-NAME-ASCII-ONLY`](issues/RESOURCE-NAME-ASCII-ONLY.md) | issue | Non-ASCII resource names are unaddressable | draft |  | P2 | L | core/query;core/store |  | 2026-08-14 |
 | [`STORE-METADATA-LAYOUT-HARDCODED-PER-STORE`](issues/STORE-METADATA-LAYOUT-HARDCODED-PER-STORE.md) | issue | Every writable store hard-codes its own metadata layout | draft |  | P2 | L | core/store;store/backends;web;docs |  | 2026-09-03 |
-| [`STORE-NO-CONTENT-OR-METADATA-SEARCH`](issues/STORE-NO-CONTENT-OR-METADATA-SEARCH.md) | feature | A store cannot be asked which keys match content or metadata | draft |  | P2 | L | core/store |  | 2026-09-15 |
+| [`STORE-NO-CONTENT-OR-METADATA-SEARCH`](issues/STORE-NO-CONTENT-OR-METADATA-SEARCH.md) | feature | A store cannot be asked which keys match content or metadata | draft |  | P2 | L | core/store | [options](specs/design/store-and-asset-search/options-analysis.md)  [phase1](specs/design/store-and-asset-search/phase1-high-level-design.md)  [phase2](specs/design/store-and-asset-search/phase2-architecture.md)  [phase3](specs/design/store-and-asset-search/phase3-examples.md)  [phase4](specs/design/store-and-asset-search/phase4-implementation.md)  [phase5](specs/design/store-and-asset-search/phase5-documentation.md)  | 2026-09-15 |
 | [`TYPE-REGISTRY-NOT-REALM-AWARE`](issues/TYPE-REGISTRY-NOT-REALM-AWARE.md) | feature | A query spanning two realms cannot know which types the other realm supports | draft |  | P2 | L | core/value;core/commands;core/plan;web;axum |  | 2026-08-18 |
 | [`UI-QUERY-EDITOR-LACKS-LIVE-VALIDATION`](issues/UI-QUERY-EDITOR-LACKS-LIVE-VALIDATION.md) | issue | Query editor cannot validate the current text with command metadata | draft |  | P2 | L | lib/ui;lib/egui;web;core/plan;core/query |  | 2026-09-04 |
 | [`VALUE-CONVERSION-CAPABILITY`](issues/VALUE-CONVERSION-CAPABILITY.md) | feature | Values cannot be converted between types, automatically or explicitly | draft |  | P2 | L | core/value;core/commands;lib/value |  | 2026-08-18 |

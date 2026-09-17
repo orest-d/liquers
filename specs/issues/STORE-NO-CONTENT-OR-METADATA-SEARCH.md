@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: L
 area: [core/store]
-design: 
+design: store-and-asset-search
 created: 2026-09-15
 github:
 ---

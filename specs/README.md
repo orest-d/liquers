@@ -136,7 +136,7 @@ expansion time rather than at runtime. That is the cheapest item here.
 - **Store behavioural semantics** — documented → [`reference/STORE_SEMANTICS.md`](reference/STORE_SEMANTICS.md)
 - **Shared directory support for backends without directories** — documented → `liquers-core/src/store_dir_index.rs` *(design in [`design/opendal-path-mapping/`](design/opendal-path-mapping/))*
 - **Streaming binary access (`openbin`)** — planned → [`issues/CORE-STORE-OPENBIN-MISSING.md`](issues/CORE-STORE-OPENBIN-MISSING.md)
-- **Content and metadata search** — planned → [`issues/STORE-NO-CONTENT-OR-METADATA-SEARCH.md`](issues/STORE-NO-CONTENT-OR-METADATA-SEARCH.md)
+- **Content and metadata search** — designing → [`design/store-and-asset-search/`](design/store-and-asset-search/)
 - **Read-only mounts** — planned → [`issues/STORE-NO-READ-ONLY-ADAPTER.md`](issues/STORE-NO-READ-ONLY-ADAPTER.md)
 - **Conditional writes and concurrent-writer semantics** — planned → [`issues/STORE-WRITE-HAS-NO-PRECONDITION.md`](issues/STORE-WRITE-HAS-NO-PRECONDITION.md)
 - **Sessions and key-level authorization** — planned → [`issues/CORE-SESSION-AND-KEY-ACL.md`](issues/CORE-SESSION-AND-KEY-ACL.md)
@@ -163,6 +163,14 @@ the five `AsyncStore` implementations are enumerated on
 name their own open issues.
 
 Sessions and ACL are one item because there is no identity on `Context` to authorize against.
+
+Search is the newest of these and the one with the widest blast radius: a store can enumerate and
+fetch but cannot *select*, so every consumer that wants a subset reads the whole subtree and filters
+in its own code. `design/store-and-asset-search/` delimits that task — selection over keys, metadata
+and stored text, unioning store entries with live assets and recipe-declared keys — and holds an
+options analysis of the eight decisions it turns on. Its hard invariant is that **a search never
+evaluates**: a content search that reached through to an unevaluated recipe could recompute a whole
+corpus. Phase 1 of `liquers-project`, awaiting approval.
 
 ### Command libraries
 
