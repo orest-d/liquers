@@ -101,6 +101,8 @@ simply stop being wanted.
 - **Value accessor abstraction** — designing → [`design/value-accessor/`](design/value-accessor/)
 - **`ValueInterface` capability split** — planned → [`issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md`](issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md)
 - **Auto-generated value descriptions** — planned → [`issues/VALUE-DESCRIPTION.md`](issues/VALUE-DESCRIPTION.md)
+- **Application-defined metadata attributes** — planned → [`issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md`](issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md)
+- **Setting title and description from a command** — planned → [`issues/CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION.md`](issues/CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION.md)
 - **Base/extended value discrimination** — planned → [`issues/COMBINED-VALUE-DISCRIMINATION.md`](issues/COMBINED-VALUE-DISCRIMINATION.md)
 
 `CORE-METADATA-TRACEBACK-SUPPORT` and `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT` are one defect
@@ -134,6 +136,9 @@ expansion time rather than at runtime. That is the cheapest item here.
 - **Store behavioural semantics** — documented → [`reference/STORE_SEMANTICS.md`](reference/STORE_SEMANTICS.md)
 - **Shared directory support for backends without directories** — documented → `liquers-core/src/store_dir_index.rs` *(design in [`design/opendal-path-mapping/`](design/opendal-path-mapping/))*
 - **Streaming binary access (`openbin`)** — planned → [`issues/CORE-STORE-OPENBIN-MISSING.md`](issues/CORE-STORE-OPENBIN-MISSING.md)
+- **Content and metadata search** — planned → [`issues/STORE-NO-CONTENT-OR-METADATA-SEARCH.md`](issues/STORE-NO-CONTENT-OR-METADATA-SEARCH.md)
+- **Read-only mounts** — planned → [`issues/STORE-NO-READ-ONLY-ADAPTER.md`](issues/STORE-NO-READ-ONLY-ADAPTER.md)
+- **Conditional writes and concurrent-writer semantics** — planned → [`issues/STORE-WRITE-HAS-NO-PRECONDITION.md`](issues/STORE-WRITE-HAS-NO-PRECONDITION.md)
 - **Sessions and key-level authorization** — planned → [`issues/CORE-SESSION-AND-KEY-ACL.md`](issues/CORE-SESSION-AND-KEY-ACL.md)
 
 A key given to a store must be absolute: no element may be `.` or `..`. Relative keys are resolved
@@ -189,6 +194,7 @@ submit, and submitted query state is not preserved.
 ### Bindings and servers
 
 - **Web API** — documented → [`reference/WEB_API_SPECIFICATION.md`](reference/WEB_API_SPECIFICATION.md)
+- **Web API specification currentness** — planned → [`issues/WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION.md`](issues/WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION.md)
 - **Language integration** — documented → [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md)
 - **Assets and recipes HTTP API** — built → [`design/axum-assets-recipes-api/`](design/axum-assets-recipes-api/)
 - **Web API library** — built → [`design/web-api-library/`](design/web-api-library/)
@@ -198,6 +204,21 @@ submit, and submitted query state is not preserved.
 - **Executor-agnostic core** — planned → [`issues/CORE-TOKIO-REMOVAL.md`](issues/CORE-TOKIO-REMOVAL.md)
 - **Browser stores (localStorage, fetch, JS, routing)** — built → [`design/liquers-web-store/`](design/liquers-web-store/)
 - **Browser-native store and command backend** — planned → [`issues/WEB-NATIVE-IO-TIER2.md`](issues/WEB-NATIVE-IO-TIER2.md)
+- **Assets HTTP API completeness** — planned → [`issues/AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED.md`](issues/AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED.md)
+- **Query endpoint timeout configuration** — planned → [`issues/AXUM-QUERY-TIMEOUT-HARDCODED.md`](issues/AXUM-QUERY-TIMEOUT-HARDCODED.md)
+- **Agent memory service** — designing → [`design/agent-memory-mvp/`](design/agent-memory-mvp/)
+
+The memory service is the first line here that is an *application* of Liquers rather than a way
+into it: a store router holding the corpus, a `ns-mem` command namespace, and the assets API as the
+client interface serving `specs/` as tiered, searchable agent memory — where the tiers are
+`AssetInfo`'s existing `title` and `description`. Phase 1 of `liquers-project`, awaiting approval.
+
+Designing it is what found `AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED`: six of the assets API's ten
+endpoints, all of them specified in `WEB_API_SPECIFICATION.md` §5.1, return 501. `GET /listdir` is
+the one that matters most — an asset listing is the only call that returns a directory's
+descriptive metadata without reading data — and it is the service's first prerequisite. Three
+further gaps are worked around rather than fixed: `STORE-NO-CONTENT-OR-METADATA-SEARCH`,
+`CORE-METADATA-NO-APPLICATION-ATTRIBUTES` and `STORE-WRITE-HAS-NO-PRECONDITION`.
 
 ### Build and repository
 
@@ -283,6 +304,7 @@ deliberately folded behind a broader line.
 - design `variadic-metadata-tail-check`
 - design `web-liquers-error-constructor`
 - design `web-value04-bytes-identifier`
+- feature `AGENT-MEMORY-SERVICE`
 - feature `ASSET-REGISTRATION-OWNERSHIP-CONTRACT`
 - feature `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`
 - feature `COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS`
