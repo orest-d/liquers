@@ -273,22 +273,41 @@ field provenance are orthogonal:
 | **A materialized projection** — a command's result, stored and content-hash versioned | one evaluation per document *version*, paid outside the search | any |
 | **An inline projection** — applying a pure command to bytes the search is already reading | at most one parse per candidate whose bytes were read anyway | any |
 
-### The invariant is about producing assets, not about doing work
+### The invariant is about not starting recipes, and the mechanism is in the asset manager
 
-An earlier draft forbade inline projection on the grounds that it is "an evaluation". That was
-wrong, and the distinction it missed is structural rather than a matter of degree.
+Two earlier drafts got this wrong in opposite directions — one made the projection the danger, the
+other argued the projection was safe because of how commands execute. Both were looking at the wrong
+component. **The thing a search must not do is cause an asset to run**, and whether that happens is
+decided by the asset manager, not by the projection.
 
-`CommandExecutor::execute(command_key, &State, arguments, context) -> Value`
-(`liquers-core/src/commands.rs:540`) applies a command to a state and returns a value. **It creates
-no asset, persists nothing, runs no recipe and cascades no dependency.** Evaluating a *query* —
-`Context::evaluate`, `AssetManager::get_asset` — does all four. The invariant is about the second:
+At HEAD it happens by accident. `AssetManager::get_asset_info(&key)` — the call that answers "what is
+this asset" — routes a *live* key through `AssetManager::get`, which submits to the job queue when
+the asset is not finished and cannot fast-track (`assets.rs:3967`, `:5334`, `:5424`). An asset in
+`Status::Recipe` is exactly such an asset, so **describing it runs it**. A key that is not live is
+described safely from the store or the recipe provider, which makes the side effect conditional on
+whether something else touched the key earlier.
 
-> **A search may apply a pure projection to a candidate it is already entitled to read. It never
-> evaluates a query, because that produces an asset and may run an arbitrarily expensive recipe.**
+So the invariant needs a mechanism, and the mechanism is a guaranteed non-triggering path:
 
-The cost argument points the same way. A text clause already reads every candidate's bytes; parsing
-YAML front-matter out of bytes that have just been read is strictly cheaper than the substring match
-performed on them. Forbidding the parse while permitting the match is incoherent.
+> **A search obtains and describes assets without starting them.** `Status::Recipe` is an honest
+> answer; a search reports it rather than resolving it.
+
+Filed as `DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION` (P1). Most of the pieces exist —
+`lookup_key_asset` is non-triggering, and `AssetRef`'s `status`, `poll_state`, `get_any_status`,
+`poll_binary` and `get_asset_info` all read without scheduling. What is missing is that they are not
+recognised as *the* safe path, and that the manager's own describe call does not use them.
+
+### Projection is a secondary question, and it is not the dangerous one
+
+With that settled, whether a projection runs inline matters much less. Applying a command to a state
+through `CommandExecutor::execute` (`commands.rs:540`) creates no asset, persists nothing and runs
+no recipe; and the cost argument is favourable anyway, since a text clause already reads every
+candidate's bytes and parsing front-matter out of them is cheaper than the substring match performed
+on them.
+
+The residual risk is only that a projection command's *body* could reach through its `Context` and
+evaluate — which is the same hazard as above, arriving by a different door, and is filed separately
+as `COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT`.
 
 ### How a field resolves
 

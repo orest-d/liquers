@@ -144,6 +144,7 @@ expansion time rather than at runtime. That is the cheapest item here.
 - **Observable expiration events for external systems** — planned → [`issues/ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET.md`](issues/ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET.md)
 - **Incremental value serialization** — planned → [`issues/VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER.md`](issues/VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER.md)
 - **Running a command with a restricted context** — planned → [`issues/COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT.md`](issues/COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT.md)
+- **Describing an asset without evaluating it** — planned → [`issues/DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION.md`](issues/DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION.md)
 
 A key given to a store must be absolute: no element may be `.` or `..`. Relative keys are resolved
 at plan level and a store never resolves them, so one reaching a store is refused with
@@ -266,7 +267,9 @@ question are both measure-first items.
 ## Open issues attached to live design work
 
 <!-- BEGIN generated: issues -->
-*None.*
+| Issue | Pri | Cx | Design |
+|---|---|---|---|
+| [`DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION`](issues/DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION.md) | P1 | M | `store-and-asset-search` |
 <!-- END generated: issues -->
 
 ## Not yet placed

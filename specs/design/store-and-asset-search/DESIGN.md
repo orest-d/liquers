@@ -131,15 +131,19 @@ component that sees every write, so it is the only one that can hold an index).
    Level 0 as "one record per asset, fields from metadata", fusing two independent things. Extracting
    front-matter from Markdown yields one record per asset — Level 0 by cardinality — while taking its
    fields from content.
-14. **The non-evaluation invariant is about producing assets, not about doing work.** A second draft
-   over-corrected and forbade inline projection. The line is structural: `CommandExecutor::execute`
-   applies a command to a state and returns a value — no asset, no persistence, no recipe, no
-   dependency cascade — while evaluating a *query* does all four. A search may do the first and never
-   the second. The cost argument agrees: a text clause already reads every candidate's bytes, so
-   parsing fields out of them is cheaper than the match performed on them. Materializing a projection
-   into metadata is an **optimization** that removes the content read, not a precondition — which is
-   what this repository already does by hand with `specs/index.csv`. The residual risk is that a
-   command's body can still reach through its `Context` and evaluate; filed as
+14. **The non-evaluation invariant needs a mechanism in the asset manager, not an argument about
+   commands.** Two drafts looked at the wrong component — one made the projection the danger, the
+   other argued it was safe because of how commands execute. The operation to prevent is *starting an
+   asset*, and at HEAD `AssetManager::get_asset_info` starts one by accident: a live key is routed
+   through `get`, which submits to the job queue when the asset is unfinished and cannot fast-track,
+   so describing an asset in `Status::Recipe` runs it. Filed as
+   `DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION` (P1). The non-triggering pieces already exist —
+   `lookup_key_asset`, and `AssetRef`'s `status`, `poll_state`, `get_any_status`, `get_asset_info` —
+   they are simply not recognised as the safe path. With that settled, inline projection is a
+   secondary question and an allowed one: applying a command to a state creates no asset, and a text
+   clause already reads the same bytes. Materializing a projection into metadata is an
+   **optimization**, not a precondition — which is what this repository already does by hand with
+   `specs/index.csv`. The residual hazard is a projection command reaching through its `Context`:
    `COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT`.
 15. **Only seven decisions are foundational.** The test is whether a thing can be added later
    without changing what Level 0 shipped. Seven cannot — the record's shape with the id field present

@@ -75,8 +75,8 @@ write-back are not designed here.
 **Not search:** link traversal, dependency-graph queries, and DataFrame filtering. Each has, or
 deserves, its own mechanism; folding them in grows the predicate without improving an essential case.
 
-**Hard invariants:** a search never evaluates a query — it produces no asset, persists nothing and
-runs no recipe, though it may apply a pure projection to bytes it is already reading; it is bounded and reports truncation; its result is an addressable value; results are
+**Hard invariants:** a search never starts an asset — it obtains and describes assets without
+triggering their recipes, and reports `Status::Recipe` as an honest answer rather than resolving it; it is bounded and reports truncation; its result is an addressable value; results are
 unordered unless a scoring clause was used; the baseline runs everywhere, wasm included; and **an external system's correctness comes from reconciliation, never
 from a delivered notification** — push is a latency optimization with no correctness role.
 
@@ -107,8 +107,13 @@ milestone — but until it is fixed, every external view is as stale as its poll
 filtering is ordinary commands over the returned list. Separately, the **command registry becomes a
 record source**, so "which commands mention resize" needs no command-specific search code.
 
-**Asset system** — search unions store entries, live assets and recipe-declared keys as
-`AssetManager::get_asset_info` already resolves them, without triggering evaluation.
+**Asset system** — search unions store entries, live assets and recipe-declared keys the way
+`AssetManager::get_asset_info` resolves them, but without triggering evaluation. That needs a fix:
+today a *live* key is routed through `AssetManager::get`, which submits to the job queue when the
+asset is unfinished and cannot fast-track, so describing an asset in `Status::Recipe` runs it
+(`DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION`, P1). The non-triggering pieces already exist —
+`lookup_key_asset`, and `AssetRef`'s `status`, `poll_state`, `get_any_status` and `get_asset_info` —
+they are simply not recognised as the safe path.
 
 **Value types** — a record type: identity as **(asset, record id)**, named typed fields carried as
 the existing `Value::Object`, and text. The representation is not new; what the type adds is a
@@ -128,13 +133,12 @@ chunks, batches, locator rules and schema — is what SQL, external sinks, seria
 
 **The level is cardinality only.** Where a record's *fields* come from is a separate axis: metadata,
 a materialized projection, or a projection applied inline. Extracting front-matter yields one record
-per asset, so it is Level 0 despite not reading metadata. The non-evaluation invariant permits the
-inline case and forbids query evaluation, and the line between them is structural:
-`CommandExecutor::execute` applies a command to a state and returns a value — no asset, no
-persistence, no recipe — while evaluating a query does all three. A text clause already reads every
-candidate's bytes, so parsing fields out of them is cheaper than the match itself. Materializing a
-projection into metadata is therefore an **optimization** that removes the content read, not a
-precondition.
+per asset, so it is Level 0 despite not reading metadata. Inline projection is permitted — applying a
+command to a state creates no asset, and a text clause already reads the same bytes, so the parse is
+cheaper than the match performed on them. Materializing a projection into metadata is therefore an
+**optimization** that removes the content read, not a precondition. The dangerous operation is not
+the projection but *starting an asset*, which is why the invariant is stated about the asset manager
+above.
 
 Level 1 arriving as specialized commands would put the whole contract's specification on Level 0,
 which is a fair worry and a smaller one than it looks: [`roadmap.md`](./roadmap.md) §1 shows that
@@ -217,9 +221,12 @@ search. Both should work from the reference and the guide without opening this f
    streaming form has to be addressable batches.
 15. With four consumers — search, external sinks, SQL, serialization — does the record model graduate
    to its own design once Level 1 is needed, with search as its first client?
-16. How is a projection's purity guaranteed on the search path — a declaration on the command, or a
+16. Is the non-triggering describe the default for `get_asset_info` with an opt-in resolving
+   variant, or do the two get separate names
+   (`DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION`)?
+17. How is a projection's purity guaranteed on the search path — a declaration on the command, or a
    restricted context that refuses evaluation (`COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT`)?
-17. How does a bare field name resolve when two layers define it? `status` is the **asset**
+18. How does a bare field name resolve when two layers define it? `status` is the **asset**
    lifecycle in `MetadataRecord` and the **document's** lifecycle in `specs/` front-matter, and both
    would answer `status:draft` silently. Namespaced fields, or a documented precedence — cheap now,
    confusing forever if left.

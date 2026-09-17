@@ -180,12 +180,14 @@ Three honest consequences:
 1. **`CORE-METADATA-NO-APPLICATION-ATTRIBUTES` (P2) is a performance upgrade, not a prerequisite.**
    It turns a field-only search from O(corpus bytes) into O(corpus metadata). At ~300 small documents
    the inline route is fine; it is the first thing that stops being fine as the corpus grows.
-2. **Inline projection needs a purity guarantee the framework cannot give yet.** `execute` creates no
-   asset, but the command's body could reach through its `Context` and evaluate queries anyway,
-   turning one search into a corpus-wide cascade. Filed as
-   `COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT` (P2). Until it lands, purity is a contract
-   enforced by review — acceptable for commands this project writes itself, and the thing to fix
-   before third-party projections are accepted.
+2. **The dangerous operation is starting an asset, not projecting.** A search must be able to
+   describe an asset without running its recipe, and today `get_asset_info` schedules one for a live
+   key in `Status::Recipe` (`DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION`, P1). That is the fix
+   the invariant actually depends on. A secondary hazard remains: a projection command's body could
+   reach through its `Context` and evaluate, arriving at the same place by a different door —
+   `COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT` (P2). Until that lands, purity is a contract
+   enforced by review, which is acceptable for commands this project writes itself and is the thing
+   to fix before third-party projections are accepted.
 3. **The repository already relies on the same trade.** `specs/index.csv` is a materialized
    projection of every document's front-matter, regenerated and committed because computing it per
    query would be wasteful. Searching *that file* as a record source would work but is Level 1 — rows
@@ -209,7 +211,7 @@ which is the value type, not a genre.
 
 | Milestone | Depends on | Blocking? |
 |---|---|---|
-| M0–M2 | nothing outside this design | — |
+| M0–M2 | `DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION` (P1) | **no, but fix it first.** Without it, enumeration must hand-roll the live→store→recipe resolution to avoid scheduling jobs, and the non-evaluation invariant becomes a policy each caller re-implements |
 | M3 | `AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED` (P0) only for the HTTP surface; the command surface is unaffected | no |
 | M1 (A3 quality) | `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` (P2) | no — degrades to text matching |
 | M4 | nothing; each filter is a derived asset of one document | no |

@@ -8,9 +8,9 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 104
+Total rows: 105
 - P0: 1
-- P1: 1
+- P1: 2
 - P2: 69
 - P3: 33
 
@@ -18,6 +18,7 @@ Total rows: 104
 |---|---|---|---|---|---|---|---|---|---|
 | [`AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED`](issues/AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED.md) | issue | Six documented assets API endpoints return 501 Not Implemented | draft |  | P0 | M | axum;core/assets |  | 2026-09-15 |
 | [`WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION`](issues/WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION.md) | issue | The web API specification diverges from the implementation in three further ways | draft |  | P1 | S | axum;docs |  | 2026-09-16 |
+| [`DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION`](issues/DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION.md) | issue | Describing an asset can trigger its evaluation | draft |  | P1 | M | core/assets | [interoperability](specs/design/store-and-asset-search/interoperability-layer.md)  [options](specs/design/store-and-asset-search/options-analysis.md)  [phase1](specs/design/store-and-asset-search/phase1-high-level-design.md)  [phase2](specs/design/store-and-asset-search/phase2-architecture.md)  [phase3](specs/design/store-and-asset-search/phase3-examples.md)  [phase4](specs/design/store-and-asset-search/phase4-implementation.md)  [phase5](specs/design/store-and-asset-search/phase5-documentation.md)  [record](specs/design/store-and-asset-search/record-model.md)  [research](specs/design/store-and-asset-search/research-questions.md)  [roadmap.md](specs/design/store-and-asset-search/roadmap.md)  [use](specs/design/store-and-asset-search/use-cases.md)  | 2026-09-17 |
 | [`QUEUED-MANAGER-EVICTION-RACE`](issues/QUEUED-MANAGER-EVICTION-RACE.md) | issue | The queued manager's cache evictions can delete a replacement asset | accepted | ready | P2 | S | core/assets | [phase1](specs/design/queued-manager-conditional-eviction/phase1-high-level-design.md)  [phase2](specs/design/queued-manager-conditional-eviction/phase2-architecture.md)  [phase3](specs/design/queued-manager-conditional-eviction/phase3-examples.md)  [phase4](specs/design/queued-manager-conditional-eviction/phase4-implementation.md)  | 2026-08-09 |
 | [`WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND`](issues/WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND.md) | issue | A JsStore delegate has no way to signal absence, so a missing key reads as a read error | draft | ready | P2 | S | web;core/store | [phase1](specs/design/js-store-not-found-sentinel/phase1-high-level-design.md)  [phase2](specs/design/js-store-not-found-sentinel/phase2-architecture.md)  [phase3](specs/design/js-store-not-found-sentinel/phase3-examples.md)  [phase4](specs/design/js-store-not-found-sentinel/phase4-implementation.md)  | 2026-09-02 |
 | [`WEB-JS-STORE-HAS-NO-DIRECTORY-METADATA`](issues/WEB-JS-STORE-HAS-NO-DIRECTORY-METADATA.md) | issue | JsStore::get_metadata delegates a directory key to get, which throws | draft | ready | P2 | S | web;core/store | [phase1](specs/design/js-store-directory-metadata/phase1-high-level-design.md)  [phase2](specs/design/js-store-directory-metadata/phase2-architecture.md)  [phase3](specs/design/js-store-directory-metadata/phase3-examples.md)  [phase4](specs/design/js-store-directory-metadata/phase4-implementation.md)  | 2026-09-02 |
