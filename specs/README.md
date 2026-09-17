@@ -143,6 +143,7 @@ expansion time rather than at runtime. That is the cheapest item here.
 - **Sessions and key-level authorization** — planned → [`issues/CORE-SESSION-AND-KEY-ACL.md`](issues/CORE-SESSION-AND-KEY-ACL.md)
 - **Observable expiration events for external systems** — planned → [`issues/ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET.md`](issues/ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET.md)
 - **Incremental value serialization** — planned → [`issues/VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER.md`](issues/VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER.md)
+- **Running a command with a restricted context** — planned → [`issues/COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT.md`](issues/COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT.md)
 
 A key given to a store must be absolute: no element may be `.` or `..`. Relative keys are resolved
 at plan level and a store never resolves them, so one reaching a store is refused with

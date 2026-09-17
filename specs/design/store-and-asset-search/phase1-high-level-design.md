@@ -75,8 +75,8 @@ write-back are not designed here.
 **Not search:** link traversal, dependency-graph queries, and DataFrame filtering. Each has, or
 deserves, its own mechanism; folding them in grows the predicate without improving an essential case.
 
-**Hard invariants:** a search never evaluates — which forbids inline projection as well as triggering
-a recipe; it is bounded and reports truncation; its result is an addressable value; results are
+**Hard invariants:** a search never evaluates a query — it produces no asset, persists nothing and
+runs no recipe, though it may apply a pure projection to bytes it is already reading; it is bounded and reports truncation; its result is an addressable value; results are
 unordered unless a scoring clause was used; the baseline runs everywhere, wasm included; and **an external system's correctness comes from reconciliation, never
 from a delivered notification** — push is a latency optimization with no correctness role.
 
@@ -127,12 +127,14 @@ chunks, batches, locator rules and schema — is what SQL, external sinks, seria
 *inside* structured data need, and all of those are optional.
 
 **The level is cardinality only.** Where a record's *fields* come from is a separate axis: metadata,
-or a materialized projection such as extracted front-matter. Extracting front-matter yields one
-record per asset, so it is Level 0 despite not reading metadata. What the non-evaluation invariant
-forbids is the third option — running a projection command per candidate *during* a search, which
-would let one query recompute a corpus. **A search reads projections that already exist; it never
-creates one.** Materializing them is a recipe's job, and the asset layer keeps them fresh by content
-hash.
+a materialized projection, or a projection applied inline. Extracting front-matter yields one record
+per asset, so it is Level 0 despite not reading metadata. The non-evaluation invariant permits the
+inline case and forbids query evaluation, and the line between them is structural:
+`CommandExecutor::execute` applies a command to a state and returns a value — no asset, no
+persistence, no recipe — while evaluating a query does all three. A text clause already reads every
+candidate's bytes, so parsing fields out of them is cheaper than the match itself. Materializing a
+projection into metadata is therefore an **optimization** that removes the content read, not a
+precondition.
 
 Level 1 arriving as specialized commands would put the whole contract's specification on Level 0,
 which is a fair worry and a smaller one than it looks: [`roadmap.md`](./roadmap.md) §1 shows that
@@ -215,7 +217,9 @@ search. Both should work from the reference and the guide without opening this f
    streaming form has to be addressable batches.
 15. With four consumers — search, external sinks, SQL, serialization — does the record model graduate
    to its own design once Level 1 is needed, with search as its first client?
-16. How does a bare field name resolve when two layers define it? `status` is the **asset**
+16. How is a projection's purity guaranteed on the search path — a declaration on the command, or a
+   restricted context that refuses evaluation (`COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT`)?
+17. How does a bare field name resolve when two layers define it? `status` is the **asset**
    lifecycle in `MetadataRecord` and the **document's** lifecycle in `specs/` front-matter, and both
    would answer `status:draft` silently. Namespaced fields, or a documented precedence — cheap now,
    confusing forever if left.

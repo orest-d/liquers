@@ -8,10 +8,10 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 103
+Total rows: 104
 - P0: 1
 - P1: 1
-- P2: 68
+- P2: 69
 - P3: 33
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
@@ -35,6 +35,7 @@ Total rows: 103
 | [`AXUM-HANDLER-TEST-COVERAGE`](issues/AXUM-HANDLER-TEST-COVERAGE.md) | issue | liquers-axum has no handler test scaffolding, so handler behaviour is verified only by review | accepted |  | P2 | M | axum | [phase1](specs/design/expired-binary-read-safety/phase1-high-level-design.md)  [phase2](specs/design/expired-binary-read-safety/phase2-architecture.md)  [phase3](specs/design/expired-binary-read-safety/phase3-examples.md)  [phase4](specs/design/expired-binary-read-safety/phase4-implementation.md)  | 2026-08-08 |
 | [`COMBINED-VALUE-DISCRIMINATION`](issues/COMBINED-VALUE-DISCRIMINATION.md) | feature | Deserialization cannot discriminate base from extended values | accepted |  | P2 | M | core/value;lib/value |  | 2026-08-08 |
 | [`COMMAND-ALIAS-DEFINITION-UNTESTED`](issues/COMMAND-ALIAS-DEFINITION-UNTESTED.md) | issue | CommandDefinition::Alias has no test and no user, and its head-parameter semantics are unexercised | draft |  | P2 | M | core/plan;core/commands |  | 2026-08-29 |
+| [`COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT`](issues/COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT.md) | feature | A command cannot be run with a restricted context | draft |  | P2 | M | core/context;core/commands |  | 2026-09-17 |
 | [`COMMAND-CONTEXT-PARAM-ORDER`](issues/COMMAND-CONTEXT-PARAM-ORDER.md) | issue | The context parameter must come last, as a workaround | accepted |  | P2 | M | core/commands;macro | [FINDINGS.md](specs/design/context-param-order/FINDINGS.md)  [SOLUTION.md](specs/design/context-param-order/SOLUTION.md)  | 2026-08-08 |
 | [`CORE-METADATA-NO-APPLICATION-ATTRIBUTES`](issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md) | feature | Metadata cannot carry application-defined attributes | draft |  | P2 | M | core/value |  | 2026-09-15 |
 | [`CORE-PLAN-POLICY-AND-DEFAULTS`](issues/CORE-PLAN-POLICY-AND-DEFAULTS.md) | issue | Plan builder has no configuration and questionable defaults | accepted |  | P2 | M | core/plan |  | 2026-08-08 |
