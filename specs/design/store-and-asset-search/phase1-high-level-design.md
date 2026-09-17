@@ -29,10 +29,13 @@ is the whole design:
 - **External systems are materialized views, reconciled rather than notified.** A search engine, a
   vector store, a RAG pipeline and an external SQL database differ only in what they answer; the
   feed and the freshness are identical, so one layer serves all four.
-- **A chunk is the unit of refresh; a record is the unit of retrieval.** A stream query yields a
-  partition of chunks, each with its own narrower dependency set and its own refresh query, so a
-  changed source re-derives one chunk rather than the stream. Chunking also bounds memory, since
-  Liquers values are materialized.
+- **A chunk is the unit of refresh, a batch the unit of memory, a record the unit of retrieval.**
+  A stream query yields a partition of chunks — split by *dependency*, so one changed file
+  re-derives one chunk — and a chunk is delivered as batches, split by *size*, because the unit that
+  is natural for dependencies may be far too large to hold. One partitioning mechanism, two criteria.
+- **Records are a tabular interchange layer, not only search infrastructure.** A chunk is a table
+  and a stream is a table in parts, so the same mechanism serializes to NDJSON, CSV or parquet and
+  presents a corpus to SQL.
 
 ## Scope
 
@@ -49,9 +52,12 @@ without the design tying itself to any one of them; and a baseline that runs on 
 maintained index, whether per-document filters or a monolithic one; any actual external sink; tags;
 facets and ranges; router fan-out across mounts; a dedicated HTTP endpoint.
 
-**Prerequisite, not blocking:** `ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET`
-(P1) — the layer is correct without it and merely slow, so this design proceeds and the issue is
-what turns a demonstration into an integration.
+**Prerequisites, none blocking:** `ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET`
+(P1) — the interoperability layer is correct without it and merely slow, so this design proceeds and
+the issue is what turns a demonstration into an integration. `CORE-STORE-OPENBIN-MISSING` (P3) and
+`VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER` (P2) bound how far streaming can actually go: without
+them, batching bounds the consumer's memory but not the reader's or the serializer's. All three
+matter only at Level 1.
 
 **Separate task — considered only where it intersects:** SQL. An external SQL database is fed and
 kept fresh by the same interoperability layer as a search engine or vector store, so the intersection
@@ -97,11 +103,22 @@ record source**, so "which commands mention resize" needs no command-specific se
 **Asset system** — search unions store entries, live assets and recipe-declared keys as
 `AssetManager::get_asset_info` already resolves them, without triggering evaluation.
 
-**Value types** — a record type: identity (the asset as a query, plus an optional evaluable
-locator), named typed fields carried as the existing `Value::Object`, and text. The representation
-is not new; what the type adds is a guaranteed address and a field/text distinction that a bare map
-cannot express. `Value::AssetInfo(Vec<AssetInfo>)` and `Value::CommandMetadata` remain the shapes a
-search result and a command description take.
+**Value types** — a record type: identity as **(asset, record id)**, named typed fields carried as
+the existing `Value::Object`, and text. The representation is not new; what the type adds is a
+guaranteed address and a field/text distinction a bare map cannot express. The identity is a pair
+rather than a stored query because holding a query string per row costs a multiple of the data it
+describes: the asset is carried by the chunk, the id is small and asset-dependent (a row number, a
+line, a pointer, or nothing when the asset *is* the record), and the evaluable locator is derived on
+demand through `ActionRequest` — never by string templating.
+`Value::AssetInfo(Vec<AssetInfo>)` and `Value::CommandMetadata` remain the shapes a search result and
+a command description take.
+
+**Scope of the record model in this design** — the first version needs only **Level 0**: one record
+per asset, no record id, fields from metadata, text from content. That is what agent memory and a
+user's search box are about — finding documents, not rows. **Level 1** — many records per asset, with
+ids, chunks, batches, locator rules and schema — is what SQL, external sinks, serialization and
+searching *inside* structured data need, and all of those are optional. The requirement this places
+on the type is that **Level 0 is the degenerate case of Level 1, not a second type**.
 
 **Built-in engine** — a scan in the first version: field tests against metadata, text tests against
 bytes only when a text clause demands them. The designed second step is a per-document word filter —
@@ -169,6 +186,11 @@ search. Both should work from the reference and the guide without opening this f
 12. Is the partition itself a record stream (one mechanism, recursive base case) or a separate,
    lighter type?
 13. Is `text` a field carrying the `text` role, or a distinct part of the record?
+14. Are batches addressable as queries, enumerated by count, or cursor-driven? In process a chunk can
+   be a genuine iterator; across a query boundary a query returns a materialized value, so the
+   streaming form has to be addressable batches.
+15. With four consumers — search, external sinks, SQL, serialization — does the record model graduate
+   to its own design once Level 1 is needed, with search as its first client?
 
 ## References
 

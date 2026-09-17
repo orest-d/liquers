@@ -8,10 +8,10 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 102
+Total rows: 103
 - P0: 1
 - P1: 2
-- P2: 66
+- P2: 67
 - P3: 33
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
@@ -61,6 +61,7 @@ Total rows: 102
 | [`STORE-NO-READ-ONLY-ADAPTER`](issues/STORE-NO-READ-ONLY-ADAPTER.md) | feature | No read-only store adapter, so reading a file store writes to it | draft |  | P2 | M | core/store |  | 2026-09-16 |
 | [`STORE-TEST-IDS-COLLIDE-WITH-CONFORMANCE-RULE-IDS`](issues/STORE-TEST-IDS-COLLIDE-WITH-CONFORMANCE-RULE-IDS.md) | issue | Store unit tests share IDs with conformance rules that check different contracts | draft |  | P2 | M | core/store;store/backends;docs | [phase1](specs/design/store-conformance-suite/phase1-high-level-design.md)  [phase2](specs/design/store-conformance-suite/phase2-architecture.md)  [phase3](specs/design/store-conformance-suite/phase3-examples.md)  [phase4](specs/design/store-conformance-suite/phase4-implementation.md)  [phase5](specs/design/store-conformance-suite/phase5-documentation.md)  | 2026-09-02 |
 | [`STORE-WRITE-HAS-NO-PRECONDITION`](issues/STORE-WRITE-HAS-NO-PRECONDITION.md) | issue | A store write has no precondition, so concurrent writers clobber silently | draft |  | P2 | M | core/store |  | 2026-09-15 |
+| [`VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER`](issues/VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER.md) | feature | Value serialization has no incremental writer | draft |  | P2 | M | core/value |  | 2026-09-17 |
 | [`WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT`](issues/WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT.md) | issue | Enter key does not submit in the browser query console | accepted |  | P2 | M | lib/ui | [phase1](specs/design/ui-events/phase1-high-level-design.md)  [phase2](specs/design/ui-events/phase2-architecture.md)  [phase3](specs/design/ui-events/phase3-examples.md)  [phase4](specs/design/ui-events/phase4-implementation.md)  | 2026-08-08 |
 | [`WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED`](issues/WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED.md) | issue | Submitted query state is not preserved in the browser | accepted |  | P2 | M | lib/ui | [phase1](specs/design/ui-events/phase1-high-level-design.md)  [phase2](specs/design/ui-events/phase2-architecture.md)  [phase3](specs/design/ui-events/phase3-examples.md)  [phase4](specs/design/ui-events/phase4-implementation.md)  | 2026-08-08 |
 | [`ERROR-WITH-KEY-SETS-QUERY-FIELD`](issues/ERROR-WITH-KEY-SETS-QUERY-FIELD.md) | issue | Error context cannot distinguish asset keys from nested queries | draft | phase2-blocked | P2 | L | core/error;core/query;core/assets;core/store;web;py;axum | [phase1](specs/design/error-with-key-field/phase1-high-level-design.md)  [phase2](specs/design/error-with-key-field/phase2-architecture.md)  [phase3](specs/design/error-with-key-field/phase3-examples.md)  [phase4](specs/design/error-with-key-field/phase4-implementation.md)  | 2026-08-25 |

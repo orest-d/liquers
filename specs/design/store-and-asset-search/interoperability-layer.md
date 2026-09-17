@@ -83,6 +83,10 @@ source. A chunk is the smallest unit whose staleness is decidable from metadata 
 makes it the right unit and not an arbitrary batching convenience. Refresh replaces a chunk's
 records wholesale; there is no record-level merge.
 
+A chunk may still be too large to hold, so it is *delivered* as batches. Batching is a memory
+concern only: **batches never appear in a diff**, a sink never addresses one for refresh, and their
+boundaries may move between evaluations without meaning anything.
+
 **Liquers already supplies the pieces.** `MetadataRecord.version` is a content hash computed at save
 time (`liquers-core/src/metadata.rs:961`), `MetadataRecord.dependencies` is already
 `Vec<DependencyRecord { key, version }>` — the observed-versions shape a chunk version hashes over —

@@ -47,8 +47,9 @@ many use cases as possible. The folder therefore carries three documents beside 
   RAG pipeline or SQL mirror without tying the design to any of them. Added in the third round,
   when the brief asked whether one hook system could serve them all and handle updates and
   expiration.
-- `record-model.md` — what a record, a record stream, a chunk and a schema are. Added in the fourth
-  round, when partial refresh turned out to need a unit smaller than the stream.
+- `record-model.md` — what a record, a record stream, a chunk, a batch and a schema are. Added in
+  the fourth round, when partial refresh turned out to need a unit smaller than the stream, and
+  extended in the fifth when memory turned out to need a second, smaller one.
 
 ### The sweet spot
 
@@ -94,19 +95,26 @@ component that sees every write, so it is the only one that can hold an index).
    declares how stale a view may be; `ExpirationMonitor` is already a worker of that shape. Exactly
    one new concept is required: an identity for the *projection rule*, so that changing a tokenizer
    or an embedding model invalidates an index rather than leaving it looking fresh.
-8. **A chunk is the unit of refresh; a record is the unit of retrieval.** A record has no
-   independent existence — it is derived, so versioning one costs a full read of its source. A chunk
-   is the smallest unit whose staleness is decidable from metadata alone. A stream query yields a
-   partition of chunks, each carrying its own narrower dependency set and its own refresh query, so
-   one changed CSV re-derives one chunk. Chunking also bounds memory, since Liquers values are
-   materialized and there is no streaming value type.
-9. **Identity is a query, not a string.** A record points at its asset as a query and may carry a
-   finer, *evaluable* locator — `-R/some/folder/f.csv/-/ns-csv/row-42` is fetchable, not a label.
-   That is what makes a hit composable instead of a dead reference. `Value::Object` is the right
-   representation for the fields and the wrong one for the whole record: it cannot guarantee
-   identity, cannot distinguish text from exact-match fields, and mixes provenance into what SQL
-   would project.
-10. **Borrow tinysearch's data structure, not tinysearch.** It builds its index at build time and
+8. **Three scales, deliberately distinct: a chunk is the unit of refresh, a batch the unit of
+   memory, a record the unit of retrieval.** A record is derived and has no independent existence,
+   so versioning one costs a full read of its source; a chunk is the smallest unit whose staleness is
+   decidable from metadata alone. But the unit that is natural for dependencies — one parquet file —
+   may be far too large to hold, so a chunk is *delivered* as batches. Partitioning by dependency and
+   partitioning by size are different questions; one mechanism answers both, and batches never appear
+   in a reconciliation diff.
+9. **Identity is a pair, and the expensive half is derived.** A record is identified by its asset and
+   an asset-dependent record id — a row number, a line, a pointer, or nothing when the asset *is* the
+   record. Holding an evaluable query per row costs a multiple of the data it describes, so the asset
+   is carried by the chunk and the locator query is constructed on demand, through `ActionRequest`
+   rather than string templating. `Value::Object` is the right representation for the fields and the
+   wrong one for the whole record: it cannot guarantee identity, cannot distinguish text from
+   exact-match fields, and mixes provenance into what SQL would project.
+10. **The record model has four consumers, of which search is one** — search, external sinks, SQL and
+   serialization, since a chunk is a table and a stream is a table in parts. The search MVP needs
+   only Level 0 (one record per asset, no ids, no batching), which must be the *degenerate case* of
+   Level 1 rather than a second type. Whether Level 1 graduates to its own design is a decision to
+   take deliberately.
+11. **Borrow tinysearch's data structure, not tinysearch.** It builds its index at build time and
    emits a compiled wasm module, which does not fit a corpus mutated at runtime. But a per-document
    word filter is a derived asset of *one* document, so it has no dependency fan-out — which is the
    problem that makes a monolithic derived index unattractive. In-tree indexes ride the asset layer

@@ -142,6 +142,7 @@ expansion time rather than at runtime. That is the cheapest item here.
 - **Conditional writes and concurrent-writer semantics** — planned → [`issues/STORE-WRITE-HAS-NO-PRECONDITION.md`](issues/STORE-WRITE-HAS-NO-PRECONDITION.md)
 - **Sessions and key-level authorization** — planned → [`issues/CORE-SESSION-AND-KEY-ACL.md`](issues/CORE-SESSION-AND-KEY-ACL.md)
 - **Observable expiration events for external systems** — planned → [`issues/ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET.md`](issues/ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET.md)
+- **Incremental value serialization** — planned → [`issues/VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER.md`](issues/VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER.md)
 
 A key given to a store must be absolute: no element may be `.` or `..`. Relative keys are resolved
 at plan level and a store never resolves them, so one reaching a store is refused with
@@ -183,14 +184,19 @@ search engine, vector store, RAG pipeline and SQL mirror differ only in what the
 layer feeds and reconciles all four, built almost entirely from vocabulary the dependency and
 expiration machinery already has.
 
-What that layer is fed is a **record stream**, partitioned into **chunks**: a chunk is the unit of
-refresh and a record the unit of retrieval, because a record is derived and versioning one would
-cost a full read of its source, while a chunk's staleness is decidable from metadata alone. A stream
-query depends on a directory and a chunk query on one file — a distinction the resource header
-instructions `-R-key` and `-R-bin` already express — so one changed file re-derives one chunk.
-Designing this found `ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET`: expiration is
-notified, but only to something already holding the asset. Phase 1 of `liquers-project`, awaiting
-approval.
+What that layer is fed is a **record stream**, at three deliberately distinct scales: a chunk is the
+unit of refresh, a batch the unit of memory, a record the unit of retrieval. A stream query depends
+on a directory and a chunk query on one file — a distinction the resource header instructions
+`-R-key` and `-R-bin` already express — so one changed file re-derives one chunk, while batching
+keeps a parquet file that is a perfectly good dependency unit from having to be a resident one. A
+record is identified by its asset plus a cheap asset-dependent id, with the evaluable locator derived
+on demand rather than stored per row. Because a chunk is a table and a stream is a table in parts,
+the same mechanism serves search, external sinks, SQL and serialization.
+
+Designing this found three gaps: `ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET`
+(expiration is notified, but only to something already holding the asset),
+`VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER`, and a new reason to care about
+`CORE-STORE-OPENBIN-MISSING`. Phase 1 of `liquers-project`, awaiting approval.
 
 ### Command libraries
 

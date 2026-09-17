@@ -1,10 +1,11 @@
-# The record model: records, streams, chunks and schema
+# The record model: records, streams, chunks, batches and schema
 
 Companion to [Phase 1](./phase1-high-level-design.md) and to
 [`interoperability-layer.md`](./interoperability-layer.md), which established that a record is the
 common denominator between full-text search, an external engine, a vector store and SQL. This
-document answers what a record actually **is**, and what it takes to refresh part of a stream rather
-than all of it.
+document answers what a record actually **is**, how a stream is partitioned so that part of it can be
+refreshed, and how memory is bounded when a single dependency-natural unit is far too large to
+materialize.
 
 Every query shown here was checked with `liquers-validate`.
 
@@ -18,10 +19,10 @@ The motivating usage is:
 2. it consumes the whole stream once, at initialization;
 3. a change — surfaced as an expiration event — triggers a **full or partial** update.
 
-Step 3 is what forces the design. If the only unit is "the stream", every change means reprocessing
-everything, and the configuration query's dependency set is the union of every source it touched. A
-partial update needs a smaller unit that owns a smaller dependency set **and knows how to rebuild
-itself**.
+Step 3 forces a unit smaller than the stream. Memory forces a second one: the unit that is natural
+for *dependencies* (one parquet file) may be far too large to hold at once, and the unit that is
+natural for *identity* (one row) is far too small to version. The model therefore has three scales,
+and keeping them distinct is most of the design.
 
 The worked example, and it is a good one because the two query forms in it already mean exactly the
 right things at HEAD:
@@ -39,60 +40,67 @@ because its *query* is narrower, and the planner already computes that.
 
 ## 1. What is a record?
 
-**A record is a projection of something addressable into named fields, carrying its own address.**
-
-Three parts, and the split matters more than the names:
+**A record is a projection of something addressable into named fields, identified by where it came
+from.**
 
 | Part | What it is | Why it cannot be folded into the others |
 |---|---|---|
-| **Identity** | the asset this came from, as a **query**; optionally a finer locator | A hit that is not addressable is a dead end (`use-cases.md` A7). Identity must be structurally guaranteed, not a field name every consumer has to agree on |
-| **Fields** | named, typed values — `Value::Object` | This is what predicates test and what a SQL column *is*. Named and typed is the one requirement the SQL task imposes (`research-questions.md` §4) |
-| **Text** | what full-text matching runs over | Distinct from fields because tokenizing a status code is wrong and exact-matching a paragraph is useless. A search engine must be told which is which |
+| **Identity** | the asset, plus an asset-dependent **record id** | A hit that is not addressable is a dead end (`use-cases.md` A7). Identity must be structurally guaranteed, not a field name every consumer agrees on |
+| **Fields** | named, typed values — `Value::Object` | What predicates test and what a SQL column *is*. Named and typed is the one requirement the SQL task imposes |
+| **Text** | what full-text matching runs over | Distinct from fields, because tokenizing a status code is wrong and exact-matching a paragraph is useless |
+
+### Identity is a pair, and the expensive half is not stored per record
+
+An evaluable locator per record — `-R/some/folder/f.csv/-/ns-csv/row-42` — is the right *concept*
+and the wrong *representation*. Constructing and holding a query per row costs an allocation and a
+string per record, which for a large parquet file is a large multiple of the data it describes.
+
+So identity is **(asset, record id)**, where the record id is small and asset-dependent: a row number
+for CSV or parquet, a line number or byte offset for text, a pointer path for JSON, and **nothing at
+all** when the asset itself is the record.
+
+Two consequences that make this cheap rather than merely smaller:
+
+1. **The asset is carried by the chunk, not by the record.** In the common case every record in a
+   chunk comes from one asset, so the reference is stored once. A chunk that spans assets (a folder
+   of many tiny files in one chunk) carries a small asset table and each record holds an index into
+   it — ordinary dictionary encoding, and free in the common case where the table has one entry.
+2. **The locator query is derived on demand, not stored.** The chunk declares *how*: a command to
+   apply to the asset, with the record id as a parameter. Rendering
+   `-R/some/folder/f.csv/-/ns-csv/row-42` is then a construction, done for the handful of records a
+   consumer actually wants to cite or fetch.
+
+The derivation must go through `ActionRequest`, never string templating. The escaping guide is
+explicit that query text is not built by hand — a record id that is a string containing a `-`, a `/`
+or a space would otherwise produce a corrupt query.
+
+### What a record id is
+
+A small enum, not a `Value`: an index (`u64`) covers row and line numbers, a short name covers JSON
+pointers and named entries, and absent covers "the asset is the record". A full `Value` per row would
+give back exactly the weight the pair was chosen to avoid.
+
+**Stability is narrower than it first appears, and that is a relief.** Because refresh replaces a
+whole chunk (§3), a record id does not need to be stable across content changes — only *within* a
+version. Row 42 of version X is a well-defined thing; whether it is still row 42 after the file
+changes is a question only a citation asks, and a citation is to a version.
 
 ### Is `Value::Object` enough?
 
-**As the payload, yes. As the whole record, no** — and the three things it cannot carry are exactly
-the three that every consumer needs.
+**As the fields, yes. As the whole record, no.** `Value::Object(BTreeMap<String, Value>)` already
+exists, already serializes, is schemaless by nature and maps directly onto a GlueSQL row, so there is
+no case for inventing a map. What a flat map cannot express:
 
-`Value::Object(BTreeMap<String, Value>)` already exists, already serializes, is schemaless by
-nature, and maps directly onto a GlueSQL row, so there is no case for inventing a map. What it
-cannot express:
-
-1. **Guaranteed identity.** If the address is just an entry under some agreed name, nothing enforces
-   its presence or its type, and every consumer re-derives the convention. The proposed
-   `{asset_key: …, specific_key: …, content: …}` works precisely because everyone agrees — which is
-   the definition of a convention that will drift.
-2. **The field/text distinction.** An engine configuring itself from a stream needs to know which
-   fields to tokenize. A flat map cannot say, so the knowledge moves into the engine's hand-written
-   configuration — and now the stream and the engine can disagree silently.
-3. **Provenance versus payload.** Fold the address into the map and a SQL projection of the record
-   grows provenance columns, and `SELECT *` returns query strings next to data.
+1. **Guaranteed identity** — nothing enforces the presence or type of an agreed `asset_key` entry,
+   so every consumer re-derives a convention that will drift.
+2. **The field/text distinction** — an engine configuring itself from a stream must know what to
+   tokenize. A map cannot say, so the knowledge moves into hand-written engine configuration, and
+   now the stream and the engine can disagree silently.
+3. **Provenance versus payload** — fold the address into the map and `SELECT *` returns query
+   strings next to data.
 
 > **Recommended:** a thin struct — identity, fields, optional text — whose fields are a
-> `Value::Object`. New type, no new *representation*; nothing about serialization or the value
-> system changes.
-
-### Identity is a query, not a string
-
-The proposal already gets this right and it is worth making normative:
-
-```
-asset     -R/some/folder/specific_file.csv
-locator   -R/some/folder/specific_file.csv/-/ns-csv/row-42
-```
-
-Both validate today. The second is not a label — it is **evaluable**, so a consumer that wants the
-row fetches it, and a citation stays meaningful when passed to a different process. That is the
-property that makes a search hit composable rather than a dead reference.
-
-Two honest caveats:
-
-- A locator is only evaluable if the projection can produce one. A line number inside a Markdown
-  file has no command behind it. So the locator is **optional**, and coordinates that are merely
-  descriptive (`line: 42`, `offset: 1180`) belong in fields. Phase 2 should decide whether a
-  *descriptive* locator is a third case or just fields.
-- An evaluable locator is a promise that the command exists and keeps working. It is a contract with
-  the projection, not a free-form string.
+> `Value::Object`. A new type, but no new *representation*.
 
 ---
 
@@ -100,86 +108,100 @@ Two honest caveats:
 
 **A stream is a query that yields records, plus the partition that says what it is made of.**
 
-Nothing more is needed, because a Liquers query is already an address *plus* a derivation, and the
-planner already computes its dependency set. A stream needs no identity of its own: it *is* its
-query.
-
-But a stream that can only be consumed whole is the thing step 3 rules out. So a stream has a second
-face:
+Nothing more is needed: a Liquers query is already an address *plus* a derivation, and the planner
+already computes its dependency set. A stream needs no identity of its own — it *is* its query.
 
 ```
-stream query  ──▶  partition:  [ chunk descriptor, … ]
-chunk query   ──▶  records:    [ record, … ]
+stream query  ──▶  partition:  [ chunk descriptor, … ]        split by DEPENDENCY
+chunk         ──▶  batches:    [ batch, … ]                   split by SIZE
+batch         ──▶  records:    [ record, … ]                  materialized
 ```
 
-A flat stream is a stream with exactly one chunk, so there is one shape, not two.
-
-**Materialization matters here.** Liquers values are in-memory; there is no streaming value type,
-and a folder of large CSVs cannot become one value. Chunking is what bounds this: a consumer never
-holds more than one chunk at a time. **That is the third problem chunks solve**, and it is a reason
-to make them first-class even for engines that never do a partial refresh.
+A stream with one chunk, and a chunk with one batch, are the simple cases — one shape, not three.
 
 ---
 
-## 3. What is a chunk?
+## 3. Chunks and batches: one mechanism, two criteria
 
-> **A chunk is the unit of refresh. A record is the unit of retrieval.**
+> **A chunk is the unit of refresh. A batch is the unit of memory. A record is the unit of
+> retrieval.**
 
-That one sentence resolves most of the follow-up questions. A chunk descriptor carries:
+Conflating the first two is the mistake the previous draft made. A parquet file is the right chunk —
+it is what a dependency is *about* — and the wrong thing to hold in memory. Partitioning by
+dependency and partitioning by size are different questions with different answers, and applying one
+mechanism twice keeps the model small.
+
+### The chunk
 
 | Field | Purpose |
 |---|---|
 | **id** | stable across refreshes, so a sink can replace a chunk's records wholesale |
 | **query** | how to rebuild exactly this chunk — the refresh query |
 | **version** | whether it needs rebuilding, answerable **without** rebuilding it |
-| **dependencies** | optional; what it is derived from, for diagnosis and for scoping event subscriptions |
+| **asset** (or asset table) | the identity half that records do not repeat |
+| **locator rule** | the command that turns a record id into an evaluable query |
 
-Refresh is then: for each chunk whose version differs from what the sink recorded, evaluate its
-query and **replace all of that chunk's records**. Replacement rather than merge is deliberate —
-record-level diffing inside a chunk would require record-level versions, which means hashing every
-record, which means reading everything, which is the cost the chunk existed to avoid.
+Refresh: for each chunk whose version differs from what the sink recorded, re-evaluate and **replace
+all of that chunk's records**. Replacement rather than merge is deliberate — record-level diffing
+would need record-level versions, which costs a full read, which is the cost the chunk exists to
+avoid.
 
-### Why not version individual records?
+**Why not version individual records?** A record is derived and has no independent existence. A chunk
+is precisely the smallest unit whose staleness is decidable **from metadata alone**, which is what
+makes it the right granularity rather than an arbitrary batching convenience.
 
-Because a record has no independent existence. It is derived, so its "version" is a function of its
-source; computing it per record costs a full read of the source. A chunk is precisely **the smallest
-unit whose staleness can be decided from metadata alone** — which is what makes it the right
-granularity and not an arbitrary batching convenience.
+**Chunk versions come nearly free.** `MetadataRecord.dependencies` is already
+`Vec<DependencyRecord { key, version }>` and `Version` is a content hash, so a chunk version is a
+hash over its dependencies' current versions — one metadata read per source file, no data reads.
 
-### Chunk versions come nearly free
+### The batch
 
-Liquers already records what an asset observed: `MetadataRecord.dependencies` is a
-`Vec<DependencyRecord { key, version }>`, and `Version` is a content hash. So a chunk's version is a
-hash over its dependencies' *current* versions — a metadata read per dependency, no data reads. For
-the worked example that is **one metadata read per CSV file** to decide whether that file's chunk
-needs reprocessing.
-
-This is the same `(id, version)` diff the interoperability layer already specified, now with the
-granularity settled: **reconcile at chunk granularity, not record granularity.**
-
-### Is the partition itself a record stream?
-
-It can be — a stream of records describing chunks — which would give a consumer one mechanism rather
-than two. It is tidy and slightly clever; Phase 2 should decide whether the uniformity is worth
-making the base case recursive.
+A batch exists only to bound memory. It is not a dependency unit, it is not addressed by a sink for
+refresh purposes, and its boundaries may move between evaluations without meaning anything. For
+parquet a batch is naturally a row group; for CSV or NDJSON, *n* rows.
 
 ---
 
-## 4. Do we need a schema? Is it basically a table?
+## 4. Streaming, honestly
 
-**A stream is a table**, and saying so is useful: it is why SQL needs no adapter beyond the field
-mapping, and why a DataFrame conversion is trivial. It differs from a table in three ways, each
-load-bearing:
+A chunk "being a stream" means different things on the two sides of a query boundary, and the
+difference is not cosmetic.
 
-1. **Identity is a query**, not a primary key drawn from the data.
-2. **Partitioning is explicit** and carries refresh semantics; a table's partitions do not.
-3. **Rows may be heterogeneous.** A corpus of mixed types has no single column set — which is why a
-   schema must be *optional*, and why GlueSQL's schemaless support is the relevant feature.
+**In process**, a chunk can be a genuine async iterator yielding batches: a consumer pulls, the
+producer reads incrementally, nothing large is ever resident. This is the shape the trait should
+have.
 
-**The schema should be optional, advisory, and attached to the stream** — and its most valuable
-content is not types. It is **field roles**:
+**Across a query or HTTP boundary**, a query returns a *value*, and Liquers values are materialized
+`Arc`-wrapped things that are cached, versioned and serialized. A stream is none of those. So the
+streaming form must be **addressable batches** — a batch is an ordinary value with an ordinary query
+address, cacheable and composable like anything else. Iteration becomes enumeration.
 
-| Role | Meaning to a search engine | Meaning to SQL |
+Three constraints at HEAD that this design must state rather than assume away:
+
+1. **`openbin` is unimplemented in every store** (`CORE-STORE-OPENBIN-MISSING`, P3): four `// TODO:
+   implement openbin` markers in `liquers-core/src/store.rs` and
+   `liquers-store/src/opendal_store.rs`. So the *source* cannot yet be read incrementally. Batching
+   therefore bounds the **consumer's** memory today, not the reader's: producing batch *i* of a large
+   parquet file still reads the file. That is a real limit, and this design is a reason to raise that
+   issue's priority rather than to work around it.
+2. **Value-level serialization is whole-value.** `DefaultValueSerializer::as_bytes(&self,
+   data_format) -> Vec<u8>` returns the entire encoding in memory. A writer-based path exists inside
+   the polars module (`serialize_dataframe_to_writer`) but not at the value or asset level — and is
+   itself called with a `Vec<u8>` — so serializing a large stream to CSV through the ordinary path
+   materializes it. Filed as `VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER`.
+3. **There is no streaming value type, and adding one is not obviously right.** A value that cannot
+   be cloned, cached, hashed or re-read is not a Liquers value; making it one would weaken the
+   contract every other part of the system relies on. Addressable batches get the benefit without
+   that cost.
+
+---
+
+## 5. Schema and field roles
+
+**Optional, advisory, attached to the stream** — and its most valuable content is not types, it is
+**field roles**:
+
+| Role | To a search engine | To SQL / serialization |
 |---|---|---|
 | `id` | not indexed, returned | a key column |
 | `text` | tokenized, matched by the text clause | a text column |
@@ -188,62 +210,85 @@ content is not types. It is **field roles**:
 | `numeric` | range clauses | a numeric column |
 | `vector` | similarity clause | opaque |
 
-These are the field options every engine already has — Lucene, Tantivy and Elasticsearch mappings
-all say the same thing in their own words — and they are the minimum an external engine needs to
+These are the field options every engine already has — Lucene, Tantivy and Elasticsearch mappings all
+say the same thing in their own words — and they are the minimum an external engine needs to
 **configure its index from a query**. That closes the loop with the motivating usage: the
-configuration query yields not only records but the mapping to configure the engine with, so the
-stream and the engine cannot drift into disagreement.
+configuration query yields not only records but the mapping to configure the engine with, so the two
+cannot drift into disagreement.
 
-A consumer that does not need the schema ignores it. The built-in scan needs only field *names*.
-
----
-
-## 5. The worked example, end to end
-
-```
-configure:   -R-key/some/folder/-/csv_records
-partition:   [ { id: "specific_file.csv",
-                 query: "-R-bin/some/folder/specific_file.csv/-/csv_file_records",
-                 version: hash(version of -R/some/folder/specific_file.csv) },
-               … one per file … ]
-records:     { asset:   -R/some/folder/specific_file.csv,
-               locator: -R/some/folder/specific_file.csv/-/ns-csv/row-42,
-               fields:  { price: 12.5, city: "Wien", line: 42 },
-               text:    "…" }
-```
-
-- Initialization evaluates the partition, then each chunk query in turn — never holding more than
-  one file's records.
-- One CSV changes. Its content hash changes, so exactly one chunk version changes, so exactly one
-  chunk query is re-evaluated and one chunk's records are replaced.
-- A file is added. The *partition* changes — which is a dependency on the directory listing, and
-  therefore runs into `DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED` on the push
-  path. Reconciliation catches it regardless, which is the third time that issue argues for pull
-  being the guarantee.
+A schema may also carry a **uniformity promise**: that every chunk in this stream has the same
+fields. Search does not need it; serializing a whole stream as one CSV does, since a CSV has one
+header. Heterogeneous streams remain legal and serialize as NDJSON.
 
 ---
 
-## 6. What this asks of the rest of the design
+## 6. Records as a tabular interchange layer
 
-1. Records are **structurally addressable**: identity is part of the type, not a convention.
+This is the part that takes the record model beyond search. **A chunk is a table, and a stream is a
+table in parts**, so one mechanism reinterprets anything as tabular data:
+
+| Target | Fit | Note |
+|---|---|---|
+| **NDJSON** | exact | One record per line, no global structure — the natural streaming form, batch-aligned with no buffering |
+| **CSV** | good | Needs the uniformity promise for a single header |
+| **Parquet** | good | Needs a schema; a batch maps onto a row group, which is what row groups are for |
+| **GlueSQL** | good | A stream is a table; its schemaless support covers heterogeneous rows |
+| **DataFrame** | good | Behind the `polars` feature; a conversion, not the primary form |
+
+So the record model has **four consumers, of which search is one**: search, external sinks, SQL, and
+serialization. That is an argument for placing the types in `liquers-core`, and it raises a
+structural question worth deciding explicitly rather than by drift — see §8.
+
+---
+
+## 7. Two levels, and why the search MVP stays small
+
+The model is general; the first version does not have to be.
+
+**Level 0 — one record per asset.** Record id absent, asset is the identity, fields are the metadata
+fields, text is the content. No chunking beyond "a directory of assets", no batching, no schema.
+**This is all the essential search use cases need** — agent memory and a user's search box are about
+finding *documents*, not rows.
+
+**Level 1 — many records per asset.** Ids, chunks, batches, locator rules, schema. Needed by SQL, by
+external sinks over tabular data, by serialization, and by searching *inside* structured data — all
+of which are optional in `use-cases.md`.
+
+The requirement this places on the type is precise: **Level 0 must be the degenerate case of Level 1,
+not a second type.** A record with no id, in a chunk with one batch, in a stream with one chunk per
+asset. Get that right and the search MVP ships without the streaming machinery, while nothing has to
+be redesigned when SQL or a sink arrives.
+
+---
+
+## 8. What this asks of the rest of the design
+
+1. Records are **structurally addressable**: identity is part of the type, not a convention — but the
+   expensive half of an address is derived on demand, not stored per record.
 2. Fields are **named and typed** — the one thing the SQL task requires
    (`NO-SQL-QUERY-CAPABILITY-OVER-STORED-AND-DERIVED-DATA`).
 3. The reconciliation `(id, version)` pairs of `interoperability-layer.md` §3 are **chunk** ids and
-   versions.
+   versions. Batches never appear in a diff.
 4. **Projection identity** (`interoperability-layer.md` §7) belongs in the chunk version: change the
    projection rule and every chunk version must change, or a re-tokenized index silently looks fresh.
-5. Field **roles** are what let one record serve a scan, an engine and a table.
+5. Field **roles** are what let one record serve a scan, an engine, a table and a serializer.
+6. **A structural question for Phase 2 or for the user:** with four consumers, the record model is
+   arguably its own capability with search as its first client, rather than a part of search. The
+   pragmatic answer is that Level 0 ships inside this design and Level 1 graduates to its own design
+   when SQL or serialization work starts — but that should be a decision, not an accident.
 
-## 7. Open decisions for Phase 2
+## 9. Open decisions for Phase 2
 
-1. Whether a descriptive locator (line, offset) is a distinct case or simply fields.
-2. Whether the partition is itself a record stream, or a separate lighter type.
-3. Whether a chunk id must be stable across a partition change, and what a sink does when one
-   disappears.
-4. Where a stream declares its schema — on the partition, on each chunk, or from the command's
-   metadata — and whether it may vary between chunks.
-5. Whether `text` is a field with the `text` role rather than a separate part of the record. Fewer
-   parts is simpler; a separate part makes "this is the body" unambiguous for the common case.
-6. Whether chunk versions are computed by the stream command or derived generically from the chunk
-   query's dependency set. Generic derivation is far better if it is possible, because it cannot be
-   got wrong per command.
+1. The record id representation — index, short name, absent — and whether anything needs more.
+2. Whether a chunk carries one asset or an asset table, and whether the table is worth its complexity
+   before a consumer needs it.
+3. Where the locator rule lives — chunk, schema, or the stream command's metadata.
+4. Whether the partition is itself a record stream (one mechanism, recursive base case) or a
+   separate, lighter type.
+5. Whether batches are addressable as queries, enumerated by count, or cursor-driven — and what a
+   cursor would be stable against.
+6. Whether chunk versions derive generically from the chunk query's dependency set, or are computed
+   by the stream command. Generic derivation is far better if possible: it cannot be got wrong per
+   command.
+7. Whether `text` is a field carrying the `text` role rather than a separate part of the record.
+8. Whether the uniformity promise is part of the schema or a separate assertion a serializer checks.
