@@ -75,9 +75,9 @@ write-back are not designed here.
 **Not search:** link traversal, dependency-graph queries, and DataFrame filtering. Each has, or
 deserves, its own mechanism; folding them in grows the predicate without improving an essential case.
 
-**Hard invariants:** a search never evaluates; it is bounded and reports truncation; its result is an
-addressable value; results are unordered unless a scoring clause was used; the baseline runs
-everywhere, wasm included; and **an external system's correctness comes from reconciliation, never
+**Hard invariants:** a search never evaluates — which forbids inline projection as well as triggering
+a recipe; it is bounded and reports truncation; its result is an addressable value; results are
+unordered unless a scoring clause was used; the baseline runs everywhere, wasm included; and **an external system's correctness comes from reconciliation, never
 from a delivered notification** — push is a latency optimization with no correctness role.
 
 ## Core Interactions
@@ -121,10 +121,18 @@ demand through `ActionRequest` — never by string templating.
 a command description take.
 
 **Scope of the record model in this design** — the first version needs only **Level 0**: one record
-per asset, no record id, fields from metadata, text from content. That is what agent memory and a
-user's search box are about — finding documents, not rows. **Level 1** — many records per asset, with
-ids, chunks, batches, locator rules and schema — is what SQL, external sinks, serialization and
-searching *inside* structured data need, and all of those are optional.
+per asset, no record id, no chunks, no batches, no schema. That is what agent memory and a user's
+search box are about — finding documents, not rows. **Level 1** — many records per asset, with ids,
+chunks, batches, locator rules and schema — is what SQL, external sinks, serialization and searching
+*inside* structured data need, and all of those are optional.
+
+**The level is cardinality only.** Where a record's *fields* come from is a separate axis: metadata,
+or a materialized projection such as extracted front-matter. Extracting front-matter yields one
+record per asset, so it is Level 0 despite not reading metadata. What the non-evaluation invariant
+forbids is the third option — running a projection command per candidate *during* a search, which
+would let one query recompute a corpus. **A search reads projections that already exist; it never
+creates one.** Materializing them is a recipe's job, and the asset layer keeps them fresh by content
+hash.
 
 Level 1 arriving as specialized commands would put the whole contract's specification on Level 0,
 which is a fair worry and a smaller one than it looks: [`roadmap.md`](./roadmap.md) §1 shows that

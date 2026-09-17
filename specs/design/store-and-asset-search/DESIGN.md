@@ -127,13 +127,21 @@ component that sees every write, so it is the only one that can hold an index).
 12. **`status` means two unrelated things** — the asset lifecycle in `MetadataRecord`, the
    document's lifecycle in `specs/` front-matter — and a bare `status:draft` would resolve silently
    to either. Field resolution needs a namespace or a documented precedence.
-13. **Only seven decisions are foundational.** The test is whether a thing can be added later
+13. **The level is cardinality; field provenance is a separate axis.** An earlier draft defined
+   Level 0 as "one record per asset, fields from metadata", fusing two independent things. Extracting
+   front-matter from Markdown yields one record per asset — Level 0 by cardinality — while taking its
+   fields from content. The non-evaluation invariant then decides the shape: running a projection per
+   candidate during a search would let one query recompute a corpus, so **a search reads projections
+   that already exist and never creates one**. Materializing them is a recipe's job. This repository
+   already works that way by hand — `specs/index.csv` is a committed, regenerated projection of every
+   document's front-matter — so the practice preceded the principle.
+14. **Only seven decisions are foundational.** The test is whether a thing can be added later
    without changing what Level 0 shipped. Seven cannot — the record's shape with the id field present
    but unused, identity as a pair, fields as a named `Value::Object`, a bounded opaque result rather
    than a `Vec`, the ordering promise, the text/field distinction, and non-exhaustive enums. Schema,
    chunks, batches, locator rules, streaming, projection identity and reconciliation are all
    additive. Milestones M0–M3 are the deliverable and are exactly what the agent memory MVP needs.
-14. **Borrow tinysearch's data structure, not tinysearch.** It builds its index at build time and
+15. **Borrow tinysearch's data structure, not tinysearch.** It builds its index at build time and
    emits a compiled wasm module, which does not fit a corpus mutated at runtime. But a per-document
    word filter is a derived asset of *one* document, so it has no dependency fan-out — which is the
    problem that makes a monolithic derived index unattractive. In-tree indexes ride the asset layer
