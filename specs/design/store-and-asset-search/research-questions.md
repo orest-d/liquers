@@ -1,6 +1,7 @@
 # Research questions
 
-The nine questions raised against the first Phase 1 draft, answered. Evidence is from the codebase
+The questions raised against the Phase 1 drafts, answered — nine from the first round, two more
+(§10, §11) from the scope slice that followed. Evidence is from the codebase
 at HEAD (2026-09-17), from the Python LiQuer prototype, and from the named external projects.
 
 Each answer ends with **what it commits us to** — the part that has to survive into Phase 2 — kept
@@ -65,8 +66,7 @@ carries, so that tags become a field the day that issue is fixed rather than a c
 
 ---
 
-## 3. Can we integrate a third-party engine instead of writing one? And what is wrong with the
-Whoosh prototype?
+## 3. Third-party engine instead of our own — and what is wrong with the Whoosh prototype?
 
 **Yes — and the prototype shows exactly which part to keep and which to drop.**
 
@@ -135,25 +135,31 @@ Three distinct things get conflated under "query language":
 3. **A value type's own semantics** — Polars expressions over a DataFrame. Already the `pl`
    namespace's job, and search should route to it, never reimplement it.
 
-**GlueSQL is the right shape for (2)** and it is genuinely additive rather than competitive. It is a
-Rust SQL library — parser, execution layer, pluggable storage — whose custom backends implement
-`Store` (SELECT) and optionally `StoreMut`, `AlterTable`, `Index` and `Transaction`. It supports
-schemaless and semi-structured data (`MAP`, `LIST`) and can join schema'd against schemaless tables,
-which is exactly the shape of a heterogeneous corpus.
+**SQL is now a separate task**, filed as `NO-SQL-QUERY-CAPABILITY-OVER-STORED-AND-DERIVED-DATA`,
+and is not designed here. What remains in scope is the single
+requirement it places on this design, and the observation that it needs no separate integration
+mechanism.
 
-The integration point is worth stating precisely, because the names collide: GlueSQL's `Store` is a
-*rows-and-tables* trait, not Liquers' `AsyncStore`. The adapter exposes **a record set as a GlueSQL
-table** — the same records the predicate filters. So:
+**GlueSQL is the right shape for (2)** when that task comes. It is a Rust SQL library — parser,
+execution layer, pluggable storage — whose custom backends implement `Store` (SELECT) and
+optionally `StoreMut`, `AlterTable`, `Index` and `Transaction`. It supports schemaless and
+semi-structured data (`MAP`, `LIST`) and can join schema'd against schemaless tables, which is
+exactly the shape of a heterogeneous corpus. The names collide and it matters: GlueSQL's `Store` is
+a *rows-and-tables* trait, not Liquers' `AsyncStore`. The adapter exposes **a record set as a
+GlueSQL table**.
+
+**Where it intersects this design.** An *external* SQL database is fed and kept fresh exactly like
+an external search engine or vector store — same version diff, same reconciliation, same staleness
+declaration. That is [`interoperability-layer.md`](./interoperability-layer.md) §6, and it is why
+splitting SQL off is clean: the layer standardizes the feed and the freshness; each system keeps its
+own query contract.
 
 - `search` answers "which entries match" — cheap, universal, works on wasm.
-- `sql` answers "join, group, aggregate over these entries" — richer, optional, feature-gated.
-- Both read the same records, so the SQL table's columns are the same fields the predicate tests.
+- `sql` answers "join, group, aggregate" — a different engine, a separate task.
+- Both read the same records, so a SQL column and a predicate field are the same thing.
 
-That shared record is what makes SQL an *addition of an engine* rather than a second retrieval
-system with its own view of the corpus.
-
-> **Commits us to:** keeping fields *named and typed* on the record, since a SQL column and a
-> predicate field must be the same thing. It does not commit us to building the adapter now.
+> **Commits us to exactly one thing:** records carry **named, typed fields**. Violate that and the
+> two tasks grow two incompatible views of one corpus. Nothing else about SQL is decided here.
 
 ---
 
@@ -312,3 +318,95 @@ its shape. A design that treats semantic search as a separate command has to bol
 
 > **Commits us to:** the ordering promise stated above, the score on the hit, and clauses being
 > composable within one predicate rather than being alternative entry points.
+
+
+---
+
+## 10. One interoperability layer for search engines, vector stores, RAG and external SQL?
+
+**Yes, and it should not be a hook system.** The analysis has its own document:
+[`interoperability-layer.md`](./interoperability-layer.md). The summary:
+
+All four are the same thing — a materialized view of a Liquers corpus, living outside Liquers,
+answering what Liquers cannot answer cheaply. Each has three obligations: be fed, answer, stay
+consistent. **Only the second differs between them**, so a layer that standardizes the feed and the
+freshness serves all four and leaves each its own query contract.
+
+The prototype's defect generalizes into the governing rule. A push hook makes correctness depend on
+delivery, and every missed delivery is permanent and undetectable — which is why `reindex_store()`
+had to exist and why it can only answer "rebuild everything?" rather than "is it right?".
+
+> **Correctness comes from reconciliation; push is only a latency optimization.**
+
+Reconciliation is a set-diff of two `(id, version)` streams — what the corpus has against what the
+sink holds — and it gets deletion detection for free, which is the half push hooks usually get
+wrong.
+
+The part that makes it Liquers-native rather than generic change-data-capture is that **every
+concept it needs already exists**: `Version` is the freshness token, `DependencyRecord { key,
+version }` is already the shape of "what I observed", `register_version` → `expire_stale_dependents`
+is already the push cascade, `AssetNotificationMessage` is already the channel, `Expires` already
+expresses how stale a view may be, and `ExpirationMonitor` is already a background worker of exactly
+this shape. A sink is formally a dependent with many dependencies. The layer gives an external
+system a seat at a table the dependency manager already runs.
+
+Two caveats are load-bearing: the dependency manager is in-process, so an out-of-process sink can
+never rely on the cascade; and a sink watching a directory for *additions* depends on a
+directory-listing dependency that is recorded and silently dropped today
+(`DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED`). Both argue the same way: pull is
+the guarantee.
+
+One genuinely new concept is required — **projection identity**. If the projection *rule* changes (a
+new field, a different tokenizer, a new embedding model), every record changed although no document
+did. Without an identity for the rule participating in the diff, a model upgrade leaves a stale
+index looking fresh.
+
+> **Commits us to:** a feed of `(id, version)` plus `fetch`; reconciliation as the guarantee;
+> `Expires` as the staleness declaration; the sink's query side behind the ordinary selection
+> contract; and projection identity designed while the record type is.
+
+---
+
+## 11. tinysearch: integrate it, or write a minimal engine?
+
+**Borrow its data structure; do not integrate the tool.** And the reason to borrow *that* structure
+in particular is much better than "it is small".
+
+What tinysearch is, from its own documentation: the index is built **at build time** from a JSON
+file; the output artifact is a **compiled WebAssembly module**; storage is either a sorted vocabulary
+with exact posting lists or, optionally, **Xor8 filters per article**; roughly **2 kB per article**
+uncompressed; prefix matching only from three characters and, with Xor8, only in titles; **no
+ranking**; recommended for small- to medium-size sites.
+
+Three of those rule out integration outright: a build-time generator does not fit a corpus mutated
+at runtime, a compiled wasm artifact is not a library that can index in-process, and without ranking
+or positions we would be adopting the algorithm regardless.
+
+**But the per-document filter is the right idea, for a reason specific to Liquers.** A monolithic
+inverted index over a corpus is one asset depending on every document — the fan-out problem that
+makes the derived-index route unattractive. A **per-document word filter is a derived asset of
+exactly one document**, so the existing dependency machinery invalidates exactly one filter per
+change, with no fan-out at all. Search becomes two stages:
+
+1. **Filter stage** — load the small per-document filters and test the query's terms. Reduces
+   candidates from the whole corpus to hits plus a bounded false-positive rate.
+2. **Verify stage** — read content only for the survivors, confirm the match, and extract the
+   snippet.
+
+The verification is not wasted work: the snippet has to come from the content anyway
+(`use-cases.md` A2), so stage 2 is work the search already owed.
+
+The error characteristics are exactly right for this. Bloom and xor filters have **false positives
+and no false negatives**, so stage 2 removes every error the filter can make. Phrase queries work
+too: stage 1 tests membership of each word, stage 2 checks adjacency on the survivors.
+
+Honest limits, which are also the boundary where an external engine takes over: no positions, so no
+ranking and no phrase *scoring*; filter scanning is still O(corpus) with a tiny constant — at ~600
+bytes per document, hundreds of documents cost a scan of a few hundred kilobytes and a hundred
+thousand documents cost tens of megabytes, at which point this stops being the right answer.
+
+> **Commits us to nothing in the first version.** The floor is a metadata and content **scan** — no
+> index, no dependency, correct everywhere including wasm. The filter index is the designed second
+> step, and it needs no interoperability layer at all, because an in-tree index *is* an asset. That
+> contrast is worth keeping: **in-tree indexes ride the asset layer; external systems need §10's
+> reconciliation precisely because they cannot be assets.**

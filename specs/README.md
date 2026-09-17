@@ -137,6 +137,7 @@ expansion time rather than at runtime. That is the cheapest item here.
 - **Shared directory support for backends without directories** — documented → `liquers-core/src/store_dir_index.rs` *(design in [`design/opendal-path-mapping/`](design/opendal-path-mapping/))*
 - **Streaming binary access (`openbin`)** — planned → [`issues/CORE-STORE-OPENBIN-MISSING.md`](issues/CORE-STORE-OPENBIN-MISSING.md)
 - **Content and metadata search** — designing → [`design/store-and-asset-search/`](design/store-and-asset-search/)
+- **SQL over stored and derived data** — planned → [`issues/NO-SQL-QUERY-CAPABILITY-OVER-STORED-AND-DERIVED-DATA.md`](issues/NO-SQL-QUERY-CAPABILITY-OVER-STORED-AND-DERIVED-DATA.md)
 - **Read-only mounts** — planned → [`issues/STORE-NO-READ-ONLY-ADAPTER.md`](issues/STORE-NO-READ-ONLY-ADAPTER.md)
 - **Conditional writes and concurrent-writer semantics** — planned → [`issues/STORE-WRITE-HAS-NO-PRECONDITION.md`](issues/STORE-WRITE-HAS-NO-PRECONDITION.md)
 - **Sessions and key-level authorization** — planned → [`issues/CORE-SESSION-AND-KEY-ACL.md`](issues/CORE-SESSION-AND-KEY-ACL.md)
@@ -167,14 +168,19 @@ Sessions and ACL are one item because there is no identity on `Context` to autho
 Search is the newest of these and the one with the widest blast radius: a store can enumerate and
 fetch but cannot *select*, so every consumer that wants a subset reads the whole subtree and filters
 in its own code. `design/store-and-asset-search/` delimits that task and carries a use-case survey,
-nine answered research questions and an options analysis beside its Phase 1. Its model is that every
-essential use case is one operation — select records by a predicate over their fields and their text
-— so commands become a *record source* rather than a search feature, SQL and vector similarity become
-engines and clauses over the same records, and a third-party engine becomes an implementation of
-selection rather than an event hook. Projection is a command because it varies with the value type;
-selection is a trait method because it varies with the backend. Its hard invariant is that **a search
-never evaluates**: a content search reaching an unevaluated recipe could recompute a whole corpus.
-Phase 1 of `liquers-project`, awaiting approval.
+eleven answered research questions, an options analysis and an interoperability study beside its
+Phase 1. Its model is that every essential use case is one operation — select records by a predicate
+over their fields and their text — so commands become a *record source* rather than a search feature,
+and vector similarity becomes a clause over the same records. Projection is a command because it
+varies with the value type; selection is a trait method because it varies with the backend.
+
+Two invariants carry most of the weight. **A search never evaluates**: a content search reaching an
+unevaluated recipe could recompute a whole corpus. And **an external system's correctness comes from
+reconciliation, never from a delivered notification** — the generalized lesson of the Python
+prototype's indexer hook, where every missed delivery was permanent and undetectable. An external
+search engine, vector store, RAG pipeline and SQL mirror differ only in what they answer, so one
+layer feeds and reconciles all four, built almost entirely from vocabulary the dependency and
+expiration machinery already has. Phase 1 of `liquers-project`, awaiting approval.
 
 ### Command libraries
 

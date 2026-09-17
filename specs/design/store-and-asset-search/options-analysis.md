@@ -1,9 +1,11 @@
 # Options analysis — searchable stores and assets
 
 Companion to [Phase 1](./phase1-high-level-design.md), which states the delimitation. The use-case
-survey is in [`use-cases.md`](./use-cases.md); the nine research questions are answered in
-[`research-questions.md`](./research-questions.md). **This document is the design analysis**: the
-ground truth it rests on, the unifying model, the decision axes, and the recommended combination.
+survey is in [`use-cases.md`](./use-cases.md); the research questions are answered in
+[`research-questions.md`](./research-questions.md); the layer for plugging in external engines is
+[`interoperability-layer.md`](./interoperability-layer.md). **This document is the design
+analysis**: the ground truth it rests on, the unifying model, the decision axes, and the
+recommended combination.
 
 It names no types, signatures or modules — that is Phase 2.
 
@@ -97,6 +99,7 @@ Everything else in this document is an extension point, not first-version work.
 | F | What counts as a match? | F1 — text and field clauses; ordering promise stated from day one |
 | G | How is it reached? | G1 — a query command; the UI search field and MCP both build queries; G2 deferred |
 | H | How wide is one search? | H2 — rooted at a key, router fan-out specified |
+| I | What is the built-in engine? | I1 now (scan over metadata and content), I2 designed and deferred (per-document filters) |
 
 ### Axis A — What is searched
 
@@ -198,20 +201,26 @@ fan-out of a few hundred dependencies on one asset is unmeasured. A well-founded
 first version.
 
 **E3. A store decorator that maintains an index.** `IndexedStore<S>` wrapping any `AsyncStore`,
-updating its index on the writes it performs and declaring the capability. This is the corrected form
-of the Whoosh prototype's idea: the component that owns the invariant is the one that can enforce it,
-and decoration is an established shape here. Honest limitation: it sees only writes made *through
-it*, so a backend written by someone else falls back to scanning.
+updating its index on the writes it performs. Attractive because the component that owns the
+invariant is the one that can enforce it, and decoration is an established shape here. Honest
+limitation, and it is fatal to relying on it: it sees only writes made *through it*, so a backend
+written by anyone else drifts silently — the same failure as a push hook, one layer down. Useful as
+an optimization on top of reconciliation, never as the freshness guarantee.
 
 **E4. Push-down to the backend.** The point of B2's override — a service with server-side filtering,
 a SQL-backed store, a store that already keeps a directory index. Free when available, absent
 otherwise, which is why the default must exist.
 
-**E5. An external engine.** Tantivy behind a feature, or a remote engine. Right at 100× scale, and
-**not available on wasm**, so it can never be the baseline.
+**E5. An external engine behind the interoperability layer.** Tantivy, Meilisearch, a vector store
+or an external SQL mirror, fed and reconciled by
+[`interoperability-layer.md`](./interoperability-layer.md) and answering through the ordinary
+selection contract. **Not available on wasm**, so never the baseline. This is the sanctioned route
+to a large index, and it replaces E3 as the recommendation because reconciliation detects drift
+where a write-path decorator cannot.
 
-Recommended: **E1 as the specified contract, E3 as the sanctioned route to an index, E4/E5 as
-overrides.**
+Recommended: **E1 as the specified contract, E5 behind the interoperability layer as the route to
+scale, E4 as a free override where a backend offers it.** E2 stays an experiment; E3 is not
+recommended as a freshness mechanism.
 
 ### Axis F — What counts as a match
 
@@ -261,10 +270,38 @@ Recommended: **H2**.
 
 ---
 
+### Axis I — The built-in engine
+
+The brief requires *some* minimal built-in capability — at least metadata search — independent of
+any external system.
+
+**I1. Scan, no index.** Walk from the root, test fields against metadata, test text against bytes
+only when a text clause demands it. No dependency, no build step, no staleness, correct everywhere
+including wasm. O(corpus) reads when a text clause is present; metadata-only searches are far
+cheaper, since `listdir_asset_info` already returns what they test.
+
+**I2. Per-document word filters.** The tinysearch idea, reused rather than integrated
+(`research-questions.md` §11): a small membership filter per document, held as a **derived asset of
+that one document** — so there is no fan-out, and the existing dependency machinery invalidates
+exactly one filter per change. Search runs in two stages: test filters to reduce candidates, then
+read content only for survivors to verify and to extract the snippet, which was owed anyway. False
+positives are removed by the verify stage and there are no false negatives.
+
+**I3. Integrate tinysearch itself.** Rejected: it builds its index at build time from a JSON file
+and emits a compiled wasm module, which does not fit a corpus mutated at runtime, and it offers no
+ranking or positions — so integration would mean adopting the algorithm regardless.
+
+**I4. A full in-tree inverted index.** Positions, ranking, BM25. This is writing a search engine;
+E5 exists so we do not have to.
+
+Recommended: **I1 in the first version, I2 designed and deferred.** The contrast between I2 and E5
+is worth keeping in the reference: **an in-tree index rides the asset layer because it *is* an
+asset; an external system needs reconciliation precisely because it cannot be one.**
+
 ## 3. Recommended combination
 
-> **A3 · B2+B3+B5 · C2 with a small syntax front end · D2+ · E1 (E3 sanctioned, E4/E5 overriding) ·
-> F1 with the ordering promise · G1 · H2**
+> **A3 · B2+B3+B5 · C2 with a small syntax front end · D2+ · E1 (E5 behind the interoperability
+> layer for scale) · F1 with the ordering promise · G1 · H2 · I1 now, I2 deferred**
 
 A record type and a predicate type in `liquers-core`; an `AsyncStore` selection method with a default
 scan, a capability flag and conformance rules; an asset-level union that never evaluates; a command
@@ -312,10 +349,10 @@ design produces.
 |---|---|---|
 | Ranked full text (F2) | Language-dependent; forces an engine that is not available on wasm | Score on the hit; ordering promise stated from day one |
 | Semantic search and RAG (F3) | New runtime dependency, chunking and model choice | Chunks are a record source, embeddings are derived assets, nearest-*k* is a clause |
-| SQL over records (GlueSQL) | An engine, not a predicate; optional dependency | Records carry *named typed fields*, so a column and a predicate field are the same thing |
+| SQL over records (GlueSQL) | **A separate task.** An engine, not a predicate | Records carry *named typed fields*, so a column and a predicate field are the same thing; an external SQL mirror is fed by the same interoperability layer |
 | Index as a derived asset (E2) | Directory dependency is one level deep, currently dropped, and unmeasured at fan-out | Issue filed; nothing in the contract prevents it |
-| Index in a store decorator (E3) | Not needed at current scale | It is an `AsyncStore` implementation — no consumer changes |
-| External engine (E5) | Large dependency; unavailable on wasm | Lands as a selection override behind a feature |
+| Per-document filter index (I2) | The scan is adequate at the essential scale | Each filter is a derived asset of one document; no fan-out, no new contract |
+| An actual external sink (Tantivy, a vector store, a SQL mirror) | Large dependency; unavailable on wasm | The interoperability layer ships with a test double, so the first real sink is written against a proven contract |
 | Tags | `MetadataRecord` is closed | Field lookup is by *name against a record*, not against struct fields |
 | A `/search` endpoint (G2) | The assets API has six unimplemented endpoints already | The command is reachable through `/q` meanwhile |
 | Router fan-out (S4) | Merge semantics and partial capability need specifying | Specified now, implemented later; a refused root is an honest first version |
@@ -342,3 +379,12 @@ design produces.
 8. Which of §5's two command-discovery routes to take: a record source over the registry, or a
    read-only virtual store that makes commands enumerable by `listdir` with nothing
    command-specific in the search path.
+9. **Projection identity** — how a change to the projection *rule* (a new field, a different
+   tokenizer, a new embedding model) participates in the reconciliation diff. Without it a model
+   upgrade leaves a stale external index looking fresh. Cheap to design now, expensive later
+   (`interoperability-layer.md` §7).
+10. Whether the reconciliation contract ships in the first version alongside the scan, or after it —
+   noting that a trait with one implementation is a guess, so it should ship with a test double
+   either way.
+11. The exact grammar the small search syntax accepts, and its error behaviour when a user types
+   something it does not support — silently literal, or a reported parse error.

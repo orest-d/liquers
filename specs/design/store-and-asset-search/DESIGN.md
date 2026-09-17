@@ -40,9 +40,13 @@ many use cases as possible. The folder therefore carries three documents beside 
   commands, what search must do, third-party engines and why the Whoosh prototype feels wrong,
   query languages and GlueSQL, command discovery, agent and MCP needs, search syntax standards,
   embeddings in metadata, and semantic search.
-- `options-analysis.md` — ground truth at HEAD, the unifying model, eight decision axes, the
+- `options-analysis.md` — ground truth at HEAD, the unifying model, nine decision axes, the
   recommended combination, the invariants, and the questions Phase 2 must answer. It names no types
   or signatures; that is Phase 2's job.
+- `interoperability-layer.md` — the layer for plugging in an external search engine, vector store,
+  RAG pipeline or SQL mirror without tying the design to any of them. Added in the third round,
+  when the brief asked whether one hook system could serve them all and handle updates and
+  expiration.
 
 ### The sweet spot
 
@@ -73,9 +77,26 @@ component that sees every write, so it is the only one that can hold an index).
    Tantivy's own wasm RFC says so. The baseline must run everywhere; an engine can only ever be an
    optional override.
 5. **The Whoosh prototype's mechanism is the thing to avoid, not the goal.** Indexing rode along
-   inside a metadata-transformation hook, with a write side and no read side, freshness maintained
-   imperatively in a framework whose thesis is that derived things recompute themselves. Keep the
-   pluggable engine; move the ownership into a store decorator that can enforce the invariant.
+   inside a metadata-transformation hook, with a write side and no read side. The load-bearing
+   defect generalizes: *a push hook makes correctness depend on delivery*, and every missed delivery
+   is permanent and undetectable — which is why `reindex_store()` had to exist and why it can only
+   answer "rebuild everything?" rather than "is it right?".
+6. **Correctness comes from reconciliation; push is only a latency optimization.** An external
+   system is a materialized view, and a set-diff of `(id, version)` streams tells it what it is
+   missing — including deletions, the half push hooks usually get wrong. This is what makes one
+   layer serve a search engine, a vector store, a RAG pipeline and an external SQL database alike:
+   they differ only in what they *answer*.
+7. **The layer needs almost no new vocabulary.** `Version` is already a content hash on every stored
+   record; `DependencyRecord { key, version }` is already the shape of "what I observed";
+   `register_version` → `expire_stale_dependents` is already the push cascade; `Expires` already
+   declares how stale a view may be; `ExpirationMonitor` is already a worker of that shape. Exactly
+   one new concept is required: an identity for the *projection rule*, so that changing a tokenizer
+   or an embedding model invalidates an index rather than leaving it looking fresh.
+8. **Borrow tinysearch's data structure, not tinysearch.** It builds its index at build time and
+   emits a compiled wasm module, which does not fit a corpus mutated at runtime. But a per-document
+   word filter is a derived asset of *one* document, so it has no dependency fan-out — which is the
+   problem that makes a monolithic derived index unattractive. In-tree indexes ride the asset layer
+   because they *are* assets; external systems need reconciliation precisely because they cannot be.
 
 ## Relationship to `agent-memory-mvp`
 
@@ -84,15 +105,21 @@ That design's Phase 1 open question 3 asks how far its MVP goes on search, notin
 a query surface, not a command private to `ns-mem`. The two designs share the non-evaluation
 invariant and the "no identity, no ACL" exclusion (`CORE-SESSION-AND-KEY-ACL`).
 
-## Out of scope
+## Scope boundaries
 
-Ranked full text, semantic search and RAG, SQL over records, a maintained index, a third-party
-engine, tags, facets and ranges, router fan-out and a dedicated HTTP endpoint are all **optional**:
-reachable later, not built now. `options-analysis.md` §5 records why each is excluded and what keeps
-it cheap. Identity and access control are excluded outright, consistent with `CORE-SESSION-AND-KEY-ACL`.
+**Optional** — reachable later, not built now: ranked full text, semantic search and RAG, a
+maintained index, any actual external sink, tags, facets and ranges, router fan-out, a dedicated
+HTTP endpoint. `options-analysis.md` §5 records why each is excluded and what keeps it cheap.
 
-Link traversal, dependency-graph queries and DataFrame filtering are **not search** and stay out
-permanently; each has, or deserves, its own mechanism.
+**A separate task** — SQL. Considered here only where it intersects: an external SQL database is fed
+and kept fresh by the same interoperability layer as any other external system
+(`interoperability-layer.md` §6). The single requirement it places on this design is that records
+carry named, typed fields, so that a SQL column and a search predicate's field are the same thing.
+
+**Excluded outright** — identity and access control, consistent with `CORE-SESSION-AND-KEY-ACL`.
+
+**Not search** — link traversal, dependency-graph queries and DataFrame filtering. Each has, or
+deserves, its own mechanism.
 
 ## Links
 
@@ -100,6 +127,7 @@ permanently; each has, or deserves, its own mechanism.
 - [Use cases](./use-cases.md)
 - [Research questions](./research-questions.md)
 - [Options analysis](./options-analysis.md)
+- [Interoperability layer](./interoperability-layer.md)
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)

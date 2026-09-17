@@ -8,10 +8,10 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 100
+Total rows: 101
 - P0: 1
 - P1: 1
-- P2: 65
+- P2: 66
 - P3: 33
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
@@ -73,10 +73,11 @@ Total rows: 100
 | [`DATA-FORMAT-CONSTANTS-AND-TOOLING`](issues/DATA-FORMAT-CONSTANTS-AND-TOOLING.md) | feature | Data formats are bare string literals with no constants, validation, or generic serde path | draft |  | P2 | L | core/value;lib/value;lib/commands;macro |  | 2026-08-18 |
 | [`EXTENDED-FAST-TRACK`](issues/EXTENDED-FAST-TRACK.md) | feature | Fast-track covers only simple loading | accepted |  | P2 | L | core/assets |  | 2026-08-08 |
 | [`LIBRARY-CODE-USES-UNWRAP-AND-EXPECT`](issues/LIBRARY-CODE-USES-UNWRAP-AND-EXPECT.md) | issue | Library code uses unwrap and expect despite the no-panic rule | draft |  | P2 | L | core/query;lib/commands;axum |  | 2026-08-17 |
+| [`NO-SQL-QUERY-CAPABILITY-OVER-STORED-AND-DERIVED-DATA`](issues/NO-SQL-QUERY-CAPABILITY-OVER-STORED-AND-DERIVED-DATA.md) | feature | No SQL query capability over stored and derived data | draft |  | P2 | L | core/store;lib/commands |  | 2026-09-17 |
 | [`QUERY-BUILDER-TOOLING`](issues/QUERY-BUILDER-TOOLING.md) | issue | No programmatic builder for constructing queries | accepted |  | P2 | L | core/query;core/validate |  | 2026-08-08 |
 | [`RESOURCE-NAME-ASCII-ONLY`](issues/RESOURCE-NAME-ASCII-ONLY.md) | issue | Non-ASCII resource names are unaddressable | draft |  | P2 | L | core/query;core/store |  | 2026-08-14 |
 | [`STORE-METADATA-LAYOUT-HARDCODED-PER-STORE`](issues/STORE-METADATA-LAYOUT-HARDCODED-PER-STORE.md) | issue | Every writable store hard-codes its own metadata layout | draft |  | P2 | L | core/store;store/backends;web;docs |  | 2026-09-03 |
-| [`STORE-NO-CONTENT-OR-METADATA-SEARCH`](issues/STORE-NO-CONTENT-OR-METADATA-SEARCH.md) | feature | A store cannot be asked which keys match content or metadata | draft |  | P2 | L | core/store | [options](specs/design/store-and-asset-search/options-analysis.md)  [phase1](specs/design/store-and-asset-search/phase1-high-level-design.md)  [phase2](specs/design/store-and-asset-search/phase2-architecture.md)  [phase3](specs/design/store-and-asset-search/phase3-examples.md)  [phase4](specs/design/store-and-asset-search/phase4-implementation.md)  [phase5](specs/design/store-and-asset-search/phase5-documentation.md)  [research](specs/design/store-and-asset-search/research-questions.md)  [use](specs/design/store-and-asset-search/use-cases.md)  | 2026-09-15 |
+| [`STORE-NO-CONTENT-OR-METADATA-SEARCH`](issues/STORE-NO-CONTENT-OR-METADATA-SEARCH.md) | feature | A store cannot be asked which keys match content or metadata | draft |  | P2 | L | core/store | [interoperability](specs/design/store-and-asset-search/interoperability-layer.md)  [options](specs/design/store-and-asset-search/options-analysis.md)  [phase1](specs/design/store-and-asset-search/phase1-high-level-design.md)  [phase2](specs/design/store-and-asset-search/phase2-architecture.md)  [phase3](specs/design/store-and-asset-search/phase3-examples.md)  [phase4](specs/design/store-and-asset-search/phase4-implementation.md)  [phase5](specs/design/store-and-asset-search/phase5-documentation.md)  [research](specs/design/store-and-asset-search/research-questions.md)  [use](specs/design/store-and-asset-search/use-cases.md)  | 2026-09-15 |
 | [`TYPE-REGISTRY-NOT-REALM-AWARE`](issues/TYPE-REGISTRY-NOT-REALM-AWARE.md) | feature | A query spanning two realms cannot know which types the other realm supports | draft |  | P2 | L | core/value;core/commands;core/plan;web;axum |  | 2026-08-18 |
 | [`UI-QUERY-EDITOR-LACKS-LIVE-VALIDATION`](issues/UI-QUERY-EDITOR-LACKS-LIVE-VALIDATION.md) | issue | Query editor cannot validate the current text with command metadata | draft |  | P2 | L | lib/ui;lib/egui;web;core/plan;core/query |  | 2026-09-04 |
 | [`VALUE-CONVERSION-CAPABILITY`](issues/VALUE-CONVERSION-CAPABILITY.md) | feature | Values cannot be converted between types, automatically or explicitly | draft |  | P2 | L | core/value;core/commands;lib/value |  | 2026-08-18 |

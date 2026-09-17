@@ -55,7 +55,7 @@ of them adequately.
 | # | Use case | Class | Note |
 |---|---|---|---|
 | D1 | Find which stored table has a column, or which JSON/YAML has a key | O | Needs projection of structure into searchable fields. §4 |
-| D2 | Query rows with SQL across stored tabular files | O | GlueSQL. §4 — additive, and explicitly not a rival to full text |
+| D2 | Query rows with SQL across stored tabular files | O | **A separate task.** It intersects here only through the feed: an external SQL database is fed and kept fresh exactly like a search engine or vector store. §4, and `interoperability-layer.md` §6 |
 | D3 | Filter a DataFrame with the value type's own semantics | **X** | Already the `pl` namespace's job. Search should route to it, not reimplement it |
 | D4 | Search inside configuration values | O | D1 with a different projection |
 
@@ -77,6 +77,8 @@ of them adequately.
 | S3 | Search in the browser, over a browser store | **E** | `liquers-web` is wasm32-only. **This is the constraint that decides the engine question** |
 | S4 | One search across several mounted stores | O | Router fan-out. Specify, build later |
 | S5 | Let a capable backend do the filtering | O | The reason selection belongs on a trait rather than in a command |
+| S6 | Plug in an external search engine, vector store or RAG pipeline without tying to one | **E** | The *layer* is essential; shipping a sink is not. `interoperability-layer.md` |
+| S7 | Minimal built-in search that depends on nothing external | **E** | At least metadata. The floor that makes every other option optional |
 
 ---
 
@@ -102,6 +104,11 @@ of them adequately.
 4. **Three things are not search and should stay out.** Link traversal (A10), dependency queries
    (O2) and DataFrame filtering (D3) each already have, or deserve, their own mechanism. Folding
    them in would make the predicate language grow without making any essential use case better.
+
+5. **S6 and S7 are a pair, and the pairing is the point.** A minimal built-in that depends on
+   nothing (S7) is what allows every engine to be optional; a layer that plugs any engine in (S6) is
+   what stops the minimal one from becoming a ceiling. Either alone produces a bad design — a
+   built-in engine with no escape hatch, or a framework that cannot search without a service.
 
 ---
 
