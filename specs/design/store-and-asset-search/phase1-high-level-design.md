@@ -58,10 +58,11 @@ and command discovery — one coherent deliverable, and **exactly what the agent
 record streams, batching and streaming, the interoperability layer with a first sink — are separate
 efforts the foundations admit. [`roadmap.md`](./roadmap.md) §2–§3.
 
-**Prerequisites, none blocking.** `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` (P2) is the one that
-affects the MVP's quality: without it, filtering by front-matter facts such as `kind` or `status`
-degrades to text matching. Building M1 so field predicates resolve **by name against the record**
-makes fixing it a pure upgrade. `CORE-STORE-OPENBIN-MISSING` (P3) and
+**Prerequisites, none blocking.** `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` (P2) affects the MVP's
+quality, but narrowly: measured on this repository's 321 tracked documents, a key prefix does the
+biggest single cut for free and only *lifecycle state* — open versus closed — genuinely needs a
+metadata field (`roadmap.md` §3). Building M1 so field predicates resolve **by name against the
+record** makes fixing it a pure upgrade. `CORE-STORE-OPENBIN-MISSING` (P3) and
 `VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER` (P2) bound how far streaming can go at M6;
 `ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET` (P2) costs M7 latency, not correctness.
 
@@ -206,6 +207,10 @@ search. Both should work from the reference and the guide without opening this f
    streaming form has to be addressable batches.
 15. With four consumers — search, external sinks, SQL, serialization — does the record model graduate
    to its own design once Level 1 is needed, with search as its first client?
+16. How does a bare field name resolve when two layers define it? `status` is the **asset**
+   lifecycle in `MetadataRecord` and the **document's** lifecycle in `specs/` front-matter, and both
+   would answer `status:draft` silently. Namespaced fields, or a documented precedence — cheap now,
+   confusing forever if left.
 
 ## References
 

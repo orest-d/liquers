@@ -117,13 +117,23 @@ component that sees every write, so it is the only one that can hold an index).
    only Level 0 (one record per asset, no ids, no batching), which must be the *degenerate case* of
    Level 1 rather than a second type. Whether Level 1 graduates to its own design is a decision to
    take deliberately.
-11. **Only seven decisions are foundational.** The test is whether a thing can be added later
+11. **Key-prefix filtering carries more weight than metadata filtering.** Measured on this
+   repository's 321 tracked documents, "what does this project know about expiration" gives 72 text
+   hits; narrowing to `specs/issues/` — a key prefix, free, no metadata — gives 42; narrowing to
+   still-open gives 23. Genre is mostly the folder and `area` overlaps what the text already found,
+   so **lifecycle state is the only filter that genuinely needs metadata**, which narrows the
+   `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` dependency to one filter rather than three. Text search
+   is the primary act; filtering is a precision aid over its result.
+12. **`status` means two unrelated things** — the asset lifecycle in `MetadataRecord`, the
+   document's lifecycle in `specs/` front-matter — and a bare `status:draft` would resolve silently
+   to either. Field resolution needs a namespace or a documented precedence.
+13. **Only seven decisions are foundational.** The test is whether a thing can be added later
    without changing what Level 0 shipped. Seven cannot — the record's shape with the id field present
    but unused, identity as a pair, fields as a named `Value::Object`, a bounded opaque result rather
    than a `Vec`, the ordering promise, the text/field distinction, and non-exhaustive enums. Schema,
    chunks, batches, locator rules, streaming, projection identity and reconciliation are all
    additive. Milestones M0–M3 are the deliverable and are exactly what the agent memory MVP needs.
-12. **Borrow tinysearch's data structure, not tinysearch.** It builds its index at build time and
+14. **Borrow tinysearch's data structure, not tinysearch.** It builds its index at build time and
    emits a compiled wasm module, which does not fit a corpus mutated at runtime. But a per-document
    word filter is a derived asset of *one* document, so it has no dependency fan-out — which is the
    problem that makes a monolithic derived index unattractive. In-tree indexes ride the asset layer

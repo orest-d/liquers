@@ -27,7 +27,7 @@ of them adequately.
 |---|---|---|---|
 | A1 | Find documents on a topic across a corpus (free text) | **E** | The base case. Almost always applicable, whatever the corpus is |
 | A2 | Judge a hit without opening it | **E** | `title` + `description` + why it matched. This is what keeps context spend down |
-| A3 | Filter by structured facts — `kind`, `status`, `area`, `priority`, type, error state | **E** | The corpus has a schema; ignoring it makes the agent read ten documents to find one |
+| A3 | Filter by structured facts — lifecycle state, genre, type, error state | **E** | A precision aid over A1, not a rival to it. Measured on this corpus, a key prefix does the biggest cut for free and *lifecycle state* is the one filter that genuinely needs metadata — `roadmap.md` §3 |
 | A4 | Discover what capabilities exist: which commands, what they do, what they take | **E** | An agent that cannot enumerate commands cannot compose queries. §5 |
 | A5 | Discover what data exists under a prefix, with types | **E** | `listdir_asset_info` already does this; search is the filtered form of it |
 | A6 | Budgeted retrieval — top *k*, a cap, and a truthful "there were more" | **E** | An agent's context is the scarce resource. An unbounded result set is a bug |
@@ -88,7 +88,9 @@ of them adequately.
 
 1. **Full text and field predicates are one feature, not two.** A1 and A3 are both essential and
    every consumer wants them together — "issues about expiration that are still open" is one
-   question. A design that ships free text now and fields later ships half of both essentials.
+   question. A design that ships free text now and fields later ships half of both essentials. Note
+   the shape of that question, though: the text clause is what finds candidates, the key prefix
+   (`specs/issues/`) narrows them for free, and only "still open" needs a metadata field.
 
 2. **Command discovery is essential, and it is not a second search system.** A4 and U6 are the same
    need from two front ends. The cheap way to satisfy them is to make commands a *source of

@@ -94,26 +94,64 @@ Agent memory serves ~300 Markdown documents with YAML front-matter. Mapping its 
 It needs **no** record streams, chunks, batches, schema, streaming, external engine or
 interoperability layer. Level 1 is not on the agent-memory path at all.
 
-### The one caveat, and it is worth deciding deliberately
+### A3 in detail: which filters are actually worth anything
 
-A3 — filtering by front-matter facts — is the most valuable thing search does for an agent, and it
-needs those facts to be *in metadata*. `MetadataRecord` is a closed struct
-(`CORE-METADATA-NO-APPLICATION-ATTRIBUTES`), so `kind`, `status`, `area` and `priority` have nowhere
-to live. Three ways through, and they are not equally good:
+An earlier draft of this roadmap called filtering by `kind`, `status` and `area` "the most valuable
+thing search does for an agent". That was two claims and both were wrong. Text search is the primary
+act — an agent starts by asking what the corpus says about a topic — and filtering is a *precision
+aid* applied to its result. And the three fields are not equally valuable, because two of them are
+largely obtainable for free.
 
-1. **Text fallback.** `kind:issue` degrades to matching the text "kind: issue" in the document.
-   Works today, costs a content read per document, and is imprecise — a document *mentioning*
-   another's status matches.
-2. **Fix `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` first.** Agent memory already plans recipes to
-   populate `title` and `description`; the same recipe would populate an attribute map, and field
-   predicates then work over metadata with no content reads at all. This is the good version.
-3. **A per-media-type projection command.** Correct, and more machinery than the MVP needs —
-   effectively an early slice of M5.
+**What the fields are.** They are `specs/` front-matter (`DOCS_STRUCTURE_GUIDE.md` §4.6), not
+Liquers metadata:
 
-Recommendation: **build M1 so that field predicates resolve by name against whatever the metadata
-carries**, so route 1 works now and route 2 upgrades it with no change to search. Route 2 should be
-scheduled with agent memory rather than with this design; at ~300 small documents route 1 is
-tolerable, and it is the first thing that stops being tolerable as the corpus grows.
+| Field | Meaning | Derivable from the key? |
+|---|---|---|
+| `kind` | document genre: issue, feature, design, reference, guide | **Mostly.** `specs/issues/`, `specs/design/<slug>/`, `specs/reference/`, `specs/guides/` — the only non-derivable distinction is issue versus feature, which share `specs/issues/` (149 and 36 documents) |
+| `status` | the document's lifecycle: draft, accepted, closed, complete… | **No, by design.** §1.2 of the guide: "Location encodes genre, front-matter encodes state… It never encodes status — status changes, paths should not" |
+| `area` | closed vocabulary — `core/store`, `lib/commands`… multi-valued | **No.** Orthogonal to location |
+| `priority` | P0–P3 | **No**, but it is a triage field, not a retrieval one |
+
+**Measured on a realistic retrieval**, "what does this project know about expiration", over the 321
+tracked documents at HEAD:
+
+| Step | Predicate | Hits | Needs metadata? |
+|---|---|---|---|
+| text | documents mentioning "expir" | **72** | no |
+| + key prefix | `specs/issues/` | **42** | **no — free** |
+| + status | not closed/rejected/duplicate | **23** | **yes** |
+| (+ area) | `core/assets` instead of status | ~31 | yes, and weakly |
+
+The ranking that falls out:
+
+1. **Key prefix does the biggest single cut and costs nothing.** 72 → 42. It needs no metadata, no
+   attributes and no projection — `use-cases.md` U3 already has it as essential, and it deserves
+   more weight than the earlier draft gave it.
+2. **`status` is the one filter that genuinely needs metadata.** 42 → 23, and it is neither
+   path-derivable (deliberately) nor well-approximated by text, because a document *mentioning*
+   another's status matches. This is the real content of the `CORE-METADATA-NO-APPLICATION-ATTRIBUTES`
+   dependency.
+3. **`area` is weaker than it looks** — it overlaps heavily with what the text search already found,
+   since a document about `core/assets` tends to say "asset".
+4. **`kind` is nearly free** via the path, except issue-versus-feature.
+
+So the corrected caveat is narrower: `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` (P2) buys **one**
+high-value filter, not three, and the MVP is usable without it. Still build M1 so that field
+predicates **resolve by name against the record** rather than against `MetadataRecord`'s struct
+fields — that is what makes fixing the issue a pure upgrade — but schedule the fix with agent memory
+on its own merits, not as a search prerequisite.
+
+### A name collision to resolve in Phase 2
+
+`status` means two unrelated things. `MetadataRecord.status` is the **asset** lifecycle — `Ready`,
+`Expired`, `Source`, `Override` — while `specs/` front-matter `status` is the **document's**
+lifecycle — `draft`, `accepted`, `closed`. A bare `status:draft` predicate is ambiguous between
+them, and the ambiguity is silent: both resolve, to different things.
+
+Field resolution therefore needs either a namespace (`meta.status` versus an attribute namespace) or
+an explicit, documented precedence. This is cheap to decide now and a source of confusing results
+forever if it is not. `kind` has no such collision — Liquers' nearest field is `type_identifier`,
+which is the value type, not a genre.
 
 ---
 
