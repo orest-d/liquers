@@ -83,21 +83,22 @@ pub struct RecordBatch {
     pub sources: Vec<SourceInfo>,
 }
 
-/// Column storage. Buffers are laid out exactly as Arrow specifies, so an export is a
-/// pointer hand-off rather than a conversion.
+/// Column storage. Buffers are laid out exactly as Arrow specifies — 64-byte aligned, validity
+/// omitted when there are no nulls — so an export is a pointer hand-off rather than a conversion.
+/// `Buffer<T>` is an `Arc`-shared, 64-byte-aligned `[T]`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Column {
-    Bool { validity: Bitmap, values: Bitmap },
-    Int { validity: Bitmap, values: Arc<[i64]> },
-    UInt { validity: Bitmap, values: Arc<[u64]> },
-    Float { validity: Bitmap, values: Arc<[f64]> },
+    Bool { validity: Option<Bitmap>, values: Bitmap },
+    Int { validity: Option<Bitmap>, values: Buffer<i64> },
+    UInt { validity: Option<Bitmap>, values: Buffer<u64> },
+    Float { validity: Option<Bitmap>, values: Buffer<f64> },
     /// Arrow `Utf8`: i32 offsets plus a contiguous byte buffer. No per-cell allocation.
-    Text { validity: Bitmap, offsets: Arc<[i32]>, data: Arc<[u8]> },
-    Binary { validity: Bitmap, offsets: Arc<[i32]>, data: Arc<[u8]> },
+    Text { validity: Option<Bitmap>, offsets: Buffer<i32>, data: AlignedBuffer },
+    Binary { validity: Option<Bitmap>, offsets: Buffer<i32>, data: AlignedBuffer },
     /// Arrow `Timestamp(Microsecond, None)`.
-    Timestamp { validity: Bitmap, values: Arc<[i64]> },
+    Timestamp { validity: Option<Bitmap>, values: Buffer<i64> },
     /// Arrow `FixedSizeList(Float32, dim)` — the embedding case, contiguous.
-    Vector { validity: Bitmap, dim: usize, data: Arc<[f32]> },
+    Vector { validity: Option<Bitmap>, dim: usize, data: Buffer<f32> },
 }
 ```
 
@@ -132,6 +133,73 @@ is nothing but `Vec`s and bitmaps and is entirely safe; the **export** owns the 
 **No claim of full Arrow support.** A deliberate subset: the types above, no nested `Struct`, no
 `Union`, no dictionary encoding, no large (64-bit offset) variants. Enough for a record batch and for
 a pandas hand-off; extendable, and honest about not being arrow-rs.
+
+### Bitmap — three real uses, not completeness
+
+```rust
+/// Bit-packed booleans, LSB-first within each byte, as Arrow specifies.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Bitmap { bits: AlignedBuffer, len: usize }
+```
+
+It is used for three different things, all of them load-bearing:
+
+1. **Validity (nulls).** Not an edge case here: `meta.file_size` is null for a directory,
+   `meta.description` is absent for most documents, and `attr.status` is absent for anything that is
+   not a spec document. A batch drawing on heterogeneous sources has nulls as the norm, and for text
+   an empty string is a *different* answer from "absent", so there is no free sentinel.
+2. **Filter masks.** The predicate evaluates each clause to a boolean mask and ANDs them. Same
+   representation, different meaning.
+3. **Boolean columns.** Arrow stores `Bool` as a bitmap, one bit per value — so `Column::Bool`
+   carries two of them, validity and values.
+
+**Could it just be `Vec<bool>`?** On space, the bitmap is 8× smaller — 125 KB against 1 MB per
+nullable column at a million rows, which matters most in the browser. But the decisive reason is
+compatibility: **Arrow's validity buffer *is* a bitmap**, so a `Vec<bool>` cannot be handed over at
+all. It would need converting, which destroys the zero-copy property that is the entire point of the
+columnar layout. The bitmap is not there for completeness; without it there is no cheap Arrow path.
+
+**One simplification, which Arrow sanctions:** validity is `Option<Bitmap>` and is **omitted
+entirely when a column has no nulls** (Arrow's `null_count == 0`, no buffer). Most columns in
+practice have none and pay nothing.
+
+Size: roughly 150–200 lines with tests — `get`, a builder, `and`/`or`/`not`, `count_ones`. The one
+fiddly part is slicing at a non-byte boundary, which Arrow permits via a bit offset; the first
+version **requires byte-aligned slice offsets** and copies when a caller asks for anything else,
+which removes the fiddly case at a cost paid only by an unusual slice.
+
+### 64-byte alignment: worth doing, and cheaper than it looks
+
+Arrow requires 8-byte buffer alignment and *recommends* 64 for SIMD. This is a performance and
+compatibility matter rather than a correctness one — an unaligned buffer still works, but a strict
+consumer may copy, and SIMD paths may be disabled.
+
+Natural Rust gives 8-byte alignment for `Vec<i64>` and 1-byte for `Vec<u8>`, so the text and binary
+buffers are the ones that fall short. Four ways to get 64:
+
+| Approach | Cost |
+|---|---|
+| Custom allocation via `std::alloc` with a 64-byte `Layout` | `unsafe` in core, and manual deallocation |
+| Over-allocate and offset | Safe but wasteful, and the offset has to travel with the buffer |
+| **`#[repr(align(64))]` backing chunks, cast to `&[u8]`** | **~60 lines, and `bytemuck` makes the cast safe** |
+| Copy once at the export boundary | No core change; degrades "zero-copy" to "one copy per hand-off" |
+
+**Recommended: the third.** `bytemuck` **is already in the lockfile** (1.25.2, pulled transitively),
+is tiny, `no_std`-capable and wasm-safe, and `cast_slice` turns the aligned backing store into `&[u8]`
+**with no `unsafe` in our code**. That matters concretely: `liquers-core`'s library code is currently
+unsafe-free — the crate's single `unsafe` is in a *test fixture*
+(`store_conformance/fixture.rs:181`) — and this keeps it that way.
+
+```rust
+/// A byte buffer whose start is 64-byte aligned, as Arrow recommends.
+/// Backed by `#[repr(align(64))]` chunks; `bytemuck::cast_slice` reads it as bytes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AlignedBuffer { /* … */ }
+```
+
+**Day one, not later** — which is why it was flagged as a question rather than left implicit.
+Retrofitting alignment means reallocating every buffer in the system, and the fallback (a copy at the
+export boundary) stays available if the dependency is ever unwelcome.
 
 ### The minimal DataFrame role
 
@@ -626,7 +694,8 @@ Clause commands are **sync and borrow** — pure transformations of a value in h
 
 | Crate | File | Change |
 |---|---|---|
-| `liquers-core` | `src/records.rs` (new) | `FieldValue`, `RecordSchema`, `Row`, `RecordBatch`, `SourceInfo`, `RecordSet`, predicate and binding, `RecordBatchStream`, `ChunkedRecordSource` |
+| `liquers-core` | `src/records/buffer.rs` (new) | `AlignedBuffer`, `Buffer<T>`, `Bitmap` — the Arrow-layout primitives; the only place `bytemuck` is used |
+| `liquers-core` | `src/records/mod.rs` (new) | `FieldValue`, `RecordSchema`, `Column`, `RecordBatch`, `SourceInfo`, `RecordSet`, predicate and binding, `RecordBatchStream`, `ChunkedRecordSource` |
 | `liquers-lib` | `src/records/arrow.rs` (new, `polars` feature) | `RecordBatch → polars::DataFrame` over the shared buffers; Arrow IPC bytes, deferred |
 | `liquers-py` | Arrow C Data Interface export (later milestone) | The only place `unsafe` FFI belongs; core stays safe |
 | `liquers-core` | `src/maybe_send.rs` | `BoxStream` + `MaybeBoxedStream`, mirroring `BoxFuture`/`MaybeBoxed` |
@@ -636,6 +705,9 @@ Clause commands are **sync and borrow** — pure transformations of a value in h
 | `liquers-lib` | `src/search/mod.rs` (new) | Record producers, clause commands, syntax parser |
 | `liquers-lib` | `src/commands.rs` | `register_command!` registrations |
 | `specs` | `command_registry.yaml` | Regenerated |
+
+**Dependencies:** `bytemuck` only — already in the lockfile at 1.25.2, tiny, `no_std`-capable,
+wasm-safe, and confined to `records/buffer.rs`. Nothing else is added.
 
 **`liquers-core/src/store.rs` is untouched.** No dependency added: `serde_json` and `async_trait` are
 already direct dependencies.
@@ -707,18 +779,16 @@ with concurrency deferred until there is something to measure.
 
 ## Open Questions for Phase 3
 
-1. Does the Arrow buffer layout need 64-byte alignment and padding from day one, or only when the C
-   Data Interface export is built? Getting it wrong later means re-allocating every buffer; getting
-   it right now costs an aligned allocator in core.
-2. Is `Bitmap` a hand-rolled bit vector in core, or is a tiny dependency justified? Hand-rolled is
-   ~100 lines and keeps core dependency-free, which the wasm baseline rewards.
-3. Are `matches` parallel to the rows acceptable, or should a search result be a distinct type that
+1. ~~Alignment and `Bitmap`~~ — **both resolved above.** 64-byte alignment is day-one work via
+   `#[repr(align(64))]` chunks plus `bytemuck` (already in the lockfile, no `unsafe` in our code);
+   `Bitmap` is hand-rolled, ~150–200 lines, with byte-aligned slice offsets only.
+2. Are `matches` parallel to the rows acceptable, or should a search result be a distinct type that
    *contains* a `RecordSet`? Parallel vectors let a search result compose as a record set; a wrapper
    is safer and costs one unwrap at every consumer.
-4. Does `ChunkedRecordSource` earn its place in M0–M3, given nothing implements a non-trivial
+3. Does `ChunkedRecordSource` earn its place in M0–M3, given nothing implements a non-trivial
    partition until M5? (`RecordBatchStream` is now a type alias and costs nothing, so the question
    narrows to the trait.)
-5. Does `FieldType` need `Date`/`Decimal` for GlueSQL and Arrow fidelity, or is `Timestamp` plus
+4. Does `FieldType` need `Date`/`Decimal` for GlueSQL and Arrow fidelity, or is `Timestamp` plus
    `Float` enough until the SQL task actually starts?
-6. Should `limit` default to `Some(50)` at the command layer while the type allows `None`, or should
+5. Should `limit` default to `Some(50)` at the command layer while the type allows `None`, or should
    the type forbid `None` as revision 1 had it?
