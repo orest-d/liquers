@@ -74,6 +74,11 @@ The derivation must go through `ActionRequest`, never string templating. The esc
 explicit that query text is not built by hand — a record id that is a string containing a `-`, a `/`
 or a space would otherwise produce a corrupt query.
 
+A **non-keyed** asset — an ad-hoc report generated from a query and never stored — is exactly why
+identity is a query rather than a key. `AssetInfo` already carries `query` and `key` as independent
+options, and the asset manager already holds query-identified assets in their own map
+(`assets.rs:4539`), so nothing about the record has to change to accommodate them.
+
 ### What a record id is
 
 A small enum, not a `Value`: an index (`u64`) covers row and line numbers, a short name covers JSON
@@ -159,6 +164,15 @@ hash over its dependencies' current versions — one metadata read per source fi
 A batch exists only to bound memory. It is not a dependency unit, it is not addressed by a sink for
 refresh purposes, and its boundaries may move between evaluations without meaning anything. For
 parquet a batch is naturally a row group; for CSV or NDJSON, *n* rows.
+
+### The partition has a second job
+
+Besides splitting a stream for refresh, the partition is **the enumeration mechanism for anything
+that is not key-addressable**. A chunk query need not be rooted at a key, so a generator yielding
+arbitrary queries — one report per region, one per month — declares a corpus that `listdir` could
+never discover, because the space of queries is infinite and there is no `listdir` for it. That is
+not an extension of the partition: it is the same list of `(chunk id, query, version)`, from a
+different source. See [`indexation-policy.md`](./indexation-policy.md) §5.
 
 ---
 

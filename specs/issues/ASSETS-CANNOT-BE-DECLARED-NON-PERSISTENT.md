@@ -82,7 +82,12 @@ Questions for the design:
   plan mixes commands that disagree.
 - Whether such an asset registers a version — it should, which is the whole point — and what it is
   computed over when no bytes are ever written, since `Version::from_bytes(content)` is the current
-  derivation.
+  derivation. A hash over the plan's dependency versions **plus the command implementation
+  versions** is the candidate, and the command half is not optional: with no stored content to
+  compare, a changed command is the only thing that says the output would differ. The same answer
+  has to serve **non-keyed** assets — an ad-hoc report identified by a query and never stored, whose
+  `metadata.version()` is `None` today, so query dependencies are recorded at an unknown version
+  (`assets.rs:1647`).
 - How it interacts with `SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY` and with eviction: an
   asset that is cheap to reproduce is the best candidate to evict first.
 - What a store read of such a key does — `Status::Recipe` and produce on demand, presumably, which

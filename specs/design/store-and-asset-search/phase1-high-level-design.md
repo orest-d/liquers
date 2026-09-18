@@ -114,12 +114,15 @@ query. *Which* documents are indexed: the scope or configuration query, plus key
 rules, with a per-asset opt-out deferred until attributes exist — and exclusion is explicitly not a
 security mechanism. *What content* is indexed: metadata-only, when-ready (the safe default), or
 produced at indexation time. **Metadata is always indexable**, so a document is discoverable without
-anything being computed. Three classes decide the content policy, and they differ on whether a
-document's version is knowable without producing it: **stored** (yes, content hash), **transient** —
+anything being computed. Four classes decide the content policy, differing on whether a
+document's version is knowable without producing it: **stored** (yes, content hash); **transient** —
 deterministic, cheap, deliberately not stored (yes, derived from its dependencies, so staleness is
-decidable without producing anything), and **volatile** (no version at all —
-`assets.rs:5583` gates registration on `Ready | Source | Override` — so it needs time-based refresh
-via `Expires` and can only ever be snapshotted). The transient class is the clean case for
+decidable without producing anything); **ad-hoc query** — a non-keyed asset such as a report
+generated on the fly (yes, derived offline from the plan's dependencies and command versions, but
+with no `listdir` to enumerate it, so the set must be *declared* — which the partition already does);
+and **volatile** (no version at all — `assets.rs:5583` gates registration on
+`Ready | Source | Override` — so it needs time-based refresh via `Expires` and can only ever be
+snapshotted). The transient class is the clean case for
 *produce*, and Liquers cannot express it today: `CommandMetadata.cache` is read by nothing,
 `register_command!` cannot set it, and `PersistenceStatus::NotPersisted` means the write failed
 (`ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT`). The MVP needs no configuration: a scan that
@@ -249,9 +252,11 @@ search. Both should work from the reference and the guide without opening this f
    only workaround is storing documents whose point is not being stored.
 19. What does an index entry record for a volatile document, and is it marked so a consumer knows its
    freshness is time-based rather than version-vouched?
-20. How is "why is this document not in my results?" answered for one key? Silent absence is very
+20. How is a declared set of ad-hoc queries bounded, and are two spellings of the same computation
+   deduplicated?
+21. How is "why is this document not in my results?" answered for one key? Silent absence is very
    hard to debug.
-21. How does a bare field name resolve when two layers define it? `status` is the **asset**
+22. How does a bare field name resolve when two layers define it? `status` is the **asset**
    lifecycle in `MetadataRecord` and the **document's** lifecycle in `specs/` front-matter, and both
    would answer `status:draft` silently. Namespaced fields, or a documented precedence — cheap now,
    confusing forever if left.
