@@ -145,6 +145,7 @@ expansion time rather than at runtime. That is the cheapest item here.
 - **Incremental value serialization** — planned → [`issues/VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER.md`](issues/VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER.md)
 - **Running a command with a restricted context** — planned → [`issues/COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT.md`](issues/COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT.md)
 - **Describing an asset without evaluating it** — planned → [`issues/DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION.md`](issues/DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION.md)
+- **Computed but non-persistent assets** — planned → [`issues/ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT.md`](issues/ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT.md)
 
 A key given to a store must be absolute: no element may be `.` or `..`. Relative keys are resolved
 at plan level and a store never resolves them, so one reaching a store is refused with

@@ -114,9 +114,15 @@ query. *Which* documents are indexed: the scope or configuration query, plus key
 rules, with a per-asset opt-out deferred until attributes exist — and exclusion is explicitly not a
 security mechanism. *What content* is indexed: metadata-only, when-ready (the safe default), or
 produced at indexation time. **Metadata is always indexable**, so a document is discoverable without
-anything being computed. Volatile assets force the choice, because they are never persistently ready
-and **never register a version** (`assets.rs:5583`), so version-based reconciliation has nothing to
-compare and they need time-based refresh via `Expires`. The MVP needs no configuration: a scan that
+anything being computed. Three classes decide the content policy, and they differ on whether a
+document's version is knowable without producing it: **stored** (yes, content hash), **transient** —
+deterministic, cheap, deliberately not stored (yes, derived from its dependencies, so staleness is
+decidable without producing anything), and **volatile** (no version at all —
+`assets.rs:5583` gates registration on `Ready | Source | Override` — so it needs time-based refresh
+via `Expires` and can only ever be snapshotted). The transient class is the clean case for
+*produce*, and Liquers cannot express it today: `CommandMetadata.cache` is read by nothing,
+`register_command!` cannot set it, and `PersistenceStatus::NotPersisted` means the write failed
+(`ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT`). The MVP needs no configuration: a scan that
 may not evaluate arrives at *when-ready* for free. See [`indexation-policy.md`](./indexation-policy.md).
 
 **Asset system** — search unions store entries, live assets and recipe-declared keys the way
@@ -238,8 +244,9 @@ search. Both should work from the reference and the guide without opening this f
    (`DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION`)?
 17. How is a projection's purity guaranteed on the search path — a declaration on the command, or a
    restricted context that refuses evaluation (`COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT`)?
-18. Does `produce` exist in the first indexing version, or does an index only ever reflect what
-   something else materialized? The latter is smaller and forecloses nothing.
+18. Does `produce` exist in the first indexing version? Leaving it out is smaller, but the transient
+   class makes a whole category of cheap derived views permanently unsearchable by content, whose
+   only workaround is storing documents whose point is not being stored.
 19. What does an index entry record for a volatile document, and is it marked so a consumer knows its
    freshness is time-based rather than version-vouched?
 20. How is "why is this document not in my results?" answered for one key? Silent absence is very

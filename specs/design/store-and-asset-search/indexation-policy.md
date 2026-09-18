@@ -79,7 +79,48 @@ discovered when it runs.
 
 ---
 
-## 4. Volatile assets force the choice
+## 4. Three classes of document, and only one makes `produce` awkward
+
+Content policy is decided per class, and the classes differ on one question: **is the document's
+version knowable without producing it?**
+
+| Class | Version available? | Content available without producing? | Reconciliation | `produce` |
+|---|---|---|---|---|
+| **Stored** — a source, or a derived asset that was persisted | yes, content hash | yes | version diff | not needed |
+| **Transient** — non-volatile, deterministic, deliberately not stored | **yes — derivable from its dependencies' versions** | no | **version diff, computed without producing anything** | **needed, and unambiguously correct** |
+| **Volatile** — use once, re-evaluated every time | **no** | no | schedule only | needed, but snapshot-only |
+
+### The transient class is the clean case for `produce`
+
+A cheap report or dashboard rendered from precalculated data is not volatile: it stays valid exactly
+as long as its inputs do. It is simply not worth storing, because reproducing it costs less than
+reading it back.
+
+Three properties follow, and together they make indexing such a document as sound as indexing a
+stored one:
+
+1. **Its version is a pure function of its dependencies' versions** — the same derivation
+   `record-model.md` §3 uses for a chunk. So an indexer can decide whether its entry is stale
+   **without producing it**, from metadata alone.
+2. **What is produced stays valid** as long as the dependencies do, so the indexed content is not a
+   snapshot of a moving target.
+3. **Producing it is cheap by the author's own declaration** — that is the premise of the class.
+
+Without `produce`, this entire class is permanently unsearchable by content, and the only workaround
+is to store documents whose whole point is not being stored.
+
+Two consequences worth naming. **The index becomes the only materialization** of such a document's
+content, so rebuilding the index costs re-production. And in the interoperability layer the feed's
+cost is asymmetric — the version scan stays cheap while `fetch` becomes a computation — which is
+already the general shape (`fetch` is proportional to what changed) rather than a new problem.
+
+**Liquers cannot currently express this class.** `CommandMetadata.cache` exists and is read by
+nothing, `register_command!` cannot set it, and `PersistenceStatus::NotPersisted` means the write
+*failed*. The available workaround — declaring the asset volatile — moves it into the weakest regime
+and throws away the version that made it tractable. Filed as
+`ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT` (P2).
+
+## 5. Volatile assets force the choice
 
 A volatile asset is "use once, then expires… never cached and must be re-evaluated each time"
 (`metadata.rs:334`). Three consequences, and the third is a hard technical fact rather than a
@@ -109,13 +150,14 @@ without running anything.
 
 ---
 
-## 5. Refresh: two regimes, not one
+## 6. Refresh: two regimes, not one
 
 | Asset kind | Change detection | Refresh trigger |
 |---|---|---|
 | Stored source | content-hash `Version` | version diff |
 | Derived, non-volatile | content-hash `Version` | version diff, plus the expiration cascade as the fast path |
 | Recipe-declared, not produced | the recipe's version | version diff on the recipe |
+| **Transient** — deterministic, not stored | version derived from dependencies | version diff, decided without producing |
 | **Volatile** | **none available** | **schedule (`Expires`)** |
 
 The interoperability layer assumed one regime. It needs both, and the second must be visible in the
@@ -123,7 +165,7 @@ entry: an index cannot report a volatile entry's freshness as though a version v
 
 ---
 
-## 6. Where the policy lives
+## 7. Where the policy lives
 
 - **In the index or sink configuration**, per scope, pattern-based. Needs nothing new, and it is
   where the cost is being accepted. **Recommended first.**
@@ -136,7 +178,7 @@ Precedence between them is an open question and should be settled before two of 
 
 ---
 
-## 7. What the MVP does
+## 8. What the MVP does
 
 **Nothing configurable — and that is not a gap.** M1 and M2 are a scan with no index, so:
 
@@ -154,10 +196,13 @@ the milestones where something is written down ahead of a query and can therefor
 
 ---
 
-## 8. Open decisions for Phase 2
+## 9. Open decisions for Phase 2
 
-1. Whether `produce` exists in the first indexing version at all, or whether an index only ever
-   reflects what something else materialized. The latter is smaller and forecloses nothing.
+1. Whether `produce` exists in the first indexing version. An earlier draft leaned towards leaving
+   it out as the smaller option; the transient class (§4) argues the other way, because without it a
+   whole category of cheap derived views is permanently unsearchable by content and the only
+   workaround is to store them. If it is left out, say so as a known limitation rather than as an
+   oversight.
 2. What an index entry records for a volatile document — a production time, and whether it is marked
    so a consumer knows the freshness is time-based rather than version-vouched.
 3. Policy granularity and precedence: scope configuration, per-asset declaration, per-recipe

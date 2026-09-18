@@ -153,19 +153,29 @@ component that sees every write, so it is the only one that can hold an index).
    documents must be produced at indexation time". **Metadata is always indexable**, so
    discoverability never requires evaluation; only *content* needs a policy, of which *when-ready* is
    the safe default and the one the MVP arrives at for free.
-16. **Volatile assets need a second refresh regime.** They are never persistently ready, so
+16. **Three classes of document, separated by whether a version is knowable without producing it.**
+   *Stored* has a content hash. *Transient* — deterministic, cheap, deliberately not stored, the
+   shape of a report rendered from precalculated data — has a version derived from its dependencies,
+   so staleness is decidable without producing anything and producing it is unambiguously correct.
+   *Volatile* has no version at all. Both of the latter need `produce`; only the volatile one cannot
+   tell you whether it needs it. Liquers cannot express the transient class today —
+   `CommandMetadata.cache` is read by nothing, the macro cannot set it, and
+   `PersistenceStatus::NotPersisted` means the write failed — and the workaround of declaring such an
+   asset volatile throws away the version that made it tractable
+   (`ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT`).
+17. **Volatile assets need a second refresh regime.** They are never persistently ready, so
    *when-ready* never indexes their content at all, and they **never register a version** — version
    registration is gated on `Ready | Source | Override` (`assets.rs:5583`, `:5715`). So the
    `(id, version)` reconciliation diff has nothing to compare, and such entries must be refreshed on
    a schedule and reported as time-based rather than version-vouched. Volatility is knowable before
    evaluation (`plan.is_volatile`), so the policy is applicable without running anything.
-17. **Only seven decisions are foundational.** The test is whether a thing can be added later
+18. **Only seven decisions are foundational.** The test is whether a thing can be added later
    without changing what Level 0 shipped. Seven cannot — the record's shape with the id field present
    but unused, identity as a pair, fields as a named `Value::Object`, a bounded opaque result rather
    than a `Vec`, the ordering promise, the text/field distinction, and non-exhaustive enums. Schema,
    chunks, batches, locator rules, streaming, projection identity and reconciliation are all
    additive. Milestones M0–M3 are the deliverable and are exactly what the agent memory MVP needs.
-18. **Borrow tinysearch's data structure, not tinysearch.** It builds its index at build time and
+19. **Borrow tinysearch's data structure, not tinysearch.** It builds its index at build time and
    emits a compiled wasm module, which does not fit a corpus mutated at runtime. But a per-document
    word filter is a derived asset of *one* document, so it has no dependency fan-out — which is the
    problem that makes a monolithic derived index unattractive. In-tree indexes ride the asset layer
