@@ -182,8 +182,11 @@ A chunk "being a stream" means different things on the two sides of a query boun
 difference is not cosmetic.
 
 **In process**, a chunk can be a genuine async iterator yielding batches: a consumer pulls, the
-producer reads incrementally, nothing large is ever resident. This is the shape the trait should
-have.
+producer reads incrementally, nothing large is ever resident. Phase 2 settles the shape: it is
+`futures::Stream`, already a direct dependency of `liquers-core`, boxed through the per-target alias
+that `maybe_send.rs` established for futures — so the combinator vocabulary (`filter_map` for a
+predicate, `take` for a limit, `buffer_unordered` for later concurrency) comes free and there is no
+bespoke trait to design.
 
 **Across a query or HTTP boundary**, a query returns a *value*, and Liquers values are materialized
 `Arc`-wrapped things that are cached, versioned and serialized. A stream is none of those. So the

@@ -204,8 +204,13 @@ in view, because two reverse Phase 1 decisions:
    records produced by commands it is a push-down optimization, not the mechanism. Nothing in the
    store trait changes, the conformance rule family disappears, and the honest cost is that
    `STORE-NO-CONTENT-OR-METADATA-SEARCH` is not closed by this work.
-3. **A record stream trait — batches and chunks — is what `select` was standing in for**, and is now
-   the core abstraction. Defined in M0, with exactly one trivial implementation, because a stream
+3. **A record stream — batches and chunks — is what `select` was standing in for**, and is now the
+   core abstraction. It is **`futures::Stream`**, not a bespoke trait: `futures` is already a direct
+   dependency of `liquers-core`, and `maybe_send.rs` already carries the per-target boxed-type
+   pattern it needs (including the documented trap that `StreamExt::boxed()`, like
+   `FutureExt::boxed()`, is always `Send`-boxed and therefore wrong on wasm). So `RecordBatchStream`
+   is a type alias, `schema` moves onto the chunk descriptor where it belongs, and applying a
+   predicate becomes a combinator. Defined in M0 with one trivial implementation, because a stream
    interface is F4 generalized and expensive to retrofit.
 4. **`Hit` was faulty and is gone.** It embedded an `AssetInfo`, which assumes one record per asset —
    a CSV row has no `AssetInfo`, the file does. Asset description moves to a per-source table, and a

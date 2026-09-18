@@ -24,7 +24,7 @@ Scope is milestones **M0–M3** of [`roadmap.md`](./roadmap.md) plus the `get_as
 | **Fields are `serde_json::Value`, not `liquers_core::value::Value`** | A bug in the first draft: `Value` is **704 bytes**, so a `BTreeMap<String, Value>` per record is indefensible — and the draft cited `CORE-VALUE-ENUM-OVERSIZED` two sections earlier. JSON values are small, need no type parameter, and make a record set directly serializable as JSON or NDJSON, which is the tabular-interchange goal. |
 | **`Hit` replaced** | It embedded an `AssetInfo`, which assumes one record per asset. **A CSV row has no `AssetInfo`; the file does.** Asset description moves to a per-source side table, and retrieval is explicit. |
 | **`FieldMatch` → `ClauseMatch`** | Evidence now names *which clause* matched, so "why did this match" answers against the predicate rather than floating free. |
-| **A record-stream trait is added** | This is what `select` was standing in for. Batches and chunks are the missing abstraction. |
+| **A record stream is added** | This is what `select` was standing in for. Batches and chunks are the missing abstraction — and it is `futures::Stream`, already a `liquers-core` dependency, rather than a bespoke trait. |
 
 The net effect is a **smaller** core change than revision 1 and a **larger** record model.
 
@@ -213,7 +213,37 @@ when more than one source could supply it.
 
 This is what `select` was standing in for, and the abstraction the review identified as missing.
 
+### The stream is `futures::Stream`, not a bespoke trait
+
+`futures = "0.3.34"` is **already a direct dependency of `liquers-core`** (`Cargo.toml:77`, used in
+`assets.rs`), so the standard trait costs nothing to adopt and a hand-rolled `next_batch` would be a
+worse version of it. The whole combinator vocabulary comes with it — and it is exactly the vocabulary
+this design needs: applying a predicate is `filter_map`, the limit is `take`, and the concurrency
+deferred in revision 1 is later `buffer_unordered` rather than a rewrite.
+
+`liquers-core/src/maybe_send.rs` already solves the wasm half, and its own documentation states the
+trap: a trait-object bound cannot use the `MaybeSend` marker (E0225), so the **whole boxed type is
+aliased per target**, and `FutureExt::boxed()` is "always `Send`-boxed and thus wrong on wasm".
+`StreamExt::boxed()` has the identical defect, so the sibling alias and boxing helper are added
+beside the existing ones:
+
 ```rust
+// liquers-core/src/maybe_send.rs — mirroring BoxFuture / MaybeBoxed exactly
+#[cfg(not(target_arch = "wasm32"))]
+pub type BoxStream<'a, T> = Pin<Box<dyn Stream<Item = T> + Send + 'a>>;
+#[cfg(target_arch = "wasm32")]
+pub type BoxStream<'a, T> = Pin<Box<dyn Stream<Item = T> + 'a>>;
+
+/// Box a stream with the target-correct Send-ness. Replaces `StreamExt::boxed()`,
+/// which is always `Send`-boxed and therefore wrong on wasm.
+pub trait MaybeBoxedStream<'a>: Stream + Sized + 'a {
+    fn maybe_boxed(self) -> BoxStream<'a, Self::Item>;
+}
+```
+
+```rust
+// liquers-core/src/records.rs
+
 /// A batch of records sharing one source dictionary. The unit of memory.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecordBatch {
@@ -221,21 +251,18 @@ pub struct RecordBatch {
     pub records: Vec<Record>,
 }
 
-/// An in-process stream of batches. Not a `Value`: it is neither cloneable nor cacheable,
-/// which is exactly why it stops at the query boundary (`record-model.md` §4).
-#[async_trait]
-pub trait RecordStream: Send {
-    fn schema(&self) -> Option<&RecordSchema> { None }
-    /// The next batch, or `None` at the end.
-    async fn next_batch(&mut self) -> Result<Option<RecordBatch>, Error>;
-}
+/// An in-process stream of batches. A **type alias, not a trait** — there is nothing to add to
+/// `Stream` that a combinator does not already give. Not a `Value`: neither cloneable nor
+/// cacheable, which is why it stops at the query boundary (`record-model.md` §4).
+pub type RecordBatchStream<'a> = BoxStream<'a, Result<RecordBatch, Error>>;
 
-/// A stream that knows its own partition. The unit of refresh.
+/// A source that knows its own partition. The unit of refresh.
 #[async_trait]
-pub trait ChunkedRecordStream: Send {
+pub trait ChunkedRecordSource: MaybeSend + MaybeSync {
     /// Chunk descriptors — id, refresh query, version — **without producing any records**.
     async fn partition(&self) -> Result<Vec<ChunkDescriptor>, Error>;
-    async fn open_chunk(&self, id: &ChunkId) -> Result<Box<dyn RecordStream>, Error>;
+    /// Open one chunk. The returned stream borrows `self`.
+    async fn open_chunk(&self, id: &ChunkId) -> Result<RecordBatchStream<'_>, Error>;
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -245,17 +272,31 @@ pub struct ChunkDescriptor {
     pub query: Query,
     pub version: Option<Version>,
     pub source: SourceInfo,
+    /// Optional and advisory; field roles are its valuable content.
+    pub schema: Option<RecordSchema>,
 }
 ```
 
-**Defined now, minimally implemented now.** The roadmap's M0 said Level 0 only; this is a deliberate
-extension of it, on the roadmap's own test: a stream interface is F4 generalized ("a bounded opaque
-result, not a bare `Vec`"), and it is expensive to retrofit and cheap to define. M0–M3 ship exactly
-one implementation — `RecordSet` yielding itself as a single batch — so nothing streams yet and
-nothing has to be redesigned when something does.
+**Three consequences of using the standard trait**, each a simplification:
 
-`RecordStream` is `Send` but **not** `Sync`: it is consumed by one task. `Box<dyn RecordStream>`
-requires object safety, which `&mut self` + concrete types preserve.
+1. **`RecordStream` stops being a trait.** One fewer concept, and no object-safety question to
+   reason about: `Stream` is object-safe and `BoxStream` is the established boxed form.
+2. **`schema()` moves off the stream** onto `ChunkDescriptor`, which is where it belongs — a schema
+   describes a *source*, not an iteration, and a consumer needs it *before* opening the stream in
+   order to configure an engine (`record-model.md` §5).
+3. **`filter_batch` becomes a combinator.** `SearchPredicate` keeps a per-batch method for testing,
+   but the pipeline is `stream.map(|b| predicate.filter_batch(b)).take(limit)` rather than a
+   hand-written loop.
+
+`ChunkedRecordSource` uses the project's `MaybeSend`/`MaybeSync` supertrait markers rather than bare
+`Send`/`Sync`, as `maybe_send.rs` requires for supertrait bounds, and `#[async_trait]` at each site
+needs the usual `cfg_attr(…, async_trait(?Send))` pair.
+
+**Defined now, minimally implemented now.** The roadmap's M0 said Level 0 only; this is a deliberate
+extension, on the roadmap's own test: a stream interface is F4 generalized ("a bounded opaque result,
+not a bare `Vec`"), expensive to retrofit and cheap to define. M0–M3 ship one implementation —
+`futures::stream::once` over a `RecordSet`'s single batch — so nothing streams yet and nothing has to
+be redesigned when something does.
 
 ### Value extension
 
@@ -402,7 +443,8 @@ Clause commands are **sync and borrow** — pure transformations of a value in h
 
 | Crate | File | Change |
 |---|---|---|
-| `liquers-core` | `src/records.rs` (new) | Record, SourceInfo, RecordSet, predicate, stream traits, pure matching |
+| `liquers-core` | `src/records.rs` (new) | Record, SourceInfo, RecordSet, predicate, `RecordBatchStream`, `ChunkedRecordSource`, pure matching |
+| `liquers-core` | `src/maybe_send.rs` | `BoxStream` + `MaybeBoxedStream`, mirroring `BoxFuture`/`MaybeBoxed` |
 | `liquers-core` | `src/lib.rs` | `pub mod records;` |
 | `liquers-core` | `src/value.rs` | `Value::Records(Arc<RecordSet>)`, every match arm, the `TypeInfo` entry |
 | `liquers-core` | `src/assets.rs` | `get_asset_info` repair (two sites) |
@@ -465,8 +507,11 @@ with concurrency deferred until there is something to measure.
 
 ## Compilation Validation
 
-- `RecordStream` / `ChunkedRecordStream` are object-safe: `&self`/`&mut self`, no generics, concrete
-  types. Used as `Box<dyn RecordStream>`.
+- `Stream` is object-safe and already boxed through the project's per-target alias pattern;
+  `ChunkedRecordSource` is object-safe (`&self`, no generics, concrete types).
+- `BoxStream`/`MaybeBoxedStream` are gated on `target_arch`, **never** on a Cargo feature —
+  `maybe_send.rs` documents why: feature unification would silently strip `Send` from the native
+  build workspace-wide.
 - `Value::Records(Arc<_>)` keeps `size_of::<Value>()` unchanged; the `TypeInfo` entry is present.
 - Every `match` on `Value` gains an explicit arm; no default arm anywhere.
 - `liquers-core` gains no dependency on `liquers-lib`.
@@ -479,8 +524,9 @@ with concurrency deferred until there is something to measure.
 2. Are `matches` parallel to `records` acceptable, or should a search result be a distinct type that
    *contains* a `RecordSet`? Parallel vectors let a search result compose as a record set; a wrapper
    is safer and costs one unwrap at every consumer.
-3. Does `ChunkedRecordStream` earn its place in M0–M3, given nothing implements a non-trivial
-   partition until M5?
+3. Does `ChunkedRecordSource` earn its place in M0–M3, given nothing implements a non-trivial
+   partition until M5? (`RecordBatchStream` is now a type alias and costs nothing, so the question
+   narrows to the trait.)
 4. `RecordSchema` is referenced but not specified here — field roles are its valuable content
    (`record-model.md` §5). Specify it in Phase 3 or defer the field to M5?
 5. Should `limit` default to `Some(50)` at the command layer while the type allows `None`, or should
