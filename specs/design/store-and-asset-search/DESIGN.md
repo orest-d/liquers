@@ -66,8 +66,9 @@ becomes an engine over the same records, RAG becomes a record source plus a clau
 third-party engine becomes an implementation of selection.
 
 The split that makes it small: **projection is a command** (it varies with the value type, an open
-set) and **selection is a trait method** (it varies with the backend, and the store is the only
-component that sees every write, so it is the only one that can hold an index).
+set) and **selection is a filter over the records it produces**. Phase 1 put selection on the store
+trait; Phase 2 revision 2 reversed that — with records produced by commands, a trait method is a
+push-down *optimization* rather than the mechanism, so it is deferred until a backend can exploit it.
 
 ### Load-bearing conclusions
 
@@ -77,9 +78,13 @@ component that sees every write, so it is the only one that can hold an index).
 2. **The store is not the whole corpus.** `AssetManager::get_asset_info` already resolves a key as
    live asset → store → recipe provider. A search seeing only the store answers a question nobody
    asked.
-3. **Selection belongs below the consumer.** `STORE-NO-CONTENT-OR-METADATA-SEARCH` is on file
-   precisely because filtering in the caller is O(corpus) and forecloses any backend that could do
-   better. A command-only implementation would ship faster and have to be undone.
+3. ~~**Selection belongs below the consumer.**~~ **Reversed by Phase 2 revision 2.** The original
+   reasoning was that filtering in the caller is O(corpus) and forecloses any backend that could do
+   better, so a command-only implementation "would ship faster and have to be undone". That
+   mis-located the cost: producing the record stream is what reads the corpus, and the filter is
+   cheap wherever it sits. A store method is a push-down optimization, addable later without
+   changing a consumer. The consequence is recorded honestly — this work does **not** close
+   `STORE-NO-CONTENT-OR-METADATA-SEARCH`, which asks for selection on the store.
 4. **wasm decides the engine question before anything else does.** `liquers-web` is wasm32-only and
    browser search is essential, while the mature Rust full-text engines are server-oriented —
    Tantivy's own wasm RFC says so. The baseline must run everywhere; an engine can only ever be an
@@ -223,9 +228,21 @@ in view, because two reverse Phase 1 decisions:
    smaller *and* able to carry bytes, timestamps and vectors, the last being what RAG needs and JSON
    does worst. Not a type parameter — it would infect the stream, the predicate and `Value` itself,
    and Arrow, GlueSQL, Tantivy and Qdrant all chose a dynamic type enum for the same reason. The
-   model is **Arrow-shaped but not Arrow-dependent**: core stays minimal and the conversion lives in
-   `liquers-lib` behind the existing `polars` feature, which already pulls Arrow.
-5. **`Hit` was faulty and is gone.** It embedded an `AssetInfo`, which assumes one record per asset —
+   model is **Arrow-shaped but not Arrow-dependent**.
+5. **Revision 4: the batch is columnar, in Arrow's memory layout.** Revision 3 stored rows row-major,
+   justified by "the consumer is a predicate walking one row at a time" — which does not survive: a
+   predicate over a column yields a boolean mask and clauses AND their masks, the polars and DuckDB
+   shape, and faster. The decisive argument is different, though: of the three cheap routes out to
+   pandas and polars, **two work only if the data is already in Arrow's layout** — the Arrow C Data
+   Interface, and typed arrays viewing wasm memory. From `Vec<Row>` both need a full transpose and
+   re-encode; laid out Arrow's way the hand-off is a pointer. Compactness follows: an `i64` column is
+   8 bytes per value against `FieldValue`'s 24, and a null is one bit rather than a slot. The safety
+   split is deliberate — core owns the layout, which is `Vec`s and bitmaps and adds no `unsafe` to a
+   crate that has one occurrence in total, while the FFI belongs in `liquers-py` and Arrow IPC bytes
+   in `liquers-lib`. No claim of full Arrow support: no nested `Struct`, no `Union`, no dictionary
+   encoding, no 64-bit offsets. And it answers a requirement rather than a nicety — `liquers-web` is
+   wasm32 and cannot bundle polars, so the columnar batch **is** that build's DataFrame.
+6. **`Hit` was faulty and is gone.** It embedded an `AssetInfo`, which assumes one record per asset —
    a CSV row has no `AssetInfo`, the file does. Asset description moves to a per-source table, and a
    hit is *retrievable*: `SourceInfo::chunk` re-produces the batch, `locator` addresses one record
    directly. Fields are `serde_json::Value`, not `liquers_core::value::Value`, which at 704 bytes was
