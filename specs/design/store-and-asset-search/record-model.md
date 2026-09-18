@@ -261,6 +261,12 @@ table in parts**, so one mechanism reinterprets anything as tabular data:
 | **Parquet** | good | Needs a schema; a batch maps onto a row group, which is what row groups are for |
 | **GlueSQL** | good | A stream is a table; its schemaless support covers heterogeneous rows |
 | **DataFrame** | good | Behind the `polars` feature; a conversion, not the primary form |
+| **Arrow / pandas** | **zero-copy** | Phase 2 revision 4 lays a batch out in Arrow's buffers, so the C Data Interface exports it as a pointer hand-off rather than a conversion |
+
+**A batch is also a minimal DataFrame.** That is not a bonus but a requirement: `liquers-web` is
+wasm32 and polars cannot be bundled there, so the columnar batch is the tabular value that build
+gets — select, filter by mask, slice and concat all fall out of `Arc`-shared buffers with no new
+dependency.
 
 So the record model has **four consumers, of which search is one**: search, external sinks, SQL, and
 serialization. That is an argument for placing the types in `liquers-core`, and it raises a

@@ -1,10 +1,10 @@
 # Phase 2: Solution & Architecture — Store and asset search
 
-> **Revision 3.** Revision 1 put the source inside the predicate, added `select` to two core traits
-> and gave every hit an `AssetInfo`; revision 2 corrected those. Revision 3 removes the `Record`
-> struct itself: rows are positional and the **schema** owns field names, types and roles, modelled
-> on the systems this design integrates with. §0 records every change, because three of them reverse
-> Phase 1 decisions.
+> **Revision 4.** Revision 1 put the source inside the predicate, added `select` to two core traits
+> and gave every hit an `AssetInfo`; revision 2 corrected those; revision 3 replaced the `Record`
+> struct with rows plus a schema; revision 4 makes the batch **columnar in Arrow's layout**, so a
+> hand-off to pandas or polars is a pointer rather than a conversion, and so the batch doubles as a
+> minimal DataFrame where polars cannot be bundled. §0 records every change.
 
 ## Overview
 
@@ -28,7 +28,8 @@ Scope is milestones **M0–M3** of [`roadmap.md`](./roadmap.md) plus the `get_as
 | **`FieldMatch` → `ClauseMatch`** | Evidence now names *which clause* matched, so "why did this match" answers against the predicate rather than floating free. |
 | **A record stream is added** | This is what `select` was standing in for. Batches and chunks are the missing abstraction — and it is `futures::Stream`, already a `liquers-core` dependency, rather than a bespoke trait. |
 | **Rev. 3: the `Record` struct is removed** | Singling out `text` matches no system we integrate with: Tantivy and Lucene build a schema from fields with *options* and privilege no text field. `source` and `record_id` are likewise fields with roles. Rows become positional and the schema owns names, types and roles. |
-| **Rev. 3: field names live in the schema, once per batch** | A map per row re-creates every field name for every record. Positional rows are what Arrow, polars and every database do, and a field name then resolves to an index once per query instead of per row. |
+| **Rev. 3: field names live in the schema, once per batch** | A map per row re-creates every field name for every record. The schema stores them once, and a field name resolves to an index once per batch instead of per row. |
+| **Rev. 4: the batch is columnar, in Arrow's layout** | Reverses revision 3's row-major storage. "The consumer is a predicate walking one row at a time" does not survive scrutiny — a predicate over a column yields a boolean mask and clauses AND their masks, which is how polars and DuckDB filter. Decisively, the cheap routes to Arrow (the C Data Interface, and typed arrays over wasm memory) are **only** possible if the data is already laid out Arrow's way. It also makes the batch a usable minimal DataFrame where polars cannot be bundled. |
 | **Rev. 3: `FieldValue` replaces `serde_json::Value`** | Measured 24 bytes against JSON's 32 — smaller *and* more expressive. JSON cannot carry bytes without base64, a timestamp as a type, or a 1536-dimension vector compactly, and the last is the RAG milestone's central case. Not a type parameter: that would infect the stream, the predicate and `Value` itself, and every referenced system uses a dynamic type enum instead. |
 
 The net effect is a **smaller** core change than revision 1 and a **larger** record model.
@@ -60,82 +61,124 @@ Searched: every non-terminal `issue`/`feature` in `specs/index.csv` whose `area`
 
 New module `liquers-core/src/records.rs`.
 
-### Rows, not records: the schema owns the field names and the roles
+### Columns, not rows: the batch is Arrow-laid-out
 
-**Revision 3 removes the `Record` struct.** The review's argument is decisive and matches every
-system this design wants to integrate: Tantivy and Lucene build a schema from *fields with options*
-and privilege no single text field; Arrow and polars have `Schema` + positional arrays; GlueSQL has
-columns; Qdrant has payload fields plus named vectors. A struct with a privileged `text`, `source`
-and `record_id` maps onto none of them.
+**Revision 3 removed the `Record` struct; revision 4 reverses its row-major storage.** The
+justification for `Vec<Row>` was that "the consumer is a predicate walking one row at a time", and
+that does not survive scrutiny: a predicate over a **column** produces a boolean mask, and clauses
+combine by ANDing masks — which is how polars and DuckDB actually filter, and is faster than a row
+walk. Row-major also forecloses the cheap Arrow path entirely (below), which is the decisive
+argument.
 
 ```rust
-/// A batch of rows sharing one schema. The unit of memory, and a table.
+/// A batch of rows in Arrow's memory layout. The unit of memory, a table, and a minimal DataFrame.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecordBatch {
-    /// Field names and roles live here — **once per batch, not once per row**.
+    /// Field names, types and roles — once per batch.
     pub schema: Arc<RecordSchema>,
-    /// Dictionary of sources; a field with role `Source` indexes it.
+    /// One column per schema field, in order. `len` rows each.
+    pub columns: Vec<Column>,
+    pub len: usize,
+    /// Dictionary of sources; the `Source`-role column indexes it.
     pub sources: Vec<SourceInfo>,
-    pub rows: Vec<Row>,
 }
 
-/// Positional, aligned to `schema.fields`. Arrow's model minus the columnar layout.
+/// Column storage. Buffers are laid out exactly as Arrow specifies, so an export is a
+/// pointer hand-off rather than a conversion.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Row(pub Vec<FieldValue>);
+pub enum Column {
+    Bool { validity: Bitmap, values: Bitmap },
+    Int { validity: Bitmap, values: Arc<[i64]> },
+    UInt { validity: Bitmap, values: Arc<[u64]> },
+    Float { validity: Bitmap, values: Arc<[f64]> },
+    /// Arrow `Utf8`: i32 offsets plus a contiguous byte buffer. No per-cell allocation.
+    Text { validity: Bitmap, offsets: Arc<[i32]>, data: Arc<[u8]> },
+    Binary { validity: Bitmap, offsets: Arc<[i32]>, data: Arc<[u8]> },
+    /// Arrow `Timestamp(Microsecond, None)`.
+    Timestamp { validity: Bitmap, values: Arc<[i64]> },
+    /// Arrow `FixedSizeList(Float32, dim)` — the embedding case, contiguous.
+    Vector { validity: Bitmap, dim: usize, data: Arc<[f32]> },
+}
 ```
 
-**This answers the sharpest objection:** a map per row re-creates every field name for every record.
-Positional rows store the names **once, in the schema**, which is what Arrow, polars and every
-database do — and it makes the predicate faster as a side effect, because a field name resolves to an
-index once against the schema and each row test is then a positional access.
+**Compactness is not incidental.** An `i64` column costs 8 bytes per value against `FieldValue`'s 24;
+a text column costs its bytes plus 4 per row, against a 16-byte `Arc<str>` per cell plus the
+allocation; nulls cost one bit rather than a whole slot. For a corpus of a few hundred thousand rows
+that is the difference between comfortable and not, in the browser especially.
 
-The cost is honest: a row is meaningless without its schema, so constructing one ad hoc takes more
-ceremony (a `RecordBatchBuilder` owns that), and **heterogeneous rows are handled at batch
-granularity** — the schema is per *batch*, so a set may hold batches with different schemas. That is
-Arrow's answer too.
+**`FieldValue` survives as the scalar type, not as storage** — it is what a predicate compares
+against, what a single-cell read returns, and what a builder appends. Storage is columns.
 
-### FieldValue — not JSON, and not a type parameter
+### Being Arrow-compatible cheaply
+
+There are three ways to hand a batch to pandas, polars or DuckDB, and the important fact is that
+**two of them require the data to already be in Arrow's layout**:
+
+| Mechanism | Cost | Where it lives |
+|---|---|---|
+| **Arrow C Data Interface** — two small C structs plus a release callback, designed precisely for exporting columnar data *without* depending on `arrow-rs` | Zero-copy pointer hand-off; a few hundred lines, and `unsafe` | `liquers-py`, beside the existing pyo3 surface |
+| **Arrow IPC / Feather bytes** | No `unsafe`, but a flatbuffers encoder; a real chunk of work | `liquers-lib`, deferred — it is also the natural `.arrow` serialization for a record batch |
+| **Typed arrays over wasm memory** | Zero-copy; a `Float32Array`/`BigInt64Array` view onto the buffer | `liquers-web` — the browser equivalent of the same trick |
+
+Neither the first nor the third is possible from `Vec<Row>` without a full transpose and re-encode.
+Laying the buffers out Arrow's way makes all three a hand-off. **This is the cheap way, and it is
+cheap only because of the layout decision.**
+
+**The safety split matters and is deliberate.** `liquers-core` contains essentially no `unsafe` today
+— one occurrence in the whole crate — and that should stay true. So core owns the **layout**, which
+is nothing but `Vec`s and bitmaps and is entirely safe; the **export** owns the FFI and lives in
+`liquers-py`, which already has the pyo3 machinery and the right place for a release callback.
+
+**No claim of full Arrow support.** A deliberate subset: the types above, no nested `Struct`, no
+`Union`, no dictionary encoding, no large (64-bit offset) variants. Enough for a record batch and for
+a pandas hand-off; extendable, and honest about not being arrow-rs.
+
+### The minimal DataFrame role
+
+The brief asks the record mechanism to double as a simplistic DataFrame where polars is too expensive
+to bundle — which is the wasm build, where polars is not an option at all. Columns give that almost
+for free:
+
+| Operation | Implementation |
+|---|---|
+| select columns | clone `Arc`s into a new batch; no data copied |
+| filter | evaluate clauses to a boolean mask, then gather — the same path the predicate already takes |
+| slice | offset + length on each buffer, `Arc`-shared |
+| concat | schema equality check, then buffer append |
+| column stats | a pass per column |
+
+So `liquers-web` gets a usable tabular value with **no new dependency**, and a polars-enabled native
+build converts to a real `DataFrame` when it wants one.
+
+### FieldValue — the scalar type
 
 ```rust
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum FieldValue {
-    Null,
-    Bool(bool),
-    Int(i64),
-    UInt(u64),
-    Float(f64),
-    Text(Arc<str>),
-    Bytes(Arc<[u8]>),
-    /// Epoch microseconds — Arrow's `Timestamp(Microsecond)`.
-    Timestamp(i64),
-    List(Arc<[FieldValue]>),
-    Object(Arc<RecordBatch>),
-    /// First-class because the alternative is a JSON array of 1536 numbers.
-    Vector(Arc<[f32]>),
+    Null, Bool(bool), Int(i64), UInt(u64), Float(f64),
+    Text(Arc<str>), Bytes(Arc<[u8]>), Timestamp(i64), Vector(Arc<[f32]>),
 }
 ```
 
-**Measured: 24 bytes**, against `serde_json::Value`'s 32. So the dedicated enum is *smaller* than
-JSON as well as more expressive — it can carry bytes without base64, a timestamp as a type rather
-than a convention, and a vector compactly, which the RAG milestone needs and which JSON does badly.
+**Measured 24 bytes**, against `serde_json::Value`'s 32 — smaller *and* able to carry bytes without
+base64, a timestamp as a type, and a vector compactly. **Not a type parameter**: that would infect
+`RecordBatch<V>`, the stream, the predicate and `Value::Records(Arc<RecordSet<V>>)` — circular, since
+`Value` is the obvious `V`. Arrow, GlueSQL, Tantivy and Qdrant all chose a dynamic type enum over
+generics for the same reason.
 
-**Not a type parameter.** `Record<V>` would infect `RecordBatch<V>`, `RecordBatchStream<V>`,
-`SearchPredicate<V>` and then `Value::Records(Arc<RecordSet<V>>)` — circular, since `Value` is the
-obvious `V`. Every system in the reference list reached the same conclusion: Arrow, GlueSQL, Tantivy
-and Qdrant all use a **dynamic** type enum rather than generics, because the cell type is data, not a
-compile-time parameter.
+`FieldValue::Object` is dropped: with columns, nesting is Arrow's `Struct`, which the subset above
+deliberately excludes for now.
 
 ### RecordSchema — modelled on the systems to be integrated
 
-Two orthogonal axes, because no single system has both and the union needs both: a **logical type**
-(what Arrow, polars and GlueSQL care about) and a **role** (what Tantivy, Lucene and Qdrant care
-about).
+Two orthogonal axes, because no single target has both: a **logical type** (Arrow, polars, GlueSQL)
+and a **role** (Tantivy, Lucene, Qdrant).
 
 ```rust
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecordSchema {
     pub fields: Vec<FieldSchema>,
-    /// Liquers' own type identity for the *thing the rows describe*, when there is one.
+    /// Liquers' own type identity for the thing the rows describe, when there is one.
     pub type_identifier: Option<String>,
 }
 
@@ -148,16 +191,16 @@ pub struct FieldSchema {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum FieldType { Bool, Int, UInt, Float, Text, Bytes, Timestamp, List, Object, Vector }
+pub enum FieldType { Bool, Int, UInt, Float, Text, Binary, Timestamp, Vector }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FieldRole {
-    /// The record's identity within its source. Exactly one per schema.
+    /// The row's identity within its source. Exactly one per schema.
     Id,
     /// Index into `RecordBatch::sources`. At most one per schema.
     Source,
-    /// Tokenized and matched by a text clause. **Any number** — this is the review's point:
-    /// a title, a body and a comment are all text, and none is privileged.
+    /// Tokenized and matched by a text clause. **Any number** — a title, a body and a comment
+    /// are all text, and none is privileged.
     Text,
     /// Exact match and facet; never tokenized.
     Keyword,
@@ -167,39 +210,27 @@ pub enum FieldRole {
     Numeric,
     /// Similarity clauses.
     Vector,
-    /// Carried and ignored by every consumer.
+    /// Carried and ignored.
     Ignored,
 }
 ```
 
+`FieldType` maps one-to-one onto the `Column` variants, and both map onto Arrow's `DataType`.
+
 **The guarantee moves from the type to the schema, and is checked once.** Phase 1's F1 required
-identity to be structural rather than conventional; with rows that guarantee cannot live in the row
-type, so `RecordSchema::new` **fails** unless exactly one field has role `Id`, and accessors
-(`schema.id_field()`, `schema.source_field()`, `schema.text_fields()`) keep consumers from indexing
-by string. That is how Tantivy does it: the schema is validated when built and hands out field
-handles.
+identity to be structural; with columns it cannot live in a row type, so `RecordSchema::new` **fails**
+unless exactly one field has role `Id`, and accessors (`id_field()`, `source_field()`,
+`text_fields()`) keep consumers from indexing by string. That is how Tantivy does it: the schema is
+validated when built and hands out field handles.
 
-**How each target maps:**
-
-| System | Mapping |
+| Target | Mapping |
 |---|---|
 | **Tantivy / Lucene** | `FieldRole` *is* the field options — `Text`→TEXT, `Keyword`→STRING, `Stored`→STORED, `Numeric`→fast field |
-| **Arrow / polars** | `FieldSchema` → `arrow::Field`; `FieldType` → `DataType`; `Row` transposes to columnar at the boundary |
-| **GlueSQL** | `FieldSchema` → column; `FieldType` → SQL type; a schemaless table is a schema of `Object` |
-| **Qdrant** | role `Vector` → a named vector; everything else → payload |
-| **tinysearch** | only the `Text` fields are fed to the per-document filter |
-| **Liquers type system** | `RecordSchema::type_identifier` carries the `TypeInfo` identity of the described value; `FieldType` is deliberately *not* that registry — one is about fields, the other about values |
-
-### Arrow-shaped, not Arrow-dependent
-
-Adopting `arrow-rs` in `liquers-core` is rejected: it is a large crate family, `CLAUDE.md` requires
-core to stay minimal, and the wasm baseline must stay cheap. But `Row` + `RecordSchema` **is** Arrow's
-model without the columnar buffers, so the conversion is mechanical and belongs where Arrow already
-lives: `liquers-lib`, behind the existing `polars` feature, which pulls Arrow transitively. Core pays
-nothing; a polars-enabled build gets `RecordBatch ↔ arrow::RecordBatch` for free.
-
-Rows are **row-major deliberately** — the consumer is a predicate walking one row at a time. The
-transpose to columnar happens once, at the Arrow boundary, at batch granularity.
+| **Arrow / polars / pandas** | `FieldSchema`→`Field`, `FieldType`→`DataType`, `Column`→the same buffers; export is a hand-off |
+| **GlueSQL** | `FieldSchema`→column, `FieldType`→SQL type |
+| **Qdrant** | role `Vector`→a named vector; everything else→payload |
+| **tinysearch** | only `Text`-role columns feed the per-document filter |
+| **Liquers type system** | `RecordSchema::type_identifier` carries the `TypeInfo` identity of the described value; `FieldType` is about *fields*, the registry about *values* |
 
 ### SourceInfo — identity, description and **retrieval**
 
@@ -242,7 +273,7 @@ pub struct RecordSet {
     /// Batches may differ in schema; each carries its own.
     pub batches: Vec<RecordBatch>,
     pub truncated: bool,
-    /// Present when this set is a search result; parallel to the rows, batch by batch.
+    /// Present when this set is a search result; parallel to the surviving rows, batch by batch.
     pub matches: Option<Vec<Vec<ClauseMatch>>>,
     pub diagnostics: Diagnostics,
 }
@@ -305,10 +336,15 @@ pub enum FieldTest {
 what survives. The `Key` clause of revision 1 becomes `Field { name: "key.path", test: Glob(..) }` —
 a key is a field like any other.
 
-**A `Text` clause has no privileged target.** It matches against **every field whose role is `Text`**
-in the batch's schema, which is the review's point: a title, a body and a comment are all text and
-none is special. `Field { name }` resolves against the schema **once per batch**, yielding an index;
-a name no schema declares lands in `unavailable_fields` and the clause does not match.
+**A `Text` clause has no privileged target.** It matches against **every column whose role is
+`Text`**, which is the review's point: a title, a body and a comment are all text and none is
+special. `Field { name }` resolves against the schema **once per batch**, yielding a column index; a
+name no schema declares lands in `unavailable_fields` and the clause does not match.
+
+**Evaluation is mask-based.** Each clause is evaluated against its column to produce a boolean
+`Bitmap` of length `len`; clauses combine by ANDing masks; the surviving rows are gathered once. This
+is the polars/DuckDB shape, it is faster than a row walk, and it makes `ClauseMatch` cheap to attribute
+because the mask says exactly which clause admitted which row.
 
 Neither enum is `#[non_exhaustive]`: a consumer that silently ignores a clause it does not understand
 is a correctness bug, so an exhaustive match making it a compile error is the signal `CLAUDE.md`
@@ -516,8 +552,8 @@ impl RecordSchema {
     pub fn index_of(&self, name: &str) -> Option<usize>;
 }
 
-/// A predicate bound to one schema: every field name already resolved to an index.
-/// Built once per batch, applied per row.
+/// A predicate bound to one schema: every field name already resolved to a column index.
+/// Built once per batch, evaluated column-wise.
 pub struct BoundPredicate<'a> { /* … */ }
 
 impl SearchPredicate {
@@ -529,8 +565,22 @@ impl SearchPredicate {
 }
 
 impl<'a> BoundPredicate<'a> {
-    /// Pure, positional. `None` for a clause whose field the schema does not declare.
-    pub fn matches(&self, row: &Row) -> Option<(bool, Vec<ClauseMatch>)>;
+    /// One mask per clause, over the whole batch. Pure; no I/O.
+    pub fn clause_masks(&self, batch: &RecordBatch) -> Result<Vec<Bitmap>, Error>;
+    /// AND the clause masks and gather the surviving rows, with per-row evidence.
+    pub fn apply(&self, batch: &RecordBatch) -> Result<(RecordBatch, Vec<Vec<ClauseMatch>>), Error>;
+}
+
+impl RecordBatch {
+    /// Zero-copy column projection.
+    pub fn select(&self, columns: &[usize]) -> Result<RecordBatch, Error>;
+    /// Gather by mask — the filter primitive.
+    pub fn filter(&self, mask: &Bitmap) -> Result<RecordBatch, Error>;
+    /// Offset + length on every buffer; `Arc`-shared, no copy.
+    pub fn slice(&self, offset: usize, len: usize) -> Result<RecordBatch, Error>;
+    pub fn concat(batches: &[RecordBatch]) -> Result<RecordBatch, Error>;
+    /// Single-cell read, for a consumer that wants one value rather than a column.
+    pub fn value(&self, row: usize, column: usize) -> Result<FieldValue, Error>;
 }
 
 impl SourceInfo {
@@ -577,7 +627,8 @@ Clause commands are **sync and borrow** — pure transformations of a value in h
 | Crate | File | Change |
 |---|---|---|
 | `liquers-core` | `src/records.rs` (new) | `FieldValue`, `RecordSchema`, `Row`, `RecordBatch`, `SourceInfo`, `RecordSet`, predicate and binding, `RecordBatchStream`, `ChunkedRecordSource` |
-| `liquers-lib` | `src/records/arrow.rs` (new, `polars` feature) | `RecordBatch ↔ arrow::RecordBatch`, so core pays nothing for Arrow |
+| `liquers-lib` | `src/records/arrow.rs` (new, `polars` feature) | `RecordBatch → polars::DataFrame` over the shared buffers; Arrow IPC bytes, deferred |
+| `liquers-py` | Arrow C Data Interface export (later milestone) | The only place `unsafe` FFI belongs; core stays safe |
 | `liquers-core` | `src/maybe_send.rs` | `BoxStream` + `MaybeBoxedStream`, mirroring `BoxFuture`/`MaybeBoxed` |
 | `liquers-core` | `src/lib.rs` | `pub mod records;` |
 | `liquers-core` | `src/value.rs` | `Value::Records(Arc<RecordSet>)`, every match arm, the `TypeInfo` entry |
@@ -648,21 +699,26 @@ with concurrency deferred until there is something to measure.
   build workspace-wide.
 - `Value::Records(Arc<_>)` keeps `size_of::<Value>()` unchanged; the `TypeInfo` entry is present.
 - Every `match` on `Value` gains an explicit arm; no default arm anywhere.
-- `liquers-core` gains no dependency on `liquers-lib`.
+- `liquers-core` gains no dependency on `liquers-lib`, **and no `unsafe`** — the crate has one
+  occurrence today and the columnar layout adds none. The C Data Interface's `unsafe` lives in
+  `liquers-py`.
+- Buffers are `Arc<[T]>`, so `select`, `slice` and a column hand-off copy nothing.
 - No feature gate; the build matrix runs anyway because `Value` changed.
 
 ## Open Questions for Phase 3
 
-1. Does `FieldValue::Object(Arc<RecordBatch>)` earn its place, or is nesting better expressed as a
-   separate batch with a foreign-key field? Nesting is what JSON and Qdrant payloads do; a separate
-   batch is what SQL and Arrow prefer.
-2. Are `matches` parallel to the rows acceptable, or should a search result be a distinct type that
+1. Does the Arrow buffer layout need 64-byte alignment and padding from day one, or only when the C
+   Data Interface export is built? Getting it wrong later means re-allocating every buffer; getting
+   it right now costs an aligned allocator in core.
+2. Is `Bitmap` a hand-rolled bit vector in core, or is a tiny dependency justified? Hand-rolled is
+   ~100 lines and keeps core dependency-free, which the wasm baseline rewards.
+3. Are `matches` parallel to the rows acceptable, or should a search result be a distinct type that
    *contains* a `RecordSet`? Parallel vectors let a search result compose as a record set; a wrapper
    is safer and costs one unwrap at every consumer.
-3. Does `ChunkedRecordSource` earn its place in M0–M3, given nothing implements a non-trivial
+4. Does `ChunkedRecordSource` earn its place in M0–M3, given nothing implements a non-trivial
    partition until M5? (`RecordBatchStream` is now a type alias and costs nothing, so the question
    narrows to the trait.)
-4. Does `FieldType` need `Date`/`Decimal` for GlueSQL and Arrow fidelity, or is `Timestamp` plus
+5. Does `FieldType` need `Date`/`Decimal` for GlueSQL and Arrow fidelity, or is `Timestamp` plus
    `Float` enough until the SQL task actually starts?
-5. Should `limit` default to `Some(50)` at the command layer while the type allows `None`, or should
+6. Should `limit` default to `Some(50)` at the command layer while the type allows `None`, or should
    the type forbid `None` as revision 1 had it?
