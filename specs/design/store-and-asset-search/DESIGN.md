@@ -3,8 +3,8 @@ id: STORE-AND-ASSET-SEARCH
 kind: design
 title: Search over stores and assets
 workflow: liquers-project
-status: in_review
-phase: high-level
+status: draft
+phase: architecture
 area: [core/store, core/assets, core/commands, lib/commands, docs]
 gh_pr: []
 issues: [STORE-NO-CONTENT-OR-METADATA-SEARCH]
@@ -18,7 +18,7 @@ superseded_by:
 
 ## Phase Status
 
-- [ ] Phase 1: High-Level Design
+- [x] Phase 1: High-Level Design — approved 2026-09-18
 - [ ] Phase 2: Solution & Architecture
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
