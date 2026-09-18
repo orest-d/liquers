@@ -242,7 +242,17 @@ in view, because two reverse Phase 1 decisions:
    in `liquers-lib`. No claim of full Arrow support: no nested `Struct`, no `Union`, no dictionary
    encoding, no 64-bit offsets. And it answers a requirement rather than a nicety — `liquers-web` is
    wasm32 and cannot bundle polars, so the columnar batch **is** that build's DataFrame.
-6. **`Hit` was faulty and is gone.** It embedded an `AssetInfo`, which assumes one record per asset —
+6. **Revision 5: the predicate is a value produced by an expression, not a filter pipeline.**
+   Revision 2's clause chain mixed building a record stream with progressively reducing it, and a
+   pipeline is not an expression. It cannot express `OR` or grouping; it never produces the predicate
+   *as a value*, so an external engine gets a sequence of steps to reverse-engineer rather than a
+   predicate to receive — undermining the very execution path the design claims; and it is eager,
+   which forecloses filter-then-verify and push-down. Liquers already has the missing mechanism:
+   **link parameters** (`~X~<query>~E`) evaluate a nested query and supply its result as an argument.
+   So a predicate is built by its own query, applied through a link, and becomes a boolean
+   expression tree whose masks evaluate bottom-up. Three ways to write one — the search-box syntax,
+   a conjoining chain, and links for grouping and reuse — all yielding the same value.
+7. **`Hit` was faulty and is gone.** It embedded an `AssetInfo`, which assumes one record per asset —
    a CSV row has no `AssetInfo`, the file does. Asset description moves to a per-source table, and a
    hit is *retrievable*: `SourceInfo::chunk` re-produces the batch, `locator` addresses one record
    directly. Fields are `serde_json::Value`, not `liquers_core::value::Value`, which at 704 bytes was
