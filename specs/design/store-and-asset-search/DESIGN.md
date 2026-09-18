@@ -242,16 +242,17 @@ in view, because two reverse Phase 1 decisions:
    in `liquers-lib`. No claim of full Arrow support: no nested `Struct`, no `Union`, no dictionary
    encoding, no 64-bit offsets. And it answers a requirement rather than a nicety — `liquers-web` is
    wasm32 and cannot bundle polars, so the columnar batch **is** that build's DataFrame.
-6. **Revision 5: the predicate is a value produced by an expression, not a filter pipeline.**
+6. **Revisions 5 and 6: the predicate is an expression in syntax, parsed by the command.**
    Revision 2's clause chain mixed building a record stream with progressively reducing it, and a
-   pipeline is not an expression. It cannot express `OR` or grouping; it never produces the predicate
-   *as a value*, so an external engine gets a sequence of steps to reverse-engineer rather than a
-   predicate to receive — undermining the very execution path the design claims; and it is eager,
-   which forecloses filter-then-verify and push-down. Liquers already has the missing mechanism:
-   **link parameters** (`~X~<query>~E`) evaluate a nested query and supply its result as an argument.
-   So a predicate is built by its own query, applied through a link, and becomes a boolean
-   expression tree whose masks evaluate bottom-up. Three ways to write one — the search-box syntax,
-   a conjoining chain, and links for grouping and reuse — all yielding the same value.
+   pipeline is not an expression: it cannot express `OR` or grouping, never produces the predicate as
+   a whole — so an external engine gets a sequence of steps to reverse-engineer — and is eager, which
+   forecloses filter-then-verify and push-down. Revision 5 reached for **link parameters**
+   (`~X~<query>~E`), which work but require a `Value::Predicate` variant. Revision 6 declines that:
+   a **syntax string in one parameter** answers all three objections better — grouping lives in the
+   grammar, the predicate travels as text an engine parses with the same parser, and it is parsed
+   before the stream is touched — at no cost to the core value enum. The conditions under which the
+   variant would earn its place are written down rather than guessed. The one honest cost is that
+   every operator needs escaping, so a search URL is built by a UI or `ActionRequest`, never typed.
 7. **`Hit` was faulty and is gone.** It embedded an `AssetInfo`, which assumes one record per asset —
    a CSV row has no `AssetInfo`, the file does. Asset description moves to a per-source table, and a
    hit is *retrievable*: `SourceInfo::chunk` re-produces the batch, `locator` addresses one record

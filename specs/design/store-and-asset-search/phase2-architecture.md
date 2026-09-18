@@ -1,10 +1,10 @@
 # Phase 2: Solution & Architecture — Store and asset search
 
-> **Revision 5.** Revision 1 put the source inside the predicate, added `select` to two core traits
+> **Revision 6.** Revision 1 put the source inside the predicate, added `select` to two core traits
 > and gave every hit an `AssetInfo`; revision 2 corrected those; revision 3 replaced the `Record`
-> struct with rows plus a schema; revision 4 makes the batch **columnar in Arrow's layout**; and revision 5
-> makes the predicate **a value produced by an expression**, applied through a link parameter,
-> rather than a pipeline of filtering commands. §0 records every change.
+> struct with rows plus a schema; revision 4 makes the batch **columnar in Arrow's layout**; revision 5 replaced the filter pipeline
+> with a predicate **expression**; and revision 6 expresses that expression as **syntax parsed by the
+> command**, so no `Value` variant is added for it. §0 records every change.
 
 ## Overview
 
@@ -29,7 +29,8 @@ Scope is milestones **M0–M3** of [`roadmap.md`](./roadmap.md) plus the `get_as
 | **A record stream is added** | This is what `select` was standing in for. Batches and chunks are the missing abstraction — and it is `futures::Stream`, already a `liquers-core` dependency, rather than a bespoke trait. |
 | **Rev. 3: the `Record` struct is removed** | Singling out `text` matches no system we integrate with: Tantivy and Lucene build a schema from fields with *options* and privilege no text field. `source` and `record_id` are likewise fields with roles. Rows become positional and the schema owns names, types and roles. |
 | **Rev. 3: field names live in the schema, once per batch** | A map per row re-creates every field name for every record. The schema stores them once, and a field name resolves to an index once per batch instead of per row. |
-| **Rev. 5: the predicate is a value, not a filter pipeline** | Revision 2's clause chain mixed building a stream with progressively reducing it. A pipeline cannot express `OR` or grouping, never produces the predicate *as a value* — so an external engine has a sequence of steps to reverse-engineer rather than a predicate to receive — and is eager, which forecloses filter-then-verify and push-down. Link parameters (`~X~…~E`) already supply the missing mechanism, and the predicate becomes a boolean expression tree. |
+| **Rev. 5: the predicate is an expression, not a filter pipeline** | Revision 2's clause chain mixed building a stream with progressively reducing it. A pipeline cannot express `OR` or grouping, never produces the predicate as a whole — so an external engine has a sequence of steps to reverse-engineer — and is eager, which forecloses filter-then-verify and push-down. |
+| **Rev. 6: the expression is syntax, parsed by the command — no `Value::Predicate`** | Revision 5 reached for link parameters, which would require adding a predicate variant to the core value enum for a capability nothing yet needs. A syntax string in one parameter answers all three objections *better*: grouping lives in the grammar, the predicate travels as text an engine can parse with the same parser, and it is parsed before the stream is touched. The conditions under which the variant would earn its place are recorded rather than guessed. |
 | **Rev. 4: the batch is columnar, in Arrow's layout** | Reverses revision 3's row-major storage. "The consumer is a predicate walking one row at a time" does not survive scrutiny — a predicate over a column yields a boolean mask and clauses AND their masks, which is how polars and DuckDB filter. Decisively, the cheap routes to Arrow (the C Data Interface, and typed arrays over wasm memory) are **only** possible if the data is already laid out Arrow's way. It also makes the batch a usable minimal DataFrame where polars cannot be bundled. |
 | **Rev. 3: `FieldValue` replaces `serde_json::Value`** | Measured 24 bytes against JSON's 32 — smaller *and* more expressive. JSON cannot carry bytes without base64, a timestamp as a type, or a 1536-dimension vector compactly, and the last is the RAG milestone's central case. Not a type parameter: that would infect the stream, the predicate and `Value` itself, and every referenced system uses a dynamic type enum instead. |
 
@@ -513,13 +514,13 @@ be redesigned when something does.
 pub enum Value {
     // … existing …
     Records(Arc<RecordSet>),
-    Predicate(Arc<SearchPredicate>),
 }
 ```
 
-**Two variants, not one.** A predicate is a value because that is the whole point of revision 5: it
-is produced by its own query, passed as a link argument, handed to an external engine, and
-storable as a recipe. Both are `Arc`-wrapped, so `Value` still does not grow.
+**One variant.** `Value::Predicate` was proposed in revision 5 and is **not** taken: the predicate
+travels as syntax text in a parameter, which carries the same information without a permanent
+addition to the core value enum. §"When the `Value` variant would earn its place" records the
+conditions under which to revisit it.
 
 One variant, `Arc`-wrapped, so `Value` does not grow past 704 bytes. `RecordSet` is the only
 record-shaped thing that crosses a query boundary; `RecordBatch`, `Row` and the stream stay internal.
@@ -550,26 +551,31 @@ pipeline is not an expression that evaluates to a predicate. Three consequences,
 3. **It is eager.** Each step reduces a set, so nothing can know the whole predicate before touching
    data — which is exactly what filter-then-verify and push-down both require.
 
-### The mechanism already exists: link parameters
+### A syntax and a parser, not a Value variant
 
-A parameter of the form `~X~<query>~E` is a **link**: the nested query is evaluated and its result
-supplied as the argument (`DOC_02_QUERY_LANGUAGE_REFERENCE.md` §"Link parameters";
-`ActionParameter::Link`). Links nest, may appear at any parameter position, and are resolved in
-`plan.rs` as `ParameterValue::ParameterLink`. So a predicate can be **a value produced by its own
-query**, and applied to a stream as an argument:
+The obvious fix — make the predicate a value and pass it through a **link parameter**
+(`~X~<query>~E`, which does exist and would work) — requires `Value::Predicate`. That is a permanent
+addition to the core value enum in exchange for a capability nothing yet needs, so it is **not
+taken**. Instead the predicate is an ordinary Rust type, and a **suggested syntax with a parser**
+produces it inside the command.
 
 ```
--R-key/specs/issues/-/ns-search/records/select-~X~ns-search/text-expiration~E
+-R-key/specs/issues/-/ns-search/records/select-<expression>
 ```
 
-Checked with `liquers-validate`, along with the nested form below. `select` takes the record stream
-from its state and the predicate from a link — the shapes are now distinct, and the predicate is a
-first-class value that an engine can be handed directly.
+**All three objections to the pipeline are answered better this way than by links:**
 
-### The predicate becomes a boolean expression tree
+| Objection | Answer |
+|---|---|
+| Cannot express `OR` or grouping | The *syntax* has `\|` and parentheses. Validated below |
+| The predicate is never a value | It **is** one — as **text in a single parameter**. That is a perfectly good serialized form: storable in a recipe, inspectable in the plan, and handed to an external engine as one string it parses with the same parser. Strictly better than reverse-engineering a chain of steps, and it costs no `Value` variant |
+| Eager evaluation | The whole expression is parsed **before** the stream is touched, so filter-then-verify and push-down both remain open |
 
-A flat `Vec<Clause>` cannot represent grouping, so it becomes a tree — which is also what makes the
-mask evaluation textbook rather than special-cased:
+### The predicate type and its expression tree
+
+`SearchPredicate` stays a `liquers-core` type — `Serialize`/`Deserialize`, so an HTTP or MCP caller
+that would rather send a structured predicate than a string can — but it is **not** a `Value`
+variant.
 
 ```rust
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -580,7 +586,7 @@ pub struct SearchPredicate {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum Predicate {
-    /// Matches everything. The identity of `All`, and the starting point of a conjoining chain.
+    /// Matches everything — the identity of `All`, and what an empty expression parses to.
     #[default]
     Always,
     Never,
@@ -593,56 +599,66 @@ pub enum Predicate {
 ```
 
 Evaluation is bottom-up over columns: each leaf yields a `Bitmap` over the batch, `All` ANDs its
-children, `Any` ORs them, `Not` complements. That is how a vectorized engine evaluates a filter tree,
-and it needs no separate machinery from the flat version it replaces.
+children, `Any` ORs them, `Not` complements. That is how a vectorized engine evaluates a filter tree.
+`ClauseMatch::clause_index` is the node's index in a pre-order walk of `expr`, so evidence still names
+exactly which part of the expression admitted a row.
 
-`ClauseMatch::clause_index` becomes the node's index in a pre-order walk of `expr` — stable for a
-given predicate, so evidence still names exactly which part of the expression admitted a row.
+### The syntax
 
-### Three ways to write one, all producing the same value
+Now the *only* way to write a predicate, so it carries grouping rather than deferring it:
 
-| Form | For | Example |
-|---|---|---|
-| **Search syntax** — one string parameter, parsed | the user's search box | `ns-search/expr-…` (below) |
-| **Conjoining chain** — each command ANDs a clause onto the state | the common all-AND case, and it reads well | `ns-search/text-expiration/and_not_text-expired` |
-| **Links** — a nested predicate query as an argument | grouping, `OR`, and reuse | `ns-search/text-expiration/any-~X~ns-search/text-safety~E` |
-
-All three were validated. The chain starts from `Predicate::Always` and conjoins, so
-`text-expiration/and_not_text-expired` is `All([Text("expiration"), Not(Text("expired"))])`; `any`
-takes a predicate link and disjoins it, which is the grouping escape hatch.
-
-### The search-box syntax
-
-The ergonomic requirement is that a user types into one field and gets a predicate. The syntax is
-the intersection of what Google, GitHub and Lucene users already expect, and it compiles to the tree
-above:
-
-```
-expiration                    a term
-"expiration safety"           a phrase
--expired                      negation
-meta.status:draft             a field test
-expiry | expiration           disjunction
+```ebnf
+expr    = or ;
+or      = and , { "|" , and } ;          (* lowest precedence *)
+and     = unary , { unary } ;            (* implicit AND by juxtaposition *)
+unary   = [ "-" ] , atom ;               (* leading "-" negates *)
+atom    = "(" , expr , ")"
+        | field , ":" , value
+        | '"' , phrase , '"'
+        | term ;
 ```
 
-Implicit AND between terms; `|` for `Any`; no parentheses in the first version, because a box that
-needs parentheses is a box that wanted the link form. Unrecognised input is a **literal term**, not
-an error — except an ambiguous unqualified field name, which is reported with every candidate.
-
-Because the whole expression is one action parameter, `ActionRequest::encode` escapes it as a unit
-and no operator can collide with `-`, `~` or `/`. Validated end to end:
+The vocabulary is the intersection of what Google, GitHub and Lucene users already expect:
 
 ```
-ns-search/expr-~nquot~expiration~.safety~nquot~~.~_expired~.meta.status~ncolon~draft
+expiration                          a term
+"expiration safety"                 a phrase
+-expired                            negation
+meta.status:draft                   a field test
+expiry | expiration                 disjunction
+(expiry | expiration) -expired      grouping
 ```
 
-decodes to exactly `"expiration safety" -expired meta.status:draft`. That is also the argument for
-never writing one by hand — note `~_` for the ASCII hyphen, **not** `~nminus~`, which is U+2212, the
-trap the escaping guide warns about. A UI, an MCP tool or `ActionRequest` builds it.
+Unrecognised input is a **literal term**, not an error — except an ambiguous unqualified field name,
+which is reported with every candidate. An empty expression is `Predicate::Always`.
 
-Two naming facts the validator caught: **`q` is a reserved instruction** that accepts no arguments,
-so the parse command is `expr`; and a link may contain a full transform chain, so
-`select-~X~ns-search/text-expiration/any-~X~ns-search/text-safety~E~E` parses and plans.
+### Ergonomics, honestly
+
+Every operator character must be escaped inside a query parameter. Checked: `(`, `)`, `|`, `:` and
+`>` all **fail to parse raw**; only alphanumerics, `.`, `_` and escapes survive. So
+
+```
+ns-search/select-~nlpar~expiry~.~nverbar~~.expiration~nrpar~~.~_expired~.meta.status~ncolon~draft
+```
+
+decodes to exactly `(expiry | expiration) -expired meta.status:draft` — verified. A hand-written
+search URL is therefore essentially unwritable, and that is fine: the user types into a box, and a
+UI, an MCP tool or `ActionRequest::encode` builds the query. Note `~_` for the ASCII hyphen, **not**
+`~nminus~` (U+2212) — the trap the escaping guide warns about, and one this design fell into once
+already.
+
+### When the `Value` variant would earn its place
+
+Recorded so the decision can be revisited on evidence rather than taste. Add `Value::Predicate` when
+one of these actually arrives:
+
+- a predicate must be **built by one query and consumed by another** — a saved-search asset composed
+  into a larger search;
+- a predicate must be **produced by a command** rather than written, for instance derived from a
+  user's profile or from another record set;
+- **partial predicates need reuse** across several searches without repeating their text.
+
+Until then a string in a parameter carries the same information at no cost to the value system.
 
 ## Execution: two paths from one query
 
@@ -754,23 +770,12 @@ pub async fn records(state: State<Value>, context: Context<CommandEnvironment>)
 pub async fn command_records(state: State<Value>, context: Context<CommandEnvironment>)
     -> Result<Value, Error>;
 
-/// Predicate constructors — each conjoins onto the predicate carried by the state,
-/// which starts at `Predicate::Always`. They build a value; they touch no records.
-pub fn text(state: &State<Value>, needle: String) -> Result<Value, Error>;
-pub fn and_not_text(state: &State<Value>, needle: String) -> Result<Value, Error>;
-pub fn field(state: &State<Value>, name: String, value: String) -> Result<Value, Error>;
-/// `other` arrives as a link parameter: `any-~X~ns-search/text-safety~E`.
-pub fn any(state: &State<Value>, other: SearchPredicate) -> Result<Value, Error>;
-pub fn not(state: &State<Value>) -> Result<Value, Error>;
-
-/// Compile the search-box syntax into a predicate. Unrecognised input is a literal term,
-/// not an error; an ambiguous unqualified field name IS an error, naming every candidate.
-pub fn expr(state: &State<Value>, syntax: String) -> Result<Value, Error>;
+/// Parse the search syntax into a predicate. Unrecognised input is a literal term, not an
+/// error; an ambiguous unqualified field name IS an error, naming every candidate.
 pub fn parse_search_syntax(input: &str) -> Result<Predicate, Error>;
 
-/// Apply a predicate to the record stream in the state. `predicate` is a link parameter.
-pub fn select(state: &State<Value>, predicate: SearchPredicate, limit: i64)
-    -> Result<Value, Error>;
+/// Parse `expr` and apply it to the record stream in the state. The only search command.
+pub fn select(state: &State<Value>, expr: String, limit: i64) -> Result<Value, Error>;
 ```
 
 Clause commands are **sync and borrow** — pure transformations of a value in hand. `records` and
@@ -822,12 +827,7 @@ of how much smaller the core change became.
 |---|---|---|
 | `records` | `async fn records(state, context) -> result` | Assets under the state's key become records |
 | `command_records` | `async fn command_records(state, context) -> result` | The registry becomes records |
-| `text` / `and_not_text` | `fn …(state, needle: String) -> result` | Conjoin a text clause onto the predicate in the state |
-| `field` | `fn field(state, name: String, value: String) -> result` | Conjoin a field clause |
-| `any` | `fn any(state, other: Predicate) -> result` | Disjoin a predicate supplied by a **link** — grouping and `OR` |
-| `not` | `fn not(state) -> result` | Negate the predicate in the state |
-| `expr` | `fn expr(state, syntax: String) -> result` | Parse the search-box syntax into a predicate. **Not `q`** — that is a reserved query instruction that accepts no arguments, which `liquers-validate` caught |
-| `select` | `fn select(state, predicate: Predicate, limit: i64 = 50) -> result` | Apply a predicate (a **link**) to the record stream in the state |
+| `select` | `fn select(state, expr: String = "", limit: i64 = 50) -> result` | Parse the expression and apply it to the record stream in the state. **The only search command** |
 
 ## Error Handling
 
