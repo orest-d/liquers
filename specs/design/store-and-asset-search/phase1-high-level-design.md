@@ -78,9 +78,11 @@ deserves, its own mechanism; folding them in grows the predicate without improvi
 **Hard invariants:** a search never starts an asset — it obtains and describes assets without
 triggering their recipes, and reports `Status::Recipe` as an honest answer rather than resolving it.
 **Indexation may evaluate; search may not** — a search is a user's question with a latency budget,
-while indexation is a scheduled job whose scope and cost its owner accepted. Further: it is bounded and reports truncation; its result is an addressable value; results are
-unordered unless a scoring clause was used; the baseline runs everywhere, wasm included; and **an external system's correctness comes from reconciliation, never
-from a delivered notification** — push is a latency optimization with no correctness role.
+while indexation is a scheduled job whose scope and cost its owner accepted. A search is bounded and
+reports truncation; its result is an addressable value; results are unordered unless a scoring clause
+was used; and the baseline runs everywhere, wasm included. Finally, **an external system's
+correctness comes from reconciliation, never from a delivered notification** — push is a latency
+optimization with no correctness role.
 
 ## Core Interactions
 
@@ -88,8 +90,11 @@ from a delivered notification** — push is a latency optimization with no corre
 predicate or a short search syntax; `ActionRequest::encode` escapes arbitrary terms.
 
 **Store system** — a selection method on `AsyncStore` with a default scan over `listdir_keys_deep`,
-so no existing store breaks and a capable backend can override. Needs a `StoreCapabilities` flag and
-conformance rules. Router fan-out across mounts below a root is specified now, implemented later.
+so no existing store breaks and a capable backend can override. Needs conformance rules. (This
+sketched a `StoreCapabilities` flag too; **Phase 2 drops it** — the default makes selection
+universal, so the flag could never be false, and `EnumerateKeys` already covers the store that
+cannot select. See `phase2-architecture.md`.) Router fan-out across mounts below a root is specified
+now, implemented later.
 
 **Interoperability** — a partition of `(chunk id, version, refresh query)` plus a per-chunk fetch, a
 reconciliation diff, and a staleness declaration. It needs almost no new vocabulary: `Version` is
@@ -256,7 +261,10 @@ search. Both should work from the reference and the guide without opening this f
    deduplicated?
 21. How is "why is this document not in my results?" answered for one key? Silent absence is very
    hard to debug.
-22. How does a bare field name resolve when two layers define it? `status` is the **asset**
+22. ~~How does a bare field name resolve when two layers define it?~~ **Resolved in Phase 2:** field
+   names are qualified at projection time (`meta.`, `attr.`, `key.`); the matcher compares qualified
+   names exactly; an ambiguous unqualified name is a parse-time error naming both candidates. The
+   original question, for the record: `status` is the **asset**
    lifecycle in `MetadataRecord` and the **document's** lifecycle in `specs/` front-matter, and both
    would answer `status:draft` silently. Namespaced fields, or a documented precedence — cheap now,
    confusing forever if left.

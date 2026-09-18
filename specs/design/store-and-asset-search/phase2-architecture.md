@@ -233,7 +233,22 @@ bytes. Type identifier `SearchResult` — bare CamelCase, because `liquers-core`
 
 Every existing `match` on `Value` — `identifier`, `type_name`, `default_extension`,
 `default_filename`, `as_bytes`, the deserializer — gains an explicit arm. No default arm is
-introduced.
+introduced. Measured cost: an existing variant of comparable standing (`Value::Recipe`) is named at
+**17 sites** across `liquers-core`, `liquers-lib` and `liquers-axum`, 8 of them inside `value.rs`.
+
+**A `TypeInfo` entry is required, and is the step that is easy to miss.** `Value::type_descriptions()`
+(`liquers-core/src/value.rs:407`) returns the registry seed for every variant, and `CLAUDE.md` states
+the rule plainly — *four steps, not three; a type with no `TypeInfo` cannot be stored*, because the
+write path refuses an identifier the registry does not contain. So:
+
+```rust
+TypeInfo::new("SearchResult")
+    .with_type_name("SearchResult")
+    .with_defaults("json", "json", "application/json")
+```
+
+The existing test `type_descriptions_match_identifier` catches a mismatch between the declared
+identifier and the one `identifier()` reports, so this is checked rather than trusted.
 
 ## Trait Implementations
 
@@ -342,6 +357,31 @@ what lets them cross the `dyn AsyncStore` boundary and serialize.
 ## Function Signatures
 
 ### `liquers-core/src/search.rs`
+
+### Field resolution: names are qualified, and ambiguity is a parse-time error
+
+`status` means two unrelated things — the **asset** lifecycle on `MetadataRecord`
+(`Ready`, `Expired`, `Source`) and a **document's** lifecycle in front-matter (`draft`, `closed`).
+Phase 1 question 21 and `roadmap.md` §3 both asked Phase 2 to settle it. The resolution:
+
+**A record's field names are qualified at projection time**, by the source that supplied them:
+
+| Prefix | Source |
+|---|---|
+| `meta.` | `AssetInfo` / `MetadataRecord` — `meta.status`, `meta.type_identifier`, `meta.media_type`, `meta.file_size`, `meta.updated`, `meta.title`, `meta.description` |
+| `attr.` | application attributes, when `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` lands — `attr.status`, `attr.kind`, `attr.area` |
+| `key.` | derived from the key — `key.name`, `key.extension`, `key.dir` |
+
+`Clause::Field { name }` matches a **qualified name exactly**. The matcher is deliberately exact and
+dumb, so a predicate arriving from HTTP or MCP is unambiguous by construction and cannot change
+meaning as the system grows.
+
+**Unqualified names are a front-end convenience, expanded by the syntax parser**, not by the matcher.
+`parse_search_syntax` expands `status:draft` to the one qualified name available; when more than one
+source could supply it, the parse **fails with an error naming both candidates** rather than picking
+one. That is the property that matters: a query written today against `meta.status` keeps its meaning
+when `attr.status` appears, and a bare `status:` that was unambiguous becomes a reported error rather
+than a silently different question.
 
 ```rust
 impl SearchPredicate {
@@ -488,6 +528,7 @@ new error type, no `unwrap`/`expect` in any of it.
 | Unreadable entry mid-scan | Skipped, counted in `scanned`; a search is not failed by one bad key |
 | Unresolvable field | Not an error — the clause does not match, and the name lands in `unavailable_fields` |
 | Malformed search syntax | Not an error — treated as a literal term (Phase 1 open question 12, resolved towards tolerance) |
+| Ambiguous unqualified field name | `Error::general_error` from the parser, naming every candidate. The one place the syntax is deliberately intolerant, because the alternative is silently answering a different question |
 
 ## Serialization Strategy
 
@@ -506,6 +547,21 @@ over metadata reads is an obvious later optimization, and adding it now would fi
 level before any measurement. No shared mutable state is introduced, no lock is held across an
 `.await`, and `SearchPredicate`/`SearchResult` are plain data — `Send + Sync` by construction.
 
+## Codebase Alignment — verified at HEAD
+
+Checked against the source rather than assumed, in the Phase 2 review:
+
+| Assumption | Verdict |
+|---|---|
+| `AsyncStore` is object-safe and used as `Arc<dyn AsyncStore>`; a defaulted `select` with concrete types preserves that | confirmed |
+| `RuleMeta { id, title, contract, requires, refutes, min_level }` is the conformance rule shape | confirmed |
+| `key_format` / `query_format` serde helpers exist and are usable as assumed | confirmed, `metadata.rs:970`, `:990` |
+| `register_command!` accepts `namespace`, `label`, `doc`, `filename`, `version: auto` | confirmed, `registration.rs:861-918` |
+| An async command function takes an owned `State` and may take `context` last | confirmed |
+| `get_asset_info` routes a live key through `get`, which submits — the defect this design repairs | confirmed at `assets.rs:3967-3970` and `:5334-5336` |
+| `listdir_asset_info` calls `get_asset_info` per entry and inherits the repair | confirmed, `assets.rs:4043` |
+| A new `Value` variant needs a `TypeInfo` in `type_descriptions()` | confirmed — **this was missing from the first draft** and is now specified above |
+
 ## Compilation Validation
 
 - `AsyncStore` stays object-safe: concrete argument and return types, no generics, `&self`.
@@ -522,5 +578,5 @@ level before any measurement. No shared mutable state is introduced, no lock is 
    can wait.
 3. Whether `SearchSource::Commands` survives, or is replaced by a read-only virtual store over the
    registry before M3 ships.
-4. Field-name collision (`status` on metadata versus a document's front-matter) — Phase 1 question
-   21 is unresolved and must be settled before the first field is resolved by name.
+4. Whether `key.` fields are worth projecting in M1, or whether a `Key` glob clause covers every
+   case they would serve.
