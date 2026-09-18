@@ -50,6 +50,8 @@ many use cases as possible. The folder therefore carries three documents beside 
 - `record-model.md` — what a record, a record stream, a chunk, a batch and a schema are. Added in
   the fourth round, when partial refresh turned out to need a unit smaller than the stream, and
   extended in the fifth when memory turned out to need a second, smaller one.
+- `indexation-policy.md` — which documents are indexed, whether content is read or produced, and why
+  volatile assets need a second refresh regime. Added in the seventh round.
 - `roadmap.md` — which decisions are foundational and which are additive, the milestones, and what
   the agent memory MVP actually needs. Added in the sixth round against a fair objection: making
   Level 1 "specialized commands" appears to put the whole specification's burden on Level 0.
@@ -145,13 +147,25 @@ component that sees every write, so it is the only one that can hold an index).
    **optimization**, not a precondition — which is what this repository already does by hand with
    `specs/index.csv`. The residual hazard is a projection command reaching through its `Context`:
    `COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT`.
-15. **Only seven decisions are foundational.** The test is whether a thing can be added later
+15. **Indexation may evaluate; search may not.** They are different acts with different budgets — a
+   user's question with a latency budget, against a scheduled job whose scope and cost its owner
+   accepted. That resolves the apparent conflict between "a search never evaluates" and "some
+   documents must be produced at indexation time". **Metadata is always indexable**, so
+   discoverability never requires evaluation; only *content* needs a policy, of which *when-ready* is
+   the safe default and the one the MVP arrives at for free.
+16. **Volatile assets need a second refresh regime.** They are never persistently ready, so
+   *when-ready* never indexes their content at all, and they **never register a version** — version
+   registration is gated on `Ready | Source | Override` (`assets.rs:5583`, `:5715`). So the
+   `(id, version)` reconciliation diff has nothing to compare, and such entries must be refreshed on
+   a schedule and reported as time-based rather than version-vouched. Volatility is knowable before
+   evaluation (`plan.is_volatile`), so the policy is applicable without running anything.
+17. **Only seven decisions are foundational.** The test is whether a thing can be added later
    without changing what Level 0 shipped. Seven cannot — the record's shape with the id field present
    but unused, identity as a pair, fields as a named `Value::Object`, a bounded opaque result rather
    than a `Vec`, the ordering promise, the text/field distinction, and non-exhaustive enums. Schema,
    chunks, batches, locator rules, streaming, projection identity and reconciliation are all
    additive. Milestones M0–M3 are the deliverable and are exactly what the agent memory MVP needs.
-16. **Borrow tinysearch's data structure, not tinysearch.** It builds its index at build time and
+18. **Borrow tinysearch's data structure, not tinysearch.** It builds its index at build time and
    emits a compiled wasm module, which does not fit a corpus mutated at runtime. But a per-document
    word filter is a derived asset of *one* document, so it has no dependency fan-out — which is the
    problem that makes a monolithic derived index unattractive. In-tree indexes ride the asset layer
@@ -187,6 +201,7 @@ deserves, its own mechanism.
 - [Research questions](./research-questions.md)
 - [Options analysis](./options-analysis.md)
 - [Record model](./record-model.md)
+- [Indexation policy](./indexation-policy.md)
 - [Interoperability layer](./interoperability-layer.md)
 - [Roadmap](./roadmap.md)
 - [Phase 2](./phase2-architecture.md)

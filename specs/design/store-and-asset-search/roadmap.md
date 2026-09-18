@@ -64,7 +64,7 @@ not so they are committed to here.
 | **M1** | Metadata search | Scan over metadata only, field predicates, capability flag, conformance rules | A store subtree can be selected by field with no content reads | yes |
 | **M2** | Text search and the search box | Content matching, the small syntax, snippets, bounded results with truncation | A user types words in one box and gets a judgeable list | yes |
 | **M3** | Asset union and command discovery | Live assets, recipe-declared keys, the command registry as a record source | "Search the system" is one question, not three | yes |
-| **M4** | Per-document filter index | The tinysearch data structure as a derived asset; filter-then-verify | Content search stops being O(corpus) reads | optional, this design |
+| **M4** | Per-document filter index | The tinysearch data structure as a derived asset; filter-then-verify; **the first indexation policy** — inclusion patterns, content policy, volatile handling | Content search stops being O(corpus) reads, and what is indexed is stated rather than implied | optional, this design |
 | **M5** | Record streams (Level 1) | Record ids, chunks, key derivation, schema and roles | A CSV's rows are searchable and projectable as a table | no — its own design |
 | **M6** | Batching and streaming | Batches, addressable or iterated; incremental read and write | A parquet file larger than memory is processable | no — its own design |
 | **M7** | Interoperability and a first sink | The reconciliation contract, a test double, then one real engine | An external engine stays fresh without a hook | no — its own design |
@@ -215,9 +215,15 @@ which is the value type, not a genre.
 | M3 | `AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED` (P0) only for the HTTP surface; the command surface is unaffected | no |
 | M1 (A3 quality) | `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` (P2) | no — degrades to text matching |
 | M4 | nothing; each filter is a derived asset of one document | no |
+| M4/M7 (indexation policy) | `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` (P2) only for a *per-asset* opt-out; scope and pattern policy need nothing | no |
 | M5 | `DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED` (P2) for chunk-set changes | partially |
 | M6 | `CORE-STORE-OPENBIN-MISSING` (P3), `VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER` (P2) | yes, for real streaming |
 | M7 | `ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET` (P2) for latency only | no — reconciliation is the guarantee |
+
+Indexation policy (`indexation-policy.md`) is not in the MVP's dependency list because the MVP has
+no index: a scan that may not evaluate arrives at the *when-ready* content policy for free, and
+inclusion is the root the user searched. Policy becomes a real decision at M4 and M7, where something
+is written down ahead of a query and can therefore be wrong.
 
 **Nothing blocks the MVP.** Every dependency above degrades a later milestone's quality or speed
 rather than preventing it, which is a consequence of having made reconciliation the guarantee and

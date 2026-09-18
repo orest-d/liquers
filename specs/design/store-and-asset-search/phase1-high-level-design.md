@@ -76,7 +76,9 @@ write-back are not designed here.
 deserves, its own mechanism; folding them in grows the predicate without improving an essential case.
 
 **Hard invariants:** a search never starts an asset — it obtains and describes assets without
-triggering their recipes, and reports `Status::Recipe` as an honest answer rather than resolving it; it is bounded and reports truncation; its result is an addressable value; results are
+triggering their recipes, and reports `Status::Recipe` as an honest answer rather than resolving it.
+**Indexation may evaluate; search may not** — a search is a user's question with a latency budget,
+while indexation is a scheduled job whose scope and cost its owner accepted. Further: it is bounded and reports truncation; its result is an addressable value; results are
 unordered unless a scoring clause was used; the baseline runs everywhere, wasm included; and **an external system's correctness comes from reconciliation, never
 from a delivered notification** — push is a latency optimization with no correctness role.
 
@@ -106,6 +108,16 @@ milestone — but until it is fixed, every external view is as stale as its poll
 **Command system** — a namespace in `liquers-lib` building the predicate from arguments; further
 filtering is ordinary commands over the returned list. Separately, the **command registry becomes a
 record source**, so "which commands mention resize" needs no command-specific search code.
+
+**Indexation policy** — two decisions that only arise once something is written down ahead of a
+query. *Which* documents are indexed: the scope or configuration query, plus key patterns, plus type
+rules, with a per-asset opt-out deferred until attributes exist — and exclusion is explicitly not a
+security mechanism. *What content* is indexed: metadata-only, when-ready (the safe default), or
+produced at indexation time. **Metadata is always indexable**, so a document is discoverable without
+anything being computed. Volatile assets force the choice, because they are never persistently ready
+and **never register a version** (`assets.rs:5583`), so version-based reconciliation has nothing to
+compare and they need time-based refresh via `Expires`. The MVP needs no configuration: a scan that
+may not evaluate arrives at *when-ready* for free. See [`indexation-policy.md`](./indexation-policy.md).
 
 **Asset system** — search unions store entries, live assets and recipe-declared keys the way
 `AssetManager::get_asset_info` resolves them, but without triggering evaluation. That needs a fix:
@@ -226,7 +238,13 @@ search. Both should work from the reference and the guide without opening this f
    (`DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION`)?
 17. How is a projection's purity guaranteed on the search path — a declaration on the command, or a
    restricted context that refuses evaluation (`COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT`)?
-18. How does a bare field name resolve when two layers define it? `status` is the **asset**
+18. Does `produce` exist in the first indexing version, or does an index only ever reflect what
+   something else materialized? The latter is smaller and forecloses nothing.
+19. What does an index entry record for a volatile document, and is it marked so a consumer knows its
+   freshness is time-based rather than version-vouched?
+20. How is "why is this document not in my results?" answered for one key? Silent absence is very
+   hard to debug.
+21. How does a bare field name resolve when two layers define it? `status` is the **asset**
    lifecycle in `MetadataRecord` and the **document's** lifecycle in `specs/` front-matter, and both
    would answer `status:draft` silently. Namespaced fields, or a documented precedence — cheap now,
    confusing forever if left.
@@ -240,6 +258,8 @@ search. Both should work from the reference and the guide without opening this f
 - [Options analysis](./options-analysis.md) — ground truth, the model, the axes, the recommendation
 - [Record model](./record-model.md) — what a record, a stream, a chunk and a schema are, and why
   the refresh unit is the chunk
+- [Indexation policy](./indexation-policy.md) — which documents are indexed, whether content is
+  produced or only read, and why volatile assets need time-based refresh
 - [Interoperability layer](./interoperability-layer.md) — feeding and reconciling external search
   engines, vector stores, RAG pipelines and SQL mirrors with one mechanism
 - `specs/issues/STORE-NO-CONTENT-OR-METADATA-SEARCH.md` — the gap this closes

@@ -103,6 +103,18 @@ version differs or the chunk is new; drop where the sink holds a chunk the feed 
 **Deletion detection is the half a push hook usually gets wrong**, and a diff gets it right for
 free.
 
+### Version-based reconciliation has one blind spot
+
+The diff above assumes every record has a version to compare. **Volatile assets do not**: version
+registration is gated on `Status::Ready | Source | Override` (`assets.rs:5583`, `:5715`), and
+`Volatile` is not among them. A volatile entry therefore either never looks changed or always looks
+changed, depending on how a missing version is read.
+
+Such entries need **time-based refresh** — the index records when it produced the entry and a
+schedule decides when to produce it again — which is the same `Expires` vocabulary §5 already uses
+for staleness. A sink's freshness report must distinguish the two regimes, because it cannot claim a
+version vouched for an entry that has none. [`indexation-policy.md`](./indexation-policy.md) §4–§5.
+
 ### Role 3 — the selector (query side)
 
 A sink that can answer implements the same selection contract as everything else, so it is readable
