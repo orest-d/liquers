@@ -107,6 +107,16 @@ no case for inventing a map. What a flat map cannot express:
 > **Recommended:** a thin struct — identity, fields, optional text — whose fields are a
 > `Value::Object`. A new type, but no new *representation*.
 
+**Superseded by Phase 2 revision 3.** The struct is gone. Singling out `text` matches no system this
+design integrates with — Tantivy and Lucene build a schema from fields with *options* and privilege
+no text field, so a title, a body and a comment are all `Text`-role fields and none is special. The
+same argument applies to identity and source: they are fields with roles. So rows are **positional**
+and a per-batch **schema** owns names, types and roles, which also stores each field name once
+instead of once per row. The guarantee this section asked for survives, moved: `RecordSchema::new`
+fails unless exactly one field has role `Id`, checked once per schema rather than per record. Cells
+are a dedicated `FieldValue` enum rather than JSON — measured smaller, and able to carry bytes,
+timestamps and vectors, which JSON cannot do compactly. See `phase2-architecture.md`.
+
 ---
 
 ## 2. What is a record stream?

@@ -1,8 +1,10 @@
 # Phase 2: Solution & Architecture — Store and asset search
 
-> **Revision 2.** The first draft put the record *source* inside the predicate, added `select` to two
-> core traits, and gave every hit an `AssetInfo`. Review found all three wrong. §0 records what
-> changed and why, because two of the corrections reverse Phase 1 decisions.
+> **Revision 3.** Revision 1 put the source inside the predicate, added `select` to two core traits
+> and gave every hit an `AssetInfo`; revision 2 corrected those. Revision 3 removes the `Record`
+> struct itself: rows are positional and the **schema** owns field names, types and roles, modelled
+> on the systems this design integrates with. §0 records every change, because three of them reverse
+> Phase 1 decisions.
 
 ## Overview
 
@@ -14,7 +16,7 @@ batches, chunks, a stream trait, a predicate — and **no new method on `AsyncSt
 
 Scope is milestones **M0–M3** of [`roadmap.md`](./roadmap.md) plus the `get_asset_info` repair.
 
-## 0. What changed in revision 2, and what it reverses
+## 0. What changed, and what it reverses
 
 | Change | Why |
 |---|---|
@@ -25,6 +27,9 @@ Scope is milestones **M0–M3** of [`roadmap.md`](./roadmap.md) plus the `get_as
 | **`Hit` replaced** | It embedded an `AssetInfo`, which assumes one record per asset. **A CSV row has no `AssetInfo`; the file does.** Asset description moves to a per-source side table, and retrieval is explicit. |
 | **`FieldMatch` → `ClauseMatch`** | Evidence now names *which clause* matched, so "why did this match" answers against the predicate rather than floating free. |
 | **A record stream is added** | This is what `select` was standing in for. Batches and chunks are the missing abstraction — and it is `futures::Stream`, already a `liquers-core` dependency, rather than a bespoke trait. |
+| **Rev. 3: the `Record` struct is removed** | Singling out `text` matches no system we integrate with: Tantivy and Lucene build a schema from fields with *options* and privilege no text field. `source` and `record_id` are likewise fields with roles. Rows become positional and the schema owns names, types and roles. |
+| **Rev. 3: field names live in the schema, once per batch** | A map per row re-creates every field name for every record. Positional rows are what Arrow, polars and every database do, and a field name then resolves to an index once per query instead of per row. |
+| **Rev. 3: `FieldValue` replaces `serde_json::Value`** | Measured 24 bytes against JSON's 32 — smaller *and* more expressive. JSON cannot carry bytes without base64, a timestamp as a type, or a 1536-dimension vector compactly, and the last is the RAG milestone's central case. Not a type parameter: that would infect the stream, the predicate and `Value` itself, and every referenced system uses a dynamic type enum instead. |
 
 The net effect is a **smaller** core change than revision 1 and a **larger** record model.
 
@@ -55,55 +60,166 @@ Searched: every non-terminal `issue`/`feature` in `specs/index.csv` whose `area`
 
 New module `liquers-core/src/records.rs`.
 
-### Record and its identity
+### Rows, not records: the schema owns the field names and the roles
+
+**Revision 3 removes the `Record` struct.** The review's argument is decisive and matches every
+system this design wants to integrate: Tantivy and Lucene build a schema from *fields with options*
+and privilege no single text field; Arrow and polars have `Schema` + positional arrays; GlueSQL has
+columns; Qdrant has payload fields plus named vectors. A struct with a privileged `text`, `source`
+and `record_id` maps onto none of them.
+
+```rust
+/// A batch of rows sharing one schema. The unit of memory, and a table.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RecordBatch {
+    /// Field names and roles live here — **once per batch, not once per row**.
+    pub schema: Arc<RecordSchema>,
+    /// Dictionary of sources; a field with role `Source` indexes it.
+    pub sources: Vec<SourceInfo>,
+    pub rows: Vec<Row>,
+}
+
+/// Positional, aligned to `schema.fields`. Arrow's model minus the columnar layout.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Row(pub Vec<FieldValue>);
+```
+
+**This answers the sharpest objection:** a map per row re-creates every field name for every record.
+Positional rows store the names **once, in the schema**, which is what Arrow, polars and every
+database do — and it makes the predicate faster as a side effect, because a field name resolves to an
+index once against the schema and each row test is then a positional access.
+
+The cost is honest: a row is meaningless without its schema, so constructing one ad hoc takes more
+ceremony (a `RecordBatchBuilder` owns that), and **heterogeneous rows are handled at batch
+granularity** — the schema is per *batch*, so a set may hold batches with different schemas. That is
+Arrow's answer too.
+
+### FieldValue — not JSON, and not a type parameter
 
 ```rust
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Record {
-    /// Index into the owning set's `sources`. Constant within a chunk in the common case,
-    /// so the asset reference is stored once rather than per record.
-    pub source: u32,
-    /// Position within that source. `RecordId::Whole` when the source *is* the record.
-    pub record_id: RecordId,
-    /// A JSON **object**. Named, typed fields — what clauses test and what a SQL column is.
-    pub fields: serde_json::Value,
-    /// What a text clause matches. `None` when no text was projected.
-    pub text: Option<Arc<str>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum RecordId {
-    Whole,
-    Index(u64),
-    Name(Arc<str>),
+pub enum FieldValue {
+    Null,
+    Bool(bool),
+    Int(i64),
+    UInt(u64),
+    Float(f64),
+    Text(Arc<str>),
+    Bytes(Arc<[u8]>),
+    /// Epoch microseconds — Arrow's `Timestamp(Microsecond)`.
+    Timestamp(i64),
+    List(Arc<[FieldValue]>),
+    Object(Arc<RecordBatch>),
+    /// First-class because the alternative is a JSON array of 1536 numbers.
+    Vector(Arc<[f32]>),
 }
 ```
 
-**`fields` is `serde_json::Value`**, which `liquers-core` already depends on directly
-(`Cargo.toml:69`) and already uses in `commands.rs`. It is small, needs no type parameter, and makes
-a record set serializable as JSON or NDJSON without a conversion step. The invariant that it is an
-*object* is a constructor's job, not the type's — a newtype guaranteeing it is an option Phase 3 can
-weigh.
+**Measured: 24 bytes**, against `serde_json::Value`'s 32. So the dedicated enum is *smaller* than
+JSON as well as more expressive — it can carry bytes without base64, a timestamp as a type rather
+than a convention, and a vector compactly, which the RAG milestone needs and which JSON does badly.
+
+**Not a type parameter.** `Record<V>` would infect `RecordBatch<V>`, `RecordBatchStream<V>`,
+`SearchPredicate<V>` and then `Value::Records(Arc<RecordSet<V>>)` — circular, since `Value` is the
+obvious `V`. Every system in the reference list reached the same conclusion: Arrow, GlueSQL, Tantivy
+and Qdrant all use a **dynamic** type enum rather than generics, because the cell type is data, not a
+compile-time parameter.
+
+### RecordSchema — modelled on the systems to be integrated
+
+Two orthogonal axes, because no single system has both and the union needs both: a **logical type**
+(what Arrow, polars and GlueSQL care about) and a **role** (what Tantivy, Lucene and Qdrant care
+about).
+
+```rust
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RecordSchema {
+    pub fields: Vec<FieldSchema>,
+    /// Liquers' own type identity for the *thing the rows describe*, when there is one.
+    pub type_identifier: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FieldSchema {
+    pub name: String,
+    pub data_type: FieldType,
+    pub role: FieldRole,
+    pub nullable: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FieldType { Bool, Int, UInt, Float, Text, Bytes, Timestamp, List, Object, Vector }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FieldRole {
+    /// The record's identity within its source. Exactly one per schema.
+    Id,
+    /// Index into `RecordBatch::sources`. At most one per schema.
+    Source,
+    /// Tokenized and matched by a text clause. **Any number** — this is the review's point:
+    /// a title, a body and a comment are all text, and none is privileged.
+    Text,
+    /// Exact match and facet; never tokenized.
+    Keyword,
+    /// Returned, never searched.
+    Stored,
+    /// Range clauses.
+    Numeric,
+    /// Similarity clauses.
+    Vector,
+    /// Carried and ignored by every consumer.
+    Ignored,
+}
+```
+
+**The guarantee moves from the type to the schema, and is checked once.** Phase 1's F1 required
+identity to be structural rather than conventional; with rows that guarantee cannot live in the row
+type, so `RecordSchema::new` **fails** unless exactly one field has role `Id`, and accessors
+(`schema.id_field()`, `schema.source_field()`, `schema.text_fields()`) keep consumers from indexing
+by string. That is how Tantivy does it: the schema is validated when built and hands out field
+handles.
+
+**How each target maps:**
+
+| System | Mapping |
+|---|---|
+| **Tantivy / Lucene** | `FieldRole` *is* the field options — `Text`→TEXT, `Keyword`→STRING, `Stored`→STORED, `Numeric`→fast field |
+| **Arrow / polars** | `FieldSchema` → `arrow::Field`; `FieldType` → `DataType`; `Row` transposes to columnar at the boundary |
+| **GlueSQL** | `FieldSchema` → column; `FieldType` → SQL type; a schemaless table is a schema of `Object` |
+| **Qdrant** | role `Vector` → a named vector; everything else → payload |
+| **tinysearch** | only the `Text` fields are fed to the per-document filter |
+| **Liquers type system** | `RecordSchema::type_identifier` carries the `TypeInfo` identity of the described value; `FieldType` is deliberately *not* that registry — one is about fields, the other about values |
+
+### Arrow-shaped, not Arrow-dependent
+
+Adopting `arrow-rs` in `liquers-core` is rejected: it is a large crate family, `CLAUDE.md` requires
+core to stay minimal, and the wasm baseline must stay cheap. But `Row` + `RecordSchema` **is** Arrow's
+model without the columnar buffers, so the conversion is mechanical and belongs where Arrow already
+lives: `liquers-lib`, behind the existing `polars` feature, which pulls Arrow transitively. Core pays
+nothing; a polars-enabled build gets `RecordBatch ↔ arrow::RecordBatch` for free.
+
+Rows are **row-major deliberately** — the consumer is a predicate walking one row at a time. The
+transpose to columnar happens once, at the Arrow boundary, at batch granularity.
 
 ### SourceInfo — identity, description and **retrieval**
 
 ```rust
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SourceInfo {
-    /// The asset these records were projected from, as a query.
+    /// The asset these rows were projected from, as a query.
     #[serde(with = "query_format")]
     pub asset: Query,
-    /// The query that re-produces this source's records. **The retrieval path**: evaluating it
-    /// yields the batch again, and `record_id` indexes into it.
+    /// The query that re-produces this source's rows. **The retrieval path**: evaluating it
+    /// yields the batch again, and the `Id` field indexes into it.
     #[serde(with = "query_format")]
     pub chunk: Query,
     /// Description of the asset itself, when it has one. `None` for a source that is not an asset.
     pub info: Option<AssetInfo>,
-    /// How to turn a `record_id` into a directly evaluable query, when the projection can.
+    /// How to turn an `Id` value into a directly evaluable query, when the projection can.
     pub locator: Option<LocatorRule>,
 }
 
-/// A command to apply to `asset`, with the record id supplied as its final parameter.
+/// A command applied to `asset`, with the id supplied as its final parameter.
 /// Rendered through `ActionRequest`, never by string templating.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LocatorRule {
@@ -113,25 +229,20 @@ pub struct LocatorRule {
 }
 ```
 
-**This is the review's central correction.** A hit must be *retrievable*, not merely identified.
-`chunk` is the guaranteed path — re-evaluate and index — and `locator` is the direct one when a
-projection can offer it (`-R/f.csv/-/ns-csv/row-42`). `info` is optional because **a CSV row has no
-`AssetInfo`; the file does**, and one `AssetInfo` per source rather than per record also keeps 656
-bytes from being repeated for every row.
+A hit must be **retrievable**, not merely identified. `chunk` is the guaranteed path — re-evaluate and
+index by the `Id` field — and `locator` is the direct one when a projection can offer it
+(`-R/f.csv/-/ns-csv/row-42`). `info` is optional because **a CSV row has no `AssetInfo`; the file
+does**, and one per source rather than per row also keeps 656 bytes from repeating.
 
 ### RecordSet — one value, and searches compose
 
 ```rust
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct RecordSet {
-    /// Dictionary of sources; `Record::source` indexes it.
-    pub sources: Vec<SourceInfo>,
-    pub records: Vec<Record>,
-    /// Optional and advisory. Field roles are its valuable content.
-    pub schema: Option<RecordSchema>,
-    /// A limit stopped production before the source was exhausted.
+    /// Batches may differ in schema; each carries its own.
+    pub batches: Vec<RecordBatch>,
     pub truncated: bool,
-    /// Present when this set is a search result; parallel to `records`.
+    /// Present when this set is a search result; parallel to the rows, batch by batch.
     pub matches: Option<Vec<Vec<ClauseMatch>>>,
     pub diagnostics: Diagnostics,
 }
@@ -140,8 +251,8 @@ pub struct RecordSet {
 pub struct ClauseMatch {
     /// Which clause of the predicate matched. Answers "why" against the predicate itself.
     pub clause_index: usize,
-    /// The field that satisfied it; `None` for a text clause over the body.
-    pub field: Option<String>,
+    /// The field that satisfied it, by schema index.
+    pub field: Option<usize>,
     pub excerpt: Option<String>,
     /// Reserved. `None` until a scoring clause exists — Phase 1's ordering promise.
     pub score: Option<f32>,
@@ -150,16 +261,14 @@ pub struct ClauseMatch {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Diagnostics {
     pub scanned: usize,
-    /// Fields a clause tested that no record could supply — the commonest cause of
+    /// Fields a clause named that no schema declared — the commonest cause of
     /// "why is X not in my results?", reported rather than silently false.
     pub unavailable_fields: Vec<String>,
 }
 ```
 
-**A search result *is* a record set**, so a search composes with another search and with any command
-that consumes records. `matches` is parallel to `records` rather than embedded in `Record`, because a
-record is data and evidence is about a *predicate*; the cost is the usual parallel-vector discipline,
-which one constructor owns.
+A search result **is** a record set, so a search composes with another search and with any command
+that consumes rows.
 
 ### SearchPredicate — a pure filter
 
@@ -182,18 +291,24 @@ pub enum Clause {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum FieldTest {
-    Equals(serde_json::Value),
+    Equals(FieldValue),
     Contains(String),
     Prefix(String),
     Glob(String),
-    OneOf(Vec<serde_json::Value>),
+    Range { min: Option<FieldValue>, max: Option<FieldValue> },
+    OneOf(Vec<FieldValue>),
     Exists,
 }
 ```
 
 **No `root`, no `sources`, no `depth`.** The stream decides what is in scope; the predicate decides
 what survives. The `Key` clause of revision 1 becomes `Field { name: "key.path", test: Glob(..) }` —
-a key is a field like any other, projected by whatever produced the record.
+a key is a field like any other.
+
+**A `Text` clause has no privileged target.** It matches against **every field whose role is `Text`**
+in the batch's schema, which is the review's point: a title, a body and a comment are all text and
+none is special. `Field { name }` resolves against the schema **once per batch**, yielding an index;
+a name no schema declares lands in `unavailable_fields` and the clause does not match.
 
 Neither enum is `#[non_exhaustive]`: a consumer that silently ignores a clause it does not understand
 is a correctness bug, so an exhaustive match making it a compile error is the signal `CLAUDE.md`
@@ -308,7 +423,9 @@ pub enum Value {
 }
 ```
 
-One variant, `Arc`-wrapped, so `Value` does not grow past 704 bytes. Type identifier `Records`
+One variant, `Arc`-wrapped, so `Value` does not grow past 704 bytes. `RecordSet` is the only
+record-shaped thing that crosses a query boundary; `RecordBatch`, `Row` and the stream stay internal.
+Type identifier `Records`
 (bare CamelCase — `liquers-core` owns the concept), default extension `json`, media type
 `application/json`. A `TypeInfo` entry in `Value::type_descriptions()` (`value.rs:407`) is
 **required** — `CLAUDE.md`'s "four steps, not three; a type with no `TypeInfo` cannot be stored" —
@@ -389,23 +506,39 @@ store and that push-down remains open.
 ### `liquers-core/src/records.rs`
 
 ```rust
-impl Clause {
-    /// Pure match. `None` means a field the record cannot supply — recorded in
-    /// `unavailable_fields` and treated as "does not match".
-    pub fn matches(&self, record: &Record, fields: &serde_json::Value) -> Option<bool>;
+impl RecordSchema {
+    /// Fails unless exactly one field has role `Id`. The guarantee Phase 1's F1 asked for,
+    /// checked once per schema rather than per row.
+    pub fn new(fields: Vec<FieldSchema>) -> Result<Self, Error>;
+    pub fn id_field(&self) -> usize;
+    pub fn source_field(&self) -> Option<usize>;
+    pub fn text_fields(&self) -> &[usize];
+    pub fn index_of(&self, name: &str) -> Option<usize>;
 }
 
+/// A predicate bound to one schema: every field name already resolved to an index.
+/// Built once per batch, applied per row.
+pub struct BoundPredicate<'a> { /* … */ }
+
 impl SearchPredicate {
-    /// Filter one batch, appending survivors and their evidence.
-    pub fn filter_batch(&self, batch: &RecordBatch, out: &mut RecordSet) -> Result<(), Error>;
-    /// True when no clause needs `Record::text` — the producer may then skip projecting it.
+    /// Resolve names against a schema. Names no schema declares are returned for
+    /// `unavailable_fields` rather than failing.
+    pub fn bind(&self, schema: &RecordSchema) -> (BoundPredicate<'_>, Vec<String>);
+    /// True when no clause needs a `Text`-role field — the producer may skip projecting bodies.
     pub fn needs_text(&self) -> bool;
 }
 
-impl SourceInfo {
-    /// Build the directly evaluable query for one record, when `locator` allows.
-    pub fn locator_query(&self, record_id: &RecordId) -> Option<Query>;
+impl<'a> BoundPredicate<'a> {
+    /// Pure, positional. `None` for a clause whose field the schema does not declare.
+    pub fn matches(&self, row: &Row) -> Option<(bool, Vec<ClauseMatch>)>;
 }
+
+impl SourceInfo {
+    /// Build the directly evaluable query for one row, when `locator` allows.
+    pub fn locator_query(&self, id: &FieldValue) -> Option<Query>;
+}
+
+pub struct RecordBatchBuilder { /* … */ }
 
 pub fn excerpt(text: &str, needle: &str, case_sensitive: bool, radius: usize) -> Option<String>;
 ```
@@ -443,7 +576,8 @@ Clause commands are **sync and borrow** — pure transformations of a value in h
 
 | Crate | File | Change |
 |---|---|---|
-| `liquers-core` | `src/records.rs` (new) | Record, SourceInfo, RecordSet, predicate, `RecordBatchStream`, `ChunkedRecordSource`, pure matching |
+| `liquers-core` | `src/records.rs` (new) | `FieldValue`, `RecordSchema`, `Row`, `RecordBatch`, `SourceInfo`, `RecordSet`, predicate and binding, `RecordBatchStream`, `ChunkedRecordSource` |
+| `liquers-lib` | `src/records/arrow.rs` (new, `polars` feature) | `RecordBatch ↔ arrow::RecordBatch`, so core pays nothing for Arrow |
 | `liquers-core` | `src/maybe_send.rs` | `BoxStream` + `MaybeBoxedStream`, mirroring `BoxFuture`/`MaybeBoxed` |
 | `liquers-core` | `src/lib.rs` | `pub mod records;` |
 | `liquers-core` | `src/value.rs` | `Value::Records(Arc<RecordSet>)`, every match arm, the `TypeInfo` entry |
@@ -519,15 +653,16 @@ with concurrency deferred until there is something to measure.
 
 ## Open Questions for Phase 3
 
-1. Is `Record::fields` a newtype guaranteeing a JSON object, or a bare `serde_json::Value` with the
-   invariant owned by constructors?
-2. Are `matches` parallel to `records` acceptable, or should a search result be a distinct type that
+1. Does `FieldValue::Object(Arc<RecordBatch>)` earn its place, or is nesting better expressed as a
+   separate batch with a foreign-key field? Nesting is what JSON and Qdrant payloads do; a separate
+   batch is what SQL and Arrow prefer.
+2. Are `matches` parallel to the rows acceptable, or should a search result be a distinct type that
    *contains* a `RecordSet`? Parallel vectors let a search result compose as a record set; a wrapper
    is safer and costs one unwrap at every consumer.
 3. Does `ChunkedRecordSource` earn its place in M0–M3, given nothing implements a non-trivial
    partition until M5? (`RecordBatchStream` is now a type alias and costs nothing, so the question
    narrows to the trait.)
-4. `RecordSchema` is referenced but not specified here — field roles are its valuable content
-   (`record-model.md` §5). Specify it in Phase 3 or defer the field to M5?
+4. Does `FieldType` need `Date`/`Decimal` for GlueSQL and Arrow fidelity, or is `Timestamp` plus
+   `Float` enough until the SQL task actually starts?
 5. Should `limit` default to `Some(50)` at the command layer while the type allows `None`, or should
    the type forbid `None` as revision 1 had it?

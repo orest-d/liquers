@@ -212,7 +212,20 @@ in view, because two reverse Phase 1 decisions:
    is a type alias, `schema` moves onto the chunk descriptor where it belongs, and applying a
    predicate becomes a combinator. Defined in M0 with one trivial implementation, because a stream
    interface is F4 generalized and expensive to retrofit.
-4. **`Hit` was faulty and is gone.** It embedded an `AssetInfo`, which assumes one record per asset —
+4. **Revision 3: the `Record` struct is gone too.** Singling out `text` matches no system this
+   design integrates with — Tantivy and Lucene build a schema from fields with *options*, and
+   privilege no text field. So identity, source and text are all **fields with roles**, rows are
+   positional, and a per-batch **schema** owns names, types and roles. That also fixes a real
+   inefficiency: a map per row re-creates every field name for every record, where a schema stores
+   them once and lets a field name resolve to an index once per query. The structural guarantee
+   Phase 1 asked for moves rather than disappearing — `RecordSchema::new` fails unless exactly one
+   field has role `Id`. Cells are a `FieldValue` enum, measured at 24 bytes against JSON's 32:
+   smaller *and* able to carry bytes, timestamps and vectors, the last being what RAG needs and JSON
+   does worst. Not a type parameter — it would infect the stream, the predicate and `Value` itself,
+   and Arrow, GlueSQL, Tantivy and Qdrant all chose a dynamic type enum for the same reason. The
+   model is **Arrow-shaped but not Arrow-dependent**: core stays minimal and the conversion lives in
+   `liquers-lib` behind the existing `polars` feature, which already pulls Arrow.
+5. **`Hit` was faulty and is gone.** It embedded an `AssetInfo`, which assumes one record per asset —
    a CSV row has no `AssetInfo`, the file does. Asset description moves to a per-source table, and a
    hit is *retrievable*: `SourceInfo::chunk` re-produces the batch, `locator` addresses one record
    directly. Fields are `serde_json::Value`, not `liquers_core::value::Value`, which at 704 bytes was
