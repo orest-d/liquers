@@ -89,12 +89,13 @@ optimization with no correctness role.
 **Query system** — no grammar change. A search is an ordinary action whose argument carries the
 predicate or a short search syntax; `ActionRequest::encode` escapes arbitrary terms.
 
-**Store system** — a selection method on `AsyncStore` with a default scan over `listdir_keys_deep`,
-so no existing store breaks and a capable backend can override. Needs conformance rules. (This
-sketched a `StoreCapabilities` flag too; **Phase 2 drops it** — the default makes selection
-universal, so the flag could never be false, and `EnumerateKeys` already covers the store that
-cannot select. See `phase2-architecture.md`.) Router fan-out across mounts below a root is specified
-now, implemented later.
+**Store system** — this proposed a selection method on `AsyncStore` with a default scan, a
+capability flag and conformance rules. **Phase 2 revision 2 drops all of it from the MVP.** Once
+records are produced by *commands*, a trait method is a push-down optimization rather than the
+mechanism — valuable when a backend can filter without materializing, absent everywhere today, and
+addable later without changing a consumer. The consequence is stated there: this work does not close
+`STORE-NO-CONTENT-OR-METADATA-SEARCH`, which asks for selection on the store. Router fan-out across
+mounts is likewise deferred, since there is no store-level search to fan out.
 
 **Interoperability** — a partition of `(chunk id, version, refresh query)` plus a per-chunk fetch, a
 reconciliation diff, and a staleness declaration. It needs almost no new vocabulary: `Version` is

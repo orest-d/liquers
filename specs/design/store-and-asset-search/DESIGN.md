@@ -191,6 +191,28 @@ component that sees every write, so it is the only one that can hold an index).
    problem that makes a monolithic derived index unattractive. In-tree indexes ride the asset layer
    because they *are* assets; external systems need reconciliation precisely because they cannot be.
 
+## Phase 2 revision 2
+
+The first Phase 2 draft was reviewed and substantially rewritten. Four corrections are worth keeping
+in view, because two reverse Phase 1 decisions:
+
+1. **The predicate is a pure filter.** `root` and `sources` left it. What is filtered is a *stream of
+   records*, whose identity is the **query** that produces it — which also yields the two executions:
+   evaluate the query and filter the stream, or hand the query to an engine that already processed
+   it.
+2. **`select` is dropped from `AsyncStore` and `AssetManager`** — reversing Phase 1 axis B2/B3. With
+   records produced by commands it is a push-down optimization, not the mechanism. Nothing in the
+   store trait changes, the conformance rule family disappears, and the honest cost is that
+   `STORE-NO-CONTENT-OR-METADATA-SEARCH` is not closed by this work.
+3. **A record stream trait — batches and chunks — is what `select` was standing in for**, and is now
+   the core abstraction. Defined in M0, with exactly one trivial implementation, because a stream
+   interface is F4 generalized and expensive to retrofit.
+4. **`Hit` was faulty and is gone.** It embedded an `AssetInfo`, which assumes one record per asset —
+   a CSV row has no `AssetInfo`, the file does. Asset description moves to a per-source table, and a
+   hit is *retrievable*: `SourceInfo::chunk` re-produces the batch, `locator` addresses one record
+   directly. Fields are `serde_json::Value`, not `liquers_core::value::Value`, which at 704 bytes was
+   an outright bug in a document that cited `CORE-VALUE-ENUM-OVERSIZED` two sections earlier.
+
 ## Relationship to `agent-memory-mvp`
 
 That design's Phase 1 open question 3 asks how far its MVP goes on search, noting a subtree scan is
