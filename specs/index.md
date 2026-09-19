@@ -8,11 +8,11 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 107
+Total rows: 108
 - P0: 1
 - P1: 2
 - P2: 71
-- P3: 33
+- P3: 34
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
@@ -98,6 +98,7 @@ Total rows: 107
 | [`REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED`](issues/REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED.md) | issue | The committed command registry carries stale impl_versions and no test detects it | draft | needs-decision | P3 | S | lib/commands;build;docs | [phase1](specs/design/command-registry-impl-version-freshness/phase1-high-level-design.md)  [phase2](specs/design/command-registry-impl-version-freshness/phase2-architecture.md)  [phase3](specs/design/command-registry-impl-version-freshness/phase3-examples.md)  [phase4](specs/design/command-registry-impl-version-freshness/phase4-implementation.md)  | 2026-08-25 |
 | [`WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE`](issues/WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE.md) | issue | JavaScript cannot construct a LiquersError, so a page cannot raise a typed error | accepted | needs-decision | P3 | S | web;core/error | [phase1](specs/design/web-liquers-error-constructor/phase1-high-level-design.md)  [phase2](specs/design/web-liquers-error-constructor/phase2-architecture.md)  [phase3](specs/design/web-liquers-error-constructor/phase3-examples.md)  [phase4](specs/design/web-liquers-error-constructor/phase4-implementation.md)  | 2026-08-09 |
 | [`ASSET-FINISHED-PROGRESS-CONTRACT-UNDEFINED`](issues/ASSET-FINISHED-PROGRESS-CONTRACT-UNDEFINED.md) | issue | What progress a finished asset reports is undefined, and was asserted by a race | draft |  | P3 | S | core/assets |  | 2026-09-03 |
+| [`COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ`](issues/COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ.md) | issue | CommandMetadata.cache is declared, documented and exported, but nothing reads it | draft |  | P3 | S | core/commands;macro |  | 2026-09-19 |
 | [`AXUM-WEBSOCKET-HARDENING`](issues/AXUM-WEBSOCKET-HARDENING.md) | issue | WebSocket endpoint is not hardened | accepted |  | P3 | M | axum |  | 2026-08-08 |
 | [`BENCHMARK-SUITE`](issues/BENCHMARK-SUITE.md) | feature | No reproducible benchmarks for core runtime paths | accepted |  | P3 | M | build |  | 2026-08-08 |
 | [`CORE-STATE-LOCK-API-CLEANUP`](issues/CORE-STATE-LOCK-API-CLEANUP.md) | issue | `State` holds an `RwLock` that may not be needed | accepted |  | P3 | M | core/value |  | 2026-08-08 |

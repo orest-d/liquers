@@ -4,7 +4,8 @@
 > [`store-and-asset-search`](../store-and-asset-search/phase2-architecture.md), which is where it was
 > written and reviewed. It is recorded here at Phase 2 depth so the reasoning is not lost, but
 > **this design's Phase 1 is not yet approved**, and Phase 2 is not approved by the carry-over.
-> §0 lists what changed in the move.
+> §0 lists what changed in the move, and §0.1 what the Phase 1 answers of 2026-09-19 changed on
+> top of it.
 
 ## Overview
 
@@ -19,7 +20,7 @@ The five requirements of [Phase 1](./phase1-high-level-design.md) map onto the s
 | Requirement | Mechanism |
 |---|---|
 | Arrow interoperability without a heavy dependency | Buffers in Arrow's layout; export via the C Data Interface, IPC bytes or wasm typed arrays — all outside core |
-| A `Value` variant | `Value::Records(Arc<RecordSet>)`, one variant, plus its `TypeInfo` |
+| A `Value` variant | `Value::RecordChunk` and `Value::RecordStream`, each with its `TypeInfo` |
 | A lightweight DataFrame without polars | Columns, masks, `select`/`filter`/`slice`/`concat` — usable in `liquers-web` |
 | Multi-gigabyte lazy processing | `futures::Stream` of batches; the chunk is the refresh unit, the batch the memory unit |
 | Per-chunk provenance and validity, flyweighted to the record | `ChunkDescriptor` carries a `Metadata`; a record's provenance is its chunk's |
@@ -34,6 +35,21 @@ The five requirements of [Phase 1](./phase1-high-level-design.md) map onto the s
 | **The stale row-major `RecordBatch` is deleted** | The search design's stream section still carried revision 3's `RecordBatch { sources, records: Vec<Record> }`, contradicting revision 4's columnar definition eight sections earlier. One definition survives: the columnar one |
 | **`Diagnostics::unavailable_fields` stays, unowned** | `scanned` and `truncated` are stream properties. `unavailable_fields` is the general "a consumer named a field this schema does not declare" report; search is its first filler, not its owner |
 
+## 0.1 What the Phase 1 answers changed
+
+| Answer | Change here |
+|---|---|
+| 2 + 3 — lazy handle; two forms; the prototype's manifest | **The largest change.** One `Value::Records` variant becomes **two** — `RecordChunk` and `RecordStream` — and the stream carries a `Manifest` or `Opaque` backing. Rewind, serialization and cacheability become properties of the backing rather than blanket prohibitions |
+| 3 — provenance | A manifest chunk's provenance is the `Metadata` of its own query, already computed by the asset layer; only an opaque chunk carries one inline. The 704-byte concern now applies solely to the form that is never cached |
+| 4 — `Date` | `FieldType::Date` and `Column::Date` added, as Arrow `Date32`. `Decimal` still deferred |
+| 5 — uniformity | `RecordStream::uniform_schema: Option<…>` — declared by the producer, checked by the consumer. Non-uniform streams are legal and lose exactly two operations |
+| 6 — DataFrame baseline | Closes open question; no change |
+| 7 — identity vs addressability | `RecordBatch::chunk_id`, stored once per batch. Identity is (chunk id, record id); the `LocatorRule` stays optional |
+| 1 — `openbin` out of scope | No change — `open_chunk` already returns a *stream of batches*, so a row-group reader is a later implementation rather than a redesign |
+
+**Open questions 2, 3 and 4 of the original list are closed by these answers**; the remainder are
+restated at the end.
+
 ## Known-Issue Preflight
 
 Searched `specs/index.csv` for non-terminal `issue`/`feature` records whose `area` intersects
@@ -47,6 +63,7 @@ Searched `specs/index.csv` for non-terminal `issue`/`feature` records whose `are
 | `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` | draft | P2 | Front-matter fields have nowhere to live, so `attr.`-qualified columns have no source | no | no | Field qualification is designed to accept it as a pure upgrade | keep P2 |
 | `COMMAND-CONTEXT-PARAM-ORDER` | accepted | P2 | `context` must be last in record-producing commands | no | no | Honoured | keep P2 |
 | `CORE-SYNC-STORE-TRAIT-OBSOLETE` | — | — | Record sources read through `AsyncStore` only | no | no | — | — |
+| `COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ` | draft | P3 | Stream commands rely on `volatile`, which **is** wired; `cache` is a knob that does nothing. Found while answering Phase 1 | no | no | Monitor — `volatile` covers this design's need | keep P3 |
 
 **No blocker.**
 
@@ -70,6 +87,9 @@ pub struct RecordBatch {
     /// One column per schema field, in order. `len` rows each.
     pub columns: Vec<Column>,
     pub len: usize,
+    /// Identity of the chunk these rows came from — once per batch, not per row.
+    /// With the `Id`-role column this makes a record identifiable as (chunk, id).
+    pub chunk_id: Option<ChunkId>,
     /// Dictionary of sources; the `Source`-role column indexes it.
     pub sources: Vec<SourceInfo>,
 }
@@ -86,7 +106,9 @@ pub enum Column {
     /// Arrow `Utf8`: i32 offsets plus a contiguous byte buffer. No per-cell allocation.
     Text { validity: Option<Bitmap>, offsets: Buffer<i32>, data: AlignedBuffer },
     Binary { validity: Option<Bitmap>, offsets: Buffer<i32>, data: AlignedBuffer },
-    /// Arrow `Timestamp(Microsecond, None)`.
+    /// Arrow `Date32` — days since the epoch. `chrono` converts; storage stays primitive.
+    Date { validity: Option<Bitmap>, values: Buffer<i32> },
+    /// Arrow `Timestamp(Microsecond, None)` — the date-time case.
     Timestamp { validity: Option<Bitmap>, values: Buffer<i64> },
     /// Arrow `FixedSizeList(Float32, dim)` — the embedding case, contiguous.
     Vector { validity: Option<Bitmap>, dim: usize, data: Buffer<f32> },
@@ -253,7 +275,7 @@ pub struct FieldSchema {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum FieldType { Bool, Int, UInt, Float, Text, Binary, Timestamp, Vector }
+pub enum FieldType { Bool, Int, UInt, Float, Text, Binary, Date, Timestamp, Vector }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FieldRole {
@@ -294,6 +316,27 @@ validated when built and hands out field handles.
 | **tinysearch** | only `Text`-role columns feed the per-document filter |
 | **Liquers type system** | `RecordSchema::type_identifier` carries the `TypeInfo` identity of the described value; `FieldType` is about *fields*, the registry about *values* |
 
+### Schema uniformity is declared, not assumed
+
+**Phase 1 answer 5.** Chunks of one stream are usually but not necessarily alike, so
+`RecordStream::uniform_schema` is `Some` when the producer promises it and `None` otherwise. A
+consumer checks rather than assumes. The prototype takes the same position in the weakest possible
+way — on a column-count mismatch it **warns and continues** — and this design keeps the tolerance
+while making the promise inspectable.
+
+Non-uniformity is legal with consequences rather than an error:
+
+| Operation | Non-uniform stream |
+|---|---|
+| iterate, filter per chunk | fine |
+| serialize as NDJSON | fine — each row carries its own keys |
+| `concat` into one batch | **fails**, naming the first differing field |
+| serialize as one CSV | **fails** — there is no single header |
+
+The motivating case is "every CSV file in a folder becomes one chunk", which is a `Manifest` with one
+query per file and no guarantee the files agree. That is useful rather than illegal: it works for
+everything except the two operations that genuinely need one schema.
+
 ### SourceInfo — identity, description and **retrieval**
 
 ```rust
@@ -321,6 +364,11 @@ pub struct LocatorRule {
     pub leading_parameters: Vec<String>,
 }
 ```
+
+**Identity is (chunk id, record id); addressability is separate and optional.** Phase 1 answer 7
+separated two things the original question conflated. *Identity* is always available and cheap: a
+`ChunkId`, stored **once per batch** rather than per row, plus the `Id`-role field. *Addressability* —
+constructing a query that returns exactly one record — is the optional half.
 
 A row must be **retrievable**, not merely identified. `chunk` is the guaranteed path — re-evaluate
 and index by the `Id` field — and `locator` is the direct one when a projection can offer it
@@ -492,30 +540,82 @@ depends on. This is what the search design's
 [`interoperability-layer.md`](../store-and-asset-search/interoperability-layer.md) §3 builds on, and
 why `partition()` must not produce records.
 
-### Value extension
+### Value extension — two variants, three forms
+
+**Revised by Phase 1 answer 3.** The first draft had one variant, `Value::Records`, on the reasoning
+that a lazy stream is neither cloneable nor cacheable and so must stop at the query boundary. The
+Python prototype shows that reasoning is half right: a stream whose chunk sequence is **known in
+advance** is perfectly cloneable, cacheable and serializable, because what travels is a list of
+queries rather than any data.
 
 ```rust
 // liquers-core/src/value.rs
 pub enum Value {
     // … existing …
-    Records(Arc<RecordSet>),
+    /// A materialized table. Shareable, cacheable, serializable.
+    RecordChunk(Arc<RecordBatch>),
+    /// A lazy sequence of chunks. Shareable only when manifest-backed.
+    RecordStream(Arc<RecordStream>),
 }
 ```
 
-One variant, `Arc`-wrapped, so `Value` does not grow past 704 bytes. `RecordSet` is the only
-record-shaped thing that crosses a query boundary; `RecordBatch`, `Column` and the stream stay
-internal. Type identifier `Records` (bare CamelCase — `liquers-core` owns the concept), default
-extension `json`, media type `application/json`. A `TypeInfo` entry in `Value::type_descriptions()`
-(`value.rs:407`) is **required** — `CLAUDE.md`'s "four steps, not three; a type with no `TypeInfo`
-cannot be stored" — and `type_descriptions_match_identifier` checks it. Every existing `match` on
-`Value` gains an explicit arm; a comparable variant (`Value::Recipe`) is named at 17 sites, 8 of them
-in `value.rs`.
+```rust
+// liquers-core/src/records/mod.rs
 
-**Serialization formats**, declared in that `TypeInfo`: `json` and `ndjson` day one, `csv` day one,
-`parquet` and `arrow` behind features later. NDJSON and CSV are the ones that matter for the
-multi-gigabyte case, because they are the two a stream can write incrementally — which
-`VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER` currently prevents, and which is why that issue is
-flagged above as this design's clearest downstream dependency.
+pub struct RecordStream {
+    pub backing: StreamBacking,
+    /// Declared, not assumed — see §"Schema uniformity is declared".
+    pub uniform_schema: Option<Arc<RecordSchema>>,
+}
+
+pub enum StreamBacking {
+    /// One query per chunk. The preferred form: rewindable, serializable as the query list,
+    /// cacheable, and checkpointable while it is still being built.
+    Manifest(Vec<Query>),
+    /// A generator. One-shot. The command producing it must be registered `volatile`.
+    Opaque(Mutex<Option<BoxStream<'static, Result<RecordBatch, Error>>>>),
+}
+```
+
+| Form | Shareable | Cacheable | Serializable | Rewindable |
+|---|---|---|---|---|
+| `RecordChunk` | yes | yes | yes | n/a |
+| `RecordStream(Manifest)` | yes | yes | as the query list | yes |
+| `RecordStream(Opaque)` | **no** | **no** | **no** | **no** |
+
+**How `Opaque` satisfies `Value`'s bounds without lying.** `Clone` clones the `Arc`, so two holders
+share **one** stream; whichever consumes it first gets the batches and the other gets an error rather
+than silently empty or duplicated data. `PartialEq` is identity-based, `Serialize` fails with a typed
+error naming the manifest alternative. This is the "unique limitation of a lazy stream" being made
+explicit: the hazard is real, it is reported rather than hidden, and the `volatile` marker keeps such
+a value out of the cache and off the asset registry in the first place — which `assets.rs` already
+enforces, propagating volatility to every downstream step.
+
+**What the prototype adds that this design did not have.** `_store_batches` rewrites its manifest
+after *every* batch, so a run that dies partway leaves its finished chunks usable. A generator cannot
+be checkpointed; a growing `Manifest` can. The equivalent here is a `store_record_stream` command
+that appends a query to the manifest and rewrites it per chunk — cheap, and the difference between a
+failed six-hour job being worthless and being resumable.
+
+**What it does not carry over.** The prototype's manifest holds store *keys*, so it can `contains`,
+list and clean its own directory before rewriting. Queries are more general — they cover a computed
+chunk, which keys cannot — and the cost is that **cleanup is no longer automatic**. A manifest whose
+queries point at stored chunks knows nothing about removing them. That is accepted, and the
+`store_record_stream` command owns its own directory hygiene instead.
+
+**Registration.** Two `TypeInfo` entries in `Value::type_descriptions()` (`value.rs:407`) —
+`CLAUDE.md`'s "four steps, not three; a type with no `TypeInfo` cannot be stored" — checked by
+`type_descriptions_match_identifier`. Identifiers `RecordChunk` and `RecordStream`, bare CamelCase
+because `liquers-core` owns both concepts. `RecordChunk` writes as `json`, `ndjson`, `csv`;
+`RecordStream` writes as `json` (the manifest) day one, with `ndjson` and `csv` following an
+incremental writer. Both payloads are `Arc`-wrapped so `Value` does not grow past 704 bytes. Every
+existing `match` on `Value` gains **two** explicit arms; a comparable variant (`Value::Recipe`) is
+named at 17 sites, 8 of them in `value.rs`.
+
+**Serialization of the multi-gigabyte case** is where `VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER`
+bites: NDJSON and CSV are the two formats a stream can write incrementally, and neither can be
+produced through a `Vec<u8>`-returning writer. A `Manifest` sidesteps it — the manifest itself is
+small — which is a further argument for preferring that form.
 
 ## Trait Implementations
 
@@ -719,15 +819,18 @@ as the fourth step of adding a value type; `context` last in a command signature
 
 ## Open Questions for Phase 3
 
-1. Does `ChunkedRecordSource` earn its place in the first milestone, given nothing implements a
-   non-trivial partition until an external engine is fed? (`RecordBatchStream` is a type alias and
-   costs nothing, so the question narrows to the trait.)
-2. Does `FieldType` need `Date` and `Decimal` for GlueSQL and Arrow fidelity, or is `Timestamp` plus
-   `Float` enough until the SQL task starts?
-3. What is the default batch size, and is it a row count or a byte budget? A byte budget is the
+1. ~~Does `FieldType` need `Date` and `Decimal`?~~ **Resolved**: `Date` now, `Decimal` when the SQL
+   task needs it.
+2. ~~Is `with_columns` the right extension point for derived fields?~~ Still open, but narrowed —
+   the search design's evidence columns are its only user, and they apply to a `RecordChunk`.
+3. Does `ChunkedRecordSource` earn its place, now that `StreamBacking::Manifest` covers the case the
+   trait was introduced for? A manifest *is* a partition, expressed as data rather than as a method.
+   **This is the sharpest remaining question** — the trait may be redundant.
+4. What is the default batch size, and is it a row count or a byte budget? A byte budget is the
    honest answer for the multi-gigabyte case but needs a size estimate per column.
-4. Should `RecordSet` cap its own size, or is `truncated` purely a producer's report?
-5. Is `with_columns` the right extension point for derived fields, or should a consumer build a new
-   batch? The search design's evidence columns are the first user of whichever answer.
-6. Does the 64-clause cap implied by a `UInt` evidence bitmask belong here (as a documented property
-   of the convention) or in the search design that uses it?
+5. Should `RecordSet` survive at all, now that `RecordChunk` is the materialized `Value` and
+   `RecordStream` the lazy one? It may be a third name for something the two variants already cover.
+6. Does the 64-clause cap implied by a `UInt` evidence bitmask belong here or in the search design?
+7. `Manifest(Vec<Query>)` cannot clean up chunks it points at, unlike the prototype's key list. Does
+   `store_record_stream` need a companion that removes a manifest's stored chunks, or is that the
+   caller's business?

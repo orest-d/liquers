@@ -92,22 +92,141 @@ audience is a contributor adding a data source, which is a repeatable task.
 Audience: a contributor writing a data source or sink, and an integrator connecting an external
 system. Both should work from the reference and the guide without opening this folder.
 
-## Open Questions
+## Open Questions — answered 2026-09-19
 
-1. How far does laziness go in the first version? A chunk-at-a-time stream is achievable now; a
-   *row-group-at-a-time* read of a large file needs `openbin`, which no store implements.
-2. Is the stream `Value` variant a materialized set of chunks, a lazy handle, or a type that can be
-   either? A lazy handle is not cloneable or cacheable, which is what a `Value` must be.
-3. Does provenance live in a `Metadata` per chunk, or in a narrower record-specific structure?
-   Reusing `Metadata` buys the dependency machinery and costs 704 bytes per chunk.
-4. Which column types are in the first version, and does `FieldType` need `Date` and `Decimal` for
-   GlueSQL and Arrow fidelity?
-5. Does the schema carry a uniformity promise across chunks, which CSV serialization needs and search
-   does not?
-6. How much DataFrame is enough? `select`/`filter`/`slice`/`concat` is the floor; group-by and join
-   are a query engine and belong to the SQL task.
-7. Should a chunk's records be addressable individually as a query, and if so is that a locator rule
-   on the chunk or a general capability?
+All seven were answered. Three changed the architecture; one was badly posed and is restated.
+
+### 1. How far does laziness go in the first version? — **Chunk-at-a-time; `openbin` out of scope**
+
+The goal is a solid basis for lazy record streams, not the deepest possible laziness now. `openbin`
+stays out of scope, but nothing here may **foreclose** a future command that uses it. Consequence:
+`open_chunk` returns a *stream of batches* rather than a chunk, so a row-group-at-a-time reader slots
+in later as a different implementation of the same trait, not as a redesign.
+
+### 2. Materialized, lazy handle, or either? — **Lazy handle, with eyes open**
+
+A record stream is a lazy handle. It may **optionally** support rewind, which makes it cloneable in
+those cases; otherwise sharing it is a hazard the user must understand and generally avoid. Stream
+commands are therefore **typically `volatile`**.
+
+Checked: `volatile` is fully wired in `assets.rs` — a volatile keyed asset is never stored and never
+registered, and volatility propagates to everything downstream of it. So the marker the prototype
+needs already works. (`CommandMetadata.cache` does **not** — see the defect noted below.)
+
+### 3. Provenance in `Metadata` per chunk, or something narrower? — **Two variants, and the manifest is the preferred form**
+
+The answer is now driven by the prototype at
+[`liquer/ext/dataframe_batches.py`](https://github.com/orest-d/liquer/blob/master/liquer/ext/dataframe_batches.py),
+which was read for this design. It is more directly relevant than expected: **it already contains
+this split.**
+
+What it actually does — worth stating precisely, because it differs from the recollection of it in
+one instructive way:
+
+- `StoredDataframeIterator` holds `key` (a directory), `item_keys` (one store key per batch),
+  `extension` and `number_format`. It serializes to JSON under its own `.idf` type. So the shareable
+  form is a **manifest**: a small document naming where the batches are, not the batches themselves.
+- It is **keys, not queries**. Generalizing key → query is the right move for Liquers — a query
+  covers a computed chunk as well as a stored one — but the narrower choice bought the prototype
+  something real: a key can be `contains`-checked, listed and removed, which `_store_batches` relies
+  on to clean its directory before writing. A general query cannot be cleaned up. **This design takes
+  queries and accepts that cleanup is then not automatic.**
+- `rewind()` exists, and `__iter__` returns `self.copy().rewind()` — so iteration is non-destructive.
+  **That is only possible because the chunk list is materialized.** A generator-backed stream
+  (`repackage_batches`) cannot rewind. Rewindability is a property of the *manifest*, not of
+  streaming.
+- The volatility markers sort the commands into exactly two classes: `concat_batches` and
+  `store_batches` return materialized values and are cacheable; `repackage_batches` and
+  `store_batches_pass_through` are generators and carry `@command(volatile=True, cache=False)`.
+- `_store_batches` rewrites the manifest after **every** batch, so a long run that dies leaves its
+  completed batches usable. A generator cannot be checkpointed; a growing list of queries can. This
+  is a real argument for the manifest form in the multi-gigabyte case, and it was not in this design
+  before reading the prototype.
+
+**One caveat on the prototype's authority.** The store-append path at `master` is broken:
+`_store_batches` does `sdfi = pd.concat([sdfi, df])`, concatenating a `StoredDataframeIterator` with
+a DataFrame, while the correct `sdfi.append(df)` method sits unused directly above it and the
+original hand-rolled store code is commented out below. So the *shape* is validated by use; that
+specific path is not. Nothing in this design depends on it.
+
+**The resolution: three forms, two of them `Value` variants.**
+
+| Form | Shareable | Cacheable | Serializable | Rewindable | `Value`? |
+|---|---|---|---|---|---|
+| **Materialized chunk** — a table in memory | yes | yes | yes | n/a | `Value::RecordChunk` |
+| **Manifest stream** — a list of queries, one per chunk | yes | yes | yes, as the query list | yes | `Value::RecordStream` |
+| **Opaque stream** — a generator | no | no | no | no | `Value::RecordStream`, volatile |
+
+The two streaming forms are **one variant with two backings**, not two variants, because they differ
+only in whether the chunk sequence is known in advance:
+
+```rust
+enum StreamBacking {
+    /// One query per chunk. Rewindable, serializable, cacheable, checkpointable.
+    Manifest(Vec<Query>),
+    /// A generator. One-shot; the command producing it must be `volatile`.
+    Opaque(/* … */),
+}
+```
+
+`rewind()` succeeds on `Manifest` and fails on `Opaque`; serialization likewise. That is exactly
+"optionally provide a possibility to rewind, which would make it cloneable in some cases", expressed
+in the type rather than in documentation.
+
+**Provenance**, the question as originally posed, follows: a manifest chunk's provenance is the
+`Metadata` of the query that produces it, which the asset layer already computes — no per-chunk
+`Metadata` needs storing at all. An opaque chunk carries one inline. So `Metadata` is reused, and the
+704-byte worry applies only to the form that is not cached anyway.
+
+### 4. Which column types? — **Add `Date` and date-time; `Decimal` later**
+
+`chrono` is already a direct `liquers-core` dependency (`Cargo.toml:73`) and dates appear throughout
+the existing metadata, so `Date` is added now. Storage stays primitive and Arrow-shaped —
+`Date` is Arrow `Date32` (days since epoch, `i32`), date-time is the existing `Timestamp`
+(microseconds, `i64`); chrono is the conversion layer, not the storage. `Decimal` is deferred to
+whenever the SQL task needs it.
+
+### 5. Does the schema promise uniformity across chunks? — **No promise; declared, not assumed**
+
+Mostly uniform in practice, not guaranteed. The prototype agrees in the strongest way available: on
+a column-count mismatch `concat_batches` and `repackage_batches` **warn and continue** rather than
+fail.
+
+The "all CSV files in a folder become one record stream, one chunk per file" case raised alongside
+this answer is not a separate question — **it is the manifest form's motivating example**, a
+`Manifest(vec![…])` with one query per file. So it is useful rather than illegal. Non-uniformity is
+legal and has consequences rather than being an error: a stream whose chunks disagree cannot
+`concat`, and cannot serialize as a single CSV (NDJSON is unaffected). Uniformity is therefore a
+property a stream **declares and a consumer checks**, not an invariant.
+
+### 6. How much DataFrame is enough? — **The baseline**
+
+`select`/`filter`/`slice`/`concat` closes it. Group-by and join are a query engine and belong to the
+SQL task.
+
+### 7. ~~Should a chunk's records be addressable individually as a query?~~ — **Badly posed; split in two**
+
+The question conflated two things, which is why it did not read clearly. Separated:
+
+- **Identity** — can a record be named? **Yes, always, and cheaply.** A unique record id, plus a
+  **chunk id**, which is confirmed as desirable and cheap. This promotes the chunk id from an
+  internal field of `ChunkDescriptor` to part of the record identity: a record is identified by
+  **(chunk id, record id)**, and the chunk id is stored once per batch rather than per row.
+- **Addressability** — can a *query* be constructed that returns exactly that one record? **Not
+  always, and optional.** This is what `LocatorRule` is for: available when a projection can offer
+  one (`-R/f.csv/-/ns-csv/row-42`), absent otherwise, with re-evaluating the chunk as the guaranteed
+  fallback.
+
+Only the second was ever in doubt, and it stays optional.
+
+## Defect noted while answering
+
+`CommandMetadata.cache` (`command_metadata.rs:1013-1019`) is **declared, documented, serialized into
+`command_registry.yaml`, and read by nothing** — the only reference outside its own definition is an
+equality assertion in a test (`command_declaration.rs:987`), and `register_command!` has no statement
+to set it. A command author who sets it gets silence. It is not a blocker here, because `volatile`
+already does what the prototype's `cache=False` was for, but it is a knob that does nothing. Filed as
+`COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ`.
 
 ## References
 
