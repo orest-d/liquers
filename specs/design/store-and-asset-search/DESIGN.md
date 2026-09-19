@@ -19,11 +19,29 @@ superseded_by:
 ## Phase Status
 
 - [x] Phase 1: High-Level Design — approved 2026-09-18
-- [ ] Phase 2: Solution & Architecture
+- [ ] Phase 2: Solution & Architecture — written to revision 7, **blocked** on `record-streams`
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
+
+## Split: records moved out, 2026-09-19
+
+Six Phase 2 revisions established that the interesting half of this work was **not the search**. A
+search is a predicate over a stream of records, and the record stream turned out to serve four
+consumers of which search is one — search, external engines, SQL and serialization — while carrying
+requirements search never raises: multi-gigabyte lazy processing, an Arrow-compatible layout, a
+DataFrame role where polars cannot be bundled, and per-chunk provenance.
+
+So the record mechanism was extracted into [`record-streams`](../record-streams/) and is being
+**stabilized first**; search is rebuilt on top of it. This design keeps the predicate, its syntax,
+its parser, the two execution paths, the indexation policy, the interoperability layer and the
+`get_asset_info` repair.
+
+**Consequence for sequencing:** `NO-RECORD-STREAM-ABSTRACTION` is now a declared **blocker** on this
+design's Phase 2, resolved by the other design completing rather than by a fix here. Phase 2 cannot
+be approved while `record-streams` Phase 1 is unapproved — which is the intended order, not an
+obstacle.
 
 ## Notes
 
@@ -47,9 +65,11 @@ many use cases as possible. The folder therefore carries three documents beside 
   RAG pipeline or SQL mirror without tying the design to any of them. Added in the third round,
   when the brief asked whether one hook system could serve them all and handle updates and
   expiration.
-- `record-model.md` — what a record, a record stream, a chunk, a batch and a schema are. Added in
-  the fourth round, when partial refresh turned out to need a unit smaller than the stream, and
-  extended in the fifth when memory turned out to need a second, smaller one.
+- [`record-model.md`](../record-streams/record-model.md) — what a record, a record stream, a chunk, a
+  batch and a schema are. Added in the fourth round, when partial refresh turned out to need a unit
+  smaller than the stream, and extended in the fifth when memory turned out to need a second, smaller
+  one. **Moved to [`record-streams`](../record-streams/) in the split of 2026-09-19** and owned
+  there.
 - `indexation-policy.md` — which documents are indexed, whether content is read or produced, and why
   volatile assets need a second refresh regime. Added in the seventh round.
 - `roadmap.md` — which decisions are foundational and which are additive, the milestones, and what
@@ -288,7 +308,7 @@ deserves, its own mechanism.
 - [Use cases](./use-cases.md)
 - [Research questions](./research-questions.md)
 - [Options analysis](./options-analysis.md)
-- [Record model](./record-model.md)
+- [Record model](../record-streams/record-model.md)
 - [Indexation policy](./indexation-policy.md)
 - [Interoperability layer](./interoperability-layer.md)
 - [Roadmap](./roadmap.md)

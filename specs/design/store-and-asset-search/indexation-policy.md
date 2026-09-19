@@ -139,7 +139,7 @@ A keyed corpus is **enumerable** — that is what `listdir` is. The space of que
 index cannot discover which ad-hoc queries to hold. **The set must be declared.**
 
 And the declaration already exists in this design: the **partition** of
-[`record-model.md`](./record-model.md) §3 is a list of `(chunk id, chunk query, version)`, and
+[`record-model.md`](../record-streams/record-model.md) §3 is a list of `(chunk id, chunk query, version)`, and
 nothing requires a chunk query to be key-rooted. A generator that yields arbitrary queries — one per
 region, one per month — is the same mechanism with a different source. The construct built for
 partial refresh turns out to be the enumeration mechanism for non-keyed assets.

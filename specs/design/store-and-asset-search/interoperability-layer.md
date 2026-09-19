@@ -5,7 +5,7 @@ question and it has its own document: **can one mechanism serve an external sear
 database, a RAG pipeline and an external SQL database — and can it handle updates and expiration?**
 
 The record model those systems are fed — what a record, a stream and a chunk are — is
-[`record-model.md`](./record-model.md). This document is about the *mechanism*: how a view is fed,
+[`record-model.md`](../record-streams/record-model.md). This document is about the *mechanism*: how a view is fed,
 how it learns it is stale, and what refreshes it.
 
 The answer is yes, and the reason is that all four are the same thing wearing different clothes:
@@ -77,7 +77,7 @@ For a scope — which in the general case is a **stream query**, and in the simp
 Two calls rather than one, deliberately: the diff is cheap and proportional to the corpus in
 *metadata*, while the fetch is proportional to what actually **changed**.
 
-**The granularity is the chunk, not the record** ([`record-model.md`](./record-model.md) §3). A
+**The granularity is the chunk, not the record** ([`record-model.md`](../record-streams/record-model.md) §3). A
 record has no independent existence — it is derived, so versioning one costs a full read of its
 source. A chunk is the smallest unit whose staleness is decidable from metadata alone, which is what
 makes it the right unit and not an arbitrary batching convenience. Refresh replaces a chunk's
@@ -233,7 +233,7 @@ Naming these now prevents them being discovered as surprises:
   new embedding model), every record's record changed although no document did. The layer needs a
   projection identity that participates in the diff — otherwise a model upgrade silently leaves a
   stale index looking fresh. **This is the one genuinely new concept the layer requires**, and
-  Phase 2 must design it. [`record-model.md`](./record-model.md) §6 places it in the chunk version,
+  Phase 2 must design it. [`record-model.md`](../record-streams/record-model.md) §6 places it in the chunk version,
   where it invalidates by the same mechanism as a content change.
 
 ---

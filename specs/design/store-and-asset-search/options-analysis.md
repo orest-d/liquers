@@ -3,7 +3,7 @@
 Companion to [Phase 1](./phase1-high-level-design.md), which states the delimitation. The use-case
 survey is in [`use-cases.md`](./use-cases.md); the research questions are answered in
 [`research-questions.md`](./research-questions.md); the record, stream, chunk and schema model is
-[`record-model.md`](./record-model.md); the layer for plugging in external engines is
+[`record-model.md`](../record-streams/record-model.md); the layer for plugging in external engines is
 [`interoperability-layer.md`](./interoperability-layer.md). **This document is the design
 analysis**: the ground truth it rests on, the unifying model, the decision axes, and the
 recommended combination.
@@ -182,7 +182,7 @@ well.
 an identity that is a **query** rather than a key, because a command's address is not a store key
 (§5) and a derived hit may have no key at all. A hit over a record stream carries the record's
 optional **locator** too, so "row 42 of this CSV" is addressable rather than merely described
-([`record-model.md`](./record-model.md) §1).
+([`record-model.md`](../record-streams/record-model.md) §1).
 
 **D3. A new rich value type in `liquers-lib`.** Only if the result outgrows D2+; costs an `ExtValue`
 variant, conversions and a `TypeInfo`.

@@ -13,6 +13,13 @@ retrieval. Two consumers are essential: **the agent memory system**, which needs
 documents without spending context on them, and **a user's search field**, which needs one input box
 to return a usable list.
 
+> **Amended 2026-09-19 by the split.** The record half of this design was extracted into
+> [`record-streams`](../record-streams/) and is being stabilized first. Everything below about
+> *records, streams, chunks, batches and schemas* is now that design's, and is restated here only as
+> the context a search needs. This design owns the **predicate** and its syntax. The sentence
+> "selection is a trait method" below was also reversed by Phase 2 revision 2 — selection is a
+> command over a record stream, and no store or asset trait gains a method.
+
 ## The model
 
 Every essential use case is the same operation: *select records from a set, by a predicate over
@@ -277,7 +284,7 @@ search. Both should work from the reference and the guide without opening this f
 - [Use cases](./use-cases.md) — the survey and the essential/optional classification
 - [Research questions](./research-questions.md) — the nine questions, answered with evidence
 - [Options analysis](./options-analysis.md) — ground truth, the model, the axes, the recommendation
-- [Record model](./record-model.md) — what a record, a stream, a chunk and a schema are, and why
+- [Record model](../record-streams/record-model.md) — what a record, a stream, a chunk and a schema are, and why
   the refresh unit is the chunk
 - [Indexation policy](./indexation-policy.md) — which documents are indexed, whether content is
   produced or only read, and why volatile assets need time-based refresh

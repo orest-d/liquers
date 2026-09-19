@@ -1,7 +1,7 @@
 # The record model: records, streams, chunks, batches and schema
 
 Companion to [Phase 1](./phase1-high-level-design.md) and to
-[`interoperability-layer.md`](./interoperability-layer.md), which established that a record is the
+[`interoperability-layer.md`](../store-and-asset-search/interoperability-layer.md), which established that a record is the
 common denominator between full-text search, an external engine, a vector store and SQL. This
 document answers what a record actually **is**, how a stream is partitioned so that part of it can be
 refreshed, and how memory is bounded when a single dependency-natural unit is far too large to
@@ -182,7 +182,7 @@ that is not key-addressable**. A chunk query need not be rooted at a key, so a g
 arbitrary queries — one report per region, one per month — declares a corpus that `listdir` could
 never discover, because the space of queries is infinite and there is no `listdir` for it. That is
 not an extension of the partition: it is the same list of `(chunk id, query, version)`, from a
-different source. See [`indexation-policy.md`](./indexation-policy.md) §5.
+different source. See [`indexation-policy.md`](../store-and-asset-search/indexation-policy.md) §5.
 
 ---
 

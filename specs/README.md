@@ -136,7 +136,8 @@ expansion time rather than at runtime. That is the cheapest item here.
 - **Store behavioural semantics** — documented → [`reference/STORE_SEMANTICS.md`](reference/STORE_SEMANTICS.md)
 - **Shared directory support for backends without directories** — documented → `liquers-core/src/store_dir_index.rs` *(design in [`design/opendal-path-mapping/`](design/opendal-path-mapping/))*
 - **Streaming binary access (`openbin`)** — planned → [`issues/CORE-STORE-OPENBIN-MISSING.md`](issues/CORE-STORE-OPENBIN-MISSING.md)
-- **Content and metadata search** — designing → [`design/store-and-asset-search/`](design/store-and-asset-search/)
+- **Record streams — a chunked, Arrow-interoperable tabular abstraction** — designing → [`design/record-streams/`](design/record-streams/)
+- **Content and metadata search** — designing → [`design/store-and-asset-search/`](design/store-and-asset-search/) *(blocked on record streams)*
 - **SQL over stored and derived data** — planned → [`issues/NO-SQL-QUERY-CAPABILITY-OVER-STORED-AND-DERIVED-DATA.md`](issues/NO-SQL-QUERY-CAPABILITY-OVER-STORED-AND-DERIVED-DATA.md)
 - **Read-only mounts** — planned → [`issues/STORE-NO-READ-ONLY-ADAPTER.md`](issues/STORE-NO-READ-ONLY-ADAPTER.md)
 - **Conditional writes and concurrent-writer semantics** — planned → [`issues/STORE-WRITE-HAS-NO-PRECONDITION.md`](issues/STORE-WRITE-HAS-NO-PRECONDITION.md)
@@ -177,7 +178,9 @@ eleven answered research questions, an options analysis and an interoperability 
 Phase 1. Its model is that every essential use case is one operation — select records by a predicate
 over their fields and their text — so commands become a *record source* rather than a search feature,
 and vector similarity becomes a clause over the same records. Projection is a command because it
-varies with the value type; selection is a trait method because it varies with the backend.
+varies with the value type; **selection is also a command**, over the record stream a projection
+produces — Phase 1 put it on the store trait and Phase 2 reversed that, because a trait method is a
+push-down optimization rather than the mechanism, and no store or asset trait gains one.
 
 Two invariants carry most of the weight. **A search never evaluates**: a content search reaching an
 unevaluated recipe could recompute a whole corpus. And **an external system's correctness comes from
@@ -195,6 +198,15 @@ keeps a parquet file that is a perfectly good dependency unit from having to be 
 record is identified by its asset plus a cheap asset-dependent id, with the evaluable locator derived
 on demand rather than stored per row. Because a chunk is a table and a stream is a table in parts,
 the same mechanism serves search, external sinks, SQL and serialization.
+
+That last sentence is why the design **split in two** on 2026-09-19. Six architecture revisions
+established that the record mechanism serves four consumers of which search is one, and carries
+requirements search never raises: lazy processing of multi-gigabyte tables one chunk at a time, a
+memory layout Arrow can consume without a heavy dependency, a DataFrame role for `liquers-web` where
+polars cannot be bundled, and provenance and validity traced per chunk and flyweighted to the record.
+`design/record-streams/` owns all of it and is being stabilized first; `design/store-and-asset-search/`
+keeps the predicate, its syntax and its parser, the indexation policy, the interoperability layer and
+the `get_asset_info` repair, and is blocked on it by declaration rather than by accident.
 
 Designing this found three gaps: `ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET`
 (expiration is notified, but only to something already holding the asset),
@@ -353,6 +365,7 @@ deliberately folded behind a broader line.
 - feature `JS-COMMAND-CANNOT-ACCESS-CONTEXT`
 - feature `LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION`
 - feature `LANGUAGE-STORE-TYPE-NOT-DEFINABLE`
+- feature `NO-RECORD-STREAM-ABSTRACTION`
 - feature `STORE-COMMAND-NAMESPACE-MISSING`
 - feature `STORE-CONFIG-FROM-URI`
 - feature `STORE-OPENDAL-ARGUMENTS-NOT-DERIVED`
