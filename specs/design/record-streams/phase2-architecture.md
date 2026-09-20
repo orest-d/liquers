@@ -6,8 +6,8 @@
 > **this design's Phase 1 is not yet approved**, and Phase 2 is not approved by the carry-over.
 > §0 lists what changed in the move, §0.1 what the Phase 1 answers of 2026-09-19 changed, §0.2 the
 > abstraction cleanup of revision 2, §0.3 the Arrow correction of revision 3, §0.4 the wasm sharing
-> mechanism of revision 4, §0.5 the move to `liquers-lib` in revision 5, and §0.6 the indexing-intent
-> model of revision 6.
+> mechanism of revision 4, §0.5 the move to `liquers-lib` in revision 5, §0.6 the indexing-intent
+> model of revision 6, and §0.7 HTTP streaming in revision 7.
 
 ## Overview
 
@@ -190,7 +190,38 @@ rather than silently dropping them — a new requirement on the interoperability
 point ids must be unsigned integers or UUIDs**, so that sink must map arbitrary string ids and keep
 the original in the payload.
 
-## Known-Issue Preflight## Known-Issue Preflight## Known-Issue Preflight## Known-Issue Preflight## Known-Issue Preflight## Known-Issue Preflight
+## 0.7 Revision 7 — streaming a source over HTTP
+
+Serializing a record source to CSV or NDJSON over HTTP must not build the whole document in memory,
+which would undo the chunked design at the last step. §"Streaming a record source over HTTP" adds an
+**ad-hoc** path in `liquers-axum`, with the general mechanism deferred.
+
+It needs **no new dependency** — `Body::from_stream` is in axum 0.8.9 and `futures 0.3.34` is already
+a direct dependency of that crate.
+
+**The clearest practical vindication of revision 2's split.** The handler receives a `RecordSource`
+and opens the stream *inside the response body*. Had streams been values, the value reaching the
+handler could already be partly consumed, and two concurrent requests for one URL would race for a
+single traversal. Because a source is re-openable, every request gets its own.
+
+Three things this pattern breaks, all now stated rather than discovered:
+
+1. **A mid-stream error cannot change a status already sent.** Mitigated by pulling the first batch
+   *before* headers, which converts front-loaded failures (bad query, missing entry, schema
+   rejection, non-uniform stream asked for as CSV) into a proper 4xx/5xx. NDJSON can carry a
+   trailing error line; **CSV truncates indistinguishably from success**, which is a documented
+   limitation, not an oversight.
+2. **No `Content-Length`** — chunked transfer-encoding, so no progress and no range requests.
+3. **Nothing materializes, so nothing is cached.** Acceptable here because the *source* is a
+   cacheable value: resolving the manifest and evaluating chunk queries is still cached, and only
+   the encoding repeats per request.
+
+A finding recorded on `VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER`, which is the general gap:
+that issue proposes a **writer**-based (push) API, but an HTTP body is **pull**-based, and bridging
+push to pull needs a channel plus a task rather than an adapter. The general mechanism should offer
+a stream form, with the writer form built on it rather than the reverse.
+
+## Known-Issue Preflight## Known-Issue Preflight## Known-Issue Preflight## Known-Issue Preflight## Known-Issue Preflight## Known-Issue Preflight## Known-Issue Preflight
 
 Searched `specs/index.csv` for non-terminal `issue`/`feature` records whose `area` intersects
 `core/value`, `core/commands`, `core/context`, `core/query`, `lib/value`, `web`.
@@ -199,7 +230,7 @@ Searched `specs/index.csv` for non-terminal `issue`/`feature` records whose `are
 |---|---|---|---|---|---|---|---|
 | `NO-RECORD-STREAM-ABSTRACTION` | draft | P2 | This design *is* its resolution | n/a | no | Close in Phase 5 | keep P2 |
 | `CORE-VALUE-ENUM-OVERSIZED` | draft | P2 | `Value` is 704 bytes. Drove fields to `FieldValue` and the new variant behind `Arc` | no | no | Honoured throughout | keep P2 |
-| `VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER` | draft | P2 | A multi-gigabyte record stream cannot be serialized through a `Vec<u8>`-returning writer. **The clearest motivating case yet filed for it** | no | no | Monitor; streaming serialization is a later milestone, and this issue is its prerequisite | consider P1 when that milestone starts |
+| `VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER` | draft | P2 | A multi-gigabyte record stream cannot be serialized through a `Vec<u8>`-returning writer. **The clearest motivating case yet filed for it**, now with a concrete consumer in `liquers-axum` | no | no | **Ad-hoc streaming in `liquers-axum` for this design**; issue updated with the HTTP motivation and the push-vs-pull finding | consider P1 when a second value type needs it |
 | `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` | draft | P2 | Front-matter fields have nowhere to live, so `attr.`-qualified columns have no source | no | no | Field qualification is designed to accept it as a pure upgrade | keep P2 |
 | `COMMAND-CONTEXT-PARAM-ORDER` | accepted | P2 | `context` must be last in record-producing commands | no | no | Honoured | keep P2 |
 | `CORE-SYNC-STORE-TRAIT-OBSOLETE` | — | — | Record sources read through `AsyncStore` only | no | no | — | — |
@@ -1265,6 +1296,7 @@ the previous revisions reached for: the design becomes purely additive to one cr
 | **`liquers-core`** | `src/maybe_send.rs` | **The one exception** — `BoxStream` + `MaybeBoxedStream`, ungated. Justified below |
 | `liquers-web` | `src/records.rs` (new) | The `RecordChunk` handle, per-column descriptors, `columnCopy`; the JS companion that revalidates views |
 | `liquers-web` | `Cargo.toml` | add `"records"` to the `liquers-lib` feature list |
+| `liquers-axum` | `src/axum_integration.rs` | A streaming branch for `RecordSource` + `csv`/`ndjson`: `Body::from_stream`, eager first batch, uniform-schema check. No new dependency — axum 0.8.9 and `futures` are already there |
 | `liquers-py` | later milestone | Arrow C Data Interface export — the only place `unsafe` FFI belongs |
 | `specs` | `command_registry.yaml` | Regenerated |
 
@@ -1336,6 +1368,113 @@ The cost, stated: a consumer wanting records without the rest of `liquers-lib` c
 because the crate is the unit of dependency. That is acceptable while `liquers-lib` is where command
 libraries live anyway, and if a `liquers-records` crate is ever wanted, the module is already
 self-contained enough to lift out.
+
+## Streaming a record source over HTTP (`liquers-axum`)
+
+**Added in revision 7.** Serializing a record source to CSV or NDJSON over HTTP must not build the
+whole document in memory — which is the entire point of the chunked design, and would otherwise be
+undone at the last step. This is **a new pattern for Liquers**, and it is taken ad-hoc for now, with
+the general mechanism deferred (below).
+
+### What it breaks in the normal flow
+
+| | Normal flow | Streaming |
+|---|---|---|
+| Serialization | `as_bytes(format) -> Vec<u8>`, whole document | per batch, incrementally |
+| Body | `Body::from(bytes)` | `Body::from_stream(…)` |
+| `Content-Length` | known | **absent** — chunked transfer-encoding |
+| Errors | status chosen after serializing | **status is already sent** |
+| Caching | serialized result cached | nothing to cache |
+
+`Body::from_stream` is available in axum 0.8.9 (already the dependency), and `futures 0.3.34` is
+already a direct `liquers-axum` dependency, so **no new dependency is required**.
+
+### Why a *source* makes this work, and a stream would not
+
+The handler receives an `ExtValue::RecordSource` from the asset layer — shareable, cacheable, not
+consumed by use — and **opens the stream itself, inside the response body**. Had streams been values,
+the value reaching the handler could already be partly consumed by whatever touched it first, and two
+concurrent requests for the same URL would race for one traversal.
+
+This is the clearest practical vindication of revision 2's split: **the value is re-openable, so
+every request gets its own traversal of the same source.**
+
+```rust
+// liquers-axum — sketch
+let source: Arc<RecordSource> = /* from the evaluated value */;
+let mut stream = source.stream(&context).await?;      // fails BEFORE headers, see below
+let first = stream.next().await.transpose()?;          // pull one batch eagerly
+
+let body = Body::from_stream(encode_batches(format, schema, first, stream));
+Response::builder()
+    .status(StatusCode::OK)
+    .header(header::CONTENT_TYPE, format.mime_type())
+    .body(body)
+```
+
+### The hard part: an error after the first byte
+
+Once the status line and headers are sent, a failure **cannot** become a 500. Three mitigations, in
+order of how much they buy:
+
+1. **Pull the first batch before sending headers** — the sketch above. Most failures are front-loaded:
+   a bad query, a missing store entry, a schema that fails validation, a non-uniform stream asked for
+   as CSV. Converting those into a proper 4xx/5xx costs one batch of latency and one batch of memory,
+   and is the single highest-value thing here.
+2. **NDJSON can carry an error in band.** A final line `{"error": "…"}` is machine-readable, and a
+   client that parses each line sees it. This is a good reason to prefer NDJSON for large exports.
+3. **CSV cannot.** There is no in-band error representation, so a mid-stream failure **truncates**,
+   and a truncated CSV is indistinguishable from a complete one. An HTTP trailer
+   (`Trailer: X-Liquers-Error`) is emitted where possible, but client support is poor enough that it
+   cannot be relied on. **This is a real, documented limitation, not an oversight** — and it is the
+   reason the reference must say so plainly rather than leave a caller to discover it.
+
+Every mid-stream failure is logged server-side regardless, since the client may never learn of it.
+
+### Format constraints
+
+**CSV requires a uniform schema** — §"Schema uniformity is declared" establishes there is no single
+header otherwise. So the handler checks `RecordSource::uniform_schema` *before* sending headers and
+refuses with `409 Conflict` naming NDJSON as the alternative when it is `None`. The eager first-batch
+pull makes this check natural rather than bolted on.
+
+| Format | Uniform schema | Header | Mid-stream error |
+|---|---|---|---|
+| `ndjson` | not required | — | in-band error line |
+| `csv` | **required** | once, before the first batch | truncation |
+| `json` | not required | `[` … `]` framing | truncation of an unterminated array — detectable |
+
+### Caching, cancellation, backpressure
+
+- **Caching:** a streamed response never materializes, so there is nothing to cache — but the
+  **source is still a cacheable value**, so the expensive part (resolving the manifest, evaluating
+  chunk queries) is cached as normal and only the *encoding* is repeated per request. That is the
+  right trade and it means streaming does not defeat the asset layer.
+- **Cancellation:** a client disconnect drops the body, which drops the stream. Everything is `Arc`-
+  held, so `Drop` releases it; no special handling.
+- **Backpressure:** hyper polls the body as the client reads, so a slow client slows production
+  rather than filling a buffer. Correct by construction — worth stating because it is the property
+  that makes streaming multi-gigabyte exports safe at all.
+
+### Deferred: the general mechanism, and a finding about its shape
+
+`VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER` is the general gap, and this design is its clearest
+motivating case. Writing this section produced a finding that **changes what that issue should ask
+for**:
+
+> The issue currently proposes a **writer-based** counterpart, `serialize_to_writer<W: Write>`,
+> modelled on `liquers-lib`'s existing `serialize_dataframe_to_writer`. That is **push**-based: the
+> serializer drives, writing when it chooses. An HTTP body is **pull**-based: hyper polls the stream
+> and the producer must yield. Bridging push to pull needs a bounded channel or a duplex pipe, plus a
+> task — real machinery, not an adapter.
+>
+> So a writer-based serializer alone would **not** straightforwardly serve HTTP. The general
+> mechanism wants either a pull-based form (`serialize_to_stream(&self, format) -> BoxStream<Bytes>`)
+> or both, with the writer form built on the stream form rather than the reverse.
+
+Recorded on the issue so the eventual design starts from the right shape. Until then the ad-hoc path
+above is a deliberate special case, confined to `liquers-axum`, that a general mechanism can replace
+without changing any URL or any caller.
 
 ## Documentation Architecture
 

@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [core/value]
-design: 
+design: record-streams
 created: 2026-09-17
 github:
 ---
@@ -76,3 +76,43 @@ Found while designing the record model for `store-and-asset-search`, 2026-09-17,
 record stream could be emitted as a table without materializing it. Verified at HEAD: `as_bytes` is
 the only serialization method on the trait (`value.rs:926`), and the writer-based DataFrame path at
 `polars/serde.rs:94` is called with an in-memory `Vec<u8>` at `value/mod.rs:302`.
+
+## Update 2026-09-20 — the shape may be wrong, and the motivating case is HTTP
+
+`record-streams` Phase 2 revision 7 designs streaming a `RecordSource` to CSV or NDJSON over HTTP
+(`liquers-axum`), which is this issue's clearest motivating case: a multi-gigabyte export must not
+build the whole document in memory, and `as_bytes` guarantees that it does.
+
+**A finding that changes what this issue should ask for.** The problem statement above proposes a
+*writer*-based counterpart modelled on `serialize_dataframe_to_writer<W: Write>`. That is **push**-
+based — the serializer drives and writes when it chooses. An HTTP body is **pull**-based: hyper polls
+the body and the producer must yield a chunk per poll. Bridging push to pull requires a bounded
+channel or a duplex pipe plus a task to run the writer, which is real machinery rather than an
+adapter, and it reintroduces a buffer whose size has to be chosen.
+
+So a writer-based API alone would **not** straightforwardly serve the HTTP case. The design should
+consider:
+
+```rust
+/// Pull-based: the consumer drives. Serves an HTTP body directly.
+fn serialize_to_stream(&self, data_format: &str) -> Result<BoxStream<'_, Result<Bytes, Error>>, Error>;
+
+/// Push-based: convenient for files and for anything already `Write`-shaped.
+fn serialize_to_writer<W: Write>(&self, data_format: &str, w: &mut W) -> Result<(), Error>;
+```
+
+with the **writer form built on the stream form** rather than the reverse, since stream → writer is a
+loop and writer → stream is a channel.
+
+Meanwhile `liquers-axum` takes an ad-hoc path for record sources only, confined to that crate, which
+a general mechanism can replace without changing any URL or caller.
+
+Two constraints that any general mechanism inherits, discovered in the same work and worth stating
+here so they are not rediscovered:
+
+- **A mid-stream error cannot change an HTTP status that has already been sent.** NDJSON can carry an
+  error in band; CSV cannot, and truncates indistinguishably from success. Pulling the first chunk
+  before sending headers converts most failures into a proper status and is the highest-value
+  mitigation.
+- **Streaming bypasses result caching**, since nothing materializes. Acceptable where the *input*
+  value is itself cacheable — as a `RecordSource` is — so only the encoding repeats.

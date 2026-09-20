@@ -5,7 +5,7 @@ title: Record streams — a lightweight, chunked, Arrow-interoperable tabular ab
 workflow: liquers-project
 status: draft
 phase: architecture
-area: [lib/value, lib/commands, web]
+area: [lib/value, lib/commands, web, axum]
 gh_pr: []
 issues: [NO-RECORD-STREAM-ABSTRACTION]
 affects_docs: [reference/RECORD_STREAMS.md, guides/RECORD_STREAM_GUIDE.md, reference/VALUE_TYPE_SYSTEM.md, guides/TYPE_SYSTEM_GUIDE.md, guides/COMMAND_REGISTRATION_GUIDE.md]
