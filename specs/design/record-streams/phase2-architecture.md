@@ -4,8 +4,8 @@
 > [`store-and-asset-search`](../store-and-asset-search/phase2-architecture.md), which is where it was
 > written and reviewed. It is recorded here at Phase 2 depth so the reasoning is not lost, but
 > **this design's Phase 1 is not yet approved**, and Phase 2 is not approved by the carry-over.
-> §0 lists what changed in the move, §0.1 what the Phase 1 answers of 2026-09-19 changed, and §0.2
-> the abstraction cleanup of revision 2.
+> §0 lists what changed in the move, §0.1 what the Phase 1 answers of 2026-09-19 changed, §0.2 the
+> abstraction cleanup of revision 2, and §0.3 the Arrow correction of revision 3.
 
 ## Overview
 
@@ -77,7 +77,33 @@ The previous revision's central finding survives untouched: the variants belong 
 `liquers-lib`, not on `Value` in core. It gets *easier* to justify, since neither surviving variant
 has any trouble with `Clone` — the trouble was only ever the stream, which is no longer a value.
 
-## Known-Issue Preflight## Known-Issue Preflight
+## 0.3 Revision 3 — what "Arrow-compatible" actually means
+
+Revision 2 and earlier claimed a "zero-copy pointer hand-off" without saying what is handed off. A
+fair objection exposed the gap: **Rust does not define struct layout, so what makes a Rust struct
+Arrow-compatible?** The answer is that nothing does, and nothing needs to — Arrow standardizes
+*buffers* and a *handoff ABI*, not structs. §"How Arrow compatibility actually works" now says so,
+and four things the earlier text got wrong or omitted are corrected:
+
+| Correction | Was | Is |
+|---|---|---|
+| The level compatibility lives at | "the layout is Arrow's, so it is a pointer hand-off" | Data compatibility is over `&[T]`, whose layout Rust *does* define; structure is rebuilt at the boundary as `#[repr(C)]` |
+| Whether a whole chunk can be shared | unstated | **Yes** — `ArrowArray` is recursive; a batch is a struct array with the columns as children |
+| The cost of exporting | implied free | Free for **data**; O(columns) small allocations for the **description** |
+| The wasm route | listed as plainly "zero-copy" | Qualified: **growing the wasm heap detaches every typed-array view**, so a view is valid only until the next call into wasm |
+
+Three layout mismatches are now written down rather than left to be discovered during
+implementation: `Text`/`Binary` offsets need `len + 1` entries, `Vector` exports as a
+`FixedSizeList` with its values in a **child** node, and `Bool` carries two bitmaps.
+
+One happy accident recorded: Arrow recommends padding buffers to a 64-byte multiple, which the
+`#[repr(align(64))]` backing-chunk approach already does.
+
+One dependency finding: **`polars-arrow 0.55.2` is already in the lockfile** via polars and exposes
+its own C Data Interface, so the native polars hand-off need not hand-roll FFI when the `polars`
+feature is on.
+
+## Known-Issue Preflight## Known-Issue Preflight## Known-Issue Preflight
 
 Searched `specs/index.csv` for non-terminal `issue`/`feature` records whose `area` intersects
 `core/value`, `core/commands`, `core/context`, `core/query`, `lib/value`, `web`.
@@ -151,30 +177,98 @@ multi-gigabyte case it sets how many rows fit in one resident batch.
 **`FieldValue` survives as the scalar type, not as storage** — it is what a filter compares against,
 what a single-cell read returns, and what a builder appends. Storage is columns.
 
-### Being Arrow-compatible cheaply
+### How Arrow compatibility actually works
 
-There are three ways to hand a batch to pandas, polars or DuckDB, and the important fact is that
-**two of them require the data to already be in Arrow's layout**:
+**Rewritten in revision 3.** The earlier text asserted a "pointer hand-off" without saying what is
+handed off, which hid a fair objection: *Rust does not define a struct memory layout, so how can a
+Rust struct be Arrow-compatible?*
 
-| Mechanism | Cost | Where it lives |
+**It cannot, and it does not have to — because Arrow does not standardize structs either.** Arrow
+standardizes **buffers**: contiguous runs of bytes holding primitive values, offsets, or packed bits,
+little-endian, with a recommended alignment. An Arrow "array" or "record batch" is a *logical*
+description of how some buffers fit together. It has no canonical in-memory struct anywhere, in any
+language.
+
+So compatibility lives at two separate levels, and conflating them is what made the earlier text
+misleading:
+
+| Level | What crosses | Why it is safe |
 |---|---|---|
-| **Arrow C Data Interface** — two small C structs plus a release callback, designed precisely for exporting columnar data *without* depending on `arrow-rs` | Zero-copy pointer hand-off; a few hundred lines, and `unsafe` | `liquers-py`, beside the existing pyo3 surface |
-| **Arrow IPC / Feather bytes** | No `unsafe`, but a flatbuffers encoder; a real chunk of work | `liquers-lib`, deferred — it is also the natural `.arrow` serialization for a record batch |
-| **Typed arrays over wasm memory** | Zero-copy; a `Float32Array`/`BigInt64Array` view onto the buffer | `liquers-web` — the browser equivalent of the same trick |
+| **Data** | the *contents* of `Buffer<T>` — an `[i64]`, `[i32]`, `[f32]`, `[u8]` | Rust **does** define this. A slice of a primitive is N contiguous values of known size and alignment, with the target's endianness. `#[repr(Rust)]` never enters into it: we share `&[T]`, never a struct |
+| **Structure** | which buffers, in what order, with what types | Rebuilt at the boundary as **`#[repr(C)]`** structs, whose layout *is* guaranteed |
 
-None of the three is possible from `Vec<Row>` without a full transpose and re-encode. Laying the
-buffers out Arrow's way makes all three a hand-off. **This is the cheap way the brief asks for, and
-it is cheap only because of the layout decision.**
+That second row is precisely what the **Arrow C Data Interface** is for. It is two small `repr(C)`
+structs — `ArrowSchema` (a type as a format string, a name, children) and `ArrowArray` (length,
+null count, offset, a pointer array of buffers, children, a `release` callback, `private_data`). Arrow
+deliberately declined to standardize in-memory structs across languages and standardized a **handoff
+ABI** instead. Our layout decision is what lets the buffer pointers in that ABI point straight at our
+data rather than at a converted copy.
 
-**The safety split matters and is deliberate.** `liquers-core` contains essentially no `unsafe` today
-— one occurrence in the whole crate, in a test fixture (`store_conformance/fixture.rs:181`) — and
-that should stay true. So core owns the **layout**, which is nothing but `Vec`s and bitmaps and is
-entirely safe; the **export** owns the FFI and lives in `liquers-py`, which already has the pyo3
-machinery and the right place for a release callback.
+**Can a whole chunk be shared, not just a column?** Yes. `ArrowArray` is **recursive** — it carries
+`n_children` and `children: *mut *mut ArrowArray`. A `RecordBatch` exports as a *struct array*: one
+root `ArrowArray` whose children are the column arrays, each pointing at our buffers. Exporting
+therefore allocates a small tree — one `ArrowArray` and one `ArrowSchema` per column, plus the root
+and the buffer-pointer arrays — and copies **no data**.
 
-**No claim of full Arrow support.** A deliberate subset: the types above, no nested `Struct`, no
-`Union`, no dictionary encoding, no large (64-bit offset) variants. Enough for a record batch and for
-a pandas hand-off; extendable, and honest about not being arrow-rs.
+> "Zero-copy" is true of the **data** and false of the **description**. The description is
+> O(number of columns) tiny allocations. Worth saying plainly, because the earlier phrasing implied
+> the whole thing was free.
+
+**Ownership is the part that needs care, and it is where the `unsafe` lives.** The consumer takes the
+struct and is obliged to call `release`. The producer boxes a private struct holding clones of the
+`Arc`s behind every exported buffer, stashes it in `private_data`, and drops it in `release`. That
+keeps our buffers alive exactly as long as pandas or polars holds them, and is the reason this code
+belongs in `liquers-py` beside the existing pyo3 surface rather than in core.
+
+#### Where our layout meets Arrow's, and three places it does not line up 1:1
+
+| `Column` variant | Arrow type | Buffers | Note |
+|---|---|---|---|
+| `Bool` | `Bool` | validity, values | Both bitmaps, LSB-first — matches |
+| `Int` / `UInt` / `Float` | `Int64` / `UInt64` / `Float64` | validity, values | Direct |
+| `Date` | `Date32` | validity, values (`i32` days) | Direct |
+| `Timestamp` | `Timestamp(Microsecond)` | validity, values (`i64`) | Direct |
+| `Text` / `Binary` | `Utf8` / `Binary` | validity, offsets, data | **Offsets must hold `len + 1` entries starting at 0** — an invariant the builder must enforce, not an implementation detail |
+| `Vector` | `FixedSizeList(Float32, dim)` | validity **only** | **Two levels.** The list node carries validity and *no* value buffer; the values live in a **child** `Float32` array. Our flat `Buffer<f32>` is right, but the export emits a child node for it |
+
+Those three rows are called out because they are the ones that get discovered late otherwise.
+
+**A useful coincidence on alignment.** Arrow *recommends* padding each buffer's length to a multiple
+of 64 bytes. The `#[repr(align(64))]` backing-chunk approach chosen for `AlignedBuffer` over-allocates
+to a 64-byte multiple anyway, so it produces Arrow's recommended padding for free — the logical length
+is tracked separately, as it must be regardless.
+
+**Endianness** is not a practical concern: the C Data Interface is same-process, so producer and
+consumer agree by construction, and Arrow IPC specifies little-endian, which every target this
+project builds for already is. One line, not a design problem.
+
+#### The three routes, honestly rated
+
+| Route | Data copied | Where | Status |
+|---|---|---|---|
+| **C Data Interface** | none | `liquers-py` | The real zero-copy path. A few hundred lines and the only `unsafe`. **`polars-arrow 0.55.2` is already in the lockfile** via polars, and exposes its own C Data Interface — so the native polars hand-off can go through it rather than hand-rolling FFI, whenever the `polars` feature is on |
+| **Arrow IPC / Feather** | yes — it is serialization | `liquers-lib`, deferred | Not sharing. A flatbuffers encoder; also the natural `.arrow` file format for a chunk |
+| **Typed arrays over wasm memory** | none, but fragile | `liquers-web` | **Weaker than the earlier draft claimed** — see below |
+
+**The wasm route needs a caveat the earlier text omitted.** There is no C Data Interface in a browser;
+JavaScript cannot consume `repr(C)` structs. What works is creating `Int32Array` / `Float64Array` /
+`BigInt64Array` **views** over the wasm linear memory at a buffer's offset, which is genuinely
+zero-copy to read. Two real limitations:
+
+1. **Growing the wasm heap detaches every existing view.** Any allocation can trigger growth, after
+   which previously handed-out typed arrays are detached and throw on access. So a view must be
+   treated as valid only until the next call into wasm — either re-created after each one, or copied
+   if it must outlive it.
+2. Getting an *Arrow JS* record batch means constructing Arrow JS `Data`/`Vector` objects around those
+   views. Arrow JS accepts externally-owned buffers, so this works, but it is assembly at the
+   boundary rather than a hand-off.
+
+Neither sinks the approach; both mean "zero-copy in the browser" is a qualified claim, and the
+qualification belongs in `RECORD_STREAMS.md` rather than being rediscovered by whoever implements it.
+
+**Still no claim of full Arrow support.** A deliberate subset: the types above, no nested `Struct`
+beyond the batch root, no `Union`, no dictionary encoding, no large (64-bit offset) variants. Enough
+for a record batch and a pandas hand-off; extendable, and honest about not being arrow-rs.
 
 ### Bitmap
 
