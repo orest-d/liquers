@@ -85,7 +85,11 @@ design's Phase 1 is unapproved**, which is the intended sequencing rather than a
 
 ## Data Structures
 
-New module `liquers-core/src/search.rs`. Everything tabular comes from `liquers_core::records`.
+New module `liquers-lib/src/search/`, behind the `records` feature.
+
+**Changed by `record-streams` revision 5.** The predicate operates on `RecordBatch`, and records
+moved to `liquers-lib` behind a feature — so the predicate follows. `liquers-core` gains nothing from
+this design either, which makes the whole search capability additive to one crate. Everything tabular comes from `liquers_core::records`.
 
 ### SearchPredicate — a pure filter over a record stream
 
@@ -362,8 +366,8 @@ pub fn select(state: &State<Value>, expr: String, limit: i64) -> Result<Value, E
 
 | Crate | File | Change |
 |---|---|---|
-| `liquers-core` | `src/search.rs` (new) | `SearchPredicate`, `Predicate`, `FieldTest`, `BoundPredicate`, `excerpt` |
-| `liquers-core` | `src/lib.rs` | `pub mod search;` |
+| `liquers-lib` | `src/search/predicate.rs` (new, `records` feature) | `SearchPredicate`, `Predicate`, `FieldTest`, `BoundPredicate`, `excerpt` |
+
 | `liquers-core` | `src/assets.rs` | `get_asset_info` repair (two sites) |
 | `liquers-lib` | `src/search/mod.rs` (new) | Record producers, the syntax parser, the `select` command |
 | `liquers-lib` | `src/commands.rs` | `register_command!` registrations |

@@ -5,8 +5,8 @@
 > written and reviewed. It is recorded here at Phase 2 depth so the reasoning is not lost, but
 > **this design's Phase 1 is not yet approved**, and Phase 2 is not approved by the carry-over.
 > §0 lists what changed in the move, §0.1 what the Phase 1 answers of 2026-09-19 changed, §0.2 the
-> abstraction cleanup of revision 2, §0.3 the Arrow correction of revision 3, and §0.4 the wasm
-> sharing mechanism of revision 4.
+> abstraction cleanup of revision 2, §0.3 the Arrow correction of revision 3, §0.4 the wasm sharing
+> mechanism of revision 4, and §0.5 the move to `liquers-lib` in revision 5.
 
 ## Overview
 
@@ -126,7 +126,39 @@ Recorded as constraints rather than left implicit: the views are **read-only**, 
 outlive the handle (`debug-handles` gives the release test, as it does for `RUNTIME05`), and
 `SharedArrayBuffer` would remove the hazard entirely at the cost of cross-origin isolation.
 
-## Known-Issue Preflight## Known-Issue Preflight## Known-Issue Preflight## Known-Issue Preflight
+## 0.5 Revision 5 — `liquers-lib`, behind a feature
+
+The open question carried since revision 1 — whether the record *data* types belong in
+`liquers-core` or `liquers-lib` — is **settled: `liquers-lib`, behind a `records` feature.** Records
+are in essence a new data type rather than an essential capability, which is the same class as
+`image-support` and `polars`, and what `CLAUDE.md` already directs to `liquers-lib/src/value/`.
+
+| | Was | Is |
+|---|---|---|
+| Data types | `liquers-core/src/records/` | `liquers-lib/src/records/`, gated |
+| Value variants | `ExtValue` in `liquers-lib`, ungated | same, **gated** |
+| `bytemuck` | new **unconditional** direct dependency of core | **optional** dependency of `liquers-lib`, pulled only with the feature |
+| `liquers-core` | new module, new dependency | **untouched**, apart from two generic stream aliases |
+| Search predicate | `liquers-core` | follows records into `liquers-lib` |
+
+Three things improve as a result:
+
+1. **A build with `records` off is the build that exists today** — no new module, no new dependency,
+   no new match arm reached.
+2. **The revision-3 dependency finding is defused.** `bytemuck` was going to be a new unconditional
+   edge on core's graph; it is now optional and feature-scoped.
+3. **The search design also becomes additive to one crate**, since its predicate operates on
+   `RecordBatch` and must follow it.
+
+The cost, stated: a consumer wanting records without the rest of `liquers-lib` cannot have them,
+because the crate is the unit of dependency. Acceptable while `liquers-lib` is where command
+libraries live; the module is self-contained enough to lift into its own crate if that ever changes.
+
+Revision 5 also adds **specification citations** ([COLUMNAR], [CDATA], [IPC]) throughout the Arrow
+material, including a per-type format-string mapping, with the explicit caveat that the format
+strings are to be verified against the spec at implementation rather than trusted from this document.
+
+## Known-Issue Preflight## Known-Issue Preflight## Known-Issue Preflight## Known-Issue Preflight## Known-Issue Preflight
 
 Searched `specs/index.csv` for non-terminal `issue`/`feature` records whose `area` intersects
 `core/value`, `core/commands`, `core/context`, `core/query`, `lib/value`, `web`.
@@ -202,6 +234,19 @@ what a single-cell read returns, and what a builder appends. Storage is columns.
 
 ### How Arrow compatibility actually works
 
+> **Specification references.** Everything in this section is against the Apache Arrow format
+> specification; the documents are cited rather than paraphrased from memory.
+>
+> | Ref | Document | Used for |
+> |---|---|---|
+> | **[COLUMNAR]** | [Arrow Columnar Format](https://arrow.apache.org/docs/format/Columnar.html) | Buffer layouts, validity bitmaps, alignment and padding, the physical layout of each type |
+> | **[CDATA]** | [Arrow C Data Interface](https://arrow.apache.org/docs/format/CDataInterface.html) | `ArrowSchema` / `ArrowArray` structs, format strings, release-callback semantics |
+> | **[IPC]** | [Arrow IPC and serialization](https://arrow.apache.org/docs/format/Columnar.html#serialization-and-interprocess-communication-ipc) | The file and stream formats, for the deferred `.arrow` serialization |
+>
+> Format strings and section names below use the spec's own vocabulary. **They are to be verified
+> against [CDATA] at implementation** rather than trusted from this document — a wrong format string
+> fails at the boundary, loudly or silently depending on the consumer.
+
 **Rewritten in revision 3.** The earlier text asserted a "pointer hand-off" without saying what is
 handed off, which hid a fair objection: *Rust does not define a struct memory layout, so how can a
 Rust struct be Arrow-compatible?*
@@ -221,8 +266,9 @@ misleading:
 | **Structure** | which buffers, in what order, with what types | Rebuilt at the boundary as **`#[repr(C)]`** structs, whose layout *is* guaranteed |
 
 That second row is precisely what the **Arrow C Data Interface** is for. It is two small `repr(C)`
-structs — `ArrowSchema` (a type as a format string, a name, children) and `ArrowArray` (length,
-null count, offset, a pointer array of buffers, children, a `release` callback, `private_data`). Arrow
+structs ([CDATA] *Structure definitions*) — `ArrowSchema` (a type as a format string, a name,
+children) and `ArrowArray` (length, null count, offset, a pointer array of buffers, children, a
+`release` callback, `private_data`). Arrow
 deliberately declined to standardize in-memory structs across languages and standardized a **handoff
 ABI** instead. Our layout decision is what lets the buffer pointers in that ABI point straight at our
 data rather than at a converted copy.
@@ -237,33 +283,39 @@ and the buffer-pointer arrays — and copies **no data**.
 > O(number of columns) tiny allocations. Worth saying plainly, because the earlier phrasing implied
 > the whole thing was free.
 
-**Ownership is the part that needs care, and it is where the `unsafe` lives.** The consumer takes the
-struct and is obliged to call `release`. The producer boxes a private struct holding clones of the
+**Ownership is the part that needs care, and it is where the `unsafe` lives.** [CDATA] *Release
+callback semantics* puts the obligation on the consumer: it takes the struct and must call `release`,
+which marks itself done by nulling the callback pointer and must release children before the parent. The producer boxes a private struct holding clones of the
 `Arc`s behind every exported buffer, stashes it in `private_data`, and drops it in `release`. That
 keeps our buffers alive exactly as long as pandas or polars holds them, and is the reason this code
 belongs in `liquers-py` beside the existing pyo3 surface rather than in core.
 
 #### Where our layout meets Arrow's, and three places it does not line up 1:1
 
-| `Column` variant | Arrow type | Buffers | Note |
-|---|---|---|---|
-| `Bool` | `Bool` | validity, values | Both bitmaps, LSB-first — matches |
-| `Int` / `UInt` / `Float` | `Int64` / `UInt64` / `Float64` | validity, values | Direct |
-| `Date` | `Date32` | validity, values (`i32` days) | Direct |
-| `Timestamp` | `Timestamp(Microsecond)` | validity, values (`i64`) | Direct |
-| `Text` / `Binary` | `Utf8` / `Binary` | validity, offsets, data | **Offsets must hold `len + 1` entries starting at 0** — an invariant the builder must enforce, not an implementation detail |
-| `Vector` | `FixedSizeList(Float32, dim)` | validity **only** | **Two levels.** The list node carries validity and *no* value buffer; the values live in a **child** `Float32` array. Our flat `Buffer<f32>` is right, but the export emits a child node for it |
+| `Column` variant | Arrow type | [CDATA] format | Buffers | [COLUMNAR] section | Note |
+|---|---|---|---|---|---|
+| `Bool` | `Bool` | `b` | validity, values | *Fixed-size primitive layout*, *Validity bitmaps* | Both bitmaps, LSB-first — matches |
+| `Int` | `Int64` | `l` | validity, values | *Fixed-size primitive layout* | Direct |
+| `UInt` | `UInt64` | `L` | validity, values | as above | Direct |
+| `Float` | `Float64` | `g` | validity, values | as above | Direct |
+| `Date` | `Date32` (days) | `tdD` | validity, values (`i32`) | *Temporal types* | Direct |
+| `Timestamp` | `Timestamp(µs)` | `tsu:` | validity, values (`i64`) | *Temporal types* | The trailing colon carries the (empty) timezone |
+| `Text` | `Utf8` | `u` | validity, offsets, data | *Variable-size binary layout* | **Offsets hold `len + 1` entries starting at 0** — a spec invariant the builder must enforce, not an implementation detail |
+| `Binary` | `Binary` | `z` | validity, offsets, data | as above | Same `len + 1` invariant |
+| `Vector` | `FixedSizeList(Float32, dim)` | `+w:<dim>` | validity **only** | *Fixed-size list layout* | **Two levels.** The list node carries validity and *no* value buffer; the values live in a **child** `Float32` (`f`) array. Our flat `Buffer<f32>` is right, but the export emits a child node |
+| `RecordBatch` | `Struct` | `+s` | validity **only** | *Struct layout* | The root of an exported chunk; the columns are its children |
 
 Those three rows are called out because they are the ones that get discovered late otherwise.
 
-**A useful coincidence on alignment.** Arrow *recommends* padding each buffer's length to a multiple
-of 64 bytes. The `#[repr(align(64))]` backing-chunk approach chosen for `AlignedBuffer` over-allocates
+**A useful coincidence on alignment.** [COLUMNAR] *Buffer Alignment and Padding* **recommends**
+allocating buffers on 64-byte boundaries and padding their length to a multiple of 64; it **requires**
+only 8. The `#[repr(align(64))]` backing-chunk approach chosen for `AlignedBuffer` over-allocates
 to a 64-byte multiple anyway, so it produces Arrow's recommended padding for free — the logical length
 is tracked separately, as it must be regardless.
 
-**Endianness** is not a practical concern: the C Data Interface is same-process, so producer and
-consumer agree by construction, and Arrow IPC specifies little-endian, which every target this
-project builds for already is. One line, not a design problem.
+**Endianness** is not a practical concern: [CDATA] is same-process, so producer and consumer agree by
+construction, and [IPC] specifies little-endian as the default, which every target this project
+builds for already is. One line, not a design problem.
 
 #### The three routes, honestly rated
 
@@ -409,22 +461,27 @@ Three uses, all load-bearing, and **only the second has anything to do with sear
 
 **Could it just be `Vec<bool>`?** On space, the bitmap is 8× smaller — 125 KB against 1 MB per
 nullable column at a million rows, which matters most in the browser. But the decisive reason is
-compatibility: **Arrow's validity buffer *is* a bitmap**, so a `Vec<bool>` cannot be handed over at
+compatibility: **Arrow's validity buffer *is* a bitmap** ([COLUMNAR] *Validity bitmaps*, LSB-first
+within each byte), so a `Vec<bool>` cannot be handed over at
 all. It would need converting, which destroys the zero-copy property that is the entire point of the
 columnar layout.
 
-**One simplification, which Arrow sanctions:** validity is `Option<Bitmap>` and is **omitted
-entirely when a column has no nulls** (Arrow's `null_count == 0`, no buffer). Most columns in
+**One simplification, which the spec sanctions:** validity is `Option<Bitmap>` and is **omitted
+entirely when a column has no nulls** — [COLUMNAR] *Validity bitmaps* allows the buffer to be omitted
+when the null count is zero, and [CDATA] carries `null_count` on `ArrowArray`, where `-1` means
+"unknown" and forces the consumer to count. Most columns in
 practice have none and pay nothing.
 
 Size: roughly 150–200 lines with tests — `get`, a builder, `and`/`or`/`not`, `count_ones`. The one
-fiddly part is slicing at a non-byte boundary, which Arrow permits via a bit offset; the first
+fiddly part is slicing at a non-byte boundary, which the spec permits through `ArrowArray::offset`
+([CDATA]); the first
 version **requires byte-aligned slice offsets** and copies when a caller asks for anything else,
 which removes the fiddly case at a cost paid only by an unusual slice.
 
 ### 64-byte alignment: worth doing, and cheaper than it looks
 
-Arrow requires 8-byte buffer alignment and *recommends* 64 for SIMD. This is a performance and
+[COLUMNAR] *Buffer Alignment and Padding* requires 8-byte buffer alignment and **recommends** 64, so
+a consumer can use aligned SIMD loads without a special case at the tail. This is a performance and
 compatibility matter rather than a correctness one — an unaligned buffer still works, but a strict
 consumer may copy, and SIMD paths may be disabled.
 
@@ -976,14 +1033,10 @@ conversions in `ExtValueInterface` and `DefaultValueSerializer`; and add both `T
 `ExtValue::type_descriptions()` (`mod.rs:148`) — `CLAUDE.md`'s "four steps, not three; a type with no
 `TypeInfo` cannot be stored".
 
-**What stays in `liquers-core`.** The *data* types — `RecordBatch`, `Column`, `Bitmap`, `Buffer`,
-`RecordSchema`, `FieldValue`, `ChunkOrigin` and `RecordSource` itself — remain in
-`liquers-core/src/records/`. They are plain, depend only on `bytemuck`, and embed core types
-(`Query`, `Metadata`, `Version`); the search design's predicate, also core, operates on them. Only the
-*value wrapping* moves up. Stated as a judgment rather than a certainty — the alternative is moving
-the data types to `liquers-lib` as well and taking the search predicate with them, which keeps core
-smaller at the cost of putting a foundational abstraction above it. Carried to Phase 3 as an open
-question rather than settled by assertion.
+**Everything lives in `liquers-lib`, behind the `records` feature** — see §"Integration Points".
+The data types moved up with the value variants in revision 5, closing the question this paragraph
+used to carry: records are a data type, not a core capability, and `liquers-core` ends up untouched
+apart from two generic stream aliases.
 
 **Serializing the multi-gigabyte case** still meets `VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER`:
 `as_bytes` returns a `Vec<u8>`, so NDJSON or CSV over a large stream cannot stream through it. A
@@ -1071,48 +1124,163 @@ impl<T: bytemuck::Pod> Buffer<T> {
 
 ## Integration Points
 
+### Crate placement: `liquers-lib`, behind a `records` feature
+
+**Settled in revision 5: the whole feature is `liquers-lib`, behind a `records` feature.** It is in
+essence a new data type, not an essential capability — the same class as `image-support` and
+`polars`, and `CLAUDE.md` already directs new value types to `liquers-lib/src/value/`.
+
+**`liquers-core` is therefore untouched, with one small exception.** That is a better outcome than
+the previous revisions reached for: the design becomes purely additive to one crate, and a build with
+`records` off is byte-for-byte the build that exists today.
+
 | Crate | File | Change |
 |---|---|---|
-| `liquers-core` | `src/records/buffer.rs` (new) | `AlignedBuffer`, `Buffer<T>`, `Bitmap` — the Arrow-layout primitives; the only place `bytemuck` is used |
-| `liquers-core` | `src/records/mod.rs` (new) | `FieldValue`, `RecordSchema`, `Column`, `RecordBatch`, `ChunkOrigin`, `RecordSource`, `SourceBacking`, `RecordBatchStream`, `ChunkDescriptor` |
-| `liquers-core` | `src/maybe_send.rs` | `BoxStream` + `MaybeBoxedStream`, mirroring `BoxFuture`/`MaybeBoxed` |
-| `liquers-core` | `src/lib.rs` | `pub mod records;` |
-| `liquers-lib` | `src/value/mod.rs` | `ExtValue::RecordChunk` and `ExtValue::RecordSource`, every match arm, both `TypeInfo` entries, the `DefaultValueSerializer` arms |
-| `liquers-lib` | `src/records/mod.rs` (new) | Record-producing commands and source adapters |
-| `liquers-lib` | `src/records/polars.rs` (new, `polars` feature) | `RecordBatch → polars::DataFrame` over the shared buffers |
+| `liquers-lib` | `src/records/buffer.rs` (new) | `AlignedBuffer`, `Buffer<T>`, `Bitmap` — the Arrow-layout primitives; the only place `bytemuck` is used |
+| `liquers-lib` | `src/records/mod.rs` (new) | `FieldValue`, `RecordSchema`, `Column`, `RecordBatch`, `ChunkOrigin`, `RecordSource`, `SourceBacking`, `RecordBatchStream`, `ChunkDescriptor` |
+| `liquers-lib` | `src/records/commands.rs` (new) | The `ns-records` command set |
+| `liquers-lib` | `src/records/polars.rs` (new, `records` + `polars`) | `RecordBatch → polars::DataFrame` over the shared buffers |
+| `liquers-lib` | `src/value/mod.rs` | `ExtValue::RecordChunk` and `ExtValue::RecordSource`, **cfg-gated**, with every exhaustive match gaining a gated arm; both `TypeInfo` entries; the `DefaultValueSerializer` arms |
+| `liquers-lib` | `Cargo.toml` | the `records` feature and its optional `bytemuck` dependency |
+| **`liquers-core`** | `src/maybe_send.rs` | **The one exception** — `BoxStream` + `MaybeBoxedStream`, ungated. Justified below |
+| `liquers-web` | `src/records.rs` (new) | The `RecordChunk` handle, per-column descriptors, `columnCopy`; the JS companion that revalidates views |
+| `liquers-web` | `Cargo.toml` | add `"records"` to the `liquers-lib` feature list |
 | `liquers-py` | later milestone | Arrow C Data Interface export — the only place `unsafe` FFI belongs |
-| `liquers-web` | `src/records.rs` (new) | `RecordChunk` handle holding `Arc<RecordBatch>`, per-column descriptors, `columnCopy` fallback; the JS companion that revalidates views |
-| `liquers-web` | later milestone | Typed-array views over the same buffers |
 | `specs` | `command_registry.yaml` | Regenerated |
 
-**Dependencies:** `bytemuck` only — **a new direct dependency of `liquers-core`**, confined to
-`records/buffer.rs`. It is already in `Cargo.lock` at 1.25.2, but only transitively via `egui`, so
-this genuinely adds an edge to core's dependency graph. `futures` (0.3.34, `Cargo.toml:77`), `chrono`
-(`Cargo.toml:73`), `serde` and `async_trait` **are** already direct dependencies and cost nothing.
+### The one change to `liquers-core`, and why it is not records-specific
+
+`BoxStream` and `MaybeBoxedStream` go in `liquers-core/src/maybe_send.rs`, **ungated**, beside the
+existing `BoxFuture` and `MaybeBoxed`. That module exists precisely to hold per-target boxed-type
+aliases and to document the E0225 reason they must be aliased rather than bounded. `StreamExt::boxed()`
+has the same always-`Send` defect the module already warns about for `FutureExt::boxed()`, so the
+alias is a general async utility that any crate may want — not a records concept.
+
+Defining it in `liquers-lib` instead would duplicate the E0225 workaround and leave core's own
+documented trap half-addressed. Two type aliases and one blanket trait, no dependency, no feature: a
+smaller cost than the duplication.
+
+### The feature
+
+```toml
+# liquers-lib/Cargo.toml
+[features]
+default = ["egui", "image-support", "polars", "records"]
+# Columnar record streams: a tabular value type with an Arrow-compatible layout.
+# Optional because it is a data type rather than an essential capability.
+records = ["dep:bytemuck"]
+
+[dependencies]
+bytemuck = { version = "1.25", optional = true }
+```
+
+**In `default`, exactly as `polars` is** — so the routine loop
+(`cargo test -p liquers-lib --lib --tests`) exercises it, which is the only way the tests actually
+run. Being in `default` is not the same as being mandatory: the matrix below proves the feature is
+cleanly optional, and `polars` is the established precedent for precisely this arrangement.
+
+**`bytemuck` is now optional and gated**, which is strictly better than revision 3's finding. It was
+going to be a new *unconditional* direct dependency of `liquers-core`; it is now an optional
+dependency of `liquers-lib`, pulled only when `records` is on. A build without the feature adds no
+dependency at all.
+
+### Feature-gating discipline
+
+A cfg-gated enum variant is the classic way to break a build that was not tested, and `ExtValue`
+already carries the scar tissue — its `as_bytes` match has a comment recording that a previous
+catch-all "silently absorbed new variants". Every exhaustive match on `ExtValue` therefore needs a
+`#[cfg(feature = "records")]` arm, in `type_name`, `type_identifier`, `as_bytes`,
+`type_descriptions` and the `ExtValueInterface` conversions.
+
+`scripts/check-build-matrix.sh` gains the rows that prove it, mirroring the existing per-feature rows:
+
+```
+--no-default-features --features records --tests
+--no-default-features --features records,polars --tests     # the polars bridge
+--no-default-features --features webui,records --tests
+--target wasm32-unknown-unknown --no-default-features --features webui,records
+```
+
+and the existing `--no-default-features --tests` row already proves the build with `records` **off**.
+Test files that need the feature carry `#![cfg(feature = "records")]` at file level, as the existing
+optional-dependency test files do.
+
+### What this settles, and what it costs
+
+This closes the open question carried since revision 1. It also **moves the search design's
+predicate**: `SearchPredicate` operates on `RecordBatch`, so with records in `liquers-lib` the
+predicate cannot live in `liquers-core` either. That is no loss — the search commands were always
+`liquers-lib` — and it means the search design too becomes additive to one crate.
+
+The cost, stated: a consumer wanting records without the rest of `liquers-lib` cannot have them,
+because the crate is the unit of dependency. That is acceptable while `liquers-lib` is where command
+libraries live anyway, and if a `liquers-records` crate is ever wanted, the module is already
+self-contained enough to lift out.
 
 ## Documentation Architecture
 
-### Reference Plan
+Two new documents, fully specified here so the authoring is mechanical.
 
-`specs/reference/RECORD_STREAMS.md` — **new**. Audience contributor and agent; area `core/value`.
-The record, batch, chunk and stream contract; identity as (source, id) and the two retrieval paths;
-the schema, its types and its roles; the Arrow layout and exactly which subset is supported; field
-qualification; provenance and validity per chunk.
+**They are written in Phase 5, not now.** `CLAUDE.md` defines `specs/reference/` as "how the system
+is; **must be true at HEAD**" — a reference document describing an unimplemented API would be false
+the moment it lands. The specification below is the contract they are written against; per §9.2 each
+carries a `## History` row and a `reviewed:` date from its first commit.
 
-### Guide Plan
+### Reference: `specs/reference/RECORD_STREAMS.md`
 
-`specs/guides/RECORD_STREAM_GUIDE.md` — **new**. Audience contributor; workflow "produce records from
-a new source". Writing a record-producing command; choosing a batch size; when to implement
-writing a manifest-backed stream; using a batch as a DataFrame; handing a batch to pandas or polars.
+`kind: reference` · audience contributor **and agent** · area `lib/value` · status follows the design.
 
-### Existing Documents to Review or Update
+| § | Content |
+|---|---|
+| **Concepts** | The three abstractions and *why* they are three: `RecordSource` (asked repeatedly, shareable, serializable as a manifest), `RecordStream` (one traversal, never a value), `RecordChunk` (materialized table). The conversion diagram. The `Iterable`/`Iterator` analogy stated once, plainly |
+| **Scales** | Record / batch / chunk — unit of retrieval, of memory, of refresh — and why conflating them breaks either memory or refresh |
+| **Schema** | `RecordSchema`, `FieldSchema`, `FieldType`, `FieldRole`. The two orthogonal axes and which integration target each serves. The exactly-one-`Id` rule and that it is checked in `RecordSchema::new` |
+| **Field naming** | The `meta.` / `attr.` / `key.` qualification, why `status` forced it, and that ambiguity is an error naming every candidate |
+| **Identity and retrieval** | `(chunk id, record id)`. `ChunkOrigin`: `chunk` as the guaranteed path, `locator` as the direct one, `info` absent for a non-asset source. **Why a CSV row has no `AssetInfo` and the file does** |
+| **Provenance and validity** | The `Metadata` per chunk; provenance as "the query and dependency versions this came from"; validity as the existing staleness check; the flyweight to record level |
+| **Memory layout** | The columnar form, `Column` variants, `Bitmap`'s three uses, `AlignedBuffer` and 64-byte alignment. **Cites [COLUMNAR] per claim** |
+| **Arrow interoperability** | The two-level model — data as `&[T]`, structure rebuilt as `repr(C)` — the exact type/format mapping table, the three export routes and their real costs, and the three places the layout is not 1:1. **Cites [COLUMNAR] and [CDATA]**; states that format strings are verified against the spec, not this document |
+| **Browser sharing** | Hazards A and B, the identity check, the refresh rule, read-only views, the handle lifetime, and `columnCopy` as the fallback |
+| **Methods** | Every public method with its contract and failure mode — `RecordSchema::{new, id_field, source_field, text_fields, index_of}`, `RecordBatch::{select, filter, slice, concat, value, with_columns}`, `RecordSource::{stream, chunks, manifest}`, `Bitmap::{get, and, or, not, count_ones}`, `ChunkOrigin::locator_query` |
+| **Serialization** | What each value writes in each format, and that a manifest source writes its query list while a materialized one writes data |
+| **Limits** | The Arrow subset supported and what is excluded; uniformity not promised and the two operations that need it; the feature gate |
+
+Links out to `VALUE_TYPE_SYSTEM.md`, `STORE_SEMANTICS.md` for the key semantics it inherits, and the
+design folder for *why*.
+
+### Guide: `specs/guides/RECORD_STREAM_GUIDE.md`
+
+`kind: guide` · audience contributor · area `lib/value` · workflow **"produce records from a new
+source"**.
+
+| § | Content |
+|---|---|
+| **Choose your shape first** | A decision table: one row per asset → return a chunk; a directory of files → a manifest source; a huge single file → a source whose stream yields batches. Getting this wrong is the expensive mistake, so it comes first |
+| **Walkthrough: a command producing records** | **The guide's spine.** End to end, from an empty file to a passing test: define the schema (with its `Id` field and roles), build the batch with `RecordBatchBuilder`, fill `ChunkOrigin` so results are retrievable, return `ExtValue::RecordChunk`, then register with `register_command!` — `context` last, `async fn` taking owned `State` — and regenerate `command_registry.yaml` |
+| **Second walkthrough: a manifest source** | The CSV-directory case: one query per file, what `uniform_schema` to declare, and why a manifest is preferred over a generator (rewindable, cacheable, checkpointable) |
+| **Choosing a batch size** | Rows vs bytes, and the memory arithmetic |
+| **Using a batch as a DataFrame** | `select`/`filter`/`slice`/`concat` with masks; what is deliberately absent and where it lives instead |
+| **Handing a batch to pandas or polars** | The polars path via `polars-arrow`; the pyo3 path; what "zero-copy" does and does not cover |
+| **Reading a chunk from JavaScript** | The handle, the view-refresh rule, and when to reach for `columnCopy` |
+| **Pitfalls** | The `len + 1` offsets invariant; `Vector` needing a child node; forgetting the `TypeInfo` entry (the type then cannot be stored); forgetting a `#[cfg(feature = "records")]` match arm (a build with the feature off fails); holding a JS view across a wasm call |
+| **Testing** | Unit tests beside the code; the round-trip test per format; the `debug-handles` release assertion; the build-matrix rows |
+
+Every snippet is taken from a real test in the implementation, so the guide cannot drift from
+behaviour without a test failing.
+
+### Existing documents to update
 
 | Path | Change |
 |---|---|
-| `specs/reference/VALUE_TYPE_SYSTEM.md` | The `Records` type identifier and its `TypeInfo` |
-| `specs/guides/TYPE_SYSTEM_GUIDE.md` | `Records` in the worked list of variants |
-| `specs/guides/COMMAND_REGISTRATION_GUIDE.md` | How a record-producing command is written |
-| `specs/README.md` | A capability-map entry for record streams |
+| `specs/reference/VALUE_TYPE_SYSTEM.md` | The `RecordChunk` and `RecordSource` identifiers, their `TypeInfo`s, and that both are feature-gated |
+| `specs/guides/TYPE_SYSTEM_GUIDE.md` | Both variants in the worked list; the gated-variant case as a worked example, since it is the first optional value type after `polars` |
+| `specs/guides/COMMAND_REGISTRATION_GUIDE.md` | A pointer to the record-producing walkthrough rather than a duplicate of it |
+| `specs/README.md` | The capability-map entry, `designing` → `built` |
+| `CLAUDE.md` | The `records` feature in the feature-matrix section, and the new matrix rows |
+
+**Discarded candidates:** `STORE_SEMANTICS.md`, `STORE_IMPLEMENTATION_GUIDE.md` and
+`CONFORMANCE_TERMS.md` — this design touches no store trait. `ASSETS.md` — the `get_asset_info`
+repair belongs to the search design.
 
 `affects_docs`: `reference/RECORD_STREAMS.md`, `guides/RECORD_STREAM_GUIDE.md`,
 `reference/VALUE_TYPE_SYSTEM.md`, `guides/TYPE_SYSTEM_GUIDE.md`,
@@ -1184,9 +1352,16 @@ an `.await`.
 - `ExtValue` derives only `Debug, Clone`, so the opaque stream needs no `Serialize`, `Deserialize` or
   `PartialEq` — the reason these variants cannot live on `Value`.
 - Every `match` on `Value` gains an explicit arm; no default arm anywhere.
-- `liquers-core` gains no dependency on `liquers-lib`, **and no `unsafe`**.
+- `liquers-core` gains no dependency and **no `unsafe`**; its only change is two ungated type aliases
+  in `maybe_send.rs`.
+- Every exhaustive `match` on `ExtValue` has a `#[cfg(feature = "records")]` arm, so
+  `--no-default-features` still compiles — the failure mode a gated enum variant causes, and what the
+  new build-matrix rows exist to catch.
+- `bytemuck` is `optional = true` and reached only through `records`, so a build without the feature
+  resolves an unchanged dependency graph.
 - `Buffer<T>: bytemuck::Pod` holds for `i32`, `i64`, `u64`, `f32`, `f64`.
-- No feature gate; the build matrix runs anyway because `Value` changed.
+- The `records` feature gates the module, the variants, the matches and the dependency together —
+  a partially-gated feature is the classic way to break a configuration nobody built.
 
 ## References to liquers-patterns.md
 
