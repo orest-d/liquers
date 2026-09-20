@@ -1465,7 +1465,10 @@ deliberately never cross a query boundary; the serializable forms are a `RecordB
 `<filename_prefix>.manifest.yaml`, mirroring `recipes.yaml`'s `arguments` and `links` — is specified
 in [`manifest-format.md`](./manifest-format.md). Its central rule: a value that **varies per chunk**
 belongs in the query, because the query is the chunk's identity, while a value that is **shared and
-unqueryable** (a complex SQL statement, a connection link) belongs in `arguments`.
+unqueryable** (a complex SQL statement, a connection link) belongs in `arguments`. The manifest
+performs **no string interpolation** — a command hydrates its own statement, which keeps the format
+free of templating syntax and of an injection story. `expires` bounds each chunk, not the stream;
+the dependency cascade (`dependencies.rs`) then expires anything derived from it.
 
 ## Concurrency Considerations
 

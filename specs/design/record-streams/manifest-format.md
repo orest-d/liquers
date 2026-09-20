@@ -162,6 +162,64 @@ fn sql_query(state, sql: String, offset: i64 = 0, limit: i64 = 0, context) -> re
 Both parse, but the second is unreadable and depends on an empty parameter being overridden. Worth a
 line in the guide.
 
+## 5a. `expires` is per chunk
+
+**Settled.** A manifest's `expires` bounds **each chunk**, not the stream, which is the reading
+consistent with `Recipe::expires` — it bounds the asset a recipe produces, and each chunk is such an
+asset.
+
+Nothing further is needed for a consumer that reads the whole stream. An asset processing every chunk
+**records a dependency on every chunk**, and `dependencies.rs` performs a transitive cascade
+(`expire_stale_dependents`, `ExpiredDependents`), so expiring any one chunk expires everything derived
+from the stream. Stream-level expiration would be a second mechanism computing what the first already
+computes.
+
+**One caveat, because it ties this to a deferred feature.** The cascade works through *recorded
+dependencies*, and a dependency is recorded when a chunk is an asset in its own right — the
+`ChunkCache` case. A stream consumed inside a single command without cached chunks is one asset with
+one expiration, and per-chunk expiry has nothing to act on. That is the correct behaviour for an
+uncached stream, and it means `expires` becomes fully meaningful only once chunks are keyed assets.
+
+## 5b. A templated manifest hydrates in the command, not in the manifest
+
+For a `template`, **`arguments` are identical for every chunk**. The SQL statement is passed through
+unchanged, and the command hydrates it with the chunk's offset.
+
+This does not contradict §5 — it is the same rule seen from the other side:
+
+| | Where | Varies per chunk? |
+|---|---|---|
+| offset, limit | the **query** (positional) | yes — and so it is identity |
+| the SQL statement | **`arguments`** | no — one value, shared |
+
+So the manifest holds exactly one copy of the statement, chunk queries differ only in their offset,
+and chunk identity stays well defined.
+
+**The manifest performs no string interpolation, and this is a deliberate boundary.** It passes the
+`sql` argument through verbatim; expanding it is the command's business. That keeps the manifest a
+pure data format with no templating syntax to specify, no escaping rules, and — decisively — **no
+injection story**. A manifest that substituted text into SQL would have to answer for what happens
+when a field contains a quote.
+
+Leaving hydration to the command also allows the right answer, which is not textual at all:
+
+```sql
+-- The statement in `arguments`, with bind placeholders the command supplies values for.
+SELECT o.id, o.total FROM orders o ORDER BY o.id LIMIT $1 OFFSET $2
+```
+
+Bound through sqlx, this is parameterized rather than interpolated: injection-safe by construction,
+and the database can reuse the prepared plan across chunks.
+
+**A convenience worth allowing and documenting, not defaulting to:** a command may instead accept a
+bare `SELECT` and append `LIMIT n OFFSET m` itself. Simpler to author, and it breaks on statements
+where appending is wrong — one that already ends in `LIMIT`, a `UNION` where the clause binds to the
+last branch rather than the whole, or a CTE whose outer query is not where the author expects. A
+command should say which contract it implements.
+
+**Per-chunk `arguments` are therefore unused by templates.** They remain available for a
+heterogeneous explicit `chunks:` list, where chunks may genuinely draw on different sources.
+
 ## 6. Reading a manifest as a record source
 
 Two forms, both of which validate at plan level today:
@@ -195,11 +253,10 @@ the `cwd` rule honest.
 
 ## 8. Open points
 
-1. **`expires` on a manifest** — does it bound the stream, each chunk, or both? Recipe semantics say
-   it bounds the asset the recipe produces, so per chunk is the consistent reading. Worth confirming
-   when chunks become assets.
-2. **Per-chunk `links`** are allowed by symmetry with `arguments`, but no use case has appeared. They
-   may be worth forbidding until one does.
+1. ~~Does `expires` bound the stream or each chunk?~~ **Settled: per chunk** — see §5a.
+2. **Per-chunk `links`** are allowed by symmetry with `arguments`, but no use case has appeared —
+   and §5b removes the templated case from consideration, since a template's arguments are shared by
+   construction. Worth forbidding until a heterogeneous explicit list needs them.
 3. **A `version` bump policy.** The field is present so an incompatible change is detectable; nothing
    yet says what a reader does with an unknown version. Refusing is the safe default.
 4. **Validation.** `liquers-validate` already checks a `recipes.yaml`; a manifest wants the same
