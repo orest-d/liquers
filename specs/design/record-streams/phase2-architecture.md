@@ -1404,6 +1404,7 @@ behaviour without a test failing.
 | `specs/guides/TYPE_SYSTEM_GUIDE.md` | Both variants in the worked list; the gated-variant case as a worked example, since it is the first optional value type after `polars` |
 | `specs/guides/COMMAND_REGISTRATION_GUIDE.md` | A pointer to the record-producing walkthrough rather than a duplicate of it |
 | `specs/README.md` | The capability-map entry, `designing` → `built` |
+| `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` | **Already updated** — VALUE's third bridging category (lent buffers) and RECIPE's corrected listing/containment rule |
 | `CLAUDE.md` | The `records` feature in the feature-matrix section, and the new matrix rows |
 
 **Discarded candidates:** `STORE_SEMANTICS.md`, `STORE_IMPLEMENTATION_GUIDE.md` and
@@ -1412,7 +1413,7 @@ repair belongs to the search design.
 
 `affects_docs`: `reference/RECORD_STREAMS.md`, `guides/RECORD_STREAM_GUIDE.md`,
 `reference/VALUE_TYPE_SYSTEM.md`, `guides/TYPE_SYSTEM_GUIDE.md`,
-`guides/COMMAND_REGISTRATION_GUIDE.md`.
+`guides/COMMAND_REGISTRATION_GUIDE.md`, `guides/LANGUAGE-INTEGRATION_GUIDE.md`.
 
 ## Relevant Commands
 
@@ -1463,12 +1464,19 @@ wire one, and is re-established on deserialization. The stream types are **not**
 deliberately never cross a query boundary; the serializable forms are a `RecordBatch` and a
 `RecordSource`. A `RecordSource` serializes as a **manifest**, whose format —
 `<filename_prefix>.manifest.yaml`, mirroring `recipes.yaml`'s `arguments` and `links` — is specified
-in [`manifest-format.md`](./manifest-format.md). Its central rule: a value that **varies per chunk**
-belongs in the query, because the query is the chunk's identity, while a value that is **shared and
-unqueryable** (a complex SQL statement, a connection link) belongs in `arguments`. The manifest
-performs **no string interpolation** — a command hydrates its own statement, which keeps the format
-free of templating syntax and of an injection story. `expires` bounds each chunk, not the stream;
-the dependency cascade (`dependencies.rs`) then expires anything derived from it.
+in [`manifest-format.md`](./manifest-format.md). Three of its rules bear on this design:
+
+- **Identity has two regimes.** For an *unkeyed* stream the query is the chunk's identity, so a value
+  varying per chunk must live in the query. For a *keyed* stream — one with a `ChunkCache` — the
+  chunk's key distinguishes it, so per-chunk `arguments` and `links` are usable, exactly as in
+  `recipes.yaml`. A manifest using them without a cache is **invalid**, because the failure is
+  silent aliasing rather than an error.
+- **The explicit form is a `RecipeList`.** A chunk entry is a `Recipe` field for field, so a manifest
+  is a stream header plus a recipe list — inheriting planning, arguments, links, `volatile` and
+  `expires` rather than restating them.
+- **No string interpolation.** A command hydrates its own statement, keeping the format free of
+  templating syntax and of an injection story. `expires` bounds each chunk, and the dependency
+  cascade (`dependencies.rs`) expires whatever derives from it.
 
 ## Concurrency Considerations
 

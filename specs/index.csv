@@ -323,7 +323,7 @@ autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,,docs;build,,,,,2026-08-11,,specs/guides/autonomous_issue_fixing.md
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,core/commands;macro,,,,,2026-09-05,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,core/context;core/assets;core/store,,,,,2026-09-05,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
-LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-09-05,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
+LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-09-20,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,core/query,,,,,2026-08-14,,specs/guides/QUERY_ESCAPING_GUIDE.md
 STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,core/store;store/config,,,,,2026-09-02,,specs/guides/STORE_FACTORY_GUIDE.md
 STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,core/store;store/backends;web,,,,,2026-09-15,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md

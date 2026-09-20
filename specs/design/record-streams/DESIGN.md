@@ -8,7 +8,7 @@ phase: architecture
 area: [lib/value, lib/commands, web, axum]
 gh_pr: []
 issues: [NO-RECORD-STREAM-ABSTRACTION, NO-RELATIONAL-DATABASE-ACCESS-LAYER, NO-RECIPE-PROVIDER-CHAIN, RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY]
-affects_docs: [reference/RECORD_STREAMS.md, guides/RECORD_STREAM_GUIDE.md, reference/VALUE_TYPE_SYSTEM.md, guides/TYPE_SYSTEM_GUIDE.md, guides/COMMAND_REGISTRATION_GUIDE.md]
+affects_docs: [reference/RECORD_STREAMS.md, guides/RECORD_STREAM_GUIDE.md, reference/VALUE_TYPE_SYSTEM.md, guides/TYPE_SYSTEM_GUIDE.md, guides/COMMAND_REGISTRATION_GUIDE.md, guides/LANGUAGE-INTEGRATION_GUIDE.md]
 created: 2026-09-19
 superseded_by:
 ---

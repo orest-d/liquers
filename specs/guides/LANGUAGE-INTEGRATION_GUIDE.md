@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets]
-reviewed: 2026-09-05
+reviewed: 2026-09-20
 ---
 # Liquers Language Integration Guide
 
@@ -354,6 +354,36 @@ Three things follow, and they generalize to any *integration*:
 5. Can an *opaque language value* cross stores, threads, processes, Wasm boundaries, or another *language runtime*? Which codecs are supported and trusted?
 6. Does the *integrated language* support function pointers, bound methods, closures, or callable objects? May they be retained as *opaque language values*? Are they serializable? Are they accepted as *language commands* through `COMMAND`, even when they are not ordinary data values?
 7. Can users operate conveniently on a *value type* *wrapper* or *State* as if it were a language scalar? Which conversions are implicit versus explicit? Can arithmetic, comparison, indexing, iteration, truthiness, and display operators be defined without hiding conversion errors or metadata loss?
+
+#### A third category: values whose *buffers* are shared
+
+Conversion and opacity are not the only two options. A **columnar value** — a record batch, in the
+sense of `design/record-streams/` — is a third case: its data is a set of primitive buffers laid out
+so that the *integrated language* can read them **in place**, with no conversion and no copy.
+
+This is not an *opaque language value* (the language reads the contents directly), and it is not
+*structural conversion* (nothing is rebuilt). It is a lending of memory, and it brings obligations
+the other two do not have:
+
+1. **Reads only.** The buffers are immutable to Rust and shared behind an `Arc`. A language writing
+   through them violates the aliasing assumptions the owning value relies on.
+2. **A view may be invalidated without being freed.** In Wasm, growing the linear memory **detaches**
+   every existing `ArrayBuffer` view while leaving the Rust allocation exactly where it was. A
+   borrowed view is therefore valid only until the next call into Wasm, and an integration must
+   either re-create views at point of use or revalidate them — comparing the view's buffer against
+   the module's current `memory.buffer` is an O(1) identity check.
+3. **A handle owns the lifetime.** The *wrapper* retains the value, and every borrowed view must not
+   outlive it. Releasing the handle while a view is live is use-after-free with no diagnostic.
+4. **An always-correct copy must be offered.** A caller that needs a value outliving the handle, or
+   that cannot reason about (2), takes a copy. Zero-copy is the fast path, never the only path.
+
+**The design must also answer:** does the *integrated language* have a native representation for the
+lent buffers — JavaScript typed arrays, Python's buffer protocol, the Arrow C Data Interface — and is
+the layout compatible enough to hand over, or must it be converted after all?
+
+**Meaningful tests:** a borrowed view reads the same values as a copy; a view survives an operation
+that grows the host heap (or fails with a clear error rather than silently reading the wrong memory);
+releasing the handle releases the underlying value, observed through a live handle count.
 
 #### Prefer a native variant; retain a foreign value only when you must
 
@@ -953,9 +983,23 @@ whether it applies.
 
 **The design must answer:** Does the provider return `Recipe`, query text, or plain data? Which methods may use Liquers defaults? May provider callbacks evaluate queries? How are caching, invalidation, volatility, and provider precedence handled?
 
-**Issues and patterns.** Implement `recipe_opt` without translating “not found” into an execution error. Keep `contains`, `recipe`, and listing mutually consistent. Provider callbacks receive an environment; apply the `RUNTIME` reentrancy rules. Prefer immutable recipe snapshots across the boundary.
+**Issues and patterns.** Implement `recipe_opt` without translating “not found” into an execution error. Provider callbacks receive an environment; apply the `RUNTIME` reentrancy rules. Prefer immutable recipe snapshots across the boundary.
 
-**Meaningful tests:** `RECIPE01` found and missing recipe; `RECIPE02` list/contains consistency; `RECIPE03` recipe produces a valid plan; `RECIPE04` provider error maps through `ERROR`; `RECIPE05` volatility/expiration metadata survives; `RECIPE06` end-to-end keyed evaluation; `RECIPE07` nested environment use follows policy.
+**Listing and containment need not agree, and a provider must decide which it is.** `contains` has a
+default implementation (`recipes.rs`) that answers by searching `assets_with_recipes` — it
+**enumerates**, which is correct only for a provider whose recipes are a finite list it is willing to
+show. A *generative* provider that synthesizes a recipe from a pattern — a format produced on demand,
+a chunk of a record stream with no known count — legitimately has **addressable ⊋ listed**, and
+inheriting the default makes it deny keys it could perfectly well produce, silently. Such a provider
+must override `contains` to match the pattern rather than search a list.
+
+This does not conflict with `reference/STORE_SEMANTICS.md`, which constrains `contains` and `listdir`
+on **stores**. A recipe provider sits above the store, and the asset key space is legitimately larger
+than the store's — that is what recipes are.
+
+**Meaningful tests:** `RECIPE01` found and missing recipe; `RECIPE02` listing and containment agree
+**for an enumerable provider**, and for a generative one that every listed name is addressable while
+a pattern-matching name outside the listing is addressable too; `RECIPE03` recipe produces a valid plan; `RECIPE04` provider error maps through `ERROR`; `RECIPE05` volatility/expiration metadata survives; `RECIPE06` end-to-end keyed evaluation; `RECIPE07` nested environment use follows policy.
 
 ### MODULE — Load language modules from the store
 
@@ -2600,6 +2644,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-20 | VALUE gains a third bridging category for values whose *buffers* are lent to the language in place, with its four obligations — reads only, views invalidated by host-heap growth, handle-owned lifetime, and a copy that is always available. RECIPE's “keep `contains`, `recipe`, and listing mutually consistent” is corrected: a generative provider legitimately has addressable ⊋ listed, and must override `contains` rather than inherit a default that enumerates. `RECIPE02` restated accordingly. | `design/record-streams/` |
 | 2026-09-05 | ENVIRON now requires language-visible builder validation reports before environment publication, including severity, message, command identity, and a preflight test. | `design/variadic-metadata-tail-check` |
 | 2026-09-02 | §3's requirement levels and implementation states moved to `reference/CONFORMANCE_TERMS.md`, so the store implementation guide shares one definition rather than copying it. The `NA` discipline and its language-specific examples stay here. §STORE's direction-2 questions now cross-link `guides/STORE_IMPLEMENTATION_GUIDE.md` instead of answering them twice. | `design/store-conformance-suite/` Phase 4 step 14 |
 | 2026-09-01 | Repaired current design, reference, and archive links so the tracked-document link check can validate this guide. | `DOCS-DEAD-LINKS-OUTSIDE-README` |

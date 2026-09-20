@@ -100,6 +100,9 @@ arguments:
     WHERE o.created_at >= '2026-01-01'
     ORDER BY o.id
 links:
+  # A link is a QUERY, so the statement lives in a proper .sql file — and the chunk
+  # then *depends on* it, so editing the file expires the chunks. See §5c.
+  sql: -R/queries/daily_orders.sql
   connection: -R/db/prod.yaml
 
 volatile: false
@@ -130,19 +133,33 @@ template:                      # generated: count unknown, ChunkList::Unbounded
 Fields that are **never** written by hand, mirroring `recipes.yaml`: `cwd`,
 `has_circular_dependencies`, `circular_dependency_key`. A provider supplies them.
 
-## 5. The rule that is easy to get wrong: identity lives in the query
+## 5. Identity: two regimes, and per-chunk arguments belong to only one
 
-A tempting simplification is to put the per-chunk offset in `arguments` and let every chunk share one
-query. **It does not work**, and the reason is worth stating where an implementer will see it.
+Liquers keys assets and cache entries by **query**. So for a stream whose chunks are *not* stored,
+two chunks with identical queries are the same asset whatever their arguments say — they collide,
+and the second returns the first's data.
 
-Liquers keys assets and cache entries by **query**. Two chunks whose queries are identical are the
-same asset, whatever their arguments say — so they would collide, and the second would return the
-first's data.
+But a **keyed** stream has a second source of identity: the chunk's key. `data_0010.csv` and
+`data_0011.csv` are distinct assets because their *filenames* differ, exactly as two entries in a
+`recipes.yaml` are distinct because they name different files — and there, arguments and links vary
+freely per entry.
+
+| | Unkeyed stream (no `ChunkCache`) | Keyed stream (chunks stored in a folder) |
+|---|---|---|
+| Chunk identity | the **query** | the **key** |
+| Per-chunk `arguments` / `links` | **not usable** — chunks would collide | **usable**, as in `recipes.yaml` |
+| Per-chunk values must live in | the query | the query **or** the arguments |
+
+**This is a validation rule, not a convention:** a manifest using per-chunk `arguments` or `links`
+is valid **only** with a `ChunkCache`. Without one it must be rejected, because the failure is
+silent — chunks quietly aliasing rather than erroring.
+
+For a stream that has no cache, the earlier guidance still stands:
 
 | Value | Where it goes | Why |
 |---|---|---|
 | Varies per chunk (offset, limit, a key range) | **the query** | the query is the chunk's identity |
-| Shared by all chunks, and unqueryable (SQL text, a connection link) | **`arguments` / `links`** | no escaping, and no effect on identity |
+| Shared by all chunks, and unqueryable (SQL text, a connection) | **`arguments` / `links`** | no escaping, and no effect on identity |
 
 ### A consequence for the commands a manifest drives
 
@@ -161,6 +178,28 @@ fn sql_query(state, sql: String, offset: i64 = 0, limit: i64 = 0, context) -> re
 
 Both parse, but the second is unreadable and depends on an empty parameter being overridden. Worth a
 line in the guide.
+
+## 5c. Links are how a statement lives in a file
+
+A `link` binds a parameter to a **query**, which is what makes it the right home for a SQL statement
+rather than `arguments`:
+
+```yaml
+links:
+  sql: -R/queries/daily_orders.sql
+```
+
+Three things follow, and the second is the one that matters:
+
+1. **The statement lives in a `.sql` file** — editable with syntax highlighting, diffable, and not
+   escaped into YAML.
+2. **The chunk depends on that asset.** A link is evaluated, so the dependency manager records it;
+   editing the statement expires every chunk derived from it, through the same cascade §5a relies on.
+   An inline `arguments.sql` gives no such edge at that granularity — changing it means editing the
+   manifest, which invalidates the whole stream rather than what actually changed.
+3. **One statement can serve several manifests**, edited in one place.
+
+`arguments` remains right for a short literal, or for a value with no natural home as an asset.
 
 ## 5a. `expires` is per chunk
 
@@ -219,6 +258,52 @@ command should say which contract it implements.
 
 **Per-chunk `arguments` are therefore unused by templates.** They remain available for a
 heterogeneous explicit `chunks:` list, where chunks may genuinely draw on different sources.
+
+## 5d. The explicit form *is* a `RecipeList` — a unification worth taking
+
+An explicit chunk entry carries a query, arguments, links, a title, a description, `volatile` and
+`expires`, and it names the asset produced by its query's filename. **That is `Recipe`, field for
+field.** The resemblance is not an analogy to be noted and moved past; it says the two should be one
+type.
+
+So the chunk list is literally a `RecipeList`:
+
+```
+manifest  =  stream header  +  RecipeList
+```
+
+where the header is the part `recipes.yaml` has no concept of — `number_format`, `extension`,
+`uniform_schema`, and `template` — and the `RecipeList` is the chunks.
+
+**What this buys, all of it for free:**
+
+| | Because |
+|---|---|
+| No new parsing | `Recipe` and `RecipeList` already deserialize |
+| `arguments`, `links`, `volatile`, `expires` semantics | inherited exactly, not re-specified |
+| Planning | `Recipe::to_plan` works unmodified on a chunk |
+| Validation | whatever checks a `recipes.yaml` checks a manifest's chunks |
+| "A folder with a manifest is like a folder with `recipes.yaml`" | **literally true**, not merely similar |
+
+`RecipeList` documents its recipes as being "in file order", so the sequence a stream needs is
+already guaranteed.
+
+**What a manifest still adds** over a bare `RecipeList` is exactly the header: the chunks are an
+*ordered sequence belonging to one stream* rather than independent assets, plus the naming pattern
+and the optional template for chunks that do not exist yet.
+
+### The further unification, recorded but not taken
+
+If an explicit manifest is a `RecipeList` plus a header, then a plain `recipes.yaml` could in
+principle be *read* as a record stream by selecting the recipes whose filenames match
+`<prefix>_<digits>.<ext>` and ordering them by number. No new file, no new format — a stream would be
+a naming convention over ordinary recipes.
+
+Attractive, and not taken, for two reasons: a stream would then have nowhere to declare
+`uniform_schema` or a `template`, and its existence would be implicit in filenames rather than
+stated. The explicit header is worth its file. The possibility is recorded because it suggests the
+right shape if `RecipeList` ever grows an optional `streams:` section — one file declaring several
+streams over its own recipes — which is the version of this idea that would not lose anything.
 
 ## 6. Reading a manifest as a record source
 
