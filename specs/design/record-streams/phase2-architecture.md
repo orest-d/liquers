@@ -78,26 +78,11 @@ With three types there is nothing to rewind. **Hold the source and open another 
 stream and you have one pass.** Phase 1 answer 2 asked for "optionally rewindable, cloneable in some
 cases", and this delivers it as a property of *which type you hold*, checked by the compiler.
 
-### Naming
+### Names
 
-`RecordStreamProducer` says what it does but is a mouthful, and the `…Producer` suffix is not used
-anywhere in this codebase. Candidates considered:
-
-| Name | For | Against |
-|---|---|---|
-| **`RecordSource`** | Short; reads naturally ("a record source yields a stream"); `…Source` is the conventional Rust name for a factory of this kind | **Collides with the existing `ChunkOrigin`**, which means something different — where a *row* came from |
-| `LazyTable` | Immediately legible to anyone who knows polars' `LazyFrame` → `collect()` → `DataFrame`; pairs with "materialized table" for the chunk | "Lazy" describes a property rather than the thing; the type is a description, not a deferred computation |
-| `RecordTable` | Clean trio: Table (whole, lazy) / Stream (traversal) / Chunk (piece) | "Table" implies one schema, and §"Schema uniformity is declared" explicitly does **not** promise one |
-| `IntoRecordStream` | Matches `IntoIterator` exactly | Works as a *trait* name, awkward as the name of a concrete value type |
-
-**Recommended: `RecordSource`, and rename `ChunkOrigin` → `ChunkOrigin`.** The collision is worth
-resolving rather than dodging, because `ChunkOrigin` was always a vague name for what it holds — the
-asset query, the chunk query, an optional `AssetInfo` and an optional locator, all of which describe
-*where a chunk's rows originated*. `ChunkOrigin` says that; `ChunkOrigin` never did. `IntoRecordStream`
-is then available as the trait a type implements to be usable as a source.
-
-**This is a naming decision, not an architectural one** — the three-way split stands whichever names
-are chosen.
+`RecordSource`, `RecordStream` and `RecordChunk`. `ChunkOrigin` is the per-chunk record of where its
+rows came from — the asset query, the chunk query, an optional `AssetInfo` and an optional locator.
+`IntoRecordStream` is available as the trait a type implements to be usable as a source.
 
 ### The types
 
