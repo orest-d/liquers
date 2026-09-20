@@ -763,6 +763,16 @@ three more things go with it:
 | Vector distance metric | Qdrant demands cosine / dot / euclidean at collection creation; `dim` alone does not say |
 
 ```rust
+pub struct RecordSchema {
+    pub fields: Vec<FieldSchema>,
+    /// Liquers' own type identity for the thing the rows describe, when there is one.
+    pub type_identifier: Option<String>,
+}
+
+/// The logical type. Maps one-to-one onto the `Column` variants and onto Arrow's `DataType`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FieldType { Bool, Int, UInt, Float, Text, Binary, Date, Timestamp, Vector }
+
 pub struct FieldSchema {
     pub name: String,
     pub data_type: FieldType,

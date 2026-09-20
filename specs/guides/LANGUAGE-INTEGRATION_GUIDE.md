@@ -385,6 +385,104 @@ the layout compatible enough to hand over, or must it be converted after all?
 that grows the host heap (or fails with a clear error rather than silently reading the wrong memory);
 releasing the handle releases the underlying value, observed through a live handle count.
 
+#### RECORDS — the columnar record types, and the two ways to bridge them
+
+`design/record-streams/` defines a tabular value type in `liquers-lib`, behind the `records`
+feature. An integration that exposes it must answer one question before any other.
+
+**The question: a native Arrow hand-off, or wrappers around the record types?**
+
+| | Arrow hand-off | Wrappers |
+|---|---|---|
+| What the user gets | *their* ecosystem's object — a `pyarrow.Table`, a `pandas.DataFrame` | a Liquers `RecordChunk` with Liquers methods |
+| Data movement | zero-copy through the C Data Interface | zero-copy to read; a conversion to leave |
+| What is preserved | columns and logical types | columns, **field roles, chunk origin, provenance, the manifest** |
+| Cost | an FFI implementation with `unsafe`; the binding's Arrow package becomes a dependency | ordinary wrapper code |
+| Fails when | the *language* has no mature Arrow binding | the user wants their own dataframe and must convert |
+
+**Neither answer is "instead of" the other, and an integration that picks only one is usually wrong.**
+The wrapper is the bridge, because it is the only thing that can carry the concepts Arrow has no
+place for — which field is the identity, where a row came from, what the chunk depends on. The Arrow
+export is then a *method on that wrapper* (`.to_arrow()`, `.to_pandas()`), for the moment the user
+leaves Liquers and enters their own ecosystem.
+
+Two things worth knowing before choosing:
+
+- **Arrow schemas carry custom key-value metadata**, so roles and origin *can* ride along into the
+  hand-off. The consumer must know to read them, so this preserves the information without
+  preserving the convenience.
+- **The Arrow route's cost is concentrated and one-off.** Most of it is the C Data Interface
+  implementation, which is per-integration but not per-type, and the only `unsafe` in the bridge.
+
+**Recommended default:** wrappers first, so the *language* has a complete and honest view of the
+data; Arrow export where a mature binding exists, as a documented exit. Python is the clear case for
+both — pyarrow is ubiquitous, and the C Data Interface is what it is designed to consume.
+
+**The type inventory an integration maps.** Everything the record design defines, so a binding can be
+checked for completeness rather than assembled by inspection:
+
+| Kind | Types |
+|---|---|
+| **Values** (cross a query boundary) | `ExtValue::RecordChunk`, `ExtValue::RecordSource` |
+| **Structs — data** | `RecordBatch`, `RecordSchema`, `FieldSchema`, `FieldRole`, `RecordSource`, `RecordBatchBuilder` |
+| **Structs — identity and provenance** | `ChunkOrigin`, `LocatorRule`, `ChunkDescriptor`, `ChunkCache` |
+| **Structs — memory** | `Bitmap`, `AlignedBuffer`, `Buffer<T>` |
+| **Enums** | `Column`, `FieldValue`, `FieldType`, `KeyRole`, `IndexKind`, `Analyzer`, `VectorMetric`, `ChunkList<'a>` |
+| **Traits** | `IntoRecordStream`; `MaybeBoxedStream<'a>` (in `liquers-core`) |
+| **Type aliases** | `RecordBatchStream<'a>`, `BoxStream<'a, T>` |
+| **Private, not bridged** | `SourceBacking` — reached only through `RecordSource`'s methods |
+
+A minimal binding maps the two values, `RecordBatch`, `RecordSchema`/`FieldSchema`/`FieldType`,
+`FieldValue` and `ChunkOrigin`. `Bitmap`, `AlignedBuffer` and `Buffer<T>` are implementation detail
+and should **not** be exposed: a language sees columns, not buffers, except through the lent-buffer
+mechanism below.
+
+**The design must answer:**
+
+1. Arrow hand-off, wrappers, or both — and if Arrow, does the binding's Arrow package become a hard
+   dependency or an optional extra?
+2. Do field roles and chunk origin survive an Arrow export, through schema metadata or not at all?
+3. Which of the inventory above is exposed, and which is deliberately hidden?
+4. How does a *language* without an async model traverse a stream — see below.
+
+#### Traversing a record stream from a language with no async model
+
+`RecordSource::stream()` is async, and `STORE`/`ASYNCQ` already establish that a *language* without
+an async model cannot await. Three routes, in the order an integration should prefer them:
+
+1. **Iterate the chunk list, not the stream.** `RecordSource::chunks()` returns queries, which is
+   plain data. A sync *language* iterates those and evaluates one at a time through whatever
+   synchronous evaluation `EVAL` already provides. **This is the preferred route**: it needs no new
+   mechanism, it keeps one chunk resident, and it maps naturally onto the *language*'s own iterator
+   protocol — Python's `__iter__`/`__next__`, a Starlark iterable. Available whenever the source is
+   manifest-backed, which is the normal case for a stored stream.
+2. **Block on the stream.** Drive the future to completion on the host runtime and expose
+   `next_batch()`. Correct natively; **impossible in Wasm**, where blocking is not available — so an
+   integration offering it must say where it does not work, and `RUNTIME`'s portability rules apply.
+3. **Materialize, then iterate.** Collect the whole stream and hand back chunks. Simple, and it
+   **defeats the purpose of the design** for anything large. Acceptable only with a documented size
+   bound.
+
+Route 1 works for a `ChunkList::Known`. For `ChunkList::Unbounded` the chunk list is not enumerable
+in advance, so a sync *language* must either use route 2 or walk the template's chunks until one
+comes back short — which is route 1 with the termination condition made explicit.
+
+An async *language* exposes the stream directly (`__aiter__`/`__anext__` or the equivalent) and
+should do so **in addition to** route 1, not instead of it: iterating chunks by key is what lets a
+caller resume, parallelize, or fetch one chunk out of order.
+
+**Meaningful tests:** `RECORDS01` a chunk round-trips through the *language* with schema, field roles
+and chunk origin intact; `RECORDS02` a column reads the same values through the wrapper as through a
+copy; `RECORDS03` where an Arrow export exists, the exported table equals the wrapper's data, and the
+documented metadata survives or its loss is asserted; `RECORDS04` a lent buffer is read-only, or
+writing through it is rejected; `RECORDS05` a borrowed view survives an operation that grows the host
+heap, or fails with a clear error rather than reading the wrong memory; `RECORDS06` releasing a chunk
+handle releases the underlying value, observed through a live handle count; `RECORDS07` a sync
+*language* traverses a manifest-backed source one chunk at a time without materializing the whole
+stream; `RECORDS08` an async *language* traverses the same source through its async iterator and
+yields identical rows; `RECORDS09` `NA` unless the *language* has no async model — the documented
+sync route is present and its limitation (route 2 in Wasm) is stated.
+
 #### Prefer a native variant; retain a foreign value only when you must
 
 **The convention: when a conversion is possible and not too expensive, convert a *language value*
@@ -2644,6 +2742,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-20 | VALUE gains a RECORDS subsection: the Arrow-hand-off versus wrappers decision with a recommended default, the full type inventory of `design/record-streams/`, the routes for traversing a stream from a *language* with no async model, and tests `RECORDS01`–`RECORDS09`. | `design/record-streams/` |
 | 2026-09-20 | VALUE gains a third bridging category for values whose *buffers* are lent to the language in place, with its four obligations — reads only, views invalidated by host-heap growth, handle-owned lifetime, and a copy that is always available. RECIPE's “keep `contains`, `recipe`, and listing mutually consistent” is corrected: a generative provider legitimately has addressable ⊋ listed, and must override `contains` rather than inherit a default that enumerates. `RECIPE02` restated accordingly. | `design/record-streams/` |
 | 2026-09-05 | ENVIRON now requires language-visible builder validation reports before environment publication, including severity, message, command identity, and a preflight test. | `design/variadic-metadata-tail-check` |
 | 2026-09-02 | §3's requirement levels and implementation states moved to `reference/CONFORMANCE_TERMS.md`, so the store implementation guide shares one definition rather than copying it. The `NA` discipline and its language-specific examples stay here. §STORE's direction-2 questions now cross-link `guides/STORE_IMPLEMENTATION_GUIDE.md` instead of answering them twice. | `design/store-conformance-suite/` Phase 4 step 14 |

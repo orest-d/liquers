@@ -1,4 +1,46 @@
-# Phase 3: Examples & Use-cases - record-streams
+# Phase 3: Examples & Testing — Record streams
+
+> **Not started.** Phase 2 is awaiting approval. This file records requirements Phase 3 must meet,
+> gathered while Phase 2 was reviewed, so they are not re-derived.
+
+## Requirements carried into this phase
+
+### Identify the tests that belong to the language integration guide
+
+`guides/LANGUAGE-INTEGRATION_GUIDE.md` §VALUE now prescribes `RECORDS01`–`RECORDS09` for any
+*language* binding that exposes record values. **Phase 3 must decide which of its own tests are the
+Rust-side counterparts of those**, so a binding author has a reference implementation rather than a
+one-line summary — the guide's §3 explicitly says its appendix pseudocode "often fixes the contract
+more narrowly than the one-line summary suggests".
+
+At minimum, Phase 3 identifies the Rust test that establishes each of:
+
+| Guide test | What Phase 3 must have a counterpart for |
+|---|---|
+| `RECORDS01` | a chunk round-trips with schema, roles and `ChunkOrigin` intact |
+| `RECORDS02` | a column read matches a copy |
+| `RECORDS03` | an Arrow export equals the source data; metadata survives or its loss is asserted |
+| `RECORDS04` | buffers are read-only |
+| `RECORDS05` | a view survives host-heap growth, or fails loudly |
+| `RECORDS06` | releasing a handle releases the value |
+| `RECORDS07` | a manifest-backed source is traversed one chunk at a time, nothing else resident |
+| `RECORDS08` | async and sync traversal of one source yield identical rows |
+
+`RECORDS09` is a binding-only disposition and needs no Rust counterpart.
+
+### Other requirements gathered during Phase 2
+
+- **The growth test named in Phase 2** — force `memory.grow` between creating a typed-array view and
+  reading it, and assert the wrapper refreshed transparently. It is the test most likely to be
+  skipped and the one that catches the browser hazard.
+- **A round-trip per serialization format**, since `DefaultValueSerializer` is where a missing arm
+  surfaces.
+- **The build-matrix rows** for `records` on and off, including the wasm target.
+- **Manifest validation**: each chunk query plans, `arguments` names exist in the last action, and no
+  chunk name collides with a sibling `recipes.yaml`.
+- **The identity regimes**: a manifest using per-chunk `arguments` without a `ChunkCache` must be
+  rejected, because the failure is otherwise silent aliasing.
+
 
 ## High-Level Introduction
 
