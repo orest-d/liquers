@@ -8,10 +8,10 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 110
+Total rows: 111
 - P0: 1
 - P1: 2
-- P2: 72
+- P2: 73
 - P3: 35
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
@@ -31,6 +31,7 @@ Total rows: 110
 | [`CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION`](issues/CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION.md) | issue | A command cannot set its asset's title or description through Context | draft |  | P2 | S | core/context |  | 2026-09-16 |
 | [`CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS`](issues/CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS.md) | issue | AsyncFileStore listings drop a metadata-only key instead of reporting it | draft |  | P2 | S | core/store;store/backends;docs |  | 2026-09-03 |
 | [`DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS`](issues/DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS.md) | issue | The generated index.md emits design phase links in filesystem order | draft |  | P2 | S | docs;build |  | 2026-09-04 |
+| [`RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY`](issues/RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY.md) | issue | AsyncRecipeProvider::contains has a default that silently assumes recipes are enumerable | draft |  | P2 | S | core/assets |  | 2026-09-20 |
 | [`REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED`](issues/REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED.md) | issue | The `payload: required` metadata statement is implemented but documented nowhere | draft |  | P2 | S | docs;core/commands;macro |  | 2026-09-03 |
 | [`SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED`](issues/SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED.md) | issue | A write skipped because the asset was cancelled is recorded as a successful persist | draft |  | P2 | S | core/assets |  | 2026-09-04 |
 | [`AXUM-HANDLER-TEST-COVERAGE`](issues/AXUM-HANDLER-TEST-COVERAGE.md) | issue | liquers-axum has no handler test scaffolding, so handler behaviour is verified only by review | accepted |  | P2 | M | axum | [phase1](specs/design/expired-binary-read-safety/phase1-high-level-design.md)  [phase2](specs/design/expired-binary-read-safety/phase2-architecture.md)  [phase3](specs/design/expired-binary-read-safety/phase3-examples.md)  [phase4](specs/design/expired-binary-read-safety/phase4-implementation.md)  | 2026-08-08 |

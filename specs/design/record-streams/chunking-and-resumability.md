@@ -236,11 +236,15 @@ If cached chunks live in one folder, "which chunks are computed" is `listdir(fol
 list §2 proposed is redundant. The Python prototype kept `item_keys` in its JSON because it had no
 store-as-source-of-truth discipline; Liquers does.
 
-**Except for one thing.** `STORE-WRITE-HAS-NO-PRECONDITION` records that store write semantics are
-weak, so a **half-written chunk is not reliably distinguishable from a complete one**. A listing
-would count it as done. So the manifest keeps its value as a **completion record**, written in two
-phases — write the chunk, then record it — with the folder listing as a cross-check rather than the
-source of truth. That is what makes resumption safe rather than merely likely.
+**This held with a caveat that is being removed.** The earlier argument here was that
+`STORE-WRITE-HAS-NO-PRECONDITION` makes a half-written chunk indistinguishable from a complete one,
+so the manifest had to serve as a two-phase completion record. **That issue is being fixed**, and with
+conditional writes a chunk file either exists completely or does not — so a folder listing *is*
+trustworthy and the `known` vector genuinely can be dropped.
+
+What the manifest still carries is the part a listing cannot reconstruct: the **template parameters**
+(base query, offset, step) and, for an explicit list, the **queries and their order**. Completion
+becomes the store's business, which is where it belongs.
 
 ### The sharpest technical finding: `contains` must be overridden
 
@@ -319,6 +323,100 @@ struct ChunkCache {
 Two variants rather than one struct with `Option`s, because they differ in a way consumers must see:
 the first can enumerate and the second cannot — which `ChunkList::Known` / `Unbounded` already
 mirrors. `cache` is shared by both, as the suggestion notes.
+
+## 4b. Generative recipes: two kinds, and only one is new
+
+A review points at an existing prototype of a generative recipe provider
+([`stockplottertest/src/recipes.rs`](https://github.com/orest-d/stockplottertest/blob/master/src/recipes.rs))
+and at a use case that generalizes it: `-R/data/table.csv` exists, and a user wants
+`-R/data/table.parquet` produced on demand — without every file appearing five times in a listing
+for five formats, and with `contains` nevertheless confirming it.
+
+Read against the prototype and the code, this splits cleanly in two, and **only the second kind needs
+anything new.**
+
+### The prototype is *bounded* generative, and needs no change at all
+
+`StockRecipeProvider` pattern-matches a **folder** (`is_generated_recipes_folder`), consults a config
+through `envref.evaluate("config")`, and synthesizes a `RecipeList` — one recipe per month from
+2023-01 to last month. `assets_with_recipes`, `recipe` and `recipe_opt` all read from that generated
+list.
+
+**It does not override `contains`, and does not need to**: the generated list is finite and complete,
+so what is listed is exactly what is addressable. This proves bounded generative providers work
+against the trait as it stands, today, with **zero core change** — a strong result already
+demonstrated in the field.
+
+(One wrinkle it already carries: the list depends on the current date, so next month's listing
+differs. Enumeration that varies with time is a milder version of the same family of problem.)
+
+### The format-conversion case is *unbounded* generative, and that is the new thing
+
+| | Bounded (the prototype) | Unbounded (format conversion, unknown-count streams) |
+|---|---|---|
+| The rule yields | a finite list | a **pattern** over a large or open key set |
+| Listed vs addressable | equal | **listed ⊊ addressable** |
+| Default `contains` | correct | **silently wrong** |
+| Needs | nothing | one override, and a written-down relaxation |
+
+### The architecture already supports it — the split exists in the API surface
+
+`AssetManager::listdir` (`assets.rs:4009-4022`) is a **union** of `assets_with_recipes(dir)` and
+`store.listdir(dir)`, deduplicated through a `BTreeSet`. So the asset key space is *already* larger
+than the store key space, and the two knobs the review wants are *already* separate methods:
+
+| Method | Question it answers |
+|---|---|
+| `assets_with_recipes(dir)` | **what to show** — curated, finite |
+| `recipe_opt(key)` / `contains(key)` | **what can be produced** — possibly a pattern |
+
+"Addressable but not listed" is therefore expressible **today**: answer from `recipe_opt` and
+`contains`, and omit the name from `assets_with_recipes`. The generalization the review anticipates
+is smaller than it looks — mostly **documenting the distinction** and **removing one misleading
+default**.
+
+### The one concrete defect: `contains` has a default that assumes enumerability
+
+`AsyncRecipeProvider::contains` (`recipes.rs:500-514`) answers by calling `assets_with_recipes` and
+searching the result. A provider that can synthesize `table.parquet` on demand, but sensibly declines
+to list it, gets `false` — **with no error and no warning**. The author of such a provider must
+somehow know to override a method whose default looks reasonable.
+
+That is the same failure shape `CLAUDE.md` forbids for match arms: a silent fallthrough where a
+compile error should be. **Recommendation: remove the default and make `contains` required.** Two
+implementations exist in core, so the cost is two small method bodies, and every future provider
+author is then forced to decide whether listed and addressable coincide. Filed as
+`RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY`.
+
+### This does not violate store semantics — worth saying so explicitly
+
+`STORE_SEMANTICS.md` §2 requires `contains`, `is_dir` and `listdir` to be derived consistently — but
+that is a contract on **stores**. A recipe provider sits above the store, and the asset key space is
+legitimately larger than the store key space; that is what recipes *are*. The relaxation belongs in
+the asset and recipe reference, not as an exception to store semantics, and should be written down
+before someone "fixes" the inconsistency.
+
+### Three risks specific to conversion-on-demand
+
+Out of scope here, but they are the reasons this needs a design rather than an afternoon:
+
+1. **Ambiguous source.** If `table.csv` and `table.json` both exist, which produces `table.parquet`?
+   A precedence rule is needed, and it has to be stable, or the same key yields different data
+   depending on what else is in the folder.
+2. **Cycles.** If csv → parquet is generatable and parquet → csv is too, `contains` can regress
+   indefinitely. A depth limit, or a designated authoritative extension per base name, is required.
+3. **Proving non-existence is expensive.** `contains(table.parquet)` returning **false** means no
+   convertible source exists — which costs a store probe per candidate extension. Cheap for a chunk
+   pattern (`data_\d+\.csv` is a regex match); not cheap here.
+
+### What this means for record streams
+
+A record-stream folder is an instance of the **unbounded** kind, and therefore depends on the same
+generalization. Two prerequisites now, neither part of this design:
+
+- `NO-RECIPE-PROVIDER-CHAIN` — a records provider cannot coexist with `DefaultRecipeProvider`.
+- `RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY` — the default would silently deny chunks the
+  provider could generate.
 
 ## 5. What to change now, and what not to
 
