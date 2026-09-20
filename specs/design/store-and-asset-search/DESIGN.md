@@ -38,6 +38,13 @@ So the record mechanism was extracted into [`record-streams`](../record-streams/
 its parser, the two execution paths, the indexation policy, the interoperability layer and the
 `get_asset_info` repair.
 
+**Before this design advances,** its Phase 2 needs the tidy that `record-streams` Phase 2 received
+on 2026-09-20: seven rounds of amendment by changes in the other design have left revision-numbered
+commentary through the prose, and the history belongs in one changelog rather than scattered. An
+audit on 2026-09-20 found the document otherwise sound — every type it references is defined, and one
+stale module path (`liquers-core/src/search.rs`, left behind when the predicate followed records into
+`liquers-lib`) was corrected.
+
 **Consequence for sequencing:** `NO-RECORD-STREAM-ABSTRACTION` is now a declared **blocker** on this
 design's Phase 2, resolved by the other design completing rather than by a fix here. Phase 2 cannot
 be approved while `record-streams` Phase 1 is unapproved — which is the intended order, not an

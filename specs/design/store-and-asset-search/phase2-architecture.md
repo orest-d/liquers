@@ -311,7 +311,7 @@ store and that push-down remains open.
 
 ## Function Signatures
 
-### `liquers-core/src/search.rs`
+### `liquers-lib/src/search/predicate.rs` (`records` feature)
 
 ```rust
 /// A predicate bound to one schema: every field name already resolved to a column index.
