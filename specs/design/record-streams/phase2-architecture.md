@@ -145,10 +145,10 @@ pub struct ChunkCache {
 pub enum ChunkList<'a> {
     /// Every chunk is known, so reconciliation can diff a complete set — detecting
     /// additions, changes **and deletions**.
-    Known(&'a [Query]),
+    Known(&'a [ChunkId]),
     /// The count is unknown; a walk ends at the first short chunk. Reconciliation is
     /// append-only, and **deletions cannot be detected** without a full walk.
-    Unbounded { computed: &'a [Query] },
+    Unbounded { computed: &'a [ChunkId] },
 }
 
 impl RecordSource {
@@ -230,6 +230,17 @@ The brief asks records to trace provenance and validity per chunk, flyweighted t
 mechanism exists already and is not reinvented:
 
 ```rust
+/// A chunk's identity. The two variants are the two identity regimes of
+/// `manifest-format.md` §5: an unkeyed stream identifies a chunk by the query that
+/// produces it, a keyed stream by the key its chunk is stored under.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ChunkId {
+    /// Unkeyed: the producing query, which is also the chunk's asset identity.
+    Query(#[serde(with = "query_format")] Query),
+    /// Keyed: the stored chunk's key, e.g. `data/sales/daily_0010.csv`.
+    Key(Key),
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChunkDescriptor {
     pub id: ChunkId,
@@ -244,6 +255,25 @@ pub struct ChunkDescriptor {
     pub schema: Option<RecordSchema>,
 }
 ```
+
+**Enumerating chunks and describing one are separate calls, deliberately.** `chunks()` is cheap and
+synchronous: it returns what the source already knows, which is ids. A `ChunkDescriptor` carries a
+`Metadata`, and for a keyed stream that metadata lives in the chunk asset's own store entry — so
+building one is I/O and cannot happen inside a synchronous enumeration:
+
+```rust
+impl RecordSource {
+    /// Cheap, synchronous, no I/O. The reconciliation planning primitive.
+    pub fn chunks(&self) -> ChunkList<'_>;
+    /// Full provenance for one chunk. Reads metadata, so it is async.
+    pub async fn describe_chunk(&self, id: &ChunkId, context: &Context<impl Environment>)
+        -> Result<ChunkDescriptor, Error>;
+}
+```
+
+This mirrors `get_asset_info`: listing is cheap, describing costs a read. Reconciliation uses both —
+`chunks()` to learn what exists, `describe_chunk` to get the `(id, version)` pair for each one it
+must compare.
 
 So **provenance is "the query and the dependency versions this chunk was produced from"**, and
 **validity is the staleness check the dependency manager already performs**. A record's provenance is
@@ -1168,7 +1198,7 @@ one crate, and a build with `records` off is byte-for-byte the build that exists
 | Crate | File | Change |
 |---|---|---|
 | `liquers-lib` | `src/records/buffer.rs` (new) | `AlignedBuffer`, `Buffer<T>`, `Bitmap` — the Arrow-layout primitives; the only place `bytemuck` is used |
-| `liquers-lib` | `src/records/mod.rs` (new) | `FieldValue`, `RecordSchema`, `Column`, `RecordBatch`, `ChunkOrigin`, `RecordSource`, `SourceBacking`, `ChunkCache`, `ChunkList`, `RecordBatchStream`, `ChunkDescriptor` |
+| `liquers-lib` | `src/records/mod.rs` (new) | `FieldValue`, `RecordSchema`, `FieldSchema`, `FieldType`, `Column`, `RecordBatch`, `ChunkOrigin`, `LocatorRule`, `RecordSource`, `SourceBacking`, `ChunkCache`, `ChunkId`, `ChunkList`, `ChunkDescriptor`, `RecordBatchStream` |
 | `liquers-lib` | `src/records/commands.rs` (new) | The `ns-records` command set |
 | `liquers-lib` | `src/records/polars.rs` (new, `records` + `polars`) | `RecordBatch → polars::DataFrame` over the shared buffers |
 | `liquers-lib` | `src/value/mod.rs` | `ExtValue::RecordChunk` and `ExtValue::RecordSource`, **cfg-gated**, with every exhaustive match gaining a gated arm; both `TypeInfo` entries; the `DefaultValueSerializer` arms |
@@ -1599,6 +1629,8 @@ information — each is a position that was argued for and then abandoned on evi
 
 | 2026-09-20 | `chunks()` returns **`ChunkList { Known, Unbounded }`** rather than a complete `Vec` | A SQL source's chunk count is unknown and `COUNT(*)` is expensive. A consumer written against a complete `Vec` assumes enumeration, and retrofitting touches reconciliation |
 | 2026-09-20 | `SourceBacking` became `Materialized` / `Queried { chunks, cache }` / `QueriedTemplated { template, first_offset, step, cache }`, the last two reserved | A SQL source's chunk count is unknown, so chunk queries must be *generated*. **The manifest is a persisted format**, so its shape must anticipate or stored manifests break. `ChunkCache` puts a stream's chunks in one folder, which makes them keyed assets and makes cleanup possible |
+
+| 2026-09-20 | Audit after two silent deletions: `RecordSchema` and `FieldType` restored, `ChunkId` defined, `ChunkDescriptor` made reachable through `describe_chunk` | Mechanical rewrites had dropped definitions while the rest of the document kept referencing them |
 
 **Corrections worth keeping visible**, because each was stated wrongly first:
 

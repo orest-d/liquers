@@ -426,6 +426,7 @@ checked for completeness rather than assembled by inspection:
 | **Values** (cross a query boundary) | `ExtValue::RecordChunk`, `ExtValue::RecordSource` |
 | **Structs — data** | `RecordBatch`, `RecordSchema`, `FieldSchema`, `FieldRole`, `RecordSource`, `RecordBatchBuilder` |
 | **Structs — identity and provenance** | `ChunkOrigin`, `LocatorRule`, `ChunkDescriptor`, `ChunkCache` |
+| **Enums — identity** | `ChunkId` — `Query(..)` for an unkeyed stream, `Key(..)` for a keyed one |
 | **Structs — memory** | `Bitmap`, `AlignedBuffer`, `Buffer<T>` |
 | **Enums** | `Column`, `FieldValue`, `FieldType`, `KeyRole`, `IndexKind`, `Analyzer`, `VectorMetric`, `ChunkList<'a>` |
 | **Traits** | `IntoRecordStream`; `MaybeBoxedStream<'a>` (in `liquers-core`) |
