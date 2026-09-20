@@ -160,6 +160,10 @@ specific path is not. Nothing in this design depends on it.
 The two streaming forms are **one variant with two backings**, not two variants, because they differ
 only in whether the chunk sequence is known in advance:
 
+> **Superseded by Phase 2 revision 2.** The sketch below put both backings inside one stream type.
+> Phase 2 splits them: a **`RecordSource`** (serializable, re-openable) opens a **stream** (one-shot,
+> never a value). The reasoning that produced the sketch stands; the shape changed.
+
 ```rust
 enum StreamBacking {
     /// One query per chunk. Rewindable, serializable, cacheable, checkpointable.

@@ -275,7 +275,7 @@ in view, because two reverse Phase 1 decisions:
    every operator needs escaping, so a search URL is built by a UI or `ActionRequest`, never typed.
 7. **`Hit` was faulty and is gone.** It embedded an `AssetInfo`, which assumes one record per asset —
    a CSV row has no `AssetInfo`, the file does. Asset description moves to a per-source table, and a
-   hit is *retrievable*: `SourceInfo::chunk` re-produces the batch, `locator` addresses one record
+   hit is *retrievable*: `ChunkOrigin::chunk` re-produces the batch, `locator` addresses one record
    directly. Fields are `serde_json::Value`, not `liquers_core::value::Value`, which at 704 bytes was
    an outright bug in a document that cited `CORE-VALUE-ENUM-OVERSIZED` two sections earlier.
 
