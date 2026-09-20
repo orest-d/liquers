@@ -199,6 +199,127 @@ from the base query and one rule serves both naming and keys.
    layer's job-queue deduplication covers the in-process case; two processes need the store's write
    semantics, which `STORE-WRITE-HAS-NO-PRECONDITION` says are not there yet.
 
+## 4a. A cached stream as a folder of keyed assets
+
+A review suggestion goes further than §4 and is **better than what §4 proposed**: put every cached
+chunk of a stream in **one folder**, so the folder can be described by a single `recipes.yaml` — and
+then let a folder holding a **manifest** stand in for that `recipes.yaml`, with a provider
+interpreting the manifest as recipes. Chunks become **keyed assets**.
+
+Checked against the machinery, and it fits better than expected.
+
+### It needs no core change, because the provider is already a trait
+
+`AsyncRecipeProvider` (`recipes.rs:477`) is a per-directory, per-key trait: `has_recipes(dir)`,
+`assets_with_recipes(dir)`, `recipe_opt(key)`, `recipe(key)`, `recipe_plan(key)`, `contains(key)`.
+`DefaultRecipeProvider` is simply the implementation that reads `<dir>/recipes.yaml`
+(`recipes.rs:634`) and answers `has_recipes` by testing for that file (`:714`).
+
+**A manifest-interpreting provider is another implementation of the same trait.** Nothing in
+`liquers-core` changes, and every consumer of recipes — the asset layer, expiration, dependency
+tracking, the HTTP API — works unmodified.
+
+### What it buys
+
+Each chunk becomes an ordinary keyed asset: `-R/data/mystream/data_0042.csv` resolves, carries
+`Metadata`, has a status and a version, is cached and expired by the existing machinery, and is
+reachable over HTTP. `-R-dir/data/mystream` lists the stream. Both validate at plan level today.
+
+It also **answers an open question** this document had left open: *cleanup*. A manifest of bare
+queries cannot remove the chunks it names; a manifest that **owns a folder** can — deleting the
+folder deletes the stream. The prototype could do this precisely because it held store keys and
+cleaned its directory; the folder convention restores that without giving up queries.
+
+### The folder listing can replace the `known` vector — but must not be trusted alone
+
+If cached chunks live in one folder, "which chunks are computed" is `listdir(folder)`, so the `known`
+list §2 proposed is redundant. The Python prototype kept `item_keys` in its JSON because it had no
+store-as-source-of-truth discipline; Liquers does.
+
+**Except for one thing.** `STORE-WRITE-HAS-NO-PRECONDITION` records that store write semantics are
+weak, so a **half-written chunk is not reliably distinguishable from a complete one**. A listing
+would count it as done. So the manifest keeps its value as a **completion record**, written in two
+phases — write the chunk, then record it — with the folder listing as a cross-check rather than the
+source of truth. That is what makes resumption safe rather than merely likely.
+
+### The sharpest technical finding: `contains` must be overridden
+
+An unbounded stream cannot enumerate its chunks, and this is where it bites — not where one would
+expect.
+
+`AsyncRecipeProvider::contains` has a **default implementation** (`recipes.rs:500-514`) that answers
+by calling `assets_with_recipes` and searching the result. It **enumerates**. A generative provider
+that can perfectly well synthesize a recipe for `data_0042.csv` from a template would answer
+`false` for it, because 42 is not in the list of already-computed chunks.
+
+So a records provider must **override `contains`** to pattern-match the filename against the
+template rather than search a list. With that one override the unknown-count quirk resolves cleanly:
+
+| Method | Answer for an unbounded stream |
+|---|---|
+| `assets_with_recipes(dir)` | the **computed** chunks — honest; a directory listing should show what exists |
+| `recipe_opt(key)` | a recipe for **any** name matching the pattern, synthesized from the template |
+| `contains(key)` | **overridden** — pattern match, not enumeration |
+
+This is a **generative recipe provider**: recipes for a *pattern* of keys rather than an enumerated
+list. It is a genuine extension of the recipe model, and the trait already permits it — which is the
+strongest evidence the suggestion fits the grain of the system.
+
+### One gap: there is no provider chain
+
+Only `TrivialRecipeProvider` (`:581`) and `DefaultRecipeProvider` (`:647`) implement the trait, and an
+environment holds one provider. A records provider would have to **replace** the default rather than
+sit beside it, so a folder could be a record stream or an ordinary recipe folder but not be served by
+whichever applies.
+
+Stores solved this with `StoreRouterBuilder`; recipes have no equivalent. A chaining provider —
+first to claim a directory wins — is a small, obviously useful addition, and it is a prerequisite for
+this idea rather than part of it. Filed as `NO-RECIPE-PROVIDER-CHAIN` (P3/S).
+
+### Quirks to record
+
+- **A manifest claims its folder.** Mixing other recipes into it is undefined; the suggestion already
+  notes "if there are no other recipes in the same folder". This should be enforced, not assumed.
+- **The manifest takes a dual role**: it is both a *value* (the serialized record source) and *store
+  metadata* (the recipe source for its folder). That unification is the point, but it means a
+  corrupted manifest breaks **key resolution**, not merely a value — a heavier failure than a bad
+  data file.
+- **Two writers** sharing a folder still need the write preconditions that do not exist.
+- **Expiration now applies per chunk**, through the asset lifecycle, which is what reconciliation
+  wanted anyway.
+
+### The shape, with flat fields
+
+The suggested flat form serializes better than the nested one in §2, and dropping `known` follows from
+the folder convention:
+
+```rust
+enum SourceBacking {
+    Materialized(Vec<Arc<RecordBatch>>),
+    /// Chunks named explicitly.
+    Queried { chunks: Vec<Query>, cache: Option<ChunkCache> },
+    /// Chunks generated from a template; count unknown.
+    QueriedTemplated {
+        template: Query,
+        first_offset: i64,
+        step: i64,
+        cache: Option<ChunkCache>,
+    },
+}
+
+/// The folder convention. Present when chunks are cached as keyed assets.
+struct ChunkCache {
+    folder: Key,
+    filename_prefix: String,   // "data"
+    number_format: String,     // "{:04}"
+    extension: String,         // "csv"
+}
+```
+
+Two variants rather than one struct with `Option`s, because they differ in a way consumers must see:
+the first can enumerate and the second cannot — which `ChunkList::Known` / `Unbounded` already
+mirrors. `cache` is shared by both, as the suggestion notes.
+
 ## 5. What to change now, and what not to
 
 **Adopt now — cheap, and expensive later:**
@@ -209,9 +330,18 @@ from the base query and one rule serves both naming and keys.
 | 2 | `SourceBacking::Queried { known, template, keys }` instead of `Manifest(Vec<Query>)`, with `template` and `keys` always `None` in the first version | **The manifest is a persisted format.** Changing its JSON shape later breaks every stored manifest. `{known:[…], template:null, keys:null}` stays readable |
 | 3 | `SourceBacking` stays private; behaviour goes through `RecordSource` methods | `CLAUDE.md` forbids default match arms, so a new variant is a compile error at every match. Keeping matches to one module makes that a localized change rather than a sweep |
 
-**Do not build now:** the template renderer, keyset stride, store-backed chunk evaluation,
-manifest-to-recipe conversion, or resumption. All are additive once 1–3 are in place, and all belong
+Change 2's shape is superseded by §4a's flat form — `Queried { chunks, cache }` and
+`QueriedTemplated { template, first_offset, step, cache }` — which serializes better and drops
+`known` in favour of the folder. The reason it must be settled now is unchanged: **the manifest is a
+persisted format.**
+
+**Do not build now:** the template renderer, keyset stride, store-backed chunk evaluation, the
+generative recipe provider, or resumption. All are additive once 1–3 are in place, and all belong
 with `NO-RELATIONAL-DATABASE-ACCESS-LAYER` where the motivating case lives.
+
+**Prerequisite to file separately:** a **recipe-provider chain**. An environment holds one provider,
+so a records provider cannot coexist with `DefaultRecipeProvider` today. Stores have
+`StoreRouterBuilder`; recipes have no equivalent, and this is independently useful.
 
 **Record in the reference when it is written:** that an unbounded source cannot detect deletions;
 that offset pagination requires a total order and the `Id` field provides it; and that the last probe

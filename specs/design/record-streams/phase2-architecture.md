@@ -101,52 +101,52 @@ pub struct RecordSource {
 /// **Private.** All behaviour goes through `RecordSource`'s methods, so adding a backing later
 /// is a change inside this module rather than a sweep across every match on it — which matters
 /// because `CLAUDE.md` forbids default match arms.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 enum SourceBacking {
     /// Chunks already in memory. What `RecordChunk::into_source()` produces.
     Materialized(Vec<Arc<RecordBatch>>),
-    /// Chunks named by queries. `known` is the manifest — the Python prototype's design,
-    /// generalized from store keys to queries.
+    /// Chunks named explicitly — the manifest. Enumerable.
     Queried {
-        known: Vec<ChunkEntry>,
-        /// How to produce chunks beyond `known`. **Always `None` in this version.**
-        /// Reserved for a source whose chunk count is not known up front — a SQL table
-        /// paginated by offset, where `COUNT(*)` is expensive or meaningless.
-        template: Option<ChunkTemplate>,
-        /// Where computed chunks are persisted. **Always `None` in this version.**
-        /// Reserved for store-backed chunks, which give resumption after a restart.
-        keys: Option<ChunkKeys>,
+        #[serde(with = "query_format_seq")]
+        chunks: Vec<Query>,
+        cache: Option<ChunkCache>,
+    },
+    /// Chunks generated from a template; the count is **not** known up front.
+    /// **Not constructed in this version** — reserved for a SQL table paginated by offset,
+    /// where `COUNT(*)` is expensive or meaningless. See `chunking-and-resumability.md`.
+    QueriedTemplated {
+        /// Rendered by appending offset and limit to the template's last action and inserting
+        /// the chunk number into its filename — structurally, through `ActionRequest`,
+        /// never by string templating.
+        #[serde(with = "query_format")]
+        template: Query,
+        first_offset: i64,
+        step: i64,
+        cache: Option<ChunkCache>,
     },
 }
 
-/// One chunk, named by the query that produces it.
+/// Where a stream's chunks are cached, as keyed assets in **one folder**.
+/// The folder is what makes chunks addressable (`-R/data/mystream/data_0042.csv`), makes the
+/// stream listable (`-R-dir/data/mystream`), and makes cleanup possible — a manifest of bare
+/// queries cannot remove what it names, a manifest that owns a folder can.
+/// **Always `None` in this version.**
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ChunkEntry {
-    #[serde(with = "query_format")]
-    pub query: Query,
-    /// Where this chunk is stored, when it is. Reserved, with `keys` above.
-    pub key: Option<Key>,
-    pub version: Option<Version>,
+pub struct ChunkCache {
+    pub folder: Key,
+    pub filename_prefix: String,   // "data"
+    pub number_format: String,     // "{:04}"
+    pub extension: String,         // "csv"
 }
-
-/// Reserved. Renders a chunk query from the base query by appending offset and limit to its
-/// last action, and inserting the chunk number into the filename before the extension —
-/// structurally, through `ActionRequest`, never by string templating.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ChunkTemplate { /* see chunking-and-resumability.md */ }
-
-/// Reserved. A directory plus a chunk-number format, as the Python prototype had.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ChunkKeys { /* see chunking-and-resumability.md */ }
 
 /// Enumeration is not always possible, so a consumer handles both cases from the start.
 pub enum ChunkList<'a> {
     /// Every chunk is known, so reconciliation can diff a complete set — detecting
     /// additions, changes **and deletions**.
-    Known(&'a [ChunkEntry]),
+    Known(&'a [Query]),
     /// The count is unknown; a walk ends at the first short chunk. Reconciliation is
     /// append-only, and **deletions cannot be detected** without a full walk.
-    Unbounded { known: &'a [ChunkEntry] },
+    Unbounded { computed: &'a [Query] },
 }
 
 impl RecordSource {
@@ -1156,7 +1156,7 @@ one crate, and a build with `records` off is byte-for-byte the build that exists
 | Crate | File | Change |
 |---|---|---|
 | `liquers-lib` | `src/records/buffer.rs` (new) | `AlignedBuffer`, `Buffer<T>`, `Bitmap` — the Arrow-layout primitives; the only place `bytemuck` is used |
-| `liquers-lib` | `src/records/mod.rs` (new) | `FieldValue`, `RecordSchema`, `Column`, `RecordBatch`, `ChunkOrigin`, `RecordSource`, `SourceBacking`, `ChunkEntry`, `ChunkList`, `RecordBatchStream`, `ChunkDescriptor` |
+| `liquers-lib` | `src/records/mod.rs` (new) | `FieldValue`, `RecordSchema`, `Column`, `RecordBatch`, `ChunkOrigin`, `RecordSource`, `SourceBacking`, `ChunkCache`, `ChunkList`, `RecordBatchStream`, `ChunkDescriptor` |
 | `liquers-lib` | `src/records/commands.rs` (new) | The `ns-records` command set |
 | `liquers-lib` | `src/records/polars.rs` (new, `records` + `polars`) | `RecordBatch → polars::DataFrame` over the shared buffers |
 | `liquers-lib` | `src/value/mod.rs` | `ExtValue::RecordChunk` and `ExtValue::RecordSource`, **cfg-gated**, with every exhaustive match gaining a gated arm; both `TypeInfo` entries; the `DefaultValueSerializer` arms |
@@ -1517,8 +1517,9 @@ as the fourth step of adding a value type; `context` last in a command signature
    honest answer for the multi-gigabyte case but needs a size estimate per column.
 3. Is `with_columns` the right extension point for derived fields? It now has two users: the search
    design's evidence columns, and the derived columns that replace functional indexes.
-4. `Manifest(Vec<Query>)` cannot clean up the chunks it points at. Does `store_record_stream` need a
-   companion that removes a manifest's stored chunks, or is that the caller's business?
+4. ~~Cleanup of stored chunks~~ — **answered** by the folder convention: a stream's chunks live in
+   one folder, so removing the folder removes the stream. See
+   [`chunking-and-resumability.md`](./chunking-and-resumability.md) §4a.
 5. Diagnostics are `Metadata` log entries rather than a structured field, so a list of unavailable
    fields loses its structure. Enough for a UI that wants "did you mean…"?
 6. Does the 64-node cap implied by a `UInt` evidence bitmask belong here or in the search design?
@@ -1570,7 +1571,7 @@ information — each is a position that was argued for and then abandoned on evi
 | 2026-09-20 | The sink report became **three-valued** — exact / inexact / unsupported | DataFusion's filter pushdown: "narrowed but you must re-check" is a state two outcomes cannot express, and it is filter-then-verify |
 
 | 2026-09-20 | `chunks()` returns **`ChunkList { Known, Unbounded }`** rather than a complete `Vec` | A SQL source's chunk count is unknown and `COUNT(*)` is expensive. A consumer written against a complete `Vec` assumes enumeration, and retrofitting touches reconciliation |
-| 2026-09-20 | `SourceBacking::Manifest(Vec<Query>)` became **`Queried { known, template, keys }`**, the last two reserved | A manifest and a template are not alternatives: a store-backed run is a template whose computed prefix is memoized. **The manifest is a persisted format**, so its shape must anticipate or stored manifests break |
+| 2026-09-20 | `SourceBacking` became `Materialized` / `Queried { chunks, cache }` / `QueriedTemplated { template, first_offset, step, cache }`, the last two reserved | A SQL source's chunk count is unknown, so chunk queries must be *generated*. **The manifest is a persisted format**, so its shape must anticipate or stored manifests break. `ChunkCache` puts a stream's chunks in one folder, which makes them keyed assets and makes cleanup possible |
 
 **Corrections worth keeping visible**, because each was stated wrongly first:
 

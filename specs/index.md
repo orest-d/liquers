@@ -8,11 +8,11 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 109
+Total rows: 110
 - P0: 1
 - P1: 2
 - P2: 72
-- P3: 34
+- P3: 35
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
@@ -100,6 +100,7 @@ Total rows: 109
 | [`WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE`](issues/WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE.md) | issue | JavaScript cannot construct a LiquersError, so a page cannot raise a typed error | accepted | needs-decision | P3 | S | web;core/error | [phase1](specs/design/web-liquers-error-constructor/phase1-high-level-design.md)  [phase2](specs/design/web-liquers-error-constructor/phase2-architecture.md)  [phase3](specs/design/web-liquers-error-constructor/phase3-examples.md)  [phase4](specs/design/web-liquers-error-constructor/phase4-implementation.md)  | 2026-08-09 |
 | [`ASSET-FINISHED-PROGRESS-CONTRACT-UNDEFINED`](issues/ASSET-FINISHED-PROGRESS-CONTRACT-UNDEFINED.md) | issue | What progress a finished asset reports is undefined, and was asserted by a race | draft |  | P3 | S | core/assets |  | 2026-09-03 |
 | [`COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ`](issues/COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ.md) | issue | CommandMetadata.cache is declared, documented and exported, but nothing reads it | draft |  | P3 | S | core/commands;macro |  | 2026-09-19 |
+| [`NO-RECIPE-PROVIDER-CHAIN`](issues/NO-RECIPE-PROVIDER-CHAIN.md) | feature | An environment holds one recipe provider, with no way to compose several | draft |  | P3 | S | core/assets |  | 2026-09-20 |
 | [`AXUM-WEBSOCKET-HARDENING`](issues/AXUM-WEBSOCKET-HARDENING.md) | issue | WebSocket endpoint is not hardened | accepted |  | P3 | M | axum |  | 2026-08-08 |
 | [`BENCHMARK-SUITE`](issues/BENCHMARK-SUITE.md) | feature | No reproducible benchmarks for core runtime paths | accepted |  | P3 | M | build |  | 2026-08-08 |
 | [`CORE-STATE-LOCK-API-CLEANUP`](issues/CORE-STATE-LOCK-API-CLEANUP.md) | issue | `State` holds an `RwLock` that may not be needed | accepted |  | P3 | M | core/value |  | 2026-08-08 |
