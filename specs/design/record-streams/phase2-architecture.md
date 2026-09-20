@@ -6,7 +6,8 @@
 > **this design's Phase 1 is not yet approved**, and Phase 2 is not approved by the carry-over.
 > §0 lists what changed in the move, §0.1 what the Phase 1 answers of 2026-09-19 changed, §0.2 the
 > abstraction cleanup of revision 2, §0.3 the Arrow correction of revision 3, §0.4 the wasm sharing
-> mechanism of revision 4, and §0.5 the move to `liquers-lib` in revision 5.
+> mechanism of revision 4, §0.5 the move to `liquers-lib` in revision 5, and §0.6 the indexing-intent
+> model of revision 6.
 
 ## Overview
 
@@ -158,7 +159,38 @@ Revision 5 also adds **specification citations** ([COLUMNAR], [CDATA], [IPC]) th
 material, including a per-type format-string mapping, with the explicit caveat that the format
 strings are to be verified against the spec at implementation rather than trusted from this document.
 
-## Known-Issue Preflight## Known-Issue Preflight## Known-Issue Preflight## Known-Issue Preflight## Known-Issue Preflight
+## 0.6 Revision 6 — indexing intent, because a role enum was not enough
+
+A review asked how Tantivy or Lucene could know what an id is and which fields are searchable, since
+"this can hardly be based just on type". The design never claimed type alone — `FieldRole` was always
+the second axis, modelled on those engines. But checking the claim found the second axis **still too
+weak**: it was an *enum*, and what an engine needs are **independent capabilities that compose**.
+
+| Was inexpressible | Now |
+|---|---|
+| `TEXT \| STORED` — searchable *and* retrievable, the commonest field in any index | `FieldRole { indexed, stored, fast }` composes |
+| Tokenizer / analyzer choice | `IndexKind::FullText { analyzer, .. }` |
+| Positions, which **phrase queries require** and the search syntax promises | `FullText { positions }` |
+| Vector distance metric, which Qdrant demands at collection creation | `Similarity { metric }` |
+
+`KeyRole` splits off as a separate axis, because identity and source-index are *structural*, not
+indexing intent. And the id's constraint is now **enforced rather than described**: reconciliation
+works by delete-by-term, which cannot delete a tokenized term, so `RecordSchema::new` rejects an id
+field that is not `Exact`-indexed and stored. A schema that could not be reconciled used to be
+accepted and fail at the first refresh.
+
+The other half of the answer is a boundary: **indexing information travels in three layers and only
+two belong to a record** — logical type, portable intent, and engine-specific options, the last of
+which lives in the sink's configuration. A CSV reader producing records has no idea Tantivy exists,
+and a schema accumulating every engine's options would become their union.
+
+Writing the per-engine mapping table produced two findings the enum had hidden: **Tantivy has no
+first-class vector index**, so an engine must be able to report which parts of a schema it declined
+rather than silently dropping them — a new requirement on the interoperability layer — and **Qdrant
+point ids must be unsigned integers or UUIDs**, so that sink must map arbitrary string ids and keep
+the original in the payload.
+
+## Known-Issue Preflight## Known-Issue Preflight## Known-Issue Preflight## Known-Issue Preflight## Known-Issue Preflight## Known-Issue Preflight
 
 Searched `specs/index.csv` for non-terminal `issue`/`feature` records whose `area` intersects
 `core/value`, `core/commands`, `core/context`, `core/query`, `lib/value`, `web`.
@@ -557,68 +589,153 @@ same reason.
 `FieldValue::Object` is dropped: with columns, nesting is Arrow's `Struct`, which the subset above
 deliberately excludes for now.
 
-### RecordSchema — modelled on the systems to be integrated
+### RecordSchema — three axes, because two were not enough
 
-Two orthogonal axes, because no single target has both: a **logical type** (Arrow, polars, GlueSQL)
-and a **role** (Tantivy, Lucene, Qdrant).
+**Revised in revision 6.** The design has always had two axes — a **logical type** (Arrow, polars,
+GlueSQL) and a **role** (Tantivy, Lucene, Qdrant) — precisely because a search engine cannot work
+from type alone. A review of that claim found the second axis still too weak: it was an **enum**, and
+the things an engine needs to know are **independent capabilities that compose**.
+
+The clearest counter-example is the commonest field in any search index: a title you want to *search*
+and also *display*. In Tantivy that is `TEXT | STORED`; under an enum a field could be `Text` **or**
+`Stored`, never both. Four things were inexpressible:
+
+| Inexpressible | Why it matters |
+|---|---|
+| `TEXT \| STORED` — searchable *and* retrievable | The normal case for a title or a summary |
+| Tokenizer / analyzer choice | "raw" vs "en_stem" vs a language-specific one changes what matches |
+| Index granularity — docs / freqs / **positions** | The search syntax promises phrase queries (`"expiration safety"`), which **require positions** |
+| Vector distance metric | Qdrant demands cosine / dot / euclidean at collection creation; `dim` alone does not say |
 
 ```rust
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RecordSchema {
-    pub fields: Vec<FieldSchema>,
-    /// Liquers' own type identity for the thing the rows describe, when there is one.
-    pub type_identifier: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FieldSchema {
     pub name: String,
     pub data_type: FieldType,
-    pub role: FieldRole,
     pub nullable: bool,
+    /// Structural role in the batch — nothing to do with indexing.
+    pub key: KeyRole,
+    /// What an index should do with this field. Portable *intent*; engines translate it.
+    pub role: FieldRole,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum FieldType { Bool, Int, UInt, Float, Text, Binary, Date, Timestamp, Vector }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum FieldRole {
-    /// The row's identity within its source. Exactly one per schema.
+pub enum KeyRole {
+    /// The row's identity. **Exactly one per schema.**
     Id,
-    /// Index into `RecordBatch::sources`. At most one per schema.
+    /// Index into `RecordBatch`'s origin dictionary. At most one.
     Source,
-    /// Tokenized and matched by a text query. **Any number** — a title, a body and a comment
-    /// are all text, and none is privileged.
-    Text,
-    /// Exact match and facet; never tokenized.
-    Keyword,
-    /// Returned, never searched.
-    Stored,
-    /// Range comparisons.
-    Numeric,
-    /// Similarity comparisons.
-    Vector,
-    /// Carried and ignored.
-    Ignored,
+    /// Ordinary data.
+    None,
 }
+
+/// Composable, because these are independent capabilities.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct FieldRole {
+    /// How the field can be searched. `None` — not searchable at all.
+    pub indexed: Option<IndexKind>,
+    /// Retrievable from the engine. Lucene `stored`, Tantivy `STORED`, Qdrant payload.
+    pub stored: bool,
+    /// Available for sorting, faceting and cheap scans. Lucene docValues, Tantivy `FAST`.
+    pub fast: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum IndexKind {
+    /// Not tokenized: exact term match and faceting.
+    Exact,
+    /// Tokenized. `positions` is **required for phrase queries**.
+    FullText { analyzer: Analyzer, positions: bool },
+    /// Ordered comparisons.
+    Range,
+    /// Vector similarity.
+    Similarity { metric: VectorMetric },
+}
+
+/// Portable analyzer intent. An engine maps it to its own tokenizer;
+/// `Named` is the escape hatch for one this vocabulary cannot describe.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum Analyzer { Raw, Simple, Stemming { language: String }, Named(String) }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VectorMetric { Cosine, Dot, Euclidean }
 ```
 
-`FieldType` maps one-to-one onto the `Column` variants, and both map onto Arrow's `DataType`.
+Constructors keep the old ergonomics, so the common cases stay one call —
+`FieldRole::text()`, `::keyword()`, `::stored_only()`, `::numeric()`, `::vector(metric)`,
+`::ignored()` — composing with `.and_stored()` and `.and_fast()`. `FieldRole::text().and_stored()`
+is the title case that started this.
 
-**The identity guarantee lives in the schema and is checked once.** Phase 1's requirement that a
-record be identifiable cannot live in a row type once storage is columnar, so `RecordSchema::new`
-**fails** unless exactly one field has role `Id`, and accessors (`id_field()`, `source_field()`,
-`text_fields()`) keep consumers from indexing by string. That is how Tantivy does it: the schema is
-validated when built and hands out field handles.
+#### The identity field, specifically
 
-| Target | Mapping |
+The question "how does the engine know what an id is" has a sharper answer than "a role exists for
+it", because reconciliation constrains it. Updating an engine means **delete-by-term followed by
+insert** — Lucene's `updateDocument(Term, …)`, Tantivy's `delete_term`. You cannot delete by a
+*tokenized* term. So `KeyRole::Id` **implies** its `FieldRole`, and `RecordSchema::new` enforces it
+rather than documenting it:
+
+```rust
+// Enforced invariants, all checked once per schema:
+//   exactly one field with KeyRole::Id
+//   that field has indexed == Some(IndexKind::Exact)   — delete-by-term needs it
+//   that field has stored == true                       — a hit must say which record it is
+//   at most one field with KeyRole::Source
+```
+
+That is the same discipline Tantivy uses — the schema is validated when built and hands out field
+handles — and it means a schema that *cannot* be reconciled is rejected at construction rather than
+at the first refresh.
+
+#### What is portable, and what is not
+
+The important architectural point, and the answer to "this can hardly be based just on type":
+**indexing information travels in three layers, and only the first two belong to a record.**
+
+| Layer | Owned by | Example | Why there |
+|---|---|---|---|
+| **1. Logical type** | `FieldType` | `Text`, `Int`, `Timestamp`, `Vector` | What the data *is*. Serves Arrow, polars, GlueSQL, which ignore roles entirely |
+| **2. Portable intent** | `FieldRole` | searchable-how, stored, fast | What an index *should do*. Every engine has these concepts under different names |
+| **3. Engine specifics** | **the sink's configuration, not the schema** | Tantivy tokenizer registration, Qdrant HNSW `m`/`ef_construct`, a Lucene custom `Analyzer` | Only one engine has them |
+
+**Layer 3 must not enter the schema**, and this is a firm boundary rather than a preference: a CSV
+reader producing records has no idea Tantivy exists, and a schema that accumulated every engine's
+options would become their union. The interoperability layer already says an engine is **configured
+by a Liquers query** — so engine-specific overrides live there, keyed by field name, layered over the
+intent the schema declares. A field says "full-text, stemming, English"; the Tantivy sink's config
+may say "for field `body`, use my registered `en_stem_custom` tokenizer".
+
+#### Mapping the intent onto each target
+
+| Intent | Tantivy | Lucene | Qdrant |
+|---|---|---|---|
+| `Exact` | `STRING` | `StringField`, `indexOptions=DOCS` | payload index `keyword` |
+| `FullText { positions: true }` | `TEXT` (freqs **and positions**) | `TextField`, `DOCS_AND_FREQS_AND_POSITIONS` | payload index `text` + tokenizer |
+| `FullText { positions: false }` | `TextOptions` with `WithFreqs` | `DOCS_AND_FREQS` | as above, phrases unavailable |
+| `Range` | `INDEXED \| FAST` numeric | `LongPoint`/`DoublePoint` + docValues | payload index `integer`/`float` |
+| `Similarity { metric }` | **not supported** — Tantivy has no first-class vector index; pair it with a vector store | — | named vector, `Distance::{Cosine,Dot,Euclid}` |
+| `stored` | `STORED` | `Field.Store.YES` | payload (all payload is retrievable) |
+| `fast` | `FAST` | docValues | payload index |
+| `KeyRole::Id` | `STRING \| STORED`, used with `delete_term` | `StringField` + `updateDocument(Term)` | the **point id** — see below |
+| `indexed: None, stored: false` | omitted | omitted | omitted |
+
+Two honest limits fall out of writing this table, neither of which the earlier enum exposed:
+
+- **Tantivy cannot serve the `Similarity` intent.** An engine may decline part of a schema, so the
+  sink contract must let it report what it did not index, rather than silently dropping a field. That
+  is a requirement on the interoperability layer that this design has just generated.
+- **Qdrant point ids must be unsigned integers or UUIDs** — an arbitrary string record id does not
+  fit, so that sink must hash or map ids and keep the original in the payload. A per-sink concern,
+  but one that has to be *somewhere*, and the schema is not it.
+
+| Target ignoring roles entirely | Uses |
 |---|---|
-| **Tantivy / Lucene** | `FieldRole` *is* the field options — `Text`→TEXT, `Keyword`→STRING, `Stored`→STORED, `Numeric`→fast field |
-| **Arrow / polars / pandas** | `FieldSchema`→`Field`, `FieldType`→`DataType`, `Column`→the same buffers; export is a hand-off |
-| **GlueSQL** | `FieldSchema`→column, `FieldType`→SQL type |
-| **Qdrant** | role `Vector`→a named vector; everything else→payload |
-| **tinysearch** | only `Text`-role columns feed the per-document filter |
-| **Liquers type system** | `RecordSchema::type_identifier` carries the `TypeInfo` identity of the described value; `FieldType` is about *fields*, the registry about *values* |
+| Arrow / polars / pandas | `FieldType` → `DataType`; `Column` → the same buffers |
+| GlueSQL | `FieldType` → SQL type |
+| tinysearch | only fields whose `indexed` is `FullText` |
+| Liquers type system | `RecordSchema::type_identifier` — the `TypeInfo` identity of the described value |
+
+**Engine API names above are to be verified at implementation** against the crate versions in use,
+the same caveat that applies to the Arrow format strings. The *shape* of the mapping is the design;
+the exact constant names are not load-bearing here.
 
 ### Schema uniformity is declared, not assumed
 
@@ -1066,10 +1183,13 @@ which is what makes the aligned cast safe.
 
 ```rust
 impl RecordSchema {
-    /// Fails unless exactly one field has role `Id`. Checked once per schema rather than per row.
+    /// Fails unless exactly one field has `KeyRole::Id`, that field is `Exact`-indexed and
+    /// stored (delete-by-term needs both), and at most one field has `KeyRole::Source`.
+    /// Checked once per schema rather than per row.
     pub fn new(fields: Vec<FieldSchema>) -> Result<Self, Error>;
     pub fn id_field(&self) -> usize;
     pub fn source_field(&self) -> Option<usize>;
+    /// Columns whose `indexed` is `FullText` — what an unqualified text query matches.
     pub fn text_fields(&self) -> &[usize];
     pub fn index_of(&self, name: &str) -> Option<usize>;
 }
@@ -1308,6 +1428,7 @@ type, no `unwrap`/`expect`.
 | Situation | Outcome |
 |---|---|
 | A schema without exactly one `Id` field | `Error::general_error` from `RecordSchema::new` |
+| An `Id` field that is not `Exact`-indexed and stored | `Error::general_error` — it could not be reconciled by delete-by-term |
 | Column count or length disagrees with the schema or `len` | `Error::general_error` |
 | `concat` of batches with different schemas | `Error::general_error` naming the first differing field |
 | A mask whose length differs from the batch | `Error::general_error` |
