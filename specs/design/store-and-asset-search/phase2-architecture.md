@@ -32,7 +32,7 @@ of it sitting on the record mechanism.
 | 5 | **The predicate is an expression, not a filter pipeline** | A clause chain cannot express `OR` or grouping, never produces the predicate as a whole — so an external engine has a sequence of steps to reverse-engineer — and is eager, which forecloses filter-then-verify and push-down |
 | 6 | **The expression is syntax parsed by the command — no `Value::Predicate`** | Revision 5 reached for link parameters, which would require adding a predicate variant to the core value enum for a capability nothing yet needs. A syntax string in one parameter answers all three objections *better* |
 | **7** | **Records leave this design entirely** | Six revisions established that the interesting half was not the search. Records serve four consumers of which search is one, and carry requirements search never raises (multi-gigabyte lazy processing, per-chunk provenance). They are stabilized first, in their own design, and search is rebuilt on top |
-| **7** | **`ClauseMatch` and `RecordSet::matches` replaced by evidence columns** | A record set that carries a field only search fills is a record set that knows what a clause is. Evidence becomes three `Stored`-role columns on the result batch — **which resolves revision 6's open question 2**, and better than either option it offered. See §"Evidence" |
+| **7** | **`ClauseMatch` and the parallel match vector replaced by evidence columns** | A record set that carries a field only search fills is a record set that knows what a clause is. Evidence becomes three `Stored`-role columns on the result batch — **which resolves revision 6's open question 2**, and better than either option it offered. See §"Evidence" |
 
 Revisions 3 and 4 (the columnar, Arrow-laid-out batch, and the schema that owns names, types and
 roles) are not listed as reversed — they were *correct*, and they are exactly what moved to
@@ -48,11 +48,11 @@ Everything tabular is that design's. This one **consumes** it and adds nothing t
 | `RecordBatch`, `Column`, `Bitmap` | The predicate evaluates to a `Bitmap` per clause over a `Column`; the batch's `filter` gathers the survivors |
 | `RecordSchema`, `FieldSchema`, `FieldRole` | `bind` resolves a field name to a column index once per batch; a `Text` clause targets **every** `Text`-role column |
 | `FieldValue` | What a `FieldTest` compares against |
-| `RecordBatchStream`, `ChunkedRecordSource` | The stream the predicate is applied to, and the partition an external engine reconciles against |
+| `RecordBatchStream`, `StreamBacking::Manifest` | The stream the predicate is applied to, and the partition an external engine reconciles against — a list of queries, since `ChunkedRecordSource` was retired as redundant against it |
 | `SourceInfo`, `LocatorRule` | How a surviving row is retrieved — the `chunk` query always, the `locator` when the projection offers one |
-| `RecordSet`, `Diagnostics` | The result value; `unavailable_fields` is filled by `bind` |
+| `RecordBatch`, `RecordStream` | The result value. `RecordSet` and `Diagnostics` were **removed** from that design during its Phase 2 review — a result is a batch or a stream, and evaluation facts go to `Metadata`'s log |
 | Field qualification (`meta.`, `attr.`, `key.`) | The names a predicate references |
-| `Value::Records` | The result is an ordinary value, so a search composes with any record consumer |
+| `ExtValue::RecordChunk`, `ExtValue::RecordStream` | The result is an ordinary value, so a search composes with any record consumer. Note these are `ExtValue` in `liquers-lib`, **not** `Value` in core — an opaque stream cannot satisfy `Value`'s `Deserialize` bound |
 
 **If the record design changes, this one follows.** In particular, open questions 5 and 6 there
 (the extension point for derived columns, and where the 64-clause cap is documented) are answered
@@ -144,7 +144,7 @@ signal `CLAUDE.md` exists to preserve. No match uses a default arm.
 
 ### Evidence
 
-Revision 6 left open whether a search result should be a `RecordSet` with a parallel
+Revision 6 left open whether a search result should be a record set with a parallel
 `matches: Vec<Vec<ClauseMatch>>` or a distinct type wrapping one. **Revision 7 answers: neither.**
 Evidence is expressed the way every other per-row fact is — as columns appended to the result batch
 with role `Stored`:
@@ -157,7 +157,8 @@ with role `Stored`:
 
 This is strictly better than either option that was on the table: a search result composes with any
 record consumer with no unwrapping, evidence serializes as CSV or NDJSON like everything else, and
-`RecordSet` loses a field it should never have had. **Two costs, stated rather than discovered
+the record design loses a field it should never have had (and, in its own review, the whole
+`RecordSet` type). **Two costs, stated rather than discovered
 later:** the bitmask caps a predicate at **64 nodes**, which `parse_search_syntax` reports as an
 error rather than truncating silently; and only one excerpt per row is representable, which is the
 same trade every search UI makes.
@@ -315,7 +316,7 @@ pub struct BoundPredicate<'a> { /* … */ }
 
 impl SearchPredicate {
     /// Resolve names against a schema. Names no schema declares are returned for
-    /// `Diagnostics::unavailable_fields` rather than failing.
+    /// a `Warning` log entry on the evaluation's `Metadata` rather than failing.
     pub fn bind(&self, schema: &RecordSchema) -> (BoundPredicate<'_>, Vec<String>);
     /// True when no clause needs a `Text`-role field — the producer may skip projecting bodies.
     pub fn needs_text(&self) -> bool;
@@ -370,8 +371,8 @@ pub fn select(state: &State<Value>, expr: String, limit: i64) -> Result<Value, E
 
 **No new dependency.** `serde` and `async_trait` are already direct dependencies of `liquers-core`;
 everything columnar comes from `liquers_core::records`. **`liquers-core/src/store.rs` and
-`src/value.rs` are untouched by this design** — the `Value::Records` variant belongs to
-`record-streams`.
+`src/value.rs` are untouched by this design** — the value variants belong to `record-streams`, and
+live on `ExtValue` in `liquers-lib`.
 
 ## Documentation Architecture
 
@@ -408,9 +409,9 @@ type, no `unwrap`/`expect`.
 
 | Situation | Outcome |
 |---|---|
-| State is not a `Value::Records` | `Error::conversion_error` |
-| Unreadable entry while producing records | Skipped, counted in `Diagnostics::scanned` |
-| Unresolvable field | Not an error — the clause does not match; the name lands in `unavailable_fields` |
+| State is not a record chunk or stream | `Error::conversion_error` |
+| Unreadable entry while producing records | Skipped, counted in an `Info` log entry on `Metadata` |
+| Unresolvable field | Not an error — the clause does not match; a `Warning` log entry names it |
 | Ambiguous unqualified field name | `Error::general_error` naming every candidate |
 | An expression of more than 64 nodes | `Error::general_error` — the evidence bitmask's cap, reported rather than truncated |
 | Otherwise malformed search syntax | Treated as a literal term |
