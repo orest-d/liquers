@@ -5,7 +5,8 @@
 > written and reviewed. It is recorded here at Phase 2 depth so the reasoning is not lost, but
 > **this design's Phase 1 is not yet approved**, and Phase 2 is not approved by the carry-over.
 > §0 lists what changed in the move, §0.1 what the Phase 1 answers of 2026-09-19 changed, §0.2 the
-> abstraction cleanup of revision 2, and §0.3 the Arrow correction of revision 3.
+> abstraction cleanup of revision 2, §0.3 the Arrow correction of revision 3, and §0.4 the wasm
+> sharing mechanism of revision 4.
 
 ## Overview
 
@@ -103,7 +104,29 @@ One dependency finding: **`polars-arrow 0.55.2` is already in the lockfile** via
 its own C Data Interface, so the native polars hand-off need not hand-roll FFI when the `polars`
 feature is on.
 
-## Known-Issue Preflight## Known-Issue Preflight## Known-Issue Preflight
+## 0.4 Revision 4 — a safe wasm sharing mechanism
+
+Revision 3 flagged the browser route as "fragile" and stopped. That was too pessimistic, and the
+question of whether invalidation can be *detected* has a good answer. §"The wasm route" now specifies
+a dedicated mechanism, deliberately not Arrow-shaped:
+
+- **Two hazards, not one.** Heap growth detaches the JS `ArrayBuffer` but **does not move the Rust
+  allocation** — wasm growth extends linear memory and never relocates pages. A freed or reallocated
+  buffer is a different and far more dangerous problem.
+- **Growth is detectable in O(1)** by comparing `view.buffer` against the live `memory.buffer` by
+  identity, and recoverable by re-creating the view at the *same* pointer and length.
+- **A dangling pointer is not detectable at all**, so it is prevented structurally: the handle holds
+  an `Arc<RecordBatch>`, and buffers are immutable `Arc<[T]>` that never reallocate.
+- **The refresh mechanism is a ten-line JS getter** that does the identity check per access. No
+  copying on the fast path.
+- `columnCopy` remains as an always-correct fallback, now a deliberate choice rather than the only
+  safe option.
+
+Recorded as constraints rather than left implicit: the views are **read-only**, a view must not
+outlive the handle (`debug-handles` gives the release test, as it does for `RUNTIME05`), and
+`SharedArrayBuffer` would remove the hazard entirely at the cost of cross-origin isolation.
+
+## Known-Issue Preflight## Known-Issue Preflight## Known-Issue Preflight## Known-Issue Preflight
 
 Searched `specs/index.csv` for non-terminal `issue`/`feature` records whose `area` intersects
 `core/value`, `core/commands`, `core/context`, `core/query`, `lib/value`, `web`.
@@ -250,21 +273,116 @@ project builds for already is. One line, not a design problem.
 | **Arrow IPC / Feather** | yes — it is serialization | `liquers-lib`, deferred | Not sharing. A flatbuffers encoder; also the natural `.arrow` file format for a chunk |
 | **Typed arrays over wasm memory** | none, but fragile | `liquers-web` | **Weaker than the earlier draft claimed** — see below |
 
-**The wasm route needs a caveat the earlier text omitted.** There is no C Data Interface in a browser;
-JavaScript cannot consume `repr(C)` structs. What works is creating `Int32Array` / `Float64Array` /
-`BigInt64Array` **views** over the wasm linear memory at a buffer's offset, which is genuinely
-zero-copy to read. Two real limitations:
+#### The wasm route: a dedicated safe mechanism, not Arrow
 
-1. **Growing the wasm heap detaches every existing view.** Any allocation can trigger growth, after
-   which previously handed-out typed arrays are detached and throw on access. So a view must be
-   treated as valid only until the next call into wasm — either re-created after each one, or copied
-   if it must outlive it.
-2. Getting an *Arrow JS* record batch means constructing Arrow JS `Data`/`Vector` objects around those
-   views. Arrow JS accepts externally-owned buffers, so this works, but it is assembly at the
-   boundary rather than a hand-off.
+There is no C Data Interface in a browser — JavaScript cannot consume `repr(C)` structs — so the
+browser gets **its own sharing mechanism**, which need not be Arrow-shaped. The goal stands: read the
+data in place, in linear memory, without copying.
 
-Neither sinks the approach; both mean "zero-copy in the browser" is a qualified claim, and the
-qualification belongs in `RECORD_STREAMS.md` rather than being rediscovered by whoever implements it.
+**Revision 3 called the typed-array route "fragile" and left it there. That was too pessimistic.** On
+examination there are *two* hazards, not one, and they have completely different characters:
+
+| | Hazard A — the heap grows | Hazard B — the buffer is freed or moved |
+|---|---|---|
+| What breaks | the JS `ArrayBuffer` is **detached** and `memory.buffer` returns a new object | the pointer **dangles** |
+| Does the Rust data move? | **No.** wasm growth extends linear memory; it never relocates existing pages | Yes, or it is gone |
+| Detectable from JS? | **Yes, exactly and in O(1)** | **No.** Reads return plausible garbage, silently |
+| Answer | detect and refresh | **prevent structurally** |
+
+**Hazard A is easy, and this is the key fact:** growth invalidates the JS *view object*, not the Rust
+*pointer*. The detection is a reference comparison —
+
+```js
+if (view.buffer !== memory.buffer) { /* stale */ }
+```
+
+— and the refresh is re-creating the view at the **same pointer and length**, because the allocation
+never moved:
+
+```js
+view = new Float64Array(memory.buffer, ptr, len);
+```
+
+**Hazard B is the dangerous one, and it is prevented rather than detected.** The handle holds an
+`Arc<RecordBatch>`, which keeps every buffer alive; our buffers are `Arc<[T]>` and **immutable once
+built** (§"Concurrency Considerations"), so they never reallocate. For as long as JS holds the
+handle, the pointers are stable. This is the same ownership discipline as the C Data Interface's
+`release` callback, expressed in a way wasm-bindgen already supports.
+
+**The simplest discipline, which makes most of this moot: do not cache views.** Constructing
+`new Float64Array(memory.buffer, ptr, len)` is O(1) — a small JS object wrapping a pointer, with no
+data copy — so creating it at the point of use costs nothing measurable and makes staleness nearly
+unreachable. A view only goes stale if it is held across a call into wasm or across an `await`.
+
+**The API.** Following `liquers-web`'s existing handle convention (`#[wasm_bindgen(js_name = …)]` over
+an inner value, as `LiquersQuery` and `LiquersKey` do):
+
+```rust
+// liquers-web/src/records.rs
+#[wasm_bindgen(js_name = RecordChunk)]
+pub struct LiquersRecordChunk {
+    /// Keeps every buffer alive for the handle's lifetime — the answer to Hazard B.
+    inner: Arc<RecordBatch>,
+}
+
+#[wasm_bindgen(js_class = RecordChunk)]
+impl LiquersRecordChunk {
+    #[wasm_bindgen(getter, js_name = numRows)]    pub fn num_rows(&self) -> usize;
+    #[wasm_bindgen(getter, js_name = numColumns)] pub fn num_columns(&self) -> usize;
+    #[wasm_bindgen(js_name = schemaJson)]         pub fn schema_json(&self) -> String;
+    /// Descriptor for one column: kind, pointer, length, and the validity bitmap when present.
+    /// Enough for JS to build a view; carries no data itself.
+    pub fn column(&self, i: usize) -> Result<JsValue, JsValue>;
+    /// The always-safe fallback: an owned typed array, detached from linear memory. O(n).
+    #[wasm_bindgen(js_name = columnCopy)]
+    pub fn column_copy(&self, i: usize) -> Result<JsValue, JsValue>;
+    // `free()` is generated by wasm-bindgen and drops the Arc.
+}
+```
+
+and a small JS companion in which the refresh *is* the getter:
+
+```js
+class RecordColumn {
+  constructor(memory, desc) { this.memory = memory; this.desc = desc; this._view = null; }
+  get view() {                       // one reference comparison per access
+    if (this._view === null || this._view.buffer !== this.memory.buffer) {
+      this._view = makeView(this.memory.buffer, this.desc);   // same ptr, same len
+    }
+    return this._view;
+  }
+  toCopy() { return this.view.slice(); }   // the fallback, explicit
+}
+```
+
+That is the whole refresh mechanism: roughly ten lines, one reference comparison per access, no
+copying on the fast path, and an explicit copy available whenever a caller wants a value that outlives
+linear memory.
+
+**Two constraints that must be documented, not discovered:**
+
+1. **The views are read-only.** Writing through them into buffers Rust holds as immutable `Arc<[T]>`
+   would violate the aliasing assumptions the rest of the design relies on. Single-threaded JS plus
+   wasm means concurrent *reading* is fine; writing is not.
+2. **A view must not outlive the handle.** `free()` drops the `Arc`, and a view held past that point
+   is Hazard B with no detection. The `debug-handles` feature already used for `RUNTIME05` gives the
+   test: assert the live chunk-handle count returns to zero after `free()`.
+
+**Two escape hatches worth recording, neither relied on:**
+
+- **`SharedArrayBuffer`.** If the wasm memory is created with `shared: true`, growth does **not**
+  detach — a growable `SharedArrayBuffer` grows in place and existing views stay valid, removing
+  Hazard A entirely. The cost is cross-origin isolation (COOP/COEP headers), a deployment burden that
+  should not be a precondition for reading a table.
+- **Pre-reserving the heap** so growth never occurs in a session. It makes the fast path the common
+  path; it is not a correctness guarantee, and the identity check stays regardless.
+
+**Test to write, because it is the one that would otherwise be skipped:** take a view, force
+`memory.grow` by allocating in between, then read — and assert the wrapper refreshed transparently
+and returned the right values.
+
+**Copying is an accepted fallback, not the plan.** `columnCopy` exists and is always correct; the
+design above means it is a caller's deliberate choice rather than the only safe option.
 
 **Still no claim of full Arrow support.** A deliberate subset: the types above, no nested `Struct`
 beyond the batch root, no `Union`, no dictionary encoding, no large (64-bit offset) variants. Enough
@@ -963,6 +1081,7 @@ impl<T: bytemuck::Pod> Buffer<T> {
 | `liquers-lib` | `src/records/mod.rs` (new) | Record-producing commands and source adapters |
 | `liquers-lib` | `src/records/polars.rs` (new, `polars` feature) | `RecordBatch → polars::DataFrame` over the shared buffers |
 | `liquers-py` | later milestone | Arrow C Data Interface export — the only place `unsafe` FFI belongs |
+| `liquers-web` | `src/records.rs` (new) | `RecordChunk` handle holding `Arc<RecordBatch>`, per-column descriptors, `columnCopy` fallback; the JS companion that revalidates views |
 | `liquers-web` | later milestone | Typed-array views over the same buffers |
 | `specs` | `command_registry.yaml` | Regenerated |
 
