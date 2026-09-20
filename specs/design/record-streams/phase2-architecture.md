@@ -98,23 +98,63 @@ pub struct RecordSource {
     pub uniform_schema: Option<Arc<RecordSchema>>,
 }
 
+/// **Private.** All behaviour goes through `RecordSource`'s methods, so adding a backing later
+/// is a change inside this module rather than a sweep across every match on it — which matters
+/// because `CLAUDE.md` forbids default match arms.
 #[derive(Debug, Clone)]
 enum SourceBacking {
-    /// One query per chunk — the serialized form, and the prototype's manifest generalized
-    /// from store keys to queries.
-    Manifest(Vec<Query>),
     /// Chunks already in memory. What `RecordChunk::into_source()` produces.
     Materialized(Vec<Arc<RecordBatch>>),
+    /// Chunks named by queries. `known` is the manifest — the Python prototype's design,
+    /// generalized from store keys to queries.
+    Queried {
+        known: Vec<ChunkEntry>,
+        /// How to produce chunks beyond `known`. **Always `None` in this version.**
+        /// Reserved for a source whose chunk count is not known up front — a SQL table
+        /// paginated by offset, where `COUNT(*)` is expensive or meaningless.
+        template: Option<ChunkTemplate>,
+        /// Where computed chunks are persisted. **Always `None` in this version.**
+        /// Reserved for store-backed chunks, which give resumption after a restart.
+        keys: Option<ChunkKeys>,
+    },
+}
+
+/// One chunk, named by the query that produces it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChunkEntry {
+    #[serde(with = "query_format")]
+    pub query: Query,
+    /// Where this chunk is stored, when it is. Reserved, with `keys` above.
+    pub key: Option<Key>,
+    pub version: Option<Version>,
+}
+
+/// Reserved. Renders a chunk query from the base query by appending offset and limit to its
+/// last action, and inserting the chunk number into the filename before the extension —
+/// structurally, through `ActionRequest`, never by string templating.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChunkTemplate { /* see chunking-and-resumability.md */ }
+
+/// Reserved. A directory plus a chunk-number format, as the Python prototype had.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChunkKeys { /* see chunking-and-resumability.md */ }
+
+/// Enumeration is not always possible, so a consumer handles both cases from the start.
+pub enum ChunkList<'a> {
+    /// Every chunk is known, so reconciliation can diff a complete set — detecting
+    /// additions, changes **and deletions**.
+    Known(&'a [ChunkEntry]),
+    /// The count is unknown; a walk ends at the first short chunk. Reconciliation is
+    /// append-only, and **deletions cannot be detected** without a full walk.
+    Unbounded { known: &'a [ChunkEntry] },
 }
 
 impl RecordSource {
     /// Open a fresh traversal. Callable any number of times — this is what replaces `rewind`.
     pub async fn stream(&self, context: &Context<impl Environment>)
         -> Result<RecordBatchStream<'_>, Error>;
-    /// Chunk descriptors without producing any records — the reconciliation primitive.
-    pub fn chunks(&self) -> Vec<ChunkDescriptor>;
-    /// The manifest, when there is one. `None` for a materialized source.
-    pub fn manifest(&self) -> Option<&[Query]>;
+    /// Chunks without producing any records — the reconciliation primitive.
+    pub fn chunks(&self) -> ChunkList<'_>;
 }
 ```
 
@@ -158,9 +198,15 @@ pub trait MaybeBoxedStream<'a>: Stream + Sized + 'a {
 ```
 
 **No new trait is introduced.** A `ChunkedRecordSource` trait with a `partition()` method would be
-redundant against the manifest: `RecordSource::chunks()` is the partition, as data. A trait would only earn its place for a source whose partition is
-**discoverable only incrementally** — a paginated remote API that reveals the next page token after
-reading a page — which is real, out of scope, and addable later as another `SourceBacking`.
+redundant against the manifest: `RecordSource::chunks()` is the partition, expressed **as data** —
+which can be stored, cached, diffed and inspected, none of which a trait object can.
+
+A source whose partition is **discoverable only incrementally** — a SQL table paginated by offset, a
+remote API revealing the next page token after each page — is served by the reserved `template` field
+rather than by a trait. That is why `chunks()` returns a `ChunkList` distinguishing `Known` from
+`Unbounded` **now**: enumeration is not always possible, and a consumer written against a complete
+`Vec` would have to be revisited. See
+[`chunking-and-resumability.md`](./chunking-and-resumability.md).
 
 ### Three scales, unchanged
 
@@ -1059,6 +1105,15 @@ impl ChunkOrigin {
     pub fn locator_query(&self, id: &FieldValue) -> Option<Query>;
 }
 
+impl RecordSource {
+    /// Chunks without producing records. `Unbounded` when the count is not known —
+    /// see `chunking-and-resumability.md` for why the distinction is in the API now.
+    pub fn chunks(&self) -> ChunkList<'_>;
+    /// A fresh traversal; callable any number of times.
+    pub async fn stream(&self, context: &Context<impl Environment>)
+        -> Result<RecordBatchStream<'_>, Error>;
+}
+
 pub struct RecordBatchBuilder { /* … */ }
 
 impl Bitmap {
@@ -1101,7 +1156,7 @@ one crate, and a build with `records` off is byte-for-byte the build that exists
 | Crate | File | Change |
 |---|---|---|
 | `liquers-lib` | `src/records/buffer.rs` (new) | `AlignedBuffer`, `Buffer<T>`, `Bitmap` — the Arrow-layout primitives; the only place `bytemuck` is used |
-| `liquers-lib` | `src/records/mod.rs` (new) | `FieldValue`, `RecordSchema`, `Column`, `RecordBatch`, `ChunkOrigin`, `RecordSource`, `SourceBacking`, `RecordBatchStream`, `ChunkDescriptor` |
+| `liquers-lib` | `src/records/mod.rs` (new) | `FieldValue`, `RecordSchema`, `Column`, `RecordBatch`, `ChunkOrigin`, `RecordSource`, `SourceBacking`, `ChunkEntry`, `ChunkList`, `RecordBatchStream`, `ChunkDescriptor` |
 | `liquers-lib` | `src/records/commands.rs` (new) | The `ns-records` command set |
 | `liquers-lib` | `src/records/polars.rs` (new, `records` + `polars`) | `RecordBatch → polars::DataFrame` over the shared buffers |
 | `liquers-lib` | `src/value/mod.rs` | `ExtValue::RecordChunk` and `ExtValue::RecordSource`, **cfg-gated**, with every exhaustive match gaining a gated arm; both `TypeInfo` entries; the `DefaultValueSerializer` arms |
@@ -1447,10 +1502,11 @@ as the fourth step of adding a value type; `context` last in a command signature
    fits well — sqlx's `fetch()` is already a row stream, and keyset chunking works *because* the
    schema already requires exactly one ordered unique `Id`. Three things do not fit, and the first
    is structural:
-   - `SourceBacking` has only `Manifest` and `Materialized`. A SQL source is neither: a connection
-     plus a query, whose chunk boundaries are not known in advance. **This is the
-     "partition discoverable only incrementally" case that justifies reviving a source trait** — the
-     relational direction brings it back, and it cannot be dodged.
+   - A SQL source needs chunk queries **generated**, not listed, since the count is unknown and
+     `COUNT(*)` is expensive. [`chunking-and-resumability.md`](./chunking-and-resumability.md) works
+     this through: the `template` and `keys` fields of `SourceBacking::Queried` are reserved for it,
+     and `ChunkList::Unbounded` exists so consumers are written for it now. **No trait revival is
+     needed** — but the reserved fields must be filled in, and store-backed chunks with them.
    - **`Decimal` stops being deferrable.** Reading a `NUMERIC` column as `Float` is a corruption bug,
      not an approximation. Also absent: `uuid`, `jsonb`, arrays, intervals.
    - **Writing is entirely undesigned.** An access layer implies `INSERT`/`UPDATE`, transactions and
@@ -1512,6 +1568,9 @@ information — each is a position that was argued for and then abandoned on evi
 | 2026-09-20 | `indexed` became **plural**, and roles were reframed as **capabilities the data affords** rather than instructions | One field routinely has several access paths in one engine — a B-tree and a trigram index; a `text` field with a `keyword` sub-field |
 | 2026-09-20 | `IndexKind::Substring` added; functional indexes declared **out of scope as roles** | `LIKE`/trigram is neither exact nor tokenized. Soundex indexes an expression, so it becomes a derived column instead |
 | 2026-09-20 | The sink report became **three-valued** — exact / inexact / unsupported | DataFusion's filter pushdown: "narrowed but you must re-check" is a state two outcomes cannot express, and it is filter-then-verify |
+
+| 2026-09-20 | `chunks()` returns **`ChunkList { Known, Unbounded }`** rather than a complete `Vec` | A SQL source's chunk count is unknown and `COUNT(*)` is expensive. A consumer written against a complete `Vec` assumes enumeration, and retrofitting touches reconciliation |
+| 2026-09-20 | `SourceBacking::Manifest(Vec<Query>)` became **`Queried { known, template, keys }`**, the last two reserved | A manifest and a template are not alternatives: a store-backed run is a template whose computed prefix is memoized. **The manifest is a persisted format**, so its shape must anticipate or stored manifests break |
 
 **Corrections worth keeping visible**, because each was stated wrongly first:
 
