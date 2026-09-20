@@ -735,11 +735,15 @@ pub enum KeyRole {
     None,
 }
 
-/// Composable, because these are independent capabilities.
+/// The access paths this field **affords**. An engine takes the subset it can serve
+/// and reports the rest as declined; nothing here is a command.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct FieldRole {
-    /// How the field can be searched. `None` — not searchable at all.
-    pub indexed: Option<IndexKind>,
+    /// How the field can be searched. Empty — not searchable at all.
+    /// **Plural**: one field routinely has several access paths in one engine — a B-tree
+    /// *and* a trigram index in Postgres, a `text` field with a `keyword` sub-field in
+    /// Elasticsearch.
+    pub indexed: Vec<IndexKind>,
     /// Retrievable from the engine. Lucene `stored`, Tantivy `STORED`, Qdrant payload.
     pub stored: bool,
     /// Available for sorting, faceting and cheap scans. Lucene docValues, Tantivy `FAST`.
@@ -750,6 +754,9 @@ pub struct FieldRole {
 pub enum IndexKind {
     /// Not tokenized: exact term match and faceting.
     Exact,
+    /// Matching *inside* a token: `LIKE '%x%'`, trigram, fuzzy. Neither `Exact` nor
+    /// `FullText`, and common in relational and search engines alike.
+    Substring,
     /// Tokenized. `positions` is **required for phrase queries**.
     FullText { analyzer: Analyzer, positions: bool },
     /// Ordered comparisons.
@@ -792,6 +799,44 @@ That is the same discipline Tantivy uses — the schema is validated when built 
 handles — and it means a schema that *cannot* be reconciled is rejected at construction rather than
 at the first refresh.
 
+#### Roles are capabilities, not commands
+
+A field declares the access paths its data **affords**; each engine takes the subset it can serve and
+reports the rest, per the sink contract. So the same schema serves Postgres (B-tree plus trigram),
+Tantivy (`STRING` plus `TEXT`), Qdrant (a keyword payload index) and a CSV export (none) without any
+of them knowing about the others — and without the schema carrying per-engine role maps, which would
+be engine configuration leaking into data.
+
+Nothing enforces that an engine honours a role, and a record stream is perfectly usable with every
+role left at default. **The one exception is the `Id` field**, whose `Exact` + stored requirement is
+enforced in `RecordSchema::new`, because a schema that cannot be reconciled fails silently otherwise.
+
+#### Access paths, not data structures — and what that excludes
+
+The model says which *queries* are supported, never which structure supports them. The relational
+distinction falls out on its own rather than needing to be named:
+
+| Relational index | In this model |
+|---|---|
+| **B-tree** | `Exact` **and** `Range` — a B-tree is ordered, so it serves both |
+| **Hash** | `Exact` only — precisely the functional difference from a B-tree |
+| GIN/GiST over text | `FullText { … }` |
+| `pg_trgm`, `LIKE '%x%'` | `Substring` |
+| BRIN | `Range` with weaker selectivity — a statistics concern, not a capability one |
+| Spatial (R-tree, PostGIS) | **not represented** — no geo type in the subset |
+
+**A functional index is a derived column, not a role.** `CREATE INDEX ON t (soundex(name))` indexes a
+derived *expression*, which is a property of a `(field, function)` pair rather than of the field —
+admitting it would put expressions in the schema, at which point the schema is a query language.
+The Liquers answer is better and already available: a command adds a `name_soundex` column with
+`IndexKind::Exact` through `RecordBatch::with_columns`, and the index is then on a real field. Same
+for `lower(email)` or any normalised form. The derivation becomes visible, cacheable data instead of
+hidden engine configuration.
+
+(This holds while Liquers owns the schema. Reading *from* a database that already has functional
+indexes, no column can be added — those indexes are the database's business and do not appear here.
+See `engine-survey.md` §3.)
+
 #### What is portable, and what is not
 
 The important architectural point, and the answer to "this can hardly be based just on type":
@@ -815,6 +860,7 @@ may say "for field `body`, use my registered `en_stem_custom` tokenizer".
 | Intent | Tantivy | Lucene | Qdrant |
 |---|---|---|---|
 | `Exact` | `STRING` | `StringField`, `indexOptions=DOCS` | payload index `keyword` |
+| `Substring` | via an ngram tokenizer | via an ngram/shingle analyzer | payload index `text` with a substring tokenizer |
 | `FullText { positions: true }` | `TEXT` (freqs **and positions**) | `TextField`, `DOCS_AND_FREQS_AND_POSITIONS` | payload index `text` + tokenizer |
 | `FullText { positions: false }` | `TextOptions` with `WithFreqs` | `DOCS_AND_FREQS` | as above, phrases unavailable |
 | `Range` | `INDEXED \| FAST` numeric | `LongPoint`/`DoublePoint` + docValues | payload index `integer`/`float` |
@@ -1397,17 +1443,39 @@ as the fourth step of adding a value type; `context` last in a command signature
 
 ## Open Questions for Phase 3
 
-1. What is the default batch size, and is it a row count or a byte budget? A byte budget is the
+1. **Can a `RecordSource` front a relational database?** `engine-survey.md` §3 finds the read path
+   fits well — sqlx's `fetch()` is already a row stream, and keyset chunking works *because* the
+   schema already requires exactly one ordered unique `Id`. Three things do not fit, and the first
+   is structural:
+   - `SourceBacking` has only `Manifest` and `Materialized`. A SQL source is neither: a connection
+     plus a query, whose chunk boundaries are not known in advance. **This is the
+     "partition discoverable only incrementally" case that justifies reviving a source trait** — the
+     relational direction brings it back, and it cannot be dodged.
+   - **`Decimal` stops being deferrable.** Reading a `NUMERIC` column as `Float` is a corruption bug,
+     not an approximation. Also absent: `uuid`, `jsonb`, arrays, intervals.
+   - **Writing is entirely undesigned.** An access layer implies `INSERT`/`UPDATE`, transactions and
+     conflict handling; this design is read-only throughout.
+
+   Filed as `NO-RELATIONAL-DATABASE-ACCESS-LAYER` rather than absorbed here.
+2. What is the default batch size, and is it a row count or a byte budget? A byte budget is the
    honest answer for the multi-gigabyte case but needs a size estimate per column.
-2. Is `with_columns` the right extension point for derived fields? The search design's evidence
-   columns are its only user, and they apply to a `RecordChunk`.
-3. `Manifest(Vec<Query>)` cannot clean up the chunks it points at, unlike the Python prototype's key
-   list. Does `store_record_stream` need a companion that removes a manifest's stored chunks, or is
-   that the caller's business?
-4. Diagnostics are `Metadata` log entries rather than a structured field, so `unavailable_fields`
-   loses its structure. Enough for a UI that wants to offer "did you mean…", or does that case want
-   structure back?
-5. Does the 64-node cap implied by a `UInt` evidence bitmask belong here or in the search design?
+3. Is `with_columns` the right extension point for derived fields? It now has two users: the search
+   design's evidence columns, and the derived columns that replace functional indexes.
+4. `Manifest(Vec<Query>)` cannot clean up the chunks it points at. Does `store_record_stream` need a
+   companion that removes a manifest's stored chunks, or is that the caller's business?
+5. Diagnostics are `Metadata` log entries rather than a structured field, so a list of unavailable
+   fields loses its structure. Enough for a UI that wants "did you mean…"?
+6. Does the 64-node cap implied by a `UInt` evidence bitmask belong here or in the search design?
+7. **Declared projection depths.** OpenViking gives every entry three loading tiers — a one-sentence
+   abstract, an overview, then full detail. That is a better articulation of "return enough to judge
+   a record and to address it" than the Level 0 / Level 1 split in `record-model.md`. Should a source
+   declare depths a consumer can request?
+8. **A per-record content hash.** mem0 carries one for deduplication. This design versions a *chunk*;
+   a per-record hash would let reconciliation skip unchanged records inside a changed chunk. Worth it
+   only if chunk granularity proves too coarse in measurement.
+9. Should `ChunkDescriptor` carry **statistics** (row count, per-column min/max)? DataFusion uses them
+   for optimization, and min/max per chunk would let a predicate skip chunks entirely — the same trick
+   as parquet row-group pruning. Not needed now; the place for it later is clear.
 
 **Settled, and recorded so they are not reopened without new information:**
 
@@ -1415,11 +1483,12 @@ as the fourth step of adding a value type; `context` last in a command signature
 |---|---|
 | Which crate owns records | `liquers-lib`, behind a `records` feature — a data type, not a core capability |
 | Which enum owns the value variants | `ExtValue`, because `Value`'s `Deserialize` bound is unsatisfiable for a stream |
-| Whether a `ChunkedRecordSource` trait is needed | No — `Manifest` is a partition expressed as data |
+| Whether a `ChunkedRecordSource` trait is needed | Not for the view direction — `Manifest` is a partition as data. **Reopened by question 1** for the relational direction |
 | Whether a `RecordSet` type survives | No — a batch or a source, not a third name |
-| Date and decimal types | `Date` now (Arrow `Date32`); `Decimal` when the SQL task needs it |
 | How far the DataFrame surface goes | `select`/`filter`/`slice`/`concat`; group-by and join are a query engine |
 | Whether a stream can be rewound | Not applicable — re-open the source instead |
+| Whether roles can differ per engine | No per-engine maps. A field declares the access paths it **affords**; each engine projects |
+| Whether functional indexes (soundex) are roles | No — they are derived columns |
 
 ## Changelog
 
@@ -1439,6 +1508,10 @@ information — each is a position that was argued for and then abandoned on evi
 | 2026-09-20 | Whole feature moved to **`liquers-lib` behind a `records` feature**; `bytemuck` became optional | Records are a data type, not an essential capability |
 | 2026-09-20 | `FieldRole` became **composable intent** plus a separate `KeyRole`; the id's indexing is now enforced | `TEXT \| STORED` was inexpressible as an enum, and delete-by-term constrains the id |
 | 2026-09-20 | **HTTP streaming** in `liquers-axum`, ad-hoc, with the general mechanism deferred | A chunked design undone by materializing at the last step |
+
+| 2026-09-20 | `indexed` became **plural**, and roles were reframed as **capabilities the data affords** rather than instructions | One field routinely has several access paths in one engine — a B-tree and a trigram index; a `text` field with a `keyword` sub-field |
+| 2026-09-20 | `IndexKind::Substring` added; functional indexes declared **out of scope as roles** | `LIKE`/trigram is neither exact nor tokenized. Soundex indexes an expression, so it becomes a derived column instead |
+| 2026-09-20 | The sink report became **three-valued** — exact / inexact / unsupported | DataFusion's filter pushdown: "narrowed but you must re-check" is a state two outcomes cannot express, and it is filter-then-verify |
 
 **Corrections worth keeping visible**, because each was stated wrongly first:
 
