@@ -113,7 +113,8 @@ enum SourceBacking {
     },
     /// Chunks generated from a template; the count is **not** known up front.
     /// **Not constructed in this version** — reserved for a SQL table paginated by offset,
-    /// where `COUNT(*)` is expensive or meaningless. See `chunking-and-resumability.md`.
+    /// where `COUNT(*)` is expensive or meaningless. See `chunking-and-resumability.md`,
+    /// and `manifest-format.md` for the serialized form.
     QueriedTemplated {
         /// Rendered by appending offset and limit to the template's last action and inserting
         /// the chunk number into its filename — structurally, through `ActionRequest`,
@@ -126,7 +127,8 @@ enum SourceBacking {
     },
 }
 
-/// Where a stream's chunks are cached, as keyed assets in **one folder**.
+/// Where a stream's chunks are cached, as keyed assets in **one folder** — the folder holding
+/// the manifest, which is also its `cwd`. See `manifest-format.md` §3.
 /// The folder is what makes chunks addressable (`-R/data/mystream/data_0042.csv`), makes the
 /// stream listable (`-R-dir/data/mystream`), and makes cleanup possible — a manifest of bare
 /// queries cannot remove what it names, a manifest that owns a folder can.
@@ -1459,7 +1461,11 @@ Every data type derives `Serialize, Deserialize`; `Query` uses the existing `que
 `AlignedBuffer` and `Buffer<T>` serialize as their bytes — alignment is a memory property, not a
 wire one, and is re-established on deserialization. The stream types are **not** serializable and
 deliberately never cross a query boundary; the serializable forms are a `RecordBatch` and a
-`RecordSource`.
+`RecordSource`. A `RecordSource` serializes as a **manifest**, whose format —
+`<filename_prefix>.manifest.yaml`, mirroring `recipes.yaml`'s `arguments` and `links` — is specified
+in [`manifest-format.md`](./manifest-format.md). Its central rule: a value that **varies per chunk**
+belongs in the query, because the query is the chunk's identity, while a value that is **shared and
+unqueryable** (a complex SQL statement, a connection link) belongs in `arguments`.
 
 ## Concurrency Considerations
 

@@ -74,6 +74,7 @@ rather than about what a record is.
 
 - [Phase 1](./phase1-high-level-design.md)
 - [Record model](./record-model.md)
+- [Manifest format](./manifest-format.md) — the record manifest as a generative recipe format
 - [Chunking and resumability](./chunking-and-resumability.md) — unknown chunk counts, generated chunk queries, store-backed resumption
 - [Engine survey](./engine-survey.md) — is the field-role model right, and can records front a relational database?
 - [Phase 2](./phase2-architecture.md)
