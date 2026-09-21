@@ -65,7 +65,7 @@ the repair the search design carries.
 ### The query
 
 ```
--R-dir/data/reports/-/ns-records/file_records/ns-records/records_to_csv/report.csv
+-R-dir/data/reports/-/ns-rec/file_records/ns-rec/records_to_csv/report.csv
 ```
 
 ## Example 2: A manifest-driven stream

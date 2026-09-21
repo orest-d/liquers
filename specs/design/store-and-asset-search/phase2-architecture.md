@@ -404,7 +404,7 @@ became across the revisions.
 | `command_records` | `async fn command_records(state, context) -> result` | The registry becomes records |
 | `select` | `fn select(state, expr: String = "", limit: i64 = 50) -> result` | Parse the expression and apply it to the record stream in the state. **The only search command** |
 
-`ns-records` (serialization, schema inspection, head) belongs to `record-streams`.
+`ns-rec` (serialization, schema inspection, head) belongs to `record-streams`.
 
 ## Error Handling
 

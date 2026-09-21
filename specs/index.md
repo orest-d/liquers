@@ -8,10 +8,10 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 111
+Total rows: 112
 - P0: 1
 - P1: 2
-- P2: 73
+- P2: 74
 - P3: 35
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
@@ -81,6 +81,7 @@ Total rows: 111
 | [`LIBRARY-CODE-USES-UNWRAP-AND-EXPECT`](issues/LIBRARY-CODE-USES-UNWRAP-AND-EXPECT.md) | issue | Library code uses unwrap and expect despite the no-panic rule | draft |  | P2 | L | core/query;lib/commands;axum |  | 2026-08-17 |
 | [`NO-SQL-QUERY-CAPABILITY-OVER-STORED-AND-DERIVED-DATA`](issues/NO-SQL-QUERY-CAPABILITY-OVER-STORED-AND-DERIVED-DATA.md) | feature | No SQL query capability over stored and derived data | draft |  | P2 | L | core/store;lib/commands |  | 2026-09-17 |
 | [`QUERY-BUILDER-TOOLING`](issues/QUERY-BUILDER-TOOLING.md) | issue | No programmatic builder for constructing queries | accepted |  | P2 | L | core/query;core/validate |  | 2026-08-08 |
+| [`RECORD-SELECTION-IS-EAGER-NOT-A-VIEW`](issues/RECORD-SELECTION-IS-EAGER-NOT-A-VIEW.md) | feature | Selecting records from a stream is eager; there is no view that a source can push down | draft |  | P2 | L | lib/value;lib/commands |  | 2026-09-21 |
 | [`RESOURCE-NAME-ASCII-ONLY`](issues/RESOURCE-NAME-ASCII-ONLY.md) | issue | Non-ASCII resource names are unaddressable | draft |  | P2 | L | core/query;core/store |  | 2026-08-14 |
 | [`STORE-METADATA-LAYOUT-HARDCODED-PER-STORE`](issues/STORE-METADATA-LAYOUT-HARDCODED-PER-STORE.md) | issue | Every writable store hard-codes its own metadata layout | draft |  | P2 | L | core/store;store/backends;web;docs |  | 2026-09-03 |
 | [`STORE-NO-CONTENT-OR-METADATA-SEARCH`](issues/STORE-NO-CONTENT-OR-METADATA-SEARCH.md) | feature | A store cannot be asked which keys match content or metadata | draft |  | P2 | L | core/store | [indexation](specs/design/store-and-asset-search/indexation-policy.md)  [interoperability](specs/design/store-and-asset-search/interoperability-layer.md)  [options](specs/design/store-and-asset-search/options-analysis.md)  [phase1](specs/design/store-and-asset-search/phase1-high-level-design.md)  [phase2](specs/design/store-and-asset-search/phase2-architecture.md)  [phase3](specs/design/store-and-asset-search/phase3-examples.md)  [phase4](specs/design/store-and-asset-search/phase4-implementation.md)  [phase5](specs/design/store-and-asset-search/phase5-documentation.md)  [research](specs/design/store-and-asset-search/research-questions.md)  [roadmap.md](specs/design/store-and-asset-search/roadmap.md)  [use](specs/design/store-and-asset-search/use-cases.md)  | 2026-09-15 |

@@ -1033,10 +1033,45 @@ separated two things the original question conflated. *Identity* is always avail
 `ChunkId`, stored **once per batch** rather than per row, plus the `Id`-role field. *Addressability* —
 constructing a query that returns exactly one record — is the optional half.
 
-A row must be **retrievable**, not merely identified. `chunk` is the guaranteed path — re-evaluate
-and index by the `Id` field — and `locator` is the direct one when a projection can offer it
-(`-R/f.csv/-/ns-csv/row-42`). `info` is optional because **a CSV row has no `AssetInfo`; the file
-does**, and one per source rather than per row also keeps 656 bytes from repeating.
+A row must be **retrievable**, not merely identified, and retrieval is a **query** rather than a
+procedure a consumer has to implement.
+
+### `rec_id` — the guaranteed path, as a query
+
+`ns-rec/rec_id-<id>` is a real command: it takes a record stream and yields the single record whose
+`Id` field matches. So the guaranteed retrieval path for any row is its chunk query with that
+appended:
+
+```
+<chunk query>/ns-rec/rec_id-42
+```
+
+This works for **every** record stream, because every schema has exactly one `Id` field — the
+invariant that already exists for reconciliation now also makes single-record addressing universal.
+It is better than the earlier formulation ("re-evaluate the chunk and index by the `Id` field")
+because that described work a consumer must do, whereas this is a string anyone can evaluate, put in
+a recipe, or hand over an HTTP boundary.
+
+**Appending respects query semantics, and the failure is silent.** Against a query, append directly;
+against a **key**, a `/-/` must start a transform segment first:
+
+| Form | Means |
+|---|---|
+| `-R/data/sales/daily_0010.csv/-/ns-rec/rec_id-42` | `GetAsset[data, sales, daily_0010.csv]` then `Action{rec_id, 42}` — **correct** |
+| `-R/data/sales/daily_0010.csv/ns-rec/rec_id-42` | **one** `GetAsset` over the whole path — a file literally named `…/ns-rec/rec_id-42` |
+
+Both parse. Only the first does what is meant, which is why constructing the query belongs in code
+(`ChunkOrigin::locator_query`) rather than in string concatenation by a caller.
+
+### `locator` is the optimization, not the guarantee
+
+With `rec_id` universal, `LocatorRule` no longer carries the guarantee — it carries the **shortcut**:
+a projection that can address one row *without* producing its whole chunk
+(`-R/f.csv/-/ns-csv/row-42` reading one line rather than parsing the file). Optional by definition,
+and now clearly an optimization rather than a second mechanism competing with the first.
+
+`info` is optional because **a CSV row has no `AssetInfo`; the file does**, and one per source rather
+than per row also keeps 656 bytes from repeating.
 
 ### There is no collection type above the batch
 
@@ -1200,7 +1235,7 @@ one crate, and a build with `records` off is byte-for-byte the build that exists
 |---|---|---|
 | `liquers-lib` | `src/records/buffer.rs` (new) | `AlignedBuffer`, `Buffer<T>`, `Bitmap` — the Arrow-layout primitives; the only place `bytemuck` is used |
 | `liquers-lib` | `src/records/mod.rs` (new) | `FieldValue`, `RecordSchema`, `FieldSchema`, `FieldType`, `Column`, `RecordBatch`, `ChunkOrigin`, `LocatorRule`, `RecordSource`, `SourceBacking`, `ChunkKeys`, `ChunkId`, `ChunkList`, `ChunkDescriptor`, `RecordBatchStream` |
-| `liquers-lib` | `src/records/commands.rs` (new) | The `ns-records` command set |
+| `liquers-lib` | `src/records/commands.rs` (new) | The `ns-rec` command set |
 | `liquers-lib` | `src/records/polars.rs` (new, `records` + `polars`) | `RecordBatch → polars::DataFrame` over the shared buffers |
 | `liquers-lib` | `src/value/mod.rs` | `ExtValue::RecordChunk` and `ExtValue::RecordSource`, **cfg-gated**, with every exhaustive match gaining a gated arm; both `TypeInfo` entries; the `DefaultValueSerializer` arms |
 | `liquers-lib` | `Cargo.toml` | the `records` feature and its optional `bytemuck` dependency |
@@ -1462,13 +1497,18 @@ Deliberately thin: this design owns the *mechanism*, and each consumer brings it
 
 | Command | Signature | Purpose |
 |---|---|---|
+| `rec_id` | `fn rec_id(state, id: String) -> result` | **The single-record selector.** Yields the one record whose `Id` field matches. Universal, because every schema has exactly one `Id` |
 | `records_to_csv` | `fn records_to_csv(state) -> result` | Serialize a record set as CSV |
 | `records_to_ndjson` | `fn records_to_ndjson(state) -> result` | Serialize a record set as NDJSON |
 | `records_schema` | `fn records_schema(state) -> result` | The schema as a value — how an agent discovers field names |
 | `records_head` | `fn records_head(state, n: i64 = 20) -> result` | Slice, for inspection |
 
-Namespace `ns-records`. Producers (`ns-search/records`, a CSV projection, a parquet projection) are
-owned by the designs that need them.
+Namespace `rec`, written `ns-rec` in a query. Producers (`ns-search/records`, a CSV projection, a
+parquet projection) are owned by the designs that need them.
+
+**`rec_id` is deliberately in the record namespace rather than a projection's.** It works on any
+record stream, so a projection does not have to supply its own selector — and a projection that can
+do better supplies a `locator` instead of a competing command.
 
 ## Error Handling
 
@@ -1555,6 +1595,30 @@ explicit match arms with no default; `Arc` for shared payloads in `Value`; `Type
 as the fourth step of adding a value type; `context` last in a command signature.
 
 ## Open Questions for Phase 3
+
+0. **Should record selection be a *view*?** `rec_id` as specified is eager: it consumes the stream
+   and yields one record, so selecting row 42 of a billion-row source produces every chunk to find
+   it. A **view** would instead carry the selection as a predicate the source may push down — to the
+   one chunk whose id range contains 42, or to a SQL `WHERE`, or to nothing at all if the source
+   cannot help.
+
+   The machinery for this is already half-designed elsewhere and should not be reinvented:
+
+   - The search design's `SearchPredicate` is exactly "a selection carried rather than applied", and
+     `rec_id` is its simplest case — an equality on the `Id` field.
+   - The three-state pushdown adopted in `interoperability-layer.md` — **exact / inexact /
+     unsupported** — is the right report for what a source did with a pushed selection, because an
+     `Inexact` narrowing still needs the caller to re-check.
+   - `ChunkOrigin::locator` is the per-projection fast path when a source *can* answer directly.
+
+   So the shape is visible, and three things are not: whether a view is a distinct value form or a
+   `RecordSource` carrying a predicate; whether pushdown is attempted for `rec_id` alone or for any
+   predicate (which would make this the record-level half of the search design); and what a view
+   costs when nothing can be pushed down, which is the eager behaviour plus the indirection.
+
+   **This is a design task, not a Phase 3 question**, and it should not hold up Phase 4: `rec_id`
+   eager is correct, just not always cheap, and a view can replace its implementation without
+   changing the query that names a record.
 
 1. **Can a `RecordSource` front a relational database?** `engine-survey.md` §3 finds the read path
    fits well — sqlx's `fetch()` is already a row stream, and keyset chunking works *because* the

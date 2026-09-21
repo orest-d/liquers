@@ -3565,13 +3565,13 @@ mod tests {
         // Create origins to reference
         let origin_a = ChunkOrigin {
             asset: parse_query("-R/data/a.csv").unwrap(),
-            chunk: parse_query("-R/data/a.csv/-/ns-records/file_records").unwrap(),
+            chunk: parse_query("-R/data/a.csv/-/ns-rec/file_records").unwrap(),
             info: None,
             locator: None,
         };
         let origin_b = ChunkOrigin {
             asset: parse_query("-R/data/b.csv").unwrap(),
-            chunk: parse_query("-R/data/b.csv/-/ns-records/file_records").unwrap(),
+            chunk: parse_query("-R/data/b.csv/-/ns-rec/file_records").unwrap(),
             info: None,
             locator: None,
         };
