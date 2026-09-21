@@ -72,7 +72,7 @@ delete-by-term is not optional — a schema without it silently cannot be update
 | **Hash** | `Exact` only, no `Range` — precisely the functional difference |
 | **GIN / GiST over full text** | `FullText { … }` |
 | **BRIN** | `Range`, with weaker selectivity — a statistics concern, not a capability one |
-| **Spatial (R-tree, PostGIS)** | **not represented** — no geo type in the subset |
+| **Spatial (R-tree, PostGIS)** | **not represented today** — no geo type in the subset. **Expected to arrive with GIS support**; see below |
 
 The B-tree/hash distinction falling out of `Exact` + `Range` rather than needing to be named is
 evidence the abstraction sits at the right level: **say what queries are supported, not which data
@@ -93,6 +93,24 @@ pub enum IndexKind {
     Similarity { metric: VectorMetric },
 }
 ```
+
+### Anticipated: spatial proximity, when GIS support arrives
+
+Spatial indexes are the one relational access path with no representation here, and the absence is
+**expected to be temporary** — proximity search is a likely addition once Liquers gains GIS
+functionality. Recorded so it reads as deferred rather than overlooked.
+
+Adding it needs two things, and the design already has the right shape for both:
+
+1. A geometry **`FieldType`** — a point, and probably a bounding box — with a matching `Column`
+   variant. Arrow has extension types for geometry, and a `FixedSizeList(Float64, 2)` carries a point
+   without one.
+2. An **`IndexKind::Proximity`** variant, parameterized much as `Similarity { metric }` is — a
+   coordinate reference system in place of a distance metric.
+
+The second costs nothing structurally, because `indexed` is already a `Vec<IndexKind>`: a geometry
+column declares `[Proximity { crs }]`, or `[Exact, Proximity { … }]` where an exact match on a region
+id is wanted too. The seam is already cut.
 
 ### One exclusion: functional indexes such as soundex
 
@@ -223,13 +241,21 @@ noting even with no integration in view: a hierarchical namespace plus similarit
 apparently what agent memory converges on, and this design's `key.path` field beside a `Similarity`
 index expresses the same hybrid.
 
-**The idea worth stealing is the loading tiers.** Each entry carries three depths — **L0** a
-one-sentence abstract for relevance checks, **L1** an overview for planning, **L2** the full data,
-read only when needed. That is a *projection depth*, and it maps directly onto what the search design
-asks for ("return enough of each record to judge it and to address it") and onto the record
-projection levels in `record-model.md`. A record source offering declared depth levels, so a consumer
-can scan cheaply and fetch detail selectively, is a better articulation of that requirement than
-"Level 0 / Level 1" — **recommended for Phase 3 consideration**.
+**The loading tiers are the idea worth noting — and Liquers already has two of the three.** Each
+OpenViking entry carries three depths: **L0** a one-sentence abstract for relevance checks, **L1** an
+overview for planning, **L2** the full data, read only when needed.
+
+Liquers' metadata already carries `title` and `description` — on `AssetInfo` (`metadata.rs:678`) and
+`MetadataRecord` (`:871`) — and they play **effectively the same roles**: a title is the one-line
+abstract a consumer judges relevance by, a description is the overview it plans with, and the asset
+itself is the detail. So the tiering this design would want is not a new mechanism: it is
+`meta.title` and `meta.description` as projected columns, with the locator or chunk query as the
+route to L2.
+
+That reframes the idea rather than dismissing it. What OpenViking adds is not the *depths* but the
+discipline of **declaring them as a contract** — a consumer knowing it may scan at L0 without paying
+for L2, and a producer knowing it must supply L0 cheaply. Whether a record source should declare
+depth levels explicitly is the open question; the fields to carry them already exist.
 
 Licence note: OpenViking is **AGPLv3**, which would matter for integration, not for borrowing a
 structural idea.
@@ -246,5 +272,6 @@ structural idea.
 | 6 | Record that the relational direction **requires** a third `SourceBacking` or the source trait | Phase 2 open questions |
 | 7 | Record that `Decimal` is **not deferrable** for the access-layer direction | Phase 2 open questions |
 | 8 | File the relational access layer as its own issue — writes and schema discovery are out of scope here | `specs/issues/` |
-| 9 | Consider OpenViking-style **declared projection depths** | Phase 3 |
+| 9 | OpenViking depth tiers: `title`/`description` **already serve as L0/L1**, so the open part is whether to *declare* depths as a contract, not to add fields | Phase 3 |
+| 11 | **Spatial proximity is anticipated** with GIS support — a geometry `FieldType` plus `IndexKind::Proximity`, which `Vec<IndexKind>` already accommodates | recorded above |
 | 10 | Record a per-record **content hash** as a possible reconciliation optimization | Phase 3 |
