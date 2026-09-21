@@ -1,7 +1,193 @@
 # Phase 3: Examples & Testing — Record streams
 
-> **Not started.** Phase 2 is awaiting approval. This file records requirements Phase 3 must meet,
-> gathered while Phase 2 was reviewed, so they are not re-derived.
+**Form: test-first.** The examples *are* the tests. They will not compile until Phase 4 implements
+the types, which makes them the specification rather than an illustration of one, and makes Phase 4
+a matter of making them pass.
+
+The test code lives in [`phase3-tests.md`](./phase3-tests.md), organized by the file it will land
+in. This document is the narrative: what the scenarios are, what they exercise, what goes wrong, and
+what Phase 3 discovered that Phase 2 must absorb.
+
+## High-Level Introduction
+
+Three abstractions carry the design — a **source** that can be asked repeatedly for a stream, a
+**stream** that is one traversal, and a **chunk** that is a materialized table. The examples walk
+that spine in order: a single chunk built and filtered in memory, then a multi-chunk stream driven
+by a manifest, then the places where each goes wrong.
+
+Everything is `liquers-lib` behind the `records` feature; the values are `ExtValue::RecordChunk` and
+`ExtValue::RecordSource`.
+
+## Overview Table
+
+| # | Scenario | Exercises | Where |
+|---|---|---|---|
+| 1 | **Files to CSV** — project a store directory into records, filter by size, serialize | `RecordSchema::new`, `RecordBatchBuilder`, `Bitmap` mask, `RecordBatch::filter`, `as_bytes("csv")` | §Example 1 |
+| 2 | **A manifest-driven stream** — open `daily.manifest.yaml`, traverse chunk by chunk, traverse again | `RecordSource`, `ChunkList::Known`, `describe_chunk`, `stream()`, re-openability, `arguments`/`links` | §Example 2 |
+| 3 | **Pitfalls** — the traps the design's own shape creates | offsets invariant, `Vector` child node, missing `TypeInfo`, missing cfg arm, wasm view detachment, chunk aliasing | §Example 3 |
+| — | **Unit tests** (39) | schema validation, `Bitmap`, `RecordBatch` ops, nulls, `FieldValue` size, alignment, `ChunkId` | `phase3-tests.md` §1 |
+| — | **Integration tests** (25) | end-to-end evaluation, re-openability, bounded memory, manifest round-trip, non-uniform chunks, feature matrix | `phase3-tests.md` §2 |
+| — | **`RECORDS01`–`09`** | the language-binding reference implementations | `phase3-tests.md` §3 |
+
+## Example Type
+
+Conceptual code that is **intended to compile at Phase 4**, not runnable today. No `examples/`
+binary: nothing can run until the types exist, and a demo would add a third thing to keep in sync
+with the tests and the reference.
+
+## Example 1: Files to CSV
+
+### Connection to the High-Level Design
+
+The shortest complete path through the design: build one chunk, filter it, serialize it. It touches
+the identity rule (exactly one `Id` field, `Exact`-indexed and stored), the columnar layout, and the
+mask-based filter that makes the layout worth having.
+
+### Scenario
+
+A caller wants the files under `data/reports/` as a table, keeping only those over 1 MB, as CSV.
+
+### Sequence of Steps
+
+1. Build a `RecordSchema`: `key.name` as the `Id` (Exact-indexed, stored), `meta.file_size` as
+   `Numeric`, `meta.updated` as a `Timestamp`.
+2. List the directory and append a row per entry through `RecordBatchBuilder`.
+3. Wrap the batch as `ExtValue::RecordChunk`.
+4. Evaluate a predicate over the size column into a `Bitmap`, and `RecordBatch::filter` by it.
+5. `as_bytes("csv")`.
+
+### Core Example Code
+
+See [`phase3-tests.md`](./phase3-tests.md) §1.1. The command is `async fn` taking owned `State`
+with `context` last, per the macro's rule, and uses `get_asset_info` — which never schedules, after
+the repair the search design carries.
+
+### The query
+
+```
+-R-dir/data/reports/-/ns-records/file_records/ns-records/records_to_csv/report.csv
+```
+
+## Example 2: A manifest-driven stream
+
+### Scenario
+
+`data/sales/daily.manifest.yaml` describes a stream of four chunks, each a SQL query over an offset
+window. The statement itself is shared and lives in a linked `.sql` file; only the offset varies, in
+the query, because **the query is the chunk's identity**.
+
+### What it exercises
+
+- `RecordSource::chunks()` — synchronous and cheap, returning `ChunkList::Known`.
+- `describe_chunk()` — asynchronous, because a descriptor carries a `Metadata`.
+- `stream()` called **twice**, yielding identical rows. This is the property the source/stream split
+  exists for, and the test that would have failed under the old single-type model.
+- `arguments` and `links` merging into each chunk's plan by parameter name, exactly as a recipe does.
+
+### The manifest
+
+See [`phase3-tests.md`](./phase3-tests.md) §2.4 for the complete file. The shape:
+
+```yaml
+manifest: record-stream
+version: 1
+number_format: "{:04}"
+extension: csv
+links:
+  sql: -R/queries/daily_orders.sql     # a query, so the chunk DEPENDS on the statement
+arguments:
+  batch_size: 1000
+chunks:
+  - query: ns-sql/sql_query-0-1000
+  - query: ns-sql/sql_query-1000-1000
+```
+
+## Example 3: Pitfalls and Edge Cases
+
+Each of these is a real consequence of a decision the architecture made, not a hypothetical.
+
+| Pitfall | What happens | Avoided by |
+|---|---|---|
+| `Text` offsets with `len` entries | Arrow needs **`len + 1`**, starting at 0; a consumer reads past the end or truncates the last value | The builder enforces it; a unit test asserts it |
+| `Vector` exported as a sibling buffer | It is a `FixedSizeList` whose values live in a **child** node; a flat export produces a malformed array | The export emits the child; `RECORDS03` checks it |
+| A new `ExtValue` variant without a `TypeInfo` | The type **cannot be stored** — the write path refuses an unregistered identifier | `type_descriptions` covers both variants; an integration test asserts it |
+| A `match` on `ExtValue` without a `#[cfg(feature = "records")]` arm | `--no-default-features` fails to compile | The build-matrix rows |
+| A JS typed-array view held across a call into wasm | Heap growth **detaches** it; reads throw or return garbage | Create views at point of use; the wrapper revalidates by buffer identity |
+| A per-chunk value in `arguments` with no `ChunkCache` | Two chunks alias to one asset — **silently**, returning the first's data twice | Rejected at manifest load |
+| A command whose per-chunk parameters are not first | Chunk queries need an empty positional placeholder: `sql_query--1000-1000` | Signature ordering, documented in the guide |
+
+## Corner Cases
+
+### 1. Memory
+
+One batch resident during traversal, never the whole stream — the property the whole chunked design
+exists for, and the one most easily lost by a `collect()` slipped in for convenience. Tested by
+asserting how many batches are alive at once, not by measuring bytes.
+
+### 2. Concurrency
+
+Buffers are `Arc`-shared and immutable once built, so `select`, `slice` and a column hand-off copy
+nothing and are safe to share. No lock is held across an `.await`. Two traversals of one source are
+independent — which is what makes an HTTP handler able to open its own stream per request.
+
+### 3. Errors
+
+Every rejection names what is wrong: `concat` names the first differing field, a bad schema names
+which invariant failed, an ambiguous unqualified field name lists every candidate. Typed
+constructors throughout; `Error::new` appears nowhere.
+
+### 4. Serialization
+
+`RecordChunk` writes json / ndjson / csv; `RecordSource` writes its manifest. A non-uniform stream
+serializes as NDJSON and **fails** as a single CSV, naming the reason — there is no single header.
+
+### 5. Feature gating
+
+`--no-default-features` must compile with no records module, no variants reached, and no `bytemuck`
+in the dependency graph. This is the failure mode a cfg-gated enum variant causes, and the reason
+the matrix rows exist.
+
+## Test Plan
+
+| Group | Count | File |
+|---|---|---|
+| Unit — schema, bitmap, batch ops, nulls, sizes, alignment, `ChunkId` | 39 | `liquers-lib/src/records/{mod,buffer}.rs` |
+| Integration — end-to-end, re-openability, memory, manifest, serialization, features | 25 | `liquers-lib/tests/record_streams_*.rs` |
+| Language-binding reference — `RECORDS01`–`09` | 9 | native: `liquers-lib`; wasm: `liquers-web` (`RECORDS05`, `RECORDS06`) |
+| **Total** | **73** | |
+
+`RECORDS05` (a view surviving host-heap growth) and `RECORDS06` (handle release via
+`debug-handles`, as `RUNTIME05` already does) are `liquers-web` tests and run in the browser loop,
+not the native one.
+
+## What Phase 3 found that Phase 2 must absorb
+
+Writing the tests against the architecture surfaced API the architecture does not declare. These are
+**findings, not inventions to wave through**: a test-first phase cannot compile against a surface
+that does not exist, so Phase 2 takes an amendment before Phase 4 starts.
+
+| Needed | Status in Phase 2 | Disposition |
+|---|---|---|
+| `RecordBatchBuilder`'s methods | Declared as `pub struct RecordBatchBuilder { /* … */ }` — **no methods at all** | Declare the append surface. A per-type `append_*` is the shape both drafts reached for independently |
+| `Column::gather(&mask)` | `RecordBatch::filter` is described as "gather by mask"; the column-level primitive it is built on is not declared | Declare it |
+| `FieldRole::and_stored()` / `.and_fast()` | Named in prose — "composing with `.and_stored()` and `.and_fast()`" — never declared | Declare them |
+| `ColumnBuilder` | Invented by one draft | **Decide**: either declare it, or have `RecordBatchBuilder` own column construction. Not both |
+| `RecordBatch::get_value` | Phase 2 declares `value(row, column)` | Naming drift — use `value` |
+
+None of these changes the architecture; all of them are surface Phase 2 left as an ellipsis.
+
+## Documentation and Learning Log
+
+- **The re-openability test is the one that earns the three-way split.** Under the earlier
+  single-`RecordStream` model it could not have been written: a second traversal either failed or
+  silently returned nothing. It is worth keeping prominent in `RECORD_STREAMS.md` for that reason.
+- **`RecordBatchBuilder` being an ellipsis was not obvious until code was written against it.** Two
+  independent drafters invented compatible-but-different append surfaces, which is the signal that a
+  decision was deferred rather than made.
+- **The guide's `RECORDS01`–`09` now have Rust counterparts**, which was the point of doing Phase 3
+  test-first — a binding author gets reference code rather than a one-line summary.
+- For `RECORD_STREAM_GUIDE.md`: the pitfalls table above is the guide's pitfalls section, and the
+  two scenarios are its two walkthroughs. Phase 5 should lift rather than rewrite them.
 
 ## Requirements carried into this phase
 
@@ -42,110 +228,3 @@ At minimum, Phase 3 identifies the Rust test that establishes each of:
   rejected, because the failure is otherwise silent aliasing.
 
 
-## High-Level Introduction
-
-[Explain how these scenarios demonstrate the Phase 1 purpose and interactions. Introduce the
-progression from the representative primary workflow, through additional detail, to optional
-pitfalls and edge cases.]
-
-## Example Type
-
-**User choice:** [Runnable prototypes / Conceptual code]
-
-## Overview Table
-
-| # | Type | Name | Purpose | Drafted By |
-|---|------|------|---------|------------|
-| 1 | Example | [Primary scenario] | [Demonstrates the Phase 1 design through the primary workflow] | [Agent] |
-| 2 | Example | [Detailed scenario] | [Explains additional details that build on Scenario 1] | [Agent] |
-| 3 | Example | [Pitfalls and edge cases] | [Explains common pitfalls and edge cases; optional] | [Agent] |
-
-## Example 1: [Primary Scenario Name]
-
-### Connection to the High-Level Design
-[How does this scenario solve or demonstrate the Phase 1 purpose and interactions?]
-
-### Scenario
-[Verbally explain the user context and intended outcome. Keep this representative use case
-medium-complexity: non-trivial, but free of unnecessary details. Change defaults only when relevant.]
-
-### Sequence of Steps
-1. [First component interaction or method call]
-2. [Next component and its responsibility]
-3. [Execution, caching, persistence, or other relevant coordination]
-4. [How the caller polls, awaits, retrieves, or uses the result]
-
-### Core Example Code
-```rust
-// Show the core workflow; omit incidental setup and irrelevant non-default configuration.
-```
-
-### Guide and Executable Example
-[If Phase 2 requires a guide, normally implement this primary scenario as a complete executable
-example and give the path the guide will reference. Otherwise explain what canonical code or test
-should be referenced.]
-
-**Expected output:**
-```
-[What the user should see]
-```
-
-## Example 2: [Detailed Scenario]
-
-[Build on Scenario 1 and explain an additional mechanism, meaningful configuration choice, or
-component interaction. Reuse the primary setup and show only the relevant code delta. Include
-expected output and validation.]
-
-## Example 3 (Optional): [Pitfalls and Edge Cases]
-
-[For each common pitfall or important edge case, state the symptom, cause, correct usage or
-recovery, and protective test. Omit this scenario if it would only repeat later sections.]
-
-## Corner Cases
-
-### 1. Memory
-[Large inputs, allocation failures, memory leaks]
-
-### 2. Concurrency
-[Race conditions, deadlocks, thread safety]
-
-### 3. Errors
-[Invalid input, network failures, serialization errors]
-
-### 4. Serialization
-[Round-trip, schema evolution, compression]
-
-### 5. Integration
-[Store, Command, Asset, Web/API interactions]
-
-## Documentation and Learning Log
-
-### Guide Candidate Workflows and Examples
-[Answer: How do I use X? How do I achieve X? What is the typical workflow? Select potential guide
-snippets and link a complete executable example or unit/integration test when available.]
-
-### Usage and Meaning
-[What helps users, developers, or coding agents understand why the feature matters and how it
-connects to existing functionality]
-
-### Repeatable Development Guidance
-[What would help someone implement or extend similar functionality]
-
-### Corrections and Unexpected Learning
-[Design assumptions corrected, implementation surprises, useful dead ends, and facts to verify in
-Phase 5]
-
-## Test Plan
-
-### Unit Tests
-[File paths, test names, coverage]
-
-### Integration Tests
-[File paths, test names, end-to-end flows]
-
-### Manual Validation
-[Commands to run, expected outputs]
-
-## Auto-Invoke: liquers-unittest Skill Output
-
-[Test templates generated by skill]

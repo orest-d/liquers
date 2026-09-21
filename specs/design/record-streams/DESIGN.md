@@ -78,6 +78,7 @@ rather than about what a record is.
 - [Chunking and resumability](./chunking-and-resumability.md) — unknown chunk counts, generated chunk queries, store-backed resumption
 - [Engine survey](./engine-survey.md) — is the field-role model right, and can records front a relational database?
 - [Phase 2](./phase2-architecture.md)
-- [Phase 3](./phase3-examples.md)
+- [Phase 3](./phase3-examples.md) — narrative, scenarios, corner cases, test plan
+- [Phase 3 test code](./phase3-tests.md) — the 73 tests, organized by target file
 - [Phase 4](./phase4-implementation.md)
 - [Phase 5](./phase5-documentation.md)
