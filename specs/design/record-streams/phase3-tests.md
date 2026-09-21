@@ -104,7 +104,7 @@ use crate::records::{RecordSchema, FieldSchema, FieldType, KeyRole, FieldRole,
 
 /// List files in a store directory as a record chunk.
 /// Each row describes one file with name (unique id), size, and modified date.
-##[cfg(feature = "records")]
+#[cfg(feature = "records")]
 async fn list_directory_files(
     context: &Context<impl Environment>,
 ) -> Result<ExtValue, Error> {
@@ -375,7 +375,7 @@ impl Column {
 ```rust
 // liquers-lib/src/value/serialization.rs (extend existing)
 
-##[cfg(feature = "records")]
+#[cfg(feature = "records")]
 impl DefaultValueSerializer {
     fn records_to_csv(batch: &RecordBatch) -> Result<Vec<u8>, Error> {
         let mut buf = Vec::new();
@@ -393,7 +393,7 @@ impl DefaultValueSerializer {
             let mut row_values = Vec::new();
             
             for (col_idx, column) in batch.columns.iter().enumerate() {
-                let value = column.get_value(row_idx)?;
+                let value = column.value(row_idx)?;
                 let escaped = escape_csv_field(&value);
                 row_values.push(escaped);
             }
@@ -417,7 +417,7 @@ fn escape_csv_field(value: &FieldValue) -> String {
 
 impl Column {
     /// Retrieve a single field value from this column at the given row index.
-    fn get_value(&self, row_idx: usize) -> Result<FieldValue, Error> {
+    fn value(&self, row_idx: usize) -> Result<FieldValue, Error> {
         match self {
             Column::Text { validity, offsets, data } => {
                 if let Some(v) = validity {
@@ -460,7 +460,7 @@ impl Column {
 ```rust
 // liquers-lib/src/value/mod.rs (extend match on ExtValue)
 
-##[cfg(feature = "records")]
+#[cfg(feature = "records")]
 ExtValue::RecordChunk { value } => {
     match data_format {
         "csv" => {
@@ -749,7 +749,7 @@ use liquers_core::{
     environment::Environment,
 };
 
-##[tokio::main]
+#[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Create an environment with the store and commands registered.
     //    (Omitted here; see liquers-core/tests/async_hello_world.rs for a full setup.)
@@ -1131,7 +1131,7 @@ File: `liquers-lib/src/records/mod.rs`
 Rationale: `RecordSchema::new` is the validation gate. It must reject a schema where the Id field cannot be reconciled by `delete_term`.
 
 ```rust
-##[cfg(test)]
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1524,7 +1524,7 @@ File: `liquers-lib/src/records/buffer.rs`
 Rationale: 64-byte alignment is an Arrow recommendation required for SIMD reads. It must be verifiable as a hard property.
 
 ```rust
-##[cfg(test)]
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -2300,7 +2300,7 @@ Rationale: ChunkId::Key variants must also be hashable.
 These helpers support the batch and schema tests above:
 
 ```rust
-##[cfg(test)]
+#[cfg(test)]
 mod tests {
     // ... all tests above ...
     
@@ -2481,7 +2481,7 @@ use liquers_core::{
 use liquers_lib::value::ExtValue;
 use liquers_macro::register_command;
 
-##[tokio::test]
+#[tokio::test]
 async fn test_end_to_end_record_chunk_serialization() -> Result<(), Box<dyn std::error::Error>> {
     type CommandEnvironment = SimpleEnvironment<Value>;
     let mut env = SimpleEnvironment::<Value>::new();
@@ -2507,7 +2507,7 @@ async fn test_end_to_end_record_chunk_serialization() -> Result<(), Box<dyn std:
     // - It should serialize to csv, ndjson, json
     // - Round-trip serialization should be lossless for data + schema
     
-    Ok(())
+    todo!("Phase 4: evaluate a query producing ExtValue::RecordChunk, serialize as csv/ndjson/json, deserialize, compare equal")
 }
 ```
 
@@ -2516,7 +2516,7 @@ async fn test_end_to_end_record_chunk_serialization() -> Result<(), Box<dyn std:
 Rationale: Establishes that RecordSource::stream() can be called multiple times, yielding identical batches each time. This is the central property distinguishing Source from Stream.
 
 ```rust
-##[tokio::test]
+#[tokio::test]
 async fn test_record_source_reopenable() -> Result<(), Box<dyn std::error::Error>> {
     type CommandEnvironment = SimpleEnvironment<Value>;
     let mut env = SimpleEnvironment::<Value>::new();
@@ -2558,7 +2558,7 @@ async fn test_record_source_reopenable() -> Result<(), Box<dyn std::error::Error
     //     }
     // }
     
-    Ok(())
+    todo!("Phase 4: call RecordSource::stream() twice on one source; both traversals yield identical rows. This is the property the source/stream split exists for")
 }
 ```
 
@@ -2567,7 +2567,7 @@ async fn test_record_source_reopenable() -> Result<(), Box<dyn std::error::Error
 Rationale: Verifies that only one batch is resident at a time during streaming. The batch is the memory unit; a chunk may contain many batches.
 
 ```rust
-##[tokio::test]
+#[tokio::test]
 async fn test_streaming_bounded_memory() -> Result<(), Box<dyn std::error::Error>> {
     // When RecordBatchStream and RecordBatch are fully implemented:
     // This test creates a source with multiple large chunks,
@@ -2585,7 +2585,7 @@ async fn test_streaming_bounded_memory() -> Result<(), Box<dyn std::error::Error
     //
     // This is aspirational for Phase 3 spec; Phase 4 must enforce it.
 
-    Ok(())
+    todo!("Phase 4: traverse an N-chunk source asserting at most 2 batches are alive at once (Arc strong count), never N")
 }
 ```
 
@@ -2594,7 +2594,7 @@ async fn test_streaming_bounded_memory() -> Result<(), Box<dyn std::error::Error
 Rationale: A RecordSource with Queried backing serializes to a manifest, and deserializing that manifest recreates an equivalent source.
 
 ```rust
-##[tokio::test]
+#[tokio::test]
 async fn test_record_source_manifest_round_trip() -> Result<(), Box<dyn std::error::Error>> {
     use serde_json;
 
@@ -2630,7 +2630,7 @@ async fn test_record_source_manifest_round_trip() -> Result<(), Box<dyn std::err
     // let source2: RecordSource = serde_json::from_value(manifest_json)?;
     // assert_eq!(source.chunks(), source2.chunks());
 
-    Ok(())
+    todo!("Phase 4: serialize a RecordSource to its manifest and back; the result equals the original")
 }
 ```
 
@@ -2639,7 +2639,7 @@ async fn test_record_source_manifest_round_trip() -> Result<(), Box<dyn std::err
 Rationale: Schema uniformity is declared, not assumed. Non-uniform chunks behave differently depending on the operation and serialization format.
 
 ```rust
-##[tokio::test]
+#[tokio::test]
 async fn test_non_uniform_chunks_ndjson_succeeds() -> Result<(), Box<dyn std::error::Error>> {
     // Two chunks with different schemas:
     // Chunk 1: {id: Int, name: Text}
@@ -2656,12 +2656,12 @@ async fn test_non_uniform_chunks_ndjson_succeeds() -> Result<(), Box<dyn std::er
     // let ndjson_bytes = state.as_bytes("ndjson")?;  // Should succeed
     // assert!(!ndjson_bytes.is_empty());
 
-    Ok(())
+    todo!("Phase 4: a stream whose chunks differ in schema serializes as NDJSON without error")
 }
 ```
 
 ```rust
-##[tokio::test]
+#[tokio::test]
 async fn test_non_uniform_chunks_single_csv_fails() -> Result<(), Box<dyn std::error::Error>> {
     // Single CSV chunk serialization with non-uniform batches should fail:
     // - Attempting to write multiple batches as one CSV is not well-defined
@@ -2678,12 +2678,12 @@ async fn test_non_uniform_chunks_single_csv_fails() -> Result<(), Box<dyn std::e
     //     assert!(msg.contains("schema") || msg.contains("field"));
     // }
 
-    Ok(())
+    todo!("Phase 4: the same stream fails as a single CSV, and the error names the absence of one header")
 }
 ```
 
 ```rust
-##[tokio::test]
+#[tokio::test]
 async fn test_non_uniform_chunks_concat_fails() -> Result<(), Box<dyn std::error::Error>> {
     // Attempting to concat non-uniform chunks should fail:
     // - RecordBatch::concat_chunks requires uniform schema
@@ -2698,7 +2698,7 @@ async fn test_non_uniform_chunks_concat_fails() -> Result<(), Box<dyn std::error
     //     assert!(format!("{:?}", e).contains("schema"));
     // }
 
-    Ok(())
+    todo!("Phase 4: concat fails naming the FIRST differing field, not a generic schema mismatch")
 }
 ```
 
@@ -2707,7 +2707,7 @@ async fn test_non_uniform_chunks_concat_fails() -> Result<(), Box<dyn std::error
 Rationale: A manifest using per-chunk arguments is valid only with ChunkCache. Without one, it should be rejected at load time with a clear error, not silently alias chunks.
 
 ```rust
-##[tokio::test]
+#[tokio::test]
 async fn test_per_chunk_arguments_without_cache_rejected() -> Result<(), Box<dyn std::error::Error>> {
     use serde_json::json;
 
@@ -2743,7 +2743,7 @@ async fn test_per_chunk_arguments_without_cache_rejected() -> Result<(), Box<dyn
     // //     assert!(format!("{:?}", e).contains("cache"));
     // // }
 
-    Ok(())
+    todo!("Phase 4: a manifest with per-chunk arguments and no ChunkCache is rejected AT LOAD; without this the chunks silently alias to one asset")
 }
 ```
 
@@ -2752,7 +2752,7 @@ async fn test_per_chunk_arguments_without_cache_rejected() -> Result<(), Box<dyn
 Rationale: Both ExtValue variants must have TypeInfo entries so they can be stored as assets. A variant with no TypeInfo cannot be written.
 
 ```rust
-##[tokio::test]
+#[tokio::test]
 async fn test_record_chunk_type_info_registered() -> Result<(), Box<dyn std::error::Error>> {
     // When TypeInfo registration for ExtValue is implemented:
     // ExtValue::type_descriptions() must include:
@@ -2773,7 +2773,7 @@ async fn test_record_chunk_type_info_registered() -> Result<(), Box<dyn std::err
     // let source_info = source_info.unwrap();
     // assert!(source_info.formats.contains(&"json"));
 
-    Ok(())
+    todo!("Phase 4: ExtValue::type_descriptions() contains RecordChunk; without a TypeInfo the type cannot be stored")
 }
 ```
 
@@ -2782,7 +2782,7 @@ async fn test_record_chunk_type_info_registered() -> Result<(), Box<dyn std::err
 Rationale: Type system invariant: every ExtValue variant must have a matching TypeInfo entry. This is enforced in liquers-core for core Value; ExtValue needs the same guard.
 
 ```rust
-##[tokio::test]
+#[tokio::test]
 async fn test_type_descriptions_match_identifiers() -> Result<(), Box<dyn std::error::Error>> {
     // When TypeInfo is registered:
     // 1. Enumerate ExtValue variants
@@ -2800,7 +2800,7 @@ async fn test_type_descriptions_match_identifiers() -> Result<(), Box<dyn std::e
     //         "TypeInfo {} has no matching variant", type_info.identifier);
     // }
 
-    Ok(())
+    todo!("Phase 4: every records TypeInfo identifier matches the variant that produces it")
 }
 ```
 
@@ -2820,7 +2820,7 @@ use liquers_core::{
 };
 use liquers_lib::value::ExtValue;
 
-##[tokio::test]
+#[tokio::test]
 async fn test_record_chunk_csv_serialization() -> Result<(), Box<dyn std::error::Error>> {
     // When RecordBatch and serialization are implemented:
     // 1. Build a RecordBatch with Int, Float, Text columns
@@ -2857,7 +2857,7 @@ async fn test_record_chunk_csv_serialization() -> Result<(), Box<dyn std::error:
     // assert!(csv_str.contains("id,value,name"));
     // assert!(csv_str.contains("1,1.5"));
 
-    Ok(())
+    todo!("Phase 4: as_bytes(\"csv\") emits one header row then one row per record, in schema field order")
 }
 ```
 
@@ -2866,7 +2866,7 @@ async fn test_record_chunk_csv_serialization() -> Result<(), Box<dyn std::error:
 Rationale: RecordChunk as JSON array, each row an object with field names as keys.
 
 ```rust
-##[tokio::test]
+#[tokio::test]
 async fn test_record_chunk_json_serialization() -> Result<(), Box<dyn std::error::Error>> {
     // Similar to CSV test, but:
     // - Serialize to JSON
@@ -2881,7 +2881,7 @@ async fn test_record_chunk_json_serialization() -> Result<(), Box<dyn std::error
     // assert!(!json_array.is_empty());
     // assert_eq!(json_array[0]["id"], 1);
 
-    Ok(())
+    todo!("Phase 4: as_bytes(\"json\") emits an array of objects keyed by field name")
 }
 ```
 
@@ -2890,7 +2890,7 @@ async fn test_record_chunk_json_serialization() -> Result<(), Box<dyn std::error
 Rationale: Each batch row as one JSON object per line, suitable for streaming.
 
 ```rust
-##[tokio::test]
+#[tokio::test]
 async fn test_record_chunk_ndjson_serialization() -> Result<(), Box<dyn std::error::Error>> {
     // Similar, but output is newline-delimited JSON:
     // { "id": 1, "value": 1.5 }
@@ -2908,7 +2908,7 @@ async fn test_record_chunk_ndjson_serialization() -> Result<(), Box<dyn std::err
     //     assert!(obj.is_object());
     // }
 
-    Ok(())
+    todo!("Phase 4: as_bytes(\"ndjson\") emits one JSON object per line, with line count equal to row count")
 }
 ```
 
@@ -2921,7 +2921,7 @@ File path: **liquers-lib/tests/record_streams_schema.rs**
 Rationale: RecordSchema::new() must enforce exactly one field with KeyRole::Id.
 
 ```rust
-##[tokio::test]
+#[tokio::test]
 async fn test_record_schema_id_uniqueness() -> Result<(), Box<dyn std::error::Error>> {
     // When RecordSchema::new() is implemented:
     // 1. Schema with exactly one Id field -> succeeds
@@ -2946,7 +2946,7 @@ async fn test_record_schema_id_uniqueness() -> Result<(), Box<dyn std::error::Er
     // ]);
     // assert!(schema_two_ids.is_err());
 
-    Ok(())
+    todo!("Phase 4: RecordSchema::new accepts exactly one KeyRole::Id and rejects zero or two")
 }
 ```
 
@@ -2955,7 +2955,7 @@ async fn test_record_schema_id_uniqueness() -> Result<(), Box<dyn std::error::Er
 Rationale: Field roles are composable via builder methods, enabling expressions like text().and_stored().
 
 ```rust
-##[tokio::test]
+#[tokio::test]
 async fn test_field_role_composition() -> Result<(), Box<dyn std::error::Error>> {
     // When FieldRole constructors are implemented:
     // 1. FieldRole::text() creates a full-text indexed, not-stored role
@@ -2970,7 +2970,7 @@ async fn test_field_role_composition() -> Result<(), Box<dyn std::error::Error>>
     // assert!(role.stored);
     // assert!(role.fast);
 
-    Ok(())
+    todo!("Phase 4: FieldRole::text().and_stored() yields indexed=[FullText..] AND stored=true, the TEXT|STORED case an enum could not express")
 }
 ```
 
@@ -2979,7 +2979,7 @@ async fn test_field_role_composition() -> Result<(), Box<dyn std::error::Error>>
 Rationale: FieldValue enum covers all Column variants and round-trips through conversions.
 
 ```rust
-##[tokio::test]
+#[tokio::test]
 async fn test_field_value_conversions() -> Result<(), Box<dyn std::error::Error>> {
     // When FieldValue is implemented:
     // For each variant (Null, Bool, Int, UInt, Float, Text, Bytes, Timestamp, Vector):
@@ -2996,7 +2996,7 @@ async fn test_field_value_conversions() -> Result<(), Box<dyn std::error::Error>
     // let fv_text2 = serde_json::from_value(json)?;
     // assert_eq!(fv_text, fv_text2);
 
-    Ok(())
+    todo!("Phase 4: FieldValue converts to and from each FieldType without loss")
 }
 ```
 
@@ -3009,7 +3009,7 @@ File path: **liquers-lib/tests/record_streams_builder.rs**
 Rationale: A builder pattern constructs batches correctly and rejects mismatched column lengths.
 
 ```rust
-##[tokio::test]
+#[tokio::test]
 async fn test_record_batch_builder() -> Result<(), Box<dyn std::error::Error>> {
     // When RecordBatchBuilder is implemented:
     // 1. Create a builder with a schema
@@ -3025,7 +3025,7 @@ async fn test_record_batch_builder() -> Result<(), Box<dyn std::error::Error>> {
     // let batch = builder.build()?;
     // assert_eq!(batch.len, 2);
 
-    Ok(())
+    todo!("Phase 4: RecordBatchBuilder produces a batch whose len, schema and column values match what was appended")
 }
 ```
 
@@ -3034,7 +3034,7 @@ async fn test_record_batch_builder() -> Result<(), Box<dyn std::error::Error>> {
 Rationale: Buffers are 64-byte aligned as Arrow recommends, verifiable via bytemuck checks.
 
 ```rust
-##[tokio::test]
+#[tokio::test]
 async fn test_buffer_alignment() -> Result<(), Box<dyn std::error::Error>> {
     // When Buffer and AlignedBuffer are implemented:
     // 1. Create buffers of various sizes
@@ -3047,7 +3047,7 @@ async fn test_buffer_alignment() -> Result<(), Box<dyn std::error::Error>> {
     // let ptr = buf.as_ptr() as usize;
     // assert_eq!(ptr % 64, 0, "Buffer not 64-byte aligned");
 
-    Ok(())
+    todo!("Phase 4: AlignedBuffer starts on a 64-byte boundary, as [COLUMNAR] Buffer Alignment and Padding recommends")
 }
 ```
 
@@ -3056,7 +3056,7 @@ async fn test_buffer_alignment() -> Result<(), Box<dyn std::error::Error>> {
 Rationale: Bitmaps store validity and filter masks in Arrow's LSB-first format.
 
 ```rust
-##[tokio::test]
+#[tokio::test]
 async fn test_bitmap_lsb_first() -> Result<(), Box<dyn std::error::Error>> {
     // When Bitmap is implemented:
     // 1. Create a bitmap with specific bit patterns
@@ -3071,7 +3071,7 @@ async fn test_bitmap_lsb_first() -> Result<(), Box<dyn std::error::Error>> {
     // let byte0 = bitmap.as_bytes()[0];
     // assert_eq!(byte0, 0b10000001);  // LSB-first
 
-    Ok(())
+    todo!("Phase 4: Bitmap packs LSB-first within each byte, as Arrow specifies")
 }
 ```
 
@@ -3084,7 +3084,7 @@ File path: **liquers-lib/tests/record_streams_manifest.rs**
 Rationale: A manifest YAML file deserializes correctly, preserving all fields and structure.
 
 ```rust
-##[tokio::test]
+#[tokio::test]
 async fn test_manifest_yaml_deserialization() -> Result<(), Box<dyn std::error::Error>> {
     use serde_yaml;
 
@@ -3125,7 +3125,7 @@ async fn test_manifest_yaml_deserialization() -> Result<(), Box<dyn std::error::
 Rationale: A templated manifest describes chunks generated by repeating a template with offset increments.
 
 ```rust
-##[tokio::test]
+#[tokio::test]
 async fn test_manifest_template_unbounded() -> Result<(), Box<dyn std::error::Error>> {
     // When SourceBacking::QueriedTemplated is implemented:
     // A manifest with `template` instead of `chunks`:
@@ -3166,9 +3166,9 @@ File path: **liquers-lib/tests/record_streams_features.rs**
 Rationale: The entire record-streams feature is optional; builds without it should not include RecordChunk or RecordSource.
 
 ```rust
-##![cfg(feature = "records")]
+#![cfg(feature = "records")]
 
-##[test]
+#[test]
 fn test_records_feature_gated() {
     // This entire file only compiles with `--features records`.
     // Verify that:
@@ -3213,7 +3213,7 @@ File path: **liquers-lib/tests/record_streams_edge_cases.rs**
 Rationale: A record source or batch with zero rows should behave correctly.
 
 ```rust
-##[tokio::test]
+#[tokio::test]
 async fn test_empty_record_batch() -> Result<(), Box<dyn std::error::Error>> {
     // When RecordBatch is implemented:
     // 1. Create a schema with fields
@@ -3246,7 +3246,7 @@ async fn test_empty_record_batch() -> Result<(), Box<dyn std::error::Error>> {
 Rationale: A column with nullable fields correctly encodes nulls as a validity bitmap.
 
 ```rust
-##[tokio::test]
+#[tokio::test]
 async fn test_nullable_column_validity() -> Result<(), Box<dyn std::error::Error>> {
     // When Column is implemented with nullable fields:
     // 1. Create an Int column with some nulls
@@ -3279,7 +3279,7 @@ async fn test_nullable_column_validity() -> Result<(), Box<dyn std::error::Error
 Rationale: Vector columns (FixedSizeList of Float32) are Arrow-compatible and exportable.
 
 ```rust
-##[tokio::test]
+#[tokio::test]
 async fn test_vector_column_arrow_compat() -> Result<(), Box<dyn std::error::Error>> {
     // When Vector column is implemented:
     // 1. Create vectors of fixed dimension (e.g., 3 floats each)
@@ -3310,7 +3310,7 @@ async fn test_vector_column_arrow_compat() -> Result<(), Box<dyn std::error::Err
 Rationale: A ChunkDescriptor serializes and deserializes preserving query, metadata, and origin.
 
 ```rust
-##[tokio::test]
+#[tokio::test]
 async fn test_chunk_descriptor_serialization() -> Result<(), Box<dyn std::error::Error>> {
     use serde_json;
 
@@ -3517,7 +3517,7 @@ The following are Rust test code intended to serve as reference implementations 
 **Contract:** A chunk serializes and deserializes with schema, field roles, and chunk origin intact.
 
 ```rust
-##[cfg(test)]
+#[cfg(test)]
 mod tests {
     use super::*;
     use liquers_lib::records::*;
@@ -3564,13 +3564,15 @@ mod tests {
 
         // Create origins to reference
         let origin_a = ChunkOrigin {
-            asset_query: Some(Query::parse("-R/data/a.csv").unwrap()),
-            asset_info: None,
+            asset: parse_query("-R/data/a.csv").unwrap(),
+            chunk: parse_query("-R/data/a.csv/-/ns-records/file_records").unwrap(),
+            info: None,
             locator: None,
         };
         let origin_b = ChunkOrigin {
-            asset_query: Some(Query::parse("-R/data/b.csv").unwrap()),
-            asset_info: None,
+            asset: parse_query("-R/data/b.csv").unwrap(),
+            chunk: parse_query("-R/data/b.csv/-/ns-records/file_records").unwrap(),
+            info: None,
             locator: None,
         };
 
@@ -3623,11 +3625,11 @@ mod tests {
         // Check sources
         assert_eq!(batch_restored.sources.len(), 2);
         assert_eq!(
-            batch_restored.sources[0].asset_query.as_ref().unwrap().encode(),
+            batch_restored.sources[0].asset.encode(),
             "-R/data/a.csv"
         );
         assert_eq!(
-            batch_restored.sources[1].asset_query.as_ref().unwrap().encode(),
+            batch_restored.sources[1].asset.encode(),
             "-R/data/b.csv"
         );
 
@@ -3644,7 +3646,7 @@ mod tests {
 **Contract:** A column reads the same values through a wrapper as through an explicit copy.
 
 ```rust
-##[test]
+#[test]
 fn records02_column_zero_copy_equivalence() {
     // Build a batch with various column types
     let schema = Arc::new(RecordSchema {
@@ -3788,7 +3790,7 @@ fn records02_column_zero_copy_equivalence() {
 **Status:** Deferred pending C Data Interface implementation. Placeholder test:
 
 ```rust
-##[cfg(all(test, feature = "arrow-cdata"))]  // Feature deferred
+#[cfg(all(test, feature = "arrow-cdata"))]  // Feature deferred
 mod tests {
     use super::*;
 
@@ -3813,7 +3815,7 @@ mod tests {
 **Contract:** A lent buffer is read-only, or writing through it is rejected.
 
 ```rust
-##[test]
+#[test]
 fn records04_buffer_readonly_or_rejected() {
     // This test validates the invariant at Rust level.
     // Wasm tests in liquers-web will test JS behavior.
@@ -3875,7 +3877,7 @@ fn records04_buffer_readonly_or_rejected() {
 
 ```rust
 // This test is wasm32-only and requires a browser environment
-##![cfg(target_arch = "wasm32")]
+#![cfg(target_arch = "wasm32")]
 
 use wasm_bindgen_test::*;
 use liquers_web::records::LiquersRecordChunk;
@@ -3883,7 +3885,7 @@ use js_sys::{Object, Reflect};
 
 wasm_bindgen_test_configure!(run_in_browser);
 
-##[wasm_bindgen_test]
+#[wasm_bindgen_test]
 async fn records05_view_survives_heap_growth() {
     // Setup: create a RecordChunk and get a typed-array view
     let batch = create_test_batch();  // helper: build a RecordBatch in Arc
@@ -3944,14 +3946,14 @@ fn create_test_batch() -> Arc<RecordBatch> { /* ... */ panic!() }
 **Requires:** `--features debug-handles` (test-only feature already used for RUNTIME05)
 
 ```rust
-##![cfg(target_arch = "wasm32")]
+#![cfg(target_arch = "wasm32")]
 
 use wasm_bindgen_test::*;
 use liquers_web::records::LiquersRecordChunk;
 
 wasm_bindgen_test_configure!(run_in_browser);
 
-##[wasm_bindgen_test]
+#[wasm_bindgen_test]
 fn records06_handle_release_count() {
     // Requires debug-handles feature; exposes a live-handle counter
     use liquers_web::debug::get_live_chunk_handle_count;
@@ -3989,7 +3991,7 @@ fn records06_handle_release_count() {
 **Contract:** A sync language traverses a manifest-backed source one chunk at a time without materializing the whole stream.
 
 ```rust
-##[test]
+#[test]
 fn records07_sync_manifest_traversal() {
     // Build a manifest-backed source with multiple chunks
     let chunk_queries = vec![
@@ -4052,7 +4054,7 @@ fn records07_sync_manifest_traversal() {
 **Contract:** An async language traverses a manifest-backed source through an async iterator and yields identical rows.
 
 ```rust
-##[tokio::test]
+#[tokio::test]
 async fn records08_async_stream_traversal() {
     // Setup: create a test environment with a mock store
     let env = create_test_environment().await;

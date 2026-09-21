@@ -162,19 +162,52 @@ not the native one.
 
 ## What Phase 3 found that Phase 2 must absorb
 
-Writing the tests against the architecture surfaced API the architecture does not declare. These are
+Writing tests against the architecture surfaced API the architecture does not declare. These are
 **findings, not inventions to wave through**: a test-first phase cannot compile against a surface
-that does not exist, so Phase 2 takes an amendment before Phase 4 starts.
+that does not exist, so **Phase 2 takes an amendment before Phase 4 starts.**
+
+### Decisions needed
+
+**1. `RecordBatchBuilder`'s append surface — three drafters, three incompatible APIs.**
+
+Phase 2 declares `pub struct RecordBatchBuilder { /* … */ }` with **no methods at all**, and three
+agents working independently each invented a different one:
+
+| Pattern | Shape | Trouble |
+|---|---|---|
+| Per-column typed | `append_text(..)`, `append_uint(..)`, then `finish_row()` | Order-dependent, and `finish_row()` is easy to forget — a silent row miscount |
+| Row-at-a-time | `append_row(vec![FieldValue::Int(1), …])` | A `Vec` and a boxed value per row, which is what the columnar layout exists to avoid |
+| No builder | construct `RecordBatch { columns: vec![…], .. }` directly | Fine in a test, not an API |
+
+Three independent inventions is the signal that a decision was deferred rather than made.
+**Recommended: `append_row(&[FieldValue])` as the primary** — a slice not a `Vec`, hard to misuse,
+and the obvious thing for a test to call — **with typed per-column pushes available for bulk paths**
+where the per-value enum actually costs something. That is two entry points to one builder, not two
+builders.
+
+**2. Is `RecordBatch::columns` public, or reached through `column(i)`?** §1.2 indexes the field
+directly; the `RECORDS` tests call a method. Both can exist, but the tests should not disagree about
+which is idiomatic.
+
+**3. Does `Bitmap` implement `Iterator`, or only `get(i)`?** Phase 2 lists `get`, `and`, `or`, `not`,
+`count_ones` — no iteration. One scenario iterates. Both can coexist; pick the one the docs teach.
+
+### Straightforward additions
 
 | Needed | Status in Phase 2 | Disposition |
 |---|---|---|
-| `RecordBatchBuilder`'s methods | Declared as `pub struct RecordBatchBuilder { /* … */ }` — **no methods at all** | Declare the append surface. A per-type `append_*` is the shape both drafts reached for independently |
 | `Column::gather(&mask)` | `RecordBatch::filter` is described as "gather by mask"; the column-level primitive it is built on is not declared | Declare it |
 | `FieldRole::and_stored()` / `.and_fast()` | Named in prose — "composing with `.and_stored()` and `.and_fast()`" — never declared | Declare them |
-| `ColumnBuilder` | Invented by one draft | **Decide**: either declare it, or have `RecordBatchBuilder` own column construction. Not both |
-| `RecordBatch::get_value` | Phase 2 declares `value(row, column)` | Naming drift — use `value` |
 
-None of these changes the architecture; all of them are surface Phase 2 left as an ellipsis.
+### Already corrected in the tests
+
+- **`ChunkOrigin` in `RECORDS01` would not have compiled.** It used `asset_query: Option<Query>`,
+  omitted the required `chunk: Query`, and named `info` as `asset_info`. Phase 2 is authoritative;
+  the test now matches it.
+- **`Column::get_value` → `value`**, matching Phase 2's declared `RecordBatch::value(row, column)`.
+
+None of this changes the architecture. All of it is surface Phase 2 left as an ellipsis, which a
+narrative phase could tolerate and a test-first phase cannot.
 
 ## Documentation and Learning Log
 
