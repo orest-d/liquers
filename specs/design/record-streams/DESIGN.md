@@ -4,7 +4,7 @@ kind: design
 title: Record streams — a lightweight, chunked, Arrow-interoperable tabular abstraction
 workflow: liquers-project
 status: draft
-phase: architecture
+phase: examples
 area: [lib/value, lib/commands, web, axum]
 gh_pr: []
 issues: [NO-RECORD-STREAM-ABSTRACTION, NO-RELATIONAL-DATABASE-ACCESS-LAYER, NO-RECIPE-PROVIDER-CHAIN, RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY]
@@ -19,8 +19,8 @@ superseded_by:
 ## Phase Status
 
 - [x] Phase 1: High-Level Design — approved 2026-09-20
-- [ ] Phase 2: Solution & Architecture — in review
-- [ ] Phase 3: Examples & Testing
+- [x] Phase 2: Solution & Architecture — approved 2026-09-20
+- [ ] Phase 3: Examples & Testing — in progress
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
