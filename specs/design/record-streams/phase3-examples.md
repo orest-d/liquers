@@ -113,7 +113,7 @@ Each of these is a real consequence of a decision the architecture made, not a h
 | A new `ExtValue` variant without a `TypeInfo` | The type **cannot be stored** — the write path refuses an unregistered identifier | `type_descriptions` covers both variants; an integration test asserts it |
 | A `match` on `ExtValue` without a `#[cfg(feature = "records")]` arm | `--no-default-features` fails to compile | The build-matrix rows |
 | A JS typed-array view held across a call into wasm | Heap growth **detaches** it; reads throw or return garbage | Create views at point of use; the wrapper revalidates by buffer identity |
-| A per-chunk value in `arguments` with no `ChunkCache` | Two chunks alias to one asset — **silently**, returning the first's data twice | Rejected at manifest load |
+| A per-chunk value in `arguments` with no `ChunkKeys` | Two chunks alias to one asset — **silently**, returning the first's data twice | Rejected at manifest load |
 | A command whose per-chunk parameters are not first | Chunk queries need an empty positional placeholder: `sql_query--1000-1000` | Signature ordering, documented in the guide |
 
 ## Corner Cases
@@ -257,7 +257,7 @@ At minimum, Phase 3 identifies the Rust test that establishes each of:
 - **The build-matrix rows** for `records` on and off, including the wasm target.
 - **Manifest validation**: each chunk query plans, `arguments` names exist in the last action, and no
   chunk name collides with a sibling `recipes.yaml`.
-- **The identity regimes**: a manifest using per-chunk `arguments` without a `ChunkCache` must be
+- **The identity regimes**: a manifest using per-chunk `arguments` without a `ChunkKeys` must be
   rejected, because the failure is otherwise silent aliasing.
 
 

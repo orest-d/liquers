@@ -300,19 +300,21 @@ the folder convention:
 ```rust
 enum SourceBacking {
     Materialized(Vec<Arc<RecordBatch>>),
-    /// Chunks named explicitly.
-    Queried { chunks: Vec<Query>, cache: Option<ChunkCache> },
-    /// Chunks generated from a template; count unknown.
-    QueriedTemplated {
-        template: Query,
-        first_offset: i64,
-        step: i64,
-        cache: Option<ChunkCache>,
+    /// Chunks named by queries. The explicit list and the template **combine**: `chunks` is the
+    /// prefix, `template` produces everything after it at the global chunk index.
+    /// See `manifest-format.md` §4a.
+    Queried {
+        chunks: Vec<Query>,
+        template: Option<ChunkTemplate>,
+        keys: Option<ChunkKeys>,
+        /// Whether keyed chunks are persisted — a separate axis from being keyed (§4b).
+        store: bool,
     },
 }
 
-/// The folder convention. Present when chunks are cached as keyed assets.
-struct ChunkCache {
+/// The folder convention. Present when chunks are **named**, which makes them addressable
+/// whether or not `store` persists them.
+struct ChunkKeys {
     folder: Key,
     filename_prefix: String,   // "data"
     number_format: String,     // "{:04}"
@@ -428,9 +430,11 @@ generalization. Two prerequisites now, neither part of this design:
 | 2 | `SourceBacking::Queried { known, template, keys }` instead of `Manifest(Vec<Query>)`, with `template` and `keys` always `None` in the first version | **The manifest is a persisted format.** Changing its JSON shape later breaks every stored manifest. `{known:[…], template:null, keys:null}` stays readable |
 | 3 | `SourceBacking` stays private; behaviour goes through `RecordSource` methods | `CLAUDE.md` forbids default match arms, so a new variant is a compile error at every match. Keeping matches to one module makes that a localized change rather than a sweep |
 
-Change 2's shape is superseded by §4a's flat form — `Queried { chunks, cache }` and
-`QueriedTemplated { template, first_offset, step, cache }` — which serializes better and drops
-`known` in favour of the folder. The reason it must be settled now is unchanged: **the manifest is a
+Change 2's shape is superseded twice: §4a's flat form replaced the nested `Option`s, and review
+then established that `chunks` and `template` **combine** rather than exclude, giving one
+`Queried { chunks, template, keys, store }`. The explicit list is the prefix and the template
+produces the tail — which is the "memoized prefix of a template" reading this document reached in
+§2, arrived at again from the manifest side. The reason it must be settled now is unchanged: **the manifest is a
 persisted format.**
 
 **Do not build now:** the template renderer, keyset stride, store-backed chunk evaluation, the

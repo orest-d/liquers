@@ -105,36 +105,37 @@ pub struct RecordSource {
 enum SourceBacking {
     /// Chunks already in memory. What `RecordChunk::into_source()` produces.
     Materialized(Vec<Arc<RecordBatch>>),
-    /// Chunks named explicitly — the manifest. Enumerable.
+    /// Chunks named by queries. The explicit list and the template **combine**: `chunks` are
+    /// the stream's first chunks in order, and `template` produces everything after them,
+    /// rendered at the **global** chunk index. Either may be absent.
+    /// See `manifest-format.md` §4a.
     Queried {
+        /// The explicit prefix. Empty when every chunk is generated.
         #[serde(with = "query_format_seq")]
         chunks: Vec<Query>,
-        cache: Option<ChunkCache>,
-    },
-    /// Chunks generated from a template; the count is **not** known up front.
-    /// **Not constructed in this version** — reserved for a SQL table paginated by offset,
-    /// where `COUNT(*)` is expensive or meaningless. See `chunking-and-resumability.md`,
-    /// and `manifest-format.md` for the serialized form.
-    QueriedTemplated {
-        /// Rendered by appending offset and limit to the template's last action and inserting
-        /// the chunk number into its filename — structurally, through `ActionRequest`,
-        /// never by string templating.
-        #[serde(with = "query_format")]
-        template: Query,
-        first_offset: i64,
-        step: i64,
-        cache: Option<ChunkCache>,
+        /// The rule for chunks beyond the prefix. `None` — `chunks` is the whole stream, and
+        /// `chunks()` returns `Known`. `Some` — the count is unknown and it returns `Unbounded`.
+        /// **Not constructed in this version**; reserved for a SQL table paginated by offset.
+        template: Option<ChunkTemplate>,
+        /// Chunk naming, which is what makes chunks keyed and addressable.
+        /// **Always `None` in this version.**
+        keys: Option<ChunkKeys>,
+        /// Whether keyed chunks are persisted. Keyed and stored are separate axes —
+        /// `manifest-format.md` §4b. Irrelevant when `keys` is `None`.
+        store: bool,
     },
 }
 
-/// Where a stream's chunks are cached, as keyed assets in **one folder** — the folder holding
-/// the manifest, which is also its `cwd`. See `manifest-format.md` §3.
+/// How a stream's chunks are **named**, which is what makes them keyed assets in one folder —
+/// the folder holding the manifest, which is also its `cwd`. Naming gives identity and
+/// addressability; whether the bytes are persisted is `store`, a separate axis
+/// (`manifest-format.md` §3 and §4b).
 /// The folder is what makes chunks addressable (`-R/data/mystream/data_0042.csv`), makes the
 /// stream listable (`-R-dir/data/mystream`), and makes cleanup possible — a manifest of bare
 /// queries cannot remove what it names, a manifest that owns a folder can.
 /// **Always `None` in this version.**
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ChunkCache {
+pub struct ChunkKeys {
     pub folder: Key,
     pub filename_prefix: String,   // "data"
     pub number_format: String,     // "{:04}"
@@ -1198,7 +1199,7 @@ one crate, and a build with `records` off is byte-for-byte the build that exists
 | Crate | File | Change |
 |---|---|---|
 | `liquers-lib` | `src/records/buffer.rs` (new) | `AlignedBuffer`, `Buffer<T>`, `Bitmap` — the Arrow-layout primitives; the only place `bytemuck` is used |
-| `liquers-lib` | `src/records/mod.rs` (new) | `FieldValue`, `RecordSchema`, `FieldSchema`, `FieldType`, `Column`, `RecordBatch`, `ChunkOrigin`, `LocatorRule`, `RecordSource`, `SourceBacking`, `ChunkCache`, `ChunkId`, `ChunkList`, `ChunkDescriptor`, `RecordBatchStream` |
+| `liquers-lib` | `src/records/mod.rs` (new) | `FieldValue`, `RecordSchema`, `FieldSchema`, `FieldType`, `Column`, `RecordBatch`, `ChunkOrigin`, `LocatorRule`, `RecordSource`, `SourceBacking`, `ChunkKeys`, `ChunkId`, `ChunkList`, `ChunkDescriptor`, `RecordBatchStream` |
 | `liquers-lib` | `src/records/commands.rs` (new) | The `ns-records` command set |
 | `liquers-lib` | `src/records/polars.rs` (new, `records` + `polars`) | `RecordBatch → polars::DataFrame` over the shared buffers |
 | `liquers-lib` | `src/value/mod.rs` | `ExtValue::RecordChunk` and `ExtValue::RecordSource`, **cfg-gated**, with every exhaustive match gaining a gated arm; both `TypeInfo` entries; the `DefaultValueSerializer` arms |
@@ -1507,7 +1508,7 @@ deliberately never cross a query boundary; the serializable forms are a `RecordB
 in [`manifest-format.md`](./manifest-format.md). Three of its rules bear on this design:
 
 - **Identity has two regimes.** For an *unkeyed* stream the query is the chunk's identity, so a value
-  varying per chunk must live in the query. For a *keyed* stream — one with a `ChunkCache` — the
+  varying per chunk must live in the query. For a *keyed* stream — one with a `ChunkKeys` — the
   chunk's key distinguishes it, so per-chunk `arguments` and `links` are usable, exactly as in
   `recipes.yaml`. A manifest using them without a cache is **invalid**, because the failure is
   silent aliasing rather than an error.
@@ -1628,7 +1629,7 @@ information — each is a position that was argued for and then abandoned on evi
 | 2026-09-20 | The sink report became **three-valued** — exact / inexact / unsupported | DataFusion's filter pushdown: "narrowed but you must re-check" is a state two outcomes cannot express, and it is filter-then-verify |
 
 | 2026-09-20 | `chunks()` returns **`ChunkList { Known, Unbounded }`** rather than a complete `Vec` | A SQL source's chunk count is unknown and `COUNT(*)` is expensive. A consumer written against a complete `Vec` assumes enumeration, and retrofitting touches reconciliation |
-| 2026-09-20 | `SourceBacking` became `Materialized` / `Queried { chunks, cache }` / `QueriedTemplated { template, first_offset, step, cache }`, the last two reserved | A SQL source's chunk count is unknown, so chunk queries must be *generated*. **The manifest is a persisted format**, so its shape must anticipate or stored manifests break. `ChunkCache` puts a stream's chunks in one folder, which makes them keyed assets and makes cleanup possible |
+| 2026-09-20 | `SourceBacking` became `Materialized` / `Queried { chunks, cache }` / `QueriedTemplated { template, first_offset, step, cache }`, the last two reserved | A SQL source's chunk count is unknown, so chunk queries must be *generated*. **The manifest is a persisted format**, so its shape must anticipate or stored manifests break. `ChunkKeys` puts a stream's chunks in one folder, which makes them keyed assets and makes cleanup possible |
 
 | 2026-09-20 | Audit after two silent deletions: `RecordSchema` and `FieldType` restored, `ChunkId` defined, `ChunkDescriptor` made reachable through `describe_chunk` | Mechanical rewrites had dropped definitions while the rest of the document kept referencing them |
 

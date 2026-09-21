@@ -574,7 +574,7 @@ description: |
   Produced daily by the extract job.
 
 ## --- chunk naming, for when chunks are cached as keyed assets ---
-## These fields are used only if a ChunkCache exists (which this example does not).
+## These fields are used only if a ChunkKeys exists (which this example does not).
 ## With no cache, chunk identity comes from the query alone, and the naming
 ## pattern is advisory/descriptive only.
 number_format: "{:04}"         # daily_0000.csv
@@ -660,7 +660,7 @@ chunks:
   # Chunk 1: orders 1000–1999
   - query: ns-sql/sql_query-1000-1000
     # Per-chunk overrides are allowed but rarely needed in this pattern.
-    # (Valid only if a ChunkCache existed; without it, identity comes from query alone.)
+    # (Valid only if a ChunkKeys existed; without it, identity comes from query alone.)
     
   # Chunk 2: orders 2000–2999
   - query: ns-sql/sql_query-2000-1000
@@ -683,7 +683,7 @@ The manifest header declares the stream's identity and structure:
 - **`manifest: record-stream`** — YAML type discriminator; a folder may hold several manifest kinds.
 - **`version: 1`** — Format version. Readers refuse unknown versions.
 - **Title, description** — Human-readable metadata.
-- **`number_format`, `extension`** — Chunk naming pattern (e.g., `daily_0042.csv`). Used **only** when a `ChunkCache` exists; without one, chunks are named by their query identity. In this example, there is no cache, so these fields are advisory.
+- **`number_format`, `extension`** — Chunk naming pattern (e.g., `daily_0042.csv`). Used **only** when a `ChunkKeys` exists; without one, chunks are named by their query identity. In this example, there is no cache, so these fields are advisory.
 - **`uniform_schema`** — A schema that all chunks promise to match. Omit if chunks may differ (e.g., CSV files from different sources). The schema enforces one Id field (for reconciliation), declares which fields are indexable and their intended roles (searchable, storable, fast for sorting).
 
 #### Shared arguments and links
@@ -694,7 +694,7 @@ Every chunk query uses:
 - **`links.connection`** — The database connection config, as a query (`-R/db/prod.yaml`). A link is an asset dependency, so if the connection config changes, every chunk's dependency manager records it, expiring the stream.
 - **`links.customer_list`** — A reference asset (the active customer list), made available to the chunk query for joining or validation.
 
-When a chunk's plan is built, the shared arguments and links are merged with any per-chunk overrides (chunks 2 and 3 could override them if a `ChunkCache` made per-chunk identity meaningful; here they do not).
+When a chunk's plan is built, the shared arguments and links are merged with any per-chunk overrides (chunks 2 and 3 could override them if a `ChunkKeys` made per-chunk identity meaningful; here they do not).
 
 #### The chunks
 
@@ -929,7 +929,7 @@ async fn process_stream<E: Environment>(
    ```rust
    let descriptor = source.describe_chunk(&chunk_id, context).await?;
    ```
-   For an unkeyed stream (this example), it reads the query's own provenance — the dependency versions that produced the chunk. For a keyed stream (with `ChunkCache`), it reads the chunk asset's metadata from the store. Either way, the result is `(id, version)` pairs, which a reconciliation algorithm compares.
+   For an unkeyed stream (this example), it reads the query's own provenance — the dependency versions that produced the chunk. For a keyed stream (with `ChunkKeys`), it reads the chunk asset's metadata from the store. Either way, the result is `(id, version)` pairs, which a reconciliation algorithm compares.
 
 3. **`stream()` opens a fresh traversal, callable any number of times.**
    ```rust
@@ -1096,7 +1096,7 @@ This is what makes a manifest a *value*: it can be stored as an asset (`ExtValue
 
 - ✅ Everything lives in `liquers-lib` behind the `records` feature
 - ✅ `ChunkId` is an enum: `Query(...)` for unkeyed, `Key(...)` for keyed
-- ✅ No `ChunkCache` exists (unkeyed stream), so chunk identity is the query alone
+- ✅ No `ChunkKeys` exists (unkeyed stream), so chunk identity is the query alone
 - ✅ Per-chunk `arguments` / `links` are in the manifest but unused (they would require a cache to avoid collision)
 - ✅ Per-chunk variation (offset, limit) is in the query, not in arguments
 - ✅ Shared variation (SQL, connection) is in named arguments and links
@@ -2702,9 +2702,9 @@ async fn test_non_uniform_chunks_concat_fails() -> Result<(), Box<dyn std::error
 }
 ```
 
-### Test 6: Per-chunk arguments without ChunkCache rejected at load
+### Test 6: Per-chunk arguments without ChunkKeys rejected at load
 
-Rationale: A manifest using per-chunk arguments is valid only with ChunkCache. Without one, it should be rejected at load time with a clear error, not silently alias chunks.
+Rationale: A manifest using per-chunk arguments is valid only with ChunkKeys. Without one, it should be rejected at load time with a clear error, not silently alias chunks.
 
 ```rust
 #[tokio::test]
@@ -2721,10 +2721,10 @@ async fn test_per_chunk_arguments_without_cache_rejected() -> Result<(), Box<dyn
     //     { "query": "ns-sql/query", "arguments": {"offset": 1000} }
     //   ]
     // }
-    // (no ChunkCache, so no cache field)
+    // (no ChunkKeys, so no cache field)
     //
     // Should be rejected with error like:
-    // "per-chunk arguments require ChunkCache"
+    // "per-chunk arguments require ChunkKeys"
     //
     // Pseudo-code:
     // let manifest_json = json!({
@@ -2743,7 +2743,7 @@ async fn test_per_chunk_arguments_without_cache_rejected() -> Result<(), Box<dyn
     // //     assert!(format!("{:?}", e).contains("cache"));
     // // }
 
-    todo!("Phase 4: a manifest with per-chunk arguments and no ChunkCache is rejected AT LOAD; without this the chunks silently alias to one asset")
+    todo!("Phase 4: a manifest with per-chunk arguments and no ChunkKeys is rejected AT LOAD; without this the chunks silently alias to one asset")
 }
 ```
 
@@ -3349,7 +3349,7 @@ async fn test_chunk_descriptor_serialization() -> Result<(), Box<dyn std::error:
 | 3 | end_to_end | Memory-bounded streaming | One batch resident |
 | 4 | end_to_end | Manifest round-trip | Serialization format |
 | 5-7 | end_to_end | Non-uniform chunks | Schema variation handling |
-| 8 | end_to_end | Per-chunk arguments validation | ChunkCache requirement |
+| 8 | end_to_end | Per-chunk arguments validation | ChunkKeys requirement |
 | 9 | end_to_end | TypeInfo registration | Both variants registrable |
 | 10 | end_to_end | Type matching invariant | Compiler-checked safety |
 | 11-13 | serialization | CSV/JSON/NDJSON serialization | Format compatibility |
@@ -3424,18 +3424,18 @@ Each test is written as a specification that Phase 4 implementation must satisfy
 
 ---
 
-#### 5. Holding a Per-Chunk Value Without a ChunkCache
+#### 5. Holding a Per-Chunk Value Without a ChunkKeys
 
-**What goes wrong:** A `RecordSource` may materialize a stream with per-chunk parameters (e.g., "include columns [name, date] for each chunk"). If those parameters are stored in `arguments` without a corresponding `ChunkCache`, all chunks will share the same parameter instance, creating a silent alias.
+**What goes wrong:** A `RecordSource` may materialize a stream with per-chunk parameters (e.g., "include columns [name, date] for each chunk"). If those parameters are stored in `arguments` without a corresponding `ChunkKeys`, all chunks will share the same parameter instance, creating a silent alias.
 
 **Trap:** A manifest-based source with templated chunk queries works correctly. But if a custom `SourceBacking` mixes parameter-per-chunk with shared storage, the problem manifests as data mysteriously appearing in the wrong chunk or disappearing after materialization—and only when the parameter affects selectivity rather than shape.
 
 **How to avoid it:** When designing a source with per-chunk configuration, either:
 1. Store parameters inside each chunk's query (the manifest route), not in the source
-2. Use a `ChunkCache` and keep parameters there
+2. Use a `ChunkKeys` and keep parameters there
 3. Keep parameters immutable across all chunks
 
-The architecture doc reserves `ChunkCache` for exactly this—a keyed cache in a single managed folder. Do not bypass it to store transient parameter state.
+The architecture doc reserves `ChunkKeys` for exactly this—a keyed cache in a single managed folder. Do not bypass it to store transient parameter state.
 
 ---
 
@@ -4205,7 +4205,7 @@ Record streams expose the async `stream()` method. Synchronous traversal:
 2. Vector export child node structure
 3. Missing TypeInfo entries
 4. Unguarded ExtValue match arms
-5. Per-chunk values without ChunkCache
+5. Per-chunk values without ChunkKeys
 6. Unreadable chunk queries from wrong parameter order
 7. Cached typed-array views in Wasm across heap growth
 8. Writing through lent buffers (aliasing violation)

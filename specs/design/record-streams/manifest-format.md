@@ -115,23 +115,110 @@ uniform_schema:
     - {name: total, data_type: Float, role: {indexed: [Range], fast: true}}
     - {name: name, data_type: Text, role: {indexed: [FullText], stored: true}}
 
-# --- exactly one of `chunks:` or `template:` ---
+# --- `chunks:` and `template:` may both appear; see §4a ---
 
-chunks:                        # explicit: enumerable, ChunkList::Known
+chunks:                        # the explicit prefix, chunk indices 0..n-1
   - query: ns-sql/sql_query-0-1000
   - query: ns-sql/sql_query-1000-1000
     title: Second batch        # per-chunk overrides are allowed
     arguments: {}              # merged over the shared ones; chunk wins
 
-template:                      # generated: count unknown, ChunkList::Unbounded
+template:                      # the tail, chunk indices n.. — count unknown
   query: ns-sql/sql_query
   first_offset: 0
   step: 1000
   batch_size: 1000
+
+# --- whether chunks are persisted; see §4b ---
+store: true
 ```
 
 Fields that are **never** written by hand, mirroring `recipes.yaml`: `cwd`,
 `has_circular_dependencies`, `circular_dependency_key`. A provider supplies them.
+
+## 4a. `chunks:` and `template:` combine — explicit first, generated after
+
+**They are not alternatives.** A manifest may carry both, and the reading is positional:
+
+> **The explicit `chunks:` are the stream's first chunks, in order. The `template:` produces
+> everything after them.**
+
+So a manifest with four explicit chunks and a template has chunks 0–3 written out and chunks 4, 5, 6
+… generated, until one comes back short. This is the shape a long run naturally takes: the prefix
+that has already been computed is recorded, and the rest is still described by the rule that will
+produce it.
+
+### Chunk index is global, and the template's formula uses it
+
+The one thing that must not be ambiguous is what offset the first *generated* chunk gets. The rule:
+
+> **Chunk *i* for *i* < `len(chunks)` is `chunks[i]`. For *i* ≥ `len(chunks)` it is the template
+> rendered at `first_offset + step × i`** — the **global** index, not an index counted from the end
+> of the explicit list.
+
+With `first_offset: 0`, `step: 1000` and four explicit chunks covering offsets 0, 1000, 2000, 3000,
+chunk 4 is offset 4000. The explicit chunks and the generated ones lie on one sequence, and the
+author does not have to restate where the template picks up. A manifest whose explicit chunks do
+**not** lie on the template's sequence is legal — they simply override what the template would have
+produced at those indices — but it is worth a validation warning, because it is more often a mistake
+than an intention.
+
+### What this means for `ChunkList`
+
+`ChunkList::Unbounded { computed }` already carries exactly this: `computed` is the explicit prefix,
+and the variant says there is more beyond it. A manifest with `chunks:` alone is `Known`; with
+`template:` present it is `Unbounded`, whether or not any chunks are written out.
+
+| Manifest | `chunks()` returns |
+|---|---|
+| `chunks:` only | `Known(&[…])` — enumerable, reconciliation detects deletions |
+| `template:` only | `Unbounded { computed: &[] }` |
+| both | `Unbounded { computed: &[the explicit prefix] }` |
+
+### Why this matters for resumption
+
+A run that computes chunks and records them appends to `chunks:` while `template:` stays put. The
+manifest is then simultaneously the record of what is done and the rule for what remains — which is
+what makes a restart a matter of reading one file. Without the combination, a resumable run would
+have to migrate from one manifest form to another partway through.
+
+## 4b. `store:` — keyed, stored and cached are three different things
+
+A chunk having a **key** and a chunk being **persisted** are separate, and the format keeps them
+separate:
+
+```yaml
+store: true    # default; the chunk's bytes are written to the store
+store: false   # the chunk is keyed and addressable, but recomputed rather than persisted
+```
+
+Three axes, which this document previously conflated into `cache: Option<ChunkCache>`:
+
+| Axis | Means | Given by |
+|---|---|---|
+| **Keyed** | the chunk has a key, so it is addressable and has identity independent of its query | the naming fields — `number_format`, `extension`, and the manifest's own folder |
+| **Stored** | the chunk's bytes are written to the store and survive a restart | `store:` |
+| **Cached in the asset manager** | the chunk is held in memory for reuse within a session | the asset lifecycle, not this file |
+
+`store: false` with a key is a real and useful combination: the chunk is addressable as
+`data/sales/daily_0010.csv`, an HTTP caller can fetch it, reconciliation can name it — and it is
+recomputed on demand rather than occupying disk. A cheap projection over data that is already
+stored elsewhere is the motivating case.
+
+**This is deliberately under-specified and flagged as such.** What remains to decide:
+
+- Whether `store:` is per-manifest only, or may be overridden per chunk.
+- What the asset manager does with a `store: false` chunk — hold it, or discard it after use. This is
+  exactly the gap `ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT` records: *"a non-volatile asset that is
+  not stored or cached in the asset manager"*, whose motivating example is a cheap-to-produce report
+  that stays valid as long as its inputs do. A `store: false` chunk is that case, so the two should
+  be settled together.
+- Whether `store: false` changes reconciliation, which currently assumes a stored chunk's `Version`
+  is readable from its metadata. An unstored chunk has no stored metadata to read.
+
+**Identity is unaffected.** §5's two regimes turn on whether a chunk is **keyed**, not on whether it
+is stored — so per-chunk `arguments` and `links` are valid whenever the chunks are keyed, including
+with `store: false`.
 
 ## 5. Identity: two regimes, and per-chunk arguments belong to only one
 
@@ -144,14 +231,14 @@ But a **keyed** stream has a second source of identity: the chunk's key. `data_0
 `recipes.yaml` are distinct because they name different files — and there, arguments and links vary
 freely per entry.
 
-| | Unkeyed stream (no `ChunkCache`) | Keyed stream (chunks stored in a folder) |
+| | Unkeyed stream | Keyed stream (chunks named in a folder, stored or not) |
 |---|---|---|
 | Chunk identity | the **query** | the **key** |
 | Per-chunk `arguments` / `links` | **not usable** — chunks would collide | **usable**, as in `recipes.yaml` |
 | Per-chunk values must live in | the query | the query **or** the arguments |
 
 **This is a validation rule, not a convention:** a manifest using per-chunk `arguments` or `links`
-is valid **only** with a `ChunkCache`. Without one it must be rejected, because the failure is
+is valid **only** when its chunks are keyed (§4b). Without one it must be rejected, because the failure is
 silent — chunks quietly aliasing rather than erroring.
 
 For a stream that has no cache, the earlier guidance still stands:
@@ -215,7 +302,7 @@ computes.
 
 **One caveat, because it ties this to a deferred feature.** The cascade works through *recorded
 dependencies*, and a dependency is recorded when a chunk is an asset in its own right — the
-`ChunkCache` case. A stream consumed inside a single command without cached chunks is one asset with
+keyed-and-stored case. A stream consumed inside a single command without stored chunks is one asset with
 one expiration, and per-chunk expiry has nothing to act on. That is the correct behaviour for an
 uncached stream, and it means `expires` becomes fully meaningful only once chunks are keyed assets.
 
