@@ -308,7 +308,8 @@ enum SourceBacking {
         template: Option<ChunkTemplate>,
         keys: Option<ChunkKeys>,
         /// Bytes written to the store; value held by the asset manager. Neither means
-        /// the chunk is marked volatile (`manifest-format.md` §4b).
+        /// "not kept but not volatile", which is not expressible yet
+        /// (`manifest-format.md` §4b).
         stored: bool,
         cached: bool,
     },

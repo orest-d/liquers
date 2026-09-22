@@ -108,12 +108,16 @@ and `:5715`.
 `cached:` flags, and `stored: false, cached: false` is exactly the class this issue describes: chunks
 that are deterministic, cheap to reproduce, valid as long as their inputs are, and not worth keeping.
 
-Until this exists, that combination is **marked volatile**, which gives the right reuse semantics
-and the wrong dependency semantics. `assets.rs:169`: *"Volatility is contagious… An asset that
-depends on volatile input also produces a volatile result."* So a report built over such a stream
-becomes volatile too and cannot be cached — the label spreads from the chunk to everything
-downstream. That is the cost this issue would remove: **an asset class that does not keep the value
-but still tracks expiration, and is therefore not contagious.**
+Marking such chunks **volatile was considered and rejected**, and the reasoning is the clearest
+statement of what this issue is for. A volatile result is one that cannot be trusted to be the same
+next time; a not-kept chunk is deterministic and valid exactly as long as its inputs are. Those are
+different claims, and `assets.rs:169` makes the difference expensive: *"Volatility is contagious…
+An asset that depends on volatile input also produces a volatile result."* A report built over such
+a stream would inherit a label that is simply false about it, and lose caching it was entitled to.
+
+So the record design **rejects that combination at manifest load** until this issue lands, rather
+than approximating it. What it needs is exactly what this issue describes: **an asset that does not
+keep the value but still tracks expiration, and is therefore not contagious.**
 
 A complication worth checking when work starts. `assets.rs:90-97` states
 `stored => keyed`, `persistent => stored`, and then: *"A volatile keyed asset **is** keyed, so it is

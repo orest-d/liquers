@@ -205,60 +205,60 @@ cached: true     # the chunk is held by the asset manager for reuse
 | ✓ | ✓ | The normal case. Persisted, and reused from memory within a session |
 | ✓ | ✗ | Persisted, re-read from the store each time. For chunks too large to hold |
 | ✗ | ✓ | Recomputed after a restart, reused within a session. The cheap-projection case |
-| ✗ | ✗ | Nothing is kept. **Treated as volatile, and labelled volatile** |
+| ✗ | ✗ | Nothing is kept — and **not volatile**. Not expressible today; rejected at load |
 
-### `stored: false, cached: false` is volatile, and says so
+### `stored: false, cached: false` is **not** volatile
 
-Neither stored nor cached means the chunk is produced, used and dropped — which is what `volatile`
-already means. So such chunks are **marked volatile**, not merely treated as if they were: the label
-is how every other part of the system learns not to reuse them.
+Neither stored nor cached means the chunk is produced, used and dropped — which looks like
+`volatile` and is not. A volatile result is one that **cannot be trusted to be the same next time**.
+A chunk that is simply not kept is deterministic, valid exactly as long as its inputs are, and
+merely cheaper to reproduce than to retain. Those are different claims, and conflating them costs
+something real.
 
-**The cost is contagion, and it is the reason this is a stopgap.** `assets.rs:169` is explicit:
+**It must not trigger contagious volatility.** `assets.rs:169`:
 
 > *"Volatility is contagious. A query, command, recipe, immediate-expiration policy, or volatile
 > dependency can make an evaluation volatile. An asset that depends on volatile input also produces
 > a volatile result, so the result is not reused as a stable cached asset."*
 
-So a report built over a volatile stream is itself volatile, and cannot be cached either — the
-label spreads from the chunk to everything downstream of it. That is right for a genuinely
-unstable input and **wrong for a cheap deterministic one**, which is what a `stored: false` chunk
-usually is: perfectly valid as long as its inputs are, just not worth keeping.
+A report built over a not-kept stream is **not** unstable — its inputs are as stable as anyone
+else's. Labelling the chunks volatile would spread the label to every consumer and forbid caching
+results that are perfectly cacheable. The label would be wrong, and its consequences would be
+wrong in the expensive direction.
 
-### A finding that needs checking before implementation
-
-The module documentation says something that bears on this and contradicts the obvious reading —
-`assets.rs:90-97`:
-
-```text
-stored     => keyed        (only a keyed asset is written to the store)
-persistent => stored       (only a stored asset can be loaded back)
-```
+**And volatile would not even achieve "not stored".** The module documentation
+(`assets.rs:90-97`) states `stored => keyed` and `persistent => stored`, and then:
 
 > *"A volatile keyed asset **is** keyed, so it is stored — it is simply not persistent, because its
 > status is one `try_fast_track` refuses."*
 
-If that is exact, **marking a keyed chunk volatile does not stop its bytes being written** — it
-stops them being read back. That would give `stored: false` the right *reuse* semantics and the
-wrong *storage* behaviour: bytes written and never used.
+So marking a keyed chunk volatile appears to stop its bytes being **read back**, not written. If
+exact, volatile fails on both counts: it spreads a false claim downstream *and* leaves the bytes on
+disk. (Stated as a finding from the module doc rather than from tracing the write path — it needs
+verifying, and it corrects an earlier claim in this design's history that a volatile keyed asset is
+never stored.)
 
-Stated as a finding rather than a conclusion: it comes from the module doc, not from tracing the
-write path, and it must be verified before `stored: false` is implemented. If it holds, a keyed
-chunk that truly writes nothing needs either the future asset class below or a non-keyed chunk —
-and a non-keyed chunk is not addressable, which defeats the point.
+### So this combination is not expressible today
 
-### The asset class this wants
+What it needs is an asset that **does not keep the value but still tracks expiration** — and is
+therefore not contagious. That is exactly `ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT`, whose problem
+statement names the same class: *"deterministic, cheap to produce, and not worth storing… not
+volatile — it stays valid exactly as long as its inputs do."*
 
-What `stored: false` really needs is an asset that **does not keep the value but still tracks
-expiration** — deterministic, cheap to reproduce, valid exactly as long as its inputs are, and
-therefore *not* contagious.
+Until that exists, **`stored: false, cached: false` is rejected at manifest load**, with an error
+naming the issue. Rejecting is the only honest option: every fallback is wrong in a way the author
+would not see.
 
-That is precisely `ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT`, whose problem statement names the same
-gap: *"deterministic, cheap to produce, and not worth storing… not volatile — it stays valid exactly
-as long as its inputs do."* Its motivating example is a report rendered from precalculated data,
-which is the same shape as a projection chunk.
+| Fallback considered | Why not |
+|---|---|
+| Mark volatile | The decision above, reversed: a false claim, spread to every consumer |
+| Silently store anyway | The manifest says one thing and the system does another |
+| Degrade to `cached: true` | Preserves correctness and non-contagion, at the cost of memory the author declined. **Worth reconsidering** if `stored: false, cached: true` proves expressible — it is the one fallback that is merely a different trade rather than a wrong answer |
 
-Until that exists, `stored: false, cached: false` is volatile with volatility's costs, declared
-openly rather than discovered. The two should be settled together.
+This makes the record design a **consumer** of that issue rather than a workaround for it. Records
+themselves do not depend on it — `stored: true` is the normal case and works — so it blocks one
+optional combination, not the design. If that combination is wanted at launch, the issue becomes a
+blocker and its priority rises with it.
 
 ### What remains open
 

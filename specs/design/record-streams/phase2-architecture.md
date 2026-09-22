@@ -123,9 +123,9 @@ enum SourceBacking {
         /// Whether keyed chunks' bytes are written to the store.
         stored: bool,
         /// Whether keyed chunks are held by the asset manager for reuse in a session.
-        /// Neither flag set means the chunk is **marked volatile** — see
-        /// `manifest-format.md` §4b, including the contagion cost and the finding that a
-        /// volatile *keyed* asset may be stored anyway.
+        /// Neither flag set means "not kept, and **not volatile**" — a class Liquers cannot
+        /// express yet, so that combination is rejected at load until
+        /// `ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT` lands. See `manifest-format.md` §4b.
         cached: bool,
     },
 }
