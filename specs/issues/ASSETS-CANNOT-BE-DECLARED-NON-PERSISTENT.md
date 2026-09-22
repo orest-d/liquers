@@ -171,17 +171,32 @@ conditions at a site that already separates the concerns.
 An unregistered asset is re-evaluated per request rather than shared. That is a **deduplication**
 loss, not a correctness one: two concurrent requests both compute, and both get the right answer.
 
-### `stored: false` suppresses writing, not reading
+### `stored: false` suppresses writing only, and a stored copy is *preferred*
 
-Deliberately asymmetric. An asset declared `stored: false` does not write its value, but an existing
-stored copy remains readable. Two consequences worth having:
+The flag says one thing and only that: **do not write this asset to the store after producing it.**
+It makes no claim about data already there.
 
-- Turning the flag on or off **does not invalidate data already on disk**.
-- A value stored under an older configuration keeps serving until something replaces it.
+**The purpose is disk space.** The motivating case is a projection over a database: recomputing it
+is cheap, and writing it out duplicates the database on disk for no benefit. That is the whole
+intent, and it explains why reading is untouched — nothing about saving space implies distrusting
+what is already stored.
 
-**Open:** whether a stored copy should be *preferred* over recomputation for a `stored: false` asset.
-Reading it is cheaper; recomputing is more clearly correct when the flag says the store is not
-authoritative for this asset. This needs deciding before implementation, not after.
+So **an existing stored copy is read in preference to recomputing**, and this is settled rather than
+open. Two reasons, and the second is the one that matters:
+
+1. Reading is cheaper than recomputing, which is the same reason the store exists at all.
+2. **A stored copy may be an `Override`** — `metadata.rs:330-332`: *"Asset has data that overrides
+   the recipe calculation. The recipe exists but was not used to calculate this data."* Recomputing
+   in preference would **silently discard a deliberate human override**, which is not a performance
+   trade but a wrong answer. Read-preference is the only correct behaviour here.
+
+Two further consequences worth having:
+
+- Turning the flag on or off **never invalidates data already on disk**.
+- A value written under an older configuration keeps serving until something replaces it.
+
+An implementation must therefore leave the read path — including `try_fast_track` and the
+`Ready | Source | Override` status gate — entirely alone, and touch only the write.
 
 ### Recipes get the same flags
 

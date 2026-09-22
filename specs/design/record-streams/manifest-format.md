@@ -243,8 +243,11 @@ never stored.)
 `stored` and `cached` are **not** record-streams concepts. They belong on `MetadataRecord`,
 `Metadata`, `AssetInfo` and `Recipe`, defaulting to `true` so legacy data behaves as today, with:
 
-- `stored: false` — the asset manager does not **write** the produced value. Reading an existing
-  stored copy is unaffected, so flipping the flag never invalidates data already on disk.
+- `stored: false` — the asset manager does not **write** the produced value, and nothing else. Its
+  purpose is disk space: a projection over a database is cheap to recompute and duplicating the
+  database on disk buys nothing. An existing stored copy is **read in preference to recomputing** —
+  partly because reading is cheaper, and decisively because that copy may be an `Override`
+  (`metadata.rs:330`), which recomputation would silently discard.
 - `cached: false` — the asset is **unmanaged**: not registered for reuse, re-evaluated per request.
   A deduplication loss, not a correctness one, and explicitly sanctioned by `assets.rs:100`:
   *"declining to register a non-volatile keyed asset still produces correct results."*
