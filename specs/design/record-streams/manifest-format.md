@@ -238,6 +238,21 @@ disk. (Stated as a finding from the module doc rather than from tracing the writ
 verifying, and it corrects an earlier claim in this design's history that a volatile keyed asset is
 never stored.)
 
+### The flags are the record-layer expression of a core asset feature
+
+`stored` and `cached` are **not** record-streams concepts. They belong on `MetadataRecord`,
+`Metadata`, `AssetInfo` and `Recipe`, defaulting to `true` so legacy data behaves as today, with:
+
+- `stored: false` — the asset manager does not **write** the produced value. Reading an existing
+  stored copy is unaffected, so flipping the flag never invalidates data already on disk.
+- `cached: false` — the asset is **unmanaged**: not registered for reuse, re-evaluated per request.
+  A deduplication loss, not a correctness one, and explicitly sanctioned by `assets.rs:100`:
+  *"declining to register a non-volatile keyed asset still produces correct results."*
+
+A manifest's flags simply set these on the chunk assets it describes. The mechanism, its call sites
+(`assets.rs:5694-5712`, where registering and storing are already adjacent and separable) and its
+backward-compatibility story are recorded on `ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT`.
+
 ### So this combination is not expressible today
 
 What it needs is an asset that **does not keep the value but still tracks expiration** — and is
@@ -245,8 +260,9 @@ therefore not contagious. That is exactly `ASSETS-CANNOT-BE-DECLARED-NON-PERSIST
 statement names the same class: *"deterministic, cheap to produce, and not worth storing… not
 volatile — it stays valid exactly as long as its inputs do."*
 
-Until that exists, **`stored: false, cached: false` is rejected at manifest load**, with an error
-naming the issue. Rejecting is the only honest option: every fallback is wrong in a way the author
+Until that lands, **`stored: false, cached: false` is rejected at manifest load**, with an error
+naming the issue. The other three combinations are expressible as soon as the flags exist; only the
+both-false case needs the non-contagious asset class. Rejecting is the only honest option: every fallback is wrong in a way the author
 would not see.
 
 | Fallback considered | Why not |

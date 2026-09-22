@@ -125,3 +125,78 @@ stored — it is simply not persistent."* If exact, marking a keyed asset volati
 its bytes being written; it stops them being read back. A design for this issue should say plainly
 whether a non-persistent asset writes nothing or writes-and-ignores, because the record design needs
 the former and the current vocabulary may only offer the latter.
+
+## Update 2026-09-22 — a specified mechanism
+
+The gap now has a proposed mechanism, and it fits the existing structure more neatly than expected.
+
+### Two independent flags, carried by four types
+
+`stored` and `cached` become first-class, on `MetadataRecord`, `Metadata`, `AssetInfo` and `Recipe`.
+Both default to `true`, so legacy data and existing recipes keep today's behaviour — the same
+`#[serde(default)]` treatment `MetadataRecord::type_name` already uses.
+
+| Flag | Means | Default |
+|---|---|---|
+| `stored` | the asset manager writes the produced value to the store | `true` |
+| `cached` | the asset manager registers the asset for reuse | `true` |
+
+Neither is `volatile`, which stays a separate and stronger claim: *this result cannot be trusted to
+be the same next time*. An asset with both flags false is still deterministic and still tracks
+expiration — it is simply not retained, and **must not be contagious**.
+
+### The two operations are already adjacent and separable
+
+`DefaultAssetManager`'s finish path does them one after the other (`assets.rs:5694-5712`):
+
+```rust
+// 6. Store in assets map
+assert!(self.try_insert_key_asset(key, asset_ref.clone()).await);   // <- cached
+
+// 7/8. Try to serialize and store
+store.set(key, &binary, &metadata.clone().into()).await?;            // <- stored
+```
+
+So `cached: false` skips step 6 and `stored: false` skips steps 7–8. No restructuring; two
+conditions at a site that already separates the concerns.
+
+### The module documentation already sanctions `cached: false`
+
+`assets.rs:100` says so in as many words:
+
+> *"Whether the manager registers a keyed asset in its key map is a separate caching-and-sharing
+> decision that belongs to the manager: **declining to register a non-volatile keyed asset still
+> produces correct results**."*
+
+An unregistered asset is re-evaluated per request rather than shared. That is a **deduplication**
+loss, not a correctness one: two concurrent requests both compute, and both get the right answer.
+
+### `stored: false` suppresses writing, not reading
+
+Deliberately asymmetric. An asset declared `stored: false` does not write its value, but an existing
+stored copy remains readable. Two consequences worth having:
+
+- Turning the flag on or off **does not invalidate data already on disk**.
+- A value stored under an older configuration keeps serving until something replaces it.
+
+**Open:** whether a stored copy should be *preferred* over recomputation for a `stored: false` asset.
+Reading it is cheaper; recomputing is more clearly correct when the flag says the store is not
+authoritative for this asset. This needs deciding before implementation, not after.
+
+### Recipes get the same flags
+
+`Recipe` already carries `volatile` and `expires`, so `stored` and `cached` sit beside them and are
+folded into the plan the same way `Recipe::to_plan` folds volatility (`recipes.rs:281`). A recipe
+author can then say "produce this, do not keep it" without claiming it is unstable.
+
+### The consumer
+
+`record-streams`' manifest carries the same two flags per chunk and currently **rejects**
+`stored: false, cached: false` at load, because the class does not exist. That rejection is removed
+when this lands. See `specs/design/record-streams/manifest-format.md` §4b.
+
+### Readiness
+
+This has moved from "a gap with a motivating example" to "a mechanism with named call sites, a
+backward-compatibility story and a consumer waiting on it". It is ready for a design folder when
+work starts; the open question above is the one thing a design must settle first.
