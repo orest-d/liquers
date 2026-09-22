@@ -101,3 +101,23 @@ at `command_metadata.rs:1011` and consulted nowhere; the macro's statement list 
 `registration.rs:835-886` omits it; `PersistenceStatus::NotPersisted` is defined as a failure at
 `assets.rs:395`; version registration is gated on `Ready | Source | Override` at `assets.rs:5583`
 and `:5715`.
+
+## Update 2026-09-22 — a concrete consumer, and a complication
+
+`record-streams` gives this a concrete consumer. A record stream's manifest carries `stored:` and
+`cached:` flags, and `stored: false, cached: false` is exactly the class this issue describes: chunks
+that are deterministic, cheap to reproduce, valid as long as their inputs are, and not worth keeping.
+
+Until this exists, that combination is **marked volatile**, which gives the right reuse semantics
+and the wrong dependency semantics. `assets.rs:169`: *"Volatility is contagious… An asset that
+depends on volatile input also produces a volatile result."* So a report built over such a stream
+becomes volatile too and cannot be cached — the label spreads from the chunk to everything
+downstream. That is the cost this issue would remove: **an asset class that does not keep the value
+but still tracks expiration, and is therefore not contagious.**
+
+A complication worth checking when work starts. `assets.rs:90-97` states
+`stored => keyed`, `persistent => stored`, and then: *"A volatile keyed asset **is** keyed, so it is
+stored — it is simply not persistent."* If exact, marking a keyed asset volatile does **not** stop
+its bytes being written; it stops them being read back. A design for this issue should say plainly
+whether a non-persistent asset writes nothing or writes-and-ignores, because the record design needs
+the former and the current vocabulary may only offer the latter.

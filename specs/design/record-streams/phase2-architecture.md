@@ -120,9 +120,13 @@ enum SourceBacking {
         /// Chunk naming, which is what makes chunks keyed and addressable.
         /// **Always `None` in this version.**
         keys: Option<ChunkKeys>,
-        /// Whether keyed chunks are persisted. Keyed and stored are separate axes —
-        /// `manifest-format.md` §4b. Irrelevant when `keys` is `None`.
-        store: bool,
+        /// Whether keyed chunks' bytes are written to the store.
+        stored: bool,
+        /// Whether keyed chunks are held by the asset manager for reuse in a session.
+        /// Neither flag set means the chunk is **marked volatile** — see
+        /// `manifest-format.md` §4b, including the contagion cost and the finding that a
+        /// volatile *keyed* asset may be stored anyway.
+        cached: bool,
     },
 }
 

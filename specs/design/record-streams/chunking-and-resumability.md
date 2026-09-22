@@ -307,8 +307,10 @@ enum SourceBacking {
         chunks: Vec<Query>,
         template: Option<ChunkTemplate>,
         keys: Option<ChunkKeys>,
-        /// Whether keyed chunks are persisted — a separate axis from being keyed (§4b).
-        store: bool,
+        /// Bytes written to the store; value held by the asset manager. Neither means
+        /// the chunk is marked volatile (`manifest-format.md` §4b).
+        stored: bool,
+        cached: bool,
     },
 }
 

@@ -182,43 +182,95 @@ manifest is then simultaneously the record of what is done and the rule for what
 what makes a restart a matter of reading one file. Without the combination, a resumable run would
 have to migrate from one manifest form to another partway through.
 
-## 4b. `store:` — keyed, stored and cached are three different things
+## 4b. `stored:` and `cached:` — two fields, three axes
 
-A chunk having a **key** and a chunk being **persisted** are separate, and the format keeps them
-separate:
+A chunk having a **key** and a chunk being **kept** are separate, and *kept* is itself two things.
+The format carries two flags:
 
 ```yaml
-store: true    # default; the chunk's bytes are written to the store
-store: false   # the chunk is keyed and addressable, but recomputed rather than persisted
+stored: true     # the chunk's bytes are written to the store
+cached: true     # the chunk is held by the asset manager for reuse
 ```
-
-Three axes, which this document previously conflated into `cache: Option<ChunkCache>`:
 
 | Axis | Means | Given by |
 |---|---|---|
 | **Keyed** | the chunk has a key, so it is addressable and has identity independent of its query | the naming fields — `number_format`, `extension`, and the manifest's own folder |
-| **Stored** | the chunk's bytes are written to the store and survive a restart | `store:` |
-| **Cached in the asset manager** | the chunk is held in memory for reuse within a session | the asset lifecycle, not this file |
+| **Stored** | the bytes are written to the store and survive a restart | `stored:` |
+| **Cached** | the value is held by the asset manager for reuse within a session | `cached:` |
 
-`store: false` with a key is a real and useful combination: the chunk is addressable as
-`data/sales/daily_0010.csv`, an HTTP caller can fetch it, reconciliation can name it — and it is
-recomputed on demand rather than occupying disk. A cheap projection over data that is already
-stored elsewhere is the motivating case.
+### The four combinations
 
-**This is deliberately under-specified and flagged as such.** What remains to decide:
+| `stored` | `cached` | Behaviour |
+|---|---|---|
+| ✓ | ✓ | The normal case. Persisted, and reused from memory within a session |
+| ✓ | ✗ | Persisted, re-read from the store each time. For chunks too large to hold |
+| ✗ | ✓ | Recomputed after a restart, reused within a session. The cheap-projection case |
+| ✗ | ✗ | Nothing is kept. **Treated as volatile, and labelled volatile** |
 
-- Whether `store:` is per-manifest only, or may be overridden per chunk.
-- What the asset manager does with a `store: false` chunk — hold it, or discard it after use. This is
-  exactly the gap `ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT` records: *"a non-volatile asset that is
-  not stored or cached in the asset manager"*, whose motivating example is a cheap-to-produce report
-  that stays valid as long as its inputs do. A `store: false` chunk is that case, so the two should
-  be settled together.
-- Whether `store: false` changes reconciliation, which currently assumes a stored chunk's `Version`
-  is readable from its metadata. An unstored chunk has no stored metadata to read.
+### `stored: false, cached: false` is volatile, and says so
 
-**Identity is unaffected.** §5's two regimes turn on whether a chunk is **keyed**, not on whether it
-is stored — so per-chunk `arguments` and `links` are valid whenever the chunks are keyed, including
-with `store: false`.
+Neither stored nor cached means the chunk is produced, used and dropped — which is what `volatile`
+already means. So such chunks are **marked volatile**, not merely treated as if they were: the label
+is how every other part of the system learns not to reuse them.
+
+**The cost is contagion, and it is the reason this is a stopgap.** `assets.rs:169` is explicit:
+
+> *"Volatility is contagious. A query, command, recipe, immediate-expiration policy, or volatile
+> dependency can make an evaluation volatile. An asset that depends on volatile input also produces
+> a volatile result, so the result is not reused as a stable cached asset."*
+
+So a report built over a volatile stream is itself volatile, and cannot be cached either — the
+label spreads from the chunk to everything downstream of it. That is right for a genuinely
+unstable input and **wrong for a cheap deterministic one**, which is what a `stored: false` chunk
+usually is: perfectly valid as long as its inputs are, just not worth keeping.
+
+### A finding that needs checking before implementation
+
+The module documentation says something that bears on this and contradicts the obvious reading —
+`assets.rs:90-97`:
+
+```text
+stored     => keyed        (only a keyed asset is written to the store)
+persistent => stored       (only a stored asset can be loaded back)
+```
+
+> *"A volatile keyed asset **is** keyed, so it is stored — it is simply not persistent, because its
+> status is one `try_fast_track` refuses."*
+
+If that is exact, **marking a keyed chunk volatile does not stop its bytes being written** — it
+stops them being read back. That would give `stored: false` the right *reuse* semantics and the
+wrong *storage* behaviour: bytes written and never used.
+
+Stated as a finding rather than a conclusion: it comes from the module doc, not from tracing the
+write path, and it must be verified before `stored: false` is implemented. If it holds, a keyed
+chunk that truly writes nothing needs either the future asset class below or a non-keyed chunk —
+and a non-keyed chunk is not addressable, which defeats the point.
+
+### The asset class this wants
+
+What `stored: false` really needs is an asset that **does not keep the value but still tracks
+expiration** — deterministic, cheap to reproduce, valid exactly as long as its inputs are, and
+therefore *not* contagious.
+
+That is precisely `ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT`, whose problem statement names the same
+gap: *"deterministic, cheap to produce, and not worth storing… not volatile — it stays valid exactly
+as long as its inputs do."* Its motivating example is a report rendered from precalculated data,
+which is the same shape as a projection chunk.
+
+Until that exists, `stored: false, cached: false` is volatile with volatility's costs, declared
+openly rather than discovered. The two should be settled together.
+
+### What remains open
+
+- Whether `stored` and `cached` may be overridden per chunk, or are per-manifest only.
+- Whether `stored: false, cached: true` is expressible today at all — the rules above say
+  `stored => keyed`, but not whether a keyed asset may decline to be stored while still being
+  registered for reuse.
+- Whether `stored: false` changes reconciliation, which assumes a stored chunk's `Version` is
+  readable from its metadata. An unstored chunk has no stored metadata to read.
+
+**Identity is unaffected by either flag.** §5's two regimes turn on whether a chunk is **keyed**, so
+per-chunk `arguments` and `links` stay valid with both flags false.
 
 ## 5. Identity: two regimes, and per-chunk arguments belong to only one
 
