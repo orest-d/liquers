@@ -44,6 +44,8 @@ for the trait revision.
 | `CORE-VALUE-ENUM-OVERSIZED` | draft | P2 | `Value` is 704 bytes. Drove fields to `FieldValue` and the new variant behind `Arc` | no | no | Honoured throughout | keep P2 |
 | `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE` | draft | P2 | Filed 2026-09-24 from this design's HTTP section. `liquers-axum` cannot name `ExtValue`, so streaming a source over HTTP needs a core-level asynchronous serialization hook rather than an axum branch | no | **yes, for streaming large exports only** | Design separately. Meanwhile a source's rows are serialized by `ns-rec/materialize`, bounded by `max_rows` | keep P2 |
 | `METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED` | draft | P3 | Every non-manifest source is stored as metadata only; reloading one goes through the fast-track's corrupted-data branch before re-deriving. Found while checking this design | no | no | Accept — the outcome is correct; the log is misleading | keep P3 |
+| `TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS` | draft | P3 | HTML is written but cannot be read back, and `supported_data_formats` means "written and read". Found while specifying table formats | no | no | Declare `html` anyway; a stored `.html` table is recomputed | keep P3 |
+| `MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS` | draft | P3 | `ndjson` has no media type; Arrow and Parquet are served as `application/octet-stream`. Found while specifying table formats | no | no | Fix alongside, or accept octet-stream until then | keep P3 |
 | `VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER` | draft | P2 | A multi-gigabyte record stream cannot be serialized through a `Vec<u8>`-returning writer. **The clearest motivating case yet filed for it**, now with a concrete consumer in `liquers-axum` | no | no | **Ad-hoc streaming in `liquers-axum` for this design**; issue updated with the HTTP motivation and the push-vs-pull finding | consider P1 when a second value type needs it |
 | `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` | draft | P2 | Front-matter fields have nowhere to live, so `attr.`-qualified columns have no source | no | no | Field qualification is designed to accept it as a pure upgrade | keep P2 |
 | `COMMAND-CONTEXT-PARAM-ORDER` | accepted | P2 | `context` must be last in record-producing commands | no | no | Honoured | keep P2 |
@@ -762,7 +764,7 @@ genuinely should not be reused, which is a separate question from streaming.
 
 | Value | `as_bytes` |
 |---|---|
-| `RecordView` | `json`, `ndjson`, `csv`, later `parquet` and `arrow` — through `materialize()` when the view is not already a batch |
+| `RecordView` | every format of §"Table formats" — `csv`, `tsv`, `ndjson`, `json`, `md`, `html`, and with their features `feather` and `parquet` — through `materialize()` when the view is not already a batch |
 | `RecordSource` — `ManifestSource` | `yaml`, `json` — the manifest |
 | `RecordSource` — any other: in memory, filtering, mapping | **refused** — `SerializationError`. Its rows are reached through `materialize` |
 
@@ -813,6 +815,165 @@ conversions in `ExtValueInterface` and `DefaultValueSerializer`, plus the scalar
 manifest sidesteps the problem — the manifest itself is small — which is one more reason to prefer
 that form, and `liquers-axum` streams a source directly (§"Streaming a record source over HTTP").
 
+
+### Table formats: what a `RecordView` writes and reads
+
+Every `RecordView` serializes through the ordinary synchronous path, and a `RecordView` identifier
+deserializes to a `RecordBatch`. Which formats are offered is decided by two costs — **code and
+dependencies**, which matter most for the wasm build, and **what survives a round trip** — and the
+heavier formats sit behind their own features.
+
+| Format | Data format, aliases | Write | Read | Round trip | Implementation | New dependency | Feature |
+|---|---|---|---|---|---|---|---|
+| CSV | `csv`, `csv:comma` | yes | yes | values; types inferred; roles lost; null distinct from `""` | hand-written, ~250 lines with the reader | none | `records` |
+| TSV | `tsv`, `csv:tab` | yes | yes | as CSV | shares the CSV code | none | `records` |
+| NDJSON | `ndjson`, `jsonl` | yes | yes | values and JSON types; roles lost; differing keys read as a union | ~150 lines over `serde_json` | none | `records` |
+| JSON | `json` — an array of row objects | yes | yes | as NDJSON | ~50 lines over the NDJSON code | none | `records` |
+| Markdown | `md`, `markdown` — a GFM pipe table | yes | yes | presentation: headers are labels, types inferred | ~60 lines to write, ~80 to read | none | `records` |
+| HTML | `html` — a `<table>` fragment | yes | **no** | presentation only | ~60 lines | none | `records` |
+| Arrow IPC file (Feather v2) | `feather`, `ipc`, `arrow_ipc` | yes | yes | **lossless** — types, nulls, and the schema with roles | ~1 000–1 500 lines, mostly metadata: the bodies are our buffers | `flatbuffers` | `records-ipc` |
+| Parquet | `parquet` | yes, minimal | **only with `polars`** | lossless as written; roles lost when read through polars | writer ~800–1 200 lines | `flate2`, already in the graph | `records-parquet` |
+
+Names and aliases are those of the DataFrame serializer (`liquers-lib/src/polars/serde.rs:25-34`), so
+a filename means the same thing for a `polars_dataframe` and a `RecordView`. The line counts are
+sizing estimates, not measurements; Phase 4 measures the `liquers-web` quickstart's `.wasm` before
+and after each feature.
+
+**What is already in the wasm build**, from `cargo tree -p liquers-web --target wasm32-unknown-unknown`:
+`serde_json`, `serde_yaml`, `chrono`, `base64`, `itoa`, `ryu`, `memchr`, and `flate2` with
+`miniz_oxide` (through `png`). Not in it: any CSV crate, `flatbuffers`, snappy or zstd. So every
+format in `records` costs **no new dependency** in the browser, and the Parquet writer's only
+compression codec is one the browser build already carries.
+
+#### Tier 1 — in `records`, no new dependency
+
+**CSV and TSV are hand-written, and the reason is nulls rather than size.** No CSV crate is in the
+lockfile, but the deciding fact is that a CSV file can distinguish a null from an empty string only
+by quoting, and a reader must therefore know whether a field was quoted — which the `csv` crate does
+not report. The convention is PostgreSQL's `COPY … CSV`: **an unquoted empty field is null, a quoted
+`""` is the empty string**. The writer quotes exactly when needed (the separator, a quote, CR or LF,
+or an empty string) and writes `\n`; the reader accepts `\n` and `\r\n`, embedded newlines inside
+quotes, and doubled quotes. Phase 3's `column_null_distinct_from_empty_string` is the test.
+
+| Column type | Written as |
+|---|---|
+| `Int`, `UInt` | decimal (`itoa`) |
+| `Float` | shortest round-trip representation (`ryu`) |
+| `Bool` | `true` / `false` |
+| `Date` | `YYYY-MM-DD` |
+| `Timestamp` | RFC 3339 with microseconds and `Z` |
+| `Text` | as is, quoted when needed |
+| `Binary` | base64 |
+| `Vector` | a JSON array, in one cell |
+
+**Formula injection is not sanitized.** A cell beginning with `=`, `+`, `-` or `@` can execute in a
+spreadsheet; neutralizing it alters the data, which a data format must not do. Documented, not
+handled.
+
+**Reading infers a schema, because the bytes carry none.** `deserialize_from_bytes(b, type_identifier,
+data_format)` receives no metadata, so a stored schema cannot reach it; the text formats infer one
+from the data.
+
+| Step | Rule |
+|---|---|
+| Type, per column | the first of `Bool` (`true`/`false`, any case), `Int`, `Float`, `Date` (`YYYY-MM-DD`), `Timestamp` (RFC 3339), `Text` that fits **every** non-null cell. A column of nulls only is nullable `Text` |
+| `Int` means canonical | a cell counts as `Int` only if it fits `i64` **and** formatting the parsed number gives the cell back. So `01234`, `+5` and `1e3` stay text — a ZIP code or an account number keeps its leading zero — and a number too large for `i64` is not silently turned into a `Float` |
+| Nullable | any null seen |
+| JSON and NDJSON | JSON's own types decide: an integral number without exponent that fits `i64` is `Int`, other numbers `Float`. Only *strings* go through the date and timestamp tests, so `"42"` stays text. An array of numbers of one length in every row is a `Vector`; any other array or object is `Text` holding its JSON |
+| The `Id` | the **first column**, when it is non-null and unique. Otherwise a `row` column (`UInt`, from 0) is prepended as the `Id`. **Writers put the `Id` column first** and the rest in schema order, so a table written by Liquers reads back with the same `Id` |
+| Everything else | default roles; labels derived from names |
+
+So the text formats round-trip **values and plain types, not roles** — which is why the lossless
+formats below exist.
+
+**Markdown and HTML are presentation, and use labels.** Their headers are each field's `label`, not
+its `name` — the use `FieldSchema::label` was added for. Markdown right-aligns numeric columns in the
+alignment row, and escapes `|`, backslash and line breaks (as `<br>`), and `<` and `&`, because GFM
+renders inline HTML. Reading Markdown back turns a header into a name by lowercasing it and replacing
+spaces with `_`, the inverse of a default label, so a label left at its default round-trips.
+
+**HTML escaping is a security requirement, not a nicety.** `liquers-axum` serves `.html` as
+`text/html`, so an unescaped `<script>` in a cell runs in the browser of whoever opens the URL. Every
+cell, label and description is escaped (`&`, `<`, `>`, `"`, `'`). The fragment is a `<table
+class="liquers-records">` with `<thead>` and `<tbody>`; a description becomes the header's `title`
+attribute, numeric cells carry `class="num"`, and a null is an empty cell with `class="null"`.
+
+**HTML cannot be read back, and the type registry cannot say so.** `TypeInfo::supported_data_formats`
+means "written to **and** read from" (`type_system.rs:100`). Declaring `html` makes it servable by
+filename; a stored `.html` table then fails to deserialize and is recomputed from its recipe, through
+the path `METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED` records. Filed as
+`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`; reading HTML would need an HTML parser, which is not
+cheap.
+
+#### Tier 2 — Arrow IPC file (Feather v2), behind `records-ipc`
+
+**Cheap relative to its value, because the bodies are already written.** An IPC file is the magic
+`ARROW1`, a schema message, one record-batch message per batch, a footer indexing them, the footer's
+length and the magic again ([IPC]). A record-batch message's body is the column buffers, each padded
+to 8 bytes — exactly our `Buffer`s, in the order the C Data Interface already fixes. What has to be
+*written* is the metadata: `Schema`, `Field`, `RecordBatch` (field nodes and buffer offsets), `Footer`
+and `Block`, as flatbuffers.
+
+- **Lossless.** The schema's `custom_metadata` carries `liquers.schema`, the `RecordSchema` as JSON,
+  so roles, labels, descriptions and the `Id` survive; a batch message's `custom_metadata` carries
+  its `chunk_id`. Other readers ignore both and still see correct types.
+- **Scope.** Exactly the `Column` subset of §"Where our layout meets Arrow's". Reading refuses
+  dictionary batches, compressed bodies (the `compression` field — LZ4 and zstd are not carried),
+  64-bit-offset types and any nesting other than `FixedSizeList(Float32)`, each with an error naming
+  what was found.
+- **Dependency.** The `flatbuffers` runtime (Apache-2.0, no dependencies) with code generated from
+  Arrow's `Schema.fbs`, `Message.fbs` and `File.fbs`, checked in; unused tables are dead-code
+  eliminated. A hand-written flatbuffer encoder for the eight tables involved is possible at ~500
+  lines, but offsets and vtables are where silent corruption hides, and the runtime is small.
+- **Interop is tested, not assumed**: with `records-ipc` and `polars` both on, a file written here
+  reads in polars and one written by polars reads here.
+- **In the browser** it is optional. Inside one page the lent-buffer mechanism is better; IPC is for
+  bytes crossing a process boundary — an `.arrow` served to an `apache-arrow` JavaScript client. The
+  IPC *stream* format (no footer) is the natural body for a future streaming serializer
+  (`VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`) and a small variation of this code.
+
+#### Tier 3 — Parquet: writing is cheap, reading is not
+
+**The writer**, behind `records-parquet`: `PAR1`, one row group per batch, one column chunk per
+column, one version-1 data page per chunk, `PLAIN` encoding, definition levels in the RLE/bit-packing
+hybrid for nullable columns (a flat schema has a maximum level of 1), and a `FileMetaData` footer
+with logical types (`STRING`, `DATE`, `TIMESTAMP(MICROS)`) and `key_value_metadata` carrying
+`liquers.schema`. The footer and page headers are Thrift compact protocol — a small encoder for the
+handful of structures involved, not a Thrift dependency. Per-column min/max statistics are cheap for
+primitive columns and worth writing, because they let other engines skip row groups. Compression is
+`UNCOMPRESSED` or `GZIP` through `flate2`. **`Vector` columns are refused**: Parquet's `LIST` needs
+repetition levels, which a flat writer does not produce.
+
+**A reader is not cheap, because real files are not written the way this writer writes them.**
+pyarrow writes dictionary-encoded pages compressed with snappy by default; polars writes zstd; both
+may use data page v2 and delta encodings. A reader that handles only files like its own would refuse
+most Parquet a user actually has — worse than refusing honestly. So:
+
+- **With `polars` on** (native), Parquet is read through polars' reader and converted with a
+  `DataFrame → RecordBatch` bridge, the reverse of the one already planned. Roles are lost on this path
+  unless polars exposes the key-value metadata; the `Id` is inferred as for CSV.
+- **Without it**, reading is refused with an error naming the `polars` feature.
+- A polars-free native reader would be the arrow-rs `parquet` crate behind yet another feature — large,
+  with the `arrow-*` crates behind it. Not proposed.
+
+#### Considered and left out
+
+| Format | Why not |
+|---|---|
+| XLSX | A zip container plus SpreadsheetML to write (`rust_xlsxwriter`) and `calamine` to read — moderate dependencies — and polars already offers XLSX for DataFrames on native |
+| JSON with an embedded schema — Frictionless Table Schema, pandas `orient="table"` | Cheap, and a lossless text format. But it needs its own format name, and a qualified one such as `json:table` cannot currently be written in a query (`DATA-FORMAT-CONSTANTS-AND-TOOLING`, point 4). Revisit when it can |
+| YAML, a list of maps | Trivial with `serde_yaml`, but a worse NDJSON |
+| Avro, ORC | No use case, heavy |
+
+#### The registry follows the features
+
+`ExtValue::type_descriptions()` builds the `RecordView` format list with the same `#[cfg]`s that
+compile the formats, so a build **never advertises a format it cannot write** — the rule
+`availability02_advertised_types_match_the_enabled_features` enforces for stores, applied to formats.
+A test asserts, per feature combination, that every advertised format writes. The media types these
+formats need are partly missing from `liquers-core/src/media_type.rs` (`ndjson` has no entry;
+`arrow`, `feather` and `parquet` map to `application/octet-stream`), filed as
+`MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS`.
 
 ## Data Structures
 
@@ -966,7 +1127,7 @@ builds for already is. One line, not a design problem.
 | Route | Data copied | Where | Status |
 |---|---|---|---|
 | **C Data Interface** | none | `liquers-py` | The real zero-copy path. A few hundred lines and the only `unsafe`. **`polars-arrow 0.55.2` is already in the lockfile** via polars, and exposes its own C Data Interface — so the native polars hand-off can go through it rather than hand-rolling FFI, whenever the `polars` feature is on |
-| **Arrow IPC / Feather** | yes — it is serialization | `liquers-lib`, deferred | Not sharing. A flatbuffers encoder; also the natural `.arrow` file format for a chunk |
+| **Arrow IPC / Feather** | yes — it is serialization | `liquers-lib`, behind `records-ipc` | Not sharing, but the lossless file format. Specified in §"Table formats" |
 | **Typed arrays over wasm memory** | none | `liquers-web` | Needs a validity discipline — see below |
 
 #### The wasm route: a dedicated safe mechanism, not Arrow
@@ -1737,12 +1898,13 @@ with `records` off is byte-for-byte the build that exists today.
 | `liquers-lib` | `src/records/buffer.rs` (new) | `AlignedBuffer`, `Buffer<T>`, `Bitmap` — the Arrow-layout primitives; the only place `bytemuck` is used |
 | `liquers-lib` | `src/records/mod.rs` (new) | The traits `RecordView`, `RecordSource`, `RecordStream`, `ChunkResolver`; `BoxRecordStream`, `record_stream`, `RecordStreamExt`; `FieldValue`, `RecordSchema`, `FieldSchema`, `FieldType`, `Column` and its kernels, `RecordBatch`, `ChunkOrigin`, `LocatorRule`, `ChunkKeys`, `ChunkId`, `ChunkList`, `ChunkDescriptor` |
 | `liquers-lib` | `src/records/views.rs` (new) | The view implementations, the `impl dyn RecordView` constructors, `ColumnBuilder`, `RowFnView` |
+| `liquers-lib` | `src/records/formats/` (new) | `csv.rs` (CSV and TSV), `json.rs` (NDJSON and JSON), `markdown.rs`, `html.rs`, `infer.rs` (schema inference); `ipc.rs` behind `records-ipc`; `parquet.rs` and `thrift.rs` behind `records-parquet` |
 | `liquers-lib` | `src/records/sources.rs` (new) | `ManifestSource`, `InMemorySource`, the wrapping sources, `ContextResolver`, `EnvResolver` |
 | `liquers-lib` | `src/records/commands.rs` (new) | The `ns-rec` command set |
-| `liquers-lib` | `src/records/polars.rs` (new, `records` + `polars`) | `RecordBatch → polars::DataFrame` over the shared buffers |
+| `liquers-lib` | `src/records/polars.rs` (new, `records` + `polars`) | `RecordBatch → polars::DataFrame` over the shared buffers, and `DataFrame → RecordBatch` — the path Parquet is read through |
 | `liquers-lib` | `src/value/mod.rs` | `ExtValue::RecordView` and `ExtValue::RecordSource`, **cfg-gated**, with every exhaustive match gaining a gated arm; both `TypeInfo` entries; the `DefaultValueSerializer` arms; the scalar hooks |
 | `liquers-lib` | `src/value/extended.rs` | **Prerequisite, not records-specific:** `ValueExtension` scalar hooks, delegated from `CombinedValue`'s `ValueInterface` and `TryFrom` impls — `EXTENDED-VALUES-CANNOT-BIND-TO-SCALAR-ARGUMENTS` |
-| `liquers-lib` | `Cargo.toml` | the `records` feature, its optional `bytemuck` dependency, and `serde/rc` |
+| `liquers-lib` | `Cargo.toml` | the `records`, `records-ipc` and `records-parquet` features; optional `bytemuck`, `flatbuffers` and `flate2`; `serde/rc` |
 | `liquers-web` | `src/records.rs` (new) | The `RecordBatch` handle, per-column descriptors, `columnCopy`; the JS companion that revalidates typed-array views |
 | `liquers-web` | `Cargo.toml` | add `"records"` to the `liquers-lib` feature list |
 | `liquers-axum` | `src/axum_integration.rs`, `src/query/handlers.rs` | Streaming for `RecordSource` + `csv`/`ndjson`: `Body::from_stream`, eager first batch, uniform-schema check. **Not as a record-specific branch** — `liquers-axum` cannot name `ExtValue` — but through the core-level hook of `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`, which this design then depends on for HTTP streaming |
@@ -1763,15 +1925,21 @@ by transitivity, so `Pin<Box<dyn RecordStream>>` needs no alias and `Box::pin` n
 ```toml
 # liquers-lib/Cargo.toml
 [features]
-default = ["egui", "image-support", "polars", "records"]
+default = ["egui", "image-support", "polars", "records", "records-ipc", "records-parquet"]
 # Columnar record streams: a tabular value type with an Arrow-compatible layout.
 # Optional because it is a data type rather than an essential capability.
 # `serde/rc` because the record types derive Serialize over `Arc<RecordSchema>` and `Arc<str>`;
 # without it they compile only when some other dependency happens to enable it.
 records = ["dep:bytemuck", "serde/rc"]
+# Arrow IPC file (Feather v2): the lossless table format. Needs only the flatbuffers runtime.
+records-ipc = ["records", "dep:flatbuffers"]
+# Parquet writer; reading Parquet additionally needs `polars`. `flate2` is already in the graph.
+records-parquet = ["records", "dep:flate2"]
 
 [dependencies]
 bytemuck = { version = "1.25", optional = true }
+flatbuffers = { version = "…", optional = true }   # version pinned in Phase 4
+flate2 = { version = "1", optional = true }
 ```
 
 **In `default`, exactly as `polars` is** — so the routine loop
@@ -1798,7 +1966,11 @@ catch-all "silently absorbed new variants". Every exhaustive match on `ExtValue`
 --no-default-features --features records --tests
 --no-default-features --features records,polars --tests     # the polars bridge
 --no-default-features --features webui,records --tests
+--no-default-features --features records-ipc --tests
+--no-default-features --features records-parquet --tests        # writer only; reading refused
+--no-default-features --features records-parquet,polars --tests # reading through polars
 --target wasm32-unknown-unknown --no-default-features --features webui,records
+--target wasm32-unknown-unknown --no-default-features --features webui,records,records-ipc
 ```
 
 and the existing `--no-default-features --tests` row already proves the build with `records` **off**.
@@ -1969,6 +2141,7 @@ carries a `## History` row and a `reviewed:` date from its first commit.
 | **Arrow interoperability** | The two-level model — data as `&[T]`, structure rebuilt as `repr(C)` — the exact type/format mapping table, the three export routes and their real costs, and the three places the layout is not 1:1. **Cites [COLUMNAR] and [CDATA]**; states that format strings are verified against the spec, not this document |
 | **Browser sharing** | Hazards A and B, the identity check, the refresh rule, read-only views, the handle lifetime, and `columnCopy` as the fallback |
 | **Methods** | Every public method with its contract and failure mode — the three traits, the `impl dyn RecordView` constructors, `Column`'s kernels, `RecordSchema::{new, id_field, source_field, text_fields, index_of, payload_fields}`, `RecordBatch::{new, concat}`, `Bitmap::{get, and, or, not, count_ones, iter_ones}`, `ChunkOrigin::locator_query`, `record_stream`, the three `materialize`s |
+| **Table formats** | The format table with what each round-trips; the null convention of CSV; the inference rules and the `Id` rule; labels in presentation formats; HTML escaping; which features bring which formats |
 | **Serialization** | What each value writes in each format; that a source writes only its manifest, and every other source nothing, re-derived from its recipe; that rows reach bytes through `materialize`, with its limit and its refusal of non-uniform sources |
 | **Limits** | The Arrow subset supported and what is excluded; uniformity not promised and the two operations that need it; the feature gate |
 
@@ -2075,6 +2248,11 @@ type, no `unwrap`/`expect`.
 | `materialize` passing `max_rows` | `Error::general_error` stating the limit and how to raise it — the stream is dropped, not truncated silently |
 | A view command receiving a source | `Error::conversion_error`, naming `ns-rec/materialize` |
 | `source` given a document that is not a manifest, or `stored: false, cached: false` | `Error::general_error` from `TryFrom<ManifestSpec>` |
+| A format the build does not include (`feather` without `records-ipc`, …) | `ErrorType::SerializationError` naming the feature — and the registry does not advertise it |
+| Reading `parquet` without `polars`, or `html` at all | `ErrorType::SerializationError` naming why |
+| An IPC file with dictionary batches, compression, 64-bit offsets or unsupported nesting | `ErrorType::SerializationError` naming what was found |
+| A Parquet write of a `Vector` column | `ErrorType::SerializationError` — `LIST` needs repetition levels |
+| Malformed CSV — an unterminated quote, rows of differing length | `ErrorType::SerializationError` with the line number |
 | `as_bytes` on a source with no manifest | `ErrorType::SerializationError` via `Error::from_error` — the write path stores metadata only |
 | State is not an `ExtValue::RecordView` or `ExtValue::RecordSource` | `Error::conversion_error` |
 | A field name no schema declares | Not an error — a `Warning` log entry on the evaluation's `Metadata` |
@@ -2107,7 +2285,7 @@ extension" — with three outcomes:
 
 | Value | Written as | Read back as |
 |---|---|---|
-| a `RecordView` of any kind | its materialized batch, in `json` / `ndjson` / `csv` | a `RecordBatch` — same identifier |
+| a `RecordView` of any kind | its materialized batch, in any format of §"Table formats" | a `RecordBatch` — same identifier; schema inferred for the text formats, carried for `feather` and `parquet` |
 | a `ManifestSource` | the manifest, `yaml` / `json` | a `ManifestSource` |
 | any other source | **nothing** — metadata only | re-derived from its recipe; its rows reach bytes through `materialize` |
 
@@ -2249,6 +2427,12 @@ as the fourth step of adding a value type; `context` last in a command signature
     chunk, missing ones null, as polars' diagonal concat does — would make it possible, at the cost
     of silently widening every chunk's schema. Worth adding as an explicit option if the
     folder-of-CSVs case needs a single table.
+15. **Inference strictness.** The `Date` and `Timestamp` tests turn a column of ISO strings into
+    dates, which is usually wanted and occasionally not. An opt-out needs a way to pass it — a query
+    parameter on a reading command, since `deserialize_from_bytes` receives none.
+16. **Parquet read without polars.** Refused. If browser Parquet reading is ever needed, the choice
+    is the arrow-rs `parquet` crate (large) or a reader limited to dictionary + snappy/zstd, which
+    covers pyarrow's and polars' defaults — both substantial.
 
 **Settled, and recorded so they are not reopened without new information:**
 
@@ -2309,6 +2493,7 @@ information — each is a position that was argued for and then abandoned on evi
 | 2026-09-24 | **Scalar reading**: a one-row, one-payload-column view reads as its cell would as a base `Value`. `select_columns` keeps key columns. Commands bounded by a caller's count materialize | The user's requirement that pointing at a cell yield a value; a tiny view must not pin a large base |
 | 2026-09-24 | **Asynchronous work is a source.** Views stay synchronous; source → view is an explicit await | Scalar reading and argument binding are synchronous |
 | 2026-09-24 | `liquers-core` **untouched** — the `BoxStream` alias removed | `MaybeSend` as a supertrait gives the trait object the right `Send`-ness on each target |
+| 2026-09-24 | **Table formats specified.** `records`: CSV, TSV, NDJSON, JSON, Markdown, HTML, hand-written with no new dependency; `records-ipc`: Arrow IPC / Feather, lossless; `records-parquet`: a minimal Parquet writer, reading only through polars. Text formats infer a schema, with an `Id` rule and writers putting the `Id` first | A `RecordView` must round-trip through CSV and NDJSON at least; wasm size keeps heavier formats behind features. `deserialize_from_bytes` sees no metadata, so the text formats cannot carry a schema |
 | 2026-09-24 | **A source serializes only as its manifest; its rows need `materialize`** — an async method on `RecordSource`, an extension on `BoxRecordStream`, and the `ns-rec/materialize` command, bounded by `max_rows`. `ns-rec/source` added; `records_to_csv` / `records_to_ndjson` removed; `InMemorySource` lost its byte form; `collect_view` renamed | Producing a source's rows needs awaits and serialization is synchronous. Moving the await into a command needs no change outside `liquers-lib`, and settles when a source is written as data: only when asked |
 | 2026-09-24 | HTTP streaming of a source moved from an axum branch to `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE` | `liquers-axum` does not depend on `liquers-lib` and is generic over `E: Environment`, so it cannot name `ExtValue::RecordSource` |
 | 2026-09-24 | `records` enables `serde/rc`; `ManifestSource` serializes through `ManifestSpec`; closure-holding views are generic with a hand-written `Debug` | A Rust review of the trait form: `Arc` fields fail to derive `Serialize` in a minimal build; `chunks()` could not borrow ids from a `Vec<Query>`; `dyn Fn + MaybeSend` is E0225 |

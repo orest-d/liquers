@@ -199,6 +199,19 @@ Tests comparing two `RecordBatch`es directly — `batch_concat_same_schema`, `te
 | `materialize_refuses_past_max_rows` | The limit is an error naming how to raise it, not a silent truncation |
 | `materialize_command_serializes_as_csv` | `…/daily.manifest.yaml/-/ns-rec/materialize/daily.csv` evaluates to CSV bytes through the ordinary path; the chunks are dependencies of the result |
 | `source_serializes_only_as_manifest` | A `ManifestSource` writes and reads back its manifest; an `InMemorySource` and a wrapping source refuse `as_bytes` |
+| `csv_round_trip_values_and_types` | Every column type writes and reads back equal, through the inference rules |
+| `csv_null_is_not_empty_string` | Unquoted empty reads as null, quoted `""` as the empty string (replaces the old `column_null_distinct_from_empty_string` expectation for the file form) |
+| `csv_quoting_corpus` | Separator, quote, CR, LF and CRLF inside fields; doubled quotes; a malformed file fails with its line number |
+| `inference_keeps_leading_zeros` | `01234`, `+5`, `1e3` stay text; an over-large integer is not turned into a float |
+| `read_recovers_id_or_synthesizes_row` | A Liquers-written file reads back with the same `Id`, written first; a file whose first column repeats gets a prepended `row` |
+| `ndjson_reads_differing_keys_as_union` | Missing keys become nulls; nested arrays of numbers become vectors |
+| `markdown_escapes_and_uses_labels` | `\|`, line breaks and `<` are escaped; headers are labels; a default label reads back as its name |
+| `html_escapes_every_cell` | A cell, label or description holding `<script>` is escaped — the security test |
+| `feather_round_trip_is_lossless` | Types, nulls, roles, labels and `chunk_id` survive (`records-ipc`) |
+| `feather_interoperates_with_polars` | A file written here reads in polars, and one written by polars reads here (`records-ipc` + `polars`) |
+| `parquet_written_here_reads_in_polars` | Including the null definition levels and the `liquers.schema` metadata (`records-parquet` + `polars`) |
+| `parquet_read_without_polars_is_refused` | With an error naming the feature |
+| `advertised_formats_match_features` | Every format in the `RecordView` `TypeInfo` writes, in each feature combination |
 | `manifest_document_converts_to_source` | A `*.manifest.yaml` loaded as YAML becomes a `ManifestSource` through `ns-rec/source`, and implicitly for `materialize`, with the key's folder as `cwd` |
 | `context_resolver_records_dependencies` | Chunks read through a `ContextResolver` become dependencies of the asset; through an `EnvResolver` they do not |
 | `stream_outlives_its_source_handle` | A stream stays valid after the caller's `Arc` of the source is dropped — the `'static` property axum needs |

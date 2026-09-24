@@ -8,11 +8,11 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 117
+Total rows: 119
 - P0: 1
 - P1: 2
 - P2: 77
-- P3: 37
+- P3: 39
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
@@ -106,8 +106,10 @@ Total rows: 117
 | [`ARGUMENT-INFO-HAS-NO-DESCRIPTION`](issues/ARGUMENT-INFO-HAS-NO-DESCRIPTION.md) | issue | ArgumentInfo has no per-argument description | draft |  | P3 | S | core/commands;macro |  | 2026-09-24 |
 | [`ASSET-FINISHED-PROGRESS-CONTRACT-UNDEFINED`](issues/ASSET-FINISHED-PROGRESS-CONTRACT-UNDEFINED.md) | issue | What progress a finished asset reports is undefined, and was asserted by a race | draft |  | P3 | S | core/assets |  | 2026-09-03 |
 | [`COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ`](issues/COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ.md) | issue | CommandMetadata.cache is declared, documented and exported, but nothing reads it | draft |  | P3 | S | core/commands;macro |  | 2026-09-19 |
+| [`MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS`](issues/MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS.md) | issue | The extension-to-media-type table lacks or mislabels the common tabular formats | draft |  | P3 | S | core/value;axum |  | 2026-09-24 |
 | [`METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED`](issues/METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED.md) | issue | A value stored as metadata only is reloaded through the corrupted-data path | draft |  | P3 | S | core/assets |  | 2026-09-24 |
 | [`NO-RECIPE-PROVIDER-CHAIN`](issues/NO-RECIPE-PROVIDER-CHAIN.md) | feature | An environment holds one recipe provider, with no way to compose several | draft |  | P3 | S | core/assets |  | 2026-09-20 |
+| [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  | P3 | S | core/value |  | 2026-09-24 |
 | [`AXUM-WEBSOCKET-HARDENING`](issues/AXUM-WEBSOCKET-HARDENING.md) | issue | WebSocket endpoint is not hardened | accepted |  | P3 | M | axum |  | 2026-08-08 |
 | [`BENCHMARK-SUITE`](issues/BENCHMARK-SUITE.md) | feature | No reproducible benchmarks for core runtime paths | accepted |  | P3 | M | build |  | 2026-08-08 |
 | [`CORE-STATE-LOCK-API-CLEANUP`](issues/CORE-STATE-LOCK-API-CLEANUP.md) | issue | `State` holds an `RwLock` that may not be needed | accepted |  | P3 | M | core/value |  | 2026-08-08 |
