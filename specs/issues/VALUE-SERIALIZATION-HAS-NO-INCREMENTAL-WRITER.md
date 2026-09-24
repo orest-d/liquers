@@ -116,3 +116,12 @@ here so they are not rediscovered:
   mitigation.
 - **Streaming bypasses result caching**, since nothing materializes. Acceptable where the *input*
   value is itself cacheable — as a `RecordSource` is — so only the encoding repeats.
+
+## Update 2026-09-24 — widened into `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`
+
+The wider pattern is filed separately: **asynchronous**, pull-based serialization end to end — value,
+asset, store (a write-side `openbin`) and HTTP — for values that are not only large but *lazy*, whose
+bytes cannot be produced by a synchronous method at all. The writer form this issue asks for becomes
+an adapter over that pattern's stream form, so the two should be designed together, and this record
+is best folded into that one when its design starts. That record also inventories every
+serialization call site in `liquers-axum` that the pattern would change.

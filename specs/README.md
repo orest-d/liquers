@@ -375,6 +375,7 @@ deliberately folded behind a broader line.
 - feature `TYPE-REGISTRY-NOT-REALM-AWARE`
 - feature `UI-VARIADIC-ARGUMENT-LIST-EDITOR`
 - feature `VALUE-CONVERSION-CAPABILITY`
+- feature `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`
 - feature `VALUE-TYPE-DEFINITION-MACRO`
 <!-- END generated: unplaced -->
 

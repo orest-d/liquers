@@ -8,10 +8,10 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 114
+Total rows: 116
 - P0: 1
 - P1: 2
-- P2: 75
+- P2: 77
 - P3: 36
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
@@ -27,6 +27,7 @@ Total rows: 114
 | [`STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE`](issues/STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE.md) | issue | Constructing and deserializing the same CommandMetadata give different state arguments | draft | needs-decision | P2 | S | core/commands | [phase1](specs/design/state-argument-serde-default/phase1-high-level-design.md)  [phase2](specs/design/state-argument-serde-default/phase2-architecture.md)  [phase3](specs/design/state-argument-serde-default/phase3-examples.md)  [phase4](specs/design/state-argument-serde-default/phase4-implementation.md)  | 2026-08-29 |
 | [`STORE-SEMANTICS-CHILDREN-RULE-CONTRADICTS-EVERY-STORE`](issues/STORE-SEMANTICS-CHILDREN-RULE-CONTRADICTS-EVERY-STORE.md) | issue | STORE_SEMANTICS forbids children in directory metadata; seven stores populate it and one does not | draft | needs-decision | P2 | S | core/store;store/backends;web;docs | [phase1](specs/design/store-directory-metadata-children/phase1-high-level-design.md)  [phase2](specs/design/store-directory-metadata-children/phase2-architecture.md)  [phase3](specs/design/store-directory-metadata-children/phase3-examples.md)  [phase4](specs/design/store-directory-metadata-children/phase4-implementation.md)  | 2026-09-02 |
 | [`AUDIT-CANNOT-EXPIRE-ON-A-FIRST-OBSERVED-VERSION`](issues/AUDIT-CANNOT-EXPIRE-ON-A-FIRST-OBSERVED-VERSION.md) | issue | An explicit dependency audit cannot expire a dependent whose dependency version merely moved | draft |  | P2 | S | core/assets |  | 2026-09-15 |
+| [`AXUM-ASSETS-API-SERVES-ONLY-BYTES-AND-TEXT`](issues/AXUM-ASSETS-API-SERVES-ONLY-BYTES-AND-TEXT.md) | issue | The assets data and entry endpoints serialize with try_into_bytes, so they serve only bytes and text values | draft |  | P2 | S | axum |  | 2026-09-24 |
 | [`AXUM-QUERY-TIMEOUT-HARDCODED`](issues/AXUM-QUERY-TIMEOUT-HARDCODED.md) | issue | The query handler's 30-second timeout is hardcoded | draft |  | P2 | S | axum |  | 2026-09-16 |
 | [`CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION`](issues/CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION.md) | issue | A command cannot set its asset's title or description through Context | draft |  | P2 | S | core/context |  | 2026-09-16 |
 | [`CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS`](issues/CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS.md) | issue | AsyncFileStore listings drop a metadata-only key instead of reporting it | draft |  | P2 | S | core/store;store/backends;docs |  | 2026-09-03 |
@@ -89,6 +90,7 @@ Total rows: 114
 | [`TYPE-REGISTRY-NOT-REALM-AWARE`](issues/TYPE-REGISTRY-NOT-REALM-AWARE.md) | feature | A query spanning two realms cannot know which types the other realm supports | draft |  | P2 | L | core/value;core/commands;core/plan;web;axum |  | 2026-08-18 |
 | [`UI-QUERY-EDITOR-LACKS-LIVE-VALIDATION`](issues/UI-QUERY-EDITOR-LACKS-LIVE-VALIDATION.md) | issue | Query editor cannot validate the current text with command metadata | draft |  | P2 | L | lib/ui;lib/egui;web;core/plan;core/query |  | 2026-09-04 |
 | [`VALUE-CONVERSION-CAPABILITY`](issues/VALUE-CONVERSION-CAPABILITY.md) | feature | Values cannot be converted between types, automatically or explicitly | draft |  | P2 | L | core/value;core/commands;lib/value |  | 2026-08-18 |
+| [`VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`](issues/VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE.md) | feature | Serialization is synchronous and whole-value, so a large or lazy value cannot be served or stored as it is produced | draft |  | P2 | L | core/value;core/store;core/assets;axum |  | 2026-09-24 |
 | [`WORKSPACE-SERDE-DERIVE-UNDECLARED`](issues/WORKSPACE-SERDE-DERIVE-UNDECLARED.md) | issue | Three crates use serde derive macros without declaring the `derive` feature | accepted |  | P2 | L | build;core/value;lib/ui;axum |  | 2026-08-09 |
 | [`AGENT-MEMORY-SERVICE`](issues/AGENT-MEMORY-SERVICE.md) | feature | A memory service for agents, built on the liquers stack | draft |  | P2 | XL | axum;lib/commands;docs | [phase1](specs/design/agent-memory-mvp/phase1-high-level-design.md)  [phase2](specs/design/agent-memory-mvp/phase2-architecture.md)  [phase3](specs/design/agent-memory-mvp/phase3-examples.md)  [phase4](specs/design/agent-memory-mvp/phase4-implementation.md)  [phase5](specs/design/agent-memory-mvp/phase5-documentation.md)  | 2026-09-15 |
 | [`NO-RECORD-STREAM-ABSTRACTION`](issues/NO-RECORD-STREAM-ABSTRACTION.md) | feature | No record stream abstraction | draft |  | P2 | XL | core/value;core/commands;lib/value;web | [chunking](specs/design/record-streams/chunking-and-resumability.md)  [engine](specs/design/record-streams/engine-survey.md)  [manifest](specs/design/record-streams/manifest-format.md)  [phase1](specs/design/record-streams/phase1-high-level-design.md)  [phase2](specs/design/record-streams/phase2-architecture.md)  [phase3](specs/design/record-streams/phase3-examples.md)  [phase3](specs/design/record-streams/phase3-tests.md)  [phase4](specs/design/record-streams/phase4-implementation.md)  [phase5](specs/design/record-streams/phase5-documentation.md)  [record](specs/design/record-streams/record-model.md)  | 2026-09-19 |

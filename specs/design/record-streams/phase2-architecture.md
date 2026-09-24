@@ -42,6 +42,7 @@ for the trait revision.
 |---|---|---|---|---|---|---|---|
 | `NO-RECORD-STREAM-ABSTRACTION` | draft | P2 | This design *is* its resolution | n/a | no | Close in Phase 5 | keep P2 |
 | `CORE-VALUE-ENUM-OVERSIZED` | draft | P2 | `Value` is 704 bytes. Drove fields to `FieldValue` and the new variant behind `Arc` | no | no | Honoured throughout | keep P2 |
+| `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE` | draft | P2 | Filed 2026-09-24 from this design's HTTP section. `liquers-axum` cannot name `ExtValue`, so streaming a source over HTTP needs a core-level asynchronous serialization hook rather than an axum branch | no | **yes, for HTTP streaming only** | Design separately; until it lands a source is served as its manifest, or as data only when bounded | keep P2 |
 | `VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER` | draft | P2 | A multi-gigabyte record stream cannot be serialized through a `Vec<u8>`-returning writer. **The clearest motivating case yet filed for it**, now with a concrete consumer in `liquers-axum` | no | no | **Ad-hoc streaming in `liquers-axum` for this design**; issue updated with the HTTP motivation and the push-vs-pull finding | consider P1 when a second value type needs it |
 | `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` | draft | P2 | Front-matter fields have nowhere to live, so `attr.`-qualified columns have no source | no | no | Field qualification is designed to accept it as a pure upgrade | keep P2 |
 | `COMMAND-CONTEXT-PARAM-ORDER` | accepted | P2 | `context` must be last in record-producing commands | no | no | Honoured | keep P2 |
@@ -1675,7 +1676,7 @@ with `records` off is byte-for-byte the build that exists today.
 | `liquers-lib` | `Cargo.toml` | the `records` feature, its optional `bytemuck` dependency, and `serde/rc` |
 | `liquers-web` | `src/records.rs` (new) | The `RecordBatch` handle, per-column descriptors, `columnCopy`; the JS companion that revalidates typed-array views |
 | `liquers-web` | `Cargo.toml` | add `"records"` to the `liquers-lib` feature list |
-| `liquers-axum` | `src/axum_integration.rs` | A streaming branch for `RecordSource` + `csv`/`ndjson`: `Body::from_stream`, an `EnvResolver`, eager first batch, uniform-schema check. No new dependency — axum 0.8.9 and `futures` are already there |
+| `liquers-axum` | `src/axum_integration.rs`, `src/query/handlers.rs` | Streaming for `RecordSource` + `csv`/`ndjson`: `Body::from_stream`, eager first batch, uniform-schema check. **Not as a record-specific branch** — `liquers-axum` cannot name `ExtValue` — but through the core-level hook of `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`, which this design then depends on for HTTP streaming |
 | `liquers-py` | later milestone | Arrow C Data Interface export — the only place `unsafe` FFI belongs |
 | `specs` | `command_registry.yaml` | Regenerated |
 
@@ -1748,6 +1749,14 @@ libraries live anyway, and if a `liquers-records` crate is ever wanted, the modu
 self-contained enough to lift out.
 
 ## Streaming a record source over HTTP (`liquers-axum`)
+
+> **Superseded as a mechanism by `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE` (2026-09-24).**
+> `liquers-axum` depends on `liquers-core` and `liquers-store` only, and its handlers are generic over
+> `E: Environment`, so it cannot name `ExtValue::RecordSource` and the branch below cannot live in
+> `axum_integration.rs` as written. The behaviour specified here — eager first batch, the uniformity
+> check before a CSV header, NDJSON's in-band error, backpressure — stands; it is delivered by a
+> core-level asynchronous serialization hook that a record source implements, with nothing
+> record-specific in `liquers-axum`. That issue inventories the handlers the pattern changes.
 
 Serializing a record source to CSV or NDJSON over HTTP must not build the
 whole document in memory — which is the entire point of the chunked design, and would otherwise be
@@ -2212,6 +2221,7 @@ information — each is a position that was argued for and then abandoned on evi
 | 2026-09-24 | **Scalar reading**: a one-row, one-payload-column view reads as its cell would as a base `Value`. `select_columns` keeps key columns. Commands bounded by a caller's count materialize | The user's requirement that pointing at a cell yield a value; a tiny view must not pin a large base |
 | 2026-09-24 | **Asynchronous work is a source.** Views stay synchronous; source → view is an explicit await | Scalar reading and argument binding are synchronous |
 | 2026-09-24 | `liquers-core` **untouched** — the `BoxStream` alias removed | `MaybeSend` as a supertrait gives the trait object the right `Send`-ness on each target |
+| 2026-09-24 | HTTP streaming of a source moved from an axum branch to `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE` | `liquers-axum` does not depend on `liquers-lib` and is generic over `E: Environment`, so it cannot name `ExtValue::RecordSource` |
 | 2026-09-24 | `records` enables `serde/rc`; `ManifestSource` serializes through `ManifestSpec`; closure-holding views are generic with a hand-written `Debug` | A Rust review of the trait form: `Arc` fields fail to derive `Serialize` in a minimal build; `chunks()` could not borrow ids from a `Vec<Query>`; `dyn Fn + MaybeSend` is E0225 |
 
 **Corrections worth keeping visible**, because each was stated wrongly first:
