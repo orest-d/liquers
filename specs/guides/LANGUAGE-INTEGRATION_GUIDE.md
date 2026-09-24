@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets]
-reviewed: 2026-09-20
+reviewed: 2026-09-24
 ---
 # Liquers Language Integration Guide
 
@@ -394,7 +394,7 @@ feature. An integration that exposes it must answer one question before any othe
 
 | | Arrow hand-off | Wrappers |
 |---|---|---|
-| What the user gets | *their* ecosystem's object — a `pyarrow.Table`, a `pandas.DataFrame` | a Liquers `RecordChunk` with Liquers methods |
+| What the user gets | *their* ecosystem's object — a `pyarrow.Table`, a `pandas.DataFrame` | a Liquers `RecordView` with Liquers methods |
 | Data movement | zero-copy through the C Data Interface | zero-copy to read; a conversion to leave |
 | What is preserved | columns and logical types | columns, **field roles, chunk origin, provenance, the manifest** |
 | Cost | an FFI implementation with `unsafe`; the binding's Arrow package becomes a dependency | ordinary wrapper code |
@@ -418,23 +418,46 @@ Two things worth knowing before choosing:
 data; Arrow export where a mature binding exists, as a documented exit. Python is the clear case for
 both — pyarrow is ubiquitous, and the C Data Interface is what it is designed to consume.
 
+**The record design draws the same line in its own types.** A table is a `RecordView` trait object;
+the one implementation that *holds* Arrow buffers is `RecordBatch`. So the two answers attach to two
+kinds of object:
+
+| Crossing | Route | Cost |
+|---|---|---|
+| a `RecordBatch` | Arrow hand-off, or lent buffers | zero-copy |
+| any other view — a projection, a filter, a derived or generated table | a wrapper over the trait: `len`, `schema`, `column`, `value`, the view constructors | nothing until read; each read produces a column |
+| any view, when Arrow is wanted | `materialize()` first, then as a batch | free for a batch; a copy of the selected rows or a computation otherwise |
+
+A single-cell view reads as a scalar (`record-streams` Phase 2, "A view as a value"), so a wrapper
+should expose that as the *language*'s own scalar rather than as a one-by-one table.
+
+**A *language* may also implement the traits.** With `RecordView` and `RecordSource` as interfaces, a
+language-defined table — a Python object, a JavaScript generator — can be a Liquers value, not just a
+consumer of one. The rule that decides which: **a `RecordView` is synchronous**, because scalar
+reading and argument binding are. A *language* callback answering `column_range` must therefore
+return without awaiting; asynchronous *language* code implements a `RecordSource` instead, whose
+stream may await. A language-defined implementation also carries `ForeignValue`'s concerns — the
+thread bounds on native, and the handle's lifetime.
+
 **The type inventory an integration maps.** Everything the record design defines, so a binding can be
 checked for completeness rather than assembled by inspection:
 
 | Kind | Types |
 |---|---|
-| **Values** (cross a query boundary) | `ExtValue::RecordChunk`, `ExtValue::RecordSource` |
-| **Structs — data** | `RecordBatch`, `RecordSchema`, `FieldSchema`, `FieldRole`, `RecordSource`, `RecordBatchBuilder` |
-| **Structs — identity and provenance** | `ChunkOrigin`, `LocatorRule`, `ChunkDescriptor`, `ChunkCache` |
+| **Values** (cross a query boundary) | `ExtValue::RecordView` holding `Arc<dyn RecordView>`, `ExtValue::RecordSource` holding `Arc<dyn RecordSource>` |
+| **Traits** | `RecordView` (sync, random access), `RecordSource` (async, re-openable), `RecordStream` (one traversal), `ChunkResolver` (how a source evaluates) |
+| **Structs — data** | `RecordBatch` (the materialized view), `RecordSchema`, `FieldSchema`, `FieldRole`, `RecordBatchBuilder`, `ColumnBuilder` |
+| **Structs — reference implementations** | `ManifestSource`, `InMemorySource`; the views `ColumnsView`, `RowRangeView`, `RowIndexView`, `DerivedColumnView`, `AppendedColumnsView`, `RowFnView`; `ContextResolver`, `EnvResolver` |
+| **Structs — identity and provenance** | `ChunkOrigin`, `LocatorRule`, `ChunkDescriptor`, `ChunkKeys` |
 | **Enums — identity** | `ChunkId` — `Query(..)` for an unkeyed stream, `Key(..)` for a keyed one |
 | **Structs — memory** | `Bitmap`, `AlignedBuffer`, `Buffer<T>` |
-| **Enums** | `Column`, `FieldValue`, `FieldType`, `KeyRole`, `IndexKind`, `Analyzer`, `VectorMetric`, `ChunkList<'a>` |
-| **Traits** | `IntoRecordStream`; `MaybeBoxedStream<'a>` (in `liquers-core`) |
-| **Type aliases** | `RecordBatchStream<'a>`, `BoxStream<'a, T>` |
-| **Private, not bridged** | `SourceBacking` — reached only through `RecordSource`'s methods |
+| **Enums** | `Column`, `FieldValue`, `FieldType`, `KeyRole`, `IndexKind`, `Analyzer`, `VectorMetric`, `CompareOp`, `ChunkList<'a>` |
+| **Type alias and functions** | `BoxRecordStream`; `record_stream`, `collect_view` |
 
-A minimal binding maps the two values, `RecordBatch`, `RecordSchema`/`FieldSchema`/`FieldType`,
-`FieldValue` and `ChunkOrigin`. `Bitmap`, `AlignedBuffer` and `Buffer<T>` are implementation detail
+A minimal binding maps the two values as wrappers over their traits, `RecordBatch` for Arrow,
+`RecordSchema`/`FieldSchema`/`FieldType`, `FieldValue` and `ChunkOrigin`. The individual view
+structs need not be bridged: a *language* reaches them through the constructors on the view wrapper
+(`select_columns`, `filter`, `slice`, `row`, `cell`), and sees only `RecordView`. `Bitmap`, `AlignedBuffer` and `Buffer<T>` are implementation detail
 and should **not** be exposed: a language sees columns, not buffers, except through the lent-buffer
 mechanism below.
 
@@ -445,14 +468,16 @@ mechanism below.
 2. Do field roles and chunk origin survive an Arrow export, through schema metadata or not at all?
 3. Which of the inventory above is exposed, and which is deliberately hidden?
 4. How does a *language* without an async model traverse a stream — see below.
+5. May the *language* implement `RecordView` or `RecordSource` itself — and if so, how does a
+   `RecordView` callback stay synchronous?
 
 #### Traversing a record stream from a language with no async model
 
 `RecordSource::stream()` is async, and `STORE`/`ASYNCQ` already establish that a *language* without
 an async model cannot await. Three routes, in the order an integration should prefer them:
 
-1. **Iterate the chunk list, not the stream.** `RecordSource::chunks()` returns queries, which is
-   plain data. A sync *language* iterates those and evaluates one at a time through whatever
+1. **Iterate the chunk list, not the stream.** `RecordSource::chunks()` returns chunk ids — queries,
+   or keys for a keyed stream — which are plain data. A sync *language* iterates those and evaluates one at a time through whatever
    synchronous evaluation `EVAL` already provides. **This is the preferred route**: it needs no new
    mechanism, it keeps one chunk resident, and it maps naturally onto the *language*'s own iterator
    protocol — Python's `__iter__`/`__next__`, a Starlark iterable. Available whenever the source is
@@ -460,9 +485,9 @@ an async model cannot await. Three routes, in the order an integration should pr
 2. **Block on the stream.** Drive the future to completion on the host runtime and expose
    `next_batch()`. Correct natively; **impossible in Wasm**, where blocking is not available — so an
    integration offering it must say where it does not work, and `RUNTIME`'s portability rules apply.
-3. **Materialize, then iterate.** Collect the whole stream and hand back chunks. Simple, and it
-   **defeats the purpose of the design** for anything large. Acceptable only with a documented size
-   bound.
+3. **Materialize, then iterate.** Collect the whole stream (`collect_view`, which takes a
+   `max_rows` limit) and hand back one view. Simple, and it **defeats the purpose of the design** for
+   anything large. Acceptable only with a documented size bound — which `max_rows` enforces.
 
 Route 1 works for a `ChunkList::Known`. For `ChunkList::Unbounded` the chunk list is not enumerable
 in advance, so a sync *language* must either use route 2 or walk the template's chunks until one
@@ -472,17 +497,21 @@ An async *language* exposes the stream directly (`__aiter__`/`__anext__` or the 
 should do so **in addition to** route 1, not instead of it: iterating chunks by key is what lets a
 caller resume, parallelize, or fetch one chunk out of order.
 
-**Meaningful tests:** `RECORDS01` a chunk round-trips through the *language* with schema, field roles
+**Meaningful tests:** `RECORDS01` a view round-trips through the *language* with schema, field roles
 and chunk origin intact; `RECORDS02` a column reads the same values through the wrapper as through a
 copy; `RECORDS03` where an Arrow export exists, the exported table equals the wrapper's data, and the
 documented metadata survives or its loss is asserted; `RECORDS04` a lent buffer is read-only, or
 writing through it is rejected; `RECORDS05` a borrowed view survives an operation that grows the host
-heap, or fails with a clear error rather than reading the wrong memory; `RECORDS06` releasing a chunk
+heap, or fails with a clear error rather than reading the wrong memory; `RECORDS06` releasing a batch
 handle releases the underlying value, observed through a live handle count; `RECORDS07` a sync
 *language* traverses a manifest-backed source one chunk at a time without materializing the whole
 stream; `RECORDS08` an async *language* traverses the same source through its async iterator and
 yields identical rows; `RECORDS09` `NA` unless the *language* has no async model — the documented
-sync route is present and its limitation (route 2 in Wasm) is stated.
+sync route is present and its limitation (route 2 in Wasm) is stated; `RECORDS10` a single-cell view
+reaches the *language* as its own scalar, and a larger view refuses that conversion with an error
+naming its shape; `RECORDS11` `NA` unless the *language* may implement the traits — a
+language-defined view gives the same rows through `column`, `value` and `materialize`, and a
+`column_range` callback that tries to await is rejected rather than blocking.
 
 #### Prefer a native variant; retain a foreign value only when you must
 
@@ -2743,6 +2772,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-24 | RECORDS revised for the trait form of `design/record-streams/`: values hold `RecordView` and `RecordSource` trait objects; a `RecordBatch` crosses as Arrow and any other view as a wrapper or materialized; a *language* may implement the traits, with a `RecordView` kept synchronous; type inventory rewritten; design question 5 and tests `RECORDS10`–`RECORDS11` added. | `design/record-streams/` |
 | 2026-09-20 | VALUE gains a RECORDS subsection: the Arrow-hand-off versus wrappers decision with a recommended default, the full type inventory of `design/record-streams/`, the routes for traversing a stream from a *language* with no async model, and tests `RECORDS01`–`RECORDS09`. | `design/record-streams/` |
 | 2026-09-20 | VALUE gains a third bridging category for values whose *buffers* are lent to the language in place, with its four obligations — reads only, views invalidated by host-heap growth, handle-owned lifetime, and a copy that is always available. RECIPE's “keep `contains`, `recipe`, and listing mutually consistent” is corrected: a generative provider legitimately has addressable ⊋ listed, and must override `contains` rather than inherit a default that enumerates. `RECIPE02` restated accordingly. | `design/record-streams/` |
 | 2026-09-05 | ENVIRON now requires language-visible builder validation reports before environment publication, including severity, message, command identity, and a preflight test. | `design/variadic-metadata-tail-check` |

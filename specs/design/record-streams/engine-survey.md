@@ -162,6 +162,10 @@ boundaries are not known in advance. This is exactly the "partition discoverable
 case that Phase 2 says would justify reviving a source trait — **the relational direction brings it
 back.** Either a third backing or the trait is required; it cannot be dodged.
 
+> **Resolved 2026-09-24.** Phase 2 made `RecordSource` a trait, for views and filters rather than for
+> this case — but it settles this case too: a SQL source is its own `RecordSource` implementation,
+> which is also where pushdown into `WHERE` would live if it is ever wanted. Gaps 2–4 stand.
+
 **2. `Decimal` stops being deferrable.** `NUMERIC`/`DECIMAL` is the correct type for money, and
 reading a Postgres or MySQL table as `Float` is a data-corruption bug, not an approximation. The
 deferral is defensible for the view direction and **is not** for the access-layer direction.

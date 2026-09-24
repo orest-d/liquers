@@ -15,6 +15,11 @@ written to compile once Phase 4 implements the types. Phase 4's job is to make i
 See [`phase3-examples.md`](./phase3-examples.md) for the narrative, the overview table and the
 corner cases. This file is the code, organized by the file each test lands in.
 
+> **Predates the trait form of Phase 2 (2026-09-24).** 40 functions below use the earlier data-structure
+> API — `ExtValue::RecordChunk`, `RecordSource { backing: SourceBacking::… }`, `RecordBatch::select`,
+> `stream(&context)`. The changes are mechanical and listed, with the new tests the revision
+> requires, in `phase3-examples.md` §"Reworked by the Phase 2 trait revision". Rework before approval.
+
 > **One caveat before extraction.** Some code below uses API that Phase 2 declares only as an
 > ellipsis — `RecordBatchBuilder`'s append methods, `Column::gather`, `FieldRole::and_stored()`.
 > Those are listed in `phase3-examples.md` §"What Phase 3 found that Phase 2 must absorb" and need a

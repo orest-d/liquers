@@ -11,11 +11,13 @@ what Phase 3 discovered that Phase 2 must absorb.
 ## High-Level Introduction
 
 Three abstractions carry the design — a **source** that can be asked repeatedly for a stream, a
-**stream** that is one traversal, and a **chunk** that is a materialized table. The examples walk
+**stream** that is one traversal, and a **view** that is a finite table, of which a `RecordBatch` is
+the materialized kind. **This narrative predates the trait form of Phase 2** — see §"Reworked by the
+Phase 2 trait revision". The examples walk
 that spine in order: a single chunk built and filtered in memory, then a multi-chunk stream driven
 by a manifest, then the places where each goes wrong.
 
-Everything is `liquers-lib` behind the `records` feature; the values are `ExtValue::RecordChunk` and
+Everything is `liquers-lib` behind the `records` feature; the values are `ExtValue::RecordView` and
 `ExtValue::RecordSource`.
 
 ## Overview Table
@@ -52,7 +54,7 @@ A caller wants the files under `data/reports/` as a table, keeping only those ov
 1. Build a `RecordSchema`: `key.name` as the `Id` (Exact-indexed, stored), `meta.file_size` as
    `Numeric`, `meta.updated` as a `Timestamp`.
 2. List the directory and append a row per entry through `RecordBatchBuilder`.
-3. Wrap the batch as `ExtValue::RecordChunk`.
+3. Wrap the batch as `ExtValue::RecordView`.
 4. Evaluate a predicate over the size column into a `Bitmap`, and `RecordBatch::filter` by it.
 5. `as_bytes("csv")`.
 
@@ -138,7 +140,7 @@ constructors throughout; `Error::new` appears nowhere.
 
 ### 4. Serialization
 
-`RecordChunk` writes json / ndjson / csv; `RecordSource` writes its manifest. A non-uniform stream
+`RecordView` writes json / ndjson / csv; a `ManifestSource` writes its manifest. A non-uniform stream
 serializes as NDJSON and **fails** as a single CSV, naming the reason — there is no single header.
 
 ### 5. Feature gating
@@ -159,6 +161,51 @@ the matrix rows exist.
 `RECORDS05` (a view surviving host-heap growth) and `RECORDS06` (handle release via
 `debug-handles`, as `RUNTIME05` already does) are `liquers-web` tests and run in the browser loop,
 not the native one.
+
+## Reworked by the Phase 2 trait revision (2026-09-24)
+
+**Phase 3 needs rework before it is approved.** Phase 2 changed from data structures to interfaces:
+`RecordSource`, `RecordStream` and a new `RecordView` are traits; `RecordBatch` is the materialized
+view; the value variants are `ExtValue::RecordView` and `ExtValue::RecordSource`, holding trait
+objects. The narrative above and the code in `phase3-tests.md` were written against the earlier
+form, and **40 functions** there touch something that changed. None of the changes alters what a
+test *asserts*; each alters how it gets its value.
+
+| Group | Change | Tests |
+|---|---|---|
+| **Renames** | `RecordChunk` → `RecordView` (variant, identifier, `TypeInfo`); the JS handle class `RecordChunk` → `RecordBatch` | `test_end_to_end_record_chunk_serialization`, `test_record_chunk_type_info_registered`, `test_type_descriptions_match_identifiers`, `test_record_chunk_{csv,json,ndjson}_serialization`, `test_records_feature_gated`, `test_per_chunk_arguments_without_cache_rejected`, `records04`, `records05`, `records06`, and scenario 1's helpers |
+| **Batch operations become view constructors** | `RecordBatch::{select, filter, slice, value, with_columns}` → `select_columns`, `filter`, `slice`, `value`, `with_column`/`with_columns` on `Arc<dyn RecordView>`. Results are views, compared through `materialize()`. `select` by index becomes `select_columns` by name, **and must now assert that the `Id` column is kept** | `batch_select_zero_copy_projection`, `batch_filter_by_mask`, `batch_filter_length_mismatch_errors`, `batch_slice_preserves_arc_sharing`, `batch_value_reads_single_cell`, `column_null_distinct_from_empty_string`, `batch_with_columns_appends_derived_fields`, scenario 1's filtering and `records_to_csv` |
+| **Source construction** | `RecordSource { backing: SourceBacking::… }` → `ManifestSource::new` / `InMemorySource::new`; the `uniform_schema` field → the `schema()` method | `test_record_source_reopenable`, `test_record_source_manifest_round_trip`, `test_non_uniform_chunks_ndjson_succeeds`, `test_non_uniform_chunks_single_csv_fails`, `test_manifest_template_unbounded`, `test_manifest_yaml_deserialization`, `test_chunk_descriptor_serialization`, `records07` |
+| **Opening a stream** | `source.stream(&context)` → `Arc::clone(&source).stream(resolver)`, with a `ContextResolver` inside a command and an `EnvResolver` outside one. Items are `Arc<dyn RecordView>`, so a test comparing rows materializes them | `test_record_source_reopenable`, `test_streaming_bounded_memory`, `records08`, scenario 2's consumption code |
+
+Tests comparing two `RecordBatch`es directly — `batch_concat_same_schema`, `test_record_batch_builder`,
+`test_empty_record_batch`, `records01` — are unaffected: `RecordBatch` keeps `PartialEq`.
+
+**New tests the revision requires**, none of which the earlier form could have expressed:
+
+| Test | Asserts |
+|---|---|
+| `view_reads_agree_with_column_range` | For every built-in view, `column`, `value` and `materialize` equal what `column_range` gives — the property test of Phase 2 open question 12 |
+| `batch_materialize_is_shallow` | `materialize()` on a batch shares every buffer (`Arc::ptr_eq`) |
+| `select_columns_keeps_key_columns` | `Id` and `Source` survive a projection that does not name them |
+| `filter_over_filter_stacks` | Two filters compose to the intersection, with indices mapped through both layers |
+| `row_fn_view_computes_only_the_range` | A `RowFnView`'s closure is called exactly for the requested column and rows |
+| `single_cell_view_reads_as_scalar` | One row, one payload column: `try_into_i64`, `try_into_f64`, `try_into_string` agree with the equivalent base `Value`; `Null` gives `None` through the `_option` forms; a `select_columns-id` view reads as the id |
+| `larger_view_refuses_scalar` | Two rows, or two payload columns, refuse with an error naming the shape |
+| `single_cell_view_binds_to_linked_argument` | Through a recipe `links:` entry, into an `f64` argument. **Needs `EXTENDED-VALUES-CANNOT-BIND-TO-SCALAR-ARGUMENTS` fixed** |
+| `tiny_results_release_their_base` | `rec_id`, `row` and `head` return a batch (`as_batch().is_some()`), and dropping the base frees it |
+| `collect_view_refuses_past_max_rows` | The limit is an error, not a silent truncation |
+| `context_resolver_records_dependencies` | Chunks read through a `ContextResolver` become dependencies of the asset; through an `EnvResolver` they do not |
+| `stream_outlives_its_source_handle` | A stream stays valid after the caller's `Arc` of the source is dropped — the `'static` property axum needs |
+| `wrapping_source_is_stored_as_metadata_only` | A filtering source refuses `serialize`, and the asset write path stores metadata without failing |
+| `view_command_refuses_a_source` | `select_columns` given a source fails with a conversion error rather than collecting |
+| `stored_view_reads_back_as_batch` | A view written as CSV reads back as a `RecordBatch` under the same `RecordView` identifier |
+
+**Items of the list below that the revision settles:** `Column::gather` is declared, as
+`Column::take` and `Column::filter`; `Bitmap` gains `iter_ones`; and `column(i)` — now a `RecordView`
+method — is the idiomatic read, with `RecordBatch::columns` staying a public field for code that holds
+a batch. **Still open:** the `RecordBatchBuilder` append surface (Phase 2 open question 10) and
+declaring `FieldRole::and_stored()` / `.and_fast()`.
 
 ## What Phase 3 found that Phase 2 must absorb
 

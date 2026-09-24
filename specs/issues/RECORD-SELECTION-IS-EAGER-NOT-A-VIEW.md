@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: L
 area: [lib/value, lib/commands]
-design:
+design: record-streams
 created: 2026-09-21
 github:
 ---
@@ -60,6 +60,27 @@ The pieces are designed; what is missing is their composition at the record laye
 3. **What does a view cost when nothing can be pushed down?** It must degrade to exactly the eager
    behaviour plus one indirection, or it is not worth having.
 4. **Does a view compose?** Two selections over one source should narrow once, not twice.
+
+## Where the design stands (2026-09-24)
+
+`record-streams` Phase 2 now answers most of this, in its §"Views":
+
+1. **A view is not a distinct value form, and not a source carrying a predicate.** It is an
+   implementation of the `RecordView` trait, held in the one `ExtValue::RecordView` variant alongside
+   materialized batches. `select_columns`, `filter`, `slice`, `row` and `cell` build views.
+2. **Pushdown is out of scope for the generic mechanism**, which is meant to stay light rather than
+   become a query engine. A specialized source — a SQL record source, `NO-RELATIONAL-DATABASE-ACCESS-LAYER`
+   — may push a selection into its engine as part of its own `RecordSource` implementation. The
+   three-state report and `SearchPredicate` remain the right shape for that when it is designed.
+3. **Without pushdown a view costs one indirection per layer**, and a filter gathers only the rows and
+   columns actually read — so the eager cost is paid once, on read, rather than on construction.
+4. **Views compose by stacking, and are not merged.** Two filters are two `RowIndexView`s — correct,
+   one indirection each. Merging is out of scope.
+
+What is left open is therefore **only the large-source case**: `rec_id` over a billion-row source
+still reads chunks until it finds the row. That is now a property of the source implementation — a
+specialized source can do better — rather than a gap in the record layer. This record should be
+narrowed to that, and lowered to P3, once Phase 2 is approved.
 
 ## Not blocking
 

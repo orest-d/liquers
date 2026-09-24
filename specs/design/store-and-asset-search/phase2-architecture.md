@@ -48,11 +48,11 @@ Everything tabular is that design's. This one **consumes** it and adds nothing t
 | `RecordBatch`, `Column`, `Bitmap` | The predicate evaluates to a `Bitmap` per clause over a `Column`; the batch's `filter` gathers the survivors |
 | `RecordSchema`, `FieldSchema`, `FieldRole` | `bind` resolves a field name to a column index once per batch; a `Text` clause targets **every** `Text`-role column |
 | `FieldValue` | What a `FieldTest` compares against |
-| `RecordSource`, `RecordBatchStream` | A source opens the stream the predicate is applied to, and `RecordSource::chunks()` is the partition an external engine reconciles against. A source is re-openable, so a search can be re-run without re-deriving it |
+| `RecordSource`, `RecordStream` (traits) | A source opens the stream the predicate is applied to, and `RecordSource::chunks()` is the partition an external engine reconciles against. A source is re-openable, so a search can be re-run without re-deriving it |
 | `ChunkOrigin`, `LocatorRule` | How a surviving row is retrieved — the `chunk` query always, the `locator` when the projection offers one |
 | `RecordBatch`, `RecordSource` | The result value. `RecordSet` and `Diagnostics` were **removed** from that design during its Phase 2 review — a result is a batch or a stream, and evaluation facts go to `Metadata`'s log |
 | Field qualification (`meta.`, `attr.`, `key.`) | The names a predicate references |
-| `ExtValue::RecordChunk`, `ExtValue::RecordSource` | The result is an ordinary value, so a search composes with any record consumer. Note these are `ExtValue` in `liquers-lib`, **not** `Value` in core — an opaque stream cannot satisfy `Value`'s `Deserialize` bound |
+| `ExtValue::RecordView`, `ExtValue::RecordSource` | The result is an ordinary value, so a search composes with any record consumer — and a filtered result can be a *view* over its input rather than a copy. Note these are `ExtValue` in `liquers-lib`, **not** `Value` in core — a trait object cannot satisfy `Value`'s `Deserialize` bound |
 
 **If the record design changes, this one follows.** In particular, open questions 5 and 6 there
 (the extension point for derived columns, and where the 64-clause cap is documented) are answered
@@ -273,7 +273,7 @@ without choosing:
 
 | Path | How | When |
 |---|---|---|
-| **(a) Evaluate and filter** | Evaluate the source query, consume its `RecordBatchStream`, apply the predicate batch by batch, retain up to `limit` | The MVP, and the only path for a corpus with no engine |
+| **(a) Evaluate and filter** | Evaluate the source query, consume its `RecordStream`, apply the predicate view by view through the column kernels, retain up to `limit` | The MVP, and the only path for a corpus with no engine |
 | **(b) Push the predicate to an engine** | Hand the source query and the predicate text to an external engine already fed from the same query | [`interoperability-layer.md`](./interoperability-layer.md); what the engine holds and what (a) would compute are the same records, because `partition()` reconciliation keeps them so |
 
 Path (b) needs no new interface here: the engine reads the plan and parses the predicate text with

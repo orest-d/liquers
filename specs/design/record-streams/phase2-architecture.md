@@ -1,22 +1,25 @@
 # Phase 2: Solution & Architecture — Record streams
 
-**Status:** Phase 1 approved 2026-09-20; this document is the proposed architecture, awaiting
-approval. A dated changelog is at the end.
+**Status:** Phase 1 approved 2026-09-20. Phase 2 approved 2026-09-20 and **revised 2026-09-24 to the
+trait form**; the revision awaits re-approval. A dated changelog is at the end.
 
 ## Overview
 
-A record stream is a **lazy sequence of columnar batches**, each laid out as Arrow specifies, each
-carrying a schema that names its fields and declares what an index should do with them, and each
-attributable to a **chunk** that owns its provenance and validity.
+A record stream is a **lazy sequence of tables**, each carrying a schema that names its fields and
+declares what an index should do with them, and each attributable to a **chunk** that owns its
+provenance and validity. Tables at rest are **columnar batches laid out as Arrow specifies**.
 
 The whole feature lives in **`liquers-lib`, behind a `records` feature**: it is a data type, not a
-core capability. `liquers-core` is untouched apart from two generic stream type aliases, and nothing
-is added to `AsyncStore` or `AssetManager`. A build with the feature off is byte-for-byte the build
-that exists today.
+core capability. `liquers-core` is untouched, and nothing is added to `AsyncStore` or `AssetManager`.
+A build with the feature off is byte-for-byte the build that exists today.
 
-Three abstractions carry it — a **source** that can be asked repeatedly for a stream, a **stream**
-that is one traversal, and a **chunk** that is a materialized table. Two of them are values
-(`ExtValue::RecordChunk` and `ExtValue::RecordSource`); the stream deliberately is not.
+Three **traits** carry it — a **`RecordSource`** that can be asked repeatedly for a stream, a
+**`RecordStream`** that is one traversal, and a **`RecordView`**, any finite table with random
+access — plus one struct under them, **`RecordBatch`**, the materialized table. Views make
+projections, filters, a pointer at one cell, derived columns and generated tables cheap to write;
+the batch holds data, exports to Arrow, and is what fast code works against. Two of the traits are
+values (`ExtValue::RecordView` and `ExtValue::RecordSource`, each holding a trait object); the stream
+deliberately is not.
 
 The five requirements of [Phase 1](./phase1-high-level-design.md) map onto the architecture as
 follows:
@@ -24,15 +27,16 @@ follows:
 | Requirement | Mechanism |
 |---|---|
 | Arrow interoperability without a heavy dependency | Buffers in Arrow's layout; export via the C Data Interface, IPC bytes, or typed-array views in the browser — none of it requiring `arrow-rs` |
-| A `Value` variant | `ExtValue::RecordChunk` and `ExtValue::RecordSource`, each with its `TypeInfo`, both feature-gated |
-| A lightweight DataFrame without polars | Columns, masks, `select`/`filter`/`slice`/`concat` — usable from `liquers-web`, which cannot bundle polars |
-| Multi-gigabyte lazy processing | `futures::Stream` of batches; the chunk is the refresh unit, the batch the memory unit, and only one batch is resident |
+| A `Value` variant | `ExtValue::RecordView` and `ExtValue::RecordSource`, trait objects, each with its `TypeInfo`, both feature-gated. A single-cell view reads as a scalar |
+| A lightweight DataFrame without polars | Views over columns, masks and typed kernels — `select_columns`/`filter`/`slice`/`with_column`/`concat` — usable from `liquers-web`, which cannot bundle polars |
+| Multi-gigabyte lazy processing | `RecordStream`, a `futures::Stream` of views; the chunk is the refresh unit, the batch the memory unit, and only one batch is resident |
 | Per-chunk provenance and validity, flyweighted to the record | `ChunkDescriptor` carries a `Metadata`; a record's provenance is its chunk's |
 
 ## Known-Issue Preflight
 
 Searched `specs/index.csv` for non-terminal `issue`/`feature` records whose `area` intersects
-`core/value`, `core/commands`, `core/context`, `core/query`, `lib/value`, `web`.
+`core/value`, `core/commands`, `core/context`, `core/query`, `lib/value`, `web`. Re-run 2026-09-24
+for the trait revision.
 
 | Issue | Status | Pri | Relevance and solution impact | First? | Blocking? | Required action | Priority action |
 |---|---|---|---|---|---|---|---|
@@ -42,31 +46,61 @@ Searched `specs/index.csv` for non-terminal `issue`/`feature` records whose `are
 | `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` | draft | P2 | Front-matter fields have nowhere to live, so `attr.`-qualified columns have no source | no | no | Field qualification is designed to accept it as a pure upgrade | keep P2 |
 | `COMMAND-CONTEXT-PARAM-ORDER` | accepted | P2 | `context` must be last in record-producing commands | no | no | Honoured | keep P2 |
 | `CORE-SYNC-STORE-TRAIT-OBSOLETE` | — | — | Record sources read through `AsyncStore` only | no | no | — | — |
+| `EXTENDED-VALUES-CANNOT-BIND-TO-SCALAR-ARGUMENTS` | draft | P2 | A single-cell view must bind to a scalar argument through a recipe `links:` entry. A resolved link binds through `TryFrom<Value>`, and every scalar `TryFrom` refuses an extended value — `String` included. Found while designing scalar reading | **yes** | only that one use | **Fix as the first Phase 4 step**: `ValueExtension` hooks for every scalar conversion, delegated from both paths | keep P2 |
+| `RECORD-SELECTION-IS-EAGER-NOT-A-VIEW` | draft | P2 | **Largely resolved here.** A view is an implementation of `RecordView`, not a distinct value form. Composition and pushdown are declared out of scope for the generic mechanism | n/a | no | Update the issue: views designed; pushdown left to specialized sources | lower to P3 once this design is approved |
+| `VALUE-CONVERSION-CAPABILITY` | draft | P2 | Scalar reading of a view delegates to the base `Value`, so it inherits that value's lossy `i64 → f64` rather than choosing its own rule | no | no | None here — the question is that issue's | keep P2 |
 | `COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ` | draft | P3 | Stream commands rely on `volatile`, which **is** wired; `cache` is a knob that does nothing. Found while answering Phase 1 | no | no | Monitor — `volatile` covers this design's need | keep P3 |
 
-**No blocker.**
+**No blocker for the design.** `EXTENDED-VALUES-CANNOT-BIND-TO-SCALAR-ARGUMENTS` blocks one use — a
+single-cell view as a linked scalar argument — and is small; it is the first step of Phase 4.
 
-## Three abstractions: source, stream, chunk
+## Three abstractions: source, stream, view
 
-Three things, not two — the distinction is `Iterable` vs `Iterator`, or in Rust `IntoIterator` vs
-`Iterator`:
+Three **interfaces**, each a trait, so that a view, an on-the-fly filter or a generated table is a
+new *implementation* rather than a new data structure. The distinction between them is still
+`Iterable` vs `Iterator` — in Rust, `IntoIterator` vs `Iterator` — plus random access:
 
-| | Role | Shareable | Serializable | Consumed by use |
-|---|---|---|---|---|
-| **`RecordSource`** | can be asked, repeatedly, for a stream of chunks | **yes** | **yes**, as a manifest | no |
-| **`RecordStream`** | one traversal, in flight | **no** — may be partly consumed | not itself; its *data* can be drained to a table | **yes** |
-| **`RecordChunk`** | a materialized table | **yes** | **yes** — csv, parquet, ndjson, json | no |
+| | Role | Shareable | Serializable | Consumed by use | Access |
+|---|---|---|---|---|---|
+| **`RecordSource`** | can be asked, repeatedly, for a stream | **yes** | when its implementation has a byte form — a manifest, or in-memory data | no | **async** |
+| **`RecordStream`** | one traversal, in flight | **no** — may be partly consumed | not itself; its *data* can be drained to a table | **yes** | **async** |
+| **`RecordView`** | a finite table with random access | **yes** | **yes** — materialized on the way out | no | **sync** |
 
-Conversions run cheaply in one direction:
+Under them sits one concrete struct:
 
-```
-RecordSource  --stream()-->  RecordStream  --collect()-->  RecordChunk
-     ^                                                          |
-     +---------------- from_chunk() (in-memory backing) --------+
-```
+**`RecordBatch`** — the **materialized** table, in Arrow's memory layout. It implements
+`RecordView`, it is what most streams yield, and it is the form that exports to Arrow as a whole and
+that high-performance code works against. Views are for flexibility — projections, row selections,
+pointing at a cell, derived columns, generated tables; the batch is for data at rest and for speed.
 
-A chunk becomes a stream with `stream::once`, and a source with an in-memory backing — both cheap,
-as the brief requires. A stream does **not** become a source: the information is gone.
+Conversions, with their costs:
+
+| From → to | How | Cost |
+|---|---|---|
+| `RecordBatch` → `RecordView` | it is one: `Arc<RecordBatch>` coerces to `Arc<dyn RecordView>` | free |
+| `RecordView` → `RecordBatch` | `materialize()` | a shallow clone for a batch; `Arc`s for a projection or row range over a batch; a copy of the selected rows for a filter; computation for a generator — §"Views" |
+| `RecordView` → `RecordSource` | `InMemorySource::new(vec![view])` | free |
+| `RecordSource` → `RecordStream` | `source.stream(resolver).await` | opening the first chunk |
+| `RecordStream` → `RecordView` | `collect_view(stream, max_rows).await` — drain and concatenate | the whole stream in memory; **refused past `max_rows`** |
+
+A stream does **not** become a source: the information is gone.
+
+### Why traits
+
+As data structures — a `RecordSource` struct over a closed backing enum, and `RecordBatch` as the only
+table — a view, a filter applied on the fly, or a table computed by a closure would each be a new
+variant of an enum inside this module, rather than something a command author can write. As traits
+each is one `impl`: this design owns the interfaces and a small set of reference implementations, and
+anyone may add more.
+
+What the data-structure form would offer is kept:
+
+- **The partition as data.** `chunks()` still returns ids, and `ManifestSource` — the implementation
+  a manifest deserializes to — is a plain `serde` struct that can be stored, cached and diffed.
+- **Exhaustive matching.** What would be a closed backing enum is two implementations,
+  `ManifestSource` and `InMemorySource`, and no code matches over implementations — so `CLAUDE.md`'s
+  rule against default match arms has nothing to bite on.
+- **Serialization.** A derive on each concrete type; one trait method at the value boundary.
 
 ### Why there is no `rewind`
 
@@ -74,65 +108,138 @@ The obvious alternative — one stream type with a `rewind()` that works for som
 fallible method whose success depends on how the value happened to be constructed. That is discovered
 at runtime, by a user who did not read the documentation.
 
-With three types there is nothing to rewind. **Hold the source and open another stream; hold only a
-stream and you have one pass.** Phase 1 answer 2 asked for "optionally rewindable, cloneable in some
-cases", and this delivers it as a property of *which type you hold*, checked by the compiler.
+With a source separate from its streams there is nothing to rewind. **Hold the source and open
+another stream; hold only a stream and you have one pass.** Phase 1 answer 2 asked for "optionally
+rewindable, cloneable in some cases", and this delivers it as a property of *which interface you
+hold*, checked by the compiler.
 
 ### Names
 
-`RecordSource`, `RecordStream` and `RecordChunk`. `ChunkOrigin` is the per-chunk record of where its
-rows came from — the asset query, the chunk query, an optional `AssetInfo` and an optional locator.
-`IntoRecordStream` is available as the trait a type implements to be usable as a source.
+| Name | Kind | Why this name |
+|---|---|---|
+| `RecordView` | trait, **and** the value variant and its type identifier | Any finite table. It is the interface every table satisfies, so it names the value regardless of how the rows are held |
+| `RecordBatch` | struct | Arrow's own name for exactly this structure (arrow-rs, pyarrow), so "export a `RecordBatch`" means the same thing on both sides. And *batch* is already this design's word for the unit of memory. **Not `RecordChunk`**: a chunk is the unit of refresh, and one chunk streams as several batches |
+| `RecordSource` | trait, and the second value variant | Unchanged |
+| `RecordStream` | trait | Unchanged; never a value |
+| `ChunkOrigin` | struct | Per-chunk record of where rows came from — the asset query, the chunk query, an optional `AssetInfo` and an optional locator |
 
 ### The types
 
 ```rust
 // liquers-lib/src/records/mod.rs
+use liquers_core::maybe_send::{BoxFuture, MaybeSend, MaybeSync};
 
-/// Something that can be asked, repeatedly, for a stream of chunks.
-/// The `Iterable` of this design: shareable, serializable, never consumed by use.
-#[derive(Debug, Clone)]
-pub struct RecordSource {
-    backing: SourceBacking,
-    /// Declared, not assumed — see §"Schema uniformity is declared".
+/// Something that can be asked, repeatedly, for a stream of views.
+/// The `Iterable` of this design: shareable, never consumed by use.
+pub trait RecordSource: Debug + MaybeSend + MaybeSync + 'static {
+    /// Open a fresh traversal. Callable any number of times — this is what replaces `rewind`.
+    /// `Arc<Self>` and an owned resolver make the stream `'static`, which an HTTP body needs:
+    /// it outlives the handler that opened it (§"Streaming a record source over HTTP").
+    fn stream(self: Arc<Self>, resolver: Arc<dyn ChunkResolver>)
+        -> BoxFuture<'static, Result<BoxRecordStream, Error>>;
+
+    /// Chunks without producing any records — the reconciliation primitive. Sync, no I/O.
+    fn chunks(&self) -> ChunkList<'_>;
+
+    /// Full provenance for one chunk. Reads metadata, so it is async.
+    fn describe_chunk<'a>(&'a self, id: &'a ChunkId, resolver: &'a dyn ChunkResolver)
+        -> BoxFuture<'a, Result<ChunkDescriptor, Error>>;
+
+    /// The schema every view will have, when the producer promises one.
+    /// Declared, not assumed — §"Schema uniformity is declared".
+    fn schema(&self) -> Option<Arc<RecordSchema>> { None }
+
+    /// A producer's report that it stopped early.
+    fn truncated(&self) -> bool { false }
+
+    /// Bytes in `data_format`, when this source has a byte form. The default refuses with
+    /// `ErrorType::SerializationError`; the asset write path then stores metadata only and the
+    /// value is re-derived from its recipe (§"Serialization Strategy").
+    fn serialize(&self, data_format: &str) -> Result<Vec<u8>, Error> { /* refuse */ }
+}
+
+/// One traversal: a `futures::Stream` of views, plus the one thing a consumer needs **before**
+/// the first item — the schema, when promised. A CSV header needs it, and so does the Arrow C
+/// Stream Interface, whose `get_schema` is called before any array is pulled.
+pub trait RecordStream:
+    Stream<Item = Result<Arc<dyn RecordView>, Error>> + MaybeSend + 'static
+{
+    fn schema(&self) -> Option<Arc<RecordSchema>>;
+}
+
+/// No per-target alias is needed: `MaybeSend` is a **supertrait**, so `dyn RecordStream` is
+/// `Send` on native and not on wasm — the same transitivity `ForeignValue` already relies on
+/// (`liquers-lib/src/value/foreign.rs`).
+pub type BoxRecordStream = Pin<Box<dyn RecordStream>>;
+
+/// Gives any stream of views the `RecordStream` interface — how a combinator chain
+/// (`map`, `filter_map`, `then`) becomes a record stream again. `S: Unpin` is met by
+/// `Box::pin(stream)`.
+pub fn record_stream<S>(inner: S, schema: Option<Arc<RecordSchema>>) -> BoxRecordStream
+where
+    S: Stream<Item = Result<Arc<dyn RecordView>, Error>> + Unpin + MaybeSend + 'static;
+
+/// Drain a stream into one batch. `max_rows` is a limit rather than a promise: a source whose
+/// chunk count is unknown cannot say in advance whether it is small.
+pub async fn collect_view(stream: BoxRecordStream, max_rows: usize)
+    -> Result<Arc<RecordBatch>, Error>;
+```
+
+`RecordView` is defined in §"Views" below, with its implementations.
+
+The two reference sources:
+
+```rust
+/// Chunks named by queries — what a manifest deserializes to, and the only source whose byte
+/// form is a manifest. Serialized through `ManifestSpec`, the plain file shape: `try_from`
+/// is where load-time validation runs (the `stored: false, cached: false` rejection), and where
+/// the chunk ids `chunks()` lends out are derived — a `&[ChunkId]` cannot be borrowed from the
+/// `Vec<Query>` the file holds.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(try_from = "ManifestSpec", into = "ManifestSpec")]
+pub struct ManifestSource {
+    spec: ManifestSpec,
+    /// Derived from `spec.chunks` (and `spec.keys`, when keyed) at construction.
+    ids: Vec<ChunkId>,
+}
+
+/// The manifest file. The explicit list and the template **combine**: `chunks` are the
+/// stream's first chunks in order, and `template` produces everything after them, rendered at
+/// the **global** chunk index. Either may be absent. See `manifest-format.md` §4a.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ManifestSpec {
+    /// The explicit prefix. Empty when every chunk is generated.
+    #[serde(with = "query_format_seq")]
+    pub chunks: Vec<Query>,
+    /// The rule for chunks beyond the prefix. `None` — `chunks` is the whole stream, and
+    /// `chunks()` returns `Known`. `Some` — the count is unknown and it returns `Unbounded`.
+    /// **Not constructed in this version**; reserved for a SQL table paginated by offset.
+    pub template: Option<ChunkTemplate>,
+    /// Chunk naming, which is what makes chunks keyed and addressable.
+    /// **Always `None` in this version.**
+    pub keys: Option<ChunkKeys>,
+    /// Whether keyed chunks' bytes are written to the store.
+    pub stored: bool,
+    /// Whether keyed chunks are held by the asset manager for reuse in a session.
+    /// Neither flag set means "not kept, and **not volatile**" — a class Liquers cannot
+    /// express yet, so that combination is rejected at load until
+    /// `ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT` lands. See `manifest-format.md` §4b.
+    pub cached: bool,
     pub uniform_schema: Option<Arc<RecordSchema>>,
 }
 
-/// **Private.** All behaviour goes through `RecordSource`'s methods, so adding a backing later
-/// is a change inside this module rather than a sweep across every match on it — which matters
-/// because `CLAUDE.md` forbids default match arms.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-enum SourceBacking {
-    /// Chunks already in memory. What `RecordChunk::into_source()` produces.
-    Materialized(Vec<Arc<RecordBatch>>),
-    /// Chunks named by queries. The explicit list and the template **combine**: `chunks` are
-    /// the stream's first chunks in order, and `template` produces everything after them,
-    /// rendered at the **global** chunk index. Either may be absent.
-    /// See `manifest-format.md` §4a.
-    Queried {
-        /// The explicit prefix. Empty when every chunk is generated.
-        #[serde(with = "query_format_seq")]
-        chunks: Vec<Query>,
-        /// The rule for chunks beyond the prefix. `None` — `chunks` is the whole stream, and
-        /// `chunks()` returns `Known`. `Some` — the count is unknown and it returns `Unbounded`.
-        /// **Not constructed in this version**; reserved for a SQL table paginated by offset.
-        template: Option<ChunkTemplate>,
-        /// Chunk naming, which is what makes chunks keyed and addressable.
-        /// **Always `None` in this version.**
-        keys: Option<ChunkKeys>,
-        /// Whether keyed chunks' bytes are written to the store.
-        stored: bool,
-        /// Whether keyed chunks are held by the asset manager for reuse in a session.
-        /// Neither flag set means "not kept, and **not volatile**" — a class Liquers cannot
-        /// express yet, so that combination is rejected at load until
-        /// `ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT` lands. See `manifest-format.md` §4b.
-        cached: bool,
-    },
+/// Views already in memory. What a view becomes when a source is wanted, and what a
+/// materialized result is when it spans several batches. Serializes as data.
+#[derive(Debug, Clone)]
+pub struct InMemorySource {
+    views: Vec<Arc<dyn RecordView>>,
+    ids: Vec<ChunkId>,
+    uniform_schema: Option<Arc<RecordSchema>>,
 }
 
 /// How a stream's chunks are **named**, which is what makes them keyed assets in one folder —
 /// the folder holding the manifest, which is also its `cwd`. Naming gives identity and
-/// addressability; whether the bytes are persisted is `store`, a separate axis
+/// addressability; whether the bytes are persisted is `stored`, a separate axis
 /// (`manifest-format.md` §3 and §4b).
 /// The folder is what makes chunks addressable (`-R/data/mystream/data_0042.csv`), makes the
 /// stream listable (`-R-dir/data/mystream`), and makes cleanup possible — a manifest of bare
@@ -155,79 +262,309 @@ pub enum ChunkList<'a> {
     /// append-only, and **deletions cannot be detected** without a full walk.
     Unbounded { computed: &'a [ChunkId] },
 }
-
-impl RecordSource {
-    /// Open a fresh traversal. Callable any number of times — this is what replaces `rewind`.
-    pub async fn stream(&self, context: &Context<impl Environment>)
-        -> Result<RecordBatchStream<'_>, Error>;
-    /// Chunks without producing any records — the reconciliation primitive.
-    pub fn chunks(&self) -> ChunkList<'_>;
-}
-```
-
-`RecordStream` is **not a struct**. It stays the type alias it already was:
-
-```rust
-/// One traversal. Not `Clone`, not `Serialize` — and now it does not need to pretend to be,
-/// because it is no longer a value anybody stores.
-pub type RecordBatchStream<'a> = BoxStream<'a, Result<RecordBatch, Error>>;
 ```
 
 **Its data is still serializable, which is the distinction Phase 1 answer 2 drew.** Draining a stream
 to csv or parquet is a perfectly good operation — it is the *handle* that cannot be stored or shared,
 not the rows. That is what `records_to_csv` does, and why it consumes its input.
 
-### The stream is `futures::Stream`, not a bespoke trait
+### `ChunkResolver` — how a source reaches evaluation
 
-`futures = "0.3.34"` is **already a direct dependency of `liquers-core`** (`Cargo.toml:77`, used in
-`assets.rs`), so the standard trait costs nothing to adopt and a hand-rolled `next_batch` would be a
-worse version of it. The whole combinator vocabulary comes with it: applying a filter is `filter_map`,
-a limit is `take`, and concurrency is later `buffer_unordered` rather than a rewrite.
-
-`liquers-core/src/maybe_send.rs` already solves the wasm half, and its own documentation states the
-trap: a trait-object bound cannot use the `MaybeSend` marker (E0225), so the **whole boxed type is
-aliased per target**, and `FutureExt::boxed()` is "always `Send`-boxed and thus wrong on wasm".
-`StreamExt::boxed()` has the identical defect, so the sibling alias and boxing helper are added
-beside the existing ones:
+A source backed by queries must evaluate them, and the obvious signature —
+`stream(&self, context: &Context<impl Environment>)` — makes the method **generic**, which cannot be
+called through `dyn RecordSource`. The environment therefore reaches a source through a small
+object-safe trait:
 
 ```rust
-// liquers-core/src/maybe_send.rs — mirroring BoxFuture / MaybeBoxed exactly
-#[cfg(not(target_arch = "wasm32"))]
-pub type BoxStream<'a, T> = Pin<Box<dyn Stream<Item = T> + Send + 'a>>;
-#[cfg(target_arch = "wasm32")]
-pub type BoxStream<'a, T> = Pin<Box<dyn Stream<Item = T> + 'a>>;
-
-/// Box a stream with the target-correct Send-ness. Replaces `StreamExt::boxed()`,
-/// which is always `Send`-boxed and therefore wrong on wasm.
-pub trait MaybeBoxedStream<'a>: Stream + Sized + 'a {
-    fn maybe_boxed(self) -> BoxStream<'a, Self::Item>;
+/// What a source needs from the environment. Object-safe, so `dyn RecordSource` can take it.
+/// `liquers-lib`'s `Value` is concrete, so the trait need not be generic.
+pub trait ChunkResolver: MaybeSend + MaybeSync + 'static {
+    /// Evaluate a chunk query and wait for its value.
+    fn evaluate(&self, query: Query) -> BoxFuture<'static, Result<Value, Error>>;
+    /// Read a chunk's metadata without producing its value — the store's metadata for a keyed
+    /// chunk, the asset manager's for an unkeyed one.
+    fn metadata(&self, query: Query) -> BoxFuture<'static, Result<Metadata, Error>>;
 }
 ```
 
-**No new trait is introduced.** A `ChunkedRecordSource` trait with a `partition()` method would be
-redundant against the manifest: `RecordSource::chunks()` is the partition, expressed **as data** —
-which can be stored, cached, diffed and inspected, none of which a trait object can.
+Two implementations, and the difference between them is **dependency recording**:
 
-A source whose partition is **discoverable only incrementally** — a SQL table paginated by offset, a
-remote API revealing the next page token after each page — is served by the reserved `template` field
-rather than by a trait. That is why `chunks()` returns a `ChunkList` distinguishing `Known` from
-`Unbounded` **now**: enumeration is not always possible, and a consumer written against a complete
-`Vec` would have to be revisited. See
+| Implementation | Wraps | Records dependencies | Used by |
+|---|---|---|---|
+| `ContextResolver<E>` | a clone of `Context<E>` — `Context::evaluate` (`context.rs:746`) | **yes** — each chunk becomes a dependency of the asset being computed | a command traversing a source inside its own body |
+| `EnvResolver<E>` | `EnvRef<E>` — `EnvRef::evaluate` (`context.rs:359`), already a `'static` future | no | the `liquers-axum` handler, which serves a value whose asset is already complete; a language binding |
+
+A stream that outlives the command that opened it must not record dependencies into an asset that
+has already finished, so a stream handed across that boundary is opened with an `EnvResolver`.
+
+**The cost, stated:** both are implemented for `E: Environment<Value = liquers_lib::value::Value>`, so
+records work in environments built on `liquers-lib`'s value type — as every other `ExtValue` variant
+already does. An integration crate with its own combined value type would implement `ChunkResolver`
+for itself; the trait is small enough that this is a few lines.
+
+### The stream is `futures::Stream`, extended by one method
+
+`futures = "0.3.34"` is **already a direct dependency of `liquers-core`** (`Cargo.toml:77`, used in
+`assets.rs`), so the standard trait costs nothing to adopt and a hand-rolled `next_batch` would be a
+worse version of it. The whole combinator vocabulary comes with it: applying a filter to each view is
+`map`, a limit is `take`, an asynchronous transformation is `then`, and concurrency is later
+`buffer_unordered` rather than a rewrite. `RecordStream` adds only `schema()`, and `record_stream`
+re-wraps a combinator chain so the schema survives it.
+
+**`liquers-core` is untouched.** A boxed stream would ordinarily need a per-target alias in
+`maybe_send.rs`, because `StreamExt::boxed()` is always `Send`-boxed and the `MaybeSend` marker cannot
+be added as a trait-object bound (E0225). Making `MaybeSend` a **supertrait** of `RecordStream`
+removes the need: `Pin<Box<dyn RecordStream>>` has the right `Send`-ness on each target by
+transitivity, and `Box::pin(s)` coerces to it with no helper. `RecordSource` returns the existing
+`liquers_core::maybe_send::BoxFuture`.
+
+**A source's partition is still data.** A `ChunkedRecordSource` trait with a `partition()` method
+would be redundant against the manifest: `chunks()` is the partition, expressed **as ids** — which
+can be stored, cached, diffed and inspected. A source whose partition is **discoverable only
+incrementally** — a SQL table paginated by offset, a remote API revealing the next page token after
+each page — is served by the reserved `template` field. That is why `chunks()` returns a `ChunkList`
+distinguishing `Known` from `Unbounded` **now**: enumeration is not always possible, and a consumer
+written against a complete `Vec` would have to be revisited. See
 [`chunking-and-resumability.md`](./chunking-and-resumability.md).
 
 ### Three scales, unchanged
 
-| Scale | Unit of | Bounded by |
-|---|---|---|
-| **Record** (row) | retrieval and identity | — |
-| **Batch** | **memory** — what is resident at once | a row count or a byte budget |
-| **Chunk** | **refresh** — what expires and is re-produced together | the source's own partitioning |
+| Scale | Unit of | Bounded by | Represented as |
+|---|---|---|---|
+| **Record** (row) | retrieval and identity | — | one row of a view |
+| **Batch** | **memory** — what is resident at once | a row count or a byte budget | one item of a stream: a `RecordView`, usually a `RecordBatch` |
+| **Chunk** | **refresh** — what expires and is re-produced together | the source's own partitioning | a `ChunkId`; streams as one or more batches |
 
 A multi-gigabyte table is one source, partitioned into chunks; each chunk streams as batches, and
 **one batch at a time is resident**. A chunk is therefore not materialized on traversal, which is the
 point: a single large parquet file is one chunk, and holding it in memory is what this design exists
-to avoid. `RecordChunk` — the *materialized* form — is the deliberate exception, used when a chunk is
-small enough to be a value.
+to avoid. A `RecordView` held as a *value* is the deliberate exception, used when a table is small
+enough to be one.
+
+### Views: `RecordView` and its implementations
+
+```rust
+/// Any finite table with random access: a batch, a projection, a row selection, a derived
+/// column, a generated table. **Synchronous** — anything that must `.await` is a source.
+pub trait RecordView: Debug + MaybeSend + MaybeSync + 'static {
+    fn schema(&self) -> &Arc<RecordSchema>;
+    fn len(&self) -> usize;
+    /// **The one required read**: rows `rows` of column `col`, in Arrow layout with
+    /// `Arc`-shared buffers. Out of range is an error, never a panic.
+    fn column_range(&self, col: usize, rows: Range<usize>) -> Result<Column, Error>;
+
+    // Provided. Each has the right cost without being overridden, because each asks
+    // `column_range` for exactly the rows it needs.
+    fn column(&self, col: usize) -> Result<Column, Error> {
+        self.column_range(col, 0..self.len())
+    }
+    fn value(&self, row: usize, col: usize) -> Result<FieldValue, Error> {
+        self.column_range(col, row..row + 1)?.get(0)
+    }
+    /// A `RecordBatch` with the same rows: `column()` for every field.
+    fn materialize(&self) -> Result<Arc<RecordBatch>, Error> { /* … */ }
+    /// The typed fast path — not an `Any` downcast. `Some` only for a `RecordBatch`.
+    fn as_batch(&self) -> Option<&RecordBatch> { None }
+    /// The chunk these rows came from, when they came from one.
+    fn chunk_id(&self) -> Option<&ChunkId> { None }
+    /// The origin dictionary the `Source`-role column indexes.
+    fn origins(&self) -> &[ChunkOrigin] { &[] }
+}
+```
+
+#### Why the required method is a column *range*
+
+The required read decides what every other access costs. Four candidates were compared:
+
+| Required method | Whole column | One cell | Rows 1000..1050 of a computed view |
+|---|---|---|---|
+| `value(row, col)` | slow — one `FieldValue` per cell | cheap | cheap |
+| `column(col)` | fast | **O(n)** — builds the whole column | **O(n)** — the same |
+| **`column_range(col, rows)`** | **fast** | **cheap** | **cheap** |
+| both `value` and `column` | fast | cheap | cheap — but two methods must agree, and nothing checks it |
+
+A cell-first contract makes columns expensive, which defeats the columnar layout. A column-first
+contract looks right until views stack: a row slice over a *computed* view asks its base for the
+whole column and cuts it, so a UI scrolling a generated million-row table recomputes the column for
+every window. Requiring both doubles every implementor's work, and letting each default to the other
+recurses forever when neither is overridden — Rust cannot require "at least one". **One ranged
+method** gives every access its proportional cost.
+
+#### The implementations
+
+All in `liquers-lib/src/records/views.rs`. Each view holds its base as an `Arc<dyn RecordView>`.
+
+| View | Built by | `column_range(c, r)` | `materialize()` |
+|---|---|---|---|
+| `RecordBatch` | builder, deserialization, `concat` | zero-copy slice | a shallow clone — `Arc`s, no data |
+| `ColumnsView` | `select_columns` | delegates, with `c` mapped | `Arc`s only, over a batch |
+| `RowRangeView` | `slice`, `head`, `row` | delegates, with `r` shifted | zero-copy slices, over a batch |
+| `RowIndexView` | `filter` (mask), `take` (indices) | gathers the selected rows inside `r`, **for column `c` only** | a copy of the selected rows |
+| `DerivedColumnView` | `with_column` | base columns delegate; the derived one is `f` over the source columns' same range | computes the derived column once |
+| `AppendedColumnsView` | `with_columns` | base columns delegate; appended ones slice | `Arc`s only, over a batch |
+| `RowFnView` | `RowFnView::new(schema, len, f)` | calls `f(row, c)` for each row in `r` | computes every cell |
+
+**A mask is turned into indices when the view is built.** A filtered view must map its output row *k*
+to a base row, and a bitmap answers that only by counting set bits from the start. Building the
+index list once — O(n), four bytes per kept row — makes every later range read proportional to the
+range. `Bitmap::iter_ones` is added for it.
+
+**A view produces its columns on request; it does not keep them.** Reading the same column of a
+filtered view twice gathers twice. The consumer's own variable is the cache: a `Column` is an owned,
+cheaply cloned value. A consumer that reads a view repeatedly calls `materialize()` first. There is
+no cache inside a view and no selection-aware kernel — both were considered and rejected as more
+machinery than a light mechanism should carry.
+
+**Views compose by stacking, and nothing merges them.** A filter over a filter is a `RowIndexView`
+over a `RowIndexView`: correct, at one indirection per layer. Merging selections, and pushing a
+selection down into a source (a SQL `WHERE`, skipping the chunk files a manifest lists) are **out of
+scope** — the aim is a light, flexible mechanism rather than a query engine. A specialized source,
+such as a future SQL record source, may offer pushdown as part of its own implementation, outside the
+generic mechanism.
+
+#### Building views
+
+The constructors are **inherent methods on `dyn RecordView`**, not default trait methods:
+
+```rust
+impl dyn RecordView {
+    /// Keeps the `Id` and `Source` fields even when not named — see below.
+    pub fn select_columns(self: &Arc<Self>, names: &[&str]) -> Result<Arc<dyn RecordView>, Error>;
+    pub fn slice(self: &Arc<Self>, offset: usize, len: usize) -> Result<Arc<dyn RecordView>, Error>;
+    pub fn row(self: &Arc<Self>, row: usize) -> Result<Arc<dyn RecordView>, Error>;
+    pub fn cell(self: &Arc<Self>, row: usize, column: &str) -> Result<Arc<dyn RecordView>, Error>;
+    pub fn filter(self: &Arc<Self>, mask: &Bitmap) -> Result<Arc<dyn RecordView>, Error>;
+    pub fn take(self: &Arc<Self>, indices: &[u32]) -> Result<Arc<dyn RecordView>, Error>;
+    /// A derived column: `f` receives the same row range of each source column.
+    pub fn with_column<F>(self: &Arc<Self>, field: FieldSchema, sources: &[usize], f: F)
+        -> Result<Arc<dyn RecordView>, Error>
+    where F: Fn(&[Column]) -> Result<Column, Error> + MaybeSend + MaybeSync + 'static;
+    /// Precomputed columns appended — search evidence, which is not a function of other
+    /// columns. Each must have `len()` rows.
+    pub fn with_columns(self: &Arc<Self>, fields: Vec<FieldSchema>, columns: Vec<Column>)
+        -> Result<Arc<dyn RecordView>, Error>;
+}
+```
+
+A default body could not build these: wrapping `Arc<Self>` into an `Arc<dyn RecordView>` requires
+`Self: Sized`, and a default body is type-checked without it. `ForeignValue`'s documentation records
+the same wall. An inherent block on the trait object has `Self = dyn RecordView`, so the `Arc`
+clones directly — and, not being part of the vtable, its methods may be generic, which `with_column`
+needs.
+
+**Column selection always keeps the key columns.** `select_columns` retains the `Id` and `Source`
+fields whether or not they are named. That keeps the exactly-one-`Id` invariant true of **every**
+view rather than only of batches, and keeps every row identifiable — the "accompanying data" that
+lets a single cell still say which record it belongs to.
+
+**Position is a view concept.** Inside a view a row's position is stable, so `row` and `slice` take
+positions. Across a source it is not — chunk sizes may be unknown — so a row of a source is addressed
+by its id (`rec_id`), never by position.
+
+#### Kernels live on `Column`, so views get the fast path too
+
+```rust
+impl Column {
+    pub fn len(&self) -> usize;
+    pub fn data_type(&self) -> FieldType;
+    pub fn get(&self, i: usize) -> Result<FieldValue, Error>;
+    pub fn slice(&self, offset: usize, len: usize) -> Result<Column, Error>;   // zero-copy
+    pub fn take(&self, indices: &[u32]) -> Result<Column, Error>;              // the gather
+    pub fn filter(&self, mask: &Bitmap) -> Result<Column, Error>;
+    pub fn compare(&self, op: CompareOp, value: &FieldValue) -> Result<Bitmap, Error>;
+    pub fn null_mask(&self) -> Bitmap;
+    pub fn concat(columns: &[Column]) -> Result<Column, Error>;
+}
+```
+
+Every view hands out real Arrow-layout `Column`s, so the typed kernels serve views and batches alike,
+and **one column of any view exports to Arrow**. "High-performance" here means contiguous typed loops
+over `&[T]` that the compiler vectorizes — no SIMD crate, no `unsafe`, no expression optimizer, no
+parallel scheduler. What stays batch-only is **holding** the columns, and exporting a whole table as
+one Arrow struct array, which goes through `materialize()`.
+
+#### Writing a view
+
+The contract is columnar; two helpers keep writing one easy:
+
+```rust
+/// Builds a column from values, one at a time. Type-checked against `data_type`;
+/// `FieldValue::Null` sets the validity bit.
+pub struct ColumnBuilder { /* typed buffer + validity */ }
+impl ColumnBuilder {
+    pub fn new(data_type: FieldType, capacity: usize) -> Self;
+    pub fn push(&mut self, value: &FieldValue) -> Result<(), Error>;
+    pub fn finish(self) -> Column;
+}
+
+/// A table computed cell by cell — how a generator written as a closure meets the columnar
+/// contract. `f(row, col)`, so a range read computes only the requested column.
+pub struct RowFnView<F> { schema: Arc<RecordSchema>, len: usize, f: F }
+impl<F> RowFnView<F>
+where F: Fn(usize, usize) -> Result<FieldValue, Error> + MaybeSend + MaybeSync + 'static
+{
+    pub fn new(schema: Arc<RecordSchema>, len: usize, f: F) -> Result<Self, Error>;
+}
+```
+
+**The cost, stated:** `RowFnView` builds one `FieldValue` per cell. That is right for generated and
+small tables; a large generator should implement `column_range` directly and write its buffer in one
+pass.
+
+#### A view as a value: reading a single cell
+
+A view with **exactly one row and exactly one payload column** reads as a scalar. *Payload* columns
+are those whose `KeyRole` is neither `Id` nor `Source`; when a view has none — `select_columns-id` —
+the `Id` column is the value.
+
+**It reads exactly as its cell would as a base `Value`.** The cell is converted to core's `Value` and
+the conversion is delegated, so a scalar read from a table and a scalar written in a query cannot
+disagree:
+
+| `FieldValue` | as base `Value` |
+|---|---|
+| `Null` | `None` — so the `_option` conversions give `None` |
+| `Bool`, `Int`, `Float`, `Text`, `Bytes` | `Bool`, `I64`, `F64`, `Text`, `Bytes` |
+| `UInt` | `I64` when it fits; a conversion error otherwise |
+| `Date`, `Timestamp` | `Text`, ISO-8601 — core has no temporal variant |
+| `Vector` | `Array` of `F64` |
+
+That inherits the base value's own choices, including its lossy `i64 → f64`; whether automatic
+conversions should refuse lossy edges is `VALUE-CONVERSION-CAPABILITY`'s question, not this design's.
+Any other shape refuses with a conversion error naming the view's row count and payload columns.
+`try_into_json_value` gives the scalar for a single cell and an array of row objects otherwise.
+
+So `-R/data/prices.csv/-/ns-rec/rec_id-42/select_columns-price` is a number wherever a number is
+expected — including a command's `f64` argument, linked through a recipe's `links:`. **That last case
+needs `EXTENDED-VALUES-CANNOT-BIND-TO-SCALAR-ARGUMENTS` fixed first**: a resolved link binds through
+`TryFrom<Value>`, and today every scalar `TryFrom` refuses an extended value. It is a Phase 4
+prerequisite step (§"Known-Issue Preflight").
+
+#### A small view keeps its whole base alive
+
+A one-row view of a 100 MB batch holds 100 MB for as long as the view is cached. The rule: **commands
+whose result is bounded by a count the caller chose materialize** — `rec_id`, `row`, `head` — because
+copying a few rows costs nothing and releases the base. `select_columns`, `slice` and `filter` return
+views. The distinction is in the *commands*; the Rust constructors above are always lazy.
+
+#### Views are synchronous; asynchronous work is a source
+
+`RecordView` guarantees a known `len()` and an immediate `column_range()`, and three consumers depend
+on that and are synchronous: scalar reading, **argument binding** (`TryFrom<Value>`, `commands.rs`),
+and Arrow export and table rendering. A source may have an unknown length and answers only when
+awaited. So:
+
+- **An asynchronous transformation is a source** wrapping a source or a view. Its stream maps each
+  view with `then`, and it is written with `record_stream`. Evaluating a query per row is this case.
+- **View → source is free** (`InMemorySource`). **Source → view needs an await** (`collect_view`),
+  and argument binding is synchronous, so it **cannot happen automatically**. A command that wants a
+  view and receives a source awaits the collection itself. `rec_id` over a source works this way: it
+  walks the source and returns a materialized one-row batch.
+- An asynchronous random-access view — `async fn column_range` — would be a fourth abstraction and
+  would make every view consumer asynchronous, scalar reading and argument binding included. What it
+  would buy is paging a UI through a source by position, and a source position is not stable when
+  chunk counts are unknown. Not designed; a windowed read of a source is a possible later
+  `RecordSource` method.
 
 ### Provenance and validity: the chunk carries a `Metadata`
 
@@ -267,13 +604,12 @@ synchronous: it returns what the source already knows, which is ids. A `ChunkDes
 building one is I/O and cannot happen inside a synchronous enumeration:
 
 ```rust
-impl RecordSource {
-    /// Cheap, synchronous, no I/O. The reconciliation planning primitive.
-    pub fn chunks(&self) -> ChunkList<'_>;
-    /// Full provenance for one chunk. Reads metadata, so it is async.
-    pub async fn describe_chunk(&self, id: &ChunkId, context: &Context<impl Environment>)
-        -> Result<ChunkDescriptor, Error>;
-}
+// on `RecordSource` — §"The types"
+/// Cheap, synchronous, no I/O. The reconciliation planning primitive.
+fn chunks(&self) -> ChunkList<'_>;
+/// Full provenance for one chunk. Reads metadata through the resolver, so it is async.
+fn describe_chunk<'a>(&'a self, id: &'a ChunkId, resolver: &'a dyn ChunkResolver)
+    -> BoxFuture<'a, Result<ChunkDescriptor, Error>>;
 ```
 
 This mirrors `get_asset_info`: listing is cheap, describing costs a read. Reconciliation uses both —
@@ -286,117 +622,127 @@ its chunk's — that is the flyweight, and it costs one `Source`-role column ind
 a `Metadata` per record.
 
 **Reconciliation, not push.** A consumer holding a copy of a chunk compares `(ChunkId, Version)`
-pairs against a fresh `partition()` and re-opens what differs. Correctness comes from the set
+pairs against a fresh `chunks()` and re-opens what differs. Correctness comes from the set
 difference; any notification mechanism is a latency optimization on top, never the thing correctness
 depends on. This is what the search design's
 [`interoperability-layer.md`](../store-and-asset-search/interoperability-layer.md) §3 builds on, and
-why `partition()` must not produce records.
+why `chunks()` must not produce records.
 
 ### Value extension — `ExtValue`, not core's `Value`
 
-Two forms are values: the materialized chunk and the source. **Both live on `ExtValue` in
+Two of the three abstractions are values: the view and the source. **Both live on `ExtValue` in
 `liquers-lib`, and neither could live on `liquers_core::value::Value`.**
 
 `Value` derives `Serialize, Deserialize, Debug, Clone, PartialEq` and is `#[serde(untagged)]`
-(`value.rs:20-21`). Every variant must satisfy all five. A stream handle satisfies none of the hard
-ones:
+(`value.rs:20-21`). Every variant must satisfy all five, and a trait object satisfies none of the
+hard ones:
 
-| Requirement | a stream handle, however wrapped |
+| Requirement | `Arc<dyn RecordView>` or `Arc<dyn RecordSource>` |
 |---|---|
-| `Clone` | `Mutex<T>` is not `Clone` |
-| `PartialEq` | `BoxStream` is not comparable |
-| `Serialize` | no meaningful bytes |
-| **`Deserialize`** | **impossible in principle** — a generator cannot be reconstructed from bytes, at any amount of effort |
+| `Clone` | fine — clones the `Arc` |
+| `PartialEq` | not derivable for a trait object |
+| `Serialize` | not derivable; some implementations have no byte form at all |
+| **`Deserialize`** | **impossible in principle** — bytes cannot say which implementation to rebuild, and a generator cannot be reconstructed from bytes at any amount of effort |
 
-`Arc`-wrapping does not rescue it; the derive demands the bounds transitively. And `untagged` makes a
-half-measure worse, since deserialization tries each variant in turn.
+`untagged` makes a half-measure worse, since deserialization tries each variant in turn.
 
 `ExtValue` is the right home and `CLAUDE.md` already prescribes it for new value types. It derives
-**only `Debug, Clone`** (`mod.rs:23`) and already holds exactly these shapes — `Arc<dyn UIElement>`,
-and `Arc<Mutex<dyn WidgetValue>>` behind the `egui` feature.
+**only `Debug, Clone`** (`mod.rs:23`) and already holds exactly this shape — `Arc<dyn UIElement>`,
+`Arc<dyn ForeignValue>`, and `Arc<Mutex<dyn WidgetValue>>` behind the `egui` feature.
 
 ```rust
 // liquers-lib/src/value/mod.rs
 pub enum ExtValue {
     // … existing …
-    /// A materialized table. Shareable, cacheable, serializable.
+    /// A finite table — a `RecordBatch` or any view. Shareable, cacheable, serializable
+    /// (materialized on the way out).
     #[cfg(feature = "records")]
-    RecordChunk { value: Arc<RecordBatch> },
-    /// Something that can be asked, repeatedly, for a stream. Shareable, serializable
-    /// as a manifest, never consumed by use.
+    RecordView { value: Arc<dyn crate::records::RecordView> },
+    /// Something that can be asked, repeatedly, for a stream. Shareable, never consumed by use;
+    /// serializable when its implementation has a byte form.
     #[cfg(feature = "records")]
-    RecordSource { value: Arc<RecordSource> },
+    RecordSource { value: Arc<dyn crate::records::RecordSource> },
 }
 ```
 
+**One variant for every table, not one per representation.** A batch and a view are both
+`RecordView`: a second variant for the materialized form would put a storage detail into the type
+system — argument types, `type_identifier` in metadata, `TypeInfo` entries and UI widgets would all
+need two names for "a table" — and a stored view would read back as a different type than was
+written. The type-level guarantee a second variant would buy, "this is materialized", is worth nothing
+when `materialize()` is free on a batch. `ExtValue::Image` is the precedent: one variant over
+`DynamicImage`, which has many representations internally.
+
 **Only two variants, and neither is hazardous.** The three-way model keeps the troublesome thing out
 of the value system entirely: a stream is never an `ExtValue`, because a stream is a traversal in
-flight and a value is something you can hold, clone and cache. `Clone` clones the `Arc` regardless of
-contents, `PartialEq` is not required, and serialization stops being a derive.
+flight and a value is something you can hold, clone and cache. `Clone` clones the `Arc`, `PartialEq`
+is not required, and serialization is a method.
 
 **Where the partly-consumed hazard went.** Phase 1 answer 2 warned that a stream "may be already
 partly consumed", that sharing it should be avoided, and that stream commands would therefore be
-`volatile`. With sources as values and streams confined to the inside of a command, **the hazard has
+`volatile`. With sources as values and streams confined to the inside of a call, **the hazard has
 nowhere to appear**: what a command receives and returns is a source, which is re-openable by
 construction, and the stream it opens lives and dies inside that call.
 
 `volatile` is therefore *not* the normal case for a record command. It is needed only when a result
 genuinely should not be reused, which is a separate question from streaming.
 
-**Serialization becomes a fallible method, which is exactly the semantics needed.**
+**Serialization is a fallible, per-format method, which is exactly the semantics needed.**
 `DefaultValueSerializer::as_bytes(&self, data_format: &str) -> Result<Vec<u8>, Error>`
-(`value.rs:919-926`) is per-format and may refuse — and `ExtValue::UIElement` already refuses this
-way with `ErrorType::SerializationError` (`mod.rs:309-316`):
+(`value.rs:919-926`) may refuse, and `ExtValue::UIElement` already refuses this way with
+`ErrorType::SerializationError` (`mod.rs:309-316`). Each arm is a one-line delegation, as the
+`Foreign` arm's is:
 
 | Value | `as_bytes` |
 |---|---|
-| `RecordChunk` | `json`, `ndjson`, `csv`, later `parquet` and `arrow` |
-| `RecordSource` (manifest) | `json` — the query list |
-| `RecordSource` (materialized) | `json`, `ndjson`, `csv` — it holds the chunks, so it can serialize as data |
+| `RecordView` | `json`, `ndjson`, `csv`, later `parquet` and `arrow` — through `materialize()` when the view is not already a batch |
+| `RecordSource` — `ManifestSource` | `yaml`, `json` — the manifest |
+| `RecordSource` — `InMemorySource` | `ndjson`, `csv` — it holds the views, so it serializes as data |
+| `RecordSource` — any other (a filtering or mapping wrapper) | **refused** — `SerializationError` |
 
-Both variants serialize in every case, so **no refusal arm is needed at all** — another thing the
-split removes. Where an error *is* constructed anywhere in this module it uses a **typed
-constructor**, `Error::from_error(ErrorType::SerializationError, …)` as the neighbouring
-`ExtValue::UIElement` arm does, never `Error::new`, which `CLAUDE.md` forbids. Worth stating because
-`value.rs:956` and `:968` reach for `Error::new` for serialization errors today; this module does
-not copy that.
+**A refusal is not a failure.** The asset write path already handles a value with no byte form: it
+stores the metadata only ("Non-serializable data – store metadata only", `assets.rs`, step 8 of the
+produce path), and the value is re-derived from its recipe when next needed. A wrapped source is
+cheap to re-derive — it is its base plus a function — so nothing is lost. Where an error *is*
+constructed it uses a **typed constructor**, `Error::from_error(ErrorType::SerializationError, …)` as
+the neighbouring `UIElement` arm does, never `Error::new`, which `CLAUDE.md` forbids — worth stating
+because `value.rs:956` and `:968` reach for `Error::new` for serialization errors today.
 
-So "a manifest serializes and an opaque stream does not" needs **no new mechanism**; it is one match
-arm in a method that already exists. The arms are enumerated rather than caught by `_ =>`, matching
-the comment already in that match about adding a variant being a compile error.
+**Deserialization rebuilds the reference implementation.** A `RecordView` identifier deserializes to
+a `RecordBatch`; a `RecordSource` identifier to a `ManifestSource` or an `InMemorySource`, told apart
+by format — `yaml` and `json` are the manifest, `ndjson` and `csv` are data. So a stored view reads back materialized, under the same identifier — the one-variant
+decision is what makes that a non-event.
 
-**wasm is unaffected.** `liquers-web` depends on `liquers-lib` with
-`default-features = false, features = ["webui"]` (`liquers-web/Cargo.toml:15`), so `ExtValue` is
-reachable from the browser without polars — which is the requirement that drove the DataFrame role in
-the first place. Neither variant is feature-gated: their only dependency is `bytemuck`, so unlike
-`PolarsDataFrame` they need no `#[cfg]`, and no `match` on `ExtValue` needs a gated arm.
+**The feature gate.** Both variants are `#[cfg(feature = "records")]`, so every exhaustive `match` on
+`ExtValue` gains a gated arm — see §"Feature-gating discipline". `liquers-web` depends on
+`liquers-lib` with `default-features = false, features = ["webui"]` (`liquers-web/Cargo.toml:15`),
+and adds `records` to that list; polars stays out of the browser, which is the requirement that drove
+the DataFrame role in the first place.
 
 **What the prototype adds that this design did not have.** `_store_batches` rewrites its manifest
 after *every* batch, so a run that dies partway leaves its finished chunks usable. A generator cannot
-be checkpointed; a growing `Manifest` can. The equivalent here is a `store_record_stream` command
+be checkpointed; a growing manifest can. The equivalent here is a `store_record_stream` command
 that appends a query to the manifest and rewrites it per chunk — cheap, and the difference between a
 failed six-hour job being worthless and being resumable.
 
 **What it does not carry over.** The prototype's manifest holds store *keys*, so it can `contains`,
 list and clean its own directory before rewriting. Queries are more general — they cover a computed
-chunk, which keys cannot — and the cost is that **cleanup is no longer automatic**. A manifest whose
-queries point at stored chunks knows nothing about removing them. That is accepted, and the
-`store_record_stream` command owns its own directory hygiene instead.
+chunk, which keys cannot — and the cost is that **cleanup is no longer automatic** for an unkeyed
+manifest. `ChunkKeys`, reserved, is where a manifest owns its folder again.
 
 **Registration** is the unchanged four-step procedure: extend `ExtValue`; choose the identifiers
-(`RecordChunk` and `RecordSource`, bare CamelCase — Liquers owns both concepts); implement the
-conversions in `ExtValueInterface` and `DefaultValueSerializer`; and add both `TypeInfo` entries to
-`ExtValue::type_descriptions()` (`mod.rs:148`) — `CLAUDE.md`'s "four steps, not three; a type with no
-`TypeInfo` cannot be stored".
+(`RecordView` and `RecordSource`, bare CamelCase — Liquers owns both concepts); implement the
+conversions in `ExtValueInterface` and `DefaultValueSerializer`, plus the scalar hooks of
+§"A view as a value"; and add both `TypeInfo` entries to `ExtValue::type_descriptions()`
+(`mod.rs:148`) — `CLAUDE.md`'s "four steps, not three; a type with no `TypeInfo` cannot be stored".
 
 **Everything lives in `liquers-lib`, behind the `records` feature** — see §"Integration Points".
-Records are a data type rather than a core capability, so `liquers-core` is untouched apart from two
-generic stream aliases.
+`liquers-core` is untouched.
 
 **Serializing the multi-gigabyte case** still meets `VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER`:
 `as_bytes` returns a `Vec<u8>`, so NDJSON or CSV over a large stream cannot stream through it. A
-`Manifest` sidesteps the problem — the manifest itself is small — which is one more reason to prefer
-that form.
+manifest sidesteps the problem — the manifest itself is small — which is one more reason to prefer
+that form, and `liquers-axum` streams a source directly (§"Streaming a record source over HTTP").
 
 
 ## Data Structures
@@ -411,7 +757,8 @@ the cheap routes to Arrow (the C Data Interface, and typed arrays over wasm memo
 possible if the data is already laid out Arrow's way.
 
 ```rust
-/// A batch of rows in Arrow's memory layout. The unit of memory, a table, and a minimal DataFrame.
+/// A batch of rows in Arrow's memory layout — the **materialized** `RecordView`. The unit of
+/// memory, the form data rests in, and the form that exports to Arrow as a whole.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecordBatch {
     /// Field names, types and roles — once per batch.
@@ -455,6 +802,11 @@ multi-gigabyte case it sets how many rows fit in one resident batch.
 
 **`FieldValue` survives as the scalar type, not as storage** — it is what a filter compares against,
 what a single-cell read returns, and what a builder appends. Storage is columns.
+
+**`RecordBatch` implements `RecordView`** with the fast answers: `column_range` is a zero-copy slice,
+`as_batch` returns `Some(self)`, and `materialize` is a shallow clone — `Arc`s, no data. It keeps
+`PartialEq`, which the trait object cannot have; tests comparing views compare their materialized
+batches.
 
 ### How Arrow compatibility actually works
 
@@ -594,14 +946,16 @@ an inner value, as `LiquersQuery` and `LiquersKey` do):
 
 ```rust
 // liquers-web/src/records.rs
-#[wasm_bindgen(js_name = RecordChunk)]
-pub struct LiquersRecordChunk {
+#[wasm_bindgen(js_name = RecordBatch)]
+pub struct LiquersRecordBatch {
     /// Keeps every buffer alive for the handle's lifetime — the answer to Hazard B.
+    /// A view crossing into JavaScript is materialized first: free for a batch, and the
+    /// only way to give JS stable pointers into a view's computed columns.
     inner: Arc<RecordBatch>,
 }
 
-#[wasm_bindgen(js_class = RecordChunk)]
-impl LiquersRecordChunk {
+#[wasm_bindgen(js_class = RecordBatch)]
+impl LiquersRecordBatch {
     #[wasm_bindgen(getter, js_name = numRows)]    pub fn num_rows(&self) -> usize;
     #[wasm_bindgen(getter, js_name = numColumns)] pub fn num_columns(&self) -> usize;
     #[wasm_bindgen(js_name = schemaJson)]         pub fn schema_json(&self) -> String;
@@ -639,9 +993,9 @@ linear memory.
 1. **The views are read-only.** Writing through them into buffers Rust holds as immutable `Arc<[T]>`
    would violate the aliasing assumptions the rest of the design relies on. Single-threaded JS plus
    wasm means concurrent *reading* is fine; writing is not.
-2. **A view must not outlive the handle.** `free()` drops the `Arc`, and a view held past that point
-   is Hazard B with no detection. The `debug-handles` feature already used for `RUNTIME05` gives the
-   test: assert the live chunk-handle count returns to zero after `free()`.
+2. **A typed-array view must not outlive the handle.** `free()` drops the `Arc`, and a JS view held
+   past that point is Hazard B with no detection. The `debug-handles` feature already used for
+   `RUNTIME05` gives the test: assert the live batch-handle count returns to zero after `free()`.
 
 **Two escape hatches worth recording, neither relied on:**
 
@@ -747,19 +1101,21 @@ fallback (a copy at the export boundary) stays available if the dependency is ev
 ### The minimal DataFrame role
 
 The brief asks the record mechanism to double as a simplistic DataFrame where polars is too expensive
-to bundle — which is the wasm build, where polars is not an option at all. Columns give that almost
-for free:
+to bundle — which is the wasm build, where polars is not an option at all. Views and column kernels
+give that almost for free:
 
 | Operation | Implementation |
 |---|---|
-| select columns | clone `Arc`s into a new batch; no data copied |
-| filter | evaluate a predicate to a boolean mask, then gather |
-| slice | offset + length on each buffer, `Arc`-shared |
-| concat | schema equality check, then buffer append |
+| select columns | `select_columns` — a `ColumnsView`; no data copied |
+| filter | `Column::compare` to a mask, masks combined with `Bitmap::and`/`or`, then `filter` — a `RowIndexView` |
+| slice, head, one row | a `RowRangeView`; zero-copy over a batch |
+| derived column | `with_column` — a `DerivedColumnView` |
+| concat | `RecordBatch::concat`: schema equality check, then `Column::concat` |
 | column stats | a pass per column |
 
 So `liquers-web` gets a usable tabular value with **no new dependency**, and a polars-enabled native
-build converts to a real `DataFrame` over the shared buffers when it wants one.
+build converts a materialized batch to a real `DataFrame` over the shared buffers when it wants one.
+Group-by and join are a query engine, and out of scope.
 
 ### FieldValue — the scalar type
 
@@ -767,13 +1123,18 @@ build converts to a real `DataFrame` over the shared buffers when it wants one.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum FieldValue {
     Null, Bool(bool), Int(i64), UInt(u64), Float(f64),
-    Text(Arc<str>), Bytes(Arc<[u8]>), Timestamp(i64), Vector(Arc<[f32]>),
+    Text(Arc<str>), Bytes(Arc<[u8]>),
+    /// Days since the epoch, as `Column::Date` stores it.
+    Date(i32),
+    /// Microseconds since the epoch, as `Column::Timestamp` stores it.
+    Timestamp(i64),
+    Vector(Arc<[f32]>),
 }
 ```
 
-**Measured 24 bytes**, against `serde_json::Value`'s 32 — smaller *and* able to carry bytes without
+**24 bytes** — `Date(i32)` is smaller than the largest payload and does not change it — against `serde_json::Value`'s 32 — smaller *and* able to carry bytes without
 base64, a timestamp as a type, and a vector compactly. **Not a type parameter**: that would infect
-`RecordBatch<V>`, the stream and the value variants — circular, since `Value` is the
+`RecordBatch<V>`, `RecordView`, the stream and the value variants — circular, since `Value` is the
 obvious `V`. Arrow, GlueSQL, Tantivy and Qdrant all chose a dynamic type enum over generics for the
 same reason.
 
@@ -963,7 +1324,7 @@ distinction falls out on its own rather than needing to be named:
 derived *expression*, which is a property of a `(field, function)` pair rather than of the field —
 admitting it would put expressions in the schema, at which point the schema is a query language.
 The Liquers answer is better and already available: a command adds a `name_soundex` column with
-`IndexKind::Exact` through `RecordBatch::with_columns`, and the index is then on a real field. Same
+`IndexKind::Exact` through `with_column`, and the index is then on a real field. Same
 for `lower(email)` or any normalised form. The derivation becomes visible, cacheable data instead of
 hidden engine configuration.
 
@@ -1027,7 +1388,8 @@ the exact constant names are not load-bearing here.
 ### Schema uniformity is declared, not assumed
 
 **Phase 1 answer 5.** Chunks of one stream are usually but not necessarily alike, so
-`RecordStream::uniform_schema` is `Some` when the producer promises it and `None` otherwise. A
+`RecordSource::schema()` and `RecordStream::schema()` are `Some` when the producer promises one
+schema and `None` otherwise. A
 consumer checks rather than assumes. The prototype takes the same position in the weakest possible
 way — on a column-count mismatch it **warns and continues** — and this design keeps the tolerance
 while making the promise inspectable.
@@ -1038,7 +1400,7 @@ Non-uniformity is legal with consequences rather than an error:
 |---|---|
 | iterate, filter per chunk | fine |
 | serialize as NDJSON | fine — each row carries its own keys |
-| `concat` into one batch | **fails**, naming the first differing field |
+| `concat` or `collect_view` into one batch | **fails**, naming the first differing field |
 | serialize as one CSV | **fails** — there is no single header |
 
 The motivating case is "every CSV file in a folder becomes one chunk", which is a `Manifest` with one
@@ -1120,12 +1482,13 @@ than per row also keeps 656 bytes from repeating.
 
 ### There is no collection type above the batch
 
-A bounded set of rows is either a **`RecordChunk`** (one materialized batch) or a **`RecordSource`**
-that happens to be finite. No third type sits between them: a `RecordSet { batches: Vec<RecordBatch> }`
-would duplicate what a source already expresses, and would need its own answer to every question the
-source has already answered about sharing, serializing and re-opening.
+A bounded set of rows is either a **`RecordView`** (one table, materialized or not) or a
+**`RecordSource`** that happens to be finite — an `InMemorySource` when its views are already in
+memory. No third type sits between them: a `RecordSet { batches: Vec<RecordBatch> }` would duplicate
+what a source already expresses, and would need its own answer to every question the source has
+already answered about sharing, serializing and re-opening.
 
-`truncated` therefore lives on `RecordSource`, as a producer's report that it stopped early.
+`truncated()` therefore lives on `RecordSource`, as a producer's report that it stopped early.
 
 **Diagnostics live on `Metadata`, not in the data.** "How many records were scanned" and "you named a
 field no schema declares" are facts about an *evaluation*, not about *data*; carrying them in the
@@ -1176,22 +1539,42 @@ rows — not of any one consumer.
 
 ## Trait Implementations
 
-| Trait | For | Note |
+| Trait | Implemented by | Note |
 |---|---|---|
-| `MaybeBoxedStream` | blanket over `Stream` | Mirrors the existing `MaybeBoxed` |
-| `ExtValueInterface` conversions | `ExtValue::RecordChunk`, `ExtValue::RecordSource` | `from_*`/`as_*` arms, plus `into_stream` / `into_source`, per `TYPE_SYSTEM_GUIDE.md` |
-| `DefaultValueSerializer` | `ExtValue::RecordChunk`, `ExtValue::RecordSource` | chunk: json / ndjson / csv. Stream: json for a manifest, `SerializationError` for an opaque one |
+| `RecordView` | `RecordBatch`, `ColumnsView`, `RowRangeView`, `RowIndexView`, `DerivedColumnView`, `AppendedColumnsView`, `RowFnView<F>` | §"Views". `RecordBatch` overrides `column_range`, `materialize` and `as_batch`; the others override `value` only where a direct read is cheaper than a one-row range |
+| `RecordSource` | `ManifestSource`, `InMemorySource`, and wrappers — a filtering source and an asynchronously mapping one | Only the first two have a byte form |
+| `RecordStream` | the stream `ManifestSource::stream` returns, and the `record_stream` adapter | Nothing else needs one: a combinator chain is re-wrapped |
+| `ChunkResolver` | `ContextResolver<E>`, `EnvResolver<E>` | For `E: Environment<Value = liquers_lib::value::Value>` |
+| `Stream` | `record_stream`'s adapter | By delegation; `S: Unpin` keeps it free of pin projection |
+| `ExtValueInterface` conversions | `ExtValue::RecordView`, `ExtValue::RecordSource` | `from_*`/`as_*` arms, per `TYPE_SYSTEM_GUIDE.md` |
+| `ValueExtension` scalar hooks | `ExtValue::RecordView` | §"A view as a value". Needs the hooks `EXTENDED-VALUES-CANNOT-BIND-TO-SCALAR-ARGUMENTS` adds |
+| `DefaultValueSerializer` | `ExtValue::RecordView`, `ExtValue::RecordSource` | One-line delegations — §"Value extension" |
 
-**No change to `AsyncStore` or `AssetManager`.** Record production is a *command* concern; a trait
-method would be a push-down optimization, addable later without changing a consumer.
+**No change to `AsyncStore` or `AssetManager`.** Record production is a *command* concern.
 
 ## Generic Parameters & Bounds
 
-None on the data types — `FieldValue` is a dynamic enum precisely so `RecordBatch`, the stream and
-the value variants stay concrete. The only bound in the module is `T: bytemuck::Pod` on `Buffer<T>`,
-which is what makes the aligned cast safe.
+The value boundary is **trait objects**, not type parameters: `Arc<dyn RecordView>` and
+`Arc<dyn RecordSource>` in `ExtValue`, `Arc<dyn RecordView>` as a stream's item, and
+`Arc<dyn ChunkResolver>` into a source. `FieldValue` stays a dynamic enum for the same reason it
+always was — a `V` parameter would infect every one of these and is circular, since `Value` is the
+obvious `V`.
+
+| Bound | Where | Why |
+|---|---|---|
+| `Debug + MaybeSend + MaybeSync + 'static` | supertraits of `RecordView`, `RecordSource`; `MaybeSend + 'static` of `RecordStream` | `Send + Sync` on native, vacuous on wasm; supertraits carry them to the trait object, as for `ForeignValue` |
+| `T: bytemuck::Pod` | `Buffer<T>` | What makes the aligned cast safe |
+| `F: Fn(usize, usize) -> Result<FieldValue, Error> + MaybeSend + MaybeSync + 'static` | `RowFnView<F>` | The generator closure lives inside a shared value |
+| `F: Fn(&[Column]) -> Result<Column, Error> + …` | `with_column` | The same, for a derived column |
+| `S: Stream<…> + Unpin + MaybeSend + 'static` | `record_stream` | `Box::pin` meets `Unpin` |
+
+Generic methods appear only in inherent blocks (`impl dyn RecordView`), never in a trait, so every
+trait stays object-safe.
 
 ## Function Signatures
+
+The traits, the reference sources and `ChunkResolver` are specified in §"The types" and §"Views",
+and are not repeated here.
 
 ### `liquers-lib/src/records/mod.rs`
 
@@ -1206,38 +1589,39 @@ impl RecordSchema {
     /// Columns whose `indexed` is `FullText` — what an unqualified text query matches.
     pub fn text_fields(&self) -> &[usize];
     pub fn index_of(&self, name: &str) -> Option<usize>;
+    /// Fields whose `KeyRole` is neither `Id` nor `Source` — what scalar reading counts.
+    pub fn payload_fields(&self) -> Vec<usize>;
 }
 
 impl RecordBatch {
-    /// Zero-copy column projection.
-    pub fn select(&self, columns: &[usize]) -> Result<RecordBatch, Error>;
-    /// Gather by mask — the filter primitive every consumer builds on.
-    pub fn filter(&self, mask: &Bitmap) -> Result<RecordBatch, Error>;
-    /// Offset + length on every buffer; `Arc`-shared, no copy.
-    pub fn slice(&self, offset: usize, len: usize) -> Result<RecordBatch, Error>;
+    /// Validates column count, lengths and types against the schema.
+    pub fn new(schema: Arc<RecordSchema>, columns: Vec<Column>, chunk_id: Option<ChunkId>,
+        sources: Vec<ChunkOrigin>) -> Result<RecordBatch, Error>;
+    /// Fails when schemas differ, naming the first differing field.
     pub fn concat(batches: &[RecordBatch]) -> Result<RecordBatch, Error>;
-    /// Single-cell read, for a consumer that wants one value rather than a column.
-    pub fn value(&self, row: usize, column: usize) -> Result<FieldValue, Error>;
-    /// Append columns to the schema and the batch — how a consumer adds derived fields.
-    pub fn with_columns(&self, fields: Vec<FieldSchema>, columns: Vec<Column>)
-        -> Result<RecordBatch, Error>;
 }
+
+/// `CompareOp` is what `Column::compare` takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompareOp { Eq, Ne, Lt, Le, Gt, Ge }
 
 impl ChunkOrigin {
     /// Build the directly evaluable query for one row, when `locator` allows.
     pub fn locator_query(&self, id: &FieldValue) -> Option<Query>;
 }
 
-impl RecordSource {
-    /// Chunks without producing records. `Unbounded` when the count is not known —
-    /// see `chunking-and-resumability.md` for why the distinction is in the API now.
-    pub fn chunks(&self) -> ChunkList<'_>;
-    /// A fresh traversal; callable any number of times.
-    pub async fn stream(&self, context: &Context<impl Environment>)
-        -> Result<RecordBatchStream<'_>, Error>;
+impl ManifestSource {
+    /// Rejects `stored: false, cached: false` until non-persistent assets exist. The same
+    /// validation as `TryFrom<ManifestSpec>`, which deserialization goes through.
+    pub fn new(spec: ManifestSpec) -> Result<ManifestSource, Error>;
+    pub fn spec(&self) -> &ManifestSpec;
 }
 
-pub struct RecordBatchBuilder { /* … */ }
+impl InMemorySource {
+    pub fn new(views: Vec<Arc<dyn RecordView>>) -> InMemorySource;
+}
+
+pub struct RecordBatchBuilder { /* … — open question 10 */ }
 
 impl Bitmap {
     pub fn get(&self, i: usize) -> bool;
@@ -1245,6 +1629,8 @@ impl Bitmap {
     pub fn or(&self, other: &Bitmap) -> Result<Bitmap, Error>;
     pub fn not(&self) -> Bitmap;
     pub fn count_ones(&self) -> usize;
+    /// Positions of set bits, in order — how a mask becomes a `RowIndexView`'s indices.
+    pub fn iter_ones(&self) -> impl Iterator<Item = usize> + '_;
 }
 ```
 
@@ -1273,35 +1659,34 @@ impl<T: bytemuck::Pod> Buffer<T> {
 type, not an essential capability — the same class as `image-support` and `polars`, and `CLAUDE.md`
 already directs new value types to `liquers-lib/src/value/`.
 
-**`liquers-core` is therefore untouched, with one small exception.** The design is purely additive to
-one crate, and a build with `records` off is byte-for-byte the build that exists today.
+**`liquers-core` is therefore untouched.** The design is purely additive to one crate, and a build
+with `records` off is byte-for-byte the build that exists today.
 
 | Crate | File | Change |
 |---|---|---|
 | `liquers-lib` | `src/records/buffer.rs` (new) | `AlignedBuffer`, `Buffer<T>`, `Bitmap` — the Arrow-layout primitives; the only place `bytemuck` is used |
-| `liquers-lib` | `src/records/mod.rs` (new) | `FieldValue`, `RecordSchema`, `FieldSchema`, `FieldType`, `Column`, `RecordBatch`, `ChunkOrigin`, `LocatorRule`, `RecordSource`, `SourceBacking`, `ChunkKeys`, `ChunkId`, `ChunkList`, `ChunkDescriptor`, `RecordBatchStream` |
+| `liquers-lib` | `src/records/mod.rs` (new) | The traits `RecordView`, `RecordSource`, `RecordStream`, `ChunkResolver`; `BoxRecordStream`, `record_stream`, `collect_view`; `FieldValue`, `RecordSchema`, `FieldSchema`, `FieldType`, `Column` and its kernels, `RecordBatch`, `ChunkOrigin`, `LocatorRule`, `ChunkKeys`, `ChunkId`, `ChunkList`, `ChunkDescriptor` |
+| `liquers-lib` | `src/records/views.rs` (new) | The view implementations, the `impl dyn RecordView` constructors, `ColumnBuilder`, `RowFnView` |
+| `liquers-lib` | `src/records/sources.rs` (new) | `ManifestSource`, `InMemorySource`, the wrapping sources, `ContextResolver`, `EnvResolver` |
 | `liquers-lib` | `src/records/commands.rs` (new) | The `ns-rec` command set |
 | `liquers-lib` | `src/records/polars.rs` (new, `records` + `polars`) | `RecordBatch → polars::DataFrame` over the shared buffers |
-| `liquers-lib` | `src/value/mod.rs` | `ExtValue::RecordChunk` and `ExtValue::RecordSource`, **cfg-gated**, with every exhaustive match gaining a gated arm; both `TypeInfo` entries; the `DefaultValueSerializer` arms |
-| `liquers-lib` | `Cargo.toml` | the `records` feature and its optional `bytemuck` dependency |
-| **`liquers-core`** | `src/maybe_send.rs` | **The one exception** — `BoxStream` + `MaybeBoxedStream`, ungated. Justified below |
-| `liquers-web` | `src/records.rs` (new) | The `RecordChunk` handle, per-column descriptors, `columnCopy`; the JS companion that revalidates views |
+| `liquers-lib` | `src/value/mod.rs` | `ExtValue::RecordView` and `ExtValue::RecordSource`, **cfg-gated**, with every exhaustive match gaining a gated arm; both `TypeInfo` entries; the `DefaultValueSerializer` arms; the scalar hooks |
+| `liquers-lib` | `src/value/extended.rs` | **Prerequisite, not records-specific:** `ValueExtension` scalar hooks, delegated from `CombinedValue`'s `ValueInterface` and `TryFrom` impls — `EXTENDED-VALUES-CANNOT-BIND-TO-SCALAR-ARGUMENTS` |
+| `liquers-lib` | `Cargo.toml` | the `records` feature, its optional `bytemuck` dependency, and `serde/rc` |
+| `liquers-web` | `src/records.rs` (new) | The `RecordBatch` handle, per-column descriptors, `columnCopy`; the JS companion that revalidates typed-array views |
 | `liquers-web` | `Cargo.toml` | add `"records"` to the `liquers-lib` feature list |
-| `liquers-axum` | `src/axum_integration.rs` | A streaming branch for `RecordSource` + `csv`/`ndjson`: `Body::from_stream`, eager first batch, uniform-schema check. No new dependency — axum 0.8.9 and `futures` are already there |
+| `liquers-axum` | `src/axum_integration.rs` | A streaming branch for `RecordSource` + `csv`/`ndjson`: `Body::from_stream`, an `EnvResolver`, eager first batch, uniform-schema check. No new dependency — axum 0.8.9 and `futures` are already there |
 | `liquers-py` | later milestone | Arrow C Data Interface export — the only place `unsafe` FFI belongs |
 | `specs` | `command_registry.yaml` | Regenerated |
 
-### The one change to `liquers-core`, and why it is not records-specific
+### Why `liquers-core` needs no change
 
-`BoxStream` and `MaybeBoxedStream` go in `liquers-core/src/maybe_send.rs`, **ungated**, beside the
-existing `BoxFuture` and `MaybeBoxed`. That module exists precisely to hold per-target boxed-type
-aliases and to document the E0225 reason they must be aliased rather than bounded. `StreamExt::boxed()`
-has the same always-`Send` defect the module already warns about for `FutureExt::boxed()`, so the
-alias is a general async utility that any crate may want — not a records concept.
-
-Defining it in `liquers-lib` instead would duplicate the E0225 workaround and leave core's own
-documented trap half-addressed. Two type aliases and one blanket trait, no dependency, no feature: a
-smaller cost than the duplication.
+A boxed stream would ordinarily need a per-target `BoxStream` alias and a boxing helper in
+`liquers-core/src/maybe_send.rs`, because `StreamExt::boxed()` is always `Send`-boxed and the
+`MaybeSend` marker cannot be written as a trait-object bound (E0225). With `RecordStream` a trait
+whose supertraits include `MaybeSend`, the trait object carries the right `Send`-ness on each target
+by transitivity, so `Pin<Box<dyn RecordStream>>` needs no alias and `Box::pin` needs no helper.
+`RecordSource` returns core's existing `BoxFuture`. Nothing is left for core to provide.
 
 ### The feature
 
@@ -1311,7 +1696,9 @@ smaller cost than the duplication.
 default = ["egui", "image-support", "polars", "records"]
 # Columnar record streams: a tabular value type with an Arrow-compatible layout.
 # Optional because it is a data type rather than an essential capability.
-records = ["dep:bytemuck"]
+# `serde/rc` because the record types derive Serialize over `Arc<RecordSchema>` and `Arc<str>`;
+# without it they compile only when some other dependency happens to enable it.
+records = ["dep:bytemuck", "serde/rc"]
 
 [dependencies]
 bytemuck = { version = "1.25", optional = true }
@@ -1350,7 +1737,8 @@ optional-dependency test files do.
 
 ### What this settles, and what it costs
 
-This also places **the search design's predicate**: `SearchPredicate` operates on `RecordBatch`, so
+This also places **the search design's predicate**: `SearchPredicate` evaluates against a `RecordView`
+through the column kernels, so
 with records in `liquers-lib` the predicate cannot live in `liquers-core` either. That is no loss — the search commands were always
 `liquers-lib` — and it means the search design too becomes additive to one crate.
 
@@ -1389,12 +1777,19 @@ concurrent requests for the same URL would race for one traversal.
 **The value is re-openable, so every request gets its own traversal of the same source** — the
 clearest practical argument for separating source from stream.
 
+A **view** needs none of this. It is finite and in memory, so `as_bytes` serves it through the normal
+flow; only a source reaches the streaming branch.
+
 ```rust
 // liquers-axum — sketch
-let source: Arc<RecordSource> = /* from the evaluated value */;
-let mut stream = source.stream(&context).await?;      // fails BEFORE headers, see below
+let source: Arc<dyn RecordSource> = /* from the evaluated value */;
+let resolver: Arc<dyn ChunkResolver> = Arc::new(EnvResolver::new(envref)); // records no dependencies
+let mut stream = source.stream(resolver).await?;       // fails BEFORE headers, see below
+let schema = stream.schema();                          // CSV header, and the uniformity check
 let first = stream.next().await.transpose()?;          // pull one batch eagerly
 
+// `stream` is 'static — it owns the source's Arc and the resolver — so the body may outlive
+// this handler.
 let body = Body::from_stream(encode_batches(format, schema, first, stream));
 Response::builder()
     .status(StatusCode::OK)
@@ -1424,7 +1819,7 @@ Every mid-stream failure is logged server-side regardless, since the client may 
 ### Format constraints
 
 **CSV requires a uniform schema** — §"Schema uniformity is declared" establishes there is no single
-header otherwise. So the handler checks `RecordSource::uniform_schema` *before* sending headers and
+header otherwise. So the handler checks `RecordStream::schema()` *before* sending headers and
 refuses with `409 Conflict` naming NDJSON as the alternative when it is `None`. The eager first-batch
 pull makes this check natural rather than bolted on.
 
@@ -1481,7 +1876,8 @@ carries a `## History` row and a `reviewed:` date from its first commit.
 
 | § | Content |
 |---|---|
-| **Concepts** | The three abstractions and *why* they are three: `RecordSource` (asked repeatedly, shareable, serializable as a manifest), `RecordStream` (one traversal, never a value), `RecordChunk` (materialized table). The conversion diagram. The `Iterable`/`Iterator` analogy stated once, plainly |
+| **Concepts** | The three traits and *why* they are three: `RecordSource` (asked repeatedly, shareable, async), `RecordStream` (one traversal, never a value), `RecordView` (a finite table, sync) — and `RecordBatch`, the materialized view. The conversion table with costs. The `Iterable`/`Iterator` analogy stated once, plainly. The placement rule: asynchronous work is a source |
+| **Views** | The built-in views and what `column_range` costs on each; why views do not cache; column selection keeping the key columns; scalar reading of a single cell and its conversion table; which commands materialize and why |
 | **Scales** | Record / batch / chunk — unit of retrieval, of memory, of refresh — and why conflating them breaks either memory or refresh |
 | **Schema** | `RecordSchema`, `FieldSchema`, `FieldType`, `FieldRole`. The two orthogonal axes and which integration target each serves. The exactly-one-`Id` rule and that it is checked in `RecordSchema::new` |
 | **Field naming** | The `meta.` / `attr.` / `key.` qualification, why `status` forced it, and that ambiguity is an error naming every candidate |
@@ -1490,8 +1886,8 @@ carries a `## History` row and a `reviewed:` date from its first commit.
 | **Memory layout** | The columnar form, `Column` variants, `Bitmap`'s three uses, `AlignedBuffer` and 64-byte alignment. **Cites [COLUMNAR] per claim** |
 | **Arrow interoperability** | The two-level model — data as `&[T]`, structure rebuilt as `repr(C)` — the exact type/format mapping table, the three export routes and their real costs, and the three places the layout is not 1:1. **Cites [COLUMNAR] and [CDATA]**; states that format strings are verified against the spec, not this document |
 | **Browser sharing** | Hazards A and B, the identity check, the refresh rule, read-only views, the handle lifetime, and `columnCopy` as the fallback |
-| **Methods** | Every public method with its contract and failure mode — `RecordSchema::{new, id_field, source_field, text_fields, index_of}`, `RecordBatch::{select, filter, slice, concat, value, with_columns}`, `RecordSource::{stream, chunks, manifest}`, `Bitmap::{get, and, or, not, count_ones}`, `ChunkOrigin::locator_query` |
-| **Serialization** | What each value writes in each format, and that a manifest source writes its query list while a materialized one writes data |
+| **Methods** | Every public method with its contract and failure mode — the three traits, the `impl dyn RecordView` constructors, `Column`'s kernels, `RecordSchema::{new, id_field, source_field, text_fields, index_of, payload_fields}`, `RecordBatch::{new, concat}`, `Bitmap::{get, and, or, not, count_ones, iter_ones}`, `ChunkOrigin::locator_query`, `record_stream`, `collect_view` |
+| **Serialization** | What each value writes in each format; that a manifest source writes its query list, an in-memory one writes data, and a wrapping one writes nothing and is re-derived from its recipe |
 | **Limits** | The Arrow subset supported and what is excluded; uniformity not promised and the two operations that need it; the feature gate |
 
 Links out to `VALUE_TYPE_SYSTEM.md`, `STORE_SEMANTICS.md` for the key semantics it inherits, and the
@@ -1504,11 +1900,12 @@ source"**.
 
 | § | Content |
 |---|---|
-| **Choose your shape first** | A decision table: one row per asset → return a chunk; a directory of files → a manifest source; a huge single file → a source whose stream yields batches. Getting this wrong is the expensive mistake, so it comes first |
-| **Walkthrough: a command producing records** | **The guide's spine.** End to end, from an empty file to a passing test: define the schema (with its `Id` field and roles), build the batch with `RecordBatchBuilder`, fill `ChunkOrigin` so results are retrievable, return `ExtValue::RecordChunk`, then register with `register_command!` — `context` last, `async fn` taking owned `State` — and regenerate `command_registry.yaml` |
+| **Choose your shape first** | A decision table: a small table → return a view (usually a batch); a directory of files → a manifest source; a huge single file → a source whose stream yields batches; anything asynchronous per row → a wrapping source. Getting this wrong is the expensive mistake, so it comes first |
+| **Walkthrough: a command producing records** | **The guide's spine.** End to end, from an empty file to a passing test: define the schema (with its `Id` field and roles), build the batch with `RecordBatchBuilder`, fill `ChunkOrigin` so results are retrievable, return `ExtValue::RecordView`, then register with `register_command!` — `context` last, `async fn` taking owned `State` — and regenerate `command_registry.yaml` |
 | **Second walkthrough: a manifest source** | The CSV-directory case: one query per file, what `uniform_schema` to declare, and why a manifest is preferred over a generator (rewindable, cacheable, checkpointable) |
 | **Choosing a batch size** | Rows vs bytes, and the memory arithmetic |
-| **Using a batch as a DataFrame** | `select`/`filter`/`slice`/`concat` with masks; what is deliberately absent and where it lives instead |
+| **Using views as a DataFrame** | `select_columns`/`filter`/`slice`/`with_column`/`concat` with masks; when to `materialize`; what is deliberately absent and where it lives instead |
+| **Writing a view** | Implementing `column_range`; `ColumnBuilder`; `RowFnView` for a generator; the equivalence test against the provided defaults |
 | **Handing a batch to pandas or polars** | The polars path via `polars-arrow`; the pyo3 path; what "zero-copy" does and does not cover |
 | **Reading a chunk from JavaScript** | The handle, the view-refresh rule, and when to reach for `columnCopy` |
 | **Pitfalls** | The `len + 1` offsets invariant; `Vector` needing a child node; forgetting the `TypeInfo` entry (the type then cannot be stored); forgetting a `#[cfg(feature = "records")]` match arm (a build with the feature off fails); holding a JS view across a wasm call |
@@ -1521,11 +1918,11 @@ behaviour without a test failing.
 
 | Path | Change |
 |---|---|
-| `specs/reference/VALUE_TYPE_SYSTEM.md` | The `RecordChunk` and `RecordSource` identifiers, their `TypeInfo`s, and that both are feature-gated |
+| `specs/reference/VALUE_TYPE_SYSTEM.md` | The `RecordView` and `RecordSource` identifiers, their `TypeInfo`s, that both are feature-gated, and that each holds a trait object |
 | `specs/guides/TYPE_SYSTEM_GUIDE.md` | Both variants in the worked list; the gated-variant case as a worked example, since it is the first optional value type after `polars` |
 | `specs/guides/COMMAND_REGISTRATION_GUIDE.md` | A pointer to the record-producing walkthrough rather than a duplicate of it |
 | `specs/README.md` | The capability-map entry, `designing` → `built` |
-| `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` | **Already updated** — VALUE's third bridging category (lent buffers) and RECIPE's corrected listing/containment rule |
+| `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` | **Already updated** — VALUE's third bridging category (lent buffers), RECIPE's corrected listing/containment rule, and the RECORDS subsection, revised 2026-09-24 for the trait form: a batch crosses as Arrow, a view as a wrapper or materialized |
 | `CLAUDE.md` | The `records` feature in the feature-matrix section, and the new matrix rows |
 
 **Discarded candidates:** `STORE_SEMANTICS.md`, `STORE_IMPLEMENTATION_GUIDE.md` and
@@ -1538,22 +1935,37 @@ repair belongs to the search design.
 
 ## Relevant Commands
 
-Deliberately thin: this design owns the *mechanism*, and each consumer brings its own producers.
+Deliberately thin: this design owns the *mechanism*, and each consumer brings its own producers. The
+names mirror the `pl` namespace's (`select_columns`, `head`, `slice`), so the two tabular vocabularies
+read alike.
 
-| Command | Signature | Purpose |
-|---|---|---|
-| `rec_id` | `fn rec_id(state, id: String) -> result` | **The single-record selector.** Yields the one record whose `Id` field matches. Universal, because every schema has exactly one `Id` |
-| `records_to_csv` | `fn records_to_csv(state) -> result` | Serialize a record set as CSV |
-| `records_to_ndjson` | `fn records_to_ndjson(state) -> result` | Serialize a record set as NDJSON |
-| `records_schema` | `fn records_schema(state) -> result` | The schema as a value — how an agent discovers field names |
-| `records_head` | `fn records_head(state, n: i64 = 20) -> result` | Slice, for inspection |
+| Command | Signature | Returns | Purpose |
+|---|---|---|---|
+| `rec_id` | `async fn rec_id(state, id: String, context) -> result` | a **materialized** one-row batch | **The single-record selector.** The one record whose `Id` field matches. Universal, because every schema has exactly one `Id`. On a source it walks chunks until it finds the row |
+| `row` | `fn row(state, n: i64) -> result` | a materialized one-row batch | A row by position — views only; a source has no stable positions |
+| `select_columns` | `fn select_columns(state, columns: Vec<String> multiple) -> result` | a view | Projection. Keeps the `Id` and `Source` columns whether named or not |
+| `head` | `fn head(state, n: i64 = 5) -> result` | a materialized batch | The first rows, for inspection |
+| `slice` | `fn slice(state, offset: i64, length: i64) -> result` | a view | A row range |
+| `records_to_csv` | `fn records_to_csv(state) -> result` | text | Serialize a view as CSV |
+| `records_to_ndjson` | `fn records_to_ndjson(state) -> result` | text | Serialize a view as NDJSON |
+| `records_schema` | `fn records_schema(state) -> result` | a value | The schema — how an agent discovers field names |
 
-Namespace `rec`, written `ns-rec` in a query. Producers (`ns-search/records`, a CSV projection, a
-parquet projection) are owned by the designs that need them.
+Namespace `rec`, written `ns-rec` in a query. `rec_id` is `async` and takes `context`, **last**, because
+over a source it must open a stream with a `ContextResolver`; the others take a view. A command
+receiving a source where it needs a view refuses rather than collecting silently — `rec_id` is the
+one that walks a source, because that is its purpose. Producers (`ns-search/records`, a CSV
+projection, a parquet projection) are owned by the designs that need them.
+
+**Which commands materialize** follows §"A small view keeps its whole base alive": those whose result
+is bounded by a count the caller chose — `rec_id`, `row`, `head` — copy their few rows and release the
+base; `select_columns` and `slice` return views.
 
 **`rec_id` is deliberately in the record namespace rather than a projection's.** It works on any
-record stream, so a projection does not have to supply its own selector — and a projection that can
-do better supplies a `locator` instead of a competing command.
+record source or view, so a projection does not have to supply its own selector — and a projection
+that can do better supplies a `locator` instead of a competing command.
+
+**A cell is a chain, not a command.** `…/ns-rec/rec_id-42/select_columns-price` is one row and one
+payload column, so it reads as a scalar (§"A view as a value").
 
 ## Error Handling
 
@@ -1564,10 +1976,17 @@ type, no `unwrap`/`expect`.
 |---|---|
 | A schema without exactly one `Id` field | `Error::general_error` from `RecordSchema::new` |
 | An `Id` field that is not `Exact`-indexed and stored | `Error::general_error` — it could not be reconciled by delete-by-term |
-| Column count or length disagrees with the schema or `len` | `Error::general_error` |
-| `concat` of batches with different schemas | `Error::general_error` naming the first differing field |
-| A mask whose length differs from the batch | `Error::general_error` |
-| State is not an `ExtValue::RecordChunk` or `ExtValue::RecordSource` | `Error::conversion_error` |
+| Column count, length or type disagrees with the schema in `RecordBatch::new` | `Error::general_error` |
+| `concat` or `collect_view` of batches with different schemas | `Error::general_error` naming the first differing field |
+| A mask whose length differs from the view, or an index past its end | `Error::general_error` |
+| `column_range` or `value` out of range | `Error::general_error` — never a panic |
+| `select_columns` naming a field the schema does not declare | `Error::general_error` naming the field and listing the available ones |
+| `ColumnBuilder::push` of a value of the wrong type | `Error::general_error` |
+| A scalar read of a view that is not one row by one payload column | `Error::conversion_error`, naming the row count and the payload columns |
+| `collect_view` passing `max_rows` | `Error::general_error` stating the limit — the stream is dropped, not truncated silently |
+| A view command receiving a source | `Error::conversion_error` |
+| `serialize` on a source with no byte form | `ErrorType::SerializationError` via `Error::from_error` — the write path stores metadata only |
+| State is not an `ExtValue::RecordView` or `ExtValue::RecordSource` | `Error::conversion_error` |
 | A field name no schema declares | Not an error — a `Warning` log entry on the evaluation's `Metadata` |
 | Unreadable entry while producing records | Skipped, counted in an `Info` log entry |
 
@@ -1575,20 +1994,35 @@ type, no `unwrap`/`expect`.
 
 | Operation | Choice | Rationale |
 |---|---|---|
-| `RecordBatch` select/filter/slice/concat/value | sync | Pure, in-memory |
+| Every `RecordView` method and constructor, `Column` kernels | sync | In memory. Asynchronous work belongs in a source — §"Views are synchronous" |
+| Scalar reading of a view | sync | Argument binding (`TryFrom<Value>`) is synchronous |
+| `RecordSource::stream`, `describe_chunk`; `collect_view` | async | Evaluation and store access through `ChunkResolver` |
+| `RecordSource::chunks`, `schema`, `serialize` | sync | What the source already holds |
 | `Bitmap` operations | sync | Pure |
 | Schema construction and validation | sync | Pure |
-| Opening a chunk from a manifest query | async | Evaluation and store access |
 | Record-producing commands | async | Store access |
 | Serialization to CSV / NDJSON | sync today | Becomes streaming once an incremental writer exists |
 
 ## Serialization Strategy
 
-Every data type derives `Serialize, Deserialize`; `Query` uses the existing `query_format` helper.
-`AlignedBuffer` and `Buffer<T>` serialize as their bytes — alignment is a memory property, not a
-wire one, and is re-established on deserialization. The stream types are **not** serializable and
-deliberately never cross a query boundary; the serializable forms are a `RecordBatch` and a
-`RecordSource`. A `RecordSource` serializes as a **manifest**, whose format —
+Every concrete data type derives `Serialize, Deserialize` — `RecordBatch`, `Column`, the schema
+types, `ManifestSource`, `ChunkId`, `ChunkDescriptor`; `Query` uses the existing `query_format`
+helper. `AlignedBuffer` and `Buffer<T>` serialize as their bytes — alignment is a memory property,
+not a wire one, and is re-established on deserialization.
+
+The traits are **not** `Serialize`: a trait object has no derive, and bytes cannot say which
+implementation to rebuild. Serialization is a method at the value boundary instead — §"Value
+extension" — with three outcomes:
+
+| Value | Written as | Read back as |
+|---|---|---|
+| a `RecordView` of any kind | its materialized batch, in `json` / `ndjson` / `csv` | a `RecordBatch` — same identifier |
+| a `ManifestSource` | the manifest, `yaml` / `json` | a `ManifestSource` |
+| an `InMemorySource` | its data, `ndjson` / `csv` | an `InMemorySource` of one batch |
+| any other source | **nothing** — metadata only | re-derived from its recipe |
+
+A stream is never serialized and never crosses a query boundary. A `ManifestSource` serializes as a
+**manifest**, whose format —
 `<filename_prefix>.manifest.yaml`, mirroring `recipes.yaml`'s `arguments` and `links` — is specified
 in [`manifest-format.md`](./manifest-format.md). Three of its rules bear on this design:
 
@@ -1606,64 +2040,70 @@ in [`manifest-format.md`](./manifest-format.md). Three of its rules bear on this
 
 ## Concurrency Considerations
 
-No shared mutable state. Buffers are `Arc`-shared and immutable once built, so `select`, `slice` and
-a column hand-off copy nothing and are safe to share. Batch production is sequential; concurrency is
+No shared mutable state. Buffers are `Arc`-shared and immutable once built, and a view holds only
+its base `Arc` and its selection, so every view is immutable too: `select_columns`, `slice` and a
+column hand-off copy nothing and are safe to share across threads, which the `MaybeSync` supertrait
+makes the compiler check on native. A view that gathers does so into a fresh `Column` owned by the
+caller, so concurrent readers never contend. Batch production is sequential; concurrency is
 `buffer_unordered` over the chunk stream when there is something to measure. No lock is held across
 an `.await`.
 
 ## Compilation Validation
 
-- `Stream` is object-safe and already boxed through the project's per-target alias pattern;
-  no new trait is introduced, so there is no object-safety question to answer.
-- `BoxStream`/`MaybeBoxedStream` are gated on `target_arch`, **never** on a Cargo feature —
-  `maybe_send.rs` documents why: feature unification would silently strip `Send` from the native
-  build workspace-wide.
+- **Object safety.** `RecordView`, `RecordSource`, `RecordStream` and `ChunkResolver` have no generic
+  methods and no `Self`-returning methods. `self: Arc<Self>` (`RecordSource::stream`) is an
+  object-safe receiver. Generic helpers live in `impl dyn RecordView`, outside the vtable.
+- **Default methods do not construct views.** Coercing `Arc<Self>` to `Arc<dyn RecordView>` needs
+  `Self: Sized`, which a default body lacks — hence the inherent block. `RecordBatch`'s overrides are
+  in an impl where `Self` is sized, so they may do what the defaults cannot.
+- **`dyn RecordStream` is a `Stream`.** `Pin<Box<S>>` implements `Stream` for `S: Stream + ?Sized`,
+  and `Stream::poll_next` takes `self: Pin<&mut Self>`, which is object-safe. The `Item` type is fixed
+  in the supertrait bound, so the trait object names it.
+- **`Send`-ness by supertrait, not by alias.** `MaybeSend`/`MaybeSync` are supertraits, so the trait
+  objects are `Send + Sync` on native and unconstrained on wasm. They are gated on `target_arch`,
+  **never** on a Cargo feature — `maybe_send.rs` documents why: feature unification would silently
+  strip `Send` from the native build workspace-wide.
+- **The stream is `'static`.** It owns an `Arc` of its source and an `Arc<dyn ChunkResolver>`, so
+  `Body::from_stream` — which requires `'static` — accepts it.
 - Both variants are `Arc`-wrapped, so `size_of::<ExtValue>()` is unchanged and `Value` is untouched.
-- `ExtValue` derives only `Debug, Clone`, so the opaque stream needs no `Serialize`, `Deserialize` or
+- `ExtValue` derives only `Debug, Clone`, so the trait objects need no `Serialize`, `Deserialize` or
   `PartialEq` — the reason these variants cannot live on `Value`.
-- Every `match` on `Value` gains an explicit arm; no default arm anywhere.
-- `liquers-core` gains no dependency and **no `unsafe`**; its only change is two ungated type aliases
-  in `maybe_send.rs`.
 - Every exhaustive `match` on `ExtValue` has a `#[cfg(feature = "records")]` arm, so
   `--no-default-features` still compiles — the failure mode a gated enum variant causes, and what the
-  new build-matrix rows exist to catch.
+  new build-matrix rows exist to catch. No code matches over *implementations* of the traits.
+- `liquers-core` gains nothing: no dependency, no alias, no `unsafe`.
 - `bytemuck` is `optional = true` and reached only through `records`, so a build without the feature
   resolves an unchanged dependency graph.
 - `Buffer<T>: bytemuck::Pod` holds for `i32`, `i64`, `u64`, `f32`, `f64`.
+- **`serde/rc` is enabled by the `records` feature.** Deriving `Serialize` over `Arc<T>` needs serde's
+  `rc` feature. In the default build some other dependency turns it on, but in
+  `--no-default-features --features records` nothing does (checked with `cargo tree -e features`),
+  so without the explicit feature the record types would compile in one configuration and not
+  another — exactly what the build matrix exists to catch.
+- **Closures are neither `Debug` nor boxable with `MaybeSend`.** `dyn Fn(..) + MaybeSend` is E0225 —
+  `MaybeSend` is not an auto trait — so `DerivedColumnView<F>` and `RowFnView<F>` are generic over the
+  closure and are erased only when coerced to `Arc<dyn RecordView>`. Both implement `Debug` by hand
+  (the schema and length, not the closure), because `RecordView: Debug` and a derive would fail.
+- **`ManifestSource` lends ids it owns.** `chunks()` returns `&[ChunkId]`, so the ids are derived once
+  in `TryFrom<ManifestSpec>` rather than computed per call from the stored queries.
 - The `records` feature gates the module, the variants, the matches and the dependency together —
   a partially-gated feature is the classic way to break a configuration nobody built.
 
 ## References to liquers-patterns.md
 
-Async-by-default with `#[async_trait]`; `MaybeSend`/`MaybeSync` for wasm; typed error constructors;
+Async-by-default — `BoxFuture` returned from object-safe trait methods, as `async_trait` would
+generate; `MaybeSend`/`MaybeSync` as supertraits for wasm, following `ForeignValue`; typed error constructors;
 explicit match arms with no default; `Arc` for shared payloads in `Value`; `TypeInfo` registration
 as the fourth step of adding a value type; `context` last in a command signature.
 
 ## Open Questions for Phase 3
 
-0. **Should record selection be a *view*?** `rec_id` as specified is eager: it consumes the stream
-   and yields one record, so selecting row 42 of a billion-row source produces every chunk to find
-   it. A **view** would instead carry the selection as a predicate the source may push down — to the
-   one chunk whose id range contains 42, or to a SQL `WHERE`, or to nothing at all if the source
-   cannot help.
-
-   The machinery for this is already half-designed elsewhere and should not be reinvented:
-
-   - The search design's `SearchPredicate` is exactly "a selection carried rather than applied", and
-     `rec_id` is its simplest case — an equality on the `Id` field.
-   - The three-state pushdown adopted in `interoperability-layer.md` — **exact / inexact /
-     unsupported** — is the right report for what a source did with a pushed selection, because an
-     `Inexact` narrowing still needs the caller to re-check.
-   - `ChunkOrigin::locator` is the per-projection fast path when a source *can* answer directly.
-
-   So the shape is visible, and three things are not: whether a view is a distinct value form or a
-   `RecordSource` carrying a predicate; whether pushdown is attempted for `rec_id` alone or for any
-   predicate (which would make this the record-level half of the search design); and what a view
-   costs when nothing can be pushed down, which is the eager behaviour plus the indirection.
-
-   **This is a design task, not a Phase 3 question**, and it should not hold up Phase 4: `rec_id`
-   eager is correct, just not always cheap, and a view can replace its implementation without
-   changing the query that names a record.
+0. ~~Should record selection be a *view*?~~ — **answered by §"Views".** A view is an
+   implementation of `RecordView`, not a distinct value form, and selection is a view constructor.
+   Composition by merging and pushdown into a source are **out of scope** for the generic mechanism,
+   which stays light; a specialized source (SQL) may offer pushdown as part of its own
+   implementation. `rec_id` over a large source therefore still reads chunks until it finds the row
+   — correct, and accepted. `RECORD-SELECTION-IS-EAGER-NOT-A-VIEW` is updated accordingly.
 
 1. **Can a `RecordSource` front a relational database?** `engine-survey.md` §3 finds the read path
    fits well — sqlx's `fetch()` is already a row stream, and keyset chunking works *because* the
@@ -1671,9 +2111,10 @@ as the fourth step of adding a value type; `context` last in a command signature
    is structural:
    - A SQL source needs chunk queries **generated**, not listed, since the count is unknown and
      `COUNT(*)` is expensive. [`chunking-and-resumability.md`](./chunking-and-resumability.md) works
-     this through: the `template` and `keys` fields of `SourceBacking::Queried` are reserved for it,
-     and `ChunkList::Unbounded` exists so consumers are written for it now. **No trait revival is
-     needed** — but the reserved fields must be filled in, and store-backed chunks with them.
+     this through: the `template` and `keys` fields of `ManifestSource` are reserved for it, and
+     `ChunkList::Unbounded` exists so consumers are written for it now. With `RecordSource` a trait, a
+     SQL source may also be **its own implementation** — the natural home for pushdown, if it is ever
+     wanted — rather than a manifest.
    - **`Decimal` stops being deferrable.** Reading a `NUMERIC` column as `Float` is a corruption bug,
      not an approximation. Also absent: `uuid`, `jsonb`, arrays, intervals.
    - **Writing is entirely undesigned.** An access layer implies `INSERT`/`UPDATE`, transactions and
@@ -1682,8 +2123,9 @@ as the fourth step of adding a value type; `context` last in a command signature
    Filed as `NO-RELATIONAL-DATABASE-ACCESS-LAYER` rather than absorbed here.
 2. What is the default batch size, and is it a row count or a byte budget? A byte budget is the
    honest answer for the multi-gigabyte case but needs a size estimate per column.
-3. Is `with_columns` the right extension point for derived fields? It now has two users: the search
-   design's evidence columns, and the derived columns that replace functional indexes.
+3. ~~Is `with_columns` the right extension point for derived fields?~~ — **split in two**:
+   `with_column` for a column computed from others (the functional-index replacement), lazily, and
+   `with_columns` for precomputed ones (the search design's evidence).
 4. ~~Cleanup of stored chunks~~ — **answered** by the folder convention: a stream's chunks live in
    one folder, so removing the folder removes the stream. See
    [`chunking-and-resumability.md`](./chunking-and-resumability.md) §4a.
@@ -1700,23 +2142,43 @@ as the fourth step of adding a value type; `context` last in a command signature
 9. Should `ChunkDescriptor` carry **statistics** (row count, per-column min/max)? DataFusion uses them
    for optimization, and min/max per chunk would let a predicate skip chunks entirely — the same trick
    as parquet row-group pruning. Not needed now; the place for it later is clear.
+10. **The `RecordBatchBuilder` append surface.** Three Phase 3 drafts produced three APIs. The
+    recommendation is `append_row(&[FieldValue])` as the primary call, with `ColumnBuilder` as the
+    per-column path — which §"Writing a view" already introduces, so the builder may reduce to a
+    schema plus one `ColumnBuilder` per field. To settle before Phase 4.
+11. **Must every view carry an `Id`?** The invariant is kept on every view by making
+    `select_columns` retain key columns. A future aggregation (`sum` → one row, one column) has no
+    natural id. Not needed now — aggregation is out of scope — but the first aggregate will have to
+    synthesize one or relax the invariant for derived tables.
+12. **Equivalence of overrides.** Where `RecordBatch` or a view overrides a provided method (`column`,
+    `value`, `materialize`), its answer must equal the default's. Phase 3 should state this as a
+    property test over each built-in view, so the two paths cannot drift apart unnoticed.
 
 **Settled, and recorded so they are not reopened without new information:**
 
 | Question | Answer |
 |---|---|
 | Which crate owns records | `liquers-lib`, behind a `records` feature — a data type, not a core capability |
-| Which enum owns the value variants | `ExtValue`, because `Value`'s `Deserialize` bound is unsatisfiable for a stream |
-| Whether a `ChunkedRecordSource` trait is needed | Not for the view direction — `Manifest` is a partition as data. **Reopened by question 1** for the relational direction |
-| Whether a `RecordSet` type survives | No — a batch or a source, not a third name |
-| How far the DataFrame surface goes | `select`/`filter`/`slice`/`concat`; group-by and join are a query engine |
+| Which enum owns the value variants | `ExtValue`, because `Value`'s `Deserialize` bound is unsatisfiable for a trait object |
+| Data structures or interfaces | **Interfaces.** `RecordView`, `RecordSource`, `RecordStream` are traits; `RecordBatch`, `ManifestSource`, `InMemorySource` are reference implementations |
+| One value variant for tables or two | **One**, `RecordView`, over batches and views alike. `ExtValue::Image` over `DynamicImage` is the precedent |
+| Names | `RecordView` (trait and value), `RecordBatch` (materialized struct) — not `RecordChunk`, which would collide with the chunk as unit of refresh |
+| The required read of a view | `column_range(col, rows)` — the one method that gives cell, window and column reads each their proportional cost |
+| Where kernels live | On `Column`, so views and batches share them |
+| Whether views cache | No. The consumer's `Column` is the cache; `materialize()` is the explicit one |
+| Merging stacked views; pushdown | Out of scope for the generic mechanism |
+| Asynchronous transformations | Sources, never views — views stay synchronous because scalar reading and argument binding are |
+| How a source reaches evaluation | `ChunkResolver`, an object-safe trait; `ContextResolver` records dependencies, `EnvResolver` does not |
+| Whether a `ChunkedRecordSource` trait is needed | No — `chunks()` is the partition as data. A SQL source is simply another `RecordSource` implementation |
+| Whether a `RecordSet` type survives | No — a view or a source, not a third name |
+| How far the DataFrame surface goes | `select_columns`/`filter`/`slice`/`with_column`/`concat`; group-by and join are a query engine |
 | Whether a stream can be rewound | Not applicable — re-open the source instead |
 | Whether roles can differ per engine | No per-engine maps. A field declares the access paths it **affords**; each engine projects |
 | Whether functional indexes (soundex) are roles | No — they are derived columns |
 
 ## Changelog
 
-The design reached this shape through seven rounds of review. Recorded because the *reversals* carry
+The design reached this shape through eight rounds of review. Recorded because the *reversals* carry
 information — each is a position that was argued for and then abandoned on evidence.
 
 | Date | Change | Driven by |
@@ -1742,6 +2204,16 @@ information — each is a position that was argued for and then abandoned on evi
 
 | 2026-09-20 | Audit after two silent deletions: `RecordSchema` and `FieldType` restored, `ChunkId` defined, `ChunkDescriptor` made reachable through `describe_chunk` | Mechanical rewrites had dropped definitions while the rest of the document kept referencing them |
 
+| 2026-09-24 | **Interfaces, not data structures.** `RecordSource`, `RecordStream` and a new `RecordView` became traits; `SourceBacking` became two implementations, `ManifestSource` and `InMemorySource`. The value variants hold trait objects | Views, on-the-fly filters and generated tables were enum variants inside this module rather than something a command author can write |
+| 2026-09-24 | **`RecordView` and `RecordBatch`**: one trait for every finite table, one struct for the materialized one. **One** value variant, `RecordView`, over both; `RecordChunk` retired as a name | A second variant would put a storage detail into the type system, and a stored view would read back as a different type. "Chunk" is the unit of refresh |
+| 2026-09-24 | The required read of a view is **`column_range`** | A cell-first contract makes columns slow; a column-first one makes a window over a computed view O(n); requiring both leaves two methods that must agree |
+| 2026-09-24 | Kernels moved from `RecordBatch` to **`Column`**; no caches inside views; no merging and no pushdown | Views then share the fast path. The aim is a light, flexible mechanism, not a query engine |
+| 2026-09-24 | **`ChunkResolver`** replaces `Context<impl Environment>` in `stream()` and `describe_chunk()`, with a context-backed and an environment-backed implementation. `stream` takes `Arc<Self>` and returns a `'static` stream | A generic method cannot be called on `dyn RecordSource`; an HTTP body outlives its handler; a stream outliving its command must not record dependencies |
+| 2026-09-24 | **Scalar reading**: a one-row, one-payload-column view reads as its cell would as a base `Value`. `select_columns` keeps key columns. Commands bounded by a caller's count materialize | The user's requirement that pointing at a cell yield a value; a tiny view must not pin a large base |
+| 2026-09-24 | **Asynchronous work is a source.** Views stay synchronous; source → view is an explicit await | Scalar reading and argument binding are synchronous |
+| 2026-09-24 | `liquers-core` **untouched** — the `BoxStream` alias removed | `MaybeSend` as a supertrait gives the trait object the right `Send`-ness on each target |
+| 2026-09-24 | `records` enables `serde/rc`; `ManifestSource` serializes through `ManifestSpec`; closure-holding views are generic with a hand-written `Debug` | A Rust review of the trait form: `Arc` fields fail to derive `Serialize` in a minimal build; `chunks()` could not borrow ids from a `Vec<Query>`; `dyn Fn + MaybeSend` is E0225 |
+
 **Corrections worth keeping visible**, because each was stated wrongly first:
 
 - `bytemuck` was described as free because it is in `Cargo.lock`. It is a direct dependency of no
@@ -1750,6 +2222,13 @@ information — each is a position that was argued for and then abandoned on evi
   description, which costs O(columns) allocations.
 - The browser route was called fragile without checking whether invalidation is detectable.
 - `Value::Recipe` was cited as having 17 occurrences; it has 27, 8 of them in `value.rs`.
+- The record types derived `Serialize` over `Arc` fields without enabling serde's `rc` feature. It
+  compiled in the default build only because another dependency enables it.
+- `FieldValue` had no `Date` variant although `Column` and `FieldType` did, so a single-cell read of a
+  date column had nothing to return. Added.
+- The value-extension section said neither variant was feature-gated while its own code gated both —
+  left over from before the `records` feature. Both are gated.
+
 
 **Open external checks:** Arrow format strings against [CDATA], and Tantivy/Lucene/Qdrant API names
 against the crate versions in use. Both are stated from the specifications rather than verified in

@@ -26,11 +26,11 @@ separate task rather than an extension of that design.
 
 ## Why it is not simply an extension of `record-streams`
 
-1. **`SourceBacking` has no variant for it.** `RecordSource` offers `Manifest(Vec<Query>)` — a known
-   list of chunk queries — and `Materialized`. A SQL source is neither: a connection plus a query,
-   streamed lazily, whose chunk boundaries are **not known in advance**. `record-streams` Phase 2
-   records that a source whose partition is discoverable only incrementally is the case that would
-   justify reviving a `ChunkedRecordSource` trait; this is that case.
+1. **~~`SourceBacking` has no variant for it.~~ Resolved by `record-streams` Phase 2 (2026-09-24).**
+   `RecordSource` is now a trait, so a SQL source — a connection plus a query, streamed lazily, whose
+   chunk boundaries are **not known in advance** — is simply another implementation, and the natural
+   place for pushdown into `WHERE` should it be wanted. What remains is designing that
+   implementation, which is items 2 and 3.
 
 2. **`Decimal` becomes mandatory.** `record-streams` defers it. Reading a `NUMERIC`/`DECIMAL` column
    as `Float` is a correctness bug, not an approximation, and it is the correct type for money.

@@ -141,7 +141,7 @@ RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY,issue,AsyncRecipeProvider::contain
 RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING,issue,Recipe plan analysis runs outside plan building,draft,local,,,P3,M,core/plan;core/assets,,,,,,2026-08-26,specs/issues/RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING.md
 RECIPE-PROVIDER-BY-NAME,feature,"Recipe providers cannot be selected by name, so a configuration document cannot choose one",closed,local,,,P0,S,core/assets;web,,,,recipe-provider-selection,,2026-08-27,specs/issues/RECIPE-PROVIDER-BY-NAME.md
 RECIPE-TO-PLAN-IGNORES-RECIPE-LEVEL-VOLATILE-AND-EXPIRES,issue,Recipe to_plan ignores recipe level volatile and expires,closed,local,,covered,P2,S,core/plan;core/assets,,,,recipe-plan-declarations,,2026-08-26,specs/issues/RECIPE-TO-PLAN-IGNORES-RECIPE-LEVEL-VOLATILE-AND-EXPIRES.md
-RECORD-SELECTION-IS-EAGER-NOT-A-VIEW,feature,Selecting records from a stream is eager; there is no view that a source can push down,draft,local,,,P2,L,lib/value;lib/commands,,,,,,2026-09-21,specs/issues/RECORD-SELECTION-IS-EAGER-NOT-A-VIEW.md
+RECORD-SELECTION-IS-EAGER-NOT-A-VIEW,feature,Selecting records from a stream is eager; there is no view that a source can push down,draft,local,,,P2,L,lib/value;lib/commands,,,,record-streams,,2026-09-21,specs/issues/RECORD-SELECTION-IS-EAGER-NOT-A-VIEW.md
 REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED,issue,The `payload: required` metadata statement is implemented but documented nowhere,draft,local,,,P2,S,docs;core/commands;macro,,,,,,2026-09-03,specs/issues/REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED.md
 REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED,issue,The committed command registry carries stale impl_versions and no test detects it,draft,local,,needs-decision,P3,S,lib/commands;build;docs,,,,command-registry-impl-version-freshness,,2026-08-25,specs/issues/REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED.md
 REPO-DEAD-CODE-HYGIENE,issue,Dead modules and untracked files in the repository,accepted,local,,ready,P3,S,build,,,,core-dead-code-hygiene,,2026-08-08,specs/issues/REPO-DEAD-CODE-HYGIENE.md
@@ -326,7 +326,7 @@ autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,,docs;build,,,,,2026-08-11,,specs/guides/autonomous_issue_fixing.md
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,core/commands;macro,,,,,2026-09-05,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,core/context;core/assets;core/store,,,,,2026-09-05,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
-LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-09-20,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
+LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-09-24,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,core/query,,,,,2026-08-14,,specs/guides/QUERY_ESCAPING_GUIDE.md
 STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,core/store;store/config,,,,,2026-09-02,,specs/guides/STORE_FACTORY_GUIDE.md
 STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,core/store;store/backends;web,,,,,2026-09-15,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md

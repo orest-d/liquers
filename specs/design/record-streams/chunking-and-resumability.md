@@ -9,6 +9,13 @@ created: 2026-09-20
 ---
 # Chunk generation, unknown chunk counts, and store-backed resumability
 
+> **Read against the trait form (2026-09-24).** This analysis was written when a source was a struct
+> over a `SourceBacking` enum. Phase 2 now makes `RecordSource` a trait: the `Queried` backing is
+> `ManifestSource` — the same fields, `chunks`, `template`, `keys`, `stored`, `cached` — and
+> `Materialized` is `InMemorySource`. Every conclusion below holds; read "`SourceBacking::Queried`"
+> as `ManifestSource`. The third option this document weighs, a source trait, is now simply the
+> design: a SQL source may be its own `RecordSource` implementation.
+
 Written against a review observation: a SQL source *can* use `SourceBacking::Manifest` if the offset
 is a command argument — but the manifest as designed **requires knowing how many chunks there are**,
 which SQL normally does not, and `COUNT(*)` can be expensive. Plus two further ideas: generating
