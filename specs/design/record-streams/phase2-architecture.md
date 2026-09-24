@@ -42,7 +42,8 @@ for the trait revision.
 |---|---|---|---|---|---|---|---|
 | `NO-RECORD-STREAM-ABSTRACTION` | draft | P2 | This design *is* its resolution | n/a | no | Close in Phase 5 | keep P2 |
 | `CORE-VALUE-ENUM-OVERSIZED` | draft | P2 | `Value` is 704 bytes. Drove fields to `FieldValue` and the new variant behind `Arc` | no | no | Honoured throughout | keep P2 |
-| `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE` | draft | P2 | Filed 2026-09-24 from this design's HTTP section. `liquers-axum` cannot name `ExtValue`, so streaming a source over HTTP needs a core-level asynchronous serialization hook rather than an axum branch | no | **yes, for HTTP streaming only** | Design separately; until it lands a source is served as its manifest, or as data only when bounded | keep P2 |
+| `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE` | draft | P2 | Filed 2026-09-24 from this design's HTTP section. `liquers-axum` cannot name `ExtValue`, so streaming a source over HTTP needs a core-level asynchronous serialization hook rather than an axum branch | no | **yes, for streaming large exports only** | Design separately. Meanwhile a source's rows are serialized by `ns-rec/materialize`, bounded by `max_rows` | keep P2 |
+| `METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED` | draft | P3 | Every non-manifest source is stored as metadata only; reloading one goes through the fast-track's corrupted-data branch before re-deriving. Found while checking this design | no | no | Accept — the outcome is correct; the log is misleading | keep P3 |
 | `VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER` | draft | P2 | A multi-gigabyte record stream cannot be serialized through a `Vec<u8>`-returning writer. **The clearest motivating case yet filed for it**, now with a concrete consumer in `liquers-axum` | no | no | **Ad-hoc streaming in `liquers-axum` for this design**; issue updated with the HTTP motivation and the push-vs-pull finding | consider P1 when a second value type needs it |
 | `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` | draft | P2 | Front-matter fields have nowhere to live, so `attr.`-qualified columns have no source | no | no | Field qualification is designed to accept it as a pure upgrade | keep P2 |
 | `COMMAND-CONTEXT-PARAM-ORDER` | accepted | P2 | `context` must be last in record-producing commands | no | no | Honoured | keep P2 |
@@ -63,7 +64,7 @@ new *implementation* rather than a new data structure. The distinction between t
 
 | | Role | Shareable | Serializable | Consumed by use | Access |
 |---|---|---|---|---|---|
-| **`RecordSource`** | can be asked, repeatedly, for a stream | **yes** | when its implementation has a byte form — a manifest, or in-memory data | no | **async** |
+| **`RecordSource`** | can be asked, repeatedly, for a stream | **yes** | **only as a manifest** — its rows need `materialize` first | no | **async** |
 | **`RecordStream`** | one traversal, in flight | **no** — may be partly consumed | not itself; its *data* can be drained to a table | **yes** | **async** |
 | **`RecordView`** | a finite table with random access | **yes** | **yes** — materialized on the way out | no | **sync** |
 
@@ -82,7 +83,8 @@ Conversions, with their costs:
 | `RecordView` → `RecordBatch` | `materialize()` | a shallow clone for a batch; `Arc`s for a projection or row range over a batch; a copy of the selected rows for a filter; computation for a generator — §"Views" |
 | `RecordView` → `RecordSource` | `InMemorySource::new(vec![view])` | free |
 | `RecordSource` → `RecordStream` | `source.stream(resolver).await` | opening the first chunk |
-| `RecordStream` → `RecordView` | `collect_view(stream, max_rows).await` — drain and concatenate | the whole stream in memory; **refused past `max_rows`** |
+| `RecordSource` → `RecordView` | `source.materialize(resolver, max_rows).await`, or the `ns-rec/materialize` command | the whole source in memory; **refused past `max_rows`** |
+| `RecordStream` → `RecordView` | `stream.materialize(max_rows).await` — drain and concatenate | the same, for a traversal already open |
 
 A stream does **not** become a source: the information is gone.
 
@@ -153,10 +155,16 @@ pub trait RecordSource: Debug + MaybeSend + MaybeSync + 'static {
     /// A producer's report that it stopped early.
     fn truncated(&self) -> bool { false }
 
-    /// Bytes in `data_format`, when this source has a byte form. The default refuses with
-    /// `ErrorType::SerializationError`; the asset write path then stores metadata only and the
-    /// value is re-derived from its recipe (§"Serialization Strategy").
-    fn serialize(&self, data_format: &str) -> Result<Vec<u8>, Error> { /* refuse */ }
+    /// The manifest, when this source has one — the **only** byte form a source has.
+    /// `Some` for a `ManifestSource`; `None` for every other source, which is then stored as
+    /// metadata only and re-derived from its recipe (§"A source serializes only as its manifest").
+    fn manifest(&self) -> Option<&ManifestSpec> { None }
+
+    /// Every row, as one table: open a stream and drain it. Refused past `max_rows`, and when
+    /// the chunks' schemas differ. Provided; a source that can do better — one batch already in
+    /// memory, a database that returns a result set whole — overrides it.
+    fn materialize(self: Arc<Self>, resolver: Arc<dyn ChunkResolver>, max_rows: usize)
+        -> BoxFuture<'static, Result<Arc<RecordBatch>, Error>> { /* stream(), then materialize */ }
 }
 
 /// One traversal: a `futures::Stream` of views, plus the one thing a consumer needs **before**
@@ -180,10 +188,14 @@ pub fn record_stream<S>(inner: S, schema: Option<Arc<RecordSchema>>) -> BoxRecor
 where
     S: Stream<Item = Result<Arc<dyn RecordView>, Error>> + Unpin + MaybeSend + 'static;
 
-/// Drain a stream into one batch. `max_rows` is a limit rather than a promise: a source whose
-/// chunk count is unknown cannot say in advance whether it is small.
-pub async fn collect_view(stream: BoxRecordStream, max_rows: usize)
-    -> Result<Arc<RecordBatch>, Error>;
+/// `materialize` for a traversal already open. An extension trait rather than a method of
+/// `RecordStream`, because draining consumes the stream and it is held as a boxed trait object.
+/// `max_rows` is a limit rather than a promise: a source whose chunk count is unknown cannot
+/// say in advance whether it is small.
+pub trait RecordStreamExt {
+    fn materialize(self, max_rows: usize) -> BoxFuture<'static, Result<Arc<RecordBatch>, Error>>;
+}
+impl RecordStreamExt for BoxRecordStream { /* … */ }
 ```
 
 `RecordView` is defined in §"Views" below, with its implementations.
@@ -229,8 +241,8 @@ pub struct ManifestSpec {
     pub uniform_schema: Option<Arc<RecordSchema>>,
 }
 
-/// Views already in memory. What a view becomes when a source is wanted, and what a
-/// materialized result is when it spans several batches. Serializes as data.
+/// Views already in memory — what a view becomes when a source is wanted. It has no byte
+/// form: `materialize` it (free when it holds one batch) to serialize its rows.
 #[derive(Debug, Clone)]
 pub struct InMemorySource {
     views: Vec<Arc<dyn RecordView>>,
@@ -265,9 +277,63 @@ pub enum ChunkList<'a> {
 }
 ```
 
-**Its data is still serializable, which is the distinction Phase 1 answer 2 drew.** Draining a stream
-to csv or parquet is a perfectly good operation — it is the *handle* that cannot be stored or shared,
-not the rows. That is what `records_to_csv` does, and why it consumes its input.
+### A source serializes only as its manifest; its rows need `materialize`
+
+**The rule.** A `RecordSource` has one byte form, its **manifest**, and only a `ManifestSource` has
+one. Every other source — in memory, filtering, mapping — has none. To get a source's **rows** as
+bytes, materialize it into a `RecordView` and serialize the view:
+
+```
+-R/data/sales/daily.manifest.yaml/-/ns-rec/materialize/daily.csv
+```
+
+`materialize` reads the chunks — asynchronously, inside a command — and returns a `RecordBatch`; the
+trailing `daily.csv` selects the format, and the batch serializes synchronously through the ordinary
+path. The same holds for a stream, which is never a value: `stream.materialize(max_rows)` in Rust.
+
+**Why this and not asynchronous serialization.** Liquers has two stages of different nature.
+*Evaluation* is asynchronous — commands await, open streams, evaluate queries. *Serialization* is
+synchronous — `DefaultValueSerializer::as_bytes` returns a `Vec<u8>`. Producing a source's rows needs
+awaits, so it cannot happen in the second stage. Making serialization asynchronous is a change across
+core, the asset manager, the store and `liquers-axum`
+(`VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`). Moving the await into the first stage, as a
+command, needs none of it: that stage already knows how to await.
+
+| What it gets right | |
+|---|---|
+| **Nothing new outside `liquers-lib`** | `/q/…/ns-rec/materialize/daily.csv` is served by the existing `BinaryResponse` path, and stored under a key by the existing persistence path |
+| **The cost is written in the query** | Materializing is a step a person writes, like `collect()` in a lazy DataFrame API — never something serialization does behind the caller's back |
+| **The result is an ordinary asset** | Cached, stored when keyed, and — read through a `ContextResolver` — dependent on its chunks, so it expires when one does |
+| **It settles when a source becomes data on disk** | Only when someone writes `materialize`. The persistence step never turns a manifest into a table on its own, so `stored: false` keeps meaning what it says |
+| **One verb at every level** | `RecordView::materialize` (sync), `RecordSource::materialize` and `RecordStreamExt::materialize` (async), and the command — which on a view drops a pinned base or freezes a computed view |
+
+**What it costs, stated:**
+
+1. **Memory.** The whole table is resident, then its encoding, then the asset's cached copy of that
+   encoding (`SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY`) — about three times the data at
+   the moment of serving. Bounded by `max_rows`, **1 000 000 by default** and raised explicitly
+   (`materialize-5000000`). There is deliberately no "unlimited" value: an export too large to hold
+   waits for streaming serialization rather than taking a server down from an innocent URL.
+2. **Latency.** Nothing is sent until every chunk has been read.
+3. **A non-uniform source cannot be materialized.** One table has one schema, so `materialize` fails,
+   naming the first differing field. NDJSON of a non-uniform source — which a streaming encoder handles
+   naturally, each row carrying its own keys — is therefore **not available** on this path; exporting
+   chunk by chunk is (`<chunk query>/data.ndjson`).
+4. **It does not solve large exports.** It is right for bounded tables; the multi-gigabyte export
+   still needs `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`.
+
+**The query form should outlive the workaround.** A materialization immediately serialized —
+`…/ns-rec/materialize/daily.csv` — is precisely the case a streaming encoder can serve without
+building the table. Once streaming serialization exists, an implementation may serve that query as a
+stream **without changing the URL or its meaning**. Recorded as the intended path, not promised.
+
+**Getting a source from a manifest file.** A hand-written `*.manifest.yaml` loads as a plain YAML
+document, not a source: a store infers a *data format* from an extension, never a *type*.
+`ns-rec/source` makes the conversion explicit, taking the folder of the key it was loaded from as the
+manifest's `cwd` (`manifest-format.md` §3). And every `ns-rec` command that needs a source applies the
+same conversion to an input whose metadata key ends in `.manifest.yaml`, which is why the query above
+needs no extra step. A manifest written *by Liquers* carries `type_identifier: RecordSource` and
+deserializes directly as a `ManifestSource`.
 
 ### `ChunkResolver` — how a source reaches evaluation
 
@@ -557,7 +623,7 @@ awaited. So:
 
 - **An asynchronous transformation is a source** wrapping a source or a view. Its stream maps each
   view with `then`, and it is written with `record_stream`. Evaluating a query per row is this case.
-- **View → source is free** (`InMemorySource`). **Source → view needs an await** (`collect_view`),
+- **View → source is free** (`InMemorySource`). **Source → view needs an await** (`materialize`),
   and argument binding is synchronous, so it **cannot happen automatically**. A command that wants a
   view and receives a source awaits the collection itself. `rec_id` over a source works this way: it
   walks the source and returns a materialized one-row batch.
@@ -642,7 +708,7 @@ hard ones:
 |---|---|
 | `Clone` | fine — clones the `Arc` |
 | `PartialEq` | not derivable for a trait object |
-| `Serialize` | not derivable; some implementations have no byte form at all |
+| `Serialize` | not derivable; most sources have no byte form at all |
 | **`Deserialize`** | **impossible in principle** — bytes cannot say which implementation to rebuild, and a generator cannot be reconstructed from bytes at any amount of effort |
 
 `untagged` makes a half-measure worse, since deserialization tries each variant in turn.
@@ -660,7 +726,7 @@ pub enum ExtValue {
     #[cfg(feature = "records")]
     RecordView { value: Arc<dyn crate::records::RecordView> },
     /// Something that can be asked, repeatedly, for a stream. Shareable, never consumed by use;
-    /// serializable when its implementation has a byte form.
+    /// serializable only as a manifest.
     #[cfg(feature = "records")]
     RecordSource { value: Arc<dyn crate::records::RecordSource> },
 }
@@ -698,21 +764,23 @@ genuinely should not be reused, which is a separate question from streaming.
 |---|---|
 | `RecordView` | `json`, `ndjson`, `csv`, later `parquet` and `arrow` — through `materialize()` when the view is not already a batch |
 | `RecordSource` — `ManifestSource` | `yaml`, `json` — the manifest |
-| `RecordSource` — `InMemorySource` | `ndjson`, `csv` — it holds the views, so it serializes as data |
-| `RecordSource` — any other (a filtering or mapping wrapper) | **refused** — `SerializationError` |
+| `RecordSource` — any other: in memory, filtering, mapping | **refused** — `SerializationError`. Its rows are reached through `materialize` |
 
 **A refusal is not a failure.** The asset write path already handles a value with no byte form: it
 stores the metadata only ("Non-serializable data – store metadata only", `assets.rs`, step 8 of the
 produce path), and the value is re-derived from its recipe when next needed. A wrapped source is
-cheap to re-derive — it is its base plus a function — so nothing is lost. Where an error *is*
+cheap to re-derive — it is its base plus a function — so nothing is lost. (The reload reaches the
+recipe through the fast-track's *corrupted-data* branch, which tries to deserialize the empty bytes
+first and logs a corruption — correct in outcome, misleading in the log, and filed as
+`METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED`.) Where an error *is*
 constructed it uses a **typed constructor**, `Error::from_error(ErrorType::SerializationError, …)` as
 the neighbouring `UIElement` arm does, never `Error::new`, which `CLAUDE.md` forbids — worth stating
 because `value.rs:956` and `:968` reach for `Error::new` for serialization errors today.
 
 **Deserialization rebuilds the reference implementation.** A `RecordView` identifier deserializes to
-a `RecordBatch`; a `RecordSource` identifier to a `ManifestSource` or an `InMemorySource`, told apart
-by format — `yaml` and `json` are the manifest, `ndjson` and `csv` are data. So a stored view reads back materialized, under the same identifier — the one-variant
-decision is what makes that a non-event.
+a `RecordBatch`; a `RecordSource` identifier to a `ManifestSource`, from `yaml` or `json` — the only
+byte form a source has. So a stored view reads back materialized, under the same identifier — the
+one-variant decision is what makes that a non-event.
 
 **The feature gate.** Both variants are `#[cfg(feature = "records")]`, so every exhaustive `match` on
 `ExtValue` gains a gated arm — see §"Feature-gating discipline". `liquers-web` depends on
@@ -1397,16 +1465,16 @@ while making the promise inspectable.
 
 Non-uniformity is legal with consequences rather than an error:
 
-| Operation | Non-uniform stream |
+| Operation | Non-uniform source |
 |---|---|
-| iterate, filter per chunk | fine |
-| serialize as NDJSON | fine — each row carries its own keys |
-| `concat` or `collect_view` into one batch | **fails**, naming the first differing field |
-| serialize as one CSV | **fails** — there is no single header |
+| iterate, filter per view | fine |
+| `materialize` into one table | **fails**, naming the first differing field |
+| serialize as data (CSV, NDJSON) | **not available** — serialization goes through `materialize`. Export chunk by chunk instead. Streaming serialization (`VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`) would restore NDJSON for this case, each row carrying its own keys |
+| serialize as a manifest | fine — the manifest does not care |
 
-The motivating case is "every CSV file in a folder becomes one chunk", which is a `Manifest` with one
+The motivating case is "every CSV file in a folder becomes one chunk", which is a manifest with one
 query per file and no guarantee the files agree. That is useful rather than illegal: it works for
-everything except the two operations that genuinely need one schema.
+iteration, filtering and per-chunk use, and fails only where one schema is genuinely required.
 
 ### ChunkOrigin — identity, description and **retrieval**
 
@@ -1543,8 +1611,9 @@ rows — not of any one consumer.
 | Trait | Implemented by | Note |
 |---|---|---|
 | `RecordView` | `RecordBatch`, `ColumnsView`, `RowRangeView`, `RowIndexView`, `DerivedColumnView`, `AppendedColumnsView`, `RowFnView<F>` | §"Views". `RecordBatch` overrides `column_range`, `materialize` and `as_batch`; the others override `value` only where a direct read is cheaper than a one-row range |
-| `RecordSource` | `ManifestSource`, `InMemorySource`, and wrappers — a filtering source and an asynchronously mapping one | Only the first two have a byte form |
+| `RecordSource` | `ManifestSource`, `InMemorySource`, and wrappers — a filtering source and an asynchronously mapping one | Only `ManifestSource` has a byte form, its manifest. `InMemorySource` overrides `materialize` (free for one batch) |
 | `RecordStream` | the stream `ManifestSource::stream` returns, and the `record_stream` adapter | Nothing else needs one: a combinator chain is re-wrapped |
+| `RecordStreamExt` | `BoxRecordStream` | `materialize(max_rows)` |
 | `ChunkResolver` | `ContextResolver<E>`, `EnvResolver<E>` | For `E: Environment<Value = liquers_lib::value::Value>` |
 | `Stream` | `record_stream`'s adapter | By delegation; `S: Unpin` keeps it free of pin projection |
 | `ExtValueInterface` conversions | `ExtValue::RecordView`, `ExtValue::RecordSource` | `from_*`/`as_*` arms, per `TYPE_SYSTEM_GUIDE.md` |
@@ -1666,7 +1735,7 @@ with `records` off is byte-for-byte the build that exists today.
 | Crate | File | Change |
 |---|---|---|
 | `liquers-lib` | `src/records/buffer.rs` (new) | `AlignedBuffer`, `Buffer<T>`, `Bitmap` — the Arrow-layout primitives; the only place `bytemuck` is used |
-| `liquers-lib` | `src/records/mod.rs` (new) | The traits `RecordView`, `RecordSource`, `RecordStream`, `ChunkResolver`; `BoxRecordStream`, `record_stream`, `collect_view`; `FieldValue`, `RecordSchema`, `FieldSchema`, `FieldType`, `Column` and its kernels, `RecordBatch`, `ChunkOrigin`, `LocatorRule`, `ChunkKeys`, `ChunkId`, `ChunkList`, `ChunkDescriptor` |
+| `liquers-lib` | `src/records/mod.rs` (new) | The traits `RecordView`, `RecordSource`, `RecordStream`, `ChunkResolver`; `BoxRecordStream`, `record_stream`, `RecordStreamExt`; `FieldValue`, `RecordSchema`, `FieldSchema`, `FieldType`, `Column` and its kernels, `RecordBatch`, `ChunkOrigin`, `LocatorRule`, `ChunkKeys`, `ChunkId`, `ChunkList`, `ChunkDescriptor` |
 | `liquers-lib` | `src/records/views.rs` (new) | The view implementations, the `impl dyn RecordView` constructors, `ColumnBuilder`, `RowFnView` |
 | `liquers-lib` | `src/records/sources.rs` (new) | `ManifestSource`, `InMemorySource`, the wrapping sources, `ContextResolver`, `EnvResolver` |
 | `liquers-lib` | `src/records/commands.rs` (new) | The `ns-rec` command set |
@@ -1757,6 +1826,10 @@ self-contained enough to lift out.
 > check before a CSV header, NDJSON's in-band error, backpressure — stands; it is delivered by a
 > core-level asynchronous serialization hook that a record source implements, with nothing
 > record-specific in `liquers-axum`. That issue inventories the handlers the pattern changes.
+>
+> **Until then, a source is served over HTTP by materializing it** — `/q/…/ns-rec/materialize/daily.csv`
+> goes through the ordinary `BinaryResponse` path, with no change to `liquers-axum`, bounded by
+> `max_rows`. A plain `/q/…` of a manifest-backed source returns its manifest.
 
 Serializing a record source to CSV or NDJSON over HTTP must not build the
 whole document in memory — which is the entire point of the chunked design, and would otherwise be
@@ -1895,8 +1968,8 @@ carries a `## History` row and a `reviewed:` date from its first commit.
 | **Memory layout** | The columnar form, `Column` variants, `Bitmap`'s three uses, `AlignedBuffer` and 64-byte alignment. **Cites [COLUMNAR] per claim** |
 | **Arrow interoperability** | The two-level model — data as `&[T]`, structure rebuilt as `repr(C)` — the exact type/format mapping table, the three export routes and their real costs, and the three places the layout is not 1:1. **Cites [COLUMNAR] and [CDATA]**; states that format strings are verified against the spec, not this document |
 | **Browser sharing** | Hazards A and B, the identity check, the refresh rule, read-only views, the handle lifetime, and `columnCopy` as the fallback |
-| **Methods** | Every public method with its contract and failure mode — the three traits, the `impl dyn RecordView` constructors, `Column`'s kernels, `RecordSchema::{new, id_field, source_field, text_fields, index_of, payload_fields}`, `RecordBatch::{new, concat}`, `Bitmap::{get, and, or, not, count_ones, iter_ones}`, `ChunkOrigin::locator_query`, `record_stream`, `collect_view` |
-| **Serialization** | What each value writes in each format; that a manifest source writes its query list, an in-memory one writes data, and a wrapping one writes nothing and is re-derived from its recipe |
+| **Methods** | Every public method with its contract and failure mode — the three traits, the `impl dyn RecordView` constructors, `Column`'s kernels, `RecordSchema::{new, id_field, source_field, text_fields, index_of, payload_fields}`, `RecordBatch::{new, concat}`, `Bitmap::{get, and, or, not, count_ones, iter_ones}`, `ChunkOrigin::locator_query`, `record_stream`, the three `materialize`s |
+| **Serialization** | What each value writes in each format; that a source writes only its manifest, and every other source nothing, re-derived from its recipe; that rows reach bytes through `materialize`, with its limit and its refusal of non-uniform sources |
 | **Limits** | The Arrow subset supported and what is excluded; uniformity not promised and the two operations that need it; the feature gate |
 
 Links out to `VALUE_TYPE_SYSTEM.md`, `STORE_SEMANTICS.md` for the key semantics it inherits, and the
@@ -1955,14 +2028,21 @@ read alike.
 | `select_columns` | `fn select_columns(state, columns: Vec<String> multiple) -> result` | a view | Projection. Keeps the `Id` and `Source` columns whether named or not |
 | `head` | `fn head(state, n: i64 = 5) -> result` | a materialized batch | The first rows, for inspection |
 | `slice` | `fn slice(state, offset: i64, length: i64) -> result` | a view | A row range |
-| `records_to_csv` | `fn records_to_csv(state) -> result` | text | Serialize a view as CSV |
-| `records_to_ndjson` | `fn records_to_ndjson(state) -> result` | text | Serialize a view as NDJSON |
+| `source` | `fn source(state) -> result` | a `ManifestSource` | A manifest document, loaded from `*.manifest.yaml`, as a source; the key's folder is its `cwd` |
+| `materialize` | `async fn materialize(state, max_rows: i64 = 1000000, context) -> result` | a `RecordBatch` | **The one step from a source to a table**, and so to bytes: `…/ns-rec/materialize/daily.csv`. Refused past `max_rows` and for a non-uniform source. On a view, `materialize()` — freezes it and releases a pinned base |
 | `records_schema` | `fn records_schema(state) -> result` | a value | The schema — how an agent discovers field names |
 
-Namespace `rec`, written `ns-rec` in a query. `rec_id` is `async` and takes `context`, **last**, because
-over a source it must open a stream with a `ContextResolver`; the others take a view. A command
-receiving a source where it needs a view refuses rather than collecting silently — `rec_id` is the
-one that walks a source, because that is its purpose. Producers (`ns-search/records`, a CSV
+Namespace `rec`, written `ns-rec` in a query. `rec_id` and `materialize` are `async` and take
+`context`, **last**, because over a source they open a stream with a `ContextResolver` — which also
+makes the chunks dependencies of the result. The others take a view. A command receiving a source
+where it needs a view refuses rather than collecting silently, and its error names
+`ns-rec/materialize` — `rec_id` and `materialize` are the ones that walk a source, because that is
+their purpose. Every command that takes a source also accepts a manifest document loaded from a key
+ending in `.manifest.yaml`, converting it as `source` does.
+
+**There are no `records_to_csv` / `records_to_ndjson` commands.** Serialization is chosen the Liquers
+way, by the filename that ends the query — `…/ns-rec/materialize/daily.csv`, `…/daily.ndjson` — so a
+format-per-command set would be a second vocabulary for the same thing. Producers (`ns-search/records`, a CSV
 projection, a parquet projection) are owned by the designs that need them.
 
 **Which commands materialize** follows §"A small view keeps its whole base alive": those whose result
@@ -1986,15 +2066,16 @@ type, no `unwrap`/`expect`.
 | A schema without exactly one `Id` field | `Error::general_error` from `RecordSchema::new` |
 | An `Id` field that is not `Exact`-indexed and stored | `Error::general_error` — it could not be reconciled by delete-by-term |
 | Column count, length or type disagrees with the schema in `RecordBatch::new` | `Error::general_error` |
-| `concat` or `collect_view` of batches with different schemas | `Error::general_error` naming the first differing field |
+| `concat` or `materialize` of batches with different schemas | `Error::general_error` naming the first differing field |
 | A mask whose length differs from the view, or an index past its end | `Error::general_error` |
 | `column_range` or `value` out of range | `Error::general_error` — never a panic |
 | `select_columns` naming a field the schema does not declare | `Error::general_error` naming the field and listing the available ones |
 | `ColumnBuilder::push` of a value of the wrong type | `Error::general_error` |
 | A scalar read of a view that is not one row by one payload column | `Error::conversion_error`, naming the row count and the payload columns |
-| `collect_view` passing `max_rows` | `Error::general_error` stating the limit — the stream is dropped, not truncated silently |
-| A view command receiving a source | `Error::conversion_error` |
-| `serialize` on a source with no byte form | `ErrorType::SerializationError` via `Error::from_error` — the write path stores metadata only |
+| `materialize` passing `max_rows` | `Error::general_error` stating the limit and how to raise it — the stream is dropped, not truncated silently |
+| A view command receiving a source | `Error::conversion_error`, naming `ns-rec/materialize` |
+| `source` given a document that is not a manifest, or `stored: false, cached: false` | `Error::general_error` from `TryFrom<ManifestSpec>` |
+| `as_bytes` on a source with no manifest | `ErrorType::SerializationError` via `Error::from_error` — the write path stores metadata only |
 | State is not an `ExtValue::RecordView` or `ExtValue::RecordSource` | `Error::conversion_error` |
 | A field name no schema declares | Not an error — a `Warning` log entry on the evaluation's `Metadata` |
 | Unreadable entry while producing records | Skipped, counted in an `Info` log entry |
@@ -2005,8 +2086,9 @@ type, no `unwrap`/`expect`.
 |---|---|---|
 | Every `RecordView` method and constructor, `Column` kernels | sync | In memory. Asynchronous work belongs in a source — §"Views are synchronous" |
 | Scalar reading of a view | sync | Argument binding (`TryFrom<Value>`) is synchronous |
-| `RecordSource::stream`, `describe_chunk`; `collect_view` | async | Evaluation and store access through `ChunkResolver` |
-| `RecordSource::chunks`, `schema`, `serialize` | sync | What the source already holds |
+| `RecordSource::stream`, `describe_chunk`, `materialize`; `RecordStreamExt::materialize` | async | Evaluation and store access through `ChunkResolver` |
+| `RecordSource::chunks`, `schema`, `manifest` | sync | What the source already holds |
+| Serializing any value | sync | Which is why a source's rows go through `materialize` — §"A source serializes only as its manifest" |
 | `Bitmap` operations | sync | Pure |
 | Schema construction and validation | sync | Pure |
 | Record-producing commands | async | Store access |
@@ -2027,8 +2109,7 @@ extension" — with three outcomes:
 |---|---|---|
 | a `RecordView` of any kind | its materialized batch, in `json` / `ndjson` / `csv` | a `RecordBatch` — same identifier |
 | a `ManifestSource` | the manifest, `yaml` / `json` | a `ManifestSource` |
-| an `InMemorySource` | its data, `ndjson` / `csv` | an `InMemorySource` of one batch |
-| any other source | **nothing** — metadata only | re-derived from its recipe |
+| any other source | **nothing** — metadata only | re-derived from its recipe; its rows reach bytes through `materialize` |
 
 A stream is never serialized and never crosses a query boundary. A `ManifestSource` serializes as a
 **manifest**, whose format —
@@ -2162,6 +2243,12 @@ as the fourth step of adding a value type; `context` last in a command signature
 12. **Equivalence of overrides.** Where `RecordBatch` or a view overrides a provided method (`column`,
     `value`, `materialize`), its answer must equal the default's. Phase 3 should state this as a
     property test over each built-in view, so the two paths cannot drift apart unnoticed.
+13. **`materialize`'s default limit.** 1 000 000 rows is a guess. A byte budget is the honest measure
+    but needs a per-column size estimate; a row count is what can be checked while draining.
+14. **Materializing a non-uniform source.** Refused today. A *union* schema — every field of every
+    chunk, missing ones null, as polars' diagonal concat does — would make it possible, at the cost
+    of silently widening every chunk's schema. Worth adding as an explicit option if the
+    folder-of-CSVs case needs a single table.
 
 **Settled, and recorded so they are not reopened without new information:**
 
@@ -2177,6 +2264,7 @@ as the fourth step of adding a value type; `context` last in a command signature
 | Whether views cache | No. The consumer's `Column` is the cache; `materialize()` is the explicit one |
 | Merging stacked views; pushdown | Out of scope for the generic mechanism |
 | Asynchronous transformations | Sources, never views — views stay synchronous because scalar reading and argument binding are |
+| How a source becomes bytes | As its manifest only. Its rows go through `materialize`, a command, because serialization is synchronous and evaluation is not |
 | How a source reaches evaluation | `ChunkResolver`, an object-safe trait; `ContextResolver` records dependencies, `EnvResolver` does not |
 | Whether a `ChunkedRecordSource` trait is needed | No — `chunks()` is the partition as data. A SQL source is simply another `RecordSource` implementation |
 | Whether a `RecordSet` type survives | No — a view or a source, not a third name |
@@ -2221,6 +2309,7 @@ information — each is a position that was argued for and then abandoned on evi
 | 2026-09-24 | **Scalar reading**: a one-row, one-payload-column view reads as its cell would as a base `Value`. `select_columns` keeps key columns. Commands bounded by a caller's count materialize | The user's requirement that pointing at a cell yield a value; a tiny view must not pin a large base |
 | 2026-09-24 | **Asynchronous work is a source.** Views stay synchronous; source → view is an explicit await | Scalar reading and argument binding are synchronous |
 | 2026-09-24 | `liquers-core` **untouched** — the `BoxStream` alias removed | `MaybeSend` as a supertrait gives the trait object the right `Send`-ness on each target |
+| 2026-09-24 | **A source serializes only as its manifest; its rows need `materialize`** — an async method on `RecordSource`, an extension on `BoxRecordStream`, and the `ns-rec/materialize` command, bounded by `max_rows`. `ns-rec/source` added; `records_to_csv` / `records_to_ndjson` removed; `InMemorySource` lost its byte form; `collect_view` renamed | Producing a source's rows needs awaits and serialization is synchronous. Moving the await into a command needs no change outside `liquers-lib`, and settles when a source is written as data: only when asked |
 | 2026-09-24 | HTTP streaming of a source moved from an axum branch to `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE` | `liquers-axum` does not depend on `liquers-lib` and is generic over `E: Environment`, so it cannot name `ExtValue::RecordSource` |
 | 2026-09-24 | `records` enables `serde/rc`; `ManifestSource` serializes through `ManifestSpec`; closure-holding views are generic with a hand-written `Debug` | A Rust review of the trait form: `Arc` fields fail to derive `Serialize` in a minimal build; `chunks()` could not borrow ids from a `Vec<Query>`; `dyn Fn + MaybeSend` is E0225 |
 

@@ -67,7 +67,7 @@ the repair the search design carries.
 ### The query
 
 ```
--R-dir/data/reports/-/ns-rec/file_records/ns-rec/records_to_csv/report.csv
+-R-dir/data/reports/-/ns-rec/file_records/report.csv
 ```
 
 ## Example 2: A manifest-driven stream
@@ -140,8 +140,9 @@ constructors throughout; `Error::new` appears nowhere.
 
 ### 4. Serialization
 
-`RecordView` writes json / ndjson / csv; a `ManifestSource` writes its manifest. A non-uniform stream
-serializes as NDJSON and **fails** as a single CSV, naming the reason — there is no single header.
+`RecordView` writes json / ndjson / csv; a source writes **only its manifest**, and its rows reach
+bytes through `ns-rec/materialize`. A non-uniform source **cannot be materialized** — `materialize`
+fails, naming the first differing field — so its rows are exported chunk by chunk.
 
 ### 5. Feature gating
 
@@ -176,6 +177,7 @@ test *asserts*; each alters how it gets its value.
 | **Renames** | `RecordChunk` → `RecordView` (variant, identifier, `TypeInfo`); the JS handle class `RecordChunk` → `RecordBatch` | `test_end_to_end_record_chunk_serialization`, `test_record_chunk_type_info_registered`, `test_type_descriptions_match_identifiers`, `test_record_chunk_{csv,json,ndjson}_serialization`, `test_records_feature_gated`, `test_per_chunk_arguments_without_cache_rejected`, `records04`, `records05`, `records06`, and scenario 1's helpers |
 | **Batch operations become view constructors** | `RecordBatch::{select, filter, slice, value, with_columns}` → `select_columns`, `filter`, `slice`, `value`, `with_column`/`with_columns` on `Arc<dyn RecordView>`. Results are views, compared through `materialize()`. `select` by index becomes `select_columns` by name, **and must now assert that the `Id` column is kept** | `batch_select_zero_copy_projection`, `batch_filter_by_mask`, `batch_filter_length_mismatch_errors`, `batch_slice_preserves_arc_sharing`, `batch_value_reads_single_cell`, `column_null_distinct_from_empty_string`, `batch_with_columns_appends_derived_fields`, scenario 1's filtering and `records_to_csv` |
 | **Source construction** | `RecordSource { backing: SourceBacking::… }` → `ManifestSource::new` / `InMemorySource::new`; the `uniform_schema` field → the `schema()` method | `test_record_source_reopenable`, `test_record_source_manifest_round_trip`, `test_non_uniform_chunks_ndjson_succeeds`, `test_non_uniform_chunks_single_csv_fails`, `test_manifest_template_unbounded`, `test_manifest_yaml_deserialization`, `test_chunk_descriptor_serialization`, `records07` |
+| **Serializing a source** | A source serializes **only as a manifest**; its rows go through `materialize`. `records_to_csv` / `records_to_ndjson` are gone — the trailing filename chooses the format. `test_non_uniform_chunks_ndjson_succeeds` **inverts**: `materialize` of a non-uniform source must fail naming the first differing field, and per-chunk NDJSON succeeds | `test_non_uniform_chunks_ndjson_succeeds`, `test_non_uniform_chunks_single_csv_fails`, `test_end_to_end_record_chunk_serialization`, scenario 1's `records_to_csv` |
 | **Opening a stream** | `source.stream(&context)` → `Arc::clone(&source).stream(resolver)`, with a `ContextResolver` inside a command and an `EnvResolver` outside one. Items are `Arc<dyn RecordView>`, so a test comparing rows materializes them | `test_record_source_reopenable`, `test_streaming_bounded_memory`, `records08`, scenario 2's consumption code |
 
 Tests comparing two `RecordBatch`es directly — `batch_concat_same_schema`, `test_record_batch_builder`,
@@ -194,7 +196,10 @@ Tests comparing two `RecordBatch`es directly — `batch_concat_same_schema`, `te
 | `larger_view_refuses_scalar` | Two rows, or two payload columns, refuse with an error naming the shape |
 | `single_cell_view_binds_to_linked_argument` | Through a recipe `links:` entry, into an `f64` argument. **Needs `EXTENDED-VALUES-CANNOT-BIND-TO-SCALAR-ARGUMENTS` fixed** |
 | `tiny_results_release_their_base` | `rec_id`, `row` and `head` return a batch (`as_batch().is_some()`), and dropping the base frees it |
-| `collect_view_refuses_past_max_rows` | The limit is an error, not a silent truncation |
+| `materialize_refuses_past_max_rows` | The limit is an error naming how to raise it, not a silent truncation |
+| `materialize_command_serializes_as_csv` | `…/daily.manifest.yaml/-/ns-rec/materialize/daily.csv` evaluates to CSV bytes through the ordinary path; the chunks are dependencies of the result |
+| `source_serializes_only_as_manifest` | A `ManifestSource` writes and reads back its manifest; an `InMemorySource` and a wrapping source refuse `as_bytes` |
+| `manifest_document_converts_to_source` | A `*.manifest.yaml` loaded as YAML becomes a `ManifestSource` through `ns-rec/source`, and implicitly for `materialize`, with the key's folder as `cwd` |
 | `context_resolver_records_dependencies` | Chunks read through a `ContextResolver` become dependencies of the asset; through an `EnvResolver` they do not |
 | `stream_outlives_its_source_handle` | A stream stays valid after the caller's `Arc` of the source is dropped — the `'static` property axum needs |
 | `wrapping_source_is_stored_as_metadata_only` | A filtering source refuses `serialize`, and the asset write path stores metadata without failing |

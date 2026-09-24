@@ -465,12 +465,20 @@ streams over its own recipes — which is the version of this idea that would no
 
 ## 6. Reading a manifest as a record source
 
-Two forms, both of which validate at plan level today:
+A manifest file loads as a plain YAML document — a store infers a data format from an extension,
+never a type — so it becomes a source through `ns-rec/source`, which takes the folder of the key it
+was loaded from as the `cwd` (§3). Every `ns-rec` command that needs a source applies the same
+conversion to an input loaded from a key ending in `.manifest.yaml`, so the step can be left out:
 
 ```
--R/data/sales/daily.manifest.yaml/-/records   the manifest as a value, converted to a source
--R/data/sales/daily_0010.csv                  a chunk, once a provider serves them as assets
+-R/data/sales/daily.manifest.yaml/-/ns-rec/source                   the manifest as a source
+-R/data/sales/daily.manifest.yaml/-/ns-rec/materialize/daily.csv    every row, as one CSV
+-R/data/sales/daily_0010.csv                                        a chunk, once a provider serves them as assets
 ```
+
+A source's **only** byte form is its manifest; its rows reach bytes through `materialize`, bounded by
+`max_rows` and refused for a non-uniform stream (Phase 2, "A source serializes only as its
+manifest").
 
 **A folder denotes a stream only when unambiguous.** With exactly one `*.manifest.yaml` a folder may
 stand for it; with several, the manifest must be named. A command taking a folder should fail with an

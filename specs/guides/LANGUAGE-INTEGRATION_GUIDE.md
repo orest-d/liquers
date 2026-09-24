@@ -427,6 +427,7 @@ kinds of object:
 | a `RecordBatch` | Arrow hand-off, or lent buffers | zero-copy |
 | any other view — a projection, a filter, a derived or generated table | a wrapper over the trait: `len`, `schema`, `column`, `value`, the view constructors | nothing until read; each read produces a column |
 | any view, when Arrow is wanted | `materialize()` first, then as a batch | free for a batch; a copy of the selected rows or a computation otherwise |
+| a source | **as its manifest only**; its rows through `materialize`, which is asynchronous and bounded | the whole source in memory |
 
 A single-cell view reads as a scalar (`record-streams` Phase 2, "A view as a value"), so a wrapper
 should expose that as the *language*'s own scalar rather than as a one-by-one table.
@@ -452,7 +453,7 @@ checked for completeness rather than assembled by inspection:
 | **Enums — identity** | `ChunkId` — `Query(..)` for an unkeyed stream, `Key(..)` for a keyed one |
 | **Structs — memory** | `Bitmap`, `AlignedBuffer`, `Buffer<T>` |
 | **Enums** | `Column`, `FieldValue`, `FieldType`, `KeyRole`, `IndexKind`, `Analyzer`, `VectorMetric`, `CompareOp`, `ChunkList<'a>` |
-| **Type alias and functions** | `BoxRecordStream`; `record_stream`, `collect_view` |
+| **Type alias, functions, extension trait** | `BoxRecordStream`; `record_stream`; `RecordStreamExt` (`materialize`) |
 
 A minimal binding maps the two values as wrappers over their traits, `RecordBatch` for Arrow,
 `RecordSchema`/`FieldSchema`/`FieldType`, `FieldValue` and `ChunkOrigin`. The individual view
@@ -485,8 +486,8 @@ an async model cannot await. Three routes, in the order an integration should pr
 2. **Block on the stream.** Drive the future to completion on the host runtime and expose
    `next_batch()`. Correct natively; **impossible in Wasm**, where blocking is not available — so an
    integration offering it must say where it does not work, and `RUNTIME`'s portability rules apply.
-3. **Materialize, then iterate.** Collect the whole stream (`collect_view`, which takes a
-   `max_rows` limit) and hand back one view. Simple, and it **defeats the purpose of the design** for
+3. **Materialize, then iterate.** Collect the whole source into one view (`RecordSource::materialize`,
+   or the `ns-rec/materialize` command, both taking a `max_rows` limit) and hand it back. Simple, and it **defeats the purpose of the design** for
    anything large. Acceptable only with a documented size bound — which `max_rows` enforces.
 
 Route 1 works for a `ChunkList::Known`. For `ChunkList::Unbounded` the chunk list is not enumerable
@@ -2772,6 +2773,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-24 | RECORDS: a source's only byte form is its manifest, and its rows reach bytes through `materialize`, so a *language* wanting a source's data as CSV or Arrow materializes it first (route 3 named accordingly); `collect_view` renamed in the inventory. | `design/record-streams/` |
 | 2026-09-24 | RECORDS revised for the trait form of `design/record-streams/`: values hold `RecordView` and `RecordSource` trait objects; a `RecordBatch` crosses as Arrow and any other view as a wrapper or materialized; a *language* may implement the traits, with a `RecordView` kept synchronous; type inventory rewritten; design question 5 and tests `RECORDS10`–`RECORDS11` added. | `design/record-streams/` |
 | 2026-09-20 | VALUE gains a RECORDS subsection: the Arrow-hand-off versus wrappers decision with a recommended default, the full type inventory of `design/record-streams/`, the routes for traversing a stream from a *language* with no async model, and tests `RECORDS01`–`RECORDS09`. | `design/record-streams/` |
 | 2026-09-20 | VALUE gains a third bridging category for values whose *buffers* are lent to the language in place, with its four obligations — reads only, views invalidated by host-heap growth, handle-owned lifetime, and a copy that is always available. RECIPE's “keep `contains`, `recipe`, and listing mutually consistent” is corrected: a generative provider legitimately has addressable ⊋ listed, and must override `contains` rather than inherit a default that enumerates. `RECIPE02` restated accordingly. | `design/record-streams/` |

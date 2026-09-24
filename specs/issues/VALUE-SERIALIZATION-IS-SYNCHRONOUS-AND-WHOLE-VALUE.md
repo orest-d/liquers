@@ -229,3 +229,23 @@ large lazy structures, possibly requiring `openbin` when storing". Verified at H
 this record: the dependency list of `liquers-axum`, every serialization call site in its handlers,
 the whole-`Vec` signatures of `DefaultValueSerializer`, `AssetRef` and `AsyncStore`, and the
 `try_into_bytes` defect in the assets API.
+
+## Update 2026-09-24 — the first consumer has an interim path
+
+`record-streams` Phase 2 no longer waits for this. A `RecordSource` serializes **only as its
+manifest**; its rows reach bytes through an explicit, asynchronous `ns-rec/materialize` command
+that returns a table, which then serializes synchronously through the ordinary path:
+`-R/data/sales/daily.manifest.yaml/-/ns-rec/materialize/daily.csv`. That moves the await into
+evaluation, where Liquers already has one, and needs no change in core, the store or `liquers-axum`.
+
+What that means here:
+
+- **Question 7 is answered for records:** a lazy value becomes data on disk only when someone writes
+  `materialize`; the persistence step never does it on its own.
+- **The need narrows to large exports.** The interim path holds the whole table in memory — about
+  three times the data at serving time — and is capped by `max_rows`. It also cannot export a
+  non-uniform source as NDJSON, which a streaming encoder could.
+- **The query form is meant to survive this issue.** `…/ns-rec/materialize/daily.csv` — a
+  materialization immediately serialized — is exactly what a streaming encoder can serve without
+  building the table, so an implementation of this issue may stream that query without changing it.
+
