@@ -8,11 +8,11 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 112
+Total rows: 113
 - P0: 1
 - P1: 2
 - P2: 74
-- P3: 35
+- P3: 36
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
@@ -100,6 +100,7 @@ Total rows: 112
 | [`QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS`](issues/QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS.md) | issue | Query::absolute names a leading slash, colliding with two other meanings of absolute | draft | needs-decision | P3 | S | core/query | [phase1](specs/design/query-leading-slash-field/phase1-high-level-design.md)  [phase2](specs/design/query-leading-slash-field/phase2-architecture.md)  [phase3](specs/design/query-leading-slash-field/phase3-examples.md)  [phase4](specs/design/query-leading-slash-field/phase4-implementation.md)  | 2026-08-17 |
 | [`REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED`](issues/REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED.md) | issue | The committed command registry carries stale impl_versions and no test detects it | draft | needs-decision | P3 | S | lib/commands;build;docs | [phase1](specs/design/command-registry-impl-version-freshness/phase1-high-level-design.md)  [phase2](specs/design/command-registry-impl-version-freshness/phase2-architecture.md)  [phase3](specs/design/command-registry-impl-version-freshness/phase3-examples.md)  [phase4](specs/design/command-registry-impl-version-freshness/phase4-implementation.md)  | 2026-08-25 |
 | [`WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE`](issues/WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE.md) | issue | JavaScript cannot construct a LiquersError, so a page cannot raise a typed error | accepted | needs-decision | P3 | S | web;core/error | [phase1](specs/design/web-liquers-error-constructor/phase1-high-level-design.md)  [phase2](specs/design/web-liquers-error-constructor/phase2-architecture.md)  [phase3](specs/design/web-liquers-error-constructor/phase3-examples.md)  [phase4](specs/design/web-liquers-error-constructor/phase4-implementation.md)  | 2026-08-09 |
+| [`ARGUMENT-INFO-HAS-NO-DESCRIPTION`](issues/ARGUMENT-INFO-HAS-NO-DESCRIPTION.md) | issue | ArgumentInfo has no per-argument description | draft |  | P3 | S | core/commands;macro |  | 2026-09-24 |
 | [`ASSET-FINISHED-PROGRESS-CONTRACT-UNDEFINED`](issues/ASSET-FINISHED-PROGRESS-CONTRACT-UNDEFINED.md) | issue | What progress a finished asset reports is undefined, and was asserted by a race | draft |  | P3 | S | core/assets |  | 2026-09-03 |
 | [`COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ`](issues/COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ.md) | issue | CommandMetadata.cache is declared, documented and exported, but nothing reads it | draft |  | P3 | S | core/commands;macro |  | 2026-09-19 |
 | [`NO-RECIPE-PROVIDER-CHAIN`](issues/NO-RECIPE-PROVIDER-CHAIN.md) | feature | An environment holds one recipe provider, with no way to compose several | draft |  | P3 | S | core/assets |  | 2026-09-20 |

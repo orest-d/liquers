@@ -809,7 +809,15 @@ pub struct RecordSchema {
 pub enum FieldType { Bool, Int, UInt, Float, Text, Binary, Date, Timestamp, Vector }
 
 pub struct FieldSchema {
+    /// Unique identifier, conventionally snake_case. What a predicate and a consumer match on.
     pub name: String,
+    /// Human-readable, for table headers in documents, reports and dashboards.
+    /// Defaults from the name the same way `ArgumentInfo` does — `name.replace("_", " ")`.
+    #[serde(default)]
+    pub label: String,
+    /// What this field means. A data dictionary entry, a column tooltip.
+    #[serde(default)]
+    pub description: String,
     pub data_type: FieldType,
     pub nullable: bool,
     /// Structural role in the batch — nothing to do with indexing.
@@ -891,6 +899,39 @@ rather than documenting it:
 That is the same discipline Tantivy uses — the schema is validated when built and hands out field
 handles — and it means a schema that *cannot* be reconciled is rejected at construction rather than
 at the first refresh.
+
+#### Alignment with `ArgumentInfo`
+
+`FieldSchema` and `ArgumentInfo` (`command_metadata.rs:517`) describe different things — a column of
+data, and a parameter of a command — but both are *a named, typed slot that a person eventually
+sees*. Where they overlap they should agree, and where they differ the difference should be
+deliberate.
+
+| Concept | `ArgumentInfo` | `FieldSchema` | Verdict |
+|---|---|---|---|
+| Identifier | `name` | `name` | **Aligned.** Both snake_case, both the matching key |
+| Human-readable name | `label`, defaulting to `name.replace("_", " ")` | `label`, **same default** | **Aligned** — deliberately, including the derivation, so the two feel like one system |
+| Prose | *(absent)* | `description` | **Divergent, and `ArgumentInfo` is the one missing it** — see below |
+| Type | `argument_type: ArgumentType` | `data_type: FieldType` | **Deliberately different.** `ArgumentType` describes what a query parameter may carry; `FieldType` describes a column's storage and maps onto Arrow. Different domains, and `data_type` is the right word for a column. The naming asymmetry is the cost of using each domain's vocabulary |
+| Presentation hint | `gui_info: ArgumentGUIInfo` — the preferred entry widget | *(absent)* | **A real gap, deferred.** A field wants the read-side analogue: alignment, a number format, a date format. "Displayed as table headers in reports" will want it soon. Not invented here, because a display hint designed against no renderer is guesswork |
+| Free hint bag | `hints: serde_json::Map` | *(absent, and should stay absent)* | **Deliberately divergent.** A free map is exactly the escape hatch through which engine-specific configuration would re-enter the schema, which §"What is portable, and what is not" spends its length keeping out. An argument has one consumer, the UI; a field has many, and the boundary matters more |
+| Known values | `presets: Vec<ParameterPreset>` | *(absent)* | **Deferred.** The field analogue is an enumeration of expected values, useful for faceting — but it overlaps with what an `Exact` index already offers, and should not be added before the overlap is resolved |
+| Default | `default: CommandParameterValue` | *(absent)* | **Not applicable.** A missing cell is `nullable` plus a validity bit, not a default |
+| `multiple`, `injected` | present | *(absent)* | **Not applicable.** Both are about how a query supplies a parameter |
+| `nullable`, `key`, `role` | *(absent)* | present | **Not applicable.** Storage and indexing have no argument analogue |
+
+**Two things follow.**
+
+`label` is aligned down to its default (`name.replace("_", " ")`, as six construction sites in
+`command_metadata.rs` do it) and its builder shape (`with_label`). A field and an argument should not
+feel like they came from different systems.
+
+And the comparison found a gap **in the existing code, not in this design**: `ArgumentInfo` has no
+per-argument documentation. `CommandMetadata` has `doc`, and the only prose an *argument* can carry
+is its `label` or an untyped `hints` entry — so a command author cannot explain what a parameter
+means in the place a UI or an agent would look. Filed as
+`ARGUMENT-INFO-HAS-NO-DESCRIPTION`. `FieldSchema` takes `description` regardless; the two should
+match once that is fixed.
 
 #### Roles are capabilities, not commands
 
