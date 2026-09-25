@@ -216,15 +216,17 @@ The two reference sources:
 ```rust
 /// Chunks named by queries — what a manifest deserializes to, and the only source whose byte
 /// form is a manifest. Serialized through `ManifestSpec`, the plain file shape: `try_from`
-/// is where load-time validation runs (keys, collisions, per-chunk arguments on unkeyed chunks), and where
+/// is where load-time validation runs (name collisions among explicit chunks), and where
 /// the chunk ids `chunks()` lends out are derived — a `&[ChunkId]` cannot be borrowed from the
 /// `Vec<Query>` the file holds.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(try_from = "ManifestSpec", into = "ManifestSpec")]
 pub struct ManifestSource {
     spec: ManifestSpec,
-    /// Where the manifest lives — its folder is the `cwd` and holds the chunk keys. `None` for
-    /// a manifest that is not stored (built by a command): its chunks are then unkeyed.
+    /// Where the manifest lives — its folder is the `cwd` and holds the chunk keys. `None` until
+    /// known: `deserialize_from_bytes` receives no metadata, so a manifest read back from the
+    /// store arrives without it and the glue supplies it (`with_key`) from the state's metadata.
+    /// A manifest built by a command, never stored, stays `None`: its chunks are unkeyed.
     key: Option<Key>,
     /// Derived at construction: each explicit chunk's id, and the naming of template chunks.
     ids: Vec<ChunkId>,
@@ -383,8 +385,11 @@ provider** for the key's recipe (`assets.rs:3846`); `apply` is ad hoc — never 
   better choice once `records-ipc` is on**: a keyed chunk re-read by the asset manager outside the
   manifest is deserialized schema-less, so a CSV chunk comes back with inferred types, while an Arrow
   IPC chunk carries its schema. (Read *through* the manifest, both are parsed with `uniform_schema`.)
-- **Per-chunk `arguments` or `links` on an unkeyed explicit chunk are refused at load** — they would
-  alias silently. Template chunks share the template's, by construction.
+- **Per-chunk `arguments` or `links` on an unkeyed explicit chunk are refused** — they would alias
+  silently — as soon as the manifest's key is known (`with_key`), and at the latest when a stream
+  is opened on a manifest that is still keyless. Not at deserialization: a manifest read back from
+  the store arrives without its key (`deserialize_from_bytes` receives no metadata), and refusing it
+  there would make a stored manifest with per-chunk arguments unreadable. Template chunks share the template's, by construction.
 - **Collisions are refused at load:** two explicit chunks with one filename, an explicit filename
   matching the template's pattern, or a chunk name that a sibling `recipes.yaml` also defines.
 - **A manifest with no key** — built by a command rather than stored — has no folder, so all its
@@ -412,7 +417,8 @@ The environment's provider becomes a chain: `recipes.yaml` first, then the manif
 to append a provider, so an integration can add its own generative provider the same way.
 
 **`ManifestRecipeProvider`**, in `liquers-records/src/provider.rs` — it implements core's
-`AsyncRecipeProvider<E>` for any `E`, since it produces recipes and no values: for
+`AsyncRecipeProvider<E>` for any `E`, since it produces recipes and no values, with the same
+per-target `async_trait` attributes the trait itself uses (`?Send` on wasm, `recipes.rs:464-465`): for
 `recipe_opt(<folder>/<name>)` it reads the folder's `*.manifest.yaml` (parsed manifests cached by key
 and stored version) and answers with
 
@@ -432,9 +438,26 @@ copied onto the recipe.
 
 #### C. `stored` and `cached` in the asset manager
 
-Two fields on `Recipe`, `MetadataRecord` and `AssetInfo`, both **default `true`** so every existing
-recipe, stored metadata record and struct literal keeps today's behaviour
-(`ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT`):
+Two fields on `Recipe`, `MetadataRecord` and `AssetInfo`, both **meaning `true` when absent** so every
+existing recipe, stored metadata record and struct literal keeps today's behaviour
+(`ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT`). They are **`Option<bool>`, read through accessors**,
+not `bool`: all three types derive `Default`, and `MetadataRecord::new()` builds from
+`..Self::default()` (`metadata.rs:1080-1083`), so a plain `bool` would default to `false` — every
+record built that way would silently be "not stored, not cached".
+
+```rust
+// on Recipe, MetadataRecord and AssetInfo
+#[serde(default, skip_serializing_if = "Option::is_none")]
+pub stored: Option<bool>,
+#[serde(default, skip_serializing_if = "Option::is_none")]
+pub cached: Option<bool>,
+
+pub fn stored(&self) -> bool { self.stored.unwrap_or(true) }
+pub fn cached(&self) -> bool { self.cached.unwrap_or(true) }
+```
+
+A manifest's own `stored`/`cached` stay plain `bool`s with a `serde` default of `true` — `ManifestSpec`
+does not derive `Default` — and the provider writes them into each chunk's recipe as `Some(…)`.
 
 | Flag | Honoured where | Meaning |
 |---|---|---|
@@ -713,8 +736,9 @@ A `RecordBatch` records where its rows came from as a short list of runs:
 /// Rows `len` long, starting at `first_row` of chunk `chunk`, and at row number `first_number`
 /// of the source when that is known. A batch from one chunk has one run; a table materialized
 /// from several chunks has one run per chunk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RowRun { pub chunk: u64, pub first_row: u64, pub first_number: Option<u64>, pub len: usize }
-// on RecordBatch:   pub rows: Vec<RowRun>
+// on RecordBatch:   pub rows: Vec<RowRun>   — the run lengths sum to `len`
 ```
 
 Views answer `row_id` and `row_number` through their base: a row range shifts, a filter maps through
@@ -777,7 +801,8 @@ pub trait RecordViewMut: RecordView {
     /// One row, in schema order. Type-checked; `FieldValue::Null` sets the validity bit.
     fn append_row(&mut self, values: &[FieldValue]) -> Result<(), Error>;
     fn set_value(&mut self, row: usize, col: usize, value: &FieldValue) -> Result<(), Error>;
-    /// One column, for bulk and typed writes.
+    /// One column, for bulk and typed writes. Columns may then differ in length for a while:
+    /// `len()` is the **shortest** column's length, and `freeze()` requires them equal.
     fn column_mut(&mut self, col: usize) -> Result<&mut ColumnMut, Error>;
 }
 
@@ -1405,9 +1430,12 @@ pub struct RecordBatch {
     /// One column per schema field, in order. `len` rows each.
     pub columns: Vec<Column>,
     pub len: usize,
-    /// Identity of the chunk these rows came from — once per batch, not per row.
-    /// With the `Id`-role column this makes a record identifiable as (chunk, id).
+    /// Identity of the chunk these rows came from — once per batch, not per row. `None` for a
+    /// table materialized from several chunks; `rows` then says which rows came from which.
     pub chunk_id: Option<ChunkId>,
+    /// Where the rows came from, as runs — the implicit `RowId` of every row, and its row
+    /// number when known (§"Every row has an implicit id"). One run for a single-chunk batch.
+    pub rows: Vec<RowRun>,
     /// Dictionary of sources; the `Source`-role column indexes it.
     pub sources: Vec<ChunkOrigin>,
 }
@@ -1819,20 +1847,25 @@ pub struct FieldSchema {
     #[serde(default)]
     pub description: String,
     pub data_type: FieldType,
+    /// Default `true` — what a hand-written schema means by leaving it out.
+    #[serde(default = "true_default")]
     pub nullable: bool,
     /// Structural role in the batch — nothing to do with indexing.
+    #[serde(default)]
     pub key: KeyRole,
     /// What an index should do with this field. Portable *intent*; engines translate it.
+    #[serde(default)]
     pub role: FieldRole,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum KeyRole {
     /// The row's identity. **At most one per schema**; without one, the implicit `RowId` is.
     Id,
     /// Index into `RecordBatch`'s origin dictionary. At most one.
     Source,
     /// Ordinary data.
+    #[default]
     None,
 }
 
@@ -2241,8 +2274,9 @@ impl RecordSchema {
 
 impl RecordBatch {
     /// Validates column count, lengths and types against the schema.
+    /// `rows` defaults to one run of chunk 0 from row 0 — a standalone table.
     pub fn new(schema: Arc<RecordSchema>, columns: Vec<Column>, chunk_id: Option<ChunkId>,
-        sources: Vec<ChunkOrigin>) -> Result<RecordBatch, Error>;
+        rows: Option<Vec<RowRun>>, sources: Vec<ChunkOrigin>) -> Result<RecordBatch, Error>;
     /// Fails when schemas differ, naming the first differing field.
     pub fn concat(batches: &[RecordBatch]) -> Result<RecordBatch, Error>;
 }
@@ -2257,10 +2291,14 @@ impl ChunkOrigin {
 }
 
 impl ManifestSource {
-    /// Derives the chunk ids and the template naming from `key`, and validates: per-chunk
-    /// arguments only on keyed chunks, no name collisions. The same validation as
-    /// `TryFrom<ManifestSpec>`, which deserialization goes through (with no key).
+    /// Validates what does not depend on the key — no name collisions among explicit chunks —
+    /// as `TryFrom<ManifestSpec>` does, then applies `key` when given.
     pub fn new(spec: ManifestSpec, key: Option<Key>) -> Result<ManifestSource, Error>;
+    /// Supplies the key a deserialized manifest lacks: derives the template naming and the chunk
+    /// ids, and validates what needs the key — per-chunk `arguments`/`links` only on keyed
+    /// chunks, no collision with the template's pattern. `to_record_source`, and so every record
+    /// command, calls it with the state's metadata key.
+    pub fn with_key(self, key: Key) -> Result<ManifestSource, Error>;
     pub fn spec(&self) -> &ManifestSpec;
 }
 
@@ -2330,7 +2368,7 @@ can afford to run often.
 | views and their constructors (`impl dyn RecordView` is legal here, where the trait is defined); column kernels; `RecordBatchMut`, `ColumnMut`; `materialize` | the `ns-rec` commands and their registration |
 | readers and writers, both schema modes; Markdown, HTML; Arrow IPC and Parquet behind features | `to_record`, `to_record_source` — they take `Value`, `Metadata` and `Context` |
 | `ManifestSpec`, `ManifestSource`, `InMemorySource`, `ChunkNaming`, `ManifestRecipeProvider`; `ContextResolver`, `EnvResolver` | adding the manifest provider to the environment's chain; the polars bridge (it needs both crates) |
-| — | `pub use liquers_records as records;` — so `liquers_lib::records::RecordBatch` works for every crate above `liquers-lib` |
+| — | `pub use liquers_records::*;` **inside** the glue module `liquers_lib::records`, so `liquers_lib::records::RecordBatch` works for every crate above `liquers-lib`. Not also `pub use liquers_records as records;` at the crate root — that name is the glue module's, and the two would clash (E0255) |
 
 **Commands stay in `liquers-lib`**, as the `rec` namespace should: they are registered with
 `register_command!` against `liquers-lib`'s `Value`. The cost is that a command and the function it
@@ -2342,8 +2380,8 @@ records crate free of the command layer.
 | `liquers-records` | `src/buffer.rs` | `AlignedBuffer`, `Buffer<T>`, `Bitmap` — the Arrow-layout primitives; the only place `bytemuck` is used |
 | `liquers-records` | `src/lib.rs` | The traits `RecordView`, `RecordSource`, `RecordStream`, `ChunkResolver`; `BoxRecordStream`, `record_stream`, `RecordStreamExt`; `FieldValue`, `RecordSchema`, `FieldSchema`, `FieldType`, `Column` and its kernels, `RecordBatch`, `ChunkOrigin`, `LocatorRule`, `ChunkNaming`, `ChunkId`, `ChunkList`, `ChunkDescriptor` |
 | `liquers-records` | `src/views.rs` | The view implementations, the `impl dyn RecordView` constructors, `RowFnView` |
-| **`liquers-core`** | `src/recipes.rs` | `RecipeProviderChain`; `RecipeProviderChoice` gains the chain; `Recipe` gains `stored` and `cached`, default `true` |
-| **`liquers-core`** | `src/metadata.rs` | `MetadataRecord` and `AssetInfo` gain `stored` and `cached`, default `true` for legacy records |
+| **`liquers-core`** | `src/recipes.rs` | `RecipeProviderChain`; `RecipeProviderChoice` gains the chain; `Recipe` gains `stored` and `cached` as `Option<bool>`, absent meaning `true`, with `stored()`/`cached()` accessors |
+| **`liquers-core`** | `src/metadata.rs` | `MetadataRecord` and `AssetInfo` gain `stored` and `cached` the same way — `Option<bool>`, because both derive `Default` |
 | **`liquers-core`** | `src/assets.rs` | the store writes skip when `stored: false`; key-asset registration skips when `cached: false` |
 | **`liquers-core`** | `src/context.rs`, `src/environment_builder.rs` | appending a provider to the chain |
 | `liquers-py` | wrappers of `Recipe`, `AssetInfo`, `MetadataRecord` | the two fields, or `..Default::default()` in struct literals |
@@ -2677,9 +2715,9 @@ read alike.
 
 | Command | Signature | Returns | Purpose |
 |---|---|---|---|
-| `rec_id` | `async fn rec_id(state, id: String, context) -> result` | a **materialized** one-row batch | **The single-record selector.** The one record whose `Id` field matches. Universal, because every schema has exactly one `Id`. On a source it walks chunks until it finds the row |
+| `rec_id` | `async fn rec_id(state, id: String, context) -> result` | a **materialized** one-row batch | **The single-record selector.** The one record whose `Id` field matches. Needs a declared `Id` — without one it refuses, naming `rowid`, which addresses every row. On a source it walks chunks until it finds the row |
 | `row` | `fn row(state, n: i64) -> result` | a materialized one-row batch | A row by position — views only; a source has no stable positions |
-| `select_columns` | `fn select_columns(state, columns: Vec<String> multiple) -> result` | a view | Projection. Keeps the `Id` and `Source` columns whether named or not |
+| `select_columns` | `fn select_columns(state, columns: Vec<String> multiple) -> result` | a view | Projection. Keeps the `Id` (when declared) and `Source` columns whether named or not |
 | `head` | `fn head(state, n: i64 = 5) -> result` | a materialized batch | The first rows, for inspection |
 | `slice` | `fn slice(state, offset: i64, length: i64) -> result` | a view | A row range |
 | `rowid` | `async fn rowid(state, chunk: i64, row: i64, context) -> result` | a materialized one-row batch | A row by its implicit id. Over a source it opens **only** that chunk |
@@ -2769,7 +2807,8 @@ type, no `unwrap`/`expect`.
 | `materialize` passing `max_rows` | `Error::general_error` stating the limit and how to raise it — the stream is dropped, not truncated silently |
 | A view command receiving a source | `Error::conversion_error`, naming `ns-rec/materialize` |
 | `to_record_source` given a document that is not a manifest | `Error::general_error` from `TryFrom<ManifestSpec>` |
-| A manifest with per-chunk `arguments`/`links` on an unkeyed chunk, or colliding chunk names | `Error::general_error` naming the chunk, at load |
+| Colliding explicit chunk names | `Error::general_error` naming them, at load |
+| Per-chunk `arguments`/`links` on an unkeyed chunk, or an explicit name matching the template's pattern | `Error::general_error` naming the chunk, when the key is supplied (`with_key`) or at the latest when a stream is opened |
 | A format the build does not include (`feather` without `records-ipc`, …) | `ErrorType::SerializationError` naming the feature — and the registry does not advertise it |
 | Reading `parquet` without `polars`, or `html` at all | `ErrorType::SerializationError` naming why |
 | An IPC file with dictionary batches, compression, 64-bit offsets or unsupported nesting | `ErrorType::SerializationError` naming what was found |
@@ -2877,8 +2916,9 @@ an `.await`.
   `--no-default-features` still compiles — the failure mode a gated enum variant causes, and what the
   new build-matrix rows exist to catch. No code matches over *implementations* of the traits.
 - `liquers-core` gains no dependency and no `unsafe`; its changes are the provider chain and two
-  `bool` fields with `serde` defaults, so stored recipes and metadata written before them read
-  unchanged.
+  `Option<bool>` fields per type, absent meaning `true`, so stored recipes and metadata written
+  before them — and every `..Default::default()` literal — read unchanged. A plain `bool` would
+  have made the derived `Default` mean "not stored".
 - `bytemuck`, `flatbuffers` and `flate2` are dependencies of `liquers-records` only, so a
   `liquers-lib` build without `records` resolves an unchanged dependency graph.
 - `Buffer<T>: bytemuck::Pod` holds for `i32`, `i64`, `u64`, `f32`, `f64`.
@@ -3046,6 +3086,7 @@ information — each is a position that was argued for and then abandoned on evi
 | 2026-09-24 | **Scalar reading**: a one-row, one-payload-column view reads as its cell would as a base `Value`. `select_columns` keeps key columns. Commands bounded by a caller's count materialize | The user's requirement that pointing at a cell yield a value; a tiny view must not pin a large base |
 | 2026-09-24 | **Asynchronous work is a source.** Views stay synchronous; source → view is an explicit await | Scalar reading and argument binding are synchronous |
 | 2026-09-24 | `liquers-core` **untouched** — the `BoxStream` alias removed | `MaybeSend` as a supertrait gives the trait object the right `Send`-ness on each target |
+| 2026-09-25 | **Review pass** — Rust review and two independent reviewers (Phase 1 conformity, codebase alignment). Fixed: `stored`/`cached` as `Option<bool>` (the three types derive `Default`, so a `bool` would default to "not stored"); the `records` re-export clashing with the glue module; a stored manifest losing its key — key-dependent validation moved to `with_key`; `RecordBatch.rows` and `RowRun`'s derives; `FieldSchema`'s hand-authoring defaults; `RecordViewMut::len` with uneven columns; the provider's `async_trait` attributes; stale `rec_id` and `select_columns` rows | Review before re-approval |
 | 2026-09-25 | **Records become their own crate, `liquers-records`**, depending on core only; `liquers-lib` keeps the glue — `ExtValue` variants, `ns-rec` commands, `to_record`/`to_record_source`, the polars bridge — behind `records`, forwarding `records-ipc` and `records-parquet` to the crate's `ipc` and `parquet`. A `RecordValue` adapter trait lets the crate read and build `liquers-lib`'s `Value` without naming it; `ChunkResolver::evaluate` returns a `ChunkValue`. Moving records into core was assessed and rejected | Modularity for crates built on records — about 60 dependencies instead of `liquers-lib`'s 172 — a boundary that enforces layering, and a small test loop. Each argument for core has a more general fix: streaming serialization, `liquers-py` depending on `liquers-lib`, provider-aware validation, extensible metadata |
 | 2026-09-25 | **Keyed chunks, in this project.** Explicit chunks are recipes keyed by their query's filename; template chunks are named `<prefix>_{n:04}.<extension>` from the manifest's own name, `extension` default `csv`; the template is constructed in this version. `ManifestRecipeProvider` in a new core `RecipeProviderChain`; `stored`/`cached` on `Recipe`, `MetadataRecord` and `AssetInfo`, honoured by the asset manager. `ChunkKeys` replaced by the derived `ChunkNaming`; `number_format` dropped. `liquers-core` is no longer untouched | The user chose option 1: `stored` and `cached` must work, and per-chunk arguments need keys |
 | 2026-09-25 | **Decisions for Phase 3.** `RecordViewMut` / `RecordBatchMut` / `ColumnMut` with capacity replace the builder. Every row has an implicit `RowId { chunk, row }` and, during a traversal, a row number; the explicit `Id` becomes optional and the schema-less reader stops guessing one; `rowid` addresses a row by reading one chunk. `to_record` / `to_record_source` accept views, sources, bytes, text, JSON values and keys, replacing `parse` and `source`. A stored chunk is read whole. Manifest: per-chunk `arguments`/`links` on explicit chunks, `stored`/`cached` per manifest, unknown versions read as the latest | The user's answers to the open decisions |

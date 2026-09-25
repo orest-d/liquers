@@ -212,7 +212,7 @@ cached: true     # the chunk is held by the asset manager for reuse
 | ✓ | ✓ | The normal case. Persisted, and reused from memory within a session |
 | ✓ | ✗ | Persisted, re-read from the store each time. For chunks too large to hold |
 | ✗ | ✓ | Recomputed after a restart, reused within a session. The cheap-projection case |
-| ✗ | ✗ | Nothing is kept — and **not volatile**. Not expressible today; rejected at load |
+| ✗ | ✗ | Nothing is kept — and **not volatile**. Evaluated on every request |
 
 ### `stored: false, cached: false` is **not** volatile
 
@@ -263,28 +263,15 @@ A manifest's flags simply set these on the chunk assets it describes. The mechan
 (`assets.rs:5694-5712`, where registering and storing are already adjacent and separable) and its
 backward-compatibility story are recorded on `ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT`.
 
-### So this combination is not expressible today
+### Built in this project
 
-What it needs is an asset that **does not keep the value but still tracks expiration** — and is
-therefore not contagious. That is exactly `ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT`, whose problem
-statement names the same class: *"deterministic, cheap to produce, and not worth storing… not
-volatile — it stays valid exactly as long as its inputs do."*
-
-Until that lands, **`stored: false, cached: false` is rejected at manifest load**, with an error
-naming the issue. The other three combinations are expressible as soon as the flags exist; only the
-both-false case needs the non-contagious asset class. Rejecting is the only honest option: every fallback is wrong in a way the author
-would not see.
-
-| Fallback considered | Why not |
-|---|---|
-| Mark volatile | The decision above, reversed: a false claim, spread to every consumer |
-| Silently store anyway | The manifest says one thing and the system does another |
-| Degrade to `cached: true` | Preserves correctness and non-contagion, at the cost of memory the author declined. **Worth reconsidering** if `stored: false, cached: true` proves expressible — it is the one fallback that is merely a different trade rather than a wrong answer |
-
-This makes the record design a **consumer** of that issue rather than a workaround for it. Records
-themselves do not depend on it — `stored: true` is the normal case and works — so it blocks one
-optional combination, not the design. If that combination is wanted at launch, the issue becomes a
-blocker and its priority rises with it.
+What the both-false case needs is an asset that **does not keep the value but still tracks
+expiration** — and is therefore not contagious. That is `ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT`,
+whose problem statement names the same class: *"deterministic, cheap to produce, and not worth
+storing… not volatile — it stays valid exactly as long as its inputs do."* The user chose to build it
+**in this project** (Phase 2, §"Keyed chunks", C), so all four combinations are accepted at load and
+none needs a fallback. Marking the both-false case volatile was considered and rejected: it is a
+false claim that spreads to every consumer.
 
 ### Settled
 

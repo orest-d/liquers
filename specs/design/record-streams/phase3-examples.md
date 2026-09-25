@@ -232,12 +232,12 @@ Tests comparing two `RecordBatch`es directly — `batch_concat_same_schema`, `te
 | `manifest_version_is_lenient` | No `version`, and an unknown one, read as the latest; an unknown field is a `Warning` log entry |
 | `explicit_chunk_keyed_by_its_filename` | `ns-sql/sql_query-…/orders_eu.csv` in `data/sales/x.manifest.yaml` is the key `data/sales/orders_eu.csv`; one without a filename is unkeyed |
 | `template_chunks_named_by_convention` | Chunk 42 of `daily.manifest.yaml` is `daily_0042.csv`; `extension: arrow` gives `daily_0042.arrow`; `index_of` inverts it |
-| `per_chunk_arguments_need_a_key` | Per-chunk `arguments` on an unkeyed explicit chunk are refused at load, as are colliding names |
+| `per_chunk_arguments_need_a_key` | Per-chunk `arguments` on an unkeyed explicit chunk are refused by `with_key` (or when a stream opens keyless) — **not** at deserialization, so a stored manifest with per-chunk arguments reads back; colliding explicit names are refused at load. Replaces the old `test_per_chunk_arguments_without_cache_rejected` expectation |
 | `manifest_provider_serves_chunk_keys` | `-R/data/sales/daily_0042.csv` evaluates through `ManifestRecipeProvider` in the chain; `contains` is true without enumerating; listing shows explicit chunks only |
 | `provider_chain_prefers_recipes_yaml` | A key both providers answer comes from `recipes.yaml`; and the collision is reported at manifest load |
 | `stored_false_skips_the_write_but_reads_a_stored_copy` | A produced chunk is not written; a pre-existing stored copy, including an `Override`, is read in preference to recomputing |
 | `cached_false_is_not_registered` | Two requests evaluate twice; `stored: false, cached: false` is evaluated each time and is **not volatile** — a dependent is not made volatile |
-| `legacy_metadata_defaults_to_stored_and_cached` | A metadata record and a recipe written before the fields existed read as `true`/`true` |
+| `legacy_metadata_defaults_to_stored_and_cached` | A metadata record and a recipe written before the fields existed read as `true`/`true`; so do `MetadataRecord::new()`, `Recipe::default()` and `AssetInfo::default()` — the case a plain `bool` would have broken |
 | `record_value_adapter_round_trips` | `liquers-lib`'s `Value` implements `RecordValue`: a view and a source go in and come back out as the same `Arc` |
 | `records_crate_builds_alone` | `cargo test -p liquers-records` and `--target wasm32-unknown-unknown -p liquers-records` build with nothing above `liquers-core` — the dependency boundary as a test |
 | `manifest_document_converts_to_source` | A `*.manifest.yaml` loaded as YAML becomes a `ManifestSource` through `ns-rec/source`, and implicitly for `materialize`, with the key's folder as `cwd` |
