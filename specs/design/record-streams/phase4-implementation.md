@@ -75,7 +75,17 @@ each sized to one agent session.
    tests use it, and it is the one producer the command set otherwise lacks. It is added to the
    table in Step 5.5.
 
-5. **Async commands take `State` and `Context` by value**, as `register_command!` requires. Phase 3
+5. **HTTP streaming of a source is not in this plan.** Phase 2's `liquers-axum` row makes it depend on
+   the core-level hook of `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`, which is designed
+   separately. Until then a source reaches HTTP as a `materialize`d table through the existing
+   `BinaryResponse` path, and `liquers-axum` is only compile-checked.
+
+6. **`liquers-py` needs no code change.** Its `Recipe` / `AssetInfo` wrappers hold the Rust values
+   (`liquers-py/src/value.rs:59, 71`); there are no struct literals to extend. Step 1.1's
+   `cargo check -p liquers-py` is the check. The Arrow C Data Interface export is Phase 2's "later
+   milestone" and not part of this plan.
+
+7. **Async commands take `State` and `Context` by value**, as `register_command!` requires. Phase 3
    has already been corrected to match (see its §"Corrections and unexpected learning").
 
 ## Tests this plan adds
@@ -290,8 +300,14 @@ CARGO_INCREMENTAL=0 cargo test -p liquers-core --lib recipes
 
 **File:** `specs/design/record-streams/phase2-architecture.md`
 
-**Change:** the Integration Points row for `src/recipes.rs` and §B's sentence "`RecipeProviderChoice`
-gains the chain as a choice" now describe decision 1 above (`with_appended_recipe_provider`;
+**Change:** three places describe decision 1 above:
+- the Integration Points row `liquers-core` | `src/recipes.rs` ("`RecipeProviderChoice` gains the
+  chain");
+- the row `src/context.rs`, `src/environment_builder.rs` ("appending a provider to the chain" —
+  name the method);
+- §B's sentence "`RecipeProviderChoice` gains the chain as a choice".
+
+Each now says (`with_appended_recipe_provider`;
 `RecipeProviderChoice` unchanged). Add a changelog row.
 
 **Agent:** done by the orchestrator (a doc edit).
@@ -301,8 +317,23 @@ gains the chain as a choice" now describe decision 1 above (`with_appended_recip
 #### Step 2.1 — Create the crate; `buffer.rs`
 
 **Files:**
-- `liquers-records/Cargo.toml` — new, per Phase 2 §"The features", with `flatbuffers = { version =
-  "25.12.19", optional = true }`;
+- `liquers-records/Cargo.toml` — new:
+  ```toml
+  [dependencies]
+  liquers-core = { path = "../liquers-core" }
+  serde = { version = "1.0.229", features = ["rc"] }
+  serde_json = "1.0.151"
+  futures = "0.3.34"
+  chrono = "0.4.45"
+  bytemuck = "1.25"
+  flatbuffers = { version = "25.12.19", optional = true }
+  flate2 = { version = "1", optional = true }
+
+  [features]
+  default = []
+  ipc = ["dep:flatbuffers"]
+  parquet = ["dep:flate2"]
+  ```
 - `liquers-records/src/lib.rs` — module declarations and re-exports only, for now;
 - `liquers-records/src/buffer.rs`;
 - the workspace `Cargo.toml` — add `liquers-records` to `members` and `default-members`.
@@ -428,8 +459,11 @@ batch holds alone (Phase 2 §"Writing a view").
 `ChunkResolver` trait (Phase 2 §"`ChunkResolver`", §"Value extension"). The concrete resolvers wait
 for Step 4.2.
 
-**Tests:** compile-only at this step. A test-local `RecordValue` impl over core's `Value` lives in
-`value.rs`'s test module, so later steps can use it.
+**Tests:** compile-only at this step. The records crate cannot test `RecordValue` against a real
+value: core's `Value` has no variant that can hold a view, so a test-only impl could not honestly
+implement `from_record_view`. Its tests use `ChunkResolver` fixtures that return `ChunkValue`
+directly. `RecordValue` and the two resolvers are exercised in `liquers-lib`, whose `Value`
+implements the trait (Steps 5.1 and 5.6).
 
 **Validation:** `cargo test -p liquers-records --lib`
 
@@ -533,9 +567,12 @@ serializes only as its manifest".
 
 **Tests:**
 - Phase 3 §5.6 (3) and §5.7 (1);
-- the records-crate half of §6 (`RECORDS07` / `08` / `11`);
-- §5.8's two sketches **become real tests here**, because `ContextResolver` exists. Remove their
-  `#[ignore]` only if they pass with a live context; otherwise keep the stated reason.
+- all of §6's native tests (9: `RECORDS01` ×2, `02`, `04`, `05`, `06`, `07`, `08`, `11`). They
+  form one file, `liquers-records/tests/records_guide_counterparts.rs`, and need the data model
+  and sources only. §6's two wasm tests land in Step 7.1, and `RECORDS03` / `RECORDS10` belong to
+  §3.7 / §5.5.
+- `ContextResolver` and `EnvResolver` are **compile-checked** here. §5.8's behaviour tests need
+  the lib `Value` (see Step 2.6), so they move to `liquers-lib` and land in Step 5.6.
 
 **Validation:** `cargo test -p liquers-records --lib --tests`
 
@@ -557,7 +594,11 @@ serializes only as its manifest".
 
 Source: Phase 2 §"B".
 
-**Tests:** the provider half of Phase 3 §1.2, and the §9 collision test.
+**Tests:** the §9 collision test, and the provider's own unit tests: serving an explicit chunk, a
+template chunk, `contains` without enumeration, and `assets_with_recipes` listing only explicit
+chunks, over an `AsyncMemoryStore`. Phase 3 §1.2's `ManifestRecipeProvider` code is the
+implementation sketch this step fills in. §1.2's *tests* are in a `liquers-lib` file and land in
+Step 5.4.
 
 **Validation:** `cargo test -p liquers-records --lib --tests`
 
@@ -573,8 +614,17 @@ override resolves it for this provider; otherwise note the partial resolution in
 **Files:** `liquers-lib/Cargo.toml`, `liquers-lib/src/lib.rs`, `liquers-lib/src/records/mod.rs`
 
 **Change:**
-- The features `records`, `records-ipc` and `records-parquet`, added to `default` (Phase 2 §"The
-  features").
+- The features, forwarding to the records crate:
+  ```toml
+  default = ["egui", "image-support", "polars", "records", "records-ipc", "records-parquet"]
+  records = ["dep:liquers-records"]
+  records-ipc = ["records", "liquers-records/ipc"]
+  records-parquet = ["records", "liquers-records/parquet"]
+  # [dependencies]
+  liquers-records = { path = "../liquers-records", optional = true }
+  # [dev-dependencies], for Step 6.1's cross-check; resolver 2 keeps it out of normal builds
+  polars = { version = "0.55.2", features = ["ipc"] }
+  ```
 - `pub mod records` gated on `records`, containing `pub use liquers_records::*;` — a re-export
   inside the module, **not** at the crate root (E0255).
 - `impl RecordValue for Value`.
@@ -639,7 +689,8 @@ command accepts":
 - **Manifests:** recognized by the discriminator, then `ManifestSource::with_key(metadata key)`.
 - **Format:** taken from the options, else from the metadata; never sniffed.
 
-**Tests:** Phase 3 §5.3 (3), §5.4 (1) and §1.2's three conversion tests.
+**Tests:** Phase 3 §5.3 (3), §5.4 (1), and all 9 of §1.2 (`liquers-lib/tests/record_manifest_keyed.rs`:
+6 `ManifestSource` tests and 3 `to_record_source` tests — one file, landed together).
 
 **Agent:** sonnet · rust-best-practices, liquers-unittest.
 
@@ -649,8 +700,9 @@ command accepts":
 `liquers-lib/src/bin/export_command_registry.rs`, `specs/command_registry.yaml`
 
 **Change:**
-- Every command in Phase 2 §"Relevant Commands", plus `file_records` (decision 4), in namespace
-  `rec`.
+- Every command in Phase 2 §"Relevant Commands" — `rec_id`, `row`, `select_columns`, `head`,
+  `slice`, `rowid`, `to_record_source`, `materialize`, `records_schema`, `to_json`, `from_json`,
+  `to_record` — plus `file_records` (decision 4), 13 in all, in namespace `rec`.
 - A `register_records_commands!` macro, invoked by `register_all_commands!` in the same way the
   other domain macros are.
 - A `Group::Records` in the exporter, gated on the feature.
@@ -682,9 +734,12 @@ to the Phase 2 sections named.
 `[DefaultRecipeProvider, ManifestRecipeProvider]`.
 
 **Tests:**
-- Phase 3 §1.2's remaining scenario tests;
 - the four `records_end_to_end.rs` tests of §"Tests this plan adds";
-- `RECORDS01` / `02` / `04` / `10` from §6, where they need the lib `Value`.
+- Phase 3 §5.8, **relocated** to `liquers-lib/tests/resolver_dependency_recording.rs` and written
+  out as real tests. `ContextResolver::evaluate(q)` adds `q` to the calling asset's
+  dependencies; `EnvResolver` adds nothing. Both run through `evaluate` and a probe command that
+  opens a stream. Their `#[ignore]`s are removed, and they must pass: once the resolvers exist, a
+  failure is a bug, not a missing fixture.
 
 **Validation:**
 ```bash
@@ -709,16 +764,18 @@ build. Reverting the milestone's commits removes it entirely.
 - The schema and roles survive through Arrow's `custom_metadata` under a `liquers.` prefix.
 
 **Tests:**
-- Phase 3 §3.7 (4; the 2 fixture-dependent ones stay ignored unless polars can produce the
-  fixtures — see below);
-- `RECORDS03`;
-- a new `liquers-lib` test, `ipc_written_by_records_reads_in_polars` (behind `records-ipc` and
-  `polars`), cross-checking against polars' reader.
+- Phase 3 §3.7 (4, 2 of them fixture-dependent — see below);
 
-**The fixture tests:** if polars' IPC writer can emit a dictionary-encoded column and a compressed
-body (`IpcWriter::with_compression`), generate the two fixtures with it in a test helper, commit
-them under `liquers-records/tests/fixtures/`, and remove the `#[ignore]`. Otherwise keep the
-stated reason.
+**The fixture tests:** polars 0.55.2 has an `ipc` feature and `IpcWriter::with_compression`
+(verified in `polars-io-0.55.2/src/ipc/write.rs`).
+- Generate the compressed-body fixture with it in a test helper, commit it under
+  `liquers-records/tests/fixtures/`, and remove that test's `#[ignore]`.
+- For the dictionary-encoded fixture, cast a column to polars' `Categorical`, which IPC writes
+  dictionary-encoded.
+- **If either fixture cannot be produced**, the test stays ignored with its reason, and an issue
+  is filed: `IPC-READER-UNTESTED-ON-DICTIONARY-OR-COMPRESSED-INPUT`, with `priority: P3`. The
+  refusal code path is still exercised by a unit test that builds a minimal flatbuffer message
+  claiming dictionary encoding.
 
 **Validation:**
 ```bash
@@ -970,9 +1027,13 @@ Phase 2's `affects_docs` set: `VALUE_TYPE_SYSTEM.md`, `TYPE_SYSTEM_GUIDE.md`,
 `ASSET_LIFECYCLE.md`, `ENVIRONMENT_CONFIG.md` and `PROJECT_OVERVIEW.md`.
 - **`ENVIRONMENT_CONFIG.md`** documents `with_appended_recipe_provider` (decision 1), not a
   `RecipeProviderChoice` variant.
-- **`REGISTER_COMMAND_FSD.md` is added to the set.** Its async example should state that a
+- **`REGISTER_COMMAND_FSD.md` is added to the set**, beyond Phase 2's list. Its async example should state that a
   `context` parameter needs the `CommandEnvironment` alias. That is how Phase 3's drafters went
   wrong, and a one-line addition prevents it.
+
+Beyond `affects_docs`, and outside §9.2's History rule:
+- **`specs/README.md`**: the capability-map entry (below).
+- **`CLAUDE.md`**: Step 8.2.
 
 Each document changed gets a `## History` row and a `reviewed:` bump in the same commit (§9.2).
 

@@ -52,7 +52,7 @@ document adds), the Phase 2 / completion name is what appears here.
 | 5.5 | `liquers-lib/tests/record_scalar_reading.rs` | 3 (1 `#[ignore]`d) | single-cell scalar read, shape-naming refusal, linked `f64` binding |
 | 5.6 | `liquers-records/tests/manifest_chunking.rs` | 3 | `ChunkList::Unbounded`, `ChunkNaming` round trip |
 | 5.7 | `liquers-records/tests/stream_static_lifetime.rs` | 1 | a stream outlives the `Arc<dyn RecordSource>` that opened it |
-| 5.8 | `liquers-records/tests/resolver_dependency_recording.rs` | 0 (2 `#[ignore]`d sketches) | `ContextResolver` vs `EnvResolver` dependency recording — Phase 4 |
+| 5.8 | `liquers-lib/tests/resolver_dependency_recording.rs` | 0 (2 `#[ignore]`d sketches) | `ContextResolver` vs `EnvResolver` dependency recording — Phase 4 |
 | 6 | `liquers-records/tests/records_guide_counterparts.rs` (+ `liquers-web/tests/records_RECORDS.rs`, 2 wasm tests) | 9 | `RECORDS01`–`RECORDS11` Rust counterparts (`RECORDS10` is §5.5; `RECORDS03` is §3.7) |
 | 7 | `liquers-records/tests/format_round_trip.rs` | 8 | one round-trip test per serialization format |
 | 8 | (script, no new file) | — | build-matrix rows this design adds |
@@ -2965,14 +2965,17 @@ async fn stream_outlives_the_source_arc_that_opened_it() -> Result<(), Box<dyn s
 }
 ```
 
-## 5.8 `liquers-records/tests/resolver_dependency_recording.rs` (sketches — Phase 4)
+## 5.8 `liquers-lib/tests/resolver_dependency_recording.rs` (sketches — Phase 4)
+
+**Relocated by Phase 4** from `liquers-records/tests/`: the resolvers need a value implementing
+`RecordValue`, which only `liquers-lib`'s `Value` does. Phase 4 Step 5.6 writes these out as real tests.
 
 Dependency recording needs a live `Context` wired to a real asset manager, which is Phase 4
 infrastructure (triage: "stream infrastructure ... details are Phase 4"); these stay `todo!()`
 sketches, not tests.
 
 ```rust
-// liquers-records/tests/resolver_dependency_recording.rs
+// liquers-lib/tests/resolver_dependency_recording.rs
 #[tokio::test]
 #[ignore = "sketch: needs a live Context + AssetManager wiring, Phase 4"]
 async fn context_resolver_records_each_evaluated_chunk_as_a_dependency() {
