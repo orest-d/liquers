@@ -375,7 +375,7 @@ Nothing is left to do here; the step is kept so the numbering of later steps is 
   serde_yaml = "0.9.34"      # the manifest provider parses *.manifest.yaml and recipes.yaml
   futures = "0.3.34"
   chrono = "0.4.45"
-  bytemuck = "1.25"
+  bytemuck = { version = "1.25", features = ["derive"] }   # derive: Pod/Zeroable on the aligned chunk, no unsafe
   async-trait = "0.1.92"     # ManifestRecipeProvider implements core's #[async_trait] trait
   scc = "3.8.8"              # the provider's manifest cache (Phase 3 §1.2 sketch)
   flatbuffers = { version = "25.12.19", optional = true }

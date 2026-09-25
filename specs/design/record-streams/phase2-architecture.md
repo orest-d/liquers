@@ -2566,7 +2566,7 @@ serde_json = "1.0.151"
 serde_yaml = "0.9.34"                                # the manifest provider reads *.manifest.yaml
 futures = "0.3.34"
 chrono = "0.4.45"
-bytemuck = "1.25"                                    # the aligned-buffer cast; tiny, no_std
+bytemuck = { version = "1.25", features = ["derive"] }   # the aligned-buffer cast; derive for Pod on the aligned chunk
 async-trait = "0.1.92"                               # ManifestRecipeProvider
 scc = "3.8.8"                                        # the provider's manifest cache
 flatbuffers = { version = "…", optional = true }     # version pinned in Phase 4
