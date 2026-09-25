@@ -1,7 +1,7 @@
 # Phase 2: Solution & Architecture — Record streams
 
-**Status:** Phase 1 approved 2026-09-20. Phase 2 approved 2026-09-20 and **revised 2026-09-24 to the
-trait form**; the revision awaits re-approval. A dated changelog is at the end.
+**Status:** Phase 1 approved 2026-09-20. Phase 2 approved 2026-09-20, revised 2026-09-24/25, and
+**re-approved 2026-09-25**. A dated changelog is at the end.
 
 ## Overview
 
