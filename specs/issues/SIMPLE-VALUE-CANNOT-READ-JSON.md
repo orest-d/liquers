@@ -2,11 +2,11 @@
 id: SIMPLE-VALUE-CANNOT-READ-JSON
 kind: issue
 title: liquers-lib's base value writes JSON but cannot read it back
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [lib/value]
-design:
+design: record-streams
 created: 2026-09-25
 github:
 ---
@@ -46,3 +46,22 @@ Found 2026-09-25 while designing `from_json` for `specs/design/record-streams/` 
 are conversions"), checking whether `-R/data/export.json/-/ns-rec/from_json` could receive a JSON
 value. What exactly a type-less `.json` resolves to after the failed fast-track was not traced; the
 deserializer's refusal was verified.
+
+## Resolution
+
+Closed 2026-09-25 by record-streams Phase 4, Step 0.2.
+
+`SimpleValue::deserialize_from_bytes` (`liquers-lib/src/value/simple.rs`) reads `json`, `yaml` and
+`yml`:
+- **JSON** consults the declared type identifier first, as core's `Value` does.
+  - `Metadata`, `AssetInfo`, `Recipe` and `CommandMetadata` are read as their own types.
+  - `Array`, `Object`, `Bytes`, `Query` and `Key` are read in the tagged form `as_bytes` writes,
+    and otherwise as plain JSON.
+  - Any other identifier is read as plain JSON through `try_from_json_value`, which is what a
+    hand-written `.json` file needs.
+- **YAML** is read as plain data.
+
+`every_declared_format_round_trips_or_is_recorded_as_unwritable` writes and reads back every
+(type, format) pair the `TypeInfo` declares. It is the round-trip test this issue asked for. It
+found the reverse gap, formats declared but not written, which is filed as
+`SIMPLE-VALUE-WRITES-FEWER-FORMATS-THAN-DECLARED`.

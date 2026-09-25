@@ -11,8 +11,8 @@ then implementation readiness. `--check` verifies this file.
 Total rows: 122
 - P0: 1
 - P1: 2
-- P2: 77
-- P3: 42
+- P2: 76
+- P3: 43
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
@@ -35,7 +35,6 @@ Total rows: 122
 | [`RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY`](issues/RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY.md) | issue | AsyncRecipeProvider::contains has a default that silently assumes recipes are enumerable | draft |  | P2 | S | core/assets | [chunking](specs/design/record-streams/chunking-and-resumability.md)  [engine](specs/design/record-streams/engine-survey.md)  [manifest](specs/design/record-streams/manifest-format.md)  [phase1](specs/design/record-streams/phase1-high-level-design.md)  [phase2](specs/design/record-streams/phase2-architecture.md)  [phase3](specs/design/record-streams/phase3-examples.md)  [phase3](specs/design/record-streams/phase3-tests.md)  [phase4](specs/design/record-streams/phase4-implementation.md)  [phase5](specs/design/record-streams/phase5-documentation.md)  [phase5](specs/design/record-streams/phase5-evidence.md)  [record](specs/design/record-streams/record-model.md)  | 2026-09-20 |
 | [`REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED`](issues/REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED.md) | issue | The `payload: required` metadata statement is implemented but documented nowhere | draft |  | P2 | S | docs;core/commands;macro |  | 2026-09-03 |
 | [`SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED`](issues/SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED.md) | issue | A write skipped because the asset was cancelled is recorded as a successful persist | draft |  | P2 | S | core/assets |  | 2026-09-04 |
-| [`SIMPLE-VALUE-CANNOT-READ-JSON`](issues/SIMPLE-VALUE-CANNOT-READ-JSON.md) | issue | liquers-lib's base value writes JSON but cannot read it back | draft |  | P2 | S | lib/value |  | 2026-09-25 |
 | [`AXUM-HANDLER-TEST-COVERAGE`](issues/AXUM-HANDLER-TEST-COVERAGE.md) | issue | liquers-axum has no handler test scaffolding, so handler behaviour is verified only by review | accepted |  | P2 | M | axum | [phase1](specs/design/expired-binary-read-safety/phase1-high-level-design.md)  [phase2](specs/design/expired-binary-read-safety/phase2-architecture.md)  [phase3](specs/design/expired-binary-read-safety/phase3-examples.md)  [phase4](specs/design/expired-binary-read-safety/phase4-implementation.md)  | 2026-08-08 |
 | [`COMBINED-VALUE-DISCRIMINATION`](issues/COMBINED-VALUE-DISCRIMINATION.md) | feature | Deserialization cannot discriminate base from extended values | accepted |  | P2 | M | core/value;lib/value |  | 2026-08-08 |
 | [`COMMAND-ALIAS-DEFINITION-UNTESTED`](issues/COMMAND-ALIAS-DEFINITION-UNTESTED.md) | issue | CommandDefinition::Alias has no test and no user, and its head-parameter semantics are unexercised | draft |  | P2 | M | core/plan;core/commands |  | 2026-08-29 |
@@ -111,6 +110,7 @@ Total rows: 122
 | [`METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED`](issues/METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED.md) | issue | A value stored as metadata only is reloaded through the corrupted-data path | draft |  | P3 | S | core/assets |  | 2026-09-24 |
 | [`NO-RECIPE-PROVIDER-CHAIN`](issues/NO-RECIPE-PROVIDER-CHAIN.md) | feature | An environment holds one recipe provider, with no way to compose several | draft |  | P3 | S | core/assets | [chunking](specs/design/record-streams/chunking-and-resumability.md)  [engine](specs/design/record-streams/engine-survey.md)  [manifest](specs/design/record-streams/manifest-format.md)  [phase1](specs/design/record-streams/phase1-high-level-design.md)  [phase2](specs/design/record-streams/phase2-architecture.md)  [phase3](specs/design/record-streams/phase3-examples.md)  [phase3](specs/design/record-streams/phase3-tests.md)  [phase4](specs/design/record-streams/phase4-implementation.md)  [phase5](specs/design/record-streams/phase5-documentation.md)  [phase5](specs/design/record-streams/phase5-evidence.md)  [record](specs/design/record-streams/record-model.md)  | 2026-09-20 |
 | [`REGISTER-ALL-COMMANDS-MACRO-REQUIRES-EVERY-FEATURE`](issues/REGISTER-ALL-COMMANDS-MACRO-REQUIRES-EVERY-FEATURE.md) | issue | register_all_commands! does not compile when an optional command feature is off | draft |  | P3 | S | lib/commands |  | 2026-09-25 |
+| [`SIMPLE-VALUE-WRITES-FEWER-FORMATS-THAN-DECLARED`](issues/SIMPLE-VALUE-WRITES-FEWER-FORMATS-THAN-DECLARED.md) | issue | liquers-lib's base value declares formats its serializer refuses | draft |  | P3 | S | lib/value |  | 2026-09-25 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  | P3 | S | core/value |  | 2026-09-24 |
 | [`AXUM-WEBSOCKET-HARDENING`](issues/AXUM-WEBSOCKET-HARDENING.md) | issue | WebSocket endpoint is not hardened | accepted |  | P3 | M | axum |  | 2026-08-08 |
 | [`BENCHMARK-SUITE`](issues/BENCHMARK-SUITE.md) | feature | No reproducible benchmarks for core runtime paths | accepted |  | P3 | M | build |  | 2026-08-08 |

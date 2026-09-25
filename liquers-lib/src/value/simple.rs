@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json;
+use serde_yaml;
 
 use liquers_core::{
     command_metadata::CommandMetadata,
@@ -13,7 +14,7 @@ use liquers_core::{
 use liquers_core::error::Error;
 use std::{borrow::Cow, collections::BTreeMap, convert::TryFrom, result::Result, sync::Arc};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SimpleValue {
     None {},
     Bool {
@@ -540,6 +541,15 @@ impl From<&str> for SimpleValue {
     }
 }
 
+impl SimpleValue {
+    /// A JSON document read by its shape: objects, arrays and scalars as `SimpleValue`'s own.
+    fn from_plain_json(b: &[u8]) -> Result<Self, Error> {
+        let json_value: serde_json::Value =
+            serde_json::from_slice(b).map_err(|e| Error::from_error(ErrorType::ParseError, e))?;
+        SimpleValue::try_from_json_value(&json_value)
+    }
+}
+
 impl DefaultValueSerializer for SimpleValue {
     fn as_bytes(&self, format: &str) -> Result<Vec<u8>, Error> {
         match format {
@@ -640,9 +650,40 @@ impl DefaultValueSerializer for SimpleValue {
                 let s = String::from_utf8_lossy(b).to_string();
                 Ok(SimpleValue::Text { value: s })
             }
-            _ => Err(Error::new(
+            // JSON alone does not say which variant it came from, so the declared type identifier
+            // is consulted first, as `liquers_core::value::Value` does. The structured variants
+            // are read as their own types; the variants `as_bytes` writes in serde's tagged form
+            // (`{"Array": {"value": …}}`) are read in that form, and otherwise as plain JSON, which
+            // is what a hand-written file holds. Everything else is plain JSON.
+            "json" => match type_identifier {
+                "Metadata" => serde_json::from_slice::<MetadataRecord>(b)
+                    .map(|value| SimpleValue::Metadata { value })
+                    .map_err(|e| Error::from_error(ErrorType::ParseError, e)),
+                "AssetInfo" => serde_json::from_slice::<Vec<AssetInfo>>(b)
+                    .map(|value| SimpleValue::AssetInfo { value })
+                    .map_err(|e| Error::from_error(ErrorType::ParseError, e)),
+                "Recipe" => serde_json::from_slice::<Recipe>(b)
+                    .map(|value| SimpleValue::Recipe { value })
+                    .map_err(|e| Error::from_error(ErrorType::ParseError, e)),
+                "CommandMetadata" => serde_json::from_slice::<CommandMetadata>(b)
+                    .map(|value| SimpleValue::CommandMetadata { value })
+                    .map_err(|e| Error::from_error(ErrorType::ParseError, e)),
+                "Array" | "Object" | "Bytes" | "Query" | "Key" => {
+                    match serde_json::from_slice::<SimpleValue>(b) {
+                        Ok(value) => Ok(value),
+                        Err(_) => Self::from_plain_json(b),
+                    }
+                }
+                _ => Self::from_plain_json(b),
+            },
+            "yaml" | "yml" => {
+                let json_value: serde_json::Value = serde_yaml::from_slice(b)
+                    .map_err(|e| Error::from_error(ErrorType::ParseError, e))?;
+                SimpleValue::try_from_json_value(&json_value)
+            }
+            _ => Err(Error::from_error(
                 ErrorType::SerializationError,
-                format!("Unsupported format in from_bytes:{}", fmt),
+                format!("Unsupported format in deserialize_from_bytes: {}", fmt),
             )),
         }
     }
@@ -672,4 +713,387 @@ impl TryFrom<SimpleValue> for u8 {
             _ => Err(Error::conversion_error(value.type_name(), "u8")),
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json;
+    use serde_yaml;
+
+    #[test]
+    fn test_json_roundtrip_bool() -> Result<(), Box<dyn std::error::Error>> {
+        let value = SimpleValue::Bool { value: true };
+        let bytes = value.as_bytes("json")?;
+        let deserialized =
+            SimpleValue::deserialize_from_bytes(&bytes, "Bool", "json")?;
+        assert_eq!(value, deserialized);
+        Ok(())
+    }
+
+    #[test]
+    fn test_json_roundtrip_i32() -> Result<(), Box<dyn std::error::Error>> {
+        let value = SimpleValue::I32 { value: 42 };
+        let bytes = value.as_bytes("json")?;
+        let deserialized =
+            SimpleValue::deserialize_from_bytes(&bytes, "I32", "json")?;
+        match deserialized {
+            SimpleValue::I64 { value: 42 } => Ok(()),
+            _ => Err("Expected I64 with value 42".into()),
+        }
+    }
+
+    #[test]
+    fn test_json_roundtrip_i64() -> Result<(), Box<dyn std::error::Error>> {
+        let value = SimpleValue::I64 { value: 123456789 };
+        let bytes = value.as_bytes("json")?;
+        let deserialized =
+            SimpleValue::deserialize_from_bytes(&bytes, "I64", "json")?;
+        assert_eq!(value, deserialized);
+        Ok(())
+    }
+
+    #[test]
+    fn test_json_roundtrip_f64() -> Result<(), Box<dyn std::error::Error>> {
+        let value = SimpleValue::F64 { value: 3.14159 };
+        let bytes = value.as_bytes("json")?;
+        let deserialized =
+            SimpleValue::deserialize_from_bytes(&bytes, "F64", "json")?;
+        assert_eq!(value, deserialized);
+        Ok(())
+    }
+
+    #[test]
+    fn test_json_roundtrip_text() -> Result<(), Box<dyn std::error::Error>> {
+        let value = SimpleValue::Text {
+            value: "hello world".to_string(),
+        };
+        let bytes = value.as_bytes("json")?;
+        let deserialized =
+            SimpleValue::deserialize_from_bytes(&bytes, "Text", "json")?;
+        assert_eq!(value, deserialized);
+        Ok(())
+    }
+
+    #[test]
+    fn test_json_roundtrip_none() -> Result<(), Box<dyn std::error::Error>> {
+        let value = SimpleValue::None {};
+        let bytes = value.as_bytes("json")?;
+        let deserialized =
+            SimpleValue::deserialize_from_bytes(&bytes, "None", "json")?;
+        assert_eq!(value, deserialized);
+        Ok(())
+    }
+
+    #[test]
+    fn test_json_roundtrip_array() -> Result<(), Box<dyn std::error::Error>> {
+        let value = SimpleValue::Array {
+            value: vec![
+                SimpleValue::I64 { value: 1 },
+                SimpleValue::I64 { value: 2 },
+                SimpleValue::Text {
+                    value: "three".to_string(),
+                },
+            ],
+        };
+        // Plain JSON, as a hand-written file holds it (as_bytes writes the tagged form).
+        let json_value = value.try_into_json_value()?;
+        let bytes = serde_json::to_vec(&json_value)?;
+        let deserialized =
+            SimpleValue::deserialize_from_bytes(&bytes, "Array", "json")?;
+        assert_eq!(value, deserialized);
+        Ok(())
+    }
+
+    #[test]
+    fn test_json_roundtrip_object() -> Result<(), Box<dyn std::error::Error>> {
+        let mut obj = BTreeMap::new();
+        obj.insert("name".to_string(), SimpleValue::Text {
+            value: "Alice".to_string(),
+        });
+        obj.insert("age".to_string(), SimpleValue::I64 { value: 30 });
+        let value = SimpleValue::Object { value: obj };
+
+        // Plain JSON, as a hand-written file holds it (as_bytes writes the tagged form).
+        let json_value = value.try_into_json_value()?;
+        let bytes = serde_json::to_vec(&json_value)?;
+        let deserialized =
+            SimpleValue::deserialize_from_bytes(&bytes, "Object", "json")?;
+        assert_eq!(value, deserialized);
+        Ok(())
+    }
+
+    #[test]
+    fn test_yaml_roundtrip_bool() -> Result<(), Box<dyn std::error::Error>> {
+        let value = SimpleValue::Bool { value: false };
+        // Plain JSON, as a hand-written file holds it (as_bytes writes the tagged form).
+        let json_val = value.try_into_json_value()?;
+        let yaml_str = serde_yaml::to_string(&json_val)?;
+        let yaml_bytes = yaml_str.into_bytes();
+        let deserialized =
+            SimpleValue::deserialize_from_bytes(&yaml_bytes, "Bool", "yaml")?;
+        assert_eq!(value, deserialized);
+        Ok(())
+    }
+
+    #[test]
+    fn test_yaml_roundtrip_i64() -> Result<(), Box<dyn std::error::Error>> {
+        let value = SimpleValue::I64 { value: 999 };
+        // Plain JSON, as a hand-written file holds it (as_bytes writes the tagged form).
+        let json_val = value.try_into_json_value()?;
+        let yaml_str = serde_yaml::to_string(&json_val)?;
+        let yaml_bytes = yaml_str.into_bytes();
+        let deserialized =
+            SimpleValue::deserialize_from_bytes(&yaml_bytes, "I64", "yaml")?;
+        assert_eq!(value, deserialized);
+        Ok(())
+    }
+
+    #[test]
+    fn test_yaml_roundtrip_text() -> Result<(), Box<dyn std::error::Error>> {
+        let value = SimpleValue::Text {
+            value: "yaml test".to_string(),
+        };
+        // Plain JSON, as a hand-written file holds it (as_bytes writes the tagged form).
+        let json_val = value.try_into_json_value()?;
+        let yaml_str = serde_yaml::to_string(&json_val)?;
+        let yaml_bytes = yaml_str.into_bytes();
+        let deserialized =
+            SimpleValue::deserialize_from_bytes(&yaml_bytes, "Text", "yaml")?;
+        assert_eq!(value, deserialized);
+        Ok(())
+    }
+
+    #[test]
+    fn test_yaml_roundtrip_array() -> Result<(), Box<dyn std::error::Error>> {
+        let value = SimpleValue::Array {
+            value: vec![
+                SimpleValue::I64 { value: 10 },
+                SimpleValue::I64 { value: 20 },
+            ],
+        };
+        // Plain JSON, as a hand-written file holds it (as_bytes writes the tagged form).
+        let json_val = value.try_into_json_value()?;
+        let yaml_str = serde_yaml::to_string(&json_val)?;
+        let yaml_bytes = yaml_str.into_bytes();
+        let deserialized =
+            SimpleValue::deserialize_from_bytes(&yaml_bytes, "Array", "yaml")?;
+        assert_eq!(value, deserialized);
+        Ok(())
+    }
+
+    #[test]
+    fn test_yaml_roundtrip_object() -> Result<(), Box<dyn std::error::Error>> {
+        let mut obj = BTreeMap::new();
+        obj.insert("key1".to_string(), SimpleValue::Text {
+            value: "value1".to_string(),
+        });
+        obj.insert("key2".to_string(), SimpleValue::I64 { value: 42 });
+        let value = SimpleValue::Object { value: obj };
+
+        // Plain JSON, as a hand-written file holds it (as_bytes writes the tagged form).
+        let json_val = value.try_into_json_value()?;
+        let yaml_str = serde_yaml::to_string(&json_val)?;
+        let yaml_bytes = yaml_str.into_bytes();
+        let deserialized =
+            SimpleValue::deserialize_from_bytes(&yaml_bytes, "Object", "yaml")?;
+        assert_eq!(value, deserialized);
+        Ok(())
+    }
+
+    #[test]
+    fn test_yml_alias_same_as_yaml() -> Result<(), Box<dyn std::error::Error>> {
+        let value = SimpleValue::I64 { value: 2026 };
+        // Plain JSON, as a hand-written file holds it (as_bytes writes the tagged form).
+        let json_val = value.try_into_json_value()?;
+        let yaml_str = serde_yaml::to_string(&json_val)?;
+        let yaml_bytes = yaml_str.into_bytes();
+
+        // Both "yaml" and "yml" should work
+        let deserialized_yaml =
+            SimpleValue::deserialize_from_bytes(&yaml_bytes, "I64", "yaml")?;
+        let deserialized_yml =
+            SimpleValue::deserialize_from_bytes(&yaml_bytes, "I64", "yml")?;
+
+        assert_eq!(value, deserialized_yaml);
+        assert_eq!(value, deserialized_yml);
+        assert_eq!(deserialized_yaml, deserialized_yml);
+        Ok(())
+    }
+
+    #[test]
+    fn test_json_parse_error() {
+        let invalid_json = b"{ invalid json }";
+        let result = SimpleValue::deserialize_from_bytes(invalid_json, "Object", "json");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_yaml_parse_error() {
+        let invalid_yaml = b"{ [ : }";
+        let result = SimpleValue::deserialize_from_bytes(invalid_yaml, "Object", "yaml");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_unsupported_format() {
+        let bytes = b"some data";
+        let result = SimpleValue::deserialize_from_bytes(bytes, "Text", "unknown_format");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_txt_format_still_works() -> Result<(), Box<dyn std::error::Error>> {
+        let input_bytes = b"hello from txt";
+        let deserialized =
+            SimpleValue::deserialize_from_bytes(input_bytes, "Text", "txt")?;
+        match deserialized {
+            SimpleValue::Text { value } => {
+                assert_eq!(value, "hello from txt");
+                Ok(())
+            }
+            _ => Err("Expected Text value".into()),
+        }
+    }
+
+    #[test]
+    fn test_html_format_still_works() -> Result<(), Box<dyn std::error::Error>> {
+        let input_bytes = b"<html>content</html>";
+        let deserialized =
+            SimpleValue::deserialize_from_bytes(input_bytes, "Text", "html")?;
+        match deserialized {
+            SimpleValue::Text { value } => {
+                assert_eq!(value, "<html>content</html>");
+                Ok(())
+            }
+            _ => Err("Expected Text value".into()),
+        }
+    }
+
+    #[test]
+    fn test_toml_format_still_works() -> Result<(), Box<dyn std::error::Error>> {
+        let input_bytes = b"key = value";
+        let deserialized =
+            SimpleValue::deserialize_from_bytes(input_bytes, "Text", "toml")?;
+        match deserialized {
+            SimpleValue::Text { value } => {
+                assert_eq!(value, "key = value");
+                Ok(())
+            }
+            _ => Err("Expected Text value".into()),
+        }
+    }
+    /// A sample of every variant, by type identifier. A new identifier in `type_descriptions`
+    /// without a sample here fails the round-trip test below.
+    fn sample(identifier: &str) -> Option<SimpleValue> {
+        let value = match identifier {
+            "None" => SimpleValue::None {},
+            "Bool" => SimpleValue::Bool { value: true },
+            "I32" => SimpleValue::I32 { value: 7 },
+            "I64" => SimpleValue::I64 { value: 1 << 40 },
+            "F64" => SimpleValue::F64 { value: 1.5 },
+            "Text" => SimpleValue::Text { value: "hello".to_string() },
+            "Array" => SimpleValue::Array {
+                value: vec![SimpleValue::I64 { value: 1 }, SimpleValue::Text { value: "two".to_string() }],
+            },
+            "Object" => {
+                let mut map = BTreeMap::new();
+                map.insert("a".to_string(), SimpleValue::Bool { value: false });
+                SimpleValue::Object { value: map }
+            }
+            "Bytes" => SimpleValue::Bytes { value: vec![0, 1, 254] },
+            "Metadata" => SimpleValue::Metadata { value: MetadataRecord::new() },
+            "AssetInfo" => SimpleValue::AssetInfo { value: vec![AssetInfo::new()] },
+            "Recipe" => SimpleValue::Recipe { value: Recipe::default() },
+            "CommandMetadata" => SimpleValue::CommandMetadata { value: CommandMetadata::default() },
+            "Query" => SimpleValue::Query { value: liquers_core::parse::parse_query("a/b").ok()? },
+            "Key" => SimpleValue::Key { value: liquers_core::parse::parse_key("a/b").ok()? },
+            _ => return None,
+        };
+        Some(value)
+    }
+
+    /// Every (type, format) pair `SimpleValue`'s `TypeInfo` declares is written and read back.
+    /// A text format carries no type, so it reads back as `Text`; JSON numbers read back as `I64`.
+    /// Pairs the writer refuses are collected and compared with a recorded list, so a new gap
+    /// fails here instead of passing silently.
+    #[test]
+    fn every_declared_format_round_trips_or_is_recorded_as_unwritable(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut unwritable: Vec<String> = Vec::new();
+        for info in SimpleValue::type_descriptions() {
+            let id = info.type_identifier.to_string();
+            let value = sample(&id).ok_or(format!("no sample for type identifier {id}"))?;
+            for format in &info.supported_data_formats {
+                let bytes = match value.as_bytes(format) {
+                    Ok(bytes) => bytes,
+                    Err(_) => {
+                        unwritable.push(format!("{id}:{format}"));
+                        continue;
+                    }
+                };
+                let back = SimpleValue::deserialize_from_bytes(&bytes, &id, format)?;
+                let expected = match format.as_ref() {
+                    "txt" | "html" => SimpleValue::Text { value: String::from_utf8(bytes.clone())? },
+                    "json" => match &value {
+                        SimpleValue::I32 { value } => SimpleValue::I64 { value: i64::from(*value) },
+                        other => other.clone(),
+                    },
+                    _ => value.clone(),
+                };
+                assert_eq!(back, expected, "round trip of {id} as {format}");
+            }
+        }
+        unwritable.sort();
+        let recorded: Vec<String> = UNWRITABLE.iter().map(|s| s.to_string()).collect();
+        assert_eq!(unwritable, recorded, "declared but unwritable (type:format) pairs changed");
+        Ok(())
+    }
+
+    /// Declared in `liquers_core::value::Value`'s `TypeInfo`, which `SimpleValue` shares, but
+    /// refused by `SimpleValue::as_bytes` — `SIMPLE-VALUE-WRITES-FEWER-FORMATS-THAN-DECLARED`.
+    const UNWRITABLE: &[&str] = &[
+        "Bool:css",
+        "Bool:js",
+        "Bool:py",
+        "Bool:rs",
+        "Bytes:b",
+        "Bytes:bin",
+        "Bytes:bytes",
+        "F64:css",
+        "F64:js",
+        "F64:py",
+        "F64:rs",
+        "I32:css",
+        "I32:js",
+        "I32:py",
+        "I32:rs",
+        "I64:css",
+        "I64:js",
+        "I64:py",
+        "I64:rs",
+        "Key:css",
+        "Key:html",
+        "Key:js",
+        "Key:py",
+        "Key:rs",
+        "Key:txt",
+        "None:css",
+        "None:js",
+        "None:py",
+        "None:rs",
+        "Query:css",
+        "Query:html",
+        "Query:js",
+        "Query:py",
+        "Query:rs",
+        "Query:txt",
+        "Text:b",
+        "Text:bin",
+        "Text:bytes",
+        "Text:css",
+        "Text:js",
+        "Text:py",
+        "Text:rs",
+    ];
 }
