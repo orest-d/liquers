@@ -40,6 +40,19 @@ concurrency, error and cross-crate axes systematically; the **Test Plan** points
 `LANGUAGE-INTEGRATION_GUIDE.md` test its Rust-side proof; and the closing section records the small
 number of places Phase 3 needed something Phase 2 declared only as an ellipsis, or not at all.
 
+Two Phase 1 properties are proven by tests rather than by the scenarios:
+
+- **Lazy and chunked.** Example 2's manifest walk is narrative, and `ManifestSource::stream`'s body
+  there is a sketch. What proves the laziness is `RECORDS07` — a counting resolver asserts that at most one
+  chunk is resident while the stream drains — and `RECORDS08`, which asserts that a drained stream
+  and `materialize` yield the same rows (§"RECORDS counterparts").
+- **Works on wasm32.** Proven at two levels. That it *builds* is shown by the build-matrix rows for
+  `wasm32-unknown-unknown` (`liquers-records` alone and `liquers-lib` with `records`). That it
+  *behaves* on wasm — a column view detected as stale after `memory.grow` and refreshed at the same
+  pointer, and `free()` on the JavaScript handle releasing the batch — is shown by
+  `liquers-web/tests/records_RECORDS.rs`, against the `RecordBatch` handle this design adds to
+  `liquers-web`.
+
 The records live in the `liquers-records` crate; `liquers-lib` holds the glue behind its `records`
 feature, with the values as `ExtValue::RecordView` and `ExtValue::RecordSource`.
 
@@ -335,8 +348,8 @@ otherwise." *Cause:* a derived `Default` for `bool` is `false`. *Correction:* `O
   (`VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`, noted in `phase2-architecture.md`); until
   that lands, a source is served by materializing it, the ordinary `BinaryResponse` path with no
   `liquers-axum` change — nothing new to test here.
-- **`liquers-web`**: the wasm-only counterparts to `RECORDS05`/`RECORDS06` are named, sketched, and
-  left for `liquers-web` to write once its `RecordBatch` bindings exist (§6, closing block).
+- **`liquers-web`**: the wasm counterparts to `RECORDS05`/`RECORDS06` — stale-view detection after
+  `memory.grow`, and `free()` releasing the batch — are `liquers-web/tests/records_RECORDS.rs` (§6).
 
 ### 6. Feature gating
 
@@ -442,8 +455,8 @@ Run once Phase 4 lands: `cargo test -p liquers-records --lib --tests`, then
 | `RECORDS02` | A column read through a view equals a materialized copy | §6: `records02_column_through_a_view_equals_a_materialized_copy`; also every `assert_reads_agree` call in §2.4 |
 | `RECORDS03` | An Arrow export equals the wrapper's data; documented metadata survives | §3.7 (feature `ipc`): `feather_round_trip_preserves_types_roles_and_labels`, `feather_preserves_chunk_id_in_custom_metadata` |
 | `RECORDS04` | A lent buffer is read-only; an edit through a copy never touches the original | §6: `records04_editing_a_shared_batch_copy_leaves_the_original_untouched`; also §2.6's `record_batch_into_mut_copies_a_shared_buffer` |
-| `RECORDS05` | A borrowed view survives an operation that could invalidate it | §6: `records05_view_keeps_reading_after_the_callers_arc_is_dropped` (Rust: `Arc` ownership). Wasm counterpart (heap growth): `liquers-web/tests/records_growth.rs`, sketch, named at the end of §6 |
-| `RECORDS06` | Releasing the last handle releases the value | §6: `records06_dropping_the_last_arc_makes_the_weak_handle_unresolvable` (`Weak::upgrade` after drop). Wasm counterpart (live handle count via `debug-handles`): same sketch file |
+| `RECORDS05` | A borrowed view survives an operation that could invalidate it | §6: `records05_view_keeps_reading_after_the_callers_arc_is_dropped` (Rust: `Arc` ownership). Wasm counterpart (heap growth): `liquers-web/tests/records_RECORDS.rs::records05_…`, end of §6 |
+| `RECORDS06` | Releasing the last handle releases the value | §6: `records06_dropping_the_last_arc_makes_the_weak_handle_unresolvable` (`Weak::upgrade` after drop). Wasm counterpart (live handle count via `debug-handles`): `liquers-web/tests/records_RECORDS.rs::records06_…` |
 | `RECORDS07` | A manifest-backed source is traversed one chunk at a time | §6: `records07_stream_never_holds_more_than_one_chunk_resolution_at_a_time`, against a reference `RecordSource` (`ManifestSource::stream`'s own body is a Phase 4 sketch, §1.2) |
 | `RECORDS08` | Draining a stream and materializing yield identical rows | §6: `records08_stream_drain_and_materialize_agree`, against the real `InMemorySource` |
 | `RECORDS09` | NA unless the language has no async model | NA — Rust always has one; `RecordView` is synchronous and `RecordSource` always async, so there is no fallback route to document |
@@ -527,6 +540,25 @@ Used throughout `phase3-tests.md` §2.2 (`bitmap_new_is_all_clear`, `bitmap_from
 built anywhere else in this document. No other `Bitmap` gap was found: `and`/`or`/`not`/
 `count_ones`/`iter_ones` cover everything a filtered view or a search predicate needs to *read* a
 mask once built.
+
+### (b′) The `liquers-web` handle's Rust-side surface
+
+Phase 2 declares the `RecordBatch` handle's JavaScript methods, and says that `debug-handles` makes the
+live batch-handle count assertable. It does not name the Rust surface a test needs to get there.
+`liquers-web/tests/records_RECORDS.rs` uses three additions:
+
+```rust
+// liquers-web/src/records.rs
+impl From<Arc<RecordBatch>> for LiquersRecordBatch { /* wraps; the handle count rises by one */ }
+impl Drop for LiquersRecordBatch { /* the handle count falls by one */ }
+
+/// Live `LiquersRecordBatch` handles — the `RUNTIME05` idiom, applied to batches.
+#[cfg(feature = "debug-handles")]
+pub fn live_batch_handle_count() -> usize;
+```
+
+and fixes the column descriptor's field names: `kind`, `ptr` (a byte offset into linear memory),
+`len` (in elements), and `validity` (a descriptor of the same shape, or `null`).
 
 ### (c) Confirmed as already sufficient — no gap
 

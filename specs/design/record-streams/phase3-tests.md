@@ -53,7 +53,7 @@ document adds), the Phase 2 / completion name is what appears here.
 | 5.6 | `liquers-records/tests/manifest_chunking.rs` | 3 | `ChunkList::Unbounded`, `ChunkNaming` round trip |
 | 5.7 | `liquers-records/tests/stream_static_lifetime.rs` | 1 | a stream outlives the `Arc<dyn RecordSource>` that opened it |
 | 5.8 | `liquers-records/tests/resolver_dependency_recording.rs` | 0 (2 `#[ignore]`d sketches) | `ContextResolver` vs `EnvResolver` dependency recording — Phase 4 |
-| 6 | `liquers-records/tests/records_guide_counterparts.rs` (+ `liquers-web/tests/records_growth.rs`, sketch) | 9 | `RECORDS01`–`RECORDS11` Rust counterparts (`RECORDS10` is §5.5; `RECORDS03` is §3.7) |
+| 6 | `liquers-records/tests/records_guide_counterparts.rs` (+ `liquers-web/tests/records_RECORDS.rs`, 2 wasm tests) | 9 | `RECORDS01`–`RECORDS11` Rust counterparts (`RECORDS10` is §5.5; `RECORDS03` is §3.7) |
 | 7 | `liquers-records/tests/format_round_trip.rs` | 8 | one round-trip test per serialization format |
 | 8 | (script, no new file) | — | build-matrix rows this design adds |
 | 9 | `liquers-records/tests/manifest_validation.rs` | 6 | chunk-query planning, unknown version, name collisions, templated naming |
@@ -62,8 +62,8 @@ document adds), the Phase 2 / completion name is what appears here.
 sketches**: 2 in §3.7 (IPC dictionary/compression fixtures), 1 in §3.8 (the polars Parquet bridge),
 2 in §5.8 (dependency recording, needs a live `Context`), and 1 in §5.5 (blocked on
 `EXTENDED-VALUES-CANNOT-BIND-TO-SCALAR-ARGUMENTS`). **185 tests carry a real, non-`#[ignore]`d
-assertion.** Two further sketches in a wasm-only file (§6) use `#[wasm_bindgen_test]`, not counted
-above.
+assertion.** Two further tests in `liquers-web/tests/records_RECORDS.rs` (§6) use
+`#[wasm_bindgen_test]` and run in `liquers-web`'s wasm loop; they are not counted above.
 
 
 # 1. Scenario code
@@ -108,7 +108,10 @@ pub async fn file_records(
             .with_role(FieldRole::numeric()),
     ])?);
 
-    let dir_key = state.try_into_key()?;
+    // `-R/data/` is a directory: its state carries no value, only metadata naming the key.
+    let dir_key = state.metadata.key()?.ok_or_else(|| {
+        Error::general_error("file_records needs a directory resource, e.g. -R/data/".to_string())
+    })?;
     let store = context.get_async_store();
     let entries = store.listdir_asset_info(&dir_key).await?;
 
@@ -638,7 +641,18 @@ impl RecordSource for ManifestSource {
 
 use std::sync::Arc;
 
-use liquers_core::{context::SimpleEnvironment, metadata::Metadata, parse::parse_key, value::Value};
+use liquers_core::{
+    context::{Context, Environment, SimpleEnvironment},
+    error::Error,
+    interpreter::evaluate,
+    parse::parse_key,
+    state::State,
+};
+use liquers_lib::{
+    records::{to_record_source, ToRecordOptions},
+    value::Value,
+};
+use liquers_macro::register_command;
 use liquers_records::{
     ChunkList, ChunkTemplate, FieldSchema, FieldType, KeyRole, ManifestSource, ManifestSpec,
     RecordSchema,
@@ -738,64 +752,65 @@ template:
     Ok(())
 }
 
+// `to_record_source` needs a `Context`, whose constructor is async and takes an `AssetRef`.
+// The tests therefore evaluate a query ending in a probe command, as
+// `liquers-core/tests/async_hellow_world.rs` does, instead of building a `Context` by hand.
+
+fn manifest_text(_state: &State<Value>) -> Result<Value, Error> {
+    Ok(Value::from("manifest: record-stream\nchunks: []\n"))
+}
+
+fn not_a_manifest_text(_state: &State<Value>) -> Result<Value, Error> {
+    Ok(Value::from("chunks: []\n")) // valid YAML, no `manifest:` key
+}
+
+/// Reports what `to_record_source` made of the state: `"schema:<bool>,manifest:<bool>"`, or the
+/// error text prefixed with `"error:"`.
+async fn probe_source(
+    state: &State<Value>,
+    context: &Context<impl Environment<Value = Value>>,
+) -> Result<Value, Error> {
+    let options = ToRecordOptions::default();
+    match to_record_source(state.data_unchecked(), &state.metadata, &options, context).await {
+        Ok(source) => Ok(Value::from(format!(
+            "schema:{},manifest:{}",
+            source.schema().is_some(),
+            source.manifest().is_some()
+        ))),
+        Err(e) => Ok(Value::from(format!("error:{e}"))),
+    }
+}
+
+async fn probe(query: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let mut env = SimpleEnvironment::<Value>::new();
+    let cr = &mut env.command_registry;
+    register_command!(cr, fn manifest_text(state) -> result)?;
+    register_command!(cr, fn not_a_manifest_text(state) -> result)?;
+    register_command!(cr, async fn probe_source(state, context) -> result)?;
+    let state = evaluate(env.to_ref(), query, None).await?;
+    Ok(state.try_into_string()?)
+}
+
 #[tokio::test]
 async fn to_record_source_recognizes_manifest_discriminator() -> Result<(), Box<dyn std::error::Error>> {
-    let env = SimpleEnvironment::<Value>::new();
-    let envref = env.to_ref();
-    let context = liquers_core::context::Context::new(envref);
-    let metadata = Metadata::default();
-    let options = liquers_lib::records::ToRecordOptions::default();
-
-    let manifest_yaml = "manifest: record-stream\nchunks: []\n";
-    let source = liquers_lib::records::to_record_source(
-        &Value::from(manifest_yaml),
-        &metadata,
-        &options,
-        &context,
-    )
-    .await?;
-    assert!(source.schema().is_none()); // no uniform_schema declared
+    // No `uniform_schema` declared, so the source has no schema.
+    assert_eq!(probe("manifest_text/probe_source").await?, "schema:false,manifest:true");
     Ok(())
 }
 
 #[tokio::test]
-async fn to_record_source_rejects_missing_discriminator() {
-    let env = SimpleEnvironment::<Value>::new();
-    let envref = env.to_ref();
-    let context = liquers_core::context::Context::new(envref);
-    let metadata = Metadata::default();
-    let options = liquers_lib::records::ToRecordOptions::default();
-
-    let not_a_manifest = "chunks: []\n"; // valid YAML, no `manifest:` key
-    let result = liquers_lib::records::to_record_source(
-        &Value::from(not_a_manifest),
-        &metadata,
-        &options,
-        &context,
-    )
-    .await;
-    assert!(result.is_err());
+async fn to_record_source_rejects_missing_discriminator() -> Result<(), Box<dyn std::error::Error>> {
+    // Text without `manifest: record-stream` is never taken for a manifest; with no data format
+    // to parse it as a table either, it is refused rather than sniffed.
+    assert!(probe("not_a_manifest_text/probe_source").await?.starts_with("error:"));
+    Ok(())
 }
 
 #[tokio::test]
 async fn to_record_source_leaves_source_keyless_without_metadata_key() -> Result<(), Box<dyn std::error::Error>> {
     // A manifest built by a command (never stored) has no metadata key; its chunks stay unkeyed
     // rather than the call failing.
-    let env = SimpleEnvironment::<Value>::new();
-    let envref = env.to_ref();
-    let context = liquers_core::context::Context::new(envref);
-    let metadata = Metadata::default(); // no key
-    let options = liquers_lib::records::ToRecordOptions::default();
-
-    let manifest_yaml = "manifest: record-stream\nchunks: []\n";
-    let source = liquers_lib::records::to_record_source(
-        &Value::from(manifest_yaml),
-        &metadata,
-        &options,
-        &context,
-    )
-    .await?;
-    assert!(source.manifest().is_some());
+    assert!(probe("manifest_text/probe_source").await?.ends_with("manifest:true"));
     Ok(())
 }
 ```
@@ -2652,7 +2667,7 @@ async fn probe_row_count(
     context: &Context<impl Environment<Value = Value>>,
 ) -> Result<Value, Error> {
     let options = ToRecordOptions { format: Some("csv".to_string()), ..Default::default() };
-    let view = to_record(state.data_unchecked(), state.metadata_unchecked(), &options, context).await?;
+    let view = to_record(state.data_unchecked(), &state.metadata, &options, context).await?;
     Ok(Value::from(view.len() as i64))
 }
 
@@ -2664,7 +2679,7 @@ async fn to_record_accepts_csv_bytes() -> Result<(), Box<dyn std::error::Error>>
     register_command!(cr, async fn probe_row_count(state, context) -> result)?;
     let envref = env.to_ref();
     let state = evaluate(envref, "csv_bytes/probe_row_count", None).await?;
-    assert_eq!(state.try_into_i64()?, 2);
+    assert_eq!(state.value()?.try_into_i64()?, 2);
     Ok(())
 }
 
@@ -2673,7 +2688,7 @@ async fn probe_refuses_source(
     context: &Context<impl Environment<Value = Value>>,
 ) -> Result<Value, Error> {
     let options = ToRecordOptions::default();
-    match to_record(state.data_unchecked(), state.metadata_unchecked(), &options, context).await {
+    match to_record(state.data_unchecked(), &state.metadata, &options, context).await {
         Err(e) => Ok(Value::from(format!("{e}"))), // report the message so the test can inspect it
         Ok(_) => Err(Error::general_error("expected to_record to refuse a source".to_string())),
     }
@@ -2708,7 +2723,7 @@ async fn probe_refuses_unlabelled_text(
     context: &Context<impl Environment<Value = Value>>,
 ) -> Result<Value, Error> {
     let options = ToRecordOptions::default(); // format: None — never sniffed
-    match to_record(state.data_unchecked(), state.metadata_unchecked(), &options, context).await {
+    match to_record(state.data_unchecked(), &state.metadata, &options, context).await {
         Err(_) => Ok(Value::from(true)),
         Ok(_) => Err(Error::general_error("expected to_record to refuse unlabelled text".to_string())),
     }
@@ -2722,7 +2737,7 @@ async fn to_record_refuses_unlabelled_text_rather_than_guessing() -> Result<(), 
     register_command!(cr, async fn probe_refuses_unlabelled_text(state, context) -> result)?;
     let envref = env.to_ref();
     let state = evaluate(envref, "unlabelled_text/probe_refuses_unlabelled_text", None).await?;
-    assert!(state.try_into_bool()?);
+    assert!(state.value()?.try_into_bool()?);
     Ok(())
 }
 ```
@@ -2751,7 +2766,7 @@ async fn probe_is_manifest(
     context: &Context<impl Environment<Value = Value>>,
 ) -> Result<Value, Error> {
     let options = ToRecordOptions::default();
-    let source = to_record_source(state.data_unchecked(), state.metadata_unchecked(), &options, context).await?;
+    let source = to_record_source(state.data_unchecked(), &state.metadata, &options, context).await?;
     Ok(Value::from(source.manifest().is_some()))
 }
 
@@ -2763,7 +2778,7 @@ async fn to_record_source_recognizes_the_manifest_discriminator() -> Result<(), 
     register_command!(cr, async fn probe_is_manifest(state, context) -> result)?;
     let envref = env.to_ref();
     let state = evaluate(envref, "manifest_text/probe_is_manifest", None).await?;
-    assert!(state.try_into_bool()?);
+    assert!(state.value()?.try_into_bool()?);
     Ok(())
 }
 
@@ -3107,7 +3122,7 @@ fn records05_view_keeps_reading_after_the_callers_arc_is_dropped() -> Result<(),
 }
 
 // wasm's counterpart — a JS-visible handle surviving `memory.grow` — belongs to `liquers-web`, not
-// here: see `liquers-web/tests/records_growth.rs` (sketch, noted at the end of this section).
+// here: see `liquers-web/tests/records_RECORDS.rs` at the end of this section.
 
 // --- RECORDS06 — releasing the last handle releases the value ----------------------------------
 
@@ -3291,27 +3306,106 @@ fn records11_a_user_defined_view_agrees_across_column_value_and_materialize() ->
 
 `RECORDS10` (single-cell scalar, larger view refuses naming its shape) is `record_scalar_reading.rs`
 §5.5. `RECORDS09` and `RECORDS11`'s reason for `NA` are inline above; `RECORDS11`'s Rust test is the
-last one in the block. `RECORDS05`/`RECORDS06`'s wasm counterparts belong to `liquers-web`:
+last one in the block. `RECORDS05`/`RECORDS06`'s wasm counterparts are `liquers-web` tests against the `RecordBatch` handle
+this design adds (`phase2-architecture.md` §"The wasm route", file `liquers-web/src/records.rs`).
+They run in the Node loop (`cargo test -p liquers-web --target wasm32-unknown-unknown --features
+debug-handles`): neither needs a browser API, since `WebAssembly.Memory` growth and typed arrays
+behave the same under Node.
 
 ```rust
-// liquers-web/tests/records_growth.rs — sketch; needs liquers-web's RecordBatch wasm bindings
-// (§"The wasm route", phase2-architecture.md:1570) and the `debug-handles` feature RUNTIME05
-// already uses for a live JS-handle count.
+// liquers-web/tests/records_RECORDS.rs
+//! `RECORDS05`/`RECORDS06` — the wasm half. `RECORDS06` needs the `debug-handles` feature, as
+//! `RUNTIME05` does.
 #![cfg(target_arch = "wasm32")]
 
-#[wasm_bindgen_test]
-fn records05_borrowed_column_view_survives_a_memory_grow_or_fails_clearly() {
-    todo!(
-        "contract: a JS-visible column pointer taken before a growing allocation either still \
-         reads correctly after growth, or the binding detects the detach and returns a clear \
-         error — never silently reads the wrong memory"
-    )
+use std::sync::Arc;
+
+use js_sys::{Float64Array, Function, Reflect, WebAssembly};
+// liquers-web reaches the records through liquers-lib's `records` feature, not a direct dependency.
+use liquers_lib::records::{Buffer, Column, FieldSchema, FieldType, RecordBatch, RecordSchema};
+use liquers_web::records::LiquersRecordBatch;
+use wasm_bindgen::{prelude::*, JsCast};
+use wasm_bindgen_test::*;
+
+fn float_batch(values: &[f64]) -> Arc<RecordBatch> {
+    let schema = Arc::new(
+        RecordSchema::new(vec![FieldSchema::new("x", FieldType::Float)]).expect("schema"),
+    );
+    let column = Column::Float { validity: None, values: Buffer::from_slice(values) };
+    Arc::new(RecordBatch::new(schema, vec![column], None, None, vec![]).expect("batch"))
 }
 
+fn memory_buffer() -> JsValue {
+    wasm_bindgen::memory()
+        .dyn_into::<WebAssembly::Memory>()
+        .expect("wasm memory")
+        .buffer()
+}
+
+fn descriptor_field(desc: &JsValue, name: &str) -> f64 {
+    Reflect::get(desc, &JsValue::from_str(name))
+        .expect("descriptor field")
+        .as_f64()
+        .expect("numeric descriptor field")
+}
+
+/// RECORDS05 — a view taken before the heap grows is detected as stale, and re-created at the
+/// same pointer and length it reads the right values. This is the JS companion's refresh
+/// (`view.buffer !== memory.buffer` → re-create), done by hand so the test does not depend on
+/// the companion's packaging.
 #[wasm_bindgen_test]
+fn records05_a_column_view_is_detected_stale_after_memory_grow_and_refreshes_in_place() {
+    let values = [1.5, -2.0, 3.25];
+    let handle = LiquersRecordBatch::from(float_batch(&values));
+    let desc = handle.column(0).expect("column descriptor");
+    let ptr = descriptor_field(&desc, "ptr") as u32;
+    let len = descriptor_field(&desc, "len") as u32;
+    assert_eq!(len, 3);
+
+    let before = memory_buffer();
+    let view = Float64Array::new_with_byte_offset_and_length(&before, ptr, len);
+    assert_eq!(view.to_vec(), values);
+
+    // Grow linear memory by one page: the old ArrayBuffer is detached, the data does not move.
+    let previous_pages = core::arch::wasm32::memory_grow::<0>(1);
+    assert_ne!(previous_pages, usize::MAX, "memory.grow failed");
+
+    let after = memory_buffer();
+    assert!(!JsValue::eq(&view.buffer().into(), &after), "the growth must be detectable");
+    assert_eq!(view.length(), 0, "a view over a detached buffer reads nothing, not garbage");
+
+    let refreshed = Float64Array::new_with_byte_offset_and_length(&after, ptr, len);
+    assert_eq!(refreshed.to_vec(), values, "same pointer, same length, same values");
+
+    // The always-safe fallback agrees.
+    let copy: Float64Array = handle.column_copy(0).expect("copy").dyn_into().expect("Float64Array");
+    assert_eq!(copy.to_vec(), values);
+}
+
+/// RECORDS06 — freeing the JS handle releases the batch. Observed two ways: the live batch-handle
+/// count returns to its baseline, and the batch itself is dropped (its `Weak` no longer upgrades).
 #[cfg(feature = "debug-handles")]
-fn records06_releasing_a_js_handle_decrements_the_live_handle_count() {
-    todo!("contract: as RUNTIME05 for ForeignValue handles, applied to LiquersRecordBatch")
+#[wasm_bindgen_test]
+fn records06_freeing_the_handle_releases_the_batch() {
+    use liquers_web::records::live_batch_handle_count;
+
+    let baseline = live_batch_handle_count();
+    let batch = float_batch(&[1.0, 2.0]);
+    let weak = Arc::downgrade(&batch);
+
+    let js_handle: JsValue = LiquersRecordBatch::from(batch).into();
+    assert_eq!(live_batch_handle_count(), baseline + 1);
+    assert!(weak.upgrade().is_some(), "the handle keeps the batch alive");
+
+    // `free()` is what JavaScript calls; call it the same way.
+    let free: Function = Reflect::get(&js_handle, &JsValue::from_str("free"))
+        .expect("free")
+        .dyn_into()
+        .expect("free is a function");
+    free.call0(&js_handle).expect("free() succeeds");
+
+    assert_eq!(live_batch_handle_count(), baseline);
+    assert!(weak.upgrade().is_none(), "free() must drop the last Arc<RecordBatch>");
 }
 ```
 

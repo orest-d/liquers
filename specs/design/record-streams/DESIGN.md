@@ -20,7 +20,7 @@ superseded_by:
 
 - [x] Phase 1: High-Level Design — approved 2026-09-20
 - [x] Phase 2: Solution & Architecture — approved 2026-09-20; revised 2026-09-24/25 (traits; formats and readers; keyed chunks; the `liquers-records` crate); **re-approved 2026-09-25**
-- [ ] Phase 3: Examples & Testing — in progress; being redrafted against the re-approved Phase 2
+- [ ] Phase 3: Examples & Testing — redrafted and reviewed 2026-09-25; awaiting approval
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
@@ -79,6 +79,6 @@ rather than about what a record is.
 - [Engine survey](./engine-survey.md) — is the field-role model right, and can records front a relational database?
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md) — narrative, scenarios, corner cases, test plan
-- [Phase 3 test code](./phase3-tests.md) — the 73 tests, organized by target file
+- [Phase 3 test code](./phase3-tests.md) — 191 tests plus 2 wasm tests, organized by target file
 - [Phase 4](./phase4-implementation.md)
 - [Phase 5](./phase5-documentation.md)
