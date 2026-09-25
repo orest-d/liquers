@@ -9,12 +9,14 @@ A record stream is a **lazy sequence of tables**, each carrying a schema that na
 declares what an index should do with them, and each attributable to a **chunk** that owns its
 provenance and validity. Tables at rest are **columnar batches laid out as Arrow specifies**.
 
-The whole feature lives in **`liquers-lib`, behind a `records` feature**: it is a data type, not a
-core capability. `liquers-core` gains only two **general** features that keyed chunks need — a
-recipe provider chain, and `stored`/`cached` flags the asset manager honours (§"Keyed chunks") —
-and nothing is added to `AsyncStore`.
-With the feature off, the records code is absent and the two core features behave exactly as today
-by default.
+The feature is its own crate, **`liquers-records`**, depending on `liquers-core` alone:
+`liquers-core ← liquers-records ← liquers-lib`. It holds the data model, the traits, the views, the
+formats and the manifest. `liquers-lib` adds only the **glue** — the `ExtValue` variants, the `ns-rec`
+commands, the conversions from arbitrary inputs, and the polars bridge — behind its `records` feature.
+`liquers-core` gains only two **general** features that keyed chunks need — a recipe provider chain,
+and `stored`/`cached` flags the asset manager honours (§"Keyed chunks") — and nothing is added to
+`AsyncStore`. With `records` off in `liquers-lib`, the records crate is not built, and the two core
+features behave exactly as today by default.
 
 Three **traits** carry it — a **`RecordSource`** that can be asked repeatedly for a stream, a
 **`RecordStream`** that is one traversal, and a **`RecordView`**, any finite table with random
@@ -138,7 +140,7 @@ hold*, checked by the compiler.
 ### The types
 
 ```rust
-// liquers-lib/src/records/mod.rs
+// liquers-records/src/lib.rs
 use liquers_core::maybe_send::{BoxFuture, MaybeSend, MaybeSync};
 
 /// Something that can be asked, repeatedly, for a stream of views.
@@ -319,7 +321,7 @@ command, needs none of it: that stage already knows how to await.
 
 | What it gets right | |
 |---|---|
-| **Nothing new outside `liquers-lib`** | `/q/…/ns-rec/materialize/daily.csv` is served by the existing `BinaryResponse` path, and stored under a key by the existing persistence path |
+| **No change to serialization, the store or `liquers-axum`** | `/q/…/ns-rec/materialize/daily.csv` is served by the existing `BinaryResponse` path, and stored under a key by the existing persistence path |
 | **The cost is written in the query** | Materializing is a step a person writes, like `collect()` in a lazy DataFrame API — never something serialization does behind the caller's back |
 | **The result is an ordinary asset** | Cached, stored when keyed, and — read through a `ContextResolver` — dependent on its chunks, so it expires when one does |
 | **It settles when a source becomes data on disk** | Only when someone writes `materialize`. The persistence step never turns a manifest into a table on its own, so `stored: false` keeps meaning what it says |
@@ -409,7 +411,8 @@ The environment's provider becomes a chain: `recipes.yaml` first, then the manif
 `records` is on. `RecipeProviderChoice` gains the chain as a choice, and `EnvironmentBuilder` a way
 to append a provider, so an integration can add its own generative provider the same way.
 
-**`ManifestRecipeProvider`**, in `liquers-lib/src/records/provider.rs` behind `records`: for
+**`ManifestRecipeProvider`**, in `liquers-records/src/provider.rs` — it implements core's
+`AsyncRecipeProvider<E>` for any `E`, since it produces recipes and no values: for
 `recipe_opt(<folder>/<name>)` it reads the folder's `*.manifest.yaml` (parsed manifests cached by key
 and stored version) and answers with
 
@@ -463,11 +466,11 @@ called through `dyn RecordSource`. The environment therefore reaches a source th
 object-safe trait:
 
 ```rust
-/// What a source needs from the environment. Object-safe, so `dyn RecordSource` can take it.
-/// `liquers-lib`'s `Value` is concrete, so the trait need not be generic.
+/// What a source needs from the environment. Object-safe, so `dyn RecordSource` can take it,
+/// and free of any concrete value type, which `liquers-records` cannot name.
 pub trait ChunkResolver: MaybeSend + MaybeSync + 'static {
-    /// Evaluate a chunk query and wait for its value.
-    fn evaluate(&self, query: Query) -> BoxFuture<'static, Result<Value, Error>>;
+    /// Evaluate a chunk query and wait for its value, as the records crate can use it.
+    fn evaluate(&self, query: Query) -> BoxFuture<'static, Result<ChunkValue, Error>>;
     /// Read a chunk's metadata without producing its value — the store's metadata for a keyed
     /// chunk, the asset manager's for an unkeyed one.
     fn metadata(&self, query: Query) -> BoxFuture<'static, Result<Metadata, Error>>;
@@ -478,7 +481,35 @@ pub trait ChunkResolver: MaybeSend + MaybeSync + 'static {
 }
 ```
 
-Two implementations, and the difference between them is **dependency recording**:
+/// A chunk's value as the records crate sees it.
+pub enum ChunkValue {
+    View(Arc<dyn RecordView>),
+    Source(Arc<dyn RecordSource>),
+    /// Anything else, as bytes in its data format — parsed as a table by the source.
+    Bytes { data: Vec<u8>, metadata: Metadata },
+}
+```
+
+**`liquers-records` cannot name `liquers-lib`'s `Value`**, which sits above it, so it sees values
+through an adapter trait that the value type implements — the pattern `ValueExtension` already uses
+in the other direction:
+
+```rust
+// liquers-records/src/value.rs
+/// How the records crate reads and builds a Liquers value without knowing its type.
+/// Implemented by `liquers-lib`'s `Value`; an integration with its own value type implements it too.
+pub trait RecordValue: ValueInterface {
+    fn as_record_view(&self) -> Option<Arc<dyn RecordView>>;
+    fn as_record_source(&self) -> Option<Arc<dyn RecordSource>>;
+    fn from_record_view(view: Arc<dyn RecordView>) -> Self;
+    fn from_record_source(source: Arc<dyn RecordSource>) -> Self;
+}
+```
+
+`liquers-lib` implements it for `CombinedValue<SimpleValue, ExtValue>` — its own type, so the orphan
+rule allows it — mapping the two methods pairs onto the two `ExtValue` variants.
+
+Two resolver implementations, and the difference between them is **dependency recording**:
 
 | Implementation | Wraps | Records dependencies | Used by |
 |---|---|---|---|
@@ -488,10 +519,10 @@ Two implementations, and the difference between them is **dependency recording**
 A stream that outlives the command that opened it must not record dependencies into an asset that
 has already finished, so a stream handed across that boundary is opened with an `EnvResolver`.
 
-**The cost, stated:** both are implemented for `E: Environment<Value = liquers_lib::value::Value>`, so
-records work in environments built on `liquers-lib`'s value type — as every other `ExtValue` variant
-already does. An integration crate with its own combined value type would implement `ChunkResolver`
-for itself; the trait is small enough that this is a few lines.
+Both are implemented for `E: Environment` **where `E::Value: RecordValue`**: a value that is a view
+or a source is taken as such, and any other is serialized in its data format into
+`ChunkValue::Bytes`. So records work in any environment whose value type implements the adapter —
+`liquers-lib`'s does, and an integration with its own value type adds four methods.
 
 ### The stream is `futures::Stream`, extended by one method
 
@@ -596,7 +627,7 @@ method** gives every access its proportional cost.
 
 #### The implementations
 
-All in `liquers-lib/src/records/views.rs`. Each view holds its base as an `Arc<dyn RecordView>`.
+All in `liquers-records/src/views.rs`. Each view holds its base as an `Arc<dyn RecordView>`.
 
 | View | Built by | `column_range(c, r)` | `materialize()` |
 |---|---|---|---|
@@ -922,8 +953,9 @@ why `chunks()` must not produce records.
 
 ### Value extension — `ExtValue`, not core's `Value`
 
-Two of the three abstractions are values: the view and the source. **Both live on `ExtValue` in
-`liquers-lib`, and neither could live on `liquers_core::value::Value`.**
+Two of the three abstractions are values: the view and the source. The traits are
+`liquers-records`'; **the value variants holding them live on `ExtValue` in `liquers-lib`**, and
+neither could live on `liquers_core::value::Value`.
 
 `Value` derives `Serialize, Deserialize, Debug, Clone, PartialEq` and is `#[serde(untagged)]`
 (`value.rs:20-21`). Every variant must satisfy all five, and a trait object satisfies none of the
@@ -949,11 +981,11 @@ pub enum ExtValue {
     /// A finite table — a `RecordBatch` or any view. Shareable, cacheable, serializable
     /// (materialized on the way out).
     #[cfg(feature = "records")]
-    RecordView { value: Arc<dyn crate::records::RecordView> },
+    RecordView { value: Arc<dyn liquers_records::RecordView> },
     /// Something that can be asked, repeatedly, for a stream. Shareable, never consumed by use;
     /// serializable only as a manifest.
     #[cfg(feature = "records")]
-    RecordSource { value: Arc<dyn crate::records::RecordSource> },
+    RecordSource { value: Arc<dyn liquers_records::RecordSource> },
 }
 ```
 
@@ -1030,8 +1062,9 @@ conversions in `ExtValueInterface` and `DefaultValueSerializer`, plus the scalar
 §"A view as a value"; and add both `TypeInfo` entries to `ExtValue::type_descriptions()`
 (`mod.rs:148`) — `CLAUDE.md`'s "four steps, not three; a type with no `TypeInfo` cannot be stored".
 
-**Everything records-specific lives in `liquers-lib`, behind the `records` feature** — see
-§"Integration Points". `liquers-core` gains only the two general features of §"Keyed chunks".
+**Everything records-specific lives in `liquers-records`**, with `liquers-lib` holding the glue
+behind its `records` feature — see §"Integration Points". `liquers-core` gains only the two general
+features of §"Keyed chunks".
 
 **Serializing the multi-gigabyte case** still meets `VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER`:
 `as_bytes` returns a `Vec<u8>`, so NDJSON or CSV over a large stream cannot stream through it. A
@@ -1099,7 +1132,7 @@ Every text format is read by one of two readers, and **which one runs depends on
 schema is available**, not on the format:
 
 ```rust
-// liquers-lib/src/records/formats/mod.rs
+// liquers-records/src/formats/mod.rs
 pub enum ReadSchema<'a> {
     /// A schema is known: parse every cell as its declared type. Nothing is guessed.
     Declared(&'a RecordSchema),
@@ -1309,7 +1342,7 @@ pyarrow writes dictionary-encoded pages compressed with snappy by default; polar
 may use data page v2 and delta encodings. A reader that handles only files like its own would refuse
 most Parquet a user actually has — worse than refusing honestly. So:
 
-- **With `polars` on** (native), Parquet is read through polars' reader and converted with a
+- **With `polars` on** (native), in `liquers-lib`'s polars bridge, Parquet is read through polars' reader and converted with a
   `DataFrame → RecordBatch` bridge, the reverse of the one already planned. Roles are lost on this path
   unless polars exposes the key-value metadata; the `Id` is inferred as for CSV.
 - **Without it**, reading is refused with an error naming the `polars` feature.
@@ -1353,7 +1386,7 @@ formats need are partly missing from `liquers-core/src/media_type.rs` (`ndjson` 
 
 ## Data Structures
 
-New module `liquers-lib/src/records/`, behind the `records` feature.
+In the `liquers-records` crate.
 
 ### Columns, not rows: the batch is Arrow-laid-out
 
@@ -1503,7 +1536,7 @@ builds for already is. One line, not a design problem.
 | Route | Data copied | Where | Status |
 |---|---|---|---|
 | **C Data Interface** | none | `liquers-py` | The real zero-copy path. A few hundred lines and the only `unsafe`. **`polars-arrow 0.55.2` is already in the lockfile** via polars, and exposes its own C Data Interface — so the native polars hand-off can go through it rather than hand-rolling FFI, whenever the `polars` feature is on |
-| **Arrow IPC / Feather** | yes — it is serialization | `liquers-lib`, behind `records-ipc` | Not sharing, but the lossless file format. Specified in §"Table formats" |
+| **Arrow IPC / Feather** | yes — it is serialization | `liquers-records`, behind its `ipc` feature | Not sharing, but the lossless file format. Specified in §"Table formats" |
 | **Typed arrays over wasm memory** | none | `liquers-web` | Needs a validity discipline — see below |
 
 #### The wasm route: a dedicated safe mechanism, not Arrow
@@ -2187,7 +2220,7 @@ trait stays object-safe.
 The traits, the reference sources and `ChunkResolver` are specified in §"The types" and §"Views",
 and are not repeated here.
 
-### `liquers-lib/src/records/mod.rs`
+### `liquers-records/src/lib.rs`
 
 ```rust
 impl RecordSchema {
@@ -2247,7 +2280,7 @@ impl Bitmap {
 }
 ```
 
-### `liquers-lib/src/records/buffer.rs`
+### `liquers-records/src/buffer.rs`
 
 ```rust
 impl AlignedBuffer {
@@ -2266,40 +2299,72 @@ impl<T: bytemuck::Pod> Buffer<T> {
 
 ## Integration Points
 
-### Crate placement: `liquers-lib`, behind a `records` feature
+### Crate placement: a `liquers-records` crate, with glue in `liquers-lib`
 
-**The whole feature is `liquers-lib`, behind a `records` feature.** It is in essence a new data
-type, not an essential capability — the same class as `image-support` and `polars`, and `CLAUDE.md`
-already directs new value types to `liquers-lib/src/value/`.
+```
+liquers-core  ←  liquers-records  ←  liquers-lib (feature `records`)  ←  liquers-axum / liquers-web / liquers-py
+```
 
-**`liquers-core` changes only for two general features** — the recipe provider chain and the
-`stored`/`cached` flags (§"Keyed chunks") — neither of which knows about records. Everything
-records-specific is additive to `liquers-lib`.
+**Records are their own crate, depending on `liquers-core` only.** The reason is modularity for
+what gets built *on* records: a relational access layer, the search design's engine sinks, a future
+GIS layer. Each of those is naturally a small crate, and the question is what it must depend on:
+
+| A crate built on records depends on | Crates pulled in |
+|---|---|
+| `liquers-lib`, even with every default feature off — `image`, `resvg`, `usvg`, `tiny-skia` and `typetag` are mandatory there | **172** |
+| `liquers-records` — `liquers-core` plus `bytemuck`; Arrow IPC and Parquet optional | **about 60** (core alone is 56) |
+
+Counted with `cargo tree -e normal` on the current lockfile. The boundary also enforces what a
+module could only ask for: `liquers-records` cannot reach egui, polars or the UI, and `liquers-lib`
+reaches records only through their public API. And records work gets a small test loop,
+`cargo test -p liquers-records`, which builds core and nothing above it — the build this environment
+can afford to run often.
+
+**What goes where** follows one rule: `liquers-records` holds everything that does not need
+`liquers-lib`'s `Value` or its commands; `liquers-lib` holds the glue that does.
+
+| `liquers-records` | `liquers-lib`, behind `records` |
+|---|---|
+| schema; `Column`, `Buffer`, `Bitmap`, `FieldValue`, `RecordBatch`; `RowId` | `ExtValue::RecordView` and `ExtValue::RecordSource`, their `TypeInfo`s, `DefaultValueSerializer` arms and scalar hooks |
+| the traits `RecordView`, `RecordViewMut`, `RecordSource`, `RecordStream`, `ChunkResolver`; `RecordValue` | `impl RecordValue for Value` |
+| views and their constructors (`impl dyn RecordView` is legal here, where the trait is defined); column kernels; `RecordBatchMut`, `ColumnMut`; `materialize` | the `ns-rec` commands and their registration |
+| readers and writers, both schema modes; Markdown, HTML; Arrow IPC and Parquet behind features | `to_record`, `to_record_source` — they take `Value`, `Metadata` and `Context` |
+| `ManifestSpec`, `ManifestSource`, `InMemorySource`, `ChunkNaming`, `ManifestRecipeProvider`; `ContextResolver`, `EnvResolver` | adding the manifest provider to the environment's chain; the polars bridge (it needs both crates) |
+| — | `pub use liquers_records as records;` — so `liquers_lib::records::RecordBatch` works for every crate above `liquers-lib` |
+
+**Commands stay in `liquers-lib`**, as the `rec` namespace should: they are registered with
+`register_command!` against `liquers-lib`'s `Value`. The cost is that a command and the function it
+calls are in different crates — a command is a thin wrapper, so this is a small price for keeping the
+records crate free of the command layer.
 
 | Crate | File | Change |
 |---|---|---|
-| `liquers-lib` | `src/records/buffer.rs` (new) | `AlignedBuffer`, `Buffer<T>`, `Bitmap` — the Arrow-layout primitives; the only place `bytemuck` is used |
-| `liquers-lib` | `src/records/mod.rs` (new) | The traits `RecordView`, `RecordSource`, `RecordStream`, `ChunkResolver`; `BoxRecordStream`, `record_stream`, `RecordStreamExt`; `FieldValue`, `RecordSchema`, `FieldSchema`, `FieldType`, `Column` and its kernels, `RecordBatch`, `ChunkOrigin`, `LocatorRule`, `ChunkNaming`, `ChunkId`, `ChunkList`, `ChunkDescriptor` |
-| `liquers-lib` | `src/records/views.rs` (new) | The view implementations, the `impl dyn RecordView` constructors, `RowFnView` |
+| `liquers-records` | `src/buffer.rs` | `AlignedBuffer`, `Buffer<T>`, `Bitmap` — the Arrow-layout primitives; the only place `bytemuck` is used |
+| `liquers-records` | `src/lib.rs` | The traits `RecordView`, `RecordSource`, `RecordStream`, `ChunkResolver`; `BoxRecordStream`, `record_stream`, `RecordStreamExt`; `FieldValue`, `RecordSchema`, `FieldSchema`, `FieldType`, `Column` and its kernels, `RecordBatch`, `ChunkOrigin`, `LocatorRule`, `ChunkNaming`, `ChunkId`, `ChunkList`, `ChunkDescriptor` |
+| `liquers-records` | `src/views.rs` | The view implementations, the `impl dyn RecordView` constructors, `RowFnView` |
 | **`liquers-core`** | `src/recipes.rs` | `RecipeProviderChain`; `RecipeProviderChoice` gains the chain; `Recipe` gains `stored` and `cached`, default `true` |
 | **`liquers-core`** | `src/metadata.rs` | `MetadataRecord` and `AssetInfo` gain `stored` and `cached`, default `true` for legacy records |
 | **`liquers-core`** | `src/assets.rs` | the store writes skip when `stored: false`; key-asset registration skips when `cached: false` |
 | **`liquers-core`** | `src/context.rs`, `src/environment_builder.rs` | appending a provider to the chain |
 | `liquers-py` | wrappers of `Recipe`, `AssetInfo`, `MetadataRecord` | the two fields, or `..Default::default()` in struct literals |
-| `liquers-lib` | `src/records/provider.rs` (new) | `ManifestRecipeProvider`, and adding it to the environment's chain |
-| `liquers-lib` | `src/records/mutable.rs` (new) | `RecordViewMut`, `RecordBatchMut`, `ColumnMut` |
+| `liquers-records` | `src/provider.rs` | `ManifestRecipeProvider` |
+| `liquers-records` | `src/value.rs` | `RecordValue`, `ChunkValue` |
+| `liquers-records` | `Cargo.toml` (new crate) | depends on `liquers-core`, `serde` (with `rc`), `serde_json`, `futures`, `chrono`, `bytemuck`; features `ipc` (`dep:flatbuffers`) and `parquet` (`dep:flate2`) |
+| `liquers-lib` | `src/records/mod.rs` (new) | `pub use liquers_records::*`, `impl RecordValue for Value`, adding `ManifestRecipeProvider` to the environment's chain |
+| workspace | `Cargo.toml` | `liquers-records` as a member and in `default-members` |
+| `liquers-records` | `src/mutable.rs` | `RecordViewMut`, `RecordBatchMut`, `ColumnMut` |
 | `liquers-lib` | `src/records/convert.rs` (new) | `to_record`, `to_record_source` — what every record command accepts |
-| `liquers-lib` | `src/records/formats/` (new) | `mod.rs` (`read_table`, `write_table`, `ReadSchema`), `csv.rs` (CSV and TSV), `json.rs` (NDJSON and JSON), `shapes.rs` (the seven JSON orients), `markdown.rs`, `html.rs`, `infer.rs` (schema-less inference); `ipc.rs` behind `records-ipc`; `parquet.rs` and `thrift.rs` behind `records-parquet` |
-| `liquers-lib` | `src/records/sources.rs` (new) | `ManifestSource`, `InMemorySource`, the wrapping sources, `ContextResolver`, `EnvResolver` |
+| `liquers-records` | `src/formats/` | `mod.rs` (`read_table`, `write_table`, `ReadSchema`), `csv.rs` (CSV and TSV), `json.rs` (NDJSON and JSON), `shapes.rs` (the seven JSON orients), `markdown.rs`, `html.rs`, `infer.rs` (schema-less inference); `ipc.rs` behind `records-ipc`; `parquet.rs` and `thrift.rs` behind `records-parquet` |
+| `liquers-records` | `src/sources.rs` | `ManifestSource`, `InMemorySource`, the wrapping sources, `ContextResolver`, `EnvResolver` |
 | `liquers-lib` | `src/records/commands.rs` (new) | The `ns-rec` command set |
 | `liquers-lib` | `src/records/polars.rs` (new, `records` + `polars`) | `RecordBatch → polars::DataFrame` over the shared buffers, and `DataFrame → RecordBatch` — the path Parquet is read through |
 | `liquers-lib` | `src/value/mod.rs` | `ExtValue::RecordView` and `ExtValue::RecordSource`, **cfg-gated**, with every exhaustive match gaining a gated arm; both `TypeInfo` entries; the `DefaultValueSerializer` arms; the scalar hooks |
 | `liquers-lib` | `src/value/extended.rs` | **Prerequisite, not records-specific:** `ValueExtension` scalar hooks, delegated from `CombinedValue`'s `ValueInterface` and `TryFrom` impls — `EXTENDED-VALUES-CANNOT-BIND-TO-SCALAR-ARGUMENTS` |
-| `liquers-lib` | `Cargo.toml` | the `records`, `records-ipc` and `records-parquet` features; optional `bytemuck`, `flatbuffers` and `flate2`; `serde/rc` |
+| `liquers-lib` | `Cargo.toml` | the `records`, `records-ipc` and `records-parquet` features, forwarding to `liquers-records` |
 | `liquers-web` | `src/records.rs` (new) | The `RecordBatch` handle, per-column descriptors, `columnCopy`; the JS companion that revalidates typed-array views |
 | `liquers-web` | `Cargo.toml` | add `"records"` to the `liquers-lib` feature list |
 | `liquers-axum` | `src/axum_integration.rs`, `src/query/handlers.rs` | Streaming for `RecordSource` + `csv`/`ndjson`: `Body::from_stream`, eager first batch, uniform-schema check. **Not as a record-specific branch** — `liquers-axum` cannot name `ExtValue` — but through the core-level hook of `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`, which this design then depends on for HTTP streaming |
-| `liquers-py` | later milestone | Arrow C Data Interface export — the only place `unsafe` FFI belongs |
+| `liquers-py` | later milestone | Arrow C Data Interface export — the only place `unsafe` FFI belongs. Needs `liquers-py` to depend on `liquers-lib` (planned) or on `liquers-records` directly; today it depends on `liquers-core` only |
 | `specs` | `command_registry.yaml` | Regenerated |
 
 ### Why `liquers-core` needs no stream alias
@@ -2312,37 +2377,51 @@ by transitivity, so `Pin<Box<dyn RecordStream>>` needs no alias and `Box::pin` n
 `RecordSource` returns core's existing `BoxFuture`. The core changes this design does make are the
 general ones of §"Keyed chunks".
 
-### The feature
+### The features
+
+```toml
+# liquers-records/Cargo.toml
+[dependencies]
+liquers-core = { path = "../liquers-core" }
+serde = { version = "1.0.229", features = ["rc"] }   # the types derive Serialize over Arc<…>
+serde_json = "1.0.151"
+futures = "0.3.34"
+chrono = "0.4.45"
+bytemuck = "1.25"                                    # the aligned-buffer cast; tiny, no_std
+flatbuffers = { version = "…", optional = true }     # version pinned in Phase 4
+flate2 = { version = "1", optional = true }          # already in the graph through png
+
+[features]
+default = []
+# Arrow IPC file (Feather v2): the lossless table format.
+ipc = ["dep:flatbuffers"]
+# The Parquet writer. Reading Parquet goes through polars, in liquers-lib.
+parquet = ["dep:flate2"]
+```
 
 ```toml
 # liquers-lib/Cargo.toml
 [features]
 default = ["egui", "image-support", "polars", "records", "records-ipc", "records-parquet"]
 # Columnar record streams: a tabular value type with an Arrow-compatible layout.
-# Optional because it is a data type rather than an essential capability.
-# `serde/rc` because the record types derive Serialize over `Arc<RecordSchema>` and `Arc<str>`;
-# without it they compile only when some other dependency happens to enable it.
-records = ["dep:bytemuck", "serde/rc"]
-# Arrow IPC file (Feather v2): the lossless table format. Needs only the flatbuffers runtime.
-records-ipc = ["records", "dep:flatbuffers"]
-# Parquet writer; reading Parquet additionally needs `polars`. `flate2` is already in the graph.
-records-parquet = ["records", "dep:flate2"]
+records = ["dep:liquers-records"]
+records-ipc = ["records", "liquers-records/ipc"]
+records-parquet = ["records", "liquers-records/parquet"]
 
 [dependencies]
-bytemuck = { version = "1.25", optional = true }
-flatbuffers = { version = "…", optional = true }   # version pinned in Phase 4
-flate2 = { version = "1", optional = true }
+liquers-records = { path = "../liquers-records", optional = true }
 ```
 
-**In `default`, exactly as `polars` is** — so the routine loop
-(`cargo test -p liquers-lib --lib --tests`) exercises it, which is the only way the tests actually
-run. Being in `default` is not the same as being mandatory: the matrix below proves the feature is
-cleanly optional, and `polars` is the established precedent for precisely this arrangement.
+**`liquers-records` has no default features**, so a crate built on it takes only what it asks for;
+`liquers-lib` forwards its three features. **In `liquers-lib`'s `default`, as `polars` is**, so the
+routine `cargo test -p liquers-lib --lib --tests` exercises the glue; being in `default` is not being
+mandatory, and the matrix below proves the feature is cleanly optional.
 
-**`bytemuck` is optional and gated.** It is in `Cargo.lock` at 1.25.2 but is a direct dependency of
-no workspace crate today — it arrives transitively through `egui`, so a `--no-default-features` build
-does not have it at all. As an optional `liquers-lib` dependency reached only through `records`, a
-build without the feature adds no dependency.
+**`bytemuck` and `serde/rc` are plain dependencies of the records crate** — no longer optional flags
+on `liquers-lib`. `bytemuck` is in `Cargo.lock` at 1.25.2 but is a direct dependency of no workspace
+crate today (it arrives through `egui`), so a build without `records` still adds nothing. `serde`'s
+`rc` feature is declared where it is needed, instead of being relied on through feature unification
+— which, in a `--no-default-features` build of `liquers-lib`, does not enable it.
 
 ### Feature-gating discipline
 
@@ -2355,6 +2434,9 @@ catch-all "silently absorbed new variants". Every exhaustive match on `ExtValue`
 `scripts/check-build-matrix.sh` gains the rows that prove it, mirroring the existing per-feature rows:
 
 ```
+-p liquers-records --tests                                      # the crate alone, no features
+-p liquers-records --features ipc,parquet --tests
+--target wasm32-unknown-unknown -p liquers-records              # the records crate in the browser
 --no-default-features --features records --tests
 --no-default-features --features records,polars --tests     # the polars bridge
 --no-default-features --features webui,records --tests
@@ -2366,20 +2448,21 @@ catch-all "silently absorbed new variants". Every exhaustive match on `ExtValue`
 ```
 
 and the existing `--no-default-features --tests` row already proves the build with `records` **off**.
-Test files that need the feature carry `#![cfg(feature = "records")]` at file level, as the existing
-optional-dependency test files do.
+Most records tests live in `liquers-records` and need no gate. Test files in `liquers-lib` that need
+the glue carry `#![cfg(feature = "records")]` at file level, as the existing optional-dependency test
+files do.
 
 ### What this settles, and what it costs
 
 This also places **the search design's predicate**: `SearchPredicate` evaluates against a `RecordView`
-through the column kernels, so
-with records in `liquers-lib` the predicate cannot live in `liquers-core` either. That is no loss — the search commands were always
-`liquers-lib` — and it means the search design too becomes additive to one crate.
+through the column kernels, so it depends on `liquers-records` and nothing more. The search design's
+engine sinks (Tantivy, Qdrant) and the relational access layer (`NO-RELATIONAL-DATABASE-ACCESS-LAYER`)
+can each be a small crate over `liquers-records`, which is the
+modularity this placement is for.
 
-The cost, stated: a consumer wanting records without the rest of `liquers-lib` cannot have them,
-because the crate is the unit of dependency. That is acceptable while `liquers-lib` is where command
-libraries live anyway, and if a `liquers-records` crate is ever wanted, the module is already
-self-contained enough to lift out.
+The costs, stated: one more crate to version and keep in the dependency-flow line of `CLAUDE.md`;
+the `RecordValue` adapter, because the records crate cannot name `liquers-lib`'s `Value`; and commands
+living in a different crate from the functions they wrap.
 
 ## Streaming a record source over HTTP (`liquers-axum`)
 
@@ -2570,7 +2653,7 @@ behaviour without a test failing.
 | `specs/guides/COMMAND_REGISTRATION_GUIDE.md` | A pointer to the record-producing walkthrough rather than a duplicate of it |
 | `specs/README.md` | The capability-map entry, `designing` → `built` |
 | `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` | **Already updated** — VALUE's third bridging category (lent buffers), RECIPE's corrected listing/containment rule, and the RECORDS subsection, revised 2026-09-24 for the trait form: a batch crosses as Arrow, a view as a wrapper or materialized |
-| `CLAUDE.md` | The `records` feature in the feature-matrix section, and the new matrix rows |
+| `CLAUDE.md` | `liquers-records` in the project-structure list and the dependency-flow line (`liquers-core ← liquers-records ← liquers-lib`); "Where Code Goes" gains records (data model, formats, manifests in `liquers-records`; `ns-rec` commands in `liquers-lib`); `cargo test -p liquers-records` beside the default test command; the `records` features in the feature-matrix section with the new rows. Written when the crate exists, since `CLAUDE.md` describes HEAD |
 
 | `specs/reference/ASSETS.md`, `ASSET_LIFECYCLE.md` | `stored` and `cached`: what each skips, that a stored copy is still preferred, that both false is not volatile |
 | `specs/reference/ENVIRONMENT_CONFIG.md` | The recipe provider chain and how a provider is appended |
@@ -2785,14 +2868,19 @@ an `.await`.
 - Both variants are `Arc`-wrapped, so `size_of::<ExtValue>()` is unchanged and `Value` is untouched.
 - `ExtValue` derives only `Debug, Clone`, so the trait objects need no `Serialize`, `Deserialize` or
   `PartialEq` — the reason these variants cannot live on `Value`.
+- `liquers-records` depends on `liquers-core` only, so a dependency cycle is impossible by
+  construction: nothing in it can name `liquers-lib`.
+- `impl RecordValue for Value` is legal in `liquers-lib`: `CombinedValue` is `liquers-lib`'s own type.
+- `impl dyn RecordView { … }` is legal in `liquers-records`, the crate defining the trait (E0116
+  forbids it anywhere else).
 - Every exhaustive `match` on `ExtValue` has a `#[cfg(feature = "records")]` arm, so
   `--no-default-features` still compiles — the failure mode a gated enum variant causes, and what the
   new build-matrix rows exist to catch. No code matches over *implementations* of the traits.
 - `liquers-core` gains no dependency and no `unsafe`; its changes are the provider chain and two
   `bool` fields with `serde` defaults, so stored recipes and metadata written before them read
   unchanged.
-- `bytemuck` is `optional = true` and reached only through `records`, so a build without the feature
-  resolves an unchanged dependency graph.
+- `bytemuck`, `flatbuffers` and `flate2` are dependencies of `liquers-records` only, so a
+  `liquers-lib` build without `records` resolves an unchanged dependency graph.
 - `Buffer<T>: bytemuck::Pod` holds for `i32`, `i64`, `u64`, `f32`, `f64`.
 - **`serde/rc` is enabled by the `records` feature.** Deriving `Serialize` over `Arc<T>` needs serde's
   `rc` feature. In the default build some other dependency turns it on, but in
@@ -2805,8 +2893,9 @@ an `.await`.
   (the schema and length, not the closure), because `RecordView: Debug` and a derive would fail.
 - **`ManifestSource` lends ids it owns.** `chunks()` returns `&[ChunkId]`, so the ids are derived once
   in `TryFrom<ManifestSpec>` rather than computed per call from the stored queries.
-- The `records` feature gates the module, the variants, the matches and the dependency together —
-  a partially-gated feature is the classic way to break a configuration nobody built.
+- `liquers-lib`'s `records` feature gates the dependency, the variants, the matches and the glue
+  module together — a partially-gated feature is the classic way to break a configuration nobody
+  built.
 
 ## References to liquers-patterns.md
 
@@ -2901,7 +2990,7 @@ as the fourth step of adding a value type; `context` last in a command signature
 
 | Question | Answer |
 |---|---|
-| Which crate owns records | `liquers-lib`, behind a `records` feature — a data type, not a core capability |
+| Which crate owns records | **`liquers-records`**, depending on core only; `liquers-lib` holds the glue (value variants, commands, conversions, polars bridge) behind `records`. Not core: the arguments for core each have a more general fix — streaming serialization, `liquers-py` depending on `liquers-lib`, provider-aware validation, extensible metadata |
 | Which enum owns the value variants | `ExtValue`, because `Value`'s `Deserialize` bound is unsatisfiable for a trait object |
 | Data structures or interfaces | **Interfaces.** `RecordView`, `RecordSource`, `RecordStream` are traits; `RecordBatch`, `ManifestSource`, `InMemorySource` are reference implementations |
 | One value variant for tables or two | **One**, `RecordView`, over batches and views alike. `ExtValue::Image` over `DynamicImage` is the precedent |
@@ -2957,6 +3046,7 @@ information — each is a position that was argued for and then abandoned on evi
 | 2026-09-24 | **Scalar reading**: a one-row, one-payload-column view reads as its cell would as a base `Value`. `select_columns` keeps key columns. Commands bounded by a caller's count materialize | The user's requirement that pointing at a cell yield a value; a tiny view must not pin a large base |
 | 2026-09-24 | **Asynchronous work is a source.** Views stay synchronous; source → view is an explicit await | Scalar reading and argument binding are synchronous |
 | 2026-09-24 | `liquers-core` **untouched** — the `BoxStream` alias removed | `MaybeSend` as a supertrait gives the trait object the right `Send`-ness on each target |
+| 2026-09-25 | **Records become their own crate, `liquers-records`**, depending on core only; `liquers-lib` keeps the glue — `ExtValue` variants, `ns-rec` commands, `to_record`/`to_record_source`, the polars bridge — behind `records`, forwarding `records-ipc` and `records-parquet` to the crate's `ipc` and `parquet`. A `RecordValue` adapter trait lets the crate read and build `liquers-lib`'s `Value` without naming it; `ChunkResolver::evaluate` returns a `ChunkValue`. Moving records into core was assessed and rejected | Modularity for crates built on records — about 60 dependencies instead of `liquers-lib`'s 172 — a boundary that enforces layering, and a small test loop. Each argument for core has a more general fix: streaming serialization, `liquers-py` depending on `liquers-lib`, provider-aware validation, extensible metadata |
 | 2026-09-25 | **Keyed chunks, in this project.** Explicit chunks are recipes keyed by their query's filename; template chunks are named `<prefix>_{n:04}.<extension>` from the manifest's own name, `extension` default `csv`; the template is constructed in this version. `ManifestRecipeProvider` in a new core `RecipeProviderChain`; `stored`/`cached` on `Recipe`, `MetadataRecord` and `AssetInfo`, honoured by the asset manager. `ChunkKeys` replaced by the derived `ChunkNaming`; `number_format` dropped. `liquers-core` is no longer untouched | The user chose option 1: `stored` and `cached` must work, and per-chunk arguments need keys |
 | 2026-09-25 | **Decisions for Phase 3.** `RecordViewMut` / `RecordBatchMut` / `ColumnMut` with capacity replace the builder. Every row has an implicit `RowId { chunk, row }` and, during a traversal, a row number; the explicit `Id` becomes optional and the schema-less reader stops guessing one; `rowid` addresses a row by reading one chunk. `to_record` / `to_record_source` accept views, sources, bytes, text, JSON values and keys, replacing `parse` and `source`. A stored chunk is read whole. Manifest: per-chunk `arguments`/`links` on explicit chunks, `stored`/`cached` per manifest, unknown versions read as the latest | The user's answers to the open decisions |
 | 2026-09-25 | **Two readers, and JSON shapes as commands.** A schema-aware reader (declared types, strict, one pass) beside the schema-less one; manifests with `uniform_schema` parse stored chunks from their bytes and check computed ones. `to_json`/`from_json` over seven orients, pandas-compatible, `table` lossless; `parse`. The `json` format keeps one shape. Schema-in-metadata discussed and deferred | A manifest's declared schema must be usable when reading CSV and NDJSON chunks; JSON has too many table shapes for a format name to choose; pandas interop |
@@ -2973,6 +3063,9 @@ information — each is a position that was argued for and then abandoned on evi
   description, which costs O(columns) allocations.
 - The browser route was called fragile without checking whether invalidation is detectable.
 - `Value::Recipe` was cited as having 17 occurrences; it has 27, 8 of them in `value.rs`.
+- Phase 2 placed the Arrow C Data Interface export in `liquers-py`, which depends on `liquers-core`
+  only and so could not reach `RecordBatch`. Consistent once `liquers-py` depends on `liquers-lib`,
+  which is the plan.
 - The record types derived `Serialize` over `Arc` fields without enabling serde's `rc` feature. It
   compiled in the default build only because another dependency enables it.
 - `FieldValue` had no `Date` variant although `Column` and `FieldType` did, so a single-cell read of a

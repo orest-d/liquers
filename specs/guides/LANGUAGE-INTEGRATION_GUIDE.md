@@ -387,8 +387,11 @@ releasing the handle releases the underlying value, observed through a live hand
 
 #### RECORDS — the columnar record types, and the two ways to bridge them
 
-`design/record-streams/` defines a tabular value type in `liquers-lib`, behind the `records`
-feature. An integration that exposes it must answer one question before any other.
+`design/record-streams/` defines a tabular value type in its own crate, `liquers-records`, which
+depends on `liquers-core` only; `liquers-lib` adds the value variants and the `ns-rec` commands
+behind its `records` feature. An integration may depend on `liquers-records` alone — implementing
+its `RecordValue` adapter for its own value type — or reach the records through `liquers-lib`. It
+must answer one question before any other.
 
 **The question: a native Arrow hand-off, or wrappers around the record types?**
 
@@ -2773,6 +2776,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-25 | RECORDS: the records live in their own crate, `liquers-records`, over `liquers-core`; an integration may depend on it alone through the `RecordValue` adapter, or reach it through `liquers-lib`. | `design/record-streams/` |
 | 2026-09-25 | RECORDS inventory: the mutable table (`RecordViewMut`, `RecordBatchMut`, `ColumnMut`) replaces the builder, rows carry an implicit `RowId` so the explicit `Id` is optional, and `to_record` / `to_record_source` are the conversions a binding can call to hand bytes, text or JSON to the record layer. | `design/record-streams/` |
 | 2026-09-24 | RECORDS: a source's only byte form is its manifest, and its rows reach bytes through `materialize`, so a *language* wanting a source's data as CSV or Arrow materializes it first (route 3 named accordingly); `collect_view` renamed in the inventory. | `design/record-streams/` |
 | 2026-09-24 | RECORDS revised for the trait form of `design/record-streams/`: values hold `RecordView` and `RecordSource` trait objects; a `RecordBatch` crosses as Arrow and any other view as a wrapper or materialized; a *language* may implement the traits, with a `RecordView` kept synchronous; type inventory rewritten; design question 5 and tests `RECORDS10`–`RECORDS11` added. | `design/record-streams/` |

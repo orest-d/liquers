@@ -87,6 +87,11 @@ design's Phase 1 is unapproved**, which is the intended sequencing rather than a
 
 New module `liquers-lib/src/search/`, behind the `records` feature.
 
+> **Placement to revisit (2026-09-25).** `record-streams` moved the records into their own crate,
+> `liquers-records`, over `liquers-core`. The predicate and the engine sinks need only that crate, so
+> they may become a small crate of their own, with only the commands left in `liquers-lib`. Decided
+> when this design is unblocked and tidied.
+
 **Changed by `record-streams` revision 5.** The predicate operates on `RecordBatch`, and records
 moved to `liquers-lib` behind a feature — so the predicate follows. `liquers-core` gains nothing from
 this design either, which makes the whole search capability additive to one crate. Everything tabular comes from `liquers_core::records`.

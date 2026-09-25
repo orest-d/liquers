@@ -19,7 +19,7 @@ superseded_by:
 ## Phase Status
 
 - [x] Phase 1: High-Level Design — approved 2026-09-20
-- [x] Phase 2: Solution & Architecture — approved 2026-09-20; **revised 2026-09-24 to the trait form** (`RecordView`, `RecordSource`, `RecordStream`), re-approval pending
+- [x] Phase 2: Solution & Architecture — approved 2026-09-20; **revised 2026-09-24/25** (traits; formats and readers; keyed chunks; the `liquers-records` crate), re-approval pending
 - [ ] Phase 3: Examples & Testing — in progress; needs rework for the Phase 2 revision (`phase3-examples.md` §"Reworked by the Phase 2 trait revision")
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation

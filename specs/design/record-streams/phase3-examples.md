@@ -17,7 +17,8 @@ Phase 2 trait revision". The examples walk
 that spine in order: a single chunk built and filtered in memory, then a multi-chunk stream driven
 by a manifest, then the places where each goes wrong.
 
-Everything is `liquers-lib` behind the `records` feature; the values are `ExtValue::RecordView` and
+The records are the `liquers-records` crate, and `liquers-lib` holds the glue behind its `records`
+feature; the values are `ExtValue::RecordView` and
 `ExtValue::RecordSource`.
 
 ## Overview Table
@@ -178,6 +179,7 @@ test *asserts*; each alters how it gets its value.
 | **Batch operations become view constructors** | `RecordBatch::{select, filter, slice, value, with_columns}` → `select_columns`, `filter`, `slice`, `value`, `with_column`/`with_columns` on `Arc<dyn RecordView>`. Results are views, compared through `materialize()`. `select` by index becomes `select_columns` by name, **and must now assert that the `Id` column is kept** | `batch_select_zero_copy_projection`, `batch_filter_by_mask`, `batch_filter_length_mismatch_errors`, `batch_slice_preserves_arc_sharing`, `batch_value_reads_single_cell`, `column_null_distinct_from_empty_string`, `batch_with_columns_appends_derived_fields`, scenario 1's filtering and `records_to_csv` |
 | **Source construction** | `RecordSource { backing: SourceBacking::… }` → `ManifestSource::new` / `InMemorySource::new`; the `uniform_schema` field → the `schema()` method | `test_record_source_reopenable`, `test_record_source_manifest_round_trip`, `test_non_uniform_chunks_ndjson_succeeds`, `test_non_uniform_chunks_single_csv_fails`, `test_manifest_template_unbounded`, `test_manifest_yaml_deserialization`, `test_chunk_descriptor_serialization`, `records07` |
 | **Serializing a source** | A source serializes **only as a manifest**; its rows go through `materialize`. `records_to_csv` / `records_to_ndjson` are gone — the trailing filename chooses the format. `test_non_uniform_chunks_ndjson_succeeds` **inverts**: `materialize` of a non-uniform source must fail naming the first differing field, and per-chunk NDJSON succeeds | `test_non_uniform_chunks_ndjson_succeeds`, `test_non_uniform_chunks_single_csv_fails`, `test_end_to_end_record_chunk_serialization`, scenario 1's `records_to_csv` |
+| **Test locations** | Records became their own crate. Tests of the data model, views, formats, readers, manifests and the provider move from `liquers-lib/src/records/…` to `liquers-records/src/…` and `liquers-records/tests/`, and lose their `#[cfg(feature = "records")]` gates. Tests of the `ExtValue` variants, `TypeInfo`, the scalar hooks, `to_record`, the `ns-rec` commands and the polars bridge stay in `liquers-lib`, gated. The `RECORDS` counterparts split the same way | every file header in `phase3-tests.md` naming `liquers-lib/src/records/` |
 | **The builder** | `RecordBatchBuilder` / `ColumnBuilder` → `RecordBatchMut` / `ColumnMut` (`with_capacity`, `append_row`, `freeze`), behind the `RecordViewMut` trait. The explicit `Id` is optional, so schemas in fixtures need not declare one | every test building a batch, `test_record_batch_builder`, scenario 1 |
 | **Opening a stream** | `source.stream(&context)` → `Arc::clone(&source).stream(resolver)`, with a `ContextResolver` inside a command and an `EnvResolver` outside one. Items are `Arc<dyn RecordView>`, so a test comparing rows materializes them | `test_record_source_reopenable`, `test_streaming_bounded_memory`, `records08`, scenario 2's consumption code |
 
@@ -236,6 +238,8 @@ Tests comparing two `RecordBatch`es directly — `batch_concat_same_schema`, `te
 | `stored_false_skips_the_write_but_reads_a_stored_copy` | A produced chunk is not written; a pre-existing stored copy, including an `Override`, is read in preference to recomputing |
 | `cached_false_is_not_registered` | Two requests evaluate twice; `stored: false, cached: false` is evaluated each time and is **not volatile** — a dependent is not made volatile |
 | `legacy_metadata_defaults_to_stored_and_cached` | A metadata record and a recipe written before the fields existed read as `true`/`true` |
+| `record_value_adapter_round_trips` | `liquers-lib`'s `Value` implements `RecordValue`: a view and a source go in and come back out as the same `Arc` |
+| `records_crate_builds_alone` | `cargo test -p liquers-records` and `--target wasm32-unknown-unknown -p liquers-records` build with nothing above `liquers-core` — the dependency boundary as a test |
 | `manifest_document_converts_to_source` | A `*.manifest.yaml` loaded as YAML becomes a `ManifestSource` through `ns-rec/source`, and implicitly for `materialize`, with the key's folder as `cwd` |
 | `context_resolver_records_dependencies` | Chunks read through a `ContextResolver` become dependencies of the asset; through an `EnvResolver` they do not |
 | `stream_outlives_its_source_handle` | A stream stays valid after the caller's `Arc` of the source is dropped — the `'static` property axum needs |
