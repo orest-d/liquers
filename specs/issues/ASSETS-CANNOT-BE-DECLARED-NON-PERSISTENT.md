@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: L
 area: [core/assets, core/commands, macro]
-design: 
+design: record-streams
 created: 2026-09-18
 github:
 ---
@@ -225,4 +225,10 @@ chunks need three pieces: chunk keys named by the manifest, **a recipe provider 
 from the manifest composed with the folder's `recipes.yaml` provider**, and **recipe-level
 `stored`/`cached` flags the asset manager honours**. The record design recommends designing the second
 and third as a small prerequisite project rather than as records features.
+
+## Update 2026-09-25 — designed within `record-streams`
+
+The user chose to build keyed record chunks in the `record-streams` project, so this is resolved there
+as piece C — `stored` and `cached` on `Recipe`, `MetadataRecord` and `AssetInfo`, default `true`, honoured by the asset manager. See `specs/design/record-streams/phase2-architecture.md` §"Keyed chunks". The status
+stays `draft` until the work starts; the record's own `status` is concluded with that project.
 

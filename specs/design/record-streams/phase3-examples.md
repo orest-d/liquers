@@ -228,6 +228,14 @@ Tests comparing two `RecordBatch`es directly — `batch_concat_same_schema`, `te
 | `to_record_accepts_every_input` | A view, bytes and text in `csv`/`tsv`/`json`/`ndjson`/`jsonl` (format from metadata or argument), a JSON value, and a key; a source is refused naming `materialize`; a text value with no format is refused rather than sniffed |
 | `to_record_source_recognizes_manifest_by_discriminator` | A document carrying `manifest: record-stream` under any key becomes a `ManifestSource` with its key's folder as `cwd` |
 | `manifest_version_is_lenient` | No `version`, and an unknown one, read as the latest; an unknown field is a `Warning` log entry |
+| `explicit_chunk_keyed_by_its_filename` | `ns-sql/sql_query-…/orders_eu.csv` in `data/sales/x.manifest.yaml` is the key `data/sales/orders_eu.csv`; one without a filename is unkeyed |
+| `template_chunks_named_by_convention` | Chunk 42 of `daily.manifest.yaml` is `daily_0042.csv`; `extension: arrow` gives `daily_0042.arrow`; `index_of` inverts it |
+| `per_chunk_arguments_need_a_key` | Per-chunk `arguments` on an unkeyed explicit chunk are refused at load, as are colliding names |
+| `manifest_provider_serves_chunk_keys` | `-R/data/sales/daily_0042.csv` evaluates through `ManifestRecipeProvider` in the chain; `contains` is true without enumerating; listing shows explicit chunks only |
+| `provider_chain_prefers_recipes_yaml` | A key both providers answer comes from `recipes.yaml`; and the collision is reported at manifest load |
+| `stored_false_skips_the_write_but_reads_a_stored_copy` | A produced chunk is not written; a pre-existing stored copy, including an `Override`, is read in preference to recomputing |
+| `cached_false_is_not_registered` | Two requests evaluate twice; `stored: false, cached: false` is evaluated each time and is **not volatile** — a dependent is not made volatile |
+| `legacy_metadata_defaults_to_stored_and_cached` | A metadata record and a recipe written before the fields existed read as `true`/`true` |
 | `manifest_document_converts_to_source` | A `*.manifest.yaml` loaded as YAML becomes a `ManifestSource` through `ns-rec/source`, and implicitly for `materialize`, with the key's folder as `cwd` |
 | `context_resolver_records_dependencies` | Chunks read through a `ContextResolver` become dependencies of the asset; through an `EnvResolver` they do not |
 | `stream_outlives_its_source_handle` | A stream stays valid after the caller's `Arc` of the source is dropped — the `'static` property axum needs |

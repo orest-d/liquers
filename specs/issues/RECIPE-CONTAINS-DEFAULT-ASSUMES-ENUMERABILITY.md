@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [core/assets]
-design:
+design: record-streams
 created: 2026-09-20
 github:
 ---
@@ -77,3 +77,10 @@ Allowing addressable ⊋ listed at the **recipe** layer does not violate `STORE_
 constrains `contains`/`is_dir`/`listdir` on **stores**. The asset key space is legitimately larger
 than the store key space — that is what recipes are. The relaxation should be stated in the asset and
 recipe reference so it is not later "fixed" as an inconsistency.
+
+## Update 2026-09-25 — designed within `record-streams`
+
+The user chose to build keyed record chunks in the `record-streams` project, so this is resolved there
+as piece B — `ManifestRecipeProvider` overrides `contains` by pattern matching; the trait default is unchanged. See `specs/design/record-streams/phase2-architecture.md` §"Keyed chunks". The status
+stays `draft` until the work starts; the record's own `status` is concluded with that project.
+

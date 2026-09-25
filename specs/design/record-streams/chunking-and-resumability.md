@@ -14,7 +14,9 @@ created: 2026-09-20
 > `ManifestSource` — the same fields, `chunks`, `template`, `keys`, `stored`, `cached` — and
 > `Materialized` is `InMemorySource`. Every conclusion below holds; read "`SourceBacking::Queried`"
 > as `ManifestSource`. The third option this document weighs, a source trait, is now simply the
-> design: a SQL source may be its own `RecordSource` implementation.
+> design: a SQL source may be its own `RecordSource` implementation. `ChunkKeys` below is now the
+> derived `ChunkNaming` — `<prefix>_{n:04}.<extension>` from the manifest's own name, with no
+> `number_format` field — and keyed chunks are built in this version (Phase 2, "Keyed chunks").
 
 Written against a review observation: a SQL source *can* use `SourceBacking::Manifest` if the offset
 is a command argument — but the manifest as designed **requires knowing how many chunks there are**,

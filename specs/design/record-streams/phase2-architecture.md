@@ -10,8 +10,11 @@ declares what an index should do with them, and each attributable to a **chunk**
 provenance and validity. Tables at rest are **columnar batches laid out as Arrow specifies**.
 
 The whole feature lives in **`liquers-lib`, behind a `records` feature**: it is a data type, not a
-core capability. `liquers-core` is untouched, and nothing is added to `AsyncStore` or `AssetManager`.
-A build with the feature off is byte-for-byte the build that exists today.
+core capability. `liquers-core` gains only two **general** features that keyed chunks need — a
+recipe provider chain, and `stored`/`cached` flags the asset manager honours (§"Keyed chunks") —
+and nothing is added to `AsyncStore`.
+With the feature off, the records code is absent and the two core features behave exactly as today
+by default.
 
 Three **traits** carry it — a **`RecordSource`** that can be asked repeatedly for a stream, a
 **`RecordStream`** that is one traversal, and a **`RecordView`**, any finite table with random
@@ -54,6 +57,9 @@ for the trait revision.
 | `EXTENDED-VALUES-CANNOT-BIND-TO-SCALAR-ARGUMENTS` | draft | P2 | A single-cell view must bind to a scalar argument through a recipe `links:` entry. A resolved link binds through `TryFrom<Value>`, and every scalar `TryFrom` refuses an extended value — `String` included. Found while designing scalar reading | **yes** | only that one use | **Fix as the first Phase 4 step**: `ValueExtension` hooks for every scalar conversion, delegated from both paths | keep P2 |
 | `RECORD-SELECTION-IS-EAGER-NOT-A-VIEW` | draft | P2 | **Largely resolved here.** A view is an implementation of `RecordView`, not a distinct value form. Composition and pushdown are declared out of scope for the generic mechanism | n/a | no | Update the issue: views designed; pushdown left to specialized sources | lower to P3 once this design is approved |
 | `VALUE-CONVERSION-CAPABILITY` | draft | P2 | Scalar reading of a view delegates to the base `Value`, so it inherits that value's lossy `i64 → f64` rather than choosing its own rule | no | no | None here — the question is that issue's | keep P2 |
+| `ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT` | draft | P2 | Keyed chunks need `stored`/`cached` honoured by the asset manager | yes | yes, for keyed chunks | **Resolved in this project** — §"Keyed chunks" C | keep P2 |
+| `NO-RECIPE-PROVIDER-CHAIN` | draft | P3 | Keyed chunks are served by a manifest provider composed with `recipes.yaml`'s | yes | yes, for keyed chunks | **Resolved in this project** — §"Keyed chunks" B | raise to P2 |
+| `RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY` | draft | P2 | A template is unbounded, so the manifest provider must override `contains` | no | no | **Resolved for the manifest provider**; the default stays | keep P2 |
 | `COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ` | draft | P3 | Stream commands rely on `volatile`, which **is** wired; `cache` is a knob that does nothing. Found while answering Phase 1 | no | no | Monitor — `volatile` covers this design's need | keep P3 |
 
 **No blocker for the design.** `EXTENDED-VALUES-CANNOT-BIND-TO-SCALAR-ARGUMENTS` blocks one use — a
@@ -208,15 +214,19 @@ The two reference sources:
 ```rust
 /// Chunks named by queries — what a manifest deserializes to, and the only source whose byte
 /// form is a manifest. Serialized through `ManifestSpec`, the plain file shape: `try_from`
-/// is where load-time validation runs (the `stored: false, cached: false` rejection), and where
+/// is where load-time validation runs (keys, collisions, per-chunk arguments on unkeyed chunks), and where
 /// the chunk ids `chunks()` lends out are derived — a `&[ChunkId]` cannot be borrowed from the
 /// `Vec<Query>` the file holds.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(try_from = "ManifestSpec", into = "ManifestSpec")]
 pub struct ManifestSource {
     spec: ManifestSpec,
-    /// Derived from `spec.chunks` (and `spec.keys`, when keyed) at construction.
+    /// Where the manifest lives — its folder is the `cwd` and holds the chunk keys. `None` for
+    /// a manifest that is not stored (built by a command): its chunks are then unkeyed.
+    key: Option<Key>,
+    /// Derived at construction: each explicit chunk's id, and the naming of template chunks.
     ids: Vec<ChunkId>,
+    naming: Option<ChunkNaming>,
 }
 
 /// The manifest file. The explicit list and the template **combine**: `chunks` are the
@@ -224,22 +234,25 @@ pub struct ManifestSource {
 /// the **global** chunk index. Either may be absent. See `manifest-format.md` §4a.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ManifestSpec {
-    /// The explicit prefix. Empty when every chunk is generated.
-    #[serde(with = "query_format_seq")]
-    pub chunks: Vec<Query>,
+    /// The explicit prefix, as recipes — `recipes.yaml`'s own entry type, so a chunk carries its
+    /// own `arguments`, `links`, `title`. A chunk whose query ends in a filename is **keyed** by
+    /// it, exactly as a `recipes.yaml` entry is (`Recipe::filename`).
+    #[serde(default)]
+    pub chunks: Vec<Recipe>,
     /// The rule for chunks beyond the prefix. `None` — `chunks` is the whole stream, and
-    /// `chunks()` returns `Known`. `Some` — the count is unknown and it returns `Unbounded`.
-    /// **Not constructed in this version**; reserved for a SQL table paginated by offset.
+    /// `chunks()` returns `Known`. `Some` — the count is unknown and it returns `Unbounded`; a
+    /// walk ends at the first chunk shorter than the template's `batch_size`.
     pub template: Option<ChunkTemplate>,
-    /// Chunk naming, which is what makes chunks keyed and addressable.
-    /// **Always `None` in this version.**
-    pub keys: Option<ChunkKeys>,
-    /// Whether keyed chunks' bytes are written to the store.
+    /// The extension of template-generated chunk keys, which is also their stored format.
+    /// Default `csv`.
+    #[serde(default)]
+    pub extension: Option<String>,
+    /// Whether keyed chunks are written to the store. Default `true`.
+    #[serde(default = "true_default")]
     pub stored: bool,
-    /// Whether keyed chunks are held by the asset manager for reuse in a session.
-    /// Neither flag set means "not kept, and **not volatile**" — a class Liquers cannot
-    /// express yet, so that combination is rejected at load until
-    /// `ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT` lands. See `manifest-format.md` §4b.
+    /// Whether keyed chunks are registered with the asset manager for reuse. Default `true`.
+    /// Both `false` means "not kept, and **not volatile**" (`manifest-format.md` §4b).
+    #[serde(default = "true_default")]
     pub cached: bool,
     pub uniform_schema: Option<Arc<RecordSchema>>,
 }
@@ -253,20 +266,22 @@ pub struct InMemorySource {
     uniform_schema: Option<Arc<RecordSchema>>,
 }
 
-/// How a stream's chunks are **named**, which is what makes them keyed assets in one folder —
-/// the folder holding the manifest, which is also its `cwd`. Naming gives identity and
-/// addressability; whether the bytes are persisted is `stored`, a separate axis
-/// (`manifest-format.md` §3 and §4b).
-/// The folder is what makes chunks addressable (`-R/data/mystream/data_0042.csv`), makes the
-/// stream listable (`-R-dir/data/mystream`), and makes cleanup possible — a manifest of bare
-/// queries cannot remove what it names, a manifest that owns a folder can.
-/// **Always `None` in this version.**
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ChunkKeys {
+/// How **template-generated** chunks are named: chunk *n* of `<folder>/<prefix>.manifest.yaml` is
+/// the key `<folder>/<prefix>_{n:04}.<extension>`. Derived, never written: the prefix is the
+/// manifest's own file name, `_{n:04}` is the convention (configurable later), and `extension`
+/// comes from the manifest, default `csv`. Explicit chunks name themselves (their query's
+/// filename). The folder is what makes chunks addressable (`-R/data/sales/daily_0042.csv`),
+/// listable, and removable together.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChunkNaming {
     pub folder: Key,
-    pub filename_prefix: String,   // "data"
-    pub number_format: String,     // "{:04}"
-    pub extension: String,         // "csv"
+    pub prefix: String,      // "daily", from daily.manifest.yaml
+    pub extension: String,   // "csv" unless the manifest says otherwise
+}
+impl ChunkNaming {
+    pub fn key(&self, n: u64) -> Key;          // <folder>/<prefix>_{n:04}.<extension>
+    /// The inverse, for the recipe provider: `Some(n)` when `name` is this naming's chunk n.
+    pub fn index_of(&self, name: &str) -> Option<u64>;
 }
 
 /// Enumeration is not always possible, so a consumer handles both cases from the start.
@@ -341,6 +356,105 @@ written *by Liquers* carries `type_identifier: RecordSource` and deserializes di
 `liquers-lib`'s base value reads neither YAML nor JSON today — `SIMPLE-VALUE-CANNOT-READ-JSON`, which
 covers both, is therefore a prerequisite for hand-written manifests.
 
+### Keyed chunks: naming, a recipe provider, and `stored` / `cached`
+
+A manifest's `stored` and `cached` flags, and per-chunk `arguments` and `links`, all act on **keyed**
+chunk assets — an unkeyed chunk is a query result, which is never stored and whose identity is its
+query. The asset manager creates a keyed asset only through `get(key)`, which asks the **recipe
+provider** for the key's recipe (`assets.rs:3846`); `apply` is ad hoc — never keyed, cached or stored
+(`:3817`). So keyed chunks take three pieces, all in this project. Two of them are general
+`liquers-core` features, not records features, and are designed as such.
+
+#### A. Chunk keys
+
+| Chunk | Key | Example |
+|---|---|---|
+| **Explicit**, query ending in a filename | that filename, in the manifest's folder — exactly as a `recipes.yaml` entry is keyed | `query: ns-sql/sql_query-0-1000/orders_eu.csv` → `data/sales/orders_eu.csv` |
+| **Explicit**, no filename | none — unkeyed; its identity is its query | `query: ns-sql/sql_query-0-1000` |
+| **Template-generated**, chunk *n* | `<prefix>_{n:04}.<extension>` in the manifest's folder — `ChunkNaming` | `daily.manifest.yaml`, *n* = 42 → `data/sales/daily_0042.csv` |
+
+- **The convention applies to template chunks only.** Explicit chunks name themselves, as recipes
+  do; a manifest merging tables from several sources gives each its own name.
+- **`_{n:04}` is fixed for now** (configurable later); it pads to at least four digits, so chunk
+  10 000 is `daily_10000.csv` — correct, but past 9 999 names no longer sort in chunk order.
+- **`extension` is configurable, default `csv`**, and it is also the stored format. **`arrow` is the
+  better choice once `records-ipc` is on**: a keyed chunk re-read by the asset manager outside the
+  manifest is deserialized schema-less, so a CSV chunk comes back with inferred types, while an Arrow
+  IPC chunk carries its schema. (Read *through* the manifest, both are parsed with `uniform_schema`.)
+- **Per-chunk `arguments` or `links` on an unkeyed explicit chunk are refused at load** — they would
+  alias silently. Template chunks share the template's, by construction.
+- **Collisions are refused at load:** two explicit chunks with one filename, an explicit filename
+  matching the template's pattern, or a chunk name that a sibling `recipes.yaml` also defines.
+- **A manifest with no key** — built by a command rather than stored — has no folder, so all its
+  chunks are unkeyed.
+
+#### B. A recipe provider that serves chunk keys from manifests
+
+The manifest *is* a recipe list, so the chunks are served the way `recipes.yaml` entries are — by a
+recipe provider — which is what makes `-R/data/sales/daily_0042.csv` evaluable from anywhere, not
+only through the source.
+
+**`RecipeProviderChain`**, in `liquers-core/src/recipes.rs` (`NO-RECIPE-PROVIDER-CHAIN`): an
+ordered list of `Arc<dyn AsyncRecipeProvider<E>>` that is itself a provider.
+
+| Method | Chain behaviour |
+|---|---|
+| `recipe_opt(key)` | the first provider returning `Some` |
+| `contains(key)` | any provider |
+| `has_recipes(folder)` | any provider |
+| `assets_with_recipes(folder)` | the union, in provider order, without duplicates |
+| `get_asset_info(key)` | from the provider that has the recipe |
+
+The environment's provider becomes a chain: `recipes.yaml` first, then the manifest provider when
+`records` is on. `RecipeProviderChoice` gains the chain as a choice, and `EnvironmentBuilder` a way
+to append a provider, so an integration can add its own generative provider the same way.
+
+**`ManifestRecipeProvider`**, in `liquers-lib/src/records/provider.rs` behind `records`: for
+`recipe_opt(<folder>/<name>)` it reads the folder's `*.manifest.yaml` (parsed manifests cached by key
+and stored version) and answers with
+
+- the explicit chunk whose query filename is `name`, or
+- template chunk *n* when `ChunkNaming::index_of(name)` gives an *n* at or beyond the explicit
+  prefix — the template query rendered at *n*, with the filename appended —
+
+each with `cwd` set to the folder and the manifest's `stored`, `cached`, `expires` and `volatile`
+copied onto the recipe.
+
+- **`contains` is overridden**, by the same matching and without enumerating — a template is
+  unbounded, which is exactly the case `RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY` records.
+- **`assets_with_recipes` lists explicit chunks only.** Generated chunk names are addressable but not
+  listed; a stored one appears in a directory listing because the store has it. Listing and `contains`
+  therefore disagree on purpose, which the language integration guide's `RECIPE` section already
+  allows for a generative provider.
+
+#### C. `stored` and `cached` in the asset manager
+
+Two fields on `Recipe`, `MetadataRecord` and `AssetInfo`, both **default `true`** so every existing
+recipe, stored metadata record and struct literal keeps today's behaviour
+(`ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT`):
+
+| Flag | Honoured where | Meaning |
+|---|---|---|
+| `stored: false` | the store writes after producing — `set_state` steps 7–8 (`assets.rs:5699-5712`), `save_to_store` (`:2902`), `set_binary` (`:6717`) | **The produced value is not written.** Nothing else changes: an existing stored copy is still read, and **preferred to recomputation** — it may be `Override` data, and saving disk (not duplicating a database) is the purpose, not freshness |
+| `cached: false` | every site registering a keyed asset — `try_insert_key_asset` (`:5696`) and the `get(key)` path | **The asset is not registered for reuse.** It is evaluated for the request and dropped; a later request evaluates again, or reads the stored copy |
+| both `false` | — | Evaluated on every request, never kept — and **not volatile**: volatility is contagious (`assets.rs:169`), and an uncached value is not an impure one |
+
+The flags reach the asset from its recipe — here, the manifest provider copies them — and are
+recorded in the stored metadata and reported in `AssetInfo`, so a consumer can see why a key has no
+stored data. **Reconciliation of a `stored: false` chunk** reads its version from the cached asset
+when `cached` is set, and otherwise re-evaluates — there is no stored metadata to read.
+
+**How the source reads a keyed chunk** follows §"Two readers": if the store holds the key, the bytes
+are read (`read_resource`) and parsed with `uniform_schema`; otherwise the key is evaluated through
+the asset manager (a pure key query, so the chunk becomes a keyed asset with the manifest's flags) and
+its view is checked against the schema.
+
+**The cost, stated.** This puts two core changes into a records project, and every struct literal
+building a `Recipe`, `MetadataRecord` or `AssetInfo` — `liquers-py`'s wrappers included — gains two
+fields or a `..Default::default()`. Both features are general: the chain is how any generative
+provider plugs in (the `stockplottertest` prototype is one), and the flags are how any asset declines
+persistence.
+
 ### `ChunkResolver` — how a source reaches evaluation
 
 A source backed by queries must evaluate them, and the obvious signature —
@@ -388,7 +502,7 @@ worse version of it. The whole combinator vocabulary comes with it: applying a f
 `buffer_unordered` rather than a rewrite. `RecordStream` adds only `schema()`, and `record_stream`
 re-wraps a combinator chain so the schema survives it.
 
-**`liquers-core` is untouched.** A boxed stream would ordinarily need a per-target alias in
+**No stream alias in `liquers-core`.** A boxed stream would ordinarily need a per-target alias in
 `maybe_send.rs`, because `StreamExt::boxed()` is always `Send`-boxed and the `MaybeSend` marker cannot
 be added as a trait-object bound (E0225). Making `MaybeSend` a **supertrait** of `RecordStream`
 removes the need: `Pin<Box<dyn RecordStream>>` has the right `Send`-ness on each target by
@@ -908,7 +1022,7 @@ failed six-hour job being worthless and being resumable.
 **What it does not carry over.** The prototype's manifest holds store *keys*, so it can `contains`,
 list and clean its own directory before rewriting. Queries are more general — they cover a computed
 chunk, which keys cannot — and the cost is that **cleanup is no longer automatic** for an unkeyed
-manifest. `ChunkKeys`, reserved, is where a manifest owns its folder again.
+manifest. Keyed chunks (§"Keyed chunks") are where a manifest owns its folder again.
 
 **Registration** is the unchanged four-step procedure: extend `ExtValue`; choose the identifiers
 (`RecordView` and `RecordSource`, bare CamelCase — Liquers owns both concepts); implement the
@@ -916,8 +1030,8 @@ conversions in `ExtValueInterface` and `DefaultValueSerializer`, plus the scalar
 §"A view as a value"; and add both `TypeInfo` entries to `ExtValue::type_descriptions()`
 (`mod.rs:148`) — `CLAUDE.md`'s "four steps, not three; a type with no `TypeInfo` cannot be stored".
 
-**Everything lives in `liquers-lib`, behind the `records` feature** — see §"Integration Points".
-`liquers-core` is untouched.
+**Everything records-specific lives in `liquers-lib`, behind the `records` feature** — see
+§"Integration Points". `liquers-core` gains only the two general features of §"Keyed chunks".
 
 **Serializing the multi-gigabyte case** still meets `VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER`:
 `as_bytes` returns a `Vec<u8>`, so NDJSON or CSV over a large stream cannot stream through it. A
@@ -940,7 +1054,7 @@ heavier formats sit behind their own features.
 | JSON | `json` — **one fixed shape**, an array of row objects; the other shapes are conversions (§"JSON shapes are conversions") | yes | yes | as NDJSON | ~50 lines over the NDJSON code | none | `records` |
 | Markdown | `md`, `markdown` — a GFM pipe table | yes | yes | presentation: headers are labels, types inferred | ~60 lines to write, ~80 to read | none | `records` |
 | HTML | `html` — a `<table>` fragment | yes | **no** | presentation only | ~60 lines | none | `records` |
-| Arrow IPC file (Feather v2) | `feather`, `ipc`, `arrow_ipc` | yes | yes | **lossless** — types, nulls, and the schema with roles | ~1 000–1 500 lines, mostly metadata: the bodies are our buffers | `flatbuffers` | `records-ipc` |
+| Arrow IPC file (Feather v2) | `feather`, `ipc`, `arrow_ipc`, `arrow` — the last so a `.arrow` chunk key reads as IPC | yes | yes | **lossless** — types, nulls, and the schema with roles | ~1 000–1 500 lines, mostly metadata: the bodies are our buffers | `flatbuffers` | `records-ipc` |
 | Parquet | `parquet` | yes, minimal | **only with `polars`** | lossless as written; roles lost when read through polars | writer ~800–1 200 lines | `flate2`, already in the graph | `records-parquet` |
 
 Names and aliases are those of the DataFrame serializer (`liquers-lib/src/polars/serde.rs:25-34`), so
@@ -2110,9 +2224,10 @@ impl ChunkOrigin {
 }
 
 impl ManifestSource {
-    /// Rejects `stored: false, cached: false` until non-persistent assets exist. The same
-    /// validation as `TryFrom<ManifestSpec>`, which deserialization goes through.
-    pub fn new(spec: ManifestSpec) -> Result<ManifestSource, Error>;
+    /// Derives the chunk ids and the template naming from `key`, and validates: per-chunk
+    /// arguments only on keyed chunks, no name collisions. The same validation as
+    /// `TryFrom<ManifestSpec>`, which deserialization goes through (with no key).
+    pub fn new(spec: ManifestSpec, key: Option<Key>) -> Result<ManifestSource, Error>;
     pub fn spec(&self) -> &ManifestSpec;
 }
 
@@ -2157,14 +2272,21 @@ impl<T: bytemuck::Pod> Buffer<T> {
 type, not an essential capability — the same class as `image-support` and `polars`, and `CLAUDE.md`
 already directs new value types to `liquers-lib/src/value/`.
 
-**`liquers-core` is therefore untouched.** The design is purely additive to one crate, and a build
-with `records` off is byte-for-byte the build that exists today.
+**`liquers-core` changes only for two general features** — the recipe provider chain and the
+`stored`/`cached` flags (§"Keyed chunks") — neither of which knows about records. Everything
+records-specific is additive to `liquers-lib`.
 
 | Crate | File | Change |
 |---|---|---|
 | `liquers-lib` | `src/records/buffer.rs` (new) | `AlignedBuffer`, `Buffer<T>`, `Bitmap` — the Arrow-layout primitives; the only place `bytemuck` is used |
-| `liquers-lib` | `src/records/mod.rs` (new) | The traits `RecordView`, `RecordSource`, `RecordStream`, `ChunkResolver`; `BoxRecordStream`, `record_stream`, `RecordStreamExt`; `FieldValue`, `RecordSchema`, `FieldSchema`, `FieldType`, `Column` and its kernels, `RecordBatch`, `ChunkOrigin`, `LocatorRule`, `ChunkKeys`, `ChunkId`, `ChunkList`, `ChunkDescriptor` |
+| `liquers-lib` | `src/records/mod.rs` (new) | The traits `RecordView`, `RecordSource`, `RecordStream`, `ChunkResolver`; `BoxRecordStream`, `record_stream`, `RecordStreamExt`; `FieldValue`, `RecordSchema`, `FieldSchema`, `FieldType`, `Column` and its kernels, `RecordBatch`, `ChunkOrigin`, `LocatorRule`, `ChunkNaming`, `ChunkId`, `ChunkList`, `ChunkDescriptor` |
 | `liquers-lib` | `src/records/views.rs` (new) | The view implementations, the `impl dyn RecordView` constructors, `RowFnView` |
+| **`liquers-core`** | `src/recipes.rs` | `RecipeProviderChain`; `RecipeProviderChoice` gains the chain; `Recipe` gains `stored` and `cached`, default `true` |
+| **`liquers-core`** | `src/metadata.rs` | `MetadataRecord` and `AssetInfo` gain `stored` and `cached`, default `true` for legacy records |
+| **`liquers-core`** | `src/assets.rs` | the store writes skip when `stored: false`; key-asset registration skips when `cached: false` |
+| **`liquers-core`** | `src/context.rs`, `src/environment_builder.rs` | appending a provider to the chain |
+| `liquers-py` | wrappers of `Recipe`, `AssetInfo`, `MetadataRecord` | the two fields, or `..Default::default()` in struct literals |
+| `liquers-lib` | `src/records/provider.rs` (new) | `ManifestRecipeProvider`, and adding it to the environment's chain |
 | `liquers-lib` | `src/records/mutable.rs` (new) | `RecordViewMut`, `RecordBatchMut`, `ColumnMut` |
 | `liquers-lib` | `src/records/convert.rs` (new) | `to_record`, `to_record_source` — what every record command accepts |
 | `liquers-lib` | `src/records/formats/` (new) | `mod.rs` (`read_table`, `write_table`, `ReadSchema`), `csv.rs` (CSV and TSV), `json.rs` (NDJSON and JSON), `shapes.rs` (the seven JSON orients), `markdown.rs`, `html.rs`, `infer.rs` (schema-less inference); `ipc.rs` behind `records-ipc`; `parquet.rs` and `thrift.rs` behind `records-parquet` |
@@ -2180,14 +2302,15 @@ with `records` off is byte-for-byte the build that exists today.
 | `liquers-py` | later milestone | Arrow C Data Interface export — the only place `unsafe` FFI belongs |
 | `specs` | `command_registry.yaml` | Regenerated |
 
-### Why `liquers-core` needs no change
+### Why `liquers-core` needs no stream alias
 
 A boxed stream would ordinarily need a per-target `BoxStream` alias and a boxing helper in
 `liquers-core/src/maybe_send.rs`, because `StreamExt::boxed()` is always `Send`-boxed and the
 `MaybeSend` marker cannot be written as a trait-object bound (E0225). With `RecordStream` a trait
 whose supertraits include `MaybeSend`, the trait object carries the right `Send`-ness on each target
 by transitivity, so `Pin<Box<dyn RecordStream>>` needs no alias and `Box::pin` needs no helper.
-`RecordSource` returns core's existing `BoxFuture`. Nothing is left for core to provide.
+`RecordSource` returns core's existing `BoxFuture`. The core changes this design does make are the
+general ones of §"Keyed chunks".
 
 ### The feature
 
@@ -2449,13 +2572,19 @@ behaviour without a test failing.
 | `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` | **Already updated** — VALUE's third bridging category (lent buffers), RECIPE's corrected listing/containment rule, and the RECORDS subsection, revised 2026-09-24 for the trait form: a batch crosses as Arrow, a view as a wrapper or materialized |
 | `CLAUDE.md` | The `records` feature in the feature-matrix section, and the new matrix rows |
 
+| `specs/reference/ASSETS.md`, `ASSET_LIFECYCLE.md` | `stored` and `cached`: what each skips, that a stored copy is still preferred, that both false is not volatile |
+| `specs/reference/ENVIRONMENT_CONFIG.md` | The recipe provider chain and how a provider is appended |
+| `specs/reference/PROJECT_OVERVIEW.md` | Recipe providers as a chain; keyed record chunks as one generative provider |
+
 **Discarded candidates:** `STORE_SEMANTICS.md`, `STORE_IMPLEMENTATION_GUIDE.md` and
-`CONFORMANCE_TERMS.md` — this design touches no store trait. `ASSETS.md` — the `get_asset_info`
-repair belongs to the search design.
+`CONFORMANCE_TERMS.md` — this design touches no store trait. The `get_asset_info` repair in
+`ASSETS.md` belongs to the search design.
 
 `affects_docs`: `reference/RECORD_STREAMS.md`, `guides/RECORD_STREAM_GUIDE.md`,
 `reference/VALUE_TYPE_SYSTEM.md`, `guides/TYPE_SYSTEM_GUIDE.md`,
-`guides/COMMAND_REGISTRATION_GUIDE.md`, `guides/LANGUAGE-INTEGRATION_GUIDE.md`.
+`guides/COMMAND_REGISTRATION_GUIDE.md`, `guides/LANGUAGE-INTEGRATION_GUIDE.md`,
+`reference/ASSETS.md`, `reference/ASSET_LIFECYCLE.md`, `reference/ENVIRONMENT_CONFIG.md`,
+`reference/PROJECT_OVERVIEW.md`.
 
 ## Relevant Commands
 
@@ -2556,7 +2685,8 @@ type, no `unwrap`/`expect`.
 | A scalar read of a view that is not one row by one payload column | `Error::conversion_error`, naming the row count and the payload columns |
 | `materialize` passing `max_rows` | `Error::general_error` stating the limit and how to raise it — the stream is dropped, not truncated silently |
 | A view command receiving a source | `Error::conversion_error`, naming `ns-rec/materialize` |
-| `source` given a document that is not a manifest, or `stored: false, cached: false` | `Error::general_error` from `TryFrom<ManifestSpec>` |
+| `to_record_source` given a document that is not a manifest | `Error::general_error` from `TryFrom<ManifestSpec>` |
+| A manifest with per-chunk `arguments`/`links` on an unkeyed chunk, or colliding chunk names | `Error::general_error` naming the chunk, at load |
 | A format the build does not include (`feather` without `records-ipc`, …) | `ErrorType::SerializationError` naming the feature — and the registry does not advertise it |
 | Reading `parquet` without `polars`, or `html` at all | `ErrorType::SerializationError` naming why |
 | An IPC file with dictionary batches, compression, 64-bit offsets or unsupported nesting | `ErrorType::SerializationError` naming what was found |
@@ -2608,7 +2738,8 @@ A stream is never serialized and never crosses a query boundary. A `ManifestSour
 in [`manifest-format.md`](./manifest-format.md). Three of its rules bear on this design:
 
 - **Identity has two regimes.** For an *unkeyed* stream the query is the chunk's identity, so a value
-  varying per chunk must live in the query. For a *keyed* stream — one with a `ChunkKeys` — the
+  varying per chunk must live in the query. For a *keyed* chunk — one named by its query's filename
+  or by the template's convention (§"Keyed chunks") — the
   chunk's key distinguishes it, so per-chunk `arguments` and `links` are usable, exactly as in
   `recipes.yaml`. **Per-chunk `arguments` and `links` are wanted** — a manifest that merges tables
   from different sources gives each explicit chunk its own statement or connection — and they apply
@@ -2657,7 +2788,9 @@ an `.await`.
 - Every exhaustive `match` on `ExtValue` has a `#[cfg(feature = "records")]` arm, so
   `--no-default-features` still compiles — the failure mode a gated enum variant causes, and what the
   new build-matrix rows exist to catch. No code matches over *implementations* of the traits.
-- `liquers-core` gains nothing: no dependency, no alias, no `unsafe`.
+- `liquers-core` gains no dependency and no `unsafe`; its changes are the provider chain and two
+  `bool` fields with `serde` defaults, so stored recipes and metadata written before them read
+  unchanged.
 - `bytemuck` is `optional = true` and reached only through `records`, so a build without the feature
   resolves an unchanged dependency graph.
 - `Buffer<T>: bytemuck::Pod` holds for `i32`, `i64`, `u64`, `f32`, `f64`.
@@ -2697,8 +2830,8 @@ as the fourth step of adding a value type; `context` last in a command signature
    is structural:
    - A SQL source needs chunk queries **generated**, not listed, since the count is unknown and
      `COUNT(*)` is expensive. [`chunking-and-resumability.md`](./chunking-and-resumability.md) works
-     this through: the `template` and `keys` fields of `ManifestSource` are reserved for it, and
-     `ChunkList::Unbounded` exists so consumers are written for it now. With `RecordSource` a trait, a
+     this through: the manifest's `template` generates them — constructed in this version, with
+     template chunks keyed by `ChunkNaming` — and `ChunkList::Unbounded` is what consumers see. With `RecordSource` a trait, a
      SQL source may also be **its own implementation** — the natural home for pushdown, if it is ever
      wanted — rather than a manifest.
    - **`Decimal` stops being deferrable.** Reading a `NUMERIC` column as `Float` is a corruption bug,
@@ -2759,16 +2892,10 @@ as the fourth step of adding a value type; `context` last in a command signature
 17. **The schema in metadata** — §"Should the schema live in metadata?". Waits on
     `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` and on the load path passing metadata to a
     deserializer; then it is one more source for the same schema-aware reader.
-18. **Making `stored` and `cached` work — keyed chunks.** Both flags, and per-chunk `arguments` and
-    `links`, need chunks that are **keyed assets**. The asset manager creates a keyed asset only
-    through `get(key)`, which asks the recipe provider for the recipe (`assets.rs:3846`); `apply` is
-    ad hoc — never keyed, cached or stored (`:3817`). So keyed chunks need (a) `ChunkKeys` enabled,
-    naming chunks in the manifest's folder; (b) a recipe provider that serves those keys from the
-    manifest — the manifest *is* a recipe list — which means composing providers
-    (`NO-RECIPE-PROVIDER-CHAIN`); and (c) recipe-level `stored`/`cached` flags that the asset manager
-    honours (`ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT`). What works without them: `cached: false` on
-    an **unkeyed** chunk (evaluate through `apply` instead of `get_asset`). Options and a
-    recommendation are in `manifest-format.md` §4b. **To decide.**
+18. ~~Making `stored` and `cached` work~~ — **decided: in this project** (§"Keyed chunks"). Explicit
+    chunks are keyed by their query's filename; template chunks by `<prefix>_{n:04}.<extension>`,
+    `extension` configurable with default `csv`. A manifest recipe provider in a core provider chain
+    serves them; the asset manager honours the flags.
 
 **Settled, and recorded so they are not reopened without new information:**
 
@@ -2783,6 +2910,7 @@ as the fourth step of adding a value type; `context` last in a command signature
 | Where kernels live | On `Column`, so views and batches share them |
 | Whether views cache | No. The consumer's `Column` is the cache; `materialize()` is the explicit one |
 | Merging stacked views; pushdown | Out of scope for the generic mechanism |
+| Keyed chunks | In this project: explicit chunks keyed by their filename, template chunks by `<prefix>_{n:04}.<extension>`; a manifest recipe provider in a core provider chain; `stored`/`cached` honoured by the asset manager |
 | Asynchronous transformations | Sources, never views — views stay synchronous because scalar reading and argument binding are |
 | How a source becomes bytes | As its manifest only. Its rows go through `materialize`, a command, because serialization is synchronous and evaluation is not |
 | How a source reaches evaluation | `ChunkResolver`, an object-safe trait; `ContextResolver` records dependencies, `EnvResolver` does not |
@@ -2829,6 +2957,7 @@ information — each is a position that was argued for and then abandoned on evi
 | 2026-09-24 | **Scalar reading**: a one-row, one-payload-column view reads as its cell would as a base `Value`. `select_columns` keeps key columns. Commands bounded by a caller's count materialize | The user's requirement that pointing at a cell yield a value; a tiny view must not pin a large base |
 | 2026-09-24 | **Asynchronous work is a source.** Views stay synchronous; source → view is an explicit await | Scalar reading and argument binding are synchronous |
 | 2026-09-24 | `liquers-core` **untouched** — the `BoxStream` alias removed | `MaybeSend` as a supertrait gives the trait object the right `Send`-ness on each target |
+| 2026-09-25 | **Keyed chunks, in this project.** Explicit chunks are recipes keyed by their query's filename; template chunks are named `<prefix>_{n:04}.<extension>` from the manifest's own name, `extension` default `csv`; the template is constructed in this version. `ManifestRecipeProvider` in a new core `RecipeProviderChain`; `stored`/`cached` on `Recipe`, `MetadataRecord` and `AssetInfo`, honoured by the asset manager. `ChunkKeys` replaced by the derived `ChunkNaming`; `number_format` dropped. `liquers-core` is no longer untouched | The user chose option 1: `stored` and `cached` must work, and per-chunk arguments need keys |
 | 2026-09-25 | **Decisions for Phase 3.** `RecordViewMut` / `RecordBatchMut` / `ColumnMut` with capacity replace the builder. Every row has an implicit `RowId { chunk, row }` and, during a traversal, a row number; the explicit `Id` becomes optional and the schema-less reader stops guessing one; `rowid` addresses a row by reading one chunk. `to_record` / `to_record_source` accept views, sources, bytes, text, JSON values and keys, replacing `parse` and `source`. A stored chunk is read whole. Manifest: per-chunk `arguments`/`links` on explicit chunks, `stored`/`cached` per manifest, unknown versions read as the latest | The user's answers to the open decisions |
 | 2026-09-25 | **Two readers, and JSON shapes as commands.** A schema-aware reader (declared types, strict, one pass) beside the schema-less one; manifests with `uniform_schema` parse stored chunks from their bytes and check computed ones. `to_json`/`from_json` over seven orients, pandas-compatible, `table` lossless; `parse`. The `json` format keeps one shape. Schema-in-metadata discussed and deferred | A manifest's declared schema must be usable when reading CSV and NDJSON chunks; JSON has too many table shapes for a format name to choose; pandas interop |
 | 2026-09-24 | **Table formats specified.** `records`: CSV, TSV, NDJSON, JSON, Markdown, HTML, hand-written with no new dependency; `records-ipc`: Arrow IPC / Feather, lossless; `records-parquet`: a minimal Parquet writer, reading only through polars. Text formats infer a schema, with an `Id` rule and writers putting the `Id` first | A `RecordView` must round-trip through CSV and NDJSON at least; wasm size keeps heavier formats behind features. `deserialize_from_bytes` sees no metadata, so the text formats cannot carry a schema |

@@ -87,8 +87,9 @@ title: Daily order extract
 description: |
   One chunk per 1000 orders, ordered by id.
 
-# --- chunk naming, for when chunks are cached as keyed assets ---
-number_format: "{:04}"         # daily_0000.csv
+# --- naming of TEMPLATE chunks: <manifest prefix>_{n:04}.<extension> → daily_0042.csv ---
+# The prefix is this file's own name; _{n:04} is the convention; extension defaults to csv.
+# `arrow` keeps the schema when a chunk is re-read outside this manifest (needs records-ipc).
 extension: csv
 
 # --- shared by every chunk; same semantics as Recipe.arguments / Recipe.links ---
@@ -120,11 +121,13 @@ uniform_schema:
 
 # --- `chunks:` and `template:` may both appear; see §4a ---
 
-chunks:                        # the explicit prefix, chunk indices 0..n-1
-  - query: ns-sql/sql_query-0-1000
-  - query: ns-sql/sql_query-1000-1000
-    title: Second batch        # per-chunk overrides are allowed
-    arguments: {}              # merged over the shared ones; chunk wins
+chunks:                        # the explicit prefix, chunk indices 0..n-1 — recipes
+  - query: ns-sql/sql_query-0-1000                     # unkeyed: no filename
+  - query: ns-sql/sql_query-1000-1000/orders_eu.csv    # keyed as data/sales/orders_eu.csv
+    title: EU orders           # per-chunk overrides are allowed
+    arguments: {}              # merged over the shared ones; chunk wins — keyed chunks only
+    links:
+      connection: -R/db/eu.yaml   # a different source per chunk: the merge case
 
 template:                      # the tail, chunk indices n.. — count unknown
   query: ns-sql/sql_query
@@ -198,7 +201,7 @@ cached: true     # the chunk is held by the asset manager for reuse
 
 | Axis | Means | Given by |
 |---|---|---|
-| **Keyed** | the chunk has a key, so it is addressable and has identity independent of its query | the naming fields — `number_format`, `extension`, and the manifest's own folder |
+| **Keyed** | the chunk has a key, so it is addressable and has identity independent of its query | an explicit chunk's query filename; for template chunks the manifest's own name, `extension`, and its folder |
 | **Stored** | the bytes are written to the store and survive a restart | `stored:` |
 | **Cached** | the value is held by the asset manager for reuse within a session | `cached:` |
 
@@ -287,49 +290,24 @@ blocker and its priority rises with it.
 
 - **`stored` and `cached` are per manifest**, never per chunk.
 
-### What it takes to make them work — to decide
+### Making them work — decided: in this project
 
-Both flags act on **keyed** chunk assets: an unkeyed chunk is a query asset, which is never stored.
-And per-chunk `arguments` and `links` (§5) need keyed chunks too. The asset manager creates a keyed
-asset only through `get(key)`, which asks the **recipe provider** for the key's recipe
-(`liquers-core/src/assets.rs:3846`); `apply(recipe, …)` is ad hoc — never keyed, cached or stored
-(`:3817`). So three pieces are missing, none of them record-specific:
+Both flags act on **keyed** chunk assets: an unkeyed chunk is a query result, which is never stored.
+Per-chunk `arguments` and `links` (§5) need keyed chunks too. The asset manager creates a keyed
+asset only through `get(key)`, which asks the recipe provider for the key's recipe, so three pieces
+are built in this project (Phase 2, §"Keyed chunks"):
 
-| Piece | What it is | Tracked by |
-|---|---|---|
-| **A. Chunk keys** | `ChunkKeys` enabled: chunk *n* of `daily.manifest.yaml` is the key `daily_{n:04}.csv` in the manifest's folder — the `number_format`/`extension` fields already exist | this design (currently "always `None`") |
-| **B. A provider for those keys** | The manifest *is* a recipe list, so a provider that answers `recipe(daily_0003.csv)` from the manifest — composed with the folder's `recipes.yaml` provider | `NO-RECIPE-PROVIDER-CHAIN` |
-| **C. The flags in the asset manager** | `stored: false` — skip the store write after producing, still prefer a stored copy when reading; `cached: false` — do not register the asset for reuse; both false — not volatile | `ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT` |
+| Piece | What it is |
+|---|---|
+| **A. Chunk keys** | An explicit chunk is keyed by its query's filename, as a `recipes.yaml` entry is. Template chunk *n* is `<prefix>_{n:04}.<extension>` in the manifest's folder: the prefix is the manifest's own name, `_{n:04}` the convention (configurable later), `extension` a manifest field defaulting to `csv` |
+| **B. A provider for those keys** | `ManifestRecipeProvider`, composed with the folder's `recipes.yaml` provider in a core `RecipeProviderChain`. `contains` matches without enumerating; listing shows explicit chunks only |
+| **C. The flags in the asset manager** | On `Recipe`, `MetadataRecord` and `AssetInfo`, default `true`. `stored: false` skips the store write after producing and still prefers a stored copy when reading; `cached: false` skips registering the asset for reuse; both false is not volatile |
 
-With A–C, a keyed chunk is an ordinary keyed asset: addressable as `-R/data/sales/daily_0003.csv`
-from anywhere, stored and cached as its flags say, expiring on its own `expires`, and reconciled by
-its stored metadata's version.
-
-**What works today without them:** `cached: false` on an **unkeyed** chunk — the source evaluates it
-through `apply` instead of `get_asset`, so nothing is registered. `stored` has no meaning for an
-unkeyed chunk and is reported as a warning when set.
-
-**Options:**
-
-1. **Include A–C in this project.** Everything in the manifest works on day one. The cost is two
-   core changes (the provider chain, the asset flags) inside a records project, and Phase 4 grows
-   by roughly a third.
-2. **A separate, small prerequisite project for B and C, then A here.** The provider chain and the
-   asset flags are core features with their own users — generative recipe providers, the
-   `stockplottertest` prototype — and deserve their own design; this project ships A behind it.
-3. **Records first, unkeyed only; keyed chunks as a follow-up.** Everything else in the manifest
-   works; per-chunk `arguments`/`links` and `stored` are refused with an error naming the follow-up.
-
-**Recommendation: 2.** B and C are the missing general mechanisms — a record manifest is one of
-several things that need a composable provider and non-persistent assets — and designing them as
-records features would give them a records-shaped API. Doing them first keeps this project's scope
-where it is while delivering the whole manifest.
-
-**Also to settle with C:** reconciliation of a `stored: false` chunk reads its version from the
-cached asset or by re-evaluating, since no stored metadata exists.
-
-**Identity is unaffected by either flag.** §5's two regimes turn on whether a chunk is **keyed**, so
-per-chunk `arguments` and `links` stay valid with both flags false.
+A keyed chunk is then an ordinary keyed asset: addressable as `-R/data/sales/daily_0042.csv` from
+anywhere, stored and cached as its flags say, expiring on its own `expires`. An unkeyed chunk
+honours `cached: false` (evaluated through `apply`); `stored` means nothing for it and is reported
+as a warning. Reconciling a `stored: false` chunk reads its version from the cached asset, or
+re-evaluates.
 
 ## 4c. The schema is how a folder of files becomes one table
 
@@ -481,7 +459,7 @@ So the chunk list is literally a `RecipeList`:
 manifest  =  stream header  +  RecipeList
 ```
 
-where the header is the part `recipes.yaml` has no concept of — `number_format`, `extension`,
+where the header is the part `recipes.yaml` has no concept of — `extension`,
 `uniform_schema`, and `template` — and the `RecipeList` is the chunks.
 
 **What this buys, all of it for free:**
@@ -541,7 +519,7 @@ The provider is deferred, so the format's job is to leave the doors open. Checke
 
 | Later capability | Provided for by |
 |---|---|
-| A generative recipe provider reading the manifest | `template`, plus `number_format`/`extension` giving the chunk-name pattern to match `contains` against |
+| A generative recipe provider reading the manifest | `template`, plus the manifest's own name and `extension` giving the chunk-name pattern to match `contains` against |
 | Cached chunks as keyed assets | the folder-as-`cwd` rule; nothing else needed |
 | Unknown chunk counts | `template` without a count; `chunks` and `template` are exclusive, so a reader always knows which it has |
 | Several streams per folder | the filename prefix, and the coexistence rule |
