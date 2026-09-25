@@ -109,11 +109,14 @@ volatile: false
 expires: 1d
 
 # --- declared, not assumed; omit when chunks may differ ---
+# Stored chunks are PARSED with it (types, nulls, Id, roles); computed chunks are CHECKED
+# against it. `nullable` defaults to true, `key` to None, `role` to no indexing, and the
+# Id's Exact+stored role is supplied. See Phase 2, "Two readers".
 uniform_schema:
   fields:
-    - {name: id, data_type: Int, key: Id, role: {indexed: [Exact], stored: true}}
-    - {name: total, data_type: Float, role: {indexed: [Range], fast: true}}
-    - {name: name, data_type: Text, role: {indexed: [FullText], stored: true}}
+    - {name: id, data_type: Int, key: Id, nullable: false}
+    - {name: total, data_type: Float, label: Order total, role: {indexed: [Range], fast: true}}
+    - {name: name, data_type: Text, description: Customer name, role: {indexed: [FullText], stored: true}}
 
 # --- `chunks:` and `template:` may both appear; see §4a ---
 
@@ -130,7 +133,8 @@ template:                      # the tail, chunk indices n.. — count unknown
   batch_size: 1000
 
 # --- whether chunks are persisted; see §4b ---
-store: true
+stored: true
+cached: true
 ```
 
 Fields that are **never** written by hand, mirroring `recipes.yaml`: `cwd`,
@@ -290,6 +294,17 @@ blocker and its priority rises with it.
 
 **Identity is unaffected by either flag.** §5's two regimes turn on whether a chunk is **keyed**, so
 per-chunk `arguments` and `links` stay valid with both flags false.
+
+## 4c. The schema is how a folder of files becomes one table
+
+With `uniform_schema` declared, a chunk that is a **stored file** — a plain resource query such as
+`-R/data/sales/daily_0010.csv` — is read from its bytes and **parsed with the schema**: types,
+nulls, the `Id` and every role come from the manifest, and a cell that does not fit is an error
+naming its row and column. A chunk produced by a **command** is evaluated and its view **checked**
+against the schema instead. Without `uniform_schema`, each chunk is read with schema inference on
+its own, and two chunks of the same data can infer different types — so a folder of CSV files is a
+uniform stream only when its manifest says what the columns are. Phase 2, "Two readers: schema-aware
+and schema-less", has the rules.
 
 ## 5. Identity: two regimes, and per-chunk arguments belong to only one
 

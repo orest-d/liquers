@@ -8,10 +8,10 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 119
+Total rows: 120
 - P0: 1
 - P1: 2
-- P2: 77
+- P2: 78
 - P3: 39
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
@@ -36,6 +36,7 @@ Total rows: 119
 | [`RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY`](issues/RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY.md) | issue | AsyncRecipeProvider::contains has a default that silently assumes recipes are enumerable | draft |  | P2 | S | core/assets |  | 2026-09-20 |
 | [`REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED`](issues/REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED.md) | issue | The `payload: required` metadata statement is implemented but documented nowhere | draft |  | P2 | S | docs;core/commands;macro |  | 2026-09-03 |
 | [`SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED`](issues/SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED.md) | issue | A write skipped because the asset was cancelled is recorded as a successful persist | draft |  | P2 | S | core/assets |  | 2026-09-04 |
+| [`SIMPLE-VALUE-CANNOT-READ-JSON`](issues/SIMPLE-VALUE-CANNOT-READ-JSON.md) | issue | liquers-lib's base value writes JSON but cannot read it back | draft |  | P2 | S | lib/value |  | 2026-09-25 |
 | [`AXUM-HANDLER-TEST-COVERAGE`](issues/AXUM-HANDLER-TEST-COVERAGE.md) | issue | liquers-axum has no handler test scaffolding, so handler behaviour is verified only by review | accepted |  | P2 | M | axum | [phase1](specs/design/expired-binary-read-safety/phase1-high-level-design.md)  [phase2](specs/design/expired-binary-read-safety/phase2-architecture.md)  [phase3](specs/design/expired-binary-read-safety/phase3-examples.md)  [phase4](specs/design/expired-binary-read-safety/phase4-implementation.md)  | 2026-08-08 |
 | [`COMBINED-VALUE-DISCRIMINATION`](issues/COMBINED-VALUE-DISCRIMINATION.md) | feature | Deserialization cannot discriminate base from extended values | accepted |  | P2 | M | core/value;lib/value |  | 2026-08-08 |
 | [`COMMAND-ALIAS-DEFINITION-UNTESTED`](issues/COMMAND-ALIAS-DEFINITION-UNTESTED.md) | issue | CommandDefinition::Alias has no test and no user, and its head-parameter semantics are unexercised | draft |  | P2 | M | core/plan;core/commands |  | 2026-08-29 |

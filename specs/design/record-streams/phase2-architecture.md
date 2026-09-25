@@ -47,7 +47,8 @@ for the trait revision.
 | `TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS` | draft | P3 | HTML is written but cannot be read back, and `supported_data_formats` means "written and read". Found while specifying table formats | no | no | Declare `html` anyway; a stored `.html` table is recomputed | keep P3 |
 | `MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS` | draft | P3 | `ndjson` has no media type; Arrow and Parquet are served as `application/octet-stream`. Found while specifying table formats | no | no | Fix alongside, or accept octet-stream until then | keep P3 |
 | `VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER` | draft | P2 | A multi-gigabyte record stream cannot be serialized through a `Vec<u8>`-returning writer. **The clearest motivating case yet filed for it**, now with a concrete consumer in `liquers-axum` | no | no | **Ad-hoc streaming in `liquers-axum` for this design**; issue updated with the HTTP motivation and the push-vs-pull finding | consider P1 when a second value type needs it |
-| `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` | draft | P2 | Front-matter fields have nowhere to live, so `attr.`-qualified columns have no source | no | no | Field qualification is designed to accept it as a pure upgrade | keep P2 |
+| `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` | draft | P2 | Front-matter fields have nowhere to live, so `attr.`-qualified columns have no source. **Also where a stored table's schema would live**, making CSV written by Liquers lossless without a manifest | no | no | Field qualification and the schema-aware reader are both designed to accept it as a pure upgrade | keep P2 |
+| `SIMPLE-VALUE-CANNOT-READ-JSON` | draft | P2 | `liquers-lib`'s base value writes `json` but cannot read it, so a stored JSON document cannot feed `from_json`. Found while designing JSON shapes | no | only `from_json` on a stored document | Fix before or with Phase 4; small | keep P2 |
 | `COMMAND-CONTEXT-PARAM-ORDER` | accepted | P2 | `context` must be last in record-producing commands | no | no | Honoured | keep P2 |
 | `CORE-SYNC-STORE-TRAIT-OBSOLETE` | — | — | Record sources read through `AsyncStore` only | no | no | — | — |
 | `EXTENDED-VALUES-CANNOT-BIND-TO-SCALAR-ARGUMENTS` | draft | P2 | A single-cell view must bind to a scalar argument through a recipe `links:` entry. A resolved link binds through `TryFrom<Value>`, and every scalar `TryFrom` refuses an extended value — `String` included. Found while designing scalar reading | **yes** | only that one use | **Fix as the first Phase 4 step**: `ValueExtension` hooks for every scalar conversion, delegated from both paths | keep P2 |
@@ -353,6 +354,10 @@ pub trait ChunkResolver: MaybeSend + MaybeSync + 'static {
     /// Read a chunk's metadata without producing its value — the store's metadata for a keyed
     /// chunk, the asset manager's for an unkeyed one.
     fn metadata(&self, query: Query) -> BoxFuture<'static, Result<Metadata, Error>>;
+    /// A stored chunk's bytes and metadata, **without** deserializing them — so a manifest with a
+    /// declared schema can parse the bytes with it (§"Two readers"). Records the key as a
+    /// dependency when the resolver is a `ContextResolver`.
+    fn read_resource(&self, key: Key) -> BoxFuture<'static, Result<(Vec<u8>, Metadata), Error>>;
 }
 ```
 
@@ -828,7 +833,7 @@ heavier formats sit behind their own features.
 | CSV | `csv`, `csv:comma` | yes | yes | values; types inferred; roles lost; null distinct from `""` | hand-written, ~250 lines with the reader | none | `records` |
 | TSV | `tsv`, `csv:tab` | yes | yes | as CSV | shares the CSV code | none | `records` |
 | NDJSON | `ndjson`, `jsonl` | yes | yes | values and JSON types; roles lost; differing keys read as a union | ~150 lines over `serde_json` | none | `records` |
-| JSON | `json` — an array of row objects | yes | yes | as NDJSON | ~50 lines over the NDJSON code | none | `records` |
+| JSON | `json` — **one fixed shape**, an array of row objects; the other shapes are conversions (§"JSON shapes are conversions") | yes | yes | as NDJSON | ~50 lines over the NDJSON code | none | `records` |
 | Markdown | `md`, `markdown` — a GFM pipe table | yes | yes | presentation: headers are labels, types inferred | ~60 lines to write, ~80 to read | none | `records` |
 | HTML | `html` — a `<table>` fragment | yes | **no** | presentation only | ~60 lines | none | `records` |
 | Arrow IPC file (Feather v2) | `feather`, `ipc`, `arrow_ipc` | yes | yes | **lossless** — types, nulls, and the schema with roles | ~1 000–1 500 lines, mostly metadata: the bodies are our buffers | `flatbuffers` | `records-ipc` |
@@ -870,9 +875,83 @@ quotes, and doubled quotes. Phase 3's `column_null_distinct_from_empty_string` i
 spreadsheet; neutralizing it alters the data, which a data format must not do. Documented, not
 handled.
 
-**Reading infers a schema, because the bytes carry none.** `deserialize_from_bytes(b, type_identifier,
-data_format)` receives no metadata, so a stored schema cannot reach it; the text formats infer one
-from the data.
+#### Two readers: schema-aware and schema-less
+
+Every text format is read by one of two readers, and **which one runs depends only on whether a
+schema is available**, not on the format:
+
+```rust
+// liquers-lib/src/records/formats/mod.rs
+pub enum ReadSchema<'a> {
+    /// A schema is known: parse every cell as its declared type. Nothing is guessed.
+    Declared(&'a RecordSchema),
+    /// No schema: infer one from the data (the rules below).
+    Infer,
+}
+
+pub fn read_table(bytes: &[u8], format: TableFormat, schema: ReadSchema<'_>, options: &ReadOptions)
+    -> Result<RecordBatch, Error>;
+pub fn write_table(view: &dyn RecordView, format: TableFormat, options: &WriteOptions)
+    -> Result<Vec<u8>, Error>;
+
+/// `csv`/`tsv` (separator), `ndjson`, `json` (records), `md`, `html`; `feather` and `parquet`
+/// under their features.
+pub enum TableFormat { Csv { separator: u8 }, NdJson, Json, Markdown, Html, /* … */ }
+pub struct ReadOptions { pub header: bool /* default true */ }
+```
+
+Where a schema comes from is a separate question from how it is used, which is what lets one reader
+serve every source of schema — the manifest now, a linked argument, metadata later:
+
+| Situation | Reader | Schema from |
+|---|---|---|
+| A chunk of a manifest that declares `uniform_schema` | **schema-aware** | the manifest |
+| `ns-rec/parse` or `ns-rec/from_json` with a `schema` argument, linked through `links:` | **schema-aware** | the linked value — a `records_schema` result, or a YAML/JSON schema document |
+| The `table` JSON shape (`from_json-table`) | **schema-aware** | the document itself |
+| `feather`, `parquet` written by Liquers | **schema-aware** | the file's own metadata (`liquers.schema`) |
+| `deserialize_from_bytes` of a `RecordView` in a text format | schema-less | — : the deserializer receives no metadata (see "Should the schema live in metadata?") |
+| A chunk of a manifest with no `uniform_schema`; `parse` without a `schema` | schema-less | — |
+
+**The schema-aware reader parses; it never guesses.**
+
+| Concern | Rule |
+|---|---|
+| Columns | Matched **by name** through the header (`header: true`), by position otherwise. A schema field missing from the file is a null column when nullable, an error otherwise. A column the schema does not declare is an **error** naming it — the schema is a promise about the data, and a silent drop hides a changed extract |
+| Cells | Parsed as the declared type: `Text` keeps the cell verbatim (so `01234` is safe without any rule), `Int` must parse as `i64`, `Date` as `YYYY-MM-DD`, and so on. A cell that does not parse is an error naming row, column and value |
+| Nulls | CSV's convention (unquoted empty is null, quoted `""` is empty); JSON's `null`. A null in a non-nullable field is an error |
+| JSON types | Must agree with the declared type, with the lossless coercions only: an integral number into `Float`, a string into `Date`/`Timestamp` by parsing, a base64 string into `Binary`, an array of numbers into `Vector` of the declared `dim` |
+| `Id`, roles, labels, descriptions | From the schema — nothing is lost, and the first-column rule below does not apply |
+| Cost | One pass, cells parsed straight into their `ColumnBuilder`s; no buffered strings. Faster and smaller than inference, which must see a whole column before choosing its type |
+
+**The schema-less reader infers**, with the rules of the table below. It exists because a file with
+no known schema must still be readable, not because inference is good: types are guessed and roles
+are lost. **A manifest without `uniform_schema` pays a further, less obvious cost** — each chunk is
+inferred on its own, so two chunks of the same data can disagree (a column that happens to hold only
+integers in one chunk and a decimal in the next), and a stream that is uniform in fact becomes
+non-uniform by inference. Declaring the schema is what makes a folder of CSV files a uniform stream.
+
+**How a manifest's chunks reach the reader: a stored chunk is parsed, a computed chunk is checked.**
+
+- A chunk whose query is a **plain resource** (`-R/data/sales/daily_0010.csv`, no actions) is read
+  as bytes from the store — `ChunkResolver::read_resource` — and parsed with the manifest's schema, in
+  the format of the key's extension. This bypasses the asset manager's deserialization on purpose: a
+  schema-less deserialization followed by a conversion to the declared types would be lossy (an
+  inferred `1.50` becomes `1.5` before it could be kept as text) and would parse every cell twice.
+- A chunk produced by a **command** is evaluated as usual and must yield a `RecordView`, which is
+  **checked** against the declared schema — names, types and nullability — and refused on mismatch.
+  Nothing is re-parsed.
+
+`read_resource` records the key as a dependency when the resolver is a `ContextResolver`, as
+evaluating it would have; how it does so without evaluating is a Phase 4 detail.
+
+**Writing a schema by hand** is what a manifest's `uniform_schema` asks for, so the schema's YAML
+form defaults what a person should not have to write: `nullable` defaults to `true`, `key` to `None`,
+`role` to no indexing, `label` and `description` as before. And the `Id` field's implied role —
+`Exact`-indexed and stored, which reconciliation needs — is **supplied** by `RecordSchema::new` when
+left at the default, and rejected only when a role contradicts it. So the smallest valid schema is a
+list of names and types with one `key: Id`.
+
+#### Schema-less inference rules
 
 | Step | Rule |
 |---|---|
@@ -883,8 +962,10 @@ from the data.
 | The `Id` | the **first column**, when it is non-null and unique. Otherwise a `row` column (`UInt`, from 0) is prepended as the `Id`. **Writers put the `Id` column first** and the rest in schema order, so a table written by Liquers reads back with the same `Id` |
 | Everything else | default roles; labels derived from names |
 
-So the text formats round-trip **values and plain types, not roles** — which is why the lossless
-formats below exist.
+So schema-less reading round-trips **values and plain types, not roles**. The schema-aware reader,
+the `table` JSON shape and the self-describing binary formats are what keep roles.
+
+#### Markdown and HTML
 
 **Markdown and HTML are presentation, and use labels.** Their headers are each field's `label`, not
 its `name` — the use `FieldSchema::label` was added for. Markdown right-aligns numeric columns in the
@@ -904,6 +985,59 @@ filename; a stored `.html` table then fails to deserialize and is recomputed fro
 the path `METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED` records. Filed as
 `TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`; reading HTML would need an HTML parser, which is not
 cheap.
+
+#### JSON shapes are conversions, not formats
+
+JSON has no single table shape. pandas alone writes six (`orient=`), a dictionary of lists is what
+both pandas and polars build a frame from, and a data format name cannot choose among them — a
+qualified name such as `json:table` cannot even be written in a query
+(`DATA-FORMAT-CONSTANTS-AND-TOOLING`, point 4). So the `json` **format** has one fixed shape, the
+array of row objects that NDJSON's lines also hold, and every shape — that one included — is reached
+by **explicit conversion commands** between a `RecordView` and a plain JSON value:
+
+| `orient` | Shape | pandas | polars |
+|---|---|---|---|
+| `records` *(default)* | `[{"id": 1, "total": 9.5}, …]` | `to_json(orient="records")`, `to_dict("records")` | `write_json()`, `to_dicts()` |
+| `list` | `{"id": [1, 2], "total": [9.5, 3.0]}` — a dictionary of lists | `to_dict("list")`; `pd.DataFrame(d)` reads it | `to_dict(as_series=False)`; `pl.DataFrame(d)` |
+| `split` | `{"columns": […], "index": […], "data": [[…], …]}` | `orient="split"` | — |
+| `values` | `[[1, 9.5], …]` — rows without names | `orient="values"` | — |
+| `columns` | `{"total": {"1": 9.5, …}}` — pandas' default for `to_json` | `orient="columns"` | — |
+| `index` | `{"1": {"total": 9.5}, …}` | `orient="index"` | — |
+| `table` | `{"schema": {"fields": […], "primaryKey": ["id"]}, "data": [ …records… ]}` | `orient="table"` — a Table Schema | — |
+
+- **The `Id` is pandas' index.** The shapes that have an index — `split`, `columns`, `index`, and
+  `table`'s `primaryKey` — put the `Id` column there, and reading them turns the index back into the
+  `Id`. In `records` and `list` the `Id` is an ordinary column. JSON object keys are strings, so an
+  `Id` read from `columns` or `index` keys is text unless a schema says otherwise.
+- **`table` is the lossless text shape.** Its Table Schema (the Frictionless Data standard, which
+  pandas writes and reads) has `title` and `description` per field — our `label` and `description`
+  exactly — and `primaryKey` for the `Id`. Types map as `integer`, `number`, `boolean`, `string`,
+  `date`, `datetime`, `string` with `format: binary`, and `array` for a vector. Roles travel as an
+  extra field property that a reader not knowing it ignores. Reading `table` is schema-aware.
+  **Interop is tested against a fixture written by pandas**, not assumed from the specification.
+- **`values`** carries no names: reading it needs a schema (positional) or names the columns `c0`,
+  `c1`, ….
+
+```
+…/ns-rec/to_json-list/data.json            a dictionary of lists, served or stored as JSON
+…/ns-rec/to_json-table/data.json           lossless: schema, roles, labels
+-R/data/export.json/-/ns-rec/from_json      shape detected
+-R/data/export.json/-/ns-rec/from_json-split
+```
+
+`to_json` returns a plain JSON value — core's `Value::Array` or `Value::Object` — so the result
+serializes, caches and travels like any JSON value, and the shape is written in the query. `from_json`
+takes a JSON value, or text or bytes holding one. Its default `orient` is `auto`, which recognizes an
+array of objects (`records`), an array of arrays (`values`), an object with `schema` and `data`
+(`table`), one with `columns` and `data` (`split`), and an object whose values are arrays of one
+length (`list`). An **object of objects is ambiguous** — `columns` and `index` have the same shape
+transposed — and `auto` refuses it, asking for the orient.
+
+**A prerequisite found while designing this:** `liquers-lib`'s `SimpleValue` *writes* `json` but its
+`deserialize_from_bytes` accepts only `txt`, `html` and `toml` (`simple.rs:637-647`), so a JSON
+document stored under a key cannot be read back as a value. `-R/data/export.json/-/ns-rec/from_json`
+depends on that being fixed — filed as `SIMPLE-VALUE-CANNOT-READ-JSON`. Until then `from_json` works
+on computed JSON values and on text.
 
 #### Tier 2 — Arrow IPC file (Feather v2), behind `records-ipc`
 
@@ -961,9 +1095,25 @@ most Parquet a user actually has — worse than refusing honestly. So:
 | Format | Why not |
 |---|---|
 | XLSX | A zip container plus SpreadsheetML to write (`rust_xlsxwriter`) and `calamine` to read — moderate dependencies — and polars already offers XLSX for DataFrames on native |
-| JSON with an embedded schema — Frictionless Table Schema, pandas `orient="table"` | Cheap, and a lossless text format. But it needs its own format name, and a qualified one such as `json:table` cannot currently be written in a query (`DATA-FORMAT-CONSTANTS-AND-TOOLING`, point 4). Revisit when it can |
 | YAML, a list of maps | Trivial with `serde_yaml`, but a worse NDJSON |
 | Avro, ORC | No use case, heavy |
+
+#### Should the schema live in metadata?
+
+Today a schema reaches a reader from a manifest, a linked argument, or the data itself (`table` JSON,
+Feather, Parquet). Metadata would add the one missing case: **a single stored `x.csv` written by
+Liquers reading back with its types and roles.**
+
+| For | Against |
+|---|---|
+| A lossless CSV and NDJSON round trip for everything Liquers writes, with no manifest | **Layering.** `MetadataRecord` is `liquers-core`'s and `RecordSchema` is `liquers-lib`'s, so the field would have to be opaque — which is `CORE-METADATA-NO-APPLICATION-ATTRIBUTES`, not a records feature |
+| `records_schema` and a UI's column list answered from metadata without reading the data, as `get_asset_info` answers "what is this" | **It would not reach the reader.** `deserialize_from_bytes(b, type_identifier, data_format)` receives no metadata (`value.rs:931`); a schema in metadata changes nothing on the load path until that call does |
+| The search design could plan an index from metadata alone | **Two sources of truth.** A file edited outside Liquers no longer matches its metadata; the schema-aware reader then refuses what a schema-less read would accept. Correct, surprising, and in need of a rule — is a metadata schema authoritative or advisory? |
+
+**Not in this design, and nothing here forecloses it.** When application attributes exist and the
+load path can hand metadata to a deserializer, a metadata schema becomes one more row of the
+"schema from" table above, read by the **same** schema-aware reader. That is the reason the reader
+takes its schema as an argument rather than finding it itself. Open question 17.
 
 #### The registry follows the features
 
@@ -1898,7 +2048,7 @@ with `records` off is byte-for-byte the build that exists today.
 | `liquers-lib` | `src/records/buffer.rs` (new) | `AlignedBuffer`, `Buffer<T>`, `Bitmap` — the Arrow-layout primitives; the only place `bytemuck` is used |
 | `liquers-lib` | `src/records/mod.rs` (new) | The traits `RecordView`, `RecordSource`, `RecordStream`, `ChunkResolver`; `BoxRecordStream`, `record_stream`, `RecordStreamExt`; `FieldValue`, `RecordSchema`, `FieldSchema`, `FieldType`, `Column` and its kernels, `RecordBatch`, `ChunkOrigin`, `LocatorRule`, `ChunkKeys`, `ChunkId`, `ChunkList`, `ChunkDescriptor` |
 | `liquers-lib` | `src/records/views.rs` (new) | The view implementations, the `impl dyn RecordView` constructors, `ColumnBuilder`, `RowFnView` |
-| `liquers-lib` | `src/records/formats/` (new) | `csv.rs` (CSV and TSV), `json.rs` (NDJSON and JSON), `markdown.rs`, `html.rs`, `infer.rs` (schema inference); `ipc.rs` behind `records-ipc`; `parquet.rs` and `thrift.rs` behind `records-parquet` |
+| `liquers-lib` | `src/records/formats/` (new) | `mod.rs` (`read_table`, `write_table`, `ReadSchema`), `csv.rs` (CSV and TSV), `json.rs` (NDJSON and JSON), `shapes.rs` (the seven JSON orients), `markdown.rs`, `html.rs`, `infer.rs` (schema-less inference); `ipc.rs` behind `records-ipc`; `parquet.rs` and `thrift.rs` behind `records-parquet` |
 | `liquers-lib` | `src/records/sources.rs` (new) | `ManifestSource`, `InMemorySource`, the wrapping sources, `ContextResolver`, `EnvResolver` |
 | `liquers-lib` | `src/records/commands.rs` (new) | The `ns-rec` command set |
 | `liquers-lib` | `src/records/polars.rs` (new, `records` + `polars`) | `RecordBatch → polars::DataFrame` over the shared buffers, and `DataFrame → RecordBatch` — the path Parquet is read through |
@@ -2203,7 +2353,10 @@ read alike.
 | `slice` | `fn slice(state, offset: i64, length: i64) -> result` | a view | A row range |
 | `source` | `fn source(state) -> result` | a `ManifestSource` | A manifest document, loaded from `*.manifest.yaml`, as a source; the key's folder is its `cwd` |
 | `materialize` | `async fn materialize(state, max_rows: i64 = 1000000, context) -> result` | a `RecordBatch` | **The one step from a source to a table**, and so to bytes: `…/ns-rec/materialize/daily.csv`. Refused past `max_rows` and for a non-uniform source. On a view, `materialize()` — freezes it and releases a pinned base |
-| `records_schema` | `fn records_schema(state) -> result` | a value | The schema — how an agent discovers field names |
+| `records_schema` | `fn records_schema(state) -> result` | a value | The schema — how an agent discovers field names, and a value a `schema` argument can be linked to |
+| `to_json` | `fn to_json(state, orient: String = "records") -> result` | a JSON value | A view as one of the seven JSON shapes of §"JSON shapes are conversions" |
+| `from_json` | `fn from_json(state, orient: String = "auto", schema) -> result` | a `RecordBatch` | A JSON value, text or bytes as a table; `auto` detects the shape and refuses the ambiguous one |
+| `parse` | `fn parse(state, format: String = "", header: bool = true, schema) -> result` | a `RecordBatch` | Text or bytes in a table format — the format from the input's metadata when empty — read schema-aware when `schema` is given, schema-less otherwise |
 
 Namespace `rec`, written `ns-rec` in a query. `rec_id` and `materialize` are `async` and take
 `context`, **last**, because over a source they open a stream with a `ContextResolver` — which also
@@ -2212,6 +2365,11 @@ where it needs a view refuses rather than collecting silently, and its error nam
 `ns-rec/materialize` — `rec_id` and `materialize` are the ones that walk a source, because that is
 their purpose. Every command that takes a source also accepts a manifest document loaded from a key
 ending in `.manifest.yaml`, converting it as `source` does.
+
+**`schema` is optional and linked.** `from_json` and `parse` take it through a recipe's `links:` — a
+`records_schema` result, or a YAML/JSON schema document — and pass it to the schema-aware reader.
+How the macro spells an optional value-typed argument is a Phase 4 detail to check against
+`register_command!`, not assumed here.
 
 **There are no `records_to_csv` / `records_to_ndjson` commands.** Serialization is chosen the Liquers
 way, by the filename that ends the query — `…/ns-rec/materialize/daily.csv`, `…/daily.ndjson` — so a
@@ -2253,6 +2411,10 @@ type, no `unwrap`/`expect`.
 | An IPC file with dictionary batches, compression, 64-bit offsets or unsupported nesting | `ErrorType::SerializationError` naming what was found |
 | A Parquet write of a `Vector` column | `ErrorType::SerializationError` — `LIST` needs repetition levels |
 | Malformed CSV — an unterminated quote, rows of differing length | `ErrorType::SerializationError` with the line number |
+| Schema-aware read: a cell that does not parse as its declared type | `ErrorType::SerializationError` naming row, column and value |
+| Schema-aware read: a column the schema does not declare, or a missing non-nullable one | `ErrorType::SerializationError` naming the column |
+| A computed chunk whose view does not match the manifest's `uniform_schema` | `Error::general_error` naming the first differing field |
+| `from_json-auto` on an object of objects | `Error::general_error` — `columns` or `index`, stated |
 | `as_bytes` on a source with no manifest | `ErrorType::SerializationError` via `Error::from_error` — the write path stores metadata only |
 | State is not an `ExtValue::RecordView` or `ExtValue::RecordSource` | `Error::conversion_error` |
 | A field name no schema declares | Not an error — a `Warning` log entry on the evaluation's `Metadata` |
@@ -2428,11 +2590,14 @@ as the fourth step of adding a value type; `context` last in a command signature
     of silently widening every chunk's schema. Worth adding as an explicit option if the
     folder-of-CSVs case needs a single table.
 15. **Inference strictness.** The `Date` and `Timestamp` tests turn a column of ISO strings into
-    dates, which is usually wanted and occasionally not. An opt-out needs a way to pass it — a query
-    parameter on a reading command, since `deserialize_from_bytes` receives none.
+    dates, which is usually wanted and occasionally not. The schema-aware reader is the opt-out —
+    declare the column `Text` — so this is only about files read with no schema at all.
 16. **Parquet read without polars.** Refused. If browser Parquet reading is ever needed, the choice
     is the arrow-rs `parquet` crate (large) or a reader limited to dictionary + snappy/zstd, which
     covers pyarrow's and polars' defaults — both substantial.
+17. **The schema in metadata** — §"Should the schema live in metadata?". Waits on
+    `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` and on the load path passing metadata to a
+    deserializer; then it is one more source for the same schema-aware reader.
 
 **Settled, and recorded so they are not reopened without new information:**
 
@@ -2493,6 +2658,7 @@ information — each is a position that was argued for and then abandoned on evi
 | 2026-09-24 | **Scalar reading**: a one-row, one-payload-column view reads as its cell would as a base `Value`. `select_columns` keeps key columns. Commands bounded by a caller's count materialize | The user's requirement that pointing at a cell yield a value; a tiny view must not pin a large base |
 | 2026-09-24 | **Asynchronous work is a source.** Views stay synchronous; source → view is an explicit await | Scalar reading and argument binding are synchronous |
 | 2026-09-24 | `liquers-core` **untouched** — the `BoxStream` alias removed | `MaybeSend` as a supertrait gives the trait object the right `Send`-ness on each target |
+| 2026-09-25 | **Two readers, and JSON shapes as commands.** A schema-aware reader (declared types, strict, one pass) beside the schema-less one; manifests with `uniform_schema` parse stored chunks from their bytes and check computed ones. `to_json`/`from_json` over seven orients, pandas-compatible, `table` lossless; `parse`. The `json` format keeps one shape. Schema-in-metadata discussed and deferred | A manifest's declared schema must be usable when reading CSV and NDJSON chunks; JSON has too many table shapes for a format name to choose; pandas interop |
 | 2026-09-24 | **Table formats specified.** `records`: CSV, TSV, NDJSON, JSON, Markdown, HTML, hand-written with no new dependency; `records-ipc`: Arrow IPC / Feather, lossless; `records-parquet`: a minimal Parquet writer, reading only through polars. Text formats infer a schema, with an `Id` rule and writers putting the `Id` first | A `RecordView` must round-trip through CSV and NDJSON at least; wasm size keeps heavier formats behind features. `deserialize_from_bytes` sees no metadata, so the text formats cannot carry a schema |
 | 2026-09-24 | **A source serializes only as its manifest; its rows need `materialize`** — an async method on `RecordSource`, an extension on `BoxRecordStream`, and the `ns-rec/materialize` command, bounded by `max_rows`. `ns-rec/source` added; `records_to_csv` / `records_to_ndjson` removed; `InMemorySource` lost its byte form; `collect_view` renamed | Producing a source's rows needs awaits and serialization is synchronous. Moving the await into a command needs no change outside `liquers-lib`, and settles when a source is written as data: only when asked |
 | 2026-09-24 | HTTP streaming of a source moved from an axum branch to `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE` | `liquers-axum` does not depend on `liquers-lib` and is generic over `E: Environment`, so it cannot name `ExtValue::RecordSource` |

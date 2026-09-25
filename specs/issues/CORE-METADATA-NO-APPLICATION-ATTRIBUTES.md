@@ -57,3 +57,14 @@ Questions for the design:
 
 Analysis for `AGENT-MEMORY-SERVICE`, 2026-09-15. Verified at HEAD: `MetadataRecord` has no
 extension field, and `Metadata` has exactly two variants.
+
+## Update 2026-09-25 — a second use: a stored table's schema
+
+`specs/design/record-streams/` Phase 2 ("Should the schema live in metadata?") names this as where a
+stored table's `RecordSchema` would live, so that a CSV or NDJSON file written by Liquers reads back
+with its types and roles without a manifest. It needs two things beyond this issue: the attributes
+must be opaque to core (the schema type is `liquers-lib`'s), and the load path must hand metadata to
+`deserialize_from_bytes`, which today receives only bytes, a type identifier and a data format. The
+records design takes its schema as an argument to one schema-aware reader, so a metadata schema would
+be one more source for it rather than a new mechanism.
+

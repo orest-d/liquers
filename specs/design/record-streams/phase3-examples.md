@@ -212,6 +212,14 @@ Tests comparing two `RecordBatch`es directly — `batch_concat_same_schema`, `te
 | `parquet_written_here_reads_in_polars` | Including the null definition levels and the `liquers.schema` metadata (`records-parquet` + `polars`) |
 | `parquet_read_without_polars_is_refused` | With an error naming the feature |
 | `advertised_formats_match_features` | Every format in the `RecordView` `TypeInfo` writes, in each feature combination |
+| `schema_aware_csv_keeps_declared_types` | With a declared schema, `01234` stays text, `1.50` stays `"1.50"` in a `Text` column, and the `Id` and roles come from the schema |
+| `schema_aware_csv_rejects_what_does_not_fit` | An undeclared column, a missing non-nullable one, and an unparsable cell each fail with row and column |
+| `manifest_parses_stored_chunks_with_its_schema` | A plain-resource chunk is read through `read_resource` and parsed, not deserialized; its key is a dependency |
+| `manifest_checks_computed_chunks` | A command chunk whose view differs from `uniform_schema` is refused naming the field |
+| `schema_less_chunks_may_disagree` | Two CSV chunks of one table, one with only integers in a column, infer different types without a declared schema — the documented reason to declare one |
+| `json_orients_round_trip` | `records`, `list`, `split`, `values` (with a schema), `columns`, `index`, `table`: each written by `to_json` reads back through `from_json` |
+| `json_table_matches_pandas` | A fixture written by pandas with `orient="table"` reads with its types and `primaryKey` as the `Id`; ours carries labels as `title` |
+| `from_json_auto_refuses_ambiguous_shape` | An object of objects asks for `columns` or `index` |
 | `manifest_document_converts_to_source` | A `*.manifest.yaml` loaded as YAML becomes a `ManifestSource` through `ns-rec/source`, and implicitly for `materialize`, with the key's folder as `cwd` |
 | `context_resolver_records_dependencies` | Chunks read through a `ContextResolver` become dependencies of the asset; through an `EnvResolver` they do not |
 | `stream_outlives_its_source_handle` | A stream stays valid after the caller's `Arc` of the source is dropped — the `'static` property axum needs |
