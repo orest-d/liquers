@@ -772,7 +772,7 @@ cargo test -p liquers-lib --lib --tests
 - The `RecordColumn` JS class, with the refresh-on-access getter (Phase 2 §"The wasm route";
   §"Construction helpers…").
 - The `RecordBatch` / `RecordColumn` TypeScript declarations, and a usage line for each in
-  `scripts/valid_usage.ts`, so `check-stubs.sh` checks them.
+  `liquers-web/tests/stubs/valid_usage.ts` (existing), so `check-stubs.sh` checks them.
 
 **Tests:** `liquers-web/tests/records_RECORDS.rs` (2), from Phase 3 §6.
 
