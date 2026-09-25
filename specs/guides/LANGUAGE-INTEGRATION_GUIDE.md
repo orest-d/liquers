@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets]
-reviewed: 2026-09-24
+reviewed: 2026-09-25
 ---
 # Liquers Language Integration Guide
 
@@ -446,14 +446,14 @@ checked for completeness rather than assembled by inspection:
 | Kind | Types |
 |---|---|
 | **Values** (cross a query boundary) | `ExtValue::RecordView` holding `Arc<dyn RecordView>`, `ExtValue::RecordSource` holding `Arc<dyn RecordSource>` |
-| **Traits** | `RecordView` (sync, random access), `RecordSource` (async, re-openable), `RecordStream` (one traversal), `ChunkResolver` (how a source evaluates) |
-| **Structs — data** | `RecordBatch` (the materialized view), `RecordSchema`, `FieldSchema`, `FieldRole`, `RecordBatchBuilder`, `ColumnBuilder` |
+| **Traits** | `RecordView` (sync, random access), `RecordViewMut` (a table being built or edited), `RecordSource` (async, re-openable), `RecordStream` (one traversal), `ChunkResolver` (how a source evaluates) |
+| **Structs — data** | `RecordBatch` (the materialized view), `RecordBatchMut` and `ColumnMut` (the mutable table and column; `with_capacity`, `append_row`, `freeze`), `RecordSchema`, `FieldSchema`, `FieldRole`, `RowId` (the implicit id: chunk index and row) |
 | **Structs — reference implementations** | `ManifestSource`, `InMemorySource`; the views `ColumnsView`, `RowRangeView`, `RowIndexView`, `DerivedColumnView`, `AppendedColumnsView`, `RowFnView`; `ContextResolver`, `EnvResolver` |
 | **Structs — identity and provenance** | `ChunkOrigin`, `LocatorRule`, `ChunkDescriptor`, `ChunkKeys` |
 | **Enums — identity** | `ChunkId` — `Query(..)` for an unkeyed stream, `Key(..)` for a keyed one |
 | **Structs — memory** | `Bitmap`, `AlignedBuffer`, `Buffer<T>` |
 | **Enums** | `Column`, `FieldValue`, `FieldType`, `KeyRole`, `IndexKind`, `Analyzer`, `VectorMetric`, `CompareOp`, `ChunkList<'a>` |
-| **Type alias, functions, extension trait** | `BoxRecordStream`; `record_stream`; `RecordStreamExt` (`materialize`) |
+| **Type alias, functions, extension trait** | `BoxRecordStream`; `record_stream`; `to_record`, `to_record_source` (what a record command accepts: views, sources, bytes, text, JSON, keys); `RecordStreamExt` (`materialize`) |
 
 A minimal binding maps the two values as wrappers over their traits, `RecordBatch` for Arrow,
 `RecordSchema`/`FieldSchema`/`FieldType`, `FieldValue` and `ChunkOrigin`. The individual view
@@ -2773,6 +2773,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-25 | RECORDS inventory: the mutable table (`RecordViewMut`, `RecordBatchMut`, `ColumnMut`) replaces the builder, rows carry an implicit `RowId` so the explicit `Id` is optional, and `to_record` / `to_record_source` are the conversions a binding can call to hand bytes, text or JSON to the record layer. | `design/record-streams/` |
 | 2026-09-24 | RECORDS: a source's only byte form is its manifest, and its rows reach bytes through `materialize`, so a *language* wanting a source's data as CSV or Arrow materializes it first (route 3 named accordingly); `collect_view` renamed in the inventory. | `design/record-streams/` |
 | 2026-09-24 | RECORDS revised for the trait form of `design/record-streams/`: values hold `RecordView` and `RecordSource` trait objects; a `RecordBatch` crosses as Arrow and any other view as a wrapper or materialized; a *language* may implement the traits, with a `RecordView` kept synchronous; type inventory rewritten; design question 5 and tests `RECORDS10`–`RECORDS11` added. | `design/record-streams/` |
 | 2026-09-20 | VALUE gains a RECORDS subsection: the Arrow-hand-off versus wrappers decision with a recommended default, the full type inventory of `design/record-streams/`, the routes for traversing a stream from a *language* with no async model, and tests `RECORDS01`–`RECORDS09`. | `design/record-streams/` |

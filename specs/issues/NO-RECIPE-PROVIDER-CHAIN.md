@@ -51,3 +51,14 @@ folder). Per-directory is almost certainly right — a folder with mixed recipe 
 reason about, and the record-stream case explicitly wants a folder to be claimed whole.
 
 Small and self-contained; `S` reflects that the trait and the precedent both already exist.
+
+## Update 2026-09-25 — keyed record chunks depend on this
+
+`specs/design/record-streams/` needs **keyed chunk assets** for a manifest's `stored`/`cached` flags and
+for per-chunk `arguments`/`links` (`manifest-format.md` §4b, Phase 2 open question 18). A keyed asset is
+created only through `AssetManager::get(key)`, which asks the recipe provider for the recipe, so keyed
+chunks need three pieces: chunk keys named by the manifest, **a recipe provider that serves those keys
+from the manifest composed with the folder's `recipes.yaml` provider**, and **recipe-level
+`stored`/`cached` flags the asset manager honours**. The record design recommends designing the second
+and third as a small prerequisite project rather than as records features.
+

@@ -332,11 +332,14 @@ stream **without changing the URL or its meaning**. Recorded as the intended pat
 
 **Getting a source from a manifest file.** A hand-written `*.manifest.yaml` loads as a plain YAML
 document, not a source: a store infers a *data format* from an extension, never a *type*.
-`ns-rec/source` makes the conversion explicit, taking the folder of the key it was loaded from as the
-manifest's `cwd` (`manifest-format.md` §3). And every `ns-rec` command that needs a source applies the
-same conversion to an input whose metadata key ends in `.manifest.yaml`, which is why the query above
-needs no extra step. A manifest written *by Liquers* carries `type_identifier: RecordSource` and
-deserializes directly as a `ManifestSource`.
+`ns-rec/to_record_source` makes the conversion explicit, recognizing the document by its
+`manifest: record-stream` discriminator and taking the folder of its key as the `cwd`
+(`manifest-format.md` §3); every record command applies the same conversion to its input
+(§"What a record command accepts"), which is why the query above needs no extra step. A manifest
+written *by Liquers* carries `type_identifier: RecordSource` and deserializes directly as a
+`ManifestSource`. **One dependency:** a type-less YAML document must load as a value at all, and
+`liquers-lib`'s base value reads neither YAML nor JSON today — `SIMPLE-VALUE-CANNOT-READ-JSON`, which
+covers both, is therefore a prerequisite for hand-written manifests.
 
 ### `ChunkResolver` — how a source reaches evaluation
 
@@ -443,7 +446,20 @@ pub trait RecordView: Debug + MaybeSend + MaybeSync + 'static {
     fn chunk_id(&self) -> Option<&ChunkId> { None }
     /// The origin dictionary the `Source`-role column indexes.
     fn origins(&self) -> &[ChunkOrigin] { &[] }
+    /// The **implicit** identity of `row` — the chunk it came from and its position there.
+    /// Always available: a table that came from no chunk is chunk 0. Views that select rows map
+    /// through their base. See §"Every row has an implicit id".
+    fn row_id(&self, row: usize) -> Result<RowId, Error> {
+        Ok(RowId { chunk: 0, row: row as u64 })
+    }
+    /// `row`'s number across the whole source, when the rows before its chunk have been counted.
+    fn row_number(&self, row: usize) -> Result<Option<u64>, Error> { Ok(Some(row as u64)) }
 }
+
+/// (chunk index, row within the chunk). The chunk index is the chunk's position in the source's
+/// `ChunkList` — global across `chunks:` and `template:` (`manifest-format.md` §4a).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct RowId { pub chunk: u64, pub row: u64 }
 ```
 
 #### Why the required method is a column *range*
@@ -527,13 +543,57 @@ clones directly — and, not being part of the vtable, its methods may be generi
 needs.
 
 **Column selection always keeps the key columns.** `select_columns` retains the `Id` and `Source`
-fields whether or not they are named. That keeps the exactly-one-`Id` invariant true of **every**
+fields whether or not they are named. That keeps a declared `Id` present in **every**
 view rather than only of batches, and keeps every row identifiable — the "accompanying data" that
 lets a single cell still say which record it belongs to.
 
 **Position is a view concept.** Inside a view a row's position is stable, so `row` and `slice` take
 positions. Across a source it is not — chunk sizes may be unknown — so a row of a source is addressed
 by its id (`rec_id`), never by position.
+
+#### Every row has an implicit id
+
+A row is identified **without any column** by its `RowId`: the index of the chunk it came from, and
+its position in that chunk. It is the fallback identity — the analogue of SQLite's `rowid` — and it
+exists for every row of every table, whatever its schema declares.
+
+| | How it is known | Cost |
+|---|---|---|
+| **`RowId { chunk, row }`** | The chunk index is the chunk's position in `chunks()`; the row is its position in that chunk | Nothing per row: a batch records it once per run of rows |
+| **Row number** (`row_number`) | The chunk's first row number plus the row. A stream counts rows as it traverses chunks in order, so every batch it yields knows its first row number | Known during a traversal and in anything materialized from one; **not** when a single chunk is read on its own, until chunk sizes are recorded (open question 9) |
+
+A `RecordBatch` records where its rows came from as a short list of runs:
+
+```rust
+/// Rows `len` long, starting at `first_row` of chunk `chunk`, and at row number `first_number`
+/// of the source when that is known. A batch from one chunk has one run; a table materialized
+/// from several chunks has one run per chunk.
+pub struct RowRun { pub chunk: u64, pub first_row: u64, pub first_number: Option<u64>, pub len: usize }
+// on RecordBatch:   pub rows: Vec<RowRun>
+```
+
+Views answer `row_id` and `row_number` through their base: a row range shifts, a filter maps through
+its indices, a projection passes straight through. So **the `RowId` of a filtered row is the row's
+original position**, not its position in the filtered view.
+
+**The explicit `Id` becomes optional.** A schema declares **at most one** `Id` field. When it does,
+that field is the record's identity — what `rec_id` matches and what an engine indexes as the key.
+When it does not, the `RowId` is. The schema-less reader therefore **never guesses an `Id`**: a file
+read without a schema has no `Id` column and its rows have their implicit ids.
+
+**What the implicit id is not: stable across versions of its chunk.** Re-produce a chunk with a row
+inserted and every later `RowId` in it shifts. Two consequences:
+
+- **Reconciliation still works**, because it is chunk-wise: when a chunk's version changes, a
+  consumer replaces *all* of that chunk's records — delete by the chunk term, insert the new ones.
+  Positions inside a replaced chunk never need to match the old ones.
+- **Identity of a record across versions** — a bookmark to "order 42" that survives a refresh, or an
+  engine updating one record in place — needs the explicit `Id`. The search design's sinks say which
+  they require.
+
+**Addressing by implicit id is cheap.** `ns-rec/rowid-<chunk>-<row>` over a source opens **only**
+chunk `chunk` — `chunks()` names it — so it reads one chunk rather than walking the stream, which is
+what `rec_id` must do. Over a view it selects that row. `row-<n>` stays the position within a view.
 
 #### Kernels live on `Column`, so views get the fast path too
 
@@ -559,17 +619,61 @@ one Arrow struct array, which goes through `materialize()`.
 
 #### Writing a view
 
-The contract is columnar; two helpers keep writing one easy:
+The contract is columnar. Two things keep writing one easy: a **mutable table** for data built
+row by row or edited, and `RowFnView` for data computed by a closure.
 
 ```rust
-/// Builds a column from values, one at a time. Type-checked against `data_type`;
-/// `FieldValue::Null` sets the validity bit.
-pub struct ColumnBuilder { /* typed buffer + validity */ }
-impl ColumnBuilder {
-    pub fn new(data_type: FieldType, capacity: usize) -> Self;
-    pub fn push(&mut self, value: &FieldValue) -> Result<(), Error>;
-    pub fn finish(self) -> Column;
+/// A table being built or edited, readable as a view while it is written. A trait rather than
+/// one struct's methods, so code that fills a table — the readers, a command — is written once
+/// against it.
+pub trait RecordViewMut: RecordView {
+    /// Room for `additional` more rows in every column — the capacity call.
+    fn reserve(&mut self, additional: usize);
+    /// One row, in schema order. Type-checked; `FieldValue::Null` sets the validity bit.
+    fn append_row(&mut self, values: &[FieldValue]) -> Result<(), Error>;
+    fn set_value(&mut self, row: usize, col: usize, value: &FieldValue) -> Result<(), Error>;
+    /// One column, for bulk and typed writes.
+    fn column_mut(&mut self, col: usize) -> Result<&mut ColumnMut, Error>;
 }
+
+/// The mutable table: owned, unshared, growable. `freeze()` makes it a `RecordBatch` without
+/// copying — the `BytesMut` / `Bytes` idiom of the `bytes` crate.
+pub struct RecordBatchMut { schema: Arc<RecordSchema>, columns: Vec<ColumnMut>, len: usize }
+impl RecordBatchMut {
+    pub fn new(schema: Arc<RecordSchema>) -> Self;
+    /// The expected number of rows, allocated once.
+    pub fn with_capacity(schema: Arc<RecordSchema>, rows: usize) -> Self;
+    /// Fails unless every column holds `len` rows.
+    pub fn freeze(self) -> Result<RecordBatch, Error>;
+}
+impl RecordViewMut for RecordBatchMut { /* … */ }
+impl RecordView for RecordBatchMut { /* column_range copies the range: the columns are still changing */ }
+
+impl RecordBatch {
+    /// A mutable table with these rows. Buffers this batch holds alone are taken over
+    /// (`Arc::try_unwrap`); shared ones are copied.
+    pub fn into_mut(self) -> RecordBatchMut;
+}
+
+/// The mutable column: a growable typed buffer plus validity. Its storage is an aligned buffer
+/// from the start, so `freeze()` is a move, not a copy.
+pub struct ColumnMut { /* … */ }
+impl ColumnMut {
+    pub fn new(data_type: FieldType) -> Self;
+    pub fn with_capacity(data_type: FieldType, rows: usize) -> Self;
+    pub fn reserve(&mut self, additional: usize);
+    pub fn push(&mut self, value: &FieldValue) -> Result<(), Error>;
+    pub fn set(&mut self, row: usize, value: &FieldValue) -> Result<(), Error>;
+    pub fn len(&self) -> usize;
+    pub fn freeze(self) -> Column;
+}
+```
+
+**Mutability stops at the value boundary.** A `RecordBatchMut` is owned by whoever builds it; what
+becomes a value, or crosses a stream, is the frozen `RecordBatch` behind an `Arc`, which nothing
+mutates. Editing a stored table is `into_mut()`, edit, `freeze()` — a new value, as everywhere else
+in Liquers. Typed per-column pushes (`push_i64`, `push_str`) are the obvious next methods and are
+left for when a bulk path needs them.
 
 /// A table computed cell by cell — how a generator written as a closure meets the columnar
 /// contract. `f(row, col)`, so a range read computes only the requested column.
@@ -920,8 +1024,8 @@ serve every source of schema — the manifest now, a linked argument, metadata l
 | Cells | Parsed as the declared type: `Text` keeps the cell verbatim (so `01234` is safe without any rule), `Int` must parse as `i64`, `Date` as `YYYY-MM-DD`, and so on. A cell that does not parse is an error naming row, column and value |
 | Nulls | CSV's convention (unquoted empty is null, quoted `""` is empty); JSON's `null`. A null in a non-nullable field is an error |
 | JSON types | Must agree with the declared type, with the lossless coercions only: an integral number into `Float`, a string into `Date`/`Timestamp` by parsing, a base64 string into `Binary`, an array of numbers into `Vector` of the declared `dim` |
-| `Id`, roles, labels, descriptions | From the schema — nothing is lost, and the first-column rule below does not apply |
-| Cost | One pass, cells parsed straight into their `ColumnBuilder`s; no buffered strings. Faster and smaller than inference, which must see a whole column before choosing its type |
+| `Id`, roles, labels, descriptions | From the schema — nothing is lost |
+| Cost | One pass, cells parsed straight into their `ColumnMut`s; no buffered strings. Faster and smaller than inference, which must see a whole column before choosing its type |
 
 **The schema-less reader infers**, with the rules of the table below. It exists because a file with
 no known schema must still be readable, not because inference is good: types are guessed and roles
@@ -944,12 +1048,20 @@ non-uniform by inference. Declaring the schema is what makes a folder of CSV fil
 `read_resource` records the key as a dependency when the resolver is a `ContextResolver`, as
 evaluating it would have; how it does so without evaluating is a Phase 4 detail.
 
+**A stored chunk is read whole, as one batch.** `read_resource` returns the file's bytes and
+`read_table` parses them in one pass, so for stored files **a chunk is a batch**, and its size is
+whatever the manifest's author made it. That is accepted for this version: keeping chunk files a
+reasonable size is part of writing a manifest. Reading one large file as several batches needs an
+incremental reader over streaming store reads (`CORE-STORE-OPENBIN-MISSING`), and changes nothing a
+consumer sees — a chunk already streams as batches in the traits.
+
 **Writing a schema by hand** is what a manifest's `uniform_schema` asks for, so the schema's YAML
 form defaults what a person should not have to write: `nullable` defaults to `true`, `key` to `None`,
 `role` to no indexing, `label` and `description` as before. And the `Id` field's implied role —
 `Exact`-indexed and stored, which reconciliation needs — is **supplied** by `RecordSchema::new` when
 left at the default, and rejected only when a role contradicts it. So the smallest valid schema is a
-list of names and types with one `key: Id`.
+list of names and types; an `Id` is declared only when records need an identity beyond their
+implicit `RowId`.
 
 #### Schema-less inference rules
 
@@ -959,7 +1071,7 @@ list of names and types with one `key: Id`.
 | `Int` means canonical | a cell counts as `Int` only if it fits `i64` **and** formatting the parsed number gives the cell back. So `01234`, `+5` and `1e3` stay text — a ZIP code or an account number keeps its leading zero — and a number too large for `i64` is not silently turned into a `Float` |
 | Nullable | any null seen |
 | JSON and NDJSON | JSON's own types decide: an integral number without exponent that fits `i64` is `Int`, other numbers `Float`. Only *strings* go through the date and timestamp tests, so `"42"` stays text. An array of numbers of one length in every row is a `Vector`; any other array or object is `Text` holding its JSON |
-| The `Id` | the **first column**, when it is non-null and unique. Otherwise a `row` column (`UInt`, from 0) is prepended as the `Id`. **Writers put the `Id` column first** and the rest in schema order, so a table written by Liquers reads back with the same `Id` |
+| The `Id` | **never guessed.** A table read without a schema has no `Id` column; its rows have their implicit `RowId`s. Writers keep schema order
 | Everything else | default roles; labels derived from names |
 
 So schema-less reading round-trips **values and plain types, not roles**. The schema-aware reader,
@@ -1006,8 +1118,8 @@ by **explicit conversion commands** between a `RecordView` and a plain JSON valu
 | `table` | `{"schema": {"fields": […], "primaryKey": ["id"]}, "data": [ …records… ]}` | `orient="table"` — a Table Schema | — |
 
 - **The `Id` is pandas' index.** The shapes that have an index — `split`, `columns`, `index`, and
-  `table`'s `primaryKey` — put the `Id` column there, and reading them turns the index back into the
-  `Id`. In `records` and `list` the `Id` is an ordinary column. JSON object keys are strings, so an
+  `table`'s `primaryKey` — put the declared `Id` column there, or the row number when the schema
+  declares none; reading them turns an index back into an `Id` column. In `records` and `list` the `Id` is an ordinary column. JSON object keys are strings, so an
   `Id` read from `columns` or `index` keys is text unless a schema says otherwise.
 - **`table` is the lossless text shape.** Its Table Schema (the Frictionless Data standard, which
   pandas writes and reads) has `title` and `description` per field — our `label` and `description`
@@ -1569,7 +1681,7 @@ pub struct FieldSchema {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum KeyRole {
-    /// The row's identity. **Exactly one per schema.**
+    /// The row's identity. **At most one per schema**; without one, the implicit `RowId` is.
     Id,
     /// Index into `RecordBatch`'s origin dictionary. At most one.
     Source,
@@ -1631,15 +1743,17 @@ rather than documenting it:
 
 ```rust
 // Enforced invariants, all checked once per schema:
-//   exactly one field with KeyRole::Id
-//   that field has indexed == Some(IndexKind::Exact)   — delete-by-term needs it
-//   that field has stored == true                       — a hit must say which record it is
+//   at most one field with KeyRole::Id — without one, the implicit RowId identifies rows
+//   that field has indexed == Some(IndexKind::Exact)   — delete-by-term needs it; supplied
+//   that field has stored == true                       — a hit must say which record it is; supplied
 //   at most one field with KeyRole::Source
 ```
 
 That is the same discipline Tantivy uses — the schema is validated when built and hands out field
 handles — and it means a schema that *cannot* be reconciled is rejected at construction rather than
-at the first refresh.
+at the first refresh. A schema **without** an `Id` is valid: engines that update records one by one
+need the explicit field, while chunk-wise reconciliation works on the implicit `RowId`
+(§"Every row has an implicit id").
 
 #### Alignment with `ArgumentInfo`
 
@@ -1817,7 +1931,8 @@ pub struct LocatorRule {
 
 **Identity is (chunk id, record id); addressability is separate and optional.** Phase 1 answer 7
 separated two things the original question conflated. *Identity* is always available and cheap: a
-`ChunkId`, stored **once per batch** rather than per row, plus the `Id`-role field. *Addressability* —
+`ChunkId`, stored **once per batch** rather than per row, plus the `Id`-role field when the schema
+declares one and the implicit `RowId` always. *Addressability* —
 constructing a query that returns exactly one record — is the optional half.
 
 A row must be **retrievable**, not merely identified, and retrieval is a **query** rather than a
@@ -1833,8 +1948,9 @@ appended:
 <chunk query>/ns-rec/rec_id-42
 ```
 
-This works for **every** record stream, because every schema has exactly one `Id` field — the
-invariant that already exists for reconciliation now also makes single-record addressing universal.
+This works for every record stream **whose schema declares an `Id`**. For every stream without
+exception, `<source query>/ns-rec/rowid-<chunk>-<row>` addresses a row by its implicit id — and reads
+one chunk rather than walking to it.
 It is better than the earlier formulation ("re-evaluate the chunk and index by the `Id` field")
 because that described work a consumer must do, whereas this is a string anyone can evaluate, put in
 a recipe, or hand over an HTTP boundary.
@@ -1961,17 +2077,19 @@ and are not repeated here.
 
 ```rust
 impl RecordSchema {
-    /// Fails unless exactly one field has `KeyRole::Id`, that field is `Exact`-indexed and
-    /// stored (delete-by-term needs both), and at most one field has `KeyRole::Source`.
+    /// Fails when more than one field has `KeyRole::Id`, when that field's role contradicts
+    /// `Exact`-indexed and stored (supplied when left default), or when more than one field
+    /// has `KeyRole::Source`.
     /// Checked once per schema rather than per row.
     pub fn new(fields: Vec<FieldSchema>) -> Result<Self, Error>;
-    pub fn id_field(&self) -> usize;
     pub fn source_field(&self) -> Option<usize>;
     /// Columns whose `indexed` is `FullText` — what an unqualified text query matches.
     pub fn text_fields(&self) -> &[usize];
     pub fn index_of(&self, name: &str) -> Option<usize>;
     /// Fields whose `KeyRole` is neither `Id` nor `Source` — what scalar reading counts.
     pub fn payload_fields(&self) -> Vec<usize>;
+    /// The declared `Id` field, when there is one.
+    pub fn id_field(&self) -> Option<usize>;
 }
 
 impl RecordBatch {
@@ -2002,7 +2120,6 @@ impl InMemorySource {
     pub fn new(views: Vec<Arc<dyn RecordView>>) -> InMemorySource;
 }
 
-pub struct RecordBatchBuilder { /* … — open question 10 */ }
 
 impl Bitmap {
     pub fn get(&self, i: usize) -> bool;
@@ -2047,7 +2164,9 @@ with `records` off is byte-for-byte the build that exists today.
 |---|---|---|
 | `liquers-lib` | `src/records/buffer.rs` (new) | `AlignedBuffer`, `Buffer<T>`, `Bitmap` — the Arrow-layout primitives; the only place `bytemuck` is used |
 | `liquers-lib` | `src/records/mod.rs` (new) | The traits `RecordView`, `RecordSource`, `RecordStream`, `ChunkResolver`; `BoxRecordStream`, `record_stream`, `RecordStreamExt`; `FieldValue`, `RecordSchema`, `FieldSchema`, `FieldType`, `Column` and its kernels, `RecordBatch`, `ChunkOrigin`, `LocatorRule`, `ChunkKeys`, `ChunkId`, `ChunkList`, `ChunkDescriptor` |
-| `liquers-lib` | `src/records/views.rs` (new) | The view implementations, the `impl dyn RecordView` constructors, `ColumnBuilder`, `RowFnView` |
+| `liquers-lib` | `src/records/views.rs` (new) | The view implementations, the `impl dyn RecordView` constructors, `RowFnView` |
+| `liquers-lib` | `src/records/mutable.rs` (new) | `RecordViewMut`, `RecordBatchMut`, `ColumnMut` |
+| `liquers-lib` | `src/records/convert.rs` (new) | `to_record`, `to_record_source` — what every record command accepts |
 | `liquers-lib` | `src/records/formats/` (new) | `mod.rs` (`read_table`, `write_table`, `ReadSchema`), `csv.rs` (CSV and TSV), `json.rs` (NDJSON and JSON), `shapes.rs` (the seven JSON orients), `markdown.rs`, `html.rs`, `infer.rs` (schema-less inference); `ipc.rs` behind `records-ipc`; `parquet.rs` and `thrift.rs` behind `records-parquet` |
 | `liquers-lib` | `src/records/sources.rs` (new) | `ManifestSource`, `InMemorySource`, the wrapping sources, `ContextResolver`, `EnvResolver` |
 | `liquers-lib` | `src/records/commands.rs` (new) | The `ns-rec` command set |
@@ -2310,7 +2429,7 @@ source"**.
 | **Second walkthrough: a manifest source** | The CSV-directory case: one query per file, what `uniform_schema` to declare, and why a manifest is preferred over a generator (rewindable, cacheable, checkpointable) |
 | **Choosing a batch size** | Rows vs bytes, and the memory arithmetic |
 | **Using views as a DataFrame** | `select_columns`/`filter`/`slice`/`with_column`/`concat` with masks; when to `materialize`; what is deliberately absent and where it lives instead |
-| **Writing a view** | Implementing `column_range`; `ColumnBuilder`; `RowFnView` for a generator; the equivalence test against the provided defaults |
+| **Writing a view** | Implementing `column_range`; `ColumnMut`; `RowFnView` for a generator; the equivalence test against the provided defaults |
 | **Handing a batch to pandas or polars** | The polars path via `polars-arrow`; the pyo3 path; what "zero-copy" does and does not cover |
 | **Reading a chunk from JavaScript** | The handle, the view-refresh rule, and when to reach for `columnCopy` |
 | **Pitfalls** | The `len + 1` offsets invariant; `Vector` needing a child node; forgetting the `TypeInfo` entry (the type then cannot be stored); forgetting a `#[cfg(feature = "records")]` match arm (a build with the feature off fails); holding a JS view across a wasm call |
@@ -2351,22 +2470,53 @@ read alike.
 | `select_columns` | `fn select_columns(state, columns: Vec<String> multiple) -> result` | a view | Projection. Keeps the `Id` and `Source` columns whether named or not |
 | `head` | `fn head(state, n: i64 = 5) -> result` | a materialized batch | The first rows, for inspection |
 | `slice` | `fn slice(state, offset: i64, length: i64) -> result` | a view | A row range |
-| `source` | `fn source(state) -> result` | a `ManifestSource` | A manifest document, loaded from `*.manifest.yaml`, as a source; the key's folder is its `cwd` |
+| `rowid` | `async fn rowid(state, chunk: i64, row: i64, context) -> result` | a materialized one-row batch | A row by its implicit id. Over a source it opens **only** that chunk |
+| `to_record_source` | `async fn to_record_source(state, format: String = "", context) -> result` | a `RecordSource` | Any input a source can be made from — §"What a record command accepts" |
 | `materialize` | `async fn materialize(state, max_rows: i64 = 1000000, context) -> result` | a `RecordBatch` | **The one step from a source to a table**, and so to bytes: `…/ns-rec/materialize/daily.csv`. Refused past `max_rows` and for a non-uniform source. On a view, `materialize()` — freezes it and releases a pinned base |
 | `records_schema` | `fn records_schema(state) -> result` | a value | The schema — how an agent discovers field names, and a value a `schema` argument can be linked to |
 | `to_json` | `fn to_json(state, orient: String = "records") -> result` | a JSON value | A view as one of the seven JSON shapes of §"JSON shapes are conversions" |
 | `from_json` | `fn from_json(state, orient: String = "auto", schema) -> result` | a `RecordBatch` | A JSON value, text or bytes as a table; `auto` detects the shape and refuses the ambiguous one |
-| `parse` | `fn parse(state, format: String = "", header: bool = true, schema) -> result` | a `RecordBatch` | Text or bytes in a table format — the format from the input's metadata when empty — read schema-aware when `schema` is given, schema-less otherwise |
+| `to_record` | `async fn to_record(state, format: String = "", header: bool = true, schema, context) -> result` | a `RecordView` | Any input a table can be made from — §"What a record command accepts". Schema-aware when `schema` is given |
 
 Namespace `rec`, written `ns-rec` in a query. `rec_id` and `materialize` are `async` and take
 `context`, **last**, because over a source they open a stream with a `ContextResolver` — which also
 makes the chunks dependencies of the result. The others take a view. A command receiving a source
 where it needs a view refuses rather than collecting silently, and its error names
 `ns-rec/materialize` — `rec_id` and `materialize` are the ones that walk a source, because that is
-their purpose. Every command that takes a source also accepts a manifest document loaded from a key
-ending in `.manifest.yaml`, converting it as `source` does.
+their purpose. Every record command converts its input with the same two helpers as `to_record` and
+`to_record_source`, below.
 
-**`schema` is optional and linked.** `from_json` and `parse` take it through a recipe's `links:` — a
+#### What a record command accepts
+
+Two async helpers turn any reasonable input into a table or a source, and every `ns-rec` command
+uses them on its state; `to_record` and `to_record_source` are the same helpers as commands, for
+converting explicitly.
+
+```rust
+pub async fn to_record(value: &Value, metadata: &Metadata, options: &ToRecordOptions,
+    context: &Context<impl Environment<Value = Value>>) -> Result<Arc<dyn RecordView>, Error>;
+pub async fn to_record_source(value: &Value, metadata: &Metadata, options: &ToRecordOptions,
+    context: &Context<impl Environment<Value = Value>>) -> Result<Arc<dyn RecordSource>, Error>;
+```
+
+| Input | `to_record` → a `RecordView` | `to_record_source` → a `RecordSource` |
+|---|---|---|
+| a `RecordView` | itself | an `InMemorySource` of it |
+| a `RecordSource` | **refused**, naming `materialize` — turning a source into a table costs, and the cost is written in the query | itself |
+| **bytes or text** | parsed as a table in `csv`, `tsv`, `json`, `ndjson`/`jsonl` — the format from the `format` argument, else from the state's metadata; schema-aware when a `schema` is linked | a **manifest** when the document carries `manifest: record-stream` (its folder, from the metadata key, is the `cwd`); otherwise parsed as a table and wrapped |
+| a JSON value (array or object) | `from_json` with `orient = auto` | a manifest when it carries the discriminator; otherwise as for `to_record` |
+| a **key** | the keyed asset is fetched from the asset manager; a `RecordView` or `RecordSource` value is taken as such, anything else is converted by the rows above | the same |
+| anything else | a conversion error naming what was received | the same |
+
+- **A key needs the asset manager, so only the async commands accept one** — which is why both
+  helpers take `context`. The view commands that are synchronous (`select_columns`, `slice`, `head`,
+  `row`, `to_json`) accept values, including bytes and text, but not keys.
+- **The manifest is recognized by its `manifest: record-stream` discriminator**, not by its file
+  name, so a manifest stored under any key — or produced by a command — is read as one.
+- **The format is never sniffed.** A text value with no format in its metadata and none given is an
+  error, rather than a guess between CSV and NDJSON that is right most of the time.
+
+**`schema` is optional and linked.** `from_json` and `to_record` take it through a recipe's `links:` — a
 `records_schema` result, or a YAML/JSON schema document — and pass it to the schema-aware reader.
 How the macro spells an optional value-typed argument is a Phase 4 detail to check against
 `register_command!`, not assumed here.
@@ -2394,14 +2544,15 @@ type, no `unwrap`/`expect`.
 
 | Situation | Outcome |
 |---|---|
-| A schema without exactly one `Id` field | `Error::general_error` from `RecordSchema::new` |
+| A schema with more than one `Id` field | `Error::general_error` from `RecordSchema::new` |
+| `rec_id` on a source or view whose schema declares no `Id` | `Error::general_error` naming `rowid` as the alternative |
 | An `Id` field that is not `Exact`-indexed and stored | `Error::general_error` — it could not be reconciled by delete-by-term |
 | Column count, length or type disagrees with the schema in `RecordBatch::new` | `Error::general_error` |
 | `concat` or `materialize` of batches with different schemas | `Error::general_error` naming the first differing field |
 | A mask whose length differs from the view, or an index past its end | `Error::general_error` |
 | `column_range` or `value` out of range | `Error::general_error` — never a panic |
 | `select_columns` naming a field the schema does not declare | `Error::general_error` naming the field and listing the available ones |
-| `ColumnBuilder::push` of a value of the wrong type | `Error::general_error` |
+| `ColumnMut::push` of a value of the wrong type | `Error::general_error` |
 | A scalar read of a view that is not one row by one payload column | `Error::conversion_error`, naming the row count and the payload columns |
 | `materialize` passing `max_rows` | `Error::general_error` stating the limit and how to raise it — the stream is dropped, not truncated silently |
 | A view command receiving a source | `Error::conversion_error`, naming `ns-rec/materialize` |
@@ -2459,8 +2610,13 @@ in [`manifest-format.md`](./manifest-format.md). Three of its rules bear on this
 - **Identity has two regimes.** For an *unkeyed* stream the query is the chunk's identity, so a value
   varying per chunk must live in the query. For a *keyed* stream — one with a `ChunkKeys` — the
   chunk's key distinguishes it, so per-chunk `arguments` and `links` are usable, exactly as in
-  `recipes.yaml`. A manifest using them without a cache is **invalid**, because the failure is
-  silent aliasing rather than an error.
+  `recipes.yaml`. **Per-chunk `arguments` and `links` are wanted** — a manifest that merges tables
+  from different sources gives each explicit chunk its own statement or connection — and they apply
+  to **explicit** chunks only; a template's are shared by every chunk it generates. Used on an
+  unkeyed chunk they alias silently, so they **require keyed chunks** — which is open question 18.
+- **Versioning is lenient, because manifests are written by hand.** An absent or unknown `version`
+  reads as the latest; an unknown field is reported as a `Warning` log entry rather than refused.
+  Backward compatibility is the aim, and the format is stabilized later.
 - **The explicit form is a `RecipeList`.** A chunk entry is a `Recipe` field for field, so a manifest
   is a stream header plus a recipe list — inheriting planning, arguments, links, `volatile` and
   `expires` rather than restating them.
@@ -2551,7 +2707,9 @@ as the fourth step of adding a value type; `context` last in a command signature
      conflict handling; this design is read-only throughout.
 
    Filed as `NO-RELATIONAL-DATABASE-ACCESS-LAYER` rather than absorbed here.
-2. What is the default batch size, and is it a row count or a byte budget? A byte budget is the
+2. ~~What is the default batch size?~~ — **answered for this version**: a stored chunk is read whole,
+   so a chunk is a batch (§"Two readers"). The question returns with incremental reading. Was: a row
+   count or a byte budget? A byte budget is the
    honest answer for the multi-gigabyte case but needs a size estimate per column.
 3. ~~Is `with_columns` the right extension point for derived fields?~~ — **split in two**:
    `with_column` for a column computed from others (the functional-index replacement), lazily, and
@@ -2572,18 +2730,21 @@ as the fourth step of adding a value type; `context` last in a command signature
 9. Should `ChunkDescriptor` carry **statistics** (row count, per-column min/max)? DataFusion uses them
    for optimization, and min/max per chunk would let a predicate skip chunks entirely — the same trick
    as parquet row-group pruning. Not needed now; the place for it later is clear.
-10. **The `RecordBatchBuilder` append surface.** Three Phase 3 drafts produced three APIs. The
-    recommendation is `append_row(&[FieldValue])` as the primary call, with `ColumnBuilder` as the
+10. ~~The `RecordBatchBuilder` append surface.~~ — **decided**: `RecordViewMut` with
+    `append_row(&[FieldValue])`, `reserve` and `with_capacity`, implemented by `RecordBatchMut`;
+    `ColumnMut` is the mutable column (§"Writing a view"). Was: Three Phase 3 drafts produced three APIs. The
+    recommendation is `append_row(&[FieldValue])` as the primary call, with `ColumnMut` as the
     per-column path — which §"Writing a view" already introduces, so the builder may reduce to a
-    schema plus one `ColumnBuilder` per field. To settle before Phase 4.
-11. **Must every view carry an `Id`?** The invariant is kept on every view by making
+    schema plus one `ColumnMut` per field. To settle before Phase 4.
+11. ~~Must every view carry an `Id`?~~ — **decided**: no; every row has an implicit `RowId`, and the
+    explicit `Id` is optional (§"Every row has an implicit id"). Was: The invariant is kept on every view by making
     `select_columns` retain key columns. A future aggregation (`sum` → one row, one column) has no
     natural id. Not needed now — aggregation is out of scope — but the first aggregate will have to
     synthesize one or relax the invariant for derived tables.
 12. **Equivalence of overrides.** Where `RecordBatch` or a view overrides a provided method (`column`,
     `value`, `materialize`), its answer must equal the default's. Phase 3 should state this as a
     property test over each built-in view, so the two paths cannot drift apart unnoticed.
-13. **`materialize`'s default limit.** 1 000 000 rows is a guess. A byte budget is the honest measure
+13. ~~`materialize`'s default limit.~~ — **decided**: 1 000 000 rows, raised in the query. Was: 1 000 000 rows is a guess. A byte budget is the honest measure
     but needs a per-column size estimate; a row count is what can be checked while draining.
 14. **Materializing a non-uniform source.** Refused today. A *union* schema — every field of every
     chunk, missing ones null, as polars' diagonal concat does — would make it possible, at the cost
@@ -2598,6 +2759,16 @@ as the fourth step of adding a value type; `context` last in a command signature
 17. **The schema in metadata** — §"Should the schema live in metadata?". Waits on
     `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` and on the load path passing metadata to a
     deserializer; then it is one more source for the same schema-aware reader.
+18. **Making `stored` and `cached` work — keyed chunks.** Both flags, and per-chunk `arguments` and
+    `links`, need chunks that are **keyed assets**. The asset manager creates a keyed asset only
+    through `get(key)`, which asks the recipe provider for the recipe (`assets.rs:3846`); `apply` is
+    ad hoc — never keyed, cached or stored (`:3817`). So keyed chunks need (a) `ChunkKeys` enabled,
+    naming chunks in the manifest's folder; (b) a recipe provider that serves those keys from the
+    manifest — the manifest *is* a recipe list — which means composing providers
+    (`NO-RECIPE-PROVIDER-CHAIN`); and (c) recipe-level `stored`/`cached` flags that the asset manager
+    honours (`ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT`). What works without them: `cached: false` on
+    an **unkeyed** chunk (evaluate through `apply` instead of `get_asset`). Options and a
+    recommendation are in `manifest-format.md` §4b. **To decide.**
 
 **Settled, and recorded so they are not reopened without new information:**
 
@@ -2658,6 +2829,7 @@ information — each is a position that was argued for and then abandoned on evi
 | 2026-09-24 | **Scalar reading**: a one-row, one-payload-column view reads as its cell would as a base `Value`. `select_columns` keeps key columns. Commands bounded by a caller's count materialize | The user's requirement that pointing at a cell yield a value; a tiny view must not pin a large base |
 | 2026-09-24 | **Asynchronous work is a source.** Views stay synchronous; source → view is an explicit await | Scalar reading and argument binding are synchronous |
 | 2026-09-24 | `liquers-core` **untouched** — the `BoxStream` alias removed | `MaybeSend` as a supertrait gives the trait object the right `Send`-ness on each target |
+| 2026-09-25 | **Decisions for Phase 3.** `RecordViewMut` / `RecordBatchMut` / `ColumnMut` with capacity replace the builder. Every row has an implicit `RowId { chunk, row }` and, during a traversal, a row number; the explicit `Id` becomes optional and the schema-less reader stops guessing one; `rowid` addresses a row by reading one chunk. `to_record` / `to_record_source` accept views, sources, bytes, text, JSON values and keys, replacing `parse` and `source`. A stored chunk is read whole. Manifest: per-chunk `arguments`/`links` on explicit chunks, `stored`/`cached` per manifest, unknown versions read as the latest | The user's answers to the open decisions |
 | 2026-09-25 | **Two readers, and JSON shapes as commands.** A schema-aware reader (declared types, strict, one pass) beside the schema-less one; manifests with `uniform_schema` parse stored chunks from their bytes and check computed ones. `to_json`/`from_json` over seven orients, pandas-compatible, `table` lossless; `parse`. The `json` format keeps one shape. Schema-in-metadata discussed and deferred | A manifest's declared schema must be usable when reading CSV and NDJSON chunks; JSON has too many table shapes for a format name to choose; pandas interop |
 | 2026-09-24 | **Table formats specified.** `records`: CSV, TSV, NDJSON, JSON, Markdown, HTML, hand-written with no new dependency; `records-ipc`: Arrow IPC / Feather, lossless; `records-parquet`: a minimal Parquet writer, reading only through polars. Text formats infer a schema, with an `Id` rule and writers putting the `Id` first | A `RecordView` must round-trip through CSV and NDJSON at least; wasm size keeps heavier formats behind features. `deserialize_from_bytes` sees no metadata, so the text formats cannot carry a schema |
 | 2026-09-24 | **A source serializes only as its manifest; its rows need `materialize`** — an async method on `RecordSource`, an extension on `BoxRecordStream`, and the `ns-rec/materialize` command, bounded by `max_rows`. `ns-rec/source` added; `records_to_csv` / `records_to_ndjson` removed; `InMemorySource` lost its byte form; `collect_view` renamed | Producing a source's rows needs awaits and serialization is synchronous. Moving the await into a command needs no change outside `liquers-lib`, and settles when a source is written as data: only when asked |

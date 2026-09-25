@@ -53,7 +53,7 @@ A caller wants the files under `data/reports/` as a table, keeping only those ov
 
 1. Build a `RecordSchema`: `key.name` as the `Id` (Exact-indexed, stored), `meta.file_size` as
    `Numeric`, `meta.updated` as a `Timestamp`.
-2. List the directory and append a row per entry through `RecordBatchBuilder`.
+2. List the directory and append a row per entry through a `RecordBatchMut` sized `with_capacity`.
 3. Wrap the batch as `ExtValue::RecordView`.
 4. Evaluate a predicate over the size column into a `Bitmap`, and `RecordBatch::filter` by it.
 5. `as_bytes("csv")`.
@@ -178,6 +178,7 @@ test *asserts*; each alters how it gets its value.
 | **Batch operations become view constructors** | `RecordBatch::{select, filter, slice, value, with_columns}` → `select_columns`, `filter`, `slice`, `value`, `with_column`/`with_columns` on `Arc<dyn RecordView>`. Results are views, compared through `materialize()`. `select` by index becomes `select_columns` by name, **and must now assert that the `Id` column is kept** | `batch_select_zero_copy_projection`, `batch_filter_by_mask`, `batch_filter_length_mismatch_errors`, `batch_slice_preserves_arc_sharing`, `batch_value_reads_single_cell`, `column_null_distinct_from_empty_string`, `batch_with_columns_appends_derived_fields`, scenario 1's filtering and `records_to_csv` |
 | **Source construction** | `RecordSource { backing: SourceBacking::… }` → `ManifestSource::new` / `InMemorySource::new`; the `uniform_schema` field → the `schema()` method | `test_record_source_reopenable`, `test_record_source_manifest_round_trip`, `test_non_uniform_chunks_ndjson_succeeds`, `test_non_uniform_chunks_single_csv_fails`, `test_manifest_template_unbounded`, `test_manifest_yaml_deserialization`, `test_chunk_descriptor_serialization`, `records07` |
 | **Serializing a source** | A source serializes **only as a manifest**; its rows go through `materialize`. `records_to_csv` / `records_to_ndjson` are gone — the trailing filename chooses the format. `test_non_uniform_chunks_ndjson_succeeds` **inverts**: `materialize` of a non-uniform source must fail naming the first differing field, and per-chunk NDJSON succeeds | `test_non_uniform_chunks_ndjson_succeeds`, `test_non_uniform_chunks_single_csv_fails`, `test_end_to_end_record_chunk_serialization`, scenario 1's `records_to_csv` |
+| **The builder** | `RecordBatchBuilder` / `ColumnBuilder` → `RecordBatchMut` / `ColumnMut` (`with_capacity`, `append_row`, `freeze`), behind the `RecordViewMut` trait. The explicit `Id` is optional, so schemas in fixtures need not declare one | every test building a batch, `test_record_batch_builder`, scenario 1 |
 | **Opening a stream** | `source.stream(&context)` → `Arc::clone(&source).stream(resolver)`, with a `ContextResolver` inside a command and an `EnvResolver` outside one. Items are `Arc<dyn RecordView>`, so a test comparing rows materializes them | `test_record_source_reopenable`, `test_streaming_bounded_memory`, `records08`, scenario 2's consumption code |
 
 Tests comparing two `RecordBatch`es directly — `batch_concat_same_schema`, `test_record_batch_builder`,
@@ -203,7 +204,7 @@ Tests comparing two `RecordBatch`es directly — `batch_concat_same_schema`, `te
 | `csv_null_is_not_empty_string` | Unquoted empty reads as null, quoted `""` as the empty string (replaces the old `column_null_distinct_from_empty_string` expectation for the file form) |
 | `csv_quoting_corpus` | Separator, quote, CR, LF and CRLF inside fields; doubled quotes; a malformed file fails with its line number |
 | `inference_keeps_leading_zeros` | `01234`, `+5`, `1e3` stay text; an over-large integer is not turned into a float |
-| `read_recovers_id_or_synthesizes_row` | A Liquers-written file reads back with the same `Id`, written first; a file whose first column repeats gets a prepended `row` |
+| `schema_less_read_has_no_id_and_implicit_row_ids` | A file read without a schema has no `Id` column; `row_id` gives `(chunk, row)` and `row_number` the position |
 | `ndjson_reads_differing_keys_as_union` | Missing keys become nulls; nested arrays of numbers become vectors |
 | `markdown_escapes_and_uses_labels` | `\|`, line breaks and `<` are escaped; headers are labels; a default label reads back as its name |
 | `html_escapes_every_cell` | A cell, label or description holding `<script>` is escaped — the security test |
@@ -220,6 +221,13 @@ Tests comparing two `RecordBatch`es directly — `batch_concat_same_schema`, `te
 | `json_orients_round_trip` | `records`, `list`, `split`, `values` (with a schema), `columns`, `index`, `table`: each written by `to_json` reads back through `from_json` |
 | `json_table_matches_pandas` | A fixture written by pandas with `orient="table"` reads with its types and `primaryKey` as the `Id`; ours carries labels as `title` |
 | `from_json_auto_refuses_ambiguous_shape` | An object of objects asks for `columns` or `index` |
+| `mutable_table_builds_and_freezes` | `RecordBatchMut::with_capacity` allocates once; `append_row`, `set_value` and `column_mut` write; `freeze` moves rather than copies; `into_mut` takes over unshared buffers |
+| `row_ids_survive_views_and_materialize` | A filtered row keeps its base `RowId`; a table materialized from three chunks has three `RowRun`s and correct row numbers |
+| `rowid_reads_one_chunk` | `ns-rec/rowid-2-10` over a manifest evaluates only chunk 2 |
+| `rec_id_without_declared_id_is_refused` | …naming `rowid` |
+| `to_record_accepts_every_input` | A view, bytes and text in `csv`/`tsv`/`json`/`ndjson`/`jsonl` (format from metadata or argument), a JSON value, and a key; a source is refused naming `materialize`; a text value with no format is refused rather than sniffed |
+| `to_record_source_recognizes_manifest_by_discriminator` | A document carrying `manifest: record-stream` under any key becomes a `ManifestSource` with its key's folder as `cwd` |
+| `manifest_version_is_lenient` | No `version`, and an unknown one, read as the latest; an unknown field is a `Warning` log entry |
 | `manifest_document_converts_to_source` | A `*.manifest.yaml` loaded as YAML becomes a `ManifestSource` through `ns-rec/source`, and implicitly for `materialize`, with the key's folder as `cwd` |
 | `context_resolver_records_dependencies` | Chunks read through a `ContextResolver` become dependencies of the asset; through an `EnvResolver` they do not |
 | `stream_outlives_its_source_handle` | A stream stays valid after the caller's `Arc` of the source is dropped — the `'static` property axum needs |
@@ -230,8 +238,8 @@ Tests comparing two `RecordBatch`es directly — `batch_concat_same_schema`, `te
 **Items of the list below that the revision settles:** `Column::gather` is declared, as
 `Column::take` and `Column::filter`; `Bitmap` gains `iter_ones`; and `column(i)` — now a `RecordView`
 method — is the idiomatic read, with `RecordBatch::columns` staying a public field for code that holds
-a batch. **Still open:** the `RecordBatchBuilder` append surface (Phase 2 open question 10) and
-declaring `FieldRole::and_stored()` / `.and_fast()`.
+a batch. **Settled 2026-09-25:** the builder is `RecordBatchMut` with `append_row` and `with_capacity`
+(Phase 2 open question 10), and `FieldRole::and_stored()` / `.and_fast()` are declared in Phase 4.
 
 ## What Phase 3 found that Phase 2 must absorb
 

@@ -215,3 +215,14 @@ when this lands. See `specs/design/record-streams/manifest-format.md` §4b.
 This has moved from "a gap with a motivating example" to "a mechanism with named call sites, a
 backward-compatibility story and a consumer waiting on it". It is ready for a design folder when
 work starts; the open question above is the one thing a design must settle first.
+
+## Update 2026-09-25 — keyed record chunks depend on this
+
+`specs/design/record-streams/` needs **keyed chunk assets** for a manifest's `stored`/`cached` flags and
+for per-chunk `arguments`/`links` (`manifest-format.md` §4b, Phase 2 open question 18). A keyed asset is
+created only through `AssetManager::get(key)`, which asks the recipe provider for the recipe, so keyed
+chunks need three pieces: chunk keys named by the manifest, **a recipe provider that serves those keys
+from the manifest composed with the folder's `recipes.yaml` provider**, and **recipe-level
+`stored`/`cached` flags the asset manager honours**. The record design recommends designing the second
+and third as a small prerequisite project rather than as records features.
+

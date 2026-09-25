@@ -283,14 +283,50 @@ themselves do not depend on it — `stored: true` is the normal case and works �
 optional combination, not the design. If that combination is wanted at launch, the issue becomes a
 blocker and its priority rises with it.
 
-### What remains open
+### Settled
 
-- Whether `stored` and `cached` may be overridden per chunk, or are per-manifest only.
-- Whether `stored: false, cached: true` is expressible today at all — the rules above say
-  `stored => keyed`, but not whether a keyed asset may decline to be stored while still being
-  registered for reuse.
-- Whether `stored: false` changes reconciliation, which assumes a stored chunk's `Version` is
-  readable from its metadata. An unstored chunk has no stored metadata to read.
+- **`stored` and `cached` are per manifest**, never per chunk.
+
+### What it takes to make them work — to decide
+
+Both flags act on **keyed** chunk assets: an unkeyed chunk is a query asset, which is never stored.
+And per-chunk `arguments` and `links` (§5) need keyed chunks too. The asset manager creates a keyed
+asset only through `get(key)`, which asks the **recipe provider** for the key's recipe
+(`liquers-core/src/assets.rs:3846`); `apply(recipe, …)` is ad hoc — never keyed, cached or stored
+(`:3817`). So three pieces are missing, none of them record-specific:
+
+| Piece | What it is | Tracked by |
+|---|---|---|
+| **A. Chunk keys** | `ChunkKeys` enabled: chunk *n* of `daily.manifest.yaml` is the key `daily_{n:04}.csv` in the manifest's folder — the `number_format`/`extension` fields already exist | this design (currently "always `None`") |
+| **B. A provider for those keys** | The manifest *is* a recipe list, so a provider that answers `recipe(daily_0003.csv)` from the manifest — composed with the folder's `recipes.yaml` provider | `NO-RECIPE-PROVIDER-CHAIN` |
+| **C. The flags in the asset manager** | `stored: false` — skip the store write after producing, still prefer a stored copy when reading; `cached: false` — do not register the asset for reuse; both false — not volatile | `ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT` |
+
+With A–C, a keyed chunk is an ordinary keyed asset: addressable as `-R/data/sales/daily_0003.csv`
+from anywhere, stored and cached as its flags say, expiring on its own `expires`, and reconciled by
+its stored metadata's version.
+
+**What works today without them:** `cached: false` on an **unkeyed** chunk — the source evaluates it
+through `apply` instead of `get_asset`, so nothing is registered. `stored` has no meaning for an
+unkeyed chunk and is reported as a warning when set.
+
+**Options:**
+
+1. **Include A–C in this project.** Everything in the manifest works on day one. The cost is two
+   core changes (the provider chain, the asset flags) inside a records project, and Phase 4 grows
+   by roughly a third.
+2. **A separate, small prerequisite project for B and C, then A here.** The provider chain and the
+   asset flags are core features with their own users — generative recipe providers, the
+   `stockplottertest` prototype — and deserve their own design; this project ships A behind it.
+3. **Records first, unkeyed only; keyed chunks as a follow-up.** Everything else in the manifest
+   works; per-chunk `arguments`/`links` and `stored` are refused with an error naming the follow-up.
+
+**Recommendation: 2.** B and C are the missing general mechanisms — a record manifest is one of
+several things that need a composable provider and non-persistent assets — and designing them as
+records features would give them a records-shaped API. Doing them first keeps this project's scope
+where it is while delivering the whole manifest.
+
+**Also to settle with C:** reconciliation of a `stored: false` chunk reads its version from the
+cached asset or by re-evaluating, since no stored metadata exists.
 
 **Identity is unaffected by either flag.** §5's two regimes turn on whether a chunk is **keyed**, so
 per-chunk `arguments` and `links` stay valid with both flags false.
@@ -481,12 +517,12 @@ streams over its own recipes — which is the version of this idea that would no
 ## 6. Reading a manifest as a record source
 
 A manifest file loads as a plain YAML document — a store infers a data format from an extension,
-never a type — so it becomes a source through `ns-rec/source`, which takes the folder of the key it
-was loaded from as the `cwd` (§3). Every `ns-rec` command that needs a source applies the same
+never a type — so it becomes a source through `ns-rec/to_record_source`, which recognizes it by the
+`manifest: record-stream` discriminator and takes the folder of its key as the `cwd` (§3). Every `ns-rec` command that needs a source applies the same
 conversion to an input loaded from a key ending in `.manifest.yaml`, so the step can be left out:
 
 ```
--R/data/sales/daily.manifest.yaml/-/ns-rec/source                   the manifest as a source
+-R/data/sales/daily.manifest.yaml/-/ns-rec/to_record_source         the manifest as a source
 -R/data/sales/daily.manifest.yaml/-/ns-rec/materialize/daily.csv    every row, as one CSV
 -R/data/sales/daily_0010.csv                                        a chunk, once a provider serves them as assets
 ```
@@ -520,11 +556,12 @@ the `cwd` rule honest.
 ## 8. Open points
 
 1. ~~Does `expires` bound the stream or each chunk?~~ **Settled: per chunk** — see §5a.
-2. **Per-chunk `links`** are allowed by symmetry with `arguments`, but no use case has appeared —
-   and §5b removes the templated case from consideration, since a template's arguments are shared by
-   construction. Worth forbidding until a heterogeneous explicit list needs them.
-3. **A `version` bump policy.** The field is present so an incompatible change is detectable; nothing
-   yet says what a reader does with an unknown version. Refusing is the safe default.
+2. ~~Per-chunk `links`~~ — **settled: allowed on explicit chunks.** A manifest merging tables from
+   different sources gives each chunk its own statement or connection. A template's `arguments` and
+   `links` are shared by every chunk it generates. Both need keyed chunks (§4b).
+3. ~~A `version` bump policy~~ — **settled: lenient.** An absent or unknown `version` reads as the
+   latest, and an unknown field is a warning, not an error. Manifests are written by hand, so
+   backward compatibility is the aim; the format is stabilized later.
 4. **Validation.** `liquers-validate` already checks a `recipes.yaml`; a manifest wants the same
    treatment — that each chunk query plans, that `arguments` names exist in the last action, and that
    no chunk name collides with a sibling `recipes.yaml`.
