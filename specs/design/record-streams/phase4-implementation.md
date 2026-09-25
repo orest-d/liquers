@@ -23,7 +23,7 @@ commands, and `to_record` / `to_record_source`. `liquers-core` gains two general
 recipe provider chain, and `stored` / `cached` flags that the asset manager honours.
 
 **Tests:** [Phase 3](./phase3-tests.md) — 189 tests in 28 files, plus 2 wasm tests. **This plan
-specifies 11 more** (§"Tests this plan adds"), covering behaviour that Phase 3 left untested, plus
+specifies 13 more** (§"Tests this plan adds"), covering behaviour that Phase 3 left untested, plus
 step-local unit tests whose number the implementing step decides (Milestone 0's conversion tests,
 Step 4.3's provider tests).
 
@@ -121,13 +121,15 @@ written in the step that implements them.
 | | `both_false_is_not_volatile` | The resulting metadata has `is_volatile() == false` |
 | | `flags_are_recorded_in_metadata_and_asset_info` | `MetadataRecord::stored()` / `cached()` and `AssetInfo`'s equivalents carry the recipe's values |
 | `liquers-core/src/recipes.rs` | `appended_provider_is_consulted_after_the_configured_one` | `with_appended_recipe_provider` keeps the configured provider first |
+| `liquers-records/src/manifest.rs` | `manifest_spec_serializes_its_discriminator` | A `ManifestSource` serialized to YAML begins with `manifest: record-stream`, and the text reads back through `to_record_source`'s recognition |
+| `liquers-records/src/provider.rs` | `shared_arguments_reach_every_template_chunk_recipe` | A template chunk's recipe carries the manifest's `arguments` / `links`, `volatile` and `expires`; an explicit chunk's own `arguments` win over the shared ones |
 | `liquers-lib/tests/records_end_to_end.rs` | `template_chunk_key_is_served_by_the_manifest` | With `data/sales/daily.manifest.yaml` (a template over a fixture command `fixture_rows-<offset>-<batch>`) in a memory store, `-R/data/sales/daily_0010.csv` evaluates to the rows of offset `first_offset + 10 × step` |
 | | `stored_template_chunk_is_written_under_its_key` | With `stored` absent, the store holds `data/sales/daily_0010.csv` afterwards; with `stored: false`, it does not |
 | | `materialize_query_yields_csv_bytes` | `-R/data/sales/daily.manifest.yaml/-/ns-rec/materialize/daily.csv` (an explicit-chunk manifest) returns CSV whose rows are every chunk's rows, in order |
 | | `rowid_evaluates_only_its_chunk` | `…/ns-rec/rowid-2-0` runs the fixture command once, for chunk 2 |
 
-**Test file count:** Phase 3's 28 files and 189 tests, plus these 11 tests (2 new files, plus one
-test added to `recipes.rs`), plus the 2 wasm tests.
+**Test file count:** Phase 3's 28 files and 189 tests, plus these 13 tests (2 new files, and one test each
+added to `recipes.rs`, `manifest.rs` and `provider.rs`), plus the 2 wasm tests.
 
 **Counting commands without cross-talk.** Tests in one file run in parallel threads, so a single
 `static AtomicUsize` shared by the file's tests races. The counting fixture command takes a
@@ -1258,34 +1260,26 @@ family.
 - [ ] Every issue named in Step 8.3 has an updated status or an explanatory line.
 - [ ] `phase5-evidence.md` covers every step.
 
-## Open questions from the final review (2026-09-25)
+## Questions settled after the final review (2026-09-25)
 
-Decisions for the user; each has a recommendation, and the plan names where it waits on the answer.
+1. **`ManifestSpec` models the manifest-level fields.** Settled as option (a), because it follows
+   the user's earlier decision that a template's arguments and links are shared by its chunks.
+   - The new fields are `manifest` (`ManifestKind`), `version`, `title`, `description`, shared
+     `arguments` / `links`, `volatile` and `expires`.
+   - `ManifestSpec` gets a hand-written `Default`.
+   - Phase 3's literals end in `..ManifestSpec::default()`.
+   - The discriminator is written on serialization.
 
-1. **Which manifest-level fields does `ManifestSpec` model?** `manifest-format.md` §4 has shared
-   `arguments`, `links`, `volatile`, `expires`, `title` and `description`, and Phase 2 §B says the
-   provider copies `expires` / `volatile`; Phase 2's `ManifestSpec` has none of them, and
-   `ChunkTemplate` has no arguments either — so a template chunk cannot receive the SQL statement
-   or connection its query needs. Phase 3's tests build `ManifestSpec` by struct literal with
-   exactly six fields (eight sites). Separately, `ManifestSource` serializes `into = ManifestSpec`,
-   which omits the `manifest: record-stream` discriminator, so a manifest written by Liquers is
-   not recognized when read back as plain YAML.
-   - (a) Add the six fields with serde defaults, give `ManifestSpec` a hand-written `Default`
-     (`stored`/`cached` `true`), change the Phase 3 literals to `..ManifestSpec::default()`, and
-     serialize through an envelope that writes `manifest:` and `version:`. **Recommended** — it is
-     what `manifest-format.md` specifies and what a SQL template needs.
-   - (b) Keep six fields for this version; drop `expires` / `volatile` from §B; record shared
-     arguments as a follow-up issue.
-2. **How is `schema` spelled on `from_json` / `to_record`?** (Step 5.5.) (a) `schema: Option<Value>`
-   if `register_command!` can bind it; (b) `schema: String = ""`, a linked schema arriving as its
-   YAML/JSON text. **Recommended:** try (a) first; fall back to (b), and record which in the
-   evidence log.
-3. **Keyed chunks in a configured environment** (decision 1). `with_config` /
-   `with_recipe_provider_choice` bypass `LibKind`'s default, so a server configured from a
-   document serves no keyed chunks. (a) Document the one-line `with_appended_recipe_provider`;
-   (b) add a `liquers-lib` helper (for instance `with_records_recipe_provider()` on the builder)
-   used by the lib's own configured construction paths. **Recommended:** (b), small and hard to
-   forget.
+   Shared arguments and links need keyed chunks, as per-chunk ones do. Phase 2 has a changelog
+   row for this, and two tests are added above.
+2. **`schema` on `from_json` / `to_record`** (Step 5.5). The default is option (a),
+   `schema: Option<Value>`, if `register_command!` binds it. Otherwise it is option (b),
+   `schema: String = ""`, with a linked schema arriving as its YAML/JSON text. Whichever is used
+   is recorded in the evidence log.
+3. **Keyed chunks in a configured environment** (decision 1). Settled as option (b):
+   `liquers-lib` adds `with_records_recipe_provider()` to its builder and calls it on its own
+   configured construction paths, so a server built from a configuration document serves keyed
+   chunks too. It is written in Step 5.6.
 
 ## Execution Options
 

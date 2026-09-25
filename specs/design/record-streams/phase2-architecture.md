@@ -238,6 +238,30 @@ pub struct ManifestSource {
 /// the **global** chunk index. Either may be absent. See `manifest-format.md` §4a.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ManifestSpec {
+    /// The discriminator, always written. `to_record_source` recognizes a plain YAML or JSON
+    /// document by it; here, absent is accepted (a bare spec) and any other value is refused.
+    #[serde(default)]
+    pub manifest: ManifestKind,
+    /// Absent or unknown reads as the latest (`manifest-format.md` §8.3); written as the latest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<u32>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub title: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
+    /// Shared by every **keyed** chunk: merged under each explicit chunk's own `arguments` (the
+    /// chunk wins) and given as-is to every template chunk. As with per-chunk arguments, a
+    /// manifest that has shared `arguments` or `links` and an unkeyed chunk is refused by
+    /// `with_key` / at stream open — an unkeyed chunk is a bare query and cannot carry them.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub arguments: HashMap<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub links: HashMap<String, String>,
+    /// Copied onto every chunk recipe by `ManifestRecipeProvider`, as `recipes.yaml` fields are.
+    #[serde(default)]
+    pub volatile: bool,
+    #[serde(default)]
+    pub expires: Expires,
     /// The explicit prefix, as recipes — `recipes.yaml`'s own entry type, so a chunk carries its
     /// own `arguments`, `links`, `title`. A chunk whose query ends in a filename is **keyed** by
     /// it, exactly as a `recipes.yaml` entry is (`Recipe::filename`).
@@ -260,6 +284,18 @@ pub struct ManifestSpec {
     pub cached: bool,
     pub uniform_schema: Option<Arc<RecordSchema>>,
 }
+
+/// The only kind this design defines; a folder may hold other YAML documents.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum ManifestKind {
+    #[default]
+    #[serde(rename = "record-stream")]
+    RecordStream,
+}
+
+/// Written by hand, not derived: `stored` and `cached` default to `true`, and a derived
+/// `Default` would make them `false` (the pitfall §C records for `Recipe`).
+impl Default for ManifestSpec { /* manifest: RecordStream, stored: true, cached: true, the rest empty */ }
 
 /// Views already in memory — what a view becomes when a source is wanted. It has no byte
 /// form: `materialize` it (free when it holds one batch) to serialize its rows.
@@ -3193,6 +3229,7 @@ information — each is a position that was argued for and then abandoned on evi
 | 2026-09-24 | **Scalar reading**: a one-row, one-payload-column view reads as its cell would as a base `Value`. `select_columns` keeps key columns. Commands bounded by a caller's count materialize | The user's requirement that pointing at a cell yield a value; a tiny view must not pin a large base |
 | 2026-09-24 | **Asynchronous work is a source.** Views stay synchronous; source → view is an explicit await | Scalar reading and argument binding are synchronous |
 | 2026-09-24 | `liquers-core` **untouched** — the `BoxStream` alias removed | `MaybeSend` as a supertrait gives the trait object the right `Send`-ness on each target |
+| 2026-09-25 | **`ManifestSpec` models the manifest-level fields** of `manifest-format.md` §4 — the `manifest` discriminator (`ManifestKind`), `version`, `title`, `description`, shared `arguments` and `links`, `volatile`, `expires` — and gets a hand-written `Default`. A manifest written by Liquers now carries its discriminator, so it is recognized when read back as plain YAML | Phase 4 final review: a template chunk could not receive the SQL statement or connection its query needs, and the provider had no `expires`/`volatile` to copy. Follows the user's decision that a template's arguments and links are shared by its chunks |
 | 2026-09-25 | **The surface Phase 3's tests needed, pinned.** `Bitmap` construction (`new`, `from_bools`, `set`, `len`); `ChunkTemplate`, `JsonOrient` with `to_json`/`from_json`, `ReadOptions`/`WriteOptions` with a hand-written `Default`, `TableFormat::from_data_format`, the `FieldSchema` builders and `FieldRole` constructors, `ToRecordOptions`, `RecipeProviderChain::{new, push}`; the `liquers-web` handle's `From`, `Drop`, live-handle count and descriptor fields. Module layout gains `schema.rs` and `manifest.rs`; the formats file is `ndjson.rs`; the format files are gated on the crate's own `ipc`/`parquet` features | Phase 3 approval; its §"What Phase 3 found that Phase 2 must absorb" |
 | 2026-09-25 | **Review pass** — Rust review and two independent reviewers (Phase 1 conformity, codebase alignment). Fixed: `stored`/`cached` as `Option<bool>` (the three types derive `Default`, so a `bool` would default to "not stored"); the `records` re-export clashing with the glue module; a stored manifest losing its key — key-dependent validation moved to `with_key`; `RecordBatch.rows` and `RowRun`'s derives; `FieldSchema`'s hand-authoring defaults; `RecordViewMut::len` with uneven columns; the provider's `async_trait` attributes; stale `rec_id` and `select_columns` rows | Review before re-approval |
 | 2026-09-25 | **Records become their own crate, `liquers-records`**, depending on core only; `liquers-lib` keeps the glue — `ExtValue` variants, `ns-rec` commands, `to_record`/`to_record_source`, the polars bridge — behind `records`, forwarding `records-ipc` and `records-parquet` to the crate's `ipc` and `parquet`. A `RecordValue` adapter trait lets the crate read and build `liquers-lib`'s `Value` without naming it; `ChunkResolver::evaluate` returns a `ChunkValue`. Moving records into core was assessed and rejected | Modularity for crates built on records — about 60 dependencies instead of `liquers-lib`'s 172 — a boundary that enforces layering, and a small test loop. Each argument for core has a more general fix: streaming serialization, `liquers-py` depending on `liquers-lib`, provider-aware validation, extensible metadata |

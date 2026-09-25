@@ -21,7 +21,7 @@ superseded_by:
 - [x] Phase 1: High-Level Design — approved 2026-09-20
 - [x] Phase 2: Solution & Architecture — approved 2026-09-20; revised 2026-09-24/25 (traits; formats and readers; keyed chunks; the `liquers-records` crate); **re-approved 2026-09-25**
 - [x] Phase 3: Examples & Testing — redrafted for the trait form and **approved 2026-09-25**; its additions absorbed into Phase 2
-- [ ] Phase 4: Implementation Plan — in progress
+- [ ] Phase 4: Implementation Plan — reviewed 2026-09-25 (4 focused reviewers + final review); awaiting approval
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
 

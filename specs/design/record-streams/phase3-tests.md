@@ -681,6 +681,7 @@ fn template_spec(stored: bool, cached: bool, uniform_schema: Option<Arc<RecordSc
         stored,
         cached,
         uniform_schema,
+        ..ManifestSpec::default()
     }
 }
 
@@ -738,10 +739,9 @@ fn manifest_schema_is_applied_to_the_whole_source() -> Result<(), Box<dyn std::e
 }
 
 #[test]
-fn manifest_spec_serde_round_trip_ignores_envelope_fields() -> Result<(), Box<dyn std::error::Error>> {
-    // `manifest:` and `version:` are the discriminator envelope `to_record_source` reads before
-    // deserializing `ManifestSpec` — the spec type itself does not model them and must tolerate
-    // their presence when a whole manifest document (not a bare spec) is fed to it directly.
+fn manifest_spec_reads_its_envelope_fields() -> Result<(), Box<dyn std::error::Error>> {
+    // `manifest:` and `version:` are fields of `ManifestSpec`: a whole manifest document
+    // deserializes directly, and the discriminator is written back on serialization.
     let yaml = r#"
 manifest: record-stream
 version: 1
@@ -1627,6 +1627,7 @@ mod tests {
             stored: true,
             cached: true,
             uniform_schema: None,
+            ..ManifestSpec::default()
         };
         assert!(ManifestSource::new(spec, None).is_err());
     }
@@ -1646,6 +1647,7 @@ mod tests {
             stored: true,
             cached: true,
             uniform_schema: None,
+            ..ManifestSpec::default()
         };
         let source = ManifestSource::new(spec, None).expect("new validates only key-independent rules");
         assert!(source.with_key(Key::new()).is_err());
@@ -1663,6 +1665,7 @@ mod tests {
             stored: true,
             cached: true,
             uniform_schema: None,
+            ..ManifestSpec::default()
         };
         let source = ManifestSource::new(spec, None).expect("new");
         // The manifest's own filename becomes the template's prefix ("daily"), which is what
@@ -2604,7 +2607,7 @@ fn record_value_view_round_trip_preserves_the_arc() -> Result<(), Box<dyn std::e
 
 #[test]
 fn record_value_source_round_trip_preserves_the_arc() -> Result<(), Box<dyn std::error::Error>> {
-    let spec = ManifestSpec { chunks: vec![], template: None, extension: None, stored: true, cached: true, uniform_schema: None };
+    let spec = ManifestSpec { chunks: vec![], template: None, extension: None, stored: true, cached: true, uniform_schema: None, ..ManifestSpec::default() };
     let source: Arc<dyn RecordSource> = Arc::new(ManifestSource::new(spec, None)?);
 
     let value = Value::from_record_source(source.clone());
@@ -2720,7 +2723,7 @@ async fn probe_refuses_source(
 fn empty_manifest_source(_state: &State<Value>) -> Result<Value, Error> {
     use liquers_records::{ManifestSource, ManifestSpec};
     use std::sync::Arc;
-    let spec = ManifestSpec { chunks: vec![], template: None, extension: None, stored: true, cached: true, uniform_schema: None };
+    let spec = ManifestSpec { chunks: vec![], template: None, extension: None, stored: true, cached: true, uniform_schema: None, ..ManifestSpec::default() };
     let source: Arc<dyn liquers_records::RecordSource> = Arc::new(ManifestSource::new(spec, None)?);
     Ok(Value::from_record_source(source))
 }
@@ -2892,6 +2895,7 @@ fn manifest_with_only_a_template_has_no_explicit_chunks() {
         stored: true,
         cached: true,
         uniform_schema: None,
+        ..ManifestSpec::default()
     };
     let source = ManifestSource::new(spec, None).expect("template-only source");
     match source.chunks() {
@@ -3625,6 +3629,7 @@ fn explicit_chunk_name_collisions_are_refused_at_load() {
         stored: true,
         cached: true,
         uniform_schema: None,
+        ..ManifestSpec::default()
     };
     assert!(ManifestSource::new(spec, None).is_err());
 }
