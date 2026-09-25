@@ -443,7 +443,7 @@ ordered list of `Arc<dyn AsyncRecipeProvider<E>>` that is itself a provider.
 | Method | Chain behaviour |
 |---|---|
 | `recipe_opt(key)` | the first provider returning `Some` |
-| `contains(key)` | any provider |
+| `contains(key)` | any provider whose `recipe_opt` answers `Some` — a provider's own `contains` may rest on the enumerating default (`RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY`), its `recipe_opt` is authoritative |
 | `has_recipes(folder)` | any provider |
 | `assets_with_recipes(folder)` | the union, in provider order, without duplicates |
 | `get_asset_info(key)` | from the provider that has the recipe |

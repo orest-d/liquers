@@ -2,7 +2,7 @@
 id: NO-RECIPE-PROVIDER-CHAIN
 kind: feature
 title: An environment holds one recipe provider, with no way to compose several
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/assets]
@@ -67,4 +67,47 @@ and third as a small prerequisite project rather than as records features.
 The user chose to build keyed record chunks in the `record-streams` project, so this is resolved there
 as piece B — a core `RecipeProviderChain`, with `ManifestRecipeProvider` appended when `records` is on. See `specs/design/record-streams/phase2-architecture.md` §"Keyed chunks". The status
 stays `draft` until the work starts; the record's own `status` is concluded with that project.
+
+## Resolution
+
+Implemented in `record-streams` Phase 4, Step 1.3 (`specs/design/record-streams/phase4-implementation.md`).
+
+`RecipeProviderChain<E>` (`liquers-core/src/recipes.rs`) holds `Vec<Arc<dyn AsyncRecipeProvider<E>>>`
+and implements `AsyncRecipeProvider<E>` per Phase 2 §"B. A recipe provider that serves chunk keys
+from manifests": `recipe_opt` is first-`Some`-wins (an earlier provider's `Err` propagates without
+consulting the rest); `contains` and `has_recipes` are true if any provider answers so (`contains`
+goes through `recipe_opt`, not a directory-level check, since a provider's own `contains` default
+may depend on directory state a chain member does not populate); `assets_with_recipes` is the union
+in provider order, without duplicates; `recipe`, `recipe_plan` and `get_asset_info` delegate to the
+first provider whose `recipe_opt` claims the key, and return the same not-found error
+`DefaultRecipeProvider` gives for a missing key when none does.
+
+Composition is in code, not configuration, matching decision 1 in the Phase 4 plan:
+`RecipeProviderChoice` is unchanged (a configuration document cannot name a provider from another
+crate). `EnvironmentBuilder::with_appended_recipe_provider` records providers in a builder-held
+`Vec` and `build()` composes `RecipeProviderChain::new([base, appended…])` — base is the configured
+provider, or `K::default_recipe_provider()` when none is configured — only when the `Vec` is
+non-empty. `GenericEnvironment::with_appended_recipe_provider` does the equivalent for a
+already-built environment, wrapping the current provider and the new one in a chain (nested chains
+are correct, one indirection deeper).
+
+Tests: `liquers-core/src/recipes.rs::recipe_provider_chain_tests` — `first_some_wins`,
+`contains_is_true_if_any_provider_has_the_recipe`,
+`assets_with_recipes_is_the_union_without_duplicates`, `push_adds_a_provider_after_construction`,
+`recipe_opt_is_none_when_no_provider_has_the_key` (Phase 3 §4.1, ported as pinned), and
+`appended_provider_is_consulted_after_the_configured_one` (Phase 4's added test, exercising
+`EnvironmentBuilder`). All pass under `cargo test -p liquers-core --lib --tests` (845 lib tests, 0
+failures); `cargo check -p liquers-lib -p liquers-axum -p liquers-py` and
+`cargo check -p liquers-core --target wasm32-unknown-unknown` also pass.
+
+The original "shape of a fix" sketch (`Vec<Box<dyn …>>`, per-directory first-claim-wins) was
+superseded during design: providers are shared (`Arc`, since the same provider may need to sit in
+more than one place — the builder's own base plus any appended chain) and the truthy behaviour is
+per-method ("any provider" for `has_recipes`/`contains`, "first `Some`" for `recipe_opt`) rather
+than a single directory-level claim, matching what a generative provider like the manifest chunk
+provider (`ManifestRecipeProvider`, built in a later Phase 4 step) needs: it cannot enumerate its
+keys, so it cannot "claim" a directory outright the way `has_recipes` alone would suggest.
+
+`ManifestRecipeProvider` itself is out of scope for this issue and is designed as
+`liquers-records`'s own piece; this issue covers the core chain and appending mechanism only.
 

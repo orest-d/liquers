@@ -8,11 +8,11 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 122
+Total rows: 121
 - P0: 1
 - P1: 2
 - P2: 76
-- P3: 43
+- P3: 42
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
@@ -108,7 +108,6 @@ Total rows: 122
 | [`IMMEDIATE-SET-STATE-STATUS-MATCH-HAS-DEFAULT-ARM`](issues/IMMEDIATE-SET-STATE-STATUS-MATCH-HAS-DEFAULT-ARM.md) | issue | ImmediateAssetManager::set_state matches Status with a default arm | draft |  | P3 | S | core/assets |  | 2026-09-25 |
 | [`MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS`](issues/MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS.md) | issue | The extension-to-media-type table lacks or mislabels the common tabular formats | draft |  | P3 | S | core/value;axum |  | 2026-09-24 |
 | [`METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED`](issues/METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED.md) | issue | A value stored as metadata only is reloaded through the corrupted-data path | draft |  | P3 | S | core/assets |  | 2026-09-24 |
-| [`NO-RECIPE-PROVIDER-CHAIN`](issues/NO-RECIPE-PROVIDER-CHAIN.md) | feature | An environment holds one recipe provider, with no way to compose several | draft |  | P3 | S | core/assets | [chunking](specs/design/record-streams/chunking-and-resumability.md)  [engine](specs/design/record-streams/engine-survey.md)  [manifest](specs/design/record-streams/manifest-format.md)  [phase1](specs/design/record-streams/phase1-high-level-design.md)  [phase2](specs/design/record-streams/phase2-architecture.md)  [phase3](specs/design/record-streams/phase3-examples.md)  [phase3](specs/design/record-streams/phase3-tests.md)  [phase4](specs/design/record-streams/phase4-implementation.md)  [phase5](specs/design/record-streams/phase5-documentation.md)  [phase5](specs/design/record-streams/phase5-evidence.md)  [record](specs/design/record-streams/record-model.md)  | 2026-09-20 |
 | [`REGISTER-ALL-COMMANDS-MACRO-REQUIRES-EVERY-FEATURE`](issues/REGISTER-ALL-COMMANDS-MACRO-REQUIRES-EVERY-FEATURE.md) | issue | register_all_commands! does not compile when an optional command feature is off | draft |  | P3 | S | lib/commands |  | 2026-09-25 |
 | [`SIMPLE-VALUE-WRITES-FEWER-FORMATS-THAN-DECLARED`](issues/SIMPLE-VALUE-WRITES-FEWER-FORMATS-THAN-DECLARED.md) | issue | liquers-lib's base value declares formats its serializer refuses | draft |  | P3 | S | lib/value |  | 2026-09-25 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  | P3 | S | core/value |  | 2026-09-24 |
