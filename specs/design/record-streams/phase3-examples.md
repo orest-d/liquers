@@ -1,356 +1,554 @@
+---
+id: RECORD-STREAMS-PHASE3-EXAMPLES
+kind: analysis
+title: Phase 3 examples — record streams
+workflow: liquers-project
+status: draft
+area: [lib/value]
+created: 2026-09-15
+---
 # Phase 3: Examples & Testing — Record streams
 
-**Form: test-first.** The examples *are* the tests. They will not compile until Phase 4 implements
-the types, which makes them the specification rather than an illustration of one, and makes Phase 4
-a matter of making them pass.
-
-The test code lives in [`phase3-tests.md`](./phase3-tests.md), organized by the file it will land
-in. This document is the narrative: what the scenarios are, what they exercise, what goes wrong, and
-what Phase 3 discovered that Phase 2 must absorb.
+**Form: test-first.** The examples *are* the tests. None of the code below compiles today; it is
+written against the trait form of Phase 2 (`phase2-architecture.md`) so that Phase 4's job is to
+make it pass, not to invent an API around it. The code itself lives in
+[`phase3-tests.md`](./phase3-tests.md), organized by the file each block lands in; this document is
+the narrative — what the scenarios are, what they exercise, what goes wrong, and what Phase 3 found
+that Phase 2 must still absorb.
 
 ## High-Level Introduction
 
-Three abstractions carry the design — a **source** that can be asked repeatedly for a stream, a
-**stream** that is one traversal, and a **view** that is a finite table, of which a `RecordBatch` is
-the materialized kind. **This narrative predates the trait form of Phase 2** — see §"Reworked by the
-Phase 2 trait revision". The examples walk
-that spine in order: a single chunk built and filtered in memory, then a multi-chunk stream driven
-by a manifest, then the places where each goes wrong.
+Phase 1 asked for a tabular value that is interoperable, lazy and chunked, and that carries
+provenance per chunk at almost no cost (`phase1-high-level-design.md`). Phase 2 answered with three
+abstractions that carry the whole design: a **source** that can be asked, repeatedly, for a stream;
+a **stream**, one traversal of it; and a **view**, a finite table — of which a `RecordBatch` is the
+materialized case. The examples below walk that spine in the order a reader needs it:
 
-The records are the `liquers-records` crate, and `liquers-lib` holds the glue behind its `records`
-feature; the values are `ExtValue::RecordView` and
-`ExtValue::RecordSource`.
+1. **Example 1** builds and reads a single `RecordBatch` in memory — schema, roles, a mask, a
+   filtered view, three output formats — without a source or a stream in sight. It is the smallest
+   complete slice of the design: everything a `RecordView` promises, exercised once each.
+2. **Example 2** adds the piece Example 1 does not need: a **manifest-driven source** with keyed
+   chunks, addressable from anywhere in the store, traversed lazily one chunk at a time. This is
+   where `ChunkResolver`, `RecipeProviderChain` and the `stored`/`cached` flags earn their place.
+3. **Example 3** collects the pitfalls the design's own shape invites — not bugs, but places where
+   the *right* answer is easy to get backwards (a derived `Default` silently flipping a flag's
+   meaning, a CSV losing a leading zero, a one-row view pinning a hundred-megabyte batch).
 
-## Overview Table
+The **Corner Cases** section after them takes the same three abstractions through memory,
+concurrency, error and cross-crate axes systematically; the **Test Plan** points into
+`phase3-tests.md`'s 191 functions; the **RECORDS counterparts** table gives every
+`LANGUAGE-INTEGRATION_GUIDE.md` test its Rust-side proof; and the closing section records the small
+number of places Phase 3 needed something Phase 2 declared only as an ellipsis, or not at all.
 
-| # | Scenario | Exercises | Where |
-|---|---|---|---|
-| 1 | **Files to CSV** — project a store directory into records, filter by size, serialize | `RecordSchema::new`, `RecordBatchBuilder`, `Bitmap` mask, `RecordBatch::filter`, `as_bytes("csv")` | §Example 1 |
-| 2 | **A manifest-driven stream** — open `daily.manifest.yaml`, traverse chunk by chunk, traverse again | `RecordSource`, `ChunkList::Known`, `describe_chunk`, `stream()`, re-openability, `arguments`/`links` | §Example 2 |
-| 3 | **Pitfalls** — the traps the design's own shape creates | offsets invariant, `Vector` child node, missing `TypeInfo`, missing cfg arm, wasm view detachment, chunk aliasing | §Example 3 |
-| — | **Unit tests** (39) | schema validation, `Bitmap`, `RecordBatch` ops, nulls, `FieldValue` size, alignment, `ChunkId` | `phase3-tests.md` §1 |
-| — | **Integration tests** (25) | end-to-end evaluation, re-openability, bounded memory, manifest round-trip, non-uniform chunks, feature matrix | `phase3-tests.md` §2 |
-| — | **`RECORDS01`–`09`** | the language-binding reference implementations | `phase3-tests.md` §3 |
+The records live in the `liquers-records` crate; `liquers-lib` holds the glue behind its `records`
+feature, with the values as `ExtValue::RecordView` and `ExtValue::RecordSource`.
 
 ## Example Type
 
-Conceptual code that is **intended to compile at Phase 4**, not runnable today. No `examples/`
-binary: nothing can run until the types exist, and a demo would add a third thing to keep in sync
-with the tests and the reference.
+**Conceptual code, intended to compile at Phase 4.** No `examples/` binary: nothing in this design
+can run until the types exist, and a demo would be a third thing to keep in sync with the tests and
+the eventual reference — `phase3-tests.md`'s scenario code (§1) is the canonical worked example, and
+the planned guide (`specs/guides/RECORD_STREAM_GUIDE.md`, `phase2-architecture.md` §"Documentation
+Architecture") links it directly rather than duplicating it.
+
+## Overview Table
+
+| # | Type | Name | Purpose | Where |
+|---|---|---|---|---|
+| 1 | Example | Files to CSV | A single `RecordBatch`: schema with roles, a mask, a filtered view, three output formats | §Example 1, `phase3-tests.md` §1.1 (8 tests) |
+| 2 | Example | A manifest-driven stream | Keyed chunks, `ChunkResolver`, a `RecipeProviderChain`, `stored: false` / `cached: true` | §Example 2, `phase3-tests.md` §1.2 (9 tests) |
+| 3 | Pitfalls | 11 traps the design's shape invites | CSV null/leading-zero rules, non-uniform schemas, a pinned base, HTML injection, write-only formats, `Arc`+`serde`, derived-`Default` booleans | §Example 3 |
+| — | Data-model unit tests | `liquers-records` core types | Schema invariants, `Bitmap`/`Buffer`, `Column` kernels, every view constructor, implicit row ids, `RecordBatchMut`/`ColumnMut`, manifest validation | `phase3-tests.md` §2 (84 tests) |
+| — | Format unit tests | `liquers-records/src/formats/` | CSV quoting and inference, NDJSON, all eight `JsonOrient`s, Markdown/HTML escaping, IPC, Parquet | `phase3-tests.md` §3 (56 tests, 3 `#[ignore]`d) |
+| — | `liquers-core` tests | `RecipeProviderChain`, `stored`/`cached` | Chain semantics against the real `AsyncRecipeProvider<E>` signature; default-true accessors | `phase3-tests.md` §4 (15 tests) |
+| — | Integration tests | `liquers-lib`/`liquers-records` `tests/` | `ExtValue` round trip, `TypeInfo`, `to_record`/`to_record_source`, scalar reading, a `'static` stream | `phase3-tests.md` §5 (18 tests, 3 `#[ignore]`d) |
+| — | `RECORDS01`–`RECORDS11` | Rust language-binding counterparts | Every meaningful test `LANGUAGE-INTEGRATION_GUIDE.md` defines, proved in Rust | `phase3-tests.md` §6 (9 tests) |
+| — | Format round trip | one test per serialization format | CLAUDE.md-style coverage: csv, tsv, ndjson, json, md, html (write-only), ipc, parquet | `phase3-tests.md` §7 (8 tests) |
+| — | Manifest validation | chunk-query planning, versions, collisions, naming | `phase3-tests.md` §9 (6 tests) |
+
+**191** `#[test]`/`#[tokio::test]` functions in total (185 with a live assertion, 6 labelled
+`#[ignore]` sketches — see `phase3-tests.md`'s own totals paragraph for the breakdown).
 
 ## Example 1: Files to CSV
 
 ### Connection to the High-Level Design
 
-The shortest complete path through the design: build one chunk, filter it, serialize it. It touches
-the identity rule (exactly one `Id` field, `Exact`-indexed and stored), the columnar layout, and the
-mask-based filter that makes the layout worth having.
+This is Phase 1's requirement 2 (a `Value` variant, produced by an ordinary command) and requirement
+5 (provenance per chunk, "flyweighted to the record") in their smallest form: one command builds a
+`RecordBatch` with a declared `Id` and concrete `FieldRole`s, and every read of it — a projection, a
+mask, a filtered view, a scalar cell, three serialized formats — goes through the single
+`RecordView` trait Phase 2 designed around one required method, `column_range` (§"Why the required
+method is a column *range*").
 
 ### Scenario
 
-A caller wants the files under `data/reports/` as a table, keeping only those over 1 MB, as CSV.
+A user wants a directory's contents as a table: file name, size, modification time — the kind of
+listing a report or an audit trips over constantly, and a natural first thing to try once records
+exist. The example keeps every default except what the scenario itself needs (a declared `Id`, so
+`file_id` — not the implicit `RowId` — identifies each row across refreshes) and reaches into
+`Column`/`Bitmap` directly for the filtering step, because **filtering has no query-level command**
+(§"Building views": `filter`/`take` are inherent Rust methods on `dyn RecordView`, deliberately out
+of this design's own query vocabulary — a future `ns-search` predicate is where that belongs).
 
 ### Sequence of Steps
 
-1. Build a `RecordSchema`: `key.name` as the `Id` (Exact-indexed, stored), `meta.file_size` as
-   `Numeric`, `meta.updated` as a `Timestamp`.
-2. List the directory and append a row per entry through a `RecordBatchMut` sized `with_capacity`.
-3. Wrap the batch as `ExtValue::RecordView`.
-4. Evaluate a predicate over the size column into a `Bitmap`, and `RecordBatch::filter` by it.
-5. `as_bytes("csv")`.
+1. The query `-R/data/-/ns-rec/file_records/files.csv` is submitted; `-R/data` resolves the `data`
+   directory as a key, then `ns-rec/file_records` runs as an action on it.
+2. `file_records` (an async command, since it lists the store) calls `context.get_async_store()`,
+   walks the directory with `listdir_asset_info`, and builds a `RecordBatchMut` with a declared
+   `Id` (`file_id`) and typed, role-tagged columns for name, size and modification time.
+3. `batch.freeze()` produces the `RecordBatch`; the command wraps it as `Value::from_record_view`
+   (an `ExtValue::RecordView`) and returns it.
+4. The trailing `.csv` in the query selects the serialization format; `write_table` runs the
+   schema's labels and the CSV null/empty-string convention (§Example 3, pitfall 1) over the batch.
+5. Separately — as library code, not a query — `select_columns`, `Column::compare` and `filter`
+   narrow the batch to files over a size threshold, and a one-row, one-payload-column result of
+   that filtering reads directly as a scalar (§"A view as a value").
 
 ### Core Example Code
 
-See [`phase3-tests.md`](./phase3-tests.md) §1.1. The command is `async fn` taking owned `State`
-with `context` last, per the macro's rule, and uses `get_asset_info` — which never schedules, after
-the repair the search design carries.
+See `phase3-tests.md` §1.1 for the full command (`file_records`) and the filtering/scalar-reading
+code (`largest_files`, `largest_size`). The command's shape:
 
-### The query
-
+```rust
+pub async fn file_records(
+    state: &State<Value>,
+    context: &Context<impl Environment<Value = Value>>,
+) -> Result<Value, Error> {
+    let schema = Arc::new(RecordSchema::new(vec![
+        FieldSchema::new("file_id", FieldType::Text).with_key(KeyRole::Id),
+        FieldSchema::new("size_bytes", FieldType::Int).with_role(FieldRole::numeric()).not_null(),
+        // … file_name, modified_timestamp …
+    ])?);
+    let entries = context.get_async_store().listdir_asset_info(&state.try_into_key()?).await?;
+    let mut batch = RecordBatchMut::with_capacity(schema, entries.len());
+    for info in entries.into_iter().filter(|i| !i.is_dir) {
+        batch.append_row(&[/* … from `info` … */])?;
+    }
+    Ok(Value::from_record_view(Arc::new(batch.freeze()?)))
+}
 ```
--R-dir/data/reports/-/ns-rec/file_records/report.csv
+
+### Guide and Executable Example
+
+No runnable `examples/` binary (§"Example Type"); the planned `RECORD_STREAM_GUIDE.md` links
+`phase3-tests.md` §1.1 directly as its worked example, the way `POLARS_COMMAND_LIBRARY.md` links its
+own test suite rather than duplicating code that would drift from it.
+
+**Expected output:**
+```
+file_id,file_name,size_bytes,modified_timestamp
+data/sales_2024.csv,sales_2024.csv,25600,2024-09-21T12:00:00Z
 ```
 
-## Example 2: A manifest-driven stream
+**Validation:**
+- [x] Demonstrates core functionality (a store directory → a typed, rolled-up table)
+- [x] Uses realistic parameters (a real `AsyncStore` listing, not a stub)
+- [x] Shows expected output for all three serialization formats exercised
+- [x] Every API name checked against `phase2-architecture.md` or a declared Phase 3 completion
+
+## Example 2: A manifest-driven stream with keyed chunks
+
+Builds on Example 1's schema and command shape, and goes into the mechanism Example 1 does not need:
+a **source** that outlives any one call, chunks addressable from anywhere in the store, and the two
+general `liquers-core` features — `RecipeProviderChain` and the `stored`/`cached` flags — that make
+keyed chunks work (§"Keyed chunks: naming, a recipe provider, and `stored`/`cached`").
+
+### Connection to the High-Level Design
+
+Phase 1 requirement 4 ("lazy and chunked, so a multi-gigabyte table is processed with one chunk
+resident at a time") and requirement 5 (per-chunk provenance) are both about a **source**, not a
+view — a view is already finite and in memory. This scenario is the one place in Phase 3 that opens
+a stream at all.
 
 ### Scenario
 
-`data/sales/daily.manifest.yaml` describes a stream of four chunks, each a SQL query over an offset
-window. The statement itself is shared and lives in a linked `.sql` file; only the offset varies, in
-the query, because **the query is the chunk's identity**.
+A sales-analytics folder holds `daily.manifest.yaml`: two explicit chunks (one unkeyed, one keyed —
+`orders_na.csv`) and a template generating `daily_0002.csv`, `daily_0003.csv`, … for as long as each
+chunk has 1000 rows. `uniform_schema` is declared, `stored: false` (chunks are re-read, not
+duplicated on disk) and `cached: true` (a chunk stays in memory for the session once evaluated).
+Traversal happens through a `ChunkResolver`; a `RecipeProviderChain` is what makes
+`-R/data/sales/daily_0042.csv` evaluable directly, without going through the source at all.
 
-### What it exercises
+### Sequence of Steps
 
-- `RecordSource::chunks()` — synchronous and cheap, returning `ChunkList::Known`.
-- `describe_chunk()` — asynchronous, because a descriptor carries a `Metadata`.
-- `stream()` called **twice**, yielding identical rows. This is the property the source/stream split
-  exists for, and the test that would have failed under the old single-type model.
-- `arguments` and `links` merging into each chunk's plan by parameter name, exactly as a recipe does.
+1. `-R/data/sales/daily.manifest.yaml/-/ns-rec/to_record_source` is evaluated:
+   `to_record_source` recognizes the `manifest: record-stream` discriminator, deserializes
+   `ManifestSpec`, and calls `ManifestSource::with_key` with the state's metadata key — which is
+   what derives the template's naming (`daily_{n:04}.csv`) and validates the per-chunk
+   `arguments`/`links` that only a keyed chunk may carry.
+2. `-R/data/sales/daily_0042.csv`, evaluated directly, never touches the source: the environment's
+   `RecipeProviderChain` tries `recipes.yaml` first, then `ManifestRecipeProvider`, which matches
+   the filename against `ChunkNaming::index_of`, renders the template's query at that index, and
+   hands back a `Recipe` carrying the manifest's `stored`/`cached` flags.
+3. `-R/data/sales/daily.manifest.yaml/-/ns-rec/materialize/daily.csv` opens a stream with a
+   `ContextResolver` (so every chunk it touches becomes a dependency of the result), walks chunks
+   **in order, one resident at a time** (`futures::stream::unfold`, never
+   `FuturesUnordered` — §Example 3, pitfall implicit in the corrected sketch), and concatenates them
+   into one `RecordBatch` once uniformity is confirmed.
+4. `-R/data/sales/daily.manifest.yaml/-/ns-rec/rowid-2-0` addresses row 0 of chunk 2 without
+   walking the stream at all — `chunks()` names chunk 2's query directly.
 
-### The manifest
+### Core Example Code
 
-See [`phase3-tests.md`](./phase3-tests.md) §2.4 for the complete file. The shape:
+`phase3-tests.md` §1.2 has the manifest YAML, `to_record_source`, the `ManifestRecipeProvider` and
+`ContextResolver`/`EnvResolver` sketches (Phase 4 fills their bodies — the *shape* is corrected
+there: lazy, in order, one chunk at a time), and nine tests against the parts that do not need a
+stream body to be written yet — `ManifestSpec`/`ManifestSource` construction, `ChunkList`, the
+discriminator, and the metadata-key-to-`with_key` wiring.
 
-```yaml
-manifest: record-stream
-version: 1
-number_format: "{:04}"
-extension: csv
-links:
-  sql: -R/queries/daily_orders.sql     # a query, so the chunk DEPENDS on the statement
-arguments:
-  batch_size: 1000
-chunks:
-  - query: ns-sql/sql_query-0-1000
-  - query: ns-sql/sql_query-1000-1000
+### Guide and Executable Example
+
+As Example 1: no standalone binary. The guide's "manifests and keyed chunks" section links
+`phase3-tests.md` §1.2, plus the corrected `stream()` sketch as the canonical shape a real
+`RecordSource` implementation should follow.
+
+**Expected output:**
 ```
+order_id,customer_id,total,region
+1,4021,58.50,EU
+```
+(one row of the materialized, concatenated stream, typed per `uniform_schema` — not inferred, so a
+leading zero or an intentionally-text-typed id column survives).
 
-## Example 3: Pitfalls and Edge Cases
+## Example 3: Pitfalls and edge cases
 
-Each of these is a real consequence of a decision the architecture made, not a hypothetical.
+Each pitfall names its symptom, cause, and correction; the protecting test is in `phase3-tests.md`.
 
-| Pitfall | What happens | Avoided by |
-|---|---|---|
-| `Text` offsets with `len` entries | Arrow needs **`len + 1`**, starting at 0; a consumer reads past the end or truncates the last value | The builder enforces it; a unit test asserts it |
-| `Vector` exported as a sibling buffer | It is a `FixedSizeList` whose values live in a **child** node; a flat export produces a malformed array | The export emits the child; `RECORDS03` checks it |
-| A new `ExtValue` variant without a `TypeInfo` | The type **cannot be stored** — the write path refuses an unregistered identifier | `type_descriptions` covers both variants; an integration test asserts it |
-| A `match` on `ExtValue` without a `#[cfg(feature = "records")]` arm | `--no-default-features` fails to compile | The build-matrix rows |
-| A JS typed-array view held across a call into wasm | Heap growth **detaches** it; reads throw or return garbage | Create views at point of use; the wrapper revalidates by buffer identity |
-| A per-chunk value in `arguments` with no `ChunkKeys` | Two chunks alias to one asset — **silently**, returning the first's data twice | Rejected at manifest load |
-| A command whose per-chunk parameters are not first | Chunk queries need an empty positional placeholder: `sql_query--1000-1000` | Signature ordering, documented in the guide |
+**1. CSV null vs. empty string — quoting is the only signal.** *Symptom:* a round trip changes an
+empty field's meaning. *Cause:* CSV has no null literal; the `csv` crate does not report whether a
+field was quoted. *Correction:* PostgreSQL's own convention — unquoted empty is null, `""` is the
+empty string — hand-written on both ends. Test: `column_null_distinct_from_empty_string`
+(`phase3-tests.md` §3.1, the exact name `phase2-architecture.md` §"Tier 1" gives it).
+
+**2. Leading zeros and the canonical-int rule.** *Symptom:* a ZIP code `01234` is read back as
+`1234`. *Cause:* schema-less inference tries `Int` first; the fix is that a cell counts as `Int`
+only when re-formatting the parsed number gives the cell back verbatim. *Correction:* declare the
+column `Text` in a schema — the schema-aware reader never guesses. Test:
+`schema_less_inference_canonical_int_rule_keeps_leading_zeros_as_text`.
+
+**3. Schema-less chunks inferring differently from each other.** *Symptom:* the same column is
+`Int` in one chunk and `Float` in the next, because each chunk is inferred alone. *Correction:*
+declare `uniform_schema` once, at the manifest level. Covered by Example 2's manifest and
+`manifest_schema_is_applied_to_the_whole_source`.
+
+**4. A small view pinning a large base.** *Symptom:* a one-row cached view keeps a 100 MB batch
+alive indefinitely. *Cause:* every view holds its base as `Arc<dyn RecordView>`. *Correction:*
+commands bounded by a caller-chosen count — `rec_id`, `row`, `head` — **materialize**; `select_columns`
+and `slice` stay views, by design (§"A small view keeps its whole base alive"). Not independently
+tested as a Rust unit (it is a command-layer policy, not a type invariant); named here so Phase 4's
+command implementations do not skip it.
+
+**5. HTML injection via an unescaped cell.** *Symptom:* `<script>` in a cell executes when served as
+`text/html`. *Correction:* every cell, label and description is escaped in the HTML writer. Tests:
+`html_escapes_cell_content`, `html_escapes_label_and_description` (§3.5, and §1.1's
+`html_escapes_cell_content` at the scenario level).
+
+**6. A stored `.html` table cannot be reloaded.** *Symptom:* a `.html` key fails to deserialize.
+*Cause:* HTML is presentation markup with no machine-readable structure — `TypeInfo` cannot declare
+"write-only" (filed as `TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`). *Correction:* this is correct
+behavior — the value is re-derived from its recipe. Test: `html_cannot_be_read_back` (§7).
+
+**7. A CSV keyed chunk re-read outside its manifest loses types.** *Symptom:* `data/sales/daily_0042.csv`
+read directly infers types instead of using the manifest's schema. *Correction:* choose
+`extension: arrow` (`records-ipc`) for a keyed chunk that must survive direct, out-of-manifest reads
+losslessly; CSV stays smaller but schema-less outside the manifest. Documented, not independently
+tested (it is a modeling choice for a manifest's author, not an assertion about the code).
+
+**8. `materialize` of a non-uniform source fails.** *Symptom:* two chunks with columns in different
+order refuse to concatenate. *Correction:* this is correct — declare `uniform_schema`, project with
+`select_columns` first, or export chunk by chunk. Covered by `RecordBatch::concat`'s documented
+error in Error Handling, below (`phase2-architecture.md` §"Error Handling"); the passing case is
+`manifest_schema_is_applied_to_the_whole_source`.
+
+**9. A value with no `data_format` is never sniffed.** *Symptom:* a stored value with a
+`type_identifier` but no format cannot be reloaded. *Correction:* this is correct — a format is
+never guessed; metadata must always carry one. Test: `to_record_refuses_unlabelled_text_rather_than_guessing`
+(§5.3).
+
+**10. `Arc` fields need serde's `rc` feature.** *Symptom:* `#[derive(Serialize)]` fails to compile
+over an `Arc<T>` field. *Correction:* `serde = { features = ["rc"] }`, already in Phase 2's
+`liquers-records/Cargo.toml` block. A compile-time fact, not a runtime test.
+
+**11. A derived `Default` silently flips `stored`/`cached` to `false`.** *Symptom:* a struct literal
+built with `..Default::default()` produces `stored: false` when the field means "true unless said
+otherwise." *Cause:* a derived `Default` for `bool` is `false`. *Correction:* `Option<bool>` with a
+`stored()`/`cached()` accessor defaulting to `true` — applied to `Recipe`, `MetadataRecord` and
+`AssetInfo`. Tests: `phase3-tests.md` §4.2 (10 tests), all passing exactly this check.
 
 ## Corner Cases
 
 ### 1. Memory
 
-One batch resident during traversal, never the whole stream — the property the whole chunked design
-exists for, and the one most easily lost by a `collect()` slipped in for convenience. Tested by
-asserting how many batches are alive at once, not by measuring bytes.
+- **A one-row view pinning a 100 MB base** — Example 3, pitfall 4; mitigated at the command layer,
+  not the type layer, because `select_columns`/`slice` must stay lazy for streaming to work at all.
+- **A stream never holds more than one chunk resident** — the corrected `ManifestSource::stream`
+  shape (§1.2) and `records07_stream_never_holds_more_than_one_chunk_resolution_at_a_time`
+  (`phase3-tests.md` §6), which proves the *contract* against a reference `RecordSource` since
+  `ManifestSource::stream`'s own body is still a Phase 4 sketch.
+- **`materialize`'s `max_rows`** bounds the one place a source is deliberately collected whole;
+  refused past the limit rather than truncated silently (Error Handling, `phase2-architecture.md`).
+- **Buffers are 64-byte aligned and `Arc`-shared** — slicing, projecting and filtering never copy
+  column data except where `RowIndexView`'s gather is inherently a copy (§"The implementations").
 
 ### 2. Concurrency
 
-Buffers are `Arc`-shared and immutable once built, so `select`, `slice` and a column hand-off copy
-nothing and are safe to share. No lock is held across an `.await`. Two traversals of one source are
-independent — which is what makes an HTTP handler able to open its own stream per request.
+- **Two concurrent requests for the same manifest-backed source each get their own traversal** —
+  the entire reason a source, not a stream, is the value (§"Why a *source* makes this work, and a
+  stream would not"). No test needed beyond `stream_outlives_the_source_arc_that_opened_it`
+  (`phase3-tests.md` §5.7): each `.stream()` call is independent by construction.
+- **`RowFnView`'s closure runs only for the requested range and column** —
+  `row_fn_view_calls_closure_only_for_the_requested_range_and_column` (§2.4) proves no
+  over-computation happens under concurrent readers sharing one view.
+- **`Send`/`Sync` on native, vacuous on wasm** — every trait's `MaybeSend + MaybeSync` supertrait
+  bound, unchanged from `ForeignValue`'s precedent; checked by the build matrix (§8), not a runtime
+  test.
 
 ### 3. Errors
 
-Every rejection names what is wrong: `concat` names the first differing field, a bad schema names
-which invariant failed, an ambiguous unqualified field name lists every candidate. Typed
-constructors throughout; `Error::new` appears nowhere.
+- Every error path in `phase2-architecture.md`'s "Error Handling" table has a test: schema-aware
+  read failures (§3.1), the ambiguous JSON shape (§3.3), a non-`Id` schema refusing `rec_id` (not
+  independently tested — a command-layer check with no type to exercise until Phase 4 writes the
+  command), `RecordBatch::new`/`concat` mismatches (§2.4, §2.6), scalar-read shape errors (§5.5).
+- **A mid-HTTP-stream failure after headers are sent** is a documented limitation
+  (`phase2-architecture.md` §"The hard part: an error after the first byte"), not something Phase 3
+  can test without `liquers-axum` wiring — named here so Phase 4 does not treat it as solved.
 
 ### 4. Serialization
 
-`RecordView` writes json / ndjson / csv; a source writes **only its manifest**, and its rows reach
-bytes through `ns-rec/materialize`. A non-uniform source **cannot be materialized** — `materialize`
-fails, naming the first differing field — so its rows are exported chunk by chunk.
+- **Round trip per format** — `phase3-tests.md` §7, one test per format, csv/tsv/ndjson/json
+  round-tripping values, markdown/html one-way, ipc lossless behind its feature.
+- **`RECORDS01`'s two halves** — a plain `serde` round trip of `RecordBatch` (always lossless: every
+  field derives `Serialize`/`Deserialize`) versus a CSV round trip (loses the `Id` role, explicitly
+  asserted, not merely claimed) — `phase3-tests.md` §6.
+- **Compression, dictionary encoding** — IPC refuses both, naming what was found; the checked-in
+  fixture the refusal tests need is a named Phase 4 sketch (§3.7), not fabricated here.
 
-### 5. Feature gating
+### 5. Integration (cross-crate)
 
-`--no-default-features` must compile with no records module, no variants reached, and no `bytemuck`
-in the dependency graph. This is the failure mode a cfg-gated enum variant causes, and the reason
-the matrix rows exist.
+- **`liquers-core`**: `RecipeProviderChain` (general — any generative provider plugs in the same
+  way) and `stored`/`cached` on `Recipe`/`MetadataRecord`/`AssetInfo` — §4, 15 tests, none behind
+  `records`, since both are general core features records merely motivated.
+- **`liquers-lib`**: `ExtValue::RecordView`/`RecordSource`, `TypeInfo` with the bare identifiers,
+  `to_record`/`to_record_source` through the ordinary `evaluate` path — §5.
+- **`liquers-axum`**: streaming a source over HTTP is superseded as a mechanism
+  (`VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`, noted in `phase2-architecture.md`); until
+  that lands, a source is served by materializing it, the ordinary `BinaryResponse` path with no
+  `liquers-axum` change — nothing new to test here.
+- **`liquers-web`**: the wasm-only counterparts to `RECORDS05`/`RECORDS06` are named, sketched, and
+  left for `liquers-web` to write once its `RecordBatch` bindings exist (§6, closing block).
 
-## Test Plan
+### 6. Feature gating
 
-| Group | Count | File |
-|---|---|---|
-| Unit — schema, bitmap, batch ops, nulls, sizes, alignment, `ChunkId` | 39 | `liquers-lib/src/records/{mod,buffer}.rs` |
-| Integration — end-to-end, re-openability, memory, manifest, serialization, features | 25 | `liquers-lib/tests/record_streams_*.rs` |
-| Language-binding reference — `RECORDS01`–`09` | 9 | native: `liquers-lib`; wasm: `liquers-web` (`RECORDS05`, `RECORDS06`) |
-| **Total** | **73** | |
-
-`RECORDS05` (a view surviving host-heap growth) and `RECORDS06` (handle release via
-`debug-handles`, as `RUNTIME05` already does) are `liquers-web` tests and run in the browser loop,
-not the native one.
-
-## Reworked by the Phase 2 trait revision (2026-09-24)
-
-**Phase 3 needs rework before it is approved.** Phase 2 changed from data structures to interfaces:
-`RecordSource`, `RecordStream` and a new `RecordView` are traits; `RecordBatch` is the materialized
-view; the value variants are `ExtValue::RecordView` and `ExtValue::RecordSource`, holding trait
-objects. The narrative above and the code in `phase3-tests.md` were written against the earlier
-form, and **40 functions** there touch something that changed. None of the changes alters what a
-test *asserts*; each alters how it gets its value.
-
-| Group | Change | Tests |
-|---|---|---|
-| **Renames** | `RecordChunk` → `RecordView` (variant, identifier, `TypeInfo`); the JS handle class `RecordChunk` → `RecordBatch` | `test_end_to_end_record_chunk_serialization`, `test_record_chunk_type_info_registered`, `test_type_descriptions_match_identifiers`, `test_record_chunk_{csv,json,ndjson}_serialization`, `test_records_feature_gated`, `test_per_chunk_arguments_without_cache_rejected`, `records04`, `records05`, `records06`, and scenario 1's helpers |
-| **Batch operations become view constructors** | `RecordBatch::{select, filter, slice, value, with_columns}` → `select_columns`, `filter`, `slice`, `value`, `with_column`/`with_columns` on `Arc<dyn RecordView>`. Results are views, compared through `materialize()`. `select` by index becomes `select_columns` by name, **and must now assert that the `Id` column is kept** | `batch_select_zero_copy_projection`, `batch_filter_by_mask`, `batch_filter_length_mismatch_errors`, `batch_slice_preserves_arc_sharing`, `batch_value_reads_single_cell`, `column_null_distinct_from_empty_string`, `batch_with_columns_appends_derived_fields`, scenario 1's filtering and `records_to_csv` |
-| **Source construction** | `RecordSource { backing: SourceBacking::… }` → `ManifestSource::new` / `InMemorySource::new`; the `uniform_schema` field → the `schema()` method | `test_record_source_reopenable`, `test_record_source_manifest_round_trip`, `test_non_uniform_chunks_ndjson_succeeds`, `test_non_uniform_chunks_single_csv_fails`, `test_manifest_template_unbounded`, `test_manifest_yaml_deserialization`, `test_chunk_descriptor_serialization`, `records07` |
-| **Serializing a source** | A source serializes **only as a manifest**; its rows go through `materialize`. `records_to_csv` / `records_to_ndjson` are gone — the trailing filename chooses the format. `test_non_uniform_chunks_ndjson_succeeds` **inverts**: `materialize` of a non-uniform source must fail naming the first differing field, and per-chunk NDJSON succeeds | `test_non_uniform_chunks_ndjson_succeeds`, `test_non_uniform_chunks_single_csv_fails`, `test_end_to_end_record_chunk_serialization`, scenario 1's `records_to_csv` |
-| **Test locations** | Records became their own crate. Tests of the data model, views, formats, readers, manifests and the provider move from `liquers-lib/src/records/…` to `liquers-records/src/…` and `liquers-records/tests/`, and lose their `#[cfg(feature = "records")]` gates. Tests of the `ExtValue` variants, `TypeInfo`, the scalar hooks, `to_record`, the `ns-rec` commands and the polars bridge stay in `liquers-lib`, gated. The `RECORDS` counterparts split the same way | every file header in `phase3-tests.md` naming `liquers-lib/src/records/` |
-| **The builder** | `RecordBatchBuilder` / `ColumnBuilder` → `RecordBatchMut` / `ColumnMut` (`with_capacity`, `append_row`, `freeze`), behind the `RecordViewMut` trait. The explicit `Id` is optional, so schemas in fixtures need not declare one | every test building a batch, `test_record_batch_builder`, scenario 1 |
-| **Opening a stream** | `source.stream(&context)` → `Arc::clone(&source).stream(resolver)`, with a `ContextResolver` inside a command and an `EnvResolver` outside one. Items are `Arc<dyn RecordView>`, so a test comparing rows materializes them | `test_record_source_reopenable`, `test_streaming_bounded_memory`, `records08`, scenario 2's consumption code |
-
-Tests comparing two `RecordBatch`es directly — `batch_concat_same_schema`, `test_record_batch_builder`,
-`test_empty_record_batch`, `records01` — are unaffected: `RecordBatch` keeps `PartialEq`.
-
-**New tests the revision requires**, none of which the earlier form could have expressed:
-
-| Test | Asserts |
-|---|---|
-| `view_reads_agree_with_column_range` | For every built-in view, `column`, `value` and `materialize` equal what `column_range` gives — the property test of Phase 2 open question 12 |
-| `batch_materialize_is_shallow` | `materialize()` on a batch shares every buffer (`Arc::ptr_eq`) |
-| `select_columns_keeps_key_columns` | `Id` and `Source` survive a projection that does not name them |
-| `filter_over_filter_stacks` | Two filters compose to the intersection, with indices mapped through both layers |
-| `row_fn_view_computes_only_the_range` | A `RowFnView`'s closure is called exactly for the requested column and rows |
-| `single_cell_view_reads_as_scalar` | One row, one payload column: `try_into_i64`, `try_into_f64`, `try_into_string` agree with the equivalent base `Value`; `Null` gives `None` through the `_option` forms; a `select_columns-id` view reads as the id |
-| `larger_view_refuses_scalar` | Two rows, or two payload columns, refuse with an error naming the shape |
-| `single_cell_view_binds_to_linked_argument` | Through a recipe `links:` entry, into an `f64` argument. **Needs `EXTENDED-VALUES-CANNOT-BIND-TO-SCALAR-ARGUMENTS` fixed** |
-| `tiny_results_release_their_base` | `rec_id`, `row` and `head` return a batch (`as_batch().is_some()`), and dropping the base frees it |
-| `materialize_refuses_past_max_rows` | The limit is an error naming how to raise it, not a silent truncation |
-| `materialize_command_serializes_as_csv` | `…/daily.manifest.yaml/-/ns-rec/materialize/daily.csv` evaluates to CSV bytes through the ordinary path; the chunks are dependencies of the result |
-| `source_serializes_only_as_manifest` | A `ManifestSource` writes and reads back its manifest; an `InMemorySource` and a wrapping source refuse `as_bytes` |
-| `csv_round_trip_values_and_types` | Every column type writes and reads back equal, through the inference rules |
-| `csv_null_is_not_empty_string` | Unquoted empty reads as null, quoted `""` as the empty string (replaces the old `column_null_distinct_from_empty_string` expectation for the file form) |
-| `csv_quoting_corpus` | Separator, quote, CR, LF and CRLF inside fields; doubled quotes; a malformed file fails with its line number |
-| `inference_keeps_leading_zeros` | `01234`, `+5`, `1e3` stay text; an over-large integer is not turned into a float |
-| `schema_less_read_has_no_id_and_implicit_row_ids` | A file read without a schema has no `Id` column; `row_id` gives `(chunk, row)` and `row_number` the position |
-| `ndjson_reads_differing_keys_as_union` | Missing keys become nulls; nested arrays of numbers become vectors |
-| `markdown_escapes_and_uses_labels` | `\|`, line breaks and `<` are escaped; headers are labels; a default label reads back as its name |
-| `html_escapes_every_cell` | A cell, label or description holding `<script>` is escaped — the security test |
-| `feather_round_trip_is_lossless` | Types, nulls, roles, labels and `chunk_id` survive (`records-ipc`) |
-| `feather_interoperates_with_polars` | A file written here reads in polars, and one written by polars reads here (`records-ipc` + `polars`) |
-| `parquet_written_here_reads_in_polars` | Including the null definition levels and the `liquers.schema` metadata (`records-parquet` + `polars`) |
-| `parquet_read_without_polars_is_refused` | With an error naming the feature |
-| `advertised_formats_match_features` | Every format in the `RecordView` `TypeInfo` writes, in each feature combination |
-| `schema_aware_csv_keeps_declared_types` | With a declared schema, `01234` stays text, `1.50` stays `"1.50"` in a `Text` column, and the `Id` and roles come from the schema |
-| `schema_aware_csv_rejects_what_does_not_fit` | An undeclared column, a missing non-nullable one, and an unparsable cell each fail with row and column |
-| `manifest_parses_stored_chunks_with_its_schema` | A plain-resource chunk is read through `read_resource` and parsed, not deserialized; its key is a dependency |
-| `manifest_checks_computed_chunks` | A command chunk whose view differs from `uniform_schema` is refused naming the field |
-| `schema_less_chunks_may_disagree` | Two CSV chunks of one table, one with only integers in a column, infer different types without a declared schema — the documented reason to declare one |
-| `json_orients_round_trip` | `records`, `list`, `split`, `values` (with a schema), `columns`, `index`, `table`: each written by `to_json` reads back through `from_json` |
-| `json_table_matches_pandas` | A fixture written by pandas with `orient="table"` reads with its types and `primaryKey` as the `Id`; ours carries labels as `title` |
-| `from_json_auto_refuses_ambiguous_shape` | An object of objects asks for `columns` or `index` |
-| `mutable_table_builds_and_freezes` | `RecordBatchMut::with_capacity` allocates once; `append_row`, `set_value` and `column_mut` write; `freeze` moves rather than copies; `into_mut` takes over unshared buffers |
-| `row_ids_survive_views_and_materialize` | A filtered row keeps its base `RowId`; a table materialized from three chunks has three `RowRun`s and correct row numbers |
-| `rowid_reads_one_chunk` | `ns-rec/rowid-2-10` over a manifest evaluates only chunk 2 |
-| `rec_id_without_declared_id_is_refused` | …naming `rowid` |
-| `to_record_accepts_every_input` | A view, bytes and text in `csv`/`tsv`/`json`/`ndjson`/`jsonl` (format from metadata or argument), a JSON value, and a key; a source is refused naming `materialize`; a text value with no format is refused rather than sniffed |
-| `to_record_source_recognizes_manifest_by_discriminator` | A document carrying `manifest: record-stream` under any key becomes a `ManifestSource` with its key's folder as `cwd` |
-| `manifest_version_is_lenient` | No `version`, and an unknown one, read as the latest; an unknown field is a `Warning` log entry |
-| `explicit_chunk_keyed_by_its_filename` | `ns-sql/sql_query-…/orders_eu.csv` in `data/sales/x.manifest.yaml` is the key `data/sales/orders_eu.csv`; one without a filename is unkeyed |
-| `template_chunks_named_by_convention` | Chunk 42 of `daily.manifest.yaml` is `daily_0042.csv`; `extension: arrow` gives `daily_0042.arrow`; `index_of` inverts it |
-| `per_chunk_arguments_need_a_key` | Per-chunk `arguments` on an unkeyed explicit chunk are refused by `with_key` (or when a stream opens keyless) — **not** at deserialization, so a stored manifest with per-chunk arguments reads back; colliding explicit names are refused at load. Replaces the old `test_per_chunk_arguments_without_cache_rejected` expectation |
-| `manifest_provider_serves_chunk_keys` | `-R/data/sales/daily_0042.csv` evaluates through `ManifestRecipeProvider` in the chain; `contains` is true without enumerating; listing shows explicit chunks only |
-| `provider_chain_prefers_recipes_yaml` | A key both providers answer comes from `recipes.yaml`; and the collision is reported at manifest load |
-| `stored_false_skips_the_write_but_reads_a_stored_copy` | A produced chunk is not written; a pre-existing stored copy, including an `Override`, is read in preference to recomputing |
-| `cached_false_is_not_registered` | Two requests evaluate twice; `stored: false, cached: false` is evaluated each time and is **not volatile** — a dependent is not made volatile |
-| `legacy_metadata_defaults_to_stored_and_cached` | A metadata record and a recipe written before the fields existed read as `true`/`true`; so do `MetadataRecord::new()`, `Recipe::default()` and `AssetInfo::default()` — the case a plain `bool` would have broken |
-| `record_value_adapter_round_trips` | `liquers-lib`'s `Value` implements `RecordValue`: a view and a source go in and come back out as the same `Arc` |
-| `records_crate_builds_alone` | `cargo test -p liquers-records` and `--target wasm32-unknown-unknown -p liquers-records` build with nothing above `liquers-core` — the dependency boundary as a test |
-| `manifest_document_converts_to_source` | A `*.manifest.yaml` loaded as YAML becomes a `ManifestSource` through `ns-rec/source`, and implicitly for `materialize`, with the key's folder as `cwd` |
-| `context_resolver_records_dependencies` | Chunks read through a `ContextResolver` become dependencies of the asset; through an `EnvResolver` they do not |
-| `stream_outlives_its_source_handle` | A stream stays valid after the caller's `Arc` of the source is dropped — the `'static` property axum needs |
-| `wrapping_source_is_stored_as_metadata_only` | A filtering source refuses `serialize`, and the asset write path stores metadata without failing |
-| `view_command_refuses_a_source` | `select_columns` given a source fails with a conversion error rather than collecting |
-| `stored_view_reads_back_as_batch` | A view written as CSV reads back as a `RecordBatch` under the same `RecordView` identifier |
-
-**Items of the list below that the revision settles:** `Column::gather` is declared, as
-`Column::take` and `Column::filter`; `Bitmap` gains `iter_ones`; and `column(i)` — now a `RecordView`
-method — is the idiomatic read, with `RecordBatch::columns` staying a public field for code that holds
-a batch. **Settled 2026-09-25:** the builder is `RecordBatchMut` with `append_row` and `with_capacity`
-(Phase 2 open question 10), and `FieldRole::and_stored()` / `.and_fast()` are declared in Phase 4.
-
-## What Phase 3 found that Phase 2 must absorb
-
-Writing tests against the architecture surfaced API the architecture does not declare. These are
-**findings, not inventions to wave through**: a test-first phase cannot compile against a surface
-that does not exist, so **Phase 2 takes an amendment before Phase 4 starts.**
-
-### Decisions needed
-
-**1. `RecordBatchBuilder`'s append surface — three drafters, three incompatible APIs.**
-
-Phase 2 declares `pub struct RecordBatchBuilder { /* … */ }` with **no methods at all**, and three
-agents working independently each invented a different one:
-
-| Pattern | Shape | Trouble |
-|---|---|---|
-| Per-column typed | `append_text(..)`, `append_uint(..)`, then `finish_row()` | Order-dependent, and `finish_row()` is easy to forget — a silent row miscount |
-| Row-at-a-time | `append_row(vec![FieldValue::Int(1), …])` | A `Vec` and a boxed value per row, which is what the columnar layout exists to avoid |
-| No builder | construct `RecordBatch { columns: vec![…], .. }` directly | Fine in a test, not an API |
-
-Three independent inventions is the signal that a decision was deferred rather than made.
-**Recommended: `append_row(&[FieldValue])` as the primary** — a slice not a `Vec`, hard to misuse,
-and the obvious thing for a test to call — **with typed per-column pushes available for bulk paths**
-where the per-value enum actually costs something. That is two entry points to one builder, not two
-builders.
-
-**2. Is `RecordBatch::columns` public, or reached through `column(i)`?** §1.2 indexes the field
-directly; the `RECORDS` tests call a method. Both can exist, but the tests should not disagree about
-which is idiomatic.
-
-**3. Does `Bitmap` implement `Iterator`, or only `get(i)`?** Phase 2 lists `get`, `and`, `or`, `not`,
-`count_ones` — no iteration. One scenario iterates. Both can coexist; pick the one the docs teach.
-
-### Straightforward additions
-
-| Needed | Status in Phase 2 | Disposition |
-|---|---|---|
-| `Column::gather(&mask)` | `RecordBatch::filter` is described as "gather by mask"; the column-level primitive it is built on is not declared | Declare it |
-| `FieldRole::and_stored()` / `.and_fast()` | Named in prose — "composing with `.and_stored()` and `.and_fast()`" — never declared | Declare them |
-
-### Already corrected in the tests
-
-- **`ChunkOrigin` in `RECORDS01` would not have compiled.** It used `asset_query: Option<Query>`,
-  omitted the required `chunk: Query`, and named `info` as `asset_info`. Phase 2 is authoritative;
-  the test now matches it.
-- **`Column::get_value` → `value`**, matching Phase 2's declared `RecordBatch::value(row, column)`.
-
-None of this changes the architecture. All of it is surface Phase 2 left as an ellipsis, which a
-narrative phase could tolerate and a test-first phase cannot.
+`records`, `records-ipc`, `records-parquet` on `liquers-lib`; `ipc`, `parquet` on `liquers-records`
+itself. Every format test file that needs one is gated at the file or test level (rule 4, digest);
+§8 lists the nine build-matrix rows this design adds to `scripts/check-build-matrix.sh`.
 
 ## Documentation and Learning Log
 
-- **The re-openability test is the one that earns the three-way split.** Under the earlier
-  single-`RecordStream` model it could not have been written: a second traversal either failed or
-  silently returned nothing. It is worth keeping prominent in `RECORD_STREAMS.md` for that reason.
-- **`RecordBatchBuilder` being an ellipsis was not obvious until code was written against it.** Two
-  independent drafters invented compatible-but-different append surfaces, which is the signal that a
-  decision was deferred rather than made.
-- **The guide's `RECORDS01`–`09` now have Rust counterparts**, which was the point of doing Phase 3
-  test-first — a binding author gets reference code rather than a one-line summary.
-- For `RECORD_STREAM_GUIDE.md`: the pitfalls table above is the guide's pitfalls section, and the
-  two scenarios are its two walkthroughs. Phase 5 should lift rather than rewrite them.
+### Guide candidate workflows
 
-## Requirements carried into this phase
+- **"How do I get a directory listing as a table?"** → Example 1, `phase3-tests.md` §1.1.
+- **"How do I set up a manifest-driven stream with keyed chunks?"** → Example 2, §1.2, plus the
+  manifest YAML itself as a template to copy.
+- **"How do I address one row without walking a whole stream?"** → `rowid`/`rec_id`,
+  `phase2-architecture.md` §"`rec_id` — the guaranteed path, as a query"; demonstrated in Example
+  2's step 4.
+- **"How do I filter rows by a value?"** → **not a query action** — `Column::compare` + `filter` in
+  library code (Example 1's `largest_files`); worth a guide callout precisely because it is the one
+  place the `pl` namespace's habits (`ns-pl/gt-amount-1000`) do not carry over.
+- **"How do I know which serialization format keeps my roles?"** → the format table in
+  `phase2-architecture.md` §"Table formats", and pitfalls 1/2/6/7 above for the traps in each
+  direction.
+- **"How do I add a value type Phase 4 needs a fixture for?"** → the three `#[ignore]`d format
+  sketches in `phase3-tests.md` §3.7/§3.8 name exactly what is missing (a dictionary-encoded IPC
+  file, a compressed one, a polars-produced Parquet file) — a guide for *producing* those fixtures
+  is worth writing once Phase 4 needs them, not before.
 
-### Identify the tests that belong to the language integration guide
+### Usage, meaning, and connections
 
-`guides/LANGUAGE-INTEGRATION_GUIDE.md` §VALUE now prescribes `RECORDS01`–`RECORDS09` for any
-*language* binding that exposes record values. **Phase 3 must decide which of its own tests are the
-Rust-side counterparts of those**, so a binding author has a reference implementation rather than a
-one-line summary — the guide's §3 explicitly says its appendix pseudocode "often fixes the contract
-more narrowly than the one-line summary suggests".
+`RecordView`/`RecordSource` connect to the existing command system exactly as any other `ExtValue`
+does — through `register_command!` and ordinary query evaluation — and to the store and asset
+manager through the two general features (`RecipeProviderChain`, `stored`/`cached`) rather than any
+records-specific hook, which is what makes them reusable by whatever generative provider comes next.
+The planned reference (`specs/reference/RECORD_STREAMS.md`, per Phase 1's "Documentation Intent")
+should draw its column-layout and provenance sections directly from `phase2-architecture.md`
+§"Data Structures" and §"Provenance and validity", with this document's Example 1/2 as its own
+worked illustrations.
 
-At minimum, Phase 3 identifies the Rust test that establishes each of:
+### Repeatable development guidance
 
-| Guide test | What Phase 3 must have a counterpart for |
-|---|---|
-| `RECORDS01` | a chunk round-trips with schema, roles and `ChunkOrigin` intact |
-| `RECORDS02` | a column read matches a copy |
-| `RECORDS03` | an Arrow export equals the source data; metadata survives or its loss is asserted |
-| `RECORDS04` | buffers are read-only |
-| `RECORDS05` | a view survives host-heap growth, or fails loudly |
-| `RECORDS06` | releasing a handle releases the value |
-| `RECORDS07` | a manifest-backed source is traversed one chunk at a time, nothing else resident |
-| `RECORDS08` | async and sync traversal of one source yield identical rows |
+- Validate every query against `specs/command_registry.yaml` once `ns-rec` commands exist
+  (`liquers-validate --command <name>` per name until they are registered, per `CLAUDE.md`).
+- When adding a new `Column` variant or `FieldType`, the checklist is the same as any `ExtValue`
+  addition (`CLAUDE.md` "Adding a Value Type"): a `TypeInfo` entry, both `ExtValueInterface`
+  directions, and — specific to records — a row in the Arrow-compatibility table
+  (`phase2-architecture.md` §"Where our layout meets Arrow's").
+- When writing a new `RecordSource`, run it against `RECORDS07`'s pattern
+  (`phase3-tests.md` §6): a counting resolver, drained through the real `stream()`, asserting the
+  peak concurrently-resolved chunk count is 1.
 
-`RECORDS09` is a binding-only disposition and needs no Rust counterpart.
+### Corrections and unexpected learning
 
-### Other requirements gathered during Phase 2
+- **`ManifestSource::stream`'s reference sketch materialized eagerly inside `stream()`** in an
+  earlier draft (`futures::stream::FuturesUnordered`, awaited and concatenated before returning) —
+  exactly the behavior the chunked design exists to avoid, and it also discarded chunk order, which
+  `RowRun` depends on. Corrected to a `futures::stream::unfold` shape that resolves one chunk per
+  step, in order (§1.2). No Phase 2 change needed — the trait signatures were already right; only a
+  draft's *implementation sketch* of them was wrong.
+- **`AsyncRecipeProvider<E>`'s real signature** takes `envref: EnvRef<E>` on every method and
+  returns `Result<Option<Recipe>, Error>` from `recipe_opt`, not the bare two-argument,
+  `Option`-returning shape two drafts assumed. Fixed throughout `phase3-tests.md` §1.2 and §4.1.
+- **`Recipe` has no `filename` field** — a keyed chunk's name comes from `Recipe::filename()`,
+  derived from the query's own trailing segment. Fixed in every `Recipe` literal in
+  `phase3-tests.md` §2.7 and §9.
+- **`Context`'s real constructor is `async` and needs an `AssetRef`**, not a bare
+  `Context::new(envref)`. Tests needing a `Context` now route through `evaluate()` against a tiny
+  registered probe command, following `liquers-core/tests/async_hellow_world.rs` — the pattern the
+  digest already pointed at (rule 7), which two drafts did not follow through on.
+- **`TypeInfo::type_identifier` for the two new variants is bare (`RecordView`, `RecordSource`)**,
+  not `provider.LocalName` — a draft's `"liquers:records:RecordView"` mixed the two conventions
+  `TypeInfo`'s own doc comment keeps separate. Fixed in `phase3-tests.md` §5.2.
+- Nothing here reopened a Phase 1 `neither` decision; the corrections above are all implementation
+  fidelity, not design questions.
 
-- **The growth test named in Phase 2** — force `memory.grow` between creating a typed-array view and
-  reading it, and assert the wrapper refreshed transparently. It is the test most likely to be
-  skipped and the one that catches the browser hazard.
-- **A round-trip per serialization format**, since `DefaultValueSerializer` is where a missing arm
-  surfaces.
-- **The build-matrix rows** for `records` on and off, including the wasm target.
-- **Manifest validation**: each chunk query plans, `arguments` names exist in the last action, and no
-  chunk name collides with a sibling `recipes.yaml`.
-- **The identity regimes**: a manifest using per-chunk `arguments` without a `ChunkKeys` must be
-  rejected, because the failure is otherwise silent aliasing.
+## Test Plan
 
+See `phase3-tests.md` for all 191 functions (185 with a live assertion, 6 `#[ignore]`d sketches),
+organized:
 
+- **§1** — the two scenarios' own code and tests (17 tests)
+- **§2** — `liquers-records` data-model unit tests: schema, buffer/bitmap, column kernels, views
+  (including implicit row ids), mutable builders, manifest validation (84 tests)
+- **§3** — format unit tests: csv, ndjson, json shapes, markdown, html, mod-level, ipc, parquet
+  (56 tests, 3 `#[ignore]`d)
+- **§4** — `liquers-core`: `RecipeProviderChain`, `stored`/`cached` defaults (15 tests)
+- **§5** — integration tests across `liquers-lib`/`liquers-records` (18 tests, 3 `#[ignore]`d)
+- **§6** — `RECORDS01`–`RECORDS11` Rust counterparts (9 tests, plus 2 wasm-only sketches for
+  `liquers-web`)
+- **§7** — one round-trip test per serialization format (8 tests)
+- **§8** — the nine build-matrix rows this design adds (script changes, no new tests)
+- **§9** — manifest validation: chunk-query planning, versions, collisions, naming (6 tests)
+
+Run once Phase 4 lands: `cargo test -p liquers-records --lib --tests`, then
+`cargo test -p liquers-lib --lib --tests` (default features cover `records`/`records-ipc`/
+`records-parquet`), then the reduced-feature and wasm32 rows of §8.
+
+## RECORDS counterparts
+
+| Test | Contract | Rust counterpart |
+|---|---|---|
+| `RECORDS01` | A view round-trips with schema, roles and chunk identity intact | `phase3-tests.md` §6: `records01_serde_round_trip_preserves_schema_roles_and_chunk_id` (lossless path) and `records01_csv_documents_which_metadata_it_loses` (the lossy path, explicitly asserted) |
+| `RECORDS02` | A column read through a view equals a materialized copy | §6: `records02_column_through_a_view_equals_a_materialized_copy`; also every `assert_reads_agree` call in §2.4 |
+| `RECORDS03` | An Arrow export equals the wrapper's data; documented metadata survives | §3.7 (feature `ipc`): `feather_round_trip_preserves_types_roles_and_labels`, `feather_preserves_chunk_id_in_custom_metadata` |
+| `RECORDS04` | A lent buffer is read-only; an edit through a copy never touches the original | §6: `records04_editing_a_shared_batch_copy_leaves_the_original_untouched`; also §2.6's `record_batch_into_mut_copies_a_shared_buffer` |
+| `RECORDS05` | A borrowed view survives an operation that could invalidate it | §6: `records05_view_keeps_reading_after_the_callers_arc_is_dropped` (Rust: `Arc` ownership). Wasm counterpart (heap growth): `liquers-web/tests/records_growth.rs`, sketch, named at the end of §6 |
+| `RECORDS06` | Releasing the last handle releases the value | §6: `records06_dropping_the_last_arc_makes_the_weak_handle_unresolvable` (`Weak::upgrade` after drop). Wasm counterpart (live handle count via `debug-handles`): same sketch file |
+| `RECORDS07` | A manifest-backed source is traversed one chunk at a time | §6: `records07_stream_never_holds_more_than_one_chunk_resolution_at_a_time`, against a reference `RecordSource` (`ManifestSource::stream`'s own body is a Phase 4 sketch, §1.2) |
+| `RECORDS08` | Draining a stream and materializing yield identical rows | §6: `records08_stream_drain_and_materialize_agree`, against the real `InMemorySource` |
+| `RECORDS09` | NA unless the language has no async model | NA — Rust always has one; `RecordView` is synchronous and `RecordSource` always async, so there is no fallback route to document |
+| `RECORDS10` | A single-cell view reads as a scalar; a larger view refuses, naming its shape | `phase3-tests.md` §5.5: `single_cell_view_reads_as_a_scalar`, `multi_row_view_refuses_scalar_read_naming_its_shape` |
+| `RECORDS11` | NA unless the language may implement the traits | Rust can: §6, `records11_a_user_defined_view_agrees_across_column_value_and_materialize`, a `RecordView` defined entirely in the test file |
+
+## Queries used
+
+```
+-R/data/-/ns-rec/file_records/files.csv
+-R/data/-/ns-rec/file_records/files.md
+-R/data/-/ns-rec/file_records/files.html
+-R/data/-/ns-rec/file_records/select_columns-file_id-size_bytes/files_projected.csv
+-R/data/-/ns-rec/file_records/head-3/top_files.csv
+-R/data/-/ns-rec/file_records/rowid-0-0
+-R/data/sales/daily.manifest.yaml/-/ns-rec/to_record_source
+-R/data/sales/daily.manifest.yaml/-/ns-rec/materialize/daily.csv
+-R/data/sales/daily_0010.csv
+-R/data/sales/orders_na.csv
+-R/data/sales/daily.manifest.yaml/-/ns-rec/rowid-2-0
+-R/data/sales/daily.manifest.yaml/-/ns-rec/rec_id-123
+```
+
+None validate against `specs/command_registry.yaml` today, because no `ns-rec` command is registered
+yet — that is the point of a test-first Phase 3. Each should be checked at Phase 4 with
+`liquers-validate --command <name> -- '<query>'` (one `--command` per new name in the chain) before
+being trusted; the shapes follow the chaining convention already validated for `ns-pl`
+(`specs/reference/POLARS_COMMAND_LIBRARY.md:61`: one namespace prefix per chain, dash-joined
+arguments, actions chained by `/`).
+
+## What Phase 3 found that Phase 2 must absorb
+
+### (a) The digest's own "Phase 3 completions" — already used throughout `phase3-tests.md`
+
+These were declared in the drafting digest as Phase 3's to specify and Phase 2's to absorb
+verbatim; nothing below changed during drafting, so this is a confirmation list, not a new proposal:
+
+- **`ChunkTemplate`** — fields (`query`, `first_offset`, `step`, `batch_size`) and methods
+  (`query_at`, `offset_at`). Used and tested in `phase3-tests.md` §2.7.
+- **`JsonOrient`** — the eight-variant enum and its `FromStr` (`"records"`, …, `"auto"`), plus
+  `to_json`/`from_json`. Used and tested in §3.3, with a real inline fixture per orient (§3.3's own
+  note explains why the previous draft's skeletal `todo!()`s are now assertions).
+- **`ReadOptions`/`WriteOptions`** with a hand-written `Default` (`header: true`) — the exact lesson
+  pitfall 11 generalizes. Tested in §3.6.
+- **`TableFormat::from_data_format`** and its aliases (`csv:comma`, `csv:tab`, `jsonl`, `arrow`/
+  `arrow_ipc`/`feather`, …). Tested in §3.6.
+- **`FieldSchema` builders** (`new`, `with_label`, `with_description`, `with_key`, `with_role`,
+  `not_null`) and **`FieldRole` constructors** (`text`, `keyword`, `stored_only`, `numeric`,
+  `vector`, `ignored`, `and_stored`, `and_fast`). Used throughout §2.1–§2.7 and every scenario.
+- **`ToRecordOptions`** (`format`, `header`, `schema`, `max_rows`). Used in §5.3/§5.4.
+- **`RecipeProviderChain::new`/`push`** — confirmed against the *real* `AsyncRecipeProvider<E>`
+  signature (see §"Corrections and unexpected learning" above: `envref: EnvRef<E>` on every method,
+  `Result<Option<Recipe>, Error>` from `recipe_opt`). Tested in §4.1.
+
+### (b) The one real gap: `Bitmap` construction
+
+Phase 2 declares only `Bitmap::{get, and, or, not, count_ones, iter_ones}` — every one of them reads
+an *existing* bitmap; nothing builds one. Every test in this document that needs a mask (`filter`,
+`Column::filter`, `select_columns` combined with a predicate) needs to construct a `Bitmap` from
+scratch, and hand-packing bytes to do it (`Bitmap::from_bytes(vec![0b00010101], 5)`, an earlier
+draft's approach) makes every such test depend on the LSB-first packing convention that is
+`Bitmap`'s own implementation detail, not a caller's concern. **Phase 2 should add:**
+
+```rust
+impl Bitmap {
+    /// A bitmap of `len` bits, all clear. The building block for `set` to fill in.
+    pub fn new(len: usize) -> Self;
+    /// Built directly from booleans — the normal way a test, or a predicate evaluator, builds a
+    /// mask without knowing the byte-packing convention.
+    pub fn from_bools(bits: &[bool]) -> Self;
+    /// Mutates one bit. Building block for incremental mask construction (e.g. a search
+    /// predicate setting bits as clauses match).
+    pub fn set(&mut self, i: usize, value: bool);
+    /// The bit count — distinct from the byte count of its backing `AlignedBuffer`.
+    pub fn len(&self) -> usize;
+}
+```
+
+Used throughout `phase3-tests.md` §2.2 (`bitmap_new_is_all_clear`, `bitmap_from_bools_roundtrips_through_get`,
+`bitmap_set_mutates_a_single_bit`, `bitmap_len_reports_bit_count_not_byte_count`) and every mask
+built anywhere else in this document. No other `Bitmap` gap was found: `and`/`or`/`not`/
+`count_ones`/`iter_ones` cover everything a filtered view or a search predicate needs to *read* a
+mask once built.
+
+### (c) Confirmed as already sufficient — no gap
+
+**`RowFnView` and the other view constructors** (`ColumnsView`, `RowRangeView`, `RowIndexView`,
+`DerivedColumnView`, `AppendedColumnsView`) are fully declared in `phase2-architecture.md`
+§"Building views" and §"Writing a view", including `RowFnView::new`'s closure signature
+(`Fn(usize, usize) -> Result<FieldValue, Error>`, confirmed against the trait bound in
+§"Generic Parameters & Bounds") and `with_column`'s (`Fn(&[Column]) -> Result<Column, Error>`). An
+earlier draft listed these as gaps because it had not located the bound; `phase3-tests.md` §2.4 uses
+every one of them without needing a new name.
+
+### (d) Deferred to Phase 4 (not gaps)
+
+- **`ContextResolver`'s dependency-recording body** for `read_resource`/`evaluate` — the trait
+  signature is fixed (§"`ChunkResolver`"), only the implementation (which needs a live `Context`
+  wired to a real asset manager) is Phase 4 work. Sketched, not gapped, in `phase3-tests.md` §1.2.
+- **A schema living in `MetadataRecord`** — Phase 2 explicitly leaves this open
+  (§"Should the schema live in metadata?", open question 17); nothing in Phase 3 needed it, since
+  every test's schema comes from a manifest, a linked argument, or the data itself.
+- **Incremental reads of a stored chunk** (`CORE-STORE-OPENBIN-MISSING`) — Phase 2 already notes a
+  stored chunk is read whole, as one batch, and that this is accepted for this version.
+- **A real pandas-produced fixture for the `table` JSON orient** — `phase2-architecture.md` calls
+  for interop tested against a fixture pandas actually writes, not assumed from the spec; §3.3's
+  `orient_table_is_schema_aware_and_lossless` uses a hand-written fixture shaped like pandas' output
+  as a placeholder, and Phase 4 should replace it with a checked-in file once one is on hand.
