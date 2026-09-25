@@ -2,7 +2,7 @@
 id: ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT
 kind: feature
 title: Assets cannot be declared non-persistent
-status: draft
+status: closed
 priority: P2
 complexity: L
 area: [core/assets, core/commands, macro]
@@ -231,4 +231,49 @@ and third as a small prerequisite project rather than as records features.
 The user chose to build keyed record chunks in the `record-streams` project, so this is resolved there
 as piece C — `stored` and `cached` on `Recipe`, `MetadataRecord` and `AssetInfo`, default `true`, honoured by the asset manager. See `specs/design/record-streams/phase2-architecture.md` §"Keyed chunks". The status
 stays `draft` until the work starts; the record's own `status` is concluded with that project.
+
+## Resolution
+
+Implemented by `record-streams` Phase 4, Step 1.1 (the fields and accessors) and Step 1.2 (the asset
+manager honouring them), both in `liquers-core/src/assets.rs`, `liquers-core/src/recipes.rs` and
+`liquers-core/src/metadata.rs`. The mechanism is exactly the one specified in the update above, with
+no changes to the design during implementation:
+
+- **`stored: false`** — every store write for a keyed asset now reads `metadata.stored()` first and
+  skips the write (no data, no metadata-only entry) when it is `false`: the `MetadataSaver`'s two
+  write sites (the debounced background task and the wasm inline path), `AssetRef::save_to_store`,
+  and `set_state`/`set_binary` in both `DefaultAssetManager` and `ImmediateAssetManager` (reading the
+  *supplied* metadata's flag there, since those are explicit external writes). Reading an existing
+  stored copy — including fast-track — was untouched, exactly as the design required: an existing
+  copy, which may be a deliberate `Override`, is still preferred to recomputation.
+- **`cached: false`** — `DefaultAssetManager::get_nonvolatile_resource_asset`'s `entry_async` /
+  `or_insert_with` and `ImmediateAssetManager::get_resource_asset`'s map insertion are skipped for an
+  uncached key; a new `get_uncached_resource_asset` (default manager) and an inline branch (immediate
+  manager) build a fresh, unregistered asset per request instead, modeled on the existing volatile
+  path but **not** marking the asset volatile. `save_to_store`'s "not the registered owner" warning is
+  skipped for an uncached asset, exactly as it already was for a volatile one.
+- **Where the flags are read from**: both managers' `get_resource_asset` now resolve the key's recipe
+  once (`recipe_opt`, which `is_volatile` already called internally) and carry its `stored`/`cached`
+  fields into whichever constructor builds the asset, via a small `ad_hoc_resource_recipe` helper on
+  each manager — the flags land in the ad-hoc key recipe used at construction, so `Recipe::get_asset_info`
+  carries them into the constructed asset's metadata automatically. They are copied again where
+  `evaluate` later replaces the ad-hoc recipe with the provider's authoritative one
+  (`AssetRef::evaluate`, the recipe-adoption block), so metadata cannot disagree with the recipe that
+  is actually run. Neither flag makes an asset volatile, and neither runs inside
+  `resolve_volatility_before_evaluation` (confirmed dead end: that step runs before the provider's
+  recipe replaces the ad-hoc one, so the flags read there would always be `None`).
+
+**Tests**: `liquers-core/tests/stored_cached_flags.rs`, 12 tests (the six scenarios of
+`phase4-implementation.md` §"Tests this plan adds", each run against both `SimpleEnvironment<Value>`
+— queued, `DefaultAssetManager` — and `ImmediateEnvironment<Value>` — inline, `ImmediateAssetManager`
+— through one generic scenario body per test): `stored_false_value_is_not_written`,
+`stored_false_still_reads_an_existing_copy`, `cached_false_asset_is_not_reused`,
+`cached_true_asset_is_reused`, `both_false_is_not_volatile`,
+`flags_are_recorded_in_metadata_and_asset_info`. Verified against a pre-fix tree
+(`git stash` on `assets.rs` alone) that 6 of the 12 fail without this change and the other 6 pass
+trivially (behaviour the change does not touch), confirming the suite actually exercises the fix
+rather than passing by construction. Full validation:
+`CARGO_INCREMENTAL=0 cargo test -p liquers-core --lib --tests` (all 900+ tests across the crate,
+including the six pre-existing suites carrying `ASSET_LIFECYCLE.md`'s invariants) and
+`cargo check -p liquers-lib -p liquers-axum` both green.
 
