@@ -196,7 +196,7 @@ hook; the second is a test-local `ValueExtension`.
 CARGO_INCREMENTAL=0 cargo test -p liquers-lib --lib value::extended
 ```
 
-**Issue:** set `status: complete` in `specs/issues/EXTENDED-VALUES-CANNOT-BIND-TO-SCALAR-ARGUMENTS.md`
+**Issue:** set `status: closed` in `specs/issues/EXTENDED-VALUES-CANNOT-BIND-TO-SCALAR-ARGUMENTS.md`
 (`DOCS_STRUCTURE_GUIDE.md` §4.3), with `design: record-streams`.
 
 **Agent:** sonnet · rust-best-practices, liquers-unittest · context: the issue file,
@@ -221,7 +221,7 @@ driven by the `TypeInfo`, so a format added later is covered automatically.
 CARGO_INCREMENTAL=0 cargo test -p liquers-lib --lib value::simple
 ```
 
-**Issue:** set `SIMPLE-VALUE-CANNOT-READ-JSON` to `status: complete`.
+**Issue:** set `SIMPLE-VALUE-CANNOT-READ-JSON` to `status: closed`.
 
 **Agent:** haiku · liquers-unittest · context: the issue file, `simple.rs`.
 
@@ -310,7 +310,7 @@ CARGO_INCREMENTAL=0 cargo test -p liquers-core --lib --tests
 The full core suite must pass, not only the new tests: `assets.rs` carries the lifecycle
 invariants of `ASSET_LIFECYCLE.md`.
 
-**Issue:** `ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT` is set to `status: complete`.
+**Issue:** `ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT` is set to `status: closed`.
 
 **Agent:** sonnet · rust-best-practices, liquers-unittest · context:
 - Phase 2 §C;
@@ -346,7 +346,7 @@ invariants of `ASSET_LIFECYCLE.md`.
 CARGO_INCREMENTAL=0 cargo test -p liquers-core --lib recipes
 ```
 
-**Issue:** `NO-RECIPE-PROVIDER-CHAIN` is set to `status: complete`.
+**Issue:** `NO-RECIPE-PROVIDER-CHAIN` is set to `status: closed`.
 
 **Agent:** sonnet · rust-best-practices, liquers-unittest · context: Phase 2 §B, Phase 3 §4.1,
 `environment_builder.rs:85–110, 190–350`, `context.rs:1170–1210`.
@@ -704,7 +704,7 @@ Step 5.4.
 
 **Agent:** sonnet · rust-best-practices, liquers-unittest.
 
-**Issue:** set `RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY` to `status: complete` if the
+**Issue:** set `RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY` to `status: closed` if the
 override resolves it for this provider; otherwise note the partial resolution in the issue.
 
 ### Milestone 5 — `liquers-lib` glue

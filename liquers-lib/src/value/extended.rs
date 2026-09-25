@@ -29,6 +29,46 @@ pub trait ValueExtension:
         Err(Error::conversion_error(self.identifier(), "string"))
     }
 
+    /// Try to get an `i32` out.
+    ///
+    /// Default-refuses, exactly as `CombinedValue`'s `ValueInterface::try_into_i32` refused every
+    /// extended value before this hook existed — see
+    /// `specs/issues/EXTENDED-VALUES-CANNOT-BIND-TO-SCALAR-ARGUMENTS.md`. An extension overrides
+    /// this to let its values bind to an `i32` command argument.
+    fn try_into_i32(&self) -> Result<i32, Error> {
+        Err(Error::conversion_error(self.identifier(), "i32"))
+    }
+
+    /// Try to get an `i64` out. See [`ValueExtension::try_into_i32`].
+    fn try_into_i64(&self) -> Result<i64, Error> {
+        Err(Error::conversion_error(self.identifier(), "i64"))
+    }
+
+    /// Try to get an `i64`, allowing an extension to report "no value" instead of erroring.
+    ///
+    /// Mirrors [`liquers_core::value::ValueInterface::try_into_i64_option`]'s shape; the default
+    /// simply wraps [`ValueExtension::try_into_i64`] in `Some`, since an extended value carries no
+    /// generic "none" notion of its own (that lives on the base side of `CombinedValue`).
+    fn try_into_i64_option(&self) -> Result<Option<i64>, Error> {
+        self.try_into_i64().map(Some)
+    }
+
+    /// Try to get an `f64` out. See [`ValueExtension::try_into_i32`].
+    fn try_into_f64(&self) -> Result<f64, Error> {
+        Err(Error::conversion_error(self.identifier(), "f64"))
+    }
+
+    /// Try to get an `f64`, allowing an extension to report "no value" instead of erroring.
+    /// See [`ValueExtension::try_into_i64_option`].
+    fn try_into_f64_option(&self) -> Result<Option<f64>, Error> {
+        self.try_into_f64().map(Some)
+    }
+
+    /// Try to get a `bool` out. See [`ValueExtension::try_into_i32`].
+    fn try_into_bool(&self) -> Result<bool, Error> {
+        Err(Error::conversion_error(self.identifier(), "bool"))
+    }
+
     fn try_into_json_value(&self) -> Result<serde_json::Value, Error> {
         Err(Error::conversion_error(self.identifier(), "JSON"))
     }
@@ -152,7 +192,7 @@ impl<BaseValue: ValueInterface + Default, Ext: ValueExtension> ValueInterface
     fn try_into_i32(&self) -> Result<i32, Error> {
         match self {
             CombinedValue::Base(base) => base.try_into_i32(),
-            _ => Err(Error::conversion_error("extended value", "i32")),
+            CombinedValue::Extended(ext) => ext.try_into_i32(),
         }
     }
 
@@ -252,21 +292,21 @@ impl<BaseValue: ValueInterface + Default, Ext: ValueExtension> ValueInterface
     fn try_into_i64(&self) -> Result<i64, Error> {
         match self {
             CombinedValue::Base(base) => base.try_into_i64(),
-            _ => Err(Error::conversion_error(self.type_name(), "i64")),
+            CombinedValue::Extended(ext) => ext.try_into_i64(),
         }
     }
 
     fn try_into_bool(&self) -> Result<bool, Error> {
         match self {
             CombinedValue::Base(base) => base.try_into_bool(),
-            _ => Err(Error::conversion_error(self.type_name(), "bool")),
+            CombinedValue::Extended(ext) => ext.try_into_bool(),
         }
     }
 
     fn try_into_f64(&self) -> Result<f64, Error> {
         match self {
             CombinedValue::Base(base) => base.try_into_f64(),
-            _ => Err(Error::conversion_error(self.type_name(), "f64")),
+            CombinedValue::Extended(ext) => ext.try_into_f64(),
         }
     }
     fn try_into_key(&self) -> Result<liquers_core::query::Key, Error> {
@@ -329,6 +369,30 @@ where i32 : TryFrom<&'a B>
 }
 */
 
+/// Narrows an `f64` to `f32`, refusing rather than silently overflowing to infinity.
+///
+/// Precision loss from the narrowing itself is expected and not an error (that is what `as f32`
+/// is for); what must not happen silently is a finite `f64` landing outside `f32`'s range. A
+/// value that was already non-finite (`NaN`/`±inf`) narrows to its `f32` counterpart as usual.
+fn narrow_f64_to_f32(value: f64) -> Result<f32, Error> {
+    let narrowed = value as f32;
+    if value.is_finite() && !narrowed.is_finite() {
+        Err(Error::conversion_error(value, "f32"))
+    } else {
+        Ok(narrowed)
+    }
+}
+
+/// Narrows an `i64` to `u32`, refusing out-of-range values instead of truncating.
+fn narrow_i64_to_u32(value: i64) -> Result<u32, Error> {
+    u32::try_from(value).map_err(|_| Error::conversion_error(value, "u32"))
+}
+
+/// Narrows an `i64` to `u8`, refusing out-of-range values instead of truncating.
+fn narrow_i64_to_u8(value: i64) -> Result<u8, Error> {
+    u8::try_from(value).map_err(|_| Error::conversion_error(value, "u8"))
+}
+
 impl<B: ValueInterface + Default, E: ValueExtension> TryFrom<CombinedValue<B, E>> for i32
 where
     i32: TryFrom<B, Error = Error>,
@@ -337,7 +401,7 @@ where
     fn try_from(value: CombinedValue<B, E>) -> Result<Self, Self::Error> {
         match value {
             CombinedValue::Base(base) => i32::try_from(base),
-            _ => Err(Error::conversion_error(value.type_name(), "i32")),
+            CombinedValue::Extended(ext) => ext.try_into_i32(),
         }
     }
 }
@@ -362,7 +426,7 @@ where
     fn try_from(value: CombinedValue<B, E>) -> Result<Self, Self::Error> {
         match value {
             CombinedValue::Base(base) => i64::try_from(base),
-            _ => Err(Error::conversion_error(value.type_name(), "i64")),
+            CombinedValue::Extended(ext) => ext.try_into_i64(),
         }
     }
 }
@@ -389,7 +453,7 @@ where
     fn try_from(value: CombinedValue<B, E>) -> Result<Self, Self::Error> {
         match value {
             CombinedValue::Base(base) => f64::try_from(base),
-            _ => Err(Error::conversion_error(value.type_name(), "f64")),
+            CombinedValue::Extended(ext) => ext.try_into_f64(),
         }
     }
 }
@@ -408,7 +472,7 @@ where
     fn try_from(value: CombinedValue<B, E>) -> Result<Self, Self::Error> {
         match value {
             CombinedValue::Base(base) => f32::try_from(base),
-            _ => Err(Error::conversion_error(value.type_name(), "f32")),
+            CombinedValue::Extended(ext) => narrow_f64_to_f32(ext.try_into_f64()?),
         }
     }
 }
@@ -427,7 +491,7 @@ where
     fn try_from(value: CombinedValue<B, E>) -> Result<Self, Self::Error> {
         match value {
             CombinedValue::Base(base) => bool::try_from(base),
-            _ => Err(Error::conversion_error(value.type_name(), "bool")),
+            CombinedValue::Extended(ext) => ext.try_into_bool(),
         }
     }
 }
@@ -441,7 +505,7 @@ where
     fn try_from(value: CombinedValue<B, E>) -> Result<Self, Self::Error> {
         match value {
             CombinedValue::Base(base) => u32::try_from(base),
-            _ => Err(Error::conversion_error(value.type_name(), "u32")),
+            CombinedValue::Extended(ext) => narrow_i64_to_u32(ext.try_into_i64()?),
         }
     }
 }
@@ -455,7 +519,7 @@ where
     fn try_from(value: CombinedValue<B, E>) -> Result<Self, Self::Error> {
         match value {
             CombinedValue::Base(base) => u8::try_from(base),
-            _ => Err(Error::conversion_error(value.type_name(), "u8")),
+            CombinedValue::Extended(ext) => narrow_i64_to_u8(ext.try_into_i64()?),
         }
     }
 }
@@ -476,7 +540,7 @@ where
     fn try_from(value: CombinedValue<B, E>) -> Result<Self, Self::Error> {
         match value {
             CombinedValue::Base(base) => String::try_from(base),
-            _ => Err(Error::conversion_error(value.type_name(), "string")),
+            CombinedValue::Extended(ext) => ext.try_into_string(),
         }
     }
 }
@@ -559,6 +623,244 @@ mod tests {
         assert!(
             info.supports_data_format("png"),
             "the declared formats survive the delegation"
+        );
+    }
+
+    /// A test-local extension that never overrides a scalar hook, so every scalar conversion
+    /// falls through to `ValueExtension`'s default-refusing body
+    /// (`EXTENDED-VALUES-CANNOT-BIND-TO-SCALAR-ARGUMENTS`).
+    #[derive(Debug, Clone)]
+    struct RefusingExtension;
+
+    impl DefaultValueSerializer for RefusingExtension {
+        fn as_bytes(&self, format: &str) -> Result<Vec<u8>, Error> {
+            Err(Error::conversion_error("RefusingExtension", format))
+        }
+        fn deserialize_from_bytes(
+            _b: &[u8],
+            type_identifier: &str,
+            _fmt: &str,
+        ) -> Result<Self, Error> {
+            Err(Error::conversion_error(type_identifier, "RefusingExtension"))
+        }
+    }
+
+    impl ValueExtension for RefusingExtension {
+        fn identifier(&self) -> Cow<'static, str> {
+            Cow::Borrowed("test.RefusingExtension")
+        }
+        fn type_name(&self) -> Cow<'static, str> {
+            Cow::Borrowed("RefusingExtension")
+        }
+        fn default_extension(&self) -> Cow<'static, str> {
+            Cow::Borrowed("bin")
+        }
+        fn default_filename(&self) -> Cow<'static, str> {
+            Cow::Borrowed("value.bin")
+        }
+        fn default_media_type(&self) -> Cow<'static, str> {
+            Cow::Borrowed("application/octet-stream")
+        }
+    }
+
+    /// A test-local extension carrying an `i64`, exercising the scalar hooks an extension can
+    /// implement to opt into binding as a scalar command argument.
+    #[derive(Debug, Clone)]
+    struct ScalarExtension(i64);
+
+    impl DefaultValueSerializer for ScalarExtension {
+        fn as_bytes(&self, _format: &str) -> Result<Vec<u8>, Error> {
+            Ok(self.0.to_string().into_bytes())
+        }
+        fn deserialize_from_bytes(
+            _b: &[u8],
+            type_identifier: &str,
+            _fmt: &str,
+        ) -> Result<Self, Error> {
+            Err(Error::conversion_error(type_identifier, "ScalarExtension"))
+        }
+    }
+
+    impl ValueExtension for ScalarExtension {
+        fn try_into_string(&self) -> Result<String, Error> {
+            Ok(self.0.to_string())
+        }
+        fn try_into_i32(&self) -> Result<i32, Error> {
+            i32::try_from(self.0).map_err(|_| Error::conversion_error(self.0, "i32"))
+        }
+        fn try_into_i64(&self) -> Result<i64, Error> {
+            Ok(self.0)
+        }
+        fn try_into_f64(&self) -> Result<f64, Error> {
+            Ok(self.0 as f64)
+        }
+        fn try_into_bool(&self) -> Result<bool, Error> {
+            Ok(self.0 != 0)
+        }
+        fn identifier(&self) -> Cow<'static, str> {
+            Cow::Borrowed("test.ScalarExtension")
+        }
+        fn type_name(&self) -> Cow<'static, str> {
+            Cow::Borrowed("ScalarExtension")
+        }
+        fn default_extension(&self) -> Cow<'static, str> {
+            Cow::Borrowed("bin")
+        }
+        fn default_filename(&self) -> Cow<'static, str> {
+            Cow::Borrowed("value.bin")
+        }
+        fn default_media_type(&self) -> Cow<'static, str> {
+            Cow::Borrowed("application/octet-stream")
+        }
+    }
+
+    type RefusingValue = CombinedValue<crate::value::SimpleValue, RefusingExtension>;
+    type ScalarValue = CombinedValue<crate::value::SimpleValue, ScalarExtension>;
+
+    /// `EXTENDED-VALUES-CANNOT-BIND-TO-SCALAR-ARGUMENTS`: a refusing extension errors identically
+    /// through `ValueInterface` and through `TryFrom`, for every scalar type.
+    #[test]
+    fn refusing_extension_agrees_on_i32_via_value_interface_and_try_from() {
+        let value = RefusingValue::new_extended(RefusingExtension);
+        let via_interface = value.try_into_i32();
+        let via_try_from = i32::try_from(value);
+        assert!(via_interface.is_err());
+        assert!(via_try_from.is_err());
+    }
+
+    #[test]
+    fn refusing_extension_agrees_on_i64_via_value_interface_and_try_from() {
+        let value = RefusingValue::new_extended(RefusingExtension);
+        let via_interface = value.try_into_i64();
+        let via_try_from = i64::try_from(value);
+        assert!(via_interface.is_err());
+        assert!(via_try_from.is_err());
+    }
+
+    #[test]
+    fn refusing_extension_agrees_on_f64_via_value_interface_and_try_from() {
+        let value = RefusingValue::new_extended(RefusingExtension);
+        let via_interface = value.try_into_f64();
+        let via_try_from = f64::try_from(value);
+        assert!(via_interface.is_err());
+        assert!(via_try_from.is_err());
+    }
+
+    #[test]
+    fn refusing_extension_agrees_on_bool_via_value_interface_and_try_from() {
+        let value = RefusingValue::new_extended(RefusingExtension);
+        let via_interface = value.try_into_bool();
+        let via_try_from = bool::try_from(value);
+        assert!(via_interface.is_err());
+        assert!(via_try_from.is_err());
+    }
+
+    #[test]
+    fn refusing_extension_agrees_on_string_via_value_interface_and_try_from() {
+        let value = RefusingValue::new_extended(RefusingExtension);
+        let via_interface = value.try_into_string();
+        let via_try_from = String::try_from(value);
+        assert!(via_interface.is_err());
+        assert!(via_try_from.is_err());
+    }
+
+    /// A refusing extension also refuses the narrower `f32`/`u32`/`u8` `TryFrom` impls, which
+    /// route through the `f64`/`i64` hooks.
+    #[test]
+    fn refusing_extension_refuses_narrower_scalar_try_from_impls() {
+        assert!(f32::try_from(RefusingValue::new_extended(RefusingExtension)).is_err());
+        assert!(u32::try_from(RefusingValue::new_extended(RefusingExtension)).is_err());
+        assert!(u8::try_from(RefusingValue::new_extended(RefusingExtension)).is_err());
+    }
+
+    /// An extension that implements the scalar hooks binds through both paths, and the two
+    /// agree — the contract the issue is named after.
+    #[test]
+    fn scalar_extension_agrees_on_i32_via_value_interface_and_try_from() {
+        let via_interface = ScalarValue::new_extended(ScalarExtension(42)).try_into_i32();
+        let via_try_from = i32::try_from(ScalarValue::new_extended(ScalarExtension(42)));
+        assert_eq!(via_interface.unwrap(), 42);
+        assert_eq!(via_try_from.unwrap(), 42);
+    }
+
+    #[test]
+    fn scalar_extension_agrees_on_i64_via_value_interface_and_try_from() {
+        let via_interface = ScalarValue::new_extended(ScalarExtension(42)).try_into_i64();
+        let via_try_from = i64::try_from(ScalarValue::new_extended(ScalarExtension(42)));
+        assert_eq!(via_interface.unwrap(), 42);
+        assert_eq!(via_try_from.unwrap(), 42);
+    }
+
+    #[test]
+    fn scalar_extension_agrees_on_f64_via_value_interface_and_try_from() {
+        let via_interface = ScalarValue::new_extended(ScalarExtension(42)).try_into_f64();
+        let via_try_from = f64::try_from(ScalarValue::new_extended(ScalarExtension(42)));
+        assert_eq!(via_interface.unwrap(), 42.0);
+        assert_eq!(via_try_from.unwrap(), 42.0);
+    }
+
+    #[test]
+    fn scalar_extension_agrees_on_bool_via_value_interface_and_try_from() {
+        let via_interface = ScalarValue::new_extended(ScalarExtension(1)).try_into_bool();
+        let via_try_from = bool::try_from(ScalarValue::new_extended(ScalarExtension(1)));
+        assert!(via_interface.unwrap());
+        assert!(via_try_from.unwrap());
+    }
+
+    #[test]
+    fn scalar_extension_agrees_on_string_via_value_interface_and_try_from() {
+        let via_interface = ScalarValue::new_extended(ScalarExtension(42)).try_into_string();
+        let via_try_from = String::try_from(ScalarValue::new_extended(ScalarExtension(42)));
+        assert_eq!(via_interface.unwrap(), "42");
+        assert_eq!(via_try_from.unwrap(), "42");
+    }
+
+    /// The narrower `f32`/`u32`/`u8` `TryFrom` impls also reach the extension, via the
+    /// `f64`/`i64` hooks with a checked narrowing conversion.
+    #[test]
+    fn scalar_extension_binds_through_the_narrower_try_from_impls() {
+        assert_eq!(
+            f32::try_from(ScalarValue::new_extended(ScalarExtension(42))).unwrap(),
+            42.0f32
+        );
+        assert_eq!(
+            u32::try_from(ScalarValue::new_extended(ScalarExtension(42))).unwrap(),
+            42u32
+        );
+        assert_eq!(
+            u8::try_from(ScalarValue::new_extended(ScalarExtension(42))).unwrap(),
+            42u8
+        );
+    }
+
+    /// A narrower `TryFrom` impl still refuses an out-of-range value rather than truncating it
+    /// silently — the checked-narrowing half of the contract.
+    #[test]
+    fn scalar_extension_narrowing_refuses_out_of_range_values_instead_of_truncating() {
+        // 2^40 does not fit in u32, and is nowhere near a "silently truncated" small number.
+        let too_big: i64 = 1i64 << 40;
+        assert!(u32::try_from(ScalarValue::new_extended(ScalarExtension(too_big))).is_err());
+        // 300 does not fit in u8 (max 255); a silent truncation would give 44.
+        assert!(u8::try_from(ScalarValue::new_extended(ScalarExtension(300))).is_err());
+
+        // f64::MAX does not fit in f32; a silent truncation would give infinity with no error.
+        // `ScalarExtension` carries an `i64`, so the f32 narrowing itself (shared by every
+        // extension through `narrow_f64_to_f32`) is exercised directly here.
+        assert!(narrow_f64_to_f32(f64::MAX).is_err());
+        assert!(narrow_f64_to_f32(1.0).is_ok());
+    }
+
+    /// The `_option` hooks default to wrapping the non-option hook in `Some`, so a refusing
+    /// extension still errors (there is no "none" reading to fall back to) and an implementing
+    /// extension's answer round-trips through `Some`.
+    #[test]
+    fn option_hooks_default_to_wrapping_the_scalar_hook() {
+        assert!(RefusingExtension.try_into_i64_option().is_err());
+        assert!(RefusingExtension.try_into_f64_option().is_err());
+        assert_eq!(ScalarExtension(42).try_into_i64_option().unwrap(), Some(42));
+        assert_eq!(
+            ScalarExtension(42).try_into_f64_option().unwrap(),
+            Some(42.0)
         );
     }
 
