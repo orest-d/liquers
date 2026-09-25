@@ -36,7 +36,7 @@ materialized case. The examples below walk that spine in the order a reader need
 
 The **Corner Cases** section after them takes the same three abstractions through memory,
 concurrency, error and cross-crate axes systematically; the **Test Plan** points into
-`phase3-tests.md`'s 191 functions; the **RECORDS counterparts** table gives every
+`phase3-tests.md`'s 189 functions; the **RECORDS counterparts** table gives every
 `LANGUAGE-INTEGRATION_GUIDE.md` test its Rust-side proof; and the closing section records the small
 number of places Phase 3 needed something Phase 2 declared only as an ellipsis, or not at all.
 
@@ -71,15 +71,15 @@ Architecture") links it directly rather than duplicating it.
 | 1 | Example | Files to CSV | A single `RecordBatch`: schema with roles, a mask, a filtered view, three output formats | §Example 1, `phase3-tests.md` §1.1 (8 tests) |
 | 2 | Example | A manifest-driven stream | Keyed chunks, `ChunkResolver`, a `RecipeProviderChain`, `stored: false` / `cached: true` | §Example 2, `phase3-tests.md` §1.2 (9 tests) |
 | 3 | Pitfalls | 11 traps the design's shape invites | CSV null/leading-zero rules, non-uniform schemas, a pinned base, HTML injection, write-only formats, `Arc`+`serde`, derived-`Default` booleans | §Example 3 |
-| — | Data-model unit tests | `liquers-records` core types | Schema invariants, `Bitmap`/`Buffer`, `Column` kernels, every view constructor, implicit row ids, `RecordBatchMut`/`ColumnMut`, manifest validation | `phase3-tests.md` §2 (84 tests) |
-| — | Format unit tests | `liquers-records/src/formats/` | CSV quoting and inference, NDJSON, all eight `JsonOrient`s, Markdown/HTML escaping, IPC, Parquet | `phase3-tests.md` §3 (56 tests, 3 `#[ignore]`d) |
+| — | Data-model unit tests | `liquers-records` core types | Schema invariants, `Bitmap`/`Buffer`, `Column` kernels, every view constructor, implicit row ids, `RecordBatchMut`/`ColumnMut`, manifest validation | `phase3-tests.md` §2 (73 tests) |
+| — | Format unit tests | `liquers-records/src/formats/` | CSV quoting and inference, NDJSON, all eight `JsonOrient`s, Markdown/HTML escaping, IPC, Parquet | `phase3-tests.md` §3 (44 tests, 3 `#[ignore]`d) |
 | — | `liquers-core` tests | `RecipeProviderChain`, `stored`/`cached` | Chain semantics against the real `AsyncRecipeProvider<E>` signature; default-true accessors | `phase3-tests.md` §4 (15 tests) |
 | — | Integration tests | `liquers-lib`/`liquers-records` `tests/` | `ExtValue` round trip, `TypeInfo`, `to_record`/`to_record_source`, scalar reading, a `'static` stream | `phase3-tests.md` §5 (18 tests, 3 `#[ignore]`d) |
 | — | `RECORDS01`–`RECORDS11` | Rust language-binding counterparts | Every meaningful test `LANGUAGE-INTEGRATION_GUIDE.md` defines, proved in Rust | `phase3-tests.md` §6 (9 tests) |
 | — | Format round trip | one test per serialization format | CLAUDE.md-style coverage: csv, tsv, ndjson, json, md, html (write-only), ipc, parquet | `phase3-tests.md` §7 (8 tests) |
-| — | Manifest validation | chunk-query planning, versions, collisions, naming | `phase3-tests.md` §9 (6 tests) |
+| — | Manifest validation | chunk-query planning, versions, collisions, naming | `phase3-tests.md` §9 (5 tests) |
 
-**191** `#[test]`/`#[tokio::test]` functions in total (185 with a live assertion, 6 labelled
+**189** `#[test]`/`#[tokio::test]` functions in total (183 with a live assertion, 6 labelled
 `#[ignore]` sketches — see `phase3-tests.md`'s own totals paragraph for the breakdown).
 
 ## Example 1: Files to CSV
@@ -428,26 +428,35 @@ worked illustrations.
 - **`TypeInfo::type_identifier` for the two new variants is bare (`RecordView`, `RecordSource`)**,
   not `provider.LocalName` — a draft's `"liquers:records:RecordView"` mixed the two conventions
   `TypeInfo`'s own doc comment keeps separate. Fixed in `phase3-tests.md` §5.2.
+- **Phase 4 review (2026-09-25), compile fidelity against the real code:** `ResourceName` has no
+  `FromStr` (§4.1 now uses `ResourceName::new`); `Query` has no `FromStr` (§9 uses `parse_query`);
+  `ValueExtension` is `liquers-lib`'s trait, not `liquers_core::type_system`'s (§5.2); `Context`
+  has no `get_async_store` (§1.1 goes through `get_envref()`); `Metadata` is an enum whose key is
+  `metadata.key()?`, not a field (§1.2); an in-crate unit test naming `liquers_records::…` needs
+  `extern crate self as liquers_records;` (Phase 4 Step 2.1); `ManifestSpec.extension` absent reads
+  as `None`, the `csv` default being applied by the naming (§2.7); §3.8's polars test cannot live in
+  `liquers-records` (moved by Phase 4 Step 6.2). The totals were recounted: 189 tests in 28 files,
+  §2 has 73, §3 has 44 and §9 has 5.
 - Nothing here reopened a Phase 1 `neither` decision; the corrections above are all implementation
   fidelity, not design questions.
 
 ## Test Plan
 
-See `phase3-tests.md` for all 191 functions (185 with a live assertion, 6 `#[ignore]`d sketches),
+See `phase3-tests.md` for all 189 functions (183 with a live assertion, 6 `#[ignore]`d sketches),
 organized:
 
 - **§1** — the two scenarios' own code and tests (17 tests)
 - **§2** — `liquers-records` data-model unit tests: schema, buffer/bitmap, column kernels, views
-  (including implicit row ids), mutable builders, manifest validation (84 tests)
+  (including implicit row ids), mutable builders, manifest validation (73 tests)
 - **§3** — format unit tests: csv, ndjson, json shapes, markdown, html, mod-level, ipc, parquet
-  (56 tests, 3 `#[ignore]`d)
+  (44 tests, 3 `#[ignore]`d)
 - **§4** — `liquers-core`: `RecipeProviderChain`, `stored`/`cached` defaults (15 tests)
 - **§5** — integration tests across `liquers-lib`/`liquers-records` (18 tests, 3 `#[ignore]`d)
 - **§6** — `RECORDS01`–`RECORDS11` Rust counterparts (9 tests, plus 2 wasm-only sketches for
   `liquers-web`)
 - **§7** — one round-trip test per serialization format (8 tests)
 - **§8** — the nine build-matrix rows this design adds (script changes, no new tests)
-- **§9** — manifest validation: chunk-query planning, versions, collisions, naming (6 tests)
+- **§9** — manifest validation: chunk-query planning, versions, collisions, naming (5 tests)
 
 Run once Phase 4 lands: `cargo test -p liquers-records --lib --tests`, then
 `cargo test -p liquers-lib --lib --tests` (default features cover `records`/`records-ipc`/

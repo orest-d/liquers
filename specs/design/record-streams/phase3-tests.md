@@ -26,7 +26,7 @@ document adds), the Phase 2 / completion name is what appears here.
 
 | § | File | Tests | Covers |
 |---|---|---|---|
-| 1.1 | `liquers-lib/src/commands.rs` (+ `liquers-lib/tests/records_scenario_files_to_csv.rs`) | 8 | Scenario 1 — a store directory projected to records, filtered, serialized |
+| 1.1 | `liquers-lib/src/records/commands.rs` (+ `liquers-lib/tests/records_scenario_files_to_csv.rs`) | 8 | Scenario 1 — a store directory projected to records, filtered, serialized |
 | 1.2 | `liquers-lib/src/records/convert.rs`, `liquers-records/src/provider.rs`, `liquers-records/src/chunk_resolver.rs`, `liquers-records/src/lib.rs` (+ `liquers-lib/tests/record_manifest_keyed.rs`) | 9 | Scenario 2 — a manifest-driven stream with keyed chunks |
 | 2.1 | `liquers-records/src/schema.rs` | 13 | `RecordSchema::new` invariants, `FieldSchema` builders, YAML defaults |
 | 2.2 | `liquers-records/src/buffer.rs` | 14 | `AlignedBuffer`, `Buffer<T>`, `Bitmap` incl. the new constructors |
@@ -56,12 +56,12 @@ document adds), the Phase 2 / completion name is what appears here.
 | 6 | `liquers-records/tests/records_guide_counterparts.rs` (+ `liquers-web/tests/records_RECORDS.rs`, 2 wasm tests) | 9 | `RECORDS01`–`RECORDS11` Rust counterparts (`RECORDS10` is §5.5; `RECORDS03` is §3.7) |
 | 7 | `liquers-records/tests/format_round_trip.rs` | 8 | one round-trip test per serialization format |
 | 8 | (script, no new file) | — | build-matrix rows this design adds |
-| 9 | `liquers-records/tests/manifest_validation.rs` | 6 | chunk-query planning, unknown version, name collisions, templated naming |
+| 9 | `liquers-records/tests/manifest_validation.rs` | 5 | chunk-query planning, unknown version, name collisions, templated naming |
 
-**Totals:** 191 `#[test]`/`#[tokio::test]` functions across 32 files, of which **6 are `#[ignore]`d
+**Totals:** 189 `#[test]`/`#[tokio::test]` functions across 28 files (recounted at the Phase 4 review; earlier drafts said 191 across 32), of which **6 are `#[ignore]`d
 sketches**: 2 in §3.7 (IPC dictionary/compression fixtures), 1 in §3.8 (the polars Parquet bridge),
 2 in §5.8 (dependency recording, needs a live `Context`), and 1 in §5.5 (blocked on
-`EXTENDED-VALUES-CANNOT-BIND-TO-SCALAR-ARGUMENTS`). **185 tests carry a real, non-`#[ignore]`d
+`EXTENDED-VALUES-CANNOT-BIND-TO-SCALAR-ARGUMENTS`). **183 tests carry a real, non-`#[ignore]`d
 assertion.** Two further tests in `liquers-web/tests/records_RECORDS.rs` (§6) use
 `#[wasm_bindgen_test]` and run in `liquers-web`'s wasm loop; they are not counted above.
 
@@ -70,17 +70,17 @@ assertion.** Two further tests in `liquers-web/tests/records_RECORDS.rs` (§6) u
 
 ## 1.1 Scenario 1 — Files to CSV
 
-### Target: `liquers-lib/src/commands.rs`
+### Target: `liquers-lib/src/records/commands.rs`
 
 ```rust
-// liquers-lib/src/commands.rs — list files in a store directory as a table
+// liquers-lib/src/records/commands.rs — list files in a store directory as a table
 use std::sync::Arc;
 
 use liquers_macro::register_command;
 use liquers_core::{context::{Context, Environment}, error::Error, state::State};
 use liquers_records::{
     FieldRole, FieldSchema, FieldType, FieldValue, KeyRole, RecordBatchMut, RecordSchema,
-    RecordView, RecordViewMut,
+    RecordValue, RecordView, RecordViewMut,
 };
 
 use crate::value::Value;
@@ -112,7 +112,8 @@ pub async fn file_records<E: Environment<Value = Value>>(
     let dir_key = state.metadata.key()?.ok_or_else(|| {
         Error::general_error("file_records needs a directory resource, e.g. -R/data/".to_string())
     })?;
-    let store = context.get_async_store();
+    // `Context` has no store accessor of its own; the store is the environment's.
+    let store = context.get_envref().get_async_store();
     let entries = store.listdir_asset_info(&dir_key).await?;
 
     let mut batch = RecordBatchMut::with_capacity(schema, entries.len());
@@ -462,8 +463,9 @@ pub async fn to_record_source(
     let spec: ManifestSpec = serde_yaml::from_value(doc)
         .map_err(|e| Error::from_error(ErrorType::DeserializationError, e))?;
     let source = ManifestSource::new(spec, None)?;
-    let source = match &metadata.key {
-        Some(key) => source.with_key(key.clone())?,
+    // `Metadata` is an enum; its key is read through the fallible accessor (metadata.rs:1734).
+    let source = match metadata.key()? {
+        Some(key) => source.with_key(key)?,
         None => source,
     };
     Ok(Arc::new(source))
@@ -528,6 +530,11 @@ impl<E: Environment> AsyncRecipeProvider<E> for ManifestRecipeProvider {
 ```
 
 ### Target: `liquers-records/src/chunk_resolver.rs` (sketch)
+
+**File placement (Phase 4):** there is no `chunk_resolver.rs`. Following Phase 2's Integration
+Points table, the `ChunkResolver` trait and `ChunkValue` are in `value.rs` (Step 2.6) and the two
+resolvers in `sources.rs` (Step 4.2), with the bound `E::Value: RecordValue` the sketch below
+omits.
 
 `ChunkResolver` is a plain object-safe trait returning `BoxFuture` (§"`ChunkResolver`"), not an
 `#[async_trait]` trait — an implementation writes `fn foo(&self, …) -> BoxFuture<'static, …> {
@@ -1546,7 +1553,7 @@ mod tests {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use liquers_core::recipes::Recipe;
+    use liquers_core::{parse::parse_key, recipes::Recipe};
 
     #[test]
     fn chunk_naming_key_formats_with_padding() {
@@ -1595,7 +1602,10 @@ mod tests {
         let spec: ManifestSpec = serde_yaml::from_str(yaml).expect("deserialize");
         assert!(spec.stored);
         assert!(spec.cached);
-        assert_eq!(spec.extension, Some("csv".to_string()));
+        // `extension` is `Option<String>` with a plain `#[serde(default)]`, so an absent field
+        // reads as `None`; the `csv` default is applied where the naming is derived
+        // (`ChunkNaming`, in `with_key`), not by serde.
+        assert_eq!(spec.extension, None);
     }
 
     #[test]
@@ -2322,6 +2332,12 @@ mod tests {
 
 ## 3.8 `liquers-records/src/formats/parquet.rs` (feature `parquet`)
 
+**Relocation (Phase 4 review):** the second test below is gated `#[cfg(feature = "polars")]`, a
+feature `liquers-records` does not have and must not gain, so in this file it would never compile.
+Phase 4 Step 6.2 moves it to `liquers-lib/tests/records_parquet_polars.rs`, gated on
+`records-parquet` and `polars`, and writes it against the bridge. It is kept here as drafted so the
+count and the history stay traceable.
+
 ```rust
 // liquers-records/src/formats/parquet.rs
 #![cfg(feature = "parquet")]
@@ -2391,7 +2407,8 @@ mod recipe_provider_chain_tests {
                 .map(|(k, names)| {
                     (
                         parse_key(k).expect("test key"),
-                        names.into_iter().map(|n| n.parse().expect("test resource name")).collect(),
+                        // `ResourceName` has no `FromStr`; `new` is its constructor (query.rs:726).
+                        names.into_iter().map(|n| ResourceName::new(n.to_string())).collect(),
                     )
                 })
                 .collect();
@@ -2608,8 +2625,8 @@ fn record_value_source_round_trip_preserves_the_arc() -> Result<(), Box<dyn std:
 // liquers-lib/tests/record_typeinfo.rs
 #![cfg(feature = "records")]
 
-use liquers_core::type_system::ValueExtension;
-use liquers_lib::value::ExtValue;
+// `ValueExtension` is liquers-lib's trait (`liquers-lib/src/value/extended.rs`), not core's.
+use liquers_lib::value::{ExtValue, ValueExtension};
 
 #[test]
 fn record_view_type_info_is_registered_with_a_bare_identifier() {
@@ -3557,7 +3574,7 @@ naming pattern.
 
 ```rust
 // liquers-records/tests/manifest_validation.rs
-use liquers_core::{parse::parse_key, query::Key, recipes::Recipe};
+use liquers_core::{query::Key, recipes::Recipe};
 use liquers_records::{ChunkNaming, ChunkTemplate, ManifestSource, ManifestSpec};
 
 #[test]
@@ -3566,7 +3583,8 @@ fn a_chunk_query_plans_without_a_registry() -> Result<(), Box<dyn std::error::Er
     // plans without opening a store or a command registry — exactly what a manifest author should
     // run on `template.query` before committing a manifest. This test exercises the same parse the
     // tool would, at the level `liquers-records` can reach without a registry dependency.
-    let query: liquers_core::query::Query = "ns-sql/sql_query-0-1000".parse()?;
+    // `Query` has no `FromStr`; `parse_query` is the parser entry point.
+    let query = liquers_core::parse::parse_query("ns-sql/sql_query-0-1000")?;
     assert!(!query.encode().is_empty());
     Ok(())
 }

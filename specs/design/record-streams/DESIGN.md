@@ -4,11 +4,11 @@ kind: design
 title: Record streams — a lightweight, chunked, Arrow-interoperable tabular abstraction
 workflow: liquers-project
 status: draft
-phase: examples
+phase: implementation
 area: [lib/value, lib/commands, web, axum]
 gh_pr: []
 issues: [NO-RECORD-STREAM-ABSTRACTION, NO-RELATIONAL-DATABASE-ACCESS-LAYER, NO-RECIPE-PROVIDER-CHAIN, RECORD-SELECTION-IS-EAGER-NOT-A-VIEW, RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY]
-affects_docs: [reference/RECORD_STREAMS.md, guides/RECORD_STREAM_GUIDE.md, reference/VALUE_TYPE_SYSTEM.md, guides/TYPE_SYSTEM_GUIDE.md, guides/COMMAND_REGISTRATION_GUIDE.md, guides/LANGUAGE-INTEGRATION_GUIDE.md]
+affects_docs: [reference/RECORD_STREAMS.md, guides/RECORD_STREAM_GUIDE.md, reference/VALUE_TYPE_SYSTEM.md, guides/TYPE_SYSTEM_GUIDE.md, guides/COMMAND_REGISTRATION_GUIDE.md, guides/LANGUAGE-INTEGRATION_GUIDE.md, reference/ASSETS.md, reference/ASSET_LIFECYCLE.md, reference/ENVIRONMENT_CONFIG.md, reference/PROJECT_OVERVIEW.md, reference/REGISTER_COMMAND_FSD.md]
 created: 2026-09-19
 superseded_by:
 ---
@@ -79,6 +79,6 @@ rather than about what a record is.
 - [Engine survey](./engine-survey.md) — is the field-role model right, and can records front a relational database?
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md) — narrative, scenarios, corner cases, test plan
-- [Phase 3 test code](./phase3-tests.md) — 191 tests plus 2 wasm tests, organized by target file
+- [Phase 3 test code](./phase3-tests.md) — 189 tests plus 2 wasm tests, organized by target file
 - [Phase 4](./phase4-implementation.md)
 - [Phase 5](./phase5-documentation.md)

@@ -413,8 +413,11 @@ ordered list of `Arc<dyn AsyncRecipeProvider<E>>` that is itself a provider.
 | `get_asset_info(key)` | from the provider that has the recipe |
 
 The environment's provider becomes a chain: `recipes.yaml` first, then the manifest provider when
-`records` is on. `RecipeProviderChoice` gains the chain as a choice, and `EnvironmentBuilder` a way
-to append a provider, so an integration can add its own generative provider the same way.
+`records` is on. `RecipeProviderChoice` is **unchanged** — a choice is data in a configuration
+document and cannot name a provider living in another crate. Instead `EnvironmentBuilder` and
+`GenericEnvironment` gain `with_appended_recipe_provider`, and `liquers-lib`'s `LibKind` returns
+the chain as its default when `records` is on, so an integration adds its own generative provider
+the same way (Phase 4 decision 1).
 
 **`ManifestRecipeProvider`**, in `liquers-records/src/provider.rs` — it implements core's
 `AsyncRecipeProvider<E>` for any `E`, since it produces recipes and no values, with the same
@@ -461,12 +464,14 @@ does not derive `Default` — and the provider writes them into each chunk's rec
 
 | Flag | Honoured where | Meaning |
 |---|---|---|
-| `stored: false` | the store writes after producing — `set_state` steps 7–8 (`assets.rs:5699-5712`), `save_to_store` (`:2902`), `set_binary` (`:6717`) | **The produced value is not written.** Nothing else changes: an existing stored copy is still read, and **preferred to recomputation** — it may be `Override` data, and saving disk (not duplicating a database) is the purpose, not freshness |
-| `cached: false` | every site registering a keyed asset — `try_insert_key_asset` (`:5696`) and the `get(key)` path | **The asset is not registered for reuse.** It is evaluated for the request and dropped; a later request evaluates again, or reads the stored copy |
+| `stored: false` | every store write for the key — the metadata saver during evaluation (`AssetData::save_metadata_to_store`, `assets.rs:971`), `save_to_store` (`:2902`); `set_state` / `set_binary` read the supplied metadata's flag | **The produced value is not written, and no metadata-only entry is left either.** Nothing else changes: an existing stored copy is still read, and **preferred to recomputation** — it may be `Override` data, and saving disk (not duplicating a database) is the purpose, not freshness |
+| `cached: false` | every site registering a keyed asset on the `get(key)` path — `get_nonvolatile_resource_asset` (`:4884`) and `ImmediateAssetManager::get_resource_asset` (`:6493`) | **The asset is not registered for reuse.** It is evaluated for the request and dropped; a later request evaluates again, or reads the stored copy. `save_to_store`'s "not the registered owner" warning is skipped for it, as for a volatile asset |
 | both `false` | — | Evaluated on every request, never kept — and **not volatile**: volatility is contagious (`assets.rs:169`), and an uncached value is not an impure one |
 
-The flags reach the asset from its recipe — here, the manifest provider copies them — and are
-recorded in the stored metadata and reported in `AssetInfo`, so a consumer can see why a key has no
+The flags reach the asset from its recipe — here, the manifest provider copies them — **when the
+manager creates the keyed asset**, which is where it already resolves the recipe for volatility
+(not in `resolve_volatility_before_evaluation`, which runs before the provider's recipe replaces
+the ad-hoc key recipe). They are recorded in the stored metadata and reported in `AssetInfo`, so a consumer can see why a key has no
 stored data. **Reconciliation of a `stored: false` chunk** reads its version from the cached asset
 when `cached` is set, and otherwise re-evaluates — there is no stored metadata to read.
 
@@ -502,7 +507,6 @@ pub trait ChunkResolver: MaybeSend + MaybeSync + 'static {
     /// dependency when the resolver is a `ContextResolver`.
     fn read_resource(&self, key: Key) -> BoxFuture<'static, Result<(Vec<u8>, Metadata), Error>>;
 }
-```
 
 /// A chunk's value as the records crate sees it.
 pub enum ChunkValue {
@@ -845,6 +849,7 @@ mutates. Editing a stored table is `into_mut()`, edit, `freeze()` — a new valu
 in Liquers. Typed per-column pushes (`push_i64`, `push_str`) are the obvious next methods and are
 left for when a bulk path needs them.
 
+```rust
 /// A table computed cell by cell — how a generator written as a closure meets the columnar
 /// contract. `f(row, col)`, so a range read computes only the requested column.
 pub struct RowFnView<F> { schema: Arc<RecordSchema>, len: usize, f: F }
@@ -2479,14 +2484,14 @@ records crate free of the command layer.
 | `liquers-records` | `src/schema.rs` | `RecordSchema`, `FieldSchema`, `FieldType`, `FieldRole`, `KeyRole` and their construction helpers |
 | `liquers-records` | `src/manifest.rs` | `ManifestSpec` and its version handling, `ChunkTemplate`, `ChunkNaming` |
 | `liquers-records` | `src/views.rs` | The view implementations, the `impl dyn RecordView` constructors, `RowFnView` |
-| **`liquers-core`** | `src/recipes.rs` | `RecipeProviderChain`; `RecipeProviderChoice` gains the chain; `Recipe` gains `stored` and `cached` as `Option<bool>`, absent meaning `true`, with `stored()`/`cached()` accessors |
+| **`liquers-core`** | `src/recipes.rs` | `RecipeProviderChain`; `RecipeProviderChoice` unchanged; `Recipe` gains `stored` and `cached` as `Option<bool>`, absent meaning `true`, with `stored()`/`cached()` accessors |
 | **`liquers-core`** | `src/metadata.rs` | `MetadataRecord` and `AssetInfo` gain `stored` and `cached` the same way — `Option<bool>`, because both derive `Default` |
 | **`liquers-core`** | `src/assets.rs` | the store writes skip when `stored: false`; key-asset registration skips when `cached: false` |
-| **`liquers-core`** | `src/context.rs`, `src/environment_builder.rs` | appending a provider to the chain |
+| **`liquers-core`** | `src/context.rs`, `src/environment_builder.rs` | `with_appended_recipe_provider` on `GenericEnvironment` and `EnvironmentBuilder` |
 | `liquers-py` | wrappers of `Recipe`, `AssetInfo`, `MetadataRecord` | the two fields, or `..Default::default()` in struct literals |
 | `liquers-records` | `src/provider.rs` | `ManifestRecipeProvider` |
 | `liquers-records` | `src/value.rs` | `RecordValue`, `ChunkValue` |
-| `liquers-records` | `Cargo.toml` (new crate) | depends on `liquers-core`, `serde` (with `rc`), `serde_json`, `futures`, `chrono`, `bytemuck`; features `ipc` (`dep:flatbuffers`) and `parquet` (`dep:flate2`) |
+| `liquers-records` | `Cargo.toml` (new crate) | depends on `liquers-core`, `serde` (with `derive` and `rc`), `serde_json`, `serde_yaml`, `futures`, `chrono`, `bytemuck`, `async-trait`, `scc`; features `ipc` (`dep:flatbuffers`) and `parquet` (`dep:flate2`) — Phase 4 Step 2.1 has the full block |
 | `liquers-lib` | `src/records/mod.rs` (new) | `pub use liquers_records::*`, `impl RecordValue for Value`, adding `ManifestRecipeProvider` to the environment's chain |
 | workspace | `Cargo.toml` | `liquers-records` as a member and in `default-members` |
 | `liquers-records` | `src/mutable.rs` | `RecordViewMut`, `RecordBatchMut`, `ColumnMut` |
@@ -2520,11 +2525,14 @@ general ones of §"Keyed chunks".
 # liquers-records/Cargo.toml
 [dependencies]
 liquers-core = { path = "../liquers-core" }
-serde = { version = "1.0.229", features = ["rc"] }   # the types derive Serialize over Arc<…>
+serde = { version = "1.0.229", features = ["derive", "rc"] }   # derives over Arc<…>
 serde_json = "1.0.151"
+serde_yaml = "0.9.34"                                # the manifest provider reads *.manifest.yaml
 futures = "0.3.34"
 chrono = "0.4.45"
 bytemuck = "1.25"                                    # the aligned-buffer cast; tiny, no_std
+async-trait = "0.1.92"                               # ManifestRecipeProvider
+scc = "3.8.8"                                        # the provider's manifest cache
 flatbuffers = { version = "…", optional = true }     # version pinned in Phase 4
 flate2 = { version = "1", optional = true }          # already in the graph through png
 
@@ -3195,6 +3203,7 @@ information — each is a position that was argued for and then abandoned on evi
 | 2026-09-24 | **A source serializes only as its manifest; its rows need `materialize`** — an async method on `RecordSource`, an extension on `BoxRecordStream`, and the `ns-rec/materialize` command, bounded by `max_rows`. `ns-rec/source` added; `records_to_csv` / `records_to_ndjson` removed; `InMemorySource` lost its byte form; `collect_view` renamed | Producing a source's rows needs awaits and serialization is synchronous. Moving the await into a command needs no change outside `liquers-lib`, and settles when a source is written as data: only when asked |
 | 2026-09-24 | HTTP streaming of a source moved from an axum branch to `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE` | `liquers-axum` does not depend on `liquers-lib` and is generic over `E: Environment`, so it cannot name `ExtValue::RecordSource` |
 | 2026-09-24 | `records` enables `serde/rc`; `ManifestSource` serializes through `ManifestSpec`; closure-holding views are generic with a hand-written `Debug` | A Rust review of the trait form: `Arc` fields fail to derive `Serialize` in a minimal build; `chunks()` could not borrow ids from a `Vec<Query>`; `dyn Fn + MaybeSend` is E0225 |
+| 2026-09-25 | **Phase 4 review.** `RecipeProviderChoice` is unchanged; the chain is appended in code (`with_appended_recipe_provider`, `LibKind`'s default) — §B and the Integration Points rows. §C's sites corrected against `assets.rs`: the metadata saver (`save_metadata_to_store`) is a `stored` write site; `cached: false` acts where the `get(key)` path registers (`get_nonvolatile_resource_asset`, `ImmediateAssetManager::get_resource_asset`), not at `try_insert_key_asset`; the flags are taken when the manager creates the keyed asset, not in `resolve_volatility_before_evaluation`, which runs before the provider's recipe replaces the ad-hoc one. The records crate's Cargo block gains `derive`, `serde_yaml`, `async-trait` and `scc`. Two unbalanced code fences repaired (`ChunkValue`, `RowFnView`) | Checking the plan's claims against the code: a `Choice` is configuration data and cannot name another crate's provider; a `stored: false` chunk would otherwise leave a metadata-only entry; the manifest provider parses YAML and implements an `#[async_trait]` trait |
 
 **Corrections worth keeping visible**, because each was stated wrongly first:
 
