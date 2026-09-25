@@ -2768,7 +2768,7 @@ source"**.
 | § | Content |
 |---|---|
 | **Choose your shape first** | A decision table: a small table → return a view (usually a batch); a directory of files → a manifest source; a huge single file → a source whose stream yields batches; anything asynchronous per row → a wrapping source. Getting this wrong is the expensive mistake, so it comes first |
-| **Walkthrough: a command producing records** | **The guide's spine.** End to end, from an empty file to a passing test: define the schema (with its `Id` field and roles), build the batch with `RecordBatchBuilder`, fill `ChunkOrigin` so results are retrievable, return `ExtValue::RecordView`, then register with `register_command!` — `context` last, `async fn` taking owned `State` — and regenerate `command_registry.yaml` |
+| **Walkthrough: a command producing records** | **The guide's spine.** End to end, from an empty file to a passing test: define the schema (roles, and an `Id` field when rows have one), build the batch with `RecordBatchMut`, fill `ChunkOrigin` so results are retrievable, return `ExtValue::RecordView`, then register with `register_command!` — `context` last, `async fn` taking owned `State` — and regenerate `command_registry.yaml` |
 | **Second walkthrough: a manifest source** | The CSV-directory case: one query per file, what `uniform_schema` to declare, and why a manifest is preferred over a generator (rewindable, cacheable, checkpointable) |
 | **Choosing a batch size** | Rows vs bytes, and the memory arithmetic |
 | **Using views as a DataFrame** | `select_columns`/`filter`/`slice`/`with_column`/`concat` with masks; when to `materialize`; what is deliberately absent and where it lives instead |

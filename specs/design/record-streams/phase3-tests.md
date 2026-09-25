@@ -88,9 +88,9 @@ use crate::value::Value;
 /// List every file directly under a directory key as a `RecordBatch`: `file_id`, `file_name`,
 /// `size_bytes`, `modified_timestamp`. Async because it lists the store. Registered as
 /// `ns-rec/file_records`.
-pub async fn file_records(
-    state: &State<Value>,
-    context: &Context<impl Environment<Value = Value>>,
+pub async fn file_records<E: Environment<Value = Value>>(
+    state: State<Value>,
+    context: Context<E>,
 ) -> Result<Value, Error> {
     let schema = Arc::new(RecordSchema::new(vec![
         FieldSchema::new("file_id", FieldType::Text)
@@ -658,6 +658,9 @@ use liquers_records::{
     RecordSchema,
 };
 
+/// `register_command!` resolves a `context` parameter's environment through this alias.
+type CommandEnvironment = SimpleEnvironment<Value>;
+
 fn template_spec(stored: bool, cached: bool, uniform_schema: Option<Arc<RecordSchema>>) -> ManifestSpec {
     ManifestSpec {
         chunks: vec![],
@@ -767,11 +770,11 @@ fn not_a_manifest_text(_state: &State<Value>) -> Result<Value, Error> {
 /// Reports what `to_record_source` made of the state: `"schema:<bool>,manifest:<bool>"`, or the
 /// error text prefixed with `"error:"`.
 async fn probe_source(
-    state: &State<Value>,
-    context: &Context<impl Environment<Value = Value>>,
+    state: State<Value>,
+    context: Context<CommandEnvironment>,
 ) -> Result<Value, Error> {
     let options = ToRecordOptions::default();
-    match to_record_source(state.data_unchecked(), &state.metadata, &options, context).await {
+    match to_record_source(state.data_unchecked(), &state.metadata, &options, &context).await {
         Ok(source) => Ok(Value::from(format!(
             "schema:{},manifest:{}",
             source.schema().is_some(),
@@ -2658,16 +2661,19 @@ use liquers_lib::{
     value::Value,
 };
 
+/// `register_command!` resolves a `context` parameter's environment through this alias.
+type CommandEnvironment = SimpleEnvironment<Value>;
+
 fn csv_bytes(_state: &State<Value>) -> Result<Value, Error> {
     Ok(Value::from(b"id,name\n1,Alice\n2,Bob".to_vec()))
 }
 
 async fn probe_row_count(
-    state: &State<Value>,
-    context: &Context<impl Environment<Value = Value>>,
+    state: State<Value>,
+    context: Context<CommandEnvironment>,
 ) -> Result<Value, Error> {
     let options = ToRecordOptions { format: Some("csv".to_string()), ..Default::default() };
-    let view = to_record(state.data_unchecked(), &state.metadata, &options, context).await?;
+    let view = to_record(state.data_unchecked(), &state.metadata, &options, &context).await?;
     Ok(Value::from(view.len() as i64))
 }
 
@@ -2684,11 +2690,11 @@ async fn to_record_accepts_csv_bytes() -> Result<(), Box<dyn std::error::Error>>
 }
 
 async fn probe_refuses_source(
-    state: &State<Value>,
-    context: &Context<impl Environment<Value = Value>>,
+    state: State<Value>,
+    context: Context<CommandEnvironment>,
 ) -> Result<Value, Error> {
     let options = ToRecordOptions::default();
-    match to_record(state.data_unchecked(), &state.metadata, &options, context).await {
+    match to_record(state.data_unchecked(), &state.metadata, &options, &context).await {
         Err(e) => Ok(Value::from(format!("{e}"))), // report the message so the test can inspect it
         Ok(_) => Err(Error::general_error("expected to_record to refuse a source".to_string())),
     }
@@ -2719,11 +2725,11 @@ fn unlabelled_text(_state: &State<Value>) -> Result<Value, Error> {
 }
 
 async fn probe_refuses_unlabelled_text(
-    state: &State<Value>,
-    context: &Context<impl Environment<Value = Value>>,
+    state: State<Value>,
+    context: Context<CommandEnvironment>,
 ) -> Result<Value, Error> {
     let options = ToRecordOptions::default(); // format: None — never sniffed
-    match to_record(state.data_unchecked(), &state.metadata, &options, context).await {
+    match to_record(state.data_unchecked(), &state.metadata, &options, &context).await {
         Err(_) => Ok(Value::from(true)),
         Ok(_) => Err(Error::general_error("expected to_record to refuse unlabelled text".to_string())),
     }
@@ -2757,16 +2763,19 @@ use liquers_core::{
 use liquers_macro::register_command;
 use liquers_lib::{records::{to_record_source, ToRecordOptions}, value::Value};
 
+/// `register_command!` resolves a `context` parameter's environment through this alias.
+type CommandEnvironment = SimpleEnvironment<Value>;
+
 fn manifest_text(_state: &State<Value>) -> Result<Value, Error> {
     Ok(Value::from("manifest: record-stream\nchunks: []\n"))
 }
 
 async fn probe_is_manifest(
-    state: &State<Value>,
-    context: &Context<impl Environment<Value = Value>>,
+    state: State<Value>,
+    context: Context<CommandEnvironment>,
 ) -> Result<Value, Error> {
     let options = ToRecordOptions::default();
-    let source = to_record_source(state.data_unchecked(), &state.metadata, &options, context).await?;
+    let source = to_record_source(state.data_unchecked(), &state.metadata, &options, &context).await?;
     Ok(Value::from(source.manifest().is_some()))
 }
 

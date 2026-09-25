@@ -403,6 +403,12 @@ worked illustrations.
 
 ### Corrections and unexpected learning
 
+- **An async command takes its `State` and `Context` by value**, and a `context` parameter needs a
+  `type CommandEnvironment = …` alias in scope for `register_command!` to name the environment
+  (`REGISTER_COMMAND_FSD.md` §"State Parameter"; `liquers-core/tests/injection.rs`). Several drafts
+  wrote `&State<Value>` and `&Context<…>`; found while planning Phase 4 and corrected in every
+  registered async command. `to_record`/`to_record_source` themselves still take `&Context`, so a
+  command passes `&context`.
 - **`ManifestSource::stream`'s reference sketch materialized eagerly inside `stream()`** in an
   earlier draft (`futures::stream::FuturesUnordered`, awaited and concatenated before returning) —
   exactly the behavior the chunked design exists to avoid, and it also discarded chunk order, which
