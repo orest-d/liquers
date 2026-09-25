@@ -8,11 +8,11 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 120
+Total rows: 121
 - P0: 1
 - P1: 2
 - P2: 78
-- P3: 39
+- P3: 40
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
@@ -125,6 +125,7 @@ Total rows: 120
 | [`STORE-CONFIG-FROM-URI`](issues/STORE-CONFIG-FROM-URI.md) | feature | A store cannot be configured from a URI | draft |  | P3 | M | store/config | [phase1](specs/design/store-config-uri/phase1-high-level-design.md)  [phase2](specs/design/store-config-uri/phase2-architecture.md)  | 2026-08-29 |
 | [`UI-VARIADIC-ARGUMENT-LIST-EDITOR`](issues/UI-VARIADIC-ARGUMENT-LIST-EDITOR.md) | feature | A variadic argument cannot be edited as a list in a parameter editor | draft |  | P3 | M | lib/ui;lib/egui;web;core/query | [phase1](specs/design/variadic-arguments-declaration/phase1-high-level-design.md)  [phase2](specs/design/variadic-arguments-declaration/phase2-architecture.md)  [phase3](specs/design/variadic-arguments-declaration/phase3-examples.md)  [phase4](specs/design/variadic-arguments-declaration/phase4-implementation.md)  [phase5](specs/design/variadic-arguments-declaration/phase5-documentation.md)  | 2026-08-25 |
 | [`V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL`](issues/V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL.md) | issue | The `v` instruction marks the whole plan volatile rather than the steps after it | draft |  | P3 | M | core/plan;core/query |  | 2026-08-26 |
+| [`VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS`](issues/VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS.md) | feature | liquers-validate cannot validate recipes served by a non-standard or generative recipe provider | draft |  | P3 | M | core/commands;core/plan |  | 2026-09-25 |
 | [`WEB-CANCELLATION-INERT`](issues/WEB-CANCELLATION-INERT.md) | issue | Web cancellation surface exists but does nothing | accepted |  | P3 | M | web |  | 2026-08-08 |
 | [`WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG`](issues/WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG.md) | issue | liquers-web hand-rolls the environment configuration that EnvironmentConfig will own | draft |  | P3 | M | web;core/store;core/context |  | 2026-08-31 |
 | [`WORKSPACE-NOT-RUSTFMT-CLEAN`](issues/WORKSPACE-NOT-RUSTFMT-CLEAN.md) | issue | The workspace is not rustfmt-clean, so formatting drift hides in every diff | draft |  | P3 | M | build;docs |  | 2026-08-29 |

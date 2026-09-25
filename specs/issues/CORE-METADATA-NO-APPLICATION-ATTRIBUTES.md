@@ -68,3 +68,12 @@ must be opaque to core (the schema type is `liquers-lib`'s), and the load path m
 records design takes its schema as an argument to one schema-aware reader, so a metadata schema would
 be one more source for it rather than a new mechanism.
 
+## Update 2026-09-25 — the direction: extensible metadata, typed at the edges
+
+The user's direction: the metadata record should be **extensible**, with fields such as custom
+**tags** and a **schema** that core stores without understanding — for example a JSON value that the
+crate owning the type deserializes with `serde` into its own schema type. This keeps a table's schema
+out of `liquers-core` (`record-streams` stays in its own crate) while letting it travel in metadata,
+and it is the same mechanism tags need. Using it on the load path still requires
+`deserialize_from_bytes` to receive metadata, which it does not today.
+
