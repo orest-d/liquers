@@ -125,6 +125,29 @@ pub struct Recipe {
     /// [`crate::plan::VolatilitySource::Declared`] like `volatile: true`.
     #[serde(default)]
     pub expires: Expires,
+
+    /// When present, controls whether the produced value is written to the store.
+    ///
+    /// `None` (the default) means `true` — the produced value is written. `Some(false)` means the
+    /// value is not written, and no metadata-only entry is left either. An existing stored copy is
+    /// still read and preferred to recomputation — it may be `Override` data, and this flag exists
+    /// to save disk (not duplicate a database) without sacrificing freshness guarantees.
+    ///
+    /// The contract: `specs/design/record-streams/phase2-architecture.md`, §"C. `stored` and `cached`".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stored: Option<bool>,
+
+    /// When present, controls whether the produced value is registered for reuse.
+    ///
+    /// `None` (the default) means `true` — the asset is registered in the cache for the key and
+    /// reused on later requests. `Some(false)` means the asset is evaluated for the request and
+    /// dropped; a later request evaluates again or reads the stored copy. A `cached: false` asset
+    /// is not volatile — volatility is contagious (`assets.rs` module docs), and this flag is about
+    /// reuse, not purity.
+    ///
+    /// The contract: `specs/design/record-streams/phase2-architecture.md`, §"C. `stored` and `cached`".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached: Option<bool>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -149,6 +172,8 @@ impl Recipe {
             has_circular_dependencies: false,
             circular_dependency_key: None,
             expires: Expires::Never,
+            stored: None,
+            cached: None,
         })
     }
 
@@ -347,6 +372,21 @@ impl Recipe {
         }
     }
 
+    /// Returns whether the produced value should be written to the store.
+    ///
+    /// Returns `true` when `stored` is absent or `Some(true)`, `false` when `Some(false)`.
+    /// An existing stored copy is still read and preferred to recomputation.
+    pub fn stored(&self) -> bool {
+        self.stored.unwrap_or(true)
+    }
+
+    /// Returns whether the produced value should be registered for reuse.
+    ///
+    /// Returns `true` when `cached` is absent or `Some(true)`, `false` when `Some(false)`.
+    pub fn cached(&self) -> bool {
+        self.cached.unwrap_or(true)
+    }
+
     /// Derives the logical storage key from `cwd` and the query filename.
     ///
     /// This is descriptive only and performs no write.
@@ -380,6 +420,8 @@ impl Recipe {
         asset_info.is_dir = false;
         asset_info.status = Status::Recipe;
         asset_info.unicode_icon = self.unicode_icon();
+        asset_info.stored = self.stored;
+        asset_info.cached = self.cached;
         Ok(asset_info)
     }
 }
@@ -406,6 +448,8 @@ impl From<&Query> for Recipe {
             has_circular_dependencies: false,
             circular_dependency_key: None,
             expires: Expires::Never,
+            stored: None,
+            cached: None,
         }
     }
 }
@@ -423,6 +467,8 @@ impl From<Query> for Recipe {
             has_circular_dependencies: false,
             circular_dependency_key: None,
             expires: Expires::Never,
+            stored: None,
+            cached: None,
         }
     }
 }
@@ -440,6 +486,8 @@ impl From<Key> for Recipe {
             has_circular_dependencies: false,
             circular_dependency_key: None,
             expires: Expires::Never,
+            stored: None,
+            cached: None,
         }
     }
 }
@@ -457,6 +505,8 @@ impl From<&Key> for Recipe {
             has_circular_dependencies: false,
             circular_dependency_key: None,
             expires: Expires::Never,
+            stored: None,
+            cached: None,
         }
     }
 }
@@ -1734,5 +1784,87 @@ mod test {
             trivial.recipe(&recipe_key, envref).await.is_err(),
             "a required lookup against the trivial choice is an error"
         );
+    }
+}
+
+#[cfg(test)]
+mod default_asset_flags_tests {
+    use super::*;
+    use crate::metadata::{AssetInfo, MetadataRecord};
+
+    #[test]
+    fn recipe_default_stored_and_cached_are_true() {
+        let recipe = Recipe::default();
+        assert!(recipe.stored());
+        assert!(recipe.cached());
+    }
+
+    #[test]
+    fn recipe_explicit_stored_false_is_honored() {
+        let mut recipe = Recipe::default();
+        recipe.stored = Some(false);
+        assert!(!recipe.stored());
+        assert!(recipe.cached()); // unrelated field unaffected
+    }
+
+    #[test]
+    fn recipe_explicit_cached_false_is_honored() {
+        let mut recipe = Recipe::default();
+        recipe.cached = Some(false);
+        assert!(!recipe.cached());
+    }
+
+    #[test]
+    fn metadata_record_default_stored_and_cached_are_true() {
+        let record = MetadataRecord::default();
+        assert!(record.stored());
+        assert!(record.cached());
+    }
+
+    #[test]
+    fn asset_info_default_stored_and_cached_are_true() {
+        let info = AssetInfo::default();
+        assert!(info.stored());
+        assert!(info.cached());
+    }
+
+    #[test]
+    fn asset_info_stored_and_cached_propagate_independently() {
+        let mut info = AssetInfo::default();
+        info.stored = Some(false);
+        info.cached = Some(true);
+        assert!(!info.stored());
+        assert!(info.cached());
+    }
+
+    #[test]
+    fn recipe_yaml_without_stored_deserializes_as_true() {
+        let yaml = "query: select 1\n";
+        let recipe: Recipe = serde_yaml::from_str(yaml).expect("deserialize");
+        assert!(recipe.stored());
+    }
+
+    #[test]
+    fn recipe_json_without_cached_deserializes_as_true() {
+        let json = r#"{"query": "select 1"}"#;
+        let recipe: Recipe = serde_json::from_str(json).expect("deserialize");
+        assert!(recipe.cached());
+    }
+
+    #[test]
+    fn recipe_yaml_with_stored_false_deserializes_as_false() {
+        let yaml = "query: select 1\nstored: false\n";
+        let recipe: Recipe = serde_yaml::from_str(yaml).expect("deserialize");
+        assert!(!recipe.stored());
+    }
+
+    #[test]
+    fn recipe_serializes_true_values_as_absent() {
+        // `skip_serializing_if = "Option::is_none"`: the common case (both true) round-trips to
+        // the same compact YAML/JSON a recipe author would write by hand.
+        let recipe = Recipe::default();
+        let json = serde_json::to_string(&recipe).expect("serialize");
+        assert!(!json.contains("\"stored\""));
+        assert!(!json.contains("\"cached\""));
     }
 }

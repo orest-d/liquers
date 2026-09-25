@@ -751,6 +751,29 @@ pub struct AssetInfo {
     /// Resolved expiration time (UTC timestamp, Never, or Immediately)
     #[serde(default)]
     pub expiration_time: ExpirationTime,
+
+    /// When present, controls whether the produced value is written to the store.
+    ///
+    /// `None` (the default) means `true` — the produced value is written. `Some(false)` means the
+    /// value is not written, and no metadata-only entry is left either. An existing stored copy is
+    /// still read and preferred to recomputation — it may be `Override` data, and this flag exists
+    /// to save disk (not duplicate a database) without sacrificing freshness guarantees.
+    ///
+    /// The contract: `specs/design/record-streams/phase2-architecture.md`, §"C. `stored` and `cached`".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stored: Option<bool>,
+
+    /// When present, controls whether the produced value is registered for reuse.
+    ///
+    /// `None` (the default) means `true` — the asset is registered in the cache for the key and
+    /// reused on later requests. `Some(false)` means the asset is evaluated for the request and
+    /// dropped; a later request evaluates again or reads the stored copy. A `cached: false` asset
+    /// is not volatile — volatility is contagious (`assets.rs` module docs), and this flag is about
+    /// reuse, not purity.
+    ///
+    /// The contract: `specs/design/record-streams/phase2-architecture.md`, §"C. `stored` and `cached`".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached: Option<bool>,
 }
 
 impl AssetInfo {
@@ -808,6 +831,21 @@ impl AssetInfo {
         }
         None
     }
+
+    /// Returns whether the produced value should be written to the store.
+    ///
+    /// Returns `true` when `stored` is absent or `Some(true)`, `false` when `Some(false)`.
+    /// An existing stored copy is still read and preferred to recomputation.
+    pub fn stored(&self) -> bool {
+        self.stored.unwrap_or(true)
+    }
+
+    /// Returns whether the produced value should be registered for reuse.
+    ///
+    /// Returns `true` when `cached` is absent or `Some(true)`, `false` when `Some(false)`.
+    pub fn cached(&self) -> bool {
+        self.cached.unwrap_or(true)
+    }
 }
 
 impl From<AssetInfo> for MetadataRecord {
@@ -835,6 +873,8 @@ impl From<AssetInfo> for MetadataRecord {
         metadata.payload_required = asset_info.payload_required;
         metadata.expires = asset_info.expires;
         metadata.expiration_time = asset_info.expiration_time;
+        metadata.stored = asset_info.stored;
+        metadata.cached = asset_info.cached;
         metadata
     }
 }
@@ -965,6 +1005,29 @@ pub struct MetadataRecord {
     /// Absent in older serialized records (defaults to empty).
     #[serde(default)]
     pub dependencies: Vec<DependencyRecord>,
+
+    /// When present, controls whether the produced value is written to the store.
+    ///
+    /// `None` (the default) means `true` — the produced value is written. `Some(false)` means the
+    /// value is not written, and no metadata-only entry is left either. An existing stored copy is
+    /// still read and preferred to recomputation — it may be `Override` data, and this flag exists
+    /// to save disk (not duplicate a database) without sacrificing freshness guarantees.
+    ///
+    /// The contract: `specs/design/record-streams/phase2-architecture.md`, §"C. `stored` and `cached`".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stored: Option<bool>,
+
+    /// When present, controls whether the produced value is registered for reuse.
+    ///
+    /// `None` (the default) means `true` — the asset is registered in the cache for the key and
+    /// reused on later requests. `Some(false)` means the asset is evaluated for the request and
+    /// dropped; a later request evaluates again or reads the stored copy. A `cached: false` asset
+    /// is not volatile — volatility is contagious (`assets.rs` module docs), and this flag is about
+    /// reuse, not purity.
+    ///
+    /// The contract: `specs/design/record-streams/phase2-architecture.md`, §"C. `stored` and `cached`".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached: Option<bool>,
 }
 
 mod query_format {
@@ -1122,6 +1185,8 @@ impl MetadataRecord {
             payload_required: self.payload_required,
             expires: self.expires.clone(),
             expiration_time: self.expiration_time.clone(),
+            stored: self.stored,
+            cached: self.cached,
         }
     }
 
@@ -1481,6 +1546,21 @@ impl MetadataRecord {
         } else {
             self.dependencies.push(record);
         }
+    }
+
+    /// Returns whether the produced value should be written to the store.
+    ///
+    /// Returns `true` when `stored` is absent or `Some(true)`, `false` when `Some(false)`.
+    /// An existing stored copy is still read and preferred to recomputation.
+    pub fn stored(&self) -> bool {
+        self.stored.unwrap_or(true)
+    }
+
+    /// Returns whether the produced value should be registered for reuse.
+    ///
+    /// Returns `true` when `cached` is absent or `Some(true)`, `false` when `Some(false)`.
+    pub fn cached(&self) -> bool {
+        self.cached.unwrap_or(true)
     }
 }
 
@@ -2528,6 +2608,28 @@ impl Metadata {
             Metadata::LegacyMetadata(_) => Err(Error::general_error(
                 "Cannot set payload_required on unsupported legacy metadata".to_string(),
             )),
+        }
+    }
+
+    /// Returns whether the produced value should be written to the store.
+    ///
+    /// Returns `true` when `stored` is absent or `Some(true)`, `false` when `Some(false)`.
+    /// For legacy metadata and the legacy variant, returns `true`.
+    pub fn stored(&self) -> bool {
+        match self {
+            Metadata::MetadataRecord(mr) => mr.stored(),
+            Metadata::LegacyMetadata(_) => true,
+        }
+    }
+
+    /// Returns whether the produced value should be registered for reuse.
+    ///
+    /// Returns `true` when `cached` is absent or `Some(true)`, `false` when `Some(false)`.
+    /// For legacy metadata and the legacy variant, returns `true`.
+    pub fn cached(&self) -> bool {
+        match self {
+            Metadata::MetadataRecord(mr) => mr.cached(),
+            Metadata::LegacyMetadata(_) => true,
         }
     }
 }
