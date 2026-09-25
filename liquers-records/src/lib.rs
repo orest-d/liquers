@@ -8,5 +8,9 @@
 extern crate self as liquers_records;
 
 pub mod buffer;
+pub mod schema;
 
 pub use buffer::{AlignedBuffer, Bitmap, Buffer};
+pub use schema::{
+    Analyzer, FieldRole, FieldSchema, FieldType, IndexKind, KeyRole, RecordSchema, VectorMetric,
+};
