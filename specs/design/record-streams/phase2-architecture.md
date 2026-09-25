@@ -2308,6 +2308,14 @@ impl InMemorySource {
 
 
 impl Bitmap {
+    /// `len` bits, all clear.
+    pub fn new(len: usize) -> Self;
+    /// The way a caller builds a mask without knowing the LSB-first packing.
+    pub fn from_bools(bits: &[bool]) -> Self;
+    /// Panics on an out-of-range `i`, as slice indexing does.
+    pub fn set(&mut self, i: usize, value: bool);
+    /// Bits, not bytes.
+    pub fn len(&self) -> usize;
     pub fn get(&self, i: usize) -> bool;
     pub fn and(&self, other: &Bitmap) -> Result<Bitmap, Error>;
     pub fn or(&self, other: &Bitmap) -> Result<Bitmap, Error>;
@@ -2334,6 +2342,95 @@ impl<T: bytemuck::Pod> Buffer<T> {
     pub fn as_bytes(&self) -> &[u8];
 }
 ```
+
+### Construction helpers, options and the provider chain
+
+Named in prose above and pinned here, because Phase 3's tests are written against them.
+
+```rust
+// liquers-records/src/manifest.rs
+/// The generated tail of a manifest. Chunk `i` (a global index, at least the number of explicit
+/// chunks) is `<query>-<offset>-<batch_size>` with `offset = first_offset + step × i`, followed by
+/// the chunk's key filename when the manifest is keyed (`ChunkNaming::key(i)`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChunkTemplate {
+    pub query: String,
+    #[serde(default)]
+    pub first_offset: u64,
+    pub step: u64,
+    pub batch_size: u64,
+}
+impl ChunkTemplate {
+    pub fn query_at(&self, index: u64, filename: Option<&str>) -> Result<Query, Error>;
+    pub fn offset_at(&self, index: u64) -> u64;
+}
+
+// liquers-records/src/formats/shapes.rs
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JsonOrient { Records, List, Split, Values, Columns, Index, Table, Auto }
+impl std::str::FromStr for JsonOrient { type Err = Error; /* "records", "list", …, "auto" */ }
+/// `Auto` is refused for writing.
+pub fn to_json(view: &dyn RecordView, orient: JsonOrient) -> Result<serde_json::Value, Error>;
+pub fn from_json(value: &serde_json::Value, orient: JsonOrient, schema: ReadSchema<'_>)
+    -> Result<RecordBatch, Error>;
+
+// liquers-records/src/formats/mod.rs — `header` defaults to true, so `Default` is written by
+// hand: a derived one would make it false.
+#[derive(Debug, Clone)] pub struct ReadOptions  { pub header: bool }
+#[derive(Debug, Clone)] pub struct WriteOptions { pub header: bool }
+impl Default for ReadOptions  { fn default() -> Self { ReadOptions  { header: true } } }
+impl Default for WriteOptions { fn default() -> Self { WriteOptions { header: true } } }
+impl TableFormat {
+    /// `csv`, `csv:comma`, `tsv`, `csv:tab`, `ndjson`, `jsonl`, `json`, `md`, `markdown`, `html`,
+    /// `feather`/`ipc`/`arrow_ipc`/`arrow`, `parquet`. Anything else is refused, naming the format.
+    pub fn from_data_format(data_format: &str) -> Result<TableFormat, Error>;
+}
+
+// liquers-records/src/schema.rs
+impl FieldSchema {
+    /// Nullable, `KeyRole::None`, the default role, and `label` = `name` with `_` → space.
+    pub fn new(name: impl Into<String>, data_type: FieldType) -> Self;
+    pub fn with_label(self, label: impl Into<String>) -> Self;
+    pub fn with_description(self, description: impl Into<String>) -> Self;
+    pub fn with_key(self, key: KeyRole) -> Self;
+    pub fn with_role(self, role: FieldRole) -> Self;
+    pub fn not_null(self) -> Self;
+}
+impl FieldRole {
+    pub fn text() -> Self; pub fn keyword() -> Self; pub fn stored_only() -> Self;
+    pub fn numeric() -> Self; pub fn vector(metric: VectorMetric) -> Self; pub fn ignored() -> Self;
+    pub fn and_stored(self) -> Self; pub fn and_fast(self) -> Self;
+}
+
+// liquers-lib/src/records/convert.rs
+#[derive(Debug, Clone, Default)]
+pub struct ToRecordOptions {
+    pub format: Option<String>,             // None: from the state's metadata
+    pub header: Option<bool>,               // None: true
+    pub schema: Option<Arc<RecordSchema>>,
+    pub max_rows: Option<usize>,            // None: 1 000 000, when a source is materialized
+}
+
+// liquers-core/src/recipes.rs
+pub struct RecipeProviderChain<E: Environment> { providers: Vec<Arc<dyn AsyncRecipeProvider<E>>> }
+impl<E: Environment> RecipeProviderChain<E> {
+    pub fn new(providers: Vec<Arc<dyn AsyncRecipeProvider<E>>>) -> Self;
+    pub fn push(&mut self, provider: Arc<dyn AsyncRecipeProvider<E>>);
+}
+// `impl AsyncRecipeProvider<E> for RecipeProviderChain<E>`: the first provider answering
+// `Some` wins; `assets_with_recipes` concatenates, de-duplicated by key.
+
+// liquers-web/src/records.rs — the Rust side of the handle
+impl From<Arc<RecordBatch>> for LiquersRecordBatch { /* the live handle count rises by one */ }
+impl Drop for LiquersRecordBatch { /* and falls by one */ }
+/// Live `LiquersRecordBatch` handles — `RUNTIME05`'s idiom, applied to batches.
+#[cfg(feature = "debug-handles")]
+pub fn live_batch_handle_count() -> usize;
+```
+
+A column descriptor (`LiquersRecordBatch::column`) is a plain object with `kind`, `ptr` (a byte
+offset into linear memory), `len` (in elements) and `validity` (a descriptor of the same shape, or
+`null`).
 
 ## Integration Points
 
@@ -2378,7 +2475,9 @@ records crate free of the command layer.
 | Crate | File | Change |
 |---|---|---|
 | `liquers-records` | `src/buffer.rs` | `AlignedBuffer`, `Buffer<T>`, `Bitmap` — the Arrow-layout primitives; the only place `bytemuck` is used |
-| `liquers-records` | `src/lib.rs` | The traits `RecordView`, `RecordSource`, `RecordStream`, `ChunkResolver`; `BoxRecordStream`, `record_stream`, `RecordStreamExt`; `FieldValue`, `RecordSchema`, `FieldSchema`, `FieldType`, `Column` and its kernels, `RecordBatch`, `ChunkOrigin`, `LocatorRule`, `ChunkNaming`, `ChunkId`, `ChunkList`, `ChunkDescriptor` |
+| `liquers-records` | `src/lib.rs` | The traits `RecordView`, `RecordSource`, `RecordStream`, `ChunkResolver`; `BoxRecordStream`, `record_stream`, `RecordStreamExt`; `FieldValue`, `Column` and its kernels, `CompareOp`, `RecordBatch`, `RowId`, `RowRun`, `ChunkOrigin`, `LocatorRule`, `ChunkId`, `ChunkList`, `ChunkDescriptor` |
+| `liquers-records` | `src/schema.rs` | `RecordSchema`, `FieldSchema`, `FieldType`, `FieldRole`, `KeyRole` and their construction helpers |
+| `liquers-records` | `src/manifest.rs` | `ManifestSpec` and its version handling, `ChunkTemplate`, `ChunkNaming` |
 | `liquers-records` | `src/views.rs` | The view implementations, the `impl dyn RecordView` constructors, `RowFnView` |
 | **`liquers-core`** | `src/recipes.rs` | `RecipeProviderChain`; `RecipeProviderChoice` gains the chain; `Recipe` gains `stored` and `cached` as `Option<bool>`, absent meaning `true`, with `stored()`/`cached()` accessors |
 | **`liquers-core`** | `src/metadata.rs` | `MetadataRecord` and `AssetInfo` gain `stored` and `cached` the same way — `Option<bool>`, because both derive `Default` |
@@ -2392,7 +2491,7 @@ records crate free of the command layer.
 | workspace | `Cargo.toml` | `liquers-records` as a member and in `default-members` |
 | `liquers-records` | `src/mutable.rs` | `RecordViewMut`, `RecordBatchMut`, `ColumnMut` |
 | `liquers-lib` | `src/records/convert.rs` (new) | `to_record`, `to_record_source` — what every record command accepts |
-| `liquers-records` | `src/formats/` | `mod.rs` (`read_table`, `write_table`, `ReadSchema`), `csv.rs` (CSV and TSV), `json.rs` (NDJSON and JSON), `shapes.rs` (the seven JSON orients), `markdown.rs`, `html.rs`, `infer.rs` (schema-less inference); `ipc.rs` behind `records-ipc`; `parquet.rs` and `thrift.rs` behind `records-parquet` |
+| `liquers-records` | `src/formats/` | `mod.rs` (`read_table`, `write_table`, `ReadSchema`, `TableFormat`, the options), `csv.rs` (CSV and TSV), `ndjson.rs` (NDJSON and the `json` format), `shapes.rs` (the JSON orients), `markdown.rs`, `html.rs`, `infer.rs` (schema-less inference); `ipc.rs` behind the crate's `ipc` feature; `parquet.rs` and `thrift.rs` behind its `parquet` feature |
 | `liquers-records` | `src/sources.rs` | `ManifestSource`, `InMemorySource`, the wrapping sources, `ContextResolver`, `EnvResolver` |
 | `liquers-lib` | `src/records/commands.rs` (new) | The `ns-rec` command set |
 | `liquers-lib` | `src/records/polars.rs` (new, `records` + `polars`) | `RecordBatch → polars::DataFrame` over the shared buffers, and `DataFrame → RecordBatch` — the path Parquet is read through |
@@ -2653,7 +2752,7 @@ carries a `## History` row and a `reviewed:` date from its first commit.
 | **Memory layout** | The columnar form, `Column` variants, `Bitmap`'s three uses, `AlignedBuffer` and 64-byte alignment. **Cites [COLUMNAR] per claim** |
 | **Arrow interoperability** | The two-level model — data as `&[T]`, structure rebuilt as `repr(C)` — the exact type/format mapping table, the three export routes and their real costs, and the three places the layout is not 1:1. **Cites [COLUMNAR] and [CDATA]**; states that format strings are verified against the spec, not this document |
 | **Browser sharing** | Hazards A and B, the identity check, the refresh rule, read-only views, the handle lifetime, and `columnCopy` as the fallback |
-| **Methods** | Every public method with its contract and failure mode — the three traits, the `impl dyn RecordView` constructors, `Column`'s kernels, `RecordSchema::{new, id_field, source_field, text_fields, index_of, payload_fields}`, `RecordBatch::{new, concat}`, `Bitmap::{get, and, or, not, count_ones, iter_ones}`, `ChunkOrigin::locator_query`, `record_stream`, the three `materialize`s |
+| **Methods** | Every public method with its contract and failure mode — the three traits, the `impl dyn RecordView` constructors, `Column`'s kernels, `RecordSchema::{new, id_field, source_field, text_fields, index_of, payload_fields}`, `RecordBatch::{new, concat}`, `Bitmap::{new, from_bools, set, len, get, and, or, not, count_ones, iter_ones}`, `ChunkOrigin::locator_query`, `record_stream`, the three `materialize`s |
 | **Table formats** | The format table with what each round-trips; the null convention of CSV; the inference rules and the `Id` rule; labels in presentation formats; HTML escaping; which features bring which formats |
 | **Serialization** | What each value writes in each format; that a source writes only its manifest, and every other source nothing, re-derived from its recipe; that rows reach bytes through `materialize`, with its limit and its refusal of non-uniform sources |
 | **Limits** | The Arrow subset supported and what is excluded; uniformity not promised and the two operations that need it; the feature gate |
@@ -3086,6 +3185,7 @@ information — each is a position that was argued for and then abandoned on evi
 | 2026-09-24 | **Scalar reading**: a one-row, one-payload-column view reads as its cell would as a base `Value`. `select_columns` keeps key columns. Commands bounded by a caller's count materialize | The user's requirement that pointing at a cell yield a value; a tiny view must not pin a large base |
 | 2026-09-24 | **Asynchronous work is a source.** Views stay synchronous; source → view is an explicit await | Scalar reading and argument binding are synchronous |
 | 2026-09-24 | `liquers-core` **untouched** — the `BoxStream` alias removed | `MaybeSend` as a supertrait gives the trait object the right `Send`-ness on each target |
+| 2026-09-25 | **The surface Phase 3's tests needed, pinned.** `Bitmap` construction (`new`, `from_bools`, `set`, `len`); `ChunkTemplate`, `JsonOrient` with `to_json`/`from_json`, `ReadOptions`/`WriteOptions` with a hand-written `Default`, `TableFormat::from_data_format`, the `FieldSchema` builders and `FieldRole` constructors, `ToRecordOptions`, `RecipeProviderChain::{new, push}`; the `liquers-web` handle's `From`, `Drop`, live-handle count and descriptor fields. Module layout gains `schema.rs` and `manifest.rs`; the formats file is `ndjson.rs`; the format files are gated on the crate's own `ipc`/`parquet` features | Phase 3 approval; its §"What Phase 3 found that Phase 2 must absorb" |
 | 2026-09-25 | **Review pass** — Rust review and two independent reviewers (Phase 1 conformity, codebase alignment). Fixed: `stored`/`cached` as `Option<bool>` (the three types derive `Default`, so a `bool` would default to "not stored"); the `records` re-export clashing with the glue module; a stored manifest losing its key — key-dependent validation moved to `with_key`; `RecordBatch.rows` and `RowRun`'s derives; `FieldSchema`'s hand-authoring defaults; `RecordViewMut::len` with uneven columns; the provider's `async_trait` attributes; stale `rec_id` and `select_columns` rows | Review before re-approval |
 | 2026-09-25 | **Records become their own crate, `liquers-records`**, depending on core only; `liquers-lib` keeps the glue — `ExtValue` variants, `ns-rec` commands, `to_record`/`to_record_source`, the polars bridge — behind `records`, forwarding `records-ipc` and `records-parquet` to the crate's `ipc` and `parquet`. A `RecordValue` adapter trait lets the crate read and build `liquers-lib`'s `Value` without naming it; `ChunkResolver::evaluate` returns a `ChunkValue`. Moving records into core was assessed and rejected | Modularity for crates built on records — about 60 dependencies instead of `liquers-lib`'s 172 — a boundary that enforces layering, and a small test loop. Each argument for core has a more general fix: streaming serialization, `liquers-py` depending on `liquers-lib`, provider-aware validation, extensible metadata |
 | 2026-09-25 | **Keyed chunks, in this project.** Explicit chunks are recipes keyed by their query's filename; template chunks are named `<prefix>_{n:04}.<extension>` from the manifest's own name, `extension` default `csv`; the template is constructed in this version. `ManifestRecipeProvider` in a new core `RecipeProviderChain`; `stored`/`cached` on `Recipe`, `MetadataRecord` and `AssetInfo`, honoured by the asset manager. `ChunkKeys` replaced by the derived `ChunkNaming`; `number_format` dropped. `liquers-core` is no longer untouched | The user chose option 1: `stored` and `cached` must work, and per-chunk arguments need keys |

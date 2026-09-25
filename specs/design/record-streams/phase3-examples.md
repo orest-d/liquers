@@ -489,6 +489,10 @@ arguments, actions chained by `/`).
 
 ## What Phase 3 found that Phase 2 must absorb
 
+**Absorbed 2026-09-25**, on Phase 3's approval: (a), (b) and (b′) are now declared in
+`phase2-architecture.md` §"Construction helpers, options and the provider chain" and §"Function
+Signatures" (`Bitmap`).
+
 ### (a) The digest's own "Phase 3 completions" — already used throughout `phase3-tests.md`
 
 These were declared in the drafting digest as Phase 3's to specify and Phase 2's to absorb
