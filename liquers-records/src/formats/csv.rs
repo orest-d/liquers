@@ -270,10 +270,13 @@ pub(super) fn parse_scalar(text: &str, field_type: FieldType) -> Result<FieldVal
     }
 }
 
-/// `pub(super)`: [`super::shapes`] reuses this to turn an `Id` value into a JSON object key —
+/// `pub(crate)`: [`super::shapes`] reuses this to turn an `Id` value into a JSON object key —
 /// `columns`/`index` keys are always strings (phase2-architecture.md §"JSON shapes are
-/// conversions").
-pub(super) fn format_value(value: &FieldValue) -> Result<Option<String>, Error> {
+/// conversions") — and `crate::sources::ChunkOrigin::locator_query` reuses it for the same reason,
+/// one level up: a row's `Id` becomes the trailing string parameter of a locator query. One
+/// canonical `FieldValue -> String` conversion, matching every variant, rather than a second one
+/// duplicated at the call site.
+pub(crate) fn format_value(value: &FieldValue) -> Result<Option<String>, Error> {
     match value {
         FieldValue::Null => Ok(None),
         FieldValue::Bool(v) => Ok(Some(if *v { "true".to_string() } else { "false".to_string() })),

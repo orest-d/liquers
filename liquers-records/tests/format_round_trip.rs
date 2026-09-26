@@ -76,8 +76,8 @@ fn html_cannot_be_read_back() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(feature = "ipc")]
 fn feather_round_trips_lossless() -> Result<(), Box<dyn std::error::Error>> {
     let batch = sample()?;
-    let bytes = write_table(&batch, TableFormat::Feather, &WriteOptions::default())?;
-    let read_back = read_table(&bytes, TableFormat::Feather, ReadSchema::Infer, &ReadOptions::default())?;
+    let bytes = write_table(&batch, TableFormat::Ipc, &WriteOptions::default())?;
+    let read_back = read_table(&bytes, TableFormat::Ipc, ReadSchema::Infer, &ReadOptions::default())?;
     assert_eq!(read_back.schema, batch.schema);
     Ok(())
 }

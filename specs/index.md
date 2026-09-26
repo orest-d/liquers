@@ -8,11 +8,11 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 125
+Total rows: 126
 - P0: 1
 - P1: 2
 - P2: 77
-- P3: 45
+- P3: 46
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
@@ -125,6 +125,7 @@ Total rows: 125
 | [`MACRO-QUERY-VALIDATION-AND-HINTS`](issues/MACRO-QUERY-VALIDATION-AND-HINTS.md) | issue | `register_command!` does not validate queries or implement hints | accepted |  | P3 | M | macro |  | 2026-08-08 |
 | [`POST-INIT-COMMAND-REGISTRATION`](issues/POST-INIT-COMMAND-REGISTRATION.md) | issue | Registering a command after Environment::to_ref requires a rebuild | accepted |  | P3 | M | core/commands;web |  | 2026-08-08 |
 | [`RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING`](issues/RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING.md) | issue | Recipe plan analysis runs outside plan building | draft |  | P3 | M | core/plan;core/assets |  | 2026-08-26 |
+| [`RECORD-SOURCE-WRAPPERS-UNSPECIFIED`](issues/RECORD-SOURCE-WRAPPERS-UNSPECIFIED.md) | issue | Phase 2 names filtering/mapping RecordSource wrappers but gives no signature | draft |  | P3 | M | records | [chunking](specs/design/record-streams/chunking-and-resumability.md)  [engine](specs/design/record-streams/engine-survey.md)  [manifest](specs/design/record-streams/manifest-format.md)  [phase1](specs/design/record-streams/phase1-high-level-design.md)  [phase2](specs/design/record-streams/phase2-architecture.md)  [phase3](specs/design/record-streams/phase3-examples.md)  [phase3](specs/design/record-streams/phase3-tests.md)  [phase4](specs/design/record-streams/phase4-implementation.md)  [phase5](specs/design/record-streams/phase5-documentation.md)  [phase5](specs/design/record-streams/phase5-evidence.md)  [record](specs/design/record-streams/record-model.md)  | 2026-09-26 |
 | [`STORE-COMMAND-NAMESPACE-MISSING`](issues/STORE-COMMAND-NAMESPACE-MISSING.md) | feature | Store contents cannot be read or written from a query | accepted |  | P3 | M | lib/commands;core/store |  | 2026-08-09 |
 | [`STORE-CONFIG-FROM-URI`](issues/STORE-CONFIG-FROM-URI.md) | feature | A store cannot be configured from a URI | draft |  | P3 | M | store/config | [phase1](specs/design/store-config-uri/phase1-high-level-design.md)  [phase2](specs/design/store-config-uri/phase2-architecture.md)  | 2026-08-29 |
 | [`UI-VARIADIC-ARGUMENT-LIST-EDITOR`](issues/UI-VARIADIC-ARGUMENT-LIST-EDITOR.md) | feature | A variadic argument cannot be edited as a list in a parameter editor | draft |  | P3 | M | lib/ui;lib/egui;web;core/query | [phase1](specs/design/variadic-arguments-declaration/phase1-high-level-design.md)  [phase2](specs/design/variadic-arguments-declaration/phase2-architecture.md)  [phase3](specs/design/variadic-arguments-declaration/phase3-examples.md)  [phase4](specs/design/variadic-arguments-declaration/phase4-implementation.md)  [phase5](specs/design/variadic-arguments-declaration/phase5-documentation.md)  | 2026-08-25 |

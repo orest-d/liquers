@@ -262,11 +262,57 @@ impl ManifestSpec {
         }
         Ok(())
     }
+
+    /// Refuses per-chunk or shared `arguments`/`links` on a chunk that is unkeyed — its own query
+    /// has no filename, so its identity is the query alone and there is no key for an override to
+    /// attach to without aliasing silently. Phase 2 §"A. Chunk keys": "Per-chunk arguments or
+    /// links on an unkeyed explicit chunk are refused ... as soon as the manifest's key is known
+    /// (`with_key`)". Template chunks are excluded: they share the template's arguments/links "by
+    /// construction" and are never checked here.
+    ///
+    /// Key-dependent **in effect**, not in the check itself (it never reads a `ChunkNaming`): a
+    /// manifest that never receives a key has no keyed chunk for anything to alias, so the rule
+    /// only bites once `ManifestSource::with_key` (Step 4.2) runs it — never from `new`. A manifest
+    /// built by a command and kept keyless (§"A": "all its chunks are unkeyed") is therefore free
+    /// to carry per-chunk arguments that simply never apply to anything.
+    pub fn check_unkeyed_chunk_arguments(&self) -> Result<(), Error> {
+        for chunk in &self.chunks {
+            let is_keyed = chunk.filename()?.is_some();
+            if !is_keyed && (!chunk.arguments.is_empty() || !chunk.links.is_empty()) {
+                return Err(Error::general_error(format!(
+                    "manifest: chunk \"{}\" is unkeyed (its query has no filename) but declares \
+                     per-chunk arguments or links",
+                    chunk.query
+                )));
+            }
+        }
+        let any_unkeyed = self
+            .chunks
+            .iter()
+            .map(Recipe::filename)
+            .collect::<Result<Vec<_>, Error>>()?
+            .iter()
+            .any(Option::is_none);
+        if any_unkeyed && (!self.arguments.is_empty() || !self.links.is_empty()) {
+            return Err(Error::general_error(
+                "manifest: shared arguments/links require every explicit chunk to be keyed"
+                    .to_string(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Used by the `ManifestSource` tests deferred from Step 4.1 (Phase 3 §2.7 / §9), which land
+    // here once `ManifestSource` exists (Step 4.2's `sources.rs`). `RecordSource` brings
+    // `chunks()` into scope — `ManifestSource` implements it, but a trait method needs its trait
+    // imported to be callable.
+    use crate::value::RecordSource;
+    use crate::{ChunkId, ChunkList, ManifestSource};
+    use liquers_core::parse::parse_key;
 
     #[test]
     fn manifest_spec_default_has_stored_and_cached_true_and_record_stream_kind() {
@@ -538,6 +584,51 @@ mod tests {
     }
 
     #[test]
+    fn check_unkeyed_chunk_arguments_refuses_arguments_on_a_filename_less_chunk() {
+        let mut arguments = HashMap::new();
+        arguments.insert("param".to_string(), serde_json::json!("value"));
+        let spec = ManifestSpec {
+            chunks: vec![Recipe {
+                query: "ns-sql/sql_query-0-1000".to_string(), // no filename: unkeyed
+                arguments,
+                ..Default::default()
+            }],
+            ..ManifestSpec::default()
+        };
+        assert!(spec.check_unkeyed_chunk_arguments().is_err());
+    }
+
+    #[test]
+    fn check_unkeyed_chunk_arguments_accepts_arguments_on_a_keyed_chunk() {
+        let mut arguments = HashMap::new();
+        arguments.insert("param".to_string(), serde_json::json!("value"));
+        let spec = ManifestSpec {
+            chunks: vec![Recipe {
+                query: "ns-sql/sql_query-0-1000/data.csv".to_string(),
+                arguments,
+                ..Default::default()
+            }],
+            ..ManifestSpec::default()
+        };
+        assert!(spec.check_unkeyed_chunk_arguments().is_ok());
+    }
+
+    #[test]
+    fn check_unkeyed_chunk_arguments_refuses_shared_arguments_with_an_unkeyed_chunk() {
+        let mut arguments = HashMap::new();
+        arguments.insert("shared".to_string(), serde_json::json!(1));
+        let spec = ManifestSpec {
+            arguments,
+            chunks: vec![Recipe {
+                query: "ns-sql/sql_query-0-1000".to_string(),
+                ..Default::default()
+            }],
+            ..ManifestSpec::default()
+        };
+        assert!(spec.check_unkeyed_chunk_arguments().is_err());
+    }
+
+    #[test]
     fn check_explicit_names_against_template_accepts_a_non_matching_name() {
         let naming = ChunkNaming {
             folder: Key::new(),
@@ -552,5 +643,148 @@ mod tests {
             ..ManifestSpec::default()
         };
         assert!(spec.check_explicit_names_against_template(&naming).is_ok());
+    }
+
+    // --- Deferred from Step 4.1: the five `ManifestSource` tests (Phase 3 §2.7 ×4, §9 ×1) ---
+    //
+    // These need `ManifestSource`, which lands in Step 4.2's `sources.rs`.
+
+    #[test]
+    fn manifest_source_new_refuses_colliding_explicit_chunk_names() {
+        let spec = ManifestSpec {
+            chunks: vec![
+                Recipe {
+                    query: "ns-sql/sql_query-0-1000/data.csv".to_string(),
+                    ..Default::default()
+                },
+                Recipe {
+                    query: "ns-sql/sql_query-1000-1000/data.csv".to_string(),
+                    ..Default::default()
+                },
+            ],
+            template: None,
+            extension: Some("csv".to_string()),
+            stored: true,
+            cached: true,
+            uniform_schema: None,
+            ..ManifestSpec::default()
+        };
+        assert!(ManifestSource::new(spec, None).is_err());
+    }
+
+    #[test]
+    fn manifest_source_with_key_refuses_per_chunk_arguments_on_an_unkeyed_chunk() {
+        let mut arguments = HashMap::new();
+        arguments.insert("param".to_string(), serde_json::json!("value"));
+        let spec = ManifestSpec {
+            chunks: vec![Recipe {
+                query: "ns-sql/sql_query-0-1000".to_string(), // no filename: unkeyed
+                arguments,
+                ..Default::default()
+            }],
+            template: None,
+            extension: Some("csv".to_string()),
+            stored: true,
+            cached: true,
+            uniform_schema: None,
+            ..ManifestSpec::default()
+        };
+        let source =
+            ManifestSource::new(spec, None).expect("new validates only key-independent rules");
+        assert!(source.with_key(Key::new()).is_err());
+    }
+
+    #[test]
+    fn manifest_source_with_key_refuses_explicit_name_matching_template_pattern() {
+        let spec = ManifestSpec {
+            chunks: vec![Recipe {
+                query: "ns-sql/sql_query-0-1/daily_0042.csv".to_string(),
+                ..Default::default()
+            }],
+            template: Some(ChunkTemplate {
+                query: "ns-sql/sql_query".to_string(),
+                first_offset: 0,
+                step: 1,
+                batch_size: 1000,
+            }),
+            extension: Some("csv".to_string()),
+            stored: true,
+            cached: true,
+            uniform_schema: None,
+            ..ManifestSpec::default()
+        };
+        let source = ManifestSource::new(spec, None).expect("new");
+        // The manifest's own filename becomes the template's prefix ("daily"), which is what
+        // makes "daily_0042.csv" collide with the pattern once the key is known.
+        let key = parse_key("data/sales/daily.manifest.yaml").expect("key");
+        assert!(source.with_key(key).is_err());
+    }
+
+    #[test]
+    fn manifest_source_without_key_keeps_chunks_identified_by_query() {
+        // No key supplied (a manifest built by a command, never stored): a chunk with no
+        // filename in its query stays unkeyed — identified by the query itself, never by a key
+        // it was never given.
+        //
+        // Phase 3 §2.7's draft used `query: select 1`, which is not valid Liquers query syntax
+        // (a bare space is not a separator the grammar accepts) and made `ManifestSource::new`
+        // fail before `chunks()` could even be reached; corrected to a query shaped like the
+        // rest of this file's fixtures.
+        let yaml = "chunks:\n  - query: ns-sql/sql_query-0-1000\nstored: true\n";
+        let spec: ManifestSpec = serde_yaml::from_str(yaml).expect("deserialize");
+        let source = ManifestSource::new(spec, None).expect("new");
+        match source.chunks() {
+            ChunkList::Known(ids) => assert!(matches!(ids[0], ChunkId::Query(_))),
+            ChunkList::Unbounded { .. } => panic!("expected Known: this manifest has no template"),
+        }
+    }
+
+    // --- Phase 3 §9 (`liquers-records/tests/manifest_validation.rs`) — the fifth deferred test ---
+
+    #[test]
+    fn explicit_chunk_name_collisions_are_refused_at_load() {
+        let spec = ManifestSpec {
+            chunks: vec![
+                Recipe {
+                    query: "ns-sql/sql_query-0-1000/data.csv".to_string(),
+                    ..Default::default()
+                },
+                Recipe {
+                    query: "ns-sql/sql_query-1000-1000/data.csv".to_string(),
+                    ..Default::default()
+                },
+            ],
+            template: None,
+            extension: Some("csv".to_string()),
+            stored: true,
+            cached: true,
+            uniform_schema: None,
+            ..ManifestSpec::default()
+        };
+        assert!(ManifestSource::new(spec, None).is_err());
+    }
+
+    // --- "Tests this plan adds": `manifest_spec_serializes_its_discriminator` ---
+
+    #[test]
+    fn manifest_spec_serializes_its_discriminator() -> Result<(), Box<dyn std::error::Error>> {
+        let spec = ManifestSpec {
+            chunks: vec![Recipe {
+                query: "ns-sql/sql_query-0-1000".to_string(),
+                ..Default::default()
+            }],
+            ..ManifestSpec::default()
+        };
+        let source = ManifestSource::new(spec, None)?;
+        let yaml = serde_yaml::to_string(&source)?;
+        assert!(yaml.starts_with("manifest: record-stream"));
+        // The discriminator round-trips through `to_record_source`'s recognition: a plain
+        // `serde_yaml::Value` sees the same `manifest: record-stream` field this crate wrote.
+        let doc: serde_yaml::Value = serde_yaml::from_str(&yaml)?;
+        assert_eq!(
+            doc.get("manifest").and_then(|v| v.as_str()),
+            Some("record-stream")
+        );
+        Ok(())
     }
 }
