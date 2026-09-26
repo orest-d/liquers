@@ -9,8 +9,8 @@ use crate::image::serde::{deserialize_image_from_bytes, serialize_image_to_bytes
 use crate::polars::serde::{deserialize_dataframe_from_reader, serialize_dataframe_to_writer};
 #[cfg(feature = "records")]
 use liquers_records::{
-    read_table, write_table, ManifestSource, ManifestSpec, ReadOptions, ReadSchema, RecordSource,
-    RecordView, TableFormat, WriteOptions,
+    read_table, write_table, FieldValue, ManifestSource, ManifestSpec, ReadOptions, ReadSchema,
+    RecordSource, RecordView, TableFormat, WriteOptions,
 };
 // Re-exported, not merely imported. A crate defining its own value type needs these three, and
 // `liquers_lib::value::{CombinedValue, SimpleValue, ValueExtension}` is where it will look for
@@ -229,7 +229,240 @@ fn default_ext_type_info(value: &ExtValue) -> liquers_core::type_system::TypeInf
         })
 }
 
+/// The refusal every scalar hook gave by default before `ExtValue` overrode them — kept explicit
+/// here so a variant that does not support scalar reading still states so via its own match arm
+/// rather than a catch-all (`CLAUDE.md`: explicit match arms, no `_ =>`).
+fn ext_scalar_refusal(value: &ExtValue, target: &str) -> Error {
+    Error::conversion_error(ValueExtension::identifier(value), target)
+}
+
+/// A human-readable name for a [`FieldValue`]'s shape, used only to name what a scalar
+/// conversion refused — never to carry the value itself.
+#[cfg(feature = "records")]
+fn field_value_kind(cell: &FieldValue) -> &'static str {
+    match cell {
+        FieldValue::Null => "Null",
+        FieldValue::Bool(_) => "Bool",
+        FieldValue::Int(_) => "Int",
+        FieldValue::UInt(_) => "UInt",
+        FieldValue::Float(_) => "Float",
+        FieldValue::Text(_) => "Text",
+        FieldValue::Bytes(_) => "Bytes",
+        FieldValue::Date(_) => "Date",
+        FieldValue::Timestamp(_) => "Timestamp",
+        FieldValue::Vector(_) => "Vector",
+    }
+}
+
+/// A single-cell view's cell as the base value it reads as —
+/// `specs/design/record-streams/phase2-architecture.md` §"A view as a value". The scalar
+/// conversions are then the base value's own, so a scalar read from a table and one written in a
+/// query cannot disagree (including the base value's lossy `i64 → f64`).
+#[cfg(feature = "records")]
+fn record_view_cell_as_base(cell: &FieldValue) -> Result<SimpleValue, Error> {
+    Ok(match cell {
+        FieldValue::Null => SimpleValue::None {},
+        FieldValue::Bool(value) => SimpleValue::Bool { value: *value },
+        FieldValue::Int(value) => SimpleValue::I64 { value: *value },
+        FieldValue::UInt(value) => SimpleValue::I64 {
+            value: i64::try_from(*value)
+                .map_err(|_| Error::conversion_error(field_value_kind(cell), "i64"))?,
+        },
+        FieldValue::Float(value) => SimpleValue::F64 { value: *value },
+        FieldValue::Text(value) => SimpleValue::Text { value: value.to_string() },
+        FieldValue::Bytes(value) => SimpleValue::Bytes { value: value.to_vec() },
+        // Core has no temporal variant: ISO-8601 text, as the table formats write it.
+        FieldValue::Date(days) => {
+            let date = chrono::NaiveDate::from_num_days_from_ce_opt(days.saturating_add(719_163))
+                .ok_or_else(|| Error::conversion_error(field_value_kind(cell), "date"))?;
+            SimpleValue::Text { value: date.format("%Y-%m-%d").to_string() }
+        }
+        FieldValue::Timestamp(micros) => {
+            let at = chrono::DateTime::<chrono::Utc>::from_timestamp_micros(*micros)
+                .ok_or_else(|| Error::conversion_error(field_value_kind(cell), "timestamp"))?;
+            SimpleValue::Text {
+                value: at.to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+            }
+        }
+        FieldValue::Vector(values) => SimpleValue::Array {
+            value: values
+                .iter()
+                .map(|v| SimpleValue::F64 { value: f64::from(*v) })
+                .collect(),
+        },
+    })
+}
+
+#[cfg(feature = "records")]
+fn record_view_cell_i64(cell: &FieldValue) -> Result<i64, Error> {
+    record_view_cell_as_base(cell)?.try_into_i64()
+}
+
+#[cfg(feature = "records")]
+fn record_view_cell_i32(cell: &FieldValue) -> Result<i32, Error> {
+    record_view_cell_as_base(cell)?.try_into_i32()
+}
+
+#[cfg(feature = "records")]
+fn record_view_cell_f64(cell: &FieldValue) -> Result<f64, Error> {
+    record_view_cell_as_base(cell)?.try_into_f64()
+}
+
+#[cfg(feature = "records")]
+fn record_view_cell_bool(cell: &FieldValue) -> Result<bool, Error> {
+    record_view_cell_as_base(cell)?.try_into_bool()
+}
+
+#[cfg(feature = "records")]
+fn record_view_cell_string(cell: &FieldValue) -> Result<String, Error> {
+    record_view_cell_as_base(cell)?.try_into_string()
+}
+
+/// `_option` reading: a `Null` cell is the base `None`, which the base value answers as `None`.
+#[cfg(feature = "records")]
+fn record_view_cell_i64_option(cell: &FieldValue) -> Result<Option<i64>, Error> {
+    record_view_cell_as_base(cell)?.try_into_i64_option()
+}
+
+#[cfg(feature = "records")]
+fn record_view_cell_f64_option(cell: &FieldValue) -> Result<Option<f64>, Error> {
+    record_view_cell_as_base(cell)?.try_into_f64_option()
+}
+
 impl ValueExtension for ExtValue {
+    /// Reads as its single cell would (`specs/design/record-streams/phase2-architecture.md`
+    /// §"A view as a value"): the cell's base value's own string conversion.
+    /// `RecordSource` refuses, like every other non-record variant.
+    fn try_into_string(&self) -> Result<String, Error> {
+        match self {
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => {
+                Err(ext_scalar_refusal(self, "string"))
+            }
+            #[cfg(feature = "polars")]
+            ExtValue::PolarsDataFrame { .. } => Err(ext_scalar_refusal(self, "string")),
+            #[cfg(feature = "egui")]
+            ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => {
+                Err(ext_scalar_refusal(self, "string"))
+            }
+            #[cfg(feature = "records")]
+            ExtValue::RecordSource { .. } => Err(ext_scalar_refusal(self, "string")),
+            #[cfg(feature = "records")]
+            ExtValue::RecordView { value } => record_view_cell_string(&value.single_cell()?),
+        }
+    }
+
+    fn try_into_i32(&self) -> Result<i32, Error> {
+        match self {
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => {
+                Err(ext_scalar_refusal(self, "i32"))
+            }
+            #[cfg(feature = "polars")]
+            ExtValue::PolarsDataFrame { .. } => Err(ext_scalar_refusal(self, "i32")),
+            #[cfg(feature = "egui")]
+            ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => {
+                Err(ext_scalar_refusal(self, "i32"))
+            }
+            #[cfg(feature = "records")]
+            ExtValue::RecordSource { .. } => Err(ext_scalar_refusal(self, "i32")),
+            #[cfg(feature = "records")]
+            ExtValue::RecordView { value } => record_view_cell_i32(&value.single_cell()?),
+        }
+    }
+
+    fn try_into_i64(&self) -> Result<i64, Error> {
+        match self {
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => {
+                Err(ext_scalar_refusal(self, "i64"))
+            }
+            #[cfg(feature = "polars")]
+            ExtValue::PolarsDataFrame { .. } => Err(ext_scalar_refusal(self, "i64")),
+            #[cfg(feature = "egui")]
+            ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => {
+                Err(ext_scalar_refusal(self, "i64"))
+            }
+            #[cfg(feature = "records")]
+            ExtValue::RecordSource { .. } => Err(ext_scalar_refusal(self, "i64")),
+            #[cfg(feature = "records")]
+            ExtValue::RecordView { value } => record_view_cell_i64(&value.single_cell()?),
+        }
+    }
+
+    fn try_into_i64_option(&self) -> Result<Option<i64>, Error> {
+        match self {
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => {
+                Err(ext_scalar_refusal(self, "i64"))
+            }
+            #[cfg(feature = "polars")]
+            ExtValue::PolarsDataFrame { .. } => Err(ext_scalar_refusal(self, "i64")),
+            #[cfg(feature = "egui")]
+            ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => {
+                Err(ext_scalar_refusal(self, "i64"))
+            }
+            #[cfg(feature = "records")]
+            ExtValue::RecordSource { .. } => Err(ext_scalar_refusal(self, "i64")),
+            #[cfg(feature = "records")]
+            ExtValue::RecordView { value } => {
+                record_view_cell_i64_option(&value.single_cell()?)
+            }
+        }
+    }
+
+    fn try_into_f64(&self) -> Result<f64, Error> {
+        match self {
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => {
+                Err(ext_scalar_refusal(self, "f64"))
+            }
+            #[cfg(feature = "polars")]
+            ExtValue::PolarsDataFrame { .. } => Err(ext_scalar_refusal(self, "f64")),
+            #[cfg(feature = "egui")]
+            ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => {
+                Err(ext_scalar_refusal(self, "f64"))
+            }
+            #[cfg(feature = "records")]
+            ExtValue::RecordSource { .. } => Err(ext_scalar_refusal(self, "f64")),
+            #[cfg(feature = "records")]
+            ExtValue::RecordView { value } => record_view_cell_f64(&value.single_cell()?),
+        }
+    }
+
+    fn try_into_f64_option(&self) -> Result<Option<f64>, Error> {
+        match self {
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => {
+                Err(ext_scalar_refusal(self, "f64"))
+            }
+            #[cfg(feature = "polars")]
+            ExtValue::PolarsDataFrame { .. } => Err(ext_scalar_refusal(self, "f64")),
+            #[cfg(feature = "egui")]
+            ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => {
+                Err(ext_scalar_refusal(self, "f64"))
+            }
+            #[cfg(feature = "records")]
+            ExtValue::RecordSource { .. } => Err(ext_scalar_refusal(self, "f64")),
+            #[cfg(feature = "records")]
+            ExtValue::RecordView { value } => {
+                record_view_cell_f64_option(&value.single_cell()?)
+            }
+        }
+    }
+
+    fn try_into_bool(&self) -> Result<bool, Error> {
+        match self {
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => {
+                Err(ext_scalar_refusal(self, "bool"))
+            }
+            #[cfg(feature = "polars")]
+            ExtValue::PolarsDataFrame { .. } => Err(ext_scalar_refusal(self, "bool")),
+            #[cfg(feature = "egui")]
+            ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => {
+                Err(ext_scalar_refusal(self, "bool"))
+            }
+            #[cfg(feature = "records")]
+            ExtValue::RecordSource { .. } => Err(ext_scalar_refusal(self, "bool")),
+            #[cfg(feature = "records")]
+            ExtValue::RecordView { value } => record_view_cell_bool(&value.single_cell()?),
+        }
+    }
+
     fn type_descriptions() -> Vec<liquers_core::type_system::TypeInfo> {
         use liquers_core::type_system::TypeInfo;
         let mut descriptions = vec![
