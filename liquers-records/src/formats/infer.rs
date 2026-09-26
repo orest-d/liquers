@@ -44,11 +44,14 @@ fn is_canonical_float(text: &str) -> bool {
     }
 }
 
-fn is_iso_date(text: &str) -> bool {
+/// `pub(super)`: [`super::ndjson`]'s schema-less reader applies the same two checks to a JSON
+/// *string* cell (phase2-architecture.md §"Schema-less inference rules": "Only strings go through
+/// the date and timestamp tests").
+pub(super) fn is_iso_date(text: &str) -> bool {
     NaiveDate::parse_from_str(text, "%Y-%m-%d").is_ok()
 }
 
-fn is_iso_timestamp(text: &str) -> bool {
+pub(super) fn is_iso_timestamp(text: &str) -> bool {
     DateTime::parse_from_rfc3339(text).is_ok()
 }
 

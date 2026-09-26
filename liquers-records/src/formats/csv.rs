@@ -128,7 +128,8 @@ fn parse_rows(bytes: &[u8], separator: u8) -> Result<Vec<Vec<RawField>>, Error> 
 // writer)
 // ---------------------------------------------------------------------------------------------
 
-fn base64_encode(bytes: &[u8]) -> String {
+/// `pub(super)`: reused by [`super::ndjson`] (Binary is base64 in JSON too) and [`super::shapes`].
+pub(super) fn base64_encode(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         let b0 = chunk[0];
@@ -151,7 +152,7 @@ fn base64_encode(bytes: &[u8]) -> String {
     out
 }
 
-fn base64_decode(text: &str) -> Result<Vec<u8>, Error> {
+pub(super) fn base64_decode(text: &str) -> Result<Vec<u8>, Error> {
     fn value(byte: u8) -> Result<u32, Error> {
         match byte {
             b'A'..=b'Z' => Ok((byte - b'A') as u32),
@@ -180,7 +181,9 @@ fn base64_decode(text: &str) -> Result<Vec<u8>, Error> {
     Ok(out)
 }
 
-fn parse_date(text: &str) -> Result<i32, Error> {
+/// `pub(super)`: [`super::ndjson`] and [`super::shapes`] render/parse dates the same way (an ISO
+/// string), so the day-count conversion is not duplicated per format.
+pub(super) fn parse_date(text: &str) -> Result<i32, Error> {
     let date = NaiveDate::parse_from_str(text, "%Y-%m-%d")
         .map_err(|e| Error::conversion_error(text, format!("Date (YYYY-MM-DD): {e}")))?;
     date.num_days_from_ce()
@@ -188,7 +191,7 @@ fn parse_date(text: &str) -> Result<i32, Error> {
         .ok_or_else(|| Error::general_error(format!("read_table: date '{text}' is out of range")))
 }
 
-fn format_date(days: i32) -> Result<String, Error> {
+pub(super) fn format_date(days: i32) -> Result<String, Error> {
     let ce_days = days.checked_add(UNIX_EPOCH_DAYS_FROM_CE).ok_or_else(|| {
         Error::general_error(format!("write_table: date value {days} is out of range"))
     })?;
@@ -198,13 +201,13 @@ fn format_date(days: i32) -> Result<String, Error> {
     Ok(date.format("%Y-%m-%d").to_string())
 }
 
-fn parse_timestamp(text: &str) -> Result<i64, Error> {
+pub(super) fn parse_timestamp(text: &str) -> Result<i64, Error> {
     let parsed = DateTime::parse_from_rfc3339(text)
         .map_err(|e| Error::conversion_error(text, format!("Timestamp (RFC 3339): {e}")))?;
     Ok(parsed.with_timezone(&Utc).timestamp_micros())
 }
 
-fn format_timestamp(micros: i64) -> Result<String, Error> {
+pub(super) fn format_timestamp(micros: i64) -> Result<String, Error> {
     let dt = DateTime::<Utc>::from_timestamp_micros(micros).ok_or_else(|| {
         Error::general_error(format!("write_table: timestamp value {micros} is out of range"))
     })?;
@@ -231,7 +234,12 @@ fn parse_vector(text: &str) -> Result<FieldValue, Error> {
 /// (so a leading zero is safe), every other type must parse or the cell is refused. Used both by
 /// the declared reader (the schema's own type) and by the post-inference reader (the type
 /// `infer::infer_column` already chose) — one conversion either way.
-fn parse_scalar(text: &str, field_type: FieldType) -> Result<FieldValue, Error> {
+/// `pub(super)`: [`super::shapes`] reuses this for the `columns`/`index` JSON orients, whose keys
+/// are always JSON strings (object keys cannot be numbers) and must be coerced through a schema's
+/// declared type the same way a CSV cell is — see phase2-architecture.md §"JSON shapes are
+/// conversions": "an `Id` read from `columns` or `index` keys is text unless a schema says
+/// otherwise".
+pub(super) fn parse_scalar(text: &str, field_type: FieldType) -> Result<FieldValue, Error> {
     match field_type {
         FieldType::Bool => {
             if text.eq_ignore_ascii_case("true") {
@@ -262,7 +270,10 @@ fn parse_scalar(text: &str, field_type: FieldType) -> Result<FieldValue, Error> 
     }
 }
 
-fn format_value(value: &FieldValue) -> Result<Option<String>, Error> {
+/// `pub(super)`: [`super::shapes`] reuses this to turn an `Id` value into a JSON object key —
+/// `columns`/`index` keys are always strings (phase2-architecture.md §"JSON shapes are
+/// conversions").
+pub(super) fn format_value(value: &FieldValue) -> Result<Option<String>, Error> {
     match value {
         FieldValue::Null => Ok(None),
         FieldValue::Bool(v) => Ok(Some(if *v { "true".to_string() } else { "false".to_string() })),

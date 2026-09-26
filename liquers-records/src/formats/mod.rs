@@ -8,15 +8,17 @@
 //! options and the provider chain".
 //!
 //! Every variant Phase 2 lists is present here from the start, even the ones this step does not
-//! implement (`NdJson`, `Json`, `Markdown`, `Html` land in Step 3.2/3.3; `Ipc`, `Parquet` land in
-//! Step 6.x behind this crate's `ipc`/`parquet` features): a `TableFormat` value and
-//! `from_data_format`'s alias table are part of Phase 2's stable surface regardless of which
-//! readers exist yet, and the variant itself carries no dependency on `flatbuffers`/`flate2` — only
-//! its eventual reader/writer will. Until then, [`read_table`]/[`write_table`] refuse them with a
-//! typed [`liquers_core::error::Error::not_supported`], naming the format and the direction.
+//! implement (`Markdown`, `Html` land in a later step; `Ipc`, `Parquet` land in Step 6.x behind
+//! this crate's `ipc`/`parquet` features): a `TableFormat` value and `from_data_format`'s alias
+//! table are part of Phase 2's stable surface regardless of which readers exist yet, and the
+//! variant itself carries no dependency on `flatbuffers`/`flate2` — only its eventual
+//! reader/writer will. Until then, [`read_table`]/[`write_table`] refuse them with a typed
+//! [`liquers_core::error::Error::not_supported`], naming the format and the direction.
 
 pub mod csv;
 pub mod infer;
+pub mod ndjson;
+pub mod shapes;
 
 use liquers_core::error::Error;
 
@@ -118,8 +120,8 @@ pub fn read_table(
 ) -> Result<RecordBatch, Error> {
     match format {
         TableFormat::Csv { separator } => csv::read_csv(bytes, separator, schema, options),
-        TableFormat::NdJson => Err(not_yet_supported("NdJson", "reading")),
-        TableFormat::Json => Err(not_yet_supported("Json", "reading")),
+        TableFormat::NdJson => ndjson::read_ndjson(bytes, schema, options),
+        TableFormat::Json => ndjson::read_json(bytes, schema, options),
         TableFormat::Markdown => Err(not_yet_supported("Markdown", "reading")),
         TableFormat::Html => Err(not_yet_supported("Html", "reading")),
         TableFormat::Ipc => Err(not_yet_supported("Ipc", "reading")),
@@ -135,8 +137,8 @@ pub fn write_table(
 ) -> Result<Vec<u8>, Error> {
     match format {
         TableFormat::Csv { separator } => csv::write_csv(view, separator, options),
-        TableFormat::NdJson => Err(not_yet_supported("NdJson", "writing")),
-        TableFormat::Json => Err(not_yet_supported("Json", "writing")),
+        TableFormat::NdJson => ndjson::write_ndjson(view, options),
+        TableFormat::Json => ndjson::write_json(view, options),
         TableFormat::Markdown => Err(not_yet_supported("Markdown", "writing")),
         TableFormat::Html => Err(not_yet_supported("Html", "writing")),
         TableFormat::Ipc => Err(not_yet_supported("Ipc", "writing")),
@@ -189,9 +191,13 @@ mod tests {
 
     #[test]
     fn read_table_of_an_unimplemented_format_is_not_supported_not_a_panic() {
-        let error = read_table(b"", TableFormat::Json, ReadSchema::Infer, &ReadOptions::default())
-            .expect_err("Json reading is not implemented yet");
-        assert!(format!("{error}").contains("Json"));
+        // CORRECTED: this test predates Step 3.2, which implements `Json` reading — a call that
+        // used to hit `not_yet_supported` now parses (and, for `b""`, fails with a JSON syntax
+        // error unrelated to "not implemented"). `Markdown` still has no reader, so it is what
+        // this test's "unimplemented format" case now needs to name.
+        let error = read_table(b"", TableFormat::Markdown, ReadSchema::Infer, &ReadOptions::default())
+            .expect_err("Markdown reading is not implemented yet");
+        assert!(format!("{error}").contains("Markdown"));
     }
 
     #[test]
