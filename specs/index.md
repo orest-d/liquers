@@ -8,10 +8,10 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 129
+Total rows: 130
 - P0: 1
 - P1: 2
-- P2: 79
+- P2: 80
 - P3: 47
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
@@ -55,6 +55,7 @@ Total rows: 129
 | [`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`](issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md) | issue | Environment and asset manager hold each other with strong Arcs, so every environment leaks | draft |  | P2 | M | core/assets;core/context | [phase1](specs/design/environment-builder/phase1-high-level-design.md)  [phase2](specs/design/environment-builder/phase2-architecture.md)  [phase3](specs/design/environment-builder/phase3-examples.md)  [phase4](specs/design/environment-builder/phase4-implementation.md)  [phase5](specs/design/environment-builder/phase5-documentation.md)  | 2026-08-27 |
 | [`EXPIRATION-RECOVERY-WEB-API`](issues/EXPIRATION-RECOVERY-WEB-API.md) | issue | Expiration recovery has no web API surface | accepted |  | P2 | M | axum;core/assets |  | 2026-08-08 |
 | [`EXPIRY-RECORDS-NO-REASON`](issues/EXPIRY-RECORDS-NO-REASON.md) | issue | An asset that becomes Expired records no reason, and the one path that does names the dependency by asset id | draft |  | P2 | M | core/assets |  | 2026-09-04 |
+| [`FREE-FUNCTION-EVALUATE-BAKES-A-BIN-DATA-FORMAT`](issues/FREE-FUNCTION-EVALUATE-BAKES-A-BIN-DATA-FORMAT.md) | issue | Every unkeyed/ad-hoc asset declares a bin data format it usually cannot serialize as | draft |  | P2 | M | core/plan |  | 2026-09-26 |
 | [`INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS`](issues/INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS.md) | issue | An inline run dropped mid-flight leaves callers already waiting on it parked forever | draft |  | P2 | M | core/assets;web |  | 2026-09-04 |
 | [`JS-COMMAND-CANNOT-ACCESS-CONTEXT`](issues/JS-COMMAND-CANNOT-ACCESS-CONTEXT.md) | feature | A JavaScript command cannot access the execution context | draft |  | P2 | M | web;core/commands |  | 2026-08-29 |
 | [`LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION`](issues/LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION.md) | feature | The language integration guide says nothing about writing the integration's own documentation | draft |  | P2 | M | docs;web;py |  | 2026-08-30 |
