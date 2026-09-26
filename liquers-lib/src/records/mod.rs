@@ -13,6 +13,10 @@ use std::sync::Arc;
 
 use crate::value::{ExtValueInterface, Value};
 
+pub mod convert;
+
+pub use convert::{to_record, to_record_source, ToRecordOptions};
+
 /// How the records crate reads and builds a `Value` without knowing its concrete type
 /// (`liquers-records` cannot name `liquers-lib`'s `Value`, which sits above it). Delegates to the
 /// `ExtValueInterface` accessors Step 5.2 added to `ExtValue`/`Value`
