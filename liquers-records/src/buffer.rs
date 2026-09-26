@@ -39,7 +39,12 @@ struct AlignedChunk([u8; ALIGNMENT]);
 /// a reference, not the bytes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AlignedBuffer {
-    chunks: Arc<[AlignedChunk]>,
+    /// `Arc<Vec<_>>` rather than `Arc<[_]>` (Step 2.2's original shape) so
+    /// [`AlignedBuffer::into_mut`] can reach for `Arc::try_unwrap`, which needs a `Sized` payload
+    /// and refuses an unsized `Arc<[T]>` — see `specs/design/record-streams/phase2-architecture.md`
+    /// §"Writing a view" (`RecordBatch::into_mut`). Purely an internal storage choice: every public
+    /// method's behavior is unchanged.
+    chunks: Arc<Vec<AlignedChunk>>,
     len: usize,
 }
 
@@ -51,7 +56,7 @@ impl AlignedBuffer {
         let flat: &mut [u8] = bytemuck::cast_slice_mut(&mut chunks);
         flat[..bytes.len()].copy_from_slice(bytes);
         AlignedBuffer {
-            chunks: chunks.into(),
+            chunks: Arc::new(chunks),
             len: bytes.len(),
         }
     }
@@ -59,7 +64,7 @@ impl AlignedBuffer {
     /// The buffer's logical bytes: 64-byte aligned, and exactly as long as what `from_slice` was
     /// given — any chunk padding is excluded.
     pub fn as_bytes(&self) -> &[u8] {
-        let flat: &[u8] = bytemuck::cast_slice(self.chunks.as_ref());
+        let flat: &[u8] = bytemuck::cast_slice(self.chunks.as_slice());
         &flat[..self.len]
     }
 
@@ -75,13 +80,102 @@ impl AlignedBuffer {
     /// without corrupting a clone that shares the same storage.
     fn make_bytes_mut(&mut self) -> &mut [u8] {
         if Arc::get_mut(&mut self.chunks).is_none() {
-            self.chunks = Arc::from(self.chunks.to_vec());
+            self.chunks = Arc::new((*self.chunks).clone());
         }
         let len = self.len;
-        let chunks: &mut [AlignedChunk] = Arc::get_mut(&mut self.chunks).unwrap_or(&mut []);
-        let flat: &mut [u8] = bytemuck::cast_slice_mut(chunks);
-        let end = len.min(flat.len());
-        &mut flat[..end]
+        match Arc::get_mut(&mut self.chunks) {
+            Some(chunks) => {
+                let flat: &mut [u8] = bytemuck::cast_slice_mut(chunks.as_mut_slice());
+                let end = len.min(flat.len());
+                &mut flat[..end]
+            }
+            None => &mut [],
+        }
+    }
+
+    /// Takes over this buffer's storage as a growable [`AlignedBytesMut`] — a move, no byte copy,
+    /// when this `AlignedBuffer` is the storage's only handle (`Arc::try_unwrap` succeeds); a
+    /// single copy otherwise. `pub(crate)`: `mutable.rs`'s `RecordBatch::into_mut` is the only
+    /// caller, and its `ColumnMut` is the public mutable surface.
+    pub(crate) fn into_mut(self) -> AlignedBytesMut {
+        let AlignedBuffer { chunks, len } = self;
+        match Arc::try_unwrap(chunks) {
+            Ok(chunks) => AlignedBytesMut { chunks, len },
+            Err(shared) => {
+                let flat: &[u8] = bytemuck::cast_slice(shared.as_slice());
+                let mut mutable = AlignedBytesMut::with_capacity(len);
+                mutable.extend_from_slice(&flat[..len]);
+                mutable
+            }
+        }
+    }
+}
+
+/// The growable counterpart of [`AlignedBuffer`]: append-only and chunk-backed from the start, so
+/// [`AlignedBytesMut::freeze`] hands its storage to a new `AlignedBuffer` without copying — the
+/// `BytesMut` → `Bytes` idiom phase2-architecture.md's §"Writing a view" describes for `ColumnMut`.
+/// `pub(crate)`: the public mutable surface is `ColumnMut` (`mutable.rs`), which this backs.
+#[derive(Debug, Clone)]
+pub(crate) struct AlignedBytesMut {
+    chunks: Vec<AlignedChunk>,
+    len: usize,
+}
+
+impl AlignedBytesMut {
+    pub(crate) fn new() -> Self {
+        AlignedBytesMut { chunks: Vec::new(), len: 0 }
+    }
+
+    pub(crate) fn with_capacity(bytes: usize) -> Self {
+        AlignedBytesMut {
+            chunks: Vec::with_capacity(bytes.div_ceil(ALIGNMENT)),
+            len: 0,
+        }
+    }
+
+    /// Logical bytes written so far — not the padded chunk capacity.
+    pub(crate) fn len(&self) -> usize {
+        self.len
+    }
+
+    pub(crate) fn reserve(&mut self, additional_bytes: usize) {
+        self.chunks.reserve(additional_bytes.div_ceil(ALIGNMENT));
+    }
+
+    /// The bytes written so far, 64-byte aligned, padding excluded — mirrors
+    /// [`AlignedBuffer::as_bytes`].
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        let flat: &[u8] = bytemuck::cast_slice(self.chunks.as_slice());
+        &flat[..self.len]
+    }
+
+    /// Appends `bytes`, growing the chunk storage as needed. A newly added tail chunk is
+    /// zero-initialized before writing, exactly as [`AlignedBuffer::from_slice`] does.
+    pub(crate) fn extend_from_slice(&mut self, bytes: &[u8]) {
+        let start = self.len;
+        let needed_chunks = (start + bytes.len()).div_ceil(ALIGNMENT);
+        if needed_chunks > self.chunks.len() {
+            self.chunks.resize(needed_chunks, AlignedChunk([0u8; ALIGNMENT]));
+        }
+        let flat: &mut [u8] = bytemuck::cast_slice_mut(&mut self.chunks);
+        flat[start..start + bytes.len()].copy_from_slice(bytes);
+        self.len += bytes.len();
+    }
+
+    /// Overwrites `bytes.len()` already-written bytes starting at `offset` — how `ColumnMut::set`
+    /// replaces one fixed-width cell in place.
+    pub(crate) fn set(&mut self, offset: usize, bytes: &[u8]) {
+        let flat: &mut [u8] = bytemuck::cast_slice_mut(&mut self.chunks);
+        flat[offset..offset + bytes.len()].copy_from_slice(bytes);
+    }
+
+    /// Consumes this buffer into an immutable [`AlignedBuffer`] — the chunk storage becomes the
+    /// new buffer's `Arc` directly, so this is a move, not a copy.
+    pub(crate) fn freeze(self) -> AlignedBuffer {
+        AlignedBuffer {
+            chunks: Arc::new(self.chunks),
+            len: self.len,
+        }
     }
 }
 
@@ -136,6 +230,19 @@ impl<T: bytemuck::Pod> Buffer<T> {
     /// builds for.
     pub fn as_bytes(&self) -> &[u8] {
         self.data.as_bytes()
+    }
+
+    /// Unwraps the typed view, handing back the untyped storage — how `mutable.rs` reaches
+    /// [`AlignedBuffer::into_mut`] without `Buffer<T>` exposing its private field. `pub(crate)`:
+    /// `ColumnMut`/`RecordBatch::into_mut` are the only callers.
+    pub(crate) fn into_aligned(self) -> AlignedBuffer {
+        self.data
+    }
+
+    /// The inverse of [`Buffer::into_aligned`] — wraps an already-built `AlignedBuffer` back into
+    /// a typed `Buffer<T>`, e.g. the frozen result of [`AlignedBytesMut::freeze`].
+    pub(crate) fn from_aligned(data: AlignedBuffer) -> Self {
+        Buffer { data, _marker: PhantomData }
     }
 }
 

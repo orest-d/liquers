@@ -8,11 +8,11 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 123
+Total rows: 124
 - P0: 1
 - P1: 2
 - P2: 77
-- P3: 43
+- P3: 44
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
@@ -115,6 +115,7 @@ Total rows: 123
 | [`AXUM-WEBSOCKET-HARDENING`](issues/AXUM-WEBSOCKET-HARDENING.md) | issue | WebSocket endpoint is not hardened | accepted |  | P3 | M | axum |  | 2026-08-08 |
 | [`BENCHMARK-SUITE`](issues/BENCHMARK-SUITE.md) | feature | No reproducible benchmarks for core runtime paths | accepted |  | P3 | M | build |  | 2026-08-08 |
 | [`COLUMN-SLICE-COPIES-INSTEAD-OF-SHARING-BUFFER-STORAGE`](issues/COLUMN-SLICE-COPIES-INSTEAD-OF-SHARING-BUFFER-STORAGE.md) | issue | Column slice copies instead of sharing buffer storage | draft |  | P3 | M | records | [chunking](specs/design/record-streams/chunking-and-resumability.md)  [engine](specs/design/record-streams/engine-survey.md)  [manifest](specs/design/record-streams/manifest-format.md)  [phase1](specs/design/record-streams/phase1-high-level-design.md)  [phase2](specs/design/record-streams/phase2-architecture.md)  [phase3](specs/design/record-streams/phase3-examples.md)  [phase3](specs/design/record-streams/phase3-tests.md)  [phase4](specs/design/record-streams/phase4-implementation.md)  [phase5](specs/design/record-streams/phase5-documentation.md)  [phase5](specs/design/record-streams/phase5-evidence.md)  [record](specs/design/record-streams/record-model.md)  | 2026-09-26 |
+| [`COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY`](issues/COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY.md) | issue | ColumnMut always copies validity, and rebuilds the whole column to overwrite one Text/Binary cell | draft |  | P3 | M | records | [chunking](specs/design/record-streams/chunking-and-resumability.md)  [engine](specs/design/record-streams/engine-survey.md)  [manifest](specs/design/record-streams/manifest-format.md)  [phase1](specs/design/record-streams/phase1-high-level-design.md)  [phase2](specs/design/record-streams/phase2-architecture.md)  [phase3](specs/design/record-streams/phase3-examples.md)  [phase3](specs/design/record-streams/phase3-tests.md)  [phase4](specs/design/record-streams/phase4-implementation.md)  [phase5](specs/design/record-streams/phase5-documentation.md)  [phase5](specs/design/record-streams/phase5-evidence.md)  [record](specs/design/record-streams/record-model.md)  | 2026-09-26 |
 | [`CORE-STATE-LOCK-API-CLEANUP`](issues/CORE-STATE-LOCK-API-CLEANUP.md) | issue | `State` holds an `RwLock` that may not be needed | accepted |  | P3 | M | core/value |  | 2026-08-08 |
 | [`CORE-STORE-OPENBIN-MISSING`](issues/CORE-STORE-OPENBIN-MISSING.md) | issue | `openbin` is unimplemented in every store | accepted |  | P3 | M | core/store;store/backends |  | 2026-08-08 |
 | [`ISSUE-REPORT-PLAN-AND-METADATA-LOGGING`](issues/ISSUE-REPORT-PLAN-AND-METADATA-LOGGING.md) | feature | Reuse structured issue reports for plan validation and metadata logging | draft |  | P3 | M | core/validate;core/plan;core/commands | [phase1](specs/design/variadic-metadata-tail-check/phase1-high-level-design.md)  [phase2](specs/design/variadic-metadata-tail-check/phase2-architecture.md)  [phase3](specs/design/variadic-metadata-tail-check/phase3-examples.md)  [phase4](specs/design/variadic-metadata-tail-check/phase4-implementation.md)  [phase5](specs/design/variadic-metadata-tail-check/phase5-documentation.md)  | 2026-09-05 |
