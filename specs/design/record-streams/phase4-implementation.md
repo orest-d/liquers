@@ -609,15 +609,16 @@ cargo check -p liquers-records --target wasm32-unknown-unknown
 **File:** `liquers-records/src/manifest.rs`
 
 **Change:**
-- `ManifestSpec` (declared in Step 2.6): the version envelope — the `manifest: record-stream`
-  discriminator and `version` — is **tolerated, not modelled** (no `deny_unknown_fields`), so an
-  unknown `version` reads as the latest (Phase 3 §2.7, §9).
+- `ManifestSpec` (declared in Step 2.6, with the manifest-level fields settled after the review):
+  `manifest` (`ManifestKind`) and `version` are modelled; an absent or unknown `version` reads as
+  the latest, and unknown fields are tolerated (no `deny_unknown_fields`) (Phase 3 §2.7, §9).
 - `ChunkTemplate` and `ChunkNaming`: `<prefix>_{n:04}.<extension>`, `index_of`, and collision
   checks.
 
 Sources: Phase 2 §"A. Chunk keys" and §"Construction helpers…"; `manifest-format.md`.
 
-**Tests:** the Phase 3 §2.7 and §9 tests that do not name `ManifestSource` — §2.7's eight
+**Tests:** `manifest_spec_serializes_its_discriminator` (§"Tests this plan adds"; it needs
+`ManifestSource`, so it lands with Step 4.2's tests), and the Phase 3 §2.7 and §9 tests that do not name `ManifestSource` — §2.7's eight
 `ChunkNaming` / `ChunkTemplate` / `ManifestSpec` tests and §9's four others. The five that
 construct a `ManifestSource` (§2.7's `manifest_source_*` ×4, §9's
 `explicit_chunk_name_collisions_are_refused_at_load`) need Step 4.2's type and land there; a
@@ -672,11 +673,9 @@ serializes only as its manifest".
 
 **Change:** `ManifestRecipeProvider`, implementing `AsyncRecipeProvider<E>` for any `E`:
 - It reads the folder's `*.manifest.yaml` and caches parsed manifests by key and stored version.
-- `recipe_opt` serves explicit and template chunks, with `cwd` set and the manifest's `stored`
-  and `cached` copied onto the recipe. Phase 2 §B also names the manifest's `expires` and
-  `volatile`, but `ManifestSpec` as specified has neither field (nor `manifest-format.md`'s shared
-  `arguments` / `links`) — see §"Open questions from the final review", 1; copy
-  them only if that adds them.
+- `recipe_opt` serves explicit and template chunks, with `cwd` set and the manifest's `stored`,
+  `cached`, `expires` and `volatile` copied onto the recipe, and its shared `arguments` / `links`
+  merged under an explicit chunk's own (the chunk wins) or given to a template chunk as they are.
 - `contains` matches without enumerating.
 - `assets_with_recipes` lists only explicit chunks.
 - A chunk name that a sibling `recipes.yaml` also defines is refused. This is Phase 3 §9's open
@@ -697,7 +696,8 @@ serializes only as its manifest".
 
 Source: Phase 2 §"B".
 
-**Tests:** the §9 collision test, and the provider's own unit tests: serving an explicit chunk, a
+**Tests:** the §9 collision test, `shared_arguments_reach_every_template_chunk_recipe` (§"Tests
+this plan adds"), and the provider's own unit tests: serving an explicit chunk, a
 template chunk, `contains` without enumeration, and `assets_with_recipes` listing only explicit
 chunks, over an `AsyncMemoryStore`. Phase 3 §1.2's `ManifestRecipeProvider` code is the
 implementation sketch this step fills in. §1.2's *tests* are in a `liquers-lib` file and land in
