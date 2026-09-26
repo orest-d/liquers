@@ -16,7 +16,9 @@
 //! [`liquers_core::error::Error::not_supported`], naming the format and the direction.
 
 pub mod csv;
+pub mod html;
 pub mod infer;
+pub mod markdown;
 pub mod ndjson;
 pub mod shapes;
 
@@ -122,8 +124,10 @@ pub fn read_table(
         TableFormat::Csv { separator } => csv::read_csv(bytes, separator, schema, options),
         TableFormat::NdJson => ndjson::read_ndjson(bytes, schema, options),
         TableFormat::Json => ndjson::read_json(bytes, schema, options),
-        TableFormat::Markdown => Err(not_yet_supported("Markdown", "reading")),
-        TableFormat::Html => Err(not_yet_supported("Html", "reading")),
+        TableFormat::Markdown => markdown::read_markdown(bytes, schema, options),
+        TableFormat::Html => Err(Error::not_supported(
+            "TableFormat::Html: reading is not supported (write-only format)".to_string()
+        )),
         TableFormat::Ipc => Err(not_yet_supported("Ipc", "reading")),
         TableFormat::Parquet => Err(not_yet_supported("Parquet", "reading")),
     }
@@ -139,8 +143,8 @@ pub fn write_table(
         TableFormat::Csv { separator } => csv::write_csv(view, separator, options),
         TableFormat::NdJson => ndjson::write_ndjson(view, options),
         TableFormat::Json => ndjson::write_json(view, options),
-        TableFormat::Markdown => Err(not_yet_supported("Markdown", "writing")),
-        TableFormat::Html => Err(not_yet_supported("Html", "writing")),
+        TableFormat::Markdown => markdown::write_markdown(view, options),
+        TableFormat::Html => html::write_html(view, options),
         TableFormat::Ipc => Err(not_yet_supported("Ipc", "writing")),
         TableFormat::Parquet => Err(not_yet_supported("Parquet", "writing")),
     }
@@ -191,13 +195,11 @@ mod tests {
 
     #[test]
     fn read_table_of_an_unimplemented_format_is_not_supported_not_a_panic() {
-        // CORRECTED: this test predates Step 3.2, which implements `Json` reading — a call that
-        // used to hit `not_yet_supported` now parses (and, for `b""`, fails with a JSON syntax
-        // error unrelated to "not implemented"). `Markdown` still has no reader, so it is what
-        // this test's "unimplemented format" case now needs to name.
-        let error = read_table(b"", TableFormat::Markdown, ReadSchema::Infer, &ReadOptions::default())
-            .expect_err("Markdown reading is not implemented yet");
-        assert!(format!("{error}").contains("Markdown"));
+        // Step 3.2 implements CSV, NDJSON, JSON reading; Step 3.3 implements Markdown.
+        // Parquet reading is not implemented until Step 6.x.
+        let error = read_table(b"", TableFormat::Parquet, ReadSchema::Infer, &ReadOptions::default())
+            .expect_err("Parquet reading is not implemented yet");
+        assert!(format!("{error}").contains("Parquet"));
     }
 
     #[test]

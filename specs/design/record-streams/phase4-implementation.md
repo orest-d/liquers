@@ -589,7 +589,7 @@ ambiguous shape. See Phase 2 §"JSON shapes are conversions".
 **Files:** `liquers-records/src/formats/{markdown,html}.rs`,
 `liquers-records/tests/format_round_trip.rs`
 
-**Change:** both formats are write-only and use field labels. HTML escapes every cell and header
+**Change:** both use field labels; Markdown reads back (a GFM table, types inferred), HTML is write-only. HTML escapes every cell and header
 (Phase 2 §"Markdown and HTML").
 
 **Tests:** Phase 3 §3.4 (3), §3.5 (4) and §7 (8).
