@@ -162,6 +162,33 @@ impl<T: bytemuck::Pod> PartialEq for Buffer<T> {
     }
 }
 
+/// Serializes as a plain sequence of `T` values — `[1, 2, 3]` in JSON — rather than as raw
+/// little-endian bytes. `Column`'s buffers hold typed numeric and offset data, and a reader of a
+/// stored `RecordBatch` (a person debugging a manifest, an `NDJSON` export) benefits far more from
+/// readable numbers than from a base64 blob whose endianness is a silent assumption. Lossless
+/// either way — `from_slice` on the way back in rebuilds the 64-byte alignment, exactly as
+/// [`AlignedBuffer`]'s own `Serialize` does — so this is a readability choice, not a correctness
+/// one. Contrast [`AlignedBuffer`], which holds untyped bytes (`Column::Text`/`Binary`'s `data`)
+/// and so has no typed values to serialize as.
+impl<T: bytemuck::Pod + Serialize> Serialize for Buffer<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.as_slice().serialize(serializer)
+    }
+}
+
+impl<'de, T: bytemuck::Pod + Deserialize<'de>> Deserialize<'de> for Buffer<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let values = Vec::<T>::deserialize(deserializer)?;
+        Ok(Buffer::from_slice(&values))
+    }
+}
+
 /// Bit-packed booleans, LSB-first within each byte, as Arrow specifies. Used for validity
 /// (nulls), filter masks and `Column::Bool` storage — see phase2-architecture.md §"Bitmap".
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -451,6 +478,16 @@ mod tests {
         let data = vec![1.5f32, 2.5, 3.5];
         let buffer = Buffer::from_slice(&data);
         assert_eq!(buffer.as_slice(), &data[..]);
+    }
+
+    #[test]
+    fn buffer_serde_roundtrips_through_json_as_readable_values() {
+        let data = vec![10i64, -20, 30, 40];
+        let buffer = Buffer::from_slice(&data);
+        let json = serde_json::to_string(&buffer).expect("serialize");
+        assert_eq!(json, "[10,-20,30,40]"); // readable numbers, not base64 bytes
+        let restored: Buffer<i64> = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(restored.as_slice(), &data[..]);
     }
 
     #[test]

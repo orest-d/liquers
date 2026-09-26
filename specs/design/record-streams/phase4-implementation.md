@@ -640,6 +640,9 @@ the sections named.
   - A keyed chunk that is not stored is evaluated and then checked against the schema.
   - An unkeyed chunk is evaluated.
 - **`InMemorySource`** and the wrapping sources.
+- **`ChunkOrigin::locator_query`** (Phase 2 §"Function Signatures"): renders a `LocatorRule` and
+  a row's id into a directly evaluable query. Deferred here from Step 2.3, which had no caller for
+  it; add a unit test for a rule with and without leading parameters.
 - **`ContextResolver<E>`**: records each chunk as a dependency of the context's asset.
 - **`EnvResolver<E>`**: records nothing.
 - Both resolvers have the bound `E::Value: RecordValue`.

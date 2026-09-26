@@ -8,11 +8,11 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 121
+Total rows: 123
 - P0: 1
 - P1: 2
-- P2: 76
-- P3: 42
+- P2: 77
+- P3: 43
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
@@ -32,6 +32,7 @@ Total rows: 121
 | [`CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION`](issues/CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION.md) | issue | A command cannot set its asset's title or description through Context | draft |  | P2 | S | core/context |  | 2026-09-16 |
 | [`CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS`](issues/CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS.md) | issue | AsyncFileStore listings drop a metadata-only key instead of reporting it | draft |  | P2 | S | core/store;store/backends;docs |  | 2026-09-03 |
 | [`DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS`](issues/DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS.md) | issue | The generated index.md emits design phase links in filesystem order | draft |  | P2 | S | docs;build |  | 2026-09-04 |
+| [`METADATA-LACKS-SERIALIZE-DESERIALIZE-AND-PARTIALEQ`](issues/METADATA-LACKS-SERIALIZE-DESERIALIZE-AND-PARTIALEQ.md) | issue | Metadata lacks Serialize, Deserialize and PartialEq | draft |  | P2 | S | core/value |  | 2026-09-26 |
 | [`RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY`](issues/RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY.md) | issue | AsyncRecipeProvider::contains has a default that silently assumes recipes are enumerable | draft |  | P2 | S | core/assets | [chunking](specs/design/record-streams/chunking-and-resumability.md)  [engine](specs/design/record-streams/engine-survey.md)  [manifest](specs/design/record-streams/manifest-format.md)  [phase1](specs/design/record-streams/phase1-high-level-design.md)  [phase2](specs/design/record-streams/phase2-architecture.md)  [phase3](specs/design/record-streams/phase3-examples.md)  [phase3](specs/design/record-streams/phase3-tests.md)  [phase4](specs/design/record-streams/phase4-implementation.md)  [phase5](specs/design/record-streams/phase5-documentation.md)  [phase5](specs/design/record-streams/phase5-evidence.md)  [record](specs/design/record-streams/record-model.md)  | 2026-09-20 |
 | [`REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED`](issues/REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED.md) | issue | The `payload: required` metadata statement is implemented but documented nowhere | draft |  | P2 | S | docs;core/commands;macro |  | 2026-09-03 |
 | [`SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED`](issues/SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED.md) | issue | A write skipped because the asset was cancelled is recorded as a successful persist | draft |  | P2 | S | core/assets |  | 2026-09-04 |
@@ -113,6 +114,7 @@ Total rows: 121
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  | P3 | S | core/value |  | 2026-09-24 |
 | [`AXUM-WEBSOCKET-HARDENING`](issues/AXUM-WEBSOCKET-HARDENING.md) | issue | WebSocket endpoint is not hardened | accepted |  | P3 | M | axum |  | 2026-08-08 |
 | [`BENCHMARK-SUITE`](issues/BENCHMARK-SUITE.md) | feature | No reproducible benchmarks for core runtime paths | accepted |  | P3 | M | build |  | 2026-08-08 |
+| [`COLUMN-SLICE-COPIES-INSTEAD-OF-SHARING-BUFFER-STORAGE`](issues/COLUMN-SLICE-COPIES-INSTEAD-OF-SHARING-BUFFER-STORAGE.md) | issue | Column slice copies instead of sharing buffer storage | draft |  | P3 | M | records | [chunking](specs/design/record-streams/chunking-and-resumability.md)  [engine](specs/design/record-streams/engine-survey.md)  [manifest](specs/design/record-streams/manifest-format.md)  [phase1](specs/design/record-streams/phase1-high-level-design.md)  [phase2](specs/design/record-streams/phase2-architecture.md)  [phase3](specs/design/record-streams/phase3-examples.md)  [phase3](specs/design/record-streams/phase3-tests.md)  [phase4](specs/design/record-streams/phase4-implementation.md)  [phase5](specs/design/record-streams/phase5-documentation.md)  [phase5](specs/design/record-streams/phase5-evidence.md)  [record](specs/design/record-streams/record-model.md)  | 2026-09-26 |
 | [`CORE-STATE-LOCK-API-CLEANUP`](issues/CORE-STATE-LOCK-API-CLEANUP.md) | issue | `State` holds an `RwLock` that may not be needed | accepted |  | P3 | M | core/value |  | 2026-08-08 |
 | [`CORE-STORE-OPENBIN-MISSING`](issues/CORE-STORE-OPENBIN-MISSING.md) | issue | `openbin` is unimplemented in every store | accepted |  | P3 | M | core/store;store/backends |  | 2026-08-08 |
 | [`ISSUE-REPORT-PLAN-AND-METADATA-LOGGING`](issues/ISSUE-REPORT-PLAN-AND-METADATA-LOGGING.md) | feature | Reuse structured issue reports for plan validation and metadata logging | draft |  | P3 | M | core/validate;core/plan;core/commands | [phase1](specs/design/variadic-metadata-tail-check/phase1-high-level-design.md)  [phase2](specs/design/variadic-metadata-tail-check/phase2-architecture.md)  [phase3](specs/design/variadic-metadata-tail-check/phase3-examples.md)  [phase4](specs/design/variadic-metadata-tail-check/phase4-implementation.md)  [phase5](specs/design/variadic-metadata-tail-check/phase5-documentation.md)  | 2026-09-05 |

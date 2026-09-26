@@ -44,6 +44,7 @@ AREAS = {
     "macro",
     "store/backends",
     "store/config",
+    "records",
     "lib/commands",
     "lib/value",
     "lib/polars",
