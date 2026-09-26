@@ -252,6 +252,27 @@ impl RecordBatch {
             }
         }
 
+        // A field is nullable in the result when it is nullable in any input: chunks read without a
+        // schema infer nullability from the nulls they happen to hold, so they may disagree.
+        let needs_widening = schema.fields.iter().enumerate().any(|(index, field)| {
+            !field.nullable && batches.iter().any(|batch| batch.schema.fields[index].nullable)
+        });
+        let schema = if needs_widening {
+            let fields = schema
+                .fields
+                .iter()
+                .enumerate()
+                .map(|(index, field)| {
+                    let mut field = field.clone();
+                    field.nullable = batches.iter().any(|batch| batch.schema.fields[index].nullable);
+                    field
+                })
+                .collect();
+            Arc::new(RecordSchema::new(fields)?)
+        } else {
+            schema
+        };
+
         let mut columns = Vec::with_capacity(schema.fields.len());
         for col_index in 0..schema.fields.len() {
             let per_batch: Vec<Column> = batches
@@ -913,5 +934,34 @@ mod tests {
             vec![Err(Error::general_error("boom".to_string()))];
         let stream = record_stream(futures::stream::iter(views), None);
         assert!(stream.materialize(10).await.is_err());
+    }
+
+    #[test]
+    fn concat_widens_nullability_when_any_input_is_nullable() -> Result<(), Error> {
+        let not_null = Arc::new(RecordSchema::new(vec![
+            FieldSchema::new("x", FieldType::Int).not_null(),
+        ])?);
+        let nullable = Arc::new(RecordSchema::new(vec![FieldSchema::new("x", FieldType::Int)])?);
+        let a = RecordBatch::new(
+            not_null,
+            vec![Column::Int { validity: None, values: Buffer::from_slice(&[1i64]) }],
+            None,
+            None,
+            vec![],
+        )?;
+        let b = RecordBatch::new(
+            nullable,
+            vec![Column::Int {
+                validity: Some(crate::buffer::Bitmap::from_bools(&[false])),
+                values: Buffer::from_slice(&[0i64]),
+            }],
+            None,
+            None,
+            vec![],
+        )?;
+        let joined = RecordBatch::concat(&[a, b])?;
+        assert!(joined.schema.fields[0].nullable);
+        assert_eq!(joined.value(1, 0)?, FieldValue::Null);
+        Ok(())
     }
 }

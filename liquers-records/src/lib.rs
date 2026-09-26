@@ -10,6 +10,7 @@ extern crate self as liquers_records;
 pub mod batch;
 pub mod buffer;
 pub mod column;
+pub mod formats;
 pub mod manifest;
 pub mod mutable;
 pub mod schema;
@@ -22,6 +23,7 @@ pub use batch::{
 };
 pub use buffer::{AlignedBuffer, Bitmap, Buffer};
 pub use column::{Column, CompareOp, FieldValue};
+pub use formats::{read_table, write_table, ReadOptions, ReadSchema, TableFormat, WriteOptions};
 pub use manifest::{ChunkTemplate, ManifestKind, ManifestSpec};
 pub use mutable::{ColumnMut, RecordBatchMut, RecordViewMut};
 pub use schema::{
