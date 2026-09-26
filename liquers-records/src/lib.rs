@@ -11,6 +11,7 @@ pub mod batch;
 pub mod buffer;
 pub mod column;
 pub mod schema;
+pub mod views;
 
 pub use batch::{
     record_stream, BoxRecordStream, ChunkDescriptor, ChunkId, ChunkList, ChunkOrigin, LocatorRule,
@@ -20,4 +21,7 @@ pub use buffer::{AlignedBuffer, Bitmap, Buffer};
 pub use column::{Column, CompareOp, FieldValue};
 pub use schema::{
     Analyzer, FieldRole, FieldSchema, FieldType, IndexKind, KeyRole, RecordSchema, VectorMetric,
+};
+pub use views::{
+    AppendedColumnsView, ColumnsView, DerivedColumnView, RowFnView, RowIndexView, RowRangeView,
 };

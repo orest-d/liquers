@@ -342,6 +342,18 @@ impl RecordSchema {
     /// `Exact`-indexed and stored (supplied when left at [`FieldRole::default`]), or when more
     /// than one field has `KeyRole::Source`. Checked once per schema rather than per row.
     pub fn new(fields: Vec<FieldSchema>) -> Result<Self, Error> {
+        // Field names are unique: `index_of` and `resolve_field` answer with one position, and a
+        // derived or appended column reusing a name would otherwise shadow it silently.
+        let mut seen = std::collections::HashSet::new();
+        for field in &fields {
+            if !seen.insert(field.name.as_str()) {
+                return Err(Error::general_error(format!(
+                    "RecordSchema: duplicate field name '{}'",
+                    field.name
+                )));
+            }
+        }
+
         let id_positions: Vec<usize> = fields
             .iter()
             .enumerate()
@@ -640,5 +652,15 @@ mod tests {
         let yaml = "name: id\ndata_type: Text\nnullable: false\n";
         let field: FieldSchema = serde_yaml::from_str(yaml).expect("deserialize");
         assert!(!field.nullable);
+    }
+
+    #[test]
+    fn schema_new_refuses_duplicate_field_names() {
+        let fields = vec![
+            FieldSchema::new("price", FieldType::Float),
+            FieldSchema::new("price", FieldType::Int),
+        ];
+        let error = RecordSchema::new(fields).expect_err("duplicate names refused");
+        assert!(format!("{error}").contains("price"));
     }
 }
