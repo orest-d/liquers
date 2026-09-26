@@ -48,6 +48,7 @@ enum Group {
     Egui,
     Image,
     Polars,
+    Records,
 }
 
 impl Group {
@@ -58,6 +59,7 @@ impl Group {
             Group::Egui => "egui",
             Group::Image => "image",
             Group::Polars => "polars",
+            Group::Records => "records",
         }
     }
 
@@ -68,16 +70,18 @@ impl Group {
             Group::Egui => cfg!(feature = "egui"),
             Group::Image => cfg!(feature = "image-support"),
             Group::Polars => cfg!(feature = "polars"),
+            Group::Records => cfg!(feature = "records"),
         }
     }
 
-    fn all() -> [Group; 5] {
+    fn all() -> [Group; 6] {
         [
             Group::Core,
             Group::Lui,
             Group::Egui,
             Group::Image,
             Group::Polars,
+            Group::Records,
         ]
     }
 }
@@ -244,6 +248,10 @@ fn build_registry(groups: &[Group]) -> Result<CommandMetadataRegistry, Error> {
                 Group::Polars => {
                     #[cfg(feature = "polars")]
                     liquers_lib::register_polars_commands!(cr)?;
+                }
+                Group::Records => {
+                    #[cfg(feature = "records")]
+                    liquers_lib::register_records_commands!(cr)?;
                 }
             }
         }

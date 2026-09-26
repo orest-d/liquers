@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use crate::value::{ExtValueInterface, Value};
 
+pub mod commands;
 pub mod convert;
 
 pub use convert::{to_record, to_record_source, ToRecordOptions};

@@ -2859,22 +2859,27 @@ read alike.
 | Command | Signature | Returns | Purpose |
 |---|---|---|---|
 | `rec_id` | `async fn rec_id(state, id: String, context) -> result` | a **materialized** one-row batch | **The single-record selector.** The one record whose `Id` field matches. Needs a declared `Id` — without one it refuses, naming `rowid`, which addresses every row. On a source it walks chunks until it finds the row |
-| `row` | `fn row(state, n: i64) -> result` | a materialized one-row batch | A row by position — views only; a source has no stable positions |
-| `select_columns` | `fn select_columns(state, columns: Vec<String> multiple) -> result` | a view | Projection. Keeps the `Id` (when declared) and `Source` columns whether named or not |
-| `head` | `fn head(state, n: i64 = 5) -> result` | a materialized batch | The first rows, for inspection |
-| `slice` | `fn slice(state, offset: i64, length: i64) -> result` | a view | A row range |
+| `row` | `async fn row(state, n: i64, context) -> result` | a materialized one-row batch | A row by position — views only; a source has no stable positions |
+| `select_columns` | `async fn select_columns(state, columns: Vec<String> multiple, context) -> result` | a view | Projection. Keeps the `Id` (when declared) and `Source` columns whether named or not |
+| `head` | `async fn head(state, n: i64 = 5, context) -> result` | a materialized batch | The first rows, for inspection |
+| `slice` | `async fn slice(state, offset: i64, length: i64, context) -> result` | a view | A row range |
 | `rowid` | `async fn rowid(state, chunk: i64, row: i64, context) -> result` | a materialized one-row batch | A row by its implicit id. Over a source it opens **only** that chunk |
 | `to_record_source` | `async fn to_record_source(state, format: String = "", context) -> result` | a `RecordSource` | Any input a source can be made from — §"What a record command accepts" |
 | `materialize` | `async fn materialize(state, max_rows: i64 = 1000000, context) -> result` | a `RecordBatch` | **The one step from a source to a table**, and so to bytes: `…/ns-rec/materialize/daily.csv`. Refused past `max_rows` and for a non-uniform source. On a view, `materialize()` — freezes it and releases a pinned base |
-| `records_schema` | `fn records_schema(state) -> result` | a value | The schema — how an agent discovers field names, and a value a `schema` argument can be linked to |
-| `to_json` | `fn to_json(state, orient: String = "records") -> result` | a JSON value | A view as one of the seven JSON shapes of §"JSON shapes are conversions" |
-| `from_json` | `fn from_json(state, orient: String = "auto", schema) -> result` | a `RecordBatch` | A JSON value, text or bytes as a table; `auto` detects the shape and refuses the ambiguous one |
+| `records_schema` | `async fn records_schema(state, context) -> result` | a value | The schema — how an agent discovers field names, and a value a `schema` argument can be linked to |
+| `to_json` | `async fn to_json(state, orient: String = "records", context) -> result` | a JSON value | A view as one of the seven JSON shapes of §"JSON shapes are conversions" |
+| `from_json` | `async fn from_json(state, orient: String = "auto", schema, context) -> result` | a `RecordBatch` | A JSON value, text or bytes as a table; `auto` detects the shape and refuses the ambiguous one |
 | `to_record` | `async fn to_record(state, format: String = "", header: bool = true, schema, context) -> result` | a `RecordView` | Any input a table can be made from — §"What a record command accepts". Schema-aware when `schema` is given |
+| `file_records` | `async fn file_records(state, context) -> result` | a materialized batch | Lists a directory key's files as a table (`file_id`, `file_name`, `size_bytes`, `modified_timestamp`) — Phase 3 §1.1's scenario command |
 
-Namespace `rec`, written `ns-rec` in a query. `rec_id` and `materialize` are `async` and take
-`context`, **last**, because over a source they open a stream with a `ContextResolver` — which also
-makes the chunks dependencies of the result. The others take a view. A command receiving a source
-where it needs a view refuses rather than collecting silently, and its error names
+Namespace `rec`, written `ns-rec` in a query. Every command here is `async` and takes `context`,
+**last** — Phase 4 Step 5.5's decision: `to_record`/`to_record_source`, which every command uses to
+convert its input, are themselves `async` (a key input may need fetching through the asset manager),
+so a command that converts its input through them cannot be `fn`. `rec_id` and `materialize` in
+particular open a stream with a `ContextResolver` when their input is a source — which also makes the
+chunks dependencies of the result. The others (besides `to_record_source`/`from_json`/`file_records`,
+whose whole job is producing a view or source in the first place) convert to a view. A command
+receiving a source where it needs a view refuses rather than collecting silently, and its error names
 `ns-rec/materialize` — `rec_id` and `materialize` are the ones that walk a source, because that is
 their purpose. Every record command converts its input with the same two helpers as `to_record` and
 `to_record_source`, below.
@@ -3241,6 +3246,7 @@ information — each is a position that was argued for and then abandoned on evi
 | 2026-09-24 | HTTP streaming of a source moved from an axum branch to `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE` | `liquers-axum` does not depend on `liquers-lib` and is generic over `E: Environment`, so it cannot name `ExtValue::RecordSource` |
 | 2026-09-24 | `records` enables `serde/rc`; `ManifestSource` serializes through `ManifestSpec`; closure-holding views are generic with a hand-written `Debug` | A Rust review of the trait form: `Arc` fields fail to derive `Serialize` in a minimal build; `chunks()` could not borrow ids from a `Vec<Query>`; `dyn Fn + MaybeSend` is E0225 |
 | 2026-09-25 | **Phase 4 review.** `RecipeProviderChoice` is unchanged; the chain is appended in code (`with_appended_recipe_provider`, `LibKind`'s default) — §B and the Integration Points rows. §C's sites corrected against `assets.rs`: the metadata saver (`save_metadata_to_store`) is a `stored` write site; `cached: false` acts where the `get(key)` path registers (`get_nonvolatile_resource_asset`, `ImmediateAssetManager::get_resource_asset`), not at `try_insert_key_asset`; the flags are taken when the manager creates the keyed asset, not in `resolve_volatility_before_evaluation`, which runs before the provider's recipe replaces the ad-hoc one. The records crate's Cargo block gains `derive`, `serde_yaml`, `async-trait` and `scc`. Two unbalanced code fences repaired (`ChunkValue`, `RowFnView`) | Checking the plan's claims against the code: a `Choice` is configuration data and cannot name another crate's provider; a `stored: false` chunk would otherwise leave a metadata-only entry; the manifest provider parses YAML and implements an `#[async_trait]` trait |
+| 2026-09-26 | **Every `ns-rec` command is `async fn ... context`**, `row`/`select_columns`/`head`/`slice`/`records_schema`/`to_json`/`from_json` included — Phase 2's table had shown these as sync `fn`s, but they convert their input through `to_record`/`to_record_source`, which are themselves `async` (a keyed input needs the asset manager), so a sync command could not `.await` the conversion. `file_records` row added (Phase 3 §1.1's scenario command, `async fn file_records(state, context) -> result`). `schema`'s spelling settled as `schema: String = ""` (empty = none; non-empty = a YAML/JSON `RecordSchema` document as text) — `register_command!` has no `FromParameterValue`/`TryFrom<Value>` impl for `Option<Value>`, so that spelling does not bind | Phase 4 Step 5.5: `liquers-macro`'s `commands.rs` has no impl letting an `Option<Value>` argument bind at all, checked before regenerating the registry |
 
 **Corrections worth keeping visible**, because each was stated wrongly first:
 

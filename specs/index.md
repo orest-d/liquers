@@ -8,11 +8,11 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 127
+Total rows: 129
 - P0: 1
 - P1: 2
-- P2: 78
-- P3: 46
+- P2: 79
+- P3: 47
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
@@ -49,6 +49,7 @@ Total rows: 127
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies 704 bytes because three variants are stored unboxed | draft |  | P2 | M | core/value;lib/value |  | 2026-08-18 |
 | [`DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK`](issues/DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK.md) | issue | DefaultAssetManager's recipe_opt override skips the payload-required rejection | draft |  | P2 | M | core/assets |  | 2026-09-25 |
 | [`DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE`](issues/DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE.md) | feature | There is no way to say when dependency versions should be verified, so the strict and the exploratory workflow cannot both be served | draft |  | P2 | M | core/assets |  | 2026-09-05 |
+| [`DIRECTORY-KEY-CANNOT-BE-EVALUATED-AS-A-RESOURCE`](issues/DIRECTORY-KEY-CANNOT-BE-EVALUATED-AS-A-RESOURCE.md) | issue | A query on a directory resource fails with "No recipe found" instead of giving a Directory state | draft |  | P2 | M | core/assets | [chunking](specs/design/record-streams/chunking-and-resumability.md)  [engine](specs/design/record-streams/engine-survey.md)  [manifest](specs/design/record-streams/manifest-format.md)  [phase1](specs/design/record-streams/phase1-high-level-design.md)  [phase2](specs/design/record-streams/phase2-architecture.md)  [phase3](specs/design/record-streams/phase3-examples.md)  [phase3](specs/design/record-streams/phase3-tests.md)  [phase4](specs/design/record-streams/phase4-implementation.md)  [phase5](specs/design/record-streams/phase5-documentation.md)  [phase5](specs/design/record-streams/phase5-evidence.md)  [record](specs/design/record-streams/record-model.md)  | 2026-09-26 |
 | [`DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED`](issues/DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED.md) | issue | Directory listing dependency is never registered or checked | draft |  | P2 | M | core/assets |  | 2026-09-17 |
 | [`EGUI-ASSET-MANAGER-INTEGRATION`](issues/EGUI-ASSET-MANAGER-INTEGRATION.md) | feature | No stable adapter between egui widgets and the asset manager | accepted |  | P2 | M | lib/egui |  | 2026-08-08 |
 | [`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`](issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md) | issue | Environment and asset manager hold each other with strong Arcs, so every environment leaks | draft |  | P2 | M | core/assets;core/context | [phase1](specs/design/environment-builder/phase1-high-level-design.md)  [phase2](specs/design/environment-builder/phase2-architecture.md)  [phase3](specs/design/environment-builder/phase3-examples.md)  [phase4](specs/design/environment-builder/phase4-implementation.md)  [phase5](specs/design/environment-builder/phase5-documentation.md)  | 2026-08-27 |
@@ -111,6 +112,7 @@ Total rows: 127
 | [`MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS`](issues/MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS.md) | issue | The extension-to-media-type table lacks or mislabels the common tabular formats | draft |  | P3 | S | core/value;axum |  | 2026-09-24 |
 | [`METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED`](issues/METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED.md) | issue | A value stored as metadata only is reloaded through the corrupted-data path | draft |  | P3 | S | core/assets |  | 2026-09-24 |
 | [`REGISTER-ALL-COMMANDS-MACRO-REQUIRES-EVERY-FEATURE`](issues/REGISTER-ALL-COMMANDS-MACRO-REQUIRES-EVERY-FEATURE.md) | issue | register_all_commands! does not compile when an optional command feature is off | draft |  | P3 | S | lib/commands |  | 2026-09-25 |
+| [`REGISTER-COMMAND-OPTION-VALUE-CANNOT-BIND`](issues/REGISTER-COMMAND-OPTION-VALUE-CANNOT-BIND.md) | issue | register_command! cannot bind an Option<Value> argument | draft |  | P3 | S | macro |  | 2026-09-26 |
 | [`SCHEMA-LESS-JSON-READS-SORT-COLUMNS-ALPHABETICALLY`](issues/SCHEMA-LESS-JSON-READS-SORT-COLUMNS-ALPHABETICALLY.md) | issue | A JSON table read without a schema gets its columns in alphabetical order | draft |  | P3 | S | records | [chunking](specs/design/record-streams/chunking-and-resumability.md)  [engine](specs/design/record-streams/engine-survey.md)  [manifest](specs/design/record-streams/manifest-format.md)  [phase1](specs/design/record-streams/phase1-high-level-design.md)  [phase2](specs/design/record-streams/phase2-architecture.md)  [phase3](specs/design/record-streams/phase3-examples.md)  [phase3](specs/design/record-streams/phase3-tests.md)  [phase4](specs/design/record-streams/phase4-implementation.md)  [phase5](specs/design/record-streams/phase5-documentation.md)  [phase5](specs/design/record-streams/phase5-evidence.md)  [record](specs/design/record-streams/record-model.md)  | 2026-09-26 |
 | [`SIMPLE-VALUE-WRITES-FEWER-FORMATS-THAN-DECLARED`](issues/SIMPLE-VALUE-WRITES-FEWER-FORMATS-THAN-DECLARED.md) | issue | liquers-lib's base value declares formats its serializer refuses | draft |  | P3 | S | lib/value |  | 2026-09-25 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  | P3 | S | core/value |  | 2026-09-24 |
