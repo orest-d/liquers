@@ -10,8 +10,10 @@ extern crate self as liquers_records;
 pub mod batch;
 pub mod buffer;
 pub mod column;
+pub mod manifest;
 pub mod mutable;
 pub mod schema;
+pub mod value;
 pub mod views;
 
 pub use batch::{
@@ -20,9 +22,13 @@ pub use batch::{
 };
 pub use buffer::{AlignedBuffer, Bitmap, Buffer};
 pub use column::{Column, CompareOp, FieldValue};
+pub use manifest::{ChunkTemplate, ManifestKind, ManifestSpec};
 pub use mutable::{ColumnMut, RecordBatchMut, RecordViewMut};
 pub use schema::{
     Analyzer, FieldRole, FieldSchema, FieldType, IndexKind, KeyRole, RecordSchema, VectorMetric,
+};
+pub use value::{
+    ChunkResolver, ChunkValue, RecordSource, RecordValue, DEFAULT_MATERIALIZE_MAX_ROWS,
 };
 pub use views::{
     AppendedColumnsView, ColumnsView, DerivedColumnView, RowFnView, RowIndexView, RowRangeView,
