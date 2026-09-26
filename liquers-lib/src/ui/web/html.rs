@@ -108,7 +108,81 @@ fn ext_to_html(ext: &ExtValue, app_state: &dyn AppState) -> String {
             escape_html(value.origin()),
             escape_html(value.type_name().as_ref()),
         ),
+        #[cfg(feature = "records")]
+        ExtValue::RecordView { value } => record_view_to_html(value),
+        #[cfg(feature = "records")]
+        ExtValue::RecordSource { value } => record_source_to_html(value),
     }
+}
+
+/// A `RecordView` renders as a small `<table>` preview, capped at this many rows — enough to see
+/// a table's shape without materializing (or writing) one that could be arbitrarily large just
+/// to render it. Bounded independently of `DEFAULT_MATERIALIZE_MAX_ROWS`: this is a UI preview,
+/// not the `ns-rec/materialize` command's own bound.
+#[cfg(feature = "records")]
+const RECORD_VIEW_HTML_PREVIEW_ROWS: usize = 100;
+
+/// Renders at most [`RECORD_VIEW_HTML_PREVIEW_ROWS`] rows of `value` as an HTML table, through
+/// `write_table`'s `Html` writer — the same writer a `.html` write of the value goes through.
+#[cfg(feature = "records")]
+fn record_view_to_html(value: &std::sync::Arc<dyn crate::records::RecordView>) -> String {
+    let total = value.len();
+    let preview_len = total.min(RECORD_VIEW_HTML_PREVIEW_ROWS);
+    let preview = match value.slice(0, preview_len) {
+        Ok(preview) => preview,
+        Err(err) => {
+            return format!(
+                "<div class=\"lq-record-view lq-error\">record view preview failed: {}</div>",
+                escape_html(&err.to_string())
+            )
+        }
+    };
+    match crate::records::write_table(
+        preview.as_ref(),
+        crate::records::TableFormat::Html,
+        &crate::records::WriteOptions::default(),
+    ) {
+        Ok(bytes) => {
+            let mut html = String::from("<div class=\"lq-record-view\">");
+            html.push_str(&String::from_utf8_lossy(&bytes));
+            if total > preview_len {
+                html.push_str(&format!(
+                    "<div class=\"lq-record-view-note\">showing {} of {} rows</div>",
+                    preview_len, total
+                ));
+            }
+            html.push_str("</div>");
+            html
+        }
+        Err(err) => format!(
+            "<div class=\"lq-record-view lq-error\">record view rendering failed: {}</div>",
+            escape_html(&err.to_string())
+        ),
+    }
+}
+
+/// A `RecordSource` cannot be rendered as a table here: opening its stream needs an `await`, and
+/// this rendering path is synchronous (phase2-architecture.md §"Views are synchronous;
+/// asynchronous work is a source"). So it gets a summary — chunk count and whether it has a
+/// manifest — built only from `chunks()`/`manifest()`, which do no I/O.
+#[cfg(feature = "records")]
+fn record_source_to_html(value: &std::sync::Arc<dyn crate::records::RecordSource>) -> String {
+    let chunk_summary = match value.chunks() {
+        crate::records::ChunkList::Known(ids) => format!("{} chunk(s)", ids.len()),
+        crate::records::ChunkList::Unbounded { computed } => {
+            format!("at least {} chunk(s) (unbounded)", computed.len())
+        }
+    };
+    let manifest_note = if value.manifest().is_some() {
+        " &middot; has a manifest"
+    } else {
+        ""
+    };
+    format!(
+        "<div class=\"lq-record-source\">Record source: {}{}</div>",
+        escape_html(&chunk_summary),
+        manifest_note
+    )
 }
 
 fn image_to_html(image: &image::DynamicImage) -> String {

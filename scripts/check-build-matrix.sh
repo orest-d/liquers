@@ -10,6 +10,13 @@
 #   * `DefaultValueSerializer::as_bytes`, whose historical `_ =>` arm meant new variants were
 #     absorbed silently. That arm is gone, but the site is worth keeping under a matrix.
 #
+# The `records` rows exist because `ExtValue::RecordView`/`RecordSource` are `#[cfg(feature =
+# "records")]` — a build with the feature off never sees them, so the compiler alone cannot catch
+# a match arm that forgot the gate. `records,polars` and `webui,records` are the interactions
+# that matter: `records` alone proves the crate builds without `polars` pulling it in by accident,
+# and `webui,records` is the browser-facing combination `ui/web/html.rs::ext_to_html` gains an arm
+# for. See specs/design/record-streams/phase2-architecture.md §"Feature-gating discipline".
+#
 # The native liquers-lib rows use `--tests`, so the integration test targets are checked in every
 # feature configuration too, not only the library. Test targets are the easier place to forget a
 # `#[cfg]`: an ungated `use polars::…` compiles under the default features and fails only where
@@ -50,8 +57,12 @@ LIB_CONFIGS=(
   "--no-default-features --features polars --tests"
   "--no-default-features --features webui --tests"
   "--no-default-features --features image-support --tests"
+  "--no-default-features --features records --tests"
+  "--no-default-features --features records,polars --tests"
+  "--no-default-features --features webui,records --tests"
   "--tests"
   "--target wasm32-unknown-unknown --no-default-features --features webui"
+  "--target wasm32-unknown-unknown --no-default-features --features webui,records"
 )
 
 CORE_CONFIGS=(

@@ -1233,3 +1233,97 @@ pub(crate) fn display_image(ui: &mut egui::Ui, value: &DynamicImage) -> egui::Re
     );
     ui.add(egui::Image::new(&texture).fit_to_exact_size(size.into()))
 }
+
+/// How many rows of a `RecordView` the egui preview grid shows. Small on purpose: this is a
+/// debugging/inspection aid, not a scrollable data browser (`display_asset_info_table`'s
+/// `egui_extras::TableBuilder` is the pattern for that, when a record view needs one).
+#[cfg(feature = "records")]
+const RECORD_VIEW_GRID_PREVIEW_ROWS: usize = 20;
+
+/// A small grid preview of a `RecordView`: field labels as headers, up to
+/// [`RECORD_VIEW_GRID_PREVIEW_ROWS`] rows of cells below. `RecordView` is synchronous
+/// (phase2-architecture.md §"Views are synchronous; asynchronous work is a source"), so reading
+/// cells directly here — rather than going through `write_table` as the web backend's HTML
+/// rendering does — needs no materialization step.
+#[cfg(feature = "records")]
+pub(crate) fn display_record_view(
+    ui: &mut egui::Ui,
+    value: &std::sync::Arc<dyn liquers_records::RecordView>,
+) -> egui::Response {
+    ui.vertical(|ui| {
+        let schema = value.schema();
+        let total = value.len();
+        let preview_len = total.min(RECORD_VIEW_GRID_PREVIEW_ROWS);
+        ui.label(format!(
+            "Record view: {} row(s) x {} column(s){}",
+            total,
+            schema.fields.len(),
+            if total > preview_len {
+                format!(" (showing first {})", preview_len)
+            } else {
+                String::new()
+            }
+        ));
+        egui::Grid::new(format!("record_view_preview_{:p}", std::sync::Arc::as_ptr(value)))
+            .striped(true)
+            .show(ui, |ui| {
+                for field in &schema.fields {
+                    ui.strong(&field.label);
+                }
+                ui.end_row();
+                for row in 0..preview_len {
+                    for col in 0..schema.fields.len() {
+                        let text = match value.value(row, col) {
+                            Ok(field_value) => record_field_value_to_text(&field_value),
+                            Err(err) => format!("<{}>", err),
+                        };
+                        ui.label(text);
+                    }
+                    ui.end_row();
+                }
+            });
+    })
+    .response
+}
+
+/// A `FieldValue` as short display text for the egui grid preview. Enumerated rather than a
+/// catch-all so a new `FieldValue` variant is a compile error here, per `CLAUDE.md`'s rule
+/// against `_ =>` on an enum this project owns.
+#[cfg(feature = "records")]
+fn record_field_value_to_text(value: &liquers_records::FieldValue) -> String {
+    match value {
+        liquers_records::FieldValue::Null => String::new(),
+        liquers_records::FieldValue::Bool(v) => v.to_string(),
+        liquers_records::FieldValue::Int(v) => v.to_string(),
+        liquers_records::FieldValue::UInt(v) => v.to_string(),
+        liquers_records::FieldValue::Float(v) => v.to_string(),
+        liquers_records::FieldValue::Text(v) => v.to_string(),
+        liquers_records::FieldValue::Bytes(v) => format!("<{} bytes>", v.len()),
+        liquers_records::FieldValue::Date(v) => format!("date:{}", v),
+        liquers_records::FieldValue::Timestamp(v) => format!("ts:{}", v),
+        liquers_records::FieldValue::Vector(v) => format!("[{} floats]", v.len()),
+    }
+}
+
+/// A `RecordSource` cannot be previewed as a grid here: opening its stream needs an `await`, and
+/// egui rendering is synchronous (phase2-architecture.md §"Views are synchronous; asynchronous
+/// work is a source"). So it gets a one-line summary, from `chunks()`/`manifest()` — both
+/// synchronous, no I/O.
+#[cfg(feature = "records")]
+pub(crate) fn display_record_source(
+    ui: &mut egui::Ui,
+    value: &std::sync::Arc<dyn liquers_records::RecordSource>,
+) -> egui::Response {
+    let chunk_summary = match value.chunks() {
+        liquers_records::ChunkList::Known(ids) => format!("{} chunk(s)", ids.len()),
+        liquers_records::ChunkList::Unbounded { computed } => {
+            format!("at least {} chunk(s) (unbounded)", computed.len())
+        }
+    };
+    let manifest_note = if value.manifest().is_some() {
+        " \u{b7} has a manifest"
+    } else {
+        ""
+    };
+    ui.label(format!("Record source: {}{}", chunk_summary, manifest_note))
+}

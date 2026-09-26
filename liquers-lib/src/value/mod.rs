@@ -7,6 +7,11 @@ use std::{borrow::Cow, result::Result, sync::Arc};
 use crate::image::serde::{deserialize_image_from_bytes, serialize_image_to_bytes};
 #[cfg(feature = "polars")]
 use crate::polars::serde::{deserialize_dataframe_from_reader, serialize_dataframe_to_writer};
+#[cfg(feature = "records")]
+use liquers_records::{
+    read_table, write_table, ManifestSource, ManifestSpec, ReadOptions, ReadSchema, RecordSource,
+    RecordView, TableFormat, WriteOptions,
+};
 // Re-exported, not merely imported. A crate defining its own value type needs these three, and
 // `liquers_lib::value::{CombinedValue, SimpleValue, ValueExtension}` is where it will look for
 // them — reaching into `value::extended` and `value::simple` is an avoidable papercut on the
@@ -45,6 +50,18 @@ pub enum ExtValue {
     Foreign {
         value: Arc<dyn crate::value::foreign::ForeignValue>,
     },
+    /// A finite table — a `RecordBatch` or any view over one. Shareable, cacheable; serialized
+    /// by `write_table`, which takes `&dyn RecordView` directly (no materialization needed to
+    /// serialize — only a source needs that). See
+    /// `specs/design/record-streams/phase2-architecture.md` §"Value extension".
+    #[cfg(feature = "records")]
+    RecordView { value: Arc<dyn RecordView> },
+    /// Something that can be asked, repeatedly, for a stream of views. Shareable, never
+    /// consumed by use; serializable only as its manifest (`ManifestSource`'s byte form) — every
+    /// other source has none and is refused on write. See phase2-architecture.md §"A source
+    /// serializes only as its manifest".
+    #[cfg(feature = "records")]
+    RecordSource { value: Arc<dyn RecordSource> },
 }
 
 pub trait ExtValueInterface {
@@ -56,6 +73,14 @@ pub trait ExtValueInterface {
     fn as_polars_dataframe(&self) -> Result<Arc<polars::frame::DataFrame>, Error>;
     fn from_ui_element(element: Arc<dyn crate::ui::element::UIElement>) -> Self;
     fn as_ui_element(&self) -> Result<Arc<dyn crate::ui::element::UIElement>, Error>;
+    #[cfg(feature = "records")]
+    fn from_record_view(view: Arc<dyn RecordView>) -> Self;
+    #[cfg(feature = "records")]
+    fn as_record_view(&self) -> Result<Arc<dyn RecordView>, Error>;
+    #[cfg(feature = "records")]
+    fn from_record_source(source: Arc<dyn RecordSource>) -> Self;
+    #[cfg(feature = "records")]
+    fn as_record_source(&self) -> Result<Arc<dyn RecordSource>, Error>;
 }
 
 impl ExtValueInterface for ExtValue {
@@ -74,6 +99,10 @@ impl ExtValueInterface for ExtValue {
             }
             #[cfg(feature = "egui")]
             ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => {
+                Err(Error::conversion_error(self.identifier().as_ref(), "Image"))
+            }
+            #[cfg(feature = "records")]
+            ExtValue::RecordView { .. } | ExtValue::RecordSource { .. } => {
                 Err(Error::conversion_error(self.identifier().as_ref(), "Image"))
             }
         }
@@ -96,6 +125,10 @@ impl ExtValueInterface for ExtValue {
                 self.identifier().as_ref(),
                 "Polars dataframe",
             )),
+            #[cfg(feature = "records")]
+            ExtValue::RecordView { .. } | ExtValue::RecordSource { .. } => Err(
+                Error::conversion_error(self.identifier().as_ref(), "Polars dataframe"),
+            ),
         }
     }
     fn from_ui_element(element: Arc<dyn crate::ui::element::UIElement>) -> Self {
@@ -118,6 +151,58 @@ impl ExtValueInterface for ExtValue {
                 self.identifier().as_ref(),
                 "UIElement",
             )),
+            #[cfg(feature = "records")]
+            ExtValue::RecordView { .. } | ExtValue::RecordSource { .. } => Err(
+                Error::conversion_error(self.identifier().as_ref(), "UIElement"),
+            ),
+        }
+    }
+    #[cfg(feature = "records")]
+    fn from_record_view(view: Arc<dyn RecordView>) -> Self {
+        ExtValue::RecordView { value: view }
+    }
+    #[cfg(feature = "records")]
+    fn as_record_view(&self) -> Result<Arc<dyn RecordView>, Error> {
+        match self {
+            ExtValue::RecordView { value } => Ok(value.clone()),
+            ExtValue::Image { .. }
+            | ExtValue::UIElement { .. }
+            | ExtValue::Foreign { .. }
+            | ExtValue::RecordSource { .. } => {
+                Err(Error::conversion_error(self.identifier().as_ref(), "RecordView"))
+            }
+            #[cfg(feature = "polars")]
+            ExtValue::PolarsDataFrame { .. } => {
+                Err(Error::conversion_error(self.identifier().as_ref(), "RecordView"))
+            }
+            #[cfg(feature = "egui")]
+            ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => {
+                Err(Error::conversion_error(self.identifier().as_ref(), "RecordView"))
+            }
+        }
+    }
+    #[cfg(feature = "records")]
+    fn from_record_source(source: Arc<dyn RecordSource>) -> Self {
+        ExtValue::RecordSource { value: source }
+    }
+    #[cfg(feature = "records")]
+    fn as_record_source(&self) -> Result<Arc<dyn RecordSource>, Error> {
+        match self {
+            ExtValue::RecordSource { value } => Ok(value.clone()),
+            ExtValue::Image { .. }
+            | ExtValue::UIElement { .. }
+            | ExtValue::Foreign { .. }
+            | ExtValue::RecordView { .. } => {
+                Err(Error::conversion_error(self.identifier().as_ref(), "RecordSource"))
+            }
+            #[cfg(feature = "polars")]
+            ExtValue::PolarsDataFrame { .. } => {
+                Err(Error::conversion_error(self.identifier().as_ref(), "RecordSource"))
+            }
+            #[cfg(feature = "egui")]
+            ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => {
+                Err(Error::conversion_error(self.identifier().as_ref(), "RecordSource"))
+            }
         }
     }
 }
@@ -192,6 +277,37 @@ impl ValueExtension for ExtValue {
                     ),
             );
         }
+        #[cfg(feature = "records")]
+        {
+            // Every format `write_table` can actually produce with the features this build
+            // enables — `ipc`/`parquet` are `TableFormat` variants from the start
+            // (phase2-architecture.md §"Table formats") but `write_table` refuses them until
+            // Milestone 6 implements their writers, so they are declared only once this crate's
+            // own `records-ipc` / `records-parquet` feature has turned that writer on. See
+            // `specs/design/record-streams/phase2-architecture.md` §"Feature-gating discipline".
+            #[allow(unused_mut)] // only mutated when records-ipc / records-parquet is enabled
+            let mut record_view_formats: Vec<&'static str> =
+                vec!["csv", "tsv", "ndjson", "json", "md", "html"];
+            #[cfg(feature = "records-ipc")]
+            record_view_formats.push("ipc");
+            #[cfg(feature = "records-parquet")]
+            record_view_formats.push("parquet");
+            descriptions.push(
+                TypeInfo::new("RecordView")
+                    .with_type_name("record_view")
+                    .with_defaults("csv", "csv", "text/csv", "data.csv")
+                    .with_data_formats(record_view_formats),
+            );
+            descriptions.push(
+                // A `RecordSource`'s only byte form is its manifest (`ManifestSource`'s spec) —
+                // every other source has none and `as_bytes` refuses it. See
+                // phase2-architecture.md §"A source serializes only as its manifest".
+                TypeInfo::new("RecordSource")
+                    .with_type_name("record_source")
+                    .with_defaults("yaml", "yaml", "application/yaml", "manifest.yaml")
+                    .with_data_formats(["yaml", "json"]),
+            );
+        }
         descriptions
     }
 
@@ -211,6 +327,10 @@ impl ValueExtension for ExtValue {
             ExtValue::PolarsDataFrame { .. } => default_ext_type_info(self),
             #[cfg(feature = "egui")]
             ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => default_ext_type_info(self),
+            #[cfg(feature = "records")]
+            ExtValue::RecordView { .. } | ExtValue::RecordSource { .. } => {
+                default_ext_type_info(self)
+            }
         }
     }
 
@@ -220,7 +340,9 @@ impl ValueExtension for ExtValue {
     /// canonical, even though `Image`'s payload comes from the `image` crate — a bare name is
     /// about concept ownership, not code location. `polars.DataFrame` carries a provider because
     /// Liquers explicitly does *not* commit to a canonical dataframe: polars and pandas, eager and
-    /// lazy, arrow. `egui.*` likewise names a backend rather than a Liquers concept.
+    /// lazy, arrow. `egui.*` likewise names a backend rather than a Liquers concept. `RecordView`
+    /// and `RecordSource` are bare too — Liquers owns both concepts (phase2-architecture.md
+    /// §"Value extension": "the identifiers ... bare CamelCase — Liquers owns both concepts").
     fn identifier(&self) -> Cow<'static, str> {
         match self {
             #[cfg(feature = "polars")]
@@ -229,6 +351,10 @@ impl ValueExtension for ExtValue {
             ExtValue::UiCommand { .. } => "egui.Command".into(),
             #[cfg(feature = "egui")]
             ExtValue::Widget { .. } => "egui.Widget".into(),
+            #[cfg(feature = "records")]
+            ExtValue::RecordView { .. } => "RecordView".into(),
+            #[cfg(feature = "records")]
+            ExtValue::RecordSource { .. } => "RecordSource".into(),
             ExtValue::Image { .. } => "Image".into(),
             ExtValue::UIElement { .. } => "UIElement".into(),
             ExtValue::Foreign { value } => value.identifier(),
@@ -243,6 +369,10 @@ impl ValueExtension for ExtValue {
             ExtValue::UiCommand { .. } => "ui_command".into(),
             #[cfg(feature = "egui")]
             ExtValue::Widget { .. } => "widget".into(),
+            #[cfg(feature = "records")]
+            ExtValue::RecordView { .. } => "record_view".into(),
+            #[cfg(feature = "records")]
+            ExtValue::RecordSource { .. } => "record_source".into(),
             ExtValue::Image { .. } => "image".into(),
             ExtValue::UIElement { .. } => "ui_element".into(),
             ExtValue::Foreign { value } => value.type_name(),
@@ -257,6 +387,10 @@ impl ValueExtension for ExtValue {
             ExtValue::UiCommand { .. } => "ui".into(),
             #[cfg(feature = "egui")]
             ExtValue::Widget { .. } => "widget".into(),
+            #[cfg(feature = "records")]
+            ExtValue::RecordView { .. } => "csv".into(),
+            #[cfg(feature = "records")]
+            ExtValue::RecordSource { .. } => "yaml".into(),
             ExtValue::Image { .. } => "png".into(),
             ExtValue::UIElement { .. } => "ui".into(),
             ExtValue::Foreign { value } => value.default_extension(),
@@ -271,6 +405,10 @@ impl ValueExtension for ExtValue {
             ExtValue::UiCommand { .. } => "data.ui".into(),
             #[cfg(feature = "egui")]
             ExtValue::Widget { .. } => "data.widget".into(),
+            #[cfg(feature = "records")]
+            ExtValue::RecordView { .. } => "data.csv".into(),
+            #[cfg(feature = "records")]
+            ExtValue::RecordSource { .. } => "manifest.yaml".into(),
             ExtValue::Image { .. } => "image.png".into(),
             ExtValue::UIElement { .. } => "element.ui".into(),
             ExtValue::Foreign { value } => value.default_filename(),
@@ -285,6 +423,10 @@ impl ValueExtension for ExtValue {
             ExtValue::UiCommand { .. } => "application/octet-stream".into(),
             #[cfg(feature = "egui")]
             ExtValue::Widget { .. } => "application/octet-stream".into(),
+            #[cfg(feature = "records")]
+            ExtValue::RecordView { .. } => "text/csv".into(),
+            #[cfg(feature = "records")]
+            ExtValue::RecordSource { .. } => "application/yaml".into(),
             ExtValue::Image { .. } => "image/png".into(),
             ExtValue::UIElement { .. } => "application/octet-stream".into(),
             ExtValue::Foreign { value } => value.default_media_type(),
@@ -323,6 +465,40 @@ impl DefaultValueSerializer for ExtValue {
                     self.type_name()
                 ),
             )),
+            // `write_table` takes `&dyn RecordView` directly, so a batch and any other view
+            // serialize the same way — no `materialize()` call needed here.
+            #[cfg(feature = "records")]
+            ExtValue::RecordView { value } => {
+                let table_format = TableFormat::from_data_format(format)?;
+                write_table(value.as_ref(), table_format, &WriteOptions::default())
+            }
+            // A source's only byte form is its manifest (phase2-architecture.md §"A source
+            // serializes only as its manifest"). Every other source — in memory, filtering,
+            // mapping — has none and is refused here, with a typed `SerializationError` pointing
+            // at `materialize` rather than `Error::new`, as this arm's `UIElement` neighbour does.
+            #[cfg(feature = "records")]
+            ExtValue::RecordSource { value } => match value.manifest() {
+                Some(manifest) => match format {
+                    "yaml" => serde_yaml::to_string(manifest)
+                        .map(String::into_bytes)
+                        .map_err(|e| Error::from_error(ErrorType::SerializationError, e)),
+                    "json" => serde_json::to_vec(manifest)
+                        .map_err(|e| Error::from_error(ErrorType::SerializationError, e)),
+                    other => Err(Error::from_error(
+                        ErrorType::SerializationError,
+                        format!(
+                            "RecordSource: unsupported manifest format '{}'; use 'yaml' or 'json'",
+                            other
+                        ),
+                    )),
+                },
+                None => Err(Error::from_error(
+                    ErrorType::SerializationError,
+                    "RecordSource has no manifest and cannot be serialized; materialize it \
+                     (ns-rec/materialize) to get its rows as bytes"
+                        .to_string(),
+                )),
+            },
         }
     }
     fn deserialize_from_bytes(b: &[u8], type_identifier: &str, fmt: &str) -> Result<Self, Error> {
@@ -335,6 +511,42 @@ impl DefaultValueSerializer for ExtValue {
             "polars.DataFrame" => {
                 let df = deserialize_dataframe_from_reader(Cursor::new(b), fmt)?;
                 Ok(ExtValue::from_polars_dataframe(df))
+            }
+            // A `RecordView` identifier always deserializes to a `RecordBatch` — the reference
+            // implementation of the trait — regardless of which view wrote the bytes
+            // (phase2-architecture.md §"Value extension": "Deserialization rebuilds the
+            // reference implementation"). No schema is available here, so this is the
+            // schema-less reader (`ReadSchema::Infer`).
+            #[cfg(feature = "records")]
+            "RecordView" => {
+                let table_format = TableFormat::from_data_format(fmt)?;
+                let batch = read_table(b, table_format, ReadSchema::Infer, &ReadOptions::default())?;
+                Ok(ExtValue::from_record_view(Arc::new(batch)))
+            }
+            // The only byte form a `RecordSource` has is a manifest, which always deserializes
+            // to a `ManifestSource` — keyless: the key is supplied later, once the value is read
+            // back through a store, by `to_record_source` (phase2-architecture.md §"Getting a
+            // source from a manifest file").
+            #[cfg(feature = "records")]
+            "RecordSource" => {
+                let spec: ManifestSpec = match fmt {
+                    "yaml" => serde_yaml::from_slice(b)
+                        .map_err(|e| Error::from_error(ErrorType::SerializationError, e))?,
+                    "json" => serde_json::from_slice(b)
+                        .map_err(|e| Error::from_error(ErrorType::SerializationError, e))?,
+                    other => {
+                        return Err(Error::from_error(
+                            ErrorType::SerializationError,
+                            format!(
+                                "RecordSource: unsupported manifest format '{}'; use 'yaml' or \
+                                 'json'",
+                                other
+                            ),
+                        ))
+                    }
+                };
+                let source = ManifestSource::new(spec, None)?;
+                Ok(ExtValue::from_record_source(Arc::new(source)))
             }
             _ => Err(Error::from_error(
                 ErrorType::SerializationError,
@@ -394,6 +606,34 @@ impl ExtValueInterface for Value {
             Value::Base(_) => Err(Error::conversion_error(
                 self.identifier().as_ref(),
                 "UIElement",
+            )),
+        }
+    }
+    #[cfg(feature = "records")]
+    fn from_record_view(view: Arc<dyn RecordView>) -> Self {
+        Value::Extended(ExtValue::from_record_view(view))
+    }
+    #[cfg(feature = "records")]
+    fn as_record_view(&self) -> Result<Arc<dyn RecordView>, Error> {
+        match self {
+            Value::Extended(ext) => ext.as_record_view(),
+            Value::Base(_) => Err(Error::conversion_error(
+                self.identifier().as_ref(),
+                "RecordView",
+            )),
+        }
+    }
+    #[cfg(feature = "records")]
+    fn from_record_source(source: Arc<dyn RecordSource>) -> Self {
+        Value::Extended(ExtValue::from_record_source(source))
+    }
+    #[cfg(feature = "records")]
+    fn as_record_source(&self) -> Result<Arc<dyn RecordSource>, Error> {
+        match self {
+            Value::Extended(ext) => ext.as_record_source(),
+            Value::Base(_) => Err(Error::conversion_error(
+                self.identifier().as_ref(),
+                "RecordSource",
             )),
         }
     }
