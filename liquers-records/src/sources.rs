@@ -284,6 +284,14 @@ impl ManifestSource {
         self.key.as_ref()
     }
 
+    /// How template-generated chunks are keyed, once [`Self::with_key`] has run — `None` for a
+    /// manifest built by a command and never stored, whose template chunks (if any) are unkeyed
+    /// too. `ManifestRecipeProvider` (`liquers-records/src/provider.rs`) needs this to recognize a
+    /// requested filename as chunk `n` without recomputing [`Self::derive_naming`] itself.
+    pub fn naming(&self) -> Option<&ChunkNaming> {
+        self.naming.as_ref()
+    }
+
     /// The id of template-generated chunk `index` (a global index, at least the number of explicit
     /// chunks) — keyed through `naming` when the manifest is, unkeyed (identified by its own
     /// rendered query) otherwise.

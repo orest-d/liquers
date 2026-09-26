@@ -84,3 +84,22 @@ The user chose to build keyed record chunks in the `record-streams` project, so 
 as piece B — `ManifestRecipeProvider` overrides `contains` by pattern matching; the trait default is unchanged. See `specs/design/record-streams/phase2-architecture.md` §"Keyed chunks". The status
 stays `draft` until the work starts; the record's own `status` is concluded with that project.
 
+## Progress 2026-09-26 — `ManifestRecipeProvider` built (Phase 4 Step 4.3)
+
+`liquers-records/src/provider.rs`'s `ManifestRecipeProvider` now exists and overrides `contains`
+exactly as anticipated above: it matches a key against the manifest's explicit chunks or
+`ChunkNaming::index_of` — the same lookup `recipe_opt` does — without ever enumerating a template's
+unbounded generated names. `contains_answers_for_a_template_name_far_beyond_any_listing` (in that
+file) asserts this directly, for a chunk index (`999999`) no `listdir`-based default could ever
+answer for. `assets_with_recipes` on the same provider deliberately lists only the explicit chunks
+(`assets_with_recipes_lists_only_explicit_chunks`), so listed and addressable now genuinely diverge
+for a real, shipped provider — not just the prototype this issue cites.
+
+This **resolves the concrete case** the record-streams project needed, but not the issue as filed:
+the suggested fix — remove `AsyncRecipeProvider::contains`'s default, making every implementer decide
+— is unchanged in `liquers-core/src/recipes.rs`. A future provider with the same shape (generative,
+unbounded) still inherits the enumerating default unless its author independently notices the same
+pitfall `ManifestRecipeProvider` had to work around. Status stays `draft`; `priority`/`complexity`
+unchanged. Closing this properly is still the trait-level change described above, tracked here, not
+in `record-streams`.
+

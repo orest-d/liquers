@@ -13,6 +13,7 @@ pub mod column;
 pub mod formats;
 pub mod manifest;
 pub mod mutable;
+pub mod provider;
 pub mod schema;
 pub mod sources;
 pub mod value;
@@ -28,6 +29,7 @@ pub use formats::{read_table, write_table, ReadOptions, ReadSchema, TableFormat,
 pub use formats::shapes::{from_json, to_json, JsonOrient};
 pub use manifest::{ChunkNaming, ChunkTemplate, ManifestKind, ManifestSpec};
 pub use mutable::{ColumnMut, RecordBatchMut, RecordViewMut};
+pub use provider::ManifestRecipeProvider;
 pub use schema::{
     Analyzer, FieldRole, FieldSchema, FieldType, IndexKind, KeyRole, RecordSchema, VectorMetric,
 };
