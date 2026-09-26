@@ -8,7 +8,7 @@ edition = "2021"
 crate-type = ["rlib", "cdylib"]
 
 [features]
-default = ["egui", "image-support", "polars"]
+default = ["egui", "image-support", "polars", "records"]
 # Command-line tools. Not in `default` — see the same note in liquers-core.
 cli = ["dep:clap"]
 image-support = ["imageproc"]
@@ -20,9 +20,15 @@ webui = ["dep:web-sys", "dep:wasm-bindgen", "dep:js-sys", "dep:wasm-bindgen-futu
 # pulls dependencies that do not build for wasm.
 #polars = ["dep:polars", "dep:reqwest", "dep:openssl"]
 polars = ["dep:polars"]
+# Columnar record streams: a tabular value type with an Arrow-compatible layout (liquers-records).
+records = ["dep:liquers-records"]
+# Arrow IPC (Feather v2) and the Parquet writer for record views.
+records-ipc = ["records", "liquers-records/ipc"]
+records-parquet = ["records", "liquers-records/parquet"]
 
 [dependencies]
 liquers-core={path="../liquers-core"}
+liquers-records = { path = "../liquers-records", optional = true }
 clap = { version = "4", features = ["derive"], optional = true }
 liquers-macro={path="../liquers-macro"}
 serde = "1.0.229"

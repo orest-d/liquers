@@ -5,6 +5,8 @@ pub mod environment;
 pub mod image;
 #[cfg(feature = "polars")]
 pub mod polars;
+#[cfg(feature = "records")]
+pub mod records;
 pub mod ui;
 pub mod utils;
 pub mod value;
