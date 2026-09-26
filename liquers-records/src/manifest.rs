@@ -1,16 +1,21 @@
-//! The manifest file shape: `ManifestSpec`, `ManifestKind`, `ChunkTemplate`.
+//! The manifest file shape (`ManifestSpec`, `ManifestKind`, `ChunkTemplate`), chunk naming
+//! (`ChunkNaming`), template query rendering (`ChunkTemplate::query_at` / `offset_at`), and the
+//! load-time validation checks a manifest source runs before it can be used.
 //!
-//! Plain serde declarations only — this module has no behaviour. `ChunkNaming`, `query_at` and
-//! manifest validation (name collisions among explicit chunks, the `try_from` conversion into a
-//! `ManifestSource`) belong to Step 4.1, once `ManifestSource` itself exists.
+//! The conversion into a `ManifestSource` itself — which calls the validation helpers below —
+//! belongs to Step 4.2, once that type exists.
 //!
 //! See `specs/design/record-streams/phase2-architecture.md`, §"The types" and §"Construction
-//! helpers, options and the provider chain".
+//! helpers, options and the provider chain", and `specs/design/record-streams/manifest-format.md`,
+//! §4, §4a and §8.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use liquers_core::error::Error;
 use liquers_core::expiration::Expires;
+use liquers_core::parse::parse_query;
+use liquers_core::query::{Key, Query};
 use liquers_core::recipes::Recipe;
 use serde::{Deserialize, Serialize};
 
@@ -31,8 +36,6 @@ pub enum ManifestKind {
 /// The generated tail of a manifest. Chunk `i` (a global index, at least the number of explicit
 /// chunks) is `<query>-<offset>-<batch_size>` with `offset = first_offset + step × i`, followed by
 /// the chunk's key filename when the manifest is keyed (`ChunkNaming::key(i)`).
-///
-/// `query_at` and `offset_at` are Step 4.1's, once the naming and template-rendering logic lands.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChunkTemplate {
     pub query: String,
@@ -40,6 +43,78 @@ pub struct ChunkTemplate {
     pub first_offset: u64,
     pub step: u64,
     pub batch_size: u64,
+}
+
+impl ChunkTemplate {
+    /// The offset chunk `index` (a **global** index — see `manifest-format.md` §4a) starts at:
+    /// `first_offset + step × index`. Saturates instead of overflowing on a pathological template
+    /// or a very large index: a wrong (very large) offset is a validation problem for the caller
+    /// to notice, not a panic in library code.
+    pub fn offset_at(&self, index: u64) -> u64 {
+        self.first_offset
+            .saturating_add(self.step.saturating_mul(index))
+    }
+
+    /// The query for chunk `index`: `<query>-<offset>-<batch_size>`, with `filename` appended as a
+    /// trailing filename segment when the chunk is keyed (`ChunkNaming::key`'s result, when this
+    /// template chunk has one).
+    ///
+    /// Built as text and parsed back with `liquers_core::parse::parse_query`, so a malformed
+    /// `query` (or, in principle, `filename`) is reported here — at manifest-load time — rather
+    /// than surfacing later as an opaque evaluation failure.
+    pub fn query_at(&self, index: u64, filename: Option<&str>) -> Result<Query, Error> {
+        let offset = self.offset_at(index);
+        let mut text = format!("{}-{}-{}", self.query, offset, self.batch_size);
+        if let Some(name) = filename {
+            text.push('/');
+            text.push_str(name);
+        }
+        parse_query(&text)
+    }
+}
+
+/// A template chunk's generated key: `<prefix>_{n:04}.<extension>` inside `folder` — the
+/// manifest's own folder, and its filename stem (`manifest-format.md` §2). Explicit chunks are
+/// never named this way; they are keyed by their own query's filename, exactly as a `recipes.yaml`
+/// entry is (Phase 2 §"A. Chunk keys").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChunkNaming {
+    pub folder: Key,
+    /// The manifest's own filename stem, e.g. `"daily"` from `daily.manifest.yaml`.
+    pub prefix: String,
+    /// The stored format of generated chunks, and their filename extension. Not defaulted here —
+    /// `ManifestSpec::extension`'s `csv` default is applied where a manifest's naming is derived,
+    /// not by this struct.
+    pub extension: String,
+}
+
+impl ChunkNaming {
+    /// Chunk `n`'s key: `<folder>/<prefix>_{n:04}.<extension>`. `_{n:04}` pads to at least four
+    /// digits (fixed for now, per `phase2-architecture.md` §A); past 9 999 the name is still
+    /// correct but no longer sorts as text.
+    pub fn key(&self, n: u64) -> Key {
+        self.folder
+            .join(format!("{}_{n:04}.{}", self.prefix, self.extension))
+    }
+
+    /// The inverse of `key`: `Some(n)` when `name` is exactly this naming's chunk `n`. The match is
+    /// canonical — `name` must be exactly what `key(n)` would produce, so `daily_00042.csv` (an
+    /// extra digit `key` would never emit for chunk 42) reads as `None`, not `Some(42)`.
+    pub fn index_of(&self, name: &str) -> Option<u64> {
+        let digits = name
+            .strip_prefix(self.prefix.as_str())?
+            .strip_prefix('_')?
+            .strip_suffix(&format!(".{}", self.extension))?;
+        if digits.len() < 4 || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        let n: u64 = digits.parse().ok()?;
+        if format!("{n:04}") == digits {
+            Some(n)
+        } else {
+            None
+        }
+    }
 }
 
 /// The manifest file. The explicit list and the template **combine**: `chunks` are the stream's
@@ -53,7 +128,13 @@ pub struct ManifestSpec {
     #[serde(default)]
     pub manifest: ManifestKind,
     /// Absent or unknown reads as the latest (`manifest-format.md` §8.3); written as the latest.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Read leniently: a manifest is written by hand, so a version that is not a whole number
+    /// (`"1.5"`, `v2`) is kept as `None` — the latest — rather than refusing the file.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient_version"
+    )]
     pub version: Option<u32>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub title: String,
@@ -100,6 +181,22 @@ pub struct ManifestSpec {
 /// Written by hand, not derived: `stored` and `cached` default to `true`, and a derived `Default`
 /// would make them `false` (the pitfall `Recipe`'s own hand-written `Default` avoids for the same
 /// reason).
+/// `version` accepts any scalar; only a whole number that fits `u32` is kept.
+fn lenient_version<'de, D>(deserializer: D) -> Result<Option<u32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(match value {
+        serde_json::Value::Number(n) => n.as_u64().and_then(|v| u32::try_from(v).ok()),
+        serde_json::Value::String(text) => text.trim().parse::<u32>().ok(),
+        serde_json::Value::Null
+        | serde_json::Value::Bool(_)
+        | serde_json::Value::Array(_)
+        | serde_json::Value::Object(_) => None,
+    })
+}
+
 impl Default for ManifestSpec {
     fn default() -> Self {
         ManifestSpec {
@@ -118,6 +215,52 @@ impl Default for ManifestSpec {
             cached: true,
             uniform_schema: None,
         }
+    }
+}
+
+impl ManifestSpec {
+    /// Refuses when two explicit chunks would be keyed by the same filename — the first collision
+    /// Phase 2 §"A. Chunk keys" refuses at load. An unkeyed chunk (its query has no filename) never
+    /// collides with anything; a chunk whose query itself fails to parse is reported by
+    /// `Recipe::filename`'s own error rather than silently treated as unkeyed.
+    ///
+    /// Key-independent: this check does not need the manifest's own key, so `ManifestSource::new`
+    /// (Step 4.2) can run it before one is known.
+    pub fn check_explicit_chunk_collisions(&self) -> Result<(), Error> {
+        let mut seen = HashSet::new();
+        for chunk in &self.chunks {
+            let Some(name) = chunk.filename()? else {
+                continue;
+            };
+            let encoded = name.encode().to_string();
+            if !seen.insert(encoded.clone()) {
+                return Err(Error::general_error(format!(
+                    "manifest: two explicit chunks are both keyed \"{encoded}\""
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Refuses when an explicit chunk's filename also matches `naming`'s generated pattern — the
+    /// second collision Phase 2 §"A. Chunk keys" refuses at load.
+    ///
+    /// Key-dependent: `naming` is the manifest's own `ChunkNaming`, which needs the manifest's key
+    /// (its folder and filename stem) to build, so `ManifestSource::with_key` (Step 4.2) is where
+    /// this runs, not `new`.
+    pub fn check_explicit_names_against_template(&self, naming: &ChunkNaming) -> Result<(), Error> {
+        for chunk in &self.chunks {
+            let Some(name) = chunk.filename()? else {
+                continue;
+            };
+            let encoded = name.encode().to_string();
+            if naming.index_of(&encoded).is_some() {
+                return Err(Error::general_error(format!(
+                    "manifest: explicit chunk \"{encoded}\" matches the template's naming pattern"
+                )));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -152,5 +295,262 @@ mod tests {
         let yaml = "manifest: something-else\nchunks: []\n";
         let result: Result<ManifestSpec, _> = serde_yaml::from_str(yaml);
         assert!(result.is_err());
+    }
+
+    // --- Phase 3 §2.7 (`liquers-records/src/manifest.rs`) ---
+    //
+    // Eight of the section's twelve tests: the `ChunkNaming` / `ChunkTemplate` / `ManifestSpec`
+    // ones. The other four (`manifest_source_new_refuses_colliding_explicit_chunk_names`,
+    // `manifest_source_with_key_refuses_per_chunk_arguments_on_an_unkeyed_chunk`,
+    // `manifest_source_with_key_refuses_explicit_name_matching_template_pattern`,
+    // `manifest_source_without_key_keeps_chunks_identified_by_query`) construct a `ManifestSource`
+    // and land in Step 4.2, once that type exists.
+
+    #[test]
+    fn chunk_naming_key_formats_with_padding() {
+        let naming = ChunkNaming {
+            folder: Key::new(),
+            prefix: "daily".to_string(),
+            extension: "csv".to_string(),
+        };
+        assert_eq!(naming.key(42).to_string(), "daily_0042.csv");
+        assert_eq!(naming.key(10_000).to_string(), "daily_10000.csv");
+    }
+
+    #[test]
+    fn chunk_naming_index_of_returns_chunk_number() {
+        let naming = ChunkNaming {
+            folder: Key::new(),
+            prefix: "daily".to_string(),
+            extension: "csv".to_string(),
+        };
+        assert_eq!(naming.index_of("daily_0042.csv"), Some(42));
+        assert_eq!(naming.index_of("daily_0000.csv"), Some(0));
+        assert_eq!(naming.index_of("other.csv"), None);
+    }
+
+    #[test]
+    fn chunk_template_offset_at_advances_by_step() {
+        let template = ChunkTemplate {
+            query: "sql_query".to_string(),
+            first_offset: 100,
+            step: 50,
+            batch_size: 25,
+        };
+        assert_eq!(template.offset_at(0), 100);
+        assert_eq!(template.offset_at(1), 150);
+        assert_eq!(template.offset_at(5), 350);
+    }
+
+    #[test]
+    fn chunk_template_query_at_appends_offset_and_batch_size() -> Result<(), Error> {
+        let template = ChunkTemplate {
+            query: "sql_query".to_string(),
+            first_offset: 0,
+            step: 10,
+            batch_size: 5,
+        };
+        let query = template.query_at(0, None)?;
+        let encoded = query.encode();
+        assert!(encoded.contains("sql_query"));
+        assert!(encoded.contains("0") && encoded.contains("5"));
+        Ok(())
+    }
+
+    #[test]
+    fn chunk_template_query_at_with_filename_appends_it() -> Result<(), Error> {
+        let template = ChunkTemplate {
+            query: "sql_query".to_string(),
+            first_offset: 0,
+            step: 10,
+            batch_size: 5,
+        };
+        let query = template.query_at(0, Some("chunk.csv"))?;
+        assert!(query.encode().contains("chunk.csv"));
+        Ok(())
+    }
+
+    #[test]
+    fn manifest_spec_yaml_defaults_stored_cached_extension() {
+        let yaml = "chunks:\n  - query: select 1\n";
+        let spec: ManifestSpec = serde_yaml::from_str(yaml).expect("deserialize");
+        assert!(spec.stored);
+        assert!(spec.cached);
+        // `extension` is `Option<String>` with a plain `#[serde(default)]`, so an absent field
+        // reads as `None`; the `csv` default is applied where the naming is derived
+        // (`ChunkNaming`, in `with_key`), not by serde.
+        assert_eq!(spec.extension, None);
+    }
+
+    #[test]
+    fn manifest_spec_explicit_stored_false_is_honored() {
+        let yaml = "chunks: []\nstored: false\n";
+        let spec: ManifestSpec = serde_yaml::from_str(yaml).expect("deserialize");
+        assert!(!spec.stored);
+    }
+
+    #[test]
+    fn manifest_spec_deserialize_ignores_unmodeled_envelope_fields() {
+        // `manifest` and `version` are modelled fields; an unrecognized version — even one that
+        // is not a whole number — reads as the latest, and an unmodelled field is tolerated.
+        let yaml = "manifest: record-stream\nversion: \"1.5\"\nextra: unmodeled\nchunks: []\n";
+        let spec: ManifestSpec = serde_yaml::from_str(yaml).expect("deserialize");
+        assert_eq!(spec.version, None);
+        let spec: ManifestSpec =
+            serde_yaml::from_str("version: 15\nchunks: []\n").expect("deserialize");
+        assert_eq!(spec.version, Some(15));
+    }
+
+    // --- Phase 3 §9 (`liquers-records/tests/manifest_validation.rs`) ---
+    //
+    // Four of the section's five tests, moved here (rather than to a separate integration test
+    // file) because they exercise only `ChunkTemplate` / `ChunkNaming` / `ManifestSpec`, all of
+    // which already live in this module. The fifth,
+    // `explicit_chunk_name_collisions_are_refused_at_load`, constructs a `ManifestSource` and
+    // lands in Step 4.2 alongside the other four deferred above.
+
+    #[test]
+    fn a_chunk_query_plans_without_a_registry() -> Result<(), Box<dyn std::error::Error>> {
+        // `liquers-validate --no-registry` is the CLAUDE.md-prescribed way to check a query parses
+        // and plans without opening a store or a command registry — exactly what a manifest author
+        // should run on `template.query` before committing a manifest. This test exercises the
+        // same parse the tool would, at the level `liquers-records` can reach without a registry
+        // dependency. `Query` has no `FromStr`; `parse_query` is the parser entry point.
+        let query = liquers_core::parse::parse_query("ns-sql/sql_query-0-1000")?;
+        assert!(!query.encode().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn chunk_template_argument_names_are_positional_not_named(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // `ChunkTemplate::query_at` appends `offset` and `batch_size` positionally
+        // (`<query>-<offset>-<batch_size>`), so the template's `query` must name a command whose
+        // first two parameters accept them in that order — checked here as a documented
+        // constraint, since `liquers-records` cannot itself see the target command's
+        // `ArgumentInfo`.
+        let template = ChunkTemplate {
+            query: "ns-sql/sql_query".to_string(),
+            first_offset: 0,
+            step: 1000,
+            batch_size: 1000,
+        };
+        let query = template.query_at(0, None)?;
+        let encoded = query.encode();
+        let offset_pos = encoded.find("-0-").expect("offset before batch_size");
+        let batch_size_pos = encoded.find("-1000").expect("batch_size present");
+        assert!(offset_pos < batch_size_pos);
+        Ok(())
+    }
+
+    #[test]
+    fn an_unrecognized_manifest_version_is_accepted_as_the_latest_shape() {
+        // ManifestSpec has no `version` field of its own (§2.7); an unfamiliar `version:` in the
+        // envelope is simply ignored rather than rejected, which is "defaults to latest" in effect
+        // — there is exactly one shape today, so every version string reads the same spec.
+        let yaml = "manifest: record-stream\nversion: 999\nchunks: []\n";
+        assert!(serde_yaml::from_str::<ManifestSpec>(yaml).is_ok());
+    }
+
+    #[test]
+    fn templated_naming_matches_the_documented_pattern() {
+        let naming = ChunkNaming {
+            folder: Key::new(),
+            prefix: "daily".to_string(),
+            extension: "csv".to_string(),
+        };
+        // `<prefix>_{n:04}.<extension>` (phase2-architecture.md §A)
+        assert_eq!(naming.key(7).to_string(), "daily_0007.csv");
+        assert_eq!(naming.key(123_456).to_string(), "daily_123456.csv"); // past 9999: correct, no longer sortable as text
+    }
+
+    // --- New helpers this step adds: `ManifestSpec` validation ---
+
+    #[test]
+    fn check_explicit_chunk_collisions_accepts_distinct_names() {
+        let spec = ManifestSpec {
+            chunks: vec![
+                Recipe {
+                    query: "ns-sql/sql_query-0-1000/a.csv".to_string(),
+                    ..Default::default()
+                },
+                Recipe {
+                    query: "ns-sql/sql_query-1000-1000/b.csv".to_string(),
+                    ..Default::default()
+                },
+            ],
+            ..ManifestSpec::default()
+        };
+        assert!(spec.check_explicit_chunk_collisions().is_ok());
+    }
+
+    #[test]
+    fn check_explicit_chunk_collisions_refuses_a_shared_filename() {
+        let spec = ManifestSpec {
+            chunks: vec![
+                Recipe {
+                    query: "ns-sql/sql_query-0-1000/data.csv".to_string(),
+                    ..Default::default()
+                },
+                Recipe {
+                    query: "ns-sql/sql_query-1000-1000/data.csv".to_string(),
+                    ..Default::default()
+                },
+            ],
+            ..ManifestSpec::default()
+        };
+        assert!(spec.check_explicit_chunk_collisions().is_err());
+    }
+
+    #[test]
+    fn check_explicit_chunk_collisions_ignores_unkeyed_chunks() {
+        let spec = ManifestSpec {
+            chunks: vec![
+                Recipe {
+                    query: "ns-sql/sql_query-0-1000".to_string(),
+                    ..Default::default()
+                },
+                Recipe {
+                    query: "ns-sql/sql_query-1000-1000".to_string(),
+                    ..Default::default()
+                },
+            ],
+            ..ManifestSpec::default()
+        };
+        assert!(spec.check_explicit_chunk_collisions().is_ok());
+    }
+
+    #[test]
+    fn check_explicit_names_against_template_refuses_a_matching_name() {
+        let naming = ChunkNaming {
+            folder: Key::new(),
+            prefix: "daily".to_string(),
+            extension: "csv".to_string(),
+        };
+        let spec = ManifestSpec {
+            chunks: vec![Recipe {
+                query: "ns-sql/sql_query-0-1/daily_0042.csv".to_string(),
+                ..Default::default()
+            }],
+            ..ManifestSpec::default()
+        };
+        assert!(spec.check_explicit_names_against_template(&naming).is_err());
+    }
+
+    #[test]
+    fn check_explicit_names_against_template_accepts_a_non_matching_name() {
+        let naming = ChunkNaming {
+            folder: Key::new(),
+            prefix: "daily".to_string(),
+            extension: "csv".to_string(),
+        };
+        let spec = ManifestSpec {
+            chunks: vec![Recipe {
+                query: "ns-sql/sql_query-0-1/orders_eu.csv".to_string(),
+                ..Default::default()
+            }],
+            ..ManifestSpec::default()
+        };
+        assert!(spec.check_explicit_names_against_template(&naming).is_ok());
     }
 }

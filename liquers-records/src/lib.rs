@@ -25,7 +25,7 @@ pub use buffer::{AlignedBuffer, Bitmap, Buffer};
 pub use column::{Column, CompareOp, FieldValue};
 pub use formats::{read_table, write_table, ReadOptions, ReadSchema, TableFormat, WriteOptions};
 pub use formats::shapes::{from_json, to_json, JsonOrient};
-pub use manifest::{ChunkTemplate, ManifestKind, ManifestSpec};
+pub use manifest::{ChunkNaming, ChunkTemplate, ManifestKind, ManifestSpec};
 pub use mutable::{ColumnMut, RecordBatchMut, RecordViewMut};
 pub use schema::{
     Analyzer, FieldRole, FieldSchema, FieldType, IndexKind, KeyRole, RecordSchema, VectorMetric,
