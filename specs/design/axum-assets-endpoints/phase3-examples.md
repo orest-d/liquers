@@ -51,6 +51,10 @@ duplicated the same behaviour under different names were merged into one test.
 | VD09 | Unit | `into_metadata_record` on an unknown identifier → `ParameterError` | 400 at the boundary, not 500 | value_description.rs |
 | VD10 | Unit | `into_metadata_record` — untouched `MetadataRecord` fields carry their real defaults | verified against `MetadataRecord::new()`/`Default` (see Fixes) | value_description.rs |
 | AAE01 | Integration | = Example 1 | see above | assets_api_endpoints.rs |
+| AAE02 | Integration | `POST data` onto a recipe key → `Override`; `DELETE` → `Recipe` | Q11 at the HTTP level | assets_api_endpoints.rs |
+| AAE03 | Integration | `GET metadata` of a Source written over HTTP | existing read, manager-owned record | assets_api_endpoints.rs |
+| AAE04 | Integration | `GET entry` with `Accept: application/json` | Accept negotiation (Phase 2 drive-by fix) | assets_api_endpoints.rs |
+| AAE05 | Integration | `POST cancel` on an existing asset → 200 | cancel happy path | assets_api_endpoints.rs |
 | AAE10–AAE17 | Integration | = Example 3 (AAE10 hostile `status`, AAE11 hostile `stored`, AAE12 hostile `dependencies`, AAE13 hostile `expiration_time`, AAE14 unknown `type_identifier` 400, AAE15 non-object `metadata` 400, AAE16 `POST metadata` 501, AAE17 round-trip GET after hostile POST reads back only allow-listed fields) | see above | assets_api_endpoints.rs |
 | AAE20 | Integration | `GET listdir` (root) returns `{assets: [AssetInfo…]}` | listing shape | assets_api_endpoints.rs |
 | AAE21 | Integration | `GET listdir?deep=true` returns `{keys: [...]}` | deep-listing shape | assets_api_endpoints.rs |
@@ -84,7 +88,7 @@ duplicated the same behaviour under different names were merged into one test.
 | AAE55 | Integration | `.with_admin(false)` — `POST data/{key}` still 201 | admin switch does not touch key routes | assets_api_endpoints.rs |
 | AAE60 | Integration | Two concurrent `POST data` to the same key: both succeed, final store value is exactly one of the two bodies | key-mutation-lock serialization observed from the HTTP layer | assets_api_endpoints.rs |
 
-Test count per file: **asset_manager_remove_expire_describe.rs — 20** (AMR01–AMR07, AMR10–AMR20 minus AMR21 dropped, AMR22–AMR23; AMR21 duplicated AMR17's version-unchanged assertion and was merged into it), **value_description.rs — 10** (VD01–VD10), **assets_api_endpoints.rs — 30** (Example 1 as AAE01; Example 3 as AAE10–AAE17; AAE20–AAE60 corner/integration cases).
+Test count per file: **asset_manager_remove_expire_describe.rs — 20** (AMR01–AMR07, AMR10–AMR20 minus AMR21 dropped, AMR22–AMR23; AMR21 duplicated AMR17's version-unchanged assertion and was merged into it), **value_description.rs — 10** (VD01–VD10), **assets_api_endpoints.rs — 44** (Example 1 as AAE01; review additions AAE02–AAE05; Example 3 as AAE10–AAE17; AAE20–AAE60 corner/integration cases).
 
 ---
 
@@ -127,7 +131,7 @@ use liquers_core::{
 use tower::ServiceExt; // oneshot
 
 // ---------------------------------------------------------------------------
-// Shared helpers for this file (used by AAE01, AAE10-AAE17, AAE20-AAE60)
+// Shared helpers for this file (used by AAE01-AAE05, AAE10-AAE17, AAE20-AAE60)
 // ---------------------------------------------------------------------------
 
 /// Environment with recipes read from `recipes.yaml` in the store root, and two test commands:
@@ -208,6 +212,26 @@ async fn send_raw(app: axum::Router, method: &str, uri: &str, body: Body) -> (St
     (status, bytes.to_vec())
 }
 
+/// Like `send`, with `Content-Type: application/json` — required by handlers that use axum's
+/// `Json` extractor (`POST description`); without it axum answers 415 before the handler runs.
+async fn send_json(app: axum::Router, method: &str, uri: &str, json: &str) -> (StatusCode, serde_json::Value) {
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method(method)
+                .uri(uri)
+                .header("content-type", "application/json")
+                .body(Body::from(json.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = resp.status();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+    (status, json)
+}
+
 #[tokio::test]
 async fn aae01_agent_memory_primary_flow() {
     let envref = env_with(&[(
@@ -255,11 +279,11 @@ async fn aae01_agent_memory_primary_flow() {
     assert_eq!(String::from_utf8(body).unwrap(), "HELLO");
 
     // 5. Edit the note's description — title unchanged, status still Source.
-    let (status, json) = send(
+    let (status, json) = send_json(
         app.clone(),
         "POST",
         "/api/assets/description/notes/a.txt",
-        Body::from(r#"{"description":"Edited"}"#),
+        r#"{"description":"Edited"}"#,
     )
     .await;
     assert_eq!(status, StatusCode::OK);
@@ -290,7 +314,6 @@ async fn aae01_agent_memory_primary_flow() {
     let (status, body) = send_raw(app.clone(), "GET", "/api/assets/data/summary.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(String::from_utf8(body).unwrap(), "WORLD");
-    let _ = ErrorType::KeyNotFound; // silence unused-import when this block is pasted alone
 }
 ```
 
@@ -1628,6 +1651,133 @@ async fn aae60_concurrent_post_data_same_key_is_serialized_atomic() {
 
 ---
 
+### Review-round additions (AAE02–AAE05)
+
+Added after the Phase 3 review: Reviewer 1 found no HTTP-level test for Q11, none for the two
+existing reads `GET metadata` / `GET entry` (the latter changes: Phase 2 makes it honour
+`Accept`), and no positive `POST cancel`.
+
+```rust
+// liquers-axum/tests/assets_api_endpoints.rs — same helpers.
+
+/// Q11: POST data onto a key that has a recipe makes it `Override`; removing it restores the recipe.
+#[tokio::test]
+async fn aae02_post_data_onto_recipe_key_is_override() {
+    let envref = env_with(&[("make_text/source.txt", "Source", "generated text")]).await;
+    let app = build_app(envref);
+
+    let (status, json) = send(
+        app.clone(),
+        "POST",
+        "/api/assets/data/source.txt?type_identifier=Text&data_format=txt",
+        Body::from("pinned by user"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(json["result"]["status"], "Override");
+
+    let (status, body) = send_raw(app.clone(), "GET", "/api/assets/data/source.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(String::from_utf8(body).unwrap(), "pinned by user");
+
+    let (status, json) = send(app.clone(), "DELETE", "/api/assets/data/source.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["result"]["new_status"], "Recipe");
+
+    let (_, body) = send_raw(app, "GET", "/api/assets/data/source.txt", Body::empty()).await;
+    assert_eq!(String::from_utf8(body).unwrap(), "generated");
+}
+
+/// Existing `GET metadata` returns the manager's record for a Source written over HTTP.
+#[tokio::test]
+async fn aae03_get_metadata_of_source() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref);
+    let (status, _) = send(
+        app.clone(),
+        "POST",
+        "/api/assets/data/notes/a.txt?type_identifier=Text&data_format=txt&title=Note%20A",
+        Body::from("hello"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    let (status, json) = send(app, "GET", "/api/assets/metadata/notes/a.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["status"], "OK");
+    assert_eq!(json["result"]["status"], "Source");
+    assert_eq!(json["result"]["title"], "Note A");
+    assert_eq!(json["result"]["type_identifier"], "Text");
+}
+
+/// `GET entry` honours `Accept: application/json` (Phase 2 fixes the ignored header).
+#[tokio::test]
+async fn aae04_get_entry_honours_accept_json() {
+    use base64::prelude::*;
+    let envref = env_with(&[]).await;
+    let app = build_app(envref);
+    let (status, _) = send(
+        app.clone(),
+        "POST",
+        "/api/assets/data/notes/a.txt?type_identifier=Text&data_format=txt",
+        Body::from("hello"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/assets/entry/notes/a.txt")
+                .header("Accept", "application/json")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    assert!(content_type.starts_with("application/json"), "got {content_type}");
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let entry: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let data = BASE64_STANDARD.decode(entry["data"].as_str().unwrap()).unwrap();
+    assert_eq!(data, b"hello");
+    assert_eq!(entry["metadata"]["status"], "Source");
+}
+
+/// Positive `POST cancel` on an existing asset: routed, envelope OK.
+#[tokio::test]
+async fn aae05_post_cancel_existing_asset() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref);
+    let (status, _) = send(
+        app.clone(),
+        "POST",
+        "/api/assets/data/notes/a.txt?type_identifier=Text&data_format=txt",
+        Body::from("hello"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    let (status, json) = send(app, "POST", "/api/assets/cancel/notes/a.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["status"], "OK");
+}
+```
+
+| Test | Checks |
+|---|---|
+| AAE02 | Q11 over HTTP: `POST data` on a recipe key → `Override`; `DELETE` → `new_status: "Recipe"`; next read recomputes |
+| AAE03 | existing `GET metadata` returns the manager's record (`Source`, title, type) |
+| AAE04 | `GET entry` negotiates JSON from `Accept` alone; data round-trips through base64 |
+| AAE05 | `POST cancel` on an existing asset → 200 `OK` envelope |
+
 ## Corner Cases
 
 ### 1. Memory
@@ -1714,7 +1864,7 @@ async fn aae60_concurrent_post_data_same_key_is_serialized_atomic() {
 | Command | Runs | New tests |
 |---|---|---|
 | `cargo test -p liquers-core --test asset_manager_remove_expire_describe` | `liquers-core/tests/asset_manager_remove_expire_describe.rs` | AMR01–AMR07, AMR10–AMR20, AMR22–AMR23 (20 tests) |
-| `cargo test -p liquers-axum --test assets_api_endpoints` | `liquers-axum/tests/assets_api_endpoints.rs` | AAE01, AAE10–AAE17, AAE20–AAE60 (30 tests) |
+| `cargo test -p liquers-axum --test assets_api_endpoints` | `liquers-axum/tests/assets_api_endpoints.rs` | AAE01–AAE05, AAE10–AAE17, AAE20–AAE60 (44 tests) |
 | `cargo test -p liquers-axum --lib` | `liquers-axum/src/assets/value_description.rs`, `#[cfg(test)] mod tests` | VD01–VD10 (10 tests) |
 | `cargo test -p liquers-core --lib --tests` | the two changed `ErrorType`-exhaustive sites in `liquers-core/src/assets.rs` and `error.rs`, plus every other core test (regression) | none new, but must still pass after `ErrorType::StatusConflict` is added |
 | `cargo test -p liquers-lib --lib --tests` | the default loop (CLAUDE.md); transitively builds `liquers-core`, `liquers-macro`, `liquers-store` | regression only — this design touches no `liquers-lib` file |
@@ -1875,3 +2025,25 @@ shape to Phase 4's implementation rather than fixing it:
 None. No draft assertion was found to contradict Phase 2's Web Endpoints table or remove decision
 table in a way that would mean Phase 2 itself is wrong — every conflict found (listed under Fixes
 above) was a draft error against an otherwise-consistent Phase 2 contract.
+
+## Review Log
+
+Multi-agent review, 2026-09-27.
+
+- **Reviewer 1 (Phase 1 conformity):** found four gaps, all fixed by adding AAE02–AAE05:
+  - Q11 was tested only at the manager level;
+  - `GET metadata` had no test;
+  - `GET entry` had no test, although Phase 2 changes its `Accept` handling;
+  - there was no positive `POST cancel`.
+- **Reviewer 2 (Phase 2 conformity):** no findings. Signatures, routes, codes, result shapes, every
+  row of the `remove` table, and the error mappings all match.
+- **Reviewer 3 (codebase and queries):** no findings.
+  - All 11 queries validate with `liquers-validate --command make_text --command upper`.
+  - `make_text` is a non-key query and the key paths are pure keys, as the tests assume.
+  - The existing APIs compile as written.
+- **Found while applying the fixes:** AAE01 posted the `POST description` JSON without
+  `Content-Type: application/json`. axum's `Json` extractor rejects that with 415 before the handler
+  runs. Added a `send_json` helper and used it there.
+- **Count correction:** the synthesized document stated 30 `AAE` tests; there were 40 (44
+  with AAE02–AAE05). Totals: 20 AMR + 10 VD + 44 AAE = 74.
+
