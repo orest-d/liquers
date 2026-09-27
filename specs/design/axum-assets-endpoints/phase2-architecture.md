@@ -216,8 +216,9 @@ Holds the lock. The error for any status that cannot be expired is `status_confl
 
 #### `set_description(key, title, description)`
 
-Holds the lock. If both arguments are `None`, it returns `Err(Error::general_error(…))` of type
-`ParameterError`.
+Holds the lock. If both arguments are `None`, it returns
+`Err(Error::from_error(ErrorType::ParameterError, msg))` — there is no dedicated constructor, and
+`from_error` with a message is the existing idiom (`validate_metadata_hard` uses it).
 
 - The status must be `Source`, whether live or stored. Any other status returns `status_conflict`;
   a key that is neither live nor stored returns `key_not_found`.
@@ -430,8 +431,9 @@ default for text, but it cannot declare `md` (`TEXT-VALUE-CANNOT-BE-STORED-AS-MA
 | remove a directory; expire a `Source`, `Recipe` or in-flight asset; describe a non-`Source` | `StatusConflict` | **409** |
 | store I/O | as returned by the store (`KeyReadError`, `KeyWriteError`, …) | 500 |
 
-All errors are built with typed constructors; `Error::new` is not used. `Error::status_conflict` is
-the one new constructor. Handlers never `unwrap()`: the existing
+All errors are built with typed constructors (`key_not_found`, `not_supported`, the new
+`status_conflict`, and `from_error(ErrorType::ParameterError, msg)` for 400s); `Error::new` is not
+used. Handlers never `unwrap()`: the existing
 `headers.insert(CONTENT_TYPE, format.mime_type().parse().unwrap())` in `get_entry_handler` is
 replaced by `HeaderValue::from_static`, since `mime_type()` returns `&'static str`.
 
