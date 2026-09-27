@@ -136,6 +136,13 @@ Decided (2026-09-27): **Q2** builder switches (`.read_only()`, `.with_admin(bool
 `GET recover`. **Q8** POSTs answer 201; removals report `new_status`. **Q9** removal is split into
 delete / evict / delete_or_evict (above); the existing defect filed as
 `ASSET-REMOVE-FORGETS-DEPENDENTS`.
+**Q10** a POSTed entry contributes only the five descriptive fields; the handler builds a fresh
+`MetadataRecord` from them and drops everything else, naming the dropped fields in `message`.
+Why the split matters — trusted by `set_binary` / `try_fast_track` today: `status: Error` stores
+*empty bytes* and still reports success; `status: Expired` is kept, so a `Source` can never be
+read again; `stored: false` skips the store write; `dependencies` are loaded into the dependency
+manager on the next read (fake edges); `expiration_time` is adopted by the live asset;
+`is_error: true` relaxes type validation.
 
 Still open:
 
@@ -149,16 +156,6 @@ Still open:
     *Lean: drop.*
 16. **`AssetManager::remove`:** keep as is for internal callers, or redefine it as
     `delete_or_evict` and deprecate? *Lean: deprecate in favour of the three, in this change.*
-10. **Fields outside the five in a POSTed entry:** drop them (a client can send back what
-    `GET entry` returned) or reject with 400? Either way the handler builds a **fresh**
-    `MetadataRecord` from the five fields rather than cleaning the posted one, so a field added
-    to `MetadataRecord` later is excluded by default. Why the split matters — trusted today,
-    verified in `set_binary` / `try_fast_track`: `status: Error` stores *empty bytes* and still
-    reports success; `status: Expired` is kept, so a `Source` can never be read again;
-    `stored: false` skips the store write entirely; `dependencies` are stored and loaded into the
-    dependency manager on the next read (fake edges); `expiration_time` is adopted by the live
-    asset; `is_error: true` relaxes type validation. *Lean: drop, naming dropped fields in
-    `message`.*
 
 ## References
 
