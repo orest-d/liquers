@@ -24,11 +24,13 @@ All paths are relative to the assets base path (`/api/assets`). ✅ exists · �
 | `listdir_asset_info` | `GET listdir` (`?deep=true` → `listdir_keys_deep`) | 🟡 |
 | `set_binary` | `POST data`, `POST entry` | 🟡 |
 | metadata-only write — **decided against** (see *Metadata ownership*) | `POST metadata` → specified `NotSupported` refusal | 🟡 |
-| `remove` | `DELETE data`, `DELETE entry` (+ opt-in `GET remove`, spec §5.0.1) | 🟡 |
+| new `delete(key)` — `Source` → gone, `Override` → `Recipe`; cascades (see *Removal*) | `DELETE data`, `DELETE entry` | 🟡 |
+| new `evict(key)` — drop a recomputable value, keep its version; no cascade | `POST evict` | 🆕 |
+| new `delete_or_evict(key)` — atomic choice of the two | `POST delete_or_evict` | 🆕 |
 | `get_asset_info` — describe **without evaluating** | `GET info` | 🆕 |
 | `contains` | `GET contains` | 🆕 |
 | `version` | `GET version` | 🆕 |
-| `get_binary_any_status` — recovery read incl. `Expired` | `GET data|entry?any_status=true` | 🆕 |
+| `get_binary_any_status` — recovery read incl. `Expired` | `GET recover` (entry format) | 🆕 |
 | `to_override` — pin the current value | `POST override` | 🆕 |
 | new defaulted `AssetManager::expire(key)` — live asset or stored-only, then cascade | `POST expire` | 🆕 |
 | `makedir` | `PUT makedir` | 🆕 |
@@ -73,14 +75,42 @@ There are two legitimate reasons to write metadata; they want different mechanis
    versions, dependencies and expiration, cleanly split from the safe user API specified here.
    Filed as `NO-REMOTE-STORE-OR-ASSET-MANAGER`.
 
+## Removal: delete vs evict
+
+Today there is one operation, `AssetManager::remove`: for every status it cancels and unmaps the
+live asset, deletes the stored value and **forgets the key's dependency edges without expiring
+anything** (filed as `ASSET-REMOVE-FORGETS-DEPENDENTS`). The API replaces it with two operations
+that differ in whether the value's *identity* changes:
+
+| | **delete** | **evict** |
+|---|---|---|
+| Applies to | user-supplied values: `Source`, `Override` | recomputable values of a key with a recipe: `Ready`, `Expired`, `Error`, `Cancelled`, `Volatile` |
+| Result | `Source` → gone (`None`); `Override` → `Recipe` | `Recipe`; next read recomputes |
+| Stored | value and metadata removed | data removed, **metadata with version kept** |
+| Dependents | **cascade-expired** — the value they were built on no longer exists or will differ | **not expired** — same value when recomputed; if recomputation yields a different version, `register_version` cascades then |
+| Refused for | a key with a recipe and no override (→ use evict); `Directory` | no recipe (→ use delete); in-flight statuses (→ use cancel) |
+
+Keeping the version is what makes "evict does not cascade" true rather than deferred:
+`AssetManager::version` reads stored *metadata*, so dependents stay valid under
+`trigger_dependency_audit` — the property `version`'s own documentation relies on ("delete large
+intermediates and keep the results derived from them"). Evicting both data and metadata would make
+the next audit expire every dependent.
+
+**`delete_or_evict` — kept, but only because it is atomic.** Both outcomes end in the same place
+("the key is back to what its recipe says, or gone if it has none") and each picks the correct
+cascade for its case, so it is one coherent intent ("reset"), not an ambiguous verb. Its value is
+that core decides under the key's mutation lock: a client doing *read status, then call delete or
+evict* races with a concurrent `POST data` (it would evict where it should delete, or be refused).
+Without that atomicity it would be pure sugar and not worth a route.
+
 ## Core Interactions
 
 - **Query:** the path is parsed with `parse_query`. Every operation except the reads is key-only.
   A query that is not a pure key is refused with the §3 envelope (`NotSupported`, 501): a specified
   refusal, not a stub.
 - **Store / Asset:** no store code. Everything goes through `AssetManager`, which already owns
-  locking, status rules (`Source`/`Override`), versioning and cascades. Two defaulted trait
-  methods, `AssetManager::expire` and `AssetManager::set_description`, in `liquers-core`.
+  locking, status rules (`Source`/`Override`), versioning and cascades. New trait methods in
+  `liquers-core`: `expire`, `set_description`, `delete`, `evict`, `delete_or_evict`.
 - **Commands / Value types / UI:** none. `command_registry.yaml` is unaffected.
 - **Web:** the handlers and builder change in `liquers-axum/src/assets/`. The first real handler
   tests drive the built `Router` with `tower::ServiceExt::oneshot` against an in-memory
@@ -89,31 +119,36 @@ There are two legitimate reasons to write metadata; they want different mechanis
 ## Crate Placement
 
 - `liquers-axum`: handlers, builder, tests.
-- `liquers-core`: two defaulted methods, `AssetManager::expire(key)` and
-  `AssetManager::set_description(key, …)`, and their tests.
+- `liquers-core`: `AssetManager::{expire, set_description, delete, evict, delete_or_evict}`
+  and their tests; `ASSETS.md` updated for the removal semantics.
 - Specs: `WEB_API_SPECIFICATION.md` §5 plus a `## History` row, the issue status, and
   `ASSETS.md` if a trait method is added.
 
 ## Decisions and Open Questions
 
-Decided (2026-09-27): **Q2** builder switches (`.read_only()`, `.with_admin(bool)`, opt-in
-GET `remove`) as a stop-gap until `CORE-SESSION-AND-KEY-ACL` delivers real access control.
+Decided (2026-09-27): **Q2** builder switches (`.read_only()`, `.with_admin(bool)`) as a stop-gap until `CORE-SESSION-AND-KEY-ACL` delivers real access control.
 **Q3** no metadata writes (above). **Q4** add `AssetManager::expire(key)`. **Q5**
 `set_expiration_time` stays out, no issue. **Q6** `apply` out of scope, no feature.
 **Q11** `POST data|entry` onto a key with a recipe is allowed and makes it `Override`.
 **Q12** `POST description` (Source only) is in scope; remote/trusted API filed as
 `NO-REMOTE-STORE-OR-ASSET-MANAGER`.
+**Q1** `GET listdir` returns full `AssetInfo` records. **Q7** recovery read is a separate route,
+`GET recover`. **Q8** POSTs answer 201; removals report `new_status`. **Q9** removal is split into
+delete / evict / delete_or_evict (above); the existing defect filed as
+`ASSET-REMOVE-FORGETS-DEPENDENTS`.
 
 Still open:
 
-1. **`GET listdir` shape:** full `AssetInfo` records (`{assets:[AssetInfo…]}`) instead of the
-   spec's `{key,status}`? *Lean yes.*
-7. **Recovery read:** query parameter on `GET data|entry`, or a separate `GET recover` route?
-   *Lean: parameter.*
-8. **POST success code:** spec says 201, `ApiResponse::ok` always 200 — add a 201 path?
-   **DELETE** returns `new_status` (`Recipe` if a recipe exists, else `None`) at the cost of one
-   `recipe_opt`? *Lean yes to both.*
-9. `remove` does not expire dependents — file as an issue, out of scope? *Lean yes.*
+13. **Evict scope:** memory *and* stored data (keep metadata), as above — or memory only (the
+    store copy stays and the next read fast-tracks it, so evict merely frees RAM)? *Lean: memory
+    and stored data; memory-only is a cache-policy concern for `CORE-ASSET-GC`.*
+14. **Refusal code:** delete on a recipe asset / evict on a `Source` is a *state conflict*, not
+    "unsupported". Add an `ErrorType` mapped to 409, or reuse `NotSupported` (501)? *Lean: 409.*
+15. **GET-based `remove`** (spec §5.0.1 lists `GET /api/assets/remove`): drop it from the spec —
+    a state-changing GET is prefetchable and cacheable, and the split makes its meaning unclear?
+    *Lean: drop.*
+16. **`AssetManager::remove`:** keep as is for internal callers, or redefine it as
+    `delete_or_evict` and deprecate? *Lean: deprecate in favour of the three, in this change.*
 10. **Fields outside the five in a POSTed entry:** drop them (a client can send back what
     `GET entry` returned) or reject with 400? Either way the handler builds a **fresh**
     `MetadataRecord` from the five fields rather than cleaning the posted one, so a field added
