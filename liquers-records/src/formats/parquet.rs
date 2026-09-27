@@ -240,6 +240,10 @@ fn encode_f64(values: &[f64], null_mask: &Bitmap) -> (Vec<u8>, Option<(Vec<u8>, 
             max = Some(max.map_or(v, |m| m.max(v)));
         }
     }
+    // Parquet's `Statistics` rule for floating point: `-0.0 == +0.0`, so a zero min is written as
+    // `-0.0` and a zero max as `+0.0`, whichever zero the data held.
+    let min = min.map(|m| if m == 0.0 { -0.0 } else { m });
+    let max = max.map(|m| if m == 0.0 { 0.0 } else { m });
     let stats = min.zip(max).map(|(mn, mx)| (mn.to_le_bytes().to_vec(), mx.to_le_bytes().to_vec()));
     (bytes, stats)
 }
@@ -269,11 +273,11 @@ fn encode_bytes(
         out.extend_from_slice(slice);
         min = Some(match min {
             Some(m) if m.as_slice() <= slice => m,
-            _ => slice.to_vec(),
+            Some(_) | None => slice.to_vec(),
         });
         max = Some(match max {
             Some(m) if m.as_slice() >= slice => m,
-            _ => slice.to_vec(),
+            Some(_) | None => slice.to_vec(),
         });
     }
     (out, min.zip(max))
@@ -683,6 +687,27 @@ mod tests {
     use crate::formats::{write_table, TableFormat, WriteOptions};
     use crate::schema::FieldType;
     use std::sync::Arc;
+
+    #[test]
+    fn float_statistics_write_a_zero_min_as_negative_and_a_zero_max_as_positive() {
+        // Parquet's Statistics rule for floating point: a min of ±0 is written -0.0 and a max of
+        // ±0 is written +0.0, since -0.0 == +0.0 and a reader cannot trust which one it got.
+        let min_bits = |values: &[f64]| {
+            let (_, stats) = encode_f64(values, &Bitmap::new(values.len()));
+            stats.expect("stats")
+        };
+        for values in [&[0.0f64][..], &[-0.0], &[0.0, -0.0], &[-0.0, 0.0]] {
+            let (min, max) = min_bits(values);
+            assert_eq!(min, (-0.0f64).to_le_bytes().to_vec(), "min of {values:?}");
+            assert_eq!(max, 0.0f64.to_le_bytes().to_vec(), "max of {values:?}");
+        }
+        let (min, max) = min_bits(&[-1.0, 0.0]);
+        assert_eq!(min, (-1.0f64).to_le_bytes().to_vec());
+        assert_eq!(max, 0.0f64.to_le_bytes().to_vec());
+        let (min, max) = min_bits(&[-0.0, 2.0]);
+        assert_eq!(min, (-0.0f64).to_le_bytes().to_vec());
+        assert_eq!(max, 2.0f64.to_le_bytes().to_vec());
+    }
 
     #[test]
     fn parquet_writer_refuses_vector_columns() -> Result<(), Error> {
