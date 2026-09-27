@@ -18,8 +18,13 @@ verbatim except where this plan says otherwise.
   `pub(crate)` supertrait `KeyMutationAccess` needs no new lint allowance.
 - `mark_expired_status` may run on a **non-keyed** asset, and `Error::status_conflict(&Key, …)`
   needs a key. There it uses `Error::from_error(ErrorType::StatusConflict, msg)`, plus
-  `.with_key(&k)` when `self.key()` is `Some`. The keyed `AssetManager::expire` path uses
-  `status_conflict`.
+  `.with_key(&k)` (which sets `query`) when `self.key()` is `Some`. The keyed `AssetManager::expire`
+  path checks the live status first and uses `status_conflict`, so its errors carry `key`.
+- **Key paths over HTTP are `-R/<key>`.** A bare `notes/a.txt` parses as the action `notes`
+  (verified with `liquers-validate`); Phase 3's tests use `-R/…` throughout.
+- **`AssetsApiBuilder::build()` panics today** with the default WebSocket path: the route is
+  registered as `{ws}/*query`, which axum 0.8 rejects. Step 7 fixes it; until then no router test
+  can run.
 - `liquers-web` is not in `default-members`; check it with
   `--target wasm32-unknown-unknown`. `liquers-py` is a default member; `cargo check` is enough,
   because running its tests needs a Python toolchain.
@@ -99,7 +104,9 @@ depends on it until Step 3.
   `&self.key_mutation_lock`. Add `+ KeyMutationAccess` to the `AssetManager` supertraits.
 - In `mark_expired_status`, replace both `Error::general_error(...)` refusals with
   `Error::from_error(ErrorType::StatusConflict, <same message>)`, adding `.with_key(&k)` when
-  `owner_key` is `Some`. The messages stay the same.
+  `owner_key` is `Some`. The messages stay the same. (`with_key` fills the `query` field, not
+  `key` — `ERROR-WITH-KEY-SETS-QUERY-FIELD` — which is why the keyed manager path in Step 3
+  refuses non-expirable live statuses itself with `status_conflict`.)
 - The paragraph "Internal access to the runtime dependency graph…" currently sits above
   `expire_stored_copy`. Move it back above `pub(crate) trait DependencyManagerAccess`, which it
   describes.
@@ -129,8 +136,9 @@ cargo test -p liquers-core --lib assets
   per-manager `remove` bodies (≈5643 `DefaultAssetManager`, ≈6939 `ImmediateAssetManager`). The
   body runs in this order:
   1. `let _g = self.key_mutation_lock().lock().await;`
-  2. Read the status: `lookup_key_asset(key)` then `asset.status().await`, otherwise the store:
-     `contains`, then `get_metadata(key)?.status()`.
+  2. Read the status: `lookup_key_asset(key)` then `asset.status().await`; if there is no live
+     asset, **or its status is `None`/`Recipe`**, use the store: `contains`, then
+     `get_metadata(key)?.status()`.
   3. Compute `has_recipe = self.recipe_opt(key).await?.is_some()`.
   4. Decide with an **exhaustive `match` on `Status`**; no `_ =>`.
   5. **Delete branch:** cancel the live asset, `untrack_expiration(id)`, `remove_key_asset(key)`,
@@ -139,12 +147,15 @@ cargo test -p liquers-core --lib assets
   6. **Drop-computed branch:** cancel, untrack and unmap the live asset; if the store contains the
      key, take the stored `MetadataRecord` and set `status = Recipe`, `file_size = None`,
      `is_error = false`, `error_data = None` and `progress` cleared, keeping `version`; then
-     `store.set(key, &[], &md.into())`. Leave the dependency graph alone.
+     `store.set(key, &[], &md.into())`. Leave the dependency graph alone. A stored
+     `Metadata::LegacyMetadata` is deleted (`store.remove`) instead.
+     A stored `Recipe` (already dropped) with a recipe is an idempotent `Ok(())`.
   7. **`Directory`:** `Err(Error::status_conflict(key, Status::Directory, "remove"))`.
   8. **Nothing live and nothing stored:** `Ok(())` if a recipe exists, otherwise
      `Err(Error::key_not_found(key))`.
 - **`expire`** becomes a default method, holding the lock:
-  - a live asset: `asset.expire().await`;
+  - a live asset (status not `None`/`Recipe`): `Ready | Override | Expired` →
+    `asset.expire().await`; any other status → `status_conflict(key, status, "expire")`;
   - stored `Ready` or `Override`: `expire_stored_copy(store, key).await`, then
     `cascade_expire_dependents`;
   - stored `Expired`: `Ok(())`;
@@ -163,7 +174,13 @@ cargo test -p liquers-core --lib assets
   `metadata`'s `title` or `description`. For a `Metadata::LegacyMetadata`, ignore the call and
   write a note with `eprintln!`: legacy metadata cannot hold a `Source` set by this path.
 - **`get_asset_info`**: replace `let assetref = self.get(key).await?; assetref.get_asset_info()`
-  with `asset.get_asset_info().await`, using the asset returned by `lookup_key_asset`.
+  with `asset.get_asset_info().await`, using the asset returned by `lookup_key_asset`. Do it in
+  **both** bodies — the trait default (≈4067) and `DefaultAssetManager`'s override (≈5518), or
+  delete the override. In both, the final "Asset not found" `general_error` becomes
+  `Error::key_not_found(key)` (AMR01, AAE22 expect `KeyNotFound`/404).
+- **`AssetData::dependency_blocks_fast_track`** (≈1076): in the store branch, a stored
+  `Status::Recipe` does not block (`status != Status::Recipe && !status_permits_reuse(status)`,
+  no `_ =>`). Live branch unchanged. Tested by AMR24.
 - **Lock discipline** (Phase 2): while holding the guard, never call `get`, `owned_key_asset`,
   `to_override`, `set_binary`, `set_state` or `remove_expired_from_maps`.
 
@@ -192,8 +209,9 @@ revert to the Step 2 commit rather than to HEAD~.
 
 **File:** `liquers-core/tests/asset_manager_remove_expire_describe.rs` (new)
 
-**Action:** paste Phase 3's AMR tests: the shared helpers from Example 2, then AMR01–AMR07 and
-AMR10–AMR23 from "Integration Tests" (20 tests). Only public API is used. Replace any `println!`
+**Action:** paste Phase 3's AMR tests: the shared helpers from Example 2 (`env_over`, `env_with`,
+`metadata_text`, `stored_status`), then AMR01–AMR07 and AMR10–AMR24 from "Integration Tests"
+(21 tests). Only public API is used. Replace any `println!`
 with `eprintln!`.
 
 **Validation:**
@@ -222,12 +240,13 @@ editing the test.
 
 **Action:**
 - Implement the struct, `VALUE_DESCRIPTION_FIELDS`, `from_json`, `from_params`, `or_previous` and
-  `into_metadata_record`, exactly as specified in Phase 2.
+  `into_metadata_record`, exactly as specified in Phase 2 — including `or_previous`'s pair rule
+  (type and format only together, only from a data-bearing previous with a non-empty type).
 - Errors are built with `Error::from_error(ErrorType::ParameterError, …)`.
 - `into_metadata_record` builds a record with `MetadataRecord::new()` and sets only
   `type_identifier`, `type_name` (from the registry's `TypeInfo`), `data_format`, `media_type`,
   `title` and `description`.
-- Paste the VD01–VD10 tests into `#[cfg(test)] mod tests` at the end of the file.
+- Paste the VD01–VD11 tests into `#[cfg(test)] mod tests` at the end of the file.
 
 **Validation:**
 ```bash
@@ -306,7 +325,11 @@ awk '/#\[cfg\(test\)\]/{nextfile} /\.unwrap\(\)|\.expect\(/{print FILENAME": "FN
   than `get(h).post(p)`.
 - `POST metadata` is always registered, because it always refuses.
 - `POST cancel` stays registered under `read_only()`.
-- Update the module doc comment as in Step 6.
+- **Fix the WebSocket route**: `format!("{}/*query", ws_path)` → `format!("{}/{{*query}}", ws_path)`.
+  axum 0.8 panics on the old form, so without this every Step 8 test panics in `build()`. Add a
+  unit test in `builder.rs` that calls `AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets").build()`
+  (default WebSocket on) and `.read_only().with_admin(false).build()`, so a panicking route table
+  fails in `--lib`. Close `AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS` in Step 9.
 
 **Validation:**
 ```bash
@@ -376,8 +399,11 @@ cargo test -p liquers-axum                 # the whole crate, including the exis
   and Recalculate" with the decision table. Document `expire(key)` and `set_description`. Add a
   History row and bump `reviewed:`.
 - **Issues** (§4.3):
-  - `AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED` and `ASSET-REMOVE-FORGETS-DEPENDENTS` → `closed`,
-    with a resolution note naming the tests (AAE01–AAE60; AMR01–AMR07) and the commit. Set
+  - `AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED`, `ASSET-REMOVE-FORGETS-DEPENDENTS` and
+    `AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS` → `closed`, with a resolution note naming the tests
+    (AAE01–AAE60; AMR01–AMR07, AMR24; the Step 7 builder test) and the commit.
+  - `DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION` → `closed` (AMR22, AMR23), unless its own
+    design (`store-and-asset-search`) closed it first. Set
     `design: axum-assets-endpoints`.
   - `AXUM-HANDLER-TEST-COVERAGE` stays `accepted`; add a progress note that the assets handlers
     now have a scaffold and the Store, Query and Recipes APIs remain.
@@ -435,13 +461,13 @@ cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handl
 |---|---|---|
 | `api_core::error` variant lists and mapping | `cargo test -p liquers-axum --lib api_core` | Step 1 |
 | existing core lib suite (incl. `test_remove_asset`) | `cargo test -p liquers-core --lib` | Steps 2–3 |
-| VD01–VD10 | `cargo test -p liquers-axum --lib value_description` | Step 5 |
+| VD01–VD11 | `cargo test -p liquers-axum --lib value_description` | Step 5 |
 
 ### Integration Tests
 
 | Suite | Command | When |
 |---|---|---|
-| AMR01–AMR23 (20) | `cargo test -p liquers-core --test asset_manager_remove_expire_describe` | Step 4 |
+| AMR01–AMR24 (21) | `cargo test -p liquers-core --test asset_manager_remove_expire_describe` | Step 4 |
 | AAE01–AAE60 (44) | `cargo test -p liquers-axum --test assets_api_endpoints` | Step 8 |
 | every existing suite | Step 10 list | Step 10 |
 
@@ -449,9 +475,9 @@ cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handl
 
 ```bash
 cargo run -p liquers-axum --example assets_recipes_basic &   # mounts /liquer/api/assets on :3000
-curl -s -X POST 'localhost:3000/liquer/api/assets/data/notes/a.txt?type_identifier=Text&title=A' --data-binary hello
-curl -s localhost:3000/liquer/api/assets/listdir/notes | jq .
-curl -s -X DELETE localhost:3000/liquer/api/assets/data/notes/a.txt | jq .result
+curl -s -X POST 'localhost:3000/liquer/api/assets/data/-R/notes/a.txt?type_identifier=Text&title=A' --data-binary hello
+curl -s localhost:3000/liquer/api/assets/listdir/-R/notes | jq .
+curl -s -X DELETE localhost:3000/liquer/api/assets/data/-R/notes/a.txt | jq .result
 ```
 `basic_server` does not mount the Assets API; `assets_recipes_basic` does, at `/liquer/api/assets`, port 3000.
 
@@ -538,3 +564,11 @@ Multi-agent review, 2026-09-27.
   work writes. Every cited path, line number, example, feature and command was otherwise verified,
   and `docs_index.py --check` exists.
 
+**Final cross-phase review, 2026-09-27** (changes made in this document):
+- Pre-flight: key paths are `-R/<key>`; `build()` panics today on the WebSocket route (fixed in
+  Step 7, with a `--lib` builder test so Steps 7–8 cannot go red for this reason).
+- Step 3: `get_asset_info` changed in both bodies and returns `key_not_found`;
+  `dependency_blocks_fast_track` accepts a stored `Recipe`; `remove` status source, legacy and
+  idempotent cases; `expire` refuses non-expirable live statuses itself.
+- Step 2: noted that `with_key` sets `query`. Steps 4/5 and the Testing Plan: AMR24, VD11 (21 AMR,
+  11 VD). Step 9 closes `AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS`. Manual `curl` lines use `-R/`.

@@ -283,6 +283,7 @@ question are both measure-first items.
 <!-- BEGIN generated: issues -->
 | Issue | Pri | Cx | Design |
 |---|---|---|---|
+| [`AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS`](issues/AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS.md) | P1 | S | `axum-assets-endpoints` |
 | [`DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION`](issues/DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION.md) | P1 | M | `store-and-asset-search` |
 <!-- END generated: issues -->
 

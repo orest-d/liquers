@@ -40,6 +40,7 @@ duplicated the same behaviour under different names were merged into one test.
 | AMR20 | Unit/Integration | `set_description` on absent key → `KeyNotFound` | absent-key path | asset_manager_remove_expire_describe.rs |
 | AMR22 | Unit/Integration | `get_asset_info` on an `Expired` live asset reports `Expired`, no re-evaluation | Phase 2's `get_asset_info` fix | asset_manager_remove_expire_describe.rs |
 | AMR23 | Unit/Integration | `get_asset_info` on a never-evaluated recipe key reports `Recipe`, no evaluation | same fix, un-evaluated case | asset_manager_remove_expire_describe.rs |
+| AMR24 | Integration | a dropped intermediate does not block its dependent's fast track after a restart | the kept version is worth something (final review) | asset_manager_remove_expire_describe.rs |
 | VD01 | Unit | `from_json` keeps exactly the five allow-listed fields | allow-list construction | value_description.rs |
 | VD02 | Unit | `from_json` on non-object JSON → `ParameterError` | input validation | value_description.rs |
 | VD03 | Unit | `from_json` on a non-string field value → `ParameterError` | input validation | value_description.rs |
@@ -50,6 +51,7 @@ duplicated the same behaviour under different names were merged into one test.
 | VD08 | Unit | `into_metadata_record` resolves `type_name` from the registry | registry lookup | value_description.rs |
 | VD09 | Unit | `into_metadata_record` on an unknown identifier → `ParameterError` | 400 at the boundary, not 500 | value_description.rs |
 | VD10 | Unit | `into_metadata_record` — untouched `MetadataRecord` fields carry their real defaults | verified against `MetadataRecord::new()`/`Default` (see Fixes) | value_description.rs |
+| VD11 | Unit | `or_previous` — type and format filled only as a pair, from a data-bearing previous | recipe keys and client-named types (final review) | value_description.rs |
 | AAE01 | Integration | = Example 1 | see above | assets_api_endpoints.rs |
 | AAE02 | Integration | `POST data` onto a recipe key → `Override`; `DELETE` → `Recipe` | Q11 at the HTTP level | assets_api_endpoints.rs |
 | AAE03 | Integration | `GET metadata` of a Source written over HTTP | existing read, manager-owned record | assets_api_endpoints.rs |
@@ -88,7 +90,7 @@ duplicated the same behaviour under different names were merged into one test.
 | AAE55 | Integration | `.with_admin(false)` — `POST data/{key}` still 201 | admin switch does not touch key routes | assets_api_endpoints.rs |
 | AAE60 | Integration | Two concurrent `POST data` to the same key: both succeed, final store value is exactly one of the two bodies | key-mutation-lock serialization observed from the HTTP layer | assets_api_endpoints.rs |
 
-Test count per file: **asset_manager_remove_expire_describe.rs — 20** (AMR01–AMR07, AMR10–AMR20 minus AMR21 dropped, AMR22–AMR23; AMR21 duplicated AMR17's version-unchanged assertion and was merged into it), **value_description.rs — 10** (VD01–VD10), **assets_api_endpoints.rs — 44** (Example 1 as AAE01; review additions AAE02–AAE05; Example 3 as AAE10–AAE17; AAE20–AAE60 corner/integration cases).
+Test count per file: **asset_manager_remove_expire_describe.rs — 21** (AMR01–AMR07, AMR10–AMR20 minus AMR21 dropped, AMR22–AMR24; AMR21 duplicated AMR17's version-unchanged assertion and was merged into it), **value_description.rs — 11** (VD01–VD11), **assets_api_endpoints.rs — 44** (Example 1 as AAE01; review additions AAE02–AAE05; Example 3 as AAE10–AAE17; AAE20–AAE60 corner/integration cases).
 
 ---
 
@@ -117,6 +119,7 @@ use axum::{
     http::{Request, StatusCode},
 };
 use liquers_core::{
+    assets::AssetManager, // trait in scope for am.get/set_binary/remove/… (final review)
     command_metadata::CommandKey,
     context::{Environment, EnvRef, SimpleEnvironment},
     error::ErrorType,
@@ -246,7 +249,7 @@ async fn aae01_agent_memory_primary_flow() {
     let (status, json) = send(
         app.clone(),
         "POST",
-        "/api/assets/data/notes/a.txt?type_identifier=Text&data_format=txt&title=Note%20A&description=First%20note",
+        "/api/assets/data/-R/notes/a.txt?type_identifier=Text&data_format=txt&title=Note%20A&description=First%20note",
         Body::from("hello"),
     )
     .await;
@@ -259,7 +262,7 @@ async fn aae01_agent_memory_primary_flow() {
     assert_eq!(json["result"]["type_identifier"], "Text");
 
     // 2. Browse the directory — title/description visible, no evaluation triggered.
-    let (status, json) = send(app.clone(), "GET", "/api/assets/listdir/notes", Body::empty()).await;
+    let (status, json) = send(app.clone(), "GET", "/api/assets/listdir/-R/notes", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     let assets = json["result"]["assets"].as_array().unwrap();
     assert_eq!(assets.len(), 1);
@@ -268,13 +271,13 @@ async fn aae01_agent_memory_primary_flow() {
     assert_eq!(assets[0]["status"], "Source", "listing must not evaluate anything");
 
     // 3. Inspect the recipe key before it is ever evaluated.
-    let (status, json) = send(app.clone(), "GET", "/api/assets/info/summary.txt", Body::empty()).await;
+    let (status, json) = send(app.clone(), "GET", "/api/assets/info/-R/summary.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["result"]["status"], "Recipe");
     assert_eq!(json["result"]["title"], "Summary");
 
     // 4. Read the derived value — this evaluates the recipe.
-    let (status, body) = send_raw(app.clone(), "GET", "/api/assets/data/summary.txt", Body::empty()).await;
+    let (status, body) = send_raw(app.clone(), "GET", "/api/assets/data/-R/summary.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(String::from_utf8(body).unwrap(), "HELLO");
 
@@ -282,7 +285,7 @@ async fn aae01_agent_memory_primary_flow() {
     let (status, json) = send_json(
         app.clone(),
         "POST",
-        "/api/assets/description/notes/a.txt",
+        "/api/assets/description/-R/notes/a.txt",
         r#"{"description":"Edited"}"#,
     )
     .await;
@@ -291,7 +294,7 @@ async fn aae01_agent_memory_primary_flow() {
     assert_eq!(json["result"]["title"], "Note A");
     assert_eq!(json["result"]["status"], "Source");
 
-    let (_, json) = send(app.clone(), "GET", "/api/assets/version/notes/a.txt", Body::empty()).await;
+    let (_, json) = send(app.clone(), "GET", "/api/assets/version/-R/notes/a.txt", Body::empty()).await;
     let version_before = json["result"]["version"].as_str().map(|s| s.to_string());
     assert!(version_before.is_some(), "version should exist after the first write");
 
@@ -299,19 +302,19 @@ async fn aae01_agent_memory_primary_flow() {
     let (status, json) = send(
         app.clone(),
         "POST",
-        "/api/assets/data/notes/a.txt",
+        "/api/assets/data/-R/notes/a.txt",
         Body::from("world"),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(json["result"]["status"], "Source");
 
-    let (_, json) = send(app.clone(), "GET", "/api/assets/version/notes/a.txt", Body::empty()).await;
+    let (_, json) = send(app.clone(), "GET", "/api/assets/version/-R/notes/a.txt", Body::empty()).await;
     let version_after = json["result"]["version"].as_str().map(|s| s.to_string());
     assert_ne!(version_before, version_after, "version must change after a data overwrite");
 
     // 7. The dependent recipe recomputes on the next read.
-    let (status, body) = send_raw(app.clone(), "GET", "/api/assets/data/summary.txt", Body::empty()).await;
+    let (status, body) = send_raw(app.clone(), "GET", "/api/assets/data/-R/summary.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(String::from_utf8(body).unwrap(), "WORLD");
 }
@@ -344,6 +347,7 @@ helper module is not shared across files, only within one.
 // liquers-core/tests/asset_manager_remove_expire_describe.rs
 
 use liquers_core::{
+    assets::{AssetData, AssetManager}, // AssetManager: trait methods; AssetData: AMR24
     command_metadata::CommandKey,
     context::{Environment, EnvRef, SimpleEnvironment},
     error::ErrorType,
@@ -360,7 +364,9 @@ use liquers_core::{
 // Shared helpers for this file (used by every AMR test)
 // ---------------------------------------------------------------------------
 
-async fn env_with(recipes: &[(&str, &str, &str)]) -> EnvRef<SimpleEnvironment<Value>> {
+/// An environment over an already-populated store (AMR24 rebuilds one over persisted entries to
+/// simulate a restart).
+fn env_over(store: AsyncMemoryStore) -> EnvRef<SimpleEnvironment<Value>> {
     let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
     env.command_registry
         .register_command(CommandKey::new_name("make_text"), |_, _, _| {
@@ -372,6 +378,12 @@ async fn env_with(recipes: &[(&str, &str, &str)]) -> EnvRef<SimpleEnvironment<Va
             Ok(Value::from(state.try_into_string()?.to_uppercase()))
         })
         .unwrap();
+    env.with_async_store(Box::new(store));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.to_ref()
+}
+
+async fn env_with(recipes: &[(&str, &str, &str)]) -> EnvRef<SimpleEnvironment<Value>> {
     let mut rl = RecipeList::new();
     for (q, t, d) in recipes {
         rl.add_recipe(Recipe::new(q.to_string(), t.to_string(), d.to_string()).unwrap());
@@ -385,9 +397,7 @@ async fn env_with(recipes: &[(&str, &str, &str)]) -> EnvRef<SimpleEnvironment<Va
         )
         .await
         .unwrap();
-    env.with_async_store(Box::new(store));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
-    env.to_ref()
+    env_over(store)
 }
 
 /// `type_identifier`/`type_name` are `String` (not `Option<String>`) on `MetadataRecord` —
@@ -605,7 +615,7 @@ async fn post_entry_json(
     send(
         app,
         "POST",
-        &format!("/api/assets/entry/{}?format=json", path),
+        &format!("/api/assets/entry/-R/{}?format=json", path),
         Body::from(serde_json::to_string(&entry).unwrap()),
     )
     .await
@@ -635,7 +645,7 @@ async fn aae10_hostile_status_is_ignored() {
         "message must name the dropped 'status' field"
     );
 
-    let (status, resp) = send(app, "GET", "/api/assets/info/notes/a.txt", Body::empty()).await;
+    let (status, resp) = send(app, "GET", "/api/assets/info/-R/notes/a.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(resp["result"]["status"], "Source", "status must be the real Source, not Error");
 }
@@ -655,7 +665,7 @@ async fn aae11_hostile_stored_false_is_ignored() {
     assert_eq!(status, StatusCode::CREATED);
     assert!(resp["message"].as_str().unwrap().contains("stored"));
 
-    let (status, resp) = send(app, "GET", "/api/assets/contains/notes/c.txt", Body::empty()).await;
+    let (status, resp) = send(app, "GET", "/api/assets/contains/-R/notes/c.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(resp["result"]["contains"], true, "the manager always persists a user-supplied value");
 }
@@ -703,7 +713,7 @@ async fn aae13_hostile_expiration_time_is_ignored() {
     assert_eq!(status, StatusCode::CREATED);
     assert!(resp["message"].as_str().unwrap().contains("expiration_time"));
 
-    let (status, body) = send_raw(app, "GET", "/api/assets/data/notes/e.txt", Body::empty()).await;
+    let (status, body) = send_raw(app, "GET", "/api/assets/data/-R/notes/e.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK, "the value must still be readable, not treated as expired");
     assert_eq!(body, b"not actually expiring");
 }
@@ -749,7 +759,7 @@ async fn aae16_post_metadata_always_returns_501() {
     let (status, json) = send(
         app,
         "POST",
-        "/api/assets/metadata/notes/a.txt",
+        "/api/assets/metadata/-R/notes/a.txt",
         Body::from(r#"{"title":"Attempt to write metadata"}"#),
     )
     .await;
@@ -787,7 +797,7 @@ async fn aae17_post_entry_roundtrip_reads_back_only_allowlisted_fields() {
     let dropped = resp["message"].as_str().unwrap();
     assert!(dropped.contains("status") && dropped.contains("version"));
 
-    let (status, info) = send(app, "GET", "/api/assets/info/notes/roundtrip.txt", Body::empty()).await;
+    let (status, info) = send(app, "GET", "/api/assets/info/-R/notes/roundtrip.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(info["result"]["title"], "Kept Title");
     assert_eq!(info["result"]["description"], "Kept description");
@@ -805,7 +815,7 @@ final `GET info` shows only the five allow-listed fields took effect.
 
 ## Unit Tests
 
-Ten pure-function tests, inline in `liquers-axum/src/assets/value_description.rs`. No HTTP layer,
+Eleven pure-function tests, inline in `liquers-axum/src/assets/value_description.rs`. No HTTP layer,
 no `Environment`; `ValueDescription` and `TypeRegistry` only.
 
 ```rust
@@ -975,6 +985,39 @@ mod tests {
         assert_eq!(record.stored, None, "stored is Option<bool>; None means \"true\" by convention");
         assert!(record.dependencies.is_empty());
     }
+
+    /// Final review: a never-evaluated recipe key reports `type_identifier: ""` and the recipe's
+    /// `data_format`. Neither may be inherited (a plain `POST data` onto a recipe key would get a
+    /// 400 or 422); a non-empty title is still inherited. A client-named type never inherits a
+    /// format.
+    #[test]
+    fn vd11_or_previous_fills_type_and_format_only_as_a_pair_from_data() {
+        let recipe_info = AssetInfo {
+            status: Status::Recipe,
+            title: "Recipe Title".to_string(),
+            type_identifier: String::new(),
+            data_format: Some("txt".to_string()),
+            ..AssetInfo::new()
+        };
+        let merged = ValueDescription::default().or_previous(Some(&recipe_info));
+        assert_eq!(merged.type_identifier, None);
+        assert_eq!(merged.data_format, None);
+        assert_eq!(merged.title, Some("Recipe Title".to_string()));
+
+        let ready_text = AssetInfo {
+            status: Status::Ready,
+            type_identifier: "Text".to_string(),
+            data_format: Some("txt".to_string()),
+            ..AssetInfo::new()
+        };
+        let named = ValueDescription {
+            type_identifier: Some("Bytes".to_string()),
+            ..ValueDescription::default()
+        };
+        let merged = named.or_previous(Some(&ready_text));
+        assert_eq!(merged.type_identifier, Some("Bytes".to_string()));
+        assert_eq!(merged.data_format, None, "a client-named type does not inherit a format");
+    }
 }
 ```
 
@@ -990,6 +1033,7 @@ mod tests {
 | VD08 | `into_metadata_record` resolves `type_name` from the registry |
 | VD09 | `into_metadata_record` on an unknown identifier → `ParameterError` |
 | VD10 | `into_metadata_record`'s untouched fields carry `MetadataRecord`'s real defaults, not the draft's guessed ones |
+| VD11 | `or_previous` fills `type_identifier`/`data_format` only as a pair from a data-bearing previous (final review) |
 
 ---
 
@@ -1190,6 +1234,62 @@ async fn amr23_get_asset_info_never_evaluated_recipe_reports_recipe() -> Result<
     assert_eq!(info.status, Status::Recipe, "get_asset_info must not evaluate the recipe");
     Ok(())
 }
+
+/// AMR24 (final review) — the point of keeping the version: after a restart, a dependent of a
+/// dropped intermediate is still reused from the store. Fails without the
+/// `dependency_blocks_fast_track` change (a stored `Recipe` dependency would block it).
+/// Restart = persisted entries replayed into a fresh store, as `keyed_version_cascade.rs` does.
+#[tokio::test]
+async fn amr24_dropped_intermediate_does_not_block_dependent_after_restart(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let keys = ["recipes.yaml", "notes/a.txt", "summary.txt", "summary2.txt"]
+        .iter()
+        .map(|k| parse_key(k))
+        .collect::<Result<Vec<_>, _>>()?;
+    let summary_key = parse_key("summary.txt")?;
+    let summary2_key = parse_key("summary2.txt")?;
+
+    let persisted = {
+        let envref = env_with(&[
+            ("-R/notes/a.txt/-/upper/summary.txt", "Summary", "depends on notes"),
+            ("-R/summary.txt/-/upper/summary2.txt", "Summary2", "depends on summary"),
+        ])
+        .await;
+        let am = envref.get_asset_manager();
+        am.set_binary(&keys[1], b"hello", metadata_text()).await?;
+        let _ = am.get(&summary2_key).await?.get().await?;
+        am.remove(&summary_key).await?; // drop the intermediate, keep its version
+        let store = envref.get_async_store();
+        let mut entries = Vec::new();
+        for key in &keys {
+            entries.push((key.clone(), store.get(key).await?));
+        }
+        entries
+    };
+
+    let store2 = AsyncMemoryStore::new(&Key::new());
+    for (key, (bytes, metadata)) in &persisted {
+        store2.set(key, bytes, metadata).await?;
+    }
+    let envref2 = env_over(store2);
+    assert_eq!(
+        stored_status(&envref2.get_async_store().get_metadata(&summary_key).await?),
+        Status::Recipe,
+        "precondition: the intermediate was dropped, not deleted"
+    );
+
+    let mut reloaded = AssetData::<SimpleEnvironment<Value>>::new(
+        9601,
+        summary2_key.clone().into(),
+        Some(summary2_key.clone()),
+        envref2.clone(),
+    );
+    assert!(
+        reloaded.try_fast_track().await?,
+        "a dependency dropped to Recipe (version kept) must not block the dependent's fast track"
+    );
+    Ok(())
+}
 ```
 
 ```rust
@@ -1229,7 +1329,7 @@ async fn aae22_get_info_404_when_absent() {
     let envref = env_with(&[]).await;
     let app = build_app(envref);
 
-    let (status, json) = send(app, "GET", "/api/assets/info/nonexistent/key.txt", Body::empty()).await;
+    let (status, json) = send(app, "GET", "/api/assets/info/-R/nonexistent/key.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(json["error"]["type"], "KeyNotFound");
 }
@@ -1239,7 +1339,7 @@ async fn aae23_contains_false_for_absent_key() {
     let envref = env_with(&[]).await;
     let app = build_app(envref);
 
-    let (status, json) = send(app, "GET", "/api/assets/contains/missing/key.txt", Body::empty()).await;
+    let (status, json) = send(app, "GET", "/api/assets/contains/-R/missing/key.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["result"]["contains"], false);
 }
@@ -1250,7 +1350,7 @@ async fn aae24_contains_true_for_present_key() {
     write_source(&envref, "data/exists.txt", b"content").await;
     let app = build_app(envref);
 
-    let (status, json) = send(app, "GET", "/api/assets/contains/data/exists.txt", Body::empty()).await;
+    let (status, json) = send(app, "GET", "/api/assets/contains/-R/data/exists.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["result"]["contains"], true);
 }
@@ -1260,7 +1360,7 @@ async fn aae25_version_null_for_unversioned() {
     let envref = env_with(&[]).await;
     let app = build_app(envref);
 
-    let (status, json) = send(app, "GET", "/api/assets/version/no/version.txt", Body::empty()).await;
+    let (status, json) = send(app, "GET", "/api/assets/version/-R/no/version.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert!(json["result"]["version"].is_null());
 }
@@ -1271,7 +1371,7 @@ async fn aae26_version_hex_string_for_stored() {
     write_source(&envref, "data/versioned.txt", b"content with version").await;
     let app = build_app(envref);
 
-    let (status, json) = send(app, "GET", "/api/assets/version/data/versioned.txt", Body::empty()).await;
+    let (status, json) = send(app, "GET", "/api/assets/version/-R/data/versioned.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     let v = json["result"]["version"].as_str().unwrap();
     assert_eq!(v.len(), 32);
@@ -1283,7 +1383,7 @@ async fn aae27_recover_404_when_no_data() {
     let envref = env_with(&[]).await;
     let app = build_app(envref);
 
-    let (status, json) = send(app, "GET", "/api/assets/recover/no/data.txt", Body::empty()).await;
+    let (status, json) = send(app, "GET", "/api/assets/recover/-R/no/data.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(json["error"]["type"], "KeyNotFound");
 }
@@ -1299,7 +1399,7 @@ async fn aae28_recover_returns_expired_value() {
     am.expire(&key).await.unwrap();
     let app = build_app(envref);
 
-    let (status, _bytes) = send_raw(app, "GET", "/api/assets/recover/derived.txt", Body::empty()).await;
+    let (status, _bytes) = send_raw(app, "GET", "/api/assets/recover/-R/derived.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK, "recover must return the last-known data of an Expired asset");
 }
 
@@ -1313,7 +1413,7 @@ async fn aae29_recover_honours_accept_json_header() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/api/assets/recover/data/json.txt")
+                .uri("/api/assets/recover/-R/data/json.txt")
                 .header("Accept", "application/json")
                 .body(Body::empty())
                 .unwrap(),
@@ -1330,13 +1430,17 @@ async fn aae29_recover_honours_accept_json_header() {
 
 #[tokio::test]
 async fn aae30_override_200_when_data_exists() {
-    let envref = env_with(&[]).await;
-    write_source(&envref, "data/tooverride.txt", b"original data").await;
+    // A computed value, not a Source: pinning is what `override` is for, and a stored-only
+    // `Source` is promoted to a recipe-less `Override` by today's `to_override`
+    // (`ASSET-TO-OVERRIDE-SOURCE-INCONSISTENT`), which this test must not pin down.
+    let envref = env_with(&[("make_text/tooverride.txt", "Pinned", "")]).await;
+    let am = envref.get_asset_manager();
+    let _ = am.get(&parse_key("tooverride.txt").unwrap()).await.unwrap().get().await.unwrap();
     let app = build_app(envref);
 
-    let (status, json) = send(app, "POST", "/api/assets/override/data/tooverride.txt", Body::empty()).await;
+    let (status, json) = send(app, "POST", "/api/assets/override/-R/tooverride.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(json["result"]["key"].is_string());
+    assert_eq!(json["result"]["status"], "Override");
 }
 
 #[tokio::test]
@@ -1344,7 +1448,7 @@ async fn aae31_override_404_when_no_data() {
     let envref = env_with(&[]).await;
     let app = build_app(envref);
 
-    let (status, json) = send(app, "POST", "/api/assets/override/nodata/key.txt", Body::empty()).await;
+    let (status, json) = send(app, "POST", "/api/assets/override/-R/nodata/key.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(json["error"]["type"], "KeyNotFound");
 }
@@ -1355,7 +1459,7 @@ async fn aae32_expire_409_on_source() {
     write_source(&envref, "notes/source.txt", b"source data").await;
     let app = build_app(envref);
 
-    let (status, json) = send(app, "POST", "/api/assets/expire/notes/source.txt", Body::empty()).await;
+    let (status, json) = send(app, "POST", "/api/assets/expire/-R/notes/source.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::CONFLICT);
     assert_eq!(json["error"]["type"], "StatusConflict");
 }
@@ -1368,7 +1472,7 @@ async fn aae33_expire_200_on_computed_ready() {
     let _ = am.get(&key).await.unwrap().get().await;
     let app = build_app(envref);
 
-    let (status, json) = send(app, "POST", "/api/assets/expire/derived.txt", Body::empty()).await;
+    let (status, json) = send(app, "POST", "/api/assets/expire/-R/derived.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["result"]["status"], "Expired");
 }
@@ -1378,7 +1482,7 @@ async fn aae34_makedir_201_created() {
     let envref = env_with(&[]).await;
     let app = build_app(envref);
 
-    let (status, json) = send(app, "PUT", "/api/assets/makedir/newdir", Body::empty()).await;
+    let (status, json) = send(app, "PUT", "/api/assets/makedir/-R/newdir", Body::empty()).await;
     assert_eq!(status, StatusCode::CREATED);
     assert!(json["result"]["key"].is_string());
 }
@@ -1388,7 +1492,7 @@ async fn aae35_audit_key_returns_checked_and_expired_arrays() {
     let envref = env_with(&[("make_text/dep.txt", "Dependency", "A value")]).await;
     let app = build_app(envref);
 
-    let (status, json) = send(app, "POST", "/api/assets/audit/dep.txt", Body::empty()).await;
+    let (status, json) = send(app, "POST", "/api/assets/audit/-R/dep.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert!(json["result"]["checked"].is_array());
     assert!(json["result"]["expired"].is_array());
@@ -1424,7 +1528,7 @@ async fn aae40_delete_data_recipe_computed_new_status_recipe() {
     let _ = am.get(&key).await.unwrap().get().await;
     let app = build_app(envref);
 
-    let (status, json) = send(app, "DELETE", "/api/assets/data/computed.txt", Body::empty()).await;
+    let (status, json) = send(app, "DELETE", "/api/assets/data/-R/computed.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["result"]["removed"], true);
     assert_eq!(json["result"]["new_status"], "Recipe");
@@ -1436,7 +1540,7 @@ async fn aae41_delete_data_source_new_status_none() {
     write_source(&envref, "notes/source.txt", b"source data").await;
     let app = build_app(envref);
 
-    let (status, json) = send(app, "DELETE", "/api/assets/data/notes/source.txt", Body::empty()).await;
+    let (status, json) = send(app, "DELETE", "/api/assets/data/-R/notes/source.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["result"]["removed"], true);
     assert_eq!(json["result"]["new_status"], "None");
@@ -1449,7 +1553,7 @@ async fn aae42_delete_data_409_on_directory() {
     am.makedir(&parse_key("directory").unwrap()).await.unwrap();
     let app = build_app(envref);
 
-    let (status, json) = send(app, "DELETE", "/api/assets/data/directory", Body::empty()).await;
+    let (status, json) = send(app, "DELETE", "/api/assets/data/-R/directory", Body::empty()).await;
     assert_eq!(status, StatusCode::CONFLICT);
     assert_eq!(json["error"]["type"], "StatusConflict");
 }
@@ -1460,7 +1564,7 @@ async fn aae43_delete_entry_delegates_to_delete_data() {
     write_source(&envref, "data/delete_me.txt", b"to delete").await;
     let app = build_app(envref);
 
-    let (status, json) = send(app, "DELETE", "/api/assets/entry/data/delete_me.txt", Body::empty()).await;
+    let (status, json) = send(app, "DELETE", "/api/assets/entry/-R/data/delete_me.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["result"]["removed"], true);
     assert_eq!(json["result"]["new_status"], "None");
@@ -1498,7 +1602,7 @@ async fn aae50_read_only_post_data_returns_405() {
         .build()
         .with_state(envref);
 
-    let (status, _) = send(app, "POST", "/api/assets/data/notes/a.txt", Body::from("hello")).await;
+    let (status, _) = send(app, "POST", "/api/assets/data/-R/notes/a.txt", Body::from("hello")).await;
     assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
 }
 
@@ -1511,7 +1615,7 @@ async fn aae51_read_only_get_data_still_200() {
         .build()
         .with_state(envref);
 
-    let (status, _) = send_raw(app, "GET", "/api/assets/data/notes/readable.txt", Body::empty()).await;
+    let (status, _) = send_raw(app, "GET", "/api/assets/data/-R/notes/readable.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
 }
 
@@ -1526,7 +1630,7 @@ async fn aae52_read_only_post_expire_returns_404() {
         .build()
         .with_state(envref);
 
-    let (status, _) = send(app, "POST", "/api/assets/expire/notes/a.txt", Body::empty()).await;
+    let (status, _) = send(app, "POST", "/api/assets/expire/-R/notes/a.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
@@ -1538,7 +1642,7 @@ async fn aae53_read_only_post_cancel_still_routed() {
         .build()
         .with_state(envref);
 
-    let (status, _) = send(app, "POST", "/api/assets/cancel/somekey", Body::empty()).await;
+    let (status, _) = send(app, "POST", "/api/assets/cancel/-R/somekey", Body::empty()).await;
     assert_ne!(status, StatusCode::METHOD_NOT_ALLOWED);
     assert_ne!(status, StatusCode::NOT_FOUND, "cancel must stay routed under read_only()");
 }
@@ -1565,7 +1669,7 @@ async fn aae55_with_admin_false_post_data_still_201() {
         .build()
         .with_state(envref);
 
-    let (status, _) = send(app, "POST", "/api/assets/data/notes/a.txt", Body::from("hello")).await;
+    let (status, _) = send(app, "POST", "/api/assets/data/-R/notes/a.txt", Body::from("hello")).await;
     assert_eq!(status, StatusCode::CREATED);
 }
 
@@ -1579,7 +1683,7 @@ async fn aae60_concurrent_post_data_same_key_is_serialized_atomic() {
         app1.oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/api/assets/data/concurrent/file.txt")
+                .uri("/api/assets/data/-R/concurrent/file.txt")
                 .body(Body::from("body1"))
                 .unwrap(),
         )
@@ -1589,7 +1693,7 @@ async fn aae60_concurrent_post_data_same_key_is_serialized_atomic() {
         app2.oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/api/assets/data/concurrent/file.txt")
+                .uri("/api/assets/data/-R/concurrent/file.txt")
                 .body(Body::from("body2"))
                 .unwrap(),
         )
@@ -1627,6 +1731,7 @@ async fn aae60_concurrent_post_data_same_key_is_serialized_atomic() {
 | AMR20 | `set_description` on an absent key → `KeyNotFound` |
 | AMR22 | `get_asset_info` on an `Expired` live asset reports `Expired`, no re-evaluation |
 | AMR23 | `get_asset_info` on a never-evaluated recipe key reports `Recipe`, no evaluation |
+| AMR24 | after a restart, a dependent of a dropped intermediate is still fast-tracked |
 | AAE20–AAE21 | `GET listdir` shapes: `{assets:[...]}` and, with `?deep=true`, `{keys:[...]}` |
 | AAE22 | `GET info` 404 `KeyNotFound` when absent |
 | AAE23–AAE24 | `GET contains` false/true |
@@ -1669,22 +1774,22 @@ async fn aae02_post_data_onto_recipe_key_is_override() {
     let (status, json) = send(
         app.clone(),
         "POST",
-        "/api/assets/data/source.txt?type_identifier=Text&data_format=txt",
+        "/api/assets/data/-R/source.txt?type_identifier=Text&data_format=txt",
         Body::from("pinned by user"),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(json["result"]["status"], "Override");
 
-    let (status, body) = send_raw(app.clone(), "GET", "/api/assets/data/source.txt", Body::empty()).await;
+    let (status, body) = send_raw(app.clone(), "GET", "/api/assets/data/-R/source.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(String::from_utf8(body).unwrap(), "pinned by user");
 
-    let (status, json) = send(app.clone(), "DELETE", "/api/assets/data/source.txt", Body::empty()).await;
+    let (status, json) = send(app.clone(), "DELETE", "/api/assets/data/-R/source.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["result"]["new_status"], "Recipe");
 
-    let (_, body) = send_raw(app, "GET", "/api/assets/data/source.txt", Body::empty()).await;
+    let (_, body) = send_raw(app, "GET", "/api/assets/data/-R/source.txt", Body::empty()).await;
     assert_eq!(String::from_utf8(body).unwrap(), "generated");
 }
 
@@ -1696,13 +1801,13 @@ async fn aae03_get_metadata_of_source() {
     let (status, _) = send(
         app.clone(),
         "POST",
-        "/api/assets/data/notes/a.txt?type_identifier=Text&data_format=txt&title=Note%20A",
+        "/api/assets/data/-R/notes/a.txt?type_identifier=Text&data_format=txt&title=Note%20A",
         Body::from("hello"),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
 
-    let (status, json) = send(app, "GET", "/api/assets/metadata/notes/a.txt", Body::empty()).await;
+    let (status, json) = send(app, "GET", "/api/assets/metadata/-R/notes/a.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["status"], "OK");
     assert_eq!(json["result"]["status"], "Source");
@@ -1719,7 +1824,7 @@ async fn aae04_get_entry_honours_accept_json() {
     let (status, _) = send(
         app.clone(),
         "POST",
-        "/api/assets/data/notes/a.txt?type_identifier=Text&data_format=txt",
+        "/api/assets/data/-R/notes/a.txt?type_identifier=Text&data_format=txt",
         Body::from("hello"),
     )
     .await;
@@ -1729,7 +1834,7 @@ async fn aae04_get_entry_honours_accept_json() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/api/assets/entry/notes/a.txt")
+                .uri("/api/assets/entry/-R/notes/a.txt")
                 .header("Accept", "application/json")
                 .body(Body::empty())
                 .unwrap(),
@@ -1759,13 +1864,13 @@ async fn aae05_post_cancel_existing_asset() {
     let (status, _) = send(
         app.clone(),
         "POST",
-        "/api/assets/data/notes/a.txt?type_identifier=Text&data_format=txt",
+        "/api/assets/data/-R/notes/a.txt?type_identifier=Text&data_format=txt",
         Body::from("hello"),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
 
-    let (status, json) = send(app, "POST", "/api/assets/cancel/notes/a.txt", Body::empty()).await;
+    let (status, json) = send(app, "POST", "/api/assets/cancel/-R/notes/a.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["status"], "OK");
 }
@@ -1863,9 +1968,9 @@ async fn aae05_post_cancel_existing_asset() {
 
 | Command | Runs | New tests |
 |---|---|---|
-| `cargo test -p liquers-core --test asset_manager_remove_expire_describe` | `liquers-core/tests/asset_manager_remove_expire_describe.rs` | AMR01–AMR07, AMR10–AMR20, AMR22–AMR23 (20 tests) |
+| `cargo test -p liquers-core --test asset_manager_remove_expire_describe` | `liquers-core/tests/asset_manager_remove_expire_describe.rs` | AMR01–AMR07, AMR10–AMR20, AMR22–AMR24 (21 tests) |
 | `cargo test -p liquers-axum --test assets_api_endpoints` | `liquers-axum/tests/assets_api_endpoints.rs` | AAE01–AAE05, AAE10–AAE17, AAE20–AAE60 (44 tests) |
-| `cargo test -p liquers-axum --lib` | `liquers-axum/src/assets/value_description.rs`, `#[cfg(test)] mod tests` | VD01–VD10 (10 tests) |
+| `cargo test -p liquers-axum --lib` | `liquers-axum/src/assets/value_description.rs`, `#[cfg(test)] mod tests` | VD01–VD11 (11 tests) |
 | `cargo test -p liquers-core --lib --tests` | the two changed `ErrorType`-exhaustive sites in `liquers-core/src/assets.rs` and `error.rs`, plus every other core test (regression) | none new, but must still pass after `ErrorType::StatusConflict` is added |
 | `cargo test -p liquers-lib --lib --tests` | the default loop (CLAUDE.md); transitively builds `liquers-core`, `liquers-macro`, `liquers-store` | regression only — this design touches no `liquers-lib` file |
 
@@ -1899,7 +2004,7 @@ a match and must be checked, not just `liquers-core`/`liquers-axum`:
 
 1. `cargo test -p liquers-core --test asset_manager_remove_expire_describe` — the contract the
    `liquers-axum` handlers are built on; fix here first if it fails.
-2. `cargo test -p liquers-axum --lib` (VD01–VD10) — pure-function tests, fast, no environment.
+2. `cargo test -p liquers-axum --lib` (VD01–VD11) — pure-function tests, fast, no environment.
 3. `cargo test -p liquers-axum --test assets_api_endpoints` — needs the `tower` `util`
    dev-dependency Phase 4 adds to `liquers-axum/Cargo.toml` (not present today).
 4. `cargo check -p liquers-py` and `cargo check -p liquers-web --target wasm32-unknown-unknown
@@ -1960,11 +2065,13 @@ Verified against the actual code (`liquers-core/src/metadata.rs`, `type_system.r
      reasons), since a plain "not 405" would also pass if the route were silently dropped.
 
 5. **The non-key path example.** `make_text` parses as a `Transform` (an action query with no
-   key), confirmed with `liquers-validate --no-registry`; `notes/a.txt` and every other plain
-   `dir/file.ext` path used throughout is confirmed a pure key by the same tool (`encoded` matches
-   `source` unchanged, and the plan step is `GetAsset[...]`, not `Transform`/`Action`). AAE44/AAE45
-   keep the drafts' choice of `make_text` as the non-key example — it was already correct — and the
-   comment now cites the check.
+   key), confirmed with `liquers-validate --no-registry`. AAE44/AAE45 keep it as the non-key
+   example. **Corrected in the final review:** the claim that a plain `dir/file.ext` path is a pure
+   key was wrong — `liquers-validate --no-registry -- notes/a.txt` gives a `Transform` segment
+   (action `notes`, filename `a.txt`), and with the registry it fails with `ActionNotRegistered`.
+   Every key path in the HTTP tests is therefore written `-R/<key>` (all 26 distinct ones
+   re-validated as a single `Resource` segment); without that, every key-only operation would
+   answer 501 and every read would evaluate the wrong query.
 
 6. **`Error.key` is `Option<String>`, not `Option<Key>`.** Draft 4's AMR13/AMR14/AMR16 compared
    `err.key` against `Some(key.clone())` where `key: Key` — does not compile (`Option<Key>` vs.
@@ -2047,3 +2154,11 @@ Multi-agent review, 2026-09-27.
 - **Count correction:** the synthesized document stated 30 `AAE` tests; there were 40 (44
   with AAE02–AAE05). Totals: 20 AMR + 10 VD + 44 AAE = 74.
 
+**Final cross-phase review, 2026-09-27** (changes made in this document):
+- Every assets-API key path is now `-R/<key>` (Fixes §5 corrected); `make_text` stays the non-key example.
+- `assets::AssetManager` added to both test files' imports — trait methods do not resolve without it.
+- AMR file: `env_with` split into `env_over(store)` + `env_with`; new **AMR24** (restart: a dropped
+  intermediate does not block its dependent's fast track).
+- New **VD11** (`or_previous` pair rule). AAE30 now pins a computed value and asserts `Override`
+  instead of promoting a `Source` (`ASSET-TO-OVERRIDE-SOURCE-INCONSISTENT`).
+- Counts: 21 AMR + 11 VD + 44 AAE = 76.

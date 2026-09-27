@@ -122,7 +122,8 @@ the MVP.
 
 - **Query:** the path is parsed with `parse_query`. Every operation except the reads is key-only.
   A query that is not a pure key is refused with the §3 envelope (`NotSupported`, 501): a specified
-  refusal, not a stub.
+  refusal, not a stub. A key is therefore addressed as `-R/<key>` (`POST data/-R/notes/a.txt`): a bare
+  `notes/a.txt` parses as the action `notes` with a filename, not as a key.
 - **Store / Asset:** no store code. Everything goes through `AssetManager`, which already owns
   locking, status rules (`Source`/`Override`), versioning and cascades. `liquers-core`: new
   `expire`, `set_description`; `remove` semantics fixed.
@@ -176,3 +177,8 @@ Still open: none — Phase 1 is ready for approval.
 - `specs/issues/AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED.md`, `AXUM-HANDLER-TEST-COVERAGE.md`
 - `specs/reference/WEB_API_SPECIFICATION.md` §3, §5; `specs/design/axum-assets-recipes-api/`
 - `liquers-core/src/assets.rs`: the `AssetManager` trait, `AssetRef::{expire, to_override}`
+
+## Review Log
+
+- **Final cross-phase review, 2026-09-27:** added the `-R/<key>` addressing note under *Core
+  Interactions*; the rest of the review's changes are in Phases 2–4.

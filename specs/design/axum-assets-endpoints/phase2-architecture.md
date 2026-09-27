@@ -23,6 +23,8 @@ in-process. There are no new commands and no new value types.
 | `QUEUED-MANAGER-EVICTION-RACE` | accepted | P2 | `remove` unmaps the live asset under the same lock as today | no | unchanged |
 | `WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION` | draft | P1 | §5 is rewritten here; the Store API parts stay with that issue | no | touch only §5 and §3.3 |
 | `ASSETS-API-ADMIN-OPERATIONS` | draft | P3 | deferred endpoints | no | none |
+| `DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION` | draft | P1 | the `get_asset_info` change fixes exactly this (both bodies) | no | close on merge, or hand to `store-and-asset-search` if it lands first (final review) |
+| `AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS` | draft (filed in final review) | P1 | `build()` panics with the default WebSocket path | **yes, for every router test** | fixed in `builder.rs`; close on merge |
 
 None is blocking.
 
@@ -186,8 +188,14 @@ The status is read from the live asset if there is one, otherwise from the store
 | any other | `false` | **delete**: cancel and unmap the live asset, `untrack_expiration`, `dm.remove`, `store.remove` | `cascade_expire_dependents` **before** `dm.remove` | nothing |
 | `Source`, `Override` | `true` | **delete the user value**, as above; the next read is `Recipe` | cascaded | nothing |
 | `Ready`, `Expired`, `Error`, `Cancelled`, `Volatile`, `Partial`, in-flight (`Submitted`, `Dependencies`, `Processing`, `Storing`) | `true` | **drop the computed value**: cancel and unmap the live asset, `untrack_expiration`; the key stays in the dependency graph | **not** cascaded | if the store holds the key: `store.set(key, &[], md)`, where `md` is the stored record with `status = Recipe`, data-bearing fields cleared, and `version` kept |
-| `None` or `Recipe` (nothing live, nothing stored) | `true` | nothing to do, `Ok(())` | — | — |
+| `None` or `Recipe` (nothing live and nothing stored, or a stored entry already dropped to `Recipe`) | `true` | nothing to do, `Ok(())` (idempotent) | — | unchanged |
 | nothing live, nothing stored | `false` | `Err(Error::key_not_found(key))` | — | — |
+
+- **Which status is decisive:** a live asset whose status is `None` or `Recipe` has not produced
+  anything yet (it was just created by a `get`), so the stored status decides instead; otherwise
+  the live status wins. A stored `Metadata::LegacyMetadata` in the drop-computed row cannot carry
+  the kept version faithfully, so that case is handled as a delete (`store.remove`) — same
+  outcome as today.
 
 - **Why cascade before `dm.remove`:** the cascade walks the graph edges that `dm.remove` deletes.
   This is the order `ASSET-REMOVE-FORGETS-DEPENDENTS` asks for.
@@ -195,8 +203,29 @@ The status is read from the live asset if there is one, otherwise from the store
   `trigger_dependency_audit` keeps treating dependents as valid. `Status::Recipe.has_data()` is
   false, so `try_fast_track` skips the entry and `get_binary_any_status` returns `None`: nothing
   reads the empty bytes as a value.
+- **A dropped dependency must not block its dependents' fast track.**
+  `AssetData::dependency_blocks_fast_track` (`assets.rs` ≈1076) reads a dependency's *stored*
+  status when no live asset holds it, and today refuses anything but `Ready | Source | Override`.
+  A stored `Recipe` would therefore force every dependent of a dropped intermediate to re-evaluate
+  after a restart (or whenever the dependent is loaded from the store), which defeats the point of
+  keeping the version. The store branch of that function treats `Status::Recipe` as **not
+  blocking** — the same answer it already gives for a dependency the store does not hold at all.
+  The live-asset branch is unchanged. Tested by AMR24.
 - **Why the recomputed case does not cascade now:** if recomputation produces a different
   content hash, `register_version` cascades at that point, and only then.
+- **Readers of the kept entry, checked:** `try_fast_track` refuses a stored `Recipe`, so the next
+  `get` evaluates and the evaluation's store write replaces the entry; `get_any_status` and
+  `get_binary_any_status` return `None` (`has_data()` is false); `expire_stored_copy` leaves
+  `Recipe` alone; `contains` stays `true`; `get_asset_info` and `listdir` report `Recipe` with the
+  kept version. `AsyncStore::set` implementations rewrite only `Status::None` in
+  `finalize_metadata`, so `Recipe` is stored as given (memory, file and OpenDAL stores; the file and
+  OpenDAL stores leave a zero-byte data object beside the sidecar). The Store API's `GET data`
+  serves the empty body with `Recipe` metadata, which is accurate.
+- **The kept dependency-graph entry is harmless.** A later cascade that reaches the key finds no
+  live asset and calls `expire_stored_copy`, which ignores `Recipe`; the cascade still continues
+  through the key's edges to its dependents, which is correct because they were derived from the
+  old value. The weak-reference `dependent_assets` of the key are taken (and dead ones filtered) by
+  the next cascade, as for any key.
 - **Behaviour change** for callers of today's `remove` on a recipe key: the stored metadata
   survives, and `contains(key)` stays `true`. Core tests that assert otherwise are updated (Phase 4).
 
@@ -204,8 +233,13 @@ The status is read from the live asset if there is one, otherwise from the store
 
 Holds the lock. The error for any status that cannot be expired is `status_conflict(…, "expire")`.
 
-1. **Live asset:** `asset.expire()`. This already cascades. Its refusals change from
-   `general_error` to `status_conflict`: `mark_expired_status` is updated.
+1. **Live asset** (unless its status is `None`/`Recipe`, which falls through to the store as in
+   `remove`): `Ready`, `Override` or `Expired` → `asset.expire()`, which already cascades; any
+   other status → `status_conflict(key, status, "expire")` returned by the manager itself, so the
+   error carries `key` uniformly. `mark_expired_status`'s own refusals also change from
+   `general_error` to `ErrorType::StatusConflict` (it may run on a non-keyed asset, so it cannot
+   use the keyed constructor; note `Error::with_key` sets the `query` field, not `key` —
+   `ERROR-WITH-KEY-SETS-QUERY-FIELD`).
 2. **Stored only:**
    - `Ready` or `Override`: reuse `expire_stored_copy(store, key)`, then `cascade_expire_dependents`.
    - `Expired`: `Ok(())`, idempotent, matching `AssetRef::expire`.
@@ -237,6 +271,13 @@ if let Some(asset) = self.lookup_key_asset(key) { return asset.get_asset_info().
 Today the live-asset branch calls `self.get(key)`, which treats a cached `Expired`, `Error` or
 `Cancelled` entry as a miss and **re-evaluates** it. `GET info` and `GET listdir` promise a
 description without evaluation, so they report that entry's current status instead.
+
+The body exists **twice**: the trait default (`assets.rs` ≈4067, used by `ImmediateAssetManager`)
+and `DefaultAssetManager`'s own override (≈5518). Both change; the simplest form is to delete the
+override, whose only difference is diagnostic `eprintln!`s. In the same edit the final
+"not found" branch changes from `general_error` (HTTP 500) to `Error::key_not_found(key)`, which
+`GET info`'s 404 and AMR01/AAE22 rely on. The only other caller, `listdir_asset_info` (and through
+it the interpreter's directory listing, `interpreter.rs` ≈784), only gains from not evaluating.
 
 ### `IntoResponse` — unchanged
 
@@ -273,9 +314,16 @@ impl ValueDescription {
     /// From `POST data` query parameters; unknown parameter names are returned as ignored.
     pub fn from_params(params: &HashMap<String, String>) -> (Self, Vec<String>);
 
-    /// Fill absent fields from the key's current value (`AssetInfo`): type_identifier,
-    /// data_format, title, description. Never `media_type`: `AssetInfo.media_type` is the
-    /// *effective* type, and copying it would turn a derived type into an override.
+    /// Fill absent fields from the key's current value (`AssetInfo`). Never `media_type`:
+    /// `AssetInfo.media_type` is the *effective* type, and copying it would turn a derived type
+    /// into an override. Rules (final review):
+    /// - `type_identifier` and `data_format` are filled **as a pair**, only when the client gave
+    ///   neither, and only from a previous whose `status.has_data()` and whose `type_identifier`
+    ///   is non-empty. A never-evaluated recipe key reports `type_identifier: ""` and the
+    ///   recipe's `data_format` (e.g. `txt`); copying those would give a 400 (unknown `""`) or a
+    ///   422 (`Bytes` cannot be `txt`) for a plain `POST data` onto a recipe key (Q11). A client
+    ///   that names only a type must not inherit a format that type may not support.
+    /// - `title` and `description` are filled when absent and the previous value is non-empty.
     pub fn or_previous(self, previous: Option<&AssetInfo>) -> Self;
 
     /// Build a fresh record. `type_identifier` defaults to `"Bytes"`; `type_name` comes from the
@@ -336,6 +384,13 @@ impl<E: Environment> AssetsApiBuilder<E> {
 }
 ```
 
+**Pre-existing blocker fixed here:** `build()` registers the WebSocket route as
+`format!("{}/*query", ws_path)`. axum 0.8 rejects a segment starting with `*` and **panics** in
+`Router::route`, so every `AssetsApiBuilder::new(…).build()` with the default WebSocket path
+panics today (the `assets_recipes_basic` example included). The route becomes
+`format!("{}/{{*query}}", ws_path)`. Filed as `AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS`; this design
+closes it.
+
 An omitted route answers axum's own 405, where the path serves other methods, or 404. Pretending
 a disabled route exists, with a §3 envelope, would hide the server's configuration from the client.
 
@@ -344,10 +399,10 @@ a disabled route exists, with a §3 envelope, would hide the server's configurat
 | Crate | File | Change |
 |---|---|---|
 | liquers-core | `src/error.rs` | `ErrorType::StatusConflict`, `Error::status_conflict` |
-| liquers-core | `src/assets.rs` | `KeyMutationAccess` plus two impls; default `remove`, delete both per-manager `remove` bodies; `expire`, `set_description`; `get_asset_info` live branch; `AssetRef::set_description_fields`; `mark_expired_status` refusals → `status_conflict`; the `ErrorType` match at ≈2251. Drive-by: the orphaned doc paragraph above `expire_stored_copy` moves back to `DependencyManagerAccess`, whose doc it is |
+| liquers-core | `src/assets.rs` | `KeyMutationAccess` plus two impls; default `remove`, delete both per-manager `remove` bodies; `expire`, `set_description`; `get_asset_info` live branch; `AssetRef::set_description_fields`; `mark_expired_status` refusals → `StatusConflict`; `get_asset_info` not-found → `key_not_found` (trait default and the `DefaultAssetManager` override); `dependency_blocks_fast_track` store branch accepts `Recipe`; the `ErrorType` match at ≈2251. Drive-by: the orphaned doc paragraph above `expire_stored_copy` moves back to `DependencyManagerAccess`, whose doc it is |
 | liquers-axum | `src/assets/value_description.rs` | new |
 | liquers-axum | `src/assets/handlers.rs` | helpers, 7 filled-in handlers, 11 new handlers |
-| liquers-axum | `src/assets/builder.rs` | new routes, `read_only`, `with_admin` |
+| liquers-axum | `src/assets/builder.rs` | new routes, `read_only`, `with_admin`; WebSocket route `{*query}` (panics today) |
 | liquers-axum | `src/assets/mod.rs` | `mod value_description;` |
 | liquers-axum | `src/assets/handlers.rs`, `builder.rs` module docs | point at `specs/design/axum-assets-endpoints/` as well as the original `axum-assets-recipes-api` |
 | liquers-axum | `src/api_core/error.rs` | 409 mapping, parse, variant lists |
@@ -394,6 +449,12 @@ contract that matters here is the `AssetManager` behaviour above: `remove`, `exp
 Envelope: §3 `ApiResponse` for everything except the byte-returning reads (`GET data`, and
 `GET entry` and `GET recover` in their negotiated format). `query` is set on every response.
 
+**`{key}` below means a pure-key query, written `-R/<key>`** (e.g. `POST data/-R/notes/a.txt`).
+The path goes through `parse_query`, and a bare `notes/a.txt` parses as the *action* `notes` with
+filename `a.txt` (checked with `liquers-validate`), so it is refused with 501 like any other
+non-key query. This matches §5's existing `-R/…` examples. Accepting bare keys is an open question
+for the user (final review), not part of this design.
+
 | Endpoint | Success | Body `result` | Errors |
 |---|---|---|---|
 | `GET listdir[/{key}]` | 200 | `{assets: [AssetInfo…]}`; with `deep=true`, `{keys: ["a/b.md", …]}` | non-key 501; store error |
@@ -416,7 +477,10 @@ Envelope: §3 `ApiResponse` for everything except the byte-returning reads (`GET
 optional. The `Content-Type` header is **not** used as `media_type`: clients send
 `application/x-www-form-urlencoded` or `application/octet-stream` by default, and treating that as
 a deliberate override would mislabel every note. The default `type_identifier` is `Bytes`, with an
-undeclared `data_format`, so reads fall back to the key's extension. `Text` would be the natural
+undeclared `data_format`. Such an entry is decoded as `bin` (`MetadataRecord::get_data_format`
+substitutes `bin`, not the extension), which yields `Value::Bytes` of exactly the posted bytes;
+`GET data` serves them unchanged and `try_into_string` on `Value::Bytes` is a lossy UTF-8 decode,
+so a text command downstream still works. `Text` would be the natural
 default for text, but it cannot declare `md` (`TEXT-VALUE-CANNOT-BE-STORED-AS-MARKDOWN`).
 
 ## Error Handling
@@ -455,6 +519,12 @@ replaced by `HeaderValue::from_static`, since `mime_type()` returns `&'static st
   Phase 1 set out to avoid.
 - **Holding the lock during a cascade** is existing practice (`set_binary`). The cascade does not
   lock, and the lock-discipline list above is what keeps that true.
+- **Holding the lock across `cancel()`** (`remove` of an in-flight asset) is existing practice
+  too (today's `remove`, `set_binary`). It is not a deadlock but can stall: an evaluation blocked
+  on `key_mutation_lock` (e.g. inside `get` → `get_nonvolatile_resource_asset` for one of its
+  dependencies) cannot observe the cancel, so `cancel()` waits out its 5-second timeout and
+  `remove` then proceeds; the cancelled flag still stops that evaluation's store write. Accepted,
+  unchanged by this design.
 - **Reads** (`info`, `listdir`, `contains`, `version`, `recover`) take no manager lock. They may
   observe the state just before or just after a concurrent mutation, never a torn record: store
   writes are per-key.
@@ -522,3 +592,15 @@ Multi-agent review, 2026-09-27.
 
   No fixer pass was needed beyond these edits.
 
+**Final cross-phase review, 2026-09-27** (changes made in this document):
+- `{key}` in the endpoint table is `-R/<key>`: a bare `notes/a.txt` parses as action `notes`.
+- WebSocket route `{}/*query` panics in axum 0.8; fixed in `build()` (`AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS`).
+- `get_asset_info` exists twice (trait default and `DefaultAssetManager` override); both change,
+  and "not found" becomes `key_not_found` (was `general_error` → 500, contradicting the 404).
+- `dependency_blocks_fast_track` accepts a stored `Recipe`, or the kept version is useless after a restart.
+- `remove`: live `None`/`Recipe` defers to the stored status; stored `Recipe` is an idempotent no-op;
+  legacy metadata is deleted rather than dropped. `expire`: the manager refuses non-expirable live
+  statuses itself, so the error carries `key`.
+- `or_previous` fills `type_identifier`/`data_format` only as a pair from a data-bearing previous.
+- Corrected: an undeclared `data_format` decodes as `bin`, not the key's extension.
+- Recorded the readers of the kept `Recipe` entry and the `cancel()`-under-lock stall.
