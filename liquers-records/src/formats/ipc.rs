@@ -941,17 +941,22 @@ struct ResolvedSchema {
 /// The [`RecordSchema`] a read uses: the declared one when `requested` names one (matched **by
 /// name** against the Arrow fields, as phase2-architecture.md §"Two readers" matches a header),
 /// else `liquers.schema` from the file's metadata when present (checked field by field against the
-/// Arrow fields it claims to describe), else one derived straight from the Arrow fields —
+/// Arrow fields it claims to describe, and ignored when it does not), else one derived straight
+/// from the Arrow fields —
 /// phase2-architecture.md's "reading without `liquers.schema` derives a schema from the Arrow
 /// fields".
 fn effective_schema(decoded: &DecodedSchema<'_>, requested: ReadSchema<'_>) -> Result<ResolvedSchema, Error> {
     match requested {
         ReadSchema::Declared(declared) => resolve_declared(declared, &decoded.arrow_fields),
-        ReadSchema::Infer => match decoded.liquers_schema_json {
-            Some(json) => {
-                let schema: RecordSchema =
-                    serde_json::from_str(json).map_err(|e| Error::from_error(ErrorType::ConversionError, e))?;
-                check_embedded_schema(&schema, &decoded.arrow_fields)?;
+        ReadSchema::Infer => match decoded
+            .liquers_schema_json
+            .and_then(|json| serde_json::from_str::<RecordSchema>(json).ok())
+            .filter(|schema| check_embedded_schema(schema, &decoded.arrow_fields).is_ok())
+        {
+            // An embedded schema that no longer describes the file (a column renamed or cast by
+            // another tool, which keeps the metadata) or does not parse is stale metadata: it is
+            // ignored, and the schema is derived from the Arrow fields, which the buffers follow.
+            Some(schema) => {
                 let sources = (0..schema.fields.len()).map(Some).collect();
                 Ok(ResolvedSchema { schema, sources })
             }
@@ -1711,9 +1716,10 @@ mod tests {
     }
 
     #[test]
-    fn embedded_schema_whose_type_disagrees_with_the_arrow_field_is_refused() -> Result<(), Error> {
+    fn embedded_schema_whose_type_disagrees_with_the_arrow_field_is_ignored() -> Result<(), Error> {
         // One UInt row; the embedded liquers.schema is edited to claim Date. Decoding the eight
-        // bytes as Date would silently give two dates.
+        // bytes as Date would silently give two dates, so the stale schema is ignored and the
+        // column is read by its Arrow type.
         let mut bytes = one_column_file(FieldType::UInt, crate::column::FieldValue::UInt(7))?;
         // The schema is written twice — in the Schema message and in the footer.
         let hits: Vec<usize> = (0..bytes.len() - 6).filter(|&i| &bytes[i..i + 6] == b"\"UInt\"").collect();
@@ -1721,8 +1727,9 @@ mod tests {
         for at in hits {
             bytes[at + 1..at + 5].copy_from_slice(b"Date");
         }
-        let error = read_ipc(&bytes, ReadSchema::Infer).expect_err("a mismatched embedded schema is refused");
-        assert!(format!("{error}").contains("does not describe this file"), "unexpected error: {error}");
+        let batch = read_ipc(&bytes, ReadSchema::Infer)?;
+        assert_eq!(batch.schema.fields[0].data_type, FieldType::UInt);
+        assert_eq!(batch.value(0, 0)?, crate::column::FieldValue::UInt(7));
         Ok(())
     }
 
