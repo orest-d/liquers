@@ -25,8 +25,8 @@ client-meaningful operations were deliberately left without an endpoint:
 ## Impact
 
 Low. Manager status is a deployment detail; a cache-clearing client can check the status with
-`GET info` before calling `DELETE` (racy, but harmless for recomputable values); a state-changing
-GET is prefetchable and cacheable, which is why it was left out.
+`GET info` before calling `DELETE`, but that races a concurrent write — a `Source` written in
+between is deleted — which is what `remove_cached` would close; a state-changing GET is prefetchable and cacheable, which is why it was left out.
 
 ## Expected behaviour
 
