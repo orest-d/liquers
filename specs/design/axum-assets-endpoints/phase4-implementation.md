@@ -45,6 +45,16 @@ verbatim except where this plan says otherwise.
   same way `key_not_found` and `dependency_cycle` do. `Status` is imported from
   `crate::metadata`. Check that this creates no import cycle: `metadata` already imports `error`,
   which is fine inside one crate.
+- The arm pattern, for reference:
+
+  ```rust
+  // liquers-axum/src/api_core/error.rs, error_to_status_code
+  ErrorType::StatusConflict => StatusCode::CONFLICT,
+  // liquers-web/src/error.rs, the ErrorType → str direction
+  ErrorType::StatusConflict => "status_conflict",
+  // liquers-py/src/error.rs, the py → core direction
+  ErrorType::StatusConflict => liquers_core::error::ErrorType::StatusConflict,
+  ```
 - Add an arm at each match site:
   - `assets.rs`: → `PersistenceStatus::NotPersisted`
   - axum `error_to_status_code`: → `StatusCode::CONFLICT`
@@ -239,6 +249,10 @@ cargo test -p liquers-axum --lib value_description
 
 **File:** `liquers-axum/src/assets/handlers.rs`
 
+**Phase 2 is the single source of truth** for every handler signature, the extractors each one
+takes, the result shapes and the status codes. Where this step and Phase 2 differ, Phase 2 wins, and
+the difference is recorded under "Implementation Notes".
+
 **Action:**
 - Add the helpers `key_from_path`, `error_response`, `created` and `status_after_remove`, plus the
   DTOs, as specified in Phase 2.
@@ -258,7 +272,14 @@ cargo test -p liquers-axum --lib value_description
 **Validation:**
 ```bash
 cargo check -p liquers-axum
-cargo clippy -p liquers-axum -- -D clippy::unwrap_used   # library code only; tests excluded by default
+# No new unwrap()/expect() in the files this step writes (library code, before `mod tests`).
+# A crate-wide `clippy -D clippy::unwrap_used` would fail on pre-existing calls in
+# axum_integration.rs, recipes/handlers.rs and store/handlers.rs, tracked by
+# LIBRARY-CODE-USES-UNWRAP-AND-EXPECT, so the check is scoped:
+awk '/#\[cfg\(test\)\]/{nextfile} /\.unwrap\(\)|\.expect\(/{print FILENAME": "FNR": "$0}' \
+  liquers-axum/src/assets/handlers.rs liquers-axum/src/assets/value_description.rs \
+  liquers-axum/src/assets/builder.rs
+# Expected: no output.
 ```
 
 **Rollback:** `git checkout liquers-axum/src/assets/handlers.rs`
@@ -314,7 +335,7 @@ cargo test -p liquers-axum --lib
 
 **Action:**
 - Paste Phase 3's shared helpers (`env_with`, `metadata_text`, `build_app`, `send`, `send_raw`,
-  `send_json`), then all 44 AAE tests: Example 1, "Review-round additions", Example 3, and the
+  `send_json`, and Example 3's `post_entry_json`), then all 44 AAE tests: Example 1, "Review-round additions", Example 3, and the
   AAE20–AAE60 integration tests.
 - `liquers-macro` is not a dependency of liquers-axum; the tests use the closure form of
   `register_command`.
@@ -364,11 +385,15 @@ cargo test -p liquers-axum                 # the whole crate, including the exis
   With `gh_pr` set, `status` must not carry `in_implementation` or `implemented` (§5.5).
 - **`specs/README.md`**: capability map line for the assets API.
 - Run `python3 scripts/docs_index.py`.
+- **Not needed:** `specs/command_registry.yaml`. No `register_command!` signature changes, so
+  `export-command-registry` is not rerun and no CHANGELOG line is added.
+- Add one line to `LIBRARY-CODE-USES-UNWRAP-AND-EXPECT`: the `assets/handlers.rs` occurrence
+  (≈290) was removed by this work, and the other `liquers-axum` sites remain.
 
 **Validation:**
 ```bash
 python3 scripts/docs_index.py && git diff --stat specs/index.csv
-python3 scripts/docs_index.py --check 2>/dev/null || true   # if the script offers a check mode
+python3 scripts/docs_index.py --check      # verified: the script has a check mode
 ```
 
 **Rollback:** `git checkout -- specs/`
@@ -493,3 +518,23 @@ After approval:
 2. **Create a task list:** record Steps 1–10 as tasks for a later session.
 3. **Revise the plan:** return to this document.
 4. **Exit:** implement manually from this plan.
+
+## Review Log
+
+Multi-agent review, 2026-09-27.
+
+- **Reviewer 1 (Phase 1):** nothing blocking. Three advisories were applied:
+  - the arm-pattern example in Step 1;
+  - "Phase 2 is the single source of truth" in Step 6;
+  - `command_registry.yaml` is not regenerated (Step 9).
+- **Reviewer 2 (Phase 2):** no findings. Every Phase 2 item has a step, Step 3's algorithms match
+  the tables, and the lock discipline is carried over verbatim.
+- **Reviewer 3 (Phase 3):** nothing blocking. It suggested naming `post_entry_json` among the Step 8
+  helpers, which was applied.
+- **Reviewer 4 (codebase):** one **blocking** finding, fixed. A crate-wide
+  `clippy -D clippy::unwrap_used` fails on `unwrap()` calls that already exist
+  (`axum_integration.rs`, `recipes/handlers.rs` ≈102/≈190, `store/handlers.rs` ≈479; verified), which
+  `LIBRARY-CODE-USES-UNWRAP-AND-EXPECT` already tracks. The check is now scoped to the files this
+  work writes. Every cited path, line number, example, feature and command was otherwise verified,
+  and `docs_index.py --check` exists.
+
