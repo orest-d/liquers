@@ -325,6 +325,33 @@ impl ManifestSpec {
         }
         Ok(())
     }
+
+    /// The check for a manifest with **no key**, run when a stream is opened on it. Phase 2
+    /// §"A. Chunk keys": "A manifest with no key … has no folder, so all its chunks are unkeyed" —
+    /// including one whose query ends in a filename, and every template chunk. So any per-chunk or
+    /// shared `arguments`/`links` would be silently left unapplied (a keyless chunk is evaluated as
+    /// its bare query), and are refused instead. Stricter than
+    /// [`Self::check_unkeyed_chunk_arguments`], which knows the manifest's key will be supplied.
+    pub fn check_keyless_arguments(&self) -> Result<(), Error> {
+        for chunk in &self.chunks {
+            if !chunk.arguments.is_empty() || !chunk.links.is_empty() {
+                return Err(Error::general_error(format!(
+                    "manifest: chunk \"{}\" declares per-chunk arguments or links, but the manifest \
+                     has no key, so every chunk is unkeyed and they could not be applied; store the \
+                     manifest as `<name>.manifest.yaml` so its chunks are keyed",
+                    chunk.query
+                )));
+            }
+        }
+        if !self.arguments.is_empty() || !self.links.is_empty() {
+            return Err(Error::general_error(
+                "manifest: shared arguments/links need keyed chunks, but the manifest has no key; \
+                 store it as `<name>.manifest.yaml` so its chunks are keyed"
+                    .to_string(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

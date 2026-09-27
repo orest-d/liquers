@@ -462,10 +462,10 @@ impl RecordSource for ManifestSource {
     ) -> BoxFuture<'static, Result<BoxRecordStream, Error>> {
         Box::pin(async move {
             // phase2-architecture.md §"A. Chunk keys": per-chunk (or shared) arguments/links on an
-            // unkeyed chunk are refused "as soon as the manifest's key is known (`with_key`), and
-            // at the latest when a stream is opened on a manifest that is still keyless".
+            // unkeyed chunk are refused "at the latest when a stream is opened on a manifest that
+            // is still keyless" — and with no key, *every* chunk is unkeyed.
             if self.key.is_none() {
-                self.spec.check_unkeyed_chunk_arguments()?;
+                self.spec.check_keyless_arguments()?;
             }
             let schema = self.schema();
             let initial = self.initial_walk_state();
@@ -1418,6 +1418,41 @@ mod tests {
             ChunkValue::View(tiny_batch(&[1])),
         ));
         // ... but refused, at the latest, when a stream is opened on it.
+        assert!(source.stream(resolver).await.is_err());
+        Ok(())
+    }
+
+    /// With no key every chunk is unkeyed — a filename in its query does not make it keyed — so
+    /// its arguments would be silently unapplied; the stream refuses them, as it refuses shared
+    /// arguments on a template-only keyless manifest.
+    #[tokio::test]
+    async fn keyless_manifest_stream_refuses_arguments_even_on_a_filename_chunk(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut arguments = HashMap::new();
+        arguments.insert("region".to_string(), serde_json::json!("eu"));
+        let spec = ManifestSpec {
+            chunks: vec![Recipe {
+                query: "ns-fixture/fixture_rows-0-1/orders_eu.csv".to_string(),
+                arguments: arguments.clone(),
+                ..Default::default()
+            }],
+            ..ManifestSpec::default()
+        };
+        let source = Arc::new(ManifestSource::new(spec, None)?);
+        let resolver: Arc<dyn ChunkResolver> = Arc::new(FixtureResolver::new());
+        assert!(source.stream(resolver.clone()).await.is_err());
+
+        let shared_only = ManifestSpec {
+            arguments,
+            template: Some(ChunkTemplate {
+                query: "ns-fixture/fixture_rows".to_string(),
+                first_offset: 0,
+                step: 1,
+                batch_size: 1,
+            }),
+            ..ManifestSpec::default()
+        };
+        let source = Arc::new(ManifestSource::new(shared_only, None)?);
         assert!(source.stream(resolver).await.is_err());
         Ok(())
     }
