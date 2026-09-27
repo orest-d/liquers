@@ -521,7 +521,13 @@ fn from_json_table(value: &Value) -> Result<RecordBatch, Error> {
             Some(value) => Some(require_string(value, "field format")?),
             None => None,
         };
-        let data_type = table_type_to_field_type(type_name, format)?;
+        let table_type = table_type_to_field_type(type_name, format)?;
+        let extension = match field_obj.get(LIQUERS_FIELD_PROPERTY) {
+            Some(value) => Some(read_field_extension(value, name, type_name, table_type)?),
+            None => None,
+        };
+        let data_type = extension.as_ref().map_or(table_type, |ext| ext.data_type);
+        let in_primary_key = primary_key.iter().any(|key| key == name);
 
         let mut field = crate::schema::FieldSchema::new(name, data_type);
         if let Some(title) = field_obj.get("title") {
@@ -530,8 +536,25 @@ fn from_json_table(value: &Value) -> Result<RecordBatch, Error> {
         if let Some(description) = field_obj.get("description") {
             field = field.with_description(require_string(description, "field description")?.to_string());
         }
-        if primary_key.iter().any(|key| key == name) {
-            field = field.with_key(KeyRole::Id).not_null();
+        match &extension {
+            // Written by Liquers: key and role are exact, and nullability comes from
+            // `constraints.required` alone (a nullable `Id` stays nullable).
+            Some(ext) => {
+                if (ext.key == KeyRole::Id) != in_primary_key {
+                    return Err(Error::general_error(format!(
+                        "from_json: table: field '{name}' has key {:?} in its '{LIQUERS_FIELD_PROPERTY}' \
+                         property, which disagrees with primaryKey",
+                        ext.key
+                    )));
+                }
+                field = field.with_key(ext.key).with_role(ext.role.clone());
+            }
+            // Any other Table Schema: a primary key is the `Id`, and required.
+            None => {
+                if in_primary_key {
+                    field = field.with_key(KeyRole::Id).not_null();
+                }
+            }
         }
         // Frictionless `constraints.required` is our `nullable: false`.
         if let Some(constraints) = field_obj.get("constraints") {
@@ -548,7 +571,98 @@ fn from_json_table(value: &Value) -> Result<RecordBatch, Error> {
 
     let data_value = required_field(obj, "data", "table")?;
     let data = require_array(data_value, "table.data")?;
-    ndjson::objects_to_batch(data, ReadSchema::Declared(&record_schema))
+    let timestamp_fields: Vec<&str> = record_schema
+        .fields
+        .iter()
+        .filter(|field| field.data_type == FieldType::Timestamp)
+        .map(|field| field.name.as_str())
+        .collect();
+    if timestamp_fields.is_empty() {
+        ndjson::objects_to_batch(data, ReadSchema::Declared(&record_schema))
+    } else {
+        let data = naive_timestamps_as_utc(data, &timestamp_fields);
+        ndjson::objects_to_batch(&data, ReadSchema::Declared(&record_schema))
+    }
+}
+
+/// The field property that carries what the Frictionless Table Schema cannot say — the exact
+/// `FieldType` (`UInt` is `integer` there), the `KeyRole` and the `FieldRole` — per
+/// phase2-architecture.md §"JSON shapes are conversions": "Roles travel as an extra field property
+/// that a reader not knowing it ignores". Its value is `{"type": …, "key": …, "role": …}`, each in
+/// its serde form.
+const LIQUERS_FIELD_PROPERTY: &str = "liquers";
+
+struct FieldExtension {
+    data_type: FieldType,
+    key: KeyRole,
+    role: crate::schema::FieldRole,
+}
+
+fn read_field_extension(
+    value: &Value,
+    name: &str,
+    type_name: &str,
+    table_type: FieldType,
+) -> Result<FieldExtension, Error> {
+    let obj = require_object(value, "field liquers property")?;
+    let conversion = |e: serde_json::Error| {
+        Error::general_error(format!(
+            "from_json: table: field '{name}': invalid '{LIQUERS_FIELD_PROPERTY}' property: {e}"
+        ))
+    };
+    let data_type = match obj.get("type").cloned() {
+        Some(value) => serde_json::from_value::<FieldType>(value).map_err(conversion)?,
+        None => table_type,
+    };
+    if field_type_to_table_type(data_type) != type_name {
+        return Err(Error::general_error(format!(
+            "from_json: table: field '{name}' is '{type_name}', which its '{LIQUERS_FIELD_PROPERTY}' \
+             type {data_type:?} cannot be"
+        )));
+    }
+    let key = match obj.get("key").cloned() {
+        Some(value) => serde_json::from_value::<KeyRole>(value).map_err(conversion)?,
+        None => KeyRole::None,
+    };
+    let role = match obj.get("role").cloned() {
+        Some(value) => serde_json::from_value::<crate::schema::FieldRole>(value).map_err(conversion)?,
+        None => crate::schema::FieldRole::default(),
+    };
+    Ok(FieldExtension { data_type, key, role })
+}
+
+fn write_field_extension(field: &crate::schema::FieldSchema) -> Result<Value, Error> {
+    let to_value = |value: Result<Value, serde_json::Error>| {
+        value.map_err(|e| Error::from_error(liquers_core::error::ErrorType::SerializationError, e))
+    };
+    let mut obj = Map::with_capacity(3);
+    obj.insert("type".to_string(), to_value(serde_json::to_value(field.data_type))?);
+    obj.insert("key".to_string(), to_value(serde_json::to_value(field.key))?);
+    obj.insert("role".to_string(), to_value(serde_json::to_value(&field.role))?);
+    Ok(Value::Object(obj))
+}
+
+/// pandas writes a timezone-naive datetime as ISO 8601 with no offset
+/// (`"2020-01-01T00:00:00.000"`), which RFC 3339 does not allow. In a `table` document such a
+/// value is read as UTC — the same instant a naive polars/Arrow timestamp denotes — by rewriting it
+/// with a `Z` before the declared reader parses it. Anything else is left for that reader to
+/// accept or refuse.
+fn naive_timestamps_as_utc(data: &[Value], timestamp_fields: &[&str]) -> Vec<Value> {
+    let mut data = data.to_vec();
+    for row in data.iter_mut() {
+        if let Value::Object(map) = row {
+            for name in timestamp_fields {
+                if let Some(Value::String(text)) = map.get_mut(*name) {
+                    if chrono::DateTime::parse_from_rfc3339(text).is_err() {
+                        if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f") {
+                            *text = naive.and_utc().to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    data
 }
 
 fn to_json_table(view: &dyn RecordView) -> Result<Value, Error> {
@@ -556,8 +670,8 @@ fn to_json_table(view: &dyn RecordView) -> Result<Value, Error> {
     let field_defs: Vec<Value> = schema
         .fields
         .iter()
-        .map(|field| {
-            let mut obj = Map::with_capacity(4);
+        .map(|field| -> Result<Value, Error> {
+            let mut obj = Map::with_capacity(6);
             obj.insert("name".to_string(), Value::String(field.name.clone()));
             obj.insert(
                 "type".to_string(),
@@ -565,6 +679,12 @@ fn to_json_table(view: &dyn RecordView) -> Result<Value, Error> {
             );
             if field.data_type == FieldType::Binary {
                 obj.insert("format".to_string(), Value::String("binary".to_string()));
+            }
+            if field.data_type == FieldType::Timestamp {
+                // The values are written with a `Z` (`csv::format_timestamp`); a field that does
+                // not say so is refused by pandas' reader. This declares what the values already
+                // state; it does not change what a timestamp means.
+                obj.insert("tz".to_string(), Value::String("UTC".to_string()));
             }
             obj.insert("title".to_string(), Value::String(field.label.clone()));
             if !field.description.is_empty() {
@@ -575,9 +695,10 @@ fn to_json_table(view: &dyn RecordView) -> Result<Value, Error> {
                 constraints.insert("required".to_string(), Value::Bool(true));
                 obj.insert("constraints".to_string(), Value::Object(constraints));
             }
-            Value::Object(obj)
+            obj.insert(LIQUERS_FIELD_PROPERTY.to_string(), write_field_extension(field)?);
+            Ok(Value::Object(obj))
         })
-        .collect();
+        .collect::<Result<_, Error>>()?;
 
     let mut schema_obj = Map::with_capacity(2);
     schema_obj.insert("fields".to_string(), Value::Array(field_defs));
@@ -708,7 +829,11 @@ mod tests {
     /// with an explicit conversion here rather than adding a blanket `From` impl to
     /// `liquers_core::error`.
     fn parse_json(text: &str) -> Result<Value, Error> {
-        serde_json::from_str(text).map_err(|e| Error::from_error(liquers_core::error::ErrorType::ConversionError, e))
+        serde_json::from_str(text).map_err(json_error)
+    }
+
+    fn json_error(e: serde_json::Error) -> Error {
+        Error::from_error(liquers_core::error::ErrorType::ConversionError, e)
     }
 
     fn orders_schema() -> RecordSchema {
@@ -1021,6 +1146,97 @@ mod tests {
         let back = from_json(&json, JsonOrient::Table, ReadSchema::Infer)?;
         assert!(!back.schema.fields[0].nullable);
         assert!(back.schema.fields[1].nullable);
+        Ok(())
+    }
+
+    #[test]
+    fn table_orient_is_lossless_for_uint_keys_and_roles() -> Result<(), Error> {
+        use crate::mutable::RecordBatchMut;
+        use crate::schema::FieldRole;
+        use crate::RecordViewMut;
+        let schema = Arc::new(RecordSchema::new(vec![
+            FieldSchema::new("id", FieldType::Text).with_key(KeyRole::Id),
+            FieldSchema::new("title", FieldType::Text).with_role(FieldRole::text().and_stored()),
+            FieldSchema::new("big", FieldType::UInt).with_label("Big count").with_description("a u64"),
+            FieldSchema::new("origin", FieldType::UInt).with_key(KeyRole::Source).not_null(),
+        ])?);
+        let mut batch = RecordBatchMut::with_capacity(schema.clone(), 2);
+        batch.append_row(&[
+            FieldValue::Text(Arc::from("a")),
+            FieldValue::Text(Arc::from("Hello")),
+            FieldValue::UInt(u64::MAX),
+            FieldValue::UInt(0),
+        ])?;
+        batch.append_row(&[FieldValue::Text(Arc::from("b")), FieldValue::Null, FieldValue::UInt(7), FieldValue::UInt(1)])?;
+        let batch = batch.freeze()?;
+
+        // Through text, as a stored document would travel.
+        let text = serde_json::to_string(&to_json(&batch, JsonOrient::Table)?).map_err(json_error)?;
+        let value: Value = serde_json::from_str(&text).map_err(json_error)?;
+        let back = from_json(&value, JsonOrient::Table, ReadSchema::Infer)?;
+        assert_eq!(*back.schema, *schema, "schema, with types, keys and roles, survives");
+        for row in 0..2 {
+            for col in 0..4 {
+                assert_eq!(back.value(row, col)?, batch.value(row, col)?, "row {row}, column {col}");
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn table_orient_declares_utc_on_timestamp_fields_so_pandas_can_read_them() -> Result<(), Error> {
+        // The values are written with a `Z`; pandas' read_json(orient="table") refuses a
+        // `Z`-suffixed value in a field that does not declare `"tz"` ("cannot supply both a tz and
+        // a timezone-naive dtype").
+        let schema = Arc::new(RecordSchema::new(vec![FieldSchema::new("t", FieldType::Timestamp)])?);
+        let batch = RecordBatch::new(
+            schema,
+            vec![Column::Timestamp { validity: None, values: Buffer::from_slice(&[0i64]) }],
+            None,
+            None,
+            vec![],
+        )?;
+        let json = to_json(&batch, JsonOrient::Table)?;
+        assert_eq!(json["schema"]["fields"][0]["tz"], Value::String("UTC".to_string()));
+        assert_eq!(json["data"][0]["t"], Value::String("1970-01-01T00:00:00.000000Z".to_string()));
+        Ok(())
+    }
+
+    #[test]
+    fn table_orient_reads_a_pandas_document() -> Result<(), Error> {
+        // tests/fixtures/pandas_table_orient.json, written once by pandas 3.0.6:
+        //
+        //     import pandas as pd
+        //     df = pd.DataFrame({
+        //         "i": [1, 2, 3], "f": [1.5, None, -0.25], "b": [True, False, True],
+        //         "s": ["a", "bb", None],
+        //         "d": pd.to_datetime(["2020-01-01 00:00:00", "2020-01-02 03:04:05.678", None],
+        //                             format="ISO8601"),
+        //     })
+        //     df.index.name = "row"
+        //     open("pandas_table_orient.json", "w").write(df.to_json(orient="table"))
+        //
+        // pandas writes naive datetimes without an offset ("2020-01-01T00:00:00.000"), an
+        // `extDtype` property on the string field, and `pandas_version` in the schema.
+        let text = include_str!("../../tests/fixtures/pandas_table_orient.json");
+        let value: Value = serde_json::from_str(text).map_err(json_error)?;
+        let batch = from_json(&value, JsonOrient::Table, ReadSchema::Infer)?;
+        let names: Vec<&str> = batch.schema.fields.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["row", "i", "f", "b", "s", "d"]);
+        assert_eq!(batch.schema.id_field(), Some(0), "primaryKey is the Id");
+        assert_eq!(batch.schema.fields[5].data_type, FieldType::Timestamp);
+        use FieldValue::{Bool, Float, Int, Null, Timestamp};
+        let expected = [
+            vec![Int(0), Int(1), Float(1.5), Bool(true), FieldValue::Text(Arc::from("a")), Timestamp(1_577_836_800_000_000)],
+            vec![Int(1), Int(2), Null, Bool(false), FieldValue::Text(Arc::from("bb")), Timestamp(1_577_934_245_678_000)],
+            vec![Int(2), Int(3), Float(-0.25), Bool(true), Null, Null],
+        ];
+        assert_eq!(batch.len, 3);
+        for (row, cells) in expected.iter().enumerate() {
+            for (col, cell) in cells.iter().enumerate() {
+                assert_eq!(&batch.value(row, col)?, cell, "row {row}, column '{}'", names[col]);
+            }
+        }
         Ok(())
     }
 }
