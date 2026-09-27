@@ -100,6 +100,7 @@ Decided (2026-09-27): **Q2** builder switches (`.read_only()`, `.with_admin(bool
 GET `remove`) as a stop-gap until `CORE-SESSION-AND-KEY-ACL` delivers real access control.
 **Q3** no metadata writes (above). **Q4** add `AssetManager::expire(key)`. **Q5**
 `set_expiration_time` stays out, no issue. **Q6** `apply` out of scope, no feature.
+**Q11** `POST data|entry` onto a key with a recipe is allowed and makes it `Override`.
 
 Still open:
 
@@ -111,11 +112,16 @@ Still open:
    **DELETE** returns `new_status` (`Recipe` if a recipe exists, else `None`) at the cost of one
    `recipe_opt`? *Lean yes to both.*
 9. `remove` does not expire dependents — file as an issue, out of scope? *Lean yes.*
-10. **Manager-owned fields in a POSTed entry:** silently drop them (a client can send back what
-    `GET entry` returned), or reject with 400 naming them? *Lean: drop, and list the dropped
-    field names in the response's `message`.*
-11. **POST onto a key with a recipe** (→ `Override`): allowed, as the spec says? Or require
-    `POST override` first so replacing a computed value is always explicit? *Lean: allowed.*
+10. **Fields outside the five in a POSTed entry:** drop them (a client can send back what
+    `GET entry` returned) or reject with 400? Either way the handler builds a **fresh**
+    `MetadataRecord` from the five fields rather than cleaning the posted one, so a field added
+    to `MetadataRecord` later is excluded by default. Why the split matters — trusted today,
+    verified in `set_binary` / `try_fast_track`: `status: Error` stores *empty bytes* and still
+    reports success; `status: Expired` is kept, so a `Source` can never be read again;
+    `stored: false` skips the store write entirely; `dependencies` are stored and loaded into the
+    dependency manager on the next read (fake edges); `expiration_time` is adopted by the live
+    asset; `is_error: true` relaxes type validation. *Lean: drop, naming dropped fields in
+    `message`.*
 12. **Future metadata writes:** file the two cases above now (a `feature` for Source-asset
     descriptive edits; a `feature` for asset-manager replication), or leave them in this
     document only?
