@@ -23,7 +23,7 @@ superseded_by:
 - [x] Phase 3: Examples & Testing — redrafted for the trait form and **approved 2026-09-25**; its additions absorbed into Phase 2
 - [x] Phase 4: Implementation Plan — reviewed 2026-09-25 (4 focused reviewers + final review); **approved 2026-09-25**
 - [x] Phase 4 executed — Milestones 0–8 implemented and validated 2026-09-26/27; the implemented diff reviewed (3 opus reviewers) and every finding fixed or filed ([`phase5-evidence.md`](phase5-evidence.md))
-- [ ] Phase 5: Documentation — in progress
+- [ ] Phase 5: Documentation — written 2026-09-27 ([`phase5-documentation.md`](phase5-documentation.md)); awaiting approval
 - [ ] Implementation Complete
 
 ## Origin: split out of `store-and-asset-search`
