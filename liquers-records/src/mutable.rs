@@ -19,7 +19,7 @@ use liquers_core::error::Error;
 
 use crate::batch::{RecordBatch, RecordView};
 use crate::buffer::{AlignedBytesMut, Bitmap, Buffer};
-use crate::column::{Column, FieldValue};
+use crate::column::{offset_from_len, Column, FieldValue};
 use crate::schema::{FieldType, RecordSchema};
 
 /// A table being built or edited, readable as a view while it is written. A trait rather than one
@@ -96,7 +96,7 @@ fn set_bytes_cell(
             let end = offsets[i + 1] as usize;
             new_data.extend_from_slice(&old_bytes[start..end]);
         }
-        new_offsets.push(new_data.len() as i32);
+        new_offsets.push(offset_from_len(new_data.len())?);
     }
     *data = AlignedBytesMut::new();
     data.extend_from_slice(&new_data);
@@ -118,7 +118,35 @@ enum ColumnMutInner {
     Binary { validity: Vec<bool>, offsets: Vec<i32>, data: AlignedBytesMut },
     Date { validity: Vec<bool>, values: AlignedBytesMut },
     Timestamp { validity: Vec<bool>, values: AlignedBytesMut },
-    Vector { validity: Vec<bool>, dim: usize, data: AlignedBytesMut },
+    /// `dim_known` is false while every row pushed so far is null: nothing has fixed the width
+    /// yet, so those rows hold validity only. The first vector fixes `dim` and backfills them
+    /// with `dim` zeros each.
+    Vector { validity: Vec<bool>, dim: usize, dim_known: bool, data: AlignedBytesMut },
+}
+
+/// Where a column stood before a row was appended — what [`ColumnMutInner::restore`] rolls back
+/// to when a later column of the same row refuses its value.
+#[derive(Debug, Clone, Copy)]
+struct ColumnMark {
+    rows: usize,
+    dim: usize,
+    dim_known: bool,
+}
+
+/// Fixes a `Vector` column's width at `new_dim` the first time a vector arrives, backfilling the
+/// `rows` null rows pushed before it with `new_dim` zeros each, so every row then holds exactly
+/// `dim` values.
+fn fix_vector_dim(
+    rows: usize,
+    dim: &mut usize,
+    dim_known: &mut bool,
+    data: &mut AlignedBytesMut,
+    new_dim: usize,
+) {
+    *dim = new_dim;
+    *dim_known = true;
+    *data = AlignedBytesMut::with_capacity(rows * new_dim * std::mem::size_of::<f32>());
+    data.extend_from_slice(&vec![0u8; rows * new_dim * std::mem::size_of::<f32>()]);
 }
 
 impl ColumnMutInner {
@@ -166,6 +194,7 @@ impl ColumnMutInner {
             FieldType::Vector => ColumnMutInner::Vector {
                 validity: Vec::with_capacity(rows),
                 dim: 0,
+                dim_known: false,
                 data: AlignedBytesMut::new(),
             },
         }
@@ -195,11 +224,72 @@ impl ColumnMutInner {
             ColumnMutInner::Binary { offsets, .. } => offsets.len().saturating_sub(1),
             ColumnMutInner::Date { values, .. } => values.len() / std::mem::size_of::<i32>(),
             ColumnMutInner::Timestamp { values, .. } => values.len() / std::mem::size_of::<i64>(),
-            ColumnMutInner::Vector { dim, data, .. } => {
-                if *dim == 0 {
-                    0
+            // Rows pushed before the width is known hold no data, so validity counts the rows.
+            ColumnMutInner::Vector { validity, .. } => validity.len(),
+        }
+    }
+
+    fn mark(&self) -> ColumnMark {
+        match self {
+            ColumnMutInner::Vector { dim, dim_known, .. } => {
+                ColumnMark { rows: self.len(), dim: *dim, dim_known: *dim_known }
+            }
+            ColumnMutInner::Bool { .. }
+            | ColumnMutInner::Int { .. }
+            | ColumnMutInner::UInt { .. }
+            | ColumnMutInner::Float { .. }
+            | ColumnMutInner::Text { .. }
+            | ColumnMutInner::Binary { .. }
+            | ColumnMutInner::Date { .. }
+            | ColumnMutInner::Timestamp { .. } => ColumnMark { rows: self.len(), dim: 0, dim_known: false },
+        }
+    }
+
+    /// Drops every row pushed since `mark` was taken, restoring a `Vector`'s width state too.
+    fn restore(&mut self, mark: ColumnMark) {
+        let rows = mark.rows;
+        match self {
+            ColumnMutInner::Bool { validity, values } => {
+                validity.truncate(rows);
+                values.truncate(rows);
+            }
+            ColumnMutInner::Int { validity, values } => {
+                validity.truncate(rows);
+                values.truncate(rows * std::mem::size_of::<i64>());
+            }
+            ColumnMutInner::UInt { validity, values } => {
+                validity.truncate(rows);
+                values.truncate(rows * std::mem::size_of::<u64>());
+            }
+            ColumnMutInner::Float { validity, values } => {
+                validity.truncate(rows);
+                values.truncate(rows * std::mem::size_of::<f64>());
+            }
+            ColumnMutInner::Text { validity, offsets, data }
+            | ColumnMutInner::Binary { validity, offsets, data } => {
+                if let Some(&end) = offsets.get(rows) {
+                    data.truncate(usize::try_from(end).unwrap_or(0));
+                }
+                offsets.truncate(rows + 1);
+                validity.truncate(rows);
+            }
+            ColumnMutInner::Date { validity, values } => {
+                validity.truncate(rows);
+                values.truncate(rows * std::mem::size_of::<i32>());
+            }
+            ColumnMutInner::Timestamp { validity, values } => {
+                validity.truncate(rows);
+                values.truncate(rows * std::mem::size_of::<i64>());
+            }
+            ColumnMutInner::Vector { validity, dim, dim_known, data } => {
+                validity.truncate(rows);
+                *dim = mark.dim;
+                *dim_known = mark.dim_known;
+                if mark.dim_known {
+                    data.truncate(rows * mark.dim * std::mem::size_of::<f32>());
                 } else {
-                    data.len() / (std::mem::size_of::<f32>() * dim)
+                    // The width was fixed by the rolled-back row; the rows before it hold none.
+                    *data = AlignedBytesMut::new();
                 }
             }
         }
@@ -239,7 +329,7 @@ impl ColumnMutInner {
                 validity.reserve(additional);
                 values.reserve(additional * std::mem::size_of::<i64>());
             }
-            ColumnMutInner::Vector { validity, dim, data } => {
+            ColumnMutInner::Vector { validity, dim, data, .. } => {
                 validity.reserve(additional);
                 data.reserve(additional * std::mem::size_of::<f32>() * (*dim).max(1));
             }
@@ -294,25 +384,29 @@ impl ColumnMutInner {
             },
             ColumnMutInner::Text { validity, offsets, data } => match value {
                 FieldValue::Null => {
+                    let end = offset_from_len(data.len())?;
                     validity.push(false);
-                    offsets.push(data.len() as i32);
+                    offsets.push(end);
                 }
                 FieldValue::Text(v) => {
+                    let end = offset_from_len(data.len() + v.len())?;
                     validity.push(true);
                     data.extend_from_slice(v.as_bytes());
-                    offsets.push(data.len() as i32);
+                    offsets.push(end);
                 }
                 other => return Err(type_mismatch(other, "Text", "ColumnMut::push")),
             },
             ColumnMutInner::Binary { validity, offsets, data } => match value {
                 FieldValue::Null => {
+                    let end = offset_from_len(data.len())?;
                     validity.push(false);
-                    offsets.push(data.len() as i32);
+                    offsets.push(end);
                 }
                 FieldValue::Bytes(v) => {
+                    let end = offset_from_len(data.len() + v.len())?;
                     validity.push(true);
                     data.extend_from_slice(v);
-                    offsets.push(data.len() as i32);
+                    offsets.push(end);
                 }
                 other => return Err(type_mismatch(other, "Bytes", "ColumnMut::push")),
             },
@@ -338,15 +432,16 @@ impl ColumnMutInner {
                 }
                 other => return Err(type_mismatch(other, "Timestamp", "ColumnMut::push")),
             },
-            ColumnMutInner::Vector { validity, dim, data } => match value {
+            ColumnMutInner::Vector { validity, dim, dim_known, data } => match value {
                 FieldValue::Null => {
+                    // `dim` is 0 while the width is unknown, so this writes nothing then.
                     validity.push(false);
                     let width = *dim * std::mem::size_of::<f32>();
                     data.extend_from_slice(&vec![0u8; width]);
                 }
                 FieldValue::Vector(v) => {
-                    if *dim == 0 {
-                        *dim = v.len();
+                    if !*dim_known {
+                        fix_vector_dim(validity.len(), dim, dim_known, data, v.len());
                     }
                     if v.len() != *dim {
                         return Err(Error::general_error(format!(
@@ -443,13 +538,16 @@ impl ColumnMutInner {
                 }
                 other => return Err(type_mismatch(other, "Timestamp", "ColumnMut::set")),
             },
-            ColumnMutInner::Vector { validity, dim, data } => match value {
+            ColumnMutInner::Vector { validity, dim, dim_known, data } => match value {
                 FieldValue::Null => {
                     validity[row] = false;
                     let width = *dim * std::mem::size_of::<f32>();
                     data.set(row * width, &vec![0u8; width]);
                 }
                 FieldValue::Vector(v) => {
+                    if !*dim_known {
+                        fix_vector_dim(validity.len(), dim, dim_known, data, v.len());
+                    }
                     if v.len() != *dim {
                         return Err(Error::general_error(format!(
                             "ColumnMut::set: Vector dim mismatch ({} vs {dim})",
@@ -503,8 +601,14 @@ impl ColumnMutInner {
                 validity: validity_option(&validity),
                 values: Buffer::from_aligned(values.freeze()),
             },
-            ColumnMutInner::Vector { validity, dim, data } => Column::Vector {
-                validity: validity_option(&validity),
+            ColumnMutInner::Vector { validity, dim, data, .. } => Column::Vector {
+                // With `dim == 0` the data holds nothing to count rows by, so validity is kept
+                // even when every row is valid — it carries the row count.
+                validity: if dim == 0 && !validity.is_empty() {
+                    Some(Bitmap::from_bools(&validity))
+                } else {
+                    validity_option(&validity)
+                },
                 dim,
                 data: Buffer::from_aligned(data.freeze()),
             },
@@ -631,10 +735,23 @@ fn column_into_mut(column: Column) -> ColumnMut {
             }
         }
         Column::Vector { validity, dim, data } => {
-            let len = if dim == 0 { 0 } else { data.as_slice().len() / dim };
+            let len = match &validity {
+                Some(bitmap) if dim == 0 => bitmap.len(),
+                Some(_) | None => {
+                    if dim == 0 {
+                        0
+                    } else {
+                        data.as_slice().len() / dim
+                    }
+                }
+            };
+            let validity = validity_to_vec(validity, len);
+            // A width of 0 is a fixed width once any row holds a (necessarily empty) vector.
+            let dim_known = dim > 0 || validity.iter().any(|&valid| valid);
             ColumnMutInner::Vector {
-                validity: validity_to_vec(validity, len),
+                validity,
                 dim,
+                dim_known,
                 data: data.into_aligned().into_mut(),
             }
         }
@@ -701,8 +818,16 @@ impl RecordViewMut for RecordBatchMut {
                 self.columns.len()
             )));
         }
-        for (column, value) in self.columns.iter_mut().zip(values.iter()) {
-            column.push(value)?;
+        // Atomic: a value a later column refuses must not leave earlier columns one row ahead,
+        // or the next row would be assembled from cells of two different rows.
+        let marks: Vec<ColumnMark> = self.columns.iter().map(|column| column.inner.mark()).collect();
+        for (index, (column, value)) in self.columns.iter_mut().zip(values.iter()).enumerate() {
+            if let Err(error) = column.push(value) {
+                for (column, mark) in self.columns.iter_mut().zip(marks.iter()).take(index) {
+                    column.inner.restore(*mark);
+                }
+                return Err(error);
+            }
         }
         Ok(())
     }
@@ -947,5 +1072,90 @@ mod tests {
         let mut builder = RecordBatchMut::with_capacity(int_schema(&["value"]), 0);
         builder.reserve(100);
         assert_eq!(builder.len(), 0);
+    }
+
+    // --- Review findings DM2 (nulls before the first vector) and DM3 (atomic append_row) ---
+
+    #[test]
+    fn column_mut_vector_null_before_the_first_vector_keeps_its_row() {
+        let mut col = ColumnMut::new(FieldType::Vector);
+        col.push(&FieldValue::Null).expect("push");
+        col.push(&FieldValue::Null).expect("push");
+        col.push(&FieldValue::Vector(Arc::from(vec![1.0f32, 2.0]))).expect("push");
+        assert_eq!(col.len(), 3);
+        let frozen = col.freeze();
+        assert_eq!(frozen.len(), 3);
+        assert_eq!(frozen.get(0).expect("get"), FieldValue::Null);
+        assert_eq!(frozen.get(1).expect("get"), FieldValue::Null);
+        assert_eq!(frozen.get(2).expect("get"), FieldValue::Vector(Arc::from(vec![1.0f32, 2.0])));
+    }
+
+    #[test]
+    fn column_mut_all_null_vector_column_keeps_its_row_count() {
+        let mut col = ColumnMut::new(FieldType::Vector);
+        col.push(&FieldValue::Null).expect("push");
+        col.push(&FieldValue::Null).expect("push");
+        assert_eq!(col.len(), 2);
+        let frozen = col.freeze();
+        assert_eq!(frozen.len(), 2);
+        assert_eq!(frozen.get(1).expect("get"), FieldValue::Null);
+        assert_eq!(frozen.slice(1, 1).expect("slice").len(), 1);
+        assert_eq!(frozen.take(&[1, 0]).expect("take").len(), 2);
+    }
+
+    #[test]
+    fn column_mut_vector_set_on_an_all_null_column_establishes_the_dim() {
+        let mut col = ColumnMut::new(FieldType::Vector);
+        col.push(&FieldValue::Null).expect("push");
+        col.push(&FieldValue::Null).expect("push");
+        col.set(1, &FieldValue::Vector(Arc::from(vec![7.0f32, 8.0, 9.0]))).expect("set");
+        let frozen = col.freeze();
+        assert_eq!(frozen.get(0).expect("get"), FieldValue::Null);
+        assert_eq!(frozen.get(1).expect("get"), FieldValue::Vector(Arc::from(vec![7.0f32, 8.0, 9.0])));
+    }
+
+    #[test]
+    fn append_row_is_atomic_when_a_later_column_refuses_its_value() {
+        let schema = Arc::new(
+            RecordSchema::new(vec![
+                FieldSchema::new("a", FieldType::Int),
+                FieldSchema::new("b", FieldType::Text),
+            ])
+            .expect("schema"),
+        );
+        let mut builder = RecordBatchMut::new(schema);
+        // Column "b" refuses an Int: nothing of this row may be kept.
+        assert!(builder
+            .append_row(&[FieldValue::Int(1), FieldValue::Int(2)])
+            .is_err());
+        assert_eq!(builder.column_mut(0).expect("a").len(), 0);
+        assert_eq!(builder.column_mut(1).expect("b").len(), 0);
+        builder
+            .append_row(&[FieldValue::Int(3), FieldValue::Text(Arc::from("x"))])
+            .expect("append_row");
+        let frozen = builder.freeze().expect("freeze");
+        assert_eq!(frozen.len, 1);
+        assert_eq!(frozen.value(0, 0).expect("value"), FieldValue::Int(3));
+        assert_eq!(frozen.value(0, 1).expect("value"), FieldValue::Text(Arc::from("x")));
+    }
+
+    #[test]
+    fn append_row_is_atomic_on_a_vector_dim_mismatch() {
+        let schema = Arc::new(
+            RecordSchema::new(vec![
+                FieldSchema::new("a", FieldType::Int),
+                FieldSchema::new("v", FieldType::Vector),
+            ])
+            .expect("schema"),
+        );
+        let mut builder = RecordBatchMut::new(schema);
+        builder
+            .append_row(&[FieldValue::Int(1), FieldValue::Vector(Arc::from(vec![1.0f32, 2.0]))])
+            .expect("append_row");
+        assert!(builder
+            .append_row(&[FieldValue::Int(2), FieldValue::Vector(Arc::from(vec![1.0f32]))])
+            .is_err());
+        let frozen = builder.freeze().expect("freeze");
+        assert_eq!(frozen.len, 1);
     }
 }
