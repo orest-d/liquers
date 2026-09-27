@@ -516,7 +516,7 @@ access. Materialize when you will read the result many times, before handing it 
 `RecordBatch` is a shallow clone.
 
 **What is deliberately absent:** group-by, join and sort. They belong to a query engine. On
-native builds, convert to a polars `DataFrame` (§6.4) and use `ns-pl`.
+native builds, convert to a polars `DataFrame` (§6.5) and use `ns-pl`.
 
 ---
 
@@ -612,7 +612,116 @@ exported. The first applies a declared schema. The second stamps the chunk index
 `row_id`, `rowid` and `rec_id` work. `InMemorySource::new(views)` is the ready-made source over
 views already in memory.
 
-### 6.4 Handing a batch to polars or pandas
+### 6.4 Example: a generator command, and a source built on it
+
+> **For learning only.** This example shows the mechanics: a command returning a lazy view, and a
+> source whose chunks are calls to that command. For *this* function the source adds nothing.
+> The view is already lazy, so any row is computed on demand, its length is known up front, and
+> there is nothing worth caching. A source earns its place when:
+> - rows are expensive to produce, so each chunk should be a cached or stored asset, keyed through
+>   a stored `<name>.manifest.yaml` (§3), and recomputed only when stale;
+> - consumers work chunk by chunk (`rec_id` stops at the first chunk holding the id, `rowid` opens
+>   one chunk);
+> - the length is not known in advance, because a template walks until a chunk comes back short;
+> - or the data really arrives in pieces (files, pages of a database query).
+>
+> Chunking does not bound memory when writing, either: `ns-rec/materialize` and every byte format
+> still build one table.
+
+The generator samples `x + offset`, `sin(a·x + offset)`, `sin(b·x + offset)` and their sum at
+`x = start, start + 1, …`. With `a = 1` and `b = √2` the frequencies are incommensurate (their
+ratio is irrational), so the sum never repeats.
+
+**The generator.** `waves` returns a `RowFnView`, not a `RecordBatch`. Its closure computes a cell
+only when that cell is read, and nothing is stored. `total` bounds the series, so the chunk at
+the end comes back short; that is what ends a template walk below.
+
+```rust
+fn waves(a: f64, b: f64, offset: f64, total: i64, start: i64, length: i64) -> Result<Value, Error> {
+    let rows = usize::try_from(length.min(total - start).max(0))
+        .map_err(|_| Error::general_error(format!("waves: bad row count for start {start}")))?;
+    let view = RowFnView::new(waves_schema()?, rows, move |row, col| {
+        let x = (start + row as i64) as f64;
+        let wave_a = (a * x + offset).sin();
+        let wave_b = (b * x + offset).sin();
+        match col {
+            0 => Ok(FieldValue::Float(x + offset)),
+            1 => Ok(FieldValue::Float(wave_a)),
+            2 => Ok(FieldValue::Float(wave_b)),
+            3 => Ok(FieldValue::Float(wave_a + wave_b)),
+            other => Err(Error::general_error(format!("waves: no column {other}"))),
+        }
+    })?;
+    Ok(Value::from_record_view(Arc::new(view)))
+}
+```
+
+`waves_schema()` declares the four `Float` fields `x`, `wave_a`, `wave_b` and `sum`, each
+`not_null()` and labelled with its formula.
+
+**The source.** `waves_source` returns a keyless manifest whose template calls `waves`. A template
+appends each chunk's offset and batch size to its query, so chunk `i` is
+`ns-demo/waves-<a>-<b>-<offset>-<total>-<i·batch>-<batch>`, and those two values land in `waves`'
+`start` and `length`. `uniform_schema` makes every chunk be checked against the schema.
+
+```rust
+fn waves_source(a: f64, b: f64, offset: f64, total: i64, batch: i64) -> Result<Value, Error> {
+    let batch = u64::try_from(batch)
+        .map_err(|_| Error::general_error("waves_source: batch must not be negative".to_string()))?;
+    let spec = ManifestSpec {
+        template: Some(ChunkTemplate {
+            query: format!("ns-demo/waves-{a}-{b}-{offset}-{total}"),
+            first_offset: 0,
+            step: batch,
+            batch_size: batch,
+        }),
+        uniform_schema: Some(waves_schema()?),
+        ..ManifestSpec::default()
+    };
+    Ok(Value::from_record_source(Arc::new(ManifestSource::new(spec, None)?)))
+}
+```
+
+The rendered query must parse. `a`, `b` and `offset` are formatted with `{}`, so a negative value
+would put a `-` inside the query and shift the arguments. Keep them non-negative, or encode them.
+
+**Registering both.** Neither needs `context`:
+
+```rust
+register_command!(cr,
+    fn waves(a: f64, b: f64, offset: f64, total: i64, start: i64, length: i64) -> result
+    namespace: "demo"
+    label: "Two sine waves"
+)?;
+register_command!(cr,
+    fn waves_source(a: f64, b: f64, offset: f64, total: i64, batch: i64) -> result
+    namespace: "demo"
+    label: "Two sine waves, chunked"
+)?;
+```
+
+**Using them.** `ns-demo/waves-1-1.4142135623730951-0.5-100-10-4` is four generated rows,
+starting at `x = 10`:
+
+```rust
+let view = state.value()?.as_record_view()?;
+assert_eq!(view.len(), 4);
+assert!(view.as_batch().is_none(), "a generator, not a materialized batch");
+assert_eq!(float(&view, 0, 0)?, 10.5, "x + offset at x = 10");
+```
+
+`ns-demo/waves_source-1-1.4142135623730951-0.5-10-4/ns-rec/materialize` walks the chunks:
+4 + 4 + 2 rows, and the short last chunk ends the walk. Every row keeps its chunk and row number:
+
+```rust
+assert_eq!(table.len(), 10);
+assert_eq!(table.row_id(5)?, RowId { chunk: 1, row: 1 });
+assert_eq!(table.row_number(5)?, Some(5));
+```
+<sub>`liquers-lib/tests/records_generator_example.rs`, `waves_returns_a_generator_view` and
+`waves_source_materializes_chunk_by_chunk`</sub>
+
+### 6.5 Handing a batch to polars or pandas
 
 There is **no zero-copy export and no Python binding** at HEAD. `liquers-py` has no record types,
 and there is no `polars-arrow` hand-off. Three routes exist, and each one copies:
@@ -636,7 +745,7 @@ assert_eq!(back.schema.id_field(), None);
 The IPC and Parquet writers were checked against pyarrow 25 and pandas 3 during review. No
 in-repo test runs Python.
 
-### 6.5 Reading a chunk from JavaScript
+### 6.6 Reading a chunk from JavaScript
 
 `liquers-web` hands a `RecordView` to JavaScript as a `RecordBatch` handle
 (`liquers-web/src/records.rs`). The handle offers `numRows`, `numColumns`, `schemaJson`,
@@ -718,7 +827,7 @@ Each of these was hit during implementation or review.
     Liquers to polars works. For polars to Liquers, use Parquet or avoid text columns.
 12. **Do not keep a JS view across a wasm call.** Any call can grow memory, which leaves your view
     empty (Hazard A). Use a view after `free()` and it reads freed memory, with no detection
-    (Hazard B). Refresh or copy (§6.5).
+    (Hazard B). Refresh or copy (§6.6).
 13. **`RecordView::column` returns a copy.** `Column::slice` copies
     (`COLUMN-SLICE-COPIES-INSTEAD-OF-SHARING-BUFFER-STORAGE`). A pointer taken into that copy
     dangles as soon as the copy drops, which is why the web descriptor reads `inner.columns[i]`
@@ -787,5 +896,6 @@ write-only. Parquet is written here and read back only through polars
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-27 | §6.4: a generator command (`RowFnView`) and a template source over it, with a note on when a source is worth it over a lazy view; §6.4–6.5 renumbered to 6.5–6.6. | user request |
 | 2026-09-27 | PR #72 review: pitfall 7 now gives the working directory query, `-R-sdir/<dir>/-/ns-rec/file_records`, with its end-to-end test. | PR #72 review |
 | 2026-09-27 | Created: the shape decision, the record-producing command walkthrough, the manifest walkthrough, batch sizing, views as a DataFrame, writing views and sources, the polars/Parquet/IPC and JavaScript hand-offs, pitfalls from implementation and review, and testing. Every snippet is taken from a passing test. | `design/record-streams/` phase-5 |
