@@ -3,7 +3,7 @@ id: DIRECTORY-KEY-CANNOT-BE-EVALUATED-AS-A-RESOURCE
 kind: issue
 title: A query on a directory resource fails with "No recipe found" instead of giving a Directory state
 status: draft
-priority: P2
+priority: P3
 complexity: M
 area: [core/assets]
 design: record-streams
@@ -46,3 +46,17 @@ terminal and records no value, so it should not be cached as data or written bac
 
 Found 2026-09-26, `record-streams` Phase 4 Step 5.5, while testing `ns-rec/file_records` end to
 end.
+
+## Update 2026-09-27 — the scenario works through the `sdir` header
+
+The files-to-records scenario now runs through the query API as
+`-R-sdir/data/-/ns-rec/file_records/files.csv` (the `sdir` header already existed and yields the
+store's listing). What was missing was the key, and the interpreter now carries it across that
+header's predecessor boundary: `fetched_key` in `liquers-core/src/interpreter.rs`, tested by
+`fetched_key_honours_the_resource_header` and, end to end, by `records_end_to_end.rs`
+`file_records_lists_a_store_directory_through_a_query`. The reference and guide give that query.
+
+What this record asks for is still open: a **plain** `-R/data/-/…` still fails ("Key not found"),
+because `get(key)` never asks the store whether the key is a directory. Priority lowered to P3
+because a working spelling exists.
+

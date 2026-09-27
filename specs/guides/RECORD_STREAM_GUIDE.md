@@ -695,10 +695,11 @@ Each of these was hit during implementation or review.
    also needs `Status::Source` metadata, or it will not fast-track (`set_manifest` in the tests).
 6. **`Option<Value>` arguments do not bind** (`REGISTER-COMMAND-OPTION-VALUE-CANNOT-BIND`). Use
    `String = ""` and parse the value yourself, as `to_record`'s `schema` does.
-7. **`-R/<dir>/-/ns-rec/file_records` validates but fails at run time** ("No recipe found"),
-   because a directory key cannot be evaluated as a resource
-   (`DIRECTORY-KEY-CANNOT-BE-EVALUATED-AS-A-RESOURCE`). Its test calls `file_records` directly with
-   a hand-built state (`file_records_lists_a_store_directory`).
+7. **List a directory with the `sdir` header: `-R-sdir/<dir>/-/ns-rec/file_records`.** A plain
+   `-R/<dir>/-/…` validates but fails at run time ("Key not found"), because it asks for the value
+   *at* the key and a directory holds none; the `sdir` header yields the store's listing and carries
+   the directory's key into the command
+   (`records_end_to_end.rs`, `file_records_lists_a_store_directory_through_a_query`).
 8. **The free `interpreter::evaluate` sets a `bin` data format.** Asking for `as_bytes()` on its
    result then fails even with a `.csv` filename (`FREE-FUNCTION-EVALUATE-BAKES-A-BIN-DATA-FORMAT`).
    Test serialization through `EnvRef::evaluate` (§2.6).
@@ -786,4 +787,5 @@ write-only. Parquet is written here and read back only through polars
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-27 | PR #72 review: pitfall 7 now gives the working directory query, `-R-sdir/<dir>/-/ns-rec/file_records`, with its end-to-end test. | PR #72 review |
 | 2026-09-27 | Created: the shape decision, the record-producing command walkthrough, the manifest walkthrough, batch sizing, views as a DataFrame, writing views and sources, the polars/Parquet/IPC and JavaScript hand-offs, pitfalls from implementation and review, and testing. Every snippet is taken from a passing test. | `design/record-streams/` phase-5 |

@@ -166,17 +166,34 @@ pub(super) fn base64_decode(text: &str) -> Result<Vec<u8>, Error> {
             )),
         }
     }
-    let cleaned = text.trim_end_matches('=').as_bytes();
+    // Strict, canonical base64 as `base64_encode` writes it: whole quartets, at most two `=` and
+    // only at the end, and no set bits in the final partial sextet. Anything else is corrupt input,
+    // refused rather than decoded to some other bytes.
+    let malformed = |reason: &str| {
+        Error::conversion_error_with_message(text, "base64 (Binary)", reason)
+    };
+    let bytes = text.as_bytes();
+    if bytes.len() % 4 != 0 {
+        return Err(malformed("length is not a multiple of 4"));
+    }
+    let padding = bytes.iter().rev().take_while(|&&byte| byte == b'=').count();
+    if padding > 2 {
+        return Err(malformed("more than two '=' padding characters"));
+    }
+    let cleaned = &bytes[..bytes.len() - padding];
     let mut out = Vec::with_capacity(cleaned.len() * 3 / 4 + 3);
     let mut buffer: u32 = 0;
     let mut bits: u32 = 0;
     for &byte in cleaned {
-        buffer = (buffer << 6) | value(byte)?;
+        buffer = ((buffer << 6) | value(byte)?) & 0xff_ffff;
         bits += 6;
         if bits >= 8 {
             bits -= 8;
             out.push((buffer >> bits) as u8);
         }
+    }
+    if bits > 0 && buffer & ((1 << bits) - 1) != 0 {
+        return Err(malformed("non-zero bits after the last byte"));
     }
     Ok(out)
 }
@@ -552,6 +569,19 @@ pub(crate) fn write_csv(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Base64 is read strictly: what `base64_encode` writes round-trips, and truncated, over-padded
+    /// or non-canonical input is an error rather than some other bytes.
+    #[test]
+    fn base64_decode_round_trips_and_refuses_malformed_input() -> Result<(), Error> {
+        for bytes in [&b""[..], b"A", b"AB", b"ABC", b"ABCD", b"\x00\xff\x10"] {
+            assert_eq!(base64_decode(&base64_encode(bytes))?, bytes.to_vec());
+        }
+        for malformed in ["A", "QUJ", "QQ", "QQ=", "Q===", "QR==", "QUI=Q==="] {
+            assert!(base64_decode(malformed).is_err(), "{malformed:?} must be refused");
+        }
+        Ok(())
+    }
     use crate::formats::{read_table, write_table, TableFormat};
     use liquers_records::{
         FieldSchema, FieldType, FieldValue, KeyRole, RecordBatchMut, RecordSchema, RecordViewMut,

@@ -437,16 +437,43 @@ fn value_origin_key<E: Environment>(
     }
 }
 
-/// The key `query` evaluates to the asset of: a key with a trivial header, followed by nothing but
-/// namespace declarations (`ns-…`) and no filename. `None` for anything that runs an action.
+/// The key `query` evaluates to the asset (or listing) of: a resource segment followed by nothing
+/// but namespace declarations (`ns-…`) and no filename. The segment's header must be one whose
+/// step [`value_origin_key`] names the key for — none, `data`/`value`, `b`/`bin`/`binary`, the
+/// `stored` forms, `dir`/`directory` and `sdir`/`store_directory` — so `-R-sdir/data/-/ns-rec/…`
+/// carries `data` as `-R/data/-/ns-rec/…` would. `None` for any other header and for anything that
+/// runs an action.
 fn fetched_key(query: &Query) -> Option<Key> {
     let (first, rest) = query.segments.split_first()?;
-    let key = Query {
-        segments: vec![first.clone()],
-        absolute: query.absolute,
-        source: query.source.clone(),
+    let QuerySegment::Resource(resource) = first else {
+        return None;
+    };
+    let carries_key = match &resource.header {
+        None => true,
+        Some(header) => match header.parameters.first() {
+            None => true,
+            Some(parameter) => matches!(
+                parameter.value.as_str(),
+                "data"
+                    | "value"
+                    | "b"
+                    | "bin"
+                    | "binary"
+                    | "stored"
+                    | "stored_binary"
+                    | "stored_bin"
+                    | "sbin"
+                    | "dir"
+                    | "directory"
+                    | "sdir"
+                    | "store_directory"
+            ),
+        },
+    };
+    if !carries_key {
+        return None;
     }
-    .key()?;
+    let key = resource.key.clone();
     let only_namespaces = rest.iter().all(|segment| match segment {
         QuerySegment::Resource(_) => false,
         QuerySegment::Transform(transform) => {
@@ -1065,6 +1092,20 @@ mod tests {
     use crate::store::{AsyncMemoryStore, AsyncStore};
     use crate::value::Value;
     use liquers_macro::*;
+
+    /// A predecessor boundary carries its key when the resource header's step reads the content
+    /// or listing at the key (as `value_origin_key` does for the step itself), and not otherwise.
+    #[test]
+    fn fetched_key_honours_the_resource_header() -> Result<(), Error> {
+        let data = parse_key("data")?;
+        for carrying in ["-R/data/-/ns-rec", "-R-sdir/data/-/ns-rec", "-R-dir/data/-/ns-rec", "-R-bin/data"] {
+            assert_eq!(fetched_key(&parse_query(carrying)?), Some(data.clone()), "{carrying}");
+        }
+        for not_carrying in ["-R-meta/data/-/ns-rec", "-R-key/data", "-R/data/-/ns-rec/materialize"] {
+            assert_eq!(fetched_key(&parse_query(not_carrying)?), None, "{not_carrying}");
+        }
+        Ok(())
+    }
 
     async fn immediate_context(
         envref: EnvRef<ImmediateEnvironment<Value>>,

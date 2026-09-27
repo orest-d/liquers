@@ -370,7 +370,13 @@ fn binary_copy(
 /// caller having to know `dim` separately.
 fn vector_copy(validity: &Option<Bitmap>, dim: usize, data: &Buffer<f32>) -> Result<JsValue, Error> {
     let slice = data.as_slice();
-    let rows = if dim == 0 { 0 } else { slice.len() / dim };
+    // An all-null Vector column has no width (`dim == 0`) and no data; its row count is the
+    // validity bitmap's, as `Column::len` has it.
+    let rows = if dim == 0 {
+        validity.as_ref().map_or(0, Bitmap::len)
+    } else {
+        slice.len() / dim
+    };
     let array = js_sys::Array::new();
     for row in 0..rows {
         if !is_row_valid(validity, row) {

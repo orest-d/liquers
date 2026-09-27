@@ -441,7 +441,7 @@ rebuild alignment on the way back. This serde form is not one of the table forma
 | Function | Contract |
 |---|---|
 | `RecordBatch::new(schema, columns, chunk_id, rows: Option<_>, sources)` | refuses a column count ≠ field count, a column failing `validate`, unequal lengths, a column type ≠ its field's, runs not summing to `len` |
-| `RecordBatch::concat(&[RecordBatch])` | refuses no input, a differing field count, or a differing name or type at some position (named); **widens** a field to nullable when any input is; rebases the `Source` column; joins runs and origins; keeps `chunk_id` only for a single input |
+| `RecordBatch::concat(&[RecordBatch])` | refuses no input, a differing field count, or a differing name, type or key role at some position (named); **widens** a field to nullable when any input is; rebases the `Source` column; joins runs and origins; keeps `chunk_id` only for a single input |
 | `RecordBatch::into_mut()` | a `RecordBatchMut`: value buffers held alone are moved (`Arc::try_unwrap`), shared ones copied; validity always copied |
 
 `RecordViewMut: RecordView` — `reserve`, `append_row(&[FieldValue])` (type-checked and **atomic**: a
@@ -533,7 +533,7 @@ Parquet writers materialize the view first.
 | `Date` | `YYYY-MM-DD` |
 | `Timestamp` | RFC 3339, microseconds, `Z` (read: any RFC 3339 offset, converted to UTC) |
 | `Text` | as is |
-| `Binary` | base64 |
+| `Binary` | base64, padded; read strictly — a truncated, over-padded or non-canonical value is an error |
 | `Vector` | a JSON array in one cell |
 
 **CSV** is hand-written (RFC 4180). **Null convention** (PostgreSQL `COPY … CSV`): an unquoted empty
@@ -717,8 +717,10 @@ Queries (all validated with `liquers-validate`):
 ```
 
 `-R/data/orders.csv/-/ns-rec/rec_id-42` validates but is refused at run time: a CSV read without a
-schema has no `Id`. `-R/data/-/ns-rec/file_records/files.csv` validates but cannot run
-([`DIRECTORY-KEY-CANNOT-BE-EVALUATED-AS-A-RESOURCE`](../issues/DIRECTORY-KEY-CANNOT-BE-EVALUATED-AS-A-RESOURCE.md)).
+schema has no `Id`. A directory is listed through the `sdir` header —
+`-R-sdir/data/-/ns-rec/file_records/files.csv` — which yields the store's listing and carries the
+directory's key into the command; a plain `-R/data/…` asks for a value *at* the key, which a
+directory does not hold, and fails.
 
 ## Serialization
 
@@ -780,4 +782,5 @@ materializes to an empty batch; without one it is an error.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-27 | PR #72 review: a directory is listed through `-R-sdir/…` (the key now carries across that header's boundary); `concat` refuses a differing key role; `Binary` base64 is read strictly. | PR #72 review |
 | 2026-09-27 | Created from the implementation at HEAD, following `design/record-streams/` Phase 2's documentation contract; checked against `liquers-records`, `liquers-lib/src/records/`, `liquers-lib/src/value/mod.rs` and `liquers-web/src/records.rs`. | phase-5 |

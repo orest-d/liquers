@@ -12,7 +12,9 @@ use std::sync::Arc;
 
 use js_sys::{Float64Array, Function, Reflect, WebAssembly};
 // liquers-web reaches the records through liquers-lib's `records` feature, not a direct dependency.
-use liquers_lib::records::{Buffer, Column, FieldSchema, FieldType, RecordBatch, RecordSchema};
+use liquers_lib::records::{
+    Bitmap, Buffer, Column, FieldSchema, FieldType, RecordBatch, RecordSchema,
+};
 use liquers_web::records::LiquersRecordBatch;
 use wasm_bindgen::{prelude::*, JsCast};
 use wasm_bindgen_test::*;
@@ -98,6 +100,28 @@ fn records_column_view_companion_loads_and_reads_under_node() {
     let view = Reflect::get(&companion, &JsValue::from_str("view")).expect("view getter");
     let view: Float64Array = view.dyn_into().expect("Float64Array view");
     assert_eq!(view.to_vec(), values);
+}
+
+/// An all-null `Vector` column has no width (`dim == 0`) and no data; its rows are counted by the
+/// validity bitmap, so `columnCopy` gives one `null` per row rather than an empty array.
+#[wasm_bindgen_test]
+fn column_copy_of_an_all_null_vector_column_keeps_its_rows() {
+    let schema =
+        Arc::new(RecordSchema::new(vec![FieldSchema::new("v", FieldType::Vector)]).expect("schema"));
+    let column = Column::Vector {
+        validity: Some(Bitmap::from_bools(&[false, false, false])),
+        dim: 0,
+        data: Buffer::from_slice(&[]),
+    };
+    let batch = Arc::new(RecordBatch::new(schema, vec![column], None, None, vec![]).expect("batch"));
+    let handle = LiquersRecordBatch::from(batch);
+    let copy: js_sys::Array = handle
+        .column_copy(0)
+        .expect("copy")
+        .dyn_into()
+        .expect("Array");
+    assert_eq!(copy.length(), 3);
+    assert!((0..3).all(|row| copy.get(row).is_null()));
 }
 
 /// RECORDS06 — freeing the JS handle releases the batch. Observed two ways: the live batch-handle

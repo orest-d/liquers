@@ -322,3 +322,34 @@ async fn rowid_evaluates_only_its_chunk() -> Result<(), Box<dyn std::error::Erro
     );
     Ok(())
 }
+
+// -------------------------------------------------------------------------------------------
+// file_records_lists_a_store_directory_through_a_query
+// -------------------------------------------------------------------------------------------
+
+/// `-R-sdir/<dir>/-/ns-rec/file_records` lists a store directory end to end: the `sdir` header
+/// yields the directory's listing and carries its key into the command's state. A plain
+/// `-R/<dir>` asks for the value *at* the key, which a directory does not hold, so it fails.
+#[tokio::test]
+async fn file_records_lists_a_store_directory_through_a_query(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let store = AsyncMemoryStore::new(&Key::new());
+    for (name, body) in [("a.csv", "x\n1\n"), ("b.csv", "x\n2\n3\n")] {
+        set_manifest(&store, &parse_key(&format!("files/{name}"))?, body).await?;
+    }
+    let envref = build_env(store)?;
+
+    let state = eval(envref.clone(), "-R-sdir/files/-/ns-rec/file_records").await?;
+    let view = state.value()?.as_record_view()?;
+    assert_eq!(view.len(), 2);
+    let mut names: Vec<FieldValue> = (0..view.len()).map(|row| view.value(row, 1)).collect::<Result<_, _>>()?;
+    names.sort_by_key(|value| format!("{value:?}"));
+    assert_eq!(names, vec![FieldValue::Text(Arc::from("a.csv")), FieldValue::Text(Arc::from("b.csv"))]);
+
+    let failed = match eval(envref, "-R/files/-/ns-rec/file_records").await {
+        Err(_) => true,
+        Ok(state) => state.is_error()?,
+    };
+    assert!(failed, "a plain -R/<dir> holds no value to list");
+    Ok(())
+}

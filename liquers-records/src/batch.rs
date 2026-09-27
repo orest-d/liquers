@@ -337,6 +337,15 @@ impl RecordBatch {
                         a.name, a.data_type, b.name, b.data_type
                     )));
                 }
+                // The key role is structural: the `Source` column is rebased onto the joined
+                // origins below, so a field that is `Source` in one batch and data in another would
+                // have its data values shifted.
+                if a.key != b.key {
+                    return Err(Error::general_error(format!(
+                        "RecordBatch::concat: schemas differ at field {index} ('{}'): key role {:?} vs {:?}",
+                        a.name, a.key, b.key
+                    )));
+                }
             }
         }
 
@@ -1102,6 +1111,29 @@ mod tests {
         assert_eq!(joined.value(0, 1)?, FieldValue::UInt(0));
         assert_eq!(joined.value(1, 1)?, FieldValue::UInt(1));
         assert_eq!(joined.sources[1], origin("data/b.csv"));
+        Ok(())
+    }
+
+    /// A field that is `Source` in one batch and plain data in another is refused: concatenating
+    /// would rebase the data column's values as if they were origin indices.
+    #[test]
+    fn concat_refuses_a_field_whose_key_role_differs() -> Result<(), Error> {
+        let sourced = sourced_batch(0, "data/a.csv");
+        let plain = RecordBatch::new(
+            Arc::new(RecordSchema::new(vec![
+                FieldSchema::new("x", FieldType::Int),
+                FieldSchema::new("src", FieldType::UInt),
+            ])?),
+            vec![
+                Column::Int { validity: None, values: Buffer::from_slice(&[2i64]) },
+                Column::UInt { validity: None, values: Buffer::from_slice(&[7u64]) },
+            ],
+            None,
+            None,
+            vec![],
+        )?;
+        let error = RecordBatch::concat(&[sourced, plain]).expect_err("key roles differ");
+        assert!(format!("{error}").contains("key role"), "unexpected error: {error}");
         Ok(())
     }
 

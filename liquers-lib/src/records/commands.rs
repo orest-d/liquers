@@ -542,9 +542,13 @@ pub async fn file_records<E: Environment<Value = Value>>(
             .with_role(FieldRole::numeric()),
     ])?);
 
-    // `-R/data/` is a directory: its state carries no value, only metadata naming the key.
+    // The directory's key arrives in the state's metadata: `-R-sdir/<dir>` (the store's listing)
+    // carries it into the next action (interpreter `value_origin_key`).
     let dir_key = state.metadata.key()?.ok_or_else(|| {
-        Error::general_error("file_records needs a directory resource, e.g. -R/data/".to_string())
+        Error::general_error(
+            "file_records needs a directory key in its input; use -R-sdir/<dir>/-/ns-rec/file_records"
+                .to_string(),
+        )
     })?;
     // `Context` has no store accessor of its own; the store is the environment's.
     let store = context.get_envref().get_async_store();
