@@ -338,6 +338,20 @@ fn cell_value(
     }
 }
 
+/// A row with more fields than the table has columns is refused, naming its line: the extra cell
+/// has no column to go to, and dropping it would lose data silently. (A shorter row reads its
+/// missing cells as null, subject to each field's nullability.) `line` counts records, which is
+/// the file's line number unless a quoted cell spans lines.
+fn check_row_width(row: &[RawField], width: usize, line: usize) -> Result<(), Error> {
+    if row.len() > width {
+        return Err(Error::general_error(format!(
+            "read_table: CSV row {line} has {} fields, but the table has {width} columns",
+            row.len()
+        )));
+    }
+    Ok(())
+}
+
 /// The schema-aware reader: strict, one pass, nothing guessed. Columns are matched by name
 /// through the header when `header` is true, by position otherwise; a CSV column the schema does
 /// not declare is an error naming it, and a non-nullable schema field missing from the file is
@@ -384,10 +398,15 @@ fn read_declared(
         }
     }
 
+    let width = match header_row {
+        Some(header_row) => header_row.len(),
+        None => schema.fields.len(),
+    };
     let mut builder = RecordBatchMut::with_capacity(Arc::new(schema.clone()), data_rows.len());
     let line_base = if header { 2 } else { 1 };
     for (row_index, row) in data_rows.iter().enumerate() {
         let line = row_index + line_base;
+        check_row_width(row, width, line)?;
         let mut values = Vec::with_capacity(schema.fields.len());
         for (field_index, field) in schema.fields.iter().enumerate() {
             let raw = field_to_col[field_index].and_then(|csv_col| row.get(csv_col));
@@ -438,6 +457,7 @@ fn read_inferred(rows: &[Vec<RawField>], header: bool) -> Result<RecordBatch, Er
     let line_base = if header { 2 } else { 1 };
     for (row_index, row) in data_rows.iter().enumerate() {
         let line = row_index + line_base;
+        check_row_width(row, width, line)?;
         let mut values = Vec::with_capacity(width);
         for col in 0..width {
             let raw = row.get(col);
@@ -461,6 +481,8 @@ pub(crate) fn read_csv(
     schema: ReadSchema<'_>,
     options: &ReadOptions,
 ) -> Result<RecordBatch, Error> {
+    // A UTF-8 byte-order mark (Excel writes one) is an encoding marker, not part of the first cell.
+    let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
     let rows = parse_rows(bytes, separator)?;
     match schema {
         ReadSchema::Declared(schema) => read_declared(&rows, options.header, schema),
@@ -617,7 +639,43 @@ mod tests {
         let err = read_table(malformed, TableFormat::Csv { separator: b',' }, ReadSchema::Declared(&schema), &ReadOptions::default())
             .expect_err("thirty is not an Int");
         let message = format!("{err}");
-        assert!(message.contains("2") || message.contains("line"), "error should name the line: {message}");
+        // The bad cell is on line 2 of the file (line 1 is the header).
+        assert!(message.contains("row 2,"), "error should name line 2: {message}");
+        assert!(message.contains("'age'") && message.contains("thirty"), "error should name the cell: {message}");
+    }
+
+    #[test]
+    fn csv_leading_utf8_bom_is_not_part_of_the_first_header() -> Result<(), Error> {
+        let csv = b"\xEF\xBB\xBFname,n\nx,1\n";
+        let batch = read_table(csv, TableFormat::Csv { separator: b',' }, ReadSchema::Infer, &ReadOptions::default())?;
+        assert_eq!(batch.schema.fields[0].name, "name");
+        let schema = RecordSchema::new(vec![
+            FieldSchema::new("name", FieldType::Text),
+            FieldSchema::new("n", FieldType::Int),
+        ])?;
+        let batch = read_table(csv, TableFormat::Csv { separator: b',' }, ReadSchema::Declared(&schema), &ReadOptions::default())?;
+        assert_eq!(batch.value(0, 1)?, FieldValue::Int(1));
+        Ok(())
+    }
+
+    #[test]
+    fn csv_row_wider_than_the_header_is_refused_naming_the_line() -> Result<(), Error> {
+        let csv = b"a,b\n1,2\n3,4,5\n";
+        let schema = RecordSchema::new(vec![
+            FieldSchema::new("a", FieldType::Int),
+            FieldSchema::new("b", FieldType::Int),
+        ])?;
+        for read_schema in [ReadSchema::Infer, ReadSchema::Declared(&schema)] {
+            let error = read_table(csv, TableFormat::Csv { separator: b',' }, read_schema, &ReadOptions::default())
+                .expect_err("a row with an extra cell");
+            let message = format!("{error}");
+            assert!(message.contains("row 3") && message.contains("3 fields"), "unexpected error: {message}");
+        }
+        // Without a header, the width is the first row's.
+        let error = read_table(b"1,2\n3,4,5\n", TableFormat::Csv { separator: b',' }, ReadSchema::Infer, &ReadOptions { header: false })
+            .expect_err("a row with an extra cell");
+        assert!(format!("{error}").contains("row 2"), "unexpected error: {error}");
+        Ok(())
     }
 
     #[test]
