@@ -3,6 +3,21 @@
 //! from rendering inline HTML. Reading back turns labels into names by lowercasing and replacing
 //! spaces with `_`, the inverse of the default label, so a label left at its default round-trips.
 //!
+//! **The reader is the exact inverse of the writer's escaping**, so `read(write(x)) == x` for every
+//! cell but one: Markdown has no null, so a null and an empty `Text` are both an empty cell and
+//! both read back as null. The escapes (one pass each way):
+//!
+//! | Character | Written as | Why |
+//! |---|---|---|
+//! | `\` `|` `<` `&` | `\\` `\|` `\<` `\&` | GFM backslash escapes: a cell separator, inline HTML, an entity |
+//! | line feed | `<br>` | a GFM cell cannot span lines |
+//! | carriage return | `&#13;` | the same, without merging into the `<br>` of a line feed |
+//! | a leading or trailing space or tab | `&#32;` / `&#9;` | GFM trims cell whitespace |
+//!
+//! Reading also accepts what a person writes by hand: a backslash before any ASCII punctuation,
+//! `<br/>` and `<br />`, the entities `&amp;` `&lt;` `&gt;` `&quot;` and numeric `&#…;` / `&#x…;`.
+//! A row that is not the header's width is an error naming its line — never silently dropped.
+//!
 //! See `specs/design/record-streams/phase2-architecture.md` §"Markdown and HTML".
 
 use std::sync::Arc;
@@ -15,15 +30,159 @@ use crate::formats::{ReadOptions, ReadSchema, WriteOptions};
 use crate::mutable::{RecordBatchMut, RecordViewMut};
 use crate::schema::{FieldSchema, FieldType, RecordSchema};
 
-/// Unescape markdown cell content (reverse of `escape_markdown_cell`).
-fn unescape_markdown_cell(text: &str) -> String {
-    // Remove leading and trailing whitespace, then reverse escaping in order
-    let text = text.trim();
-    text.replace("<br>", "\n")
-        .replace("\\\\", "\\")  // Must come before other backslash escapes
-        .replace("\\|", "|")
-        .replace("\\<", "<")
-        .replace("\\&", "&")
+// ---------------------------------------------------------------------------------------------
+// Escaping
+// ---------------------------------------------------------------------------------------------
+
+fn is_cell_space(c: char) -> bool {
+    c == ' ' || c == '\t'
+}
+
+/// The writer's escape. See the module doc comment's table.
+fn escape_markdown_cell(text: &str) -> String {
+    let lead_end = text.find(|c: char| !is_cell_space(c)).unwrap_or(text.len());
+    let trail_start = text.rfind(|c: char| !is_cell_space(c)).map_or(lead_end, |i| {
+        // `rfind` gives the start of the last non-space char; the trailing run starts after it.
+        i + text[i..].chars().next().map_or(0, char::len_utf8)
+    });
+    let mut out = String::with_capacity(text.len() + 8);
+    for (index, c) in text.char_indices() {
+        let at_edge = index < lead_end || index >= trail_start;
+        match c {
+            ' ' if at_edge => out.push_str("&#32;"),
+            '\t' if at_edge => out.push_str("&#9;"),
+            '\\' => out.push_str("\\\\"),
+            '|' => out.push_str("\\|"),
+            '<' => out.push_str("\\<"),
+            '&' => out.push_str("\\&"),
+            '\n' => out.push_str("<br>"),
+            '\r' => out.push_str("&#13;"),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// `&name;` or `&#N;` / `&#xN;` at the start of `rest`: the character and the entity's byte length.
+fn decode_entity(rest: &str) -> Option<(char, usize)> {
+    let semi = rest.get(..rest.len().min(12))?.find(';')?;
+    let body = rest.get(1..semi)?;
+    let c = match body {
+        "amp" => '&',
+        "lt" => '<',
+        "gt" => '>',
+        "quot" => '"',
+        numeric => {
+            let digits = numeric.strip_prefix('#')?;
+            let code = match digits.strip_prefix(['x', 'X']) {
+                Some(hex) => u32::from_str_radix(hex, 16).ok()?,
+                None => digits.parse::<u32>().ok()?,
+            };
+            char::from_u32(code)?
+        }
+    };
+    Some((c, semi + 1))
+}
+
+/// The reader's unescape, one pass — the exact inverse of [`escape_markdown_cell`], so a literal
+/// `<br>` (written `\<br>`) and a line break (written `<br>`) stay distinct.
+fn unescape_markdown_cell(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut rest = raw;
+    while let Some(c) = rest.chars().next() {
+        if c == '\\' {
+            match rest[1..].chars().next() {
+                Some(next) if next.is_ascii_punctuation() => {
+                    out.push(next);
+                    rest = &rest[1 + next.len_utf8()..];
+                }
+                Some(_) | None => {
+                    out.push('\\');
+                    rest = &rest[1..];
+                }
+            }
+            continue;
+        }
+        if c == '<' {
+            if let Some(tag) = ["<br>", "<br/>", "<br />"].iter().find(|tag| rest.starts_with(**tag)) {
+                out.push('\n');
+                rest = &rest[tag.len()..];
+                continue;
+            }
+        }
+        if c == '&' {
+            if let Some((decoded, len)) = decode_entity(rest) {
+                out.push(decoded);
+                rest = &rest[len..];
+                continue;
+            }
+        }
+        out.push(c);
+        rest = &rest[c.len_utf8()..];
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------------------------
+// Reading
+// ---------------------------------------------------------------------------------------------
+
+/// Splits one table line into its raw (still escaped, untrimmed) cells: `|` separates cells
+/// unless escaped as `\|`, and a leading and a trailing `|` delimit the row rather than adding an
+/// empty cell at either end.
+fn split_row(line: &str) -> Vec<&str> {
+    let trimmed = line.trim_matches(is_cell_space);
+    let bytes = trimmed.as_bytes();
+    let mut cells = Vec::new();
+    let mut start = 0;
+    let mut i = 0;
+    let mut ends_with_pipe = false;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' => {
+                // An escape pair is kept whole for `unescape_markdown_cell`. Cells are only ever
+                // cut at an ASCII `|`, so `i` landing inside a multi-byte character is harmless.
+                i += 2;
+                ends_with_pipe = false;
+            }
+            b'|' => {
+                cells.push(&trimmed[start..i]);
+                start = i + 1;
+                i += 1;
+                ends_with_pipe = true;
+            }
+            _ => {
+                i += 1;
+                ends_with_pipe = false;
+            }
+        }
+    }
+    cells.push(trimmed.get(start..).unwrap_or(""));
+    if ends_with_pipe {
+        cells.pop();
+    }
+    if trimmed.starts_with('|') && !cells.is_empty() {
+        cells.remove(0);
+    }
+    cells
+}
+
+/// A GFM delimiter row: every cell matches `:?-+:?` —
+/// `^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?$`. Merely containing a `-` (a date, a negative number)
+/// does not make a row one.
+fn is_alignment_row(cells: &[&str]) -> bool {
+    !cells.is_empty()
+        && cells.iter().all(|cell| {
+            let cell = cell.trim_matches(is_cell_space);
+            let cell = cell.strip_prefix(':').unwrap_or(cell);
+            let cell = cell.strip_suffix(':').unwrap_or(cell);
+            !cell.is_empty() && cell.bytes().all(|b| b == b'-')
+        })
+}
+
+/// A table line: non-blank and containing a `|`.
+fn is_table_line(line: &str) -> bool {
+    !line.trim().is_empty() && line.contains('|')
 }
 
 /// Convert a label to a field name (lowercase, replace spaces with `_`).
@@ -31,150 +190,167 @@ fn label_to_name(label: &str) -> String {
     label.to_lowercase().replace(' ', "_")
 }
 
-/// Parse a markdown table and return a RecordBatch.
+/// Which schema field a header names: its name (through [`label_to_name`] or verbatim) or its
+/// label.
+fn declared_index(schema: &RecordSchema, header: &str) -> Option<usize> {
+    let name = label_to_name(header);
+    schema
+        .fields
+        .iter()
+        .position(|field| field.name == name)
+        .or_else(|| schema.fields.iter().position(|field| field.name == header || field.label == header))
+}
+
+/// Parse a markdown table and return a RecordBatch. The table is the first run of consecutive
+/// lines containing a `|`; anything before or after it (prose around a table) is ignored.
 pub(crate) fn read_markdown(
     bytes: &[u8],
     schema: ReadSchema<'_>,
-    _options: &ReadOptions,
+    options: &ReadOptions,
 ) -> Result<RecordBatch, Error> {
-    let text = String::from_utf8(bytes.to_vec())
-        .map_err(|e| Error::from_error(ErrorType::ConversionError, e))?;
+    let text = std::str::from_utf8(bytes).map_err(|e| Error::from_error(ErrorType::ConversionError, e))?;
 
-    let lines: Vec<&str> = text.lines().collect();
-    if lines.is_empty() {
-        return match schema {
-            ReadSchema::Declared(s) => {
-                RecordBatchMut::with_capacity(Arc::new(s.clone()), 0).freeze()
-            }
-            ReadSchema::Infer => {
-                let schema = RecordSchema::new(vec![])?;
-                RecordBatchMut::with_capacity(Arc::new(schema), 0).freeze()
-            }
-        };
-    }
-
-    // Find the first row (skip leading non-table lines if any)
-    let mut line_idx = 0;
-    while line_idx < lines.len() && (lines[line_idx].trim().is_empty() || !lines[line_idx].contains('|')) {
-        line_idx += 1;
-    }
-
-    if line_idx >= lines.len() {
-        // No table found
-        let schema = RecordSchema::new(vec![])?;
-        return RecordBatchMut::with_capacity(Arc::new(schema), 0).freeze();
-    }
-
-    // Parse header row
-    let header_row = lines[line_idx];
-    let headers: Vec<String> = header_row
-        .split('|')
-        .skip(1) // Skip leading |
-        .take_while(|s| !s.is_empty() || line_idx + 1 < lines.len()) // Take until trailing |
-        .map(|s| unescape_markdown_cell(s))
-        .collect();
-
-    // Skip alignment row if present
-    if line_idx + 1 < lines.len() && lines[line_idx + 1].contains('-') {
-        line_idx += 1;
-    }
-    line_idx += 1;
-
-    // Build schema from headers
-    let field_names: Vec<String> = headers.iter().map(|h| label_to_name(h)).collect();
-    let num_cols = field_names.len();
-
-    // First pass: collect all data rows to infer schema
-    let mut data_rows: Vec<Vec<String>> = Vec::new();
-    let mut tmp_idx = line_idx;
-    while tmp_idx < lines.len() {
-        let line = lines[tmp_idx].trim();
-        if !line.is_empty() && line.contains('|') {
-            let cells: Vec<String> = line
-                .split('|')
-                .skip(1)
-                .take(num_cols)
-                .map(|s| unescape_markdown_cell(s))
-                .collect();
-            if cells.len() == num_cols {
-                data_rows.push(cells);
-            }
+    // (1-based line number, cells) for every line of the table.
+    let mut rows: Vec<(usize, Vec<String>)> = Vec::new();
+    let mut raw_rows: Vec<(usize, Vec<&str>)> = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        if is_table_line(line) {
+            raw_rows.push((index + 1, split_row(line)));
+        } else if !raw_rows.is_empty() {
+            break;
         }
-        tmp_idx += 1;
     }
 
-    // Build schema from headers and inferred types
-    let inferred_schema = match schema {
-        ReadSchema::Declared(s) => Arc::new(s.clone()),
+    let mut header: Option<Vec<String>> = None;
+    let mut raw_iter = raw_rows.into_iter().peekable();
+    if options.header {
+        if let Some((_, cells)) = raw_iter.next() {
+            let names: Vec<String> =
+                cells.iter().map(|cell| unescape_markdown_cell(cell.trim_matches(is_cell_space))).collect();
+            if let Some((line, alignment)) = raw_iter.peek() {
+                if is_alignment_row(alignment) {
+                    if alignment.len() != names.len() {
+                        return Err(Error::general_error(format!(
+                            "read_markdown: line {line}: the alignment row has {} cells, but the header has {}",
+                            alignment.len(),
+                            names.len()
+                        )));
+                    }
+                    raw_iter.next();
+                }
+            }
+            header = Some(names);
+        }
+    }
+    for (line, cells) in raw_iter {
+        rows.push((
+            line,
+            cells.iter().map(|cell| unescape_markdown_cell(cell.trim_matches(is_cell_space))).collect(),
+        ));
+    }
+
+    let width = match (&header, rows.first(), schema) {
+        (Some(names), _, _) => names.len(),
+        (None, Some((_, first)), _) => first.len(),
+        (None, None, ReadSchema::Declared(declared)) => declared.fields.len(),
+        (None, None, ReadSchema::Infer) => 0,
+    };
+    for (line, cells) in &rows {
+        if cells.len() != width {
+            return Err(Error::general_error(format!(
+                "read_markdown: line {line} has {} cells, but the table has {width} columns",
+                cells.len()
+            )));
+        }
+    }
+    let names: Vec<String> = match &header {
+        Some(labels) => labels.iter().map(|label| label_to_name(label)).collect(),
+        None => (0..width).map(|i| format!("col{i}")).collect(),
+    };
+
+    // For each schema field, the table column holding it (`None`: absent, read as null).
+    let (record_schema, columns): (Arc<RecordSchema>, Vec<Option<usize>>) = match schema {
+        ReadSchema::Declared(declared) => {
+            let mut columns = vec![None; declared.fields.len()];
+            if let Some(labels) = &header {
+                for (col, label) in labels.iter().enumerate() {
+                    match declared_index(declared, label) {
+                        Some(index) => columns[index] = Some(col),
+                        None => {
+                            return Err(Error::general_error(format!(
+                                "read_markdown: column '{label}' is not declared in the schema"
+                            )))
+                        }
+                    }
+                }
+            } else {
+                if width > declared.fields.len() {
+                    return Err(Error::general_error(format!(
+                        "read_markdown: the table has {width} columns, but the schema declares {}",
+                        declared.fields.len()
+                    )));
+                }
+                for (index, slot) in columns.iter_mut().enumerate().take(width) {
+                    *slot = Some(index);
+                }
+            }
+            for (field, column) in declared.fields.iter().zip(columns.iter()) {
+                if column.is_none() && !field.nullable {
+                    return Err(Error::general_error(format!(
+                        "read_markdown: the table is missing non-nullable column '{}'",
+                        field.name
+                    )));
+                }
+            }
+            (Arc::new(declared.clone()), columns)
+        }
         ReadSchema::Infer => {
-            let mut fields = Vec::with_capacity(num_cols);
-            for col in 0..num_cols {
-                let cells: Vec<Option<&str>> = data_rows
+            let mut fields = Vec::with_capacity(width);
+            for (col, name) in names.iter().enumerate() {
+                let cells: Vec<Option<&str>> = rows
                     .iter()
-                    .map(|row| {
-                        let text = row.get(col).map(|s| s.as_str()).unwrap_or("");
-                        if text.is_empty() { None } else { Some(text) }
-                    })
+                    .map(|(_, row)| row.get(col).map(String::as_str).filter(|text| !text.is_empty()))
                     .collect();
                 let (data_type, nullable) = super::infer::infer_column(&cells);
-                let mut field = FieldSchema::new(field_names[col].clone(), data_type);
+                let mut field = FieldSchema::new(name.clone(), data_type);
                 if !nullable {
                     field = field.not_null();
                 }
                 fields.push(field);
             }
-            Arc::new(RecordSchema::new(fields)?)
+            (Arc::new(RecordSchema::new(fields)?), (0..width).map(Some).collect())
         }
     };
 
-    // Parse data rows
-    let mut batch = RecordBatchMut::with_capacity(inferred_schema.clone(), data_rows.len());
-
-    for (row_index, row_cells) in data_rows.iter().enumerate() {
-        let mut values = Vec::with_capacity(inferred_schema.fields.len());
-        for (col, field) in inferred_schema.fields.iter().enumerate() {
-            let cell_text = row_cells.get(col).map(|s| s.as_str()).unwrap_or("");
+    let mut batch = RecordBatchMut::with_capacity(record_schema.clone(), rows.len());
+    for (line, cells) in &rows {
+        let mut values = Vec::with_capacity(record_schema.fields.len());
+        for (field, column) in record_schema.fields.iter().zip(columns.iter()) {
+            let cell_text = column.and_then(|col| cells.get(col)).map(String::as_str).unwrap_or("");
             let value = if cell_text.is_empty() {
                 if field.nullable {
                     FieldValue::Null
                 } else {
                     return Err(Error::general_error(format!(
-                        "read_markdown: row {}, column '{}': null is not allowed (not nullable)",
-                        line_idx + row_index + 1,
+                        "read_markdown: line {line}, column '{}': null is not allowed (not nullable)",
                         field.name
                     )));
                 }
             } else {
                 super::csv::parse_scalar(cell_text, field.data_type).map_err(|e| {
-                    Error::general_error(format!(
-                        "read_markdown: row {}, column '{}': {e}",
-                        line_idx + row_index + 1,
-                        field.name
-                    ))
+                    Error::general_error(format!("read_markdown: line {line}, column '{}': {e}", field.name))
                 })?
             };
             values.push(value);
         }
         batch.append_row(&values)?;
     }
-
     batch.freeze()
 }
 
-/// Escape `|`, backslash, line breaks, `<` and `&` for GFM safety.
-fn escape_markdown_cell(text: &str) -> String {
-    text.replace('\\', "\\\\")
-        .replace('|', "\\|")
-        .replace('\n', "<br>")
-        .replace('\r', "")
-        .replace('<', "\\<")
-        .replace('&', "\\&")
-}
-
-/// Get the label for a field (already populated with default if not explicitly set).
-fn field_label(field: &FieldSchema) -> String {
-    field.label.clone()
-}
+// ---------------------------------------------------------------------------------------------
+// Writing
+// ---------------------------------------------------------------------------------------------
 
 /// Write a Markdown table. Headers use field labels, and numeric columns are right-aligned.
 pub(crate) fn write_markdown(
@@ -189,7 +365,7 @@ pub(crate) fn write_markdown(
         let headers: Vec<String> = schema
             .fields
             .iter()
-            .map(|field| escape_markdown_cell(&field_label(field)))
+            .map(|field| escape_markdown_cell(&field.label))
             .collect();
         out.push('|');
         out.push(' ');
@@ -200,11 +376,13 @@ pub(crate) fn write_markdown(
         let alignments: Vec<&str> = schema
             .fields
             .iter()
-            .map(|field| {
-                match field.data_type {
-                    FieldType::Bool | FieldType::Int | FieldType::UInt | FieldType::Float => "---:",
-                    _ => "---",
-                }
+            .map(|field| match field.data_type {
+                FieldType::Bool | FieldType::Int | FieldType::UInt | FieldType::Float => "---:",
+                FieldType::Text
+                | FieldType::Binary
+                | FieldType::Date
+                | FieldType::Timestamp
+                | FieldType::Vector => "---",
             })
             .collect();
         out.push('|');
@@ -218,19 +396,7 @@ pub(crate) fn write_markdown(
         let mut cells = Vec::with_capacity(schema.fields.len());
         for col in 0..schema.fields.len() {
             let value = view.value(row, col)?;
-            let cell_text = match value {
-                FieldValue::Null => String::new(),
-                FieldValue::Bool(v) => if v { "true".to_string() } else { "false".to_string() },
-                FieldValue::Int(v) => v.to_string(),
-                FieldValue::UInt(v) => v.to_string(),
-                FieldValue::Float(v) => v.to_string(),
-                FieldValue::Text(v) => v.to_string(),
-                FieldValue::Bytes(v) => super::csv::base64_encode(&v),
-                FieldValue::Date(days) => super::csv::format_date(days)?,
-                FieldValue::Timestamp(micros) => super::csv::format_timestamp(micros)?,
-                FieldValue::Vector(v) => serde_json::to_string(v.as_ref())
-                    .map_err(|e| Error::from_error(liquers_core::error::ErrorType::ConversionError, e))?,
-            };
+            let cell_text = super::csv::format_value(&value)?.unwrap_or_default();
             cells.push(escape_markdown_cell(&cell_text));
         }
         out.push('|');
@@ -277,6 +443,93 @@ mod tests {
         let bytes = write_markdown(&batch, &WriteOptions::default())?;
         let text = utf8(bytes)?;
         assert!(text.contains("user id")); // default label: name with `_` replaced by space
+        Ok(())
+    }
+
+    fn text_batch(cells: &[&str]) -> Result<crate::batch::RecordBatch, Error> {
+        let schema = Arc::new(RecordSchema::new(vec![FieldSchema::new("cell", FieldType::Text)])?);
+        let mut batch = RecordBatchMut::with_capacity(schema, cells.len());
+        for cell in cells {
+            batch.append_row(&[FieldValue::Text(Arc::from(*cell))])?;
+        }
+        batch.freeze()
+    }
+
+    fn read(text: &str, schema: ReadSchema<'_>, header: bool) -> Result<crate::batch::RecordBatch, Error> {
+        read_markdown(text.as_bytes(), schema, &ReadOptions { header })
+    }
+
+    #[test]
+    fn markdown_reads_its_own_output_back_exactly() -> Result<(), Error> {
+        let cells = [
+            "a|b", "c\\d", "literal <br> tag", "line1\nline2", "  padded  ", "\ttab", "x\r\ny",
+            "&amp; stays", "\\|", "trailing \\", "-5", "2020-01-01", "ü|ñ",
+        ];
+        let batch = text_batch(&cells)?;
+        let bytes = write_markdown(&batch, &WriteOptions::default())?;
+        let back = read_markdown(&bytes, ReadSchema::Infer, &ReadOptions::default())?;
+        assert_eq!(back.schema.fields.len(), 1, "no phantom column: {}", utf8(bytes.clone())?);
+        assert_eq!(back.schema.fields[0].name, "cell");
+        assert_eq!(back.len, cells.len());
+        for (row, cell) in cells.iter().enumerate() {
+            assert_eq!(back.value(row, 0)?, FieldValue::Text(Arc::from(*cell)), "row {row}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn markdown_without_header_reads_every_line_as_data() -> Result<(), Error> {
+        let schema = Arc::new(RecordSchema::new(vec![
+            FieldSchema::new("day", FieldType::Date),
+            FieldSchema::new("delta", FieldType::Int),
+        ])?);
+        let mut batch = RecordBatchMut::with_capacity(schema, 2);
+        batch.append_row(&[FieldValue::Date(18262), FieldValue::Int(-5)])?;
+        batch.append_row(&[FieldValue::Date(18263), FieldValue::Int(7)])?;
+        let batch = batch.freeze()?;
+        let bytes = write_markdown(&batch, &WriteOptions { header: false })?;
+        let back = read_markdown(&bytes, ReadSchema::Infer, &ReadOptions { header: false })?;
+        assert_eq!(back.len, 2);
+        assert_eq!(back.schema.fields[0].name, "col0");
+        assert_eq!(back.value(0, 0)?, FieldValue::Date(18262));
+        assert_eq!(back.value(0, 1)?, FieldValue::Int(-5));
+        Ok(())
+    }
+
+    #[test]
+    fn markdown_data_row_with_a_dash_is_not_an_alignment_row() -> Result<(), Error> {
+        let back = read("| day | n |\n| 2020-01-01 | -5 |\n| 2020-01-02 | 3 |\n", ReadSchema::Infer, true)?;
+        assert_eq!(back.len, 2);
+        assert_eq!(back.value(0, 1)?, FieldValue::Int(-5));
+        Ok(())
+    }
+
+    #[test]
+    fn markdown_ragged_row_is_an_error_naming_the_line() {
+        let error = read("| a | b |\n|---|---|\n| 1 | 2 |\n| 3 |\n", ReadSchema::Infer, true)
+            .expect_err("a row with too few cells");
+        let message = format!("{error}");
+        assert!(message.contains("line 4"), "unexpected error: {message}");
+    }
+
+    #[test]
+    fn markdown_declared_schema_is_matched_by_header_name() -> Result<(), Error> {
+        let schema = RecordSchema::new(vec![
+            FieldSchema::new("user_name", FieldType::Text),
+            FieldSchema::new("count", FieldType::Int),
+        ])?;
+        let back = read("| count | user name |\n|---:|---|\n| 1 | x |\n", ReadSchema::Declared(&schema), true)?;
+        assert_eq!(back.value(0, 0)?, FieldValue::Text(Arc::from("x")));
+        assert_eq!(back.value(0, 1)?, FieldValue::Int(1));
+        Ok(())
+    }
+
+    #[test]
+    fn markdown_declared_schema_refuses_an_undeclared_column() -> Result<(), Error> {
+        let schema = RecordSchema::new(vec![FieldSchema::new("a", FieldType::Int)])?;
+        let error = read("| a | extra |\n|---|---|\n| 1 | 2 |\n", ReadSchema::Declared(&schema), true)
+            .expect_err("extra is not declared");
+        assert!(format!("{error}").contains("extra"));
         Ok(())
     }
 
