@@ -8,11 +8,11 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 145
+Total rows: 146
 - P0: 1
 - P1: 2
 - P2: 82
-- P3: 60
+- P3: 61
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
@@ -112,6 +112,7 @@ Total rows: 145
 | [`ASSET-FINISHED-PROGRESS-CONTRACT-UNDEFINED`](issues/ASSET-FINISHED-PROGRESS-CONTRACT-UNDEFINED.md) | issue | What progress a finished asset reports is undefined, and was asserted by a race | draft |  | P3 | S | core/assets |  | 2026-09-03 |
 | [`COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ`](issues/COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ.md) | issue | CommandMetadata.cache is declared, documented and exported, but nothing reads it | draft |  | P3 | S | core/commands;macro |  | 2026-09-19 |
 | [`CSV-ROW-NUMBERS-COUNT-RECORDS-AND-SHORT-ROWS-READ-AS-NULL`](issues/CSV-ROW-NUMBERS-COUNT-RECORDS-AND-SHORT-ROWS-READ-AS-NULL.md) | issue | CSV errors number records rather than file lines, and a row shorter than the header reads its missing cells as null | draft |  | P3 | S | records | [chunking](specs/design/record-streams/chunking-and-resumability.md)  [engine](specs/design/record-streams/engine-survey.md)  [manifest](specs/design/record-streams/manifest-format.md)  [phase1](specs/design/record-streams/phase1-high-level-design.md)  [phase2](specs/design/record-streams/phase2-architecture.md)  [phase3](specs/design/record-streams/phase3-examples.md)  [phase3](specs/design/record-streams/phase3-tests.md)  [phase4](specs/design/record-streams/phase4-implementation.md)  [phase5](specs/design/record-streams/phase5-documentation.md)  [phase5](specs/design/record-streams/phase5-evidence.md)  [record](specs/design/record-streams/record-model.md)  | 2026-09-27 |
+| [`DESIGNER-INIT-FEATURE-ACCEPTS-FLAGS-AS-NAMES`](issues/DESIGNER-INIT-FEATURE-ACCEPTS-FLAGS-AS-NAMES.md) | issue | Designer init_feature.py treats any argument, including --help, as a feature name | draft |  | P3 | S | docs |  | 2026-09-27 |
 | [`EXT-VALUE-DESCRIPTION-COMPLETENESS-TEST-SAMPLES-TWO-VARIANTS`](issues/EXT-VALUE-DESCRIPTION-COMPLETENESS-TEST-SAMPLES-TWO-VARIANTS.md) | issue | The ExtValue description-completeness test samples only two of the variants | draft |  | P3 | S | lib/value |  | 2026-09-27 |
 | [`IMMEDIATE-SET-STATE-STATUS-MATCH-HAS-DEFAULT-ARM`](issues/IMMEDIATE-SET-STATE-STATUS-MATCH-HAS-DEFAULT-ARM.md) | issue | ImmediateAssetManager::set_state matches Status with a default arm | draft |  | P3 | S | core/assets |  | 2026-09-25 |
 | [`MARKDOWN-TABLE-CANNOT-DISTINGUISH-NULL-FROM-EMPTY-TEXT`](issues/MARKDOWN-TABLE-CANNOT-DISTINGUISH-NULL-FROM-EMPTY-TEXT.md) | issue | A Markdown table reads an empty Text cell back as null, and reads only the first table | draft |  | P3 | S | records | [chunking](specs/design/record-streams/chunking-and-resumability.md)  [engine](specs/design/record-streams/engine-survey.md)  [manifest](specs/design/record-streams/manifest-format.md)  [phase1](specs/design/record-streams/phase1-high-level-design.md)  [phase2](specs/design/record-streams/phase2-architecture.md)  [phase3](specs/design/record-streams/phase3-examples.md)  [phase3](specs/design/record-streams/phase3-tests.md)  [phase4](specs/design/record-streams/phase4-implementation.md)  [phase5](specs/design/record-streams/phase5-documentation.md)  [phase5](specs/design/record-streams/phase5-evidence.md)  [record](specs/design/record-streams/record-model.md)  | 2026-09-27 |

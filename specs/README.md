@@ -302,6 +302,7 @@ deliberately folded behind a broader line.
 - design `asset-manager-insert-key-asset-semantics`
 - design `async-memory-store-prefix-support`
 - design `async-store-wrapper-docs`
+- design `axum-assets-endpoints`
 - design `build-matrix-ci`
 - design `build-sysinfo-rustc-compatibility`
 - design `combined-value-default-extension`
