@@ -32,6 +32,7 @@ All paths are relative to the assets base path (`/api/assets`). ✅ exists · �
 | `to_override` — pin the current value | `POST override` | 🆕 |
 | new defaulted `AssetManager::expire(key)` — live asset or stored-only, then cascade | `POST expire` | 🆕 |
 | `makedir` | `PUT makedir` | 🆕 |
+| new defaulted `AssetManager::set_description(key, title, description)` — `Source` assets only | `POST description` | 🆕 |
 | `trigger_dependency_audit` / `…_all_registered` | `POST audit/{*query}` / `POST audit` | 🆕 |
 | `refresh_command_versions_and_expire` | `POST refresh_command_versions` | 🆕 |
 | `eval_mode`, `is_started` | `GET manager` | 🆕 |
@@ -61,18 +62,16 @@ manager owns (`status`, `version`, `log`, `dependencies`, `expires`/`expiration_
 `is_volatile`, `stored`/`cached`, `error_data`, `progress`, `key`/`query`, `updated`,
 `file_size`, …) is not taken from the client (Q10).
 
-**Future, not in this design** — two legitimate reasons to write metadata, which want different
-mechanisms:
+There are two legitimate reasons to write metadata; they want different mechanisms:
 
-1. *User-owned assets* (`Source`): editing `title`/`description` of a value the user supplied.
-   A narrow, status-gated operation over the descriptive fields above; could reuse this design's
-   field split directly.
-2. *Asset managers talking to each other* (server ↔ browser): not a metadata write at all but
-   **replication** — a peer transfers a whole entry (data + metadata + version + dependencies)
-   for which *it* is authoritative, and the receiver must decide whose version wins, propagate
-   expiration both ways (the WebSocket already carries status events) and trust the sender.
-   That needs peer identity from `CORE-SESSION-AND-KEY-ACL` and its own endpoint family, so a
-   metadata POST designed now would be the wrong primitive for it.
+1. **In scope — describing a user-supplied asset.** `POST description` sets `title` and/or
+   `description` of an asset whose status is `Source`; any other status is refused with
+   `NotSupported`. Data and version are untouched. Backed by a new defaulted
+   `AssetManager::set_description`, so a live cached asset and the stored record stay in step.
+2. **Out of scope — asset managers talking to each other** (server ↔ browser). That is a remote
+   store / remote asset manager over a separate, *trusted* system API carrying whole entries,
+   versions, dependencies and expiration, cleanly split from the safe user API specified here.
+   Filed as `NO-REMOTE-STORE-OR-ASSET-MANAGER`.
 
 ## Core Interactions
 
@@ -80,8 +79,8 @@ mechanisms:
   A query that is not a pure key is refused with the §3 envelope (`NotSupported`, 501): a specified
   refusal, not a stub.
 - **Store / Asset:** no store code. Everything goes through `AssetManager`, which already owns
-  locking, status rules (`Source`/`Override`), versioning and cascades. One defaulted trait
-  method, `AssetManager::expire(key)`, in `liquers-core`.
+  locking, status rules (`Source`/`Override`), versioning and cascades. Two defaulted trait
+  methods, `AssetManager::expire` and `AssetManager::set_description`, in `liquers-core`.
 - **Commands / Value types / UI:** none. `command_registry.yaml` is unaffected.
 - **Web:** the handlers and builder change in `liquers-axum/src/assets/`. The first real handler
   tests drive the built `Router` with `tower::ServiceExt::oneshot` against an in-memory
@@ -90,7 +89,8 @@ mechanisms:
 ## Crate Placement
 
 - `liquers-axum`: handlers, builder, tests.
-- `liquers-core`: only `AssetManager::expire(key)` (defaulted) and its tests.
+- `liquers-core`: two defaulted methods, `AssetManager::expire(key)` and
+  `AssetManager::set_description(key, …)`, and their tests.
 - Specs: `WEB_API_SPECIFICATION.md` §5 plus a `## History` row, the issue status, and
   `ASSETS.md` if a trait method is added.
 
@@ -101,6 +101,8 @@ GET `remove`) as a stop-gap until `CORE-SESSION-AND-KEY-ACL` delivers real acces
 **Q3** no metadata writes (above). **Q4** add `AssetManager::expire(key)`. **Q5**
 `set_expiration_time` stays out, no issue. **Q6** `apply` out of scope, no feature.
 **Q11** `POST data|entry` onto a key with a recipe is allowed and makes it `Override`.
+**Q12** `POST description` (Source only) is in scope; remote/trusted API filed as
+`NO-REMOTE-STORE-OR-ASSET-MANAGER`.
 
 Still open:
 
@@ -122,13 +124,11 @@ Still open:
     dependency manager on the next read (fake edges); `expiration_time` is adopted by the live
     asset; `is_error: true` relaxes type validation. *Lean: drop, naming dropped fields in
     `message`.*
-12. **Future metadata writes:** file the two cases above now (a `feature` for Source-asset
-    descriptive edits; a `feature` for asset-manager replication), or leave them in this
-    document only?
 
 ## References
 
-- `specs/issues/CORE-SESSION-AND-KEY-ACL.md` (real access control)
+- `specs/issues/CORE-SESSION-AND-KEY-ACL.md` (real access control),
+  `specs/issues/NO-REMOTE-STORE-OR-ASSET-MANAGER.md` (trusted system API)
 
 - `specs/issues/AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED.md`, `AXUM-HANDLER-TEST-COVERAGE.md`
 - `specs/reference/WEB_API_SPECIFICATION.md` §3, §5; `specs/design/axum-assets-recipes-api/`

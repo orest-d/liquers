@@ -8,10 +8,10 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 146
+Total rows: 147
 - P0: 1
 - P1: 2
-- P2: 82
+- P2: 83
 - P3: 61
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
@@ -100,6 +100,7 @@ Total rows: 146
 | [`WORKSPACE-SERDE-DERIVE-UNDECLARED`](issues/WORKSPACE-SERDE-DERIVE-UNDECLARED.md) | issue | Three crates use serde derive macros without declaring the `derive` feature | accepted |  | P2 | L | build;core/value;lib/ui;axum |  | 2026-08-09 |
 | [`AGENT-MEMORY-SERVICE`](issues/AGENT-MEMORY-SERVICE.md) | feature | A memory service for agents, built on the liquers stack | draft |  | P2 | XL | axum;lib/commands;docs | [phase1](specs/design/agent-memory-mvp/phase1-high-level-design.md)  [phase2](specs/design/agent-memory-mvp/phase2-architecture.md)  [phase3](specs/design/agent-memory-mvp/phase3-examples.md)  [phase4](specs/design/agent-memory-mvp/phase4-implementation.md)  [phase5](specs/design/agent-memory-mvp/phase5-documentation.md)  | 2026-09-15 |
 | [`NO-RELATIONAL-DATABASE-ACCESS-LAYER`](issues/NO-RELATIONAL-DATABASE-ACCESS-LAYER.md) | feature | No access layer from Liquers into relational databases | draft |  | P2 | XL | lib/value;lib/commands;store/backends |  | 2026-09-20 |
+| [`NO-REMOTE-STORE-OR-ASSET-MANAGER`](issues/NO-REMOTE-STORE-OR-ASSET-MANAGER.md) | feature | A client environment cannot use a server's store or asset manager as its own | draft |  | P2 | XL | axum;web;core/assets;core/store |  | 2026-09-27 |
 | [`VALUE-TYPE-DEFINITION-MACRO`](issues/VALUE-TYPE-DEFINITION-MACRO.md) | feature | Value types and their registry entries are hand-written instead of generated | draft |  | P2 | XL | macro;lib/value;core/value |  | 2026-08-18 |
 | [`REPO-DEAD-CODE-HYGIENE`](issues/REPO-DEAD-CODE-HYGIENE.md) | issue | Dead modules and untracked files in the repository | accepted | ready | P3 | S | build | [phase1](specs/design/core-dead-code-hygiene/phase1-high-level-design.md)  [phase2](specs/design/core-dead-code-hygiene/phase2-architecture.md)  [phase3](specs/design/core-dead-code-hygiene/phase3-examples.md)  [phase4](specs/design/core-dead-code-hygiene/phase4-implementation.md)  | 2026-08-08 |
 | [`STORE-OPENDAL-ARGUMENTS-NOT-DERIVED`](issues/STORE-OPENDAL-ARGUMENTS-NOT-DERIVED.md) | feature | OpenDAL store types have no derived argument descriptions and no offline construction test | draft | ready | P3 | S | store/backends;store/config | [phase1](specs/design/opendal-derived-store-arguments/phase1-high-level-design.md)  [phase2](specs/design/opendal-derived-store-arguments/phase2-architecture.md)  [phase3](specs/design/opendal-derived-store-arguments/phase3-examples.md)  [phase4](specs/design/opendal-derived-store-arguments/phase4-implementation.md)  | 2026-08-29 |
