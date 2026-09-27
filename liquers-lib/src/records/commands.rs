@@ -25,9 +25,9 @@ use liquers_core::state::State;
 use liquers_core::value::ValueInterface;
 
 use liquers_records::{
-    ChunkList, ChunkResolver, ChunkValue, CompareOp, ContextResolver, FieldRole, FieldSchema,
-    FieldType, FieldValue, JsonOrient, ReadOptions, ReadSchema, RecordBatchMut, RecordSchema,
-    RecordSource, RecordView, RecordViewMut, RowId, TableFormat,
+    place_chunk, view_from_chunk_value, ChunkList, ChunkResolver, CompareOp, ContextResolver,
+    FieldRole, FieldSchema, FieldType, FieldValue, JsonOrient, ReadSchema, RecordBatchMut,
+    RecordSchema, RecordSource, RecordView, RecordViewMut, RowId,
 };
 
 use crate::value::{ExtValueInterface, Value};
@@ -107,33 +107,6 @@ fn parse_id_value(data_type: FieldType, id: &str) -> Result<FieldValue, Error> {
             id.to_string(),
             "a Vector Id field, which ns-rec/rec_id does not support",
         )),
-    }
-}
-
-/// Turns a resolved [`ChunkValue`] into a view — [`rowid`]'s equivalent of
-/// `liquers-records`' own (private) `view_from_chunk_value`, needed here because that helper is
-/// not exported. Unlike the private original, this does not cross-check `declared` against the
-/// view's own schema; it is used for the single-chunk read `rowid` performs, not for a whole
-/// source traversal.
-fn chunk_value_to_view(
-    value: ChunkValue,
-    declared: Option<&RecordSchema>,
-) -> Result<Arc<dyn RecordView>, Error> {
-    match value {
-        ChunkValue::View(view) => Ok(view),
-        ChunkValue::Source(_) => Err(Error::general_error(
-            "ns-rec/rowid: chunk evaluated to a nested RecordSource, which is not supported"
-                .to_string(),
-        )),
-        ChunkValue::Bytes { data, metadata } => {
-            let format = TableFormat::from_data_format(&metadata.get_data_format())?;
-            let read_schema = match declared {
-                Some(schema) => ReadSchema::Declared(schema),
-                None => ReadSchema::Infer,
-            };
-            let batch = liquers_records::read_table(&data, format, read_schema, &ReadOptions::default())?;
-            Ok(Arc::new(batch) as Arc<dyn RecordView>)
-        }
     }
 }
 
@@ -371,10 +344,13 @@ pub async fn rowid<E: Environment<Value = Value>>(
             // A manifest's chunk ids are genuinely resolvable queries/keys (`ManifestSource`'s
             // `describe_chunk`), so the addressed chunk is fetched directly — no other chunk is
             // opened.
+            // The same conversion and `uniform_schema` check a traversal applies, and the chunk
+            // placed at its index; its row number stays unknown, as for any chunk read on its own.
             let chunk_id = chunk_id_at(source.chunks(), chunk_index)?;
             let descriptor = source.describe_chunk(&chunk_id, resolver.as_ref()).await?;
             let chunk_value = resolver.evaluate(descriptor.query.clone()).await?;
-            chunk_value_to_view(chunk_value, source.schema().as_deref())?
+            let view = view_from_chunk_value(chunk_value, source.schema().as_deref())?;
+            place_chunk(view, chunk_index as u64, Some(chunk_id), None)
         } else {
             // No manifest: this source's chunk ids are not resolvable queries (e.g.
             // `InMemorySource`'s placeholder ids, which `RecordSource::stream` documents as never

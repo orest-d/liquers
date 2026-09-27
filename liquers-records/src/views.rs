@@ -700,23 +700,25 @@ impl RecordView for PlacedView {
 }
 
 /// `view` as chunk `chunk` (identified by `chunk_id`) of a source, its first row at row number
-/// `first_number` — what a source's stream yields for each chunk it reads. A `RecordBatch` is
-/// re-stamped (a shallow clone with one run and the chunk id), so it stays a batch; any other view
-/// is wrapped in a [`PlacedView`].
-pub(crate) fn place_chunk(
+/// `first_number` — what a source's stream yields for each chunk it reads. `first_number` is
+/// `None` when the chunk is read on its own rather than during a traversal (e.g. `ns-rec/rowid`),
+/// where phase2-architecture.md says the row number is not known. A `RecordBatch` is re-stamped (a
+/// shallow clone with one run and the chunk id), so it stays a batch; any other view is wrapped in
+/// a [`PlacedView`].
+pub fn place_chunk(
     view: Arc<dyn RecordView>,
     chunk: u64,
     chunk_id: Option<ChunkId>,
-    first_number: u64,
+    first_number: Option<u64>,
 ) -> Arc<dyn RecordView> {
     match view.as_batch() {
         Some(batch) => {
             let mut batch = batch.clone();
-            batch.rows = vec![RowRun { chunk, first_row: 0, first_number: Some(first_number), len: batch.len }];
+            batch.rows = vec![RowRun { chunk, first_row: 0, first_number, len: batch.len }];
             batch.chunk_id = chunk_id;
             Arc::new(batch)
         }
-        None => Arc::new(PlacedView { base: view, chunk, first_row: 0, first_number: Some(first_number), chunk_id }),
+        None => Arc::new(PlacedView { base: view, chunk, first_row: 0, first_number, chunk_id }),
     }
 }
 

@@ -133,8 +133,9 @@ fn check_view_matches_schema(view: &dyn RecordView, declared: &RecordSchema) -> 
 }
 
 /// Turns a resolved `ChunkValue` into a view, applying `declared` (a manifest's `uniform_schema`,
-/// when it has one) the way §"Two readers" specifies for each variant.
-fn view_from_chunk_value(
+/// when it has one) the way §"Two readers" specifies for each variant. Public so a caller that
+/// reads one chunk on its own (`ns-rec/rowid`) applies exactly the checks a traversal does.
+pub fn view_from_chunk_value(
     value: ChunkValue,
     declared: Option<&RecordSchema>,
 ) -> Result<Arc<dyn RecordView>, Error> {
@@ -403,7 +404,7 @@ impl ManifestSource {
         let result = source
             .read_chunk(&id, &resolver)
             .await
-            .map(|view| place_chunk(view, chunk_index, Some(id), counted));
+            .map(|view| place_chunk(view, chunk_index, Some(id), Some(counted)));
         let next_state = source.next_walk_state(&state, &result);
         let counted = match &result {
             Ok(view) => counted + view.len() as u64,
@@ -615,7 +616,7 @@ impl RecordSource for InMemorySource {
                 .zip(self.ids.iter())
                 .enumerate()
                 .map(|(index, (view, id))| {
-                    let placed = place_chunk(view.clone(), index as u64, Some(id.clone()), counted);
+                    let placed = place_chunk(view.clone(), index as u64, Some(id.clone()), Some(counted));
                     counted += view.len() as u64;
                     Ok(placed)
                 })
@@ -674,7 +675,7 @@ impl RecordSource for InMemorySource {
         max_rows: usize,
     ) -> BoxFuture<'static, Result<Arc<RecordBatch>, Error>> {
         if self.views.len() == 1 {
-            let view = place_chunk(self.views[0].clone(), 0, Some(self.ids[0].clone()), 0);
+            let view = place_chunk(self.views[0].clone(), 0, Some(self.ids[0].clone()), Some(0));
             return Box::pin(async move {
                 let batch = view.materialize()?;
                 if batch.len > max_rows {

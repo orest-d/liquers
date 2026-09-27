@@ -306,6 +306,16 @@ async fn rowid_evaluates_only_its_chunk() -> Result<(), Box<dyn std::error::Erro
     assert_eq!(view.len(), 1);
     assert_eq!(view.value(0, 0)?, FieldValue::Int(300), "chunk 2's own offset");
     assert_eq!(
+        view.row_id(0)?,
+        liquers_records::RowId { chunk: 2, row: 0 },
+        "the row keeps the implicit id it was addressed by"
+    );
+    assert_eq!(
+        view.row_number(0)?,
+        None,
+        "a chunk read on its own has no known row number"
+    );
+    assert_eq!(
         fixture_count_of(tag),
         1,
         "only the addressed chunk's command may run"

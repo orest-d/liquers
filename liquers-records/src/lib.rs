@@ -33,11 +33,13 @@ pub use provider::ManifestRecipeProvider;
 pub use schema::{
     Analyzer, FieldRole, FieldSchema, FieldType, IndexKind, KeyRole, RecordSchema, VectorMetric,
 };
-pub use sources::{ContextResolver, EnvResolver, InMemorySource, ManifestSource};
+pub use sources::{
+    view_from_chunk_value, ContextResolver, EnvResolver, InMemorySource, ManifestSource,
+};
 pub use value::{
     ChunkResolver, ChunkValue, RecordSource, RecordValue, DEFAULT_MATERIALIZE_MAX_ROWS,
 };
 pub use views::{
-    AppendedColumnsView, ColumnsView, DerivedColumnView, PlacedView, RowFnView, RowIndexView,
-    RowRangeView,
+    place_chunk, AppendedColumnsView, ColumnsView, DerivedColumnView, PlacedView, RowFnView,
+    RowIndexView, RowRangeView,
 };
