@@ -36,13 +36,17 @@ regardless — that is the P0 defect. Every **new or non-standard** endpoint mus
 | `listdir_keys_deep` | `GET listdir?deep=true` | 🆕 | useful — one call for the key set of a subtree (corpus index, search over a subtree) |
 | new defaulted `AssetManager::set_description(key, title, description)`, `Source` only | `POST description` | 🆕 | useful — L0/L1 of agent notes, edited after writing |
 | new defaulted `AssetManager::expire(key)`, then cascade | `POST expire` | 🆕 | useful — force regeneration of a derived entry (a non-deterministic summary) without touching its source |
+| `contains` | `GET contains` | 🆕 | useful — cheap existence check before writing a note (no evaluation, no body) |
+| `version` | `GET version` | 🆕 | useful — an agent caching an L2 read can tell whether it changed, without re-reading it |
+| `get_binary_any_status` — recovery read incl. `Expired` | `GET recover` (entry format) | 🆕 | useful — read the last known value of an expired derived entry while it regenerates |
+| `to_override` — pin the current value | `POST override` | 🆕 | useful — keep a good generated summary instead of letting it regenerate |
+| `makedir` | `PUT makedir` | 🆕 | useful — create a folder in the agent-writable area |
+| `trigger_dependency_audit` / `…_all_registered` | `POST audit/{*query}` / `POST audit` | 🆕 | useful — after the corpus changed outside the server (git pull), expire what was derived from it |
+| `refresh_command_versions_and_expire` | `POST refresh_command_versions` | 🆕 | useful — after `ns-mem` commands change, expire what they produced |
 
-**Deferred — neither required nor useful for the MVP** (recorded in `ASSETS-API-ADMIN-OPERATIONS`
-so the analysis is not lost): `GET contains` (redundant with `GET info`'s 404), `GET version`,
-`GET recover` (`get_binary_any_status`), `POST override` (`to_override`), `PUT makedir`,
-`POST audit` (`trigger_dependency_audit*`), `POST refresh_command_versions`, `GET manager`
-(`eval_mode`, `is_started`), the guarded `remove_cached`, and the Store API-style opt-in
-`GET remove` (dropped from spec §5.0.1 for assets).
+**Deferred** (recorded in `ASSETS-API-ADMIN-OPERATIONS`): `GET manager` (`eval_mode`,
+`is_started` — a deployment detail, not an agent's concern), the guarded `remove_cached`, and the
+Store API-style opt-in `GET remove` (dropped from spec §5.0.1 for assets).
 
 **Not exposed — internal plumbing:** the `get_dependency_asset*`, `drain_dependencies`,
 `wait_for_dependency`, `*_key_asset*`, `next_id_for_asset`, `get_envref`, `get_recipe_provider`,
@@ -138,7 +142,8 @@ the MVP.
 ## Decisions and Open Questions
 
 Decided (2026-09-27): **Q2** builder switches (`.read_only()` turning off every
-POST/DELETE except `cancel`; admin switches are moot while admin operations are deferred) as a stop-gap until `CORE-SESSION-AND-KEY-ACL` delivers real access control.
+state-changing route except `cancel`; `.with_admin(bool)` for `audit` and
+`refresh_command_versions`, which act on the whole manager rather than one key) as a stop-gap until `CORE-SESSION-AND-KEY-ACL` delivers real access control.
 **Q3** no metadata writes (above). **Q4** add `AssetManager::expire(key)`. **Q5**
 `set_expiration_time` stays out, no issue. **Q6** `apply` out of scope, no feature.
 **Q11** `POST data|entry` onto a key with a recipe is allowed and makes it `Override`.
@@ -151,7 +156,8 @@ status-aware semantics (above); no `remove_cached` for now; fixes
 stored data, keeping the metadata/version. **Q14** state-conflict refusals (`remove` on a
 `Directory`, `POST description` on a non-`Source`) answer 409 (new `ErrorType`). **Q15**
 superseded by the scope principle: no `GET remove`. **Q17** scope = documented endpoints +
-what the agent memory MVP requires or can use (table above).
+what the agent memory MVP requires or can use (table above); `contains`, `version`, `recover`,
+`override`, `makedir`, `audit`, `refresh_command_versions` kept in scope at the user's request.
 **Q10** a POSTed entry contributes only the five descriptive fields; the handler builds a fresh
 `MetadataRecord` from them and drops everything else, naming the dropped fields in `message`.
 Why the split matters — trusted by `set_binary` / `try_fast_track` today: `status: Error` stores

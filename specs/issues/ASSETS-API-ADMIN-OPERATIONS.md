@@ -1,7 +1,7 @@
 ---
 id: ASSETS-API-ADMIN-OPERATIONS
 kind: feature
-title: Several client-meaningful AssetManager operations have no HTTP endpoint
+title: Manager status and a guarded remove have no assets API endpoint
 status: draft
 priority: P3
 complexity: M
@@ -18,21 +18,15 @@ client-meaningful operations were deliberately left without an endpoint:
 
 | Operation | Endpoint it would get |
 |---|---|
-| `contains` | `GET contains` — largely redundant with `GET info`'s 404 |
-| `version` | `GET version` |
-| `get_binary_any_status` — recovery read of an `Expired` (or otherwise non-readable) value | `GET recover`, entry format (a separate route was preferred over a query parameter) |
-| `to_override` — pin the current value | `POST override` |
-| `makedir` | `PUT makedir` |
-| `trigger_dependency_audit` / `trigger_dependency_audit_all_registered` | `POST audit/{*query}` / `POST audit` |
-| `refresh_command_versions_and_expire` | `POST refresh_command_versions` |
 | `eval_mode`, `is_started` | `GET manager` |
 | a guarded `remove` refusing `Source` / `Override` (for cache-clearing clients) | `POST remove_cached` |
+| `remove` via GET, as the Store API's opt-in destructive GETs | `GET remove` |
 
 ## Impact
 
-Low. Everything except recovery reads and overrides can be reached in-process; operators and
-tools that want them over HTTP have no route. The audit and refresh operations change shared
-state and would need the access switches (or `CORE-SESSION-AND-KEY-ACL`) before being exposed.
+Low. Manager status is a deployment detail; a cache-clearing client can check the status with
+`GET info` before calling `DELETE` (racy, but harmless for recomputable values); a state-changing
+GET is prefetchable and cacheable, which is why it was left out.
 
 ## Expected behaviour
 
