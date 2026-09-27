@@ -35,7 +35,7 @@ use serde_json::Value;
 use crate::{
     command_metadata::CommandMetadataRegistry,
     context::{EnvRef, Environment},
-    error::Error,
+    error::{Error, ErrorType},
     expiration::Expires,
     metadata::{AssetInfo, Status},
     parse::{parse_key, parse_query},
@@ -758,11 +758,20 @@ impl<E: Environment> AsyncRecipeProvider<E> for DefaultRecipeProvider {
         Ok(None)
     }
 
+    /// `false` when the store refuses the `recipes.yaml` key as unsupported, not an error: a key
+    /// the store cannot hold cannot hold a recipe list. A store router answers so for any key no
+    /// member covers — an `http` store serving a fixed key list, for one — and every `-R/` query
+    /// under such a folder asks this first.
     async fn has_recipes(&self, key: &Key, envref: EnvRef<E>) -> Result<bool, Error> {
-        envref
+        match envref
             .get_async_store()
             .contains(&key.join("recipes.yaml"))
             .await
+        {
+            Ok(found) => Ok(found),
+            Err(error) if error.error_type == ErrorType::KeyNotSupported => Ok(false),
+            Err(error) => Err(error),
+        }
     }
 }
 
@@ -2163,6 +2172,47 @@ mod recipe_provider_chain_tests {
             recipe.title, "configured",
             "the configured provider is consulted first"
         );
+        Ok(())
+    }
+}
+
+/// A key the store refuses as unsupported holds no `recipes.yaml`: the default provider answers
+/// "no recipe" rather than failing the query that asked.
+#[cfg(test)]
+mod unsupported_key_tests {
+    use super::*;
+    use crate::context::SimpleEnvironment;
+    use crate::metadata::Metadata;
+    use crate::store::AsyncStore;
+    use crate::value::Value;
+
+    /// Refuses every key, as a store router does for a key no member covers.
+    struct RefusingStore;
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl AsyncStore for RefusingStore {
+        async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+            Err(Error::key_not_supported(key, "refusing"))
+        }
+        async fn set_metadata(&self, key: &Key, _metadata: &Metadata) -> Result<(), Error> {
+            Err(Error::key_not_supported(key, "refusing"))
+        }
+        async fn contains(&self, key: &Key) -> Result<bool, Error> {
+            Err(Error::key_not_supported(key, "refusing"))
+        }
+    }
+
+    #[tokio::test]
+    async fn default_provider_finds_no_recipe_under_an_unsupported_key() -> Result<(), Error> {
+        let mut env = SimpleEnvironment::<Value>::new();
+        env.with_async_store(Box::new(RefusingStore));
+        let envref = env.to_ref();
+        let key = parse_key("data/input.txt")?;
+
+        assert!(!DefaultRecipeProvider.has_recipes(&key.parent(), envref.clone()).await?);
+        assert!(DefaultRecipeProvider.recipe_opt(&key, envref.clone()).await?.is_none());
+        assert!(!DefaultRecipeProvider.contains(&key, envref).await?);
         Ok(())
     }
 }

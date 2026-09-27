@@ -95,7 +95,15 @@ impl ManifestRecipeProvider {
         if let Some(names) = self.folders.read_async(folder, |_, names| names.clone()).await {
             return Ok(names);
         }
-        let entries = store.listdir(folder).await?;
+        let entries = match store.listdir(folder).await {
+            Ok(entries) => entries,
+            // A folder the store refuses holds no manifests. Not cached: the refusal belongs to
+            // the store's configuration, not to the folder's contents.
+            Err(error) if error.error_type == ErrorType::KeyNotSupported => {
+                return Ok(Arc::new(Vec::new()))
+            }
+            Err(error) => return Err(error),
+        };
         let names: Vec<String> = entries
             .into_iter()
             .filter(|name| name.ends_with(".manifest.yaml"))
@@ -124,7 +132,7 @@ impl ManifestRecipeProvider {
                     // No version to compare (the store does not track one) or it has changed:
                     // fall through and re-read below.
                 }
-                Err(error) if error.error_type == ErrorType::KeyNotFound => {
+                Err(error) if is_absent(&error) => {
                     let _ = self.manifests.remove_async(key).await;
                     return Ok(None);
                 }
@@ -147,7 +155,7 @@ impl ManifestRecipeProvider {
                     .await;
                 Ok(Some(source))
             }
-            Err(error) if error.error_type == ErrorType::KeyNotFound => Ok(None),
+            Err(error) if is_absent(&error) => Ok(None),
             Err(error) => Err(error),
         }
     }
@@ -176,6 +184,13 @@ impl ManifestRecipeProvider {
         }
         Ok(())
     }
+}
+
+/// Whether a store error means "no manifest here": the key is absent, or the store refuses it as
+/// unsupported — a store router does so for any key no member covers, and a key the store cannot
+/// hold cannot hold a manifest.
+fn is_absent(error: &Error) -> bool {
+    matches!(error.error_type, ErrorType::KeyNotFound | ErrorType::KeyNotSupported)
 }
 
 /// Whether `name` has the *shape* a template-generated chunk name would
@@ -729,6 +744,47 @@ chunks:
             .await?
             .expect("the newly added chunk should be visible once re-read");
         assert_eq!(new_chunk.title, "Orders (US)");
+        Ok(())
+    }
+
+    /// Refuses every key, as a store router does for a key no member covers.
+    struct RefusingStore;
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl AsyncStore for RefusingStore {
+        async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+            Err(Error::key_not_supported(key, "refusing"))
+        }
+        async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+            Err(Error::key_not_supported(key, "refusing"))
+        }
+        async fn set_metadata(&self, key: &Key, _metadata: &Metadata) -> Result<(), Error> {
+            Err(Error::key_not_supported(key, "refusing"))
+        }
+        async fn contains(&self, key: &Key) -> Result<bool, Error> {
+            Err(Error::key_not_supported(key, "refusing"))
+        }
+        async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+            Err(Error::key_not_supported(key, "refusing"))
+        }
+    }
+
+    /// A folder the store refuses holds no manifests: both lookup paths — the template fast path
+    /// (`get_manifest`) and the explicit-chunk listing (`manifest_names`) — answer "no recipe"
+    /// rather than failing the query, so a plain `-R/` resource under such a store still resolves.
+    #[tokio::test]
+    async fn an_unsupported_key_has_no_manifest_recipe() -> Result<(), Box<dyn std::error::Error>> {
+        let mut env = TestEnv::new();
+        env.with_async_store(Box::new(RefusingStore));
+        let envref = env.to_ref();
+        let provider = ManifestRecipeProvider::new();
+
+        for key in ["data/input.txt", "data/daily_0001.csv"] {
+            let key = parse_key(key)?;
+            assert!(AsyncRecipeProvider::recipe_opt(&provider, &key, envref.clone()).await?.is_none());
+            assert!(!AsyncRecipeProvider::contains(&provider, &key, envref.clone()).await?);
+        }
         Ok(())
     }
 }
