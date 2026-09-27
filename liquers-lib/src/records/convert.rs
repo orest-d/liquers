@@ -14,7 +14,7 @@ use std::sync::Arc;
 use liquers_core::context::{Context, Environment};
 use liquers_core::error::{Error, ErrorType};
 use liquers_core::metadata::Metadata;
-use liquers_core::query::Query;
+use liquers_core::query::{Key, Query};
 use liquers_core::value::ValueInterface;
 
 use liquers_records::{
@@ -174,11 +174,17 @@ pub async fn to_record_source(
                 // from this state's own metadata, not taken as-is (phase2-architecture.md
                 // §"Getting a source from a manifest file"): otherwise a manifest written by
                 // Liquers and read back would silently treat its keyed chunks as unkeyed.
-                Some(spec) => {
-                    let key = metadata.key()?;
-                    let rekeyed = ManifestSource::new(spec.clone(), key)?;
-                    Ok(Arc::new(rekeyed) as Arc<dyn RecordSource>)
-                }
+                //
+                // Re-keyed only when this state names a manifest key: a source handed on from a
+                // previous command (`…/ns-rec/to_record_source/-/ns-rec/…`) arrives with the
+                // evaluating asset's metadata, which names no key, and must keep the one it has.
+                Some(spec) => match manifest_key(metadata)? {
+                    Some(key) => {
+                        let rekeyed = ManifestSource::new(spec.clone(), Some(key))?;
+                        Ok(Arc::new(rekeyed) as Arc<dyn RecordSource>)
+                    }
+                    None => Ok(source),
+                },
                 None => Ok(source),
             }
         }
@@ -199,8 +205,7 @@ pub async fn to_record_source(
             if json_has_manifest_discriminator(&json) {
                 let spec: ManifestSpec = serde_json::from_value(json)
                     .map_err(|error| Error::from_error(ErrorType::SerializationError, error))?;
-                let key = metadata.key()?;
-                Ok(Arc::new(ManifestSource::new(spec, key)?) as Arc<dyn RecordSource>)
+                manifest_source(spec, metadata)
             } else {
                 let view = to_record(value, metadata, options, context).await?;
                 Ok(Arc::new(InMemorySource::new(vec![view])) as Arc<dyn RecordSource>)
@@ -235,10 +240,62 @@ async fn bytes_to_record_source(
         if yaml_has_manifest_discriminator(text) {
             let spec: ManifestSpec = serde_yaml::from_str(text)
                 .map_err(|error| Error::from_error(ErrorType::SerializationError, error))?;
-            let key = metadata.key()?;
-            return Ok(Arc::new(ManifestSource::new(spec, key)?) as Arc<dyn RecordSource>);
+            return manifest_source(spec, metadata);
         }
     }
     let view = to_record(value, metadata, options, context).await?;
     Ok(Arc::new(InMemorySource::new(vec![view])) as Arc<dyn RecordSource>)
+}
+
+/// The filename suffix that makes a stored document a manifest `ManifestRecipeProvider` serves.
+const MANIFEST_SUFFIX: &str = ".manifest.yaml";
+
+/// The key a manifest read from this state lives at — the state's metadata key, **only** when its
+/// filename ends in `.manifest.yaml`.
+///
+/// The key names the chunk keys' folder and prefix, and those keys are served by
+/// `ManifestRecipeProvider`, which reads `*.manifest.yaml` only. A manifest stored under any other
+/// name (`data/sales.yaml`) would name chunk keys (`data/sales.yaml_0000.csv`) nothing can ever
+/// serve, so it is treated as keyless: its chunks are unkeyed queries.
+fn manifest_key(metadata: &Metadata) -> Result<Option<Key>, Error> {
+    Ok(metadata.key()?.filter(|key| {
+        key.filename()
+            .is_some_and(|name| name.encode().ends_with(MANIFEST_SUFFIX))
+    }))
+}
+
+/// A [`ManifestSource`] for `spec`, keyed by [`manifest_key`].
+///
+/// A keyless manifest declaring per-chunk or shared `arguments`/`links` is refused here: its
+/// chunks are unkeyed queries, which have no recipe for arguments to act through, so they would be
+/// silently dropped (phase2-architecture.md §"A. Chunk keys": such arguments are refused "at the
+/// latest when a stream is opened on a manifest that is still keyless"). This is the last point a
+/// key can be supplied, so keylessness is final here. `ManifestSpec::check_unkeyed_chunk_arguments`
+/// does not cover it — it counts a chunk whose query ends in a filename as keyed whether or not the
+/// manifest has a key.
+fn manifest_source(spec: ManifestSpec, metadata: &Metadata) -> Result<Arc<dyn RecordSource>, Error> {
+    let key = manifest_key(metadata)?;
+    if key.is_none() {
+        refuse_keyless_arguments(&spec)?;
+    }
+    Ok(Arc::new(ManifestSource::new(spec, key)?) as Arc<dyn RecordSource>)
+}
+
+fn refuse_keyless_arguments(spec: &ManifestSpec) -> Result<(), Error> {
+    let why = "but the manifest has no key (it was not read from a `*.manifest.yaml` file), so its \
+               chunks are unkeyed queries and the arguments could not be applied";
+    if !spec.arguments.is_empty() || !spec.links.is_empty() {
+        return Err(Error::general_error(format!(
+            "manifest: shared arguments or links are declared, {why}"
+        )));
+    }
+    for chunk in &spec.chunks {
+        if !chunk.arguments.is_empty() || !chunk.links.is_empty() {
+            return Err(Error::general_error(format!(
+                "manifest: chunk \"{}\" declares per-chunk arguments or links, {why}",
+                chunk.query
+            )));
+        }
+    }
+    Ok(())
 }
