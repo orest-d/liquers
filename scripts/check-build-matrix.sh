@@ -60,9 +60,22 @@ LIB_CONFIGS=(
   "--no-default-features --features records --tests"
   "--no-default-features --features records,polars --tests"
   "--no-default-features --features webui,records --tests"
+  "--no-default-features --features records-ipc --tests"
+  "--no-default-features --features records-parquet --tests"
+  "--no-default-features --features records-parquet,polars --tests"
   "--tests"
   "--target wasm32-unknown-unknown --no-default-features --features webui"
   "--target wasm32-unknown-unknown --no-default-features --features webui,records"
+  "--target wasm32-unknown-unknown --no-default-features --features webui,records,records-ipc"
+)
+
+# liquers-records has no default features: each format behind its own flag, and every one of them
+# must build for wasm32 as well, since liquers-web carries the crate into the browser.
+RECORDS_CONFIGS=(
+  "--tests"
+  "--features ipc,parquet --tests"
+  "--target wasm32-unknown-unknown"
+  "--target wasm32-unknown-unknown --features ipc,parquet"
 )
 
 CORE_CONFIGS=(
@@ -102,6 +115,10 @@ check() {
 
 for args in "${LIB_CONFIGS[@]}"; do
   check liquers-lib "$args"
+done
+
+for args in "${RECORDS_CONFIGS[@]}"; do
+  check liquers-records "$args"
 done
 
 for args in "${CORE_CONFIGS[@]}"; do
