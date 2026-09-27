@@ -306,7 +306,9 @@ pub async fn head<E: Environment<Value = Value>>(
     Ok(Value::from_record_view(batch as Arc<dyn RecordView>))
 }
 
-/// A row range, as a view (not materialized).
+/// A row range, as a view (not materialized). Clamped to the rows that exist, as `head` is: a range
+/// running past the end gives the rows up to the end, and an offset past the end gives no rows —
+/// so `ns-rec/slice` works as a manifest template's query, whose last chunk comes back short.
 pub async fn slice<E: Environment<Value = Value>>(
     state: State<Value>,
     offset: i64,
@@ -320,8 +322,8 @@ pub async fn slice<E: Environment<Value = Value>>(
         &context,
     )
     .await?;
-    let offset = non_negative_usize(offset, "offset")?;
-    let length = non_negative_usize(length, "length")?;
+    let offset = non_negative_usize(offset, "offset")?.min(view.len());
+    let length = non_negative_usize(length, "length")?.min(view.len() - offset);
     let sliced = view.slice(offset, length)?;
     Ok(Value::from_record_view(sliced))
 }
@@ -767,6 +769,18 @@ mod tests {
         let view = state.value()?.as_record_view()?;
         assert_eq!(view.len(), 1);
         assert_eq!(view.value(0, 1)?, FieldValue::Int(20));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn slice_is_clamped_to_the_rows_that_exist() -> Result<(), Error> {
+        let envref = fixture_env()?.to_ref();
+        let state = evaluate(envref.clone(), "fixture_view/ns-rec/slice-1-100", None).await?;
+        let view = state.value()?.as_record_view()?;
+        assert_eq!(view.len(), 2, "a range past the end comes back short");
+        assert_eq!(view.value(0, 1)?, FieldValue::Int(20));
+        let state = evaluate(envref, "fixture_view/ns-rec/slice-7-5", None).await?;
+        assert_eq!(state.value()?.as_record_view()?.len(), 0, "an offset past the end gives no rows");
         Ok(())
     }
 

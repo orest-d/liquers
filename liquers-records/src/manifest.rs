@@ -60,8 +60,9 @@ impl ChunkTemplate {
     /// template chunk has one).
     ///
     /// Built as text and parsed back with `liquers_core::parse::parse_query`, so a malformed
-    /// `query` (or, in principle, `filename`) is reported here — at manifest-load time — rather
-    /// than surfacing later as an opaque evaluation failure.
+    /// `query` (or, in principle, `filename`) is reported here, naming the template, rather than
+    /// surfacing as an opaque evaluation failure. That is when a chunk's query is first rendered —
+    /// on the first stream or provider lookup reaching the template — not at manifest load.
     pub fn query_at(&self, index: u64, filename: Option<&str>) -> Result<Query, Error> {
         let offset = self.offset_at(index);
         let mut text = format!("{}-{}-{}", self.query, offset, self.batch_size);

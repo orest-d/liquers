@@ -319,13 +319,16 @@ fn record_view_cell_string(cell: &FieldValue) -> Result<String, Error> {
 }
 
 /// Whether `view` has the shape `RecordView::single_cell` reads — one row, and exactly one
-/// payload column or, with none, exactly one column. Asked first so that
-/// `try_into_json_value` can tell "not a scalar shape" (an array of rows) from a real failure.
+/// payload column or, with none, the `Id` column or a sole column. Mirrors `single_cell` exactly;
+/// asked first so that `try_into_json_value` can tell "not a scalar shape" (an array of rows) from
+/// a real failure.
 #[cfg(feature = "records")]
 fn record_view_is_single_cell(view: &dyn RecordView) -> bool {
     let schema = view.schema();
     let payload = schema.payload_fields().len();
-    view.len() == 1 && (payload == 1 || (payload == 0 && schema.fields.len() == 1))
+    view.len() == 1
+        && (payload == 1
+            || (payload == 0 && (schema.id_field().is_some() || schema.fields.len() == 1)))
 }
 
 /// `_option` reading: a `Null` cell is the base `None`, which the base value answers as `None`.

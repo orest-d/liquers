@@ -975,14 +975,8 @@ mod tests {
     fn record_batch_materialize_is_a_shallow_clone() {
         let batch = make_simple_batch();
         let materialized = batch.materialize().expect("materialize");
-        for i in 0..batch.columns.len() {
-            match (&batch.columns[i], &materialized.columns[i]) {
-                (Column::Int { values: a, .. }, Column::Int { values: b, .. }) => {
-                    assert_eq!(a.as_slice(), b.as_slice())
-                }
-                _ => {} // other columns compared by value elsewhere; the point here is `len`/schema identity
-            }
-        }
+        assert_eq!(batch.columns, materialized.columns);
+        assert_eq!(batch.schema, materialized.schema);
         assert_eq!(batch.len, materialized.len);
     }
 

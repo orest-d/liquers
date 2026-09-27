@@ -28,7 +28,7 @@
 //! [`LiquersRecordBatch::column`] reads `self.inner.columns[i]` directly rather than going through
 //! [`liquers_lib::records::RecordView::column`], whose default/`RecordBatch` implementation calls
 //! `Column::slice`, which **copies** (documented on `Column::slice` as
-//! `RECORDS-COLUMN-SLICE-COPIES-INSTEAD-OF-SHARING`). A descriptor built from that copy would point
+//! `COLUMN-SLICE-COPIES-INSTEAD-OF-SHARING-BUFFER-STORAGE`). A descriptor built from that copy would point
 //! into a `Column` value that is dropped the moment this function returns — a pointer to freed
 //! memory before the caller ever reads it. Reading `inner.columns[i]` by reference keeps the
 //! pointer inside the buffer the handle's own `Arc<RecordBatch>` keeps alive.

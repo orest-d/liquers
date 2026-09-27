@@ -1024,7 +1024,7 @@ impl Column {
 
     /// Zero-copy in intent: `Buffer`/`AlignedBuffer` (Step 2.2) have no windowed view of their
     /// own storage, so this copies the selected range into a fresh buffer rather than sharing the
-    /// original `Arc`. Filed as `RECORDS-COLUMN-SLICE-COPIES-INSTEAD-OF-SHARING`.
+    /// original `Arc`. Filed as `COLUMN-SLICE-COPIES-INSTEAD-OF-SHARING-BUFFER-STORAGE`.
     pub fn slice(&self, offset: usize, len: usize) -> Result<Column, Error> {
         match self {
             Column::Bool { validity, values } => Ok(Column::Bool {

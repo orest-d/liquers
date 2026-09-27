@@ -20,7 +20,8 @@ use liquers_core::{
 };
 use liquers_macro::register_command;
 use liquers_records::{
-    Buffer, Column, FieldSchema, FieldType, FieldValue, RecordBatch, RecordSchema, RecordView,
+    Buffer, Column, FieldSchema, FieldType, FieldValue, KeyRole, RecordBatch, RecordSchema,
+    RecordView,
 };
 
 use liquers_lib::environment::{CommandRegistryAccess, DefaultEnvironment};
@@ -240,6 +241,24 @@ fn single_cell_view_reads_as_its_json_scalar() -> Result<(), Box<dyn std::error:
 
     let null = Value::from_record_view(Arc::new(one_null_int_cell_batch()?));
     assert_eq!(null.try_into_json_value()?, serde_json::Value::Null);
+    Ok(())
+}
+
+/// With no payload column the `Id` is the value — also when the `Source` column is kept beside it
+/// (as `select_columns` keeps both): the JSON conversion agrees with `RecordView::single_cell`.
+#[test]
+fn id_and_source_only_row_reads_as_its_json_id() -> Result<(), Box<dyn std::error::Error>> {
+    let schema = Arc::new(RecordSchema::new(vec![
+        FieldSchema::new("id", FieldType::Int).with_key(KeyRole::Id),
+        FieldSchema::new("src", FieldType::UInt).with_key(KeyRole::Source),
+    ])?);
+    let columns = vec![
+        Column::Int { validity: None, values: Buffer::from_slice(&[42i64]) },
+        Column::UInt { validity: None, values: Buffer::from_slice(&[0u64]) },
+    ];
+    let batch = RecordBatch::new(schema, columns, None, None, vec![])?;
+    let value = Value::from_record_view(Arc::new(batch));
+    assert_eq!(value.try_into_json_value()?, serde_json::json!(42));
     Ok(())
 }
 
