@@ -19,9 +19,9 @@ in-process. There are no new commands and no new value types.
 | `AXUM-HANDLER-TEST-COVERAGE` | accepted | P2 | this design adds the scaffold for the assets handlers | no | note partial progress; the Store, Query and Recipes APIs remain |
 | `TEXT-VALUE-CANNOT-BE-STORED-AS-MARKDOWN` | draft (filed now) | P2 | `POST data` defaults to `Bytes` because of it | no | monitor; the default can become `Text` once it is fixed |
 | `CORE-SESSION-AND-KEY-ACL` | accepted | P2 | real access control; the builder switches are a stop-gap until it lands | no | monitor |
-| `STORE-NO-READ-ONLY-ADAPTER` | open | — | a corpus mounted from a file store is writable through `POST`/`DELETE` unless the router is `read_only()` | no | document `read_only()` as the mitigation |
+| `STORE-NO-READ-ONLY-ADAPTER` | draft | P2 | a corpus mounted from a file store is writable through `POST`/`DELETE` unless the router is `read_only()` | no | document `read_only()` as the mitigation |
 | `QUEUED-MANAGER-EVICTION-RACE` | accepted | P2 | `remove` unmaps the live asset under the same lock as today | no | unchanged |
-| `WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION` | open | — | §5 is rewritten here; the Store API parts stay with that issue | no | touch only §5 and §3.3 |
+| `WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION` | draft | P1 | §5 is rewritten here; the Store API parts stay with that issue | no | touch only §5 and §3.3 |
 | `ASSETS-API-ADMIN-OPERATIONS` | draft | P3 | deferred endpoints | no | none |
 
 None is blocking.
