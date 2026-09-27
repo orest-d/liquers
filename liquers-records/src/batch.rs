@@ -145,7 +145,12 @@ pub struct ChunkDescriptor {
 /// A batch of rows in Arrow's memory layout — the **materialized** `RecordView`. The unit of
 /// memory, the form data rests in, and the form that exports to Arrow as a whole. See
 /// phase2-architecture.md §"Columns, not rows: the batch is Arrow-laid-out".
+///
+/// Deserialization goes through [`RecordBatch::new`] (`RecordBatchData`), so a batch read back
+/// from bytes is validated exactly as one built in memory — `Column`'s fields are public and a
+/// hostile or corrupt document could otherwise make a kernel index past a buffer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "RecordBatchData")]
 pub struct RecordBatch {
     /// Field names, types and roles — once per batch.
     pub schema: Arc<RecordSchema>,
@@ -162,9 +167,85 @@ pub struct RecordBatch {
     pub sources: Vec<ChunkOrigin>,
 }
 
+/// `RecordBatch`'s serialized shape, deserialized without checks and then passed through
+/// [`RecordBatch::new`]. Not public: it exists only so deserialization cannot bypass validation.
+#[derive(Deserialize)]
+struct RecordBatchData {
+    schema: Arc<RecordSchema>,
+    columns: Vec<Column>,
+    len: usize,
+    chunk_id: Option<ChunkId>,
+    rows: Vec<RowRun>,
+    sources: Vec<ChunkOrigin>,
+}
+
+impl TryFrom<RecordBatchData> for RecordBatch {
+    type Error = Error;
+
+    fn try_from(data: RecordBatchData) -> Result<Self, Error> {
+        let batch = RecordBatch::new(
+            data.schema,
+            data.columns,
+            data.chunk_id,
+            Some(data.rows),
+            data.sources,
+        )?;
+        if batch.len != data.len {
+            return Err(Error::general_error(format!(
+                "RecordBatch: declares len {}, but its columns hold {} rows",
+                data.len, batch.len
+            )));
+        }
+        Ok(batch)
+    }
+}
+
+/// `column`, a `Source`-role column, with every index shifted by `offset` — how
+/// [`RecordBatch::concat`] points a batch's rows at its origins' new positions in the joined
+/// dictionary. Phase 2 does not fix the column's type; the integer types are rebased, and any other
+/// type is accepted only when nothing needs shifting.
+fn rebase_source_column(column: &Column, offset: usize) -> Result<Column, Error> {
+    if offset == 0 {
+        return Ok(column.clone());
+    }
+    let overflow = || Error::general_error("RecordBatch::concat: Source index overflows".to_string());
+    match column {
+        Column::UInt { validity, values } => {
+            let shift = u64::try_from(offset).map_err(|_| overflow())?;
+            let shifted = values
+                .as_slice()
+                .iter()
+                .map(|value| value.checked_add(shift).ok_or_else(overflow))
+                .collect::<Result<Vec<u64>, Error>>()?;
+            Ok(Column::UInt { validity: validity.clone(), values: crate::buffer::Buffer::from_slice(&shifted) })
+        }
+        Column::Int { validity, values } => {
+            let shift = i64::try_from(offset).map_err(|_| overflow())?;
+            let shifted = values
+                .as_slice()
+                .iter()
+                .map(|value| value.checked_add(shift).ok_or_else(overflow))
+                .collect::<Result<Vec<i64>, Error>>()?;
+            Ok(Column::Int { validity: validity.clone(), values: crate::buffer::Buffer::from_slice(&shifted) })
+        }
+        Column::Bool { .. }
+        | Column::Float { .. }
+        | Column::Text { .. }
+        | Column::Binary { .. }
+        | Column::Date { .. }
+        | Column::Timestamp { .. }
+        | Column::Vector { .. } => Err(Error::general_error(format!(
+            "RecordBatch::concat: the Source-role column is {:?}; only Int and UInt indices can be \
+             rebased onto the joined origin dictionary",
+            column.data_type()
+        ))),
+    }
+}
+
 impl RecordBatch {
-    /// Validates column count, lengths and types against `schema`. `rows` defaults to one run of
-    /// chunk 0 from row 0 — a standalone table, per phase2-architecture.md's Function Signatures.
+    /// Validates column count, lengths and types against `schema`, and each column's internal
+    /// structure ([`Column::validate`]). `rows` defaults to one run of chunk 0 from row 0 — a
+    /// standalone table, per phase2-architecture.md's Function Signatures.
     pub fn new(
         schema: Arc<RecordSchema>,
         columns: Vec<Column>,
@@ -178,6 +259,14 @@ impl RecordBatch {
                 columns.len(),
                 schema.fields.len()
             )));
+        }
+        for (index, (field, column)) in schema.fields.iter().zip(columns.iter()).enumerate() {
+            column.validate().map_err(|error| {
+                Error::general_error(format!(
+                    "RecordBatch::new: column '{}' (index {index}) is inconsistent: {error}",
+                    field.name
+                ))
+            })?;
         }
         let len = columns.first().map(Column::len).unwrap_or(0);
         for (index, (field, column)) in schema.fields.iter().zip(columns.iter()).enumerate() {
@@ -267,17 +356,29 @@ impl RecordBatch {
                     field
                 })
                 .collect();
-            Arc::new(RecordSchema::new(fields)?)
+            let mut widened = RecordSchema::new(fields)?;
+            widened.type_identifier = schema.type_identifier.clone();
+            Arc::new(widened)
         } else {
             schema
         };
 
+        // Each batch's `Source`-role column indexes its own `sources`; in the result they follow
+        // each other, so batch k's indices shift by the origins of the batches before it.
+        let source_field = schema.source_field();
         let mut columns = Vec::with_capacity(schema.fields.len());
         for col_index in 0..schema.fields.len() {
-            let per_batch: Vec<Column> = batches
-                .iter()
-                .map(|batch| batch.columns[col_index].clone())
-                .collect();
+            let mut per_batch: Vec<Column> = Vec::with_capacity(batches.len());
+            let mut origins_before = 0usize;
+            for batch in batches {
+                let column = &batch.columns[col_index];
+                if source_field == Some(col_index) {
+                    per_batch.push(rebase_source_column(column, origins_before)?);
+                } else {
+                    per_batch.push(column.clone());
+                }
+                origins_before += batch.sources.len();
+            }
             columns.push(Column::concat(&per_batch)?);
         }
 
@@ -962,5 +1063,160 @@ mod tests {
         assert!(joined.schema.fields[0].nullable);
         assert_eq!(joined.value(1, 0)?, FieldValue::Null);
         Ok(())
+    }
+
+    // --- Review findings DM8 / DM9 (concat) and DM11 (structural validation) ---------------
+
+    fn origin(name: &str) -> ChunkOrigin {
+        let query = parse_query(name).expect("parse");
+        ChunkOrigin { asset: query.clone(), chunk: query, info: None, locator: None }
+    }
+
+    fn sourced_batch(source_index: u64, origin_name: &str) -> RecordBatch {
+        let schema = Arc::new(
+            RecordSchema::new(vec![
+                FieldSchema::new("x", FieldType::Int),
+                FieldSchema::new("src", FieldType::UInt).with_key(KeyRole::Source),
+            ])
+            .expect("schema"),
+        );
+        RecordBatch::new(
+            schema,
+            vec![
+                Column::Int { validity: None, values: Buffer::from_slice(&[1i64]) },
+                Column::UInt { validity: None, values: Buffer::from_slice(&[source_index]) },
+            ],
+            None,
+            None,
+            vec![origin(origin_name)],
+        )
+        .expect("batch")
+    }
+
+    #[test]
+    fn concat_rebases_the_source_column_onto_the_joined_dictionary() -> Result<(), Error> {
+        let a = sourced_batch(0, "data/a.csv");
+        let b = sourced_batch(0, "data/b.csv");
+        let joined = RecordBatch::concat(&[a, b])?;
+        assert_eq!(joined.sources.len(), 2);
+        assert_eq!(joined.value(0, 1)?, FieldValue::UInt(0));
+        assert_eq!(joined.value(1, 1)?, FieldValue::UInt(1));
+        assert_eq!(joined.sources[1], origin("data/b.csv"));
+        Ok(())
+    }
+
+    #[test]
+    fn concat_widening_nullability_keeps_the_type_identifier() -> Result<(), Error> {
+        let mut not_null = RecordSchema::new(vec![FieldSchema::new("x", FieldType::Int).not_null()])?;
+        not_null.type_identifier = Some("acme.Order".to_string());
+        let mut nullable = RecordSchema::new(vec![FieldSchema::new("x", FieldType::Int)])?;
+        nullable.type_identifier = Some("acme.Order".to_string());
+        let a = RecordBatch::new(
+            Arc::new(not_null),
+            vec![Column::Int { validity: None, values: Buffer::from_slice(&[1i64]) }],
+            None,
+            None,
+            vec![],
+        )?;
+        let b = RecordBatch::new(
+            Arc::new(nullable),
+            vec![Column::Int { validity: None, values: Buffer::from_slice(&[2i64]) }],
+            None,
+            None,
+            vec![],
+        )?;
+        let joined = RecordBatch::concat(&[a, b])?;
+        assert!(joined.schema.fields[0].nullable);
+        assert_eq!(joined.schema.type_identifier.as_deref(), Some("acme.Order"));
+        Ok(())
+    }
+
+    fn one_field_schema(data_type: FieldType) -> Arc<RecordSchema> {
+        Arc::new(RecordSchema::new(vec![FieldSchema::new("f", data_type)]).expect("schema"))
+    }
+
+    #[test]
+    fn record_batch_new_refuses_text_offsets_past_the_data() {
+        let column = Column::Text {
+            validity: None,
+            offsets: Buffer::from_slice(&[0i32, 2, 9]),
+            data: crate::buffer::AlignedBuffer::from_slice(b"abcd"),
+        };
+        assert!(RecordBatch::new(one_field_schema(FieldType::Text), vec![column], None, None, vec![]).is_err());
+    }
+
+    #[test]
+    fn record_batch_new_refuses_decreasing_or_negative_offsets() {
+        let decreasing = Column::Binary {
+            validity: None,
+            offsets: Buffer::from_slice(&[0i32, 3, 1]),
+            data: crate::buffer::AlignedBuffer::from_slice(b"abcd"),
+        };
+        assert!(RecordBatch::new(one_field_schema(FieldType::Binary), vec![decreasing], None, None, vec![]).is_err());
+        let negative = Column::Binary {
+            validity: None,
+            offsets: Buffer::from_slice(&[-1i32, 2]),
+            data: crate::buffer::AlignedBuffer::from_slice(b"abcd"),
+        };
+        assert!(RecordBatch::new(one_field_schema(FieldType::Binary), vec![negative], None, None, vec![]).is_err());
+    }
+
+    #[test]
+    fn record_batch_new_refuses_invalid_utf8_in_a_text_column() {
+        let column = Column::Text {
+            validity: None,
+            offsets: Buffer::from_slice(&[0i32, 2]),
+            data: crate::buffer::AlignedBuffer::from_slice(&[0xC3, 0x28]),
+        };
+        assert!(RecordBatch::new(one_field_schema(FieldType::Text), vec![column], None, None, vec![]).is_err());
+    }
+
+    #[test]
+    fn record_batch_new_refuses_a_short_validity_bitmap() {
+        let column = Column::Int {
+            validity: Some(crate::buffer::Bitmap::from_bools(&[true])),
+            values: Buffer::from_slice(&[1i64, 2, 3]),
+        };
+        assert!(RecordBatch::new(one_field_schema(FieldType::Int), vec![column], None, None, vec![]).is_err());
+    }
+
+    #[test]
+    fn record_batch_new_refuses_vector_data_not_a_multiple_of_dim() {
+        let column = Column::Vector { validity: None, dim: 2, data: Buffer::from_slice(&[1.0f32, 2.0, 3.0]) };
+        assert!(RecordBatch::new(one_field_schema(FieldType::Vector), vec![column], None, None, vec![]).is_err());
+    }
+
+    #[test]
+    fn record_batch_new_refuses_a_bool_bitmap_shorter_than_its_length() {
+        // A `Bitmap` whose byte storage is shorter than its bit length can only arrive through
+        // serde; build one that way.
+        let mut value = serde_json::to_value(crate::buffer::Bitmap::new(3)).expect("to_value");
+        value["len"] = serde_json::json!(20);
+        let values: crate::buffer::Bitmap = serde_json::from_value(value).expect("from_value");
+        let column = Column::Bool { validity: None, values };
+        assert!(RecordBatch::new(one_field_schema(FieldType::Bool), vec![column], None, None, vec![]).is_err());
+    }
+
+    #[test]
+    fn record_batch_deserialization_refuses_inconsistent_columns() {
+        let good = RecordBatch::new(
+            one_field_schema(FieldType::Text),
+            vec![Column::Text {
+                validity: None,
+                offsets: Buffer::from_slice(&[0i32, 2]),
+                data: crate::buffer::AlignedBuffer::from_slice(b"ab"),
+            }],
+            None,
+            None,
+            vec![],
+        )
+        .expect("batch");
+        let json = serde_json::to_string(&good).expect("serialize");
+        let restored: RecordBatch = serde_json::from_str(&json).expect("a valid batch deserializes");
+        assert_eq!(restored, good);
+        let mut value: serde_json::Value = serde_json::from_str(&json).expect("json");
+        value["columns"][0]["Text"]["offsets"] = serde_json::json!([0, 50]);
+        let result: Result<RecordBatch, _> = serde_json::from_value(value);
+        assert!(result.is_err());
     }
 }

@@ -169,6 +169,19 @@ impl AlignedBytesMut {
         flat[offset..offset + bytes.len()].copy_from_slice(bytes);
     }
 
+    /// Shortens the buffer to `len` bytes (no-op when it is not longer), zeroing the dropped
+    /// bytes of the last kept chunk so the padding stays zero as `extend_from_slice` leaves it.
+    /// How `ColumnMut` undoes a partially appended row.
+    pub(crate) fn truncate(&mut self, len: usize) {
+        if len >= self.len {
+            return;
+        }
+        self.chunks.truncate(len.div_ceil(ALIGNMENT));
+        let flat: &mut [u8] = bytemuck::cast_slice_mut(&mut self.chunks);
+        flat[len..].fill(0);
+        self.len = len;
+    }
+
     /// Consumes this buffer into an immutable [`AlignedBuffer`] — the chunk storage becomes the
     /// new buffer's `Arc` directly, so this is a move, not a copy.
     pub(crate) fn freeze(self) -> AlignedBuffer {
@@ -298,10 +311,21 @@ impl<'de, T: bytemuck::Pod + Deserialize<'de>> Deserialize<'de> for Buffer<T> {
 
 /// Bit-packed booleans, LSB-first within each byte, as Arrow specifies. Used for validity
 /// (nulls), filter masks and `Column::Bool` storage — see phase2-architecture.md §"Bitmap".
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+///
+/// Only the first `len` bits are part of the bitmap. Bits beyond `len` — the padding of the last
+/// byte, or whole bytes a deserialized bitmap happens to carry — are ignored by every operation,
+/// including equality (implemented by hand for that reason) and [`Bitmap::count_ones`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bitmap {
     bits: AlignedBuffer,
     len: usize,
+}
+
+impl PartialEq for Bitmap {
+    fn eq(&self, other: &Self) -> bool {
+        self.len == other.len
+            && (0..self.len.div_ceil(8)).all(|index| self.masked_byte(index) == other.masked_byte(index))
+    }
 }
 
 impl Bitmap {
@@ -354,10 +378,36 @@ impl Bitmap {
         self.len == 0
     }
 
+    /// `false` for a bit the storage does not hold (a deserialized bitmap whose bytes are shorter
+    /// than its `len`) rather than a panic; bounds against `len` are the caller's to check.
     pub fn get(&self, i: usize) -> bool {
         let byte_idx = i / 8;
         let bit_idx = i % 8;
-        (self.bits.as_bytes()[byte_idx] >> bit_idx) & 1 == 1
+        self.bits
+            .as_bytes()
+            .get(byte_idx)
+            .is_some_and(|byte| (byte >> bit_idx) & 1 == 1)
+    }
+
+    /// Byte `index` of the bitmap with every bit at or beyond `len` cleared, and `0` for a byte
+    /// the storage does not hold — what equality and `count_ones` compare and count.
+    fn masked_byte(&self, index: usize) -> u8 {
+        let byte = self.bits.as_bytes().get(index).copied().unwrap_or(0);
+        let first_bit = index * 8;
+        if first_bit >= self.len {
+            0
+        } else if self.len - first_bit >= 8 {
+            byte
+        } else {
+            byte & ((1u8 << (self.len - first_bit)) - 1)
+        }
+    }
+
+    /// Whether the storage holds at least one byte per eight bits of `len` — always true for a
+    /// bitmap built through this API; checked by [`crate::column::Column::validate`] for one
+    /// that arrived through deserialization.
+    pub(crate) fn has_storage_for_len(&self) -> bool {
+        self.bits.as_bytes().len() >= self.len.div_ceil(8)
     }
 
     /// The bitmap's raw bytes, LSB-first within each byte — exactly Arrow's validity/`Bool`
@@ -369,14 +419,25 @@ impl Bitmap {
     }
 
     /// The inverse of [`Bitmap::as_bytes`]: `len` bits packed LSB-first into `bytes`, as Arrow's
-    /// IPC reader (`formats/ipc.rs`) decodes a validity or `Bool` values buffer from a file. Any
-    /// bits in `bytes` beyond `len` (the padding out to a whole byte) are ignored, matching
-    /// [`Bitmap::not`]'s treatment of trailing padding. A caller reading untrusted bytes checks
-    /// `bytes.len() >= len.div_ceil(8)` itself — this constructor does not fail, it only reads
-    /// what is asked for.
+    /// IPC reader (`formats/ipc.rs`) decodes a validity or `Bool` values buffer from a file. Only
+    /// the `len.div_ceil(8)` bytes the bitmap needs are kept, and the bits of the last one beyond
+    /// `len` (the padding out to a whole byte) are cleared, matching [`Bitmap::not`]'s treatment
+    /// of trailing padding. A `bytes` shorter than that reads as clear bits past its end — this
+    /// constructor does not fail; a caller reading untrusted bytes that must refuse a short
+    /// buffer checks `bytes.len() >= len.div_ceil(8)` itself.
     pub fn from_bytes(bytes: &[u8], len: usize) -> Bitmap {
+        let byte_len = len.div_ceil(8);
+        let mut kept = vec![0u8; byte_len];
+        let available = bytes.len().min(byte_len);
+        kept[..available].copy_from_slice(&bytes[..available]);
+        let remainder = len % 8;
+        if remainder != 0 {
+            if let Some(last) = kept.last_mut() {
+                *last &= (1u8 << remainder) - 1;
+            }
+        }
         Bitmap {
-            bits: AlignedBuffer::from_slice(bytes),
+            bits: AlignedBuffer::from_slice(&kept),
             len,
         }
     }
@@ -388,12 +449,8 @@ impl Bitmap {
                 self.len, other.len
             )));
         }
-        let bytes: Vec<u8> = self
-            .bits
-            .as_bytes()
-            .iter()
-            .zip(other.bits.as_bytes())
-            .map(|(a, b)| a & b)
+        let bytes: Vec<u8> = (0..self.len.div_ceil(8))
+            .map(|index| self.masked_byte(index) & other.masked_byte(index))
             .collect();
         Ok(Bitmap {
             bits: AlignedBuffer::from_slice(&bytes),
@@ -408,12 +465,8 @@ impl Bitmap {
                 self.len, other.len
             )));
         }
-        let bytes: Vec<u8> = self
-            .bits
-            .as_bytes()
-            .iter()
-            .zip(other.bits.as_bytes())
-            .map(|(a, b)| a | b)
+        let bytes: Vec<u8> = (0..self.len.div_ceil(8))
+            .map(|index| self.masked_byte(index) | other.masked_byte(index))
             .collect();
         Ok(Bitmap {
             bits: AlignedBuffer::from_slice(&bytes),
@@ -422,7 +475,7 @@ impl Bitmap {
     }
 
     pub fn not(&self) -> Bitmap {
-        let mut bytes: Vec<u8> = self.bits.as_bytes().iter().map(|b| !b).collect();
+        let mut bytes: Vec<u8> = (0..self.len.div_ceil(8)).map(|index| !self.masked_byte(index)).collect();
         // The last byte may hold bits beyond `len` (padding out to a byte boundary); mask them
         // back to zero so `count_ones`/`iter_ones` never see a stray bit that a caller never set.
         let remainder = self.len % 8;
@@ -437,11 +490,10 @@ impl Bitmap {
         }
     }
 
+    /// Set bits among the first `len` — never a padding bit beyond them.
     pub fn count_ones(&self) -> usize {
-        self.bits
-            .as_bytes()
-            .iter()
-            .map(|b| b.count_ones() as usize)
+        (0..self.len.div_ceil(8))
+            .map(|index| self.masked_byte(index).count_ones() as usize)
             .sum()
     }
 
@@ -639,6 +691,40 @@ mod tests {
         assert!(!restored.get(2));
         assert!(restored.get(3));
         assert!(!restored.get(4));
+        // The padding bits are not part of the bitmap for any other operation either.
+        assert_eq!(restored.count_ones(), 2);
+        assert_eq!(restored, Bitmap::from_bools(&[false, true, false, true, false]));
+        assert_eq!(restored.not().count_ones(), 3);
+    }
+
+    #[test]
+    fn bitmap_from_bytes_keeps_only_the_bytes_it_needs() {
+        // Trailing whole bytes beyond `len.div_ceil(8)` (an Arrow buffer padded to 64 bytes) and
+        // trailing bits of the last byte are both dropped.
+        let restored = Bitmap::from_bytes(&[0b1111_1111, 0b1111_1111, 0xFF, 0xFF], 10);
+        assert_eq!(restored.len(), 10);
+        assert_eq!(restored.count_ones(), 10);
+        assert_eq!(restored, Bitmap::from_bools(&[true; 10]));
+        assert_eq!(restored.not().count_ones(), 0);
+        assert_eq!(restored.as_bytes().len(), 2);
+        // A short input reads as clear bits rather than panicking later.
+        let short = Bitmap::from_bytes(&[0b0000_0001], 12);
+        assert_eq!(short.len(), 12);
+        assert!(short.get(0));
+        assert!(!short.get(11));
+        assert_eq!(short.count_ones(), 1);
+    }
+
+    #[test]
+    fn bitmap_equality_and_count_ignore_bits_beyond_len() {
+        // Built through serde, which bypasses `from_bytes`: the stray bits must still not count.
+        let json = serde_json::to_string(&Bitmap::from_bools(&[true, false, true])).expect("serialize");
+        let mut value: serde_json::Value = serde_json::from_str(&json).expect("json");
+        let bits = value.get_mut("bits").expect("bits field");
+        *bits = serde_json::to_value(AlignedBuffer::from_slice(&[0b1111_0101])).expect("bits");
+        let dirty: Bitmap = serde_json::from_value(value).expect("deserialize");
+        assert_eq!(dirty.count_ones(), 2);
+        assert_eq!(dirty, Bitmap::from_bools(&[true, false, true]));
     }
 
     #[test]

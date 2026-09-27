@@ -111,6 +111,110 @@ fn validity_to_null_mask(validity: &Option<Bitmap>, len: usize) -> Bitmap {
     }
 }
 
+/// A byte length as an Arrow `Utf8`/`Binary` offset. Arrow's offsets are `i32`, so a column's
+/// data cannot exceed `i32::MAX` bytes; past that this is an error rather than a silent wrap.
+pub(crate) fn offset_from_len(len: usize) -> Result<i32, Error> {
+    i32::try_from(len).map_err(|_| {
+        Error::general_error(format!(
+            "variable-length column data of {len} bytes exceeds the i32 offset range ({} bytes)",
+            i32::MAX
+        ))
+    })
+}
+
+/// The bytes of variable-length cell `i`, bounds-checked: a column built with inconsistent
+/// offsets (one that bypassed [`Column::validate`]) gives an error here, never a panic.
+fn cell_bytes<'a>(offsets: &[i32], data: &'a [u8], i: usize) -> Result<&'a [u8], Error> {
+    let bad = || {
+        Error::general_error(format!(
+            "Column: offsets of cell {i} are inconsistent with the column's data ({} bytes)",
+            data.len()
+        ))
+    };
+    let start = offsets.get(i).and_then(|&o| usize::try_from(o).ok()).ok_or_else(bad)?;
+    let end = offsets.get(i + 1).and_then(|&o| usize::try_from(o).ok()).ok_or_else(bad)?;
+    data.get(start..end).ok_or_else(bad)
+}
+
+/// The row count of a `Vector` column. With `dim > 0` it is `data.len() / dim`; with `dim == 0`
+/// (every row null, or every vector empty — nothing fixes the width) the data holds nothing to
+/// count, so the validity bitmap carries the row count, and a column with rows then always has one.
+fn vector_rows(validity: &Option<Bitmap>, dim: usize, data: &Buffer<f32>) -> usize {
+    if dim == 0 {
+        validity.as_ref().map_or(0, Bitmap::len)
+    } else {
+        data.as_slice().len() / dim
+    }
+}
+
+/// Checks a validity bitmap against the column's row count.
+fn validate_validity(validity: &Option<Bitmap>, len: usize) -> Result<(), Error> {
+    match validity {
+        Some(bitmap) => {
+            if bitmap.len() != len {
+                return Err(Error::general_error(format!(
+                    "Column::validate: validity bitmap has {} bits, but the column has {len} rows",
+                    bitmap.len()
+                )));
+            }
+            if !bitmap.has_storage_for_len() {
+                return Err(Error::general_error(format!(
+                    "Column::validate: validity bitmap of {len} bits holds fewer than {} bytes",
+                    len.div_ceil(8)
+                )));
+            }
+            Ok(())
+        }
+        None => Ok(()),
+    }
+}
+
+/// Checks `Text`/`Binary` offsets: at least one entry, the first not negative, non-decreasing,
+/// and the last within `data`. With `utf8`, the bytes they span are valid UTF-8 and every offset
+/// falls on a character boundary. O(rows + bytes).
+fn validate_offsets(offsets: &Buffer<i32>, data: &AlignedBuffer, utf8: bool) -> Result<(), Error> {
+    let off = offsets.as_slice();
+    let (first, last) = match (off.first(), off.last()) {
+        (Some(&first), Some(&last)) => (first, last),
+        (None, _) | (_, None) => {
+            return Err(Error::general_error(
+                "Column::validate: offsets are empty; a column of n rows has n + 1".to_string(),
+            ))
+        }
+    };
+    if first < 0 {
+        return Err(Error::general_error(format!(
+            "Column::validate: first offset {first} is negative"
+        )));
+    }
+    if let Some(index) = off.windows(2).position(|pair| pair[1] < pair[0]) {
+        return Err(Error::general_error(format!(
+            "Column::validate: offsets decrease at row {index} ({} then {})",
+            off[index],
+            off[index + 1]
+        )));
+    }
+    let bytes = data.as_bytes();
+    // `first >= 0` and the offsets never decrease, so every offset is non-negative.
+    let (start, end) = (first as usize, last as usize);
+    if end > bytes.len() {
+        return Err(Error::general_error(format!(
+            "Column::validate: last offset {end} exceeds the data length {}",
+            bytes.len()
+        )));
+    }
+    if utf8 {
+        let text = std::str::from_utf8(&bytes[start..end])
+            .map_err(|e| Error::from_error(ErrorType::ConversionError, e))?;
+        if let Some(&bad) = off.iter().find(|&&o| !text.is_char_boundary(o as usize - start)) {
+            return Err(Error::general_error(format!(
+                "Column::validate: offset {bad} splits a UTF-8 character"
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn apply_op<T: PartialOrd>(a: T, b: T, op: CompareOp) -> bool {
     match op {
         CompareOp::Eq => a == b,
@@ -152,9 +256,7 @@ fn compare_text(
         if !is_valid(validity, i) {
             continue;
         }
-        let start = off[i] as usize;
-        let end = off[i + 1] as usize;
-        let text = std::str::from_utf8(&bytes[start..end])
+        let text = std::str::from_utf8(cell_bytes(off, bytes, i)?)
             .map_err(|e| Error::from_error(ErrorType::ConversionError, e))?;
         if apply_op(text, target, op) {
             mask.set(i, true);
@@ -288,29 +390,34 @@ fn slice_bytes(
             "Column::slice: offset {offset} + len {len} exceeds length {n}"
         )));
     }
-    let bytes = data.as_bytes();
     let base = off[offset];
-    let start = base as usize;
-    let end = off[offset + len] as usize;
-    let new_offsets: Vec<i32> = off[offset..=offset + len].iter().map(|&o| o - base).collect();
-    let new_data = bytes[start..end].to_vec();
+    let bad = || Error::general_error("Column::slice: offsets inconsistent with the data".to_string());
+    let start = usize::try_from(base).map_err(|_| bad())?;
+    let end = usize::try_from(off[offset + len]).map_err(|_| bad())?;
+    let new_data = data.as_bytes().get(start..end).ok_or_else(bad)?.to_vec();
+    let new_offsets: Vec<i32> = off[offset..=offset + len]
+        .iter()
+        .map(|&o| o.checked_sub(base).filter(|&relative| relative >= 0).ok_or_else(bad))
+        .collect::<Result<_, _>>()?;
     Ok((Buffer::from_slice(&new_offsets), AlignedBuffer::from_slice(&new_data)))
 }
 
 fn slice_vector(
     data: &Buffer<f32>,
     dim: usize,
+    rows: usize,
     offset: usize,
     len: usize,
 ) -> Result<Buffer<f32>, Error> {
-    let slice = data.as_slice();
-    let n = if dim == 0 { 0 } else { slice.len() / dim };
-    if offset + len > n {
+    if offset + len > rows {
         return Err(Error::general_error(format!(
-            "Column::slice: offset {offset} + len {len} exceeds length {n}"
+            "Column::slice: offset {offset} + len {len} exceeds length {rows}"
         )));
     }
-    Ok(Buffer::from_slice(&slice[offset * dim..(offset + len) * dim]))
+    let cells = data.as_slice().get(offset * dim..(offset + len) * dim).ok_or_else(|| {
+        Error::general_error("Column::slice: Vector data shorter than dim × rows".to_string())
+    })?;
+    Ok(Buffer::from_slice(cells))
 }
 
 fn gather_bitmap(bitmap: &Bitmap, indices: &[u32]) -> Result<Bitmap, Error> {
@@ -371,17 +478,20 @@ fn gather_bytes(
                 "Column::take: index {idx} out of bounds (len {n})"
             )));
         }
-        let start = off[idx] as usize;
-        let end = off[idx + 1] as usize;
-        new_data.extend_from_slice(&bytes[start..end]);
-        new_offsets.push(new_data.len() as i32);
+        new_data.extend_from_slice(cell_bytes(off, bytes, idx)?);
+        new_offsets.push(offset_from_len(new_data.len())?);
     }
     Ok((Buffer::from_slice(&new_offsets), AlignedBuffer::from_slice(&new_data)))
 }
 
-fn gather_vector(data: &Buffer<f32>, dim: usize, indices: &[u32]) -> Result<Buffer<f32>, Error> {
+fn gather_vector(
+    data: &Buffer<f32>,
+    dim: usize,
+    rows: usize,
+    indices: &[u32],
+) -> Result<Buffer<f32>, Error> {
     let slice = data.as_slice();
-    let n = if dim == 0 { 0 } else { slice.len() / dim };
+    let n = rows;
     let mut out = Vec::with_capacity(indices.len() * dim);
     for &idx in indices {
         let idx = idx as usize;
@@ -390,7 +500,10 @@ fn gather_vector(data: &Buffer<f32>, dim: usize, indices: &[u32]) -> Result<Buff
                 "Column::take: index {idx} out of bounds (len {n})"
             )));
         }
-        out.extend_from_slice(&slice[idx * dim..(idx + 1) * dim]);
+        let cell = slice.get(idx * dim..(idx + 1) * dim).ok_or_else(|| {
+            Error::general_error(format!("Column::take: Vector data too short for row {idx}"))
+        })?;
+        out.extend_from_slice(cell);
     }
     Ok(Buffer::from_slice(&out))
 }
@@ -591,7 +704,7 @@ fn concat_timestamp(columns: &[Column]) -> Result<Column, Error> {
 
 fn concat_bytes_core(
     parts: &[(&Option<Bitmap>, &Buffer<i32>, &AlignedBuffer)],
-) -> (Option<Bitmap>, Buffer<i32>, AlignedBuffer) {
+) -> Result<(Option<Bitmap>, Buffer<i32>, AlignedBuffer), Error> {
     let total_rows: usize = parts
         .iter()
         .map(|(_, offsets, _)| offsets.as_slice().len().saturating_sub(1))
@@ -604,10 +717,8 @@ fn concat_bytes_core(
         let bytes = data.as_bytes();
         let n = off.len().saturating_sub(1);
         for i in 0..n {
-            let start = off[i] as usize;
-            let end = off[i + 1] as usize;
-            new_data.extend_from_slice(&bytes[start..end]);
-            new_offsets.push(new_data.len() as i32);
+            new_data.extend_from_slice(cell_bytes(off, bytes, i)?);
+            new_offsets.push(offset_from_len(new_data.len())?);
         }
     }
     let has_validity = parts.iter().any(|(validity, _, _)| validity.is_some());
@@ -636,7 +747,7 @@ fn concat_bytes_core(
     } else {
         None
     };
-    (validity, Buffer::from_slice(&new_offsets), AlignedBuffer::from_slice(&new_data))
+    Ok((validity, Buffer::from_slice(&new_offsets), AlignedBuffer::from_slice(&new_data)))
 }
 
 fn concat_text(columns: &[Column]) -> Result<Column, Error> {
@@ -654,7 +765,7 @@ fn concat_text(columns: &[Column]) -> Result<Column, Error> {
             | Column::Vector { .. } => return Err(concat_type_mismatch(FieldType::Text, column.data_type())),
         }
     }
-    let (validity, offsets, data) = concat_bytes_core(&parts);
+    let (validity, offsets, data) = concat_bytes_core(&parts)?;
     Ok(Column::Text { validity, offsets, data })
 }
 
@@ -673,7 +784,7 @@ fn concat_binary(columns: &[Column]) -> Result<Column, Error> {
             | Column::Vector { .. } => return Err(concat_type_mismatch(FieldType::Binary, column.data_type())),
         }
     }
-    let (validity, offsets, data) = concat_bytes_core(&parts);
+    let (validity, offsets, data) = concat_bytes_core(&parts)?;
     Ok(Column::Binary { validity, offsets, data })
 }
 
@@ -694,28 +805,34 @@ fn concat_vector(columns: &[Column]) -> Result<Column, Error> {
             }
         }
     }
-    let dim = parts.first().map(|(_, d, _)| *d).unwrap_or(0);
-    for (_, d, _) in &parts {
-        if *d != dim {
+    // A part with `dim == 0` holds no vector data; when every row of it is null it adopts the
+    // other parts' dim (its rows become zero-filled null cells). Any other disagreement refuses.
+    let dim = parts.iter().map(|(_, d, _)| *d).find(|d| *d != 0).unwrap_or(0);
+    for (validity, d, data) in &parts {
+        let all_null = validity.as_ref().is_some_and(|bitmap| bitmap.count_ones() == 0)
+            || vector_rows(validity, *d, data) == 0;
+        if *d != dim && !(*d == 0 && all_null) {
             return Err(Error::general_error(format!(
                 "Column::concat: Vector dim mismatch ({dim} vs {d})"
             )));
         }
     }
-    let total_rows: usize = parts
-        .iter()
-        .map(|(_, d, data)| if *d == 0 { 0 } else { data.as_slice().len() / d })
-        .sum();
-    let mut values: Vec<f32> = Vec::new();
-    for (_, _, data) in &parts {
-        values.extend_from_slice(data.as_slice());
+    let rows: Vec<usize> = parts.iter().map(|(validity, d, data)| vector_rows(validity, *d, data)).collect();
+    let total_rows: usize = rows.iter().sum();
+    let mut values: Vec<f32> = Vec::with_capacity(total_rows * dim);
+    for ((_, d, data), n) in parts.iter().zip(rows.iter()) {
+        if *d == dim {
+            values.extend_from_slice(data.as_slice());
+        } else {
+            values.extend(std::iter::repeat(0f32).take(n * dim));
+        }
     }
-    let has_validity = parts.iter().any(|(validity, _, _)| validity.is_some());
+    // With `dim == 0` the validity bitmap is what carries the row count, so it is always kept.
+    let has_validity = parts.iter().any(|(validity, _, _)| validity.is_some()) || (dim == 0 && total_rows > 0);
     let validity = if has_validity {
         let mut out = Bitmap::new(total_rows);
         let mut offset = 0;
-        for (validity, d, data) in &parts {
-            let n = if *d == 0 { 0 } else { data.as_slice().len() / d };
+        for ((validity, _, _), &n) in parts.iter().zip(rows.iter()) {
             match validity {
                 Some(bitmap) => {
                     for i in 0..n {
@@ -755,18 +872,66 @@ impl Column {
             Column::Binary { offsets, .. } => offsets.as_slice().len().saturating_sub(1),
             Column::Date { values, .. } => values.as_slice().len(),
             Column::Timestamp { values, .. } => values.as_slice().len(),
-            Column::Vector { dim, data, .. } => {
-                if *dim == 0 {
-                    0
-                } else {
-                    data.as_slice().len() / dim
-                }
-            }
+            Column::Vector { validity, dim, data } => vector_rows(validity, *dim, data),
         }
     }
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// Checks that this column's parts agree with each other, so no kernel can index past a
+    /// buffer: validity has exactly `len()` bits; `Text`/`Binary` offsets have `len() + 1`
+    /// entries, start at or above zero, never decrease and end within the data (and, for `Text`,
+    /// span valid UTF-8 split only at character boundaries); `Vector` data is exactly
+    /// `dim × len()` values, and a `Vector` with `dim == 0` and rows carries them in its validity;
+    /// a `Bool` bitmap holds storage for its length. O(rows + bytes).
+    ///
+    /// `Column`'s fields are public and it deserializes without checks, so this is what
+    /// [`crate::batch::RecordBatch::new`] — and therefore every reader and every deserialized
+    /// batch — runs on each column.
+    pub fn validate(&self) -> Result<(), Error> {
+        let len = self.len();
+        match self {
+            Column::Bool { validity, values } => {
+                if !values.has_storage_for_len() {
+                    return Err(Error::general_error(format!(
+                        "Column::validate: Bool values of {len} bits hold fewer than {} bytes",
+                        len.div_ceil(8)
+                    )));
+                }
+                validate_validity(validity, len)
+            }
+            Column::Int { validity, .. }
+            | Column::UInt { validity, .. }
+            | Column::Float { validity, .. }
+            | Column::Date { validity, .. }
+            | Column::Timestamp { validity, .. } => validate_validity(validity, len),
+            Column::Text { validity, offsets, data } => {
+                validate_offsets(offsets, data, true)?;
+                validate_validity(validity, len)
+            }
+            Column::Binary { validity, offsets, data } => {
+                validate_offsets(offsets, data, false)?;
+                validate_validity(validity, len)
+            }
+            Column::Vector { validity, dim, data } => {
+                let values = data.as_slice().len();
+                if *dim == 0 {
+                    if values != 0 {
+                        return Err(Error::general_error(format!(
+                            "Column::validate: Vector of dim 0 holds {values} values"
+                        )));
+                    }
+                } else if values % dim != 0 {
+                    return Err(Error::general_error(format!(
+                        "Column::validate: Vector data of {values} values is not a multiple of \
+                         dim {dim}"
+                    )));
+                }
+                validate_validity(validity, len)
+            }
+        }
     }
 
     /// The logical type — the inverse of `FieldSchema::data_type` matching this variant.
@@ -822,10 +987,7 @@ impl Column {
                 if !is_valid(validity, i) {
                     return Ok(FieldValue::Null);
                 }
-                let off = offsets.as_slice();
-                let start = off[i] as usize;
-                let end = off[i + 1] as usize;
-                let text = std::str::from_utf8(&data.as_bytes()[start..end])
+                let text = std::str::from_utf8(cell_bytes(offsets.as_slice(), data.as_bytes(), i)?)
                     .map_err(|e| Error::from_error(ErrorType::ConversionError, e))?;
                 Ok(FieldValue::Text(Arc::from(text)))
             }
@@ -833,10 +995,7 @@ impl Column {
                 if !is_valid(validity, i) {
                     return Ok(FieldValue::Null);
                 }
-                let off = offsets.as_slice();
-                let start = off[i] as usize;
-                let end = off[i + 1] as usize;
-                Ok(FieldValue::Bytes(Arc::from(&data.as_bytes()[start..end])))
+                Ok(FieldValue::Bytes(Arc::from(cell_bytes(offsets.as_slice(), data.as_bytes(), i)?)))
             }
             Column::Date { validity, values } => {
                 if !is_valid(validity, i) {
@@ -854,9 +1013,11 @@ impl Column {
                 if !is_valid(validity, i) {
                     return Ok(FieldValue::Null);
                 }
-                let slice = data.as_slice();
                 let start = i * dim;
-                Ok(FieldValue::Vector(Arc::from(&slice[start..start + dim])))
+                let cell = data.as_slice().get(start..start + dim).ok_or_else(|| {
+                    Error::general_error(format!("Column::get: Vector data too short for row {i}"))
+                })?;
+                Ok(FieldValue::Vector(Arc::from(cell)))
             }
         }
     }
@@ -909,7 +1070,7 @@ impl Column {
             Column::Vector { validity, dim, data } => Ok(Column::Vector {
                 validity: slice_validity(validity, offset, len)?,
                 dim: *dim,
-                data: slice_vector(data, *dim, offset, len)?,
+                data: slice_vector(data, *dim, vector_rows(validity, *dim, data), offset, len)?,
             }),
         }
     }
@@ -960,7 +1121,7 @@ impl Column {
             Column::Vector { validity, dim, data } => Ok(Column::Vector {
                 validity: gather_validity(validity, indices)?,
                 dim: *dim,
-                data: gather_vector(data, *dim, indices)?,
+                data: gather_vector(data, *dim, vector_rows(validity, *dim, data), indices)?,
             }),
         }
     }
@@ -1429,5 +1590,42 @@ mod tests {
         let json = serde_json::to_string(&column).expect("serialize");
         let restored: Column = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(restored, column);
+    }
+
+    // --- Review findings DM2 (all-null Vector columns) and DM10 (i32 offsets) ---------------
+
+    #[test]
+    fn column_vector_with_no_dim_takes_its_length_from_validity() {
+        let column = Column::Vector {
+            validity: Some(Bitmap::from_bools(&[false, false, false])),
+            dim: 0,
+            data: Buffer::from_slice(&[]),
+        };
+        assert_eq!(column.len(), 3);
+        assert_eq!(column.get(2).expect("get"), FieldValue::Null);
+        assert_eq!(column.slice(1, 2).expect("slice").len(), 2);
+        assert_eq!(column.take(&[2, 0]).expect("take").len(), 2);
+        assert_eq!(column.null_mask().count_ones(), 3);
+    }
+
+    #[test]
+    fn column_vector_concat_of_an_all_null_part_adopts_the_other_dim() {
+        let nulls = Column::Vector {
+            validity: Some(Bitmap::from_bools(&[false, false])),
+            dim: 0,
+            data: Buffer::from_slice(&[]),
+        };
+        let values = Column::Vector { validity: None, dim: 2, data: Buffer::from_slice(&[1.0f32, 2.0]) };
+        let joined = Column::concat(&[nulls, values]).expect("concat");
+        assert_eq!(joined.len(), 3);
+        assert_eq!(joined.get(0).expect("get"), FieldValue::Null);
+        assert_eq!(joined.get(2).expect("get"), FieldValue::Vector(Arc::from(vec![1.0f32, 2.0])));
+    }
+
+    #[test]
+    fn offset_from_len_refuses_lengths_past_i32() {
+        assert_eq!(offset_from_len(0).expect("0"), 0);
+        assert_eq!(offset_from_len(i32::MAX as usize).expect("max"), i32::MAX);
+        assert!(offset_from_len(i32::MAX as usize + 1).is_err());
     }
 }
