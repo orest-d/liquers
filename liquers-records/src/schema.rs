@@ -22,7 +22,7 @@ fn default_label(name: &str) -> String {
     name.replace('_', " ")
 }
 
-/// The logical type. Maps one-to-one onto the `Column` variants (added in a later step) and onto
+/// The logical type. Maps one-to-one onto the `Column` variants (`column.rs`) and onto
 /// Arrow's `DataType`. Ignored by anything that only cares about indexing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FieldType {

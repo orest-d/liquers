@@ -513,10 +513,10 @@ impl ValueExtension for ExtValue {
         #[cfg(feature = "records")]
         {
             // Every format `write_table` can actually produce with the features this build
-            // enables — `ipc`/`parquet` are `TableFormat` variants from the start
-            // (phase2-architecture.md §"Table formats") but `write_table` refuses them until
-            // Milestone 6 implements their writers, so they are declared only once this crate's
-            // own `records-ipc` / `records-parquet` feature has turned that writer on. See
+            // enables — `ipc`/`parquet` are `TableFormat` variants in every build
+            // (phase2-architecture.md §"Table formats") but `write_table` refuses them without
+            // their writers, so they are declared only when this crate's own `records-ipc` /
+            // `records-parquet` feature has turned that writer on. See
             // `specs/design/record-streams/phase2-architecture.md` §"Feature-gating discipline".
             #[allow(unused_mut)] // only mutated when records-ipc / records-parquet is enabled
             let mut record_view_formats: Vec<&'static str> =

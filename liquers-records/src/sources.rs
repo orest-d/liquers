@@ -10,7 +10,8 @@
 //!
 //! **`ContextResolver`/`EnvResolver` are compile-checked here only.** Their behaviour — that a
 //! chunk evaluated through a `Context` is recorded as a dependency and one evaluated through an
-//! `EnvRef` is not — needs `liquers-lib`'s `Value: RecordValue` and lands in Step 5.6.
+//! `EnvRef` is not — needs `liquers-lib`'s `Value: RecordValue`, so it is tested there
+//! (`liquers-lib/tests/resolver_dependency_recording.rs`).
 //!
 //! **Wrapping sources.** Phase 2's Trait Implementations table names "a filtering source and an
 //! asynchronously mapping one" as further `RecordSource` reference implementations, but neither
@@ -1194,7 +1195,7 @@ mod tests {
     /// `EnvResolver<E>` can be named at all — `liquers-records` itself has no honest implementor
     /// (`value.rs`'s test module note), so this exists purely to let the two structs' `where
     /// E::Value: RecordValue` bound resolve in a doctest-free, environment-free way. It is never
-    /// evaluated against a real environment here; behaviour tests are Step 5.6, in `liquers-lib`.
+    /// evaluated against a real environment here; behaviour tests are in `liquers-lib/tests/resolver_dependency_recording.rs`.
     #[test]
     fn context_resolver_and_env_resolver_are_usable_as_arc_dyn_chunk_resolver() {
         // Nothing to run: this test's presence is what matters. If `ContextResolver`/

@@ -1,5 +1,5 @@
-//! Schema-less type inference for text-based table cells (CSV/TSV today; Markdown reuses it in a
-//! later step).
+//! Schema-less type inference for text-based table cells (CSV/TSV and Markdown; NDJSON reuses
+//! its date and timestamp tests).
 //!
 //! See `specs/design/record-streams/phase2-architecture.md`, §"Schema-less inference rules". The
 //! rule is applied **per column**: the first of `Bool`, `Int`, `Float`, `Date`, `Timestamp`,

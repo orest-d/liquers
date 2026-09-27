@@ -79,8 +79,7 @@ pub enum ChunkId {
 }
 
 /// A command applied to `asset`, with the id supplied as its final parameter. Rendered through
-/// `ActionRequest` (a later step's `ChunkOrigin::locator_query` — not part of this one), never by
-/// string templating.
+/// `ActionRequest` (`ManifestSource::locator_query` in `sources.rs`), never by string templating.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LocatorRule {
     pub namespace: String,
@@ -128,8 +127,8 @@ pub enum ChunkList<'a> {
 /// `Serialize` or `Deserialize` — so `ChunkDescriptor` cannot carry the full derive list Phase 2's
 /// code block shows. Filed as `METADATA-LACKS-SERIALIZE-DESERIALIZE-AND-PARTIALEQ`; until it is
 /// fixed (or this type gets a hand-written serialization that skips `metadata` or re-derives it from
-/// `MetadataRecord`), `ChunkDescriptor` is `Debug + Clone` only. It is not part of any wire format
-/// in this step — `RecordSource::describe_chunk` (Step 2.6) returns it for in-process use.
+/// `MetadataRecord`), `ChunkDescriptor` is `Debug + Clone` only. It is not part of any wire format:
+/// `RecordSource::describe_chunk` returns it for in-process use.
 #[derive(Debug, Clone)]
 pub struct ChunkDescriptor {
     pub id: ChunkId,

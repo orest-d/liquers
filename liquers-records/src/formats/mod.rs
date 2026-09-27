@@ -7,13 +7,13 @@
 //! writes and reads", §"Two readers: schema-aware and schema-less" and §"Construction helpers,
 //! options and the provider chain".
 //!
-//! Every variant Phase 2 lists is present here from the start, even the ones this step does not
-//! implement (`Markdown`, `Html` land in a later step; `Ipc`, `Parquet` land in Step 6.x behind
-//! this crate's `ipc`/`parquet` features): a `TableFormat` value and `from_data_format`'s alias
-//! table are part of Phase 2's stable surface regardless of which readers exist yet, and the
-//! variant itself carries no dependency on `flatbuffers`/`flate2` — only its eventual
-//! reader/writer will. Until then, [`read_table`]/[`write_table`] refuse them with a typed
-//! [`liquers_core::error::Error::not_supported`], naming the format and the direction.
+//! Every variant Phase 2 lists is present in every feature configuration: a `TableFormat` value
+//! and `from_data_format`'s alias table are part of Phase 2's stable surface, and the variant
+//! itself carries no dependency on `flatbuffers`/`flate2` — only its reader/writer does. `Ipc`
+//! reads and writes, and `Parquet` writes, only with this crate's `ipc`/`parquet` features; without
+//! them [`read_table`]/[`write_table`] refuse with a typed
+//! [`liquers_core::error::Error::not_supported`], naming the format and the direction. `Html` is
+//! write-only, and `Parquet` is never read here (`liquers-lib`'s polars bridge reads it).
 
 pub mod csv;
 pub mod html;
@@ -78,11 +78,11 @@ pub enum TableFormat {
     Json,
     Markdown,
     Html,
-    /// Arrow IPC file (Feather v2). Implemented in Step 6.x behind the crate's `ipc` feature; the
+    /// Arrow IPC file (Feather v2). Read and written behind the crate's `ipc` feature; the
     /// variant itself needs no `flatbuffers` dependency.
     Ipc,
-    /// Implemented in Step 6.x behind the crate's `parquet` feature; the variant itself needs no
-    /// `flate2` dependency.
+    /// Parquet. Written behind the crate's `parquet` feature, never read here; the variant itself
+    /// needs no `flate2` dependency.
     Parquet,
 }
 
@@ -108,12 +108,15 @@ impl TableFormat {
     }
 }
 
-/// A typed placeholder for a format whose reader/writer has not landed yet (Step 3.2/3.3/6.x) —
-/// never a silent `_ =>` fallthrough, since every [`TableFormat`] variant still gets its own match
-/// arm in [`read_table`]/[`write_table`].
-fn not_yet_supported(format: &str, direction: &str) -> Error {
+/// The refusal for a format whose reader/writer this build does not enable (`Ipc`/`Parquet`
+/// without the `ipc`/`parquet` features) — never a silent `_ =>` fallthrough, since every
+/// [`TableFormat`] variant still gets its own match arm in [`read_table`]/[`write_table`].
+#[cfg(any(not(feature = "ipc"), not(feature = "parquet")))]
+fn feature_disabled(format: &str, direction: &str) -> Error {
     Error::not_supported(format!(
-        "TableFormat::{format}: {direction} is not implemented yet"
+        "TableFormat::{format}: {direction} needs liquers-records' '{}' feature, which this build \
+         does not enable",
+        format.to_lowercase()
     ))
 }
 
@@ -137,8 +140,8 @@ pub fn read_table(
         #[cfg(feature = "ipc")]
         TableFormat::Ipc => ipc::read_ipc(bytes, schema),
         #[cfg(not(feature = "ipc"))]
-        TableFormat::Ipc => Err(not_yet_supported("Ipc", "reading")),
-        // Unlike every other variant here, this is not "not implemented yet" — `liquers-records`
+        TableFormat::Ipc => Err(feature_disabled("Ipc", "reading")),
+        // Unlike `Ipc` without its feature, this is not a disabled feature — `liquers-records`
         // never reads Parquet, in any feature configuration (phase2-architecture.md §"Tier 3 —
         // Parquet: writing is cheap, reading is not"). A real-world Parquet file routinely uses
         // dictionary encoding, snappy/zstd compression and data page v2; reading goes through
@@ -167,11 +170,11 @@ pub fn write_table(
         #[cfg(feature = "ipc")]
         TableFormat::Ipc => ipc::write_ipc(view),
         #[cfg(not(feature = "ipc"))]
-        TableFormat::Ipc => Err(not_yet_supported("Ipc", "writing")),
+        TableFormat::Ipc => Err(feature_disabled("Ipc", "writing")),
         #[cfg(feature = "parquet")]
         TableFormat::Parquet => parquet::write_parquet(view),
         #[cfg(not(feature = "parquet"))]
-        TableFormat::Parquet => Err(not_yet_supported("Parquet", "writing")),
+        TableFormat::Parquet => Err(feature_disabled("Parquet", "writing")),
     }
 }
 
@@ -220,8 +223,7 @@ mod tests {
 
     #[test]
     fn read_table_of_an_unimplemented_format_is_not_supported_not_a_panic() {
-        // Step 3.2 implements CSV, NDJSON, JSON reading; Step 3.3 implements Markdown. Parquet
-        // reading is never implemented here, in any feature configuration (Step 6.2): it is read
+        // Parquet reading is never implemented here, in any feature configuration: it is read
         // through liquers-lib's polars bridge instead.
         let error = read_table(b"", TableFormat::Parquet, ReadSchema::Infer, &ReadOptions::default())
             .expect_err("liquers-records never reads Parquet");
@@ -241,7 +243,7 @@ mod tests {
             Arc::new(RecordSchema::new(vec![FieldSchema::new("a", FieldType::Int)]).expect("schema"));
         let batch = RecordBatchMut::with_capacity(schema, 0).freeze().expect("freeze");
         let error = write_table(&batch, TableFormat::Parquet, &WriteOptions::default())
-            .expect_err("Parquet writing is not implemented yet");
+            .expect_err("Parquet writing needs the parquet feature");
         assert!(format!("{error}").contains("Parquet"));
     }
 }

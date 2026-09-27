@@ -2,8 +2,8 @@
 //! (`ChunkNaming`), template query rendering (`ChunkTemplate::query_at` / `offset_at`), and the
 //! load-time validation checks a manifest source runs before it can be used.
 //!
-//! The conversion into a `ManifestSource` itself — which calls the validation helpers below —
-//! belongs to Step 4.2, once that type exists.
+//! The conversion into a `ManifestSource` itself — which calls the validation helpers below — is
+//! in `sources.rs`.
 //!
 //! See `specs/design/record-streams/phase2-architecture.md`, §"The types" and §"Construction
 //! helpers, options and the provider chain", and `specs/design/record-streams/manifest-format.md`,
@@ -350,7 +350,7 @@ mod tests {
     // `manifest_source_with_key_refuses_per_chunk_arguments_on_an_unkeyed_chunk`,
     // `manifest_source_with_key_refuses_explicit_name_matching_template_pattern`,
     // `manifest_source_without_key_keeps_chunks_identified_by_query`) construct a `ManifestSource`
-    // and land in Step 4.2, once that type exists.
+    // and are further down this module.
 
     #[test]
     fn chunk_naming_key_formats_with_padding() {
@@ -452,8 +452,8 @@ mod tests {
     // Four of the section's five tests, moved here (rather than to a separate integration test
     // file) because they exercise only `ChunkTemplate` / `ChunkNaming` / `ManifestSpec`, all of
     // which already live in this module. The fifth,
-    // `explicit_chunk_name_collisions_are_refused_at_load`, constructs a `ManifestSource` and
-    // lands in Step 4.2 alongside the other four deferred above.
+    // `explicit_chunk_name_collisions_are_refused_at_load`, constructs a `ManifestSource` and is
+    // further down this module, with the other four noted above.
 
     #[test]
     fn a_chunk_query_plans_without_a_registry() -> Result<(), Box<dyn std::error::Error>> {
@@ -645,9 +645,9 @@ mod tests {
         assert!(spec.check_explicit_names_against_template(&naming).is_ok());
     }
 
-    // --- Deferred from Step 4.1: the five `ManifestSource` tests (Phase 3 §2.7 ×4, §9 ×1) ---
+    // --- The five `ManifestSource` tests (Phase 3 §2.7 ×4, §9 ×1) ---
     //
-    // These need `ManifestSource`, which lands in Step 4.2's `sources.rs`.
+    // These need `ManifestSource` (`sources.rs`).
 
     #[test]
     fn manifest_source_new_refuses_colliding_explicit_chunk_names() {
