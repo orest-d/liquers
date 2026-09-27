@@ -360,6 +360,27 @@ impl Bitmap {
         (self.bits.as_bytes()[byte_idx] >> bit_idx) & 1 == 1
     }
 
+    /// The bitmap's raw bytes, LSB-first within each byte — exactly Arrow's validity/`Bool`
+    /// buffer layout ([COLUMNAR] *Validity bitmaps*). Mirrors [`AlignedBuffer::as_bytes`]; used by
+    /// the Arrow IPC writer (`formats/ipc.rs`) to hand off a validity or `Bool` values buffer
+    /// without reconstructing it bit by bit.
+    pub fn as_bytes(&self) -> &[u8] {
+        self.bits.as_bytes()
+    }
+
+    /// The inverse of [`Bitmap::as_bytes`]: `len` bits packed LSB-first into `bytes`, as Arrow's
+    /// IPC reader (`formats/ipc.rs`) decodes a validity or `Bool` values buffer from a file. Any
+    /// bits in `bytes` beyond `len` (the padding out to a whole byte) are ignored, matching
+    /// [`Bitmap::not`]'s treatment of trailing padding. A caller reading untrusted bytes checks
+    /// `bytes.len() >= len.div_ceil(8)` itself — this constructor does not fail, it only reads
+    /// what is asked for.
+    pub fn from_bytes(bytes: &[u8], len: usize) -> Bitmap {
+        Bitmap {
+            bits: AlignedBuffer::from_slice(bytes),
+            len,
+        }
+    }
+
     pub fn and(&self, other: &Bitmap) -> Result<Bitmap, Error> {
         if self.len != other.len {
             return Err(Error::general_error(format!(
@@ -595,6 +616,29 @@ mod tests {
         assert_eq!(json, "[10,-20,30,40]"); // readable numbers, not base64 bytes
         let restored: Buffer<i64> = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(restored.as_slice(), &data[..]);
+    }
+
+    #[test]
+    fn bitmap_as_bytes_round_trips_through_from_bytes() {
+        let bitmap = Bitmap::from_bools(&[true, false, true, true, false, false, true, false, true]);
+        let bytes = bitmap.as_bytes().to_vec();
+        let restored = Bitmap::from_bytes(&bytes, bitmap.len());
+        assert_eq!(restored, bitmap);
+        for i in 0..bitmap.len() {
+            assert_eq!(restored.get(i), bitmap.get(i));
+        }
+    }
+
+    #[test]
+    fn bitmap_from_bytes_ignores_trailing_padding_bits() {
+        // 5 bits requested from a byte whose top 3 bits are set — from_bytes must not surface them.
+        let restored = Bitmap::from_bytes(&[0b1110_1010], 5);
+        assert_eq!(restored.len(), 5);
+        assert!(!restored.get(0));
+        assert!(restored.get(1));
+        assert!(!restored.get(2));
+        assert!(restored.get(3));
+        assert!(!restored.get(4));
     }
 
     #[test]

@@ -18,6 +18,8 @@
 pub mod csv;
 pub mod html;
 pub mod infer;
+#[cfg(feature = "ipc")]
+mod ipc;
 pub mod markdown;
 pub mod ndjson;
 pub mod shapes;
@@ -128,6 +130,9 @@ pub fn read_table(
         TableFormat::Html => Err(Error::not_supported(
             "TableFormat::Html: reading is not supported (write-only format)".to_string()
         )),
+        #[cfg(feature = "ipc")]
+        TableFormat::Ipc => ipc::read_ipc(bytes, schema),
+        #[cfg(not(feature = "ipc"))]
         TableFormat::Ipc => Err(not_yet_supported("Ipc", "reading")),
         TableFormat::Parquet => Err(not_yet_supported("Parquet", "reading")),
     }
@@ -145,6 +150,9 @@ pub fn write_table(
         TableFormat::Json => ndjson::write_json(view, options),
         TableFormat::Markdown => markdown::write_markdown(view, options),
         TableFormat::Html => html::write_html(view, options),
+        #[cfg(feature = "ipc")]
+        TableFormat::Ipc => ipc::write_ipc(view),
+        #[cfg(not(feature = "ipc"))]
         TableFormat::Ipc => Err(not_yet_supported("Ipc", "writing")),
         TableFormat::Parquet => Err(not_yet_supported("Parquet", "writing")),
     }

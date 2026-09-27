@@ -8,7 +8,7 @@ edition = "2021"
 crate-type = ["rlib", "cdylib"]
 
 [features]
-default = ["egui", "image-support", "polars", "records"]
+default = ["egui", "image-support", "polars", "records", "records-ipc"]
 # Command-line tools. Not in `default` — see the same note in liquers-core.
 cli = ["dep:clap"]
 image-support = ["imageproc"]
@@ -42,7 +42,7 @@ async-trait = "0.1.92"
 egui = { version = "0.36.1", optional = true }
 eframe = { version = "0.36.1", optional = true }
 egui_plot = { version = "0.37.0", optional = true }
-polars = { version = "0.55.2", features = ["lazy", "temporal", "csv", "parquet"], optional = true }
+polars = { version = "0.55.2", features = ["lazy", "temporal", "csv", "parquet", "ipc"], optional = true }
 #reqwest = { version = "0.12.24", features = ["json"], optional = true }
 image = "0.25.10"
 imageproc = { version = "0.25.1", optional = true }

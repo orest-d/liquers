@@ -71,6 +71,10 @@ each sized to one agent session.
    directly, through `FlatBufferBuilder`'s `start_table` / `push_slot` / `end_table` and
    `flatbuffers::Table::get`, with slot offsets taken from Arrow's `Schema.fbs` / `Message.fbs` /
    `File.fbs` and recorded as named constants.
+   - **As implemented (Step 6.1):** the *writer* uses `FlatBufferBuilder`; the *reader* is a small
+     bounds-checked decoder of its own, because every `flatbuffers::Table` accessor is `unsafe fn`
+     and `liquers-records` has no `unsafe`. Slot constants were checked against the planus-generated
+     tables in `polars-arrow-format`.
    - This avoids a `flatc` build step, which this environment does not have.
    - It also avoids vendoring about 5 k lines of generated code for a subset that uses perhaps
      twenty fields.
