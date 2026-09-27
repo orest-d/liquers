@@ -206,6 +206,28 @@ where
     Ok(())
 }
 
+/// `stored_false_survives_to_override`: pinning a `stored: false` asset as `Override` must not
+/// write it either. The skipped write used to be recorded as `Persisted`, and `to_override` then
+/// wrote the metadata straight to the store — the metadata-only entry the flag exists to prevent.
+async fn scenario_stored_false_survives_to_override<E>(envref: EnvRef<E>, key: Key) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    let manager = envref.get_asset_manager();
+    let asset = manager.get(&key).await?;
+    asset.get().await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    manager.to_override(&key).await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    assert!(
+        !envref.get_async_store().contains(&key).await?,
+        "to_override on a stored: false asset must leave the store untouched"
+    );
+    Ok(())
+}
+
 /// `stored_false_still_reads_an_existing_copy`: with data already stored under the key, a
 /// request returns it and the recipe's counter command does not run.
 async fn scenario_stored_false_reads_existing<E>(
@@ -340,6 +362,28 @@ async fn stored_false_value_is_not_written_immediate() -> Result<(), Error> {
     )]);
     let envref = build_immediate_env(AsyncMemoryStore::new(&Key::new()), provider)?;
     scenario_stored_false_not_written(envref, key).await
+}
+
+#[tokio::test]
+async fn stored_false_survives_to_override_default() -> Result<(), Error> {
+    let key = parse_key("s1od.txt")?;
+    let provider = TaggedRecipeProvider::new([(
+        key.clone(),
+        counting_recipe("s1od", Some(false), None)?,
+    )]);
+    let envref = build_default_env(AsyncMemoryStore::new(&Key::new()), provider)?;
+    scenario_stored_false_survives_to_override(envref, key).await
+}
+
+#[tokio::test]
+async fn stored_false_survives_to_override_immediate() -> Result<(), Error> {
+    let key = parse_key("s1oi.txt")?;
+    let provider = TaggedRecipeProvider::new([(
+        key.clone(),
+        counting_recipe("s1oi", Some(false), None)?,
+    )]);
+    let envref = build_immediate_env(AsyncMemoryStore::new(&Key::new()), provider)?;
+    scenario_stored_false_survives_to_override(envref, key).await
 }
 
 // ---------------------------------------------------------------------------

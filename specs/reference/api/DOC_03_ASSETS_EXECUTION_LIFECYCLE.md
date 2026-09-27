@@ -227,8 +227,8 @@ Queued and ordinary inline evaluation use `evaluate_and_store`:
 5. Attempt serialization and store persistence when the asset is keyed, unless its
    metadata says `stored: false` — then nothing is written, not even metadata, and
    the `MetadataSaver` skips its status and progress writes for the key as well.
-6. Record `PersistenceStatus`. A write skipped for `stored: false` currently
-   records `Persisted` (see `SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED`).
+6. Record `PersistenceStatus`. A write skipped for `stored: false` records `None`,
+   so a later `to_override` does not write the metadata to the store either.
 
 The default asset data configuration requests background persistence. The queued
 manager can therefore expose a ready in-memory value before the store write
@@ -415,7 +415,7 @@ API-surface gap.
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. §Identity, caching, and fast track: a `cached: false` key gets a fresh unregistered, non-volatile asset that stays its key's graph node. §Persistence contract: `stored: false` skips every write including the metadata saver's, a skipped write currently records `Persisted`, and `set_state`/`set_binary` follow the supplied metadata's flag. Step 5 corrected from "a key or `store_to` key" to "keyed", as the 2026-09-04 row already stated. | phase-5 |
+| 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. §Identity, caching, and fast track: a `cached: false` key gets a fresh unregistered, non-volatile asset that stays its key's graph node. §Persistence contract: `stored: false` skips every write including the metadata saver's, a skipped write records `None` (fixed in this phase; it had recorded `Persisted`), and `set_state`/`set_binary` follow the supplied metadata's flag. Step 5 corrected from "a key or `store_to` key" to "keyed", as the 2026-09-04 row already stated. | phase-5 |
 | 2026-09-15 | Execution-time expiry: the parent's `Expired` status reaches the store, its version is still registered, and `try_fast_track` declines a dependency it can see is stale while treating an undeterminable one as inconclusive. | `stale-dependency-status-finalization` |
 | 2026-09-15 | §Identity, caching, and fast track: the dependency-status check is now a numbered step of its own, with a note on why the version check and the status check are independent and what "inconclusive" means. | `stale-dependency-status-finalization` |
 | 2026-09-04 | Recorded the narrowed public surface: one private evaluation body, crate-internal run entry points, `apply` absorbing `apply_immediately`. Persistence is now gated on the asset being keyed. | `design/evaluate-path-consolidation/` phase 5 |

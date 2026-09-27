@@ -73,6 +73,12 @@ straight to the store with `set_metadata` — leaving exactly the metadata-only 
 exists to prevent (`METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED`). Had the status been `None`, the
 other branch would have gone through `persist_with_status_tracking`, which honours the flag.
 
+**Fixed for this trigger (2026-09-27):** `persist_with_status_tracking` now records `None` for a
+`stored: false` asset without calling `save_to_store`, as it does for a cancelled one
+(`stored_false_survives_to_override_{default,immediate}` in `liquers-core/tests/stored_cached_flags.rs`).
+The cancellation checks inside `save_to_store` that this issue was filed for are unchanged, so the
+issue stays open for them.
+
 The expected behaviour is the same: a skipped write records `None`. Found during the
 `record-streams` Phase 5 review of `specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md`
 against the persistence path.

@@ -2274,7 +2274,12 @@ impl<E: Environment> AssetRef<E> {
     /// - `save_in_background`: When true, performs persistence asynchronously in a spawned task.
     /// - `cancelled`: Cancellation flag used to skip writes after cancellation.
     async fn persist_with_status_tracking(&self, save_in_background: bool, cancelled: bool) {
-        if cancelled {
+        // `stored: false` skips the write, so it is recorded as no attempt — `None`, as for a
+        // cancelled save — never `Persisted`. A skipped write reported as `Persisted` sent
+        // `AssetManager::to_override` down the branch that writes the metadata straight to the
+        // store, leaving the metadata-only entry the flag exists to prevent.
+        let not_stored = !self.data.read().await.metadata.stored();
+        if cancelled || not_stored {
             self.set_persistence_status(PersistenceStatus::None, None)
                 .await;
             return;
