@@ -296,6 +296,24 @@ impl<BaseValue: ValueInterface + Default, Ext: ValueExtension> ValueInterface
         }
     }
 
+    /// Delegated rather than inherited: the trait default asks `is_none()` — `false` for every
+    /// extended value — and then `try_into_i64`, so an extension's own `None` answer (a
+    /// `RecordView`'s `Null` cell) would be unreachable through `Value`.
+    fn try_into_i64_option(&self) -> Result<Option<i64>, Error> {
+        match self {
+            CombinedValue::Base(base) => base.try_into_i64_option(),
+            CombinedValue::Extended(ext) => ext.try_into_i64_option(),
+        }
+    }
+
+    /// Delegated for the same reason as [`Self::try_into_i64_option`].
+    fn try_into_f64_option(&self) -> Result<Option<f64>, Error> {
+        match self {
+            CombinedValue::Base(base) => base.try_into_f64_option(),
+            CombinedValue::Extended(ext) => ext.try_into_f64_option(),
+        }
+    }
+
     fn try_into_bool(&self) -> Result<bool, Error> {
         match self {
             CombinedValue::Base(base) => base.try_into_bool(),

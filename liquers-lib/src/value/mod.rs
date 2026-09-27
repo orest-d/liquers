@@ -318,6 +318,16 @@ fn record_view_cell_string(cell: &FieldValue) -> Result<String, Error> {
     record_view_cell_as_base(cell)?.try_into_string()
 }
 
+/// Whether `view` has the shape `RecordView::single_cell` reads — one row, and exactly one
+/// payload column or, with none, exactly one column. Asked first so that
+/// `try_into_json_value` can tell "not a scalar shape" (an array of rows) from a real failure.
+#[cfg(feature = "records")]
+fn record_view_is_single_cell(view: &dyn RecordView) -> bool {
+    let schema = view.schema();
+    let payload = schema.payload_fields().len();
+    view.len() == 1 && (payload == 1 || (payload == 0 && schema.fields.len() == 1))
+}
+
 /// `_option` reading: a `Null` cell is the base `None`, which the base value answers as `None`.
 #[cfg(feature = "records")]
 fn record_view_cell_i64_option(cell: &FieldValue) -> Result<Option<i64>, Error> {
@@ -463,6 +473,35 @@ impl ValueExtension for ExtValue {
         }
     }
 
+    /// phase2-architecture.md §"A view as a value": a single-cell view gives its cell's base
+    /// value's JSON — the same scalar the other hooks read — and any other view the records-orient
+    /// array of row objects, written by `liquers_records::to_json` rather than a second writer.
+    /// This is what a link inside a `multiple` parameter binds through. `RecordSource` refuses:
+    /// its rows need `materialize`.
+    fn try_into_json_value(&self) -> Result<serde_json::Value, Error> {
+        match self {
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => {
+                Err(ext_scalar_refusal(self, "JSON"))
+            }
+            #[cfg(feature = "polars")]
+            ExtValue::PolarsDataFrame { .. } => Err(ext_scalar_refusal(self, "JSON")),
+            #[cfg(feature = "egui")]
+            ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => {
+                Err(ext_scalar_refusal(self, "JSON"))
+            }
+            #[cfg(feature = "records")]
+            ExtValue::RecordSource { .. } => Err(ext_scalar_refusal(self, "JSON")),
+            #[cfg(feature = "records")]
+            ExtValue::RecordView { value } => {
+                if record_view_is_single_cell(value.as_ref()) {
+                    record_view_cell_as_base(&value.single_cell()?)?.try_into_json_value()
+                } else {
+                    liquers_records::to_json(value.as_ref(), liquers_records::JsonOrient::Records)
+                }
+            }
+        }
+    }
+
     fn type_descriptions() -> Vec<liquers_core::type_system::TypeInfo> {
         use liquers_core::type_system::TypeInfo;
         let mut descriptions = vec![
@@ -518,11 +557,18 @@ impl ValueExtension for ExtValue {
             // their writers, so they are declared only when this crate's own `records-ipc` /
             // `records-parquet` feature has turned that writer on. See
             // `specs/design/record-streams/phase2-architecture.md` §"Feature-gating discipline".
+            //
+            // Every alias `TableFormat::from_data_format` accepts is declared too (`csv:comma`,
+            // `csv:tab`, `jsonl`, `markdown`; `feather`, `arrow_ipc`, `arrow` with IPC): the
+            // registry gates the write path, so an undeclared alias would be a format the codec
+            // supports and the asset layer refuses.
             #[allow(unused_mut)] // only mutated when records-ipc / records-parquet is enabled
-            let mut record_view_formats: Vec<&'static str> =
-                vec!["csv", "tsv", "ndjson", "json", "md", "html"];
+            let mut record_view_formats: Vec<&'static str> = vec![
+                "csv", "csv:comma", "tsv", "csv:tab", "ndjson", "jsonl", "json", "md", "markdown",
+                "html",
+            ];
             #[cfg(feature = "records-ipc")]
-            record_view_formats.push("ipc");
+            record_view_formats.extend(["ipc", "feather", "arrow_ipc", "arrow"]);
             #[cfg(feature = "records-parquet")]
             record_view_formats.push("parquet");
             descriptions.push(

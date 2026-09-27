@@ -214,3 +214,86 @@ fn record_source_refuses_scalar_reads() -> Result<(), Box<dyn std::error::Error>
     assert!(value.try_into_string().is_err());
     Ok(())
 }
+
+// ---------------------------------------------------------------------------------------------
+// `try_into_json_value` and the `_option` hooks
+// ---------------------------------------------------------------------------------------------
+
+fn one_null_int_cell_batch() -> Result<RecordBatch, Box<dyn std::error::Error>> {
+    let schema = Arc::new(RecordSchema::new(vec![FieldSchema::new(
+        "value",
+        FieldType::Int,
+    )])?);
+    let column = Column::Int {
+        validity: Some(liquers_records::Bitmap::from_bytes(&[0b0], 1)),
+        values: Buffer::from_slice(&[0i64]),
+    };
+    Ok(RecordBatch::new(schema, vec![column], None, None, vec![])?)
+}
+
+/// phase2-architecture.md §"A view as a value": "`try_into_json_value` gives the scalar for a
+/// single cell" — the cell's base value's own JSON.
+#[test]
+fn single_cell_view_reads_as_its_json_scalar() -> Result<(), Box<dyn std::error::Error>> {
+    let value = Value::from_record_view(Arc::new(one_row_one_float_column_batch(3.5)?));
+    assert_eq!(value.try_into_json_value()?, serde_json::json!(3.5));
+
+    let null = Value::from_record_view(Arc::new(one_null_int_cell_batch()?));
+    assert_eq!(null.try_into_json_value()?, serde_json::Value::Null);
+    Ok(())
+}
+
+/// "… and an array of row objects otherwise."
+#[test]
+fn multi_row_view_reads_as_a_json_array_of_row_objects() -> Result<(), Box<dyn std::error::Error>>
+{
+    let value = Value::from_record_view(Arc::new(two_row_batch()?));
+    assert_eq!(
+        value.try_into_json_value()?,
+        serde_json::json!([{"value": 1}, {"value": 2}])
+    );
+    Ok(())
+}
+
+/// A `Null` cell reads as the base `None`, so the `_option` conversions answer `None` — through
+/// `Value` (`CombinedValue`), which is what a command's argument binds through, not only through
+/// `ExtValue` directly.
+#[test]
+fn null_cell_reads_as_none_through_the_option_hooks() -> Result<(), Box<dyn std::error::Error>> {
+    let null = Value::from_record_view(Arc::new(one_null_int_cell_batch()?));
+    assert_eq!(null.try_into_i64_option()?, None);
+    assert_eq!(null.try_into_f64_option()?, None);
+
+    let present = Value::from_record_view(Arc::new(one_row_one_column_batch()?));
+    assert_eq!(present.try_into_i64_option()?, Some(42));
+    assert_eq!(present.try_into_f64_option()?, Some(42.0));
+    Ok(())
+}
+
+fn sum_prices(prices: Vec<f64>) -> Result<Value, Error> {
+    Ok(Value::from(prices.iter().sum::<f64>()))
+}
+
+/// A link inside a `multiple` parameter is materialized as JSON (`materialize_link_json`), so a
+/// one-cell view bound there needs `try_into_json_value` to give the scalar.
+#[tokio::test]
+async fn record_cell_binds_inside_a_multiple_parameter_through_a_link(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let envref = {
+        let mut env = DefaultEnvironment::<Value>::new();
+        {
+            let cr = env.get_mut_command_registry();
+            register_command!(cr, fn price_view() -> result)?;
+            register_command!(cr, fn sum_prices(prices: Vec<f64> multiple) -> result)?;
+        }
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+        env.to_ref()
+    };
+
+    let asset = envref
+        .evaluate("sum_prices-~X~price_view~E-~X~price_view~E")
+        .await?;
+    let state = asset.get().await?;
+    assert_eq!(state.value()?.try_into_f64()?, 7.0);
+    Ok(())
+}
