@@ -40,3 +40,11 @@ it up, and the reference document records the choice.
 
 Found 2026-09-27 by the formats review of the record-streams implementation, before Phase 5. It
 was left unfixed because it contradicts a Phase 2 table rather than being a slip in the code.
+
+## Update 2026-09-27 — the JSON `table` orient now declares UTC
+
+Fixing the review's `table`-orient finding, the writer now puts `"tz": "UTC"` on Timestamp fields.
+pandas 3 refuses a document whose values end in `Z` while the field declares no zone. So the text
+formats, Parquet and the `table` orient agree on UTC, and IPC and the polars bridge are the two
+left to change.
+

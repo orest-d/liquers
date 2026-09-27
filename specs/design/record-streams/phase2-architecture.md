@@ -1281,7 +1281,8 @@ implicit `RowId`.
 | Step | Rule |
 |---|---|
 | Type, per column | the first of `Bool` (`true`/`false`, any case), `Int`, `Float`, `Date` (`YYYY-MM-DD`), `Timestamp` (RFC 3339), `Text` that fits **every** non-null cell. A column of nulls only is nullable `Text` |
-| `Int` means canonical | a cell counts as `Int` only if it fits `i64` **and** formatting the parsed number gives the cell back. So `01234`, `+5` and `1e3` stay text — a ZIP code or an account number keeps its leading zero — and a number too large for `i64` is not silently turned into a `Float` |
+| `Int` means canonical | a cell counts as `Int` only if it fits `i64` **and** formatting the parsed number gives the cell back. So `01234`, `+5` and `1e3` are not `Int` — a ZIP code or an account number keeps its leading zero — and a number too large for `i64` is not silently turned into a `Float` |
+| `Float` is a spelling | a cell counts as `Float` if it matches `-?(0\|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?`, has a decimal point or an exponent, and is finite — so `1.0`, `0.10`, `2.50` and `1e3` are `Float`, while `+5`, `01.5` and `.5` stay text. The writers' own spellings `NaN`, `inf` and `-inf` also count. The writers always spell a float with a point or an exponent (`1.0`, not `1`), so a written `Float` column is read back as `Float` |
 | Nullable | any null seen |
 | JSON and NDJSON | JSON's own types decide: an integral number without exponent that fits `i64` is `Int`, other numbers `Float`. Only *strings* go through the date and timestamp tests, so `"42"` stays text. An array of numbers of one length in every row is a `Vector`; any other array or object is `Text` holding its JSON |
 | The `Id` | **never guessed.** A table read without a schema has no `Id` column; its rows have their implicit `RowId`s. Writers keep schema order
@@ -1338,7 +1339,12 @@ by **explicit conversion commands** between a `RecordView` and a plain JSON valu
   pandas writes and reads) has `title` and `description` per field — our `label` and `description`
   exactly — and `primaryKey` for the `Id`. Types map as `integer`, `number`, `boolean`, `string`,
   `date`, `datetime`, `string` with `format: binary`, and `array` for a vector. Roles travel as an
-  extra field property that a reader not knowing it ignores. Reading `table` is schema-aware.
+  extra field property that a reader not knowing it ignores — `"liquers": {"type", "key", "role"}`,
+  which also carries the exact type where Table Schema has none (`UInt` is written as `integer`).
+  When it is present, nullability comes from `constraints.required` alone. `datetime` fields
+  declare `"tz": "UTC"` (pandas refuses `Z`-suffixed values under a zone-less field), and a naive
+  datetime such as pandas writes for a zone-less column reads as UTC. Reading `table` is
+  schema-aware.
   **Interop is tested against a fixture written by pandas**, not assumed from the specification.
 - **`values`** carries no names: reading it needs a schema (positional) or names the columns `c0`,
   `c1`, ….
@@ -3247,6 +3253,7 @@ information — each is a position that was argued for and then abandoned on evi
 | 2026-09-24 | `records` enables `serde/rc`; `ManifestSource` serializes through `ManifestSpec`; closure-holding views are generic with a hand-written `Debug` | A Rust review of the trait form: `Arc` fields fail to derive `Serialize` in a minimal build; `chunks()` could not borrow ids from a `Vec<Query>`; `dyn Fn + MaybeSend` is E0225 |
 | 2026-09-25 | **Phase 4 review.** `RecipeProviderChoice` is unchanged; the chain is appended in code (`with_appended_recipe_provider`, `LibKind`'s default) — §B and the Integration Points rows. §C's sites corrected against `assets.rs`: the metadata saver (`save_metadata_to_store`) is a `stored` write site; `cached: false` acts where the `get(key)` path registers (`get_nonvolatile_resource_asset`, `ImmediateAssetManager::get_resource_asset`), not at `try_insert_key_asset`; the flags are taken when the manager creates the keyed asset, not in `resolve_volatility_before_evaluation`, which runs before the provider's recipe replaces the ad-hoc one. The records crate's Cargo block gains `derive`, `serde_yaml`, `async-trait` and `scc`. Two unbalanced code fences repaired (`ChunkValue`, `RowFnView`) | Checking the plan's claims against the code: a `Choice` is configuration data and cannot name another crate's provider; a `stored: false` chunk would otherwise leave a metadata-only entry; the manifest provider parses YAML and implements an `#[async_trait]` trait |
 | 2026-09-26 | **Every `ns-rec` command is `async fn ... context`**, `row`/`select_columns`/`head`/`slice`/`records_schema`/`to_json`/`from_json` included — Phase 2's table had shown these as sync `fn`s, but they convert their input through `to_record`/`to_record_source`, which are themselves `async` (a keyed input needs the asset manager), so a sync command could not `.await` the conversion. `file_records` row added (Phase 3 §1.1's scenario command, `async fn file_records(state, context) -> result`). `schema`'s spelling settled as `schema: String = ""` (empty = none; non-empty = a YAML/JSON `RecordSchema` document as text) — `register_command!` has no `FromParameterValue`/`TryFrom<Value>` impl for `Option<Value>`, so that spelling does not bind | Phase 4 Step 5.5: `liquers-macro`'s `commands.rs` has no impl letting an `Option<Value>` argument bind at all, checked before regenerating the registry |
+| 2026-09-27 | **Implementation review.** Schema-less inference gains a `Float` spelling rule (ordinary decimals such as `1.0` had inferred as text, since only `Int` was meant to be canonical). The `table` orient names its extra field property `liquers` (type, key, role) and declares `tz: UTC` on datetimes. A keyless manifest refuses every per-chunk and shared argument at stream open, since with no key every chunk is unkeyed (§A) | Findings of the review of the implemented diff before Phase 5 (`phase5-evidence.md`) |
 
 **Corrections worth keeping visible**, because each was stated wrongly first:
 
