@@ -1,7 +1,7 @@
 ---
 id: AXUM-ASSETS-ENDPOINTS
 kind: design
-title: Complete the six stubbed assets API endpoints
+title: Assets API endpoints for every client-meaningful AssetManager operation
 status: draft
 phase: high-level
 area: [axum, core/assets]
