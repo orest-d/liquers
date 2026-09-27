@@ -2,7 +2,7 @@
 id: NO-RECORD-STREAM-ABSTRACTION
 kind: feature
 title: No record stream abstraction
-status: draft
+status: closed
 priority: P2
 complexity: XL
 area: [core/value, core/commands, lib/value, web]
@@ -10,6 +10,29 @@ design: record-streams
 created: 2026-09-19
 github:
 ---
+## Resolution
+
+Delivered by [`specs/design/record-streams/`](../design/record-streams/), implemented and reviewed
+2026-09-26/27. Liquers now has a tabular value family:
+
+- the `liquers-records` crate: an Arrow-layout columnar model, views, chunked sources and manifests,
+  and the CSV/TSV, NDJSON/JSON, Markdown, HTML, Arrow IPC and Parquet formats; it depends on
+  `liquers-core` only, so it builds on wasm32;
+- `ExtValue::RecordView` / `RecordSource` in `liquers-lib` behind the `records` feature, the 13
+  `ns-rec` commands, and a polars bridge;
+- a `RecordBatch` handle in `liquers-web`.
+
+Chunks carry a `Metadata` each, so provenance and validity use the existing dependency machinery.
+Current behaviour: [`RECORD_STREAMS.md`](../reference/RECORD_STREAMS.md); how to produce records:
+[`RECORD_STREAM_GUIDE.md`](../guides/RECORD_STREAM_GUIDE.md). Evidence:
+`specs/design/record-streams/phase5-evidence.md`.
+
+Two parts of the problem stay open under their own records:
+- incremental reading and writing (`CORE-STORE-OPENBIN-MISSING`,
+  `VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER`, `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`).
+  A stream is processed chunk by chunk, but a single chunk is still read and written whole;
+- the consumers named above: search, external engines, and SQL (`NO-RELATIONAL-DATABASE-ACCESS-LAYER`).
+
 ## Problem
 
 Liquers has no tabular value. A DataFrame exists only as `ExtValue::PolarsDataFrame`, behind the

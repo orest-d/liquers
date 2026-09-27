@@ -136,8 +136,8 @@ expansion time rather than at runtime. That is the cheapest item here.
 - **Store behavioural semantics** — documented → [`reference/STORE_SEMANTICS.md`](reference/STORE_SEMANTICS.md)
 - **Shared directory support for backends without directories** — documented → `liquers-core/src/store_dir_index.rs` *(design in [`design/opendal-path-mapping/`](design/opendal-path-mapping/))*
 - **Streaming binary access (`openbin`)** — planned → [`issues/CORE-STORE-OPENBIN-MISSING.md`](issues/CORE-STORE-OPENBIN-MISSING.md)
-- **Record streams — a chunked, Arrow-interoperable tabular abstraction** — designing → [`design/record-streams/`](design/record-streams/)
-- **Content and metadata search** — designing → [`design/store-and-asset-search/`](design/store-and-asset-search/) *(blocked on record streams)*
+- **Record streams — a chunked, Arrow-interoperable tabular abstraction** — built → [`reference/RECORD_STREAMS.md`](reference/RECORD_STREAMS.md); producing records: [`guides/RECORD_STREAM_GUIDE.md`](guides/RECORD_STREAM_GUIDE.md) *(design in [`design/record-streams/`](design/record-streams/))*
+- **Content and metadata search** — designing → [`design/store-and-asset-search/`](design/store-and-asset-search/) *(its record-stream prerequisite is now built)*
 - **SQL over stored and derived data** — planned → [`issues/NO-SQL-QUERY-CAPABILITY-OVER-STORED-AND-DERIVED-DATA.md`](issues/NO-SQL-QUERY-CAPABILITY-OVER-STORED-AND-DERIVED-DATA.md)
 - **Read-only mounts** — planned → [`issues/STORE-NO-READ-ONLY-ADAPTER.md`](issues/STORE-NO-READ-ONLY-ADAPTER.md)
 - **Conditional writes and concurrent-writer semantics** — planned → [`issues/STORE-WRITE-HAS-NO-PRECONDITION.md`](issues/STORE-WRITE-HAS-NO-PRECONDITION.md)
@@ -204,9 +204,10 @@ established that the record mechanism serves four consumers of which search is o
 requirements search never raises: lazy processing of multi-gigabyte tables one chunk at a time, a
 memory layout Arrow can consume without a heavy dependency, a DataFrame role for `liquers-web` where
 polars cannot be bundled, and provenance and validity traced per chunk and flyweighted to the record.
-`design/record-streams/` owns all of it and is being stabilized first; `design/store-and-asset-search/`
+`design/record-streams/` owns all of it and was built first (2026-09-27; see
+[`reference/RECORD_STREAMS.md`](reference/RECORD_STREAMS.md)); `design/store-and-asset-search/`
 keeps the predicate, its syntax and its parser, the indexation policy, the interoperability layer and
-the `get_asset_info` repair, and is blocked on it by declaration rather than by accident.
+the `get_asset_info` repair, and was blocked on it by declaration rather than by accident.
 
 Designing this found three gaps: `ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET`
 (expiration is notified, but only to something already holding the asset),
@@ -365,7 +366,6 @@ deliberately folded behind a broader line.
 - feature `JS-COMMAND-CANNOT-ACCESS-CONTEXT`
 - feature `LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION`
 - feature `LANGUAGE-STORE-TYPE-NOT-DEFINABLE`
-- feature `NO-RECORD-STREAM-ABSTRACTION`
 - feature `NO-RELATIONAL-DATABASE-ACCESS-LAYER`
 - feature `STORE-COMMAND-NAMESPACE-MISSING`
 - feature `STORE-CONFIG-FROM-URI`

@@ -8,10 +8,10 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 142
+Total rows: 141
 - P0: 1
 - P1: 2
-- P2: 84
+- P2: 83
 - P3: 55
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
@@ -100,7 +100,6 @@ Total rows: 142
 | [`VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`](issues/VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE.md) | feature | Serialization is synchronous and whole-value, so a large or lazy value cannot be served or stored as it is produced | draft |  | P2 | L | core/value;core/store;core/assets;axum |  | 2026-09-24 |
 | [`WORKSPACE-SERDE-DERIVE-UNDECLARED`](issues/WORKSPACE-SERDE-DERIVE-UNDECLARED.md) | issue | Three crates use serde derive macros without declaring the `derive` feature | accepted |  | P2 | L | build;core/value;lib/ui;axum |  | 2026-08-09 |
 | [`AGENT-MEMORY-SERVICE`](issues/AGENT-MEMORY-SERVICE.md) | feature | A memory service for agents, built on the liquers stack | draft |  | P2 | XL | axum;lib/commands;docs | [phase1](specs/design/agent-memory-mvp/phase1-high-level-design.md)  [phase2](specs/design/agent-memory-mvp/phase2-architecture.md)  [phase3](specs/design/agent-memory-mvp/phase3-examples.md)  [phase4](specs/design/agent-memory-mvp/phase4-implementation.md)  [phase5](specs/design/agent-memory-mvp/phase5-documentation.md)  | 2026-09-15 |
-| [`NO-RECORD-STREAM-ABSTRACTION`](issues/NO-RECORD-STREAM-ABSTRACTION.md) | feature | No record stream abstraction | draft |  | P2 | XL | core/value;core/commands;lib/value;web | [chunking](specs/design/record-streams/chunking-and-resumability.md)  [engine](specs/design/record-streams/engine-survey.md)  [manifest](specs/design/record-streams/manifest-format.md)  [phase1](specs/design/record-streams/phase1-high-level-design.md)  [phase2](specs/design/record-streams/phase2-architecture.md)  [phase3](specs/design/record-streams/phase3-examples.md)  [phase3](specs/design/record-streams/phase3-tests.md)  [phase4](specs/design/record-streams/phase4-implementation.md)  [phase5](specs/design/record-streams/phase5-documentation.md)  [phase5](specs/design/record-streams/phase5-evidence.md)  [record](specs/design/record-streams/record-model.md)  | 2026-09-19 |
 | [`NO-RELATIONAL-DATABASE-ACCESS-LAYER`](issues/NO-RELATIONAL-DATABASE-ACCESS-LAYER.md) | feature | No access layer from Liquers into relational databases | draft |  | P2 | XL | lib/value;lib/commands;store/backends |  | 2026-09-20 |
 | [`VALUE-TYPE-DEFINITION-MACRO`](issues/VALUE-TYPE-DEFINITION-MACRO.md) | feature | Value types and their registry entries are hand-written instead of generated | draft |  | P2 | XL | macro;lib/value;core/value |  | 2026-08-18 |
 | [`REPO-DEAD-CODE-HYGIENE`](issues/REPO-DEAD-CODE-HYGIENE.md) | issue | Dead modules and untracked files in the repository | accepted | ready | P3 | S | build | [phase1](specs/design/core-dead-code-hygiene/phase1-high-level-design.md)  [phase2](specs/design/core-dead-code-hygiene/phase2-architecture.md)  [phase3](specs/design/core-dead-code-hygiene/phase3-examples.md)  [phase4](specs/design/core-dead-code-hygiene/phase4-implementation.md)  | 2026-08-08 |

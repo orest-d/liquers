@@ -5,10 +5,10 @@ title: Record streams — a lightweight, chunked, Arrow-interoperable tabular ab
 workflow: liquers-project
 status: draft
 phase: documentation
-area: [lib/value, lib/commands, web, axum]
+area: [records, lib/value, lib/commands, core/assets, web]
 gh_pr: []
 issues: [NO-RECORD-STREAM-ABSTRACTION, NO-RELATIONAL-DATABASE-ACCESS-LAYER, NO-RECIPE-PROVIDER-CHAIN, RECORD-SELECTION-IS-EAGER-NOT-A-VIEW, RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY]
-affects_docs: [reference/RECORD_STREAMS.md, guides/RECORD_STREAM_GUIDE.md, reference/VALUE_TYPE_SYSTEM.md, guides/TYPE_SYSTEM_GUIDE.md, guides/COMMAND_REGISTRATION_GUIDE.md, guides/LANGUAGE-INTEGRATION_GUIDE.md, reference/ASSETS.md, reference/ASSET_LIFECYCLE.md, reference/ENVIRONMENT_CONFIG.md, reference/PROJECT_OVERVIEW.md, reference/REGISTER_COMMAND_FSD.md]
+affects_docs: [reference/RECORD_STREAMS.md, guides/RECORD_STREAM_GUIDE.md, reference/VALUE_TYPE_SYSTEM.md, guides/TYPE_SYSTEM_GUIDE.md, guides/COMMAND_REGISTRATION_GUIDE.md, guides/LANGUAGE-INTEGRATION_GUIDE.md, reference/ASSETS.md, reference/ASSET_LIFECYCLE.md, reference/ENVIRONMENT_CONFIG.md, reference/PROJECT_OVERVIEW.md, reference/REGISTER_COMMAND_FSD.md, reference/DEPENDENCIES_STATUS.md, reference/ASSET_SET_OPERATION.md, reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md, reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md, reference/api/DOC_08_RECIPES_PLANS.md, guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md]
 created: 2026-09-19
 superseded_by:
 ---
