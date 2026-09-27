@@ -3,7 +3,7 @@ id: AXUM-ASSETS-ENDPOINTS
 kind: design
 title: Assets API endpoints for every client-meaningful AssetManager operation
 status: draft
-phase: architecture
+phase: examples
 area: [axum, core/assets]
 gh_pr: []
 issues: [AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED]
@@ -17,7 +17,7 @@ superseded_by:
 ## Phase Status
 
 - [x] Phase 1: High-Level Design (approved 2026-09-27)
-- [ ] Phase 2: Solution & Architecture
+- [x] Phase 2: Solution & Architecture (approved 2026-09-27)
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
 - [ ] Implementation Complete
