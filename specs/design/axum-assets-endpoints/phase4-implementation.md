@@ -428,7 +428,7 @@ curl -s -X POST 'localhost:3000/liquer/api/assets/data/notes/a.txt?type_identifi
 curl -s localhost:3000/liquer/api/assets/listdir/notes | jq .
 curl -s -X DELETE localhost:3000/liquer/api/assets/data/notes/a.txt | jq .result
 ```
-Adjust the base path and port to what `basic_server` prints on startup.
+`basic_server` does not mount the Assets API; `assets_recipes_basic` does, at `/liquer/api/assets`, port 3000.
 
 ## Agent Assignment Summary
 
