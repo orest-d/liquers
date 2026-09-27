@@ -100,9 +100,9 @@ an arm:
 
 | File | Site |
 |---|---|
-| `liquers-core/src/error.rs` | the all-variants list (≈ line 376) |
+| `liquers-core/src/error.rs` | the variant and its constructor only — core has no exhaustive `ErrorType` list (the `ErrorType::…` hits there are inside constructors) |
 | `liquers-core/src/assets.rs` | the `PersistenceStatus` classification (≈ line 2251) → `NotPersisted` |
-| `liquers-axum/src/api_core/error.rs` | `error_to_status_code` → `CONFLICT`; `parse_error_type`; both variant lists in the tests |
+| `liquers-axum/src/api_core/error.rs` | `error_to_status_code` → `CONFLICT` (≈ line 32); `parse_error_type` (≈ 83); the variant list (≈ 110–123), the exhaustive match (≈ 136–149) and the list (≈ 322–326) in its tests |
 | `liquers-py/src/error.rs` | both conversion directions; the Python-side `ErrorType` enum gains the variant |
 | `liquers-web/src/error.rs` | both directions, string `"status_conflict"`; the list in `liquers-web/tests/objects_OBJECT.rs` |
 
@@ -349,6 +349,7 @@ a disabled route exists, with a §3 envelope, would hide the server's configurat
 | liquers-axum | `src/assets/handlers.rs` | helpers, 7 filled-in handlers, 11 new handlers |
 | liquers-axum | `src/assets/builder.rs` | new routes, `read_only`, `with_admin` |
 | liquers-axum | `src/assets/mod.rs` | `mod value_description;` |
+| liquers-axum | `src/assets/handlers.rs`, `builder.rs` module docs | point at `specs/design/axum-assets-endpoints/` as well as the original `axum-assets-recipes-api` |
 | liquers-axum | `src/api_core/error.rs` | 409 mapping, parse, variant lists |
 | liquers-axum | `src/assets/tests.rs` | placeholder replaced by handler tests (Phase 3) |
 | liquers-axum | `Cargo.toml` | `[dev-dependencies] tower = { version = "0.5.3", features = ["util"] }` for `ServiceExt::oneshot` |
@@ -491,3 +492,33 @@ replaced by `HeaderValue::from_static`, since `mime_type()` returns `&'static st
   - Status and resolution notes for `AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED` and
     `ASSET-REMOVE-FORGETS-DEPENDENTS`.
   - A progress note on `AXUM-HANDLER-TEST-COVERAGE`.
+
+## Review Log
+
+Multi-agent review, 2026-09-27.
+
+- **Reviewer A (Phase 1 conformity):** no findings. Every in-scope endpoint has a route, a handler
+  and a response spec; the deferred items are absent; Q1–Q17 are reflected; the removal table
+  matches Phase 1.
+- **Reviewer B (codebase alignment):** reported the not-yet-written implementation as "blocking",
+  which is expected for a design, and an `unwrap` in `get_metadata_handler` that is actually
+  `unwrap_or`. One valid advisory was taken: the module docs point at the old design folder
+  (added to Integration Points).
+- **Verified by hand**, because Reviewer B did not cover them:
+  - *Exhaustive `ErrorType` sites.* A grep for `ErrorType::Cancelled` and
+    `ErrorType::CacheNotSupported` outside constructors finds exactly: `assets.rs` ≈2239–2252;
+    `api_core/error.rs` 28/79/110/136/322; `liquers-py/src/error.rs` both directions;
+    `liquers-web/src/error.rs` both directions and `tests/objects_OBJECT.rs`. Nothing outside
+    `.rs` files. The table above was corrected: core `error.rs` has no variant list.
+  - *Lock discipline.*
+    - `AssetRef::cancel` does not reach the manager lock; today's `remove` already calls it
+      under the lock.
+    - `remove_key_asset` is a plain map removal in both managers (`scc` / `std::sync::Mutex`).
+    - `untrack_expiration` is a channel send.
+    - `cascade_expire_dependents` → `expire_dependencies_result` → `expire_without_cascade` /
+      `expire_stored_copy` takes no manager lock; `set_binary` already runs it under the lock.
+    - The expiration monitor's `remove_expired_from_maps` does take the lock, but on its own
+      task: it waits rather than deadlocks.
+
+  No fixer pass was needed beyond these edits.
+
