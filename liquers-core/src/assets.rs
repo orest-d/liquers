@@ -1809,12 +1809,28 @@ impl<E: Environment> AssetRef<E> {
     /// `AssetData::recipe` alone. The recipe identity remains a consistency check, while the
     /// manager registration distinguishes a keyed asset from an ad-hoc query whose resource
     /// prefix happens to look like a key.
+    ///
+    /// **An uncached keyed asset answers too.** `cached: false` means the manager does not
+    /// register the asset for reuse — it never means the asset stops being the key's node in the
+    /// dependency graph. Such an asset has no registered owner by design, so registration cannot
+    /// be the test for it; it answers `Some` when it was constructed for this key
+    /// (`AssetData::key`), is not volatile, its recipe targets the key and declares
+    /// `cached: false`, and **no other asset is registered** for the key. A registered owner, when
+    /// there is one, stays the only answer — which keeps a delegating asset (keyed, not the owner)
+    /// answering `None`.
     pub(crate) async fn bound_owner_key(&self) -> Result<Option<Key>, Error> {
         let Some(candidate) = self.bound_key_candidate().await else {
             return Ok(None);
         };
 
-        let recipe = { self.data.read().await.recipe.clone() };
+        let (recipe, constructed_key, is_volatile) = {
+            let lock = self.data.read().await;
+            (
+                lock.recipe.clone(),
+                lock.key.clone(),
+                lock.is_volatile || lock.status == Status::Volatile,
+            )
+        };
         let recipe_identity = match recipe.store_to_key()? {
             Some(key) => Some(key),
             None => recipe.key()?,
@@ -1824,10 +1840,15 @@ impl<E: Environment> AssetRef<E> {
         }
 
         let manager = self.get_envref().await.get_asset_manager();
-        let Some(owner) = manager.owned_key_asset(&candidate).await else {
-            return Ok(None);
-        };
-        Ok((owner.id() == self.id()).then_some(candidate))
+        match manager.owned_key_asset(&candidate).await {
+            Some(owner) => Ok((owner.id() == self.id()).then_some(candidate)),
+            None => {
+                let unregistered_node = !recipe.cached()
+                    && constructed_key.as_ref() == Some(&candidate)
+                    && !is_volatile;
+                Ok(unregistered_node.then_some(candidate))
+            }
+        }
     }
 
     /// The key this asset is associated with, or `None` when it is not a
@@ -3798,6 +3819,50 @@ pub(crate) fn load_command_versions_sync<E: Environment>(
 ///
 /// Dependency tracking is automatic. Keeping this separate from [`AssetManager`]'s public
 /// operations prevents the graph implementation from becoming part of the supported API.
+/// Mark the stored copy of `key` `Expired`, for a key the dependency graph expired while no
+/// registered asset held it (see [`AssetManager::expire_dependencies_result`]).
+///
+/// The same transition `AssetRef::mark_expired_status` makes and persists for a registered asset:
+/// only `Ready` and `Override` become `Expired`; anything else is left alone — `Source` has no
+/// recipe to recover from, and every other status is already not reusable. A key the store does
+/// not hold is not written, so no phantom metadata-only entry is created. Failures are reported on
+/// stderr and otherwise ignored, as the in-memory path does.
+async fn expire_stored_copy(store: Arc<dyn crate::store::AsyncStore>, key: &Key) {
+    if !store.contains(key).await.unwrap_or(false) {
+        return;
+    }
+    let mut metadata = match store.get_metadata(key).await {
+        Ok(metadata) => metadata,
+        Err(e) => {
+            eprintln!("Cannot read stored metadata of {} to expire it: {}", key, e);
+            return;
+        }
+    };
+    match metadata.status() {
+        Status::Ready | Status::Override => {}
+        Status::None
+        | Status::Directory
+        | Status::Recipe
+        | Status::Submitted
+        | Status::Dependencies
+        | Status::Processing
+        | Status::Partial
+        | Status::Error
+        | Status::Storing
+        | Status::Expired
+        | Status::Source
+        | Status::Cancelled
+        | Status::Volatile => return,
+    }
+    let result = match metadata.set_status(Status::Expired) {
+        Ok(()) => store.set_metadata(key, &metadata).await,
+        Err(e) => Err(e),
+    };
+    if let Err(e) = result {
+        eprintln!("Failed to persist Expired status of stored {}: {}", key, e);
+    }
+}
+
 pub(crate) trait DependencyManagerAccess<E: Environment> {
     fn dependency_manager(&self) -> &crate::dependencies::DependencyManager<E>;
 }
@@ -4356,11 +4421,18 @@ pub trait AssetManager<E: Environment>:
     }
 
     /// Apply an `ExpiredDependents` result: expire keyed and untracked assets.
+    ///
+    /// A key with no registered asset — a `cached: false` key is never registered — is expired in
+    /// the store instead: its stored metadata is marked `Expired`, exactly as
+    /// `mark_expired_status` would persist it for a registered one. Without that, the stored copy
+    /// stays `Ready` and a fresh process fast-tracks it on data the graph knows is stale.
     async fn expire_dependencies_result(&self, expired: crate::dependencies::ExpiredDependents<E>) {
         for dk in &expired.keys {
             if let Ok(k) = Key::try_from(dk) {
                 if let Some(ar) = self.lookup_key_asset(&k) {
                     let _ = ar.expire_without_cascade().await;
+                } else {
+                    expire_stored_copy(self.get_envref().get_async_store(), &k).await;
                 }
             }
         }

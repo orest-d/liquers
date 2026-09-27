@@ -22,7 +22,7 @@ use liquers_core::{
     context::{Context, EnvRef, Environment, ImmediateEnvironment, SimpleEnvironment},
     error::Error,
     metadata::{Metadata, MetadataRecord, Status},
-    parse::parse_key,
+    parse::{parse_key, parse_query},
     plan::Plan,
     query::{Key, ResourceName},
     recipes::{AsyncRecipeProvider, Recipe},
@@ -31,6 +31,9 @@ use liquers_core::{
     value::Value,
 };
 use liquers_macro::register_command;
+
+mod fixtures;
+use fixtures::StoreSnapshot;
 
 // ---------------------------------------------------------------------------
 // The counting fixture command
@@ -58,6 +61,22 @@ fn counted(_state: &State<Value>, tag: String) -> Result<Value, Error> {
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     *counts.entry(tag.clone()).or_insert(0) += 1;
     Ok(Value::from(format!("value-{tag}")))
+}
+
+/// Reads `data/u.txt` through `Context::get_dependency_state` — the dependency is observed at run
+/// time, not visible in the plan, so the only record of it is the one evaluation makes.
+async fn readu<E: Environment<Value = Value>>(
+    _state: State<Value>,
+    context: Context<E>,
+) -> Result<Value, Error> {
+    let state = context
+        .get_dependency_state(&parse_query("-R/data/u.txt")?)
+        .await?;
+    Ok(Value::from(state.try_into_string()?))
+}
+
+fn upper(state: &State<Value>) -> Result<Value, Error> {
+    Ok(Value::from(state.try_into_string()?.to_uppercase()))
 }
 
 // ---------------------------------------------------------------------------
@@ -135,6 +154,8 @@ fn build_default_env(
     {
         let cr = &mut env.command_registry;
         register_command!(cr, fn counted(state, tag: String) -> result)?;
+        register_command!(cr, async fn readu(state, context) -> result)?;
+        register_command!(cr, fn upper(state) -> result)?;
     }
     env.with_async_store(Box::new(store));
     env.with_recipe_provider(Box::new(provider));
@@ -150,6 +171,8 @@ fn build_immediate_env(
     {
         let cr = &mut env.command_registry;
         register_command!(cr, fn counted(state, tag: String) -> result)?;
+        register_command!(cr, async fn readu(state, context) -> result)?;
+        register_command!(cr, fn upper(state) -> result)?;
     }
     env.with_async_store(Box::new(store));
     env.with_recipe_provider(Box::new(provider));
@@ -475,4 +498,175 @@ async fn flags_are_recorded_in_metadata_and_asset_info_immediate() -> Result<(),
     )]);
     let envref = build_immediate_env(AsyncMemoryStore::new(&Key::new()), provider)?;
     scenario_flags_are_recorded(envref, key).await
+}
+
+// ---------------------------------------------------------------------------
+// An uncached keyed asset is still the key's node in the dependency graph
+// ---------------------------------------------------------------------------
+//
+// `cached: false` means "not registered for reuse", nothing more. The asset is still keyed, so it
+// must still record its dependencies, register a version and pass an upstream change on to its
+// dependents — otherwise a dependent built on it is served stale for ever.
+//
+// Fixture: `data/u.txt` is a source set with `set_binary`; `data/k.txt` runs `readu`, which reads
+// `data/u.txt` through `get_dependency_state`; `data/y.txt` is `-R/data/k.txt/-/upper`.
+
+fn text_record(key: &Key) -> MetadataRecord {
+    let mut record = MetadataRecord::new();
+    record.with_key(key.clone());
+    record.type_identifier = "Text".to_string();
+    record.type_name = "text".to_string();
+    record.data_format = Some("txt".to_string());
+    record
+}
+
+/// The recipes are shaped as a `recipes.yaml` in `data/` serves them: the query ends in the key's
+/// filename and `cwd` is the folder, which is what gives a recipe its key identity.
+fn graph_provider(k_cached: Option<bool>) -> Result<TaggedRecipeProvider, Error> {
+    let mut k_recipe = Recipe::new("readu/k.txt".to_string(), String::new(), String::new())?;
+    k_recipe.cwd = Some("data".to_string());
+    k_recipe.cached = k_cached;
+    let mut y_recipe = Recipe::new(
+        "-R/data/k.txt/-/upper/y.txt".to_string(),
+        String::new(),
+        String::new(),
+    )?;
+    y_recipe.cwd = Some("data".to_string());
+    Ok(TaggedRecipeProvider::new([
+        (parse_key("data/k.txt")?, k_recipe),
+        (parse_key("data/y.txt")?, y_recipe),
+    ]))
+}
+
+/// In-process: changing `data/u.txt` expires `data/y.txt` through `data/k.txt`, and the next
+/// request recomputes it from the new content.
+async fn scenario_upstream_change_reaches_dependents<E>(envref: EnvRef<E>) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    let manager = envref.get_asset_manager();
+    let u = parse_key("data/u.txt")?;
+    let y = parse_key("data/y.txt")?;
+    manager.set_binary(&u, b"orig", text_record(&u)).await?;
+
+    let y_asset = manager.get(&y).await?;
+    assert_eq!(y_asset.get().await?.try_into_string()?, "ORIG");
+
+    manager.set_binary(&u, b"changed", text_record(&u)).await?;
+    assert_eq!(
+        y_asset.status().await,
+        Status::Expired,
+        "a change to data/u.txt must expire data/y.txt through data/k.txt"
+    );
+
+    let y_again = manager.get(&y).await?;
+    assert_eq!(
+        y_again.get().await?.try_into_string()?,
+        "CHANGED",
+        "data/y.txt must be recomputed from the new content, not served stale"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn uncached_keyed_asset_passes_an_upstream_change_to_its_dependents_default(
+) -> Result<(), Error> {
+    let envref =
+        build_default_env(AsyncMemoryStore::new(&Key::new()), graph_provider(Some(false))?)?;
+    scenario_upstream_change_reaches_dependents(envref).await
+}
+
+#[tokio::test]
+async fn uncached_keyed_asset_passes_an_upstream_change_to_its_dependents_immediate(
+) -> Result<(), Error> {
+    let envref =
+        build_immediate_env(AsyncMemoryStore::new(&Key::new()), graph_provider(Some(false))?)?;
+    scenario_upstream_change_reaches_dependents(envref).await
+}
+
+/// Control: the same fixture with `cached` absent, which passed before the fix too.
+#[tokio::test]
+async fn cached_keyed_asset_passes_an_upstream_change_to_its_dependents_default(
+) -> Result<(), Error> {
+    let envref = build_default_env(AsyncMemoryStore::new(&Key::new()), graph_provider(None)?)?;
+    scenario_upstream_change_reaches_dependents(envref).await
+}
+
+#[tokio::test]
+async fn cached_keyed_asset_passes_an_upstream_change_to_its_dependents_immediate(
+) -> Result<(), Error> {
+    let envref = build_immediate_env(AsyncMemoryStore::new(&Key::new()), graph_provider(None)?)?;
+    scenario_upstream_change_reaches_dependents(envref).await
+}
+
+/// Across a restart: the uncached asset's *stored* copy must be marked `Expired` when upstream
+/// changes — no registered in-memory asset exists to carry that, and a fresh process, whose
+/// dependency manager knows no versions to compare, would otherwise fast-track the stale copy.
+async fn scenario_upstream_change_expires_stored_copy<E>(
+    envref: EnvRef<E>,
+    rebuild: impl FnOnce(AsyncMemoryStore) -> Result<EnvRef<E>, Error>,
+) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    let u = parse_key("data/u.txt")?;
+    let k = parse_key("data/k.txt")?;
+    let y = parse_key("data/y.txt")?;
+    let snapshot = {
+        let manager = envref.get_asset_manager();
+        manager.set_binary(&u, b"orig", text_record(&u)).await?;
+        let y_asset = manager.get(&y).await?;
+        assert_eq!(y_asset.get().await?.try_into_string()?, "ORIG");
+        // Let the debounced metadata writes settle, so none lands after the change below.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let store = envref.get_async_store();
+        assert_eq!(
+            store.get_metadata(&k).await?.status(),
+            Status::Ready,
+            "precondition: data/k.txt is stored (`stored` defaults to true)"
+        );
+
+        manager.set_binary(&u, b"changed", text_record(&u)).await?;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(
+            store.get_metadata(&k).await?.status(),
+            Status::Expired,
+            "an upstream change must expire the stored copy of an uncached keyed asset"
+        );
+        StoreSnapshot::capture(&store, &[u.clone(), k.clone(), y.clone()]).await?
+    };
+    drop(envref);
+
+    let fresh = AsyncMemoryStore::new(&Key::new());
+    snapshot.replay_into(&fresh).await?;
+    let envref2 = rebuild(fresh)?;
+    let y_asset = envref2.get_asset_manager().get(&y).await?;
+    assert_eq!(
+        y_asset.get().await?.try_into_string()?,
+        "CHANGED",
+        "a fresh process must not serve data/y.txt from the stale stored data/k.txt"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn uncached_keyed_asset_stored_copy_is_expired_by_an_upstream_change_default(
+) -> Result<(), Error> {
+    let envref =
+        build_default_env(AsyncMemoryStore::new(&Key::new()), graph_provider(Some(false))?)?;
+    scenario_upstream_change_expires_stored_copy(envref, |store| {
+        build_default_env(store, graph_provider(Some(false))?)
+    })
+    .await
+}
+
+#[tokio::test]
+async fn uncached_keyed_asset_stored_copy_is_expired_by_an_upstream_change_immediate(
+) -> Result<(), Error> {
+    let envref =
+        build_immediate_env(AsyncMemoryStore::new(&Key::new()), graph_provider(Some(false))?)?;
+    scenario_upstream_change_expires_stored_copy(envref, |store| {
+        build_immediate_env(store, graph_provider(Some(false))?)
+    })
+    .await
 }
