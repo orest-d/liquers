@@ -17,7 +17,7 @@ use liquers_core::maybe_send::{MaybeSend, MaybeSync};
 
 use crate::batch::{ChunkId, ChunkOrigin, RecordBatch, RecordView, RowId, RowRun};
 use crate::buffer::{AlignedBuffer, Bitmap, Buffer};
-use crate::column::{Column, FieldValue};
+use crate::column::{offset_from_len, Column, FieldValue};
 use crate::schema::{FieldSchema, FieldType, RecordSchema};
 
 /// A column projection over `base`, built by [`select_columns`](RecordView::select_columns) —
@@ -525,7 +525,7 @@ fn column_from_values(data_type: FieldType, values: &[FieldValue]) -> Result<Col
                     FieldValue::Text(v) => data.extend_from_slice(v.as_bytes()),
                     other => return Err(mismatch(other, "Text")),
                 }
-                offsets.push(data.len() as i32);
+                offsets.push(offset_from_len(data.len())?);
             }
             Ok(Column::Text {
                 validity,
@@ -543,7 +543,7 @@ fn column_from_values(data_type: FieldType, values: &[FieldValue]) -> Result<Col
                     FieldValue::Bytes(v) => data.extend_from_slice(v),
                     other => return Err(mismatch(other, "Bytes")),
                 }
-                offsets.push(data.len() as i32);
+                offsets.push(offset_from_len(data.len())?);
             }
             Ok(Column::Binary {
                 validity,
@@ -578,7 +578,15 @@ fn column_from_values(data_type: FieldType, values: &[FieldValue]) -> Result<Col
                 .iter()
                 .find_map(|value| match value {
                     FieldValue::Vector(v) => Some(v.len()),
-                    _ => None,
+                    FieldValue::Null
+                    | FieldValue::Bool(_)
+                    | FieldValue::Int(_)
+                    | FieldValue::UInt(_)
+                    | FieldValue::Float(_)
+                    | FieldValue::Text(_)
+                    | FieldValue::Bytes(_)
+                    | FieldValue::Date(_)
+                    | FieldValue::Timestamp(_) => None,
                 })
                 .unwrap_or(0);
             let mut data = Vec::with_capacity(len * dim);
@@ -597,8 +605,118 @@ fn column_from_values(data_type: FieldType, values: &[FieldValue]) -> Result<Col
                     other => return Err(mismatch(other, "Vector")),
                 }
             }
+            // With `dim == 0` (every cell null, or every vector empty) the data holds nothing to
+            // count rows by, so the validity bitmap is kept to carry the row count.
+            let validity = if dim == 0 && len > 0 {
+                let mut bitmap = Bitmap::new(len);
+                for (row, value) in values.iter().enumerate() {
+                    if !matches!(value, FieldValue::Null) {
+                        bitmap.set(row, true);
+                    }
+                }
+                Some(bitmap)
+            } else {
+                validity
+            };
             Ok(Column::Vector { validity, dim, data: Buffer::from_slice(&data) })
         }
+    }
+}
+
+/// A chunk's rows as a traversal yields them: `base`, placed at chunk `chunk` of its source. Its
+/// row `k` is `RowId { chunk, row: first_row + k }` — the row's position **in the chunk** — and
+/// row number `first_number + k`, per phase2-architecture.md §"Every row has an implicit id" ("The
+/// chunk index is the chunk's position in `chunks()`; the row is its position in that chunk"; "a
+/// stream counts rows as it traverses chunks in order, so every batch it yields knows its first
+/// row number"). Whatever ids `base` gives its rows on its own (a view over some other table, or
+/// a standalone batch's chunk 0) are superseded: inside this source the chunk is the unit.
+///
+/// Built by the sources' streams (`sources.rs`) through [`place_chunk`], which re-stamps a
+/// `RecordBatch` directly instead, keeping the batch fast path.
+#[derive(Debug)]
+pub struct PlacedView {
+    base: Arc<dyn RecordView>,
+    chunk: u64,
+    first_row: u64,
+    first_number: Option<u64>,
+    chunk_id: Option<ChunkId>,
+}
+
+impl PlacedView {
+    fn run(&self, len: usize) -> RowRun {
+        RowRun { chunk: self.chunk, first_row: self.first_row, first_number: self.first_number, len }
+    }
+
+    fn check_row(&self, row: usize, who: &str) -> Result<u64, Error> {
+        if row >= self.base.len() {
+            return Err(Error::general_error(format!(
+                "PlacedView::{who}: row {row} out of range (0..{})",
+                self.base.len()
+            )));
+        }
+        Ok(row as u64)
+    }
+}
+
+impl RecordView for PlacedView {
+    fn schema(&self) -> &Arc<RecordSchema> {
+        self.base.schema()
+    }
+
+    fn len(&self) -> usize {
+        self.base.len()
+    }
+
+    fn column_range(&self, col: usize, rows: Range<usize>) -> Result<Column, Error> {
+        self.base.column_range(col, rows)
+    }
+
+    /// The base's rows, with this placement's single run and chunk id in place of the base's own.
+    fn materialize(&self) -> Result<Arc<RecordBatch>, Error> {
+        let batch = self.base.materialize()?;
+        let mut batch = (*batch).clone();
+        batch.rows = vec![self.run(batch.len)];
+        batch.chunk_id = self.chunk_id.clone();
+        Ok(Arc::new(batch))
+    }
+
+    fn chunk_id(&self) -> Option<&ChunkId> {
+        self.chunk_id.as_ref()
+    }
+
+    fn origins(&self) -> &[ChunkOrigin] {
+        self.base.origins()
+    }
+
+    fn row_id(&self, row: usize) -> Result<RowId, Error> {
+        let row = self.check_row(row, "row_id")?;
+        Ok(RowId { chunk: self.chunk, row: self.first_row + row })
+    }
+
+    fn row_number(&self, row: usize) -> Result<Option<u64>, Error> {
+        let row = self.check_row(row, "row_number")?;
+        Ok(self.first_number.map(|first| first + row))
+    }
+}
+
+/// `view` as chunk `chunk` (identified by `chunk_id`) of a source, its first row at row number
+/// `first_number` — what a source's stream yields for each chunk it reads. A `RecordBatch` is
+/// re-stamped (a shallow clone with one run and the chunk id), so it stays a batch; any other view
+/// is wrapped in a [`PlacedView`].
+pub(crate) fn place_chunk(
+    view: Arc<dyn RecordView>,
+    chunk: u64,
+    chunk_id: Option<ChunkId>,
+    first_number: u64,
+) -> Arc<dyn RecordView> {
+    match view.as_batch() {
+        Some(batch) => {
+            let mut batch = batch.clone();
+            batch.rows = vec![RowRun { chunk, first_row: 0, first_number: Some(first_number), len: batch.len }];
+            batch.chunk_id = chunk_id;
+            Arc::new(batch)
+        }
+        None => Arc::new(PlacedView { base: view, chunk, first_row: 0, first_number: Some(first_number), chunk_id }),
     }
 }
 
@@ -777,9 +895,9 @@ impl dyn RecordView {
     /// Scalar reading: a view of exactly one row and exactly one payload column reads as that
     /// cell — phase2-architecture.md §"A view as a value". *Payload* columns are those whose
     /// `KeyRole` is neither `Id` nor `Source`; when a view has none of those (e.g.
-    /// `select_columns-id`, which keeps only the `Id` field), its one remaining column stands in
-    /// for the value instead. Any other shape refuses, naming the row count and the payload
-    /// column count.
+    /// `select_columns-id`, which keeps the `Id` field and the `Source` field when there is one),
+    /// the `Id` column is the value — or, with no `Id` either, a sole remaining column. Any other
+    /// shape refuses, naming the row count and the payload column count.
     ///
     /// Phase 2 does not name this helper; `single_cell` is chosen for it here (see the phase 4
     /// implementation report).
@@ -789,8 +907,13 @@ impl dyn RecordView {
         if self.len() == 1 && payload.len() == 1 {
             return self.value(0, payload[0]);
         }
-        if self.len() == 1 && payload.is_empty() && schema.fields.len() == 1 {
-            return self.value(0, 0);
+        if self.len() == 1 && payload.is_empty() {
+            if let Some(id) = schema.id_field() {
+                return self.value(0, id);
+            }
+            if schema.fields.len() == 1 {
+                return self.value(0, 0);
+            }
         }
         Err(Error::conversion_error(
             format!("{} rows, {} payload columns", self.len(), payload.len()),
@@ -1160,6 +1283,39 @@ mod tests {
         let batch: Arc<dyn RecordView> =
             Arc::new(RecordBatch::new(schema, vec![column], None, None, vec![]).expect("batch"));
         assert_eq!(batch.single_cell().expect("single_cell"), FieldValue::Int(42));
+    }
+
+    #[test]
+    fn single_cell_with_id_and_source_and_no_payload_reads_the_id() {
+        // Phase 2 §"A view as a value": with no payload column, "the Id column is the value" —
+        // even when the Source column is also there (select_columns keeps both).
+        let schema = Arc::new(
+            RecordSchema::new(vec![
+                FieldSchema::new("id", FieldType::Int).with_key(KeyRole::Id),
+                FieldSchema::new("src", FieldType::UInt).with_key(KeyRole::Source),
+            ])
+            .expect("schema"),
+        );
+        let columns = vec![
+            Column::Int { validity: None, values: Buffer::from_slice(&[42i64]) },
+            Column::UInt { validity: None, values: Buffer::from_slice(&[0u64]) },
+        ];
+        let batch: Arc<dyn RecordView> =
+            Arc::new(RecordBatch::new(schema, columns, None, None, vec![]).expect("batch"));
+        assert_eq!(batch.single_cell().expect("single_cell"), FieldValue::Int(42));
+    }
+
+    #[test]
+    fn row_fn_view_all_null_vector_column_keeps_its_rows() {
+        let schema = Arc::new(RecordSchema::new(vec![FieldSchema::new("v", FieldType::Vector)]).expect("schema"));
+        let view: Arc<dyn RecordView> =
+            Arc::new(RowFnView::new(schema, 3, |_row, _col| Ok(FieldValue::Null)).expect("RowFnView::new"));
+        let column = view.column_range(0, 0..3).expect("column_range");
+        assert_eq!(column.len(), 3);
+        assert_eq!(view.value(0, 0).expect("value"), FieldValue::Null);
+        let batch = view.materialize().expect("materialize");
+        assert_eq!(batch.len, 3);
+        assert_eq!(batch.value(2, 0).expect("value"), FieldValue::Null);
     }
 
     #[test]

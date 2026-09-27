@@ -42,6 +42,7 @@ use crate::formats::{read_table, ReadOptions, ReadSchema, TableFormat};
 use crate::manifest::{ChunkNaming, ChunkTemplate, ManifestSpec};
 use crate::schema::RecordSchema;
 use crate::value::{ChunkResolver, ChunkValue, RecordSource, RecordValue};
+use crate::views::place_chunk;
 
 // =================================================================================================
 // ChunkOrigin::locator_query
@@ -205,6 +206,7 @@ impl ManifestSource {
     /// keys" ("A manifest with no key ... has no folder, so all its chunks are unkeyed").
     pub fn new(spec: ManifestSpec, key: Option<Key>) -> Result<ManifestSource, Error> {
         spec.check_explicit_chunk_collisions()?;
+        spec.check_template()?;
         match key {
             Some(key) => {
                 let source = ManifestSource { spec, key: None, ids: Vec::new(), naming: None };
@@ -369,31 +371,45 @@ impl ManifestSource {
 
     /// Advances the walk by exactly one chunk — the body `futures::stream::unfold` drives, one
     /// resident chunk at a time, per Phase 3 §1.2's corrected sketch. `None` ends the stream.
+    ///
+    /// `counted` is the number of rows yielded before this chunk: each chunk's view is placed at
+    /// its global chunk index, with its id and that first row number (`views::place_chunk`), per
+    /// phase2-architecture.md §"Every row has an implicit id".
     async fn advance(
         source: Arc<ManifestSource>,
         resolver: Arc<dyn ChunkResolver>,
         state: WalkState,
+        counted: u64,
     ) -> Option<(
         Result<Arc<dyn RecordView>, Error>,
-        (Arc<ManifestSource>, Arc<dyn ChunkResolver>, WalkState),
+        (Arc<ManifestSource>, Arc<dyn ChunkResolver>, WalkState, u64),
     )> {
-        let id = match state {
+        let (id, chunk_index) = match state {
             WalkState::Done => return None,
-            WalkState::Explicit(index) => source.ids[index].clone(),
+            WalkState::Explicit(index) => (source.ids[index].clone(), index as u64),
             WalkState::Template(index) => {
                 // The state machine only ever enters `Template` when a template exists
                 // (`state_after_explicit`); `?` here is defensive, not reachable.
                 let template = source.spec.template.clone()?;
                 match source.template_chunk_id(&template, index) {
-                    Ok(id) => id,
-                    Err(error) => return Some((Err(error), (source, resolver, WalkState::Done))),
+                    Ok(id) => (id, index),
+                    Err(error) => {
+                        return Some((Err(error), (source, resolver, WalkState::Done, counted)))
+                    }
                 }
             }
         };
 
-        let result = source.read_chunk(&id, &resolver).await;
+        let result = source
+            .read_chunk(&id, &resolver)
+            .await
+            .map(|view| place_chunk(view, chunk_index, Some(id), counted));
         let next_state = source.next_walk_state(&state, &result);
-        Some((result, (source, resolver, next_state)))
+        let counted = match &result {
+            Ok(view) => counted + view.len() as u64,
+            Err(_) => counted,
+        };
+        Some((result, (source, resolver, next_state, counted)))
     }
 
     /// `state`'s successor, given the chunk just read: the next explicit index, or the template
@@ -445,11 +461,20 @@ impl RecordSource for ManifestSource {
         resolver: Arc<dyn ChunkResolver>,
     ) -> BoxFuture<'static, Result<BoxRecordStream, Error>> {
         Box::pin(async move {
+            // phase2-architecture.md §"A. Chunk keys": per-chunk (or shared) arguments/links on an
+            // unkeyed chunk are refused "as soon as the manifest's key is known (`with_key`), and
+            // at the latest when a stream is opened on a manifest that is still keyless".
+            if self.key.is_none() {
+                self.spec.check_unkeyed_chunk_arguments()?;
+            }
             let schema = self.schema();
             let initial = self.initial_walk_state();
-            let inner = stream::unfold((self, resolver, initial), |(source, resolver, state)| {
-                ManifestSource::advance(source, resolver, state)
-            });
+            let inner = stream::unfold(
+                (self, resolver, initial, 0u64),
+                |(source, resolver, state, counted)| {
+                    ManifestSource::advance(source, resolver, state, counted)
+                },
+            );
             Ok(record_stream(Box::pin(inner), schema))
         })
     }
@@ -579,10 +604,23 @@ impl RecordSource for InMemorySource {
     ) -> BoxFuture<'static, Result<BoxRecordStream, Error>> {
         // No chunk here is ever produced by a query, so the resolver is unused: every view is
         // already resident.
+        // Each view is placed at its chunk index, with its id and the number of rows before it
+        // (phase2-architecture.md §"Every row has an implicit id").
         Box::pin(async move {
             let schema = self.schema();
-            let views = self.views.clone();
-            let inner = stream::iter(views.into_iter().map(Ok));
+            let mut counted = 0u64;
+            let placed: Vec<Result<Arc<dyn RecordView>, Error>> = self
+                .views
+                .iter()
+                .zip(self.ids.iter())
+                .enumerate()
+                .map(|(index, (view, id))| {
+                    let placed = place_chunk(view.clone(), index as u64, Some(id.clone()), counted);
+                    counted += view.len() as u64;
+                    Ok(placed)
+                })
+                .collect();
+            let inner = stream::iter(placed);
             Ok(record_stream(Box::pin(inner), schema))
         })
     }
@@ -636,7 +674,7 @@ impl RecordSource for InMemorySource {
         max_rows: usize,
     ) -> BoxFuture<'static, Result<Arc<RecordBatch>, Error>> {
         if self.views.len() == 1 {
-            let view = self.views[0].clone();
+            let view = place_chunk(self.views[0].clone(), 0, Some(self.ids[0].clone()), 0);
             return Box::pin(async move {
                 let batch = view.materialize()?;
                 if batch.len > max_rows {
@@ -1186,6 +1224,201 @@ mod tests {
         let views: Vec<_> = stream.collect().await;
         assert_eq!(views.len(), 1);
         assert!(views[0].is_err());
+        Ok(())
+    }
+
+    // --- Row identity of streamed chunks (review finding DM1) ----------------------------------
+
+    /// The position of the row whose implicit id is `target` — what `ns-rec/rowid` does over a
+    /// view.
+    fn find_row_id(view: &dyn RecordView, target: crate::batch::RowId) -> Result<Option<usize>, Error> {
+        for row in 0..view.len() {
+            if view.row_id(row)? == target {
+                return Ok(Some(row));
+            }
+        }
+        Ok(None)
+    }
+
+    #[tokio::test]
+    async fn in_memory_source_stream_places_each_view_at_its_chunk() -> Result<(), Box<dyn std::error::Error>> {
+        let first = tiny_batch(&[1, 2]) as Arc<dyn RecordView>;
+        // The second chunk is a filtered view (not a batch): rows 1 and 2 of [3, 4, 5]. Its rows'
+        // ids inside this source are their positions in the chunk it is, not in its own base.
+        let base = tiny_batch(&[3, 4, 5]) as Arc<dyn RecordView>;
+        let second = base.take(&[1, 2])?;
+        let source = Arc::new(InMemorySource::new(vec![first, second]));
+        let ids = match source.chunks() {
+            ChunkList::Known(ids) => ids.to_vec(),
+            ChunkList::Unbounded { .. } => panic!("expected Known"),
+        };
+        let resolver: Arc<dyn ChunkResolver> = Arc::new(NeverResolver);
+        let views: Vec<Arc<dyn RecordView>> =
+            source.stream(resolver).await?.collect::<Vec<_>>().await.into_iter().collect::<Result<_, _>>()?;
+        assert_eq!(views.len(), 2);
+        assert_eq!(views[0].chunk_id(), Some(&ids[0]));
+        assert_eq!(views[1].chunk_id(), Some(&ids[1]));
+        assert_eq!(views[0].row_id(1)?, crate::batch::RowId { chunk: 0, row: 1 });
+        assert_eq!(views[0].row_number(1)?, Some(1));
+        assert_eq!(views[1].row_id(0)?, crate::batch::RowId { chunk: 1, row: 0 });
+        assert_eq!(views[1].row_id(1)?, crate::batch::RowId { chunk: 1, row: 1 });
+        assert_eq!(views[1].row_number(0)?, Some(2));
+        assert_eq!(views[1].row_number(1)?, Some(3));
+        assert_eq!(views[1].value(1, 0)?, FieldValue::Int(5));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn in_memory_source_materialized_rows_keep_chunk_index_and_row_number(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let first = tiny_batch(&[1, 2]) as Arc<dyn RecordView>;
+        let second = tiny_batch(&[3, 4]) as Arc<dyn RecordView>;
+        let source = Arc::new(InMemorySource::new(vec![first, second]));
+        let resolver: Arc<dyn ChunkResolver> = Arc::new(NeverResolver);
+        let batch = source.materialize(resolver, 100).await?;
+        assert_eq!(batch.len, 4);
+        assert_eq!(batch.row_id(0)?, crate::batch::RowId { chunk: 0, row: 0 });
+        assert_eq!(batch.row_id(1)?, crate::batch::RowId { chunk: 0, row: 1 });
+        assert_eq!(batch.row_id(2)?, crate::batch::RowId { chunk: 1, row: 0 });
+        assert_eq!(batch.row_id(3)?, crate::batch::RowId { chunk: 1, row: 1 });
+        assert_eq!(batch.row_number(2)?, Some(2));
+        assert_eq!(batch.row_number(3)?, Some(3));
+        // `rowid-1-0` over the materialized table finds the second chunk's first row.
+        let found = find_row_id(batch.as_ref(), crate::batch::RowId { chunk: 1, row: 0 })?;
+        assert_eq!(found, Some(2));
+        assert_eq!(batch.value(2, 0)?, FieldValue::Int(3));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn manifest_source_places_keyed_chunks_and_counts_rows_across_them(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let spec = ManifestSpec {
+            chunks: vec![
+                Recipe { query: "ns-sql/sql_query-0-2/a.csv".to_string(), ..Default::default() },
+                Recipe { query: "ns-sql/sql_query-2-2/b.csv".to_string(), ..Default::default() },
+            ],
+            stored: false,
+            ..ManifestSpec::default()
+        };
+        let key = parse_key("data/sales/daily.manifest.yaml")?;
+        let source = Arc::new(ManifestSource::new(spec, Some(key))?);
+        let resolver: Arc<dyn ChunkResolver> = Arc::new(
+            FixtureResolver::new()
+                .with_evaluation("-R/data/sales/a.csv", ChunkValue::View(tiny_batch(&[1, 2])))
+                .with_evaluation("-R/data/sales/b.csv", ChunkValue::View(tiny_batch(&[3, 4]))),
+        );
+
+        let views: Vec<Arc<dyn RecordView>> = source
+            .clone()
+            .stream(resolver.clone())
+            .await?
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .collect::<Result<_, _>>()?;
+        assert_eq!(views.len(), 2);
+        assert_eq!(views[0].chunk_id(), Some(&ChunkId::Key(parse_key("data/sales/a.csv")?)));
+        assert_eq!(views[1].chunk_id(), Some(&ChunkId::Key(parse_key("data/sales/b.csv")?)));
+        assert_eq!(views[1].row_id(0)?, crate::batch::RowId { chunk: 1, row: 0 });
+        assert_eq!(views[1].row_number(0)?, Some(2));
+
+        let batch = source.materialize(resolver, 100).await?;
+        assert_eq!(batch.len, 4);
+        assert_eq!(batch.row_id(2)?, crate::batch::RowId { chunk: 1, row: 0 });
+        assert_eq!(batch.row_id(3)?, crate::batch::RowId { chunk: 1, row: 1 });
+        assert_eq!(batch.row_number(3)?, Some(3));
+        let found = find_row_id(batch.as_ref(), crate::batch::RowId { chunk: 1, row: 0 })?;
+        assert_eq!(found, Some(2));
+        assert_eq!(batch.value(2, 0)?, FieldValue::Int(3));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn manifest_source_template_chunks_use_their_global_index(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let spec = ManifestSpec {
+            chunks: vec![Recipe { query: "ns-sql/sql_query-0-2".to_string(), ..Default::default() }],
+            template: Some(ChunkTemplate {
+                query: "ns-sql/sql_query".to_string(),
+                first_offset: 0,
+                step: 2,
+                batch_size: 2,
+            }),
+            ..ManifestSpec::default()
+        };
+        let source = Arc::new(ManifestSource::new(spec, None)?);
+        let template_query_1 = liquers_core::parse::parse_query("ns-sql/sql_query-2-2")?.encode();
+        let template_query_2 = liquers_core::parse::parse_query("ns-sql/sql_query-4-2")?.encode();
+        let resolver: Arc<dyn ChunkResolver> = Arc::new(
+            FixtureResolver::new()
+                .with_evaluation("ns-sql/sql_query-0-2", ChunkValue::View(tiny_batch(&[1, 2])))
+                .with_evaluation(&template_query_1, ChunkValue::View(tiny_batch(&[3, 4])))
+                .with_evaluation(&template_query_2, ChunkValue::View(tiny_batch(&[5]))),
+        );
+        let batch = source.materialize(resolver, 100).await?;
+        assert_eq!(batch.len, 5);
+        assert_eq!(batch.row_id(4)?, crate::batch::RowId { chunk: 2, row: 0 });
+        assert_eq!(batch.row_number(4)?, Some(4));
+        assert_eq!(batch.row_id(3)?, crate::batch::RowId { chunk: 1, row: 1 });
+        Ok(())
+    }
+
+    // --- Load-time and stream-open checks (review findings DM5 and the keyless stream check) --
+
+    fn template_spec(step: u64, batch_size: u64) -> ManifestSpec {
+        ManifestSpec {
+            template: Some(ChunkTemplate {
+                query: "ns-sql/sql_query".to_string(),
+                first_offset: 0,
+                step,
+                batch_size,
+            }),
+            ..ManifestSpec::default()
+        }
+    }
+
+    #[test]
+    fn manifest_source_new_refuses_a_zero_template_batch_size() {
+        let error = ManifestSource::new(template_spec(10, 0), None).expect_err("batch_size 0 refused");
+        assert!(format!("{error}").contains("batch_size"), "{error}");
+        let key = parse_key("data/sales/daily.manifest.yaml").expect("key");
+        assert!(ManifestSource::new(template_spec(10, 0), Some(key)).is_err());
+    }
+
+    #[test]
+    fn manifest_source_new_refuses_a_zero_template_step() {
+        let error = ManifestSource::new(template_spec(0, 10), None).expect_err("step 0 refused");
+        assert!(format!("{error}").contains("step"), "{error}");
+    }
+
+    #[test]
+    fn manifest_source_deserialization_refuses_a_zero_template_batch_size() {
+        let yaml = "manifest: record-stream\ntemplate:\n  query: ns-sql/sql_query\n  step: 10\n  batch_size: 0\n";
+        let result: Result<ManifestSource, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn keyless_manifest_stream_refuses_arguments_on_an_unkeyed_chunk() -> Result<(), Box<dyn std::error::Error>> {
+        let mut arguments = HashMap::new();
+        arguments.insert("limit".to_string(), serde_json::json!(5));
+        let spec = ManifestSpec {
+            chunks: vec![Recipe {
+                query: "ns-sql/sql_query-0-1000".to_string(),
+                arguments,
+                ..Default::default()
+            }],
+            ..ManifestSpec::default()
+        };
+        // Accepted at load — a keyless manifest is not checked at deserialization ...
+        let source = Arc::new(ManifestSource::new(spec, None)?);
+        let resolver: Arc<dyn ChunkResolver> = Arc::new(FixtureResolver::new().with_evaluation(
+            "ns-sql/sql_query-0-1000",
+            ChunkValue::View(tiny_batch(&[1])),
+        ));
+        // ... but refused, at the latest, when a stream is opened on it.
+        assert!(source.stream(resolver).await.is_err());
         Ok(())
     }
 

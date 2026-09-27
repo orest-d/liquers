@@ -38,5 +38,6 @@ pub use value::{
     ChunkResolver, ChunkValue, RecordSource, RecordValue, DEFAULT_MATERIALIZE_MAX_ROWS,
 };
 pub use views::{
-    AppendedColumnsView, ColumnsView, DerivedColumnView, RowFnView, RowIndexView, RowRangeView,
+    AppendedColumnsView, ColumnsView, DerivedColumnView, PlacedView, RowFnView, RowIndexView,
+    RowRangeView,
 };

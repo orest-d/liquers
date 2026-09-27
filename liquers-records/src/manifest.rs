@@ -242,6 +242,31 @@ impl ManifestSpec {
         Ok(())
     }
 
+    /// Refuses a template whose `batch_size` or `step` is 0. A walk ends only at a chunk shorter
+    /// than `batch_size`, so `batch_size: 0` never ends (no chunk has fewer than 0 rows), and
+    /// `step: 0` renders every template chunk at the same offset, so a full first chunk repeats
+    /// forever. Key-independent: `ManifestSource::new` runs it, and so does deserialization.
+    pub fn check_template(&self) -> Result<(), Error> {
+        let Some(template) = &self.template else {
+            return Ok(());
+        };
+        if template.batch_size == 0 {
+            return Err(Error::general_error(format!(
+                "manifest: template \"{}\" has batch_size 0; a walk ends at the first chunk \
+                 shorter than batch_size, so it would never end",
+                template.query
+            )));
+        }
+        if template.step == 0 {
+            return Err(Error::general_error(format!(
+                "manifest: template \"{}\" has step 0; every chunk would read the same offset \
+                 and the walk would never end",
+                template.query
+            )));
+        }
+        Ok(())
+    }
+
     /// Refuses when an explicit chunk's filename also matches `naming`'s generated pattern — the
     /// second collision Phase 2 §"A. Chunk keys" refuses at load.
     ///
@@ -270,11 +295,10 @@ impl ManifestSpec {
     /// (`with_key`)". Template chunks are excluded: they share the template's arguments/links "by
     /// construction" and are never checked here.
     ///
-    /// Key-dependent **in effect**, not in the check itself (it never reads a `ChunkNaming`): a
-    /// manifest that never receives a key has no keyed chunk for anything to alias, so the rule
-    /// only bites once `ManifestSource::with_key` (Step 4.2) runs it — never from `new`. A manifest
-    /// built by a command and kept keyless (§"A": "all its chunks are unkeyed") is therefore free
-    /// to carry per-chunk arguments that simply never apply to anything.
+    /// Not run from `new` or at deserialization: a manifest read back from the store arrives
+    /// keyless and receives its key afterwards. `ManifestSource::with_key` runs it as soon as the
+    /// key is known, and `ManifestSource::stream` runs it when a stream is opened on a manifest
+    /// that is still keyless — "at the latest when a stream is opened" (§"A").
     pub fn check_unkeyed_chunk_arguments(&self) -> Result<(), Error> {
         for chunk in &self.chunks {
             let is_keyed = chunk.filename()?.is_some();
@@ -400,6 +424,9 @@ mod tests {
         let encoded = query.encode();
         assert!(encoded.contains("sql_query"));
         assert!(encoded.contains("0") && encoded.contains("5"));
+        // Exact text: `<query>-<offset>-<batch_size>`, so a swapped offset and batch size fails.
+        assert_eq!(encoded, "sql_query-0-5");
+        assert_eq!(template.query_at(3, None)?.encode(), "sql_query-30-5");
         Ok(())
     }
 
