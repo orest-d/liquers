@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use liquers_records::{
     formats::{read_table, write_table, ReadOptions, ReadSchema, TableFormat, WriteOptions},
-    Buffer, Column, FieldSchema, FieldType, FieldValue, RecordBatch, RecordSchema, RecordView,
+    Buffer, Column, FieldSchema, FieldType, RecordBatch, RecordSchema, RecordView,
 };
 
 fn sample() -> Result<RecordBatch, Box<dyn std::error::Error>> {
@@ -130,6 +130,7 @@ fn feather_round_trips_lossless() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 #[cfg(feature = "ipc")]
 fn feather_reads_a_multi_batch_pyarrow_file_row_for_row() -> Result<(), Box<dyn std::error::Error>> {
+    use liquers_records::FieldValue;
     let bytes = include_bytes!("fixtures/pyarrow_multi_batch.arrow");
     let batch = read_table(bytes, TableFormat::Ipc, ReadSchema::Infer, &ReadOptions::default())?;
     assert_eq!(batch.len, 5, "five rows in three batches, not one row per buffer element");
