@@ -11,12 +11,38 @@ pub use liquers_records::*;
 
 use std::sync::Arc;
 
+use liquers_core::error::Error;
+
 use crate::value::{ExtValueInterface, Value};
 
 pub mod commands;
 pub mod convert;
+#[cfg(feature = "polars")]
+pub mod polars;
 
 pub use convert::{to_record, to_record_source, ToRecordOptions};
+
+/// Reads Parquet bytes into a [`RecordBatch`]. `liquers-records` itself never reads Parquet — see
+/// `specs/design/record-streams/phase2-architecture.md` §"Tier 3 — Parquet: writing is cheap,
+/// reading is not". With the `polars` feature, this goes through [`polars::read_parquet_record_batch`]
+/// to polars' own reader; without it, this refuses, naming the `polars` feature. Shared by
+/// `value/mod.rs`'s `deserialize_from_bytes` (the `RecordView`/`"parquet"` case) and
+/// `convert::to_record`'s byte path, so both go through the same rule.
+pub fn read_parquet_record_batch(bytes: &[u8], schema: ReadSchema<'_>) -> Result<RecordBatch, Error> {
+    #[cfg(feature = "polars")]
+    {
+        self::polars::read_parquet_record_batch(bytes, schema)
+    }
+    #[cfg(not(feature = "polars"))]
+    {
+        let _ = (bytes, schema);
+        Err(Error::not_supported(
+            "Parquet reading needs liquers-lib's 'polars' feature: a RecordView reads Parquet \
+             through the polars bridge (records::polars), not liquers-records itself"
+                .to_string(),
+        ))
+    }
+}
 
 /// How the records crate reads and builds a `Value` without knowing its concrete type
 /// (`liquers-records` cannot name `liquers-lib`'s `Value`, which sits above it). Delegates to the

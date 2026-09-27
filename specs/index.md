@@ -8,11 +8,11 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 131
+Total rows: 133
 - P0: 1
 - P1: 2
-- P2: 81
-- P3: 47
+- P2: 82
+- P3: 48
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
@@ -64,6 +64,7 @@ Total rows: 131
 | [`POLARS-COMMAND-TESTS-BYPASS-COMMANDS`](issues/POLARS-COMMAND-TESTS-BYPASS-COMMANDS.md) | issue | The polars command integration tests never invoke a polars command | draft |  | P2 | M | lib/polars;build |  | 2026-08-25 |
 | [`PY-MODULES-NOT-DECLARED-IN-LIB`](issues/PY-MODULES-NOT-DECLARED-IN-LIB.md) | issue | Half of liquers-py's source files are not declared as modules and never compile | draft |  | P2 | M | py |  | 2026-08-25 |
 | [`PY-VALUE-SERIALIZER-IS-A-STUB`](issues/PY-VALUE-SERIALIZER-IS-A-STUB.md) | issue | liquers-py's value serializer writes almost nothing and reads nothing back | draft |  | P2 | M | py;core/value |  | 2026-08-26 |
+| [`RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA`](issues/RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA.md) | issue | Reading Parquet through the polars bridge ignores a caller-declared schema | draft |  | P2 | M | records;lib/polars |  | 2026-09-27 |
 | [`SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY`](issues/SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY.md) | issue | A serialized binary is cached on the asset forever, with no policy for releasing it | draft |  | P2 | M | core/assets |  | 2026-09-05 |
 | [`STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST`](issues/STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST.md) | issue | The stale-dependency path cannot be reached deterministically from a command, so no test drives it end to end | draft |  | P2 | M | core/assets | [phase1](specs/design/stale-dependency-status-finalization/phase1-high-level-design.md)  [phase2](specs/design/stale-dependency-status-finalization/phase2-architecture.md)  [phase3](specs/design/stale-dependency-status-finalization/phase3-examples.md)  [phase4](specs/design/stale-dependency-status-finalization/phase4-implementation.md)  [phase5](specs/design/stale-dependency-status-finalization/phase5-documentation.md)  | 2026-09-15 |
 | [`STORE-CONFORMANCE-VALIDATION-TOOL`](issues/STORE-CONFORMANCE-VALIDATION-TOOL.md) | issue | No way to run the conformance suite against a store outside a test binary | accepted |  | P2 | M | store/backends;core/store |  | 2026-09-02 |
@@ -128,6 +129,7 @@ Total rows: 131
 | [`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`](issues/LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT.md) | issue | Language exception class and stack are lost in transport | accepted |  | P3 | M | core/error;web;py |  | 2026-08-08 |
 | [`LINK-IN-VARIADIC-DOES-NOT-EXPAND`](issues/LINK-IN-VARIADIC-DOES-NOT-EXPAND.md) | issue | A link inside a variadic argument yields one element even when it resolves to an array | draft |  | P3 | M | core/plan;core/commands | [phase1](specs/design/variadic-arguments-declaration/phase1-high-level-design.md)  [phase2](specs/design/variadic-arguments-declaration/phase2-architecture.md)  [phase3](specs/design/variadic-arguments-declaration/phase3-examples.md)  [phase4](specs/design/variadic-arguments-declaration/phase4-implementation.md)  [phase5](specs/design/variadic-arguments-declaration/phase5-documentation.md)  | 2026-08-25 |
 | [`MACRO-QUERY-VALIDATION-AND-HINTS`](issues/MACRO-QUERY-VALIDATION-AND-HINTS.md) | issue | `register_command!` does not validate queries or implement hints | accepted |  | P3 | M | macro |  | 2026-08-08 |
+| [`POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED`](issues/POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED.md) | issue | The RecordBatch <-> DataFrame bridge cannot convert Vector columns | draft |  | P3 | M | records;lib/polars |  | 2026-09-27 |
 | [`POST-INIT-COMMAND-REGISTRATION`](issues/POST-INIT-COMMAND-REGISTRATION.md) | issue | Registering a command after Environment::to_ref requires a rebuild | accepted |  | P3 | M | core/commands;web |  | 2026-08-08 |
 | [`RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING`](issues/RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING.md) | issue | Recipe plan analysis runs outside plan building | draft |  | P3 | M | core/plan;core/assets |  | 2026-08-26 |
 | [`RECORD-SOURCE-WRAPPERS-UNSPECIFIED`](issues/RECORD-SOURCE-WRAPPERS-UNSPECIFIED.md) | issue | Phase 2 names filtering/mapping RecordSource wrappers but gives no signature | draft |  | P3 | M | records | [chunking](specs/design/record-streams/chunking-and-resumability.md)  [engine](specs/design/record-streams/engine-survey.md)  [manifest](specs/design/record-streams/manifest-format.md)  [phase1](specs/design/record-streams/phase1-high-level-design.md)  [phase2](specs/design/record-streams/phase2-architecture.md)  [phase3](specs/design/record-streams/phase3-examples.md)  [phase3](specs/design/record-streams/phase3-tests.md)  [phase4](specs/design/record-streams/phase4-implementation.md)  [phase5](specs/design/record-streams/phase5-documentation.md)  [phase5](specs/design/record-streams/phase5-evidence.md)  [record](specs/design/record-streams/record-model.md)  | 2026-09-26 |

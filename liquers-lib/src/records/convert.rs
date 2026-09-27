@@ -44,7 +44,11 @@ pub struct ToRecordOptions {
 
 /// Turns `bytes` into a table, per §"What a record command accepts": the format comes from
 /// `options.format`, else from `metadata`'s own data format — never sniffed — and the schema comes
-/// from `options.schema` when given, inferred otherwise.
+/// from `options.schema` when given, inferred otherwise. Parquet is the one format `read_table`
+/// itself refuses (`liquers-records` never reads Parquet — Tier 3): it goes through
+/// `crate::records::read_parquet_record_batch` instead, matched explicitly alongside every other
+/// `TableFormat` variant so adding one is a compile error here too (CLAUDE.md's "Match
+/// Statements").
 fn read_table_from_bytes(
     bytes: &[u8],
     metadata: &Metadata,
@@ -58,14 +62,20 @@ fn read_table_from_bytes(
     let read_options = ReadOptions {
         header: options.header.unwrap_or(true),
     };
-    let batch = match &options.schema {
-        Some(schema) => read_table(
-            bytes,
-            format,
-            ReadSchema::Declared(schema.as_ref()),
-            &read_options,
-        )?,
-        None => read_table(bytes, format, ReadSchema::Infer, &read_options)?,
+    let read_schema = match &options.schema {
+        Some(schema) => ReadSchema::Declared(schema.as_ref()),
+        None => ReadSchema::Infer,
+    };
+    let batch = match format {
+        TableFormat::Parquet => crate::records::read_parquet_record_batch(bytes, read_schema)?,
+        TableFormat::Csv { separator } => {
+            read_table(bytes, TableFormat::Csv { separator }, read_schema, &read_options)?
+        }
+        TableFormat::NdJson => read_table(bytes, TableFormat::NdJson, read_schema, &read_options)?,
+        TableFormat::Json => read_table(bytes, TableFormat::Json, read_schema, &read_options)?,
+        TableFormat::Markdown => read_table(bytes, TableFormat::Markdown, read_schema, &read_options)?,
+        TableFormat::Html => read_table(bytes, TableFormat::Html, read_schema, &read_options)?,
+        TableFormat::Ipc => read_table(bytes, TableFormat::Ipc, read_schema, &read_options)?,
     };
     Ok(Arc::new(batch) as Arc<dyn RecordView>)
 }

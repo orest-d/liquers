@@ -84,10 +84,19 @@ fn feather_round_trips_lossless() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 #[cfg(feature = "parquet")]
-fn parquet_write_succeeds_for_scalar_columns() -> Result<(), Box<dyn std::error::Error>> {
+fn parquet_write_succeeds_but_reading_here_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    // Writing works — a minimal, real Parquet file (§"Tier 3 — Parquet: writing is cheap, reading
+    // is not"). Reading does not: `liquers-records` never reads Parquet, in any feature
+    // configuration, naming `liquers-lib`'s polars bridge instead — this is not a round trip.
     let batch = sample()?;
     let bytes = write_table(&batch, TableFormat::Parquet, &WriteOptions::default())?;
     assert!(!bytes.is_empty());
-    // Reading Parquet needs `polars` (§"Tier 3: a reader is not cheap") — covered in §3.8, not here.
+    assert_eq!(&bytes[0..4], b"PAR1");
+    assert_eq!(&bytes[bytes.len() - 4..], b"PAR1");
+
+    let error = read_table(&bytes, TableFormat::Parquet, ReadSchema::Infer, &ReadOptions::default())
+        .expect_err("liquers-records never reads Parquet; read it through liquers-lib's polars bridge");
+    let message = format!("{error}").to_lowercase();
+    assert!(message.contains("polars"));
     Ok(())
 }

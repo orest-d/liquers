@@ -749,11 +749,36 @@ impl DefaultValueSerializer for ExtValue {
             // implementation of the trait — regardless of which view wrote the bytes
             // (phase2-architecture.md §"Value extension": "Deserialization rebuilds the
             // reference implementation"). No schema is available here, so this is the
-            // schema-less reader (`ReadSchema::Infer`).
+            // schema-less reader (`ReadSchema::Infer`). Parquet is the one format `read_table`
+            // itself refuses (`liquers-records` never reads Parquet — Tier 3): it goes through
+            // `crate::records::read_parquet_record_batch` instead, which is the polars bridge
+            // when the `polars` feature is on and a typed refusal naming it otherwise. Matched
+            // explicitly, not `if let ... else`, so `TableFormat` stays a Liquers-owned enum with
+            // no default arm here either (CLAUDE.md's "Match Statements").
             #[cfg(feature = "records")]
             "RecordView" => {
                 let table_format = TableFormat::from_data_format(fmt)?;
-                let batch = read_table(b, table_format, ReadSchema::Infer, &ReadOptions::default())?;
+                let batch = match table_format {
+                    TableFormat::Parquet => crate::records::read_parquet_record_batch(b, ReadSchema::Infer)?,
+                    TableFormat::Csv { separator } => {
+                        read_table(b, TableFormat::Csv { separator }, ReadSchema::Infer, &ReadOptions::default())?
+                    }
+                    TableFormat::NdJson => {
+                        read_table(b, TableFormat::NdJson, ReadSchema::Infer, &ReadOptions::default())?
+                    }
+                    TableFormat::Json => {
+                        read_table(b, TableFormat::Json, ReadSchema::Infer, &ReadOptions::default())?
+                    }
+                    TableFormat::Markdown => {
+                        read_table(b, TableFormat::Markdown, ReadSchema::Infer, &ReadOptions::default())?
+                    }
+                    TableFormat::Html => {
+                        read_table(b, TableFormat::Html, ReadSchema::Infer, &ReadOptions::default())?
+                    }
+                    TableFormat::Ipc => {
+                        read_table(b, TableFormat::Ipc, ReadSchema::Infer, &ReadOptions::default())?
+                    }
+                };
                 Ok(ExtValue::from_record_view(Arc::new(batch)))
             }
             // The only byte form a `RecordSource` has is a manifest, which always deserializes

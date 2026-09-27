@@ -22,7 +22,11 @@ pub mod infer;
 mod ipc;
 pub mod markdown;
 pub mod ndjson;
+#[cfg(feature = "parquet")]
+mod parquet;
 pub mod shapes;
+#[cfg(feature = "parquet")]
+mod thrift;
 
 use liquers_core::error::Error;
 
@@ -134,7 +138,17 @@ pub fn read_table(
         TableFormat::Ipc => ipc::read_ipc(bytes, schema),
         #[cfg(not(feature = "ipc"))]
         TableFormat::Ipc => Err(not_yet_supported("Ipc", "reading")),
-        TableFormat::Parquet => Err(not_yet_supported("Parquet", "reading")),
+        // Unlike every other variant here, this is not "not implemented yet" — `liquers-records`
+        // never reads Parquet, in any feature configuration (phase2-architecture.md §"Tier 3 —
+        // Parquet: writing is cheap, reading is not"). A real-world Parquet file routinely uses
+        // dictionary encoding, snappy/zstd compression and data page v2; reading goes through
+        // `liquers-lib`'s polars bridge, which delegates to a real, general reader instead of one
+        // built to handle only this crate's own output.
+        TableFormat::Parquet => Err(Error::not_supported(
+            "TableFormat::Parquet: liquers-records does not read Parquet; read it through \
+             liquers-lib's polars bridge (the 'polars' feature)"
+                .to_string(),
+        )),
     }
 }
 
@@ -154,6 +168,9 @@ pub fn write_table(
         TableFormat::Ipc => ipc::write_ipc(view),
         #[cfg(not(feature = "ipc"))]
         TableFormat::Ipc => Err(not_yet_supported("Ipc", "writing")),
+        #[cfg(feature = "parquet")]
+        TableFormat::Parquet => parquet::write_parquet(view),
+        #[cfg(not(feature = "parquet"))]
         TableFormat::Parquet => Err(not_yet_supported("Parquet", "writing")),
     }
 }
@@ -203,14 +220,18 @@ mod tests {
 
     #[test]
     fn read_table_of_an_unimplemented_format_is_not_supported_not_a_panic() {
-        // Step 3.2 implements CSV, NDJSON, JSON reading; Step 3.3 implements Markdown.
-        // Parquet reading is not implemented until Step 6.x.
+        // Step 3.2 implements CSV, NDJSON, JSON reading; Step 3.3 implements Markdown. Parquet
+        // reading is never implemented here, in any feature configuration (Step 6.2): it is read
+        // through liquers-lib's polars bridge instead.
         let error = read_table(b"", TableFormat::Parquet, ReadSchema::Infer, &ReadOptions::default())
-            .expect_err("Parquet reading is not implemented yet");
-        assert!(format!("{error}").contains("Parquet"));
+            .expect_err("liquers-records never reads Parquet");
+        let message = format!("{error}").to_lowercase();
+        assert!(message.contains("parquet"));
+        assert!(message.contains("polars"));
     }
 
     #[test]
+    #[cfg(not(feature = "parquet"))]
     fn write_table_of_an_unimplemented_format_is_not_supported_not_a_panic() {
         use crate::mutable::RecordBatchMut;
         use crate::schema::{FieldSchema, FieldType, RecordSchema};

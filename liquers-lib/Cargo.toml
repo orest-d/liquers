@@ -8,7 +8,7 @@ edition = "2021"
 crate-type = ["rlib", "cdylib"]
 
 [features]
-default = ["egui", "image-support", "polars", "records", "records-ipc"]
+default = ["egui", "image-support", "polars", "records", "records-ipc", "records-parquet"]
 # Command-line tools. Not in `default` — see the same note in liquers-core.
 cli = ["dep:clap"]
 image-support = ["imageproc"]
