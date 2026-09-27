@@ -41,8 +41,7 @@ Removal that changes a value's identity cascades like any other version change; 
 recomputable value does not, and keeps the stored version so a later dependency audit does not
 cascade either. `specs/design/axum-assets-endpoints/` ("Removal") specifies this as a
 status-aware `remove` — `Source` → gone and `Override` → `Recipe`, both cascading; a
-recipe-computed value dropped with its metadata/version kept, not cascading — plus a guarded
-`remove_cached` that refuses user-supplied values. `ASSETS.md` should then state what happens to
+recipe-computed value dropped with its metadata/version kept, not cascading. `ASSETS.md` should then state what happens to
 dependents.
 
 ## Discovery

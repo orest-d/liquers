@@ -17,26 +17,32 @@ success and failure, and make §5 true at HEAD in the same change.
 
 All paths are relative to the assets base path (`/api/assets`). ✅ exists · 🟡 stub today · 🆕 new.
 
-| Operation | Endpoint | Status |
-|---|---|---|
-| `get_asset` → value / metadata / both | `GET data`, `GET metadata`, `GET entry` | ✅ |
-| `AssetRef::cancel` | `POST cancel` | ✅ |
-| `listdir_asset_info` | `GET listdir` (`?deep=true` → `listdir_keys_deep`) | 🟡 |
-| `set_binary` | `POST data`, `POST entry` | 🟡 |
-| metadata-only write — **decided against** (see *Metadata ownership*) | `POST metadata` → specified `NotSupported` refusal | 🟡 |
-| `remove(key)` — semantics fixed, status-aware (see *Removal*) | `DELETE data`, `DELETE entry` (+ opt-in `GET remove`) | 🟡 |
-| new `remove_cached(key)` — only a recomputable value of a recipe key | `POST remove_cached` | 🆕 |
-| `get_asset_info` — describe **without evaluating** | `GET info` | 🆕 |
-| `contains` | `GET contains` | 🆕 |
-| `version` | `GET version` | 🆕 |
-| `get_binary_any_status` — recovery read incl. `Expired` | `GET recover` (entry format) | 🆕 |
-| `to_override` — pin the current value | `POST override` | 🆕 |
-| new defaulted `AssetManager::expire(key)` — live asset or stored-only, then cascade | `POST expire` | 🆕 |
-| `makedir` | `PUT makedir` | 🆕 |
-| new defaulted `AssetManager::set_description(key, title, description)` — `Source` assets only | `POST description` | 🆕 |
-| `trigger_dependency_audit` / `…_all_registered` | `POST audit/{*query}` / `POST audit` | 🆕 |
-| `refresh_command_versions_and_expire` | `POST refresh_command_versions` | 🆕 |
-| `eval_mode`, `is_started` | `GET manager` | 🆕 |
+**Scope principle.** This design exists to unblock the agent memory MVP
+(`specs/design/agent-memory-mvp/`: a document corpus served through the assets API, `title` = L0,
+`description` = L1, data = L2, derived entries kept fresh by recipes and versions, an
+agent-writable notes area, an MCP adapter on top). The six **documented** endpoints are fixed
+regardless — that is the P0 defect. Every **new or non-standard** endpoint must be either
+*required* by the MVP or *useful* to it; anything else is deferred.
+
+| Operation | Endpoint | Today | Agent memory MVP |
+|---|---|---|---|
+| `get_asset` → value / metadata / both | `GET data`, `GET metadata`, `GET entry` | ✅ | required — L2 read |
+| `AssetRef::cancel` | `POST cancel` | ✅ | — (exists) |
+| `listdir_asset_info` | `GET listdir` | 🟡 | **required** — the browse primitive: L0/L1 of a whole directory without reading data |
+| `set_binary` | `POST data`, `POST entry` | 🟡 | useful — writing agent notes over HTTP (the MVP's own write path is an `ns-mem` command) |
+| metadata-only write — **refused** (see *Metadata ownership*) | `POST metadata` | 🟡 | — |
+| `remove(key)` — status-aware (see *Removal*) | `DELETE data`, `DELETE entry` | 🟡 | useful — deleting a note (`Source`) |
+| `get_asset_info` — describe one key **without evaluating** | `GET info` | 🆕 | **useful, near-required** — L0/L1 of one entry; `GET metadata` goes through `get_asset` and can trigger evaluation (e.g. an LLM summary) just to read a title |
+| `listdir_keys_deep` | `GET listdir?deep=true` | 🆕 | useful — one call for the key set of a subtree (corpus index, search over a subtree) |
+| new defaulted `AssetManager::set_description(key, title, description)`, `Source` only | `POST description` | 🆕 | useful — L0/L1 of agent notes, edited after writing |
+| new defaulted `AssetManager::expire(key)`, then cascade | `POST expire` | 🆕 | useful — force regeneration of a derived entry (a non-deterministic summary) without touching its source |
+
+**Deferred — neither required nor useful for the MVP** (recorded in `ASSETS-API-ADMIN-OPERATIONS`
+so the analysis is not lost): `GET contains` (redundant with `GET info`'s 404), `GET version`,
+`GET recover` (`get_binary_any_status`), `POST override` (`to_override`), `PUT makedir`,
+`POST audit` (`trigger_dependency_audit*`), `POST refresh_command_versions`, `GET manager`
+(`eval_mode`, `is_started`), the guarded `remove_cached`, and the Store API-style opt-in
+`GET remove` (dropped from spec §5.0.1 for assets).
 
 **Not exposed — internal plumbing:** the `get_dependency_asset*`, `drain_dependencies`,
 `wait_for_dependency`, `*_key_asset*`, `next_id_for_asset`, `get_envref`, `get_recipe_provider`,
@@ -105,10 +111,8 @@ reads stored *metadata*, so `trigger_dependency_audit` keeps dependents valid �
 derived from them"). The decision is taken inside core under the key's mutation lock, so it cannot
 race a concurrent `POST data`.
 
-**`remove_cached`** is the guarded variant: the same as `remove` for a recipe-computed value, but
-**refused (409) for `Source` and `Override`**. It is what a cache-clearing client (free space, drop
-a stuck `Error`) calls, so that it can never destroy user-supplied data by accident. A strict
-"remove only user data" variant is not needed: removing a recomputable value is harmless.
+A guarded variant that refuses user-supplied values (`remove_cached`) is deferred: not needed by
+the MVP.
 
 ## Core Interactions
 
@@ -117,7 +121,7 @@ a stuck `Error`) calls, so that it can never destroy user-supplied data by accid
   refusal, not a stub.
 - **Store / Asset:** no store code. Everything goes through `AssetManager`, which already owns
   locking, status rules (`Source`/`Override`), versioning and cascades. `liquers-core`: new
-  `expire`, `set_description`, `remove_cached`; `remove` semantics fixed.
+  `expire`, `set_description`; `remove` semantics fixed.
 - **Commands / Value types / UI:** none. `command_registry.yaml` is unaffected.
 - **Web:** the handlers and builder change in `liquers-axum/src/assets/`. The first real handler
   tests drive the built `Router` with `tower::ServiceExt::oneshot` against an in-memory
@@ -126,15 +130,15 @@ a stuck `Error`) calls, so that it can never destroy user-supplied data by accid
 ## Crate Placement
 
 - `liquers-axum`: handlers, builder, tests.
-- `liquers-core`: `AssetManager::{expire, set_description, remove_cached}`, the fixed `remove`,
+- `liquers-core`: `AssetManager::{expire, set_description}`, the fixed `remove`,
   their tests; `ASSETS.md` "Remove Semantics" rewritten.
 - Specs: `WEB_API_SPECIFICATION.md` §5 plus a `## History` row, the issue status, and
   `ASSETS.md` if a trait method is added.
 
 ## Decisions and Open Questions
 
-Decided (2026-09-27): **Q2** builder switches (`.read_only()`, `.with_admin(bool)`, opt-in
-destructive GETs) as a stop-gap until `CORE-SESSION-AND-KEY-ACL` delivers real access control.
+Decided (2026-09-27): **Q2** builder switches (`.read_only()` turning off every
+POST/DELETE except `cancel`; admin switches are moot while admin operations are deferred) as a stop-gap until `CORE-SESSION-AND-KEY-ACL` delivers real access control.
 **Q3** no metadata writes (above). **Q4** add `AssetManager::expire(key)`. **Q5**
 `set_expiration_time` stays out, no issue. **Q6** `apply` out of scope, no feature.
 **Q11** `POST data|entry` onto a key with a recipe is allowed and makes it `Override`.
@@ -142,10 +146,12 @@ destructive GETs) as a stop-gap until `CORE-SESSION-AND-KEY-ACL` delivers real a
 `NO-REMOTE-STORE-OR-ASSET-MANAGER`.
 **Q1** `GET listdir` returns full `AssetInfo` records. **Q7** recovery read is a separate route,
 `GET recover`. **Q8** POSTs answer 201; removals report `new_status`. **Q9/Q16** `remove` keeps its name and gets
-status-aware semantics, plus a guarded `remove_cached` (above); fixes
+status-aware semantics (above); no `remove_cached` for now; fixes
 `ASSET-REMOVE-FORGETS-DEPENDENTS`. **Q13** removing a recipe-computed value drops memory and
-stored data, keeping the metadata/version. **Q14** refusals answer 409 (new `ErrorType`).
-**Q15** `GET remove` kept as an opt-in, mirroring the Store API's `allow_destructive_gets`.
+stored data, keeping the metadata/version. **Q14** state-conflict refusals (`remove` on a
+`Directory`, `POST description` on a non-`Source`) answer 409 (new `ErrorType`). **Q15**
+superseded by the scope principle: no `GET remove`. **Q17** scope = documented endpoints +
+what the agent memory MVP requires or can use (table above).
 **Q10** a POSTed entry contributes only the five descriptive fields; the handler builds a fresh
 `MetadataRecord` from them and drops everything else, naming the dropped fields in `message`.
 Why the split matters — trusted by `set_binary` / `try_fast_track` today: `status: Error` stores

@@ -359,6 +359,7 @@ deliberately folded behind a broader line.
 - design `web-value04-bytes-identifier`
 - feature `AGENT-MEMORY-SERVICE`
 - feature `ASSET-REGISTRATION-OWNERSHIP-CONTRACT`
+- feature `ASSETS-API-ADMIN-OPERATIONS`
 - feature `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`
 - feature `COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS`
 - feature `DATA-FORMAT-CONSTANTS-AND-TOOLING`
