@@ -37,11 +37,13 @@ code (and, once `specs/design/axum-assets-endpoints/` ships, through HTTP) is ex
 
 ## Expected behaviour
 
-Removal that changes a value's identity cascades like any other version change. The design in
-`specs/design/axum-assets-endpoints/` splits the operation: **delete** (a user-supplied `Source` or
-`Override` value; cascades) and **evict** (a recomputable cached value; keeps the version, so it
-does not cascade). Either `remove` adopts one of those semantics, or it is deprecated in favour of
-the two. Whichever is chosen, `ASSETS.md` should state what happens to dependents.
+Removal that changes a value's identity cascades like any other version change; removal of a
+recomputable value does not, and keeps the stored version so a later dependency audit does not
+cascade either. `specs/design/axum-assets-endpoints/` ("Removal") specifies this as a
+status-aware `remove` — `Source` → gone and `Override` → `Recipe`, both cascading; a
+recipe-computed value dropped with its metadata/version kept, not cascading — plus a guarded
+`remove_cached` that refuses user-supplied values. `ASSETS.md` should then state what happens to
+dependents.
 
 ## Discovery
 

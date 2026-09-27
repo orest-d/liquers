@@ -24,9 +24,8 @@ All paths are relative to the assets base path (`/api/assets`). ✅ exists · �
 | `listdir_asset_info` | `GET listdir` (`?deep=true` → `listdir_keys_deep`) | 🟡 |
 | `set_binary` | `POST data`, `POST entry` | 🟡 |
 | metadata-only write — **decided against** (see *Metadata ownership*) | `POST metadata` → specified `NotSupported` refusal | 🟡 |
-| new `delete(key)` — `Source` → gone, `Override` → `Recipe`; cascades (see *Removal*) | `DELETE data`, `DELETE entry` | 🟡 |
-| new `evict(key)` — drop a recomputable value, keep its version; no cascade | `POST evict` | 🆕 |
-| new `delete_or_evict(key)` — atomic choice of the two | `POST delete_or_evict` | 🆕 |
+| `remove(key)` — semantics fixed, status-aware (see *Removal*) | `DELETE data`, `DELETE entry` (+ opt-in `GET remove`) | 🟡 |
+| new `remove_cached(key)` — only a recomputable value of a recipe key | `POST remove_cached` | 🆕 |
 | `get_asset_info` — describe **without evaluating** | `GET info` | 🆕 |
 | `contains` | `GET contains` | 🆕 |
 | `version` | `GET version` | 🆕 |
@@ -75,33 +74,41 @@ There are two legitimate reasons to write metadata; they want different mechanis
    versions, dependencies and expiration, cleanly split from the safe user API specified here.
    Filed as `NO-REMOTE-STORE-OR-ASSET-MANAGER`.
 
-## Removal: delete vs evict
+## Removal
 
-Today there is one operation, `AssetManager::remove`: for every status it cancels and unmaps the
-live asset, deletes the stored value and **forgets the key's dependency edges without expiring
-anything** (filed as `ASSET-REMOVE-FORGETS-DEPENDENTS`). The API replaces it with two operations
-that differ in whether the value's *identity* changes:
+**Naming.** The operation is `remove` everywhere — `AsyncStore::remove`, `AssetManager::remove` /
+`remove_asset`, the Python `Store.remove` / `Cache.remove`, the JS store wrapper, and the Store
+API's opt-in `GET remove` route (HTTP `DELETE` is the verb, not a name). This design keeps it.
+"Evict" is not used: in code and in `ASSETS.md` it means dropping an asset from the manager's
+*in-memory* map only, which is not what is meant here.
 
-| | **delete** | **evict** |
-|---|---|---|
-| Applies to | user-supplied values: `Source`, `Override` | recomputable values of a key with a recipe: `Ready`, `Expired`, `Error`, `Cancelled`, `Volatile` |
-| Result | `Source` → gone (`None`); `Override` → `Recipe` | `Recipe`; next read recomputes |
-| Stored | value and metadata removed | data removed, **metadata with version kept** |
-| Dependents | **cascade-expired** — the value they were built on no longer exists or will differ | **not expired** — same value when recomputed; if recomputation yields a different version, `register_version` cascades then |
-| Refused for | a key with a recipe and no override (→ use evict); `Directory` | no recipe (→ use delete); in-flight statuses (→ use cancel) |
+**What `remove` does today** (identical in `DefaultAssetManager` and the queued manager), for
+every status: cancel and unmap the live asset → `DependencyManager::remove(key)`, which forgets
+the key's version *and its dependents* → delete the stored value and metadata. The recipe lives
+in the recipe provider and survives, so the next read is `Recipe` → recompute, or not-found
+without a recipe. Dependents are never expired, and the forgotten edges mean a later recompute
+cannot reach them (`ASSET-REMOVE-FORGETS-DEPENDENTS`).
 
-Keeping the version is what makes "evict does not cascade" true rather than deferred:
-`AssetManager::version` reads stored *metadata*, so dependents stay valid under
-`trigger_dependency_audit` — the property `version`'s own documentation relies on ("delete large
-intermediates and keep the results derived from them"). Evicting both data and metadata would make
-the next audit expire every dependent.
+**What it should do** — the right outcome depends on whether the value's identity changes:
 
-**`delete_or_evict` — kept, but only because it is atomic.** Both outcomes end in the same place
-("the key is back to what its recipe says, or gone if it has none") and each picks the correct
-cascade for its case, so it is one coherent intent ("reset"), not an ambiguous verb. Its value is
-that core decides under the key's mutation lock: a client doing *read status, then call delete or
-evict* races with a concurrent `POST data` (it would evict where it should delete, or be refused).
-Without that atomicity it would be pure sugar and not worth a route.
+| Status at the key | `remove` | Stored afterwards | Dependents |
+|---|---|---|---|
+| `Source` | value gone → `None` | nothing | cascade-expired |
+| `Override` | override gone → `Recipe` | nothing | cascade-expired (the recipe will produce a different value) |
+| recipe-computed (`Ready`, `Expired`, `Error`, `Cancelled`, `Volatile`) | value dropped → `Recipe` | **metadata with version kept**, data removed | not expired; if recomputation yields a different version, `register_version` cascades then |
+| in-flight (`Submitted`, `Dependencies`, `Processing`, …) | cancelled, then as above | | |
+| `Directory` | refused (409) — use the Store API's `removedir` | | |
+
+Keeping the version is what makes "no cascade" true rather than deferred: `AssetManager::version`
+reads stored *metadata*, so `trigger_dependency_audit` keeps dependents valid — the property
+`version`'s documentation already promises ("delete large intermediates and keep the results
+derived from them"). The decision is taken inside core under the key's mutation lock, so it cannot
+race a concurrent `POST data`.
+
+**`remove_cached`** is the guarded variant: the same as `remove` for a recipe-computed value, but
+**refused (409) for `Source` and `Override`**. It is what a cache-clearing client (free space, drop
+a stuck `Error`) calls, so that it can never destroy user-supplied data by accident. A strict
+"remove only user data" variant is not needed: removing a recomputable value is harmless.
 
 ## Core Interactions
 
@@ -109,8 +116,8 @@ Without that atomicity it would be pure sugar and not worth a route.
   A query that is not a pure key is refused with the §3 envelope (`NotSupported`, 501): a specified
   refusal, not a stub.
 - **Store / Asset:** no store code. Everything goes through `AssetManager`, which already owns
-  locking, status rules (`Source`/`Override`), versioning and cascades. New trait methods in
-  `liquers-core`: `expire`, `set_description`, `delete`, `evict`, `delete_or_evict`.
+  locking, status rules (`Source`/`Override`), versioning and cascades. `liquers-core`: new
+  `expire`, `set_description`, `remove_cached`; `remove` semantics fixed.
 - **Commands / Value types / UI:** none. `command_registry.yaml` is unaffected.
 - **Web:** the handlers and builder change in `liquers-axum/src/assets/`. The first real handler
   tests drive the built `Router` with `tower::ServiceExt::oneshot` against an in-memory
@@ -119,23 +126,26 @@ Without that atomicity it would be pure sugar and not worth a route.
 ## Crate Placement
 
 - `liquers-axum`: handlers, builder, tests.
-- `liquers-core`: `AssetManager::{expire, set_description, delete, evict, delete_or_evict}`
-  and their tests; `ASSETS.md` updated for the removal semantics.
+- `liquers-core`: `AssetManager::{expire, set_description, remove_cached}`, the fixed `remove`,
+  their tests; `ASSETS.md` "Remove Semantics" rewritten.
 - Specs: `WEB_API_SPECIFICATION.md` §5 plus a `## History` row, the issue status, and
   `ASSETS.md` if a trait method is added.
 
 ## Decisions and Open Questions
 
-Decided (2026-09-27): **Q2** builder switches (`.read_only()`, `.with_admin(bool)`) as a stop-gap until `CORE-SESSION-AND-KEY-ACL` delivers real access control.
+Decided (2026-09-27): **Q2** builder switches (`.read_only()`, `.with_admin(bool)`, opt-in
+destructive GETs) as a stop-gap until `CORE-SESSION-AND-KEY-ACL` delivers real access control.
 **Q3** no metadata writes (above). **Q4** add `AssetManager::expire(key)`. **Q5**
 `set_expiration_time` stays out, no issue. **Q6** `apply` out of scope, no feature.
 **Q11** `POST data|entry` onto a key with a recipe is allowed and makes it `Override`.
 **Q12** `POST description` (Source only) is in scope; remote/trusted API filed as
 `NO-REMOTE-STORE-OR-ASSET-MANAGER`.
 **Q1** `GET listdir` returns full `AssetInfo` records. **Q7** recovery read is a separate route,
-`GET recover`. **Q8** POSTs answer 201; removals report `new_status`. **Q9** removal is split into
-delete / evict / delete_or_evict (above); the existing defect filed as
-`ASSET-REMOVE-FORGETS-DEPENDENTS`.
+`GET recover`. **Q8** POSTs answer 201; removals report `new_status`. **Q9/Q16** `remove` keeps its name and gets
+status-aware semantics, plus a guarded `remove_cached` (above); fixes
+`ASSET-REMOVE-FORGETS-DEPENDENTS`. **Q13** removing a recipe-computed value drops memory and
+stored data, keeping the metadata/version. **Q14** refusals answer 409 (new `ErrorType`).
+**Q15** `GET remove` kept as an opt-in, mirroring the Store API's `allow_destructive_gets`.
 **Q10** a POSTed entry contributes only the five descriptive fields; the handler builds a fresh
 `MetadataRecord` from them and drops everything else, naming the dropped fields in `message`.
 Why the split matters — trusted by `set_binary` / `try_fast_track` today: `status: Error` stores
@@ -144,18 +154,7 @@ read again; `stored: false` skips the store write; `dependencies` are loaded int
 manager on the next read (fake edges); `expiration_time` is adopted by the live asset;
 `is_error: true` relaxes type validation.
 
-Still open:
-
-13. **Evict scope:** memory *and* stored data (keep metadata), as above — or memory only (the
-    store copy stays and the next read fast-tracks it, so evict merely frees RAM)? *Lean: memory
-    and stored data; memory-only is a cache-policy concern for `CORE-ASSET-GC`.*
-14. **Refusal code:** delete on a recipe asset / evict on a `Source` is a *state conflict*, not
-    "unsupported". Add an `ErrorType` mapped to 409, or reuse `NotSupported` (501)? *Lean: 409.*
-15. **GET-based `remove`** (spec §5.0.1 lists `GET /api/assets/remove`): drop it from the spec —
-    a state-changing GET is prefetchable and cacheable, and the split makes its meaning unclear?
-    *Lean: drop.*
-16. **`AssetManager::remove`:** keep as is for internal callers, or redefine it as
-    `delete_or_evict` and deprecate? *Lean: deprecate in favour of the three, in this change.*
+Still open: none — Phase 1 is ready for approval.
 
 ## References
 
