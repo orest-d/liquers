@@ -282,7 +282,10 @@ pub(crate) fn format_value(value: &FieldValue) -> Result<Option<String>, Error> 
         FieldValue::Bool(v) => Ok(Some(if *v { "true".to_string() } else { "false".to_string() })),
         FieldValue::Int(v) => Ok(Some(v.to_string())),
         FieldValue::UInt(v) => Ok(Some(v.to_string())),
-        FieldValue::Float(v) => Ok(Some(v.to_string())),
+        // `{:?}`, not `{}`: the shortest round-trip form that always carries a point or an
+        // exponent (`1.0`, `1e300`, `1e-7`, `-0.0`), so a Float column is read back as `Float`
+        // by the schema-less reader rather than as `Int` (`1`) or text (300 digits).
+        FieldValue::Float(v) => Ok(Some(format!("{v:?}"))),
         FieldValue::Text(v) => Ok(Some(v.to_string())),
         FieldValue::Bytes(v) => Ok(Some(base64_encode(v))),
         FieldValue::Date(days) => format_date(*days).map(Some),
@@ -665,6 +668,30 @@ mod tests {
         let batch = read_table(csv, TableFormat::Csv { separator: b',' }, ReadSchema::Infer, &ReadOptions::default())?;
         assert_eq!(batch.schema.fields[1].data_type, FieldType::Text); // 01234: leading zero
         assert_eq!(batch.schema.fields[2].data_type, FieldType::Text); // +5, 1e3: not canonical Int
+        Ok(())
+    }
+
+    #[test]
+    fn schema_less_float_column_round_trips_as_float() -> Result<(), Error> {
+        // Integral, huge, tiny and negative-zero floats must not come back as Int or Text.
+        let schema = Arc::new(RecordSchema::new(vec![FieldSchema::new("x", FieldType::Float).not_null()])?);
+        let columns: [&[f64]; 3] = [&[1.0, 3.0], &[-0.0], &[1e300, 1e-7, 2.5, f64::INFINITY]];
+        for values in columns {
+            let mut batch = RecordBatchMut::with_capacity(schema.clone(), values.len());
+            for v in values {
+                batch.append_row(&[FieldValue::Float(*v)])?;
+            }
+            let batch = batch.freeze()?;
+            let bytes = write_table(&batch, TableFormat::Csv { separator: b',' }, &WriteOptions::default())?;
+            let back = read_table(&bytes, TableFormat::Csv { separator: b',' }, ReadSchema::Infer, &ReadOptions::default())?;
+            assert_eq!(back.schema.fields[0].data_type, FieldType::Float, "{}", utf8(bytes.clone())?);
+            for (row, v) in values.iter().enumerate() {
+                match back.value(row, 0)? {
+                    FieldValue::Float(read) => assert_eq!(read.to_bits(), v.to_bits(), "row {row}"),
+                    other => panic!("row {row}: {other:?}"),
+                }
+            }
+        }
         Ok(())
     }
 

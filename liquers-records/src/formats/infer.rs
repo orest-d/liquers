@@ -7,14 +7,16 @@
 //! the `Id` role is never guessed — an inferred field always carries `KeyRole::None` (the default
 //! [`crate::schema::FieldSchema::new`] already gives it).
 //!
-//! **Resolved ambiguity**: Phase 2's prose states the canonical, round-trip check ("formatting the
-//! parsed number gives the cell back") only for `Int`. Phase 3's
-//! `schema_less_inference_canonical_int_rule_keeps_leading_zeros_as_text` also requires it of
-//! `Float`: `+5` and `1e3` both parse as a valid `f64` (5.0 and 1000.0), so without the same
-//! round-trip check the `amount` column in that test would be inferred `Float`, not `Text`. This
-//! implementation applies the round-trip check to both `Int` and `Float`, which is what the test
-//! requires and is consistent with the rule's stated purpose (a cell whose spelling a numeric type
-//! cannot reproduce is not safely that type).
+//! **`Float` is a spelling rule, not a round-trip rule.** Phase 2 states the canonical round-trip
+//! check ("formatting the parsed number gives the cell back") only for `Int`. Applied to `Float`
+//! it made ordinary decimals — `1.0`, `0.10`, `2.50`, `1e-7` — text. So a `Float` cell is a plain
+//! decimal literal, `-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?` with a point or an exponent (see
+//! [`is_float_literal`]), or a canonical `Int` in a column that also holds decimals. `+5` and a
+//! leading zero stay text, which keeps Phase 3's
+//! `schema_less_inference_canonical_int_rule_keeps_leading_zeros_as_text` (`+5`, `1e3` → text:
+//! `+5` alone keeps that column text). **A column of exponent forms such as `1e3` alone is
+//! `Float`**: Phase 2's "`1e3` stays text" is said of the `Int` rule, and an exponent is how the
+//! writers spell very large and very small floats.
 
 use chrono::{DateTime, NaiveDate};
 
@@ -35,13 +37,60 @@ fn is_canonical_int(text: &str) -> bool {
     }
 }
 
-/// The same canonical check as [`is_canonical_int`], applied to `f64`. See this module's doc
-/// comment for why Phase 3's tests require it here too.
-fn is_canonical_float(text: &str) -> bool {
-    match text.parse::<f64>() {
-        Ok(value) => value.to_string() == text,
-        Err(_) => false,
+/// A decimal literal `-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?` that is finite as an `f64`, or one of
+/// the writer's non-finite spellings. Not a round-trip check — `1.0`, `0.10` and `1e-7` are
+/// ordinary decimals — but a spelling check, so what stays text is what a number's spelling
+/// cannot be trusted for: a sign (`+5`), a leading zero (`01.5`), a bare point (`.5`, `5.`), and a
+/// value that overflows to infinity. A plain integer too large for `i64` has neither a point nor
+/// an exponent and is not accepted here either, so it is never silently turned into a `Float`
+/// (Phase 2's `Int` rule). A column of integers alone is `Int`, tried first.
+///
+/// **Non-finite values**: exactly `NaN`, `inf` and `-inf` — the spellings this crate's writers
+/// produce for them (`csv::format_value`, Rust's `{:?}`) — so a `Float` column holding them
+/// round-trips; other spellings (`nan`, `Infinity`) stay text rather than guessing.
+fn is_float_literal(text: &str) -> bool {
+    if matches!(text, "NaN" | "inf" | "-inf") {
+        return true;
     }
+    let bytes = text.as_bytes();
+    let mut i = usize::from(bytes.first() == Some(&b'-'));
+    let digits = |from: usize| bytes[from..].iter().take_while(|b| b.is_ascii_digit()).count();
+
+    let int_len = digits(i);
+    if int_len == 0 || (int_len > 1 && bytes[i] == b'0') {
+        return false;
+    }
+    i += int_len;
+    let mut has_fraction_or_exponent = false;
+    if bytes.get(i) == Some(&b'.') {
+        let frac_len = digits(i + 1);
+        if frac_len == 0 {
+            return false;
+        }
+        i += 1 + frac_len;
+        has_fraction_or_exponent = true;
+    }
+    if matches!(bytes.get(i), Some(b'e') | Some(b'E')) {
+        i += 1;
+        if matches!(bytes.get(i), Some(b'+') | Some(b'-')) {
+            i += 1;
+        }
+        let exp_len = digits(i);
+        if exp_len == 0 {
+            return false;
+        }
+        i += exp_len;
+        has_fraction_or_exponent = true;
+    }
+    has_fraction_or_exponent
+        && i == bytes.len()
+        && text.parse::<f64>().is_ok_and(f64::is_finite)
+}
+
+/// A `Float` cell: a float literal, or a canonical integer (a column mixing `1` and `2.5` is
+/// `Float`).
+fn is_float(text: &str) -> bool {
+    is_float_literal(text) || is_canonical_int(text)
 }
 
 /// `pub(super)`: [`super::ndjson`]'s schema-less reader applies the same two checks to a JSON
@@ -72,7 +121,7 @@ pub fn infer_column(cells: &[Option<&str>]) -> (FieldType, bool) {
     if non_null.iter().all(|text| is_canonical_int(text)) {
         return (FieldType::Int, nullable);
     }
-    if non_null.iter().all(|text| is_canonical_float(text)) {
+    if non_null.iter().all(|text| is_float(text)) {
         return (FieldType::Float, nullable);
     }
     if non_null.iter().all(|text| is_iso_date(text)) {
@@ -115,6 +164,25 @@ mod tests {
     #[test]
     fn infers_float_column() {
         let cells = [Some("3.14"), Some("2.71")];
+        assert_eq!(infer_column(&cells), (FieldType::Float, false));
+    }
+
+    #[test]
+    fn infers_ordinary_decimals_and_exponents_as_float() {
+        let cells = [Some("1.0"), Some("0.10"), Some("2.50"), Some("1e-7"), Some("-3.25E+2"), Some("7")];
+        assert_eq!(infer_column(&cells), (FieldType::Float, false));
+    }
+
+    #[test]
+    fn non_canonical_spellings_stay_text_not_float() {
+        for cell in ["+5", "01.5", ".5", "5.", "1e", "1.5e400", "99999999999999999999", "nan", "Infinity"] {
+            assert_eq!(infer_column(&[Some(cell)]).0, FieldType::Text, "{cell}");
+        }
+    }
+
+    #[test]
+    fn the_writers_non_finite_spellings_are_float() {
+        let cells = [Some("NaN"), Some("inf"), Some("-inf"), Some("0.5")];
         assert_eq!(infer_column(&cells), (FieldType::Float, false));
     }
 
