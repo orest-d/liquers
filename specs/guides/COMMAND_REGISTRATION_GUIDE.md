@@ -3,7 +3,7 @@ title: Command Registration Guide
 kind: guide
 audience: internal
 area: [core/commands, macro]
-reviewed: 2026-09-05
+reviewed: 2026-09-27
 ---
 # Command Registration Guide
 
@@ -777,6 +777,7 @@ fn apply(...) -> Result<...> { ... }
 - `CLAUDE.md` - "Common Tasks > Adding a Command" section
 - `liquers-core/src/commands.rs` - CommandRegistry implementation and tests
 - `liquers-lib/src/commands.rs` - Example command library
+- [`RECORD_STREAM_GUIDE.md`](RECORD_STREAM_GUIDE.md) - Writing a command that produces or consumes records (a `RecordView` or `RecordSource`): the record-producing walkthrough lives there and is not repeated here
 
 ### Example Projects
 
@@ -784,11 +785,13 @@ fn apply(...) -> Result<...> { ... }
 - **GUI commands**: `liquers-lib/src/egui/commands.rs` (with trait bounds)
 - **Tests**: `liquers-core/tests/async_hellow_world.rs` (complete example)
 - **Manual registration**: `liquers-core/src/commands.rs` tests section
+- **Record commands**: `liquers-lib/src/records/commands.rs` (the `ns-rec` namespace, feature `records`; `async` commands taking `context`, registered by `register_records_commands!`)
 
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. §6 points to the record-producing command walkthrough in `RECORD_STREAM_GUIDE.md` rather than duplicating it, and lists `liquers-lib/src/records/commands.rs` as an example. | phase-5 |
 | 2026-09-05 | Documented builder-time validation for hand-built and imported metadata, including preflight access to the full report. | `design/variadic-metadata-tail-check` |
 | 2026-08-31 | Documented that metadata customizations should happen before `env.to_ref()`, which refreshes command metadata versions before sharing. | `design/refresh-command-metadata-versions/phase-5` |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |

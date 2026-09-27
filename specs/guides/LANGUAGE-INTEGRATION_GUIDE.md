@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets]
-reviewed: 2026-09-25
+reviewed: 2026-09-27
 ---
 # Liquers Language Integration Guide
 
@@ -432,6 +432,18 @@ kinds of object:
 | any view, when Arrow is wanted | `materialize()` first, then as a batch | free for a batch; a copy of the selected rows or a computation otherwise |
 | a source | **as its manifest only**; its rows through `materialize`, which is asynchronous and bounded | the whole source in memory |
 
+**What `liquers-web` does — lent buffers, not Arrow.** The browser binding has no Arrow route; a
+batch crosses as the lent-buffer handle of §"A third category". A `RecordView` reaching JavaScript
+is materialized (free for a batch) and wrapped in `LiquersRecordBatch`, exported to JavaScript as
+`RecordBatch` (`liquers-web/src/records.rs`): `numRows`, `numColumns`, `schemaJson`, `column(i)`
+returning a **descriptor** (`kind`, `ptr`, `len`, `validity`, plus `dim` for vectors and
+`offsets`/`data` for text and binary) from which the caller builds a typed-array view over
+`memory.buffer`, `columnCopy(i)` as the always-safe detached copy, and `columnView(i)` building the
+`RecordColumn` companion (`records_column.js`) that re-creates a view detached by `memory.grow`.
+The handle holds the batch by `Arc`, so buffers stay valid until `free()`. A `RecordSource` has no
+JavaScript representation yet and is refused by the standard mapping. `RECORDS05` and `RECORDS06`
+run in `liquers-web/tests/records_RECORDS.rs`.
+
 A single-cell view reads as a scalar (`record-streams` Phase 2, "A view as a value"), so a wrapper
 should expose that as the *language*'s own scalar rather than as a one-by-one table.
 
@@ -449,10 +461,11 @@ checked for completeness rather than assembled by inspection:
 | Kind | Types |
 |---|---|
 | **Values** (cross a query boundary) | `ExtValue::RecordView` holding `Arc<dyn RecordView>`, `ExtValue::RecordSource` holding `Arc<dyn RecordSource>` |
-| **Traits** | `RecordView` (sync, random access), `RecordViewMut` (a table being built or edited), `RecordSource` (async, re-openable), `RecordStream` (one traversal), `ChunkResolver` (how a source evaluates) |
+| **Traits** | `RecordView` (sync, random access), `RecordViewMut` (a table being built or edited), `RecordSource` (async, re-openable), `RecordStream` (one traversal), `ChunkResolver` (how a source evaluates), `RecordValue` (the adapter a value type implements to carry records) |
 | **Structs — data** | `RecordBatch` (the materialized view), `RecordBatchMut` and `ColumnMut` (the mutable table and column; `with_capacity`, `append_row`, `freeze`), `RecordSchema`, `FieldSchema`, `FieldRole`, `RowId` (the implicit id: chunk index and row) |
 | **Structs — reference implementations** | `ManifestSource`, `InMemorySource`; the views `ColumnsView`, `RowRangeView`, `RowIndexView`, `DerivedColumnView`, `AppendedColumnsView`, `RowFnView`; `ContextResolver`, `EnvResolver` |
-| **Structs — identity and provenance** | `ChunkOrigin`, `LocatorRule`, `ChunkDescriptor`, `ChunkKeys` |
+| **Structs — identity and provenance** | `ChunkOrigin`, `LocatorRule`, `ChunkDescriptor` |
+| **Structs and enums — manifest** | `ManifestSpec` (a manifest's parsed form), `ManifestKind`, `ChunkTemplate`, `ChunkNaming`; `ChunkValue` (what a resolver hands back: a view, a source, or bytes) |
 | **Enums — identity** | `ChunkId` — `Query(..)` for an unkeyed stream, `Key(..)` for a keyed one |
 | **Structs — memory** | `Bitmap`, `AlignedBuffer`, `Buffer<T>` |
 | **Enums** | `Column`, `FieldValue`, `FieldType`, `KeyRole`, `IndexKind`, `Analyzer`, `VectorMetric`, `CompareOp`, `ChunkList<'a>` |
@@ -1111,7 +1124,9 @@ whether it applies.
 - `AsyncRecipeProvider<E>` *service adapter*
 - Language-visible recipe-provider protocol/base class/interface
 - `Recipe`, `RecipeList`, `Plan`, `Key`, `ResourceName`, and `AssetInfo`
-- Provider composition/precedence/configuration object where multiple providers are supported
+- Provider composition/precedence/configuration object where multiple providers are supported —
+  in Rust, `RecipeProviderChain`, installed by `EnvironmentBuilder::with_appended_recipe_provider`
+  or `GenericEnvironment::with_appended_recipe_provider`, which consult the base provider first
 
 **The design must answer:** Does the provider return `Recipe`, query text, or plain data? Which methods may use Liquers defaults? May provider callbacks evaluate queries? How are caching, invalidation, volatility, and provider precedence handled?
 
@@ -1124,6 +1139,14 @@ show. A *generative* provider that synthesizes a recipe from a pattern — a for
 a chunk of a record stream with no known count — legitimately has **addressable ⊋ listed**, and
 inheriting the default makes it deny keys it could perfectly well produce, silently. Such a provider
 must override `contains` to match the pattern rather than search a list.
+
+**A chain answers containment through `recipe_opt`, not through each provider's `contains`.**
+`RecipeProviderChain::contains` is true when any provider's `recipe_opt` answers `Some`, and
+`recipe`, `recipe_plan` and `get_asset_info` delegate whole to the first provider that does — so a
+provider joining a chain need not have overridden `contains` correctly, but its `recipe_opt` must
+answer for every name it can produce. Listing is the union, in provider order. `liquers-lib` with
+`records` chains `ManifestRecipeProvider`, a generative provider for keyed record chunks, after
+`DefaultRecipeProvider` (`reference/ENVIRONMENT_CONFIG.md`).
 
 This does not conflict with `reference/STORE_SEMANTICS.md`, which constrains `contains` and `listdir`
 on **stores**. A recipe provider sits above the store, and the asset key space is legitimately larger
@@ -2776,6 +2799,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-27 | Reviewed against the implemented `record-streams` code (Phase 5). RECORDS: states that `liquers-web` crosses a batch as lent buffers, not Arrow — `LiquersRecordBatch` (JS `RecordBatch`) with column descriptors, `columnCopy` and `columnView`, a view materialized first, a source not yet mapped; inventory corrected (`ChunkKeys` does not exist and is removed; `RecordValue` and the manifest types added). RECIPE: provider composition is `RecipeProviderChain` via `with_appended_recipe_provider`, and a chain answers `contains` through each provider's `recipe_opt`. | phase-5 |
 | 2026-09-25 | RECORDS: the records live in their own crate, `liquers-records`, over `liquers-core`; an integration may depend on it alone through the `RecordValue` adapter, or reach it through `liquers-lib`. | `design/record-streams/` |
 | 2026-09-25 | RECORDS inventory: the mutable table (`RecordViewMut`, `RecordBatchMut`, `ColumnMut`) replaces the builder, rows carry an implicit `RowId` so the explicit `Id` is optional, and `to_record` / `to_record_source` are the conversions a binding can call to hand bytes, text or JSON to the record layer. | `design/record-streams/` |
 | 2026-09-24 | RECORDS: a source's only byte form is its manifest, and its rows reach bytes through `materialize`, so a *language* wanting a source's data as CSV or Arrow materializes it first (route 3 named accordingly); `collect_view` renamed in the inventory. | `design/record-streams/` |

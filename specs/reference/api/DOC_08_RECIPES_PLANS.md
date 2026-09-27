@@ -3,7 +3,7 @@ title: Recipes and Plans Reference
 kind: reference
 audience: internal
 area: [core/plan, core/assets, core/context]
-reviewed: 2026-08-29
+reviewed: 2026-09-27
 ---
 # DOC-08: Recipes and Plans
 
@@ -81,6 +81,8 @@ fields and Serde deserialization do not validate strings eagerly, so
 | `has_circular_dependencies` | Provider validation result, not recomputed by `to_plan` |
 | `circular_dependency_key` | Reported key associated with the detected cycle |
 | `expires` | Recipe-level expiration combined with finalized plan expiration |
+| `stored` | `Option<bool>`, absent = `true`. `false`: the produced value is never written to the store, not even as metadata; an existing stored copy is still read and preferred. Read through `stored()` |
+| `cached` | `Option<bool>`, absent = `true`. `false`: the keyed asset is not registered for reuse, yet stays the key's dependency-graph node. Read through `cached()`. Neither flag makes the recipe volatile |
 
 `Recipe::to_plan` enables placeholders, builds the query, and applies overrides to
 the last action step only. An override whose name is not present on that action is
@@ -148,6 +150,32 @@ The YAML root is `RecipeList { recipes: Vec<Recipe> }`. Asset names come from ea
 recipe query's filename. Recipes without a valid filename are omitted from
 directory listing. `get_recipes` maps any `get_bytes` failure to an empty list,
 not only a missing file; malformed YAML from successfully read bytes is an error.
+`has_recipes` answers `false`, not an error, when the store refuses the
+`recipes.yaml` key as `KeyNotSupported` — a store router does so for any key no
+member covers, such as an `http` store serving a fixed key list — so `-R/` queries
+under such a folder resolve without a recipe instead of failing.
+
+### Composing providers: `RecipeProviderChain`
+
+`RecipeProviderChain` consults several providers in order and is itself an
+`AsyncRecipeProvider`:
+
+| Method | Chain behaviour |
+|---|---|
+| `recipe_opt` | The first provider answering `Some`; an `Err` from an earlier provider propagates without consulting the rest |
+| `contains` | `true` if any provider's **`recipe_opt`** answers `Some` — not any provider's `contains`, which may rest on the enumerating default |
+| `has_recipes` | `true` if any provider's does |
+| `assets_with_recipes` | The union, in provider order, without duplicates |
+| `recipe`, `recipe_plan`, `get_asset_info` | Delegated whole to the provider that has the key; otherwise the same not-found error `DefaultRecipeProvider` returns |
+
+A chain is built in code: `EnvironmentBuilder::with_appended_recipe_provider`
+(composed at `build()` after the configured or kind-default base) or
+`GenericEnvironment::with_appended_recipe_provider` (wraps the current provider).
+`liquers-lib` with its `records` feature defaults to
+`[DefaultRecipeProvider, ManifestRecipeProvider]`; the second is a generative
+provider synthesizing recipes for keyed record chunks named by a
+`*.manifest.yaml`, so it overrides `contains` to match rather than enumerate. See
+[`ENVIRONMENT_CONFIG.md`](../ENVIRONMENT_CONFIG.md) §The recipe provider chain.
 
 ### Selecting a provider by name
 
@@ -169,7 +197,8 @@ name.
 
 The set is closed and there is no registration hook. A host with its own `AsyncRecipeProvider`
 still passes the value to the environment directly — custom providers vary too much to be named
-here.
+here — or appends it to a chain (§Composing providers). No "chain" choice exists either: a choice is
+data and cannot name a provider living in another crate.
 
 ## Planning contract
 
@@ -475,7 +504,13 @@ planning failure channel.
 Before sequential step execution, `apply_plan` schedules known keyed dependencies
 so they can start concurrently. Steps themselves are then interpreted in order,
 and each data-producing step replaces the current value. Context modifiers retain
-the current value. `apply_plan` rejects a payload-required plan when its context has
+the current value. The state handed to the next step carries the context's
+metadata with its `key` set to the value's origin: the fetched key after
+`GetAsset`, `GetAssetBinary`, `GetAssetDirectory`, `GetResource` or
+`GetResourceDirectory`, and after an `Evaluate` boundary whose query is a key
+followed only by `ns-…` declarations; kept by `Filename`, `Info`, `Warning`,
+`Error` and `SetCwd`; left as the asset's own key after any other step.
+`filename` and `data_format` are not changed. `apply_plan` rejects a payload-required plan when its context has
 no payload.
 
 Every key-bearing executable step and every query/link operand is resolved when it
@@ -597,6 +632,7 @@ runtime behavior is unchanged.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. Recipe contract gains `stored` and `cached`; added §Composing providers: `RecipeProviderChain` (delegation table, `contains` through `recipe_opt`), `with_appended_recipe_provider`, and `liquers-lib`'s `[DefaultRecipeProvider, ManifestRecipeProvider]` default; `has_recipes` answers `false` for a store's `KeyNotSupported`; plan execution records that the next step's state carries the fetched key as metadata `key`. | phase-5 |
 | 2026-08-29 | Documented `RecipeProviderChoice`: the named selection of the two built-in providers, the `trivial` aliases `none` and `no_recipes`, the document default, and why the set is closed. | RECIPE-PROVIDER-BY-NAME |
 | 2026-08-26 | Cutting at the outermost cacheable predecessor is now the **default**. Added "Where a boundary goes" — the three conditions (volatility, payload, input state), which are per candidate and which per application, and how to obtain a fully expanded plan. Superseded the paragraph deferring that decision; five new pitfall rows; `frozen_cwd`, `predecessor`, `prologue_steps` and `volatility_source` in the plan fields; a paragraph on `v`'s whole-plan scope. | PREDECESSOR-CUT-EQUIVALENCE |
 | 2026-08-16 | Documented freezing — what it is, the three-cursor problem it solves, when it runs, its mechanics and scope rules — and predecessor boundaries: how cutting differs from freezing, the dependency, caching and parallelism case for making a predecessor available, and five observed pitfalls. Removed `disable_expand_predecessors` from the planning contract. | PLAN-CWD-FREEZE |

@@ -3,7 +3,7 @@ title: Asset Evaluation — Flows and Public Surface
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-09-15
+reviewed: 2026-09-27
 ---
 # Asset Evaluation — Flows and Public Surface
 
@@ -89,8 +89,8 @@ load-bearing and must not be reordered.
 | 5 | Install the value, its type identifier and type name | merged into the live metadata, never installed as a snapshot: the service loop is writing progress and log entries to the same record concurrently |
 | 6 | Finalize status | the single status authority. It decides between four outcomes — `Volatile`, `Expired` (the evaluation consumed a stale dependency), `Ready`, `Error` — and must run **before** the notification and **before** persistence, so nothing observes or stores a non-final status. The manager is the authority on status; this ordering is what lets the store follow it |
 | 7 | Send `ValueProduced` | after step 6, so a client that polls on the notification sees a terminal status |
-| 8 | Persist | only if this is a **keyed** asset and this evaluation did not hand off |
-| 9 | Register in the dependency graph | self-limiting on status and ownership, so ad-hoc assets register nothing and a volatile asset is not a node at all. An asset that consumed a stale dependency has its version registered **directly**, because `DependencyManager::track_asset` refuses an `Expired` asset and that refusal would leave the graph asserting the key still holds its previous content. Only the key's registered owner registers, so a delegating asset registers nothing |
+| 8 | Persist | only if this is a **keyed** asset, this evaluation did not hand off, and its metadata does not say `stored: false` |
+| 9 | Register in the dependency graph | self-limiting on status and ownership, so ad-hoc assets register nothing and a volatile asset is not a node at all. An asset that consumed a stale dependency has its version registered **directly**, because `DependencyManager::track_asset` refuses an `Expired` asset and that refusal would leave the graph asserting the key still holds its previous content. Only the key's registered owner registers — or, for a `cached: false` key with no registered owner, the unregistered asset built for it (`bound_owner_key`) — so a delegating asset registers nothing |
 
 On failure the body propagates with `?` and the harness's failure routine is the single authority:
 it clears the value, records the error in metadata, sets `Status::Error` and notifies.
@@ -106,12 +106,15 @@ each decided when the asset is constructed — not branches in the evaluating co
 | **Initial state supplied** | the caller injects input that the identity does not describe, so the result is not reproducible from that identity | not keyed, so never stored and never reused |
 | **Payload** | per-call caller context, deliberately *not* part of identity, and it cannot cross a key boundary | never mapped, never reused, never loadable |
 | **Volatility** | the result is valid but single-use | stored, but with a status `try_fast_track` refuses |
+| **`stored: false`** | the value should not take disk space | no store write of any kind; an existing stored copy is still read and preferred |
+| **`cached: false`** | the value should not stay in memory | not registered in the key map, so each request builds a fresh asset; still the key's dependency-graph node |
 | **Delegation** | another asset owns the key | hand-off: the owner writes, and no second dependency edge is recorded |
 | **Fast-track** | a stored value is already valid | evaluation is skipped entirely |
 | **Queued or inline** | manager policy (`AssetManager::eval_mode`) | scheduling and the status sequence only |
 
-The first five are properties of the asset, the sixth is a relationship between two assets, and
-**only the last is policy**.
+Delegation is a relationship between two assets, and **only the last is policy**; every other axis
+is a property of the asset. `stored` and `cached` come from the key's recipe and are copied into the
+asset's metadata at construction. Neither makes an asset volatile, alone or together.
 
 This is why "one evaluation path" does not mean "every entry point is interchangeable". They are
 thin *in evaluation logic*; construction still decides what an asset is, and construction is what
@@ -148,12 +151,14 @@ Read the contrapositive: **not keyed means never stored and never loadable.**
 |---|---|---|
 | Keyed, non-volatile (recipe-defined) | yes | yes, loadable |
 | Keyed, volatile | yes | yes, **not** loadable |
+| Keyed, recipe says `stored: false` | yes | no — not even metadata; an existing stored copy is still loaded |
+| Keyed, recipe says `cached: false` | yes | yes, loadable; the asset is simply not registered for reuse |
 | Keyed, delegating to the owner | yes | no — the owner writes |
 | Query asset | no | no |
 | `apply`, bare-key recipe | no | no |
 | `apply`, recipe with a filename | no | no |
 | `apply` with a payload | no | no |
-| `set_state(key, state)` | yes | yes — an explicit install, which never evaluates |
+| `set_state(key, state)` | yes | yes — an explicit install, which never evaluates; skipped when the **supplied** metadata says `stored: false` |
 
 ### Reusing a stored asset: what the fast track verifies
 
@@ -210,6 +215,7 @@ Facts recorded during evaluation, and where a client reads them:
 | The key, when the asset is keyed | `key` | `key` |
 | Payload requirement of the plan | `payload_required` | `payload_required` |
 | Volatility | `is_volatile` | `is_volatile` |
+| Store and reuse opt-outs, from the recipe | `stored`, `cached` | `stored`, `cached` |
 | Observed dependencies | `dependencies` | — |
 | Status, type identifier, type name | yes | yes |
 
@@ -260,6 +266,7 @@ arrives mid-evaluation and must join the first rather than be turned away.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. Steps 8 and 9, §4's axes, §5's persistence table and §6's metadata table now cover the `stored` and `cached` recipe flags: `stored: false` skips every write but still reads an existing copy, `cached: false` skips registration but keeps the asset the key's graph node, and neither is volatility. Details in `ASSETS.md` §`stored` and `cached`. | phase-5 |
 | 2026-09-15 | Step 6 now names the four outcomes the status authority decides between, including the stale-dependency one, and step 9 records the dependency-graph branch. Added §Reusing a stored asset: what the fast track verifies — the two dependency questions, manager-before-store, and "inconclusive is not expired" with the reason that rule has to be stated. | `stale-dependency-status-finalization` |
 | 2026-09-04 | Recorded two corrections from the PR #61 review: the payload requirement is written before the gate that rejects a missing payload, and both `Drop` repairs cover `Dependencies` alongside `Processing`. Added the inline repair's residual limit (`INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS`). | PR #61 review |
 | 2026-09-04 | Rewritten. The document's former purpose — cataloguing duplication between the evaluation paths as a basis for refactoring — was completed by `evaluate-path-consolidation`, leaving most of its body false at HEAD. Now describes the public surface, the surviving methods and their relationships, the step-by-step flow, and the axes along which evaluations differ. Paths A–D, the asymmetry table and the issue list are archived. | `design/evaluate-path-consolidation/` phase 5 |

@@ -3,7 +3,7 @@ title: Adding and Typing Value Types
 kind: guide
 audience: both
 area: [core/value, lib/value]
-reviewed: 2026-08-26
+reviewed: 2026-09-27
 ---
 
 # Adding and Typing Value Types
@@ -103,14 +103,69 @@ The registry is frozen once the environment exists. Extend `from_value_type`; st
 `TypeRegistry::new()` discards every type the build already had. Full procedure:
 `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §VALUE.
 
+## A gated variant, worked: `RecordView` and `RecordSource`
+
+The record variants are the first optional value types after `polars.DataFrame`, and the cleanest
+example of what a feature gate costs. Both exist only with `liquers-lib`'s `records` feature.
+
+**Step 1.** Each variant carries `#[cfg(feature = "records")]`, and its payload is a trait object
+behind `Arc` — `RecordView { value: Arc<dyn RecordView> }`, `RecordSource { value: Arc<dyn
+RecordSource> }` — so every implementation of the trait shares one variant and one identifier.
+
+**Every exhaustive `match` on `ExtValue` gains a gated arm**, not only the ones in `value/mod.rs`:
+
+```rust
+#[cfg(feature = "records")]
+ExtValue::RecordSource { .. } => Err(ext_scalar_refusal(self, "i64")),
+#[cfg(feature = "records")]
+ExtValue::RecordView { value } => record_view_cell_i64(&value.single_cell()?),
+```
+
+For the record variants that meant `liquers-lib/src/value/mod.rs` (the `ExtValueInterface`
+accessors, the scalar hooks, `type_info`, `identifier`, `type_name`, the three `default_*` methods,
+`as_bytes`), `liquers-lib/src/ui/web/html.rs`, `liquers-lib/src/egui/mod.rs`, and
+`liquers-web/src/default_value.rs`, which is outside `liquers-lib` and is found only by building
+`liquers-web`. `deserialize_from_bytes` matches the identifier string, so its arm
+(`"RecordView" => …`) is gated too, ahead of the refusing catch-all.
+
+**Step 2.** Both are bare: Liquers owns the concepts, whatever implements the traits.
+
+**Step 4.** The `TypeInfo`s are pushed inside a `#[cfg(feature = "records")]` block, and a format
+whose writer sits behind a narrower feature is declared only under that feature too:
+
+```rust
+let mut record_view_formats: Vec<&'static str> = vec![
+    "csv", "csv:comma", "tsv", "csv:tab", "ndjson", "jsonl", "json", "md", "markdown", "html",
+];
+#[cfg(feature = "records-ipc")]
+record_view_formats.extend(["ipc", "feather", "arrow_ipc", "arrow"]);
+#[cfg(feature = "records-parquet")]
+record_view_formats.push("parquet");
+```
+
+Declaring `parquet` in a build that cannot write it would let the asset layer accept a format the
+codec refuses. Aliases are declared too (`jsonl`, `markdown`, `feather`…), for the same reason.
+
+**The build matrix.** A gated arm that forgot its `#[cfg]` compiles with the default features and
+breaks only when the feature is off, so the compiler catches it only in a configuration nobody
+builds by accident. `scripts/check-build-matrix.sh` carries rows for exactly this —
+`records`, `records,polars`, `webui,records`, `records-ipc`, `records-parquet`,
+`records-parquet,polars`, and wasm32 with `webui,records` and `webui,records,records-ipc`. Run it
+after adding a gated variant, and add rows for its interactions with the other optional features.
+Tests that need the variant are gated the same way: `liquers-lib/tests/record_typeinfo.rs` opens
+with `#![cfg(feature = "records")]`.
+
 ## Verifying it
 
 ```bash
 cargo test -p liquers-lib --test value_type_system
 ```
 
-`ext_value_type_descriptions_complete` fails if a variant has no description — that is the check
-for step 4. For an integration-owned type, the equivalent check is that its constant and its
+`ext_value_type_descriptions_complete` fails if a variant it samples has no description — that is
+the check for step 4. It samples only `Image` and, with `polars`, `polars.DataFrame`
+(`EXT-VALUE-DESCRIPTION-COMPLETENESS-TEST-SAMPLES-TWO-VARIANTS`), so a new variant needs its own
+assertion: the record variants have `liquers-lib/tests/record_typeinfo.rs`, which also pins their
+declared formats. For an integration-owned type, the equivalent check is that its constant and its
 instance agree; see `liquers-lib/tests/foreign_value_registration.rs` for a worked example that
 runs natively. Then a round trip:
 
@@ -173,7 +228,8 @@ This resolves at compile time and cannot drift from the registration.
 
 ## History
 
-| Date | Change |
-|---|---|
-| 2026-08-18 | Created with the `value-type-system` design. |
+| Date | Change | Source |
+|---|---|---|
+| 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. Added §A gated variant, worked: `RecordView` and `RecordSource` — trait-object payloads, a `#[cfg(feature = "records")]` arm in every `ExtValue` match including `liquers-web`'s, `TypeInfo`s declared under the features that enable their writers, and the build-matrix rows. §Verifying it no longer claims `ext_value_type_descriptions_complete` covers every variant. | phase-5 |
+| 2026-08-18 | Created with the `value-type-system` design. | `design/value-type-system/` |
 | 2026-08-26 | §2 states the one-identifier-per-variant rule and that there is no `error` identifier; §4 records where step 4 moves for a type whose identifier belongs to an integration crate. | `design/foreign-value-type-registration/` |

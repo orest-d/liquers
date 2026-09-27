@@ -3,7 +3,7 @@ title: Environment, Context and Evaluation Reference
 kind: reference
 audience: internal
 area: [core/context, core/plan]
-reviewed: 2026-08-31
+reviewed: 2026-09-27
 ---
 # DOC-04: Environment, Context, and End-to-End Evaluation
 
@@ -161,7 +161,9 @@ are type aliases of it, so every existing signature still names a real type:
 manager as a generic associated type. It also carries the **default recipe provider**
 (`default_recipe_provider`, defaulted to `Trivial`), because once every built-in environment is
 `GenericEnvironment` the kind is the only thing left that distinguishes them: `liquers-lib`'s
-`LibKind` selects the same manager as `DefaultKind` but reads recipes through the store, which is
+`LibKind` selects the same manager as `DefaultKind` but reads recipes through the store — with the
+`records` feature, through the chain `[DefaultRecipeProvider, ManifestRecipeProvider]`
+([`ENVIRONMENT_CONFIG.md`](../ENVIRONMENT_CONFIG.md) §The recipe provider chain) — which is
 what `DefaultEnvironment` has always done and what a type alias alone could not preserve. It has to be a marker rather than the manager
 type itself: the manager is parameterized by the environment, so naming it directly
 produces an infinitely recursive type. `DefaultKind` is `Queued` natively and
@@ -228,6 +230,21 @@ evaluation followed by a wait.
 A normal context is created by `AssetRef::create_context` for one asset
 evaluation. `apply_plan` clones it for each plan step and commands receive those
 clones.
+
+The input *state* a step receives is rebuilt after every step from the previous
+step's value and the context's current metadata (`Context::get_metadata`), with
+one adjustment: the metadata `key` names where the value came from. After a step
+that fetches content or a listing at a key — `GetAsset`, `GetAssetBinary`,
+`GetAssetDirectory`, `GetResource`, `GetResourceDirectory` — it is that key,
+resolved against the live CWD; after an `Evaluate` boundary whose query is a key
+followed only by `ns-…` declarations (a predecessor cut keeps the namespace with
+its prefix), it is that key too. `Filename`, `Info`, `Warning`, `Error` and
+`SetCwd` pass the value through and keep the previous answer; every other step
+produces a new value and drops it, so the state carries the evaluating asset's own
+key again. Only `key` is adjusted — `filename` and `data_format` stay the asset's,
+and the asset's own metadata is not modified. This is what lets a command reached
+as `-R/data/x.manifest.yaml/-/ns-rec/…`, which runs as a keyless query asset, learn
+the key its input was read from.
 
 | Context component | Clone behavior |
 |---|---|
@@ -399,7 +416,7 @@ legacy JSON metadata.
 | `ImmediateEnvironment<V>` | Native or Wasm | `()` | Inline `ImmediateAssetManager` | `TrivialRecipeProvider` | Async store |
 | `SimpleEnvironmentWithPayload<V, P>` | Native only | `P` | Queued `DefaultAssetManager` | `TrivialRecipeProvider` with stderr notice | Async store; legacy sync setter |
 | `ImmediateEnvironmentWithPayload<V, P>` | Native or Wasm | `P` | Inline `ImmediateAssetManager` | `TrivialRecipeProvider` | Async store |
-| `liquers_lib::DefaultEnvironment<V, P>` | Native or Wasm | `P` | Queued natively, inline on Wasm | Configured provider; defaults to `DefaultRecipeProvider` | Async store |
+| `liquers_lib::DefaultEnvironment<V, P>` | Native or Wasm | `P` | Queued natively, inline on Wasm | Configured provider; defaults to `DefaultRecipeProvider`, chained with `ManifestRecipeProvider` under `records` | Async store |
 
 `SimpleEnvironment::with_cache` and
 `SimpleEnvironmentWithPayload::with_cache` always panic.
@@ -503,6 +520,7 @@ tracked by DOC-03. No new compiler warning was introduced by DOC-04.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. §Context lifetime and sharing: the state handed to the next step carries the fetched key as metadata `key` (review fix C2 in `interpreter::apply_plan`), with the step-by-step rule. `LibKind`'s default recipe provider is a chain with `ManifestRecipeProvider` under `records`. | phase-5 |
 | 2026-08-31 | Replaced the initialization sequence with `try_to_ref`'s and documented `EnvironmentBuilder` as the recommended construction path, `init_with_envref`'s strengthened contract, synchronous fallible manager startup, and `GenericEnvironment` with its four aliases and the asset-manager kind. Retired the P0 `EnvRef::new` and P1 unobservable-startup gap rows. | `design/environment-builder/phase-5` |
 | 2026-08-31 | Documented that `Environment::to_ref` refreshes command metadata versions before sharing and that `EnvRef::new` bypasses that lifecycle step. | `design/refresh-command-metadata-versions/phase-5` |
 | 2026-08-30 | Updated built-in environment recipe-provider fallback behavior after `SimpleEnvironmentWithPayload` stopped panicking and corrected the already-fixed `liquers_lib::DefaultEnvironment` default-provider row. | PAYLOAD-ENV-RECIPE-PROVIDER-FALLBACK |

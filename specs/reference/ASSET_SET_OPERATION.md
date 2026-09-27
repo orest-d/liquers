@@ -3,7 +3,7 @@ title: Asset Set Operation Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-08-26
+reviewed: 2026-09-27
 ---
 # Asset Set Operation Specification
 
@@ -29,10 +29,10 @@ In these cases, it should be clear that this data is not generated, but entered 
 
 The AssetManager provides two complementary set operations:
 
-#### 1. `set()` - Binary Data Setting
+#### 1. `set_binary()` - Binary Data Setting
 
 ```rust
-async fn set(&self, key: &Key, binary: &[u8], metadata: MetadataRecord) -> Result<(), Error>
+async fn set_binary(&self, key: &Key, binary: &[u8], metadata: MetadataRecord) -> Result<(), Error>
 ```
 
 - Sets binary (serialized) representation and metadata
@@ -52,6 +52,15 @@ async fn set_state(&self, key: &Key, state: State<V>) -> Result<(), Error>
 - **Memory + Store**: Creates new AssetRef with State AND serializes to store
 - Supports non-serializable data (see Non-Serializable Data section)
 - Data immediately available in memory for fast access
+
+### `stored: false` in the supplied metadata
+
+Both operations honour the **supplied** metadata's `stored` flag (`MetadataRecord::stored`, an
+`Option<bool>`; absent means stored), not the recipe's. With `stored: Some(false)`, neither
+operation writes anything to the store, which lets an explicit set bypass a `stored: false` recipe
+by supplying `stored: true` in its own metadata. `set_state()` still creates the in-memory
+`AssetRef`; `set_binary()` has nothing else to do. See [`ASSETS.md`](ASSETS.md) for the flag's
+meaning.
 
 ### Key-Only Constraint
 
@@ -132,7 +141,7 @@ Status properties:
 
 ### Lock During Set
 
-When `set()` or `set_state()` is called:
+When `set_binary()` or `set_state()` is called:
 - Acquire lock on the key
 - Second caller waits until first completes
 - No "last write wins" race conditions
@@ -178,13 +187,13 @@ This ensures no partial/inconsistent state remains.
 ## Dependency Invalidation (future enhancement)
 NOTE: Dependency tracking is not implemented yet, this is a design of a future behaviour.
 
-When `set()` or `set_state()` modifies an existing asset:
+When `set_binary()` or `set_state()` modifies an existing asset:
 
 1. Find all dependents (assets that depend on this key)
 2. Set their status to `Expired`
 3. Add warning to their log: "Expired due to user changing dependency key"
 4. **Full cascade**: If A→B→C and we set(C), both B and A become `Expired`
-5. **Synchronous**: set() blocks until all dependents are invalidated
+5. **Synchronous**: `set_binary()` blocks until all dependents are invalidated
 
 ## Store Routing
 
@@ -372,9 +381,9 @@ Rationale: Validation would require potentially costly de-serialization, adding 
 
 ## History
 
-| Date | Change |
-|---|---|
-| 2026-08-26 | Corrected the error-state exemption: an errored asset is typed by the value it holds, which is none. There is no `error` identifier. | `design/foreign-value-type-registration/` |
-| 2026-08-18 | The mandatory-field rules this document asserted are now enforced, in two tiers; records which checks reject, which warn, and the two exemptions from the format check. | `design/value-type-system/` | Source |
+| Date | Change | Source |
 |---|---|---|
+| 2026-09-27 | Reviewed against the code for record-streams: the binary operation is `set_binary()` (was written `set()`); both operations honour the supplied metadata's `stored: false`. Repaired this History table's header | phase-5 (`design/record-streams/`) |
+| 2026-08-26 | Corrected the error-state exemption: an errored asset is typed by the value it holds, which is none. There is no `error` identifier. | `design/foreign-value-type-registration/` |
+| 2026-08-18 | The mandatory-field rules this document asserted are now enforced, in two tiers; records which checks reject, which warn, and the two exemptions from the format check. | `design/value-type-system/` |
 | 2026-08-08 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |

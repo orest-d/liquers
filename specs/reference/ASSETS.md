@@ -3,7 +3,7 @@ title: Assets Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-09-15
+reviewed: 2026-09-27
 ---
 # Assets Specification
 
@@ -72,9 +72,9 @@ is itself evaluating, so an evaluating answer re-enters the asset that is asking
 `AssetManager::get` instead recursed until the wasm stack was exhausted
 (`CORE-IMMEDIATE-MANAGER-KEYED-RECURSION`).
 
-`None` means no asset is registered, and the caller therefore owns the recipe. Two ways to get
-there: the key is volatile, or the asset was built outside the manager's maps (`apply`,
-`create_asset`).
+`None` means no asset is registered, and the caller therefore owns the recipe. Three ways to get
+there: the key is volatile, its recipe declares `cached: false` (see below), or the asset was built
+outside the manager's maps (`apply`, `create_asset`).
 
 #### Volatile assets are never owned
 
@@ -98,6 +98,43 @@ it. Used once, never reused.
 A volatile value is still persisted, with `Status::Volatile` in its metadata. It is written as an
 opportunity for the user to override, not as a value to read back: `try_fast_track` accepts only a
 stored `Ready`, `Source` or `Override`.
+
+#### `stored` and `cached`: opting out of the write and of reuse
+
+Two recipe flags, `stored` and `cached`, are `Option<bool>` on `Recipe`, `MetadataRecord` and
+`AssetInfo`, absent unless set; the accessors `stored()` and `cached()` (also on `Metadata`, where
+legacy metadata answers `true`) read an absent flag as `true`. `get_resource_asset` in both
+`DefaultAssetManager` and `ImmediateAssetManager` copies them from the key's recipe into the new
+asset's metadata **before** anything can persist it, and `evaluate` re-copies them from the
+provider's recipe when it adopts it.
+
+| Flag, when `false` | What it skips | What it does not change |
+|---|---|---|
+| `stored` | Every store write for the key: `save_to_store` (value and metadata), the `MetadataSaver`'s status and progress writes, both native and wasm — no metadata-only entry is left either | A stored copy that already exists is still read, and fast-tracked in preference to recomputation: it may be `Override` data |
+| `cached` | Registration: the manager mints a fresh asset per request (`get_uncached_resource_asset`, or the equivalent branch in the immediate manager) and never inserts it in `assets`, so it is evaluated for the request and dropped | The asset is **still the key's node in the dependency graph** — see below |
+
+**Neither flag makes an asset volatile**, alone or together. Volatility is contagious and says the
+result is single-use; these flags are about disk and memory, not purity, so a dependent of a
+`cached: false` key is not volatile and is cached normally. Volatility is decided before either
+flag is consulted.
+
+**An uncached keyed asset stays the key's graph node.** `AssetRef::bound_owner_key` answers the key
+for an asset that is constructed for it, not volatile, whose recipe targets the key and declares
+`cached: false`, **when no other asset is registered** for the key — so its dependencies are
+recorded and its version registered like a registered owner's, and a change upstream expires its
+dependents. A registered owner, when one exists, stays the only answer, which keeps a delegating
+asset answering `None`. Because no registered asset holds such a key, `expire_dependencies_result`
+expires the key **in the store**: the stored metadata of a `Ready` or `Override` copy is rewritten
+as `Expired`, so a fresh process does not fast-track data the graph knows is stale. The
+non-registered-owner warning a keyed write normally records is skipped for an uncached asset, as for
+a volatile one. The race between that store expiry and an evaluation already in flight is
+`UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION`.
+
+An explicit install decides for itself: `set_state` and `set_binary` read the **supplied**
+metadata's `stored` flag, not the recipe's, so a caller may write a `stored: false` key by supplying
+metadata that says `stored: true` — and one supplying `stored: false` gets no store write, while
+the rest of the operation (the in-memory entry `set_state` creates, the version registration and the
+cascade to dependents) proceeds.
 
 ## Communication Channels
 
@@ -896,6 +933,7 @@ re-evaluation is a property of *requesting* the asset, not of awaiting an in-fli
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. Added §`stored` and `cached` to §AssetManager: what each flag skips in both managers, that an existing stored copy is still preferred, that neither makes an asset volatile, that an uncached keyed asset stays the key's dependency-graph node (`bound_owner_key`) and has its stored copy marked `Expired` on an upstream change, and that `set_state`/`set_binary` read the supplied metadata's flag. §Key ownership: `cached: false` is a third way to have no registered owner. | phase-5 |
 | 2026-09-15 | §Expiry: a stale-dependency completion is *born* `Expired` in `finalize_status_with_version` rather than relabelled afterwards by `finish_run_with_result`, so the stored status agrees with the manager. | `stale-dependency-status-finalization` |
 | 2026-09-15 | Added §The one meaning of `Expired` (one meaning, two provenances, and why a `Stale` variant is not the answer) and §Who decides status (the manager is authoritative, every keyed expiry writes through to the store, ask the manager before the store, and two environments over one live store is not a supported configuration). | `stale-dependency-status-finalization` |
 | 2026-08-26 | Recorded that a failed asset is typed by the value it holds, which is none; there is no `error` type identifier. | `design/foreign-value-type-registration/` |

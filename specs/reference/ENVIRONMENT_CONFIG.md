@@ -3,7 +3,7 @@ title: Environment Configuration
 kind: reference
 audience: both
 area: [core/context, core/store, core/assets]
-reviewed: 2026-08-31
+reviewed: 2026-09-27
 ---
 # Environment Configuration
 
@@ -42,7 +42,7 @@ assets:
 | Field | Type | Default when absent | Meaning |
 |---|---|---|---|
 | `store` | `StoreRouterConfig` | empty router | Store list and routing prefixes. See [Store Configuration](./STORE_CONFIG_FSD.md); the format is not restated here. |
-| `recipes` | `RecipeProviderChoice` | **`default`** | `default` reads recipes through the store; `trivial` resolves none. Aliases `none` and `no_recipes` are accepted for `trivial`. |
+| `recipes` | `RecipeProviderChoice` | **`default`** | `default` reads recipes through the store (a folder whose `recipes.yaml` key the store refuses as unsupported simply has none); `trivial` resolves none. Aliases `none` and `no_recipes` are accepted for `trivial`. Selects the **base** provider only — see §The recipe provider chain. |
 | `assets` | `AssetManagerOptions` | all unset | Per-manager settings. `job_capacity` sets the queued manager's job-queue size; **must be at least 1**. |
 
 Every field has a serde default, so a document may configure one section and omit the rest, and a
@@ -111,13 +111,52 @@ This is the one field whose absence changes behaviour in a way worth stating twi
 |---|---|
 | `EnvironmentBuilder::new()` with no configuration | `Trivial` — resolves no recipes |
 | `EnvironmentConfig` with no `recipes:` key, applied | **`Default`** — reads recipes through the store |
-| `liquers_lib::default_environment_builder()` | `Default` |
+| `liquers_lib::default_environment_builder()` | `Default`, followed by `ManifestRecipeProvider` when `liquers-lib`'s `records` feature is on (§The recipe provider chain) |
 
 `RecipeProviderChoice`'s `#[default]` is the *document* default, chosen on the grounds that a
 configuration saying nothing about recipes most plausibly wants them to work. `liquers-core`'s
 builder has no opinion and resolves nothing. So applying even an empty configuration is an explicit
 act that changes how `-R/` queries resolve. Pinned by
 `environment_config::tests::an_absent_recipes_key_means_default_not_trivial`.
+
+## The recipe provider chain
+
+An environment has one recipe provider, and it may be a **chain**: `RecipeProviderChain`
+(`liquers-core/src/recipes.rs`) consults its providers in order. `recipe_opt` answers from the
+first provider that has the key; `contains` is true when any provider's `recipe_opt` answers;
+`recipe`, `recipe_plan` and `get_asset_info` delegate whole to that provider; `has_recipes` is any,
+and `assets_with_recipes` is the de-duplicated union in provider order.
+
+A chain is built in code, not in the document. `RecipeProviderChoice` is unchanged — still
+`default` or `trivial` — because a choice is data and cannot name a provider that lives in another
+crate. Two setters append a provider after the one already there:
+
+| Method | Effect |
+|---|---|
+| `EnvironmentBuilder::with_appended_recipe_provider(provider)` | Queued for `build()`, which composes `RecipeProviderChain::new([base, appended…])`. The base is the configured provider, or the kind's default when none is configured. A later `with_recipe_provider`, `with_recipe_provider_choice` or `with_config` replaces **only the base** and keeps every appended provider. |
+| `GenericEnvironment::with_appended_recipe_provider(provider)` | On a constructed environment: replaces the provider with `RecipeProviderChain::new([current, provider])`. Calling it twice nests a chain in a chain, which behaves identically. |
+
+**`liquers-lib`'s default is a chain when `records` is on.** `LibKind::default_recipe_provider` is
+`[DefaultRecipeProvider, ManifestRecipeProvider]`, so a manifest's keyed chunks resolve from any
+`-R/` query exactly as a `recipes.yaml` entry does, with `recipes.yaml` consulted first. Without
+`records` it is `DefaultRecipeProvider` alone, as before.
+
+That default is the *kind's*, so a build that **sets the base** — `with_recipe_provider`,
+`with_recipe_provider_choice`, or `with_config` with any document — replaces the whole chain and
+loses manifest support without a word. Such a build calls
+`liquers_lib::environment::RecordsRecipeProvider::with_records_recipe_provider()`, which appends
+`ManifestRecipeProvider` after whatever base is configured:
+
+```rust,ignore
+use liquers_lib::environment::RecordsRecipeProvider;
+
+let builder = liquers_lib::environment::default_environment_builder::<Value, ()>()
+    .with_config(config, Box::new(default_store_factory()))
+    .with_records_recipe_provider();
+```
+
+Nothing in `liquers-lib` or `liquers-axum` constructs an environment from a configuration document
+yet, so no built-in path calls it today; an application that does must.
 
 ## Related
 
@@ -130,4 +169,5 @@ act that changes how `-R/` queries resolve. Pinned by
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. Added §The recipe provider chain: `RecipeProviderChain` and its delegation rules, `with_appended_recipe_provider` on the builder and on `GenericEnvironment`, `RecipeProviderChoice` unchanged and selecting only the base, `liquers-lib`'s `[DefaultRecipeProvider, ManifestRecipeProvider]` default with `records`, and `with_records_recipe_provider()` for a build that sets its own base. `recipes: default` answers "no recipes" for a folder the store refuses as unsupported. | phase-5 |
 | 2026-08-31 | Created with `EnvironmentConfig`: fields, constructors, deferred failures, the two deliberate omissions, and the `recipes`-absent asymmetry. | `design/environment-builder/phase-5` |
