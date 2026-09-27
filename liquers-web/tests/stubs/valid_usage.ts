@@ -88,6 +88,31 @@ async function main(): Promise<void> {
   void encoded;
   void key;
 
+  // RecordBatch / RecordColumn (the `records` feature). `RecordBatch` has no public constructor
+  // — a page gets one back from a query that evaluates to a table — so this checks the declared
+  // shape via a type assertion rather than constructing one.
+  const batch = null as unknown as liquers.RecordBatch;
+  const numRows: number = batch.numRows;
+  const numColumns: number = batch.numColumns;
+  const schemaJson: string = batch.schemaJson();
+  const descriptor: liquers.LiquersRecordColumnDescriptor = batch.column(0);
+  const columnCopyResult: unknown = batch.columnCopy(0);
+  void numRows;
+  void numColumns;
+  void schemaJson;
+  void columnCopyResult;
+
+  const kind: string = descriptor.kind;
+  const validity: liquers.LiquersRecordColumnDescriptor | null = descriptor.validity;
+  void kind;
+  void validity;
+
+  const recordColumn = null as unknown as liquers.LiquersRecordColumn;
+  const view: ArrayBufferView = recordColumn.view;
+  const copy: liquers.LiquersRecordColumnCopy = recordColumn.toCopy();
+  void view;
+  void copy;
+
   // Parameter encoding, and the module-level odds and ends.
   const param: string = liquers.encodeParam('two words');
   const ready: boolean = liquers.isInitialized();

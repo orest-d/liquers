@@ -32,7 +32,30 @@ impl JsExtensionBridge for ExtValue {
     }
 
     fn to_js_custom(&self) -> Result<Option<JsValue>, Error> {
-        Ok(None)
+        match self {
+            ExtValue::Image { .. } => Ok(None),
+            ExtValue::Foreign { .. } => Ok(None),
+            ExtValue::UIElement { .. } => Ok(None),
+            #[cfg(feature = "polars")]
+            ExtValue::PolarsDataFrame { .. } => Ok(None),
+            #[cfg(feature = "egui")]
+            ExtValue::UiCommand { .. } => Ok(None),
+            #[cfg(feature = "egui")]
+            ExtValue::Widget { .. } => Ok(None),
+            // The wasm route: a view crossing into JavaScript is materialized first (Phase 2's
+            // "The wasm route: a dedicated safe mechanism, not Arrow") so the handle's `Arc`
+            // keeps buffers the descriptor points into alive for as long as JS holds it.
+            #[cfg(feature = "records")]
+            ExtValue::RecordView { value } => {
+                let batch = value.materialize()?;
+                Ok(Some(crate::records::LiquersRecordBatch::from(batch).into()))
+            }
+            // A source has no JavaScript-specific representation yet — it falls through to the
+            // standard mapping, which refuses it (a source serializes only as its manifest, and
+            // that byte form is not what structural conversion produces).
+            #[cfg(feature = "records")]
+            ExtValue::RecordSource { .. } => Ok(None),
+        }
     }
 
     fn from_js_opaque(_js: JsValue, opaque: JsOpaque) -> Result<Self, Error> {
@@ -61,6 +84,11 @@ impl JsExtensionBridge for ExtValue {
             #[cfg(feature = "egui")]
             ExtValue::Widget { .. } => Ok(None),
             ExtValue::UIElement { .. } => Ok(None),
+            // Neither is an opaque foreign value — `to_js_custom` is what converts these.
+            #[cfg(feature = "records")]
+            ExtValue::RecordView { .. } => Ok(None),
+            #[cfg(feature = "records")]
+            ExtValue::RecordSource { .. } => Ok(None),
         }
     }
 }

@@ -43,6 +43,8 @@ pub mod environment;
 pub mod error;
 pub mod eval;
 pub mod objects;
+#[cfg(feature = "records")]
+pub mod records;
 pub mod store;
 pub mod typescript;
 pub mod value;

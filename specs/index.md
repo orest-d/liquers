@@ -8,11 +8,11 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 133
+Total rows: 134
 - P0: 1
 - P1: 2
 - P2: 82
-- P3: 48
+- P3: 49
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
@@ -118,6 +118,7 @@ Total rows: 133
 | [`REGISTER-COMMAND-OPTION-VALUE-CANNOT-BIND`](issues/REGISTER-COMMAND-OPTION-VALUE-CANNOT-BIND.md) | issue | register_command! cannot bind an Option<Value> argument | draft |  | P3 | S | macro |  | 2026-09-26 |
 | [`SCHEMA-LESS-JSON-READS-SORT-COLUMNS-ALPHABETICALLY`](issues/SCHEMA-LESS-JSON-READS-SORT-COLUMNS-ALPHABETICALLY.md) | issue | A JSON table read without a schema gets its columns in alphabetical order | draft |  | P3 | S | records | [chunking](specs/design/record-streams/chunking-and-resumability.md)  [engine](specs/design/record-streams/engine-survey.md)  [manifest](specs/design/record-streams/manifest-format.md)  [phase1](specs/design/record-streams/phase1-high-level-design.md)  [phase2](specs/design/record-streams/phase2-architecture.md)  [phase3](specs/design/record-streams/phase3-examples.md)  [phase3](specs/design/record-streams/phase3-tests.md)  [phase4](specs/design/record-streams/phase4-implementation.md)  [phase5](specs/design/record-streams/phase5-documentation.md)  [phase5](specs/design/record-streams/phase5-evidence.md)  [record](specs/design/record-streams/record-model.md)  | 2026-09-26 |
 | [`SIMPLE-VALUE-WRITES-FEWER-FORMATS-THAN-DECLARED`](issues/SIMPLE-VALUE-WRITES-FEWER-FORMATS-THAN-DECLARED.md) | issue | liquers-lib's base value declares formats its serializer refuses | draft |  | P3 | S | lib/value |  | 2026-09-25 |
+| [`STUBS01-GREP-MISSES-DERIVE-INTERLEAVED-CLASSES`](issues/STUBS01-GREP-MISSES-DERIVE-INTERLEAVED-CLASSES.md) | issue | check-stubs.sh's STUBS01 grep misses classes with an interleaved derive attribute | draft |  | P3 | S | web |  | 2026-09-27 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  | P3 | S | core/value |  | 2026-09-24 |
 | [`AXUM-WEBSOCKET-HARDENING`](issues/AXUM-WEBSOCKET-HARDENING.md) | issue | WebSocket endpoint is not hardened | accepted |  | P3 | M | axum |  | 2026-08-08 |
 | [`BENCHMARK-SUITE`](issues/BENCHMARK-SUITE.md) | feature | No reproducible benchmarks for core runtime paths | accepted |  | P3 | M | build |  | 2026-08-08 |

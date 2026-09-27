@@ -55,13 +55,19 @@ wasm-bindgen-test = "0.3"
 futures = "0.3"
 
 [features]
-default = []
+default = ["records"]
 # Forwarded so that `#[cfg(feature = "...")]` in this crate agrees with which ExtValue variants
 # actually exist. Without forwarding, these cfgs are evaluated against *this* crate's feature set,
 # are therefore always false, and a match on ExtValue would silently omit arms that a
 # feature-unified build does have.
 polars = ["liquers-lib/polars"]
 egui = ["liquers-lib/egui"]
+# The `RecordBatch` handle (`src/records.rs`): a wasm-safe view into a Liquers record batch's
+# columnar buffers. Forwarded exactly like `polars`/`egui` above, and — unlike them — on by
+# default: `ExtValue::RecordView`/`RecordSource` exist whenever `liquers-lib/records` is enabled,
+# which it is by default, so this crate's own `#[cfg(feature = "records")]` arms must default to
+# on too or `default_value.rs`'s match on `ExtValue` stops compiling in the default build.
+records = ["liquers-lib/records"]
 # Exposes a live count of retained JS handles so RUNTIME05 can assert handle release
 # deterministically, rather than depending on GC timing. Test-only.
 debug-handles = []
