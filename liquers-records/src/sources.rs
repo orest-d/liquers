@@ -750,17 +750,19 @@ where
     fn metadata(&self, query: Query) -> BoxFuture<'static, Result<Metadata, Error>> {
         let context = self.context.clone();
         Box::pin(async move {
-            match query.key() {
-                // A plain resource query: the store's own metadata answers directly, with no
-                // evaluation.
-                Some(key) => context.get_envref().get_async_store().get_metadata(&key).await,
-                // Anything else has no metadata to read without evaluating it — the closest this
-                // resolver can come to "the asset manager's" metadata for an unkeyed chunk.
-                None => {
-                    let state = context.get_dependency_state(&query).await?;
-                    Ok((*state.metadata).clone())
+            // A plain resource query whose key the store holds: the store's own metadata answers
+            // directly, with no evaluation. A keyed chunk not produced yet (`KeyNotFound`) and any
+            // other query have no metadata to read without evaluating them — the closest this
+            // resolver can come to "the asset manager's" metadata.
+            if let Some(key) = query.key() {
+                match context.get_envref().get_async_store().get_metadata(&key).await {
+                    Ok(metadata) => return Ok(metadata),
+                    Err(error) if error.error_type == ErrorType::KeyNotFound => {}
+                    Err(error) => return Err(error),
                 }
             }
+            let state = context.get_dependency_state(&query).await?;
+            Ok((*state.metadata).clone())
         })
     }
 
@@ -817,14 +819,18 @@ where
     fn metadata(&self, query: Query) -> BoxFuture<'static, Result<Metadata, Error>> {
         let envref = self.envref.clone();
         Box::pin(async move {
-            match query.key() {
-                Some(key) => envref.get_async_store().get_metadata(&key).await,
-                None => {
-                    let asset = envref.evaluate(query).await?;
-                    let state = asset.get().await?;
-                    Ok((*state.metadata).clone())
+            // As `ContextResolver::metadata`: the store answers for a key it holds; a keyed chunk
+            // not produced yet, or any other query, is evaluated.
+            if let Some(key) = query.key() {
+                match envref.get_async_store().get_metadata(&key).await {
+                    Ok(metadata) => return Ok(metadata),
+                    Err(error) if error.error_type == ErrorType::KeyNotFound => {}
+                    Err(error) => return Err(error),
                 }
             }
+            let asset = envref.evaluate(query).await?;
+            let state = asset.get().await?;
+            Ok((*state.metadata).clone())
         })
     }
 

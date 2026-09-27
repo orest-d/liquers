@@ -233,3 +233,23 @@ async fn a_keyless_manifest_with_chunk_arguments_is_refused(
     );
     Ok(())
 }
+
+/// `ns-rec/rowid` on a keyed manifest whose chunks have not been produced yet: describing the
+/// chunk must not require its metadata to be in the store already — the chunk is produced by its
+/// recipe, as a traversal would produce it. The explicit chunk's `arguments` apply (offset 55).
+#[tokio::test]
+async fn rowid_reaches_a_keyed_chunk_that_has_not_been_produced_yet(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let store = AsyncMemoryStore::new(&Key::new());
+    set_manifest(&store, &parse_key("data/x.manifest.yaml")?, MANIFEST).await?;
+    let envref = build_env(store)?;
+
+    let state = eval(
+        envref,
+        "-R/data/x.manifest.yaml/-/ns-rec/to_record_source/-/ns-rec/rowid-0-0",
+    )
+    .await?;
+    let view = state.value()?.as_record_view()?;
+    assert_eq!(offsets(&view)?, vec![FieldValue::Int(55)]);
+    Ok(())
+}
