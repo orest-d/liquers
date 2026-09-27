@@ -43,8 +43,9 @@ use liquers_core::error::{Error, ErrorType};
 use crate::batch::RecordBatch;
 use crate::batch::RecordView;
 use crate::buffer::{AlignedBuffer, Bitmap, Buffer};
-use crate::column::Column;
+use crate::column::{Column, FieldValue};
 use crate::formats::ReadSchema;
+use crate::mutable::ColumnMut;
 use crate::schema::{FieldSchema, FieldType, RecordSchema};
 
 type TableOffset = WIPOffset<TableFinishedWIPOffset>;
@@ -566,8 +567,27 @@ mod fb {
         Error::general_error(format!("ipc: truncated or malformed flatbuffer ({what})"))
     }
 
+    /// `a + b`, as an error rather than a wrap or a panic: on wasm32 `usize` is 32 bits, and every
+    /// operand here comes from the file.
+    fn add(a: usize, b: usize) -> Result<usize, Error> {
+        a.checked_add(b).ok_or_else(|| truncated("offset overflow"))
+    }
+
     fn slice(buf: &[u8], pos: usize, len: usize) -> Result<&[u8], Error> {
-        buf.get(pos..pos + len).ok_or_else(|| truncated("field runs past the buffer"))
+        buf.get(pos..add(pos, len)?).ok_or_else(|| truncated("field runs past the buffer"))
+    }
+
+    /// A vector's element count and the position of its first element, with the count bounded by
+    /// the bytes that remain after it — checked **before** any allocation sized by it, so a
+    /// hostile count (`0xFFFFFFFF`) is an error, not an allocation abort.
+    fn vector_header(buf: &[u8], vec_pos: usize, elem_size: usize) -> Result<(usize, usize), Error> {
+        let count = read_u32(buf, vec_pos)? as usize;
+        let data_pos = add(vec_pos, 4)?;
+        let remaining = buf.len().saturating_sub(data_pos);
+        if count > remaining / elem_size {
+            return Err(truncated("vector length exceeds the buffer"));
+        }
+        Ok((count, data_pos))
     }
 
     pub(super) fn read_u8(buf: &[u8], pos: usize) -> Result<u8, Error> {
@@ -631,18 +651,18 @@ mod fb {
             if voffset + 2 > vtable_len {
                 return Ok(None);
             }
-            let field_rel = read_u16(self.buf, vtable_pos + voffset)? as usize;
+            let field_rel = read_u16(self.buf, add(vtable_pos, voffset)?)? as usize;
             if field_rel == 0 {
                 return Ok(None);
             }
-            Ok(Some(self.pos + field_rel))
+            Ok(Some(add(self.pos, field_rel)?))
         }
 
         /// Dereferences the `u32` forward-relative offset stored at `loc` (how every
         /// table/string/vector reference is stored, once its slot's value location is known).
         fn indirect(&self, loc: usize) -> Result<usize, Error> {
             let rel = read_u32(self.buf, loc)? as usize;
-            Ok(loc + rel)
+            add(loc, rel)
         }
 
         pub(super) fn i8_field(&self, voffset: u16, default: i8) -> Result<i8, Error> {
@@ -669,6 +689,12 @@ mod fb {
                 None => Ok(default),
             }
         }
+        pub(super) fn i64_field(&self, voffset: u16, default: i64) -> Result<i64, Error> {
+            match self.field_loc(voffset)? {
+                Some(loc) => read_i64(self.buf, loc),
+                None => Ok(default),
+            }
+        }
         pub(super) fn bool_field(&self, voffset: u16, default: bool) -> Result<bool, Error> {
             match self.field_loc(voffset)? {
                 Some(loc) => Ok(read_u8(self.buf, loc)? != 0),
@@ -689,7 +715,7 @@ mod fb {
                 Some(loc) => {
                     let str_pos = self.indirect(loc)?;
                     let len = read_u32(self.buf, str_pos)? as usize;
-                    let bytes = slice(self.buf, str_pos + 4, len)?;
+                    let bytes = slice(self.buf, add(str_pos, 4)?, len)?;
                     std::str::from_utf8(bytes)
                         .map(Some)
                         .map_err(|e| Error::from_error(ErrorType::ConversionError, e))
@@ -704,10 +730,11 @@ mod fb {
                 None => Ok(Vec::new()),
                 Some(loc) => {
                     let vec_pos = self.indirect(loc)?;
-                    let count = read_u32(self.buf, vec_pos)? as usize;
+                    let (count, data_pos) = vector_header(self.buf, vec_pos, 4)?;
                     let mut out = Vec::with_capacity(count);
                     for i in 0..count {
-                        let elem_loc = vec_pos + 4 + i * 4;
+                        // In bounds by `vector_header`: `data_pos + count * 4 <= buf.len()`.
+                        let elem_loc = data_pos + i * 4;
                         let target = self.indirect(elem_loc)?;
                         out.push(FbTable { buf: self.buf, pos: target });
                     }
@@ -722,8 +749,7 @@ mod fb {
                 None => Ok(Vec::new()),
                 Some(loc) => {
                     let vec_pos = self.indirect(loc)?;
-                    let count = read_u32(self.buf, vec_pos)? as usize;
-                    let data_pos = vec_pos + 4;
+                    let (count, data_pos) = vector_header(self.buf, vec_pos, 16)?;
                     let mut out = Vec::with_capacity(count);
                     for i in 0..count {
                         let base = data_pos + i * 16;
@@ -740,8 +766,7 @@ mod fb {
                 None => Ok(Vec::new()),
                 Some(loc) => {
                     let vec_pos = self.indirect(loc)?;
-                    let count = read_u32(self.buf, vec_pos)? as usize;
-                    let data_pos = vec_pos + 4;
+                    let (count, data_pos) = vector_header(self.buf, vec_pos, 24)?;
                     let mut out = Vec::with_capacity(count);
                     for i in 0..count {
                         let base = data_pos + i * 24;
@@ -859,7 +884,10 @@ fn decode_arrow_field<'a>(field_table: &fb::FbTable<'a>) -> Result<ArrowField<'a
                     "Arrow IPC: field '{name}' is FixedSizeList<FloatingPoint(precision={child_precision})>; only FixedSizeList<Float32> is supported"
                 )));
             }
-            (FieldType::Vector, Some(list_size.max(0) as usize))
+            let dim = usize::try_from(list_size).map_err(|_| {
+                Error::general_error(format!("ipc: field '{name}' is FixedSizeList of negative size {list_size}"))
+            })?;
+            (FieldType::Vector, Some(dim))
         }
         TYPE_LARGE_UTF8 => {
             return Err(Error::not_supported(format!(
@@ -902,40 +930,30 @@ fn decode_schema<'a>(schema_table: &fb::FbTable<'a>) -> Result<DecodedSchema<'a>
     Ok(DecodedSchema { arrow_fields, liquers_schema_json })
 }
 
-/// The [`RecordSchema`] a read uses: the declared one (checked for field-count and type agreement)
-/// when `requested` names one, else `liquers.schema` from the file's metadata when present, else
-/// one derived straight from the Arrow fields — phase2-architecture.md's "reading without
-/// `liquers.schema` derives a schema from the Arrow fields".
-fn effective_schema(decoded: &DecodedSchema<'_>, requested: ReadSchema<'_>) -> Result<RecordSchema, Error> {
+/// The schema a read returns, and where each of its fields comes from: `sources[i]` is the index
+/// of the Arrow field holding schema field `i`, or `None` for a declared, nullable field the file
+/// does not have (it reads as a null column).
+struct ResolvedSchema {
+    schema: RecordSchema,
+    sources: Vec<Option<usize>>,
+}
+
+/// The [`RecordSchema`] a read uses: the declared one when `requested` names one (matched **by
+/// name** against the Arrow fields, as phase2-architecture.md §"Two readers" matches a header),
+/// else `liquers.schema` from the file's metadata when present (checked field by field against the
+/// Arrow fields it claims to describe), else one derived straight from the Arrow fields —
+/// phase2-architecture.md's "reading without `liquers.schema` derives a schema from the Arrow
+/// fields".
+fn effective_schema(decoded: &DecodedSchema<'_>, requested: ReadSchema<'_>) -> Result<ResolvedSchema, Error> {
     match requested {
-        ReadSchema::Declared(declared) => {
-            if declared.fields.len() != decoded.arrow_fields.len() {
-                return Err(Error::general_error(format!(
-                    "ipc: declared schema has {} fields but the file has {}",
-                    declared.fields.len(),
-                    decoded.arrow_fields.len()
-                )));
-            }
-            for (declared_field, arrow_field) in declared.fields.iter().zip(decoded.arrow_fields.iter()) {
-                if declared_field.data_type != arrow_field.data_type {
-                    return Err(Error::general_error(format!(
-                        "ipc: declared field '{}' is {:?} but the file's field '{}' is {:?}",
-                        declared_field.name, declared_field.data_type, arrow_field.name, arrow_field.data_type
-                    )));
-                }
-            }
-            Ok(declared.clone())
-        }
+        ReadSchema::Declared(declared) => resolve_declared(declared, &decoded.arrow_fields),
         ReadSchema::Infer => match decoded.liquers_schema_json {
             Some(json) => {
                 let schema: RecordSchema =
                     serde_json::from_str(json).map_err(|e| Error::from_error(ErrorType::ConversionError, e))?;
-                if schema.fields.len() != decoded.arrow_fields.len() {
-                    return Err(Error::general_error(
-                        "ipc: the embedded liquers.schema field count does not match the Arrow schema".to_string(),
-                    ));
-                }
-                Ok(schema)
+                check_embedded_schema(&schema, &decoded.arrow_fields)?;
+                let sources = (0..schema.fields.len()).map(Some).collect();
+                Ok(ResolvedSchema { schema, sources })
             }
             None => {
                 let fields = decoded
@@ -950,58 +968,142 @@ fn effective_schema(decoded: &DecodedSchema<'_>, requested: ReadSchema<'_>) -> R
                         }
                     })
                     .collect();
-                RecordSchema::new(fields)
+                let schema = RecordSchema::new(fields)?;
+                let sources = (0..schema.fields.len()).map(Some).collect();
+                Ok(ResolvedSchema { schema, sources })
             }
         },
     }
 }
 
-fn next_node(nodes: &[(i64, i64)], idx: &mut usize) -> Result<(i64, i64), Error> {
-    let node = *nodes
-        .get(*idx)
-        .ok_or_else(|| Error::general_error("ipc: not enough field nodes for the schema".to_string()))?;
-    *idx += 1;
-    Ok(node)
-}
-
-fn next_buffer(buffers: &[(i64, i64)], idx: &mut usize) -> Result<(i64, i64), Error> {
-    let buf = *buffers
-        .get(*idx)
-        .ok_or_else(|| Error::general_error("ipc: not enough buffers for the schema".to_string()))?;
-    *idx += 1;
-    Ok(buf)
-}
-
-fn read_buffer_bytes<'a>(body: &'a [u8], buf: (i64, i64)) -> Result<&'a [u8], Error> {
-    let (offset, length) = buf;
-    let offset = usize::try_from(offset).map_err(|e| Error::from_error(ErrorType::ConversionError, e))?;
-    let length = usize::try_from(length).map_err(|e| Error::from_error(ErrorType::ConversionError, e))?;
-    body.get(offset..offset + length)
-        .ok_or_else(|| Error::general_error("ipc: a buffer runs past the record batch body".to_string()))
-}
-
-fn read_validity(body: &[u8], buf: (i64, i64), len: usize) -> Result<Option<Bitmap>, Error> {
-    let bytes = read_buffer_bytes(body, buf)?;
-    if bytes.is_empty() {
-        Ok(None)
-    } else if bytes.len() < len.div_ceil(8) {
-        Err(Error::general_error(
-            "ipc: validity buffer is shorter than the row count needs".to_string(),
-        ))
-    } else {
-        Ok(Some(Bitmap::from_bytes(bytes, len)))
+/// `liquers.schema` is metadata another tool may carry over unchanged while changing the columns
+/// (pyarrow keeps schema metadata through a rename or a cast), so it is trusted only when it still
+/// describes the file: the same fields, in the same order, with the same names and types.
+fn check_embedded_schema(schema: &RecordSchema, arrow_fields: &[ArrowField<'_>]) -> Result<(), Error> {
+    if schema.fields.len() != arrow_fields.len() {
+        return Err(Error::general_error(
+            "ipc: the embedded liquers.schema field count does not match the Arrow schema".to_string(),
+        ));
     }
+    for (index, (field, arrow_field)) in schema.fields.iter().zip(arrow_fields.iter()).enumerate() {
+        if field.name != arrow_field.name || field.data_type != arrow_field.data_type {
+            return Err(Error::general_error(format!(
+                "ipc: the embedded liquers.schema does not describe this file: its field {index} is \
+                 '{}' {:?}, but the Arrow field is '{}' {:?}",
+                field.name, field.data_type, arrow_field.name, arrow_field.data_type
+            )));
+        }
+    }
+    Ok(())
 }
 
-fn read_scalar_buffer<T: bytemuck::Pod>(bytes: &[u8]) -> Result<Buffer<T>, Error> {
-    let width = std::mem::size_of::<T>();
-    if bytes.len() % width != 0 {
-        return Err(Error::general_error(format!(
-            "ipc: a buffer of {} bytes is not a multiple of {width}",
+/// A declared schema is matched by name: every Arrow field must be declared (a column the schema
+/// does not declare is an error naming it), with the declared type; a declared field the file
+/// lacks is a null column when nullable, an error otherwise.
+fn resolve_declared(declared: &RecordSchema, arrow_fields: &[ArrowField<'_>]) -> Result<ResolvedSchema, Error> {
+    for (index, arrow_field) in arrow_fields.iter().enumerate() {
+        if arrow_fields[..index].iter().any(|earlier| earlier.name == arrow_field.name) {
+            return Err(Error::general_error(format!(
+                "ipc: the file has two fields named '{}', so a declared schema cannot be matched to \
+                 it by name",
+                arrow_field.name
+            )));
+        }
+        if declared.index_of(arrow_field.name).is_none() {
+            return Err(Error::general_error(format!(
+                "ipc: the file's field '{}' is not in the declared schema",
+                arrow_field.name
+            )));
+        }
+    }
+    let mut sources = Vec::with_capacity(declared.fields.len());
+    for field in &declared.fields {
+        match arrow_fields.iter().position(|arrow_field| arrow_field.name == field.name) {
+            Some(index) => {
+                let arrow_field = &arrow_fields[index];
+                if arrow_field.data_type != field.data_type {
+                    return Err(Error::general_error(format!(
+                        "ipc: declared field '{}' is {:?} but the file's field '{}' is {:?}",
+                        field.name, field.data_type, arrow_field.name, arrow_field.data_type
+                    )));
+                }
+                sources.push(Some(index));
+            }
+            None => {
+                if !field.nullable {
+                    return Err(Error::general_error(format!(
+                        "ipc: declared non-nullable field '{}' is missing from the file",
+                        field.name
+                    )));
+                }
+                if field.data_type == FieldType::Vector {
+                    return Err(Error::not_supported(format!(
+                        "ipc: declared Vector field '{}' is missing from the file, and a null \
+                         Vector column has no width to read it as",
+                        field.name
+                    )));
+                }
+                sources.push(None);
+            }
+        }
+    }
+    Ok(ResolvedSchema { schema: declared.clone(), sources })
+}
+
+fn to_usize(value: i64, what: &str) -> Result<usize, Error> {
+    usize::try_from(value)
+        .map_err(|_| Error::general_error(format!("ipc: {what} {value} is negative or too large")))
+}
+
+fn checked_len(count: usize, width: usize, name: &str) -> Result<usize, Error> {
+    count
+        .checked_mul(width)
+        .ok_or_else(|| Error::general_error(format!("ipc: field '{name}': length {count} overflows")))
+}
+
+/// The first `need` bytes of `bytes` — Arrow permits a buffer longer than its array needs (a
+/// sliced batch, padding), so a buffer is **sliced** to what `FieldNode.length` asks for, and a
+/// buffer shorter than that is refused.
+fn take_prefix<'a>(bytes: &'a [u8], need: usize, name: &str, what: &str) -> Result<&'a [u8], Error> {
+    bytes.get(..need).ok_or_else(|| {
+        Error::general_error(format!(
+            "ipc: field '{name}': the {what} buffer has {} bytes, but its length needs {need}",
             bytes.len()
-        )));
+        ))
+    })
+}
+
+/// A bitmap of exactly `len` bits from the front of `bytes`, with the padding bits of its last
+/// byte cleared — `Bitmap::count_ones` counts whole bytes, so a stray padding bit written by
+/// another implementation would otherwise count as a set bit.
+fn exact_bitmap(bytes: &[u8], len: usize, name: &str, what: &str) -> Result<Bitmap, Error> {
+    let mut owned = take_prefix(bytes, len.div_ceil(8), name, what)?.to_vec();
+    let remainder = len % 8;
+    if remainder != 0 {
+        if let Some(last) = owned.last_mut() {
+            *last &= (1u8 << remainder) - 1;
+        }
     }
-    let mut values = Vec::with_capacity(bytes.len() / width);
+    Ok(Bitmap::from_bytes(&owned, len))
+}
+
+/// A validity buffer may be omitted (zero length) only when the node declares no nulls.
+fn read_validity(bytes: &[u8], len: usize, null_count: i64, name: &str) -> Result<Option<Bitmap>, Error> {
+    if bytes.is_empty() || len == 0 {
+        if null_count > 0 {
+            return Err(Error::general_error(format!(
+                "ipc: field '{name}' declares {null_count} nulls but has no validity buffer"
+            )));
+        }
+        return Ok(None);
+    }
+    exact_bitmap(bytes, len, name, "validity").map(Some)
+}
+
+fn read_fixed<T: bytemuck::Pod>(bytes: &[u8], count: usize, name: &str, what: &str) -> Result<Buffer<T>, Error> {
+    let width = std::mem::size_of::<T>();
+    let bytes = take_prefix(bytes, checked_len(count, width, name)?, name, what)?;
+    let mut values = Vec::with_capacity(count);
     for chunk in bytes.chunks_exact(width) {
         values.push(
             bytemuck::try_pod_read_unaligned::<T>(chunk)
@@ -1011,23 +1113,213 @@ fn read_scalar_buffer<T: bytemuck::Pod>(bytes: &[u8]) -> Result<Buffer<T>, Error
     Ok(Buffer::from_slice(&values))
 }
 
-/// Reads one `RecordBatch` message (a `File.fbs` `Block`'s worth) into a [`RecordBatch`], refusing
-/// a dictionary batch, a compressed body, or a node/buffer count that does not match `schema`.
+/// `len + 1` offsets and the data they index, validated and rebased so the first offset is zero
+/// (a sliced batch's offsets start wherever the slice began): offsets must not be negative or
+/// decrease, the last must lie within the data buffer, and for `Utf8` the data must be valid UTF-8
+/// with every offset on a character boundary.
+fn read_offsets_and_data(
+    offsets_bytes: &[u8],
+    data_bytes: &[u8],
+    len: usize,
+    name: &str,
+    utf8: bool,
+) -> Result<(Buffer<i32>, AlignedBuffer), Error> {
+    if len == 0 && offsets_bytes.len() < 4 {
+        // Arrow writers may omit the single zero offset of an empty array.
+        return Ok((Buffer::from_slice(&[0i32]), AlignedBuffer::from_slice(&[])));
+    }
+    let count = len
+        .checked_add(1)
+        .ok_or_else(|| Error::general_error(format!("ipc: field '{name}': length {len} overflows")))?;
+    let raw = read_fixed::<i32>(offsets_bytes, count, name, "offsets")?;
+    let raw = raw.as_slice();
+    let (first, last) = match (raw.first(), raw.last()) {
+        (Some(first), Some(last)) => (*first, *last),
+        (None, _) | (_, None) => {
+            return Err(Error::general_error(format!("ipc: field '{name}' has no offsets")))
+        }
+    };
+    if first < 0 {
+        return Err(Error::general_error(format!(
+            "ipc: field '{name}': the first offset {first} is negative"
+        )));
+    }
+    if let Some(row) = raw.windows(2).position(|pair| pair[1] < pair[0]) {
+        return Err(Error::general_error(format!(
+            "ipc: field '{name}': offsets decrease at row {row}"
+        )));
+    }
+    let start = to_usize(first as i64, "offset")?;
+    let end = to_usize(last as i64, "offset")?;
+    let data = data_bytes.get(start..end).ok_or_else(|| {
+        Error::general_error(format!(
+            "ipc: field '{name}': the last offset {end} is past the {}-byte data buffer",
+            data_bytes.len()
+        ))
+    })?;
+    let rebased: Vec<i32> = raw.iter().map(|offset| offset - first).collect();
+    if utf8 {
+        let text = std::str::from_utf8(data).map_err(|e| {
+            Error::general_error(format!("ipc: field '{name}' is Utf8 but its data is not UTF-8: {e}"))
+        })?;
+        for &offset in &rebased {
+            if !text.is_char_boundary(offset as usize) {
+                return Err(Error::general_error(format!(
+                    "ipc: field '{name}': offset {offset} splits a UTF-8 character"
+                )));
+            }
+        }
+    }
+    Ok((Buffer::from_slice(&rebased), AlignedBuffer::from_slice(data)))
+}
+
+fn is_valid(validity: &Option<Bitmap>, row: usize) -> bool {
+    match validity {
+        Some(bitmap) => bitmap.get(row),
+        None => true,
+    }
+}
+
+/// Walks one record batch's `FieldNode`s and `Buffer`s in the pre-order, depth-first order the
+/// Arrow fields imply.
+struct BodyReader<'a> {
+    body: &'a [u8],
+    nodes: Vec<(i64, i64)>,
+    buffers: Vec<(i64, i64)>,
+    node_idx: usize,
+    buf_idx: usize,
+}
+
+impl<'a> BodyReader<'a> {
+    /// `(length, null_count)` of the next node.
+    fn next_node(&mut self, name: &str) -> Result<(usize, i64), Error> {
+        let (length, null_count) = *self.nodes.get(self.node_idx).ok_or_else(|| {
+            Error::general_error(format!("ipc: not enough field nodes for the schema (at field '{name}')"))
+        })?;
+        self.node_idx += 1;
+        Ok((to_usize(length, "field node length")?, null_count))
+    }
+
+    fn next_buffer(&mut self, name: &str) -> Result<&'a [u8], Error> {
+        let (offset, length) = *self.buffers.get(self.buf_idx).ok_or_else(|| {
+            Error::general_error(format!("ipc: not enough buffers for the schema (at field '{name}')"))
+        })?;
+        self.buf_idx += 1;
+        let offset = to_usize(offset, "buffer offset")?;
+        let length = to_usize(length, "buffer length")?;
+        let end = offset
+            .checked_add(length)
+            .ok_or_else(|| Error::general_error("ipc: a buffer's offset plus length overflows".to_string()))?;
+        self.body
+            .get(offset..end)
+            .ok_or_else(|| Error::general_error("ipc: a buffer runs past the record batch body".to_string()))
+    }
+
+    /// One Arrow field's column, with its length taken from its `FieldNode` — never from a
+    /// buffer's byte length — and every buffer checked against that length before it is read.
+    fn column(&mut self, arrow_field: &ArrowField<'_>, batch_len: usize) -> Result<Column, Error> {
+        let name = arrow_field.name;
+        let (len, null_count) = self.next_node(name)?;
+        if len != batch_len {
+            return Err(Error::general_error(format!(
+                "ipc: field '{name}' has {len} rows, but its record batch has {batch_len}"
+            )));
+        }
+        let validity_bytes = self.next_buffer(name)?;
+        let validity = read_validity(validity_bytes, len, null_count, name)?;
+        let column = match arrow_field.data_type {
+            FieldType::Bool => {
+                let values = exact_bitmap(self.next_buffer(name)?, len, name, "values")?;
+                Column::Bool { validity, values }
+            }
+            FieldType::Int => Column::Int { validity, values: read_fixed(self.next_buffer(name)?, len, name, "values")? },
+            FieldType::UInt => Column::UInt { validity, values: read_fixed(self.next_buffer(name)?, len, name, "values")? },
+            FieldType::Float => Column::Float { validity, values: read_fixed(self.next_buffer(name)?, len, name, "values")? },
+            FieldType::Date => Column::Date { validity, values: read_fixed(self.next_buffer(name)?, len, name, "values")? },
+            FieldType::Timestamp => {
+                Column::Timestamp { validity, values: read_fixed(self.next_buffer(name)?, len, name, "values")? }
+            }
+            FieldType::Text => {
+                let offsets_bytes = self.next_buffer(name)?;
+                let data_bytes = self.next_buffer(name)?;
+                let (offsets, data) = read_offsets_and_data(offsets_bytes, data_bytes, len, name, true)?;
+                Column::Text { validity, offsets, data }
+            }
+            FieldType::Binary => {
+                let offsets_bytes = self.next_buffer(name)?;
+                let data_bytes = self.next_buffer(name)?;
+                let (offsets, data) = read_offsets_and_data(offsets_bytes, data_bytes, len, name, false)?;
+                Column::Binary { validity, offsets, data }
+            }
+            FieldType::Vector => {
+                let dim = arrow_field.dim.ok_or_else(|| {
+                    Error::general_error(format!(
+                        "ipc: field '{name}' is Vector but the file's FixedSizeList has no recorded width"
+                    ))
+                })?;
+                if dim == 0 && len > 0 {
+                    return Err(Error::not_supported(format!(
+                        "Arrow IPC: field '{name}' is FixedSizeList of size 0, which a Vector column cannot hold"
+                    )));
+                }
+                let items = checked_len(len, dim, name)?;
+                let (child_len, child_null_count) = self.next_node(name)?;
+                if child_len < items {
+                    return Err(Error::general_error(format!(
+                        "ipc: field '{name}': {len} vectors of {dim} need {items} items, but the child \
+                         node has {child_len}"
+                    )));
+                }
+                // Only a whole vector can be null. An item null under a null vector is harmless
+                // (pyarrow writes them); one inside a non-null vector cannot be represented.
+                let child_validity = read_validity(self.next_buffer(name)?, child_len, child_null_count, name)?;
+                if let Some(child_validity) = &child_validity {
+                    for item in 0..items {
+                        if !child_validity.get(item) && is_valid(&validity, item / dim) {
+                            return Err(Error::not_supported(format!(
+                                "Arrow IPC: field '{name}' has a null item inside the non-null vector at \
+                                 row {}, which a Vector column cannot hold",
+                                item / dim
+                            )));
+                        }
+                    }
+                }
+                let data = read_fixed(self.next_buffer(name)?, items, name, "item values")?;
+                Column::Vector { validity, dim, data }
+            }
+        };
+        Ok(column)
+    }
+}
+
+/// `len` nulls of `field`'s type — a declared, nullable field the file does not have.
+fn null_column(field: &FieldSchema, len: usize) -> Result<Column, Error> {
+    let mut column = ColumnMut::with_capacity(field.data_type, len);
+    for _ in 0..len {
+        column.push(&FieldValue::Null)?;
+    }
+    Ok(column.freeze())
+}
+
+/// Reads one `RecordBatch` message (a `File.fbs` `Block`'s worth) into a [`RecordBatch`] of
+/// `resolved`'s schema, refusing a dictionary batch, a compressed body, a buffer or node that does
+/// not agree with the batch's length, and a null in a field the schema declares not nullable.
 fn read_one_record_batch(
     bytes: &[u8],
-    block_offset: i64,
-    meta_data_length: i32,
-    body_length: i64,
+    block: (i64, i32, i64),
+    resolved: &ResolvedSchema,
     schema: &Arc<RecordSchema>,
     arrow_fields: &[ArrowField<'_>],
 ) -> Result<RecordBatch, Error> {
-    let block_offset = usize::try_from(block_offset).map_err(|e| Error::from_error(ErrorType::ConversionError, e))?;
-    let meta_data_length =
-        usize::try_from(meta_data_length).map_err(|e| Error::from_error(ErrorType::ConversionError, e))?;
-    let body_length = usize::try_from(body_length).map_err(|e| Error::from_error(ErrorType::ConversionError, e))?;
+    let (block_offset, meta_data_length, body_length) = block;
+    let block_offset = to_usize(block_offset, "block offset")?;
+    let meta_data_length = to_usize(meta_data_length as i64, "block metadata length")?;
+    let body_length = to_usize(body_length, "block body length")?;
+    let overflow = || Error::general_error("ipc: a block's offsets overflow".to_string());
 
     let marker = fb::read_u32(bytes, block_offset)?;
-    let metadata_start = if marker == CONTINUATION_MARKER { block_offset + 8 } else { block_offset + 4 };
+    let prefix = if marker == CONTINUATION_MARKER { 8 } else { 4 };
+    let metadata_start = block_offset.checked_add(prefix).ok_or_else(overflow)?;
     let message = fb::FbTable::root(bytes, metadata_start)?;
 
     let header_type = message.u8_field(MESSAGE_VT_HEADER_TYPE, MESSAGE_HEADER_NONE)?;
@@ -1053,90 +1345,48 @@ fn read_one_record_batch(
         )));
     }
 
-    let nodes = rb_header.struct2_vector_field(RB_VT_NODES)?;
-    let buffers = rb_header.struct2_vector_field(RB_VT_BUFFERS)?;
+    let batch_len = to_usize(rb_header.i64_field(RB_VT_LENGTH, 0)?, "record batch length")?;
+    if arrow_fields.is_empty() && batch_len > 0 {
+        return Err(Error::general_error(format!(
+            "ipc: a record batch of {batch_len} rows in a file with no fields"
+        )));
+    }
 
-    let body_start = block_offset + meta_data_length;
+    let body_start = block_offset.checked_add(meta_data_length).ok_or_else(overflow)?;
+    let body_end = body_start.checked_add(body_length).ok_or_else(overflow)?;
     let body = bytes
-        .get(body_start..body_start + body_length)
+        .get(body_start..body_end)
         .ok_or_else(|| Error::general_error("ipc: record batch body runs past the file".to_string()))?;
 
-    let mut node_idx = 0usize;
-    let mut buf_idx = 0usize;
+    let mut reader = BodyReader {
+        body,
+        nodes: rb_header.struct2_vector_field(RB_VT_NODES)?,
+        buffers: rb_header.struct2_vector_field(RB_VT_BUFFERS)?,
+        node_idx: 0,
+        buf_idx: 0,
+    };
+    let mut file_columns = Vec::with_capacity(arrow_fields.len());
+    for arrow_field in arrow_fields {
+        file_columns.push(Some(reader.column(arrow_field, batch_len)?));
+    }
+
     let mut columns = Vec::with_capacity(schema.fields.len());
-    for (field, arrow_field) in schema.fields.iter().zip(arrow_fields.iter()) {
-        let (node_len, _null_count) = next_node(&nodes, &mut node_idx)?;
-        let validity_buf = next_buffer(&buffers, &mut buf_idx)?;
-        let validity = read_validity(body, validity_buf, node_len as usize)?;
-        let column = match field.data_type {
-            FieldType::Bool => {
-                let values_buf = next_buffer(&buffers, &mut buf_idx)?;
-                let values_bytes = read_buffer_bytes(body, values_buf)?;
-                Column::Bool { validity, values: Bitmap::from_bytes(values_bytes, node_len as usize) }
-            }
-            FieldType::Int => {
-                let values_buf = next_buffer(&buffers, &mut buf_idx)?;
-                let values_bytes = read_buffer_bytes(body, values_buf)?;
-                Column::Int { validity, values: read_scalar_buffer::<i64>(values_bytes)? }
-            }
-            FieldType::UInt => {
-                let values_buf = next_buffer(&buffers, &mut buf_idx)?;
-                let values_bytes = read_buffer_bytes(body, values_buf)?;
-                Column::UInt { validity, values: read_scalar_buffer::<u64>(values_bytes)? }
-            }
-            FieldType::Float => {
-                let values_buf = next_buffer(&buffers, &mut buf_idx)?;
-                let values_bytes = read_buffer_bytes(body, values_buf)?;
-                Column::Float { validity, values: read_scalar_buffer::<f64>(values_bytes)? }
-            }
-            FieldType::Date => {
-                let values_buf = next_buffer(&buffers, &mut buf_idx)?;
-                let values_bytes = read_buffer_bytes(body, values_buf)?;
-                Column::Date { validity, values: read_scalar_buffer::<i32>(values_bytes)? }
-            }
-            FieldType::Timestamp => {
-                let values_buf = next_buffer(&buffers, &mut buf_idx)?;
-                let values_bytes = read_buffer_bytes(body, values_buf)?;
-                Column::Timestamp { validity, values: read_scalar_buffer::<i64>(values_bytes)? }
-            }
-            FieldType::Text => {
-                let offsets_buf = next_buffer(&buffers, &mut buf_idx)?;
-                let data_buf = next_buffer(&buffers, &mut buf_idx)?;
-                let offsets_bytes = read_buffer_bytes(body, offsets_buf)?;
-                let data_bytes = read_buffer_bytes(body, data_buf)?;
-                Column::Text {
-                    validity,
-                    offsets: read_scalar_buffer::<i32>(offsets_bytes)?,
-                    data: AlignedBuffer::from_slice(data_bytes),
-                }
-            }
-            FieldType::Binary => {
-                let offsets_buf = next_buffer(&buffers, &mut buf_idx)?;
-                let data_buf = next_buffer(&buffers, &mut buf_idx)?;
-                let offsets_bytes = read_buffer_bytes(body, offsets_buf)?;
-                let data_bytes = read_buffer_bytes(body, data_buf)?;
-                Column::Binary {
-                    validity,
-                    offsets: read_scalar_buffer::<i32>(offsets_bytes)?,
-                    data: AlignedBuffer::from_slice(data_bytes),
-                }
-            }
-            FieldType::Vector => {
-                let dim = arrow_field.dim.ok_or_else(|| {
-                    Error::general_error(format!(
-                        "ipc: field '{}' is Vector but the file's FixedSizeList has no recorded width",
-                        field.name
-                    ))
-                })?;
-                let (_child_len, _child_null_count) = next_node(&nodes, &mut node_idx)?;
-                // The child's own validity buffer is always the "absent" zero-length marker (see
-                // `encode_body`); no per-element nulls are modeled, so it is read and discarded.
-                let _child_validity_buf = next_buffer(&buffers, &mut buf_idx)?;
-                let child_data_buf = next_buffer(&buffers, &mut buf_idx)?;
-                let data_bytes = read_buffer_bytes(body, child_data_buf)?;
-                Column::Vector { validity, dim, data: read_scalar_buffer::<f32>(data_bytes)? }
-            }
+    for (field, source) in schema.fields.iter().zip(resolved.sources.iter()) {
+        let column = match source {
+            Some(index) => file_columns.get_mut(*index).and_then(Option::take).ok_or_else(|| {
+                Error::general_error(format!("ipc: field '{}' has no column in the file", field.name))
+            })?,
+            None => null_column(field, batch_len)?,
         };
+        if !field.nullable {
+            let nulls = column.null_mask().count_ones();
+            if nulls > 0 {
+                return Err(Error::general_error(format!(
+                    "ipc: field '{}' is not nullable, but the file holds {nulls} null(s) in it",
+                    field.name
+                )));
+            }
+        }
         columns.push(column);
     }
 
@@ -1161,6 +1411,10 @@ fn read_one_record_batch(
 /// Reads an Arrow IPC file (Feather v2) written by [`write_ipc`] or another Arrow implementation,
 /// within the subset the module doc comment describes. `schema` picks the reader per
 /// `formats::mod`'s "two readers" design — [`effective_schema`] resolves it either way.
+///
+/// The input is untrusted: every count, offset and length read from it is bounded by the bytes
+/// actually present before anything is allocated or indexed, so a malformed file is an error,
+/// never a panic or an abort.
 pub(crate) fn read_ipc(bytes: &[u8], schema: ReadSchema<'_>) -> Result<RecordBatch, Error> {
     let magic_len = ARROW_MAGIC.len();
     if bytes.len() < magic_len * 2 + 2 + 4 {
@@ -1172,7 +1426,7 @@ pub(crate) fn read_ipc(bytes: &[u8], schema: ReadSchema<'_>) -> Result<RecordBat
 
     let footer_len_pos = bytes.len() - magic_len - 4;
     let footer_len = fb::read_i32(bytes, footer_len_pos)?;
-    let footer_len = usize::try_from(footer_len).map_err(|e| Error::from_error(ErrorType::ConversionError, e))?;
+    let footer_len = to_usize(footer_len as i64, "footer length")?;
     let footer_start = footer_len_pos
         .checked_sub(footer_len)
         .ok_or_else(|| Error::general_error("ipc: footer length exceeds the file".to_string()))?;
@@ -1190,21 +1444,21 @@ pub(crate) fn read_ipc(bytes: &[u8], schema: ReadSchema<'_>) -> Result<RecordBat
         .table_field(FOOTER_VT_SCHEMA)?
         .ok_or_else(|| Error::general_error("ipc: footer has no schema".to_string()))?;
     let decoded_schema = decode_schema(&schema_table)?;
-    let record_schema = Arc::new(effective_schema(&decoded_schema, schema)?);
+    let resolved = effective_schema(&decoded_schema, schema)?;
+    let record_schema = Arc::new(resolved.schema.clone());
 
     let blocks = footer_table.block_vector_field(FOOTER_VT_RECORD_BATCHES)?;
     if blocks.is_empty() {
-        let columns = decoded_schema.arrow_fields.iter().map(|f| Column::empty(f.data_type)).collect();
+        let columns = record_schema.fields.iter().map(|f| Column::empty(f.data_type)).collect();
         return RecordBatch::new(record_schema, columns, None, Some(Vec::new()), Vec::new());
     }
 
     let mut batches = Vec::with_capacity(blocks.len());
-    for (offset, meta_data_length, body_length) in blocks {
+    for block in blocks {
         batches.push(read_one_record_batch(
             bytes,
-            offset,
-            meta_data_length,
-            body_length,
+            block,
+            &resolved,
             &record_schema,
             &decoded_schema.arrow_fields,
         )?);
@@ -1378,6 +1632,156 @@ mod tests {
         let bytes = include_bytes!("../../tests/fixtures/dictionary_encoded.ipc");
         let error = read_ipc(bytes, ReadSchema::Infer).expect_err("dictionary-encoded IPC file is refused");
         assert!(format!("{error}").contains("dictionar"), "unexpected error: {error}");
+    }
+
+    // --- Hostile input: every one of these is an `Err`, never a panic or an abort ---
+
+    /// The position of `pattern` in `bytes`, asserting it occurs exactly once.
+    fn find_unique(bytes: &[u8], pattern: &[u8]) -> usize {
+        let hits: Vec<usize> =
+            (0..=bytes.len() - pattern.len()).filter(|&i| &bytes[i..i + pattern.len()] == pattern).collect();
+        assert_eq!(hits.len(), 1, "pattern must occur exactly once");
+        hits[0]
+    }
+
+    fn one_column_file(field_type: FieldType, value: crate::column::FieldValue) -> Result<Vec<u8>, Error> {
+        let schema = Arc::new(RecordSchema::new(vec![FieldSchema::new("c", field_type)])?);
+        let mut batch = RecordBatchMut::with_capacity(schema, 1);
+        batch.append_row(&[value])?;
+        write_ipc(&batch.freeze()?)
+    }
+
+    #[test]
+    fn hostile_vector_count_is_an_error_not_an_allocation_abort() {
+        // A 44-byte file whose footer lists 0xFFFFFFFF dictionary blocks. Positions below are
+        // relative to the footer, which starts at byte 8.
+        let mut footer = Vec::new();
+        footer.extend_from_slice(&14u32.to_le_bytes()); // 0: root offset -> table at 14
+        footer.extend_from_slice(&10u16.to_le_bytes()); // 4: vtable length (three slots)
+        footer.extend_from_slice(&8u16.to_le_bytes()); //  6: table inline size
+        footer.extend_from_slice(&0u16.to_le_bytes()); //  8: version: absent
+        footer.extend_from_slice(&0u16.to_le_bytes()); // 10: schema: absent
+        footer.extend_from_slice(&4u16.to_le_bytes()); // 12: dictionaries at table + 4
+        footer.extend_from_slice(&10i32.to_le_bytes()); // 14: table: soffset -> vtable at 4
+        footer.extend_from_slice(&4u32.to_le_bytes()); // 18: dictionaries -> vector at 22
+        footer.extend_from_slice(&u32::MAX.to_le_bytes()); // 22: vector count
+        let mut file = b"ARROW1\0\0".to_vec();
+        file.extend_from_slice(&footer);
+        file.extend_from_slice(&(footer.len() as i32).to_le_bytes());
+        file.extend_from_slice(b"ARROW1");
+        assert_eq!(file.len(), 44);
+        let error = read_ipc(&file, ReadSchema::Infer).expect_err("a count larger than the file is refused");
+        assert!(format!("{error}").contains("vector length exceeds"), "unexpected error: {error}");
+    }
+
+    #[test]
+    fn hostile_empty_bool_values_buffer_is_an_error_not_a_panic() -> Result<(), Error> {
+        let mut bytes = one_column_file(FieldType::Bool, crate::column::FieldValue::Bool(true))?;
+        // The RecordBatch header's buffers vector: count 2, then (0, 0) validity, (0, 1) values.
+        let mut pattern = 2u32.to_le_bytes().to_vec();
+        for word in [0i64, 0, 0, 1] {
+            pattern.extend_from_slice(&word.to_le_bytes());
+        }
+        let at = find_unique(&bytes, &pattern) + 4 + 24;
+        bytes[at..at + 8].copy_from_slice(&0i64.to_le_bytes()); // values buffer length -> 0
+        let error = read_ipc(&bytes, ReadSchema::Infer).expect_err("an empty Bool values buffer is refused");
+        assert!(format!("{error}").contains("values buffer"), "unexpected error: {error}");
+        Ok(())
+    }
+
+    #[test]
+    fn hostile_text_offset_past_the_data_is_an_error_not_a_panic() -> Result<(), Error> {
+        let mut bytes = one_column_file(FieldType::Text, crate::column::FieldValue::Text(Arc::from("abcd")))?;
+        // The body: offsets [0, 4], then the data "abcd".
+        let at = find_unique(&bytes, b"\0\0\0\0\x04\0\0\0abcd") + 4;
+        bytes[at..at + 4].copy_from_slice(&200i32.to_le_bytes());
+        let error = read_ipc(&bytes, ReadSchema::Infer).expect_err("an offset past the data is refused");
+        assert!(format!("{error}").contains("past the"), "unexpected error: {error}");
+        Ok(())
+    }
+
+    #[test]
+    fn hostile_invalid_utf8_text_is_an_error() -> Result<(), Error> {
+        let mut bytes = one_column_file(FieldType::Text, crate::column::FieldValue::Text(Arc::from("abcd")))?;
+        let at = find_unique(&bytes, b"abcd") + 2;
+        bytes[at] = 0xFF;
+        let error = read_ipc(&bytes, ReadSchema::Infer).expect_err("invalid UTF-8 is refused");
+        assert!(format!("{error}").contains("UTF-8"), "unexpected error: {error}");
+        Ok(())
+    }
+
+    #[test]
+    fn embedded_schema_whose_type_disagrees_with_the_arrow_field_is_refused() -> Result<(), Error> {
+        // One UInt row; the embedded liquers.schema is edited to claim Date. Decoding the eight
+        // bytes as Date would silently give two dates.
+        let mut bytes = one_column_file(FieldType::UInt, crate::column::FieldValue::UInt(7))?;
+        // The schema is written twice — in the Schema message and in the footer.
+        let hits: Vec<usize> = (0..bytes.len() - 6).filter(|&i| &bytes[i..i + 6] == b"\"UInt\"").collect();
+        assert_eq!(hits.len(), 2);
+        for at in hits {
+            bytes[at + 1..at + 5].copy_from_slice(b"Date");
+        }
+        let error = read_ipc(&bytes, ReadSchema::Infer).expect_err("a mismatched embedded schema is refused");
+        assert!(format!("{error}").contains("does not describe this file"), "unexpected error: {error}");
+        Ok(())
+    }
+
+    // --- The declared reader matches by name and enforces nullability ---
+
+    fn two_int_file() -> Result<Vec<u8>, Error> {
+        use crate::column::FieldValue;
+        let schema = Arc::new(RecordSchema::new(vec![
+            FieldSchema::new("a", FieldType::Int),
+            FieldSchema::new("b", FieldType::Int),
+        ])?);
+        let mut batch = RecordBatchMut::with_capacity(schema, 2);
+        batch.append_row(&[FieldValue::Int(1), FieldValue::Int(10)])?;
+        batch.append_row(&[FieldValue::Null, FieldValue::Int(20)])?;
+        write_ipc(&batch.freeze()?)
+    }
+
+    #[test]
+    fn declared_schema_is_matched_by_name_not_position() -> Result<(), Error> {
+        use crate::column::FieldValue;
+        let bytes = two_int_file()?;
+        let declared = RecordSchema::new(vec![
+            FieldSchema::new("b", FieldType::Int),
+            FieldSchema::new("a", FieldType::Int),
+        ])?;
+        let batch = read_ipc(&bytes, ReadSchema::Declared(&declared))?;
+        assert_eq!(batch.schema.fields[0].name, "b");
+        assert_eq!(batch.value(0, 0)?, FieldValue::Int(10));
+        assert_eq!(batch.value(1, 0)?, FieldValue::Int(20));
+        assert_eq!(batch.value(0, 1)?, FieldValue::Int(1));
+        assert_eq!(batch.value(1, 1)?, FieldValue::Null);
+        Ok(())
+    }
+
+    #[test]
+    fn declared_non_nullable_field_over_nulls_is_refused() -> Result<(), Error> {
+        let bytes = two_int_file()?;
+        let declared = RecordSchema::new(vec![
+            FieldSchema::new("a", FieldType::Int).not_null(),
+            FieldSchema::new("b", FieldType::Int),
+        ])?;
+        let error = read_ipc(&bytes, ReadSchema::Declared(&declared)).expect_err("a null in a not-null field");
+        assert!(format!("{error}").contains("not nullable"), "unexpected error: {error}");
+        Ok(())
+    }
+
+    #[test]
+    fn declared_nullable_field_missing_from_the_file_reads_as_nulls() -> Result<(), Error> {
+        use crate::column::FieldValue;
+        let bytes = two_int_file()?;
+        let declared = RecordSchema::new(vec![
+            FieldSchema::new("a", FieldType::Int),
+            FieldSchema::new("b", FieldType::Int),
+            FieldSchema::new("note", FieldType::Text),
+        ])?;
+        let batch = read_ipc(&bytes, ReadSchema::Declared(&declared))?;
+        assert_eq!(batch.len, 2);
+        assert_eq!(batch.value(1, 2)?, FieldValue::Null);
+        Ok(())
     }
 
     #[test]
