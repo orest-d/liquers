@@ -3,8 +3,7 @@ id: RECORD-STREAMS
 kind: design
 title: Record streams — a lightweight, chunked, Arrow-interoperable tabular abstraction
 workflow: liquers-project
-status: draft
-phase: documentation
+status: complete
 area: [records, lib/value, lib/commands, core/assets, web]
 gh_pr: []
 issues: [NO-RECORD-STREAM-ABSTRACTION, NO-RELATIONAL-DATABASE-ACCESS-LAYER, NO-RECIPE-PROVIDER-CHAIN, RECORD-SELECTION-IS-EAGER-NOT-A-VIEW, RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY]
@@ -23,8 +22,8 @@ superseded_by:
 - [x] Phase 3: Examples & Testing — redrafted for the trait form and **approved 2026-09-25**; its additions absorbed into Phase 2
 - [x] Phase 4: Implementation Plan — reviewed 2026-09-25 (4 focused reviewers + final review); **approved 2026-09-25**
 - [x] Phase 4 executed — Milestones 0–8 implemented and validated 2026-09-26/27; the implemented diff reviewed (3 opus reviewers) and every finding fixed or filed ([`phase5-evidence.md`](phase5-evidence.md))
-- [ ] Phase 5: Documentation — written 2026-09-27 ([`phase5-documentation.md`](phase5-documentation.md)); awaiting approval
-- [ ] Implementation Complete
+- [x] Phase 5: Documentation — [`phase5-documentation.md`](phase5-documentation.md); **approved 2026-09-27**
+- [x] Implementation Complete — 2026-09-27. Current behaviour: [`RECORD_STREAMS.md`](../../reference/RECORD_STREAMS.md); guide: [`RECORD_STREAM_GUIDE.md`](../../guides/RECORD_STREAM_GUIDE.md)
 
 ## Origin: split out of `store-and-asset-search`
 
