@@ -2,7 +2,7 @@
 id: RECORD-SELECTION-IS-EAGER-NOT-A-VIEW
 kind: feature
 title: Selecting records from a stream is eager; there is no view that a source can push down
-status: draft
+status: closed
 priority: P2
 complexity: L
 area: [lib/value, lib/commands]
@@ -11,6 +11,25 @@ created: 2026-09-21
 github:
 ---
 # Selecting records from a stream is eager; there is no view that a source can push down
+
+## Resolution
+
+Resolved by `specs/design/record-streams/`, implemented 2026-09-26. Selection over records is
+lazy: `ns-rec/select_columns`, `head`, `slice` and `row` build views, as do the `dyn RecordView`
+constructors `cell`, `filter` and `take` (`liquers-records/src/views.rs`: `ColumnsView`,
+`RowRangeView`, `RowIndexView`). Each is an implementation of the `RecordView` trait held in the
+one `ExtValue::RecordView` variant, so a selection is a value that has not yet copied anything.
+Views compose by stacking, and a filter gathers only the rows and columns that are read.
+
+`ns-rec/rec_id` walks a source chunk by chunk and stops at the first chunk that holds the id, so
+it opens only the chunks it needs rather than the whole source.
+
+Out of scope, and so not open here: **pushdown into an engine.** A single record from a
+billion-row source still reads chunks in order until the id is found, unless the source knows
+better. That is now a property of a specialised `RecordSource` implementation — a SQL-backed source
+answering with a `WHERE` — and belongs with `NO-RELATIONAL-DATABASE-ACCESS-LAYER`, where the
+three-state pushdown report and `SearchPredicate` remain the intended shape. The record layer needs
+no change for it: `<chunk query>/ns-rec/rec_id-42` stays the address either way.
 
 ## What is missing
 

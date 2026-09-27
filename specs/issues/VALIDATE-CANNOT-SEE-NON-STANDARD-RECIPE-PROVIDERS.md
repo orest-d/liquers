@@ -40,3 +40,11 @@ template's rendering for a few indices, and saying so in the report.
 
 Raised by the user on 2026-09-25 in the `record-streams` discussion of what belongs in core: manifest
 validation is one instance of a general problem that any dynamic recipe provider has.
+
+## Update 2026-09-27 — after `record-streams` was implemented
+
+Still open. `record-streams` added `ManifestRecipeProvider` and `RecipeProviderChain`. The ns-rec
+commands are in `specs/command_registry.yaml`, so a query naming them validates. The chunk recipes
+a manifest generates are still invisible to `liquers-validate`, which reads only `recipes.yaml`. A
+manifest's structure is checked when it loads, for example for colliding chunk names, and each
+chunk query is parsed when it is built. Nothing plans a chunk query against the registry.

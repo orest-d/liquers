@@ -40,3 +40,11 @@ skips deserialization for it and goes straight to recomputation. `DATA-FORMAT-CO
 Found 2026-09-24 while specifying the table formats of `specs/design/record-streams/` Phase 2.
 `DATA-FORMAT-CONSTANTS-AND-TOOLING` records *accidental* read/write asymmetries (`toml` readable but
 not writable); this is about declaring a *deliberate* one.
+
+## Update 2026-09-27 — after `record-streams` was implemented
+
+Still open, and now met in practice. `record-streams` shipped HTML as a write-only table format.
+`RecordView`'s `TypeInfo` (`liquers-lib/src/value/mod.rs`) declares `html` in its single format list,
+because leaving it out would refuse `data.html`. So the registry claims a stored `.html` table can
+be read back, and it cannot. The design took the first of the two bad options this record
+describes; the representation is still to be settled.

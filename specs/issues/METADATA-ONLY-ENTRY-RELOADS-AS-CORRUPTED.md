@@ -53,3 +53,11 @@ metadata rather than in `TypeInfo`.
 
 Found 2026-09-24 while checking the `record-streams` claim that a refused source "is stored as
 metadata only and re-derived from its recipe". The claim holds, through this path.
+
+## Update 2026-09-27 — after `record-streams` was implemented
+
+Still open. `record-streams` added `stored: false` (on a recipe, a manifest, or metadata), which
+skips the store write entirely, so an asset can avoid this path by declaring it. It does not fix
+the path itself. A value that fails `as_bytes` without such a declaration is still written as
+metadata only (`set_state` step 8), and on reload it is still reported through the corrupted-data
+branch (`assets.rs`, "treated as corrupted"). A non-manifest `RecordSource` is one such value.

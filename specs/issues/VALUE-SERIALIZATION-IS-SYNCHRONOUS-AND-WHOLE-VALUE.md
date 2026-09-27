@@ -249,3 +249,9 @@ What that means here:
   materialization immediately serialized — is exactly what a streaming encoder can serve without
   building the table, so an implementation of this issue may stream that query without changing it.
 
+## Update 2026-09-27 — after `record-streams` was implemented
+
+Still open. `record-streams` serializes a table through the existing synchronous, whole-value
+`as_bytes`, as its Phase 2 chose. A `RecordSource` is lazy, and its only byte form is its manifest;
+`ns-rec/materialize` is the explicit way to get its data. Streaming a source's rows as bytes needs
+the pattern this record describes.

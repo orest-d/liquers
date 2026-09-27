@@ -77,3 +77,9 @@ out of `liquers-core` (`record-streams` stays in its own crate) while letting it
 and it is the same mechanism tags need. Using it on the load path still requires
 `deserialize_from_bytes` to receive metadata, which it does not today.
 
+## Update 2026-09-27 — after `record-streams` was implemented
+
+Unchanged, and still open. `record-streams` did not need application attributes to ship. A stored
+table carries its schema in its own format — `liquers.schema` in Parquet key-value metadata, the
+Arrow schema in IPC, the Frictionless schema in JSON table orient. It does not carry the schema in
+Liquers metadata. The second use above is still what this would enable.

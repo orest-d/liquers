@@ -42,3 +42,9 @@ registry when the entries are added, rather than taken from this record.
 ## Discovery
 
 Found 2026-09-24 while specifying the table formats of `specs/design/record-streams/` Phase 2.
+
+## Update 2026-09-27 — after `record-streams` was implemented
+
+Still open. `record-streams` added no media-type entries: `liquers-core/src/media_type.rs` is
+unchanged on that branch. `ndjson`, `ipc` and `parquet` are now formats a `RecordView` really
+writes, so this is no longer hypothetical.

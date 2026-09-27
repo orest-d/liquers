@@ -47,3 +47,8 @@ caught this.
 Found 2026-09-24 while inventorying serialization call sites in `liquers-axum` for
 `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`, whose refactor would also fix it — but this is
 a correctness bug that can be fixed on its own, before that design exists.
+
+## Update 2026-09-27 — after `record-streams` was implemented
+
+Still open. `record-streams` did not touch `liquers-axum`. A `RecordView` asset is another value
+the assets endpoints refuse; it serves correctly through `/q`.

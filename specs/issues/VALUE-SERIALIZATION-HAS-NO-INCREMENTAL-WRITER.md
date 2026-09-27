@@ -125,3 +125,9 @@ bytes cannot be produced by a synchronous method at all. The writer form this is
 an adapter over that pattern's stream form, so the two should be designed together, and this record
 is best folded into that one when its design starts. That record also inventories every
 serialization call site in `liquers-axum` that the pattern would change.
+
+## Update 2026-09-27 — after `record-streams` was implemented
+
+Unchanged, and still open. `record-streams` writes every table format into one `Vec<u8>` through
+`as_bytes`. It added no incremental writer, which Phase 2 chose to leave out of scope. Fold this
+into `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE` when that design starts.
