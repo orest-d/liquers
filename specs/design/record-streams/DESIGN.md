@@ -4,7 +4,7 @@ kind: design
 title: Record streams — a lightweight, chunked, Arrow-interoperable tabular abstraction
 workflow: liquers-project
 status: draft
-phase: implementation
+phase: documentation
 area: [lib/value, lib/commands, web, axum]
 gh_pr: []
 issues: [NO-RECORD-STREAM-ABSTRACTION, NO-RELATIONAL-DATABASE-ACCESS-LAYER, NO-RECIPE-PROVIDER-CHAIN, RECORD-SELECTION-IS-EAGER-NOT-A-VIEW, RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY]
@@ -22,7 +22,8 @@ superseded_by:
 - [x] Phase 2: Solution & Architecture — approved 2026-09-20; revised 2026-09-24/25 (traits; formats and readers; keyed chunks; the `liquers-records` crate); **re-approved 2026-09-25**
 - [x] Phase 3: Examples & Testing — redrafted for the trait form and **approved 2026-09-25**; its additions absorbed into Phase 2
 - [x] Phase 4: Implementation Plan — reviewed 2026-09-25 (4 focused reviewers + final review); **approved 2026-09-25**
-- [ ] Phase 5: Documentation
+- [x] Phase 4 executed — Milestones 0–8 implemented and validated 2026-09-26/27; the implemented diff reviewed (3 opus reviewers) and every finding fixed or filed ([`phase5-evidence.md`](phase5-evidence.md))
+- [ ] Phase 5: Documentation — in progress
 - [ ] Implementation Complete
 
 ## Origin: split out of `store-and-asset-search`
