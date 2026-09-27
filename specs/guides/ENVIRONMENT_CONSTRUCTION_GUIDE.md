@@ -3,7 +3,7 @@ title: Building and Configuring an Environment
 kind: guide
 audience: both
 area: [core/context, core/assets, core/store]
-reviewed: 2026-09-05
+reviewed: 2026-09-27
 ---
 # Building and Configuring an Environment
 
@@ -39,7 +39,8 @@ Everything that needs `&mut` happens on the builder; `build()` consumes it.
 |---|---|
 | Commands | `&mut builder.command_registry`, a public field |
 | Store | `.with_async_store(Arc<dyn AsyncStore>)`, or `.with_store_config(config, factory)` |
-| Recipe provider | `.with_recipe_provider_choice(RecipeProviderChoice::Default)` |
+| Recipe provider | `.with_recipe_provider_choice(RecipeProviderChoice::Default)` (the base) |
+| More recipe providers | `.with_appended_recipe_provider(Arc<dyn AsyncRecipeProvider<_>>)`, consulted after the base |
 | Type registry | `.with_type_registry(registry)` |
 | Manager options | `.with_asset_manager_options(...)` |
 | Everything at once | `.with_config(EnvironmentConfig, factory)` |
@@ -160,6 +161,23 @@ and they differ:
 DefaultEnvironment::<Value>::new()               // LibKind    → recipes through the store
 SimpleEnvironment::<Value>::new()                // Queued     → no recipes
 ```
+
+**Recipe providers form a chain.** The base provider (a `RecipeProviderChoice` or
+`.with_recipe_provider(...)`) is consulted first, then each provider added with
+`.with_appended_recipe_provider(...)` in order; the first `Some` wins, and listings are the union.
+A later base setter replaces only the base and keeps the appended providers. With the `records`
+feature on, `LibKind`'s default is already the chain `[Default, ManifestRecipeProvider]`, so keyed
+manifest chunks resolve with no setup. A build that sets a base provider — including
+`.with_config(...)` with any document — replaces that default chain. Put the manifest provider
+back with the extension trait:
+
+```rust,ignore
+use liquers_lib::environment::RecordsRecipeProvider;
+let builder = builder.with_recipe_provider_choice(choice).with_records_recipe_provider();
+```
+
+See [`ENVIRONMENT_CONFIG.md`](../reference/ENVIRONMENT_CONFIG.md) for the chain's contract and
+[`RECORD_STREAM_GUIDE.md`](RECORD_STREAM_GUIDE.md) for manifests.
 
 For the polars command namespace, bring the extension trait into scope:
 
@@ -295,5 +313,6 @@ is the moment when that is safe: it runs before anything else can observe the re
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-27 | Recipe providers as a chain: `with_appended_recipe_provider`, `liquers-lib`'s default chain with `records`, and `with_records_recipe_provider` for builds that replace the base | phase-5 (`design/record-streams/`) |
 | 2026-09-05 | Added command-metadata preflight, full-report access, bounded build errors, and the builder-only validation boundary. | `design/variadic-metadata-tail-check` |
 | 2026-08-31 | Created: builder, kind selection, configuration document, the readiness guarantee, when `to_ref` applies, and implementing a custom environment. | `design/environment-builder/phase-5` |

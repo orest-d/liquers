@@ -57,3 +57,29 @@ Questions for the design:
 
 Analysis for `AGENT-MEMORY-SERVICE`, 2026-09-15. Verified at HEAD: `MetadataRecord` has no
 extension field, and `Metadata` has exactly two variants.
+
+## Update 2026-09-25 — a second use: a stored table's schema
+
+`specs/design/record-streams/` Phase 2 ("Should the schema live in metadata?") names this as where a
+stored table's `RecordSchema` would live, so that a CSV or NDJSON file written by Liquers reads back
+with its types and roles without a manifest. It needs two things beyond this issue: the attributes
+must be opaque to core (the schema type is `liquers-lib`'s), and the load path must hand metadata to
+`deserialize_from_bytes`, which today receives only bytes, a type identifier and a data format. The
+records design takes its schema as an argument to one schema-aware reader, so a metadata schema would
+be one more source for it rather than a new mechanism.
+
+## Update 2026-09-25 — the direction: extensible metadata, typed at the edges
+
+The user's direction: the metadata record should be **extensible**, with fields such as custom
+**tags** and a **schema** that core stores without understanding — for example a JSON value that the
+crate owning the type deserializes with `serde` into its own schema type. This keeps a table's schema
+out of `liquers-core` (`record-streams` stays in its own crate) while letting it travel in metadata,
+and it is the same mechanism tags need. Using it on the load path still requires
+`deserialize_from_bytes` to receive metadata, which it does not today.
+
+## Update 2026-09-27 — after `record-streams` was implemented
+
+Unchanged, and still open. `record-streams` did not need application attributes to ship. A stored
+table carries its schema in its own format — `liquers.schema` in Parquet key-value metadata, the
+Arrow schema in IPC, the Frictionless schema in JSON table orient. It does not carry the schema in
+Liquers metadata. The second use above is still what this would enable.

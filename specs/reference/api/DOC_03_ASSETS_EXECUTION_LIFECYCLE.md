@@ -3,7 +3,7 @@ title: Assets and Execution Lifecycle Reference
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-09-15
+reviewed: 2026-09-27
 ---
 # DOC-03: Assets and Execution Lifecycle
 
@@ -131,6 +131,15 @@ Non-volatile key and query entries can be reused. Volatile requests create fresh
 assets. Manager access treats cached `Expired`, `Error`, and `Cancelled` entries as
 misses and creates a fresh asset.
 
+A key whose recipe declares `cached: false` also gets a fresh, **unregistered**
+asset per request in both managers, but it is not volatile: it may fast-track an
+existing stored copy, it is stored unless `stored: false` also applies, and it
+remains the key's dependency-graph node (`bound_owner_key` answers for it when no
+other asset is registered), so a change upstream expires its dependents and marks
+its stored copy `Expired`. `get_resource_asset` copies the recipe's `stored` and
+`cached` flags into the new asset's metadata before anything can persist it. See
+[`ASSETS.md`](../ASSETS.md) §`stored` and `cached`.
+
 Fast-track loading applies only when the recipe has a key and the asset has no
 initial input value. It accepts stored `Ready`, `Source`, and `Override` metadata,
 then:
@@ -215,8 +224,11 @@ Queued and ordinary inline evaluation use `evaluate_and_store`:
 2. Install the value and metadata.
 3. Set `Ready` or `Volatile`.
 4. Publish `ValueProduced`.
-5. Attempt serialization and store persistence when a key or `store_to` key exists.
-6. Record `PersistenceStatus`.
+5. Attempt serialization and store persistence when the asset is keyed, unless its
+   metadata says `stored: false` — then nothing is written, not even metadata, and
+   the `MetadataSaver` skips its status and progress writes for the key as well.
+6. Record `PersistenceStatus`. A write skipped for `stored: false` records `None`,
+   so a later `to_override` does not write the metadata to the store either.
 
 The default asset data configuration requests background persistence. The queued
 manager can therefore expose a ready in-memory value before the store write
@@ -233,7 +245,9 @@ evaluation failure:
 
 `set_binary` is a store-first keyed operation and does not leave a new in-memory
 `AssetRef`. `set_state` creates an in-memory entry and writes data plus metadata, or
-metadata only if serialization fails. Both cancel and evict an existing keyed
+metadata only if serialization fails. Both skip the store write when the
+**supplied** metadata says `stored: false`; the recipe's flag is not consulted, so
+an explicit set may still write a `stored: false` key. Both cancel and evict an existing keyed
 entry. Except for explicitly supplied `Expired` and `Error`, external values become
 `Override` when a recipe exists and `Source` otherwise.
 
@@ -401,6 +415,7 @@ API-surface gap.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. §Identity, caching, and fast track: a `cached: false` key gets a fresh unregistered, non-volatile asset that stays its key's graph node. §Persistence contract: `stored: false` skips every write including the metadata saver's, a skipped write records `None` (fixed in this phase; it had recorded `Persisted`), and `set_state`/`set_binary` follow the supplied metadata's flag. Step 5 corrected from "a key or `store_to` key" to "keyed", as the 2026-09-04 row already stated. | phase-5 |
 | 2026-09-15 | Execution-time expiry: the parent's `Expired` status reaches the store, its version is still registered, and `try_fast_track` declines a dependency it can see is stale while treating an undeterminable one as inconclusive. | `stale-dependency-status-finalization` |
 | 2026-09-15 | §Identity, caching, and fast track: the dependency-status check is now a numbered step of its own, with a note on why the version check and the status check are independent and what "inconclusive" means. | `stale-dependency-status-finalization` |
 | 2026-09-04 | Recorded the narrowed public surface: one private evaluation body, crate-internal run entry points, `apply` absorbing `apply_immediately`. Persistence is now gated on the asset being keyed. | `design/evaluate-path-consolidation/` phase 5 |

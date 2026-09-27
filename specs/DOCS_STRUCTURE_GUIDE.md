@@ -91,6 +91,7 @@ and a YAML list in front-matter.
 | `macro` | `liquers-macro` — `register_command!` |
 | `store/backends` | `liquers-store`: `opendal_store.rs` and future backends |
 | `store/config` | Store configuration and construction: `liquers-core`'s `store_config.rs` and `store_factory.rs`, and `liquers-store`'s `store_factory.rs` |
+| `records` | `liquers-records` — `Column`/`FieldValue`, `RecordBatch`, `RecordView`/`RecordStream`, sources, manifests, table formats |
 | `lib/commands` | `liquers-lib`: `commands.rs`, `environment.rs`, `utils.rs` |
 | `lib/value` | `liquers-lib`: `value/` — `ExtValue` and extensions |
 | `lib/polars` | `liquers-lib`: `polars/` |
@@ -1047,4 +1048,5 @@ neither.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-26 | Added the `records` area for the new `liquers-records` crate. | `design/record-streams/` Phase 4, Step 2.3 |
 | 2026-09-01 | Expanded check 9 to cover relative links in all current tracked Markdown documents while excluding archive history and non-filesystem targets. | `DOCS-DEAD-LINKS-OUTSIDE-README` |

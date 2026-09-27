@@ -15,7 +15,7 @@ use crate::{
         has_expirable_dependencies, has_volatile_dependencies, ParameterValue, Plan, PlanBuilder,
         ResolvedParameterValues, Step,
     },
-    query::{CwdCursor, Key, Query, TryToQuery, RELATIVE_WITHOUT_CWD_WARNING},
+    query::{CwdCursor, Key, Query, QuerySegment, TryToQuery, RELATIVE_WITHOUT_CWD_WARNING},
     recipes::Recipe,
     state::State,
     value::ValueInterface,
@@ -376,19 +376,111 @@ pub fn apply_plan<E: Environment>(
         schedule_plan_dependencies(&plan, &context).await?;
         context.evaluate_local_queue().await?;
         let mut state = input_state;
+        let mut origin_key: Option<Key> = None;
         for i in 0..plan.len() {
             eprintln!("Applying step {}/{}: {:?}", i + 1, plan.len(), &plan[i]);
             let step = plan[i].clone();
             let envref1 = envref.clone();
             let context1 = context.clone();
             let res = async move { do_step(step, state, context1, envref1).await }.await?;
+            origin_key = value_origin_key(&plan[i], origin_key, &context)?;
+            let mut metadata = context.get_metadata().await?;
+            if let Some(key) = &origin_key {
+                metadata.key = Some(key.clone());
+            }
             state = State::new()
                 .with_data((*res).clone())
-                .with_metadata(context.get_metadata().await?.into());
+                .with_metadata(metadata.into());
         }
         state.value()
     }
     .maybe_boxed()
+}
+
+/// The key the value produced by `step` was read from, for the state handed to the next step.
+///
+/// Between steps the state carries the evaluating asset's own metadata, so a command's input
+/// would otherwise never know which resource it came from: `-R/data/x.manifest.yaml/-/ns-rec/…`
+/// runs as a query asset whose metadata has no key. A step that reads the content (or listing) at
+/// a key names that key; a step that only passes its input through keeps the previous answer; any
+/// step producing a new value clears it. Only `key` is set — `filename` and `data_format` stay the
+/// evaluating asset's, so nothing that derives a format from them changes.
+///
+/// Called after `step` ran, so the cwd it resolves against is the one `do_step` used.
+fn value_origin_key<E: Environment>(
+    step: &Step,
+    previous: Option<Key>,
+    context: &Context<E>,
+) -> Result<Option<Key>, Error> {
+    match step {
+        Step::GetAsset(key)
+        | Step::GetAssetBinary(key)
+        | Step::GetAssetDirectory(key)
+        | Step::GetResource(key)
+        | Step::GetResourceDirectory(key) => Ok(Some(context.resolve_key_from_cwd(key)?)),
+        // A predecessor boundary. The cut keeps a namespace declaration with its prefix, so
+        // `-R/data/x.manifest.yaml/-/ns-rec/materialize` evaluates `-R/data/x.manifest.yaml/-/ns-rec`
+        // — still just the asset at the key.
+        Step::Evaluate(query) => Ok(fetched_key(&context.resolve_query_from_cwd(query)?)),
+        Step::Filename(_)
+        | Step::Info(_)
+        | Step::Warning(_)
+        | Step::Error(_)
+        | Step::SetCwd(_) => Ok(previous),
+        Step::GetAssetMetadata(_)
+        | Step::GetAssetRecipe(_)
+        | Step::GetResourceMetadata(_)
+        | Step::UseQueryValue(_)
+        | Step::UseKeyValue(_)
+        | Step::Action { .. }
+        | Step::Plan(_) => Ok(None),
+    }
+}
+
+/// The key `query` evaluates to the asset (or listing) of: a resource segment followed by nothing
+/// but namespace declarations (`ns-…`) and no filename. The segment's header must be one whose
+/// step [`value_origin_key`] names the key for — none, `data`/`value`, `b`/`bin`/`binary`, the
+/// `stored` forms, `dir`/`directory` and `sdir`/`store_directory` — so `-R-sdir/data/-/ns-rec/…`
+/// carries `data` as `-R/data/-/ns-rec/…` would. `None` for any other header and for anything that
+/// runs an action.
+fn fetched_key(query: &Query) -> Option<Key> {
+    let (first, rest) = query.segments.split_first()?;
+    let QuerySegment::Resource(resource) = first else {
+        return None;
+    };
+    let carries_key = match &resource.header {
+        None => true,
+        Some(header) => match header.parameters.first() {
+            None => true,
+            Some(parameter) => matches!(
+                parameter.value.as_str(),
+                "data"
+                    | "value"
+                    | "b"
+                    | "bin"
+                    | "binary"
+                    | "stored"
+                    | "stored_binary"
+                    | "stored_bin"
+                    | "sbin"
+                    | "dir"
+                    | "directory"
+                    | "sdir"
+                    | "store_directory"
+            ),
+        },
+    };
+    if !carries_key {
+        return None;
+    }
+    let key = resource.key.clone();
+    let only_namespaces = rest.iter().all(|segment| match segment {
+        QuerySegment::Resource(_) => false,
+        QuerySegment::Transform(transform) => {
+            transform.filename.is_none() && transform.query.iter().all(|action| action.is_ns())
+        }
+    });
+    only_namespaces.then_some(key)
 }
 
 fn materialize_link_json<'a, E: Environment>(
@@ -1000,6 +1092,20 @@ mod tests {
     use crate::store::{AsyncMemoryStore, AsyncStore};
     use crate::value::Value;
     use liquers_macro::*;
+
+    /// A predecessor boundary carries its key when the resource header's step reads the content
+    /// or listing at the key (as `value_origin_key` does for the step itself), and not otherwise.
+    #[test]
+    fn fetched_key_honours_the_resource_header() -> Result<(), Error> {
+        let data = parse_key("data")?;
+        for carrying in ["-R/data/-/ns-rec", "-R-sdir/data/-/ns-rec", "-R-dir/data/-/ns-rec", "-R-bin/data"] {
+            assert_eq!(fetched_key(&parse_query(carrying)?), Some(data.clone()), "{carrying}");
+        }
+        for not_carrying in ["-R-meta/data/-/ns-rec", "-R-key/data", "-R/data/-/ns-rec/materialize"] {
+            assert_eq!(fetched_key(&parse_query(not_carrying)?), None, "{not_carrying}");
+        }
+        Ok(())
+    }
 
     async fn immediate_context(
         envref: EnvRef<ImmediateEnvironment<Value>>,

@@ -96,6 +96,14 @@ impl UIValueExtension for Value {
                         .italics(),
                 );
             }
+            #[cfg(feature = "records")]
+            Self::Extended(ExtValue::RecordView { value }) => {
+                crate::egui::widgets::display_record_view(ui, value);
+            }
+            #[cfg(feature = "records")]
+            Self::Extended(ExtValue::RecordSource { value }) => {
+                crate::egui::widgets::display_record_source(ui, value);
+            }
             Self::Base(SimpleValue::None {}) => {
                 ui.label(RichText::new("None").italics());
             }

@@ -3,7 +3,7 @@ title: Status::Dependencies Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-09-06
+reviewed: 2026-09-27
 ---
 # Dependencies Status Specification
 
@@ -141,6 +141,22 @@ fails fast with `Error::dependency_cycle`. That is pinned by
   version would reintroduce spurious expiry.
 - Dependency-cycle checks use `DependencyManager::would_create_cycle()` / `add_dependency()` and
   static dependency discovery. There is no separate canonical wait-cycle graph.
+- **A `cached: false` keyed asset is still its key's graph node.** Such an asset is never
+  registered in the manager's key map, so registration cannot identify it as the key's owner.
+  `AssetRef::bound_owner_key` — which `track_asset` and the stale-dependency path both use to
+  decide whether an asset is a keyed node — therefore also answers the key for an **unregistered**
+  asset that was constructed for the key, is not volatile, and whose recipe targets the key and
+  declares `cached: false`, provided **no other asset is registered** for it. Its dependencies are
+  recorded and its version registered like an owner's, so a change upstream still reaches its
+  dependents. A registered owner, when there is one, stays the only answer, which keeps a
+  delegating asset answering `None`.
+- **Expiring a key no registered asset holds expires its stored copy.** `expire_dependencies_result`
+  expires each expired key through its registered asset when there is one; otherwise — the normal
+  case for a `cached: false` key — it rewrites the store's metadata for the key to `Expired`, only
+  when a copy exists and its stored status is `Ready` or `Override`. Without that, the stored copy
+  would stay `Ready` and a fresh process would fast-track data the graph knows is stale. The race
+  with an evaluation already in flight is
+  `UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION`.
 
 ## Detailed evaluation flows
 
@@ -336,6 +352,7 @@ Dependency evaluation is now non-blocking and deadlock-free (see
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. Current contract gains two bullets from its review fix: a `cached: false` keyed asset stays its key's graph node through `bound_owner_key` when no other asset is registered, and `expire_dependencies_result` marks the stored copy of an expired key no registered asset holds `Expired` (from `Ready`/`Override` only). The rest of the contract was not re-verified beyond what these touch. | phase-5 |
 | 2026-09-06 | Computed keyed assets now carry a concrete version, assigned atomically with their status; `add_dependency` records without verifying and the graph does no I/O; verification moves to opt-in `trigger_dependency_audit*` with a default of never; edges carry the dependent's expected version so a change expires only what it provably affects; `Version(0)` means "unknown" and nothing else. Current-contract bullets rewritten, Flow A step 3 and Flow B step 4 corrected. | `specs/design/keyed-expiry-cascade-fix/` |
 | 2026-08-12 | Delegation no longer records a dependency: two assets sharing a key are one graph node, compared by construction-time key rather than by the mutable resolved recipe (PR 32 review). New section "Delegation is a hand-off, not a dependency"; F-1 bullet, Flow A step 3 and the `record_dependency_on_asset` glossary entry corrected. Reviewed only for the delegation-recording claim — Flow A steps 5, 7 and 8 still describe the pre-2026-07-15 wait mechanics and are superseded by "Non-blocking dependency scheduling"; not re-verified here. | `specs/design/keyed-delegation-hand-off/` |
 | 2026-07-15 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |

@@ -454,8 +454,13 @@ impl MetadataSaver {
             // (which panics on wasm32-unknown-unknown).
             let payload = lock.pending.take();
             drop(lock);
+            // `stored: false` — no store write at all, not even a metadata-only entry: leaving
+            // one behind is exactly the corrupted-data-on-reload trap
+            // (METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED).
             if let (Some(metadata), Some(key)) = (payload, key.as_ref()) {
-                let _ = envref.get_async_store().set_metadata(key, &metadata).await;
+                if metadata.stored() {
+                    let _ = envref.get_async_store().set_metadata(key, &metadata).await;
+                }
             }
         }
     }
@@ -485,6 +490,13 @@ impl MetadataSaver {
 
             if let Some(metadata) = maybe_payload {
                 if let Some(key) = key.as_ref() {
+                    // `stored: false` — this is the easiest-to-miss, most frequent writer for a
+                    // non-stored key: the service loop calls it on every status, log and progress
+                    // change. Skip the write entirely, no metadata-only entry either
+                    // (METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED).
+                    if !metadata.stored() {
+                        continue;
+                    }
                     if let Err(error) = envref.get_async_store().set_metadata(key, &metadata).await
                     {
                         eprintln!("Metadata save failed for key {}: {}", key, error);
@@ -1797,12 +1809,28 @@ impl<E: Environment> AssetRef<E> {
     /// `AssetData::recipe` alone. The recipe identity remains a consistency check, while the
     /// manager registration distinguishes a keyed asset from an ad-hoc query whose resource
     /// prefix happens to look like a key.
+    ///
+    /// **An uncached keyed asset answers too.** `cached: false` means the manager does not
+    /// register the asset for reuse — it never means the asset stops being the key's node in the
+    /// dependency graph. Such an asset has no registered owner by design, so registration cannot
+    /// be the test for it; it answers `Some` when it was constructed for this key
+    /// (`AssetData::key`), is not volatile, its recipe targets the key and declares
+    /// `cached: false`, and **no other asset is registered** for the key. A registered owner, when
+    /// there is one, stays the only answer — which keeps a delegating asset (keyed, not the owner)
+    /// answering `None`.
     pub(crate) async fn bound_owner_key(&self) -> Result<Option<Key>, Error> {
         let Some(candidate) = self.bound_key_candidate().await else {
             return Ok(None);
         };
 
-        let recipe = { self.data.read().await.recipe.clone() };
+        let (recipe, constructed_key, is_volatile) = {
+            let lock = self.data.read().await;
+            (
+                lock.recipe.clone(),
+                lock.key.clone(),
+                lock.is_volatile || lock.status == Status::Volatile,
+            )
+        };
         let recipe_identity = match recipe.store_to_key()? {
             Some(key) => Some(key),
             None => recipe.key()?,
@@ -1812,10 +1840,15 @@ impl<E: Environment> AssetRef<E> {
         }
 
         let manager = self.get_envref().await.get_asset_manager();
-        let Some(owner) = manager.owned_key_asset(&candidate).await else {
-            return Ok(None);
-        };
-        Ok((owner.id() == self.id()).then_some(candidate))
+        match manager.owned_key_asset(&candidate).await {
+            Some(owner) => Ok((owner.id() == self.id()).then_some(candidate)),
+            None => {
+                let unregistered_node = !recipe.cached()
+                    && constructed_key.as_ref() == Some(&candidate)
+                    && !is_volatile;
+                Ok(unregistered_node.then_some(candidate))
+            }
+        }
     }
 
     /// The key this asset is associated with, or `None` when it is not a
@@ -2241,7 +2274,12 @@ impl<E: Environment> AssetRef<E> {
     /// - `save_in_background`: When true, performs persistence asynchronously in a spawned task.
     /// - `cancelled`: Cancellation flag used to skip writes after cancellation.
     async fn persist_with_status_tracking(&self, save_in_background: bool, cancelled: bool) {
-        if cancelled {
+        // `stored: false` skips the write, so it is recorded as no attempt — `None`, as for a
+        // cancelled save — never `Persisted`. A skipped write reported as `Persisted` sent
+        // `AssetManager::to_override` down the branch that writes the metadata straight to the
+        // store, leaving the metadata-only entry the flag exists to prevent.
+        let not_stored = !self.data.read().await.metadata.stored();
+        if cancelled || not_stored {
             self.set_persistence_status(PersistenceStatus::None, None)
                 .await;
             return;
@@ -2707,6 +2745,11 @@ impl<E: Environment> AssetRef<E> {
                                 metadata
                                     .with_title(recipe.title.clone())
                                     .with_description(recipe.description.clone());
+                                // The provider's recipe is now authoritative; agree with it even
+                                // if the flags read at construction (from a recipe resolved
+                                // slightly earlier, in `get_resource_asset`) differed.
+                                metadata.stored = recipe.stored;
+                                metadata.cached = recipe.cached;
                             }
                         }
                         eprintln!(
@@ -2944,12 +2987,25 @@ impl<E: Environment> AssetRef<E> {
             let is_volatile = lock.is_volatile;
             drop(lock);
             if let Some(key) = key.as_ref() {
+                // `stored: false` — the produced value is not written, and no metadata-only
+                // entry is left either. An existing stored copy is unaffected: this only guards
+                // the write.
+                if !metadata.stored() {
+                    eprintln!(
+                        "Asset {} has stored()==false for key {}, skipping store write",
+                        self.id(),
+                        key
+                    );
+                    return Ok(());
+                }
                 // Ownership is approximated by keyedness. Registration is the manager's own
                 // caching decision, and a volatile keyed asset is deliberately never registered,
                 // so only a *non-volatile* keyed asset that is not the registered owner is
                 // suspicious — record it rather than failing, since it is legal today.
                 // See `ASSET-REGISTRATION-OWNERSHIP-CONTRACT`.
-                if !is_volatile {
+                // An uncached (`cached: false`) asset is never registered either, by design, so
+                // the warning is skipped for it too, exactly as for a volatile asset.
+                if !is_volatile && metadata.cached() {
                     let manager = envref.get_asset_manager();
                     let registered_is_self = manager
                         .owned_key_asset(key)
@@ -3768,6 +3824,50 @@ pub(crate) fn load_command_versions_sync<E: Environment>(
 ///
 /// Dependency tracking is automatic. Keeping this separate from [`AssetManager`]'s public
 /// operations prevents the graph implementation from becoming part of the supported API.
+/// Mark the stored copy of `key` `Expired`, for a key the dependency graph expired while no
+/// registered asset held it (see [`AssetManager::expire_dependencies_result`]).
+///
+/// The same transition `AssetRef::mark_expired_status` makes and persists for a registered asset:
+/// only `Ready` and `Override` become `Expired`; anything else is left alone — `Source` has no
+/// recipe to recover from, and every other status is already not reusable. A key the store does
+/// not hold is not written, so no phantom metadata-only entry is created. Failures are reported on
+/// stderr and otherwise ignored, as the in-memory path does.
+async fn expire_stored_copy(store: Arc<dyn crate::store::AsyncStore>, key: &Key) {
+    if !store.contains(key).await.unwrap_or(false) {
+        return;
+    }
+    let mut metadata = match store.get_metadata(key).await {
+        Ok(metadata) => metadata,
+        Err(e) => {
+            eprintln!("Cannot read stored metadata of {} to expire it: {}", key, e);
+            return;
+        }
+    };
+    match metadata.status() {
+        Status::Ready | Status::Override => {}
+        Status::None
+        | Status::Directory
+        | Status::Recipe
+        | Status::Submitted
+        | Status::Dependencies
+        | Status::Processing
+        | Status::Partial
+        | Status::Error
+        | Status::Storing
+        | Status::Expired
+        | Status::Source
+        | Status::Cancelled
+        | Status::Volatile => return,
+    }
+    let result = match metadata.set_status(Status::Expired) {
+        Ok(()) => store.set_metadata(key, &metadata).await,
+        Err(e) => Err(e),
+    };
+    if let Err(e) = result {
+        eprintln!("Failed to persist Expired status of stored {}: {}", key, e);
+    }
+}
+
 pub(crate) trait DependencyManagerAccess<E: Environment> {
     fn dependency_manager(&self) -> &crate::dependencies::DependencyManager<E>;
 }
@@ -4326,11 +4426,18 @@ pub trait AssetManager<E: Environment>:
     }
 
     /// Apply an `ExpiredDependents` result: expire keyed and untracked assets.
+    ///
+    /// A key with no registered asset — a `cached: false` key is never registered — is expired in
+    /// the store instead: its stored metadata is marked `Expired`, exactly as
+    /// `mark_expired_status` would persist it for a registered one. Without that, the stored copy
+    /// stays `Ready` and a fresh process fast-tracks it on data the graph knows is stale.
     async fn expire_dependencies_result(&self, expired: crate::dependencies::ExpiredDependents<E>) {
         for dk in &expired.keys {
             if let Ok(k) = Key::try_from(dk) {
                 if let Some(ar) = self.lookup_key_asset(&k) {
                     let _ = ar.expire_without_cascade().await;
+                } else {
+                    expire_stored_copy(self.get_envref().get_async_store(), &k).await;
                 }
             }
         }
@@ -4876,12 +4983,31 @@ impl<E: Environment> DefaultAssetManager<E> {
         self.envref.get_recipe_provider()
     }
 
-    /// Returns a resource asset assuming it is non-volatile
+    /// Builds the ad-hoc key recipe a fresh resource asset is constructed with, carrying the
+    /// `stored`/`cached` flags resolved from the key's real recipe by [`Self::get_resource_asset`].
+    ///
+    /// The asset's authoritative recipe is still adopted later, in `evaluate` — this only makes
+    /// sure nothing between construction and that point can persist the asset without the flags
+    /// already recorded in its metadata (`Recipe::get_asset_info` copies them through).
+    fn ad_hoc_resource_recipe(key: &Key, stored: Option<bool>, cached: Option<bool>) -> Recipe {
+        let mut recipe: Recipe = key.into();
+        recipe.stored = stored;
+        recipe.cached = cached;
+        recipe
+    }
+
+    /// Returns a resource asset assuming it is non-volatile and cached (registered for reuse).
     /// Used by: `get_resource_asset` in this module.
     ///
     /// Arguments:
     /// - `key`: Store key identifying the target asset/resource.
-    async fn get_nonvolatile_resource_asset(&self, key: &Key) -> Result<AssetRef<E>, Error> {
+    /// - `stored` / `cached`: Flags resolved from the key's recipe by the caller.
+    async fn get_nonvolatile_resource_asset(
+        &self,
+        key: &Key,
+        stored: Option<bool>,
+        cached: Option<bool>,
+    ) -> Result<AssetRef<E>, Error> {
         eprintln!("Getting non-volatile asset for key {}", key);
 
         // Cache construction races with replacement/removal operations. Once a cache miss is
@@ -4894,10 +5020,37 @@ impl<E: Environment> DefaultAssetManager<E> {
             .entry_async(key.clone())
             .await
             .or_insert_with(|| {
-                AssetRef::<E>::new_from_recipe(self.next_id(), key.into(), Some(key.clone()), self.get_envref())
+                AssetRef::<E>::new_from_recipe(
+                    self.next_id(),
+                    Self::ad_hoc_resource_recipe(key, stored, cached),
+                    Some(key.clone()),
+                    self.get_envref(),
+                )
             });
 
         Ok(entry.get().clone())
+    }
+
+    /// Returns a resource asset that is `cached: false` — a fresh, unregistered asset per
+    /// request, modeled on [`Self::get_volatile_resource_asset`] but **not** marked volatile.
+    /// Used by: `get_resource_asset` in this module.
+    ///
+    /// Arguments:
+    /// - `key`: Store key identifying the target asset/resource.
+    /// - `stored` / `cached`: Flags resolved from the key's recipe by the caller.
+    async fn get_uncached_resource_asset(
+        &self,
+        key: &Key,
+        stored: Option<bool>,
+        cached: Option<bool>,
+    ) -> Result<AssetRef<E>, Error> {
+        eprintln!("Getting uncached asset for key {}", key);
+        Ok(AssetRef::new_from_recipe(
+            self.next_id(),
+            Self::ad_hoc_resource_recipe(key, stored, cached),
+            Some(key.clone()),
+            self.get_envref(),
+        ))
     }
 
     /// Returns resource asset assuming it is volatile
@@ -4905,9 +5058,21 @@ impl<E: Environment> DefaultAssetManager<E> {
     ///
     /// Arguments:
     /// - `key`: Store key identifying the target asset/resource.
-    async fn get_volatile_resource_asset(&self, key: &Key) -> Result<AssetRef<E>, Error> {
+    /// - `stored` / `cached`: Flags resolved from the key's recipe by the caller. Neither flag
+    ///   makes an asset volatile — volatility is decided independently, before this is called.
+    async fn get_volatile_resource_asset(
+        &self,
+        key: &Key,
+        stored: Option<bool>,
+        cached: Option<bool>,
+    ) -> Result<AssetRef<E>, Error> {
         eprintln!("Getting volatile asset for key {}", key);
-        let asset_ref = AssetRef::new_from_recipe(self.next_id(), key.into(), Some(key.clone()), self.get_envref());
+        let asset_ref = AssetRef::new_from_recipe(
+            self.next_id(),
+            Self::ad_hoc_resource_recipe(key, stored, cached),
+            Some(key.clone()),
+            self.get_envref(),
+        );
 
         // Set is_volatile flag in AssetData and Metadata
         {
@@ -4921,15 +5086,34 @@ impl<E: Environment> DefaultAssetManager<E> {
         Ok(asset_ref)
     }
 
-    /// Returns a resource asset
+    /// Returns a resource asset.
+    ///
+    /// Resolves the key's recipe once — through `recipe_opt`, as `is_volatile` already did
+    /// internally — and carries its `stored`/`cached` flags into whichever constructor builds
+    /// the asset, so they are recorded in the asset's metadata before anything can persist it.
+    /// This does **not** run in `resolve_volatility_before_evaluation`: that step runs before
+    /// the recipe provider's recipe replaces the ad-hoc key recipe, so the flags read there
+    /// would always be `None`.
     ///
     /// Arguments:
     /// - `key`: Store key identifying the target asset/resource.
     async fn get_resource_asset(&self, key: &Key) -> Result<AssetRef<E>, Error> {
-        if self.is_volatile(key).await? {
-            self.get_volatile_resource_asset(key).await
+        let recipe = self.recipe_opt(key).await?;
+        let is_volatile = match &recipe {
+            Some(recipe) => recipe.is_volatile(self.get_envref()).await?,
+            None => false,
+        };
+        let (stored, cached) = match &recipe {
+            Some(recipe) => (recipe.stored, recipe.cached),
+            None => (None, None),
+        };
+        if is_volatile {
+            self.get_volatile_resource_asset(key, stored, cached).await
+        } else if !cached.unwrap_or(true) {
+            self.get_uncached_resource_asset(key, stored, cached).await
         } else {
-            self.get_nonvolatile_resource_asset(key).await
+            self.get_nonvolatile_resource_asset(key, stored, cached)
+                .await
         }
     }
 
@@ -5564,20 +5748,26 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         }
 
         // 5. Handle Error status specially - store empty binary with metadata
+        // `stored: false` on the supplied metadata (true unless the caller set it) skips this
+        // write entirely — an explicit set is still allowed to bypass a `stored: false` recipe by
+        // supplying `stored: true` in its own metadata, which is why the flag read here is the
+        // *supplied* one, not the recipe's.
         let store = self.get_envref().get_async_store();
-        if final_status == Status::Error {
-            // Store empty binary with error metadata
-            store.set(key, &[], &metadata.clone().into()).await?;
-        } else {
-            // Store binary and metadata
-            store
-                .set(key, binary, &metadata.clone().into())
-                .await
-                .map_err(|e| {
-                    // On failure, try to clean up (best effort)
-                    // Note: We can't do async cleanup in map_err, so just return the error
-                    e
-                })?;
+        if metadata.stored() {
+            if final_status == Status::Error {
+                // Store empty binary with error metadata
+                store.set(key, &[], &metadata.clone().into()).await?;
+            } else {
+                // Store binary and metadata
+                store
+                    .set(key, binary, &metadata.clone().into())
+                    .await
+                    .map_err(|e| {
+                        // On failure, try to clean up (best effort)
+                        // Note: We can't do async cleanup in map_err, so just return the error
+                        e
+                    })?;
+            }
         }
 
         // 6. Register version and cascade expire dependents (non-volatile only)
@@ -5695,19 +5885,23 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         assert!(self.try_insert_key_asset(key, asset_ref.clone()).await);
 
         // 7. Handle Error status specially - store empty binary with metadata
+        // `stored: false` on the supplied metadata (true unless the caller set it) skips this
+        // write entirely — see `set_binary` above for the same read of the *supplied* metadata.
         let store = self.get_envref().get_async_store();
-        if final_status == Status::Error {
-            // Store empty binary with error metadata
-            store.set(key, &[], &metadata.clone().into()).await?;
-        } else {
-            // 8. Try to serialize and store (handle non-serializable gracefully)
-            match state.as_bytes() {
-                Ok(binary) => {
-                    store.set(key, &binary, &metadata.clone().into()).await?;
-                }
-                Err(_) => {
-                    // Non-serializable data - store metadata only
-                    store.set_metadata(key, &metadata.clone().into()).await?;
+        if metadata.stored() {
+            if final_status == Status::Error {
+                // Store empty binary with error metadata
+                store.set(key, &[], &metadata.clone().into()).await?;
+            } else {
+                // 8. Try to serialize and store (handle non-serializable gracefully)
+                match state.as_bytes() {
+                    Ok(binary) => {
+                        store.set(key, &binary, &metadata.clone().into()).await?;
+                    }
+                    Err(_) => {
+                        // Non-serializable data - store metadata only
+                        store.set_metadata(key, &metadata.clone().into()).await?;
+                    }
                 }
             }
         }
@@ -6490,10 +6684,52 @@ impl<E: Environment> ImmediateAssetManager<E> {
         Ok(asset_ref)
     }
 
+    /// Builds the ad-hoc key recipe a fresh resource asset is constructed with, carrying the
+    /// `stored`/`cached` flags resolved from the key's real recipe by [`Self::get_resource_asset`].
+    /// See [`DefaultAssetManager::ad_hoc_resource_recipe`] for the same construction there.
+    fn ad_hoc_resource_recipe(key: &Key, stored: Option<bool>, cached: Option<bool>) -> Recipe {
+        let mut recipe: Recipe = key.into();
+        recipe.stored = stored;
+        recipe.cached = cached;
+        recipe
+    }
+
+    /// Returns a resource asset.
+    ///
+    /// Resolves the key's recipe once — through `recipe_opt`, as `is_volatile` already did
+    /// internally — and carries its `stored`/`cached` flags into the constructed asset's
+    /// metadata before anything can persist it. Neither flag makes the asset volatile.
     async fn get_resource_asset(&self, key: &Key) -> Result<AssetRef<E>, Error> {
-        if self.is_volatile(key).await? {
-            return Ok(self.make_volatile(key.into(), Some(key.clone())).await);
+        let recipe = self.recipe_opt(key).await?;
+        let is_volatile = match &recipe {
+            Some(recipe) => recipe.is_volatile(self.envref()).await?,
+            None => false,
+        };
+        let (stored, cached) = match &recipe {
+            Some(recipe) => (recipe.stored, recipe.cached),
+            None => (None, None),
+        };
+
+        if is_volatile {
+            return Ok(self
+                .make_volatile(
+                    Self::ad_hoc_resource_recipe(key, stored, cached),
+                    Some(key.clone()),
+                )
+                .await);
         }
+
+        if !cached.unwrap_or(true) {
+            // `cached: false`, non-volatile: a fresh, unregistered asset per request, modeled
+            // on the volatile path above but not marked volatile.
+            return Ok(AssetRef::new_from_recipe(
+                self.next_id(),
+                Self::ad_hoc_resource_recipe(key, stored, cached),
+                Some(key.clone()),
+                self.envref(),
+            ));
+        }
+
         {
             let map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(existing) = map.get(key) {
@@ -6501,7 +6737,12 @@ impl<E: Environment> ImmediateAssetManager<E> {
             }
         }
         let _mutation = self.key_mutation_lock.lock().await;
-        let asset_ref = AssetRef::new_from_recipe(self.next_id(), key.into(), Some(key.clone()), self.envref());
+        let asset_ref = AssetRef::new_from_recipe(
+            self.next_id(),
+            Self::ad_hoc_resource_recipe(key, stored, cached),
+            Some(key.clone()),
+            self.envref(),
+        );
         let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(existing) = map.get(key) {
             return Ok(existing.clone());
@@ -6744,10 +6985,14 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             metadata.version = Some(crate::metadata::Version::from_bytes(binary));
         }
         let store = self.envref().get_async_store();
-        if final_status == Status::Error {
-            store.set(key, &[], &metadata.clone().into()).await?;
-        } else {
-            store.set(key, binary, &metadata.clone().into()).await?;
+        // `stored: false` on the supplied metadata (true unless the caller set it) skips this
+        // write entirely — see `DefaultAssetManager::set_binary` for the same rule.
+        if metadata.stored() {
+            if final_status == Status::Error {
+                store.set(key, &[], &metadata.clone().into()).await?;
+            } else {
+                store.set(key, binary, &metadata.clone().into()).await?;
+            }
         }
         if matches!(
             final_status,
@@ -6803,12 +7048,16 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         let asset = data.to_ref();
         assert!(self.try_insert_key_asset(key, asset.clone()).await);
         let store = self.envref().get_async_store();
-        if final_status == Status::Error {
-            store.set(key, &[], &metadata.clone().into()).await?;
-        } else if let Ok(binary) = state.as_bytes() {
-            store.set(key, &binary, &metadata.clone().into()).await?;
-        } else {
-            store.set_metadata(key, &metadata.clone().into()).await?;
+        // `stored: false` on the supplied metadata (true unless the caller set it) skips this
+        // write entirely — see `DefaultAssetManager::set_state` for the same rule.
+        if metadata.stored() {
+            if final_status == Status::Error {
+                store.set(key, &[], &metadata.clone().into()).await?;
+            } else if let Ok(binary) = state.as_bytes() {
+                store.set(key, &binary, &metadata.clone().into()).await?;
+            } else {
+                store.set_metadata(key, &metadata.clone().into()).await?;
+            }
         }
         if matches!(
             final_status,

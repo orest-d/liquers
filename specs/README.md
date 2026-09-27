@@ -136,10 +136,17 @@ expansion time rather than at runtime. That is the cheapest item here.
 - **Store behavioural semantics** — documented → [`reference/STORE_SEMANTICS.md`](reference/STORE_SEMANTICS.md)
 - **Shared directory support for backends without directories** — documented → `liquers-core/src/store_dir_index.rs` *(design in [`design/opendal-path-mapping/`](design/opendal-path-mapping/))*
 - **Streaming binary access (`openbin`)** — planned → [`issues/CORE-STORE-OPENBIN-MISSING.md`](issues/CORE-STORE-OPENBIN-MISSING.md)
-- **Content and metadata search** — planned → [`issues/STORE-NO-CONTENT-OR-METADATA-SEARCH.md`](issues/STORE-NO-CONTENT-OR-METADATA-SEARCH.md)
+- **Record streams — a chunked, Arrow-interoperable tabular abstraction** — built → [`reference/RECORD_STREAMS.md`](reference/RECORD_STREAMS.md); producing records: [`guides/RECORD_STREAM_GUIDE.md`](guides/RECORD_STREAM_GUIDE.md) *(design in [`design/record-streams/`](design/record-streams/))*
+- **Content and metadata search** — designing → [`design/store-and-asset-search/`](design/store-and-asset-search/) *(its record-stream prerequisite is now built)*
+- **SQL over stored and derived data** — planned → [`issues/NO-SQL-QUERY-CAPABILITY-OVER-STORED-AND-DERIVED-DATA.md`](issues/NO-SQL-QUERY-CAPABILITY-OVER-STORED-AND-DERIVED-DATA.md)
 - **Read-only mounts** — planned → [`issues/STORE-NO-READ-ONLY-ADAPTER.md`](issues/STORE-NO-READ-ONLY-ADAPTER.md)
 - **Conditional writes and concurrent-writer semantics** — planned → [`issues/STORE-WRITE-HAS-NO-PRECONDITION.md`](issues/STORE-WRITE-HAS-NO-PRECONDITION.md)
 - **Sessions and key-level authorization** — planned → [`issues/CORE-SESSION-AND-KEY-ACL.md`](issues/CORE-SESSION-AND-KEY-ACL.md)
+- **Observable expiration events for external systems** — planned → [`issues/ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET.md`](issues/ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET.md)
+- **Incremental value serialization** — planned → [`issues/VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER.md`](issues/VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER.md)
+- **Running a command with a restricted context** — planned → [`issues/COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT.md`](issues/COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT.md)
+- **Describing an asset without evaluating it** — planned → [`issues/DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION.md`](issues/DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION.md)
+- **Computed but non-persistent assets** — planned → [`issues/ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT.md`](issues/ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT.md)
 
 A key given to a store must be absolute: no element may be `.` or `..`. Relative keys are resolved
 at plan level and a store never resolves them, so one reaching a store is refused with
@@ -163,6 +170,49 @@ the five `AsyncStore` implementations are enumerated on
 name their own open issues.
 
 Sessions and ACL are one item because there is no identity on `Context` to authorize against.
+
+Search is the newest of these and the one with the widest blast radius: a store can enumerate and
+fetch but cannot *select*, so every consumer that wants a subset reads the whole subtree and filters
+in its own code. `design/store-and-asset-search/` delimits that task and carries a use-case survey,
+eleven answered research questions, an options analysis and an interoperability study beside its
+Phase 1. Its model is that every essential use case is one operation — select records by a predicate
+over their fields and their text — so commands become a *record source* rather than a search feature,
+and vector similarity becomes a clause over the same records. Projection is a command because it
+varies with the value type; **selection is also a command**, over the record stream a projection
+produces — Phase 1 put it on the store trait and Phase 2 reversed that, because a trait method is a
+push-down optimization rather than the mechanism, and no store or asset trait gains one.
+
+Two invariants carry most of the weight. **A search never evaluates**: a content search reaching an
+unevaluated recipe could recompute a whole corpus. And **an external system's correctness comes from
+reconciliation, never from a delivered notification** — the generalized lesson of the Python
+prototype's indexer hook, where every missed delivery was permanent and undetectable. An external
+search engine, vector store, RAG pipeline and SQL mirror differ only in what they answer, so one
+layer feeds and reconciles all four, built almost entirely from vocabulary the dependency and
+expiration machinery already has.
+
+What that layer is fed is a **record stream**, at three deliberately distinct scales: a chunk is the
+unit of refresh, a batch the unit of memory, a record the unit of retrieval. A stream query depends
+on a directory and a chunk query on one file — a distinction the resource header instructions
+`-R-key` and `-R-bin` already express — so one changed file re-derives one chunk, while batching
+keeps a parquet file that is a perfectly good dependency unit from having to be a resident one. A
+record is identified by its asset plus a cheap asset-dependent id, with the evaluable locator derived
+on demand rather than stored per row. Because a chunk is a table and a stream is a table in parts,
+the same mechanism serves search, external sinks, SQL and serialization.
+
+That last sentence is why the design **split in two** on 2026-09-19. Six architecture revisions
+established that the record mechanism serves four consumers of which search is one, and carries
+requirements search never raises: lazy processing of multi-gigabyte tables one chunk at a time, a
+memory layout Arrow can consume without a heavy dependency, a DataFrame role for `liquers-web` where
+polars cannot be bundled, and provenance and validity traced per chunk and flyweighted to the record.
+`design/record-streams/` owns all of it and was built first (2026-09-27; see
+[`reference/RECORD_STREAMS.md`](reference/RECORD_STREAMS.md)); `design/store-and-asset-search/`
+keeps the predicate, its syntax and its parser, the indexation policy, the interoperability layer and
+the `get_asset_info` repair, and was blocked on it by declaration rather than by accident.
+
+Designing this found three gaps: `ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET`
+(expiration is notified, but only to something already holding the asset),
+`VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER`, and a new reason to care about
+`CORE-STORE-OPENBIN-MISSING`. Phase 1 of `liquers-project`, awaiting approval.
 
 ### Command libraries
 
@@ -231,7 +281,9 @@ question are both measure-first items.
 ## Open issues attached to live design work
 
 <!-- BEGIN generated: issues -->
-*None.*
+| Issue | Pri | Cx | Design |
+|---|---|---|---|
+| [`DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION`](issues/DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION.md) | P1 | M | `store-and-asset-search` |
 <!-- END generated: issues -->
 
 ## Not yet placed
@@ -314,12 +366,16 @@ deliberately folded behind a broader line.
 - feature `JS-COMMAND-CANNOT-ACCESS-CONTEXT`
 - feature `LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION`
 - feature `LANGUAGE-STORE-TYPE-NOT-DEFINABLE`
+- feature `NO-RELATIONAL-DATABASE-ACCESS-LAYER`
+- feature `RECORDS-ARROW-C-DATA-EXPORT-NOT-BUILT`
 - feature `STORE-COMMAND-NAMESPACE-MISSING`
 - feature `STORE-CONFIG-FROM-URI`
 - feature `STORE-OPENDAL-ARGUMENTS-NOT-DERIVED`
 - feature `TYPE-REGISTRY-NOT-REALM-AWARE`
 - feature `UI-VARIADIC-ARGUMENT-LIST-EDITOR`
+- feature `VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS`
 - feature `VALUE-CONVERSION-CAPABILITY`
+- feature `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`
 - feature `VALUE-TYPE-DEFINITION-MACRO`
 <!-- END generated: unplaced -->
 
@@ -330,6 +386,7 @@ deliberately folded behind a broader line.
 - [`ENVIRONMENT_CONSTRUCTION_GUIDE.md`](guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md) — An `Environment` owns the global services a query evaluation needs: the command registry, the
 - [`LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md) — Status: Draft
 - [`QUERY_ESCAPING_GUIDE.md`](guides/QUERY_ESCAPING_GUIDE.md) — A Liquers query is text with structure: `/` separates path segments, `-` separates action
+- [`RECORD_STREAM_GUIDE.md`](guides/RECORD_STREAM_GUIDE.md) — How to produce records from a new source: a command that returns a table, a manifest that stitches
 - [`STORE_FACTORY_GUIDE.md`](guides/STORE_FACTORY_GUIDE.md) — > This guide covers **declaring a store type** so a configuration document can name it. For
 - [`STORE_IMPLEMENTATION_GUIDE.md`](guides/STORE_IMPLEMENTATION_GUIDE.md) — How to implement an `AsyncStore` that satisfies
 - [`TYPE_SYSTEM_GUIDE.md`](guides/TYPE_SYSTEM_GUIDE.md) — How to add a value type so the system can describe it, store it and read it back. For *why* the

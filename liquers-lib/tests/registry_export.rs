@@ -4,7 +4,7 @@
 //! which calls `tokio::spawn` and panics without a runtime.
 
 // Only the freshness test reads the committed file.
-#[cfg(all(feature = "egui", feature = "image-support", feature = "polars"))]
+#[cfg(all(feature = "egui", feature = "image-support", feature = "polars", feature = "records"))]
 use std::path::PathBuf;
 
 use liquers_core::command_metadata::CommandMetadataRegistry;
@@ -51,11 +51,13 @@ fn full_registry() -> Result<CommandMetadataRegistry, Error> {
         liquers_lib::register_image_commands!(cr)?;
         #[cfg(feature = "polars")]
         liquers_lib::register_polars_commands!(cr)?;
+        #[cfg(feature = "records")]
+        liquers_lib::register_records_commands!(cr)?;
     }
     Ok(env.get_command_metadata_registry().clone())
 }
 
-#[cfg(all(feature = "egui", feature = "image-support", feature = "polars"))]
+#[cfg(all(feature = "egui", feature = "image-support", feature = "polars", feature = "records"))]
 fn committed_registry_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -93,6 +95,11 @@ async fn exported_registry_is_nonempty() -> Result<(), Error> {
     assert!(
         registry.find_command("", "pl", "head").is_some(),
         "the polars group exported nothing"
+    );
+    #[cfg(feature = "records")]
+    assert!(
+        registry.find_command("", "rec", "head").is_some(),
+        "the records group exported nothing"
     );
     Ok(())
 }
@@ -150,7 +157,7 @@ async fn namespace_filtering_selects_expected_commands() -> Result<(), Error> {
 ///
 /// Comparing structures rather than file bytes also keeps the test from failing spuriously on a
 /// serde_yaml formatting change.
-#[cfg(all(feature = "egui", feature = "image-support", feature = "polars"))]
+#[cfg(all(feature = "egui", feature = "image-support", feature = "polars", feature = "records"))]
 fn signature_of(command: &liquers_core::command_metadata::CommandMetadata) -> String {
     let mut command = command.clone();
     command.impl_version = liquers_core::metadata::Version::new(0);
@@ -162,7 +169,7 @@ fn signature_of(command: &liquers_core::command_metadata::CommandMetadata) -> St
 /// `specs/command_registry.yaml` is exported with the default features on, so only a build with
 /// the same groups compiled in can compare against it. A reduced build registers a subset and
 /// would report the missing groups as staleness.
-#[cfg(all(feature = "egui", feature = "image-support", feature = "polars"))]
+#[cfg(all(feature = "egui", feature = "image-support", feature = "polars", feature = "records"))]
 #[tokio::test]
 async fn committed_registry_is_fresh() -> Result<(), Error> {
     let path = committed_registry_path();

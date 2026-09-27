@@ -59,3 +59,26 @@ which is an `Err` and correctly recorded as one.
 Found on 2026-09-04 during the cross-document review of
 `specs/design/stale-dependency-status-finalization/` Phase 4, while establishing what the
 persistence path reports when a write does not happen.
+
+### A second trigger: `stored: false` (added 2026-09-27)
+
+The `record-streams` design added another skip with the same shape. `save_to_store`
+(`liquers-core/src/assets.rs`, the `if !metadata.stored()` block after the key is read) returns
+`Ok(())` when the asset's metadata says `stored: false`, so every evaluation of a `stored: false`
+keyed asset records `PersistenceStatus::Persisted` while the store holds nothing for it.
+
+Here the consumer does real harm rather than reporting a wrong status. `AssetManager::to_override`
+(both managers) takes the `Persisted` branch for a registered asset and writes the asset's metadata
+straight to the store with `set_metadata` — leaving exactly the metadata-only entry `stored: false`
+exists to prevent (`METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED`). Had the status been `None`, the
+other branch would have gone through `persist_with_status_tracking`, which honours the flag.
+
+**Fixed for this trigger (2026-09-27):** `persist_with_status_tracking` now records `None` for a
+`stored: false` asset without calling `save_to_store`, as it does for a cancelled one
+(`stored_false_survives_to_override_{default,immediate}` in `liquers-core/tests/stored_cached_flags.rs`).
+The cancellation checks inside `save_to_store` that this issue was filed for are unchanged, so the
+issue stays open for them.
+
+The expected behaviour is the same: a skipped write records `None`. Found during the
+`record-streams` Phase 5 review of `specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md`
+against the persistence path.

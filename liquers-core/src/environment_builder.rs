@@ -30,7 +30,7 @@ use crate::commands::{CommandRegistry, PayloadType};
 use crate::context::{EnvRef, Environment, GenericEnvironment};
 use crate::error::Error;
 use crate::issue_report::IssueReport;
-use crate::recipes::{AsyncRecipeProvider, RecipeProviderChoice};
+use crate::recipes::{AsyncRecipeProvider, RecipeProviderChain, RecipeProviderChoice};
 use crate::store::AsyncStore;
 use crate::store_config::StoreRouterConfig;
 use crate::store_factory::{StoreFactory, StoreRouterBuilder};
@@ -195,6 +195,9 @@ pub struct EnvironmentBuilder<
     /// which cannot be threaded through a by-value setter chain.
     pub command_registry: CommandRegistry<GenericEnvironment<V, P, K>>,
     recipe_provider: Option<Arc<dyn AsyncRecipeProvider<GenericEnvironment<V, P, K>>>>,
+    /// Providers appended after the configured (or default) one, composed into a
+    /// [`RecipeProviderChain`] by [`Self::build`]. See [`Self::with_appended_recipe_provider`].
+    appended_recipe_providers: Vec<Arc<dyn AsyncRecipeProvider<GenericEnvironment<V, P, K>>>>,
     manager_options: AssetManagerOptions,
     validation_report: IssueReport,
     _payload: PhantomData<P>,
@@ -223,6 +226,7 @@ impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<
             store_config: None,
             command_registry: CommandRegistry::new(),
             recipe_provider: None,
+            appended_recipe_providers: Vec::new(),
             manager_options: AssetManagerOptions::default(),
             validation_report: IssueReport::default(),
             _payload: PhantomData,
@@ -291,6 +295,31 @@ impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<
         self.with_recipe_provider(provider)
     }
 
+    /// Appends a provider consulted after the configured one — or after
+    /// [`AssetManagerKind::default_recipe_provider`] when none is configured.
+    ///
+    /// [`Self::build`] composes `RecipeProviderChain::new([base, appended…])`, so the base is
+    /// always tried first and every appended provider keeps its relative order. This is a `Vec`
+    /// rather than "push onto the configured provider" because the builder holds the base as an
+    /// `Arc<dyn AsyncRecipeProvider<…>>`: it cannot be recognized as a chain without a downcast
+    /// the trait does not offer, nor pushed onto once shared. A later [`Self::with_recipe_provider`]
+    /// or [`Self::with_recipe_provider_choice`] call replaces only the base and keeps every
+    /// appended provider (Phase 4 decision 1,
+    /// `specs/design/record-streams/phase4-implementation.md`).
+    ///
+    /// [`RecipeProviderChoice`] is deliberately not extended with a "chain" choice: a choice is
+    /// data in a configuration document and cannot name a provider living in another crate — a
+    /// manifest provider in `liquers-records`, for example. This setter is the code-side
+    /// equivalent, mirroring
+    /// [`crate::context::GenericEnvironment::with_appended_recipe_provider`].
+    pub fn with_appended_recipe_provider(
+        mut self,
+        provider: Arc<dyn AsyncRecipeProvider<GenericEnvironment<V, P, K>>>,
+    ) -> Self {
+        self.appended_recipe_providers.push(provider);
+        self
+    }
+
     /// Supplies per-manager construction settings.
     pub fn with_asset_manager_options(mut self, options: AssetManagerOptions) -> Self {
         self.manager_options = options;
@@ -340,9 +369,18 @@ impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<
                 (None, None) => Arc::new(crate::store::NoAsyncStore),
             };
 
-        let recipe_provider = self
+        let base_recipe_provider = self
             .recipe_provider
             .unwrap_or_else(K::default_recipe_provider);
+        let recipe_provider: Arc<dyn AsyncRecipeProvider<GenericEnvironment<V, P, K>>> =
+            if self.appended_recipe_providers.is_empty() {
+                base_recipe_provider
+            } else {
+                let mut providers = Vec::with_capacity(1 + self.appended_recipe_providers.len());
+                providers.push(base_recipe_provider);
+                providers.extend(self.appended_recipe_providers);
+                Arc::new(RecipeProviderChain::new(providers))
+            };
 
         let environment = GenericEnvironment::assemble(
             self.type_registry,

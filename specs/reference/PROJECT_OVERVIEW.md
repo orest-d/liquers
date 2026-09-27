@@ -3,7 +3,7 @@ title: Liquers Project Overview
 kind: reference
 audience: internal
 area: [core/query, core/plan, core/assets, core/store, core/value]
-reviewed: 2026-08-18
+reviewed: 2026-09-27
 ---
 # Liquers Project Overview
 
@@ -51,9 +51,15 @@ liquers-core (foundation - all core abstractions)
     │   ├─ Config-driven store routing
     │   └─ Implements AsyncStore trait
     │
+    ├── liquers-records (record streams; depends on liquers-core only)
+    │   ├─ Columnar tables (RecordView, RecordBatch) and re-openable sources (RecordSource)
+    │   ├─ Table formats: CSV/TSV, NDJSON/JSON, Markdown, HTML; Arrow IPC and Parquet by feature
+    │   └─ Manifests and ManifestRecipeProvider (keyed record chunks as recipes)
+    │
     ├── liquers-lib (rich value types + UI)
-    │   ├─ Extended value types (DataFrames, Images, UI commands)
+    │   ├─ Extended value types (DataFrames, Images, UI commands, records)
     │   ├─ Polars integration for tabular data
+    │   ├─ Record values and the ns-rec commands (feature `records`, over liquers-records)
     │   ├─ egui-based interactive UI
     │   └─ Implements Environment trait
     │
@@ -71,6 +77,12 @@ liquers-core (foundation - all core abstractions)
     └── liquers-py (Python bindings via PyO3)
         └─ FFI wrappers for Python interoperability
 ```
+
+**Dependency flow**: `liquers-core` ← `liquers-macro` ← `liquers-store` ← `liquers-lib` ←
+`liquers-axum` / `liquers-web`, and `liquers-core` ← `liquers-records` ← `liquers-lib` (feature
+`records`, on by default). `liquers-records` depends on `liquers-core` alone, so a crate built on
+records need not pull in `liquers-lib`; it reaches its own value type through the `RecordValue`
+adapter trait.
 
 ### liquers-core Module Structure
 
@@ -230,8 +242,26 @@ pub struct Recipe {
     pub links: HashMap<String, String>,     // Link overrides
     pub cwd: Option<String>,
     pub volatile: bool,
+    pub expires: Expires,
+    pub stored: Option<bool>,       // None = true; false: never written to the store
+    pub cached: Option<bool>,       // None = true; false: not registered for reuse
+    // … plus provider-set circular-dependency fields
 }
 ```
+
+`stored: false` and `cached: false` opt a keyed asset out of the store write and out of in-memory
+reuse respectively; an existing stored copy is still read, neither is volatility, and an uncached
+asset remains its key's dependency-graph node (`specs/reference/ASSETS.md`).
+
+**Recipe providers form a chain.** The environment's `AsyncRecipeProvider` may be a
+`RecipeProviderChain`, which consults providers in order — the first to answer `recipe_opt` for a
+key serves it. A provider is appended in code with `with_appended_recipe_provider` (on
+`EnvironmentBuilder` or `GenericEnvironment`); `RecipeProviderChoice` still selects only the base.
+`liquers-lib` with `records` defaults to `[DefaultRecipeProvider, ManifestRecipeProvider]`:
+alongside the enumerable `recipes.yaml` lists, the manifest provider is **generative** — it
+synthesizes a recipe for each keyed record chunk a `*.manifest.yaml` names or its template
+produces, so chunks with no known count are addressable by key without being listed
+(`specs/reference/ENVIRONMENT_CONFIG.md` §The recipe provider chain).
 
 `cwd` is a logical Liquers key, not an operating-system directory. Recipes loaded by
 `DefaultRecipeProvider` inherit the directory containing `recipes.yaml`; YAML authors do not set
@@ -283,6 +313,16 @@ State + Metadata
        ↓
 Optional serialization to a store
 ```
+
+Between steps, the state handed to the next step carries the evaluating asset's metadata, with one
+adjustment: its `key` names **where the value came from**. After a step that fetches content or a
+listing at a key (`GetAsset`, `GetAssetBinary`, `GetAssetDirectory`, `GetResource`,
+`GetResourceDirectory`), or an `Evaluate` boundary whose query is just a key followed by `ns-…`
+declarations, the key is the fetched one; steps that only pass the value through (`Filename`,
+`Info`, `Warning`, `Error`, `SetCwd`) keep it; any step producing a new value drops it, leaving the
+asset's own key. `filename` and `data_format` are never changed. This is how
+`-R/data/x.manifest.yaml/-/ns-rec/…`, evaluated as a keyless query asset, still tells the command
+which key its input was read from (`interpreter::apply_plan`).
 
 Execution is managed and monitored via assets (`AssetRef`).
 Assets are handles that represent the whole process and get progress updates.
@@ -459,6 +499,8 @@ Session (user session - currently minimal)
 | **State** | Value + Metadata (immutable, shareable) |
 | **Asset** | Managed resource with lifecycle (may not exist yet) |
 | **Recipe** | Query + metadata + parameter overrides |
+| **Recipe provider** | Source of recipes for keys; several compose into a `RecipeProviderChain` |
+| **Record stream** | Tabular data as a `RecordView` (a table) or a `RecordSource` (re-openable chunks), from `liquers-records` |
 | **Realm** | Environment capability context (GUI, server, browser) |
 | **Namespace** | Logical grouping of commands |
 | **Store** | Key-value storage backend |
@@ -472,12 +514,13 @@ Session (user session - currently minimal)
 
 ---
 
-*Last updated: 2026-08-11*
+*Last updated: 2026-09-27*
 
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. Added `liquers-records` to the crate structure with the dependency flow `liquers-core ← liquers-records ← liquers-lib` (feature `records`); records as a `liquers-lib` value family; the `Recipe` struct's `expires`, `stored` and `cached`; recipe providers as a chain with keyed record chunks served by the generative `ManifestRecipeProvider`; and §6: the state handed to the next step carries the fetched key as its metadata `key`. | phase-5 |
 | 2026-08-18 | Value typing became an explicit model with a registry; `specs/reference/VALUE_TYPE_SYSTEM.md` now owns it, and type identifiers changed from the previous scheme in which five variants shared `"generic"`. | `design/value-type-system/` |
 | 2026-08-17 | Corrected §5 Storage: it claimed "safe encoding prevents arbitrary file access", which was not true — a key containing `..` escaped the file store root. States the absolute-key precondition, its error and where relative navigation actually belongs. | `design/store-key-guard/` |
 | 2026-08-14 | Recorded that string action parameters now escape every character, so a parameter round-trips for any value; the raw-emission caveat is narrowed to resource names, action names, headers and filenames. | PARAMETER-ESCAPING-INCOMPLETE |

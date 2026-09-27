@@ -3,7 +3,7 @@ title: register_command! Macro Functional Specification
 kind: reference
 audience: internal
 area: [macro, core/commands]
-reviewed: 2026-09-04
+reviewed: 2026-09-27
 ---
 # register_command! Macro Functional Specification
 
@@ -396,6 +396,11 @@ register_command!(cr, async fn fetch_data(state, url: String) -> result)?;
 - Uses `register_async_command()` internally
 - Returns boxed future
 
+An async command that takes `context` must accept exactly the `Context<CommandEnvironment>` the
+generated wrapper passes — normally by naming the `CommandEnvironment` alias (§Type Requirements) in
+its own signature, so the alias has to be in scope where the function is defined, not only at the
+`register_command!` call. See `fetch_remote` in §Complete Example.
+
 ---
 
 ## Generated Code
@@ -611,6 +616,7 @@ pub fn register_commands(mut env: DefaultEnvironment<Value>) -> Result<DefaultEn
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-27 | Reviewed against `design/record-streams/` Phase 5 (its Phase 4 plan added this document to the set): §Async Commands states that an async command taking `context` needs the `CommandEnvironment` alias in scope for its own signature. | phase-5 |
 | 2026-09-04 | Made omitted argument `gui_info` use the shared `command_metadata::DEFAULT_GUI` (`TextField(40)`) in macro, declaration, and serde paths. | `ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS` |
 | 2026-08-30 | Added §The runtime counterpart, pointing at the new `COMMAND_DECLARATION.md` and naming the one deliberate divergence (the default label rule) and the test that holds the rest in agreement. | `design/command-declaration/` |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |

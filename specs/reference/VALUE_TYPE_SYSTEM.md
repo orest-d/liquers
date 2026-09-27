@@ -3,7 +3,7 @@ title: Value Type System
 kind: reference
 audience: internal
 area: [core/value, lib/value]
-reviewed: 2026-08-26
+reviewed: 2026-09-27
 ---
 
 # Value Type System
@@ -77,13 +77,53 @@ Core (`liquers-core::value::Value`, mirrored by `liquers-lib`'s `SimpleValue`):
 `Recipe`, `CommandMetadata`, `Query`, `Key`.
 
 Library (`liquers-lib::value::ExtValue`): `Image`, `UIElement`, `polars.DataFrame` (feature
-`polars`), `egui.Command` and `egui.Widget` (feature `egui`).
+`polars`), `egui.Command` and `egui.Widget` (feature `egui`), `RecordView` and `RecordSource`
+(feature `records`; see "The record identifiers" below).
 
 Integration-owned, registered at environment construction rather than described statically:
 `js.Value` (`liquers-web`). `liquers-py`'s value type mirrors the core identifiers and adds
 `py.Object`.
 
 **There is no `error` identifier.** See "How a failure is typed" below.
+
+### The record identifiers
+
+`RecordView` and `RecordSource` are bare: Liquers owns both concepts, whatever implements them. Both
+variants exist only with `liquers-lib`'s `records` feature, and each holds a **trait object** rather
+than a concrete struct — `ExtValue::RecordView { value: Arc<dyn RecordView> }` and
+`ExtValue::RecordSource { value: Arc<dyn RecordSource> }` (traits from `liquers-records`). One
+identifier therefore covers every implementation: a `RecordBatch`, a projection or filter over one,
+a manifest-backed or in-memory source. The model is in
+[`RECORD_STREAMS.md`](RECORD_STREAMS.md); this section covers only their typing.
+
+| | `RecordView` | `RecordSource` |
+|---|---|---|
+| `type_name` | `record_view` | `record_source` |
+| Defaults (format, extension, media type, filename) | `csv`, `csv`, `text/csv`, `data.csv` | `yaml`, `yaml`, `application/yaml`, `manifest.yaml` |
+| Declared formats | `csv`, `csv:comma`, `tsv`, `csv:tab`, `ndjson`, `jsonl`, `json`, `md`, `markdown`, `html`; plus `ipc`, `feather`, `arrow_ipc`, `arrow` with `records-ipc`; plus `parquet` with `records-parquet` | `yaml`, `json` |
+| Written by | `write_table`, directly from `&dyn RecordView` — no materialization | its manifest only |
+| Read back as | a `RecordBatch` with an inferred schema, whichever view wrote it | a keyless `ManifestSource` |
+
+Every alias `TableFormat::from_data_format` accepts is declared, because the registry gates the
+write path and an undeclared alias would be a format the codec writes and the asset layer refuses.
+`ipc` and `parquet` are declared only when this build's writer for them is on. Declared means
+*writable*, and not every declared format reads back: `html` is write-only (`read_table` refuses it as not
+supported), and `parquet` is read only through the polars bridge, so without `polars` it is refused
+with an error naming that feature. A source that is not manifest-backed has no byte form at all:
+`as_bytes` refuses it with a `SerializationError` naming `ns-rec/materialize`.
+`liquers-lib/tests/record_typeinfo.rs` pins the declared set and the write-only pairs.
+
+**A single-cell view reads as a scalar.** A `RecordView` with one row and exactly one payload column
+(or, with no payload column, its `Id` column, or else a sole column) converts its cell to the base value — `Null` to
+none, `Bool`, `Int` to `I64`, `UInt` to `I64` when it fits (else a conversion error), `Float` to
+`F64`, `Text`, `Bytes`, `Date` and `Timestamp` to ISO-8601 text, `Vector` to an array of `F64` — and
+then **delegates** to that base value's own `try_into_*`. A scalar read from a table and one written
+in a query therefore cannot disagree: an `Int` cell reads as `i64` and `f64` but not as `i32`,
+exactly as a base `I64` does. Any other shape is refused, naming the row and payload-column counts.
+`try_into_json_value` gives a single-cell view its cell's JSON and any other view the records-orient
+array of row objects (`liquers_records::to_json`), which is what a link inside a `multiple`
+parameter binds through. `RecordSource` refuses every scalar and JSON conversion: its rows need
+`materialize`.
 
 ### Registering a type an integration owns
 
@@ -311,5 +351,6 @@ degrades on read.
 
 | Date | Change |
 |---|---|
+| 2026-09-27 | Reviewed against `design/record-streams/` Phase 5 (phase-5). Added `RecordView` and `RecordSource` to the registered identifiers, and §The record identifiers: `records`-gated trait-object variants, their `TypeInfo`s (formats and aliases, `ipc`/`parquet` behind `records-ipc`/`records-parquet`, `html` write-only, Parquet read only through polars), manifest-only serialization of a source, single-cell scalar reading by delegation to the base value, and `try_into_json_value`. |
 | 2026-08-18 | Created with the `value-type-system` design, resolving `CORE-METADATA-FORMAT-TYPE-CONSISTENCY`. |
 | 2026-08-26 | Removed the `error` type identifier: an errored state is typed by the value it holds, which is none, and the failure lives in the metadata. Stated the one-identifier-per-variant rule. Added runtime registration for a type an integration owns (`foreign-value-type-registration`). |

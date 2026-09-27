@@ -35,7 +35,7 @@ use serde_json::Value;
 use crate::{
     command_metadata::CommandMetadataRegistry,
     context::{EnvRef, Environment},
-    error::Error,
+    error::{Error, ErrorType},
     expiration::Expires,
     metadata::{AssetInfo, Status},
     parse::{parse_key, parse_query},
@@ -125,6 +125,29 @@ pub struct Recipe {
     /// [`crate::plan::VolatilitySource::Declared`] like `volatile: true`.
     #[serde(default)]
     pub expires: Expires,
+
+    /// When present, controls whether the produced value is written to the store.
+    ///
+    /// `None` (the default) means `true` — the produced value is written. `Some(false)` means the
+    /// value is not written, and no metadata-only entry is left either. An existing stored copy is
+    /// still read and preferred to recomputation — it may be `Override` data, and this flag exists
+    /// to save disk (not duplicate a database) without sacrificing freshness guarantees.
+    ///
+    /// The contract: `specs/design/record-streams/phase2-architecture.md`, §"C. `stored` and `cached`".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stored: Option<bool>,
+
+    /// When present, controls whether the produced value is registered for reuse.
+    ///
+    /// `None` (the default) means `true` — the asset is registered in the cache for the key and
+    /// reused on later requests. `Some(false)` means the asset is evaluated for the request and
+    /// dropped; a later request evaluates again or reads the stored copy. A `cached: false` asset
+    /// is not volatile — volatility is contagious (`assets.rs` module docs), and this flag is about
+    /// reuse, not purity.
+    ///
+    /// The contract: `specs/design/record-streams/phase2-architecture.md`, §"C. `stored` and `cached`".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached: Option<bool>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -149,6 +172,8 @@ impl Recipe {
             has_circular_dependencies: false,
             circular_dependency_key: None,
             expires: Expires::Never,
+            stored: None,
+            cached: None,
         })
     }
 
@@ -347,6 +372,21 @@ impl Recipe {
         }
     }
 
+    /// Returns whether the produced value should be written to the store.
+    ///
+    /// Returns `true` when `stored` is absent or `Some(true)`, `false` when `Some(false)`.
+    /// An existing stored copy is still read and preferred to recomputation.
+    pub fn stored(&self) -> bool {
+        self.stored.unwrap_or(true)
+    }
+
+    /// Returns whether the produced value should be registered for reuse.
+    ///
+    /// Returns `true` when `cached` is absent or `Some(true)`, `false` when `Some(false)`.
+    pub fn cached(&self) -> bool {
+        self.cached.unwrap_or(true)
+    }
+
     /// Derives the logical storage key from `cwd` and the query filename.
     ///
     /// This is descriptive only and performs no write.
@@ -380,6 +420,8 @@ impl Recipe {
         asset_info.is_dir = false;
         asset_info.status = Status::Recipe;
         asset_info.unicode_icon = self.unicode_icon();
+        asset_info.stored = self.stored;
+        asset_info.cached = self.cached;
         Ok(asset_info)
     }
 }
@@ -406,6 +448,8 @@ impl From<&Query> for Recipe {
             has_circular_dependencies: false,
             circular_dependency_key: None,
             expires: Expires::Never,
+            stored: None,
+            cached: None,
         }
     }
 }
@@ -423,6 +467,8 @@ impl From<Query> for Recipe {
             has_circular_dependencies: false,
             circular_dependency_key: None,
             expires: Expires::Never,
+            stored: None,
+            cached: None,
         }
     }
 }
@@ -440,6 +486,8 @@ impl From<Key> for Recipe {
             has_circular_dependencies: false,
             circular_dependency_key: None,
             expires: Expires::Never,
+            stored: None,
+            cached: None,
         }
     }
 }
@@ -457,6 +505,8 @@ impl From<&Key> for Recipe {
             has_circular_dependencies: false,
             circular_dependency_key: None,
             expires: Expires::Never,
+            stored: None,
+            cached: None,
         }
     }
 }
@@ -708,11 +758,20 @@ impl<E: Environment> AsyncRecipeProvider<E> for DefaultRecipeProvider {
         Ok(None)
     }
 
+    /// `false` when the store refuses the `recipes.yaml` key as unsupported, not an error: a key
+    /// the store cannot hold cannot hold a recipe list. A store router answers so for any key no
+    /// member covers — an `http` store serving a fixed key list, for one — and every `-R/` query
+    /// under such a folder asks this first.
     async fn has_recipes(&self, key: &Key, envref: EnvRef<E>) -> Result<bool, Error> {
-        envref
+        match envref
             .get_async_store()
             .contains(&key.join("recipes.yaml"))
             .await
+        {
+            Ok(found) => Ok(found),
+            Err(error) if error.error_type == ErrorType::KeyNotSupported => Ok(false),
+            Err(error) => Err(error),
+        }
     }
 }
 
@@ -865,6 +924,136 @@ impl std::str::FromStr for RecipeProviderChoice {
 impl fmt::Display for RecipeProviderChoice {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
+    }
+}
+
+/// A recipe provider that consults several providers in order.
+///
+/// This is how a folder ends up served by more than one source of recipes without either
+/// provider having to know about the other (`NO-RECIPE-PROVIDER-CHAIN`). The record-stream
+/// project needed exactly this: a folder's ordinary `recipes.yaml` recipes have to sit beside
+/// chunk recipes synthesized from a manifest, and neither `DefaultRecipeProvider` nor a
+/// generative provider can be replaced by the other without losing what it serves.
+///
+/// # Chain behaviour
+///
+/// | Method | Behaviour |
+/// |---|---|
+/// | [`recipe_opt`](AsyncRecipeProvider::recipe_opt) | the first provider, in order, that answers `Some`; an `Err` from an earlier provider is propagated without consulting the rest |
+/// | [`contains`](AsyncRecipeProvider::contains) | `true` if any provider's `recipe_opt` answers `Some` |
+/// | [`has_recipes`](AsyncRecipeProvider::has_recipes) | `true` if any provider does |
+/// | [`assets_with_recipes`](AsyncRecipeProvider::assets_with_recipes) | the union, in provider order, without duplicates |
+/// | [`recipe`](AsyncRecipeProvider::recipe), [`recipe_plan`](AsyncRecipeProvider::recipe_plan), [`get_asset_info`](AsyncRecipeProvider::get_asset_info) | delegated to the provider that has the recipe; when none does, the same not-found error [`DefaultRecipeProvider`] returns for a missing key |
+///
+/// [`RecipeProviderChoice`] is deliberately **not** extended with a "chain" variant: a choice is
+/// data in a configuration document and cannot name a provider that lives in another crate — a
+/// manifest provider in `liquers-records`, for example, which this trait's own doc comment
+/// anticipates ("a custom recipe provider ... implementing this trait"). A chain is built in code
+/// instead: see `EnvironmentBuilder::with_appended_recipe_provider` and
+/// [`crate::context::GenericEnvironment::with_appended_recipe_provider`].
+pub struct RecipeProviderChain<E: Environment> {
+    providers: Vec<Arc<dyn AsyncRecipeProvider<E>>>,
+}
+
+impl<E: Environment> RecipeProviderChain<E> {
+    /// Builds a chain from providers in consultation order — the first entry is consulted first.
+    pub fn new(providers: Vec<Arc<dyn AsyncRecipeProvider<E>>>) -> Self {
+        RecipeProviderChain { providers }
+    }
+
+    /// Appends a provider, consulted after every provider already in the chain.
+    pub fn push(&mut self, provider: Arc<dyn AsyncRecipeProvider<E>>) {
+        self.providers.push(provider);
+    }
+
+    /// Finds the position of the first provider, in order, whose `recipe_opt` answers `Some` for
+    /// `key`.
+    ///
+    /// Used by every per-key method that must act *through* that specific provider — `recipe`,
+    /// `recipe_plan` and `get_asset_info` delegate the whole call rather than reconstructing the
+    /// answer from the recipe alone, so a provider's own behaviour (beyond what `recipe_opt`
+    /// reports) is preserved.
+    async fn provider_index_for(
+        &self,
+        key: &Key,
+        envref: EnvRef<E>,
+    ) -> Result<Option<usize>, Error> {
+        for (index, provider) in self.providers.iter().enumerate() {
+            if provider.recipe_opt(key, envref.clone()).await?.is_some() {
+                return Ok(Some(index));
+            }
+        }
+        Ok(None)
+    }
+
+    /// The error reported when no provider in the chain has a recipe for `key`, mirroring
+    /// [`DefaultRecipeProvider`]'s wording for the same situation.
+    fn no_recipe_error(key: &Key) -> Error {
+        Error::general_error(format!("No recipe found for key {}", key)).with_key(key)
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+impl<E: Environment> AsyncRecipeProvider<E> for RecipeProviderChain<E> {
+    async fn has_recipes(&self, key: &Key, envref: EnvRef<E>) -> Result<bool, Error> {
+        for provider in &self.providers {
+            if provider.has_recipes(key, envref.clone()).await? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    async fn assets_with_recipes(
+        &self,
+        key: &Key,
+        envref: EnvRef<E>,
+    ) -> Result<Vec<ResourceName>, Error> {
+        let mut seen: std::collections::HashSet<ResourceName> = std::collections::HashSet::new();
+        let mut assets = Vec::new();
+        for provider in &self.providers {
+            for name in provider.assets_with_recipes(key, envref.clone()).await? {
+                if seen.insert(name.clone()) {
+                    assets.push(name);
+                }
+            }
+        }
+        Ok(assets)
+    }
+
+    async fn recipe_plan(&self, key: &Key, envref: EnvRef<E>) -> Result<Plan, Error> {
+        match self.provider_index_for(key, envref.clone()).await? {
+            Some(index) => self.providers[index].recipe_plan(key, envref).await,
+            None => Err(Self::no_recipe_error(key)),
+        }
+    }
+
+    async fn recipe(&self, key: &Key, envref: EnvRef<E>) -> Result<Recipe, Error> {
+        match self.provider_index_for(key, envref.clone()).await? {
+            Some(index) => self.providers[index].recipe(key, envref).await,
+            None => Err(Self::no_recipe_error(key)),
+        }
+    }
+
+    async fn recipe_opt(&self, key: &Key, envref: EnvRef<E>) -> Result<Option<Recipe>, Error> {
+        for provider in &self.providers {
+            if let Some(recipe) = provider.recipe_opt(key, envref.clone()).await? {
+                return Ok(Some(recipe));
+            }
+        }
+        Ok(None)
+    }
+
+    async fn contains(&self, key: &Key, envref: EnvRef<E>) -> Result<bool, Error> {
+        Ok(self.provider_index_for(key, envref).await?.is_some())
+    }
+
+    async fn get_asset_info(&self, key: &Key, envref: EnvRef<E>) -> Result<AssetInfo, Error> {
+        match self.provider_index_for(key, envref.clone()).await? {
+            Some(index) => self.providers[index].get_asset_info(key, envref).await,
+            None => Err(Self::no_recipe_error(key)),
+        }
     }
 }
 
@@ -1734,5 +1923,296 @@ mod test {
             trivial.recipe(&recipe_key, envref).await.is_err(),
             "a required lookup against the trivial choice is an error"
         );
+    }
+}
+
+#[cfg(test)]
+mod default_asset_flags_tests {
+    use super::*;
+    use crate::metadata::{AssetInfo, MetadataRecord};
+
+    #[test]
+    fn recipe_default_stored_and_cached_are_true() {
+        let recipe = Recipe::default();
+        assert!(recipe.stored());
+        assert!(recipe.cached());
+    }
+
+    #[test]
+    fn recipe_explicit_stored_false_is_honored() {
+        let mut recipe = Recipe::default();
+        recipe.stored = Some(false);
+        assert!(!recipe.stored());
+        assert!(recipe.cached()); // unrelated field unaffected
+    }
+
+    #[test]
+    fn recipe_explicit_cached_false_is_honored() {
+        let mut recipe = Recipe::default();
+        recipe.cached = Some(false);
+        assert!(!recipe.cached());
+    }
+
+    #[test]
+    fn metadata_record_default_stored_and_cached_are_true() {
+        let record = MetadataRecord::default();
+        assert!(record.stored());
+        assert!(record.cached());
+    }
+
+    #[test]
+    fn asset_info_default_stored_and_cached_are_true() {
+        let info = AssetInfo::default();
+        assert!(info.stored());
+        assert!(info.cached());
+    }
+
+    #[test]
+    fn asset_info_stored_and_cached_propagate_independently() {
+        let mut info = AssetInfo::default();
+        info.stored = Some(false);
+        info.cached = Some(true);
+        assert!(!info.stored());
+        assert!(info.cached());
+    }
+
+    #[test]
+    fn recipe_yaml_without_stored_deserializes_as_true() {
+        let yaml = "query: select 1\n";
+        let recipe: Recipe = serde_yaml::from_str(yaml).expect("deserialize");
+        assert!(recipe.stored());
+    }
+
+    #[test]
+    fn recipe_json_without_cached_deserializes_as_true() {
+        let json = r#"{"query": "select 1"}"#;
+        let recipe: Recipe = serde_json::from_str(json).expect("deserialize");
+        assert!(recipe.cached());
+    }
+
+    #[test]
+    fn recipe_yaml_with_stored_false_deserializes_as_false() {
+        let yaml = "query: select 1\nstored: false\n";
+        let recipe: Recipe = serde_yaml::from_str(yaml).expect("deserialize");
+        assert!(!recipe.stored());
+    }
+
+    #[test]
+    fn recipe_serializes_true_values_as_absent() {
+        // `skip_serializing_if = "Option::is_none"`: the common case (both true) round-trips to
+        // the same compact YAML/JSON a recipe author would write by hand.
+        let recipe = Recipe::default();
+        let json = serde_json::to_string(&recipe).expect("serialize");
+        assert!(!json.contains("\"stored\""));
+        assert!(!json.contains("\"cached\""));
+    }
+}
+
+#[cfg(test)]
+mod recipe_provider_chain_tests {
+    use super::*;
+    use std::{collections::HashMap, sync::Arc};
+
+    use crate::{context::SimpleEnvironment, parse::parse_key, value::Value};
+
+    type TestEnv = SimpleEnvironment<Value>;
+
+    struct MockProvider {
+        recipes: HashMap<Key, Recipe>,
+        dirs: HashMap<Key, Vec<ResourceName>>,
+    }
+    impl MockProvider {
+        fn new(entries: Vec<(&str, Option<Recipe>)>) -> Self {
+            let recipes = entries
+                .into_iter()
+                .filter_map(|(k, r)| r.map(|r| (parse_key(k).expect("test key"), r)))
+                .collect();
+            MockProvider {
+                recipes,
+                dirs: HashMap::new(),
+            }
+        }
+        fn with_assets(entries: Vec<(&str, Vec<&str>)>) -> Self {
+            let dirs = entries
+                .into_iter()
+                .map(|(k, names)| {
+                    (
+                        parse_key(k).expect("test key"),
+                        // `ResourceName` has no `FromStr`; `new` is its constructor (query.rs:726).
+                        names
+                            .into_iter()
+                            .map(|n| ResourceName::new(n.to_string()))
+                            .collect(),
+                    )
+                })
+                .collect();
+            MockProvider {
+                recipes: HashMap::new(),
+                dirs,
+            }
+        }
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl AsyncRecipeProvider<TestEnv> for MockProvider {
+        async fn has_recipes(&self, key: &Key, _envref: EnvRef<TestEnv>) -> Result<bool, Error> {
+            Ok(self.dirs.contains_key(key))
+        }
+        async fn assets_with_recipes(
+            &self,
+            key: &Key,
+            _envref: EnvRef<TestEnv>,
+        ) -> Result<Vec<ResourceName>, Error> {
+            Ok(self.dirs.get(key).cloned().unwrap_or_default())
+        }
+        async fn recipe_plan(&self, key: &Key, _envref: EnvRef<TestEnv>) -> Result<Plan, Error> {
+            Err(Error::key_not_found(key))
+        }
+        async fn recipe(&self, key: &Key, envref: EnvRef<TestEnv>) -> Result<Recipe, Error> {
+            self.recipe_opt(key, envref)
+                .await?
+                .ok_or_else(|| Error::key_not_found(key))
+        }
+        async fn recipe_opt(
+            &self,
+            key: &Key,
+            _envref: EnvRef<TestEnv>,
+        ) -> Result<Option<Recipe>, Error> {
+            Ok(self.recipes.get(key).cloned())
+        }
+    }
+
+    fn envref() -> EnvRef<TestEnv> {
+        TestEnv::new().to_ref()
+    }
+
+    #[tokio::test]
+    async fn first_some_wins() -> Result<(), Error> {
+        let provider1 = MockProvider::new(vec![("a", None)]);
+        let provider2 = MockProvider::new(vec![("a", Some(Recipe::default()))]);
+        let chain = RecipeProviderChain::new(vec![Arc::new(provider1), Arc::new(provider2)]);
+        let key = parse_key("a")?;
+        assert!(chain.recipe_opt(&key, envref()).await?.is_some());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn contains_is_true_if_any_provider_has_the_recipe() -> Result<(), Error> {
+        let provider1 = MockProvider::new(vec![("dir/a", Some(Recipe::default()))]);
+        let provider2 = MockProvider::new(vec![("dir/b", Some(Recipe::default()))]);
+        let chain = RecipeProviderChain::new(vec![Arc::new(provider1), Arc::new(provider2)]);
+        assert!(chain.contains(&parse_key("dir/a")?, envref()).await?);
+        assert!(chain.contains(&parse_key("dir/b")?, envref()).await?);
+        assert!(!chain.contains(&parse_key("dir/c")?, envref()).await?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn assets_with_recipes_is_the_union_without_duplicates() -> Result<(), Error> {
+        let provider1 = MockProvider::with_assets(vec![("folder", vec!["a", "b"])]);
+        let provider2 = MockProvider::with_assets(vec![("folder", vec!["b", "c"])]);
+        let chain = RecipeProviderChain::new(vec![Arc::new(provider1), Arc::new(provider2)]);
+        let assets = chain
+            .assets_with_recipes(&parse_key("folder")?, envref())
+            .await?;
+        assert_eq!(assets.len(), 3);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn push_adds_a_provider_after_construction() -> Result<(), Error> {
+        let mut chain: RecipeProviderChain<TestEnv> = RecipeProviderChain::new(vec![]);
+        chain.push(Arc::new(MockProvider::new(vec![(
+            "a",
+            Some(Recipe::default()),
+        )])));
+        assert!(chain.recipe_opt(&parse_key("a")?, envref()).await?.is_some());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn recipe_opt_is_none_when_no_provider_has_the_key() -> Result<(), Error> {
+        let chain: RecipeProviderChain<TestEnv> =
+            RecipeProviderChain::new(vec![Arc::new(MockProvider::new(vec![]))]);
+        assert!(chain
+            .recipe_opt(&parse_key("missing")?, envref())
+            .await?
+            .is_none());
+        Ok(())
+    }
+
+    /// `EnvironmentBuilder::with_appended_recipe_provider` composes `RecipeProviderChain::new([base,
+    /// appended…])`, base first — so a key served by both the configured provider and an appended
+    /// one resolves to the configured provider's recipe (Phase 4 decision 1).
+    #[tokio::test]
+    async fn appended_provider_is_consulted_after_the_configured_one() -> Result<(), Error> {
+        use crate::environment_builder::EnvironmentBuilder;
+
+        let mut configured_recipe = Recipe::default();
+        configured_recipe.title = "configured".to_string();
+        let mut appended_recipe = Recipe::default();
+        appended_recipe.title = "appended".to_string();
+
+        let configured_provider = MockProvider::new(vec![("a", Some(configured_recipe))]);
+        let appended_provider = MockProvider::new(vec![("a", Some(appended_recipe))]);
+
+        let envref = EnvironmentBuilder::<Value>::new()
+            .with_recipe_provider(Arc::new(configured_provider))
+            .with_appended_recipe_provider(Arc::new(appended_provider))
+            .build()?;
+
+        let provider = envref.get_recipe_provider();
+        let key = parse_key("a")?;
+        let recipe = provider
+            .recipe_opt(&key, envref.clone())
+            .await?
+            .expect("the chain must resolve a recipe from one of its providers");
+        assert_eq!(
+            recipe.title, "configured",
+            "the configured provider is consulted first"
+        );
+        Ok(())
+    }
+}
+
+/// A key the store refuses as unsupported holds no `recipes.yaml`: the default provider answers
+/// "no recipe" rather than failing the query that asked.
+#[cfg(test)]
+mod unsupported_key_tests {
+    use super::*;
+    use crate::context::SimpleEnvironment;
+    use crate::metadata::Metadata;
+    use crate::store::AsyncStore;
+    use crate::value::Value;
+
+    /// Refuses every key, as a store router does for a key no member covers.
+    struct RefusingStore;
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl AsyncStore for RefusingStore {
+        async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+            Err(Error::key_not_supported(key, "refusing"))
+        }
+        async fn set_metadata(&self, key: &Key, _metadata: &Metadata) -> Result<(), Error> {
+            Err(Error::key_not_supported(key, "refusing"))
+        }
+        async fn contains(&self, key: &Key) -> Result<bool, Error> {
+            Err(Error::key_not_supported(key, "refusing"))
+        }
+    }
+
+    #[tokio::test]
+    async fn default_provider_finds_no_recipe_under_an_unsupported_key() -> Result<(), Error> {
+        let mut env = SimpleEnvironment::<Value>::new();
+        env.with_async_store(Box::new(RefusingStore));
+        let envref = env.to_ref();
+        let key = parse_key("data/input.txt")?;
+
+        assert!(!DefaultRecipeProvider.has_recipes(&key.parent(), envref.clone()).await?);
+        assert!(DefaultRecipeProvider.recipe_opt(&key, envref.clone()).await?.is_none());
+        assert!(!DefaultRecipeProvider.contains(&key, envref).await?);
+        Ok(())
     }
 }

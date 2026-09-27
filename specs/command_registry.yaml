@@ -1,14 +1,20 @@
 # Liquers command registry — GENERATED, do not edit by hand.
 # Regenerate: cargo run -p liquers-lib --features cli --bin export-command-registry -- \
 #               --format yaml -o specs/command_registry.yaml
-# Origin:   groups=core,lui,egui,image,polars  features=egui,image,polars
-# Commands: 95
+# Origin:   groups=core,lui,egui,image,polars,records  features=egui,image,polars,records
+# Commands: 108
 # CHANGELOG-BEGIN
 # 2026-08-02  initial export (95 commands: img 47, pl 26, lui 14, root 6, dep 2)
 # 2026-08-25  pl/select_columns and pl/drop_columns take a variadic `columns` argument
 #             (multiple: true, argument_type: string) instead of one dash-delimited string.
 #             Also refreshes two stale dep impl_versions - see
 #             REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED. design/variadic-arguments-declaration
+# 2026-09-25  regenerated: every argument's default gui_info TextField width 20 -> 40 (a code
+#             default changed without a re-export; registry_export was red on a clean tree).
+#             record-streams Phase 4, found at Step 0.2
+# 2026-09-26  Adds the `rec` namespace: rec_id, row, select_columns, head, slice, rowid,
+#             to_record_source, materialize, records_schema, to_json, from_json, to_record,
+#             file_records (108 commands total: +13). record-streams Phase 4, Step 5.5
 # CHANGELOG-END
 commands:
 - name: to_text
@@ -53,12 +59,12 @@ commands:
     label: namespace
     default: !Value ''
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: command_name
     label: command name
     default: !Value ''
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -79,17 +85,17 @@ commands:
     label: realm
     default: !Value ''
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: namespace
     label: namespace
     default: !Value ''
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: name
     label: name
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -110,17 +116,17 @@ commands:
     label: realm
     default: !Value ''
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: namespace
     label: namespace
     default: !Value ''
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: name
     label: name
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -140,12 +146,12 @@ commands:
     label: position word
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: reference_word
     label: reference word
     default: !Value current
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: true
   payload_required: Required
@@ -167,7 +173,7 @@ commands:
     label: target word
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: true
   payload_required: Required
@@ -189,7 +195,7 @@ commands:
     label: target word
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: true
   payload_required: Required
@@ -211,7 +217,7 @@ commands:
     label: target word
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: true
   payload_required: Required
@@ -233,7 +239,7 @@ commands:
     label: target word
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: true
   payload_required: Required
@@ -255,7 +261,7 @@ commands:
     label: target word
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: true
   payload_required: Required
@@ -277,7 +283,7 @@ commands:
     label: target word
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: true
   payload_required: Required
@@ -299,7 +305,7 @@ commands:
     label: target word
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: true
   payload_required: Required
@@ -337,7 +343,7 @@ commands:
     label: target word
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: true
   payload_required: Required
@@ -415,7 +421,7 @@ commands:
     label: txt
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -513,12 +519,12 @@ commands:
     label: width
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: height
     label: height
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -551,7 +557,7 @@ commands:
   - name: quality
     label: quality
     default: !Value 85
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -645,12 +651,12 @@ commands:
     label: width
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: height
     label: height
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: method
     label: method
     default: !Value lanczos3
@@ -689,7 +695,7 @@ commands:
     label: percent
     default: None
     argument_type: float
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: method
     label: method
     default: !Value lanczos3
@@ -728,12 +734,12 @@ commands:
     label: max width
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: max_height
     label: max height
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: method
     label: method
     default: !Value lanczos3
@@ -772,22 +778,22 @@ commands:
     label: x
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: y
     label: y
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: width
     label: width
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: height
     label: height
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -807,7 +813,7 @@ commands:
     label: angle
     default: None
     argument_type: float
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -925,7 +931,7 @@ commands:
     label: value
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -945,7 +951,7 @@ commands:
     label: value
     default: None
     argument_type: float
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -965,7 +971,7 @@ commands:
     label: value
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -985,7 +991,7 @@ commands:
     label: sigma
     default: None
     argument_type: float
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1117,7 +1123,7 @@ commands:
     label: gamma value
     default: None
     argument_type: float
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1137,7 +1143,7 @@ commands:
     label: factor
     default: None
     argument_type: float
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1157,7 +1163,7 @@ commands:
     label: radius
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1177,7 +1183,7 @@ commands:
     label: radius
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1197,7 +1203,7 @@ commands:
     label: radius
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1217,7 +1223,7 @@ commands:
     label: radius
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1237,7 +1243,7 @@ commands:
     label: radius
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1257,7 +1263,7 @@ commands:
     label: radius
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1277,27 +1283,27 @@ commands:
     label: x1
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: y1
     label: y1
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: x2
     label: x2
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: y2
     label: y2
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: color_str
     label: color str
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1317,27 +1323,27 @@ commands:
     label: x
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: y
     label: y
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: width
     label: width
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: height
     label: height
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: color_str
     label: color str
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1357,27 +1363,27 @@ commands:
     label: x
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: y
     label: y
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: width
     label: width
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: height
     label: height
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: color_str
     label: color str
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1397,22 +1403,22 @@ commands:
     label: x
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: y
     label: y
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: radius
     label: radius
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: color_str
     label: color str
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1432,22 +1438,22 @@ commands:
     label: x
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: y
     label: y
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: radius
     label: radius
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: color_str
     label: color str
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1467,27 +1473,27 @@ commands:
     label: x
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: y
     label: y
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: text
     label: text
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: size
     label: size
     default: None
     argument_type: float
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: color_str
     label: color str
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1521,12 +1527,12 @@ commands:
     label: low threshold
     default: None
     argument_type: float
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: high_threshold
     label: high threshold
     default: None
     argument_type: float
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1547,7 +1553,7 @@ commands:
     label: separator
     default: !Value ''
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1583,7 +1589,7 @@ commands:
     default: None
     argument_type: string
     multiple: true
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1604,7 +1610,7 @@ commands:
     default: None
     argument_type: string
     multiple: true
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1624,7 +1630,7 @@ commands:
     label: n
     default: !Value 5
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1644,7 +1650,7 @@ commands:
     label: n
     default: !Value 5
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1664,12 +1670,12 @@ commands:
     label: offset
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: length
     label: length
     default: None
     argument_type: int
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1689,12 +1695,12 @@ commands:
     label: column
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: value
     label: value
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1714,12 +1720,12 @@ commands:
     label: column
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: value
     label: value
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1739,12 +1745,12 @@ commands:
     label: column
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: value
     label: value
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1764,12 +1770,12 @@ commands:
     label: column
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: value
     label: value
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1789,12 +1795,12 @@ commands:
     label: column
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: value
     label: value
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1814,12 +1820,12 @@ commands:
     label: column
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: value
     label: value
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -1839,12 +1845,12 @@ commands:
     label: column
     default: None
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   - name: ascending
     label: ascending
     default: !Value t
     argument_type: string
-    gui_info: !TextField 20
+    gui_info: !TextField 40
   cache: true
   volatile: false
   expires: never
@@ -2018,6 +2024,280 @@ commands:
   expires: never
   definition: Registered
   impl_version: 96923ef5d3d15b5f97d7669db6315345
+- namespace: rec
+  name: rec_id
+  label: Record by id
+  doc: The one record whose declared Id field matches; refuses without a declared Id
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: id
+    label: id
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: row
+  label: Row
+  doc: A row by position (views only)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: n
+    label: n
+    default: None
+    argument_type: int
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: select_columns
+  label: Select columns
+  doc: Column projection; keeps the Id/Source columns whether named or not
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: columns
+    label: columns
+    default: None
+    argument_type: string
+    multiple: true
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: head
+  label: Head
+  doc: The first n rows (default 5), materialized
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: n
+    label: n
+    default: !Value 5
+    argument_type: int
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: slice
+  label: Slice
+  doc: A row range, as a view
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: offset
+    label: offset
+    default: None
+    argument_type: int
+    gui_info: !TextField 40
+  - name: length
+    label: length
+    default: None
+    argument_type: int
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: rowid
+  label: Row by implicit id
+  doc: A row by its implicit (chunk, row) id
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: chunk
+    label: chunk
+    default: None
+    argument_type: int
+    gui_info: !TextField 40
+  - name: row
+    label: row
+    default: None
+    argument_type: int
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: to_record_source
+  label: To record source
+  doc: Any input a source can be made from, turned into a RecordSource
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: format
+    label: format
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: materialize
+  label: Materialize
+  doc: The one step from a source to a table
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: max_rows
+    label: max rows
+    default: !Value 1000000
+    argument_type: int
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: records_schema
+  label: Schema
+  doc: The schema, as a value a schema argument can be linked to
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: to_json
+  label: To JSON
+  doc: A view as one of the seven JSON table shapes
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: orient
+    label: orient
+    default: !Value records
+    argument_type: string
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: from_json
+  label: From JSON
+  doc: A JSON value, text or bytes as a table
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: orient
+    label: orient
+    default: !Value auto
+    argument_type: string
+    gui_info: !TextField 40
+  - name: schema
+    label: schema
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: to_record
+  label: To record
+  doc: Any input a table can be made from, turned into a RecordView
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: format
+    label: format
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: header
+    label: header
+    default: !Value true
+    argument_type: bool
+    gui_info: !TextField 40
+  - name: schema
+    label: schema
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: file_records
+  label: File records
+  doc: List all files in a directory as a table with size and modification time
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
 default_namespaces:
 - ''
 - root

@@ -1,0 +1,45 @@
+//! Columnar record streams for Liquers.
+//!
+//! `liquers-records` holds the Arrow-compatible, columnar data model for tabular record data —
+//! aligned buffers, bitmaps, columns and record batches, plus the sources, streams and views that
+//! move data through them. It depends on `liquers-core` only, so it can never form a dependency
+//! cycle with the richer crates (`liquers-lib`, `liquers-web`, `liquers-py`) that consume it.
+
+extern crate self as liquers_records;
+
+pub mod batch;
+pub mod buffer;
+pub mod column;
+pub mod formats;
+pub mod manifest;
+pub mod mutable;
+pub mod provider;
+pub mod schema;
+pub mod sources;
+pub mod value;
+pub mod views;
+
+pub use batch::{
+    record_stream, BoxRecordStream, ChunkDescriptor, ChunkId, ChunkList, ChunkOrigin, LocatorRule,
+    RecordBatch, RecordStream, RecordStreamExt, RecordView, RowId, RowRun,
+};
+pub use buffer::{AlignedBuffer, Bitmap, Buffer};
+pub use column::{Column, CompareOp, FieldValue};
+pub use formats::{read_table, write_table, ReadOptions, ReadSchema, TableFormat, WriteOptions};
+pub use formats::shapes::{from_json, to_json, JsonOrient};
+pub use manifest::{ChunkNaming, ChunkTemplate, ManifestKind, ManifestSpec};
+pub use mutable::{ColumnMut, RecordBatchMut, RecordViewMut};
+pub use provider::ManifestRecipeProvider;
+pub use schema::{
+    Analyzer, FieldRole, FieldSchema, FieldType, IndexKind, KeyRole, RecordSchema, VectorMetric,
+};
+pub use sources::{
+    view_from_chunk_value, ContextResolver, EnvResolver, InMemorySource, ManifestSource,
+};
+pub use value::{
+    ChunkResolver, ChunkValue, RecordSource, RecordValue, DEFAULT_MATERIALIZE_MAX_ROWS,
+};
+pub use views::{
+    place_chunk, AppendedColumnsView, ColumnsView, DerivedColumnView, PlacedView, RowFnView,
+    RowIndexView, RowRangeView,
+};

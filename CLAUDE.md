@@ -6,6 +6,7 @@
 liquers-core/     # Core abstractions (Query, Key, Store, Assets, Commands)
 liquers-macro/    # register_command! function-like proc-macro
 liquers-store/    # Storage backends (OpenDAL integration, config)
+liquers-records/  # Record streams: columnar tables, views, sources, manifests, table formats
 liquers-lib/      # Command library, Rich value types (Polars DataFrames, egui UI, images)
 liquers-axum/     # HTTP REST API server
 liquers-web/      # Browser/JavaScript bindings (wasm32-only)
@@ -18,7 +19,9 @@ specs/            # Internal documentation — see specs/README.md
   archive/        #   what was true on a date; never edited
 ```
 
-**Dependency flow**: `liquers-core` ← `liquers-macro` ← `liquers-store` ← `liquers-lib` ← `liquers-axum` / `liquers-web`
+**Dependency flow**: `liquers-core` ← `liquers-macro` ← `liquers-store` ← `liquers-lib` ← `liquers-axum` / `liquers-web`;
+`liquers-core` ← `liquers-records` ← `liquers-lib` (feature `records`). `liquers-records` depends on
+`liquers-core` only, so a crate built on records need not pull in `liquers-lib`.
 
 **Key specs**: See `specs/reference/PROJECT_OVERVIEW.md` for architecture, `specs/reference/REGISTER_COMMAND_FSD.md` for macro details, `specs/reference/ASSETS.md` for asset lifecycle.
 
@@ -60,6 +63,10 @@ Also:
 - New storage backends: `liquers-store/src/`
 - New commands: `liquers-lib/src/commands.rs`
 - Polars DataFrame operations: `liquers-lib/src/polars/` (see `specs/reference/POLARS_COMMAND_LIBRARY.md`)
+- Record streams — the data model, views, table formats, manifests, sources and the manifest recipe
+  provider: `liquers-records/src/`. The glue that needs `liquers-lib`'s `Value` — `ExtValue::RecordView`
+  / `RecordSource`, `to_record` / `to_record_source`, the `ns-rec` commands, the polars bridge:
+  `liquers-lib/src/records/` (design: `specs/design/record-streams/`)
 
 ### Key Types
 - `Query`, `Key`, `ActionRequest` - query DSL (`liquers-core/src/query.rs`)
@@ -154,6 +161,7 @@ they are worth so nobody removes them by accident.
 
 ```bash
 cargo test -p liquers-lib --lib --tests     # the normal loop: unit + integration, no examples
+cargo test -p liquers-records --all-features --lib --tests   # records work: builds core only
 ```
 
 `liquers-lib` is where most work lands and it transitively builds `liquers-core`, `liquers-macro`
@@ -170,10 +178,11 @@ crate's test binaries at once, which is what exhausts the allowance.
 
 ### Feature matrix
 
-The default loop builds one feature configuration. `egui`, `image-support`, `polars` and `webui`
-are all optional, and a missing `#[cfg]` compiles fine with the defaults on while breaking a
+The default loop builds one feature configuration. `egui`, `image-support`, `polars`, `webui`,
+`records`, `records-ipc` and `records-parquet` are all optional (the last three on by default), and a missing `#[cfg]` compiles fine with the defaults on while breaking a
 minimal or wasm build. `scripts/check-build-matrix.sh` checks every configuration, library **and
-test targets**, plus the wasm32 target and `liquers-store`'s feature split:
+test targets**, plus the wasm32 target, `liquers-store`'s feature split and `liquers-records`' own
+`ipc` / `parquet` features:
 
 ```bash
 bash scripts/check-build-matrix.sh          # see the script's final computed total
@@ -190,13 +199,15 @@ cargo test -p liquers-lib --no-default-features --features polars --lib --tests
 cargo test -p liquers-lib --no-default-features --features egui --lib --tests
 cargo test -p liquers-lib --no-default-features --features image-support --lib --tests
 cargo test -p liquers-lib --no-default-features --features webui --lib --tests
+cargo test -p liquers-lib --no-default-features --features records --lib --tests
+cargo test -p liquers-records --lib --tests                 # no formats beyond the built-in ones
 ```
 
 Each test file that needs an optional dependency is gated — `#![cfg(feature = "…")]` at file level
 when the whole file needs it, `#[cfg(feature = "…")]` on the single test when it does not — so a
 reduced configuration runs the subset that applies instead of failing to compile. Tests comparing
 against `specs/command_registry.yaml`, which is exported with the default features, are gated on
-all three groups.
+all four groups (`egui`, `image-support`, `polars`, `records`).
 
 ### liquers-web
 

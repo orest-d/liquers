@@ -326,6 +326,7 @@ macro_rules! register_all_commands {
         $crate::register_egui_commands!($cr)?;
         $crate::register_image_commands!($cr)?;
         $crate::register_polars_commands!($cr)?;
+        $crate::register_records_commands!($cr)?;
         $crate::register_lui_commands!($cr)?;
         Ok::<(), liquers_core::error::Error>(())
     }};

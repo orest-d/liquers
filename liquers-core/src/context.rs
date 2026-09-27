@@ -1175,6 +1175,32 @@ impl<
         self
     }
 
+    /// Appends a provider, consulted after the one currently installed.
+    ///
+    /// Replaces `self.recipe_provider` with
+    /// `RecipeProviderChain::new(vec![current, provider])` — the current provider first, so it
+    /// keeps priority, then the newly appended one. A chain nested in a chain (calling this
+    /// method twice, or after [`Self::with_recipe_provider_choice`] installed one) is correct,
+    /// merely one indirection deeper: [`crate::recipes::RecipeProviderChain`] implements
+    /// [`AsyncRecipeProvider`] itself, so nothing downstream distinguishes a two-level chain from
+    /// a flat one.
+    ///
+    /// [`crate::recipes::RecipeProviderChoice`] is deliberately not extended with a way to name
+    /// this: a choice is data in a configuration document and cannot name a provider living in
+    /// another crate. This method is the code-side equivalent, mirroring
+    /// [`crate::environment_builder::EnvironmentBuilder::with_appended_recipe_provider`].
+    pub fn with_appended_recipe_provider(
+        &mut self,
+        provider: Box<dyn AsyncRecipeProvider<Self>>,
+    ) -> &mut Self {
+        let current = self.recipe_provider.clone();
+        self.recipe_provider = Arc::new(crate::recipes::RecipeProviderChain::new(vec![
+            current,
+            Arc::from(provider),
+        ]));
+        self
+    }
+
     /// Selects one of the built-in recipe providers by name.
     ///
     /// The same vocabulary [`crate::environment_builder::EnvironmentBuilder`] and a configuration
