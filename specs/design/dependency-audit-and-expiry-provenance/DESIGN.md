@@ -1,13 +1,13 @@
 ---
 id: DEPENDENCY-AUDIT-AND-EXPIRY-PROVENANCE
 kind: design
-title: Dependency audit correctness, audit policy and expiry provenance
+title: Dependency audit correctness, audit policy, expiry provenance and external asset managers
 status: draft
 workflow: liquers-designer
 phase: architecture
 area: [core/assets]
 gh_pr: []
-issues: [AUDIT-CANNOT-EXPIRE-ON-A-FIRST-OBSERVED-VERSION, DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE, EXPIRY-RECORDS-NO-REASON, DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED, STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST]
+issues: [AUDIT-CANNOT-EXPIRE-ON-A-FIRST-OBSERVED-VERSION, DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE, EXPIRY-RECORDS-NO-REASON, DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED, STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST, IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES, ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE]
 created: 2026-09-28
 superseded_by:
 ---
@@ -47,6 +47,14 @@ deadline bug was accepted into scope. `#[non_exhaustive]` is applied to `AuditRe
 `AuditFinding`, with public constructors, so a future asset manager outside core can still build
 them. That check found the `AssetManager` trait is sealed today, filed as
 `ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE`.
+
+**Phase 2 gate, second round (2026-09-28).** The owner brought
+`ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE` into scope and said
+`DependencyManagerAccess` may be public. That became Part F. The graph type is made public but
+opaque, with its methods narrowed to `pub(crate)`. Five lifecycle primitives are made public with
+documented contracts. `refresh_command_versions` gets a default body. A from-scratch external
+manager in `tests/` runs the shared manager scenarios. This widens the design beyond the
+Phase 1 scope, and that is recorded here rather than by editing the approved Phase 1.
 
 ## Links
 

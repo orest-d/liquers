@@ -2,7 +2,7 @@
 
 ## Overview
 
-Four changes in `liquers-core`, all built on the dependency graph that `keyed-expiry-cascade-fix`
+Six parts in `liquers-core`. Parts A–E are built on the dependency graph that `keyed-expiry-cascade-fix`
 built and the ordering precedent set by `stale-dependency-status-finalization`:
 
 | Part | Closes | Shape |
@@ -11,10 +11,13 @@ built and the ordering precedent set by `stale-dependency-status-finalization`:
 | B. Audit policy and report-only audits | `DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE` | `DependencyAuditPolicy` in `AssetManagerOptions`; `AuditMode`; `AuditFinding` in `AuditReport` |
 | C. Expiry provenance | `EXPIRY-RECORDS-NO-REASON` (+ `IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`) | `ExpiryReason` in `MetadataRecord` / `AssetInfo`; a log entry naming both participants |
 | D. Directory-listing dependencies | `DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED` | A version for a listing, registered at the step and refreshed on manager writes; audit and fast-track resolve it |
-| E. Stale-dependency reachability | `STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST` | A public two-phase dependency API on `Context` (schedule, then wait) that doubles as the test seam |
+| E. Stale-dependency reachability | `STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST` | `Context::submit` + public `Context::wait_for_dependency`, which double as the test seam |
+| F. Asset managers outside core | `ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE` (added at the Phase 2 gate) | `DependencyManagerAccess` and an opaque `DependencyManager` made public; the lifecycle primitives a manager needs made public; an external manager in `tests/` runs the parametric manager suite |
 
 No change to `Status`, to `AsyncStore`, to the query syntax, or to any command signature. No
-`liquers-axum` change.
+`liquers-axum` change. The titled scope grows with Part F: the design is now also "asset managers
+can be implemented outside core". Every other part is built so an external manager gets it for
+free, through default trait methods.
 
 ### How the Phase 1 open questions are settled
 
@@ -314,6 +317,108 @@ which behaves the same as today. An `AssetRef` that is submitted and never waite
 completes. That is what a pre-pass-scheduled dependency does today, and no parent is left in
 `Status::Dependencies`.
 
+### Part F: implementing `AssetManager` outside `liquers-core`
+
+**Today.** `AssetManager<E>` is sealed by accident of visibility. It requires
+`DependencyManagerAccess<E>`, which is `pub(crate)` (`assets.rs:3871`) and returns the
+`pub(crate)` `DependencyManager<E>` (`dependencies.rs:114`). The trait is compiled under
+`#[allow(private_bounds)]` (`assets.rs:3894`), so the compiler does not complain. The owner
+decided at the gate that `DependencyManagerAccess` can be public.
+
+**Principle: expose what an implementor must *hold* and *call*, not the graph.** An
+implementor never reads the graph. Every dependency-graph operation lives in default trait methods
+inside core (`cascade_expire_dependents`, `expire_dependencies_result`, `audit_gaps`,
+`register_plan_dependencies`, and Part A–D additions). What an implementor must do is own one
+graph, hand it out, and drive assets through their lifecycle.
+
+#### F1. The graph: public but opaque
+
+```rust
+// assets.rs: `#[allow(private_bounds)]` removed
+pub trait DependencyManagerAccess<E: Environment> {
+    /// The dependency graph this manager owns. Implementors create one with
+    /// `DependencyManager::new()`, keep it for their lifetime, and return it here; they do not
+    /// call into it: the `AssetManager` default methods do.
+    fn dependency_manager(&self) -> &DependencyManager<E>;
+}
+
+// dependencies.rs
+pub struct DependencyManager<E: Environment> { /* fields stay private */ }
+impl<E: Environment> DependencyManager<E> {
+    pub fn new() -> Self;                 // exists, already `pub`
+}
+impl<E: Environment> Default for DependencyManager<E> { .. } // new
+```
+
+Every method that is `pub` on the type today (`register_version`, `add_dependency`, `track_asset`,
+`expire`, `load_from_records`, `remove`, …; see `dependencies.rs:143-887`) is **narrowed to
+`pub(crate)`** in the same change. The type becomes public, but its interface does not.
+Otherwise making the struct public would silently publish the whole graph API, which
+`keyed-expiry-cascade-fix` deliberately kept private. `ExpiredDependents` stays public (it is
+already), because `expire_dependencies_result*` takes it.
+
+`keyed-expiry-cascade-fix` planned a second sealed supertrait, `VersionResolver`. It does not exist
+at HEAD (no `trait VersionResolver` in `liquers-core/src`), so `DependencyManagerAccess` is the only
+seal. Narrowing the graph methods breaks nothing: the type is `pub(crate)` today, so no code outside
+`liquers-core/src` can call them now.
+
+#### F2. The lifecycle primitives an implementor calls
+
+Derived from what `ImmediateAssetManager` (the simpler built-in) calls to implement its
+*required* methods (`assets.rs:6616-7175`). The same set covers a queued manager with `run`.
+
+| Primitive | Today | Becomes | Why an implementor needs it |
+|---|---|---|---|
+| `AssetData::new(id, recipe, key, envref)`, `.to_ref()` | `pub` | unchanged | construct an asset |
+| `AssetRef::run_inline(payload)` | `pub(crate)` (`:2657`) | `pub` | evaluate in the current task (inline manager) |
+| `AssetRef::run(payload)` | `pub(crate)` (`:2597`) | `pub` | evaluate as a spawned job (queued manager) |
+| `AssetRef::submitted()` | `pub(crate)` (`:2315`) | `pub` | mark an asset queued before `run` |
+| `AssetRef::set_payload_path(path)` | `pub(crate)` (`:1916`) | `pub` | `get_dependency_asset_with_payload` |
+| `AssetRef::expire_without_cascade(reason)` | `pub(crate)` (`:3349`) | `pub` | lazy/deadline expiry in the manager's own lookup (Part C adds `reason`) |
+| `load_command_versions_sync` | `pub(crate)` free fn (`:3800`) | stays `pub(crate)` | not needed: see F3 |
+
+Each one made public gets a doc comment stating its contract: when it may be called, what
+status it expects and leaves, and what it must not be combined with. That is the documentation
+`STORE_IMPLEMENTATION_GUIDE` provides for stores.
+
+Explicitly **not** exposed: the run claims (`RunClaim`, `InlineRunClaim`, `try_claim_for_run*`),
+the job queue, `set_status`, `set_value`, `fail_asset`. `run` and `run_inline` already take the
+claim internally, and raw status writes would let an implementor bypass the status authority that
+`stale-dependency-status-finalization` centralized.
+
+#### F3. Fewer required methods
+
+`refresh_command_versions` is identical in both built-ins (`assets.rs:6068`, `:7124`). It moves to
+a default trait body over `self.dependency_manager()` and `self.get_envref()`. That removes the
+only reason an implementor would need `load_command_versions_sync`. `start` stays required,
+because it owns the manager's own "started" flag, but its documentation says to call
+`self.refresh_command_versions()`.
+
+#### F4. Proof: an external manager in `liquers-core/tests/`
+
+An integration test is its own crate, so it sees only the public API. That makes it the right
+proof that F1–F3 suffice:
+
+- `liquers-core/tests/external_asset_manager.rs` defines `MinimalInlineAssetManager<E>` **from
+  scratch** (not a wrapper around `ImmediateAssetManager`, which would prove nothing), plus an
+  `AssetManagerKind` for it, and builds an environment with it.
+- The scenario bodies of `tests/manager_parametric.rs` (already generic over `E: Environment`) move
+  to `tests/common/manager_scenarios.rs`. The parametric suite and the external suite both run
+  them, and the Part A–E tests that are not manager-specific join that shared set.
+
+This is the asset-manager counterpart of the store conformance suite that
+`ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE` asks for. It is deliberately smaller: the
+shared scenarios, not a rule-numbered suite. A rule-numbered suite with a capability model is the
+follow-up to file if external managers appear in practice.
+
+#### F5. What stays out
+
+- No change to how an environment *selects* a manager: `AssetManagerKind` is already public
+  (`environment_builder.rs:71`) and `build` already receives `AssetManagerOptions`.
+- No stability promise beyond "public and documented". The primitives carry a doc note that
+  they are the manager-implementation surface and may be refined. Semver discipline for them is the
+  owner's call when an external manager ships.
+
 ## Generic Parameters & Bounds
 
 Everything is generic over `E: Environment`, as the surrounding code is. No new bounds.
@@ -411,6 +516,9 @@ is left as it is and noted on the issue.
 | `assets.rs` | `AuditMode`, `AuditFinding`, `AuditReport::findings`; reasons at every route; `audit_gaps` rewrite; `OnLoad` in `try_fast_track`; `register_plan_dependencies` unknown edges; `refresh_listing_version` calls; immediate-manager condition; `stale_dependency: Option<DependencyKey>` |
 | `environment_builder.rs` | `DependencyAuditPolicy`; `AssetManagerOptions::dependency_audit` (+ `with_dependency_audit`) |
 | `interpreter.rs` | `GetAssetDirectory` registers and records the listing version |
+| `assets.rs` (Part F) | `DependencyManagerAccess` public, `#[allow(private_bounds)]` removed; `run`, `run_inline`, `submitted`, `set_payload_path`, `expire_without_cascade` public with contracts; `refresh_command_versions` default body |
+| `dependencies.rs` (Part F) | `DependencyManager` public and opaque (methods narrowed to `pub(crate)`), `Default` |
+| `tests/external_asset_manager.rs`, `tests/common/manager_scenarios.rs` (Part F) | from-scratch external manager; scenarios shared with `manager_parametric.rs` |
 | `context.rs` | `submit`; `wait_for_dependency` made public and version-recording; submitted-key map; `evaluate` and `get_dependency_state` rewritten on top |
 
 ### Other crates
@@ -579,9 +687,11 @@ Left for Phase 4 to verify at implementation time: whether `liquers-web`'s `.d.t
 
    Checking this showed that a custom manager outside core is **impossible today** for an unrelated
    reason. `AssetManager` requires the crate-private supertrait `DependencyManagerAccess`
-   (`assets.rs:3871`, `:3895`), so it is sealed. That is filed as
-   `ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE` and is outside this design's scope.
-   What this design guarantees is that it adds **no new obstacle** to unsealing later:
+   (`assets.rs:3871`, `:3895`), so it is sealed. That was filed as
+   `ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE`.
+4. **`ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE` is in scope**, and
+   `DependencyManagerAccess` may be public (owner, 2026-09-28). This is Part F. Parts A–E are built
+   so an external manager needs nothing extra:
    - every new trait method has a default body;
    - every new type an implementor would construct has a public constructor
      (`ExpiryReason` is a plain public enum; `AuditReport`, `AuditFinding` and `ExpiredDependents`
