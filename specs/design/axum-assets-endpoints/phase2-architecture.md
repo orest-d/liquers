@@ -66,7 +66,7 @@ may start an evaluation**:
 |---|---|---|---|---|
 | **a) request and wait for the result** | `data`, `entry` | `get_asset` / `get`, then `AssetRef::get_binary()` (I1) | yes, if not already available | the value (bytes, or a negotiated `DataEntry`) or the evaluation's error |
 | **b) submit** | `submit` (`POST`, and `GET`, which is always on because it changes no data) | `get_asset` / `get`, not awaited | yes | **immediately**: `AssetInfo` (e.g. `Submitted`, `Processing`, or `Ready` if cached), or the error of a failed submission (parse 400, unknown command or plan error 400, key not found 404) |
-| **c) observe (polling)** | `info`, `metadata`, `version` (plus `contains`, `recover`, `listdir` on `/key/`) | `lookup_query_asset` for `/q/`; for `/key/`, the live asset, then the store, then the recipe provider | **never** | current state; for `/q/` a query nobody has requested gives 404 (`NotAvailable`, "submit it first") |
+| **c) observe (polling)** | `info`, `metadata`, `version` (plus `contains`, `recover`, `listdir` on `/key/`) | `lookup_query_asset` for `/q/`; for `/key/`, the live asset, then the store, then the recipe provider | **never** | current state. Non-keyed assets are cached, so `q/info` answers "has this query been evaluated, and is it available now?": `status: Ready` means `q/data` returns at once. A query that is not cached (never requested, or evicted) gives 404 (`NotAvailable`, "submit it first"). This is the reliable polling path after `submit`, with or without the WebSocket, since notifications can be coalesced or missed (W6). |
 
 Verified against the code (2026-09-28):
 - **`key/info` never evaluates**, once `get_asset_info` stops calling `get`. All three of its
@@ -118,8 +118,8 @@ approach, and applies it to **every** operation that does not need a request bod
 | override | `POST key/override/{*key}` | `GET key/override/{*key}` |
 | description | `POST key/description/{*key}` (JSON) | `GET key/description/{*key}?title=…&description=…` |
 | cancel | `POST q/cancel`, `POST key/cancel` | `GET q/cancel/{*query}`, `GET key/cancel/{*key}` |
-| audit | `POST key/audit/{*key}`, `POST audit` | `GET key/audit/{*key}`, `GET audit` |
-| refresh | `POST refresh_command_versions` | `GET refresh_command_versions` |
+| audit | `POST admin/audit/{*key}`, `POST admin/audit` | `GET admin/audit/{*key}`, `GET admin/audit` |
+| refresh | `POST admin/refresh_command_versions` | `GET admin/refresh_command_versions` |
 | submit | `POST q/submit`, `POST key/submit` | `GET q/submit`, `GET key/submit`, **always on** (no data changes) |
 
 - **Excluded:** `POST data` and `POST entry`, because they carry a request body, and
@@ -189,7 +189,7 @@ pub const VALUE_DESCRIPTION_FIELDS: [&str; 5] =
 #[derive(Serialize)] pub struct KeyListing  { pub keys: Vec<String> }        // GET listdir?deep=true
 #[derive(Serialize)] pub struct RemoveResult { pub removed: bool, pub new_status: Status }
 #[derive(Serialize)] pub struct ContainsResult { pub contains: bool }
-#[derive(Serialize)] pub struct VersionResult { pub version: Option<Version> } // hex string or null
+#[derive(Serialize)] pub struct VersionResult { pub version: Version } // 32 hex digits; all zeros = unknown (O3)
 #[derive(Serialize)] pub struct AuditResult { pub checked: Vec<String>, pub expired: Vec<String> }
 #[derive(Deserialize)] pub struct DescriptionRequest { pub title: Option<String>, pub description: Option<String> }
 ```
@@ -502,7 +502,7 @@ pub async fn q_get_entry_handler<E>(State<EnvRef<E>>, Path<String>, HeaderMap, A
 pub async fn q_submit_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;                  // (b) get_asset, not awaited → AssetInfo
 pub async fn q_info_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;                    // (c) lookup_query_asset → AssetInfo | 404
 pub async fn q_get_metadata_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;            // (c) lookup_query_asset → metadata | 404
-pub async fn q_version_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;                 // (c) lookup → version | null
+pub async fn q_version_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;                 // (c) lookup → version (zeros = unknown) | 404
 pub async fn q_cancel_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;                  // lookup → cancel | 404; never creates
 
 // ---- assets/key_handlers.rs — parse_key
@@ -526,9 +526,9 @@ pub async fn key_description_handler<E>(State<EnvRef<E>>, Path<String>, Option<J
 pub async fn key_expire_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;
 pub async fn key_override_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;
 pub async fn key_cancel_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;               // lookup_key_asset → cancel | 404
-pub async fn key_audit_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;
+pub async fn key_audit_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;   // served at admin/audit/{*key}
 
-// ---- admin (root of base path)
+// ---- admin (`admin/` prefix)
 pub async fn audit_all_handler<E>(State<EnvRef<E>>) -> Response;
 pub async fn refresh_command_versions_handler<E>(State<EnvRef<E>>) -> Response;
 ```
@@ -553,7 +553,7 @@ impl<E: Environment> AssetsApiBuilder<E> {
     /// Omit every state-changing key route (POST/PUT/DELETE except `key/cancel`) and the admin
     /// routes. `q/cancel` and `key/cancel` stay: cancelling is not a data change.
     pub fn read_only(mut self) -> Self;
-    /// Include (default) or omit the manager-wide routes: `POST audit`, `POST refresh_command_versions`.
+    /// Include (default) or omit every `admin/` route: `audit`, `audit/{*key}`, `refresh_command_versions`.
     pub fn with_admin(mut self, enabled: bool) -> Self;
 }
 ```
@@ -591,27 +591,29 @@ Out of scope, with existing issues:
 
 ### Design
 
-**Route.** The default path moves to `{base}/q/ws` (O5), registered as two routes:
-- `GET q/ws` opens a socket with no initial subscription;
-- `GET q/ws/{*query}` opens a socket already subscribed to that query, as §5.2 promises.
+**Routes (O5).** One endpoint per family, mirroring REST. The paths are configurable through
+`with_websocket_path(base)`, which replaces `{base}/ws`, and `without_websocket()` disables both:
+- `GET ws/q` and `GET ws/q/{*query}`: subscriptions are **queries**, parsed with `parse_query`
+  and requested through `get_asset`. The URL path, if present, is subscribed on connect, as §5.2
+  promises.
+- `GET ws/key` and `GET ws/key/{*key}`: subscriptions are **keys**, parsed with `parse_key` and
+  requested through `get`. The URL path is subscribed on connect.
 
-`with_websocket_path` and `without_websocket` keep working.
-
-**Client messages** (`#[serde(tag = "action", rename_all = "snake_case")]`, matching §5.2):
+**Client messages** (`#[serde(tag = "action", rename_all = "snake_case")]`, matching §5.2). The
+address field names the object the endpoint parses (O6): `query` on `ws/q`, `key` on `ws/key`.
+Using the other field is an `Error` reply.
 
 ```rust
 pub enum ClientMessage {
-    /// Exactly one of `query` / `key`. `query` → parse_query + get_asset (like /q/);
-    /// `key` → parse_key + get(key) (like /key/). Both request the asset (evaluation may start).
-    Subscribe { query: Option<String>, key: Option<String> },
+    Subscribe { query: Option<String>, key: Option<String> },   // requests the asset (O9)
     Unsubscribe { query: Option<String>, key: Option<String> },
     UnsubscribeAll,
     Ping,
 }
 ```
 
-A message that does not parse, or names neither or both addresses, gets an `Error` reply carrying
-an `ErrorDetail`, instead of being dropped.
+A message that does not parse, names the wrong address field, or exceeds a limit (I6) gets an
+`Error` reply carrying an `ErrorDetail`, instead of being dropped.
 
 **Server messages.** Every notification carries the identity of what was subscribed plus a
 **snapshot re-read after the change**. That answers W6: whatever the watch coalesced, the client
@@ -632,7 +634,8 @@ pub enum NotificationMessage {
     SecondaryProgressUpdated { #[serde(flatten)] head: Head, progress: ProgressEntry },
     JobFinished           { #[serde(flatten)] head: Head },
     Expired               { #[serde(flatten)] head: Head },
-    Removed               { #[serde(flatten)] head: Head },        // new, see core change below
+    Removed               { #[serde(flatten)] head: Head },        // new, also added to AssetNotificationMessage (O8)
+    // protocol replies — not asset notifications, so they have no core counterpart
     // control replies
     Pong { timestamp: String },
     UnsubscribedAll { timestamp: String },
@@ -662,8 +665,20 @@ them: a cancel arrives as `StatusChanged(Cancelled)`.
   aborts them all.
 - The type-erased `Arc<dyn Any>` map disappears.
 
-**Keyed subscriptions follow the key (W5).** When a live asset is unmapped, a subscriber must hear
-of it, so the core gains one notification:
+**A subscription is tied to one asset (O10, W5).** Today a keyed asset that has not been
+requested cannot be managed, so there is nothing to wait for. A subscription therefore follows
+one `AssetRef` (one `AssetData`) for its whole life, and **ends** when that asset's lifecycle
+ends. The terminal notifications are:
+- `StatusChanged` to `Error` or `Cancelled`;
+- `Expired`, after which the manager replaces the asset on the next request;
+- `Removed`.
+
+The server forwards the terminal notification, with the `info` snapshot, then drops the
+subscription. To continue, the client subscribes again, which requests a fresh asset. For a key
+subscription that terminal `info` is read with `get_asset_info(key)`, which does not evaluate.
+
+To make `Removed` observable, the core gains one notification (O8: kept consistent with the
+original notification set, and meaningful for any in-process observer as well):
 
 ```rust
 pub enum AssetNotificationMessage { …, Removed }  // liquers-core/src/assets.rs
@@ -671,32 +686,31 @@ pub enum AssetNotificationMessage { …, Removed }  // liquers-core/src/assets.r
 
 - It is sent by `remove`, `set_binary` and `set_state` just before they unmap a live asset. It is
   **not** sent by `remove_expired_from_maps`, since expiry already announced `Expired`.
-- On `Removed`, a key subscription forwards the message with `info` from
-  `get_asset_info(key)`, which does not evaluate. It then **re-resolves**: it waits for the next
-  live asset under the key, polling `lookup_key_asset` on its next wake-up, and never creates one
-  itself (O10).
-- A query subscription ends on `Removed`: a non-keyed asset is not replaced in place.
 - `AssetNotificationMessage` is matched exhaustively in the WebSocket and in
   `liquers-lib/src/ui/element.rs` (≈516; `Removed` joins the arm that ignores status-only
   messages). Core's own matches gain the arm too; Phase 4 lists every site.
+- Observing without requesting is not offered (O9). It would change how assets are managed, and
+  it can be added later if it becomes important.
 
 **Consistency with the REST families.**
 
 | REST | WebSocket |
 |---|---|
-| `/q/…` reads (`get_asset(query)`) | `{"action":"subscribe","query":"…"}` and the URL path `q/ws/{*query}` |
-| `/key/…` reads (`get(key)`) | `{"action":"subscribe","key":"…"}` |
+| `/q/…` (`get_asset(query)`) | `ws/q`: `{"action":"subscribe","query":"…"}`, or the URL path `ws/q/{*query}` |
+| `/key/…` (`get(key)`) | `ws/key`: `{"action":"subscribe","key":"…"}`, or the URL path `ws/key/{*key}` |
+| `GET q/info`, `GET key/info` polling | the reliable fallback: notifications can be coalesced or missed (W6), polling cannot |
 | `GET q/info`, `GET key/info` → `AssetInfo` | every notification carries `info: AssetInfo` |
 | `POST key/cancel`, `POST q/cancel` | cancellation arrives as `StatusChanged` with `status: "Cancelled"` |
-| `DELETE key/…`, `POST key/data` | `Removed`, then (key subscriptions) the replacement asset's notifications |
+| `DELETE key/…`, `POST key/data` | `Removed`, then the subscription ends; subscribe again for the new asset |
 | `read_only()` | no effect: subscribing changes no data |
 
 ### Functions
 
 ```rust
 // assets/websocket.rs
-pub async fn websocket_handler<E>(WebSocketUpgrade, Option<Path<String>>, State<EnvRef<E>>) -> Response;
-async fn handle_socket<E>(socket: WebSocket, env: EnvRef<E>, initial: Option<String>);
+pub async fn ws_query_handler<E>(WebSocketUpgrade, Option<Path<String>>, State<EnvRef<E>>) -> Response; // ws/q
+pub async fn ws_key_handler<E>(WebSocketUpgrade, Option<Path<String>>, State<EnvRef<E>>) -> Response;   // ws/key
+async fn handle_socket<E>(socket: WebSocket, env: EnvRef<E>, family: Family, initial: Option<String>);
 async fn writer_task(sink: SplitSink<WebSocket, Message>, rx: mpsc::Receiver<NotificationMessage>);
 async fn subscription_task<E>(env: EnvRef<E>, address: Address, asset: AssetRef<E>,
                               tx: mpsc::Sender<NotificationMessage>);
@@ -706,8 +720,10 @@ fn convert_notification(head: Head, n: AssetNotificationMessage) -> Notification
 **Tests** (Phase 3 to add). An in-process server on `127.0.0.1:0` with a `tokio-tungstenite`
 client (already a dev-dependency). The tests cover:
 - subscribing by query and receiving `JobFinished` with `info.status == Ready`;
-- subscribing by key, then `DELETE` → `Removed`, then a fresh `POST data` → notifications of the
-  new asset;
+- subscribing by key, then `DELETE` → `Removed`, and the subscription ends (no further messages);
+  subscribing again follows the new asset;
+- `Error` and `Cancelled` end a subscription;
+- a `key` field on `ws/q` (and a `query` field on `ws/key`) → `Error` reply;
 - the spec's snake_case client messages;
 - a malformed message → an `Error` reply;
 - `unsubscribe` stops messages;
@@ -789,8 +805,8 @@ impl<E: Environment> QueryApiBuilder<E> {
 
 The timeout reaches the handler through a small `QueryApiConfig` layered with `Extension`, so the
 handler signature stays generic over `E` only. On timeout the error message names the duration and
-points to the long-running path: "use GET {assets}/q/info or the WebSocket at {assets}/q/ws to
-follow a long evaluation". The `ErrorType` stays `ExecutionError`; see O11.
+points to the long-running path: "use {assets}/q/submit, then poll GET {assets}/q/info or subscribe on
+{assets}/ws/q, to follow a long evaluation". The `ErrorType` stays `ExecutionError`; see O11.
 
 **Test:** a command that sleeps longer than a 100 ms timeout gives the documented error.
 
@@ -871,7 +887,7 @@ The issue closes on merge.
 | liquers-core | `src/assets.rs` | `KeyMutationAccess` plus two impls; `to_override` store-only branch skips `Source`; default `remove`, delete both per-manager `remove` bodies; `expire`, `set_description`; `get_asset_info` live branch; `AssetRef::set_description_fields`; `mark_expired_status` refusals → `StatusConflict`; `get_asset_info` not-found → `key_not_found` (trait default and the `DefaultAssetManager` override); `dependency_blocks_fast_track` store branch accepts `Recipe`; the `ErrorType` match at ≈2251. Drive-by: the orphaned doc paragraph above `expire_stored_copy` moves back to `DependencyManagerAccess`, whose doc it is |
 | liquers-axum | `src/assets/value_description.rs` | new |
 | liquers-axum | `src/assets/query_handlers.rs` (renamed from `handlers.rs`), `key_handlers.rs` (new), `common.rs` (new) | the query family (4 existing plus `q_info` and `q_version`), the key family (22 handlers), the shared helpers |
-| liquers-axum | `src/assets/builder.rs` | `/q/`, `/key/` and admin routes; unprefixed routes removed; `read_only`, `with_admin`; WebSocket default `{base}/q/ws` with route `{*query}` (panics today) |
+| liquers-axum | `src/assets/builder.rs` | `/q/`, `/key/` and admin routes; unprefixed routes removed; `read_only`, `with_admin`; WebSocket at `{base}/ws/q` and `{base}/ws/key` with `{*query}`/`{*key}` routes (panics today) |
 | liquers-axum | `src/assets/websocket.rs` | rewritten per "WebSocket Notifications": writer task and subscription tasks, snake_case client messages with `query`/`key`, spec-named server messages with an `AssetInfo` snapshot, `Error` replies, subscription on the URL path |
 | liquers-core | `src/assets.rs` | `AssetNotificationMessage::Removed`, sent by `remove`, `set_binary` and `set_state` before they unmap a live asset; exhaustive matches on `AssetNotificationMessage` gain the arm |
 | liquers-axum | `src/assets/common.rs` | `asset_bytes` (I1) and the shared helpers |
@@ -900,7 +916,8 @@ The issue closes on merge.
 | `POST q/submit/{*query}`, `GET q/submit/{*query}` | `q_submit_handler` | b | — |
 | `GET q/info/{*query}`, `GET q/metadata/{*query}`, `GET q/version/{*query}` | `q_info_handler`, `q_get_metadata_handler`, `q_version_handler` | c | — |
 | `POST q/cancel/{*query}`, (G) `GET q/cancel/{*query}` | `q_cancel_handler` | — | — |
-| `GET q/ws`, `GET q/ws/{*query}` (WebSocket) | `websocket_handler` | b + c | `without_websocket()` |
+| `GET ws/q`, `GET ws/q/{*query}` (WebSocket, queries) | `ws_query_handler` | b + c | `without_websocket()` |
+| `GET ws/key`, `GET ws/key/{*key}` (WebSocket, keys) | `ws_key_handler` | b + c | `without_websocket()` |
 | **key family** | | | |
 | `GET key/data/{*key}`, `GET key/entry/{*key}` | `key_get_data_handler`, `key_get_entry_handler` | a | — |
 | `POST key/submit/{*key}`, `GET key/submit/{*key}` | `key_submit_handler` | b | — |
@@ -915,10 +932,10 @@ The issue closes on merge.
 | `POST key/expire/{*key}`, (G) `GET key/expire/{*key}` | `key_expire_handler` | — | `read_only` |
 | `POST key/override/{*key}`, (G) `GET key/override/{*key}` | `key_override_handler` | — | `read_only` |
 | `POST key/cancel/{*key}`, (G) `GET key/cancel/{*key}` | `key_cancel_handler` | — | — |
-| `POST key/audit/{*key}`, (G) `GET key/audit/{*key}` | `key_audit_handler` | — | `read_only`, `with_admin(false)` |
-| **admin** | | | |
-| `POST audit`, (G) `GET audit` | `audit_all_handler` | — | `read_only`, `with_admin(false)` |
-| `POST refresh_command_versions`, (G) `GET refresh_command_versions` | `refresh_command_versions_handler` | — | `read_only`, `with_admin(false)` |
+| **admin** (`admin/` prefix, O7) | | | |
+| `POST admin/audit/{*key}` (parse_key), (G) `GET admin/audit/{*key}` | `key_audit_handler` | — | `read_only`, `with_admin(false)` |
+| `POST admin/audit`, (G) `GET admin/audit` | `audit_all_handler` | — | `read_only`, `with_admin(false)` |
+| `POST admin/refresh_command_versions`, (G) `GET admin/refresh_command_versions` | `refresh_command_versions_handler` | — | `read_only`, `with_admin(false)` |
 
 **Unprefixed routes.** The current `GET data|metadata|entry/{*query}` and `POST cancel/{*query}`
 are removed, and their handlers move to `/q/` (Open Question O1). The only in-repo client is the
@@ -939,8 +956,12 @@ contract that matters here is the `AssetManager` behaviour above: `remove`, `exp
 
 ## Web Endpoints
 
-Envelope: §3 `ApiResponse` for everything except the byte-returning reads (`GET data`, and
-`GET entry` and `GET recover` in their negotiated format). `query` is set on every response.
+Envelope (verified per route, 2026-09-28): **every status output is an `ApiResponse`**. That covers
+info, metadata, version, contains, listdir, submit, every mutation's result, every error, and the
+admin routes. The exceptions are the value transfers only: `GET data` (raw bytes plus metadata
+headers), and `GET entry` and `GET key/recover` (a negotiated `DataEntry`, which already contains
+its metadata). The WebSocket has its own protocol. The I8 audit applies the same rule to the Store,
+Query and Recipes APIs. `query` is set on every response.
 
 `{key}` below is a **bare key** (`notes/a.txt`), and `{query}` is any query, keyed or not.
 
@@ -952,16 +973,16 @@ Envelope: §3 `ApiResponse` for everything except the byte-returning reads (`GET
 | `POST|GET key/submit/{key}` (b) | 200 | as `q/submit` | 400 parse; 404 when neither stored nor declared by a recipe |
 | `DELETE key/removedir/{key}` | 200 | `{removed: true}` | 404; the first failing key's error |
 | `GET q/info/{query}` (c) | 200 | `AssetInfo` of the live asset's current state (with progress while `Processing`); never starts evaluation | 400 parse; 404 `NotAvailable` "submit it first" |
-| `GET q/version/{query}` (c) | 200 | `{version: "…" \| null}`, `null` until the asset has finished | as `q/info` |
+| `GET q/version/{query}` (c) | 200 | `{version: "…"}`, all zeros (unknown) until the asset has finished | as `q/info` |
 | `POST q/cancel/{query}` | 200 | as today | as today |
 | `GET key/data|entry/{key}` (a) | 200 | as the `q/` reads, via `get(key)` | 400 parse (a `-R/` path gets a hint); 404 |
 | `GET key/metadata/{key}` (c) | 200 | the live asset's, else the stored, else the recipe's metadata; never evaluates | 404 |
 | `POST key/cancel/{key}` | 200 | `AssetInfo` after the cancel | 404 when no live asset holds the key |
-| `POST key/audit/{key}` | 200 | `{checked, expired}` | — |
+| `POST admin/audit/{key}` | 200 | `{checked, expired}` | — |
 | `GET key/listdir[/{key}]` | 200 | `{assets: [AssetInfo…]}`; with `deep=true`, `{keys: ["a/b.md", …]}` | store error |
 | `GET key/info/{key}` | 200 | `AssetInfo` | 404 when absent |
 | `GET key/contains/{key}` | 200 | `{contains: bool}` | — |
-| `GET key/version/{key}` | 200 | `{version: "…32 hex…" \| null}` | store read error 500 (not `null`: `Ok(None)` and `Err` stay distinct) |
+| `GET key/version/{key}` | 200 | `{version: "…32 hex…"}, `"000…0"` (`Version::unknown()`) when there is no version (O3)` | store read error 500 (an error stays an error; only `Ok(None)` maps to zeros) |
 | `GET key/recover/{key}` | 200 | `DataEntry` (CBOR by default; `?format=`, or `Accept`) | 404 when there is no data-bearing state |
 | `POST key/data/{key}` | **201** | `AssetInfo` after the write; `message` names ignored parameters | 400 unparsable key, unknown type or bad format |
 | `POST key/entry/{key}` | **201** | as above; `message` names the dropped metadata fields | 400 undecodable body or non-object metadata |
@@ -971,8 +992,8 @@ Envelope: §3 `ApiResponse` for everything except the byte-returning reads (`GET
 | `POST key/expire/{key}` | 200 | `AssetInfo` after the change | 404; 409 when the status cannot expire |
 | `POST key/override/{key}` | 200 | `AssetInfo` after the change; a `Source` is left unchanged | 404 when there is no data (`to_override`'s `key_not_found`) |
 | `PUT key/makedir/{key}` | **201** | `AssetInfo` of the directory | store error |
-| `POST audit` | 200 | `{checked: [...], expired: [...]}` over every registered gap | — |
-| `POST refresh_command_versions` | 200 | `null`, with a message | registry error 500 |
+| `POST admin/audit` | 200 | `{checked: [...], expired: [...]}` over every registered gap | — |
+| `POST admin/refresh_command_versions` | 200 | `null`, with a message | registry error 500 |
 
 `POST data` parameters: `type_identifier`, `data_format`, `media_type`, `title`, `description`, all
 optional. The `Content-Type` header is **not** used as `media_type`: clients send
@@ -1128,56 +1149,26 @@ Decided at the Phase 4 gate (2026-09-28):
 - **Q25:** GET alternatives for every operation without a body, as in the Store API
   (`with_destructive_gets()`).
 
-For the user (my lean in brackets):
+Answered by the user, 2026-09-28:
 
-- **O1. Unprefixed routes.** Remove `GET data|metadata|entry/{*query}` and `POST cancel/{*query}`
-  (move them to `/q/`), or keep them as aliases for a transition? The only client in the repo is
-  the example. *[Remove.]*
-- **O2. A non-creating query lookup (now required by Q23: observe must not trigger).** Add `AssetManager::lookup_query_asset(&Query) ->
-  Option<AssetRef<E>>`, a default returning `None`, which `DefaultAssetManager` answers from its
-  `query_assets` map? With it:
-  - `q/cancel` would no longer start the evaluation it cancels;
-  - `q/info` and `q/version` could take `?create=false` to observe without requesting.
+| # | Decision |
+|---|---|
+| O1 | The unprefixed routes are **removed**; their handlers move to `/q/`. |
+| O2 | Neither `key/info` nor `q/info` triggers evaluation. **`lookup_query_asset` is added.** `q/info` tells whether a (cached) non-keyed query has been evaluated and is available now. It is the polling path after `submit`, and it matters even with WebSockets, because notifications can be coalesced or missed. |
+| O3 | Version is **never null**: `Version::unknown()` (all zeros) means unknown. Every status output, i.e. everything except `data`, `entry` and `recover`, is an `ApiResponse` (verified; see "Web Endpoints"). |
+| O4 | **No** `q/expire`: expiring non-keyed assets is not supported for now. |
+| O5 | WebSocket endpoints **`ws/q`** and **`ws/key`**. |
+| O6 | Two parsers, two objects: `parse_query` → `Query` on `/q/` and `ws/q`; `parse_key` → `Key` on `/key/`, `ws/key` and `admin/audit/{*key}`. A `-R/…` path on a key route is a parse error. |
+| O7 | Admin routes under the **`admin/`** prefix. |
+| O8 | WebSocket messages stay consistent with the original notification names. The extra `Removed` is also added to `AssetNotificationMessage`, where it is meaningful; `Pong`, `UnsubscribedAll` and `Error` are protocol replies, not asset notifications. |
+| O9 | Subscribing requests the asset and then observes it. Observing without requesting may be added later. |
+| O10 | A subscription is tied to one asset. It ends with the asset's lifecycle (`Error`, `Cancelled`, `Expired`, `Removed`), and the client must request again. |
+| O11 | A query timeout stays 500 (`ExecutionError`) with a message pointing to the assets API. |
+| O12 | WebSocket limits: 64 KiB per client message, 256 subscriptions per socket, both configurable. |
+| O13 | `removedir` is recursive, with `remove`'s per-status semantics for each key. |
+| O14 | GET alternatives are off by default (`with_destructive_gets()`). |
 
-  Without it, every `/q/` feedback call is also a request. *[Add it; `q/cancel` uses it, and
-  `q/info` defaults to requesting, since a client asking about a query normally wants it
-  computed.]*
-- **O3. `q/version` before completion.** Return `null` at once, or accept `?wait=true` to await
-  the result? *[`null` at once; completion is observed through `q/info` or the WebSocket.]*
-- **O4. Expiring a non-keyed asset.** A `POST q/expire` would call `AssetRef::expire` on the live
-  asset (needs O2), to regenerate a non-deterministic derived query such as an LLM summary without
-  touching its source. *[Include it if O2 is accepted, disabled by `read_only`, 404 when no live
-  asset.]*
-- **O5. WebSocket default path.** Move the default from `{base}/ws` to `{base}/q/ws`, since
-  subscriptions are query-addressed? The path stays configurable. *[Move.]*
-- **O6. `-R/` on a key route.** Refuse with 400 and a hint, or strip the prefix?
-  *[Refuse: one parser per family, no guessing.]*
-- **O7. Admin routes.** At the base root (`POST audit`, `POST refresh_command_versions`), or under
-  an explicit `admin/` prefix? *[Root. `with_admin(false)` already names them as a group.]*
-
-- **O8. WebSocket message shape.** Adopt the spec's names (`JobSubmitted`, …), add `Removed` and
-  `Error`, and add an `info: AssetInfo` snapshot plus `key` to every message. This is a breaking
-  change to the implemented but never-working messages, and the spec changes to match. *[Yes.]*
-- **O9. Subscribing requests the asset.** A subscription resolves through `get_asset`/`get`, so it
-  may start an evaluation, just as `/q/` reads do. Offer `"create": false`, which subscribes only
-  to an already-live asset, once O2's lookup exists? *[Yes, together with O2; the default stays
-  "request and observe".]*
-- **O10. Key subscription after `Removed`.** Wait passively for the next live asset under the key
-  (never creating one), or immediately re-request it with `get(key)` (which may evaluate)?
-  *[Wait passively; a client that wants the value recomputed asks for it through `/key/data`.]*
-
-- **O11. Query timeout status code.** A timeout currently answers 500 (`ExecutionError`). HTTP 504
-  would say "took too long, not broken", but no `ErrorType` maps to 504 and adding one touches
-  every exhaustive match again (as `StatusConflict` does). *[Keep 500 with the pointing message;
-  revisit if a second timeout-like case appears.]*
-- **O12. WebSocket limits defaults.** 64 KiB per client message and 256 subscriptions per socket?
-  *[Yes; both configurable through `with_websocket_limits`.]*
-
-- **O13. `removedir` depth.** Recursive over stored keys (as `AsyncStore::removedir`), applying
-  `remove`'s per-status semantics to each key? *[Yes.]*
-- **O14. GET alternatives default.** Off, as the Store API's `with_destructive_gets()`, or on?
-  *[Off: a crawler or link prefetcher must not delete data. `submit` and the observe routes are
-  GETs anyway.]*
+No questions are open.
 
 ## Review Log
 
@@ -1242,4 +1233,11 @@ open questions (O11, O12).
   evaluates. I verified that `key/info` never evaluates, including the recipe-provider path.
 - `metadata` moved to observe mode.
 - Added `submit`, `removedir` (core and route) and the full route table.
+
+**Answers to O1–O14, 2026-09-28:**
+- The WebSocket moves to `ws/q` and `ws/key`, a subscription is tied to one asset and ends with
+  its lifecycle, and `Removed` is added to the core notifications.
+- The version is never null (zeros mean unknown), and every status output is an `ApiResponse`.
+- Admin routes live under `admin/`, and `q/expire` is dropped.
+- No questions remain open.
 

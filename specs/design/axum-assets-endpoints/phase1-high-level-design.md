@@ -189,6 +189,9 @@ Still open: none — Phase 1 is ready for approval.
 - **Q24:** `DELETE` on a directory does not remove it; a separate `removedir` does.
 - **Q25:** GET alternatives for every operation that has no request body, opt-in as in the Store
   API.
+- **O1–O14 answered** (Phase 2 "Open Questions"): no unprefixed routes; neither `info` triggers
+  evaluation; version zeros = unknown; every status output is an `ApiResponse`; no `q/expire`;
+  WebSocket at `ws/q` and `ws/key`; `admin/` prefix; subscriptions tied to one asset's lifecycle.
 - **Q20:** the WebSocket is in scope. It must be consistent with the REST families, and it never
   forwarded notifications.
 
