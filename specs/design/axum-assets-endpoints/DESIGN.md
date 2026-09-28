@@ -3,7 +3,7 @@ id: AXUM-ASSETS-ENDPOINTS
 kind: design
 title: Assets API endpoints for every client-meaningful AssetManager operation
 status: draft
-phase: implementation
+phase: architecture
 area: [axum, core/assets]
 gh_pr: []
 issues: [AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED]
@@ -17,8 +17,8 @@ superseded_by:
 ## Phase Status
 
 - [x] Phase 1: High-Level Design (approved 2026-09-27)
-- [x] Phase 2: Solution & Architecture (approved 2026-09-27)
-- [x] Phase 3: Examples & Testing (approved 2026-09-27)
+- [ ] Phase 2: Solution & Architecture (approved 2026-09-27; **reopened 2026-09-28**: two route families `/q/` and `/key/`, WebSocket in scope)
+- [ ] Phase 3: Examples & Testing (approved 2026-09-27; **stale** until Phase 2 is re-approved)
 - [ ] Phase 4: Implementation Plan
 - [ ] Implementation Complete
 

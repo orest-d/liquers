@@ -169,6 +169,15 @@ manager on the next read (fake edges); `expiration_time` is adopted by the live 
 
 Still open: none — Phase 1 is ready for approval.
 
+**Decided at the Phase 4 gate, 2026-09-28:**
+- **Q18:** two route families, `/api/assets/q/` (queries, including non-keyed assets) and
+  `/api/assets/key/` (bare keys). The endpoint map above is superseded by Phase 2's route table.
+  The omission of non-keyed assets (no info, status, version or notifications for a query) was
+  the design's most serious flaw.
+- **Q19:** `to_override` on a `Source` does nothing.
+- **Q20:** the WebSocket is in scope. It must be consistent with the REST families, and it never
+  forwarded notifications.
+
 ## References
 
 - `specs/issues/CORE-SESSION-AND-KEY-ACL.md` (real access control),
