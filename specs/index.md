@@ -8,11 +8,11 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 155
+Total rows: 158
 - P0: 1
 - P1: 3
 - P2: 87
-- P3: 64
+- P3: 67
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
@@ -118,6 +118,9 @@ Total rows: 155
 | [`ASSET-FINISHED-PROGRESS-CONTRACT-UNDEFINED`](issues/ASSET-FINISHED-PROGRESS-CONTRACT-UNDEFINED.md) | issue | What progress a finished asset reports is undefined, and was asserted by a race | draft |  | P3 | S | core/assets |  | 2026-09-03 |
 | [`ASSET-TO-OVERRIDE-SOURCE-INCONSISTENT`](issues/ASSET-TO-OVERRIDE-SOURCE-INCONSISTENT.md) | issue | AssetManager::to_override turns a stored-only Source into a recipe-less Override | draft |  | P3 | S | core/assets |  | 2026-09-27 |
 | [`AXUM-ASSETS-CANCEL-STARTS-EVALUATION`](issues/AXUM-ASSETS-CANCEL-STARTS-EVALUATION.md) | issue | POST /api/assets/cancel starts an evaluation before cancelling it | draft |  | P3 | S | axum |  | 2026-09-27 |
+| [`AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS`](issues/AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS.md) | issue | The Recipes API's metadata and entry endpoints return placeholder metadata and ignore the format | draft |  | P3 | S | axum |  | 2026-09-28 |
+| [`AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN`](issues/AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN.md) | issue | GET /api/store/keys lists only the direct children of the prefix, not all keys | draft |  | P3 | S | axum |  | 2026-09-28 |
+| [`AXUM-STORE-UPLOAD-AND-METADATA-DROP-INFORMATION`](issues/AXUM-STORE-UPLOAD-AND-METADATA-DROP-INFORMATION.md) | issue | Store API uploads carry no media type, and legacy metadata is served as an empty object | draft |  | P3 | S | axum |  | 2026-09-28 |
 | [`COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ`](issues/COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ.md) | issue | CommandMetadata.cache is declared, documented and exported, but nothing reads it | draft |  | P3 | S | core/commands;macro |  | 2026-09-19 |
 | [`CSV-ROW-NUMBERS-COUNT-RECORDS-AND-SHORT-ROWS-READ-AS-NULL`](issues/CSV-ROW-NUMBERS-COUNT-RECORDS-AND-SHORT-ROWS-READ-AS-NULL.md) | issue | CSV errors number records rather than file lines, and a row shorter than the header reads its missing cells as null | draft |  | P3 | S | records | [chunking](specs/design/record-streams/chunking-and-resumability.md)  [engine](specs/design/record-streams/engine-survey.md)  [manifest](specs/design/record-streams/manifest-format.md)  [phase1](specs/design/record-streams/phase1-high-level-design.md)  [phase2](specs/design/record-streams/phase2-architecture.md)  [phase3](specs/design/record-streams/phase3-examples.md)  [phase3](specs/design/record-streams/phase3-tests.md)  [phase4](specs/design/record-streams/phase4-implementation.md)  [phase5](specs/design/record-streams/phase5-documentation.md)  [phase5](specs/design/record-streams/phase5-evidence.md)  [record](specs/design/record-streams/record-model.md)  | 2026-09-27 |
 | [`DESIGNER-INIT-FEATURE-ACCEPTS-FLAGS-AS-NAMES`](issues/DESIGNER-INIT-FEATURE-ACCEPTS-FLAGS-AS-NAMES.md) | issue | Designer init_feature.py treats any argument, including --help, as a feature name | draft |  | P3 | S | docs |  | 2026-09-27 |

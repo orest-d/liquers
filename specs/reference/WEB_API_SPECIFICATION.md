@@ -3,2340 +3,578 @@ title: Liquers Web API Specification
 kind: reference
 audience: internal
 area: [axum, web]
-reviewed: 2026-08-17
+reviewed: 2026-09-28
 ---
 # Liquers Web API Specification
 
-**Version:** 1.0.0
-**Date:** 2026-01-19
-**Status:** Draft
+The HTTP and WebSocket interface of `liquers-axum`, as implemented at HEAD. Every route, shape and
+status code below is checked against the code and exercised by the route suites in
+`liquers-axum/tests/` (`store_api_routes.rs`, `assets_api_endpoints.rs`, `assets_websocket.rs`,
+`recipes_api_routes.rs`, `query_api_routes.rs`). The design of the Assets API is
+`specs/design/axum-assets-endpoints/`.
 
 ## Table of Contents
 
 1. [Overview](#1-overview)
-2. [Design Principles](#2-design-principles)
-3. [Error Handling](#3-error-handling)
-4. [Store API Module](#4-store-api-module)
-5. [Assets API Module](#5-assets-api-module)
-6. [Recipes API Module](#6-recipes-api-module)
-7. [Query Execution API](#7-query-execution-api)
-8. [Generic Library Design](#8-generic-library-design)
-9. [Authentication & Authorization](#9-authentication--authorization)
-10. [Axum Implementation](#10-axum-implementation)
+2. [Conventions](#2-conventions)
+3. [Errors](#3-errors)
+4. [Store API](#4-store-api)
+5. [Assets API](#5-assets-api)
+6. [Recipes API](#6-recipes-api)
+7. [Query API](#7-query-api)
+8. [Assembling a server](#8-assembling-a-server)
+9. [Access control](#9-access-control)
+10. [Implementation notes](#10-implementation-notes)
+- [Appendix A: Migration from Python liquer](#appendix-a-migration-from-python-liquer)
+- [Appendix B: Not implemented](#appendix-b-not-implemented)
 
 ---
 
 ## 1. Overview
 
-The Liquers Web API provides HTTP and WebSocket interfaces to liquers services, enabling query execution, data storage, asset management, and recipe handling. The API is designed as an embeddable library that can be integrated into existing Rust applications.
+`liquers-axum` provides four independent route builders, each generic over the `Environment` type
+`E` and producing an `axum::Router<EnvRef<E>>`:
 
-### 1.1 Core Services
+| Builder | Conventional base path | Serves |
+|---|---|---|
+| `StoreApiBuilder` | `/liquer/api/store` | the environment's `AsyncStore`, key by key |
+| `AssetsApiBuilder` | `/liquer/api/assets` | the `AssetManager`: evaluation, observation, keyed mutations, WebSocket notifications |
+| `RecipesApiBuilder` | `/liquer/api/recipes` | the `AsyncRecipeProvider`, read-only |
+| `QueryApiBuilder` | `/liquer/q` | one-shot query evaluation |
 
-- **Store API** (`/api/store`): Persistent data storage with directory structure support
-- **Assets API** (`/api/assets`): Asset lifecycle management with real-time notifications
-- **Recipes API** (`/api/recipes`): Recipe definition and resolution
-- **Query Execution** (`/q`): Synchronous query evaluation
-
-### 1.2 Key Features
-
-- **Modular Architecture**: Each service module can be used independently
-- **Generic Environment**: Support for custom `Environment`, `Value`, and `Payload` types
-- **First-Class Support**: Built-in optimizations for `liquers-lib` types
-- **Framework Agnostic**: Core logic separates from web framework specifics
-- **Real-time Updates**: WebSocket support for asset notifications
+Base paths are chosen by the caller; nothing is mounted by default. A server merges the routers it
+wants and supplies the environment as state (§8).
 
 ---
 
-## 2. Design Principles
+## 2. Conventions
 
-### 2.1 API Structure
+### 2.1 Addressing
 
-All API endpoints are prefixed with a configurable base path (default: `/liquer`):
+Resources are addressed by path, never by query string: `GET /liquer/api/store/data/path/to/file.txt`.
+Routes end in an axum 0.8 wildcard (`{*key}`, `{*query}`), so the address may contain `/`.
 
-```
-/liquer/
-├── q/                    # Query execution
-├── api/
-│   ├── store/           # Store operations
-│   ├── assets/          # Asset management
-│   └── recipes/         # Recipe operations
-└── ws/
-    └── assets/          # Asset notification WebSocket
-```
+Two kinds of address are used, and each route family parses exactly one:
 
-### 2.2 Path-Based Resource Identification
+- a **key** (`notes/a.txt`) is parsed with `parse_key`. It names a stored or recipe-declared
+  resource and carries no `-R/` prefix; a query-syntax path on a key route is a `ParseError` (400).
+- a **query** (`make_text/upper`, `-R/notes/a.txt/-/upper`) is parsed with `parse_query`. A query
+  may or may not be keyed.
 
-Resources are identified using path segments rather than query strings:
+### 2.2 The response envelope
 
-```
-✅ GET /liquer/api/store/data/path/to/resource
-❌ GET /liquer/api/store/data?path=path/to/resource
-```
-
-### 2.3 Content Negotiation
-
-Response format is determined by:
-1. **Accept header** (if specified)
-2. **Metadata** (primary method, unless overriden by accept header) - see methods get_data_format and get_media_type.
-
-Optionally (though it should not be necessary if metadata are available) the following methods may be used as fallback:
-3. **File extension** in the path (e.g., `.json`, `.yaml`)
-4. **Value type** (default media type for the value) - see `ValueInterface`.
-
-### 2.4 Data and Metadata Access
-
-Each resource type provides separate endpoints for data and metadata:
-
-```
-GET /liquer/api/store/data/{*key}      # Retrieve data only
-GET /liquer/api/store/metadata/{*key}  # Retrieve metadata only
-```
-
-For efficient combined access (optimized for remote implementations), use unified entry endpoints:
-
-```
-GET /liquer/api/store/entry/{*key}      # Retrieve both data and metadata
-POST /liquer/api/store/entry/{*key}     # Set both data and metadata
-```
-
-The entry endpoints use a common `DataEntry` structure (see sections 4.1.13 and 4.1.14) containing only `metadata` and `data` fields. GET requests return standard response format with `result` containing `DataEntry`. POST requests accept `DataEntry` directly in the body. Multiple serialization formats are supported: CBOR (default), bincode, and JSON. When using JSON format, binary data is base64-encoded for efficiency.
-
----
-
-## 3. Error Handling
-
-### 3.1 HTTP Status Codes
-
-The API uses standard HTTP status codes to indicate error categories:
-
-| Status Code | Usage |
-|------------|-------|
-| `200 OK` | Successful operation |
-| `201 Created` | Resource created successfully |
-| `204 No Content` | Successful operation with no response body |
-| `400 Bad Request` | Invalid request syntax or parameters |
-| `404 Not Found` | Resource not found |
-| `409 Conflict` | Resource already exists or conflict with current state |
-| `422 Unprocessable Entity` | Request syntax valid but semantically incorrect |
-| `500 Internal Server Error` | Server-side error during processing |
-| `503 Service Unavailable` | Service temporarily unavailable |
-
-### 3.2 Error Response Format
-
-All error responses include a JSON body with detailed error information:
-
-```json
-{
-  "status": "ERROR",
-  "error": {
-    "type": "KeyNotFound",
-    "message": "Key 'path/to/resource' not found in store",
-    "query": "-R/path/to/resource",
-    "key": "path/to/resource",
-    "traceback": ["at line 42 in module foo", "..."],
-    "metadata": {
-      "store_type": "FileStore",
-      "attempted_path": "/var/data/path/to/resource"
-    }
-  }
-}
-```
-
-#### 3.2.1 Error Response Fields
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `status` | string | Yes | Always `"ERROR"` for error responses |
-| `error.type` | string | Yes | Error type from `liquers_core::error::ErrorType` |
-| `error.message` | string | Yes | Human-readable error description |
-| `error.query` | string | No | The query that caused the error |
-| `error.key` | string | No | The key that was being accessed |
-| `error.traceback` | array | No | Stack trace for debugging |
-| `error.metadata` | object | No | Additional context-specific information |
-
-### 3.3 Error Type Mapping
-
-Mapping from `liquers_core::error::ErrorType` to HTTP status codes:
-
-| ErrorType | HTTP Status | Description |
-|-----------|-------------|-------------|
-| `General` | 500 | Generic server error |
-| `KeyNotFound` | 404 | Resource not found in store |
-| `KeyNotSupported` | 404 | No store serves this key |
-| `KeyNotAbsolute` | 400 | The key is not a store address: some element is `.` or `..` |
-| `KeyAlreadyExists` | 409 | Resource already exists |
-| `ParseError` | 400 | Query parsing failed |
-| `CommandNotFound` | 404 | Command not registered |
-| `ArgumentError` | 400 | Invalid command arguments |
-| `TypeError` | 422 | Type conversion or mismatch |
-| `StoreError` | 500 | Store operation failed |
-| `AssetError` | 500 | Asset management error |
-| `RecipeError` | 422 | Recipe resolution error |
-| `ExecutionError` | 500 | Command execution error |
-| `NotImplemented` | 501 | Feature not implemented |
-| `PermissionDenied` | 403 | Authorization failed |
-| `Timeout` | 504 | Operation timeout |
-
-A maintenance reminder: Keep the error mapping table (section 3.3) synchronized with the `ErrorType` enum in `liquers_core::error`. Any new error types added to the core library must be added to this mapping table with appropriate HTTP status codes. Implementation should include automated tests to catch mismatches.
-
-### 3.4 Success Response Format
-
-Successful operations return a JSON response with consistent structure:
+Every status output — anything that is not a value transfer — is an `ApiResponse`:
 
 ```json
 {
   "status": "OK",
-  "result": { /* operation-specific data */ },
-  "message": "Operation completed successfully",
-  "query": "-R/path/to/resource",
-  "key": "path/to/resource"
+  "result": { },
+  "message": "Asset info",
+  "query": "-R/notes/a.txt",
+  "key": "notes/a.txt"
 }
 ```
 
----
+| Field | Type | Present |
+|---|---|---|
+| `status` | `"OK"` or `"ERROR"` | always |
+| `result` | route-specific | on success |
+| `message` | string | always |
+| `query`, `key` | string | when the route addresses one (the Assets API always sets them; the Store API sets them on errors) |
+| `error` | `ErrorDetail` (§3.2) | on error |
 
-## 4. Store API Module
+**Value transfers are not enveloped:** `data` routes answer the value's bytes; `entry` and
+`recover` routes answer a `DataEntry` in the negotiated format.
 
-The Store API provides operations on the persistent data store.
+### 2.3 Value transfers
 
-### 4.1 Endpoints
+A `data` route answers the value's serialized bytes with:
 
-#### 4.1.1 GET /api/store/data/{*key}
+- `Content-Type`: the value's effective media type (`Metadata::get_media_type`), or
+  `application/octet-stream` when there is none;
+- `X-Liquers-Status`: the asset's status (`Ready`, `Source`, …).
 
-Retrieve raw data for a given key.
-
-**Request:**
-```
-GET /liquer/api/store/data/path/to/resource
-```
-
-**Success Response (200):**
-```
-Content-Type: application/octet-stream
-Content-Disposition: attachment; filename="resource"
-
-[binary data]
-```
-
-**Error Response (404):**
-```json
-{
-  "status": "ERROR",
-  "error": {
-    "type": "KeyNotFound",
-    "message": "Key 'path/to/resource' not found",
-    "key": "path/to/resource"
-  }
-}
-```
-
----
-
-#### 4.1.2 POST /api/store/data/{*key}
-
-Store data at the given key.
-
-**Request:**
-```
-POST /liquer/api/store/data/path/to/resource
-Content-Type: application/octet-stream
-
-[binary data]
-```
-
-**Success Response (201):**
-```json
-{
-  "status": "OK",
-  "result": {
-    "key": "path/to/resource",
-    "size": 1024,
-    "stored": true
-  },
-  "message": "Data stored successfully",
-  "key": "path/to/resource"
-}
-```
-
-**Error Response (409):**
-```json
-{
-  "status": "ERROR",
-  "error": {
-    "type": "KeyAlreadyExists",
-    "message": "Key 'path/to/resource' already exists",
-    "key": "path/to/resource"
-  }
-}
-```
-
----
-
-#### 4.1.3 GET /api/store/metadata/{*key}
-
-Retrieve metadata for a given key.
-
-**Request:**
-```
-GET /liquer/api/store/metadata/path/to/resource
-```
-
-**Success Response (200):**
-```json
-{
-  "status": "OK",
-  "result": {
-    "key": "path/to/resource",
-    "status": "Ready",
-    "type_identifier": "application/json",
-    "message": "Data ready",
-    "timestamp": "2026-01-19T12:34:56Z",
-    "query": null,
-    "position": {},
-    "traceback": null
-  },
-  "message": "Metadata retrieved",
-  "key": "path/to/resource"
-}
-```
-
-REVIEW NOTE: "result" will be a JSON-serialized version of `MetadataRecord` or legacy metadata JSON structure (typically an older version of MetadataRecord that failed to deserialize).
-
-**CHANGE SUMMARY**: Clarified metadata response format:
-- Primary format: JSON serialization of `liquers_core::metadata::MetadataRecord` structure
-- Fallback: Legacy metadata JSON for backward compatibility with older metadata that can't be deserialized as `MetadataRecord`
-- `MetadataRecord` fields include: `log`, `query`, `key`, `status`, `type_identifier`, `data_format`, `media_type`, `message`, `timestamp`, `position`, `traceback`, `primary_progress`, `secondary_progress`, `title`, `tags`, `icon`
-- Implementation should attempt to deserialize as `MetadataRecord` first, fall back to raw JSON value on failure 
-
----
-
-#### 4.1.4 POST /api/store/metadata/{*key}
-
-Update metadata for a given key.
-
-**Request:**
-```
-POST /liquer/api/store/metadata/path/to/resource
-Content-Type: application/json
-
-{
-  "status": "Ready",
-  "message": "Custom status message"
-}
-```
-
-**Success Response (200):**
-```json
-{
-  "status": "OK",
-  "result": {
-    "updated": true
-  },
-  "message": "Metadata updated",
-  "key": "path/to/resource"
-}
-```
-
----
-
-#### 4.1.5 DELETE /api/store/data/{*key}
-
-Remove data at the given key.
-
-**Request:**
-```
-DELETE /liquer/api/store/data/path/to/resource
-```
-
-REVIEW NOTE: All the store methods should be callable as REST GET. Thus this would be equivalent to GET /liquer/api/store/remove/path/to/resource
-
-**CHANGE SUMMARY**: Added GET-based method endpoints as alternatives to RESTful HTTP verbs:
-- All store operations can be invoked via `GET /api/store/{method}/{*key}` pattern for backward compatibility with Python liquer
-- Examples: `GET /api/store/remove/{*key}`, `GET /api/store/removedir/{*key}`, `GET /api/store/makedir/{*key}`
-- Destructive operations (remove, removedir, set) can be disabled via builder configuration for security
-- Both RESTful (DELETE, PUT, POST) and GET-based methods are supported
-- GET-based methods added to section 4.1 alongside RESTful equivalents
-- Builder pattern allows `StoreApiBuilder::with_safe_methods_only()` to disable destructive GET operations
-
-
-**Success Response (200):**
-```json
-{
-  "status": "OK",
-  "result": {
-    "removed": true
-  },
-  "message": "Resource removed",
-  "key": "path/to/resource"
-}
-```
-
-**Error Response (404):**
-```json
-{
-  "status": "ERROR",
-  "error": {
-    "type": "KeyNotFound",
-    "message": "Key 'path/to/resource' not found",
-    "key": "path/to/resource"
-  }
-}
-```
-
----
-
-#### 4.1.6 GET /api/store/contains/{*key}
-
-Check if a key exists in the store.
-
-**Request:**
-```
-GET /liquer/api/store/contains/path/to/resource
-```
-
-**Success Response (200):**
-```json
-{
-  "status": "OK",
-  "result": {
-    "contains": true
-  },
-  "message": "Key exists",
-  "key": "path/to/resource"
-}
-```
-
----
-
-#### 4.1.7 GET /api/store/is_dir/{*key}
-
-Check if a key represents a directory.
-
-**Request:**
-```
-GET /liquer/api/store/is_dir/path/to/dir
-```
-
-**Success Response (200):**
-```json
-{
-  "status": "OK",
-  "result": {
-    "is_dir": true
-  },
-  "message": "Key is a directory",
-  "key": "path/to/dir"
-}
-```
-
----
-
-#### 4.1.8 GET /api/store/listdir/{*key}
-
-List contents of a directory.
-
-**Request:**
-```
-GET /liquer/api/store/listdir/path/to/dir
-```
-
-**Success Response (200):**
-```json
-{
-  "status": "OK",
-  "result": {
-    "keys": [
-      "path/to/dir/file1.txt",
-      "path/to/dir/file2.json",
-      "path/to/dir/subdir"
-    ]
-  },
-  "message": "Directory listing retrieved",
-  "key": "path/to/dir"
-}
-```
-
----
-
-#### 4.1.9 GET /api/store/keys
-
-List all keys in the store (optionally with prefix filter).
-
-**Request:**
-```
-GET /liquer/api/store/keys?prefix=path/to
-```
-
-**Query Parameters:**
-- `prefix` (optional): Filter keys by prefix
-
-**Success Response (200):**
-```json
-{
-  "status": "OK",
-  "result": {
-    "keys": [
-      "path/to/resource1",
-      "path/to/resource2",
-      "path/to/dir/file"
-    ],
-    "total": 3
-  },
-  "message": "Keys retrieved"
-}
-```
-
----
-
-#### 4.1.10 PUT /api/store/makedir/{*key}
-
-Create a directory at the given key.
-
-**Request:**
-```
-PUT /liquer/api/store/makedir/path/to/newdir
-```
-
-**Success Response (201):**
-```json
-{
-  "status": "OK",
-  "result": {
-    "created": true
-  },
-  "message": "Directory created",
-  "key": "path/to/newdir"
-}
-```
-
----
-
-#### 4.1.11 DELETE /api/store/removedir/{*key}
-
-Remove a directory (must be empty or recursive flag set).
-
-REVIEW NOTE: Equivalent to DELETE /api/store/data/{*key} if key is a directory.
-
-**CHANGE SUMMARY**: Clarified that `removedir` is semantically equivalent to deleting data at a directory key:
-- `DELETE /api/store/removedir/{*key}` is equivalent to `DELETE /api/store/data/{*key}` when key is a directory
-- Also available as `GET /api/store/removedir/{*key}` for compatibility
-- The dedicated `removedir` endpoint provides explicit directory handling with the `recursive` parameter
-- Implementations should validate that the key represents a directory before removal
-- If key is not a directory, return 400 Bad Request with appropriate error message
-
-**Request:**
-```
-DELETE /liquer/api/store/removedir/path/to/dir?recursive=true
-```
-
-**Query Parameters:**
-- `recursive` (optional, default: `false`): Remove directory recursively
-
-**Success Response (200):**
-```json
-{
-  "status": "OK",
-  "result": {
-    "removed": true
-  },
-  "message": "Directory removed",
-  "key": "path/to/dir"
-}
-```
-
----
-
-#### 4.1.12 POST /api/store/upload/{*key}
-
-Upload file(s) to the store (multipart form data).
-
-**Request:**
-```
-POST /liquer/api/store/upload/path/to/target
-Content-Type: multipart/form-data; boundary=----WebKitFormBoundary
-
-------WebKitFormBoundary
-Content-Disposition: form-data; name="file"; filename="data.json"
-Content-Type: application/json
-
-{ "key": "value" }
-------WebKitFormBoundary--
-```
-
-**Success Response (201):**
-```json
-{
-  "status": "OK",
-  "result": {
-    "uploaded": [
-      {
-        "filename": "data.json",
-        "key": "path/to/target/data.json",
-        "size": 16
-      }
-    ]
-  },
-  "message": "Files uploaded successfully",
-  "key": "path/to/target"
-}
-```
-
----
-
-#### 4.1.13 GET /api/store/entry/{*key}
-
-Retrieve both data and metadata in a single unified structure (optimized for remote store implementations).
-
-**DataEntry Structure:**
-
-The `result` field contains a `DataEntry` structure with the following fields:
+An `entry` route answers a `DataEntry`:
 
 ```rust
 pub struct DataEntry {
-    pub metadata: serde_json::Value,   // MetadataRecord or LegacyMetadata serialized to JSON Value
-    pub data: Vec<u8>,                 // Binary data (base64-encoded when serialized to JSON)
+    pub metadata: serde_json::Value, // the MetadataRecord as JSON (a legacy document as it is)
+    pub data: Vec<u8>,               // base64 in JSON, raw bytes in CBOR and bincode
 }
 ```
 
-**Note:** When using JSON format, the `data` field is automatically base64-encoded for efficiency. CBOR and bincode formats handle binary data natively without encoding overhead.
+The format is chosen by `?format=cbor|bincode|json` first, then the `Accept` header
+(`application/cbor`, `application/x-bincode`, `application/json`; no quality values), then CBOR.
+The response `Content-Type` names the format. A request carrying a `DataEntry` is decoded by
+`?format=` first, then its `Content-Type`, then CBOR.
 
-**Request:**
-```
-GET /liquer/api/store/entry/path/to/resource?format=cbor
-Accept: application/cbor
-```
+---
 
-**Format Selection:**
-The serialization format can be specified via:
-1. URL query parameter: `?format=cbor` (takes precedence)
-2. Accept header: `Accept: application/cbor`
-3. Default: CBOR if neither is specified
+## 3. Errors
 
-**Supported Formats:**
-- `cbor` → `application/cbor` (default, most efficient)
-- `bincode` → `application/x-bincode`
-- `json` → `application/json`
+### 3.1 Status codes
 
-**Success Response (200) - CBOR format:**
-```
-HTTP/1.1 200 OK
-Content-Type: application/cbor
+An error's HTTP status follows its `liquers_core::error::ErrorType`
+(`liquers-axum/src/api_core/error.rs`, `error_to_status_code`, matched exhaustively):
 
-[CBOR-encoded response with status, message, error, and result containing DataEntry]
-```
+| HTTP | ErrorType |
+|---|---|
+| 400 | `ParseError`, `ParameterError`, `ArgumentMissing`, `TooManyParameters`, `UnknownCommand`, `ActionNotRegistered`, `KeyNotAbsolute` |
+| 404 | `KeyNotFound`, `KeyNotSupported`, `NotAvailable` |
+| 409 | `StatusConflict`, `CommandAlreadyRegistered`, `DependencyVersionMismatch`, `DependencyCycle` |
+| 422 | `ConversionError`, `SerializationError` |
+| 499 | `Cancelled` (client closed request; 503 where 499 cannot be represented) |
+| 500 | `General`, `ExecutionError`, `UnexpectedError`, `KeyReadError`, `KeyWriteError` |
+| 501 | `NotSupported`, `CacheNotSupported` |
 
-**Success Response (200) - JSON format:**
-```json
-{
-  "status": "OK",
-  "message": "Data and metadata retrieved",
-  "error": null,
-  "key": "path/to/resource",
-  "result": {
-    "metadata": {
-      "key": "path/to/resource",
-      "status": "Ready",
-      "type_identifier": "application/json",
-      "data_format": "json",
-      "timestamp": "2026-01-20T10:30:00Z"
-    },
-    "data": "eyJrZXkiOiAidmFsdWUifQ=="
-  }
-}
-```
+- `KeyNotAbsolute` (400) and `KeyNotSupported` (404) are deliberately distinct: a key containing
+  `.` or `..` is a malformed address, a key no store serves is an unrouted one.
+- `StatusConflict` (409) means the operation exists but not for the asset's current status:
+  removing a directory, expiring a `Source`, describing a computed value.
+- The status is derived from the `error.type` string (`parse_error_type`); a type string that does
+  not name an `ErrorType` gives 500. When a variant is added to `ErrorType`, both functions in
+  `api_core/error.rs` gain an arm; the test `keyabs15b` round-trips every variant.
 
-**Metadata Field:**
-The `metadata` field is always a `serde_json::Value` containing:
-- `MetadataRecord` serialized to JSON Value (preferred)
-- `LegacyMetadata` as JSON Value (fallback for compatibility)
+Routes that are not registered, or methods a registered path does not serve, get axum's own
+**404** and **405** with an empty body.
 
-This ensures forward/backward compatibility when `MetadataRecord` structure changes between client and server versions.
+### 3.2 Error body
 
-**Error Response (404):**
 ```json
 {
   "status": "ERROR",
-  "message": "Key not found: path/to/missing",
-  "error": {
-    "status": "ERROR",
-    "message": "Key not found: path/to/missing",
-    "error_type": "KeyNotFound",
-    "details": {},
-    "timestamp": "2026-01-20T10:30:00Z"
-  },
-  "key": "path/to/missing",
-  "result": null
-}
-```
-
----
-
-#### 4.1.14 POST /api/store/entry/{*key}
-
-Set both data and metadata in a single unified structure (optimized for remote store implementations).
-
-**Request Body:**
-The request body contains a `DataEntry` structure (see section 4.1.13) with only two fields:
-
-```rust
-pub struct DataEntry {
-    pub metadata: serde_json::Value,   // MetadataRecord or LegacyMetadata serialized to JSON Value
-    pub data: Vec<u8>,                 // Binary data (base64-encoded when serialized to JSON)
-}
-```
-
-**Request (CBOR format):**
-```
-POST /liquer/api/store/entry/path/to/resource?format=cbor
-Content-Type: application/cbor
-
-[CBOR-encoded DataEntry structure]
-```
-
-**Request (JSON format):**
-```
-POST /liquer/api/store/entry/path/to/resource?format=json
-Content-Type: application/json
-
-{
-  "metadata": {
-    "status": "Ready",
-    "type_identifier": "application/json",
-    "data_format": "json"
-  },
-  "data": "eyJrZXkiOiAidmFsdWUifQ=="
-}
-```
-
-**Format Support:**
-- URL parameter `?format=cbor` or Content-Type header determines format
-- Same format options as GET: cbor, bincode, json
-
-**Success Response (201):**
-```json
-{
-  "status": "OK",
-  "message": "Data and metadata stored",
-  "error": null,
-  "key": "path/to/resource",
-  "result": {
-    "metadata": {
-      "key": "path/to/resource",
-      "status": "Ready",
-      "type_identifier": "application/json",
-      "data_format": "json",
-      "timestamp": "2026-01-20T10:35:00Z"
-    },
-    "data": ""
-  }
-}
-```
-
-**Error Response (400):**
-```json
-{
-  "status": "ERROR",
-  "message": "Invalid metadata format",
-  "error": {
-    "status": "ERROR",
-    "message": "Invalid metadata format",
-    "error_type": "ValidationError",
-    "details": {},
-    "timestamp": "2026-01-20T10:35:00Z"
-  },
-  "key": "path/to/resource",
-  "result": null
-}
-```
-
----
-
-#### 4.1.15 DELETE /api/store/data/{*key}
-
-Remove resource at the specified key (file or directory).
-
-**Request:**
-```
-DELETE /liquer/api/store/data/path/to/resource
-```
-
-**Success Response (200):**
-```json
-{
-  "status": "OK",
-  "message": "Resource removed",
-  "key": "path/to/resource",
-  "result": {
-    "removed": true
-  }
-}
-```
-
----
-
-#### 4.1.16 DELETE /api/store/entry/{*key}
-
-Remove resource (equivalent to DELETE /api/store/data).
-
-**Request:**
-```
-DELETE /liquer/api/store/entry/path/to/resource
-```
-
-**Success Response (200):**
-```json
-{
-  "status": "OK",
-  "message": "Resource removed",
-  "key": "path/to/resource",
-  "result": {
-    "removed": true
-  }
-}
-```
-
-**Note:** This endpoint is semantically equivalent to `DELETE /api/store/data/{*key}`.
-
----
-
-### 4.2 Store Module Trait
-
-The Store API module is implemented as a generic builder that accepts any `Environment`:
-
-```rust
-pub struct StoreApiBuilder<E: Environment> {
-    base_path: String,
-    _phantom: PhantomData<E>,
-}
-
-impl<E: Environment> StoreApiBuilder<E> {
-    pub fn new(base_path: impl Into<String>) -> Self;
-    pub fn build<R>(self) -> R where R: Router<E>;
-}
-```
-
----
-
-## 5. Assets API Module
-
-The Assets API provides access to managed assets with lifecycle tracking and real-time notifications.
-
----
-
-### 5.0 Comparison with Store API
-
-The following table summarizes the key differences between the Assets API and Store API:
-
-| Aspect | Store API | Assets API |
-|--------|-----------|------------|
-| **Resource Identifier** | Key (path-like string) | Query (may include commands) |
-| **Example Path** | `/api/store/data/path/to/file.ext` | `/api/assets/data/-R/path/to/-/cmd-arg/file.ext` |
-| **Data Source** | Pre-existing stored files | On-demand computation or cache |
-| **Lifecycle** | Static (no state changes) | Dynamic (status transitions) |
-| **Status Values** | Implicit (exists or not) | Explicit (None, Recipe, Processing, Ready, Error, etc.) |
-| **Metadata Complexity** | Minimal (basic info) | Rich (logs, progress, traceback) |
-| **Progress Tracking** | Not applicable | Primary & secondary progress |
-| **Real-time Updates** | No notifications | WebSocket notifications |
-| **Write Operations** | Yes (POST, DELETE) | Limited (POST entry to set Source/Override assets) |
-| **Directory Support** | Yes | Yes (via listdir) |
-| **Recipe Integration** | No | Yes (query resolution) |
-| **Computation Trigger** | N/A | May trigger on access |
-| **Caching** | Not applicable | Managed by AssetManager |
-| **Concurrent Access** | File-level locking | Asset-level lifecycle management |
-
-**When to use Store API:**
-- Direct file storage and retrieval
-- Static data that doesn't change frequently
-- Simple key-based access patterns
-- When you need write/delete operations
-
-**When to use Assets API:**
-- Computed/derived data from queries
-- Data with complex processing pipelines
-- When you need progress tracking
-- Real-time status updates required
-- Recipe-based data generation
-
----
-
-### 5.0.1 Endpoint Comparison Table
-
-The following table shows all endpoints across Store API, Assets API, and Recipes API, with analogous endpoints aligned in rows:
-
-| Method | Store API | Assets API | Recipes API | Description |
-|--------|-----------|------------|-------------|-------------|
-| GET | `/api/store/data/{*key}` | `/api/assets/data/{*query}` | `/api/recipes/data/{*key}` | Retrieve resource data only |
-| GET | `/api/store/metadata/{*key}` | `/api/assets/metadata/{*query}` | `/api/recipes/metadata/{*key}` | Retrieve resource metadata only |
-| GET | `/api/store/listdir/{*key}` | `/api/assets/listdir/{*query}` | `/api/recipes/listdir` | List resources in directory/namespace |
-| GET | `/api/store/entry/{*key}` | `/api/assets/entry/{*query}` | `/api/recipes/entry/{*key}` | Retrieve both data and metadata (efficient combined access) |
-| POST | `/api/store/entry/{*key}` | `/api/assets/entry/{*query}` | — | Set both data and metadata (efficient combined write) |
-| POST | `/api/store/data/{*key}` | `/api/assets/data/{*query}` | — | Store data at key/query |
-| POST | `/api/store/metadata/{*key}` | `/api/assets/metadata/{*query}` | — | Store metadata at key/query |
-| DELETE | `/api/store/data/{*key}` | `/api/assets/data/{*query}` | — | Remove resource (file/directory or cached asset value) |
-| DELETE | `/api/store/entry/{*key}` | `/api/assets/entry/{*query}` | — | Remove resource (same as DELETE data) |
-| GET | `/api/store/remove/{*key}` | `/api/assets/remove/{*query}` | — | Remove resource (GET-based alternative) |
-| GET | `/api/store/makedir/{*key}` | — | — | Create directory |
-| DELETE | `/api/store/removedir/{*key}` | — | — | Remove directory (explicit endpoint) |
-| GET | `/api/store/removedir/{*key}` | — | — | Remove directory (GET-based alternative) |
-| POST | `/api/store/upload/{*key}` | — | — | Upload files via multipart form data |
-| GET | — | — | `/api/recipes/resolve/{*key}` | Resolve recipe to execution plan |
-| POST | — | `/api/assets/cancel/{*query}` | — | Cancel running asset computation |
-| WebSocket | — | `/ws/assets/{*query}` | — | Subscribe to real-time asset notifications |
-
-**Notes:**
-- Store API uses `{*key}` path parameter (path-like string)
-- Assets API uses `{*query}` path parameter (may include commands)
-- Recipes API uses `{*key}` path parameter (path-like string, same as Store API)
-- GET-based write operations (remove, makedir, removedir) can be disabled via builder configuration
-- WebSocket endpoint is unique to Assets API for real-time status updates
-- **DELETE behavior for Assets API:** Deleting an asset with a recipe (via DELETE data or DELETE entry) removes only the cached value, not the recipe definition. The asset status returns to `Status::Recipe`, allowing re-computation on next access.
-- **DELETE entry semantics:** DELETE entry is equivalent to DELETE data for both Store and Assets APIs
-
----
-
-### 5.1 HTTP Endpoints
-
-#### 5.1.1 GET /api/assets/data/{*query}
-
-Retrieve asset data with embedded metadata.
-
-**Request:**
-```
-GET /liquer/api/assets/data/path/to-text/some/query
-```
-
-**Success Response (200):**
-```json
-{
-  "status": "OK",
-  "result": {
-    "data": "base64encodeddata...",
-    "metadata": {
-      "key": "path/to-text/some/query",
-      "status": "Ready",
-      "type_identifier": "text/plain",
-      "message": "Asset ready",
-      "timestamp": "2026-01-19T12:34:56Z"
-    }
-  },
-  "message": "Asset retrieved",
-  "query": "/path/to-text/some/query"
-}
-```
-
-**Alternative Response (Binary):**
-```
-HTTP/1.1 200 OK
-Content-Type: text/plain
-X-Liquers-Status: Ready
-X-Liquers-Key: path/to-text/some/query
-
-[asset data]
-```
-
----
-
-#### 5.1.2 GET /api/assets/metadata/{*query}
-
-Retrieve asset metadata only.
-
-**Request:**
-```
-GET /liquer/api/assets/metadata/path/to/some/query
-```
-
-**Success Response (200):**
-```json
-{
-  "status": "OK",
-  "result": {
-    "key": "path/to/some/query",
-    "status": "Processing",
-    "type_identifier": "application/json",
-    "message": "Processing in progress",
-    "timestamp": "2026-01-19T12:34:56Z",
-    "primary_progress": {
-      "message": "Processing items",
-      "done": 42,
-      "total": 100,
-      "timestamp": "2026-01-19T12:34:55Z",
-      "eta": "2026-01-19T12:35:30Z"
-    },
-    "secondary_progress": null
-  },
-  "message": "Metadata retrieved",
-  "query": "/path/to/some/query"
-}
-```
-
----
-
-#### 5.1.3 GET /api/assets/listdir/{*query}
-
-List assets in a directory (query must resolve to directory).
-
-**Request:**
-```
-GET /liquer/api/assets/listdir/path/to/dir
-```
-
-**Success Response (200):**
-```json
-{
-  "status": "OK",
-  "result": {
-    "assets": [
-      {
-        "key": "path/to/dir/asset1",
-        "status": "Ready"
-      },
-      {
-        "key": "path/to/dir/asset2",
-        "status": "Processing"
-      }
-    ]
-  },
-  "message": "Assets listed",
-  "query": "/path/to/dir"
-}
-```
-
----
-
-#### 5.1.4 POST /api/assets/data/{*query}
-
-Store asset data directly (bypasses computation, sets asset as externally sourced).
-
-**Request:**
-```
-POST /liquer/api/assets/data/path/to/query
-Content-Type: application/json
-
-{"result": "data"}
-```
-
-**Success Response (201):**
-```json
-{
-  "status": "OK",
-  "message": "Asset data stored",
-  "query": "/path/to/query",
-  "result": {
-    "stored": true
-  }
-}
-```
-
-**Asset Status:**
-When data is successfully stored, the asset status is changed to `Source` (externally set asset).
-
-**Implementation Note:**
-This endpoint requires `AssetManager::set()` or similar implementation. May return NotImplemented error until fully implemented.
-
----
-
-#### 5.1.5 POST /api/assets/metadata/{*query}
-
-Store asset metadata directly.
-
-**Request:**
-```
-POST /liquer/api/assets/metadata/path/to/query
-Content-Type: application/json
-
-{
-  "status": "Ready",
-  "type_identifier": "application/json",
-  "message": "Externally set metadata"
-}
-```
-
-**Success Response (201):**
-```json
-{
-  "status": "OK",
-  "message": "Asset metadata stored",
-  "query": "/path/to/query",
-  "result": {
-    "stored": true
-  }
-}
-```
-
----
-
-#### 5.1.6 DELETE /api/assets/data/{*query}
-
-Remove cached asset value. If the asset has an associated recipe, the recipe is not deleted - only the cached value is removed, and the asset status returns to `Status::Recipe`.
-
-**Request:**
-```
-DELETE /liquer/api/assets/data/path/to/query
-```
-
-**Success Response (200):**
-```json
-{
-  "status": "OK",
-  "message": "Asset value removed",
-  "query": "/path/to/query",
-  "result": {
-    "removed": true,
-    "new_status": "Recipe"
-  }
-}
-```
-
-**Behavior:**
-- **Asset with recipe:** Cached value removed, status returns to `Status::Recipe`, asset can be recomputed on next access
-- **Asset without recipe:** Asset removed entirely, status becomes `Status::None`
-
----
-
-#### 5.1.7 DELETE /api/assets/entry/{*query}
-
-Remove cached asset value (equivalent to DELETE /api/assets/data).
-
-**Request:**
-```
-DELETE /liquer/api/assets/entry/path/to/query
-```
-
-**Success Response (200):**
-```json
-{
-  "status": "OK",
-  "message": "Asset value removed",
-  "query": "/path/to/query",
-  "result": {
-    "removed": true,
-    "new_status": "Recipe"
-  }
-}
-```
-
-**Note:** This endpoint is semantically equivalent to `DELETE /api/assets/data/{*query}`.
-
----
-
-#### 5.1.7.1 POST /api/assets/cancel/{*query}
-
-Cancel an asset that is currently being evaluated. This endpoint initiates cancellation of a running computation.
-
-**Request:**
-```
-POST /liquer/api/assets/cancel/path/to/query
-```
-
-**Cancellation Flow:**
-
-When cancellation is requested:
-1. The `cancelled` flag is set on the asset to prevent orphaned writes
-2. A `Cancel` message is sent to the asset's service channel
-3. The asset status transitions to `Cancelled` (or remains in current state if already finished)
-4. Any pending store write operations are silently dropped
-
-**Success Response (200) - Cancellation initiated:**
-```json
-{
-  "status": "OK",
-  "message": "Cancellation initiated",
-  "query": "/path/to/query",
-  "result": {
-    "cancelled": true,
-    "previous_status": "Processing"
-  }
-}
-```
-
-**Success Response (200) - Asset not in cancellable state:**
-```json
-{
-  "status": "OK",
-  "message": "Asset not in cancellable state",
-  "query": "/path/to/query",
-  "result": {
-    "cancelled": false,
-    "current_status": "Ready"
-  }
-}
-```
-
-**Cancellable States:**
-
-Assets can only be cancelled when in one of these statuses:
-- `Submitted` - Job has been submitted but not started
-- `Dependencies` - Waiting for dependencies to resolve
-- `Processing` - Actively being computed
-
-Assets in other states (e.g., `Ready`, `Error`, `None`, `Recipe`) are not cancellable.
-
-**Error Response (404) - Asset not found:**
-```json
-{
-  "status": "ERROR",
+  "message": "Failed to get asset",
+  "key": "notes/a.txt",
   "error": {
     "type": "KeyNotFound",
-    "message": "Asset 'path/to/query' not found",
-    "query": "/path/to/query"
+    "message": "Key not found: 'notes/a.txt'",
+    "key": "notes/a.txt"
   }
 }
 ```
 
-**Cancel Safety:**
+| Field | Type | Required |
+|---|---|---|
+| `error.type` | the `ErrorType` name | yes |
+| `error.message` | string | yes |
+| `error.query`, `error.key` | string | when the error names one |
+| `error.traceback` | array of strings | only the Store API's `upload` fills it |
+| `error.metadata` | object | never filled today |
 
-This endpoint implements cancel-safety to prevent race conditions:
-- Once cancelled, any `ValueProduced` events from orphaned tasks are ignored
-- Store write operations check the `cancelled` flag before writing
-- This ensures that a `set()` or `set_state()` operation following cancellation is not overwritten by an orphaned task
-
-**Implementation Note:**
-
-This endpoint requires `AssetRef::cancel_evaluation()` method from `liquers_core::assets`.
-The method sets the `cancelled` flag, sends the cancel signal, and waits for acknowledgment with a configurable timeout.
+The top-level `message` says what the route was doing; `error.message` says what went wrong.
 
 ---
 
-#### 5.1.8 GET /api/assets/entry/{*query}
+## 4. Store API
 
-Retrieve both asset data and metadata in a single unified structure (uses same `DataEntry` structure as Store API).
+`StoreApiBuilder::new(base).build()`. The store is `Environment::get_async_store()`; keys are
+parsed with `parse_key`.
 
-**DataEntry Structure:**
+| Method and path | Result |
+|---|---|
+| `GET data/{*key}` | the bytes (§2.3); metadata from the store, default metadata if it has none |
+| `PUT data/{*key}` | the key as a string; the body is stored with the key's existing metadata (default if none) |
+| `DELETE data/{*key}` | the key as a string |
+| `GET metadata/{*key}` | the `MetadataRecord` as JSON (`{}` for legacy metadata — `AXUM-STORE-UPLOAD-AND-METADATA-DROP-INFORMATION`) |
+| `PUT metadata/{*key}` | the key as a string; body: a metadata JSON document (`Metadata::from_json_value`; a document that does not parse is a 422 `SerializationError`) |
+| `GET entry/{*key}` | a negotiated `DataEntry` (§2.3; legacy metadata as `{}`) |
+| `PUT entry/{*key}` | the key as a string; body: a `DataEntry` (422 `SerializationError` when it or its metadata does not decode) |
+| `DELETE entry/{*key}` | as `DELETE data` |
+| `GET listdir/{*key}` | array of the keys directly in the directory |
+| `GET is_dir/{*key}` | `true` or `false` |
+| `GET contains/{*key}` | `true` or `false` |
+| `GET keys[?prefix=…]` | array of the keys directly in the prefix directory (root by default) — the same as `listdir`, not every key under it (`AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN`) |
+| `PUT makedir/{*key}` | the key as a string |
+| `DELETE removedir/{*key}` | the key as a string; removes the directory and everything in it (`AsyncStore::removedir`) |
+| `POST upload/{*key}` | `{uploaded: [keys], errors?: [messages]}`; `multipart/form-data`, each file part stored at `{key}/{filename}` with default metadata; if every part fails, 500 `KeyWriteError` with the messages in `error.traceback` |
 
-See section 4.1.13 for complete `DataEntry` structure definition. The structure is identical for both Store and Assets APIs.
+All successes are 200. Errors are those of the store (§3.1).
 
-**Request:**
-```
-GET /liquer/api/assets/entry/path/to-cmd/some/query?format=cbor
-Accept: application/cbor
-```
-
-**Format Selection:**
-Same as Store API (see section 4.1.13):
-1. URL query parameter: `?format=cbor` (takes precedence)
-2. Accept header: `Accept: application/cbor`
-3. Default: CBOR if neither is specified
-
-**Success Response (200) - JSON format:**
-```json
-{
-  "status": "OK",
-  "message": "Asset data and metadata retrieved",
-  "error": null,
-  "query": "/path/to-cmd/some/query",
-  "result": {
-    "metadata": {
-      "key": "path/to-cmd/some/query",
-      "query": "/path/to-cmd/some/query",
-      "status": "Ready",
-      "type_identifier": "application/json",
-      "data_format": "json",
-      "message": "Asset ready",
-      "timestamp": "2026-01-20T10:30:00Z",
-      "primary_progress": null,
-      "secondary_progress": null
-    },
-    "data": "eyJyZXN1bHQiOiAiZGF0YSJ9"
-  }
-}
-```
-
-**Asset Status Integration:**
-- If asset status is `Processing`, response is returned immediately with current metadata
-- If asset status is `Error`, response has `status: "ERROR"` with error details in `error` field
-- If asset status is `None` or `Dependencies`, asset computation may be triggered
-
-**Error Response (when asset computation fails):**
-```json
-{
-  "status": "ERROR",
-  "message": "Asset computation failed",
-  "error": {
-    "status": "ERROR",
-    "message": "Command 'cmd' failed: invalid argument",
-    "error_type": "ExecutionError",
-    "details": {
-      "command": "cmd",
-      "traceback": ["line 1", "line 2"]
-    },
-    "timestamp": "2026-01-20T10:30:00Z"
-  },
-  "query": "/path/to/query",
-  "result": {
-    "metadata": {
-      "key": "path/to/query",
-      "query": "/path/to/query",
-      "status": "Error",
-      "message": "Asset computation failed",
-      "traceback": ["line 1", "line 2"],
-      "timestamp": "2026-01-20T10:30:00Z"
-    },
-    "data": ""
-  }
-}
-```
+**GET alternatives.** `StoreApiBuilder::with_destructive_gets()` (default off) adds
+`GET remove/{*key}` (as `DELETE data`), `GET removedir/{*key}` and `GET makedir/{*key}`. Without
+it, `GET removedir` and `GET makedir` answer 405 (the path serves `DELETE`/`PUT`) and
+`GET remove` answers 404.
 
 ---
 
-#### 5.1.9 POST /api/assets/entry/{*query}
+## 5. Assets API
 
-Set asset data and metadata directly (bypasses computation, sets asset as externally sourced).
+`AssetsApiBuilder::new(base).build()`. The Assets API is the web face of
+`Environment::get_asset_manager()`. Paths below are relative to the base.
 
-**Implementation Note:**
-This endpoint requires `AssetManager::set()` implementation. Until fully implemented, this endpoint may return:
+### 5.1 Route families
+
+| Family | Prefix | Parser | Addresses |
+|---|---|---|---|
+| query | `q/` | `parse_query` | any query, keyed or not: `q/data/make_text/upper`, `q/info/-R/notes/a.txt` |
+| key | `key/` | `parse_key` | a keyed asset by its bare key: `key/data/notes/a.txt` |
+| admin | `admin/` | `parse_key` where a key is taken | dependency audit and command-version refresh |
+| WebSocket | `ws/q`, `ws/key` | as the families | notifications (§5.8) |
+
+A key route given a query-syntax path (`key/data/-R/notes/a.txt`) answers 400 `ParseError`, whose
+message points to `/q/`.
+
+### 5.2 Access modes
+
+Each family offers three modes, and **only the first two can start an evaluation**:
+
+| Mode | Routes | Starts evaluation? | Answers |
+|---|---|---|---|
+| (a) request and wait | `data`, `entry` | yes, if the value is not available | the value (§2.3), or the evaluation's error |
+| (b) submit | `submit` (`POST` and `GET`) | yes | **at once**: the asset's `AssetInfo` (`Submitted`, `Processing`, …, or `Ready` if cached), or the error of a submission that failed immediately |
+| (c) observe | `info`, `metadata`, `version`; on `key/` also `contains`, `recover`, `listdir` | **never** | the current state |
+
+- **Polling.** `submit` then `info` is the reliable way to follow an evaluation, with or without
+  the WebSocket (notifications can be coalesced, §5.8). On `q/`, `info` of a query nobody has
+  requested — or whose asset has been evicted — is 404 `NotAvailable` ("submit it first"), so
+  `status: Ready` from `q/info` means `q/data` answers at once.
+- **A pure-key query** (`q/info/-R/notes/a.txt`) on an observe route is answered like the key
+  family: from the live asset, else the store, else the recipe.
+- **Failing fast.** `submit` answers an error only for what fails synchronously: a parse error
+  (400), a plan or volatility error, and a key that is neither stored nor declared by a recipe
+  (404; `submit` checks `AssetManager::contains` first). Anything that fails during evaluation — an
+  unknown command, a missing input — is reported as `status: Error` by `info`.
+- **Inline managers.** With `ImmediateAssetManager` (`EvalMode::Inline`), `get_asset`/`get`
+  evaluate before returning, so `submit` answers with the final status, and an evaluation error
+  is returned by `submit` itself. The native default (`SimpleEnvironment`) queues and returns at
+  once.
+- **Assets that are never cached.** A volatile query or key, and a key whose recipe says
+  `cached: false`, get a fresh asset per request that is not kept in the manager's maps. `submit`
+  still answers with its `AssetInfo`, but the query-family observe routes and `q/cancel` answer 404
+  for it, `key/info` reports the stored or recipe state, and a later `data` evaluates again. Follow
+  such an asset on the WebSocket (the subscription holds it) or read it with `data`.
+- **Inline expiry.** `ImmediateAssetManager` has no expiration monitor; it expires lazily inside
+  `get_asset`/`get`. `q/info` does not apply that check, so on the inline manager it can report
+  `Ready` for an entry whose expiration time has passed, which `q/data` then recomputes.
+
+### 5.3 Query family routes
+
+| Method and path | Mode | Result | Errors |
+|---|---|---|---|
+| `GET q/data/{*query}` | a | the bytes (§2.3) | 400 parse; the evaluation's error |
+| `GET q/entry/{*query}` | a | a negotiated `DataEntry` | as `data` |
+| `POST q/submit/{*query}`, `GET q/submit/{*query}` | b | `AssetInfo` | 400 parse or plan; 404 for an unknown key |
+| `GET q/info/{*query}` | c | `AssetInfo` (with progress while `Processing`) | 400 parse; 404 `NotAvailable` |
+| `GET q/metadata/{*query}` | c | the metadata record | as `info` |
+| `GET q/version/{*query}` | c | `{"version": "<32 hex digits>"}`, all zeros until the asset has finished | as `info` |
+| `POST q/cancel/{*query}` | — | `AssetInfo` after the cancel | 404 `NotAvailable` when the query is not cached |
+
+`q/cancel` looks the asset up without creating one, so it never starts the evaluation it cancels.
+A command that is already running is not interrupted; today such an asset can still finish
+`Ready` (`ASSET-CANCEL-DURING-PROCESSING-FINISHES-READY`), which the returned and later `info`
+show.
+
+### 5.4 Key family routes
+
+| Method and path | Mode | Result | Errors |
+|---|---|---|---|
+| `GET key/data/{*key}` | a | the bytes (§2.3), via `AssetManager::get` | 400 parse (with a `/q/` hint for `-R/…`); 404; the evaluation's error |
+| `GET key/entry/{*key}` | a | a negotiated `DataEntry` | as `data` |
+| `POST key/submit/{*key}`, `GET key/submit/{*key}` | b | `AssetInfo` | 400; 404 when neither stored nor declared by a recipe |
+| `GET key/info/{*key}` | c | `AssetInfo` of the live asset, else the stored entry, else the recipe; a cached `Expired`/`Error`/`Cancelled` entry is reported as it is, not re-evaluated | 404 `KeyNotFound` |
+| `GET key/metadata/{*key}` | c | the live, stored or recipe metadata record | 404 |
+| `GET key/version/{*key}` | c | `{"version": "…"}`; all zeros (`Version::unknown()`) when the key has no version | a store read error stays an error (500) |
+| `GET key/contains/{*key}` | c | `{"contains": bool}` — stored, or declared by a recipe | — |
+| `GET key/recover/{*key}` | c | a negotiated `DataEntry` of the last known value, whatever its status (an `Expired` one included) | 404 when there is no data-bearing state |
+| `GET key/listdir`, `GET key/listdir/{*key}` | c | `{"assets": [AssetInfo…]}`, directories first; with `?deep=true`, `{"keys": ["a/b.md", …]}` | the store's error |
+| `POST key/data/{*key}` | — | **201**, `AssetInfo` after the write | 400 unknown type; 422 a format the type cannot be written in |
+| `POST key/entry/{*key}` | — | **201**, as `POST data` | 400 undecodable body or non-object metadata |
+| `POST key/metadata/{*key}` | — | always **501** `NotSupported` | — |
+| `DELETE key/data/{*key}`, `DELETE key/entry/{*key}` | — | `{"removed": true, "new_status": "Recipe" \| "None"}` | 404; 409 for a directory |
+| `DELETE key/removedir/{*key}` | — | `{"removed": true}` | 404 absent; 409 not a directory; the first failing key's error |
+| `PUT key/makedir/{*key}` | — | **201**, the directory's `AssetInfo` (`status: Directory`) | the store's error |
+| `POST key/description/{*key}` | — | `AssetInfo` after the change | 400 neither field given; 404; 409 not a `Source` |
+| `POST key/expire/{*key}` | — | `AssetInfo` after the change | 404; 409 a status that cannot expire |
+| `POST key/override/{*key}` | — | `AssetInfo` after the change | 404 no data to pin |
+| `POST key/cancel/{*key}` | — | `AssetInfo` after the cancel | 404 `NotAvailable` when no live asset holds the key |
+
+- `key/listdir?deep=true` adds recipe-declared keys only for subdirectories, not for the listed
+  directory itself (`ASSET-MANAGER-LISTDIR-KEYS-DEEP-OMITS-TOP-LEVEL-RECIPES`).
+- `key/cancel`, like `q/cancel`, never creates or starts an asset.
+
+#### Writing a value (`POST key/data`, `POST key/entry`)
+
+The write goes through `AssetManager::set_binary`. The status is not the client's: a key with a
+recipe becomes `Override`, one without becomes `Source`. The version is the hash of the bytes, and
+dependents of the key are expired.
+
+Only five metadata fields are client-settable — `type_identifier`, `data_format`, `media_type`,
+`title`, `description` (`ValueDescription`). `POST key/data` takes them as query parameters, with
+the body as the raw value; `POST key/entry` takes them from the `DataEntry`'s `metadata` object.
+Every other parameter or field is ignored and named in the response `message` ("ignored metadata
+fields: status, version"); the record handed to the manager is built fresh from the five fields.
+
+- `type_identifier` defaults to `Bytes`; an identifier the type registry does not know is 400
+  `ParameterError`. `type_name` comes from the registry.
+- A field the client leaves out is taken from the key's current value: `title` and `description`
+  when non-empty; `type_identifier` and `data_format` only as a pair, only when the client gives
+  neither, only from a value that holds data, and never a format that type cannot be written in.
+  `media_type` is never inherited (it would turn a derived type into an override).
+- The request `Content-Type` of `POST key/data` is not used as the media type.
+
+`POST key/metadata` is refused: an asset's metadata is owned by the asset manager. A `Source`'s
+title and description are set with `POST key/description`.
+
+#### Removal (`DELETE key/data|entry`)
+
+`AssetManager::remove` decides by the asset's status (the live asset's, or the stored one's when
+nothing live has produced anything yet):
+
+| Status | Recipe? | Effect | `new_status` |
+|---|---|---|---|
+| `Directory` | any | 409 `StatusConflict`, naming `key/removedir` | — |
+| any other | no | deleted: live asset, dependency-graph entry and stored entry; dependents expired | `None` |
+| `Source`, `Override` | yes | the user value is deleted, as above; the key falls back to its recipe | `Recipe` |
+| computed (`Ready`, `Expired`, `Error`, `Cancelled`, `Volatile`, `Partial`, in flight) | yes | the value is dropped; the stored record is kept as `Recipe` with its version; dependents are **not** expired | `Recipe` |
+| none, or stored `Recipe` | yes | nothing to do | `Recipe` |
+| nothing live, nothing stored | no | 404 `KeyNotFound` | — |
+
+`key/removedir` removes every key under the directory with the same rules (deepest first), then
+the directory with everything left in it — including its `recipes.yaml` and the `Recipe` records
+kept above. It is not atomic.
+
+#### Other mutations
+
+- `key/expire`: `Ready` and `Override` become `Expired` and dependents are expired; `Expired` is
+  left as it is; a `Source` (no recipe to recover from), a recipe key with no value and an
+  in-flight asset are 409.
+- `key/override`: pins the current value as `Override` (whatever its status, `Expired` included),
+  so it is no longer recomputed; a `Source` is left unchanged. 404 when there is no data.
+- `key/description`: body `{"title": …, "description": …}` (JSON; either field may be omitted), or
+  the query parameters of the GET alternative; body fields win. Data and version are unchanged.
+
+### 5.5 Admin routes
+
+| Method and path | Result |
+|---|---|
+| `POST admin/audit/{*key}` | `{"checked": [...], "expired": [...]}`: the recorded dependency versions reachable from the key, verified; what no longer holds is expired |
+| `POST admin/audit` | as above, over every gap the dependency graph knows of |
+| `POST admin/refresh_command_versions` | `result: null`; re-registers command versions and expires what changed |
+
+### 5.6 GET alternatives and builder options
+
+| Builder option | Default | Effect |
+|---|---|---|
+| `with_destructive_gets()` | off | adds a GET form of each operation that needs no body: `GET key/remove`, `key/removedir`, `key/makedir`, `key/description?title=&description=`, `key/expire`, `key/override`, `q/cancel`, `key/cancel`, `admin/audit[/{*key}]`, `admin/refresh_command_versions` |
+| `read_only()` | off | omits every mutation route — `POST key/data|entry`, `DELETE key/data|entry`, `DELETE key/removedir`, `PUT key/makedir`, `POST key/description|expire|override` — their GET forms, and the admin routes. `q/cancel` and `key/cancel` stay |
+| `with_admin(bool)` | `true` | includes or omits the `admin/` routes |
+| `with_websocket_path(p)` | `{base}/ws` | moves the WebSocket endpoints to `p/q` and `p/key` |
+| `without_websocket()` | — | removes the WebSocket endpoints |
+| `with_websocket_limits(WebSocketLimits)` | 64 KiB, 256 | §5.8 |
+
+`GET q/submit` and `GET key/submit` always exist, as do the reads, the observe routes and
+`POST key/metadata`. An omitted route answers axum's 405 where its path still serves another method
+(`GET key/expire` without the flag; `POST key/data` under `read_only()`) and 404 otherwise
+(`GET key/remove` without the flag; `POST key/expire` under `read_only()`).
+
+### 5.7 Result types
+
+`AssetInfo` is `liquers_core::metadata::AssetInfo` serialized: `query`, `key`, `status`,
+`type_identifier`, `type_name`, `data_format`, `message`, `title`, `description`, `is_error`,
+`media_type`, `filename`, `unicode_icon`, `file_size`, `is_dir`, `progress`, `updated`,
+`error_data`, `is_volatile`, `payload_required`, `expires`, `expiration_time`, `stored`, `cached`.
+`status` is one of `None`, `Directory`, `Recipe`, `Submitted`, `Dependencies`, `Processing`,
+`Partial`, `Error`, `Storing`, `Ready`, `Expired`, `Source`, `Cancelled`, `Override`, `Volatile`.
+A version is 32 hexadecimal digits; all zeros means unknown.
+
+### 5.8 WebSocket
+
+| Endpoint | Subscriptions | Requested with |
+|---|---|---|
+| `GET ws/q`, `GET ws/q/{*query}` | queries (`parse_query`) | `AssetManager::get_asset` (a pure-key query must be stored or recipe-declared) |
+| `GET ws/key`, `GET ws/key/{*key}` | keys (`parse_key`) | `AssetManager::get` (the key must be stored or recipe-declared) |
+
+A path in the URL is subscribed on connect. `read_only()` does not affect the endpoints:
+subscribing changes no data. Subscribing *requests* the asset; there is no observe-only
+subscription.
+
+**Client messages** (JSON text, snake_case):
+
 ```json
-{
-  "status": "ERROR",
-  "message": "AssetManager::set not yet implemented",
-  "error": {
-    "status": "ERROR",
-    "message": "Direct asset setting not supported in this version",
-    "error_type": "NotImplemented",
-    "details": {},
-    "timestamp": "2026-01-20T10:30:00Z"
-  },
-  "query": "/path/to/query",
-  "result": null
-}
+{"action": "subscribe", "query": "make_text/upper"}
+{"action": "subscribe", "key": "notes/a.txt"}
+{"action": "unsubscribe", "query": "make_text/upper"}
+{"action": "unsubscribe_all"}
+{"action": "ping"}
 ```
 
-**Request Body:**
-The request body contains a `DataEntry` structure (see section 4.1.13) with only two fields:
+The address field must match the endpoint (`query` on `ws/q`, `key` on `ws/key`). A message that
+does not parse, names the wrong field, addresses an unknown key, or exceeds the subscription limit
+is answered with an `Error` message. Subscribing to an address already subscribed replaces the
+subscription.
+
+**Server messages** (JSON text, tagged by `type`). Every asset notification is flat and carries:
+
+| Field | Meaning |
+|---|---|
+| `asset_id` | the followed asset |
+| `query` | the query as subscribed (`ws/q`) |
+| `key` | the key as subscribed (`ws/key`), or the asset's key if it is keyed |
+| `timestamp` | RFC 3339 |
+| `info` | the asset's `AssetInfo` **re-read after the change** (`null` after a delete) |
+
+| `type` | Extra fields | Cause |
+|---|---|---|
+| `Initial` | — | sent once, on subscribe |
+| `JobSubmitted`, `JobStarted`, `ValueProduced`, `JobFinished` | — | evaluation progress |
+| `StatusChanged` | `status` | a status change (a cancel arrives as `StatusChanged` with `Cancelled`) |
+| `ErrorOccurred` | `error` (`ErrorDetail`) | the evaluation failed |
+| `LogMessage` | — | a log entry was added; its text is in `info.message` |
+| `PrimaryProgressUpdated`, `SecondaryProgressUpdated` | `progress` (`message`, `done`, `total`, `timestamp`, `eta`) | progress |
+| `Expired` | — | the asset expired |
+| `Removed` | — | the asset was removed (`DELETE key/…`) or replaced (`POST key/data|entry`) |
+| `Pong`, `UnsubscribedAll` | `timestamp` | replies |
+| `Error` | `timestamp`, `error` (`ErrorDetail`) | a client message could not be handled |
+
+The core notification channel keeps only the latest message, so notifications may be coalesced;
+`info` always reflects the current state, and `q/info` / `key/info` remain the authoritative
+polling path. Right after `Initial`, the most recent notification the asset had already sent (if
+any) is replayed, so an asset that finished before the subscribe still reports how it finished.
+
+**Lifecycle.** A subscription follows **one asset** and ends with it: after the notification whose
+`info.status` is `Error`, `Cancelled`, `Expired` or `Volatile`, or after `Removed` (the
+subscription also ends at once if its `Initial` snapshot is terminal). The terminal notification
+is always delivered. To keep following the query or key, subscribe again, which requests a fresh
+asset.
+
+**Limits** (`WebSocketLimits`): `max_message_size` (default 64 KiB) — a larger client message
+closes the connection; `max_subscriptions` (default 256) per connection. Intermediate notifications
+that find the connection's outgoing queue full are dropped (the next one carries a fresh `info`);
+replies and terminal notifications wait. Disconnecting ends every subscription of the connection
+but does not cancel the evaluations, which other clients may share.
+
+---
+
+## 6. Recipes API
+
+`RecipesApiBuilder::new(base).build()`: a read-only view of `Environment::get_recipe_provider()`.
+Keys are parsed with `parse_key`.
+
+| Method and path | Result |
+|---|---|
+| `GET listdir` | array of the resource names that have a recipe **in the root directory** (`AsyncRecipeProvider::assets_with_recipes`) |
+| `GET data/{*key}` | the recipe as text (`text/plain`), not enveloped |
+| `GET metadata/{*key}` | `{}` once the recipe is found — a placeholder (`AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS`) |
+| `GET entry/{*key}` | a CBOR `DataEntry` with the recipe text as `data` and `metadata: {}`; `?format=` and `Accept` are ignored (same issue) |
+| `GET resolve/{*key}` | `{"key": …, "query": …, "plan": {…}}`, the recipe's execution plan (`AsyncRecipeProvider::recipe_plan`); a recipe whose commands are not registered is 400 `ActionNotRegistered` |
+
+A key with no recipe answers the recipe provider's error; its type, and so the HTTP status,
+depends on the provider.
+
+---
+
+## 7. Query API
+
+`QueryApiBuilder::new(base).build()` registers one route, `{base}{*query}`: the query is
+whatever follows the base path (`QueryApiBuilder::new("/liquer/q")` serves
+`GET /liquer/q/make_text/upper`).
+
+| Method | Behaviour |
+|---|---|
+| `GET {base}{*query}` | evaluates the query (`Environment::evaluate`) and answers the value (§2.3) |
+| `POST {base}{*query}` | the same; an optional JSON body is accepted and logged but not used; a non-JSON body is 400 |
+
+The value is read with `AssetRef::get_binary`: the request waits for the evaluation, the value is
+serialized in its effective format, and an `Error`, `Cancelled`, `Expired` or `Directory` result
+answers that asset's own error. The wait is bounded by `QueryApiBuilder::with_timeout(Duration)`
+(default 30 s); on timeout the answer is 500 `ExecutionError`, whose message names the duration and
+points to the Assets API's `q/submit`, `q/info` and `ws/q` for long evaluations.
+
+---
+
+## 8. Assembling a server
+
+There is no single "full" builder: merge the routers you want and give the result the
+environment as state. The routers are generic over any `E: Environment`; `EnvRef<E>` is
+`liquers_core::context::EnvRef`, re-exported by `liquers-axum`.
 
 ```rust
-pub struct DataEntry {
-    pub metadata: serde_json::Value,   // MetadataRecord or LegacyMetadata serialized to JSON Value
-    pub data: Vec<u8>,                 // Binary data (base64-encoded when serialized to JSON)
-}
+use liquers_axum::{AssetsApiBuilder, QueryApiBuilder, RecipesApiBuilder, StoreApiBuilder};
+use liquers_core::context::{Environment, SimpleEnvironment};
+use liquers_core::value::Value;
+
+let mut env = SimpleEnvironment::<Value>::new();
+// … store, recipe provider, commands …
+let envref = env.to_ref();
+
+let app = axum::Router::new()
+    .merge(QueryApiBuilder::new("/liquer/q").build())
+    .merge(StoreApiBuilder::new("/liquer/api/store").build())
+    .merge(AssetsApiBuilder::new("/liquer/api/assets").build())
+    .merge(RecipesApiBuilder::new("/liquer/api/recipes").build())
+    .with_state(envref);
+
+let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
+axum::serve(listener, app).await?;
 ```
 
-**Request (CBOR format):**
-```
-POST /liquer/api/assets/entry/path/to/query?format=cbor
-Content-Type: application/cbor
-
-[CBOR-encoded DataEntry structure]
-```
-
-**Request (JSON format):**
-```
-POST /liquer/api/assets/entry/path/to/query?format=json
-Content-Type: application/json
-
-{
-  "metadata": {
-    "status": "Ready",
-    "type_identifier": "application/json",
-    "data_format": "json",
-    "message": "Externally set asset"
-  },
-  "data": "eyJzb3VyY2UiOiAiZXh0ZXJuYWwifQ=="
-}
-```
-
-**Format Support:**
-- URL parameter `?format=cbor` or Content-Type header determines format
-- Same format options as GET: cbor, bincode, json
-
-**Asset Status:**
-When successfully set, the asset status is changed to one of:
-- `Source`: Asset set as external source (preferred for user-provided data)
-- `Override`: Asset set as override of computed value (future feature)
-
-**Success Response (201):**
-```json
-{
-  "status": "OK",
-  "message": "Asset data and metadata set",
-  "error": null,
-  "query": "/path/to/query",
-  "result": {
-    "metadata": {
-      "key": "path/to/query",
-      "query": "/path/to/query",
-      "status": "Source",
-      "type_identifier": "application/json",
-      "data_format": "json",
-      "message": "Externally set asset",
-      "timestamp": "2026-01-20T10:35:00Z"
-    },
-    "data": ""
-  }
-}
-```
-
-**Error Response (400):**
-```json
-{
-  "status": "ERROR",
-  "message": "Invalid metadata format",
-  "error": {
-    "status": "ERROR",
-    "message": "Invalid metadata format",
-    "error_type": "ValidationError",
-    "details": {},
-    "timestamp": "2026-01-20T10:35:00Z"
-  },
-  "query": "/path/to/query",
-  "result": null
-}
-```
+Middleware (tracing, CORS, authentication) is added with axum's own `.layer(…)`. Runnable
+servers: `liquers-axum/examples/basic_server.rs`, `assets_recipes_basic.rs`, `websocket_client.rs`.
 
 ---
 
-### 5.2 WebSocket API
+## 9. Access control
 
-#### 5.2.1 WS /ws/assets/{*query}
+There is none in `liquers-axum`: no session, user or permission reaches the handlers, and every
+route acts with the environment's full rights. The design is `CORE-SESSION-AND-KEY-ACL`.
 
-Subscribe to real-time asset notifications.
-
-**Connection:**
-```
-ws://localhost:3000/liquer/ws/assets/path/to/some/query
-```
-
-**Initial Message (sent by server on connect):**
-```json
-{
-  "type": "Initial",
-  "asset_id": 12345,
-  "query": "-R/path/to/some/query",
-  "key": "path/to/some/query",
-  "timestamp": "2026-01-19T12:34:56Z",
-  "metadata": {
-    "status": "Processing",
-    "message": "Asset being computed"
-  }
-}
-```
-
-**Notification Messages:**
-
-All messages from `liquers_core::assets::AssetNotificationMessage` are supported:
-
-REVIEW NOTE: Message should contain serialized AssetNotificationMessage and asset id for identification.
-
-**CHANGE SUMMARY**: Updated all WebSocket notification message formats to include `asset_id` field:
-- Added `asset_id` (u64) field to all notification messages for client-side tracking
-- Asset ID is obtained from `liquers_core::assets::AssetRef::id()` method
-- Enables clients to correlate notifications with specific asset instances
-- Particularly useful when subscribing to multiple assets simultaneously
-- Asset ID remains constant for the lifetime of an asset instance
-- All message examples in section 5.2.1 updated to include `"asset_id": 12345` field
-
-##### Initial
-```json
-{
-  "type": "Initial",
-  "asset_id": 12345,
-  "query": "-R/path/to/some/query",
-  "timestamp": "2026-01-19T12:34:56Z"
-}
-```
-
-##### JobSubmitted
-```json
-{
-  "type": "JobSubmitted",
-  "asset_id": 12345,
-  "query": "-R/path/to/some/query",
-  "timestamp": "2026-01-19T12:35:00Z"
-}
-```
-
-##### JobStarted
-```json
-{
-  "type": "JobStarted",
-  "asset_id": 12345,
-  "query": "-R/path/to/some/query",
-  "timestamp": "2026-01-19T12:35:01Z"
-}
-```
-
-##### StatusChanged
-```json
-{
-  "type": "StatusChanged",
-  "asset_id": 12345,
-  "query": "-R/path/to/some/query",
-  "status": "Processing",
-  "timestamp": "2026-01-19T12:35:02Z"
-}
-```
-
-Status values: `None`, `Directory`, `Recipe`, `Submitted`, `Dependencies`, `Processing`, `Partial`, `Error`, `Storing`, `Ready`, `External`, `Unavailable`
-
-##### ValueProduced
-```json
-{
-  "type": "ValueProduced",
-  "asset_id": 12345,
-  "query": "-R/path/to/some/query",
-  "timestamp": "2026-01-19T12:35:10Z"
-}
-```
-
-##### ErrorOccurred
-```json
-{
-  "type": "ErrorOccurred",
-  "asset_id": 12345,
-  "query": "-R/path/to/some/query",
-  "timestamp": "2026-01-19T12:35:15Z",
-  "error": {
-    "type": "ExecutionError",
-    "message": "Command failed: division by zero",
-    "traceback": ["..."]
-  }
-}
-```
-
-##### LogMessage
-```json
-{
-  "type": "LogMessage",
-  "asset_id": 12345,
-  "query": "-R/path/to/some/query",
-  "timestamp": "2026-01-19T12:35:05Z",
-  "message": "Processing step 1 of 3"
-}
-```
-
-##### PrimaryProgressUpdated
-```json
-{
-  "type": "PrimaryProgressUpdated",
-  "asset_id": 12345,
-  "query": "-R/path/to/some/query",
-  "timestamp": "2026-01-19T12:35:06Z",
-  "progress": {
-    "message": "Processing items",
-    "done": 42,
-    "total": 100,
-    "timestamp": "2026-01-19T12:35:06Z",
-    "eta": "2026-01-19T12:35:30Z"
-  }
-}
-```
-
-##### SecondaryProgressUpdated
-```json
-{
-  "type": "SecondaryProgressUpdated",
-  "asset_id": 12345,
-  "query": "-R/path/to/some/query",
-  "timestamp": "2026-01-19T12:35:07Z",
-  "progress": {
-    "message": "Downloading dependencies",
-    "done": 5,
-    "total": 10,
-    "timestamp": "2026-01-19T12:35:07Z",
-    "eta": null
-  }
-}
-```
-
-##### JobFinished
-```json
-{
-  "type": "JobFinished",
-  "asset_id": 12345,
-  "query": "-R/path/to/some/query",
-  "timestamp": "2026-01-19T12:35:20Z"
-}
-```
-
-**Client Messages:**
-
-Clients can send control messages to the server:
-
-##### Subscribe to additional queries
-```json
-{
-  "action": "subscribe",
-  "query": "-R/another/query"
-}
-```
-
-##### Unsubscribe from queries
-```json
-{
-  "action": "unsubscribe",
-  "query": "-R/path/to/some/query"
-}
-```
-
-REVIEW NOTE: Should there be "unsubscribe all" too?
-
-**CHANGE SUMMARY**: Added "unsubscribe all" WebSocket action:
-- New action: `{"action": "unsubscribe_all"}` to clear all active subscriptions
-- Useful for client cleanup without tracking individual subscriptions
-- Server responds with confirmation message
-- Added to section 5.2.1 WebSocket client messages
-- See new subsection "Unsubscribe from all queries" after line 843
-
-##### Unsubscribe from all queries
-```json
-{
-  "action": "unsubscribe_all"
-}
-```
-
-**Server Response:**
-```json
-{
-  "type": "UnsubscribedAll",
-  "timestamp": "2026-01-19T12:35:30Z",
-  "message": "All subscriptions cleared"
-}
-```
-
-##### Ping (keep-alive)
-```json
-{
-  "action": "ping"
-}
-```
-
-**Server Response to Ping:**
-```json
-{
-  "type": "Pong",
-  "timestamp": "2026-01-19T12:35:25Z"
-}
-```
+Until it exists, the Assets API's `read_only()` and `with_admin(false)` (§5.6) and the Store API's
+default without `with_destructive_gets()` limit what a deployment exposes, and an embedding
+application can put its own authentication in front of the routers as an axum layer. A store
+mounted from a directory stays writable through the Store API's `PUT`/`DELETE` routes and the
+Assets API's mutations unless those are left out (`STORE-NO-READ-ONLY-ADAPTER`).
 
 ---
 
-### 5.3 Assets Module Trait
+## 10. Implementation notes
 
-```rust
-pub struct AssetsApiBuilder<E: Environment> {
-    base_path: String,
-    websocket_path: String,
-    _phantom: PhantomData<E>,
-}
-
-impl<E: Environment> AssetsApiBuilder<E> {
-    pub fn new(base_path: impl Into<String>) -> Self;
-    pub fn with_websocket_path(self, path: impl Into<String>) -> Self;
-    pub fn build<R>(self) -> R where R: Router<E>;
-}
-```
-
----
-
-## 6. Recipes API Module
-
-The Recipes API provides access to recipe definitions and resolution.
-
-REVIEW NOTE: This API should be an interface to `AsyncRecipeProvider` trait defined in liquers_core::recipes.
-
-**CHANGE SUMMARY**: Clarified that Recipes API is a direct HTTP interface to `AsyncRecipeProvider` trait methods:
-- `GET /api/recipes/listdir` maps to `AsyncRecipeProvider::assets_with_recipes()`
-- `GET /api/recipes/data/{*key}` maps to `AsyncRecipeProvider::recipe()` or `recipe_opt()`
-- `GET /api/recipes/metadata/{*key}` maps to `AsyncRecipeProvider::recipe()` with metadata extraction
-- `GET /api/recipes/entry/{*key}` maps to `AsyncRecipeProvider::recipe()` with combined data and metadata
-- `GET /api/recipes/resolve/{*key}` maps to `AsyncRecipeProvider::recipe_plan()`
-- Additional method `has_recipes()` not exposed directly but used internally
-- `contains()` method not exposed as separate endpoint
-- Implementation should delegate directly to the `AsyncRecipeProvider` obtained from `Environment::get_recipe_provider()`
-- Error handling maps `AsyncRecipeProvider` errors to HTTP status codes
-- Added clarification to section 6.0 overview and 6.2 implementation notes
-
-
-### 6.1 Endpoints
-
-#### 6.1.1 GET /api/recipes/listdir
-
-List all available recipes.
-
-**Request:**
-```
-GET /liquer/api/recipes/listdir
-```
-
-REVIEW NOTE: Filtering by namespace is not needed.
-
-**CHANGE SUMMARY**: Removed namespace filtering from Recipes API:
-- `namespace` query parameter removed from `GET /api/recipes/listdir` endpoint
-- `namespace` query parameter removed from `GET /api/recipes/data/{*key}` endpoint
-- Recipe keys are globally unique within an `AsyncRecipeProvider` instance
-- Namespace concept not present in `AsyncRecipeProvider` trait
-- Response examples updated to remove namespace field
-- If namespace-like organization is needed, it should be encoded in the recipe key itself (e.g., "reports/summary")
-- Updated sections 6.1.1 and 6.1.2 to reflect this change
-
-**Success Response (200):**
-```json
-{
-  "status": "OK",
-  "result": {
-    "recipes": [
-      {
-        "name": "data_pipeline",
-        "title": "Standard Data Processing Pipeline",
-        "description": "Loads CSV, filters rows, and aggregates data"
-      },
-      {
-        "name": "reports/summary",
-        "title": "Summary Report Generator",
-        "description": "Generate summary reports from processed data"
-      }
-    ],
-    "total": 2
-  },
-  "message": "Recipes listed"
-}
-```
+- **Handlers** take `State<EnvRef<E>>` and a `Path<String>` for the wildcard, plus `HeaderMap`,
+  `Query<HashMap<String, String>>` or `Bytes` as needed, and return `axum::response::Response`.
+  Errors are turned into responses by `ApiResponse::error(error_to_detail(&e), message)`; there is
+  no `ApiError` type.
+- **`IntoResponse`** is implemented in `axum_integration.rs` for `ApiResponse<T>`,
+  `BinaryResponse` and `DataEntry`; responses are finished with `build_or_500`, so a response that
+  cannot be built (an invalid header value) is a 500, never a panic. Library code has no
+  `unwrap()`/`expect()` (`cargo clippy -p liquers-axum --no-deps -- -D clippy::unwrap_used -D
+  clippy::expect_used`).
+- **Routes** use axum 0.8 syntax: `{*key}` / `{*query}` for wildcards. The old `/*key` and `/:key`
+  forms panic when the router is built.
+- **Assets API modules:** `assets/query_handlers.rs` (`q/`), `assets/key_handlers.rs` (`key/`,
+  `admin/`), `assets/common.rs` (shared helpers and result types), `assets/value_description.rs`,
+  `assets/websocket.rs`, `assets/builder.rs`.
+- **Query API settings** (`QueryApiConfig { timeout }`) reach its handlers as an axum `Extension`
+  added by the builder; `WebSocketLimits` reach the WebSocket handlers the same way.
 
 ---
 
-#### 6.1.2 GET /api/recipes/data/{*key}
-
-Retrieve a specific recipe definition (data only).
-
-**Request:**
-```
-GET /liquer/api/recipes/data/data_pipeline
-```
-
-**Success Response (200):**
-```json
-{
-  "status": "OK",
-  "result": {
-    "query": "/load-csv/filter-rows/aggregate",
-    "title": "Standard Data Processing Pipeline",
-    "description": "Loads CSV, filters rows, and aggregates data",
-    "arguments": {
-      "filename": "data.csv",
-      "threshold": 100
-    },
-    "links": {
-      "documentation": "/docs/pipelines/data_pipeline"
-    },
-    "cwd": null,
-    "volatile": false
-  },
-  "message": "Recipe retrieved"
-}
-```
-
-**Note:** The `result` field contains the direct JSON serialization of the `Recipe` struct. Fields with empty/default values may be omitted.
-
-REVIEW NOTE: There is no recipe type field. Recipe is a JSON representation of `Recipe` structure defined in liquers_core::recipes.
-
-**CHANGE SUMMARY**: Clarified recipe response format:
-- The `recipe` field in responses is a direct JSON serialization of `liquers_core::recipes::Recipe` struct
-- `Recipe` struct fields: `query` (String), `title` (String), `description` (String), `arguments` (HashMap<String, Value>), `links` (HashMap<String, String>), `cwd` (Option<String>), `volatile` (bool)
-- No separate "type" discriminator field exists
-- Response format should match the Serde serialization of the `Recipe` struct directly
-- Example response updated in section 6.1.2 to show actual Recipe struct format
-- Fields with empty/default values may be omitted due to `skip_serializing_if` attributes
-
-**Error Response (404):**
-```json
-{
-  "status": "ERROR",
-  "error": {
-    "type": "KeyNotFound",
-    "message": "Recipe 'data_pipeline' not found"
-  }
-}
-```
-
----
-
-#### 6.1.3 GET /api/recipes/metadata/{*key}
-
-Retrieve metadata for a specific recipe.
-
-**Request:**
-```
-GET /liquer/api/recipes/metadata/data_pipeline
-```
-
-**Success Response (200):**
-```json
-{
-  "status": "OK",
-  "result": {
-    "name": "data_pipeline",
-    "title": "Standard Data Processing Pipeline",
-    "description": "Loads CSV, filters rows, and aggregates data",
-    "volatile": false
-  },
-  "message": "Recipe metadata retrieved"
-}
-```
-
-**Note:** Metadata includes summary information from the Recipe struct (name, title, description, volatile flag).
-
----
-
-#### 6.1.4 GET /api/recipes/entry/{*key}
-
-Retrieve both recipe data and metadata in a single unified structure (uses same `DataEntry` structure as Store and Assets APIs).
-
-**Request:**
-```
-GET /liquer/api/recipes/entry/data_pipeline?format=cbor
-Accept: application/cbor
-```
-
-**Format Selection:**
-Same as Store and Assets APIs (see section 4.1.13):
-1. URL query parameter: `?format=cbor` (takes precedence)
-2. Accept header: `Accept: application/cbor`
-3. Default: CBOR if neither is specified
-
-**Success Response (200) - JSON format:**
-```json
-{
-  "status": "OK",
-  "message": "Recipe retrieved",
-  "result": {
-    "metadata": {
-      "name": "data_pipeline",
-      "title": "Standard Data Processing Pipeline",
-      "description": "Loads CSV, filters rows, and aggregates data",
-      "volatile": false
-    },
-    "data": "eyJxdWVyeSI6ICIvbG9hZC1jc3YvZmlsdGVyLXJvd3MvYWdncmVnYXRlIiwgLi4ufQ=="
-  }
-}
-```
-
-**Note:** The `data` field contains the base64-encoded JSON serialization of the complete `Recipe` struct when using JSON format. For CBOR and bincode formats, the Recipe struct is encoded directly as binary.
-
----
-
-#### 6.1.5 GET /api/recipes/resolve/{*key}
-
-Resolve a recipe to an execution plan.
-
-**Request:**
-```
-GET /liquer/api/recipes/resolve/data_pipeline
-```
-
-**Success Response (200):**
-```json
-{
-  "status": "OK",
-  "result": {
-    "actions": [
-      {
-        "name": "load-csv",
-        "arguments": {"filename": "data.csv"}
-      },
-      {
-        "name": "filter-rows",
-        "arguments": {"threshold": 100}
-      },
-      {
-        "name": "aggregate",
-        "arguments": {}
-      }
-    ],
-    "query": "/load-csv/filter-rows/aggregate"
-  },
-  "message": "Recipe resolved to execution plan"
-}
-```
-
-**Note:** This endpoint maps to `AsyncRecipeProvider::recipe_plan()`. The returned plan shows the sequence of actions that would be executed for this recipe.
-
-**Error Response (404):**
-```json
-{
-  "status": "ERROR",
-  "error": {
-    "type": "KeyNotFound",
-    "message": "Recipe 'data_pipeline' not found"
-  }
-}
-```
-
----
-
-### 6.2 Recipes Module Trait
-
-```rust
-pub struct RecipesApiBuilder<E: Environment> {
-    base_path: String,
-    _phantom: PhantomData<E>,
-}
-
-impl<E: Environment> RecipesApiBuilder<E> {
-    pub fn new(base_path: impl Into<String>) -> Self;
-    pub fn build<R>(self) -> R where R: Router<E>;
-}
-```
-
----
-
-## 7. Query Execution API
-
-The Query Execution API evaluates liquers queries and returns results.
-
-### 7.1 Endpoints
-
-#### 7.1.1 GET /q/{*query}
-
-Execute a query synchronously.
-
-**Request:**
-```
-GET /liquer/q/path/to-text/some/query?arg1=value1&arg2=value2
-```
-
-**Query Parameters:**
-- Any parameters are passed as arguments to the final command in the query
-
-**Success Response (200):**
-
-Content type determined by the result value type.
-
-```
-HTTP/1.1 200 OK
-Content-Type: text/plain
-X-Liquers-Query: /path/to-text/some/query
-X-Liquers-Status: Ready
-
-Hello, World!
-```
-
-**Error Response (500):**
-```json
-{
-  "status": "ERROR",
-  "error": {
-    "type": "ExecutionError",
-    "message": "Command 'to-text' failed: invalid input",
-    "query": "/path/to-text/some/query",
-    "traceback": ["at position 10", "..."]
-  }
-}
-```
-
----
-
-#### 7.1.2 POST /q/{*query}
-
-Execute a query with arguments in JSON body.
-
-**Request:**
-```
-POST /liquer/q/path/to-text/some/query
-Content-Type: application/json
-
-{
-  "arg1": "value1",
-  "arg2": 42,
-  "arg3": [1, 2, 3]
-}
-```
-
-**Success Response (200):**
-
-Same as GET response.
-
----
-
-### 7.2 Query Module Trait
-
-```rust
-pub struct QueryApiBuilder<E: Environment> {
-    base_path: String,
-    _phantom: PhantomData<E>,
-}
-
-impl<E: Environment> QueryApiBuilder<E> {
-    pub fn new(base_path: impl Into<String>) -> Self;
-    pub fn build<R>(self) -> R where R: Router<E>;
-}
-```
-
----
-
-## 8. Generic Library Design
-
-The web API library is designed to be generic over the `Environment` type, allowing embedding applications to use custom value types and configurations.
-
-### 8.1 Core Abstractions
-
-#### 8.1.1 Environment Trait
-
-The API modules accept any type implementing `liquers_core::environment::Environment`:
-
-```rust
-pub trait Environment: Send + Sync + Clone + 'static {
-    type Value: ValueInterface + Send + Sync + 'static;
-    type Payload: PayloadInterface + Send + Sync + 'static;
-    type Session: SessionInterface + Send + Sync + 'static;
-
-    fn get_async_store(&self) -> Arc<Box<dyn AsyncStore>>;
-    fn get_asset_manager(&self) -> Arc<Box<dyn AssetManager<Self>>>;
-    fn get_command_registry(&self) -> &CommandRegistry<Self>;
-    // ...
-}
-```
-
-#### 8.1.2 Router Trait
-
-Web framework integrations implement a generic `Router` trait:
-
-```rust
-pub trait Router<E: Environment> {
-    fn add_route(&mut self, method: Method, path: &str, handler: Box<dyn Handler<E>>);
-    fn merge(&mut self, other: Self);
-}
-```
-
----
-
-### 8.2 Module Composition
-
-API modules can be composed to create custom service combinations:
-
-```rust
-use liquers_web::{StoreApiBuilder, AssetsApiBuilder, QueryApiBuilder};
-
-// Create a custom router with only store and query APIs
-let router = AxumRouter::new()
-    .merge(StoreApiBuilder::<MyEnvironment>::new("/api/store").build())
-    .merge(QueryApiBuilder::<MyEnvironment>::new("/q").build());
-```
-
----
-
-### 8.3 First-Class Support for liquers-lib
-
-When using `DefaultEnvironment` from `liquers-lib`, additional features are enabled:
-
-- Automatic content negotiation for `ExtValue` types
-- Built-in support for Polars DataFrames, images, egui UI components
-- Optimized serialization paths for common types
-
-```rust
-use liquers_lib::environment::DefaultEnvironment;
-use liquers_web::FullApiBuilder;
-
-let app = FullApiBuilder::<DefaultEnvironment>::new()
-    .with_base_path("/liquer")
-    .with_store_api()
-    .with_assets_api()
-    .with_recipes_api()
-    .with_query_api()
-    .build();
-```
-
----
-
-### 8.4 Custom Value Type Example
-
-```rust
-use liquers_core::value::ValueInterface;
-
-#[derive(Clone, Debug)]
-pub enum MyValue {
-    Text(String),
-    Number(f64),
-    Custom(MyCustomType),
-}
-
-impl ValueInterface for MyValue {
-    // Implementation...
-}
-
-// Use with API modules
-let store_api = StoreApiBuilder::<MyEnvironment>::new("/api/store").build();
-```
-
----
-
-## 9. Authentication & Authorization
-
-### 9.1 Delegation Model
-
-Authentication and authorization are delegated to the embedding application through middleware/layers:
-
-```rust
-// Application-provided middleware
-let auth_layer = AuthLayer::new(my_auth_handler);
-
-let app = FullApiBuilder::<MyEnvironment>::new()
-    .with_base_path("/liquer")
-    .with_store_api()
-    .with_assets_api()
-    .build()
-    .layer(auth_layer);  // Framework-specific layer mechanism
-```
-
----
-
-### 9.2 Session Integration
-
-The API extracts session information from the `Environment::Session` type:
-
-```rust
-// Custom session implementation
-pub struct MySession {
-    user_id: String,
-    roles: Vec<String>,
-}
-
-impl SessionInterface for MySession {
-    fn user(&self) -> String {
-        self.user_id.clone()
-    }
-}
-```
-
-The embedding application's middleware populates the session before requests reach API handlers.
-
-REVIEW NOTE: This is to be designed more precisely.
-
-**CHANGE SUMMARY**: Session/authorization design requires additional specification:
-- Current design delegates session management entirely to embedding application
-- Need to specify:
-  1. How session data flows from middleware to API handlers (via Environment? request extensions?)
-  2. Whether `SessionInterface` should be extracted per-request or shared via Environment
-  3. How session permissions map to Store/Assets operations (read/write/execute)
-  4. Example middleware implementations for common auth patterns (JWT, OAuth, API keys)
-  5. Integration with axum's state and extension systems
-  6. How to pass session context to AssetManager and CommandExecutor
-- TODO: Add section 9.3 "Session Flow and Integration Patterns" with:
-  - Sequence diagram showing session extraction and propagation
-  - Example middleware implementation
-  - Per-request vs shared session tradeoffs
-  - Permission checking integration points
-- This remains open for future specification revision 
-
----
-
-## 10. Axum Implementation
-
-This section describes axum-specific implementation details.
-
-### 10.1 Route Structure
-
-```rust
-use axum::{
-    Router,
-    routing::{get, post, put, delete},
-    extract::{Path, State, Query},
-    response::IntoResponse,
-};
-
-pub fn create_store_routes<E: Environment>() -> Router<EnvRef<E>> {
-    Router::new()
-        .route("/data/{*key}", get(get_data_handler::<E>))
-        .route("/data/{*key}", post(post_data_handler::<E>))
-        .route("/data/{*key}", delete(delete_data_handler::<E>))
-        .route("/metadata/{*key}", get(get_metadata_handler::<E>))
-        // ...
-}
-```
-
----
-
-### 10.2 Handler Pattern
-
-All handlers follow this pattern:
-
-```rust
-#[axum::debug_handler]
-async fn get_data_handler<E: Environment>(
-    Path(key): Path<String>,
-    State(env): State<EnvRef<E>>,
-) -> Result<impl IntoResponse, ApiError> {
-    let key = parse_key(&key)?;
-    let store = env.get_async_store();
-    let data = store.get(&key).await?;
-
-    Ok(DataResponse::new(data))
-}
-```
-
----
-
-### 10.3 Error Handling
-
-Errors implement `IntoResponse` for automatic conversion:
-
-```rust
-pub struct ApiError {
-    status_code: StatusCode,
-    error: liquers_core::error::Error,
-}
-
-impl IntoResponse for ApiError {
-    fn into_response(self) -> Response {
-        let body = json!({
-            "status": "ERROR",
-            "error": {
-                "type": format!("{:?}", self.error.error_type),
-                "message": self.error.message,
-            }
-        });
-
-        (self.status_code, Json(body)).into_response()
-    }
-}
-
-impl From<liquers_core::error::Error> for ApiError {
-    fn from(error: liquers_core::error::Error) -> Self {
-        let status_code = match error.error_type {
-            ErrorType::KeyNotFound => StatusCode::NOT_FOUND,
-            ErrorType::ParseError => StatusCode::BAD_REQUEST,
-            // ... see section 3.3
-            _ => StatusCode::INTERNAL_SERVER_ERROR,
-        };
-
-        ApiError { status_code, error }
-    }
-}
-```
-
----
-
-### 10.4 WebSocket Implementation
-
-```rust
-use axum::extract::ws::{WebSocket, WebSocketUpgrade, Message};
-use tokio::sync::broadcast;
-
-async fn websocket_handler<E: Environment>(
-    ws: WebSocketUpgrade,
-    Path(query): Path<String>,
-    State(env): State<EnvRef<E>>,
-) -> impl IntoResponse {
-    ws.on_upgrade(|socket| handle_socket::<E>(socket, query, env))
-}
-
-async fn handle_socket<E: Environment>(
-    mut socket: WebSocket,
-    query: String,
-    env: EnvRef<E>,
-) {
-    let query = parse_query(&query).unwrap();
-    let asset_manager = env.get_asset_manager();
-
-    // Subscribe to asset notifications
-    let mut rx = asset_manager.subscribe(&query).await;
-
-    // Send initial state
-    if let Ok(metadata) = asset_manager.get_metadata(&query).await {
-        let msg = serde_json::to_string(&NotificationMessage {
-            r#type: "Initial",
-            metadata: Some(metadata),
-            ..Default::default()
-        }).unwrap();
-
-        socket.send(Message::Text(msg)).await.ok();
-    }
-
-    // Forward notifications to client
-    while let Ok(notification) = rx.recv().await {
-        let msg = serde_json::to_string(&notification).unwrap();
-        if socket.send(Message::Text(msg)).await.is_err() {
-            break;
-        }
-    }
-}
-```
-
----
-
-### 10.5 State Management
-
-```rust
-pub type EnvRef<E> = Arc<E>;
-
-pub async fn create_app<E: Environment>(env: E) -> Router {
-    let env_ref = Arc::new(env);
-
-    Router::new()
-        .merge(create_store_routes::<E>())
-        .merge(create_assets_routes::<E>())
-        .merge(create_recipes_routes::<E>())
-        .merge(create_query_routes::<E>())
-        .with_state(env_ref)
-}
-```
-
----
-
-## Appendix A: Complete Example
-
-```rust
-use liquers_lib::environment::DefaultEnvironment;
-use liquers_web_axum::{FullApiBuilder, serve};
-
-#[tokio::main]
-async fn main() {
-    // Create environment
-    let env = DefaultEnvironment::new()
-        .with_file_store("/var/data")
-        .with_default_commands();
-
-    // Build API
-    let app = FullApiBuilder::new(env)
-        .with_base_path("/liquer")
-        .with_store_api()
-        .with_assets_api()
-        .with_recipes_api()
-        .with_query_api()
-        .build();
-
-    // Serve
-    serve(app, "0.0.0.0:3000").await;
-}
-```
-
----
-
-## Appendix B: Migration from Python liquer
-
-| Python liquer | Rust liquers Web API | Notes |
-|--------------|---------------------|-------|
-| `/liquer/q/QUERY` | `/liquer/q/{*query}` | Same path structure |
-| `/liquer/api/store/data/KEY` | `/liquer/api/store/data/{*key}` | Same path structure |
-| `/liquer/api/cache/get/KEY` | `/liquer/api/assets/data/{*query}` | Cache renamed to assets |
-| Status in JSON body | HTTP status codes + JSON | Proper REST semantics |
-| `/submit/QUERY` | Not included | Async execution via asset system |
-
----
-
-## Appendix C: Future Extensions
-
-Features not included in v1.0 but planned for future versions:
-
-1. **Outbound Asset Messages**: WebSocket for sending messages TO assets (e.g., cancel, pause, resume)
-2. **Batch Operations**: Bulk store operations for efficiency
-3. **Streaming Responses**: For large datasets
-4. **Server-Sent Events**: Alternative to WebSocket for unidirectional notifications
-5. **GraphQL API**: Alternative query interface
-6. **OpenAPI Specification**: Auto-generated API documentation
-7. **Recipe CRUD**: POST/PUT/DELETE operations for recipes (currently read-only)
-8. **CORS Configuration**: Built-in CORS middleware
-9. **Rate Limiting**: Built-in rate limiting middleware
-
----
-
-## Revision History
-
-| Version | Date | Changes |
-|---------|------|---------|
-| 1.0.0 | 2026-01-19 | Initial specification |
+## Appendix A: Migration from Python liquer
+
+| Python liquer | liquers-axum | Notes |
+|---|---|---|
+| `/liquer/q/QUERY` | `{query base}{*query}` | same shape with the conventional base `/liquer/q` |
+| `/liquer/api/store/data/KEY` | `/liquer/api/store/data/{*key}` | writes are `PUT`, not `POST` |
+| `/liquer/api/store/remove/KEY` etc. | `GET remove|removedir|makedir/{*key}` | only with `with_destructive_gets()` |
+| `/liquer/api/cache/get/KEY` | `/liquer/api/assets/key/data/{*key}` or `/liquer/api/assets/q/data/{*query}` | the cache is the asset manager |
+| `/liquer/submit/QUERY` | `POST|GET /liquer/api/assets/q/submit/{*query}`, then `q/info` | |
+| status in the JSON body | HTTP status codes plus the §3 body | |
+
+## Appendix B: Not implemented
+
+Not available at HEAD; listed so that no reader mistakes them for features:
+
+- access control and sessions (§9; `CORE-SESSION-AND-KEY-ACL`);
+- a remote store or asset manager speaking this API (`NO-REMOTE-STORE-OR-ASSET-MANAGER`);
+- recipe writes (the Recipes API is read-only);
+- WebSocket connection-count limits, idle timeouts and server-initiated keep-alive
+  (`AXUM-WEBSOCKET-HARDENING`);
+- manager-wide or scope subscriptions (`ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET`);
+- streaming of large values (`VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`);
+- batch operations, server-sent events, an OpenAPI document, built-in CORS or rate limiting.
 
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-28 | Rewritten against the implementation (full audit): the Store API's writes are `PUT` and its results are as served; §3 lists the real `ErrorType` → HTTP mapping, with `StatusConflict` → 409; §5 is the new Assets API — `q/`, `key/` and `admin/` families, access modes, status-aware removal, `removedir`, `expire`, `override`, `description`, the metadata allow-list, GET alternatives and builder switches, and the `ws/q` / `ws/key` WebSocket protocol with its lifecycle and limits; §7 documents `with_timeout` and the `get_binary` read; the nonexistent `FullApiBuilder`, `liquers_web` crate, `Router` trait, `SessionInterface` and `ApiError` are replaced by the `Router::merge` assembly and the real handler pattern; the old version/status header and "Revision History" table are folded into this table. | `design/axum-assets-endpoints/` |
 | 2026-08-17 | Added `KeyNotAbsolute` (400) and `KeyNotSupported` (404) to the error-type table: a key containing `.` or `..` is now refused by every store, and the two refusals are deliberately distinct — malformed address versus unrouted key. | `design/store-key-guard/` |
-| 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
+| 2026-03-02 | Present at repository import (version 1.0.0 draft of 2026-01-19); content unchanged since. Not reviewed against the implementation. | migration |

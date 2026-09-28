@@ -27,6 +27,9 @@ AXUM-ASSETS-CANCEL-STARTS-EVALUATION,issue,POST /api/assets/cancel starts an eva
 AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS,issue,AssetsApiBuilder::build panics whenever the WebSocket route is enabled,draft,local,,,P1,S,axum,,,,axum-assets-endpoints,,2026-09-27,specs/issues/AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS.md
 AXUM-HANDLER-TEST-COVERAGE,issue,"liquers-axum has no handler test scaffolding, so handler behaviour is verified only by review",accepted,local,,,P2,M,axum,,,,expired-binary-read-safety,,2026-08-08,specs/issues/AXUM-HANDLER-TEST-COVERAGE.md
 AXUM-QUERY-TIMEOUT-HARDCODED,issue,The query handler's 30-second timeout is hardcoded,draft,local,,,P2,S,axum,,,,,,2026-09-16,specs/issues/AXUM-QUERY-TIMEOUT-HARDCODED.md
+AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS,issue,The Recipes API's metadata and entry endpoints return placeholder metadata and ignore the format,draft,local,,,P3,S,axum,,,,,,2026-09-28,specs/issues/AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS.md
+AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN,issue,"GET /api/store/keys lists only the direct children of the prefix, not all keys",draft,local,,,P3,S,axum,,,,,,2026-09-28,specs/issues/AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN.md
+AXUM-STORE-UPLOAD-AND-METADATA-DROP-INFORMATION,issue,"Store API uploads carry no media type, and legacy metadata is served as an empty object",draft,local,,,P3,S,axum,,,,,,2026-09-28,specs/issues/AXUM-STORE-UPLOAD-AND-METADATA-DROP-INFORMATION.md
 AXUM-WEBSOCKET-HARDENING,issue,WebSocket endpoint is not hardened,accepted,local,,,P3,M,axum,,,,,,2026-08-08,specs/issues/AXUM-WEBSOCKET-HARDENING.md
 BENCHMARK-SUITE,feature,No reproducible benchmarks for core runtime paths,accepted,local,,,P3,M,build,,,,,,2026-08-08,specs/issues/BENCHMARK-SUITE.md
 BUILD-MATRIX-NOT-RUN-IN-CI,issue,The feature/target build matrix is never run automatically,closed,local,,ready,P2,S,build;docs,,,,build-matrix-ci,,2026-08-25,specs/issues/BUILD-MATRIX-NOT-RUN-IN-CI.md
@@ -371,7 +374,7 @@ STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,
 STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,core/store;store/backends;web,,,,,2026-09-04,,specs/reference/STORE_SEMANTICS.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,core/value;lib/value,,,,,2026-09-27,,specs/reference/VALUE_TYPE_SYSTEM.md
-WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,axum;web,,,,,2026-08-17,,specs/reference/WEB_API_SPECIFICATION.md
+WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,axum;web,,,,,2026-09-28,,specs/reference/WEB_API_SPECIFICATION.md
 autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,docs;build,,,,,2026-08-31,,specs/guides/autonomous_bulk_design.md
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,,docs;build,,,,,2026-08-11,,specs/guides/autonomous_issue_fixing.md
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,core/commands;macro,,,,,2026-09-27,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
