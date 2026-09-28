@@ -132,7 +132,9 @@ Notifications" (the `Removed` part) · the wait-loop semantics need judgement.
   `status = Recipe` and the version kept. A live `None`/`Recipe` status defers to the stored
   status; a stored `Recipe` is a no-op; `LegacyMetadata` is deleted. Use an exhaustive `match`
   on `Status`.
-- **`set_binary` and `set_state`:** send `Removed` before unmapping a live asset.
+- **`set_binary` and `set_state`:** send `Removed` before unmapping a live asset. **Not**
+  `remove_expired_from_maps`: expiry has already announced `Expired` (O8). Do not copy the send
+  into that path.
 - **`expire`**, **`set_description`**, **`removedir`**, all as default methods:
   - `removedir` walks `listdir_keys_deep` deepest first, calls `remove` for each stored key
     (taking the lock per key, never across the walk), then calls `store.removedir`;
@@ -141,8 +143,11 @@ Notifications" (the `Removed` part) · the wait-loop semantics need judgement.
 - **`get_asset_info`:** the live branch uses `lookup_key_asset`, in both bodies (the simplest way
   is to delete the override). Not found → `Error::key_not_found`.
 - **`dependency_blocks_fast_track`:** in the store branch, a stored `Recipe` does not block.
-- **Lock discipline** (Phase 2): while holding the guard, never call `get`, `owned_key_asset`,
-  `to_override`, `set_binary`, `set_state` or `remove_expired_from_maps`.
+- **Lock discipline** (Phase 2). While holding the guard, **only** these may be called:
+  `lookup_key_asset`, `remove_key_asset`, `untrack_expiration`, `recipe_opt`,
+  `cascade_expire_dependents`, `expire_dependencies_result`, `dependency_manager()`, store calls
+  and `AssetRef` methods. **Never** call `get`, `owned_key_asset`, `to_override`, `set_binary`,
+  `set_state` or `remove_expired_from_maps`: `tokio::sync::Mutex` is not reentrant.
 
 **Validation:** `cargo test -p liquers-core --lib`; `cargo test -p liquers-core --tests`. If
 `EXPIRATION-INTEGRATION-SUITE-FAILING-AT-HEAD` is still open, compare any expiration failure
@@ -160,8 +165,10 @@ against the base commit before attributing it here.
 **File:** `liquers-core/tests/asset_manager_remove_expire_describe.rs` (new): Phase 3's shared
 helpers and AMR01–AMR61, including AMR24 (the restart fast-track).
 
-**Validation:** `cargo test -p liquers-core --test asset_manager_remove_expire_describe`. A
-failure is judged **against Phase 2**, and any divergence is recorded under "Implementation
+**Validation:** `cargo test -p liquers-core --test asset_manager_remove_expire_describe`. Each AMR
+test that calls a locking method wraps the call in
+`tokio::time::timeout(Duration::from_secs(10), …)`, so a lock-discipline mistake fails fast
+instead of hanging. A failure is judged **against Phase 2**, and any divergence is recorded under "Implementation
 Notes" below; tests are never edited silently.
 
 **Agent:** sonnet · liquers-unittest, rust-best-practices · Phase 3 AMR sections.
@@ -178,7 +185,7 @@ Notes" below; tests are never edited silently.
   unregistered form and say so in a comment.
 - Add the MT01–MT10 tests.
 
-**Validation:** `cargo test -p liquers-core --lib media_type`.
+**Validation:** `cargo test -p liquers-core --lib media_type::media_type_tests` (the module Phase 3 names).
 
 **Agent:** haiku · — · Phase 2 I9, Phase 3 MT.
 
@@ -212,7 +219,7 @@ Notes" below; tests are never edited silently.
 `into_metadata_record` (`Bytes` default, registry `type_name`, `ParameterError` for an unknown
 type), plus the VD tests.
 
-**Validation:** `cargo test -p liquers-axum --lib value_description`.
+**Validation:** `cargo test -p liquers-axum --lib assets::value_description::tests`.
 
 **Agent:** haiku · rust-best-practices, liquers-unittest.
 
@@ -226,10 +233,15 @@ type), plus the VD tests.
 - `query_handlers.rs`: `git mv` of `handlers.rs`, then adapted.
 - `key_handlers.rs` (new).
 
-**Action:** every handler in Phase 2 "Handlers — new or changed", with modes (a), (b) and (c)
-exactly as specified:
-- observe handlers never call `get`/`get_asset`;
-- submit handlers do not await the value;
+**Action:**
+- The response DTOs (`AssetListing`, `KeyListing`, `RemoveResult`, `ContainsResult`,
+  `VersionResult`, `AuditResult`, `DescriptionRequest`) go in `common.rs` in this step.
+- Every handler in Phase 2 "Handlers — new or changed", with the three modes exactly as
+  specified:
+  - (a) request and wait: `get_asset`/`get`, then `get_binary`;
+  - (b) submit handlers do not await the value;
+  - (c) observe handlers never call `get`/`get_asset` (AAE20–AAE29, AAE06, AAE35 and AAE36
+    assert this).
 - the reads use `asset_bytes`;
 - `Accept` is honoured;
 - every status output is an `ApiResponse`;
@@ -260,8 +272,18 @@ Phase 2 is the single source of truth for extractors, shapes and codes.
   - `with_websocket_path(base)`, which replaces the `{base}/ws` prefix.
 - Update the example's printed URLs to the new families.
 
-**Validation:** `cargo test -p liquers-axum --lib`; add a `build()` test for each switch
-combination.
+**Route-presence rule** (one rule, no special cases):
+- A **primary** mutation route (POST/PUT/DELETE on `key/…`) exists unless `read_only()` is set.
+- An **admin** route (`admin/…`) exists unless `read_only()` is set or `with_admin(false)` is
+  given.
+- A **GET alternative** exists iff its primary route exists **and** `with_destructive_gets()` is
+  set.
+- `q/cancel` and `key/cancel`, and their GET forms under the same rule, exist regardless of
+  `read_only()`.
+- `submit` GETs, the observe routes and the reads always exist.
+
+**Validation:** `cargo test -p liquers-axum --lib`, with a `build()` + route-presence test for all
+eight combinations of `read_only` × `with_admin` × `with_destructive_gets`.
 
 **Agent:** haiku · rust-best-practices · Phase 2 route table.
 
@@ -292,6 +314,10 @@ axum 0.8 `ws` API.
 ### Step 11: Query timeout (I5)
 
 **Files:** `liquers-axum/src/query/builder.rs` and `handlers.rs`.
+
+**Scope:** the Query API's `GET`/`POST {base}/{*query}` only. The assets `/q/` reads deliberately
+have no timeout: a long evaluation is followed with `q/submit` plus `q/info` or `ws/q`, which is
+what the timeout message points to.
 
 **Action:**
 - `QueryApiBuilder::with_timeout(Duration)`, default 30 s, carried to the handler in
@@ -383,8 +409,10 @@ cargo clean && cargo check -p liquers-web --target wasm32-unknown-unknown
 cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles   # if node is available
 ```
 
-`scripts/check-build-matrix.sh` is not needed: there are no `#[cfg(feature)]`, optional-dependency
-or `ExtValue` changes.
+`scripts/check-build-matrix.sh` is not needed: it checks feature and target combinations, and this
+work adds no `#[cfg(feature)]`, optional dependency or `ExtValue` variant. `clippy` without
+`--tests` does not compile `#[cfg(test)]` code, so test `unwrap()`s are exempt from the crate-wide
+lint.
 
 **Agent:** haiku · — · CLAUDE.md "Building and testing".
 
@@ -396,8 +424,8 @@ or `ExtValue` changes.
 |---|---|---|
 | `api_core::error` | `cargo test -p liquers-axum --lib api_core` | 1 |
 | core lib (incl. `test_remove_asset`) | `cargo test -p liquers-core --lib` | 2, 3 |
-| MT01–MT10 | `cargo test -p liquers-core --lib media_type` | 5 |
-| VD01–VD11 | `cargo test -p liquers-axum --lib value_description` | 7 |
+| MT01–MT10 | `cargo test -p liquers-core --lib media_type::media_type_tests` | 5 |
+| VD01–VD11 | `cargo test -p liquers-axum --lib assets::value_description::tests` | 7 |
 | builder switch combinations | `cargo test -p liquers-axum --lib` | 9 |
 
 ### Integration Tests
@@ -496,3 +524,25 @@ After approval:
 2. **Create a task list:** record Steps 1–14 for a later session.
 3. **Revise the plan.**
 4. **Exit:** implement manually from this plan.
+
+## Review Log
+
+Multi-agent review, 2026-09-28.
+
+- **Reviewer 1 (Phase 1):** no findings. Every decision is delivered, nothing deferred is
+  implemented, and Step 13's closures match `DESIGN.md` `issues:`.
+- **Reviewer 2 (Phase 2):** no blocking findings. Advisories applied:
+  - the allowed-calls list next to the forbidden one, and AMR timeouts;
+  - the explicit "no `Removed` from `remove_expired_from_maps`";
+  - the DTOs assigned to Step 8;
+  - the route-presence rule plus a test of all eight switch combinations;
+  - the timeout scope clarified (Query API only, by design);
+  - mode (a) spelled out.
+  - Its question "are admin GET alternatives subject to `with_admin`?" is answered by the rule: yes.
+- **Reviewer 3 (Phase 3):** no blocking findings. The test filters are aligned with Phase 3's
+  module paths.
+- **Reviewer 4 (codebase):** every cited line, both query maps, axum 0.8
+  `WebSocketUpgrade::max_message_size` (`ws.rs:195`) and the minimal-features build were confirmed.
+  Its "blocking" item (`tower` lacks `util`) is what Step 12 adds, so it is not a finding. The
+  build-matrix note is expanded.
+
