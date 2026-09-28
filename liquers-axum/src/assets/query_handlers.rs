@@ -31,7 +31,7 @@ pub async fn q_get_data_handler<E: Environment>(
 ) -> Response {
     let query = match query_from_path(&query_path) {
         Ok(query) => query,
-        Err(response) => return response,
+        Err(e) => return error_response(&e, "Failed to parse query"),
     };
     match env.get_asset_manager().get_asset(&query).await {
         Ok(asset) => asset_bytes(&asset).await,
@@ -48,7 +48,7 @@ pub async fn q_get_entry_handler<E: Environment>(
 ) -> Response {
     let query = match query_from_path(&query_path) {
         Ok(query) => query,
-        Err(response) => return response,
+        Err(e) => return error_response(&e, "Failed to parse query"),
     };
     match env.get_asset_manager().get_asset(&query).await {
         Ok(asset) => asset_entry(&asset, &headers, &params).await,
@@ -64,7 +64,7 @@ pub async fn q_submit_handler<E: Environment>(
 ) -> Response {
     let query = match query_from_path(&query_path) {
         Ok(query) => query,
-        Err(response) => return response,
+        Err(e) => return error_response(&e, "Failed to parse query"),
     };
     let info = match query.key() {
         Some(key) => submit_key(&env, &key).await,
@@ -87,7 +87,7 @@ pub async fn q_info_handler<E: Environment>(
 ) -> Response {
     let query = match query_from_path(&query_path) {
         Ok(query) => query,
-        Err(response) => return response,
+        Err(e) => return error_response(&e, "Failed to parse query"),
     };
     let manager = env.get_asset_manager();
     let info = match query.key() {
@@ -110,7 +110,7 @@ pub async fn q_get_metadata_handler<E: Environment>(
 ) -> Response {
     let query = match query_from_path(&query_path) {
         Ok(query) => query,
-        Err(response) => return response,
+        Err(e) => return error_response(&e, "Failed to parse query"),
     };
     let metadata = match query.key() {
         Some(key) => key_metadata(&env, &key).await,
@@ -132,7 +132,7 @@ pub async fn q_version_handler<E: Environment>(
 ) -> Response {
     let query = match query_from_path(&query_path) {
         Ok(query) => query,
-        Err(response) => return response,
+        Err(e) => return error_response(&e, "Failed to parse query"),
     };
     let version = match query.key() {
         Some(key) => key_version(&env, &key).await,
@@ -157,7 +157,7 @@ pub async fn q_cancel_handler<E: Environment>(
 ) -> Response {
     let query = match query_from_path(&query_path) {
         Ok(query) => query,
-        Err(response) => return response,
+        Err(e) => return error_response(&e, "Failed to parse query"),
     };
     let Some(asset) = env.get_asset_manager().lookup_query_asset(&query) else {
         return error_response(&not_requested(&query), "Nothing to cancel (submit the query first)");

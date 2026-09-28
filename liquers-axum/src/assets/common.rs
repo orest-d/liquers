@@ -145,7 +145,7 @@ pub(crate) fn created<T: Serialize>(result: T, message: impl Into<String>, key: 
 
 /// The key family parses its path with `parse_key`. A path that looks like a query (it starts
 /// with `-`, as `-R/…` does) gets a hint pointing at the query family.
-pub(crate) fn key_from_path(path: &str) -> Result<Key, Response> {
+pub(crate) fn key_from_path(path: &str) -> Result<Key, Error> {
     parse_key(path).map_err(|mut e| {
         if path.starts_with('-') {
             e.message = format!(
@@ -153,13 +153,13 @@ pub(crate) fn key_from_path(path: &str) -> Result<Key, Response> {
                 e.message
             );
         }
-        error_response(&e, "Failed to parse key")
+        e
     })
 }
 
 /// The query family parses its path with `parse_query`.
-pub(crate) fn query_from_path(path: &str) -> Result<Query, Response> {
-    parse_query(path).map_err(|e| error_response(&e, "Failed to parse query"))
+pub(crate) fn query_from_path(path: &str) -> Result<Query, Error> {
+    parse_query(path)
 }
 
 /// The observe routes of the query family answer 404 `NotAvailable` for a query nobody has

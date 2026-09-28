@@ -103,7 +103,7 @@ pub struct Head {
     pub key: Option<String>,
     pub timestamp: String,
     /// The asset's state re-read after the change.
-    pub info: Option<AssetInfo>,
+    pub info: Option<Box<AssetInfo>>,
 }
 
 /// Server messages: one per `AssetNotificationMessage`, plus the protocol replies.
@@ -213,25 +213,27 @@ impl Family {
         }
     }
 
-    /// The address this family takes from a message, or the error reply.
-    fn address(
-        self,
-        query: Option<String>,
-        key: Option<String>,
-    ) -> Result<String, NotificationMessage> {
+    /// The address this family takes from a message.
+    fn address(self, query: Option<String>, key: Option<String>) -> Result<String, Error> {
         let (wanted, other) = match self {
             Family::Query => (query, key),
             Family::Key => (key, query),
         };
         if other.is_some() {
-            return Err(parameter_error(format!(
-                "{} subscriptions are addressed by `{}`",
-                self.endpoint(),
-                self.field()
-            )));
+            return Err(Error::from_error(
+                ErrorType::ParameterError,
+                format!(
+                    "{} subscriptions are addressed by `{}`",
+                    self.endpoint(),
+                    self.field()
+                ),
+            ));
         }
         wanted.ok_or_else(|| {
-            parameter_error(format!("missing `{}` for {}", self.field(), self.endpoint()))
+            Error::from_error(
+                ErrorType::ParameterError,
+                format!("missing `{}` for {}", self.field(), self.endpoint()),
+            )
         })
     }
 }
@@ -348,7 +350,7 @@ async fn subscription_task<E: Environment>(
         query: query.clone(),
         key: key_text.clone(),
         timestamp: now(),
-        info,
+        info: info.map(Box::new),
     };
 
     let info = asset.get_asset_info().await.ok();
@@ -490,11 +492,11 @@ impl<E: Environment> Session<E> {
         match message {
             ClientMessage::Subscribe { query, key } => match self.family.address(query, key) {
                 Ok(address) => self.subscribe(address).await,
-                Err(reply) => self.reply(reply).await,
+                Err(e) => self.reply(error_message(&e)).await,
             },
             ClientMessage::Unsubscribe { query, key } => match self.family.address(query, key) {
                 Ok(address) => self.unsubscribe(&address),
-                Err(reply) => self.reply(reply).await,
+                Err(e) => self.reply(error_message(&e)).await,
             },
             ClientMessage::UnsubscribeAll => {
                 self.unsubscribe_all();

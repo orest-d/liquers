@@ -36,7 +36,7 @@ macro_rules! parse_key_or_return {
     ($path:expr) => {
         match key_from_path(&$path) {
             Ok(key) => key,
-            Err(response) => return response,
+            Err(e) => return error_response(&e, "Failed to parse key"),
         }
     };
 }
