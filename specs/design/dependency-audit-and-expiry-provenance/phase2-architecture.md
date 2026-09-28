@@ -111,6 +111,7 @@ pub enum AuditMode {
 /// One edge an audit found stale: `dependent` recorded `expected` for `dependency`, and the
 /// durable version is `found`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct AuditFinding {
     pub dependency: DependencyKey,
     pub dependent: DependencyKey,
@@ -118,6 +119,12 @@ pub struct AuditFinding {
     pub found: Option<Version>,
 }
 
+impl AuditFinding {
+    pub fn new(dependency: DependencyKey, dependent: DependencyKey, expected: Version,
+               found: Option<Version>) -> Self;
+}
+
+#[non_exhaustive] // was already Debug, Clone, Default, PartialEq, Eq
 pub struct AuditReport {
     pub checked: Vec<DependencyKey>,
     pub expired: Vec<DependencyKey>,   // unchanged; empty in ReportOnly
@@ -503,9 +510,8 @@ bash scripts/check-build-matrix.sh               # wasm32 row
 
 **Advisory:**
 
-- `AuditReport` gains a public field. Consider `#[non_exhaustive]` now, while it has a single
-  external consumer (`keyed_version_cascade.rs`), so the next addition is not breaking. It is
-  proposed, but not applied without a decision, because it forbids struct literals in tests too.
+- `AuditReport` gains a public field. `#[non_exhaustive]` is applied to `AuditReport` and
+  `AuditFinding` so the next addition is not breaking (see gate decision 3).
 - `submit` is `#[must_use]`, so a dropped handle is a lint rather than silence.
 - The `trigger` field on `ExpiredDependents` only makes sense for a non-empty set. Keep
   `ExpiredDependents::new()` for the empty case and add `ExpiredDependents::for_trigger(key)`,
@@ -562,5 +568,23 @@ Left for Phase 4 to verify at implementation time: whether `liquers-web`'s `.d.t
    now-public `Context::wait_for_dependency`, with the key kept in the context (see Part E).
 2. **`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`.** In scope, because it fits the design:
    it is one of the routes into `Expired` that Part C gives a reason to.
-3. **`#[non_exhaustive]` on `AuditReport` / `AuditFinding`.** Explained to the owner and awaiting
-   an answer. The recommendation is yes.
+3. **`#[non_exhaustive]` on `AuditReport` / `AuditFinding`: applied, with public constructors.** The
+   owner noted that a custom asset manager outside core may be needed. That manager would have to
+   *build* reports, not only read them. `#[non_exhaustive]` still allows it: only listing every field
+   in a struct literal is forbidden, while `Default` plus assigning or pushing to the public fields
+   works from any crate. To make it convenient:
+   - `AuditReport::default()` (exists); fields stay `pub` and mutable;
+   - `AuditFinding::new(dependency, dependent, expected, found)`;
+   - `ExpiredDependents::for_trigger(key)` (already proposed in the rust-best-practices advisory).
+
+   Checking this showed that a custom manager outside core is **impossible today** for an unrelated
+   reason. `AssetManager` requires the crate-private supertrait `DependencyManagerAccess`
+   (`assets.rs:3871`, `:3895`), so it is sealed. That is filed as
+   `ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE` and is outside this design's scope.
+   What this design guarantees is that it adds **no new obstacle** to unsealing later:
+   - every new trait method has a default body;
+   - every new type an implementor would construct has a public constructor
+     (`ExpiryReason` is a plain public enum; `AuditReport`, `AuditFinding` and `ExpiredDependents`
+     are covered above);
+   - the new policy arrives through the already-public `AssetManagerOptions` passed to
+     `AssetManagerKind::build`.

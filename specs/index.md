@@ -8,10 +8,10 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 146
+Total rows: 147
 - P0: 1
 - P1: 2
-- P2: 83
+- P2: 84
 - P3: 60
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
@@ -79,6 +79,7 @@ Total rows: 146
 | [`WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED`](issues/WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED.md) | issue | Submitted query state is not preserved in the browser | accepted |  | P2 | M | lib/ui | [phase1](specs/design/ui-events/phase1-high-level-design.md)  [phase2](specs/design/ui-events/phase2-architecture.md)  [phase3](specs/design/ui-events/phase3-examples.md)  [phase4](specs/design/ui-events/phase4-implementation.md)  | 2026-08-08 |
 | [`ERROR-WITH-KEY-SETS-QUERY-FIELD`](issues/ERROR-WITH-KEY-SETS-QUERY-FIELD.md) | issue | Error context cannot distinguish asset keys from nested queries | draft | phase2-blocked | P2 | L | core/error;core/query;core/assets;core/store;web;py;axum | [phase1](specs/design/error-with-key-field/phase1-high-level-design.md)  [phase2](specs/design/error-with-key-field/phase2-architecture.md)  [phase3](specs/design/error-with-key-field/phase3-examples.md)  [phase4](specs/design/error-with-key-field/phase4-implementation.md)  | 2026-08-25 |
 | [`ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET`](issues/ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET.md) | feature | Asset expiration events cannot be observed except per asset | draft |  | P2 | L | core/assets |  | 2026-09-17 |
+| [`ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE`](issues/ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE.md) | issue | The AssetManager trait is sealed, so a custom asset manager cannot be written outside liquers-core | draft |  | P2 | L | core/assets |  | 2026-09-28 |
 | [`ASSET-REGISTRATION-OWNERSHIP-CONTRACT`](issues/ASSET-REGISTRATION-OWNERSHIP-CONTRACT.md) | feature | Registration of a keyed asset is a manager convenience, not a contract anything can rely on | draft |  | P2 | L | core/assets |  | 2026-09-03 |
 | [`ASSETS-FIX1`](issues/ASSETS-FIX1.md) | feature | Unresolved TODO and FIXME markers in the asset lifecycle | accepted |  | P2 | L | core/assets |  | 2026-08-08 |
 | [`ASSETS-IMPROVEMENTS`](issues/ASSETS-IMPROVEMENTS.md) | feature | Asset persistence, eviction safety and upload limits | accepted |  | P2 | L | core/assets;core/store |  | 2026-08-08 |

@@ -43,8 +43,10 @@ multi-agent review could not run because of a spend limit, so both review passes
 
 **Phase 2 gate, first round (2026-09-28).** Part E was revised to `Context::submit` plus a public
 `Context::wait_for_dependency`, with no new handle type, as the owner asked. The immediate-manager
-deadline bug was accepted into scope. Whether to mark `AuditReport` `#[non_exhaustive]` is still
-open.
+deadline bug was accepted into scope. `#[non_exhaustive]` is applied to `AuditReport` and
+`AuditFinding`, with public constructors, so a future asset manager outside core can still build
+them. That check found the `AssetManager` trait is sealed today, filed as
+`ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE`.
 
 ## Links
 
