@@ -18,5 +18,3 @@ pub use builder::AssetsApiBuilder;
 pub use value_description::ValueDescription;
 pub use websocket::WebSocketLimits;
 
-#[cfg(test)]
-mod tests;

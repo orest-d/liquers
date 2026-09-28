@@ -630,6 +630,13 @@ forms, as the code comments say. Worth a re-check from a machine with access bef
   replaced by an example that runs the real endpoints, and `WEBSOCKET_EXAMPLE.md` is rewritten to
   match.
 
+**Step 12 (route suites), 2026-09-28:** SAR, RAR, QAR, AAE and AWS are in `liquers-axum/tests/`;
+the `src/assets/tests.rs` placeholder is deleted. Transcription errors fixed: the `Environment`
+trait import (`to_ref`), `AsyncMemoryStore` is not `Clone` (the SAR helper reads the store back from
+the environment), the RAR environment registers the `make_text`/`upper` commands its recipes use
+(`resolve` builds the plan), and SAR15 expects 405, not 404 — `DELETE removedir` is registered on
+that path (the AAE69 rule).
+
 ## Execution Options
 
 After approval:
