@@ -377,6 +377,10 @@ pub enum AssetNotificationMessage {
     SecondaryProgressUpdated(ProgressEntry),
     JobFinished,
     Expired,
+    /// The asset was removed from the manager (by `remove`, or replaced by `set_binary` /
+    /// `set_state`) after being cancelled. Terminal for anyone holding this asset: request the key
+    /// again for a fresh one.
+    Removed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2453,7 +2457,9 @@ impl<E: Environment> AssetRef<E> {
                 notification
             );
             match notification {
-                AssetNotificationMessage::JobFinished => {
+                // `Removed` is terminal too: the asset has been unmapped (after being cancelled)
+                // and will not finish, so a waiter must not hang on it.
+                AssetNotificationMessage::JobFinished | AssetNotificationMessage::Removed => {
                     return Ok(());
                 }
                 _ => {}
@@ -3164,6 +3170,9 @@ impl<E: Environment> AssetRef<E> {
                         AssetNotificationMessage::StatusChanged(Status::Cancelled) => {
                             return Ok(());
                         }
+                        AssetNotificationMessage::Removed => {
+                            return Ok(());
+                        }
                         _ => {}
                     }
                     if rx.changed().await.is_err() {
@@ -3295,7 +3304,9 @@ impl<E: Environment> AssetRef<E> {
                 Ok(())
             }
             Status::Expired => Ok(()),
-            Status::Source => Err(Error::general_error(
+            Status::Source => Err(expire_refusal(
+                owner_key.as_ref(),
+                Status::Source,
                 "Cannot expire Source asset (no recipe to recover)".to_string(),
             )),
             Status::None
@@ -3308,10 +3319,11 @@ impl<E: Environment> AssetRef<E> {
             | Status::Error
             | Status::Storing
             | Status::Cancelled
-            | Status::Volatile => Err(Error::general_error(format!(
-                "Cannot expire asset in state {:?}",
-                lock.status
-            ))),
+            | Status::Volatile => Err(expire_refusal(
+                owner_key.as_ref(),
+                lock.status,
+                format!("Cannot expire asset in state {:?}", lock.status),
+            )),
         };
         // WP-3: for a KEYED asset, persist the Expired status to the store too. Without this,
         // a subsequent store-load (`try_fast_track`) after this in-memory entry is evicted would
@@ -3456,6 +3468,16 @@ impl<E: Environment> AssetRef<E> {
                 AssetNotificationMessage::Expired => {
                     return Err(Error::general_error(
                         "Asset expired while waiting for data".to_owned(),
+                    ));
+                }
+                AssetNotificationMessage::Removed => {
+                    // Re-poll first: the removal cancelled the asset, and its cancelled state is
+                    // what a waiter got before `Removed` existed.
+                    if let Some(state) = self.poll_state().await {
+                        return Ok(state);
+                    }
+                    return Err(Error::general_error(
+                        "Asset was removed while waiting for data".to_owned(),
                     ));
                 }
             }
@@ -3821,10 +3843,6 @@ pub(crate) fn load_command_versions_sync<E: Environment>(
     changed
 }
 
-/// Internal access to the runtime dependency graph.
-///
-/// Dependency tracking is automatic. Keeping this separate from [`AssetManager`]'s public
-/// operations prevents the graph implementation from becoming part of the supported API.
 /// Mark the stored copy of `key` `Expired`, for a key the dependency graph expired while no
 /// registered asset held it (see [`AssetManager::expire_dependencies_result`]).
 ///
@@ -3869,8 +3887,31 @@ async fn expire_stored_copy(store: Arc<dyn crate::store::AsyncStore>, key: &Key)
     }
 }
 
+/// The `StatusConflict` refusal of `AssetRef::expire`, keyed when the asset has a key.
+fn expire_refusal(key: Option<&Key>, status: Status, message: String) -> Error {
+    match key {
+        Some(key) => Error::status_conflict(key, status, "expire"),
+        None => Error::from_error(ErrorType::StatusConflict, message),
+    }
+}
+
+/// Internal access to the runtime dependency graph.
+///
+/// Dependency tracking is automatic. Keeping this separate from [`AssetManager`]'s public
+/// operations prevents the graph implementation from becoming part of the supported API.
 pub(crate) trait DependencyManagerAccess<E: Environment> {
     fn dependency_manager(&self) -> &crate::dependencies::DependencyManager<E>;
+}
+
+/// Internal access to the lock that serializes keyed mutations (`remove`, `set_binary`,
+/// `set_state`, `to_override`, `expire`, `set_description`), so they can be written once as
+/// default methods of [`AssetManager`]. Not part of the supported API.
+///
+/// The lock is a non-reentrant `tokio::sync::Mutex`: a method holding it must not call another
+/// method that takes it (`get`, `owned_key_asset`, `to_override`, `set_binary`, `set_state`,
+/// `remove`, `remove_expired_from_maps`).
+pub(crate) trait KeyMutationAccess {
+    fn key_mutation_lock(&self) -> &tokio::sync::Mutex<()>;
 }
 
 /// Asset evaluation, keyed mutation, recovery, directory, and lifecycle service.
@@ -3896,6 +3937,7 @@ pub(crate) trait DependencyManagerAccess<E: Environment> {
 pub trait AssetManager<E: Environment>:
     crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSync
     + DependencyManagerAccess<E>
+    + KeyMutationAccess
 {
     /// Resolves a query to an asset.
     ///
@@ -4205,6 +4247,14 @@ pub trait AssetManager<E: Environment>:
 
     /// Look up a cached asset by key in this manager's key→asset map (sync, brief).
     fn lookup_key_asset(&self, key: &Key) -> Option<AssetRef<E>>;
+
+    /// The live asset for `query`, **without creating or submitting one**.
+    ///
+    /// A pure-key query delegates to [`Self::lookup_key_asset`]; any other query is looked up in
+    /// the manager's query map. `None` means nobody has requested the query, or its asset has been
+    /// evicted (expired, volatile, or never cached). This is the observe-only counterpart of
+    /// [`Self::get_asset`], which requests.
+    fn lookup_query_asset(&self, query: &Query) -> Option<AssetRef<E>>;
 
     /// Remove a cached asset by key from this manager's key→asset map.
     async fn remove_key_asset(&self, key: &Key);
@@ -6024,6 +6074,13 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         self.assets.read_sync(key, |_k, v| v.clone())
     }
 
+    fn lookup_query_asset(&self, query: &Query) -> Option<AssetRef<E>> {
+        match query.key() {
+            Some(key) => self.lookup_key_asset(&key),
+            None => self.query_assets.read_sync(query, |_q, v| v.clone()),
+        }
+    }
+
     async fn remove_key_asset(&self, key: &Key) {
         let _ = self.assets.remove_async(key).await;
     }
@@ -6093,6 +6150,13 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
 impl<E: Environment> DependencyManagerAccess<E> for DefaultAssetManager<E> {
     fn dependency_manager(&self) -> &crate::dependencies::DependencyManager<E> {
         DefaultAssetManager::dependency_manager(self)
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl<E: Environment> KeyMutationAccess for DefaultAssetManager<E> {
+    fn key_mutation_lock(&self) -> &tokio::sync::Mutex<()> {
+        &self.key_mutation_lock
     }
 }
 
@@ -7088,6 +7152,16 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         map.get(key).cloned()
     }
 
+    fn lookup_query_asset(&self, query: &Query) -> Option<AssetRef<E>> {
+        match query.key() {
+            Some(key) => self.lookup_key_asset(&key),
+            None => {
+                let map = self.query_assets.lock().unwrap_or_else(|e| e.into_inner());
+                map.get(query).cloned()
+            }
+        }
+    }
+
     async fn remove_key_asset(&self, key: &Key) {
         let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
         map.remove(key);
@@ -7170,6 +7244,12 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
 impl<E: Environment> DependencyManagerAccess<E> for ImmediateAssetManager<E> {
     fn dependency_manager(&self) -> &crate::dependencies::DependencyManager<E> {
         &self.dependency_manager
+    }
+}
+
+impl<E: Environment> KeyMutationAccess for ImmediateAssetManager<E> {
+    fn key_mutation_lock(&self) -> &tokio::sync::Mutex<()> {
+        &self.key_mutation_lock
     }
 }
 
