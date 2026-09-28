@@ -3,7 +3,7 @@ id: AXUM-ASSETS-ENDPOINTS
 kind: design
 title: A working web and WebSocket interface for the asset manager
 status: draft
-phase: architecture
+phase: examples
 area: [axum, core/assets, core/error, docs]
 gh_pr: []
 issues: [AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED, AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS, WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION, AXUM-ASSETS-API-SERVES-ONLY-BYTES-AND-TEXT, EXPIRATION-RECOVERY-WEB-API, AXUM-ASSETS-CANCEL-STARTS-EVALUATION, AXUM-HANDLER-TEST-COVERAGE, AXUM-QUERY-TIMEOUT-HARDCODED, AXUM-WEBSOCKET-HARDENING, LIBRARY-CODE-USES-UNWRAP-AND-EXPECT, MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS, ASSET-REMOVE-FORGETS-DEPENDENTS, ASSET-TO-OVERRIDE-SOURCE-INCONSISTENT, DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION]
@@ -17,8 +17,8 @@ superseded_by:
 ## Phase Status
 
 - [x] Phase 1: High-Level Design (approved 2026-09-27)
-- [ ] Phase 2: Solution & Architecture (approved 2026-09-27; **reopened 2026-09-28**: two route families `/q/` and `/key/`, WebSocket in scope)
-- [ ] Phase 3: Examples & Testing (approved 2026-09-27; **stale** until Phase 2 is re-approved)
+- [x] Phase 2: Solution & Architecture (approved 2026-09-27; reopened and re-approved 2026-09-28: `/q/`+`/key/` families, access modes, WebSocket, web API issues I1–I10)
+- [ ] Phase 3: Examples & Testing (being regenerated for the re-approved Phase 2)
 - [ ] Phase 4: Implementation Plan
 - [ ] Implementation Complete
 
