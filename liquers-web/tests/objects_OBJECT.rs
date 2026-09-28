@@ -36,6 +36,7 @@ const ALL_ERROR_TYPES: &[ErrorType] = &[
     ErrorType::ExecutionError,
     ErrorType::DependencyVersionMismatch,
     ErrorType::DependencyCycle,
+    ErrorType::StatusConflict,
     ErrorType::Cancelled,
 ];
 

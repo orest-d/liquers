@@ -30,6 +30,7 @@ pub fn error_to_status_code(error_type: ErrorType) -> StatusCode {
         ErrorType::NotAvailable => StatusCode::NOT_FOUND,
         ErrorType::DependencyVersionMismatch => StatusCode::CONFLICT,
         ErrorType::DependencyCycle => StatusCode::CONFLICT,
+        ErrorType::StatusConflict => StatusCode::CONFLICT,
         // Asset processing was cancelled: 499 Client Closed Request (falls back to 503 if the
         // non-standard code is unavailable).
         ErrorType::Cancelled => {
@@ -81,6 +82,7 @@ pub fn parse_error_type(type_str: &str) -> Result<ErrorType, String> {
         "NotAvailable" => Ok(ErrorType::NotAvailable),
         "DependencyVersionMismatch" => Ok(ErrorType::DependencyVersionMismatch),
         "DependencyCycle" => Ok(ErrorType::DependencyCycle),
+        "StatusConflict" => Ok(ErrorType::StatusConflict),
         "Cancelled" => Ok(ErrorType::Cancelled),
         _ => Err(format!("Unknown error type: {}", type_str)),
     }
@@ -120,6 +122,7 @@ mod tests {
             ErrorType::ExecutionError,
             ErrorType::DependencyVersionMismatch,
             ErrorType::DependencyCycle,
+            ErrorType::StatusConflict,
             ErrorType::Cancelled,
         ];
         for error_type in &all {
@@ -146,6 +149,7 @@ mod tests {
                 | ErrorType::ExecutionError
                 | ErrorType::DependencyVersionMismatch
                 | ErrorType::DependencyCycle
+                | ErrorType::StatusConflict
                 | ErrorType::Cancelled => {}
             }
         }
@@ -324,6 +328,7 @@ mod tests {
             ErrorType::NotAvailable,
             ErrorType::DependencyVersionMismatch,
             ErrorType::DependencyCycle,
+            ErrorType::StatusConflict,
         ];
 
         for error_type in all_types {

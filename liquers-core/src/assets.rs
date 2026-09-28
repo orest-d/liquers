@@ -2249,6 +2249,7 @@ impl<E: Environment> AssetRef<E> {
             | ErrorType::ExecutionError
             | ErrorType::DependencyVersionMismatch
             | ErrorType::DependencyCycle
+            | ErrorType::StatusConflict
             | ErrorType::Cancelled => PersistenceStatus::NotPersisted,
         }
     }
