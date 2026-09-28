@@ -610,6 +610,26 @@ forms, as the code comments say. Worth a re-check from a machine with access bef
 - The route-presence test tells axum's own 404/405 (empty body) from a handler's 404 (an
   `ApiResponse`), since `POST key/data` on an absent store answers 404 from the handler.
 
+**Step 10 (WebSocket), 2026-09-28:**
+
+- **`Removed` is sent after the key's new state is written**, not just before the unmap: in
+  `remove` after the store change, in `set_binary`/`set_state` after the rest of the body (on
+  success or failure; the body runs in an async block for that). The asset is already unmapped and
+  nothing else sends on its channel, so `Removed` is still its last message, and the snapshot a
+  subscriber re-reads now describes what the removal or write left (`info: null` after a delete)
+  instead of the state before it.
+- **The latest watch message is replayed after `Initial`.** A new `watch::Receiver` has seen the
+  current value, so an asset that finished between `get_asset` and the subscribe would never send
+  `JobFinished` to the subscriber. Unless it is `Initial`, the current message is forwarded right
+  after `Initial`.
+- `ws/q` with a pure-key query, and `ws/key`, refuse a key that is neither stored nor declared by
+  a recipe (as `submit` does), with an `Error` reply.
+- **AWS12b observed:** a client message over `max_message_size` closes the connection; the client
+  sees no reply (the test accepts that outcome).
+- `examples/websocket_client.rs` was a self-contained mock with its own message types; it is
+  replaced by an example that runs the real endpoints, and `WEBSOCKET_EXAMPLE.md` is rewritten to
+  match.
+
 ## Execution Options
 
 After approval:

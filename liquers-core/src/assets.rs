@@ -4243,39 +4243,40 @@ pub trait AssetManager<E: Environment>:
             }
         };
 
-        match action {
+        if let RemoveAction::Nothing = action {
+            return Ok(());
+        }
+        if let Some(asset) = &live {
+            asset.cancel().await?;
+            self.untrack_expiration(asset.id());
+            self.remove_key_asset(key).await;
+        }
+        let result = match action {
             RemoveAction::Nothing => Ok(()),
             RemoveAction::Delete => {
-                if let Some(asset) = live {
-                    asset.cancel().await?;
-                    asset.notify_removed().await;
-                    self.untrack_expiration(asset.id());
-                    self.remove_key_asset(key).await;
-                }
                 let dep_key = crate::metadata::DependencyKey::from(key);
                 self.cascade_expire_dependents(&dep_key).await;
                 self.dependency_manager().remove(&dep_key).await;
                 if stored_metadata.is_some() {
-                    store.remove(key).await?;
+                    store.remove(key).await
+                } else {
+                    Ok(())
                 }
-                Ok(())
             }
-            RemoveAction::DropComputed => {
-                if let Some(asset) = live {
-                    asset.cancel().await?;
-                    asset.notify_removed().await;
-                    self.untrack_expiration(asset.id());
-                    self.remove_key_asset(key).await;
-                }
-                if let Some(metadata) = stored_metadata {
-                    match dropped_computed_metadata::<E>(metadata) {
-                        Some(metadata) => store.set(key, &[], &metadata).await?,
-                        None => store.remove(key).await?,
-                    }
-                }
-                Ok(())
-            }
+            RemoveAction::DropComputed => match stored_metadata {
+                Some(metadata) => match dropped_computed_metadata::<E>(metadata) {
+                    Some(metadata) => store.set(key, &[], &metadata).await,
+                    None => store.remove(key).await,
+                },
+                None => Ok(()),
+            },
+        };
+        // The unmapped asset's last message, sent once the key shows its new state, so an
+        // observer re-reading the key sees what the removal left.
+        if let Some(asset) = &live {
+            asset.notify_removed().await;
         }
+        result
     }
 
     /// Expire a keyed asset and cascade to its dependents, whether it is live or only stored.
@@ -6047,6 +6048,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
     ) -> Result<(), Error> {
         let _mutation = self.key_mutation_lock.lock().await;
 
+        let mut replaced: Option<AssetRef<E>> = None;
         // Adds non-fatal metadata consistency warnings for externally supplied values.
         // 1. Cancel any existing processing asset for this key
         if self.assets.contains_async(key).await {
@@ -6056,8 +6058,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
 
                 // Cancel if processing
                 asset_ref.cancel().await?;
-                // The replaced asset's last message: it is unmapped next.
-                asset_ref.notify_removed().await;
+                replaced = Some(asset_ref.clone());
                 // Cancel any pending expiration tracking for this asset
                 self.untrack_expiration(asset_ref.id());
             }
@@ -6065,86 +6066,93 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             // Remove from assets map (set() is store-only, no AssetRef created)
             let _ = self.assets.remove_async(key).await;
         }
+        let result = async {
+            // 2. Determine status based on input status and recipe existence
+            let input_status = metadata.status;
+            let final_status = match input_status {
+                Status::Expired => Status::Expired,
+                Status::Error => Status::Error,
+                Status::None
+                | Status::Directory
+                | Status::Recipe
+                | Status::Submitted
+                | Status::Dependencies
+                | Status::Processing
+                | Status::Partial
+                | Status::Storing
+                | Status::Ready
+                | Status::Cancelled
+                | Status::Source
+                | Status::Override
+                | Status::Volatile => {
+                    // Check if recipe exists
+                    if self.recipe_opt(key).await?.is_some() {
+                        Status::Override
+                    } else {
+                        Status::Source
+                    }
+                }
+            };
+            metadata.status = final_status;
+            validate_required_metadata_fields(key, &metadata, self.get_envref().get_type_registry())?;
+            add_soft_consistency_warnings(&mut metadata);
 
-        // 2. Determine status based on input status and recipe existence
-        let input_status = metadata.status;
-        let final_status = match input_status {
-            Status::Expired => Status::Expired,
-            Status::Error => Status::Error,
-            Status::None
-            | Status::Directory
-            | Status::Recipe
-            | Status::Submitted
-            | Status::Dependencies
-            | Status::Processing
-            | Status::Partial
-            | Status::Storing
-            | Status::Ready
-            | Status::Cancelled
-            | Status::Source
-            | Status::Override
-            | Status::Volatile => {
-                // Check if recipe exists
-                if self.recipe_opt(key).await?.is_some() {
-                    Status::Override
+            // 3. Update timestamp and add log entry
+            metadata.set_updated_now();
+            metadata.add_log_entry(LogEntry::info("Data set externally".to_string()));
+
+            // 4. Compute version from binary content and store in metadata
+            let dep_key = crate::metadata::DependencyKey::from(key);
+            if final_status != Status::Volatile && final_status != Status::Error {
+                let version = crate::metadata::Version::from_bytes(binary);
+                metadata.version = Some(version);
+            }
+
+            // 5. Handle Error status specially - store empty binary with metadata
+            // `stored: false` on the supplied metadata (true unless the caller set it) skips this
+            // write entirely — an explicit set is still allowed to bypass a `stored: false` recipe by
+            // supplying `stored: true` in its own metadata, which is why the flag read here is the
+            // *supplied* one, not the recipe's.
+            let store = self.get_envref().get_async_store();
+            if metadata.stored() {
+                if final_status == Status::Error {
+                    // Store empty binary with error metadata
+                    store.set(key, &[], &metadata.clone().into()).await?;
                 } else {
-                    Status::Source
+                    // Store binary and metadata
+                    store
+                        .set(key, binary, &metadata.clone().into())
+                        .await
+                        .map_err(|e| {
+                            // On failure, try to clean up (best effort)
+                            // Note: We can't do async cleanup in map_err, so just return the error
+                            e
+                        })?;
                 }
             }
-        };
-        metadata.status = final_status;
-        validate_required_metadata_fields(key, &metadata, self.get_envref().get_type_registry())?;
-        add_soft_consistency_warnings(&mut metadata);
 
-        // 3. Update timestamp and add log entry
-        metadata.set_updated_now();
-        metadata.add_log_entry(LogEntry::info("Data set externally".to_string()));
-
-        // 4. Compute version from binary content and store in metadata
-        let dep_key = crate::metadata::DependencyKey::from(key);
-        if final_status != Status::Volatile && final_status != Status::Error {
-            let version = crate::metadata::Version::from_bytes(binary);
-            metadata.version = Some(version);
-        }
-
-        // 5. Handle Error status specially - store empty binary with metadata
-        // `stored: false` on the supplied metadata (true unless the caller set it) skips this
-        // write entirely — an explicit set is still allowed to bypass a `stored: false` recipe by
-        // supplying `stored: true` in its own metadata, which is why the flag read here is the
-        // *supplied* one, not the recipe's.
-        let store = self.get_envref().get_async_store();
-        if metadata.stored() {
-            if final_status == Status::Error {
-                // Store empty binary with error metadata
-                store.set(key, &[], &metadata.clone().into()).await?;
-            } else {
-                // Store binary and metadata
-                store
-                    .set(key, binary, &metadata.clone().into())
-                    .await
-                    .map_err(|e| {
-                        // On failure, try to clean up (best effort)
-                        // Note: We can't do async cleanup in map_err, so just return the error
-                        e
-                    })?;
+            // 6. Register version and cascade expire dependents (non-volatile only)
+            if matches!(
+                final_status,
+                Status::Ready | Status::Source | Status::Override
+            ) {
+                if let Some(version) = metadata.version {
+                    let expired = self
+                        .dependency_manager
+                        .register_version(&dep_key, version)
+                        .await;
+                    self.expire_dependencies_result(expired).await;
+                }
             }
-        }
 
-        // 6. Register version and cascade expire dependents (non-volatile only)
-        if matches!(
-            final_status,
-            Status::Ready | Status::Source | Status::Override
-        ) {
-            if let Some(version) = metadata.version {
-                let expired = self
-                    .dependency_manager
-                    .register_version(&dep_key, version)
-                    .await;
-                self.expire_dependencies_result(expired).await;
-            }
+            Ok(())
         }
-
-        Ok(())
+        .await;
+        if let Some(asset) = &replaced {
+            // The replaced asset's last message, once the key holds its new value.
+            asset.notify_removed().await;
+        }
+        result
     }
 
     /// Set the state of the asset
@@ -6157,6 +6165,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
     async fn set_state(&self, key: &Key, state: State<E::Value>) -> Result<(), Error> {
         let _mutation = self.key_mutation_lock.lock().await;
 
+        let mut replaced: Option<AssetRef<E>> = None;
         // Adds non-fatal metadata consistency warnings for externally supplied state.
         // 1. Cancel any existing processing asset for this key
         if self.assets.contains_async(key).await {
@@ -6166,8 +6175,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
 
                 // Cancel if processing
                 asset_ref.cancel().await?;
-                // The replaced asset's last message: it is unmapped next.
-                asset_ref.notify_removed().await;
+                replaced = Some(asset_ref.clone());
                 // Cancel any pending expiration tracking for this asset
                 self.untrack_expiration(asset_ref.id());
             }
@@ -6175,117 +6183,124 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             // Remove from assets map
             let _ = self.assets.remove_async(key).await;
         }
-
-        // 2. Determine status based on input status and recipe existence
-        let input_status = state.metadata.status();
-        let final_status = match input_status {
-            Status::Expired => Status::Expired,
-            Status::Error => Status::Error,
-            Status::None
-            | Status::Directory
-            | Status::Recipe
-            | Status::Submitted
-            | Status::Dependencies
-            | Status::Processing
-            | Status::Partial
-            | Status::Storing
-            | Status::Ready
-            | Status::Cancelled
-            | Status::Source
-            | Status::Override
-            | Status::Volatile => {
-                // Check if recipe exists
-                if self.recipe_opt(key).await?.is_some() {
-                    Status::Override
-                } else {
-                    Status::Source
+        let result = async {
+            // 2. Determine status based on input status and recipe existence
+            let input_status = state.metadata.status();
+            let final_status = match input_status {
+                Status::Expired => Status::Expired,
+                Status::Error => Status::Error,
+                Status::None
+                | Status::Directory
+                | Status::Recipe
+                | Status::Submitted
+                | Status::Dependencies
+                | Status::Processing
+                | Status::Partial
+                | Status::Storing
+                | Status::Ready
+                | Status::Cancelled
+                | Status::Source
+                | Status::Override
+                | Status::Volatile => {
+                    // Check if recipe exists
+                    if self.recipe_opt(key).await?.is_some() {
+                        Status::Override
+                    } else {
+                        Status::Source
+                    }
                 }
-            }
-        };
-
-        // 3. Create metadata record with updated status, timestamp, and log entry
-        let mut metadata = state.metadata.as_ref().clone();
-        metadata.set_status(final_status)?;
-        validate_required_metadata_fields_enum(
-            key,
-            &metadata,
-            self.get_envref().get_type_registry(),
-        )?;
-        add_soft_consistency_warnings_enum(&mut metadata)?;
-        metadata.set_updated_now()?;
-        metadata.add_log_entry(LogEntry::info("State set externally".to_string()))?;
-
-        // 4. Compute version for non-volatile states
-        let dep_key = crate::metadata::DependencyKey::from(key);
-        if final_status != Status::Volatile && final_status != Status::Error {
-            let version = match state.as_bytes() {
-                Ok(binary) => crate::metadata::Version::from_bytes(&binary),
-                // `new_unique`, not `from_time_now`: what is needed here is a *distinct* version
-                // per set, and a bare timestamp can repeat within one clock tick.
-                Err(_) => crate::metadata::Version::new_unique(),
             };
-            metadata.set_version(Some(version))?;
-        }
 
-        // 5. Create new AssetRef with the state
-        let recipe: Recipe = key.into();
-        let mut asset_data = AssetData::new_ext(
-            self.next_id(),
-            recipe,
-            State::new(), // Empty initial state
-            Some(key.clone()),
-            self.get_envref(),
-        );
-        asset_data.data = Some(Arc::new(state.data_unchecked().as_ref().clone()));
-        asset_data.metadata = metadata.clone();
-        asset_data.status = final_status;
-        asset_data.binary = None; // Clear binary, we have the data
+            // 3. Create metadata record with updated status, timestamp, and log entry
+            let mut metadata = state.metadata.as_ref().clone();
+            metadata.set_status(final_status)?;
+            validate_required_metadata_fields_enum(
+                key,
+                &metadata,
+                self.get_envref().get_type_registry(),
+            )?;
+            add_soft_consistency_warnings_enum(&mut metadata)?;
+            metadata.set_updated_now()?;
+            metadata.add_log_entry(LogEntry::info("State set externally".to_string()))?;
 
-        let asset_ref = asset_data.to_ref();
+            // 4. Compute version for non-volatile states
+            let dep_key = crate::metadata::DependencyKey::from(key);
+            if final_status != Status::Volatile && final_status != Status::Error {
+                let version = match state.as_bytes() {
+                    Ok(binary) => crate::metadata::Version::from_bytes(&binary),
+                    // `new_unique`, not `from_time_now`: what is needed here is a *distinct* version
+                    // per set, and a bare timestamp can repeat within one clock tick.
+                    Err(_) => crate::metadata::Version::new_unique(),
+                };
+                metadata.set_version(Some(version))?;
+            }
 
-        // 6. Store in assets map
-        assert!(self.try_insert_key_asset(key, asset_ref.clone()).await);
+            // 5. Create new AssetRef with the state
+            let recipe: Recipe = key.into();
+            let mut asset_data = AssetData::new_ext(
+                self.next_id(),
+                recipe,
+                State::new(), // Empty initial state
+                Some(key.clone()),
+                self.get_envref(),
+            );
+            asset_data.data = Some(Arc::new(state.data_unchecked().as_ref().clone()));
+            asset_data.metadata = metadata.clone();
+            asset_data.status = final_status;
+            asset_data.binary = None; // Clear binary, we have the data
 
-        // 7. Handle Error status specially - store empty binary with metadata
-        // `stored: false` on the supplied metadata (true unless the caller set it) skips this
-        // write entirely — see `set_binary` above for the same read of the *supplied* metadata.
-        let store = self.get_envref().get_async_store();
-        if metadata.stored() {
-            if final_status == Status::Error {
-                // Store empty binary with error metadata
-                store.set(key, &[], &metadata.clone().into()).await?;
-            } else {
-                // 8. Try to serialize and store (handle non-serializable gracefully)
-                match state.as_bytes() {
-                    Ok(binary) => {
-                        store.set(key, &binary, &metadata.clone().into()).await?;
-                    }
-                    Err(_) => {
-                        // Non-serializable data - store metadata only
-                        store.set_metadata(key, &metadata.clone().into()).await?;
+            let asset_ref = asset_data.to_ref();
+
+            // 6. Store in assets map
+            assert!(self.try_insert_key_asset(key, asset_ref.clone()).await);
+
+            // 7. Handle Error status specially - store empty binary with metadata
+            // `stored: false` on the supplied metadata (true unless the caller set it) skips this
+            // write entirely — see `set_binary` above for the same read of the *supplied* metadata.
+            let store = self.get_envref().get_async_store();
+            if metadata.stored() {
+                if final_status == Status::Error {
+                    // Store empty binary with error metadata
+                    store.set(key, &[], &metadata.clone().into()).await?;
+                } else {
+                    // 8. Try to serialize and store (handle non-serializable gracefully)
+                    match state.as_bytes() {
+                        Ok(binary) => {
+                            store.set(key, &binary, &metadata.clone().into()).await?;
+                        }
+                        Err(_) => {
+                            // Non-serializable data - store metadata only
+                            store.set_metadata(key, &metadata.clone().into()).await?;
+                        }
                     }
                 }
             }
-        }
 
-        // 9. Register version and cascade expire dependents (non-volatile only)
-        if matches!(
-            final_status,
-            Status::Ready | Status::Source | Status::Override
-        ) {
-            if let Some(version) = metadata.version() {
-                let expired = self
-                    .dependency_manager
-                    .register_version(&dep_key, version)
-                    .await;
+            // 9. Register version and cascade expire dependents (non-volatile only)
+            if matches!(
+                final_status,
+                Status::Ready | Status::Source | Status::Override
+            ) {
+                if let Some(version) = metadata.version() {
+                    let expired = self
+                        .dependency_manager
+                        .register_version(&dep_key, version)
+                        .await;
+                    self.expire_dependencies_result(expired).await;
+                }
+                // Track the asset in the dependency manager
+                let expired = self.dependency_manager.track_asset(&asset_ref).await;
                 self.expire_dependencies_result(expired).await;
             }
-            // Track the asset in the dependency manager
-            let expired = self.dependency_manager.track_asset(&asset_ref).await;
-            self.expire_dependencies_result(expired).await;
-        }
 
-        Ok(())
+            Ok(())
+        }
+        .await;
+        if let Some(asset) = &replaced {
+            // The replaced asset's last message, once the key holds its new value.
+            asset.notify_removed().await;
+        }
+        result
     }
 
     /// Check if the resource asset exists.
@@ -7317,115 +7332,133 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
     ) -> Result<(), Error> {
         let _mutation = self.key_mutation_lock.lock().await;
         let old = self.lookup_key_asset(key);
+        let mut replaced: Option<AssetRef<E>> = None;
         if let Some(asset) = old {
             asset.cancel().await?;
-            asset.notify_removed().await;
             self.remove_key_asset(key).await;
+            replaced = Some(asset);
         }
-        let final_status = match metadata.status {
-            Status::Expired => Status::Expired,
-            Status::Error => Status::Error,
-            _ if self.recipe_opt(key).await?.is_some() => Status::Override,
-            _ => Status::Source,
-        };
-        metadata.status = final_status;
-        validate_required_metadata_fields(key, &metadata, self.envref().get_type_registry())?;
-        add_soft_consistency_warnings(&mut metadata);
-        metadata.set_updated_now();
-        metadata.add_log_entry(LogEntry::info("Data set externally".to_string()));
-        let dep_key = crate::metadata::DependencyKey::from(key);
-        if final_status != Status::Volatile && final_status != Status::Error {
-            metadata.version = Some(crate::metadata::Version::from_bytes(binary));
-        }
-        let store = self.envref().get_async_store();
-        // `stored: false` on the supplied metadata (true unless the caller set it) skips this
-        // write entirely — see `DefaultAssetManager::set_binary` for the same rule.
-        if metadata.stored() {
-            if final_status == Status::Error {
-                store.set(key, &[], &metadata.clone().into()).await?;
-            } else {
-                store.set(key, binary, &metadata.clone().into()).await?;
+        let result = async {
+            let final_status = match metadata.status {
+                Status::Expired => Status::Expired,
+                Status::Error => Status::Error,
+                _ if self.recipe_opt(key).await?.is_some() => Status::Override,
+                _ => Status::Source,
+            };
+            metadata.status = final_status;
+            validate_required_metadata_fields(key, &metadata, self.envref().get_type_registry())?;
+            add_soft_consistency_warnings(&mut metadata);
+            metadata.set_updated_now();
+            metadata.add_log_entry(LogEntry::info("Data set externally".to_string()));
+            let dep_key = crate::metadata::DependencyKey::from(key);
+            if final_status != Status::Volatile && final_status != Status::Error {
+                metadata.version = Some(crate::metadata::Version::from_bytes(binary));
             }
-        }
-        if matches!(
-            final_status,
-            Status::Ready | Status::Source | Status::Override
-        ) {
-            if let Some(version) = metadata.version {
-                let expired = self
-                    .dependency_manager
-                    .register_version(&dep_key, version)
-                    .await;
-                self.expire_dependencies_result(expired).await;
+            let store = self.envref().get_async_store();
+            // `stored: false` on the supplied metadata (true unless the caller set it) skips this
+            // write entirely — see `DefaultAssetManager::set_binary` for the same rule.
+            if metadata.stored() {
+                if final_status == Status::Error {
+                    store.set(key, &[], &metadata.clone().into()).await?;
+                } else {
+                    store.set(key, binary, &metadata.clone().into()).await?;
+                }
             }
+            if matches!(
+                final_status,
+                Status::Ready | Status::Source | Status::Override
+            ) {
+                if let Some(version) = metadata.version {
+                    let expired = self
+                        .dependency_manager
+                        .register_version(&dep_key, version)
+                        .await;
+                    self.expire_dependencies_result(expired).await;
+                }
+            }
+            Ok(())
         }
-        Ok(())
+        .await;
+        if let Some(asset) = &replaced {
+            // The replaced asset's last message, once the key holds its new value.
+            asset.notify_removed().await;
+        }
+        result
     }
 
     async fn set_state(&self, key: &Key, state: State<E::Value>) -> Result<(), Error> {
         let _mutation = self.key_mutation_lock.lock().await;
         let old = self.lookup_key_asset(key);
+        let mut replaced: Option<AssetRef<E>> = None;
         if let Some(asset) = old {
             asset.cancel().await?;
-            asset.notify_removed().await;
             self.remove_key_asset(key).await;
+            replaced = Some(asset);
         }
-        let final_status = match state.metadata.status() {
-            Status::Expired => Status::Expired,
-            Status::Error => Status::Error,
-            _ if self.recipe_opt(key).await?.is_some() => Status::Override,
-            _ => Status::Source,
-        };
-        let mut metadata = state.metadata.as_ref().clone();
-        metadata.set_status(final_status)?;
-        validate_required_metadata_fields_enum(key, &metadata, self.envref().get_type_registry())?;
-        add_soft_consistency_warnings_enum(&mut metadata)?;
-        metadata.set_updated_now()?;
-        metadata.add_log_entry(LogEntry::info("State set externally".to_string()))?;
-        let dep_key = crate::metadata::DependencyKey::from(key);
-        if final_status != Status::Volatile && final_status != Status::Error {
-            let version = match state.as_bytes() {
-                Ok(binary) => crate::metadata::Version::from_bytes(&binary),
-                // `new_unique`, not `from_time_now`: what is needed here is a *distinct* version
-                // per set, and a bare timestamp can repeat within one clock tick.
-                Err(_) => crate::metadata::Version::new_unique(),
+        let result = async {
+            let final_status = match state.metadata.status() {
+                Status::Expired => Status::Expired,
+                Status::Error => Status::Error,
+                _ if self.recipe_opt(key).await?.is_some() => Status::Override,
+                _ => Status::Source,
             };
-            metadata.set_version(Some(version))?;
-        }
-        let mut data = AssetData::new_ext(self.next_id(), key.into(), State::new(), Some(key.clone()), self.envref());
-        data.data = Some(Arc::new(state.data_unchecked().as_ref().clone()));
-        data.metadata = metadata.clone();
-        data.status = final_status;
-        data.binary = None;
-        let asset = data.to_ref();
-        assert!(self.try_insert_key_asset(key, asset.clone()).await);
-        let store = self.envref().get_async_store();
-        // `stored: false` on the supplied metadata (true unless the caller set it) skips this
-        // write entirely — see `DefaultAssetManager::set_state` for the same rule.
-        if metadata.stored() {
-            if final_status == Status::Error {
-                store.set(key, &[], &metadata.clone().into()).await?;
-            } else if let Ok(binary) = state.as_bytes() {
-                store.set(key, &binary, &metadata.clone().into()).await?;
-            } else {
-                store.set_metadata(key, &metadata.clone().into()).await?;
+            let mut metadata = state.metadata.as_ref().clone();
+            metadata.set_status(final_status)?;
+            validate_required_metadata_fields_enum(key, &metadata, self.envref().get_type_registry())?;
+            add_soft_consistency_warnings_enum(&mut metadata)?;
+            metadata.set_updated_now()?;
+            metadata.add_log_entry(LogEntry::info("State set externally".to_string()))?;
+            let dep_key = crate::metadata::DependencyKey::from(key);
+            if final_status != Status::Volatile && final_status != Status::Error {
+                let version = match state.as_bytes() {
+                    Ok(binary) => crate::metadata::Version::from_bytes(&binary),
+                    // `new_unique`, not `from_time_now`: what is needed here is a *distinct* version
+                    // per set, and a bare timestamp can repeat within one clock tick.
+                    Err(_) => crate::metadata::Version::new_unique(),
+                };
+                metadata.set_version(Some(version))?;
             }
-        }
-        if matches!(
-            final_status,
-            Status::Ready | Status::Source | Status::Override
-        ) {
-            if let Some(version) = metadata.version() {
-                let expired = self
-                    .dependency_manager
-                    .register_version(&dep_key, version)
-                    .await;
+            let mut data = AssetData::new_ext(self.next_id(), key.into(), State::new(), Some(key.clone()), self.envref());
+            data.data = Some(Arc::new(state.data_unchecked().as_ref().clone()));
+            data.metadata = metadata.clone();
+            data.status = final_status;
+            data.binary = None;
+            let asset = data.to_ref();
+            assert!(self.try_insert_key_asset(key, asset.clone()).await);
+            let store = self.envref().get_async_store();
+            // `stored: false` on the supplied metadata (true unless the caller set it) skips this
+            // write entirely — see `DefaultAssetManager::set_state` for the same rule.
+            if metadata.stored() {
+                if final_status == Status::Error {
+                    store.set(key, &[], &metadata.clone().into()).await?;
+                } else if let Ok(binary) = state.as_bytes() {
+                    store.set(key, &binary, &metadata.clone().into()).await?;
+                } else {
+                    store.set_metadata(key, &metadata.clone().into()).await?;
+                }
+            }
+            if matches!(
+                final_status,
+                Status::Ready | Status::Source | Status::Override
+            ) {
+                if let Some(version) = metadata.version() {
+                    let expired = self
+                        .dependency_manager
+                        .register_version(&dep_key, version)
+                        .await;
+                    self.expire_dependencies_result(expired).await;
+                }
+                let expired = self.dependency_manager.track_asset(&asset).await;
                 self.expire_dependencies_result(expired).await;
             }
-            let expired = self.dependency_manager.track_asset(&asset).await;
-            self.expire_dependencies_result(expired).await;
+            Ok(())
         }
-        Ok(())
+        .await;
+        if let Some(asset) = &replaced {
+            // The replaced asset's last message, once the key holds its new value.
+            asset.notify_removed().await;
+        }
+        result
     }
 
     // --- primitives ---

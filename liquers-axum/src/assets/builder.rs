@@ -14,13 +14,14 @@
 
 use axum::{
     routing::{delete, get, post, put, MethodRouter},
-    Router,
+    Extension, Router,
 };
 use liquers_core::context::{EnvRef, Environment};
 use std::marker::PhantomData;
 
 use super::key_handlers as kh;
 use super::query_handlers as qh;
+use super::websocket::{self as ws, WebSocketLimits};
 
 /// Builder for Assets API endpoints (`{base}/q/…`, `{base}/key/…`, `{base}/admin/…`, and the
 /// WebSocket at `{base}/ws/q` and `{base}/ws/key`).
@@ -30,6 +31,7 @@ pub struct AssetsApiBuilder<E: Environment> {
     read_only: bool,
     admin: bool,
     destructive_gets: bool,
+    websocket_limits: WebSocketLimits,
     _phantom: PhantomData<E>,
 }
 
@@ -51,6 +53,7 @@ impl<E: Environment> AssetsApiBuilder<E> {
             read_only: false,
             admin: true,
             destructive_gets: false,
+            websocket_limits: WebSocketLimits::default(),
             _phantom: PhantomData,
         }
     }
@@ -64,6 +67,13 @@ impl<E: Environment> AssetsApiBuilder<E> {
     /// ```
     pub fn with_websocket_path(mut self, ws_path: impl Into<String>) -> Self {
         self.websocket_path = Some(ws_path.into());
+        self
+    }
+
+    /// Limits of the WebSocket endpoints: the largest client message and the number of
+    /// subscriptions per connection (defaults: 64 KiB, 256).
+    pub fn with_websocket_limits(mut self, limits: WebSocketLimits) -> Self {
+        self.websocket_limits = limits;
         self
     }
 
@@ -243,16 +253,25 @@ impl<E: Environment> AssetsApiBuilder<E> {
             get(kh::refresh_command_versions_handler::<E>),
         );
 
-        // ---- WebSocket: {ws}/q/{*query} and {ws}/key/{*key} (axum 0.8 wildcard syntax)
+        // ---- WebSocket: {ws}/q[/{*query}] and {ws}/key[/{*key}]; unaffected by read_only()
         if let Some(ws_path) = &self.websocket_path {
+            let limits = Extension(self.websocket_limits);
             router = router
                 .route(
-                    &format!("{}/q/{{*query}}", ws_path),
-                    get(crate::assets::websocket::websocket_handler::<E>),
+                    &format!("{ws_path}/q"),
+                    get(ws::ws_query_handler::<E>).layer(limits),
                 )
                 .route(
-                    &format!("{}/key/{{*key}}", ws_path),
-                    get(crate::assets::websocket::websocket_handler::<E>),
+                    &format!("{ws_path}/q/{{*query}}"),
+                    get(ws::ws_query_path_handler::<E>).layer(limits),
+                )
+                .route(
+                    &format!("{ws_path}/key"),
+                    get(ws::ws_key_handler::<E>).layer(limits),
+                )
+                .route(
+                    &format!("{ws_path}/key/{{*key}}"),
+                    get(ws::ws_key_path_handler::<E>).layer(limits),
                 );
         }
 
