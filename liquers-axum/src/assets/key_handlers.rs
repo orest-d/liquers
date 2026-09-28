@@ -223,10 +223,23 @@ async fn write_value<E: Environment>(
     message: String,
 ) -> Response {
     let manager = env.get_asset_manager();
-    let previous = manager.get_asset_info(key).await.ok();
+    let registry = env.get_type_registry();
+    // `AssetInfo.data_format` is the *effective* format, which may be derived from the filename
+    // (`a.txt` → `txt`) rather than declared. Inheriting one the type cannot be written in would
+    // refuse a plain rewrite of the same key with a 422, so such a format is not inherited.
+    let previous = manager.get_asset_info(key).await.ok().map(|mut info| {
+        let unsupported = info
+            .data_format
+            .as_deref()
+            .is_some_and(|format| !registry.supports_data_format(&info.type_identifier, format));
+        if unsupported {
+            info.data_format = None;
+        }
+        info
+    });
     let record = match description
         .or_previous(previous.as_ref())
-        .into_metadata_record(env.get_type_registry())
+        .into_metadata_record(registry)
     {
         Ok(record) => record,
         Err(e) => return error_response(&e, "Invalid value description"),

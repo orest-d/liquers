@@ -99,7 +99,7 @@ pub async fn q_info_handler<E: Environment>(
     };
     match info {
         Ok(info) => ok_query(info, "Asset info", &query),
-        Err(e) => error_response(&e, "Asset info not available"),
+        Err(e) => error_response(&e, "Asset info not available (submit the query first)"),
     }
 }
 
@@ -121,7 +121,7 @@ pub async fn q_get_metadata_handler<E: Environment>(
     };
     match metadata {
         Ok(metadata) => ok_query(metadata, "Asset metadata", &query),
-        Err(e) => error_response(&e, "Asset metadata not available"),
+        Err(e) => error_response(&e, "Asset metadata not available (submit the query first)"),
     }
 }
 
@@ -145,7 +145,7 @@ pub async fn q_version_handler<E: Environment>(
     };
     match version {
         Ok(version) => ok_query(version, "Asset version", &query),
-        Err(e) => error_response(&e, "Asset version not available"),
+        Err(e) => error_response(&e, "Asset version not available (submit the query first)"),
     }
 }
 
@@ -160,7 +160,7 @@ pub async fn q_cancel_handler<E: Environment>(
         Err(response) => return response,
     };
     let Some(asset) = env.get_asset_manager().lookup_query_asset(&query) else {
-        return error_response(&not_requested(&query), "Nothing to cancel");
+        return error_response(&not_requested(&query), "Nothing to cancel (submit the query first)");
     };
     let result = match asset.cancel().await {
         Ok(()) => asset.get_asset_info().await,

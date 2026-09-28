@@ -583,6 +583,33 @@ so `jsonl` → `application/jsonl` and `ndjson` → `application/x-ndjson` are t
 forms, as the code comments say. Worth a re-check from a machine with access before closing
 `MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS`.
 
+**Steps 8–12 (axum), 2026-09-28:**
+
+- **The Query API never serialized.** `get_query_handler` looped on `poll_binary`, which only
+  reports *cached* bytes; a non-keyed value with no cached encoding (an `Object`, say) spun until
+  the 30 s timeout. I1's premise ("`/q` serves it through `get_binary`") was therefore false. Step
+  11 rewrote both Query API handlers onto `tokio::time::timeout(config.timeout,
+  asset.get_binary())`, which waits, applies the effective format and returns the asset's own
+  error for `Error`/`Cancelled`/`Expired`/`Directory`. Error types now pass through (they were all
+  `ExecutionError` before), except the timeout, which stays `ExecutionError`.
+- **`POST {base}/{*query}` with no body answered 415** (the `Json` extractor requires a JSON
+  content type although the body is documented as optional; QAR02). The handler now reads raw
+  bytes and parses JSON only when there are any.
+- **I1 tests name a filename.** `/q/make_number` fails on both APIs: a query without a filename
+  serializes as `bin`, which `I64` does not support. AAE44–46 use `make_number/n.json` and
+  `make_object/o.json` (validated), which exercises what I1 is about.
+- **`POST key/data` does not inherit a format the previous type cannot be written in.**
+  `AssetInfo.data_format` is the *effective* format (a `Bytes` value at `a.txt` reports `txt`);
+  inheriting it made a plain rewrite of the same key a 422 (AAE80). `write_value` drops such a
+  format before `or_previous`.
+- **Cancel of a running command** ends `Ready`, not `Cancelled`: a core defect, filed as
+  `ASSET-CANCEL-DURING-PROCESSING-FINISHES-READY`. AAE38 and AAE92 accept either terminal status
+  and cite the issue.
+- The observe routes of `/q/` say "submit the query first" in the top-level `message` as well as
+  in `error.message` (AAE91 reads the former).
+- The route-presence test tells axum's own 404/405 (empty body) from a handler's 404 (an
+  `ApiResponse`), since `POST key/data` on an absent store answers 404 from the handler.
+
 ## Execution Options
 
 After approval:
