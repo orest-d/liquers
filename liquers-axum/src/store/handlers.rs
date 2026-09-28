@@ -472,11 +472,12 @@ pub async fn get_entry_handler<E: Environment>(
 
             // Serialize and return
             match serialize_data_entry(&entry, format) {
-                Ok(bytes) => axum::http::Response::builder()
-                    .status(axum::http::StatusCode::OK)
-                    .header(axum::http::header::CONTENT_TYPE, format.mime_type())
-                    .body(axum::body::Body::from(bytes))
-                    .unwrap(),
+                Ok(bytes) => crate::axum_integration::build_or_500(
+                    axum::http::Response::builder()
+                        .status(axum::http::StatusCode::OK)
+                        .header(axum::http::header::CONTENT_TYPE, format.mime_type()),
+                    axum::body::Body::from(bytes),
+                ),
                 Err(e) => {
                     let error_detail = crate::api_core::ErrorDetail {
                         error_type: "SerializationError".to_string(),

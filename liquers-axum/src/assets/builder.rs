@@ -95,10 +95,10 @@ impl<E: Environment> AssetsApiBuilder<E> {
             post(crate::assets::handlers::cancel_handler::<E>),
         );
 
-        // WebSocket endpoint (if enabled) - GET /ws/{*query}
+        // WebSocket endpoint (if enabled) - GET {ws_path}/{*query} (axum 0.8 wildcard syntax)
         if let Some(ws_path) = self.websocket_path {
             router = router.route(
-                &format!("{}/*query", ws_path),
+                &format!("{}/{{*query}}", ws_path),
                 get(crate::assets::websocket::websocket_handler::<E>),
             );
         }

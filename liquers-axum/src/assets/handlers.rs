@@ -287,7 +287,10 @@ pub async fn get_entry_handler<E: Environment>(
             // Return with appropriate Content-Type
             use axum::http::header::CONTENT_TYPE;
             let mut headers = HeaderMap::new();
-            headers.insert(CONTENT_TYPE, format.mime_type().parse().unwrap());
+            headers.insert(
+                CONTENT_TYPE,
+                axum::http::HeaderValue::from_static(format.mime_type()),
+            );
             (headers, bytes).into_response()
         }
         Err(e) => {
