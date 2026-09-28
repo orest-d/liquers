@@ -575,6 +575,14 @@ behaviour for an oversized WebSocket message, and the IANA outcome for each medi
     (a `Source` under a removed directory cascades to dependents outside it).
 - Every locking call in the AMR file goes through a `within` helper (10 s timeout).
 
+**Step 5 (media types), 2026-09-28:** the IANA registry could not be fetched from the build
+environment (`www.iana.org` is blocked by its egress policy), so the values rest on the registry
+as known at the time of writing: `application/vnd.apache.arrow.file` (`arrow`, `feather`, `ipc`)
+and `application/vnd.apache.parquet` are registered; JSON Lines and NDJSON have no registered type,
+so `jsonl` → `application/jsonl` and `ndjson` → `application/x-ndjson` are the common unregistered
+forms, as the code comments say. Worth a re-check from a machine with access before closing
+`MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS`.
+
 ## Execution Options
 
 After approval:
