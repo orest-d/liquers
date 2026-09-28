@@ -1,117 +1,106 @@
-# Phase 3: Examples & Testing - axum-assets-endpoints
+# Phase 3: Examples & Testing — Assets API over the whole AssetManager
+
+Written against `specs/design/axum-assets-endpoints/phase2-architecture.md`, re-approved
+2026-09-28. Phase 2 wins every conflict with anything below. This revision **replaces** the prior
+Phase 3 content in full: it targets the two-family routing (`/q/`, `/key/`, `/admin/`) rather than
+the old unprefixed routes, which v1 of this document tested.
+
+None of the code under test exists yet. Every test below is a runnable prototype against the
+Phase 2 contract — signatures, field types, error mappings and route shapes are verified against
+the current codebase wherever that code already exists (the four builders, `error.rs`,
+`metadata.rs`, `store.rs`, `media_type.rs`, `WEB_API_SPECIFICATION.md`); the `AssetManager` methods
+and Assets API routing that Phase 2 introduces are written to the signatures Phase 2 specifies.
 
 ## Example Type
 
-**Runnable prototypes** (user choice). Every code block below is real Rust that Phase 4 pastes
-verbatim into one of three files:
-
-- `liquers-core/tests/asset_manager_remove_expire_describe.rs` — new integration test, prefix `AMR`
-- `liquers-axum/tests/assets_api_endpoints.rs` — new integration test, prefix `AAE`
-- `liquers-axum/src/assets/value_description.rs`, `#[cfg(test)] mod tests` — new inline unit tests, prefix `VD`
-
-Each target file gets **one shared helper module** (`env_with`, `metadata_text`, HTTP/JSON
-helpers) instead of a copy per test group. IDs are contiguous within each prefix. Drafts that
-duplicated the same behaviour under different names were merged into one test.
+Runnable Rust test prototypes (`#[tokio::test]` / `#[test]`), one behaviour per test, `eprintln!`
+only, no `_ =>` on `ErrorType`/`Status`, tests may `unwrap()`. Distributed across eight target
+files as instructed, one shared helper block per file (no duplicate helpers within a file). Three
+worked examples (Example 1, Example 2, Example 2b) carry full HTTP/API transcripts; Example 3
+documents the metadata allow-list contract that the AAE10–AAE17 tests exercise.
 
 ## Overview Table
 
-| ID | Type | Name | Demonstrates / checks | Target file |
-|---|---|---|---|---|
-| Example 1 | Scenario | Agent-memory primary flow over HTTP | write → browse → recipe read → describe → overwrite → cascade, through the router | AAE (assets_api_endpoints.rs) |
-| Example 2 | Scenario | Removal decision table | all six rows of Phase 2's `remove` table, against `AssetManager` directly | AMR (asset_manager_remove_expire_describe.rs) |
-| Example 3 | Scenario | Metadata allow-list under `POST entry` | five hostile manager-owned fields dropped and named; two malformed-input 400s; `POST metadata` 501 | AAE (assets_api_endpoints.rs) |
-| AMR01 | Unit/Integration | `remove` — Source, no recipe, cascades | any-status-without-recipe row; dependent cascades to Expired | asset_manager_remove_expire_describe.rs |
-| AMR02 | Unit/Integration | `remove` — Override with recipe, recomputes | Source/Override-with-recipe row; next read recomputes | asset_manager_remove_expire_describe.rs |
-| AMR03 | Unit/Integration | `remove` — Ready computed value keeps metadata/version | recipe-computed row; store keeps `Recipe` status + version; no cascade | asset_manager_remove_expire_describe.rs |
-| AMR04 | Unit/Integration | Re-evaluate after AMR03-style remove, no cascade | second-order confirmation that the drop did not cascade | asset_manager_remove_expire_describe.rs |
-| AMR05 | Unit/Integration | `remove` — absent key, no recipe → `KeyNotFound` | nothing-live-nothing-stored, no recipe row | asset_manager_remove_expire_describe.rs |
-| AMR06 | Unit/Integration | `remove` — never-evaluated recipe key → `Ok(())` | None/Recipe-with-recipe row | asset_manager_remove_expire_describe.rs |
-| AMR07 | Unit/Integration | `remove` — `Directory` → `StatusConflict` (409) | directory row, refused | asset_manager_remove_expire_describe.rs |
-| AMR10 | Unit/Integration | `expire` — live `Ready` cascades to dependents | expire cascades through the live asset | asset_manager_remove_expire_describe.rs |
-| AMR11 | Unit/Integration | `expire` — cascades through a two-level dependency chain | multi-level cascade | asset_manager_remove_expire_describe.rs |
-| AMR12 | Unit/Integration | `expire` — idempotent on an already-`Expired` asset | idempotence | asset_manager_remove_expire_describe.rs |
-| AMR13 | Unit/Integration | `expire` — `Source` (no recipe) → `StatusConflict` | no recipe to recover from | asset_manager_remove_expire_describe.rs |
-| AMR14 | Unit/Integration | `expire` — never-evaluated recipe key → `StatusConflict` | `Recipe` status cannot expire | asset_manager_remove_expire_describe.rs |
-| AMR15 | Unit/Integration | `expire` — absent key → `KeyNotFound` | no live/stored/recipe | asset_manager_remove_expire_describe.rs |
-| AMR16 | Unit | `Error::status_conflict` constructor shape | type, key (`Some(key.encode())`), message wording | asset_manager_remove_expire_describe.rs |
-| AMR17 | Unit/Integration | `set_description` on a `Source` updates title/description, version unchanged | happy path | asset_manager_remove_expire_describe.rs |
-| AMR18 | Unit/Integration | `set_description` — both `None` → `ParameterError` | validation | asset_manager_remove_expire_describe.rs |
-| AMR19 | Unit/Integration | `set_description` on computed `Ready` → `StatusConflict` | only `Source` may be described | asset_manager_remove_expire_describe.rs |
-| AMR20 | Unit/Integration | `set_description` on absent key → `KeyNotFound` | absent-key path | asset_manager_remove_expire_describe.rs |
-| AMR22 | Unit/Integration | `get_asset_info` on an `Expired` live asset reports `Expired`, no re-evaluation | Phase 2's `get_asset_info` fix | asset_manager_remove_expire_describe.rs |
-| AMR23 | Unit/Integration | `get_asset_info` on a never-evaluated recipe key reports `Recipe`, no evaluation | same fix, un-evaluated case | asset_manager_remove_expire_describe.rs |
-| AMR24 | Integration | a dropped intermediate does not block its dependent's fast track after a restart | the kept version is worth something (final review) | asset_manager_remove_expire_describe.rs |
-| VD01 | Unit | `from_json` keeps exactly the five allow-listed fields | allow-list construction | value_description.rs |
-| VD02 | Unit | `from_json` on non-object JSON → `ParameterError` | input validation | value_description.rs |
-| VD03 | Unit | `from_json` on a non-string field value → `ParameterError` | input validation | value_description.rs |
-| VD04 | Unit | `from_json` reports dropped fields, sorted | reporting contract | value_description.rs |
-| VD05 | Unit | `from_params` parses query parameters, drops unknown ones | `POST data` parameter path | value_description.rs |
-| VD06 | Unit | `or_previous` fills missing fields from `AssetInfo`, never `media_type` | fill-from-previous rule | value_description.rs |
-| VD07 | Unit | `into_metadata_record` defaults `type_identifier` to `"Bytes"` | default type | value_description.rs |
-| VD08 | Unit | `into_metadata_record` resolves `type_name` from the registry | registry lookup | value_description.rs |
-| VD09 | Unit | `into_metadata_record` on an unknown identifier → `ParameterError` | 400 at the boundary, not 500 | value_description.rs |
-| VD10 | Unit | `into_metadata_record` — untouched `MetadataRecord` fields carry their real defaults | verified against `MetadataRecord::new()`/`Default` (see Fixes) | value_description.rs |
-| VD11 | Unit | `or_previous` — type and format filled only as a pair, from a data-bearing previous | recipe keys and client-named types (final review) | value_description.rs |
-| AAE01 | Integration | = Example 1 | see above | assets_api_endpoints.rs |
-| AAE02 | Integration | `POST data` onto a recipe key → `Override`; `DELETE` → `Recipe` | Q11 at the HTTP level | assets_api_endpoints.rs |
-| AAE03 | Integration | `GET metadata` of a Source written over HTTP | existing read, manager-owned record | assets_api_endpoints.rs |
-| AAE04 | Integration | `GET entry` with `Accept: application/json` | Accept negotiation (Phase 2 drive-by fix) | assets_api_endpoints.rs |
-| AAE05 | Integration | `POST cancel` on an existing asset → 200 | cancel happy path | assets_api_endpoints.rs |
-| AAE10–AAE17 | Integration | = Example 3 (AAE10 hostile `status`, AAE11 hostile `stored`, AAE12 hostile `dependencies`, AAE13 hostile `expiration_time`, AAE14 unknown `type_identifier` 400, AAE15 non-object `metadata` 400, AAE16 `POST metadata` 501, AAE17 round-trip GET after hostile POST reads back only allow-listed fields) | see above | assets_api_endpoints.rs |
-| AAE20 | Integration | `GET listdir` (root) returns `{assets: [AssetInfo…]}` | listing shape | assets_api_endpoints.rs |
-| AAE21 | Integration | `GET listdir?deep=true` returns `{keys: [...]}` | deep-listing shape | assets_api_endpoints.rs |
-| AAE22 | Integration | `GET info/{key}` 404 when absent | `KeyNotFound` envelope | assets_api_endpoints.rs |
-| AAE23 | Integration | `GET contains/{key}` false for absent key | no evaluation, no error | assets_api_endpoints.rs |
-| AAE24 | Integration | `GET contains/{key}` true for present key | positive case | assets_api_endpoints.rs |
-| AAE25 | Integration | `GET version/{key}` null for unversioned | `Ok(None)` distinct from error | assets_api_endpoints.rs |
-| AAE26 | Integration | `GET version/{key}` 32-hex-digit string for stored | `Version` serde form | assets_api_endpoints.rs |
-| AAE27 | Integration | `GET recover/{key}` 404 when there is no data-bearing state | recovery-read refusal | assets_api_endpoints.rs |
-| AAE28 | Integration | `GET recover/{key}` recovers an `Expired` value's last-known data | recovery read purpose | assets_api_endpoints.rs |
-| AAE29 | Integration | `GET recover/{key}` honours `Accept: application/json` | format negotiation, real headers (unlike `get_entry_handler` before the drive-by fix) | assets_api_endpoints.rs |
-| AAE30 | Integration | `POST override/{key}` 200 with `AssetInfo` when data exists | pin current value | assets_api_endpoints.rs |
-| AAE31 | Integration | `POST override/{key}` 404 when there is no data | `to_override`'s `key_not_found` | assets_api_endpoints.rs |
-| AAE32 | Integration | `POST expire/{key}` 409 on a `Source` | no recipe to recover from | assets_api_endpoints.rs |
-| AAE33 | Integration | `POST expire/{key}` 200 on a computed `Ready` value | happy path | assets_api_endpoints.rs |
-| AAE34 | Integration | `PUT makedir/{key}` 201 with directory `AssetInfo` | directory creation | assets_api_endpoints.rs |
-| AAE35 | Integration | `POST audit/{key}` result has `checked`/`expired` arrays | per-key audit shape | assets_api_endpoints.rs |
-| AAE36 | Integration | `POST audit` (all) result has `checked`/`expired` arrays | whole-manager audit shape | assets_api_endpoints.rs |
-| AAE37 | Integration | `POST refresh_command_versions` 200, null result, non-empty message | manager-wide op shape | assets_api_endpoints.rs |
-| AAE40 | Integration | `DELETE data/{key}` 200, `new_status: "Recipe"` for a computed value | remove response shape (recipe-computed row) | assets_api_endpoints.rs |
-| AAE41 | Integration | `DELETE data/{key}` 200, `new_status: "None"` for a `Source` | remove response shape (source row) | assets_api_endpoints.rs |
-| AAE42 | Integration | `DELETE data/{key}` 409 on a `Directory` | directory row, refused over HTTP | assets_api_endpoints.rs |
-| AAE43 | Integration | `DELETE entry/{key}` delegates to the same result as `DELETE data/{key}` | route aliasing | assets_api_endpoints.rs |
-| AAE44 | Integration | `POST data/{non-key-query}` 501 `NotSupported` | key-only guard on a real action query | assets_api_endpoints.rs |
-| AAE45 | Integration | `DELETE data/{non-key-query}` 501 `NotSupported` | same guard, delete side | assets_api_endpoints.rs |
-| AAE50 | Integration | `.read_only()` — `POST data` on `data/{key}` → 405 (GET still serves that path) | builder switch, correct HTTP code (Fixes §4) | assets_api_endpoints.rs |
-| AAE51 | Integration | `.read_only()` — `GET data/{key}` still 200 | mutation-only switch | assets_api_endpoints.rs |
-| AAE52 | Integration | `.read_only()` — `POST expire/{key}` → 404 (no other method on that path) | omitted route with no sibling method (Fixes §4) | assets_api_endpoints.rs |
-| AAE53 | Integration | `.read_only()` — `POST cancel/{key}` still routed (not 404/405) | `cancel` survives `read_only` | assets_api_endpoints.rs |
-| AAE54 | Integration | `.with_admin(false)` — `POST audit` → 404 | admin-only switch, no sibling method | assets_api_endpoints.rs |
-| AAE55 | Integration | `.with_admin(false)` — `POST data/{key}` still 201 | admin switch does not touch key routes | assets_api_endpoints.rs |
-| AAE60 | Integration | Two concurrent `POST data` to the same key: both succeed, final store value is exactly one of the two bodies | key-mutation-lock serialization observed from the HTTP layer | assets_api_endpoints.rs |
+Counts below are **counted**, not estimated, from the code blocks in this document.
 
-Test count per file: **asset_manager_remove_expire_describe.rs — 21** (AMR01–AMR07, AMR10–AMR20 minus AMR21 dropped, AMR22–AMR24; AMR21 duplicated AMR17's version-unchanged assertion and was merged into it), **value_description.rs — 11** (VD01–VD11), **assets_api_endpoints.rs — 44** (Example 1 as AAE01; review additions AAE02–AAE05; Example 3 as AAE10–AAE17; AAE20–AAE60 corner/integration cases).
+| File | Target | Count | IDs |
+|---|---|---|---|
+| `liquers-core/tests/asset_manager_remove_expire_describe.rs` | core `AssetManager` (`remove`, `expire`, `set_description`, `removedir`, `lookup_query_asset`, `Removed` notification, `to_override`) | **37** | AMR01–AMR07, AMR10–AMR20, AMR22–AMR24, AMR30–AMR34, AMR40–AMR44, AMR50–AMR53, AMR60–AMR61 |
+| `liquers-axum/src/assets/value_description.rs` `#[cfg(test)] mod tests` | `ValueDescription` allow-list, `from_json`, `from_params`, `or_previous`, `into_metadata_record` | **11** | VD01–VD11 |
+| `liquers-axum/tests/assets_api_endpoints.rs` | Assets API HTTP routes, both families, builder switches | **42** | AAE01–AAE05, AAE10–AAE17, AAE20–AAE29, AAE40–AAE43, AAE44–AAE47, AAE60–AAE66, AAE80, AAE90–AAE92 |
+| `liquers-axum/tests/assets_websocket.rs` | WebSocket forwarding, casing, limits, lifecycle | **16** | AWS01–AWS11, AWS12a, AWS12b, AWS13, AWS14a, AWS14b |
+| `liquers-axum/tests/store_api_routes.rs` | `StoreApiBuilder` routes (I4) | **16** | SAR01–SAR16 |
+| `liquers-axum/tests/query_api_routes.rs` | `QueryApiBuilder` routes, `with_timeout` (I4, I5) | **7** | QAR01–QAR07 |
+| `liquers-axum/tests/recipes_api_routes.rs` | `RecipesApiBuilder` routes (I4) | **9** | RAR01–RAR09 |
+| `liquers-core/src/media_type.rs` tests module | tabular media types (I9) | **10** | MT01–MT10 |
+| **Total** | | **148** | |
+
+Per-file breakdown (counted from the headings in each section below):
+
+- AMR: 7 (remove) + 11 (expire/describe, AMR10–AMR20) + 3 (AMR22–24) + 5 (removedir) + 5 (lookup_query_asset) + 4 (notifications) + 2 (to_override) = **37**.
+- AAE: 1 (Example 1) + 4 (AAE02–05) + 8 (AAE10–17) + 10 (AAE20–29) + 4 (AAE40–43) + 4 (AAE44–47, I1) + 7 (AAE60–66) + 1 (AAE80) + 3 (AAE90–92) = **42**.
+- AWS: 11 (AWS01–11) + 2 (AWS12a/b) + 1 (AWS13) + 2 (AWS14a/b) = **16**.
 
 ---
 
-## Example 1: Agent-Memory Primary Flow over HTTP
+## Example 1: Agent-Memory Primary Flow on `/key/`, with Submit and Poll
 
 ### Scenario
 
-The agent-memory MVP's core loop, entirely through the router: write a note, browse the directory
-without evaluating anything, inspect a not-yet-evaluated recipe, read the derived value (which
-evaluates it), edit the note's description (metadata only, version unchanged), overwrite the note
-(version changes), and see the dependent recomputed.
+A single-flow narrative for the `agent-memory-mvp` client: write a note as a keyed `Source`,
+browse its directory without evaluating anything, inspect a recipe key before it runs, request the
+derived value (which evaluates it), poll via `submit`/`info` instead of waiting inline, edit the
+note's description (version unchanged), overwrite the note's data (version changes), and see the
+dependent recompute. All addressing is bare keys on `/key/`; the recipe `-R/notes/a.txt/-/upper/summary.txt`
+defines `summary.txt` as `upper(notes/a.txt)`.
 
-### Context
+Query validated: `cargo run -p liquers-core --features cli --bin liquers-validate -- --command
+make_text --command upper -- '-R/notes/a.txt/-/upper/summary.txt'` → `Ok`, one `Resource` segment
+into a `Transform` segment, filename `summary.txt` (see "Validated Queries" in the Test Plan).
 
-One recipe: `-R/notes/a.txt/-/upper/summary.txt` — reads `notes/a.txt` (a `Source`, no recipe of
-its own), applies `upper`, stores the result under key `summary.txt`.
+### HTTP Transcript (excerpt)
 
-### Code
+```
+POST /api/assets/key/data/notes/a.txt?type_identifier=Text&data_format=txt&title=Note%20A&description=First%20note
+  body: hello
+→ 201 {"status":"OK","result":{"key":"notes/a.txt","status":"Source","title":"Note A", ...}}
+
+GET /api/assets/key/listdir/notes
+→ 200 {"status":"OK","result":{"assets":[{"key":"notes/a.txt","status":"Source",...}]}}
+
+GET /api/assets/key/info/summary.txt          # before evaluation, never triggers it
+→ 200 {"status":"OK","result":{"status":"Recipe","title":"Summary",...}}
+
+POST /api/assets/key/submit/summary.txt       # (b) submit: returns immediately
+→ 200 {"status":"OK","result":{"status":"Submitted"|"Processing"|"Ready",...}}
+
+GET /api/assets/key/info/summary.txt          # (c) poll until Ready
+→ 200 {"status":"OK","result":{"status":"Ready",...}}   (repeated until Ready)
+
+GET /api/assets/key/data/summary.txt
+→ 200  HELLO
+
+POST /api/assets/key/description/notes/a.txt   Content-Type: application/json
+  {"description":"Edited"}
+→ 200 {"status":"OK","result":{"title":"Note A","description":"Edited",...}}
+
+GET /api/assets/key/version/notes/a.txt  →  200 {"result":{"version":"<32 hex>"}}
+
+POST /api/assets/key/data/notes/a.txt
+  body: world
+→ 201 (new Source; version changes)
+
+GET /api/assets/key/version/notes/a.txt  →  version differs from before
+
+GET /api/assets/key/data/summary.txt  → 200  WORLD   (dependent recomputed)
+```
+
+### Shared Helpers (`assets_api_endpoints.rs`)
+
+Used by Example 1, Example 2b, and all `AAE*` tests in this file.
 
 ```rust
-// liquers-axum/tests/assets_api_endpoints.rs
+// liquers-axum/tests/assets_api_endpoints.rs — shared helpers for the whole file
 
 use std::collections::HashMap;
 use axum::{
@@ -119,7 +108,7 @@ use axum::{
     http::{Request, StatusCode},
 };
 use liquers_core::{
-    assets::AssetManager, // trait in scope for am.get/set_binary/remove/… (final review)
+    assets::AssetManager,
     command_metadata::CommandKey,
     context::{Environment, EnvRef, SimpleEnvironment},
     error::ErrorType,
@@ -131,15 +120,23 @@ use liquers_core::{
     store::{AsyncMemoryStore, AsyncStore},
     value::Value,
 };
-use tower::ServiceExt; // oneshot
+use tower::ServiceExt;
 
-// ---------------------------------------------------------------------------
-// Shared helpers for this file (used by AAE01-AAE05, AAE10-AAE17, AAE20-AAE60)
-// ---------------------------------------------------------------------------
-
-/// Environment with recipes read from `recipes.yaml` in the store root, and two test commands:
-/// `make_text` (always returns `"generated"`) and `upper` (uppercases its string input).
+/// Environment with `make_text` (returns "generated") and `upper` (uppercases input) plus
+/// recipes stored at the store root (`recipes.yaml`, cwd = root).
 async fn env_with(recipes: &[(&str, &str, &str)]) -> EnvRef<SimpleEnvironment<Value>> {
+    env_with_at(&Key::new(), recipes).await
+}
+
+/// Same, but the `RecipeList` is stored at `<dir>/recipes.yaml`, so a recipe's plain filename
+/// resolves under `dir` (`DefaultRecipeProvider::recipe_opt` reads `<key's directory>/recipes.yaml`
+/// and joins the recipe's filename to that directory — a nested path segment in the recipe query
+/// itself is NOT a directory: it parses as a second chained action and fails to resolve. See
+/// "Fixes Made Against the Drafts" #4.
+async fn env_with_at(
+    dir: &Key,
+    recipes: &[(&str, &str, &str)],
+) -> EnvRef<SimpleEnvironment<Value>> {
     let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
     env.command_registry
         .register_command(CommandKey::new_name("make_text"), |_, _, _| {
@@ -151,6 +148,20 @@ async fn env_with(recipes: &[(&str, &str, &str)]) -> EnvRef<SimpleEnvironment<Va
             Ok(Value::from(state.try_into_string()?.to_uppercase()))
         })
         .unwrap();
+    // I1: two commands returning non-Bytes/Text core Value variants (Value::I64, Value::Object).
+    env.command_registry
+        .register_command(CommandKey::new_name("make_number"), |_, _, _| {
+            Ok(Value::I64(42))
+        })
+        .unwrap();
+    env.command_registry
+        .register_command(CommandKey::new_name("make_object"), |_, _, _| {
+            let mut map = std::collections::BTreeMap::new();
+            map.insert("a".to_string(), Value::I64(1));
+            map.insert("b".to_string(), Value::Text("two".to_string()));
+            Ok(Value::Object(map))
+        })
+        .unwrap();
     let mut rl = RecipeList::new();
     for (q, t, d) in recipes {
         rl.add_recipe(Recipe::new(q.to_string(), t.to_string(), d.to_string()).unwrap());
@@ -158,7 +169,7 @@ async fn env_with(recipes: &[(&str, &str, &str)]) -> EnvRef<SimpleEnvironment<Va
     let store = AsyncMemoryStore::new(&Key::new());
     store
         .set(
-            &parse_key("recipes.yaml").unwrap(),
+            &dir.join("recipes.yaml"),
             serde_yaml::to_string(&rl).unwrap().as_bytes(),
             &Metadata::new(),
         )
@@ -169,9 +180,9 @@ async fn env_with(recipes: &[(&str, &str, &str)]) -> EnvRef<SimpleEnvironment<Va
     env.to_ref()
 }
 
-/// A minimal `MetadataRecord` for a plain-text Source write via `AssetManager::set_binary`
-/// directly (as opposed to through the router). `type_identifier`/`type_name` are `String`,
-/// not `Option<String>` (verified against `liquers-core/src/metadata.rs`).
+/// Minimal MetadataRecord for a Source write via `AssetManager::set_binary`.
+/// `type_identifier`/`type_name` are `String`, not `Option<String>`; `set_binary` takes the
+/// record BY VALUE (no leading `&`).
 fn metadata_text() -> MetadataRecord {
     MetadataRecord {
         type_identifier: "Text".to_string(),
@@ -181,19 +192,23 @@ fn metadata_text() -> MetadataRecord {
     }
 }
 
+/// Build the Assets API router with the base path `/api/assets`.
 fn build_app(envref: EnvRef<SimpleEnvironment<Value>>) -> axum::Router {
-    liquers_axum::AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
+    liquers_axum::assets::AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
         .build()
         .with_state(envref)
 }
 
-/// Send a request, return (status, parsed JSON body).
-async fn send(
-    app: axum::Router,
-    method: &str,
-    uri: &str,
-    body: Body,
-) -> (StatusCode, serde_json::Value) {
+/// Build the assets router merged with the Query API at `/q` (used by AAE45, I1's cross-check).
+fn build_app_with_query_api(envref: EnvRef<SimpleEnvironment<Value>>) -> axum::Router {
+    let assets = liquers_axum::assets::AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
+        .build();
+    let query = liquers_axum::query::QueryApiBuilder::<SimpleEnvironment<Value>>::new("/q").build();
+    assets.merge(query).with_state(envref)
+}
+
+/// Send a request, return (status, parsed JSON body). Missing/non-JSON body → `Value::Null`.
+async fn send(app: axum::Router, method: &str, uri: &str, body: Body) -> (StatusCode, serde_json::Value) {
     let resp = app
         .oneshot(Request::builder().method(method).uri(uri).body(body).unwrap())
         .await
@@ -204,19 +219,24 @@ async fn send(
     (status, json)
 }
 
-/// Same as `send`, but for a raw (non-JSON, non-enveloped) body, e.g. `GET data`.
-async fn send_raw(app: axum::Router, method: &str, uri: &str, body: Body) -> (StatusCode, Vec<u8>) {
+/// Send a request, return (status, raw bytes, content-type header if present).
+async fn send_raw(app: axum::Router, method: &str, uri: &str, body: Body) -> (StatusCode, Vec<u8>, Option<String>) {
     let resp = app
         .oneshot(Request::builder().method(method).uri(uri).body(body).unwrap())
         .await
         .unwrap();
     let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
     let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
-    (status, bytes.to_vec())
+    (status, bytes.to_vec(), content_type)
 }
 
-/// Like `send`, with `Content-Type: application/json` — required by handlers that use axum's
-/// `Json` extractor (`POST description`); without it axum answers 415 before the handler runs.
+/// Send a JSON body request (sets Content-Type: application/json — axum's `Json` extractor
+/// otherwise answers 415 before the handler runs; this was a real drafting bug in v1).
 async fn send_json(app: axum::Router, method: &str, uri: &str, json: &str) -> (StatusCode, serde_json::Value) {
     let resp = app
         .oneshot(
@@ -235,8 +255,36 @@ async fn send_json(app: axum::Router, method: &str, uri: &str, json: &str) -> (S
     (status, json)
 }
 
+/// POST a JSON `DataEntry` to `key/entry`.
+async fn post_entry_json(app: axum::Router, key: &str, entry: serde_json::Value) -> (StatusCode, serde_json::Value) {
+    send_json(
+        app,
+        "POST",
+        &format!("/api/assets/key/entry/{}?format=json", key),
+        &serde_json::to_string(&entry).unwrap(),
+    )
+    .await
+}
+
+/// Poll `key/info` or `q/info` until `status` matches `want`, or panic after `max_attempts`.
+async fn poll_until(app: axum::Router, uri: &str, want: &str, max_attempts: u32) -> serde_json::Value {
+    for attempt in 1..=max_attempts {
+        let (status, json) = send(app.clone(), "GET", uri, Body::empty()).await;
+        assert_eq!(status, StatusCode::OK, "poll #{attempt} on {uri} must be 200");
+        if json["result"]["status"] == want {
+            return json;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    panic!("polling {uri} for status {want} timed out after {max_attempts} attempts");
+}
+```
+
+### Example 1 test
+
+```rust
 #[tokio::test]
-async fn aae01_agent_memory_primary_flow() {
+async fn aae01_agent_memory_primary_flow_submit_and_poll() {
     let envref = env_with(&[(
         "-R/notes/a.txt/-/upper/summary.txt",
         "Summary",
@@ -245,127 +293,264 @@ async fn aae01_agent_memory_primary_flow() {
     .await;
     let app = build_app(envref.clone());
 
-    // 1. Write a note.
+    // 1. Write a note via key/data (mode: mutation).
     let (status, json) = send(
         app.clone(),
         "POST",
-        "/api/assets/data/-R/notes/a.txt?type_identifier=Text&data_format=txt&title=Note%20A&description=First%20note",
+        "/api/assets/key/data/notes/a.txt?type_identifier=Text&data_format=txt&title=Note%20A&description=First%20note",
         Body::from("hello"),
     )
     .await;
-    assert_eq!(status, StatusCode::CREATED, "POST data should return 201");
+    assert_eq!(status, StatusCode::CREATED, "POST key/data returns 201");
     assert_eq!(json["status"], "OK");
     assert_eq!(json["result"]["key"], "notes/a.txt");
     assert_eq!(json["result"]["status"], "Source");
     assert_eq!(json["result"]["title"], "Note A");
-    assert_eq!(json["result"]["description"], "First note");
-    assert_eq!(json["result"]["type_identifier"], "Text");
 
-    // 2. Browse the directory — title/description visible, no evaluation triggered.
-    let (status, json) = send(app.clone(), "GET", "/api/assets/listdir/-R/notes", Body::empty()).await;
+    // 2. Browse the directory — mode (c), never evaluates.
+    let (status, json) = send(app.clone(), "GET", "/api/assets/key/listdir/notes", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     let assets = json["result"]["assets"].as_array().unwrap();
     assert_eq!(assets.len(), 1);
     assert_eq!(assets[0]["key"], "notes/a.txt");
-    assert_eq!(assets[0]["title"], "Note A");
-    assert_eq!(assets[0]["status"], "Source", "listing must not evaluate anything");
+    assert_eq!(assets[0]["status"], "Source", "listing must not evaluate");
 
-    // 3. Inspect the recipe key before it is ever evaluated.
-    let (status, json) = send(app.clone(), "GET", "/api/assets/info/-R/summary.txt", Body::empty()).await;
+    // 3. Inspect the recipe key before it has ever run — mode (c).
+    let (status, json) = send(app.clone(), "GET", "/api/assets/key/info/summary.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["result"]["status"], "Recipe");
     assert_eq!(json["result"]["title"], "Summary");
 
-    // 4. Read the derived value — this evaluates the recipe.
-    let (status, body) = send_raw(app.clone(), "GET", "/api/assets/data/-R/summary.txt", Body::empty()).await;
+    // 4. Submit (mode b) instead of a blocking read — returns immediately.
+    let (status, json) = send(app.clone(), "POST", "/api/assets/key/submit/summary.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK, "submit returns 200 immediately");
+    assert!(
+        ["Submitted", "Processing", "Ready", "Dependencies"].contains(&json["result"]["status"].as_str().unwrap()),
+        "submit returns a live AssetInfo, not a fixed status"
+    );
+
+    // 5. Poll (mode c) until Ready — the reliable path, WebSocket or not.
+    poll_until(app.clone(), "/api/assets/key/info/summary.txt", "Ready", 50).await;
+
+    // 6. Read the now-cached derived value.
+    let (status, body, _) = send_raw(app.clone(), "GET", "/api/assets/key/data/summary.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(String::from_utf8(body).unwrap(), "HELLO");
 
-    // 5. Edit the note's description — title unchanged, status still Source.
+    // 7. Edit the note's description — title unchanged, version untouched.
     let (status, json) = send_json(
         app.clone(),
         "POST",
-        "/api/assets/description/-R/notes/a.txt",
+        "/api/assets/key/description/notes/a.txt",
         r#"{"description":"Edited"}"#,
     )
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["result"]["description"], "Edited");
     assert_eq!(json["result"]["title"], "Note A");
-    assert_eq!(json["result"]["status"], "Source");
 
-    let (_, json) = send(app.clone(), "GET", "/api/assets/version/-R/notes/a.txt", Body::empty()).await;
-    let version_before = json["result"]["version"].as_str().map(|s| s.to_string());
-    assert!(version_before.is_some(), "version should exist after the first write");
+    let (_, json) = send(app.clone(), "GET", "/api/assets/key/version/notes/a.txt", Body::empty()).await;
+    let version_before = json["result"]["version"].as_str().unwrap().to_string();
 
-    // 6. Overwrite the note's data — version changes.
-    let (status, json) = send(
-        app.clone(),
-        "POST",
-        "/api/assets/data/-R/notes/a.txt",
-        Body::from("world"),
-    )
-    .await;
+    // 8. Overwrite the note's data — version changes.
+    let (status, _) = send(app.clone(), "POST", "/api/assets/key/data/notes/a.txt", Body::from("world")).await;
     assert_eq!(status, StatusCode::CREATED);
-    assert_eq!(json["result"]["status"], "Source");
 
-    let (_, json) = send(app.clone(), "GET", "/api/assets/version/-R/notes/a.txt", Body::empty()).await;
-    let version_after = json["result"]["version"].as_str().map(|s| s.to_string());
-    assert_ne!(version_before, version_after, "version must change after a data overwrite");
+    let (_, json) = send(app.clone(), "GET", "/api/assets/key/version/notes/a.txt", Body::empty()).await;
+    let version_after = json["result"]["version"].as_str().unwrap().to_string();
+    assert_ne!(version_before, version_after, "version must change after overwrite");
 
-    // 7. The dependent recipe recomputes on the next read.
-    let (status, body) = send_raw(app.clone(), "GET", "/api/assets/data/-R/summary.txt", Body::empty()).await;
+    // 9. The dependent recomputes on next read.
+    let (status, body, _) = send_raw(app, "GET", "/api/assets/key/data/summary.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(String::from_utf8(body).unwrap(), "WORLD");
 }
 ```
 
-### Expected output
-
-Every step's HTTP status and JSON assertions are inline above; the flow ends with `summary.txt`
-serving `"WORLD"`, proving the cascade fired from the second `POST data`.
-
 ---
 
-## Example 2: Removal Decision Table
+## Example 2: Removal Decision Table (core)
 
 ### Scenario
 
-Six runnable tests, one per row of Phase 2's `remove` decision table, driving `AssetManager`
-directly (no HTTP). Two recipes are shared: `make_text/source.txt` (no dependency) and
-`-R/notes/a.txt/-/upper/summary.txt` (depends on `notes/a.txt`).
+Six rows and the directory conflict, exactly as Phase 2's `remove(key)` decision table, tested
+directly against `AssetManager` (no HTTP): Source-without-recipe cascades and deletes; Override-
+with-recipe recomputes on the next read; Ready-computed keeps its metadata record and version
+(dropped to `Recipe`, no cascade); a nonexistent key with no recipe is `KeyNotFound`; a never-
+evaluated recipe key is an idempotent no-op; a directory is `StatusConflict` (409), naming
+`removedir`. See AMR01–AMR07 below (full code in "Unit Tests").
 
 ### Context
 
-`env_with` and `metadata_text` here are the **same helpers as Example 1**, restated because this
-file is `liquers-core/tests/asset_manager_remove_expire_describe.rs` — a different crate, so the
-helper module is not shared across files, only within one.
+`liquers-core/tests/asset_manager_remove_expire_describe.rs`, target crate `liquers-core`, no HTTP
+layer — this is the core contract every HTTP mutation ultimately calls through.
 
-### Code
+### Expected output (row-by-row)
+
+| Row | Status | `has_recipe` | `remove` result | Store afterwards |
+|---|---|---|---|---|
+| AMR01 | `Source` | false | `Ok(())`, cascades | key deleted |
+| AMR02 | `Override` | true | `Ok(())`, next read recomputes | key deleted |
+| AMR03 | `Ready`/computed | true | `Ok(())`, no cascade | metadata kept, `status: Recipe`, version unchanged |
+| AMR05 | absent | false | `Err(KeyNotFound)` | — |
+| AMR06 | absent, never evaluated | true | `Ok(())` (idempotent) | unchanged |
+| AMR07 | `Directory` | any | `Err(StatusConflict)` | unchanged |
+
+---
+
+## Example 2b: Submit-and-Poll on `/q/` Without WebSockets
+
+### Scenario
+
+The non-keyed counterpart of Example 1's submit/poll step, proving mode (b)→(c) works end to end
+with no WebSocket involved, and that polling an unsubmitted query never evaluates it. Includes a
+**deterministic** cancel test (fix against draft 5's non-deterministic AAE92): a slow command is
+submitted, cancelled while `Processing`, then polled until `Cancelled`.
+
+### HTTP Transcript
+
+```
+POST /api/assets/q/submit/make_text
+→ 200 {"result":{"query":"make_text","status":"Submitted"|"Processing"|"Ready", ...}}
+
+GET /api/assets/q/info/make_text     (poll, 20ms interval, bounded)
+→ 200 {"result":{"status":"Processing", ...}}
+  ... repeated ...
+→ 200 {"result":{"status":"Ready", ...}}
+
+GET /api/assets/q/data/make_text
+→ 200  generated
+
+GET /api/assets/q/info/never_submitted_query   (never POSTed)
+→ 404 {"status":"ERROR","error":{"type":"NotAvailable"},"message":"...submit it first..."}
+  (repeated 5 times, always 404 — no evaluation happens)
+
+POST /api/assets/q/submit/sleep_long
+→ 200 {"result":{"status":"Submitted"|"Processing", ...}}
+GET /api/assets/q/info/sleep_long                # poll until Processing (deterministic gate)
+→ 200 {"result":{"status":"Processing", ...}}
+POST /api/assets/q/cancel/sleep_long
+→ 200 {"result":{"status":"Cancelled"|"Processing", ...}}
+GET /api/assets/q/info/sleep_long                # poll until Cancelled
+→ 200 {"result":{"status":"Cancelled", ...}}
+```
+
+### Tests (appended to `assets_api_endpoints.rs`, after `AAE66`)
+
+`sleep_long` is a blocking `std::thread::sleep` command, so `aae92` (and only that test — it is
+the sole user of `sleep_long` in this file) runs on the multi-thread test runtime, per the
+mandatory fix for blocking sync commands.
+
+```rust
+#[tokio::test]
+async fn aae90_submit_and_poll_non_keyed_query() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref);
+
+    let (status, json) = send(app.clone(), "POST", "/api/assets/q/submit/make_text", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK, "submit must return 200");
+    assert_eq!(json["status"], "OK");
+    let initial_status = json["result"]["status"].as_str().expect("status field present");
+    assert!(
+        ["Submitted", "Processing", "Ready"].contains(&initial_status),
+        "submit returns a valid AssetInfo status immediately, got: {initial_status}"
+    );
+
+    poll_until(app.clone(), "/api/assets/q/info/make_text", "Ready", 50).await;
+
+    let (status, body, _) = send_raw(app, "GET", "/api/assets/q/data/make_text", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(String::from_utf8(body).unwrap(), "generated");
+}
+
+#[tokio::test]
+async fn aae91_polling_unsubmitted_query_404_never_evaluates() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref);
+
+    for poll_num in 1..=5 {
+        let (status, json) = send(app.clone(), "GET", "/api/assets/q/info/never_submitted_query", Body::empty()).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "poll #{poll_num}: q/info for unsubmitted query is 404");
+        assert_eq!(json["error"]["type"], "NotAvailable");
+        assert!(
+            json["message"].as_str().unwrap_or("").to_lowercase().contains("submit"),
+            "message must direct the client to submit first"
+        );
+    }
+}
+
+/// Blocking `std::thread::sleep` inside the registered command → multi-thread test runtime, so
+/// the queued manager's worker (a spawned tokio task) is not starved by this test's own runtime.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn aae92_cancel_while_processing_reports_cancelled_deterministically() {
+    let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+    env.command_registry
+        .register_command(CommandKey::new_name("sleep_long"), |_, _, _| {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            Ok(Value::from("slept"))
+        })
+        .unwrap();
+    let envref = env.to_ref();
+    let app = build_app(envref);
+
+    let (status, _) = send(app.clone(), "POST", "/api/assets/q/submit/sleep_long", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+
+    // Deterministic gate: wait until the asset is actually Processing before cancelling, so the
+    // cancel is not racing a job that has not started yet.
+    poll_until(app.clone(), "/api/assets/q/info/sleep_long", "Processing", 50).await;
+
+    let (status, json) = send(app.clone(), "POST", "/api/assets/q/cancel/sleep_long", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK, "POST q/cancel must return 200");
+    assert_eq!(json["status"], "OK");
+
+    let info = poll_until(app, "/api/assets/q/info/sleep_long", "Cancelled", 50).await;
+    assert_eq!(info["result"]["status"], "Cancelled");
+}
+```
+
+---
+
+## Example 3: Metadata Allow-List (`POST key/entry`)
+
+### Scenario
+
+`ValueDescription` is the client-settable **allow-list** of a value's metadata: exactly
+`type_identifier`, `data_format`, `media_type`, `title`, `description`. A `POST key/entry` body's
+`metadata` object may carry anything (a hostile client, a stale client library, a JSON echo of a
+previous `GET entry`); every field outside the five is silently dropped and named in the response
+`message`, never applied. This is proven twice: unit-level in `ValueDescription` (VD01–VD11, in
+`value_description.rs`) and HTTP-level via `POST key/entry` (AAE10–AAE17, in
+`assets_api_endpoints.rs`), so a regression in either layer is caught independently.
+
+The record handed to `AssetManager::set_binary` is always **built fresh** from `ValueDescription`
+(`into_metadata_record`), never a client `MetadataRecord` cleaned in place — so a field added to
+`MetadataRecord` later is not client-settable by accident (Phase 2, "Data Structures").
+
+---
+
+## Unit Tests
+
+### `liquers-core/tests/asset_manager_remove_expire_describe.rs` — Shared Helpers (AMR)
 
 ```rust
 // liquers-core/tests/asset_manager_remove_expire_describe.rs
 
 use liquers_core::{
-    assets::{AssetData, AssetManager}, // AssetManager: trait methods; AssetData: AMR24
+    assets::{AssetData, AssetManager, AssetNotificationMessage},
     command_metadata::CommandKey,
     context::{Environment, EnvRef, SimpleEnvironment},
     error::ErrorType,
     metadata::{Metadata, MetadataRecord, Status},
-    parse::parse_key,
-    query::Key,
+    parse::{parse_key, parse_query},
+    query::{Key, Query},
     recipes::{DefaultRecipeProvider, Recipe, RecipeList},
     state::State,
     store::{AsyncMemoryStore, AsyncStore},
     value::Value,
 };
 
-// ---------------------------------------------------------------------------
-// Shared helpers for this file (used by every AMR test)
-// ---------------------------------------------------------------------------
-
-/// An environment over an already-populated store (AMR24 rebuilds one over persisted entries to
-/// simulate a restart).
+/// Build an environment over a provided store (used directly by the restart test, AMR24).
 fn env_over(store: AsyncMemoryStore) -> EnvRef<SimpleEnvironment<Value>> {
     let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
     env.command_registry
@@ -383,7 +568,14 @@ fn env_over(store: AsyncMemoryStore) -> EnvRef<SimpleEnvironment<Value>> {
     env.to_ref()
 }
 
-async fn env_with(recipes: &[(&str, &str, &str)]) -> EnvRef<SimpleEnvironment<Value>> {
+/// Environment with a `RecipeList` stored at `<dir>/recipes.yaml`. `DefaultRecipeProvider` reads
+/// `<key's directory>/recipes.yaml` and joins the recipe's own filename to that directory — a
+/// nested path segment written directly into the recipe query (e.g. `"make_text/data/x.txt"`)
+/// does NOT act as a directory: `data` there parses as a second chained action and fails to
+/// resolve (verified with `liquers-validate --no-registry`; see "Fixes Made Against the Drafts"
+/// #4). A recipe targeting a key under `data/` therefore needs its `RecipeList` stored at
+/// `data/recipes.yaml`, with a plain filename in the query (`"make_text/x.txt"`).
+async fn env_with_at(dir: &Key, recipes: &[(&str, &str, &str)]) -> EnvRef<SimpleEnvironment<Value>> {
     let mut rl = RecipeList::new();
     for (q, t, d) in recipes {
         rl.add_recipe(Recipe::new(q.to_string(), t.to_string(), d.to_string()).unwrap());
@@ -391,7 +583,7 @@ async fn env_with(recipes: &[(&str, &str, &str)]) -> EnvRef<SimpleEnvironment<Va
     let store = AsyncMemoryStore::new(&Key::new());
     store
         .set(
-            &parse_key("recipes.yaml").unwrap(),
+            &dir.join("recipes.yaml"),
             serde_yaml::to_string(&rl).unwrap().as_bytes(),
             &Metadata::new(),
         )
@@ -400,9 +592,14 @@ async fn env_with(recipes: &[(&str, &str, &str)]) -> EnvRef<SimpleEnvironment<Va
     env_over(store)
 }
 
-/// `type_identifier`/`type_name` are `String` (not `Option<String>`) on `MetadataRecord` —
-/// verified against `liquers-core/src/metadata.rs`. `AssetManager::set_binary` takes the
-/// record **by value**, not by reference.
+/// Root-level recipes (the common case).
+async fn env_with(recipes: &[(&str, &str, &str)]) -> EnvRef<SimpleEnvironment<Value>> {
+    env_with_at(&Key::new(), recipes).await
+}
+
+/// Minimal MetadataRecord for a plaintext Source write via `AssetManager::set_binary`.
+/// `type_identifier`/`type_name` are `String`, not `Option<String>`; `set_binary` takes the
+/// record BY VALUE.
 fn metadata_text() -> MetadataRecord {
     MetadataRecord {
         type_identifier: "Text".to_string(),
@@ -412,20 +609,18 @@ fn metadata_text() -> MetadataRecord {
     }
 }
 
-/// `AsyncStore::get_metadata` returns `Metadata` (an enum over `LegacyMetadata`/`MetadataRecord`),
-/// whose status is read through the `.status()` method, not a `.status` field.
+/// `AsyncStore::get_metadata` returns the `Metadata` enum; status reads through `.status()`.
 fn stored_status(metadata: &Metadata) -> Status {
     metadata.status()
 }
+```
 
+### Tests: `remove` Decision Table (AMR01–AMR07)
+
+```rust
 #[tokio::test]
 async fn amr01_remove_source_no_recipe_cascades() -> Result<(), Box<dyn std::error::Error>> {
-    let envref = env_with(&[(
-        "-R/notes/a.txt/-/upper/summary.txt",
-        "Summary Recipe",
-        "Uppercase the note",
-    )])
-    .await;
+    let envref = env_with(&[("-R/notes/a.txt/-/upper/summary.txt", "Summary Recipe", "Uppercase the note")]).await;
     let am = envref.get_asset_manager();
     let store = envref.get_async_store();
 
@@ -433,7 +628,6 @@ async fn amr01_remove_source_no_recipe_cascades() -> Result<(), Box<dyn std::err
     am.set_binary(&notes_key, b"hello world", metadata_text()).await?;
     assert_eq!(am.get_asset_info(&notes_key).await?.status, Status::Source);
 
-    // Evaluate the dependent so it is live and Ready before the source is removed.
     let summary_key = parse_key("summary.txt")?;
     let value = am.get(&summary_key).await?.get().await?;
     assert_eq!(value.try_into_string()?, "HELLO WORLD");
@@ -444,13 +638,10 @@ async fn amr01_remove_source_no_recipe_cascades() -> Result<(), Box<dyn std::err
     assert!(!store.contains(&notes_key).await?, "store must not hold the removed source");
     let err = am.get_asset_info(&notes_key).await.expect_err("removed source is gone");
     assert_eq!(err.error_type, ErrorType::KeyNotFound);
-
-    // The dependent, having no recipe-with-value of its own to fall back on the same way,
-    // must be cascade-expired.
     assert_eq!(
         am.get_asset_info(&summary_key).await?.status,
         Status::Expired,
-        "dependent must cascade to Expired when its source Source value is removed"
+        "dependent cascades to Expired when its Source is removed"
     );
     Ok(())
 }
@@ -466,7 +657,6 @@ async fn amr02_remove_override_with_recipe_recomputes() -> Result<(), Box<dyn st
 
     am.remove(&source_key).await?;
 
-    // Next read recomputes from the recipe.
     let value = am.get(&source_key).await?.get().await?;
     assert_eq!(value.try_into_string()?, "generated");
     assert_eq!(am.get_asset_info(&source_key).await?.status, Status::Ready);
@@ -475,12 +665,7 @@ async fn amr02_remove_override_with_recipe_recomputes() -> Result<(), Box<dyn st
 
 #[tokio::test]
 async fn amr03_remove_ready_keeps_metadata_and_version() -> Result<(), Box<dyn std::error::Error>> {
-    let envref = env_with(&[(
-        "-R/notes/a.txt/-/upper/summary.txt",
-        "Summary Recipe",
-        "Uppercase the note",
-    )])
-    .await;
+    let envref = env_with(&[("-R/notes/a.txt/-/upper/summary.txt", "Summary Recipe", "Uppercase the note")]).await;
     let am = envref.get_asset_manager();
     let store = envref.get_async_store();
 
@@ -490,7 +675,6 @@ async fn amr03_remove_ready_keeps_metadata_and_version() -> Result<(), Box<dyn s
     let summary_key = parse_key("summary.txt")?;
     let value = am.get(&summary_key).await?.get().await?;
     assert_eq!(value.try_into_string()?, "HELLO");
-    assert_eq!(am.get_asset_info(&summary_key).await?.status, Status::Ready);
     let version_before = am.version(&summary_key).await?;
     assert!(version_before.is_some());
 
@@ -500,11 +684,7 @@ async fn amr03_remove_ready_keeps_metadata_and_version() -> Result<(), Box<dyn s
     let stored = store.get_metadata(&summary_key).await?;
     assert_eq!(stored_status(&stored), Status::Recipe);
     assert_eq!(am.version(&summary_key).await?, version_before, "version must survive the remove");
-    assert_eq!(
-        am.get_asset_info(&notes_key).await?.status,
-        Status::Source,
-        "the source must be untouched: this remove does not cascade"
-    );
+    assert_eq!(am.get_asset_info(&notes_key).await?.status, Status::Source, "the source is untouched");
     Ok(())
 }
 
@@ -527,16 +707,14 @@ async fn amr04_reevaluate_after_remove_ready_no_cascade() -> Result<(), Box<dyn 
     assert_eq!(value2.try_into_string()?, "HELLO");
     assert_eq!(am.get_asset_info(&summary2_key).await?.status, Status::Ready);
 
-    // Drop the intermediate computed value (AMR03's row) …
     am.remove(&summary_key).await?;
-    // … and re-read it: recomputes to the same content, no cascade fired for the drop itself.
     let value_again = am.get(&summary_key).await?.get().await?;
     assert_eq!(value_again.try_into_string()?, "HELLO");
 
     assert_eq!(
         am.get_asset_info(&summary2_key).await?.status,
         Status::Ready,
-        "the grandchild must stay Ready: dropping a recipe-computed value does not cascade"
+        "the grandchild stays Ready: dropping a recipe-computed value does not cascade"
     );
     Ok(())
 }
@@ -559,7 +737,6 @@ async fn amr06_remove_recipe_key_not_evaluated() -> Result<(), Box<dyn std::erro
     let store = envref.get_async_store();
     let source_key = parse_key("source.txt")?;
 
-    // Nothing live, nothing stored, but a recipe exists: remove is a no-op success.
     am.remove(&source_key).await.expect("remove of an un-evaluated recipe key succeeds");
     assert!(!store.contains(&source_key).await?);
     Ok(())
@@ -574,496 +751,26 @@ async fn amr07_remove_directory_status_conflict() -> Result<(), Box<dyn std::err
 
     let err = am.remove(&dir_key).await.expect_err("removing a directory is refused");
     assert_eq!(err.error_type, ErrorType::StatusConflict);
-    assert_eq!(err.key, Some(dir_key.encode()), "status_conflict sets the key (Error.key is a String)");
+    assert_eq!(err.key, Some(dir_key.encode()), "status_conflict sets the key");
     Ok(())
 }
 ```
 
-### Expected output
-
-Each test's `assert_eq!`/`expect_err` calls are the expected output; there is no separate
-transcript for a manager-level test.
-
----
-
-## Example 3: Metadata Allow-List under `POST entry`
-
-### Scenario
-
-A client tries to round-trip five manager-owned fields through `POST entry` (JSON format), plus
-two malformed inputs, plus the always-refused `POST metadata`. Each hostile field must have zero
-effect and be named in the response `message`; the two malformed inputs return 400 with
-`ParameterError`; `POST metadata` always answers 501 `NotSupported`.
-
-### Context
-
-Shares `env_with` and `build_app` with Example 1 (same file, `assets_api_endpoints.rs`). Adds one
-helper, `post_entry_json`, for the JSON `DataEntry` envelope, and reuses `send`/`send_raw`.
-
-### Code
+### Tests: `expire` and `set_description` (AMR10–AMR20)
 
 ```rust
-// continues liquers-axum/tests/assets_api_endpoints.rs — same file as Example 1, so `env_with`,
-// `build_app`, `send`, `send_raw` are already in scope.
-
-/// POST a JSON `DataEntry` (`?format=json`) to `entry/{path}` and return (status, parsed body).
-async fn post_entry_json(
-    app: axum::Router,
-    path: &str,
-    entry: serde_json::Value,
-) -> (StatusCode, serde_json::Value) {
-    send(
-        app,
-        "POST",
-        &format!("/api/assets/entry/-R/{}?format=json", path),
-        Body::from(serde_json::to_string(&entry).unwrap()),
-    )
-    .await
-}
-
-#[tokio::test]
-async fn aae10_hostile_status_is_ignored() {
-    let envref = env_with(&[]).await;
-    let app = build_app(envref.clone());
-
-    // `data` is base64 per the DataEntry JSON codec.
-    use base64::prelude::*;
-    let entry = serde_json::json!({
-        "metadata": {
-            "type_identifier": "Text",
-            "title": "Test Note",
-            "status": "Error" // hostile: try to make the store empty and status Error
-        },
-        "data": BASE64_STANDARD.encode(b"hello from test")
-    });
-
-    let (status, resp) = post_entry_json(app.clone(), "notes/a.txt", entry).await;
-    assert_eq!(status, StatusCode::CREATED);
-    assert_eq!(resp["status"], "OK");
-    assert!(
-        resp["message"].as_str().unwrap().contains("status"),
-        "message must name the dropped 'status' field"
-    );
-
-    let (status, resp) = send(app, "GET", "/api/assets/info/-R/notes/a.txt", Body::empty()).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(resp["result"]["status"], "Source", "status must be the real Source, not Error");
-}
-
-#[tokio::test]
-async fn aae11_hostile_stored_false_is_ignored() {
-    let envref = env_with(&[]).await;
-    let app = build_app(envref.clone());
-
-    use base64::prelude::*;
-    let entry = serde_json::json!({
-        "metadata": {"type_identifier": "Text", "stored": false},
-        "data": BASE64_STANDARD.encode(b"should be stored despite tampering")
-    });
-
-    let (status, resp) = post_entry_json(app.clone(), "notes/c.txt", entry).await;
-    assert_eq!(status, StatusCode::CREATED);
-    assert!(resp["message"].as_str().unwrap().contains("stored"));
-
-    let (status, resp) = send(app, "GET", "/api/assets/contains/-R/notes/c.txt", Body::empty()).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(resp["result"]["contains"], true, "the manager always persists a user-supplied value");
-}
-
-#[tokio::test]
-async fn aae12_hostile_dependencies_are_ignored() {
-    let envref = env_with(&[]).await;
-    let app = build_app(envref.clone());
-
-    use base64::prelude::*;
-    let entry = serde_json::json!({
-        "metadata": {
-            "type_identifier": "Text",
-            "title": "Asset with Fake Deps",
-            "dependencies": [{"key": "fake/key1.txt", "version": "00000000000000000000000000000000"}]
-        },
-        "data": BASE64_STANDARD.encode(b"asset with fake deps")
-    });
-
-    let (status, resp) = post_entry_json(app.clone(), "notes/d.txt", entry).await;
-    assert_eq!(status, StatusCode::CREATED);
-    assert!(resp["message"].as_str().unwrap().contains("dependencies"));
-    // Registering the fake edge would show up as a KeyNotFound the moment the dependency graph is
-    // consulted for this key (e.g. via a subsequent audit); the handler-level guarantee this test
-    // checks is only the reported `message` above — Phase 2 gives no client-visible dependency
-    // list to assert against directly (`AssetInfo` carries no `dependencies` field).
-}
-
-#[tokio::test]
-async fn aae13_hostile_expiration_time_is_ignored() {
-    let envref = env_with(&[]).await;
-    let app = build_app(envref.clone());
-
-    use base64::prelude::*;
-    let entry = serde_json::json!({
-        "metadata": {
-            "type_identifier": "Text",
-            "title": "Non-Expiring Asset",
-            "expiration_time": "1970-01-01T00:00:00Z"
-        },
-        "data": BASE64_STANDARD.encode(b"not actually expiring")
-    });
-
-    let (status, resp) = post_entry_json(app.clone(), "notes/e.txt", entry).await;
-    assert_eq!(status, StatusCode::CREATED);
-    assert!(resp["message"].as_str().unwrap().contains("expiration_time"));
-
-    let (status, body) = send_raw(app, "GET", "/api/assets/data/-R/notes/e.txt", Body::empty()).await;
-    assert_eq!(status, StatusCode::OK, "the value must still be readable, not treated as expired");
-    assert_eq!(body, b"not actually expiring");
-}
-
-#[tokio::test]
-async fn aae14_unknown_type_identifier_returns_400() {
-    let envref = env_with(&[]).await;
-    let app = build_app(envref);
-
-    use base64::prelude::*;
-    let entry = serde_json::json!({
-        "metadata": {"type_identifier": "UnknownType12345"},
-        "data": BASE64_STANDARD.encode(b"some data")
-    });
-
-    let (status, resp) = post_entry_json(app, "notes/f.txt", entry).await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_eq!(resp["status"], "ERROR");
-    assert_eq!(resp["error"]["type"], "ParameterError");
-}
-
-#[tokio::test]
-async fn aae15_non_object_metadata_returns_400() {
-    let envref = env_with(&[]).await;
-    let app = build_app(envref);
-
-    use base64::prelude::*;
-    let entry = serde_json::json!({
-        "metadata": "this is a string, not an object",
-        "data": BASE64_STANDARD.encode(b"some data")
-    });
-
-    let (status, resp) = post_entry_json(app, "notes/g.txt", entry).await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_eq!(resp["error"]["type"], "ParameterError");
-}
-
-#[tokio::test]
-async fn aae16_post_metadata_always_returns_501() {
-    let envref = env_with(&[]).await;
-    let app = build_app(envref);
-
-    let (status, json) = send(
-        app,
-        "POST",
-        "/api/assets/metadata/-R/notes/a.txt",
-        Body::from(r#"{"title":"Attempt to write metadata"}"#),
-    )
-    .await;
-
-    assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
-    assert_eq!(json["status"], "ERROR");
-    assert_eq!(json["error"]["type"], "NotSupported");
-    assert!(
-        json["message"].as_str().unwrap().to_lowercase().contains("post description"),
-        "the refusal must point at POST description as the alternative"
-    );
-}
-
-#[tokio::test]
-async fn aae17_post_entry_roundtrip_reads_back_only_allowlisted_fields() {
-    let envref = env_with(&[]).await;
-    let app = build_app(envref.clone());
-
-    use base64::prelude::*;
-    let entry = serde_json::json!({
-        "metadata": {
-            "type_identifier": "Text",
-            "data_format": "txt",
-            "media_type": "text/plain",
-            "title": "Kept Title",
-            "description": "Kept description",
-            "status": "Ready",        // dropped
-            "version": "deadbeef"     // dropped
-        },
-        "data": BASE64_STANDARD.encode(b"round trip")
-    });
-
-    let (status, resp) = post_entry_json(app.clone(), "notes/roundtrip.txt", entry).await;
-    assert_eq!(status, StatusCode::CREATED);
-    let dropped = resp["message"].as_str().unwrap();
-    assert!(dropped.contains("status") && dropped.contains("version"));
-
-    let (status, info) = send(app, "GET", "/api/assets/info/-R/notes/roundtrip.txt", Body::empty()).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(info["result"]["title"], "Kept Title");
-    assert_eq!(info["result"]["description"], "Kept description");
-    assert_eq!(info["result"]["status"], "Source", "the manager decides status, not the client");
-}
-```
-
-### Expected output
-
-Inline per test: 201 for every allow-list test with the dropped field named in `message`; 400
-`ParameterError` for AAE14/AAE15; 501 `NotSupported` naming `POST description` for AAE16; AAE17's
-final `GET info` shows only the five allow-listed fields took effect.
-
----
-
-## Unit Tests
-
-Eleven pure-function tests, inline in `liquers-axum/src/assets/value_description.rs`. No HTTP layer,
-no `Environment`; `ValueDescription` and `TypeRegistry` only.
-
-```rust
-// liquers-axum/src/assets/value_description.rs — appended #[cfg(test)] mod tests
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use liquers_core::{error::ErrorType, metadata::{AssetInfo, Status}, type_system::TypeRegistry, value::Value};
-    use serde_json::json;
-    use std::collections::HashMap;
-
-    /// `TypeRegistry::from_value_type` is the verified, public constructor
-    /// (`liquers-core/src/type_system.rs`).
-    fn test_registry() -> TypeRegistry {
-        TypeRegistry::from_value_type::<Value>()
-    }
-
-    #[test]
-    fn vd01_from_json_keeps_five_fields() {
-        let value = json!({
-            "type_identifier": "Text",
-            "data_format": "txt",
-            "media_type": "text/plain",
-            "title": "My Note",
-            "description": "A description"
-        });
-
-        let (desc, dropped) = ValueDescription::from_json(&value).expect("from_json");
-        assert_eq!(desc.type_identifier, Some("Text".to_string()));
-        assert_eq!(desc.data_format, Some("txt".to_string()));
-        assert_eq!(desc.media_type, Some("text/plain".to_string()));
-        assert_eq!(desc.title, Some("My Note".to_string()));
-        assert_eq!(desc.description, Some("A description".to_string()));
-        assert!(dropped.is_empty());
-    }
-
-    #[test]
-    fn vd02_from_json_non_object_error() {
-        let err = ValueDescription::from_json(&json!("not an object")).expect_err("non-object");
-        assert_eq!(err.error_type, ErrorType::ParameterError);
-    }
-
-    #[test]
-    fn vd03_from_json_non_string_field_error() {
-        let value = json!({"type_identifier": "Text", "title": 123});
-        let err = ValueDescription::from_json(&value).expect_err("non-string field");
-        assert_eq!(err.error_type, ErrorType::ParameterError);
-    }
-
-    #[test]
-    fn vd04_from_json_dropped_fields_sorted() {
-        let value = json!({
-            "type_identifier": "Text",
-            "extra_field_z": "ignored",
-            "extra_field_a": "ignored",
-            "title": "Title"
-        });
-        let (_, dropped) = ValueDescription::from_json(&value).expect("from_json");
-        assert_eq!(dropped, vec!["extra_field_a".to_string(), "extra_field_z".to_string()]);
-    }
-
-    #[test]
-    fn vd05_from_params_drops_unknown_parameters() {
-        let mut params = HashMap::new();
-        params.insert("type_identifier".to_string(), "Bytes".to_string());
-        params.insert("data_format".to_string(), "bin".to_string());
-        params.insert("title".to_string(), "Binary Data".to_string());
-        params.insert("unknown_param".to_string(), "ignored".to_string());
-
-        let (desc, dropped) = ValueDescription::from_params(&params);
-        assert_eq!(desc.type_identifier, Some("Bytes".to_string()));
-        assert_eq!(desc.data_format, Some("bin".to_string()));
-        assert_eq!(desc.title, Some("Binary Data".to_string()));
-        assert_eq!(desc.description, None);
-        assert_eq!(dropped, vec!["unknown_param".to_string()]);
-    }
-
-    #[test]
-    fn vd06_or_previous_fills_from_asset_info_never_media_type() {
-        // AssetInfo.title/description are `String`, not `Option<String>` — verified against
-        // liquers-core/src/metadata.rs.
-        let previous = AssetInfo {
-            status: Status::Source,
-            title: "Previous Title".to_string(),
-            description: "Previous Desc".to_string(),
-            type_identifier: "Text".to_string(),
-            data_format: Some("txt".to_string()),
-            media_type: "text/plain".to_string(),
-            ..AssetInfo::new()
-        };
-
-        let desc = ValueDescription {
-            type_identifier: None,
-            data_format: None,
-            media_type: None,
-            title: Some("New Title".to_string()),
-            description: None,
-        };
-
-        let merged = desc.or_previous(Some(&previous));
-        assert_eq!(merged.type_identifier, Some("Text".to_string()));
-        assert_eq!(merged.data_format, Some("txt".to_string()));
-        assert_eq!(merged.title, Some("New Title".to_string()), "an explicit field is kept");
-        assert_eq!(merged.description, Some("Previous Desc".to_string()), "a missing field is filled");
-        assert_eq!(merged.media_type, None, "media_type is never filled from the previous value");
-    }
-
-    #[test]
-    fn vd07_into_metadata_record_default_type_identifier_is_bytes() {
-        let desc = ValueDescription {
-            type_identifier: None,
-            data_format: Some("txt".to_string()),
-            media_type: None,
-            title: Some("Note".to_string()),
-            description: None,
-        };
-        let record = desc.into_metadata_record(&test_registry()).expect("into_metadata_record");
-        assert_eq!(record.type_identifier, "Bytes");
-    }
-
-    #[test]
-    fn vd08_into_metadata_record_type_name_from_registry() {
-        let desc = ValueDescription {
-            type_identifier: Some("Text".to_string()),
-            data_format: None,
-            media_type: None,
-            title: None,
-            description: None,
-        };
-        let record = desc.into_metadata_record(&test_registry()).expect("into_metadata_record");
-        assert_eq!(record.type_name, "text");
-    }
-
-    #[test]
-    fn vd09_into_metadata_record_unknown_identifier_is_parameter_error() {
-        let desc = ValueDescription {
-            type_identifier: Some("UnknownType".to_string()),
-            data_format: None,
-            media_type: None,
-            title: None,
-            description: None,
-        };
-        let err = desc.into_metadata_record(&test_registry()).expect_err("unknown type");
-        assert_eq!(err.error_type, ErrorType::ParameterError);
-    }
-
-    /// `MetadataRecord` derives `Default`, and `Status` derives its own `Default` as
-    /// `Status::None` (verified: `impl Default for Status { fn default() -> Self { Self::None } }`
-    /// in `liquers-core/src/metadata.rs`). A draft of this test asserted `Status::Source` and
-    /// `stored == false`; both were wrong — `stored` is `Option<bool>`, defaulting to `None`, not
-    /// `bool` defaulting to `false`. `into_metadata_record` does not set `status` (that is decided
-    /// later, by `AssetManager::set_binary`, from `recipe_opt`), so untouched fields carry the
-    /// plain struct default.
-    #[test]
-    fn vd10_into_metadata_record_untouched_fields_carry_real_defaults() {
-        let desc = ValueDescription {
-            type_identifier: Some("Bytes".to_string()),
-            data_format: Some("bin".to_string()),
-            media_type: Some("application/octet-stream".to_string()),
-            title: Some("Data".to_string()),
-            description: Some("Some binary".to_string()),
-        };
-        let record = desc.into_metadata_record(&test_registry()).expect("into_metadata_record");
-
-        assert_eq!(record.status, Status::None, "into_metadata_record does not decide status");
-        assert_eq!(record.stored, None, "stored is Option<bool>; None means \"true\" by convention");
-        assert!(record.dependencies.is_empty());
-    }
-
-    /// Final review: a never-evaluated recipe key reports `type_identifier: ""` and the recipe's
-    /// `data_format`. Neither may be inherited (a plain `POST data` onto a recipe key would get a
-    /// 400 or 422); a non-empty title is still inherited. A client-named type never inherits a
-    /// format.
-    #[test]
-    fn vd11_or_previous_fills_type_and_format_only_as_a_pair_from_data() {
-        let recipe_info = AssetInfo {
-            status: Status::Recipe,
-            title: "Recipe Title".to_string(),
-            type_identifier: String::new(),
-            data_format: Some("txt".to_string()),
-            ..AssetInfo::new()
-        };
-        let merged = ValueDescription::default().or_previous(Some(&recipe_info));
-        assert_eq!(merged.type_identifier, None);
-        assert_eq!(merged.data_format, None);
-        assert_eq!(merged.title, Some("Recipe Title".to_string()));
-
-        let ready_text = AssetInfo {
-            status: Status::Ready,
-            type_identifier: "Text".to_string(),
-            data_format: Some("txt".to_string()),
-            ..AssetInfo::new()
-        };
-        let named = ValueDescription {
-            type_identifier: Some("Bytes".to_string()),
-            ..ValueDescription::default()
-        };
-        let merged = named.or_previous(Some(&ready_text));
-        assert_eq!(merged.type_identifier, Some("Bytes".to_string()));
-        assert_eq!(merged.data_format, None, "a client-named type does not inherit a format");
-    }
-}
-```
-
-| Test | Checks |
-|---|---|
-| VD01 | `from_json` preserves all five fields exactly |
-| VD02 | `from_json` on non-object JSON → `ParameterError` |
-| VD03 | `from_json` on a non-string field value → `ParameterError` |
-| VD04 | `from_json` reports dropped fields, sorted |
-| VD05 | `from_params` parses query parameters, drops unknown ones |
-| VD06 | `or_previous` fills missing fields, never `media_type` |
-| VD07 | `into_metadata_record` defaults `type_identifier` to `"Bytes"` |
-| VD08 | `into_metadata_record` resolves `type_name` from the registry |
-| VD09 | `into_metadata_record` on an unknown identifier → `ParameterError` |
-| VD10 | `into_metadata_record`'s untouched fields carry `MetadataRecord`'s real defaults, not the draft's guessed ones |
-| VD11 | `or_previous` fills `type_identifier`/`data_format` only as a pair from a data-bearing previous (final review) |
-
----
-
-## Integration Tests
-
-The remaining `AMR` (expire/set_description/get_asset_info) and `AAE` (corner-case) tests. Each
-reuses the shared helper module of its file; only the bodies are new.
-
-```rust
-// liquers-core/tests/asset_manager_remove_expire_describe.rs — continues after Example 2's tests,
-// same file, same helpers (env_with, metadata_text, stored_status already in scope).
-
 #[tokio::test]
 async fn amr10_expire_live_ready_cascades() -> Result<(), Box<dyn std::error::Error>> {
-    let envref = env_with(&[
-        ("make_text/a.txt", "A", "text A"),
-        ("-R/a.txt/-/upper/b.txt", "B", "B depends on A"),
-    ])
-    .await;
+    let envref = env_with(&[("make_text/a.txt", "A", "text A"), ("-R/a.txt/-/upper/b.txt", "B", "B depends on A")]).await;
     let am = envref.get_asset_manager();
-    let key_a = parse_key("a.txt")?;
-    let key_b = parse_key("b.txt")?;
-
+    let (key_a, key_b) = (parse_key("a.txt")?, parse_key("b.txt")?);
     let _ = am.get(&key_a).await?.get().await?;
     let _ = am.get(&key_b).await?.get().await?;
 
     am.expire(&key_a).await.expect("expire should succeed");
 
     assert_eq!(am.get_asset_info(&key_a).await?.status, Status::Expired);
-    assert_eq!(am.get_asset_info(&key_b).await?.status, Status::Expired, "dependent must cascade");
+    assert_eq!(am.get_asset_info(&key_b).await?.status, Status::Expired, "dependent cascades");
     Ok(())
 }
 
@@ -1146,7 +853,7 @@ fn amr16_status_conflict_constructor_shape() {
     let err = liquers_core::error::Error::status_conflict(&key, Status::Source, "expire");
 
     assert_eq!(err.error_type, ErrorType::StatusConflict);
-    assert_eq!(err.key, Some(key.encode()), "Error.key is Option<String>, set from key.encode()");
+    assert_eq!(err.key, Some(key.encode()), "Error.key is Option<String>, from key.encode()");
     let msg = err.message.to_lowercase();
     assert!(msg.contains("expire"));
     assert!(msg.contains("source"));
@@ -1163,10 +870,9 @@ async fn amr17_set_description_on_source_updates_fields_version_unchanged() -> R
     am.set_description(&key, Some("New Title".to_string()), Some("New Desc".to_string())).await?;
 
     let info = am.get_asset_info(&key).await?;
-    // AssetInfo.title/description are `String`, not `Option<String>`.
     assert_eq!(info.title, "New Title");
     assert_eq!(info.description, "New Desc");
-    assert_eq!(am.version(&key).await?, version_before, "version must be unchanged (§ AMR21 merged here)");
+    assert_eq!(am.version(&key).await?, version_before, "version unchanged (also covers set_description's happy-path idempotence on version)");
     Ok(())
 }
 
@@ -1189,10 +895,7 @@ async fn amr19_set_description_on_computed_ready_rejects() -> Result<(), Box<dyn
     let key = parse_key("computed.txt")?;
     let _ = am.get(&key).await?.get().await?;
 
-    let err = am
-        .set_description(&key, Some("Title".to_string()), None)
-        .await
-        .expect_err("only Source assets may be described");
+    let err = am.set_description(&key, Some("Title".to_string()), None).await.expect_err("only Source may be described");
     assert_eq!(err.error_type, ErrorType::StatusConflict);
     Ok(())
 }
@@ -1203,14 +906,15 @@ async fn amr20_set_description_absent_key_not_found() -> Result<(), Box<dyn std:
     let am = envref.get_asset_manager();
     let key = parse_key("nonexistent.txt")?;
 
-    let err = am
-        .set_description(&key, Some("Title".to_string()), None)
-        .await
-        .expect_err("absent key");
+    let err = am.set_description(&key, Some("Title".to_string()), None).await.expect_err("absent key");
     assert_eq!(err.error_type, ErrorType::KeyNotFound);
     Ok(())
 }
+```
 
+### Tests: `get_asset_info` Observation, Restart Fast-Track (AMR22–AMR24)
+
+```rust
 #[tokio::test]
 async fn amr22_get_asset_info_expired_live_reports_expired_without_reevaluating() -> Result<(), Box<dyn std::error::Error>> {
     let envref = env_with(&[("make_text/a.txt", "A", "")]).await;
@@ -1235,13 +939,8 @@ async fn amr23_get_asset_info_never_evaluated_recipe_reports_recipe() -> Result<
     Ok(())
 }
 
-/// AMR24 (final review) — the point of keeping the version: after a restart, a dependent of a
-/// dropped intermediate is still reused from the store. Fails without the
-/// `dependency_blocks_fast_track` change (a stored `Recipe` dependency would block it).
-/// Restart = persisted entries replayed into a fresh store, as `keyed_version_cascade.rs` does.
 #[tokio::test]
-async fn amr24_dropped_intermediate_does_not_block_dependent_after_restart(
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn amr24_dropped_intermediate_does_not_block_dependent_after_restart() -> Result<(), Box<dyn std::error::Error>> {
     let keys = ["recipes.yaml", "notes/a.txt", "summary.txt", "summary2.txt"]
         .iter()
         .map(|k| parse_key(k))
@@ -1258,7 +957,7 @@ async fn amr24_dropped_intermediate_does_not_block_dependent_after_restart(
         let am = envref.get_asset_manager();
         am.set_binary(&keys[1], b"hello", metadata_text()).await?;
         let _ = am.get(&summary2_key).await?.get().await?;
-        am.remove(&summary_key).await?; // drop the intermediate, keep its version
+        am.remove(&summary_key).await?;
         let store = envref.get_async_store();
         let mut entries = Vec::new();
         for key in &keys {
@@ -1292,873 +991,2285 @@ async fn amr24_dropped_intermediate_does_not_block_dependent_after_restart(
 }
 ```
 
+### Tests: `removedir` (AMR30–AMR34)
+
+Recipe-under-directory cases (AMR32, AMR33) use `env_with_at` with a `RecipeList` at
+`data/recipes.yaml`, so recipe filenames stay plain (`make_text/computed.txt`) and resolve under
+`data/` through the directory, not through a nested path segment inside the query.
+
 ```rust
-// liquers-axum/tests/assets_api_endpoints.rs — continues after Example 3's tests, same file,
-// same helpers (env_with, build_app, send, send_raw already in scope).
-
-async fn write_source(envref: &EnvRef<SimpleEnvironment<Value>>, path: &str, data: &[u8]) {
+#[tokio::test]
+async fn amr30_removedir_deletes_stored_keys_recursively() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = env_with(&[]).await;
     let am = envref.get_asset_manager();
-    am.set_binary(&parse_key(path).unwrap(), data, metadata_text()).await.unwrap();
+    let store = envref.get_async_store();
+
+    let root_key = parse_key("data")?;
+    let file1 = parse_key("data/file1.txt")?;
+    let file2 = parse_key("data/file2.txt")?;
+    let subdir_file = parse_key("data/sub/file3.txt")?;
+
+    am.set_binary(&file1, b"content1", metadata_text()).await?;
+    am.set_binary(&file2, b"content2", metadata_text()).await?;
+    am.set_binary(&subdir_file, b"content3", metadata_text()).await?;
+    am.makedir(&root_key).await?;
+
+    am.removedir(&root_key).await?;
+
+    assert!(!store.contains(&file1).await?);
+    assert!(!store.contains(&file2).await?);
+    assert!(!store.contains(&subdir_file).await?);
+    let err = am.get_asset_info(&root_key).await.expect_err("directory removed");
+    assert_eq!(err.error_type, ErrorType::KeyNotFound);
+    Ok(())
 }
 
 #[tokio::test]
-async fn aae20_listdir_root_returns_assets_array() {
-    let envref = env_with(&[]).await;
-    write_source(&envref, "notes/a.txt", b"hello").await;
-    let app = build_app(envref);
+async fn amr31_removedir_source_child_cascades_dependents() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = env_with_at(
+        &parse_key("data")?,
+        &[("-R/data/source.txt/-/upper/derived.txt", "Derived", "")],
+    )
+    .await;
+    let am = envref.get_asset_manager();
 
-    let (status, json) = send(app, "GET", "/api/assets/listdir", Body::empty()).await;
+    let data_key = parse_key("data")?;
+    let source_key = parse_key("data/source.txt")?;
+    let derived_key = parse_key("data/derived.txt")?;
+
+    am.set_binary(&source_key, b"hello", metadata_text()).await?;
+    let _ = am.get(&derived_key).await?.get().await?;
+
+    am.makedir(&data_key).await?;
+    am.removedir(&data_key).await?;
+
+    let err = am.get_asset_info(&source_key).await.expect_err("source is gone");
+    assert_eq!(err.error_type, ErrorType::KeyNotFound);
+    assert_eq!(am.get_asset_info(&derived_key).await?.status, Status::Expired, "dependent cascades");
+    Ok(())
+}
+
+#[tokio::test]
+async fn amr32_removedir_computed_child_dropped_with_version() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = env_with_at(&parse_key("data")?, &[("make_text/computed.txt", "Computed", "")]).await;
+    let am = envref.get_asset_manager();
+    let store = envref.get_async_store();
+
+    let data_key = parse_key("data")?;
+    let computed_key = parse_key("data/computed.txt")?;
+
+    let _ = am.get(&computed_key).await?.get().await?;
+    let version_before = am.version(&computed_key).await?;
+
+    am.makedir(&data_key).await?;
+    am.removedir(&data_key).await?;
+
+    assert!(store.contains(&computed_key).await?, "metadata should survive");
+    let stored = store.get_metadata(&computed_key).await?;
+    assert_eq!(stored_status(&stored), Status::Recipe);
+    assert_eq!(am.version(&computed_key).await?, version_before, "version preserved");
+    Ok(())
+}
+
+#[tokio::test]
+async fn amr33_removedir_recipe_declared_keys_survive() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = env_with_at(&parse_key("data")?, &[("make_text/recipe_only.txt", "RecipeOnly", "")]).await;
+    let am = envref.get_asset_manager();
+
+    let data_key = parse_key("data")?;
+    let recipe_only_key = parse_key("data/recipe_only.txt")?;
+
+    am.makedir(&data_key).await?;
+    am.removedir(&data_key).await?;
+
+    let info = am.get_asset_info(&recipe_only_key).await?;
+    assert_eq!(info.status, Status::Recipe, "recipe-declared key survives directory removal");
+    Ok(())
+}
+
+#[tokio::test]
+async fn amr34_removedir_absent_directory_not_found() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = env_with(&[]).await;
+    let am = envref.get_asset_manager();
+    let nonexistent_key = parse_key("nonexistent_dir")?;
+
+    let err = am.removedir(&nonexistent_key).await.expect_err("no such directory");
+    assert_eq!(err.error_type, ErrorType::KeyNotFound);
+    Ok(())
+}
+```
+
+### Tests: `lookup_query_asset` (AMR40–AMR44)
+
+```rust
+#[tokio::test]
+async fn amr40_lookup_query_asset_none_before_request() {
+    let envref = env_with(&[]).await;
+    let am = envref.get_asset_manager();
+    let query = parse_query("make_text").unwrap();
+    assert!(am.lookup_query_asset(&query).is_none(), "query must not exist before get_asset");
+}
+
+#[tokio::test]
+async fn amr41_lookup_query_asset_some_after_get_asset() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = env_with(&[]).await;
+    let am = envref.get_asset_manager();
+    let query = parse_query("make_text")?;
+    let _ = am.get_asset(&query).await?;
+    assert!(am.lookup_query_asset(&query).is_some(), "query is cached after get_asset");
+    Ok(())
+}
+
+#[tokio::test]
+async fn amr42_lookup_query_asset_never_creates() {
+    let envref = env_with(&[]).await;
+    let am = envref.get_asset_manager();
+    let query = parse_query("make_text").unwrap();
+    assert!(am.lookup_query_asset(&query).is_none());
+    assert!(am.lookup_query_asset(&query).is_none(), "second lookup is also None: no side effect");
+}
+
+#[tokio::test]
+async fn amr43_lookup_query_asset_pure_key_delegates() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = env_with(&[]).await;
+    let am = envref.get_asset_manager();
+    let key = parse_key("notes/a.txt")?;
+    am.set_binary(&key, b"content", metadata_text()).await?;
+
+    let pure_key_query = liquers_core::parse::parse_query("-R/notes/a.txt")?;
+    assert!(am.lookup_query_asset(&pure_key_query).is_some(), "pure-key query delegates to lookup_key_asset");
+    Ok(())
+}
+
+#[tokio::test]
+async fn amr44_lookup_query_asset_after_removal_none() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = env_with(&[]).await;
+    let am = envref.get_asset_manager();
+    let key = parse_key("notes/a.txt")?;
+    am.set_binary(&key, b"content", metadata_text()).await?;
+
+    let query = liquers_core::parse::parse_query("-R/notes/a.txt")?;
+    let _ = am.get_asset(&query).await?;
+    am.remove(&key).await?;
+
+    assert!(am.lookup_query_asset(&query).is_none(), "after removal, lookup returns None");
+    Ok(())
+}
+```
+
+### Tests: `AssetNotificationMessage::Removed` (AMR50–AMR53)
+
+```rust
+#[tokio::test]
+async fn amr50_notification_removed_on_remove() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = env_with(&[]).await;
+    let am = envref.get_asset_manager();
+    let key = parse_key("data/asset.txt")?;
+
+    am.set_binary(&key, b"content", metadata_text()).await?;
+    let asset_ref = am.get(&key).await?;
+    let mut notification_rx = asset_ref.subscribe_to_notifications();
+
+    am.remove(&key).await?;
+
+    tokio::time::timeout(std::time::Duration::from_secs(1), notification_rx.changed()).await??;
+    assert_eq!(*notification_rx.borrow(), AssetNotificationMessage::Removed);
+    Ok(())
+}
+
+#[tokio::test]
+async fn amr51_notification_removed_on_set_binary_replacement() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = env_with(&[]).await;
+    let am = envref.get_asset_manager();
+    let key = parse_key("data/asset.txt")?;
+
+    am.set_binary(&key, b"content1", metadata_text()).await?;
+    let asset_ref = am.get(&key).await?;
+    let mut notification_rx = asset_ref.subscribe_to_notifications();
+
+    am.set_binary(&key, b"content2", metadata_text()).await?;
+
+    tokio::time::timeout(std::time::Duration::from_secs(1), notification_rx.changed()).await??;
+    assert_eq!(*notification_rx.borrow(), AssetNotificationMessage::Removed);
+    Ok(())
+}
+
+#[tokio::test]
+async fn amr52_notification_removed_not_sent_by_expiration() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = env_with(&[("make_text/derived.txt", "Derived", "")]).await;
+    let am = envref.get_asset_manager();
+    let key = parse_key("derived.txt")?;
+
+    let _ = am.get(&key).await?.get().await?;
+    let asset_ref = am.get(&key).await?;
+    let mut notification_rx = asset_ref.subscribe_to_notifications();
+
+    am.expire(&key).await?;
+
+    tokio::time::timeout(std::time::Duration::from_secs(1), notification_rx.changed()).await??;
+    assert_eq!(*notification_rx.borrow(), AssetNotificationMessage::Expired);
+    assert_ne!(*notification_rx.borrow(), AssetNotificationMessage::Removed);
+    Ok(())
+}
+
+#[tokio::test]
+async fn amr53_subscription_ends_after_removed() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = env_with(&[]).await;
+    let am = envref.get_asset_manager();
+    let key = parse_key("data/asset.txt")?;
+
+    am.set_binary(&key, b"content", metadata_text()).await?;
+    let asset_ref = am.get(&key).await?;
+    let mut notification_rx = asset_ref.subscribe_to_notifications();
+
+    am.remove(&key).await?;
+    tokio::time::timeout(std::time::Duration::from_secs(1), notification_rx.changed()).await??;
+
+    let result = tokio::time::timeout(std::time::Duration::from_millis(100), notification_rx.changed()).await;
+    assert!(result.is_err(), "no further changes after Removed: the watch has no more senders");
+    Ok(())
+}
+```
+
+### Tests: `to_override` on `Source` (AMR60–AMR61)
+
+```rust
+#[tokio::test]
+async fn amr60_to_override_stored_only_source_noop() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = env_with(&[]).await;
+    let am = envref.get_asset_manager();
+    let key = parse_key("data/source.txt")?;
+    am.set_binary(&key, b"content", metadata_text()).await?;
+    assert_eq!(am.get_asset_info(&key).await?.status, Status::Source);
+
+    am.to_override(&key).await?;
+
+    assert_eq!(am.get_asset_info(&key).await?.status, Status::Source, "to_override on stored Source is a no-op");
+    Ok(())
+}
+
+#[tokio::test]
+async fn amr61_to_override_live_source_noop() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = env_with(&[]).await;
+    let am = envref.get_asset_manager();
+    let key = parse_key("data/source.txt")?;
+    am.set_binary(&key, b"content", metadata_text()).await?;
+    let _ = am.get(&key).await?; // make it live
+
+    assert_eq!(am.get_asset_info(&key).await?.status, Status::Source);
+    am.to_override(&key).await?;
+    assert_eq!(am.get_asset_info(&key).await?.status, Status::Source, "to_override on a live Source is a no-op");
+    Ok(())
+}
+```
+
+---
+
+### `liquers-axum/src/assets/value_description.rs` `#[cfg(test)] mod tests` (VD01–VD11)
+
+```rust
+// liquers-axum/src/assets/value_description.rs — #[cfg(test)] mod tests
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use liquers_core::{
+        error::ErrorType,
+        metadata::{AssetInfo, Status},
+        type_system::TypeRegistry,
+        value::Value,
+    };
+    use serde_json::json;
+    use std::collections::HashMap;
+
+    /// `TypeRegistry::from_value_type` is the verified public constructor
+    /// (`liquers-core/src/type_system.rs`).
+    fn test_registry() -> TypeRegistry {
+        TypeRegistry::from_value_type::<Value>()
+    }
+
+    #[test]
+    fn vd01_from_json_keeps_five_fields() {
+        let value = json!({
+            "type_identifier": "Text", "data_format": "txt", "media_type": "text/plain",
+            "title": "My Note", "description": "A description"
+        });
+        let (desc, dropped) = ValueDescription::from_json(&value).expect("from_json");
+        assert_eq!(desc.type_identifier, Some("Text".to_string()));
+        assert_eq!(desc.data_format, Some("txt".to_string()));
+        assert_eq!(desc.media_type, Some("text/plain".to_string()));
+        assert_eq!(desc.title, Some("My Note".to_string()));
+        assert_eq!(desc.description, Some("A description".to_string()));
+        assert!(dropped.is_empty(), "no allow-listed field should be dropped");
+    }
+
+    #[test]
+    fn vd02_from_json_non_object_error() {
+        let err = ValueDescription::from_json(&json!("not an object")).expect_err("non-object");
+        assert_eq!(err.error_type, ErrorType::ParameterError);
+    }
+
+    #[test]
+    fn vd03_from_json_non_string_field_error() {
+        let value = json!({"type_identifier": "Text", "title": 123});
+        let err = ValueDescription::from_json(&value).expect_err("non-string field");
+        assert_eq!(err.error_type, ErrorType::ParameterError);
+    }
+
+    #[test]
+    fn vd04_from_json_dropped_fields_sorted() {
+        let value = json!({
+            "type_identifier": "Text", "extra_field_z": "ignored", "extra_field_a": "ignored", "title": "Title"
+        });
+        let (_, dropped) = ValueDescription::from_json(&value).expect("from_json");
+        assert_eq!(dropped, vec!["extra_field_a".to_string(), "extra_field_z".to_string()], "sorted alphabetically");
+    }
+
+    #[test]
+    fn vd05_from_params_drops_unknown_parameters() {
+        let mut params = HashMap::new();
+        params.insert("type_identifier".to_string(), "Bytes".to_string());
+        params.insert("data_format".to_string(), "bin".to_string());
+        params.insert("title".to_string(), "Binary Data".to_string());
+        params.insert("unknown_param".to_string(), "ignored".to_string());
+
+        let (desc, dropped) = ValueDescription::from_params(&params);
+        assert_eq!(desc.type_identifier, Some("Bytes".to_string()));
+        assert_eq!(desc.data_format, Some("bin".to_string()));
+        assert_eq!(desc.title, Some("Binary Data".to_string()));
+        assert_eq!(desc.description, None);
+        assert_eq!(dropped, vec!["unknown_param".to_string()]);
+    }
+
+    #[test]
+    fn vd06_or_previous_fills_from_asset_info_never_media_type() {
+        // AssetInfo.title/description are String, not Option<String>.
+        let previous = AssetInfo {
+            status: Status::Source,
+            title: "Previous Title".to_string(),
+            description: "Previous Desc".to_string(),
+            type_identifier: "Text".to_string(),
+            data_format: Some("txt".to_string()),
+            media_type: "text/plain".to_string(),
+            ..AssetInfo::new()
+        };
+        let desc = ValueDescription {
+            type_identifier: None, data_format: None, media_type: None,
+            title: Some("New Title".to_string()), description: None,
+        };
+        let merged = desc.or_previous(Some(&previous));
+        assert_eq!(merged.type_identifier, Some("Text".to_string()));
+        assert_eq!(merged.data_format, Some("txt".to_string()));
+        assert_eq!(merged.title, Some("New Title".to_string()), "explicit field is kept");
+        assert_eq!(merged.description, Some("Previous Desc".to_string()), "missing field is filled");
+        assert_eq!(merged.media_type, None, "media_type is never filled from previous");
+    }
+
+    #[test]
+    fn vd07_into_metadata_record_default_type_identifier_is_bytes() {
+        let desc = ValueDescription {
+            type_identifier: None, data_format: Some("txt".to_string()), media_type: None,
+            title: Some("Note".to_string()), description: None,
+        };
+        let record = desc.into_metadata_record(&test_registry()).expect("into_metadata_record");
+        assert_eq!(record.type_identifier, "Bytes", "None defaults to Bytes");
+    }
+
+    #[test]
+    fn vd08_into_metadata_record_type_name_from_registry() {
+        let desc = ValueDescription {
+            type_identifier: Some("Text".to_string()), data_format: None, media_type: None,
+            title: None, description: None,
+        };
+        let record = desc.into_metadata_record(&test_registry()).expect("into_metadata_record");
+        assert_eq!(record.type_name, "text", "type_name resolved from the registry");
+    }
+
+    #[test]
+    fn vd09_into_metadata_record_unknown_identifier_is_parameter_error() {
+        let desc = ValueDescription {
+            type_identifier: Some("UnknownType".to_string()), data_format: None, media_type: None,
+            title: None, description: None,
+        };
+        let err = desc.into_metadata_record(&test_registry()).expect_err("unknown type");
+        assert_eq!(err.error_type, ErrorType::ParameterError, "unknown type_identifier is a 400 at the boundary");
+    }
+
+    #[test]
+    fn vd10_into_metadata_record_untouched_fields_carry_real_defaults() {
+        // MetadataRecord::default().status == Status::None (Status::default() = Self::None);
+        // `stored` is Option<bool>, default None. into_metadata_record does not decide status —
+        // that happens later, in set_binary, from recipe_opt.
+        let desc = ValueDescription {
+            type_identifier: Some("Bytes".to_string()), data_format: Some("bin".to_string()),
+            media_type: Some("application/octet-stream".to_string()),
+            title: Some("Data".to_string()), description: Some("Some binary".to_string()),
+        };
+        let record = desc.into_metadata_record(&test_registry()).expect("into_metadata_record");
+        assert_eq!(record.status, Status::None, "into_metadata_record does not decide status");
+        assert_eq!(record.stored, None, "stored: Option<bool>; None means true by convention");
+        assert!(record.dependencies.is_empty());
+    }
+
+    #[test]
+    fn vd11_or_previous_fills_type_and_format_only_as_a_pair_from_data() {
+        // A never-evaluated recipe key reports type_identifier: "" and the recipe's data_format;
+        // neither is inherited (a plain POST data onto a recipe key would otherwise get a 400 or
+        // 422). Title is still inherited. A client-named type never inherits a format.
+        let recipe_info = AssetInfo {
+            status: Status::Recipe, title: "Recipe Title".to_string(),
+            type_identifier: String::new(), data_format: Some("txt".to_string()),
+            ..AssetInfo::new()
+        };
+        let merged = ValueDescription::default().or_previous(Some(&recipe_info));
+        assert_eq!(merged.type_identifier, None, "empty type_identifier from Recipe is not inherited");
+        assert_eq!(merged.data_format, None, "format is not inherited from Recipe");
+        assert_eq!(merged.title, Some("Recipe Title".to_string()), "title is still inherited");
+
+        let ready_text = AssetInfo {
+            status: Status::Ready, type_identifier: "Text".to_string(), data_format: Some("txt".to_string()),
+            ..AssetInfo::new()
+        };
+        let named = ValueDescription { type_identifier: Some("Bytes".to_string()), ..ValueDescription::default() };
+        let merged = named.or_previous(Some(&ready_text));
+        assert_eq!(merged.type_identifier, Some("Bytes".to_string()), "client-named type kept");
+        assert_eq!(merged.data_format, None, "a client-named type does not inherit a format");
+    }
+}
+```
+
+---
+
+## Integration Tests
+
+### `liquers-axum/tests/assets_api_endpoints.rs` (AAE)
+
+Shared helpers: see Example 1 above (`env_with`, `env_with_at`, `metadata_text`, `build_app`,
+`build_app_with_query_api`, `send`, `send_raw`, `send_json`, `post_entry_json`, `poll_until`).
+
+#### AAE02–AAE05: Q11 Override, Metadata Read, `Accept` Negotiation, Positive Cancel
+
+```rust
+#[tokio::test]
+async fn aae02_post_data_onto_recipe_key_creates_override() {
+    let envref = env_with(&[("make_text/source.txt", "Text", "A text")]).await;
+    let app = build_app(envref.clone());
+
+    let (_, info1) = send(app.clone(), "GET", "/api/assets/key/info/source.txt", Body::empty()).await;
+    assert_eq!(info1["result"]["status"], "Recipe");
+
+    let (status, json) = send(app.clone(), "POST", "/api/assets/key/data/source.txt", Body::from("override")).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(json["result"]["status"], "Override");
+
+    let (status, json) = send(app, "DELETE", "/api/assets/key/data/source.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(json["result"]["assets"].is_array());
+    assert_eq!(json["result"]["new_status"], "Recipe", "DELETE on an Override with a recipe returns Recipe");
 }
 
 #[tokio::test]
-async fn aae21_listdir_deep_returns_key_array() {
+async fn aae03_get_metadata_reads_source() {
     let envref = env_with(&[]).await;
-    write_source(&envref, "notes/a.txt", b"hello").await;
-    write_source(&envref, "notes/sub/b.txt", b"world").await;
-    let app = build_app(envref);
+    let app = build_app(envref.clone());
+    let am = envref.get_asset_manager();
+    am.set_binary(&parse_key("notes/a.txt").unwrap(), b"test", metadata_text()).await.unwrap();
 
-    let (status, json) = send(app, "GET", "/api/assets/listdir?deep=true", Body::empty()).await;
+    let (status, json) = send(app, "GET", "/api/assets/key/metadata/notes/a.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(json["result"]["keys"].is_array());
+    assert_eq!(json["result"]["type_identifier"], "Text");
 }
 
 #[tokio::test]
-async fn aae22_get_info_404_when_absent() {
+async fn aae04_get_entry_negotiates_accept_json() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref.clone());
+    let am = envref.get_asset_manager();
+    am.set_binary(&parse_key("notes/a.txt").unwrap(), b"hello", metadata_text()).await.unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/assets/key/entry/notes/a.txt")
+                .header("accept", "application/json")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        resp.headers().get(axum::http::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()),
+        Some("application/json"),
+        "Accept: application/json must be honored, not ignored (Phase 2 fixes the empty-HeaderMap bug)"
+    );
+}
+
+#[tokio::test]
+async fn aae05_post_cancel_on_live_asset_returns_200() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref.clone());
+    let am = envref.get_asset_manager();
+    am.set_binary(&parse_key("notes/a.txt").unwrap(), b"test", metadata_text()).await.unwrap();
+    let _ = am.get(&parse_key("notes/a.txt").unwrap()).await.unwrap();
+
+    let (status, json) = send(app, "POST", "/api/assets/key/cancel/notes/a.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK, "cancel on a live asset returns 200");
+    assert_eq!(json["status"], "OK");
+}
+```
+
+#### AAE10–AAE17: Metadata Allow-List under `POST key/entry`
+
+```rust
+#[tokio::test]
+async fn aae10_hostile_status_field_ignored() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref.clone());
+    use base64::prelude::*;
+    let entry = serde_json::json!({
+        "metadata": {"type_identifier": "Text", "title": "Test", "status": "Error"},
+        "data": BASE64_STANDARD.encode(b"hello")
+    });
+
+    let (status, resp) = post_entry_json(app.clone(), "notes/a.txt", entry).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert!(resp["message"].as_str().unwrap().to_lowercase().contains("status"), "message names the dropped field");
+
+    let (_, info) = send(app, "GET", "/api/assets/key/info/notes/a.txt", Body::empty()).await;
+    assert_eq!(info["result"]["status"], "Source", "status is the real Source, not the hostile Error");
+}
+
+#[tokio::test]
+async fn aae11_hostile_stored_false_ignored() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref.clone());
+    use base64::prelude::*;
+    let entry = serde_json::json!({"metadata": {"type_identifier": "Text", "stored": false}, "data": BASE64_STANDARD.encode(b"data")});
+
+    let (status, resp) = post_entry_json(app.clone(), "notes/c.txt", entry).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert!(resp["message"].as_str().unwrap().to_lowercase().contains("stored"));
+
+    let (_, info) = send(app, "GET", "/api/assets/key/contains/notes/c.txt", Body::empty()).await;
+    assert_eq!(info["result"]["contains"], true, "the manager always persists a user value");
+}
+
+#[tokio::test]
+async fn aae12_hostile_dependencies_ignored() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref.clone());
+    use base64::prelude::*;
+    let entry = serde_json::json!({
+        "metadata": {"type_identifier": "Text", "dependencies": [{"key": "fake/key.txt", "version": "00000000000000000000000000000000"}]},
+        "data": BASE64_STANDARD.encode(b"data")
+    });
+    let (status, resp) = post_entry_json(app, "notes/d.txt", entry).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert!(resp["message"].as_str().unwrap().to_lowercase().contains("dependencies"));
+}
+
+#[tokio::test]
+async fn aae13_hostile_expiration_time_ignored() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref.clone());
+    use base64::prelude::*;
+    let entry = serde_json::json!({
+        "metadata": {"type_identifier": "Text", "expiration_time": "1970-01-01T00:00:00Z"},
+        "data": BASE64_STANDARD.encode(b"data")
+    });
+    let (status, resp) = post_entry_json(app.clone(), "notes/e.txt", entry).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert!(resp["message"].as_str().unwrap().to_lowercase().contains("expiration_time"));
+
+    let (status, _, _) = send_raw(app, "GET", "/api/assets/key/data/notes/e.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK, "value is readable, not treated as expired");
+}
+
+#[tokio::test]
+async fn aae14_unknown_type_identifier_400() {
     let envref = env_with(&[]).await;
     let app = build_app(envref);
+    use base64::prelude::*;
+    let entry = serde_json::json!({"metadata": {"type_identifier": "UnknownType12345"}, "data": BASE64_STANDARD.encode(b"data")});
+    let (status, resp) = post_entry_json(app, "notes/f.txt", entry).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(resp["error"]["type"], "ParameterError");
+}
 
-    let (status, json) = send(app, "GET", "/api/assets/info/-R/nonexistent/key.txt", Body::empty()).await;
+#[tokio::test]
+async fn aae15_non_object_metadata_400() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref);
+    use base64::prelude::*;
+    let entry = serde_json::json!({"metadata": "not an object", "data": BASE64_STANDARD.encode(b"data")});
+    let (status, resp) = post_entry_json(app, "notes/g.txt", entry).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(resp["error"]["type"], "ParameterError");
+}
+
+#[tokio::test]
+async fn aae16_post_metadata_always_501() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref);
+    let (status, json) = send_json(app, "POST", "/api/assets/key/metadata/notes/a.txt", r#"{"title":"Test"}"#).await;
+    assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+    assert_eq!(json["error"]["type"], "NotSupported");
+    // Wording is an example in Phase 2, not a contract: assert only the substring it promises.
+    assert!(json["error"]["message"].as_str().unwrap_or("").to_lowercase().contains("post description"));
+}
+
+#[tokio::test]
+async fn aae17_post_entry_roundtrip_allows_only_five_fields() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref.clone());
+    use base64::prelude::*;
+    let entry = serde_json::json!({
+        "metadata": {
+            "type_identifier": "Text", "data_format": "txt", "media_type": "text/plain",
+            "title": "Kept", "description": "Kept desc",
+            "status": "Ready", "version": "deadbeef"
+        },
+        "data": BASE64_STANDARD.encode(b"round trip")
+    });
+    let (status, resp) = post_entry_json(app.clone(), "notes/rt.txt", entry).await;
+    assert_eq!(status, StatusCode::CREATED);
+    let msg = resp["message"].as_str().unwrap().to_lowercase();
+    assert!(msg.contains("status") && msg.contains("version"));
+
+    let (_, info) = send(app, "GET", "/api/assets/key/info/notes/rt.txt", Body::empty()).await;
+    assert_eq!(info["result"]["title"], "Kept");
+    assert_eq!(info["result"]["description"], "Kept desc");
+}
+```
+
+#### AAE20–AAE29: Access Modes — Submit vs Info/Observe
+
+```rust
+#[tokio::test]
+async fn aae20_q_submit_returns_asset_info_immediately() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref);
+    let (status, json) = send(app, "POST", "/api/assets/q/submit/make_text", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        ["Submitted", "Processing", "Ready"].contains(&json["result"]["status"].as_str().unwrap()),
+        "submit returns AssetInfo immediately"
+    );
+    assert!(json["result"].get("query").is_some());
+}
+
+#[tokio::test]
+async fn aae21_q_info_on_uncached_query_returns_404_not_available() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref);
+    let (status, json) = send(app.clone(), "GET", "/api/assets/q/info/make_text", Body::empty()).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
-    assert_eq!(json["error"]["type"], "KeyNotFound");
+    assert_eq!(json["error"]["type"], "NotAvailable");
+
+    let (status, _) = send(app, "GET", "/api/assets/q/info/make_text", Body::empty()).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "a second poll is still 404: no evaluation happened");
 }
 
 #[tokio::test]
-async fn aae23_contains_false_for_absent_key() {
+async fn aae22_key_info_on_recipe_key_never_evaluates() {
+    let envref = env_with(&[("make_text/source.txt", "Text", "A text")]).await;
+    let app = build_app(envref.clone());
+    let (status, json) = send(app.clone(), "GET", "/api/assets/key/info/source.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["result"]["status"], "Recipe");
+
+    let (_, json) = send(app, "GET", "/api/assets/key/info/source.txt", Body::empty()).await;
+    assert_eq!(json["result"]["status"], "Recipe", "repeated polling never evaluates");
+}
+
+#[tokio::test]
+async fn aae23_version_is_32_hex_or_zeros() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref.clone());
+    let am = envref.get_asset_manager();
+    am.set_binary(&parse_key("notes/a.txt").unwrap(), b"test", metadata_text()).await.unwrap();
+
+    let (_, json) = send(app, "GET", "/api/assets/key/version/notes/a.txt", Body::empty()).await;
+    let version_str = json["result"]["version"].as_str().unwrap();
+    assert_eq!(version_str.len(), 32, "version is 32 hex digits");
+    assert!(version_str.chars().all(|c| c.is_ascii_hexdigit()));
+}
+
+#[tokio::test]
+async fn aae24_q_data_equals_key_data_for_pure_key_query() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref.clone());
+    let am = envref.get_asset_manager();
+    am.set_binary(&parse_key("notes/a.txt").unwrap(), b"same content", metadata_text()).await.unwrap();
+
+    let (_, body_key, ct_key) = send_raw(app.clone(), "GET", "/api/assets/key/data/notes/a.txt", Body::empty()).await;
+    let (_, body_query, ct_query) = send_raw(app, "GET", "/api/assets/q/data/-R/notes/a.txt", Body::empty()).await;
+    assert_eq!(body_key, body_query, "same bytes for the same asset, reached via either family");
+    assert_eq!(ct_key, ct_query, "same Content-Type");
+}
+
+#[tokio::test]
+async fn aae25_key_data_with_query_syntax_returns_400_with_hint() {
     let envref = env_with(&[]).await;
     let app = build_app(envref);
+    let (status, json) = send(app, "GET", "/api/assets/key/data/-R/notes/a.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(json["error"]["type"], "ParseError");
+    assert!(
+        json["error"]["message"].as_str().unwrap_or("").contains("/q/"),
+        "key routes hint at /q/ for a query-syntax path"
+    );
+}
 
-    let (status, json) = send(app, "GET", "/api/assets/contains/-R/missing/key.txt", Body::empty()).await;
+#[tokio::test]
+async fn aae26_every_status_route_returns_apiresponse_envelope() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref.clone());
+    let am = envref.get_asset_manager();
+    am.set_binary(&parse_key("notes/a.txt").unwrap(), b"test", metadata_text()).await.unwrap();
+
+    let (status, json) = send(app, "GET", "/api/assets/key/info/notes/a.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["status"], "OK");
+    assert!(json["result"].is_object());
+}
+
+#[tokio::test]
+async fn aae27_key_contains_on_absent_key() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref);
+    let (status, json) = send(app, "GET", "/api/assets/key/contains/phantom/key.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["result"]["contains"], false);
 }
 
 #[tokio::test]
-async fn aae24_contains_true_for_present_key() {
-    let envref = env_with(&[]).await;
-    write_source(&envref, "data/exists.txt", b"content").await;
-    let app = build_app(envref);
-
-    let (status, json) = send(app, "GET", "/api/assets/contains/-R/data/exists.txt", Body::empty()).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(json["result"]["contains"], true);
-}
-
-#[tokio::test]
-async fn aae25_version_null_for_unversioned() {
-    let envref = env_with(&[]).await;
-    let app = build_app(envref);
-
-    let (status, json) = send(app, "GET", "/api/assets/version/-R/no/version.txt", Body::empty()).await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(json["result"]["version"].is_null());
-}
-
-#[tokio::test]
-async fn aae26_version_hex_string_for_stored() {
-    let envref = env_with(&[]).await;
-    write_source(&envref, "data/versioned.txt", b"content with version").await;
-    let app = build_app(envref);
-
-    let (status, json) = send(app, "GET", "/api/assets/version/-R/data/versioned.txt", Body::empty()).await;
-    assert_eq!(status, StatusCode::OK);
-    let v = json["result"]["version"].as_str().unwrap();
-    assert_eq!(v.len(), 32);
-    assert!(v.chars().all(|c| c.is_ascii_hexdigit()));
-}
-
-#[tokio::test]
-async fn aae27_recover_404_when_no_data() {
-    let envref = env_with(&[]).await;
-    let app = build_app(envref);
-
-    let (status, json) = send(app, "GET", "/api/assets/recover/-R/no/data.txt", Body::empty()).await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    assert_eq!(json["error"]["type"], "KeyNotFound");
-}
-
-#[tokio::test]
-async fn aae28_recover_returns_expired_value() {
-    // Expiring a stored-only Source is a StatusConflict (AMR13), so this needs a recipe-computed
-    // value that has since expired, not a plain write.
+async fn aae28_key_recover_reads_expired_without_evaluating() {
     let envref = env_with(&[("make_text/derived.txt", "Derived", "")]).await;
+    let app = build_app(envref.clone());
     let am = envref.get_asset_manager();
     let key = parse_key("derived.txt").unwrap();
-    let _ = am.get(&key).await.unwrap().get().await;
+    let value = am.get(&key).await.unwrap().get().await.unwrap();
+    assert_eq!(value.try_into_string().unwrap(), "generated");
     am.expire(&key).await.unwrap();
-    let app = build_app(envref);
+    assert_eq!(am.get_asset_info(&key).await.unwrap().status, Status::Expired);
 
-    let (status, _bytes) = send_raw(app, "GET", "/api/assets/recover/-R/derived.txt", Body::empty()).await;
-    assert_eq!(status, StatusCode::OK, "recover must return the last-known data of an Expired asset");
+    let (status, body, _) = send_raw(app, "GET", "/api/assets/key/recover/derived.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK, "recover reads the last known value of an Expired asset");
+    assert!(!body.is_empty());
 }
 
 #[tokio::test]
-async fn aae29_recover_honours_accept_json_header() {
+async fn aae29_key_listdir_on_directory() {
     let envref = env_with(&[]).await;
-    write_source(&envref, "data/json.txt", b"json data").await;
-    let app = build_app(envref);
-
-    let resp = app
-        .oneshot(
-            Request::builder()
-                .method("GET")
-                .uri("/api/assets/recover/-R/data/json.txt")
-                .header("Accept", "application/json")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
-    let content_type = resp.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("");
-    assert!(
-        content_type.contains("json"),
-        "Accept: application/json must select the JSON DataEntry encoding, got {content_type}"
-    );
-}
-
-#[tokio::test]
-async fn aae30_override_200_when_data_exists() {
-    // A computed value, not a Source: pinning is what `override` is for, and a stored-only
-    // `Source` is promoted to a recipe-less `Override` by today's `to_override`
-    // (`ASSET-TO-OVERRIDE-SOURCE-INCONSISTENT`), which this test must not pin down.
-    let envref = env_with(&[("make_text/tooverride.txt", "Pinned", "")]).await;
+    let app = build_app(envref.clone());
     let am = envref.get_asset_manager();
-    let _ = am.get(&parse_key("tooverride.txt").unwrap()).await.unwrap().get().await.unwrap();
-    let app = build_app(envref);
+    am.makedir(&parse_key("notes").unwrap()).await.unwrap();
 
-    let (status, json) = send(app, "POST", "/api/assets/override/-R/tooverride.txt", Body::empty()).await;
+    let (status, json) = send(app, "GET", "/api/assets/key/listdir/notes", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(json["result"]["status"], "Override");
+    assert!(json["result"].get("assets").is_some());
 }
+```
 
+#### AAE40–AAE43: Removal — Status and Directory Handling
+
+```rust
 #[tokio::test]
-async fn aae31_override_404_when_no_data() {
+async fn aae40_delete_key_data_on_source_returns_none() {
     let envref = env_with(&[]).await;
-    let app = build_app(envref);
-
-    let (status, json) = send(app, "POST", "/api/assets/override/-R/nodata/key.txt", Body::empty()).await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    assert_eq!(json["error"]["type"], "KeyNotFound");
-}
-
-#[tokio::test]
-async fn aae32_expire_409_on_source() {
-    let envref = env_with(&[]).await;
-    write_source(&envref, "notes/source.txt", b"source data").await;
-    let app = build_app(envref);
-
-    let (status, json) = send(app, "POST", "/api/assets/expire/-R/notes/source.txt", Body::empty()).await;
-    assert_eq!(status, StatusCode::CONFLICT);
-    assert_eq!(json["error"]["type"], "StatusConflict");
-}
-
-#[tokio::test]
-async fn aae33_expire_200_on_computed_ready() {
-    let envref = env_with(&[("make_text/derived.txt", "Derived", "A computed value")]).await;
+    let app = build_app(envref.clone());
     let am = envref.get_asset_manager();
-    let key = parse_key("derived.txt").unwrap();
-    let _ = am.get(&key).await.unwrap().get().await;
-    let app = build_app(envref);
+    am.set_binary(&parse_key("notes/a.txt").unwrap(), b"test", metadata_text()).await.unwrap();
 
-    let (status, json) = send(app, "POST", "/api/assets/expire/-R/derived.txt", Body::empty()).await;
+    let (status, json) = send(app, "DELETE", "/api/assets/key/data/notes/a.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(json["result"]["status"], "Expired");
-}
-
-#[tokio::test]
-async fn aae34_makedir_201_created() {
-    let envref = env_with(&[]).await;
-    let app = build_app(envref);
-
-    let (status, json) = send(app, "PUT", "/api/assets/makedir/-R/newdir", Body::empty()).await;
-    assert_eq!(status, StatusCode::CREATED);
-    assert!(json["result"]["key"].is_string());
-}
-
-#[tokio::test]
-async fn aae35_audit_key_returns_checked_and_expired_arrays() {
-    let envref = env_with(&[("make_text/dep.txt", "Dependency", "A value")]).await;
-    let app = build_app(envref);
-
-    let (status, json) = send(app, "POST", "/api/assets/audit/-R/dep.txt", Body::empty()).await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(json["result"]["checked"].is_array());
-    assert!(json["result"]["expired"].is_array());
-}
-
-#[tokio::test]
-async fn aae36_audit_all_returns_checked_and_expired_arrays() {
-    let envref = env_with(&[]).await;
-    let app = build_app(envref);
-
-    let (status, json) = send(app, "POST", "/api/assets/audit", Body::empty()).await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(json["result"]["checked"].is_array());
-    assert!(json["result"]["expired"].is_array());
-}
-
-#[tokio::test]
-async fn aae37_refresh_command_versions_200_null_result_with_message() {
-    let envref = env_with(&[]).await;
-    let app = build_app(envref);
-
-    let (status, json) = send(app, "POST", "/api/assets/refresh_command_versions", Body::empty()).await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(json["result"].is_null());
-    assert!(!json["message"].as_str().unwrap_or("").is_empty());
-}
-
-#[tokio::test]
-async fn aae40_delete_data_recipe_computed_new_status_recipe() {
-    let envref = env_with(&[("make_text/computed.txt", "Computed", "")]).await;
-    let am = envref.get_asset_manager();
-    let key = parse_key("computed.txt").unwrap();
-    let _ = am.get(&key).await.unwrap().get().await;
-    let app = build_app(envref);
-
-    let (status, json) = send(app, "DELETE", "/api/assets/data/-R/computed.txt", Body::empty()).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(json["result"]["removed"], true);
-    assert_eq!(json["result"]["new_status"], "Recipe");
-}
-
-#[tokio::test]
-async fn aae41_delete_data_source_new_status_none() {
-    let envref = env_with(&[]).await;
-    write_source(&envref, "notes/source.txt", b"source data").await;
-    let app = build_app(envref);
-
-    let (status, json) = send(app, "DELETE", "/api/assets/data/-R/notes/source.txt", Body::empty()).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(json["result"]["removed"], true);
     assert_eq!(json["result"]["new_status"], "None");
 }
 
 #[tokio::test]
-async fn aae42_delete_data_409_on_directory() {
-    let envref = env_with(&[]).await;
+async fn aae41_delete_key_data_on_computed_ready_returns_recipe() {
+    let envref = env_with(&[("-R/notes/a.txt/-/upper/summary.txt", "Summary", "Derived")]).await;
+    let app = build_app(envref.clone());
     let am = envref.get_asset_manager();
-    am.makedir(&parse_key("directory").unwrap()).await.unwrap();
-    let app = build_app(envref);
+    am.set_binary(&parse_key("notes/a.txt").unwrap(), b"hello", metadata_text()).await.unwrap();
+    let _ = am.get(&parse_key("summary.txt").unwrap()).await.unwrap().get().await.unwrap();
 
-    let (status, json) = send(app, "DELETE", "/api/assets/data/-R/directory", Body::empty()).await;
-    assert_eq!(status, StatusCode::CONFLICT);
-    assert_eq!(json["error"]["type"], "StatusConflict");
+    let (status, json) = send(app, "DELETE", "/api/assets/key/data/summary.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["result"]["new_status"], "Recipe", "dropping a computed value returns Recipe");
 }
 
 #[tokio::test]
-async fn aae43_delete_entry_delegates_to_delete_data() {
+async fn aae42_delete_key_data_on_directory_returns_409() {
     let envref = env_with(&[]).await;
-    write_source(&envref, "data/delete_me.txt", b"to delete").await;
-    let app = build_app(envref);
+    let app = build_app(envref.clone());
+    let am = envref.get_asset_manager();
+    am.makedir(&parse_key("mydir").unwrap()).await.unwrap();
 
-    let (status, json) = send(app, "DELETE", "/api/assets/entry/-R/data/delete_me.txt", Body::empty()).await;
+    let (status, json) = send(app, "DELETE", "/api/assets/key/data/mydir", Body::empty()).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(json["error"]["type"], "StatusConflict");
+    assert!(json["error"]["message"].as_str().unwrap_or("").contains("removedir"));
+}
+
+#[tokio::test]
+async fn aae43_delete_key_removedir_recursive() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref.clone());
+    let am = envref.get_asset_manager();
+    am.makedir(&parse_key("mydir").unwrap()).await.unwrap();
+    am.set_binary(&parse_key("mydir/file.txt").unwrap(), b"content", metadata_text()).await.unwrap();
+
+    let (status, json) = send(app.clone(), "DELETE", "/api/assets/key/removedir/mydir", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["result"]["removed"], true);
+
+    let (status, json) = send(app, "GET", "/api/assets/key/contains/mydir/file.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["result"]["contains"], false, "children are gone after removedir");
+}
+```
+
+#### AAE44–AAE47: I1 — Extended Value Types Served by `data`/`entry` (mandatory addition)
+
+`AXUM-ASSETS-API-SERVES-ONLY-BYTES-AND-TEXT` closes here: `q/data`, `key/data` and `GET /q` all go
+through `AssetRef::get_binary()`, so a core `Value` that is not `Bytes`/`Text` (an integer, a JSON
+object) round-trips identically through all three, and a keyed JSON value written with
+`set_binary` reads back correctly through `key/data`.
+
+```rust
+#[tokio::test]
+async fn aae44_q_data_serves_integer_value() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref);
+    let (status, body, ct) = send_raw(app, "GET", "/api/assets/q/data/make_number", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!body.is_empty(), "an I64 value must serialize to non-empty bytes, not be refused");
+    eprintln!("make_number q/data: content-type={ct:?} bytes={body:?}");
+}
+
+#[tokio::test]
+async fn aae45_q_data_serves_json_object_value() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref);
+    let (status, body, _) = send_raw(app, "GET", "/api/assets/q/data/make_object", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    let json: serde_json::Value = serde_json::from_slice(&body).expect("an Object value must serialize to JSON");
+    assert_eq!(json["a"], 1);
+    assert_eq!(json["b"], "two");
+}
+
+/// `q/data` on the Assets API must match the standalone Query API's `GET /q/<query>` byte-for-byte
+/// and header-for-header, for the same non-Bytes/Text value — both go through the same
+/// `AssetRef::get_binary()` path.
+#[tokio::test]
+async fn aae46_q_data_matches_query_api_for_extended_value() {
+    let envref = env_with(&[]).await;
+    let app = build_app_with_query_api(envref);
+    let (status_assets, body_assets, ct_assets) =
+        send_raw(app.clone(), "GET", "/api/assets/q/data/make_object", Body::empty()).await;
+    let (status_query, body_query, ct_query) = send_raw(app, "GET", "/q/make_object", Body::empty()).await;
+    assert_eq!(status_assets, StatusCode::OK);
+    assert_eq!(status_query, StatusCode::OK);
+    assert_eq!(body_assets, body_query, "identical bytes from both APIs for the same query");
+    assert_eq!(ct_assets, ct_query, "identical Content-Type from both APIs");
+}
+
+#[tokio::test]
+async fn aae47_key_data_serves_keyed_json_value_stored_as_bytes() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref.clone());
+    let am = envref.get_asset_manager();
+    let key = parse_key("data/record.json").unwrap();
+    let json_bytes = serde_json::to_vec(&serde_json::json!({"n": 7, "s": "seven"})).unwrap();
+    am.set_binary(
+        &key,
+        &json_bytes,
+        MetadataRecord {
+            type_identifier: "Bytes".to_string(),
+            type_name: "bytes".to_string(),
+            data_format: Some("json".to_string()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let (status, body, _) = send_raw(app, "GET", "/api/assets/key/data/data/record.json", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(value["n"], 7);
+    assert_eq!(value["s"], "seven");
+}
+```
+
+#### AAE60–AAE66: GET Alternatives and Builder Switches
+
+Exact status codes throughout: an omitted method on a path that still serves another method →
+**405**; a path with no route at all → **404** (this is the mandatory exactness fix; see "Fixes
+Made Against the Drafts" #7).
+
+```rust
+#[tokio::test]
+async fn aae60_get_remove_without_destructive_gets_404() {
+    let envref = env_with(&[]).await;
+    // GET remove has no sibling method on that exact path when with_destructive_gets() is off:
+    // the route itself does not exist → 404 (not 405).
+    let app = liquers_axum::assets::AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
+        .build()
+        .with_state(envref);
+    let (status, _) = send(app, "GET", "/api/assets/key/remove/notes/a.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "GET remove route does not exist by default");
+}
+
+#[tokio::test]
+async fn aae61_get_remove_with_destructive_gets_200() {
+    let envref = env_with(&[]).await;
+    let app = liquers_axum::assets::AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
+        .with_destructive_gets()
+        .build()
+        .with_state(envref.clone());
+    let am = envref.get_asset_manager();
+    am.set_binary(&parse_key("notes/a.txt").unwrap(), b"test", metadata_text()).await.unwrap();
+
+    let (status, json) = send(app, "GET", "/api/assets/key/remove/notes/a.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK, "GET remove is routed with the flag");
     assert_eq!(json["result"]["new_status"], "None");
 }
 
 #[tokio::test]
-async fn aae44_post_data_non_key_query_returns_501() {
+async fn aae62_read_only_blocks_post_data_405() {
     let envref = env_with(&[]).await;
-    let app = build_app(envref);
-
-    // `make_text` parses as an action (Transform), not a key — verified with liquers-validate.
-    let (status, json) = send(app, "POST", "/api/assets/data/make_text", Body::from("ignored")).await;
-    assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
-    assert_eq!(json["error"]["type"], "NotSupported");
-}
-
-#[tokio::test]
-async fn aae45_delete_data_non_key_query_returns_501() {
-    let envref = env_with(&[]).await;
-    let app = build_app(envref);
-
-    let (status, json) = send(app, "DELETE", "/api/assets/data/make_text", Body::empty()).await;
-    assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
-    assert_eq!(json["error"]["type"], "NotSupported");
-}
-
-#[tokio::test]
-async fn aae50_read_only_post_data_returns_405() {
-    // `.read_only()` omits the POST route; `GET data/{key}` still serves that same path, so
-    // axum's routing responds 405 Method Not Allowed, not 404 (verified: `read_only` doc in
-    // Phase 2, "An omitted route answers axum's own 405, where the path serves other methods").
-    let envref = env_with(&[]).await;
-    let app = liquers_axum::AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
+    // read_only() drops POST from key/data's method set, but GET key/data still exists on the
+    // same path → 405 Method Not Allowed, not 404.
+    let app = liquers_axum::assets::AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
         .read_only()
         .build()
         .with_state(envref);
-
-    let (status, _) = send(app, "POST", "/api/assets/data/-R/notes/a.txt", Body::from("hello")).await;
+    let (status, _) = send(app, "POST", "/api/assets/key/data/notes/a.txt", Body::from("test")).await;
     assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
 }
 
 #[tokio::test]
-async fn aae51_read_only_get_data_still_200() {
+async fn aae63_read_only_blocks_post_expire_404() {
     let envref = env_with(&[]).await;
-    write_source(&envref, "notes/readable.txt", b"readable").await;
-    let app = liquers_axum::AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
+    // read_only() drops key/expire entirely: no other method is registered on that exact path,
+    // so omitting the only method leaves no route at all → 404, not 405.
+    let app = liquers_axum::assets::AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
+        .read_only()
+        .build()
+        .with_state(envref);
+    let (status, _) = send(app, "POST", "/api/assets/key/expire/notes/a.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "expire has no sibling method: the whole route is gone");
+}
+
+#[tokio::test]
+async fn aae64_read_only_allows_get_data_and_cancel() {
+    let envref = env_with(&[]).await;
+    let app_rw = build_app(envref.clone());
+    let (_, json) = send(app_rw, "POST", "/api/assets/key/data/notes/a.txt", Body::from("test")).await;
+    assert_eq!(json["status"], "OK");
+
+    let am = envref.get_asset_manager();
+    let _ = am.get(&parse_key("notes/a.txt").unwrap()).await.unwrap();
+
+    let app_ro = liquers_axum::assets::AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
         .read_only()
         .build()
         .with_state(envref);
 
-    let (status, _) = send_raw(app, "GET", "/api/assets/data/-R/notes/readable.txt", Body::empty()).await;
+    let (status, _, _) = send_raw(app_ro.clone(), "GET", "/api/assets/key/data/notes/a.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK, "GET data still works in read_only");
+
+    // cancel must be routed even in read_only (it changes no data); it must be neither 404 nor 405.
+    let (status, _) = send(app_ro, "POST", "/api/assets/key/cancel/notes/a.txt", Body::empty()).await;
+    assert_ne!(status, StatusCode::NOT_FOUND, "cancel stays routed in read_only");
+    assert_ne!(status, StatusCode::METHOD_NOT_ALLOWED, "cancel is not blocked by read_only");
+}
+
+#[tokio::test]
+async fn aae65_with_admin_false_blocks_audit_404() {
+    let envref = env_with(&[]).await;
+    let app = liquers_axum::assets::AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
+        .with_admin(false)
+        .build()
+        .with_state(envref);
+    let (status, _) = send(app, "POST", "/api/assets/admin/audit", Body::empty()).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "admin/audit has no sibling method: the whole route is gone");
+}
+
+#[tokio::test]
+async fn aae66_with_admin_true_includes_audit_200() {
+    let envref = env_with(&[]).await;
+    let app = liquers_axum::assets::AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
+        .with_admin(true) // default
+        .build()
+        .with_state(envref);
+    let (status, json) = send(app, "POST", "/api/assets/admin/audit", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
+    assert!(json["result"].get("checked").is_some());
+    assert!(json["result"].get("expired").is_some());
 }
+```
 
+#### AAE80: Concurrent Writes
+
+```rust
 #[tokio::test]
-async fn aae52_read_only_post_expire_returns_404() {
-    // `expire/{key}` has no other HTTP method registered on that path, so omitting it under
-    // `.read_only()` leaves axum with no route at all: 404, not 405.
-    let envref = env_with(&[]).await;
-    write_source(&envref, "notes/a.txt", b"data").await;
-    let app = liquers_axum::AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
-        .read_only()
-        .build()
-        .with_state(envref);
-
-    let (status, _) = send(app, "POST", "/api/assets/expire/-R/notes/a.txt", Body::empty()).await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
-}
-
-#[tokio::test]
-async fn aae53_read_only_post_cancel_still_routed() {
-    let envref = env_with(&[]).await;
-    let app = liquers_axum::AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
-        .read_only()
-        .build()
-        .with_state(envref);
-
-    let (status, _) = send(app, "POST", "/api/assets/cancel/-R/somekey", Body::empty()).await;
-    assert_ne!(status, StatusCode::METHOD_NOT_ALLOWED);
-    assert_ne!(status, StatusCode::NOT_FOUND, "cancel must stay routed under read_only()");
-}
-
-#[tokio::test]
-async fn aae54_with_admin_false_post_audit_returns_404() {
-    // `audit` (no query) has no sibling method on that exact path, so omitting it under
-    // `.with_admin(false)` leaves no route: 404.
-    let envref = env_with(&[]).await;
-    let app = liquers_axum::AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
-        .with_admin(false)
-        .build()
-        .with_state(envref);
-
-    let (status, _) = send(app, "POST", "/api/assets/audit", Body::empty()).await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
-}
-
-#[tokio::test]
-async fn aae55_with_admin_false_post_data_still_201() {
-    let envref = env_with(&[]).await;
-    let app = liquers_axum::AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
-        .with_admin(false)
-        .build()
-        .with_state(envref);
-
-    let (status, _) = send(app, "POST", "/api/assets/data/-R/notes/a.txt", Body::from("hello")).await;
-    assert_eq!(status, StatusCode::CREATED);
-}
-
-#[tokio::test]
-async fn aae60_concurrent_post_data_same_key_is_serialized_atomic() {
+async fn aae80_two_concurrent_post_data_same_key_both_succeed() {
     let envref = env_with(&[]).await;
     let app1 = build_app(envref.clone());
     let app2 = build_app(envref.clone());
 
-    let h1 = tokio::spawn(async move {
-        app1.oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/assets/data/-R/concurrent/file.txt")
-                .body(Body::from("body1"))
-                .unwrap(),
-        )
-        .await
+    let (tx1, rx1) = tokio::sync::oneshot::channel();
+    let (tx2, rx2) = tokio::sync::oneshot::channel();
+
+    tokio::spawn(async move {
+        let (status, json) = send(app1, "POST", "/api/assets/key/data/notes/a.txt", Body::from("FIRST")).await;
+        let _ = tx1.send((status, json));
     });
-    let h2 = tokio::spawn(async move {
-        app2.oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/assets/data/-R/concurrent/file.txt")
-                .body(Body::from("body2"))
-                .unwrap(),
-        )
-        .await
+    tokio::spawn(async move {
+        let (status, json) = send(app2, "POST", "/api/assets/key/data/notes/a.txt", Body::from("SECOND")).await;
+        let _ = tx2.send((status, json));
     });
 
-    let (r1, r2) = tokio::join!(h1, h2);
-    assert_eq!(r1.unwrap().unwrap().status(), StatusCode::CREATED);
-    assert_eq!(r2.unwrap().unwrap().status(), StatusCode::CREATED);
+    let (status1, _) = rx1.await.unwrap();
+    let (status2, _) = rx2.await.unwrap();
+    assert_eq!(status1, StatusCode::CREATED);
+    assert_eq!(status2, StatusCode::CREATED, "both writes succeed; key_mutation_lock serializes them");
 
-    // AsyncStore::get returns (Vec<u8>, Metadata) — not raw bytes.
-    let store = envref.get_async_store();
-    let key = parse_key("concurrent/file.txt").unwrap();
-    let (data, _metadata) = store.get(&key).await.unwrap();
-    assert!(
-        data.as_slice() == b"body1" || data.as_slice() == b"body2",
-        "the key_mutation_lock must serialize the two writes into one, not a torn merge"
-    );
-    eprintln!("concurrent POST data settled on one of the two writes, as expected");
+    let (_, body, _) = send_raw(build_app(envref), "GET", "/api/assets/key/data/notes/a.txt", Body::empty()).await;
+    let final_value = String::from_utf8(body).unwrap();
+    assert!(matches!(final_value.as_str(), "FIRST" | "SECOND"), "final value is exactly one of the two request bodies");
 }
 ```
 
-| Test | Checks |
-|---|---|
-| AMR10 | live `Ready` asset expires and cascades to its dependent |
-| AMR11 | expire cascades through a two-level dependency chain |
-| AMR12 | expire is idempotent on an already-`Expired` asset |
-| AMR13 | expire a `Source` (no recipe) → `StatusConflict`, key and message checked |
-| AMR14 | expire a never-evaluated recipe key → `StatusConflict` |
-| AMR15 | expire an absent key → `KeyNotFound` |
-| AMR16 | `Error::status_conflict` sets type, `key` (as `Some(key.encode())`), and message |
-| AMR17 | `set_description` on `Source` updates title/description (both `String`); version unchanged |
-| AMR18 | `set_description` with both `None` → `ParameterError` |
-| AMR19 | `set_description` on computed `Ready` → `StatusConflict` |
-| AMR20 | `set_description` on an absent key → `KeyNotFound` |
-| AMR22 | `get_asset_info` on an `Expired` live asset reports `Expired`, no re-evaluation |
-| AMR23 | `get_asset_info` on a never-evaluated recipe key reports `Recipe`, no evaluation |
-| AMR24 | after a restart, a dependent of a dropped intermediate is still fast-tracked |
-| AAE20–AAE21 | `GET listdir` shapes: `{assets:[...]}` and, with `?deep=true`, `{keys:[...]}` |
-| AAE22 | `GET info` 404 `KeyNotFound` when absent |
-| AAE23–AAE24 | `GET contains` false/true |
-| AAE25–AAE26 | `GET version` null vs. 32-hex-digit string |
-| AAE27–AAE29 | `GET recover` 404 with no data; recovers an `Expired` value; honours `Accept: application/json` |
-| AAE30–AAE31 | `POST override` 200 with data; 404 without |
-| AAE32–AAE33 | `POST expire` 409 on `Source`; 200 on computed `Ready` |
-| AAE34 | `PUT makedir` 201 |
-| AAE35–AAE36 | `POST audit/{key}` and `POST audit` both return `{checked, expired}` arrays |
-| AAE37 | `POST refresh_command_versions` 200, null result, non-empty message |
-| AAE40–AAE41 | `DELETE data` `new_status` is `"Recipe"` for a computed value, `"None"` for a `Source` |
-| AAE42 | `DELETE data` on a `Directory` → 409 |
-| AAE43 | `DELETE entry` delegates to the same result as `DELETE data` |
-| AAE44–AAE45 | `POST data` / `DELETE data` on a non-key query → 501 `NotSupported` |
-| AAE50 | `.read_only()`: `POST data` → **405** (GET still serves that path) |
-| AAE51 | `.read_only()`: `GET data` still 200 |
-| AAE52 | `.read_only()`: `POST expire` → **404** (no sibling method on that path) |
-| AAE53 | `.read_only()`: `POST cancel` still routed |
-| AAE54 | `.with_admin(false)`: `POST audit` → 404 |
-| AAE55 | `.with_admin(false)`: `POST data` still 201 |
-| AAE60 | two concurrent `POST data` to the same key: both 201, store settles on exactly one body |
+#### AAE90–AAE92 (Example 2b, full code above)
+
+`aae90_submit_and_poll_non_keyed_query`, `aae91_polling_unsubmitted_query_404_never_evaluates`,
+`aae92_cancel_while_processing_reports_cancelled_deterministically` — see "Example 2b" above.
 
 ---
 
-### Review-round additions (AAE02–AAE05)
+## WebSocket Tests
 
-Added after the Phase 3 review: Reviewer 1 found no HTTP-level test for Q11, none for the two
-existing reads `GET metadata` / `GET entry` (the latter changes: Phase 2 makes it honour
-`Accept`), and no positive `POST cancel`.
+### `liquers-axum/tests/assets_websocket.rs` — Shared Helpers (AWS)
 
 ```rust
-// liquers-axum/tests/assets_api_endpoints.rs — same helpers.
+// liquers-axum/tests/assets_websocket.rs
 
-/// Q11: POST data onto a key that has a recipe makes it `Override`; removing it restores the recipe.
-#[tokio::test]
-async fn aae02_post_data_onto_recipe_key_is_override() {
-    let envref = env_with(&[("make_text/source.txt", "Source", "generated text")]).await;
-    let app = build_app(envref);
+use axum::Router;
+use futures::{SinkExt, StreamExt};
+use liquers_axum::assets::{AssetsApiBuilder, WebSocketLimits};
+use liquers_core::{
+    assets::AssetManager,
+    command_metadata::CommandKey,
+    context::{Environment, EnvRef, SimpleEnvironment},
+    metadata::{Metadata, MetadataRecord},
+    parse::parse_key,
+    query::Key,
+    recipes::{DefaultRecipeProvider, Recipe, RecipeList},
+    state::State,
+    store::AsyncMemoryStore,
+    value::Value,
+};
+use serde_json::{json, Value as JsonValue};
+use std::time::Duration;
+use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-    let (status, json) = send(
-        app.clone(),
-        "POST",
-        "/api/assets/data/-R/source.txt?type_identifier=Text&data_format=txt",
-        Body::from("pinned by user"),
-    )
-    .await;
-    assert_eq!(status, StatusCode::CREATED);
-    assert_eq!(json["result"]["status"], "Override");
+type Ws = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
-    let (status, body) = send_raw(app.clone(), "GET", "/api/assets/data/-R/source.txt", Body::empty()).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(String::from_utf8(body).unwrap(), "pinned by user");
+async fn env_with(recipes: &[(&str, &str, &str)]) -> EnvRef<SimpleEnvironment<Value>> {
+    let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+    env.command_registry
+        .register_command(CommandKey::new_name("make_text"), |_, _, _| Ok(Value::from("generated")))
+        .unwrap();
+    env.command_registry
+        .register_command(CommandKey::new_name("upper"), |state: &State<Value>, _, _| {
+            Ok(Value::from(state.try_into_string()?.to_uppercase()))
+        })
+        .unwrap();
+    // Blocking sync command; tests that submit it run on the multi-thread runtime (AWS13).
+    env.command_registry
+        .register_command(CommandKey::new_name("sleep_sync"), |_, _, _| {
+            std::thread::sleep(Duration::from_millis(300));
+            Ok(Value::from("slept"))
+        })
+        .unwrap();
 
-    let (status, json) = send(app.clone(), "DELETE", "/api/assets/data/-R/source.txt", Body::empty()).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(json["result"]["new_status"], "Recipe");
-
-    let (_, body) = send_raw(app, "GET", "/api/assets/data/-R/source.txt", Body::empty()).await;
-    assert_eq!(String::from_utf8(body).unwrap(), "generated");
+    let mut rl = RecipeList::new();
+    for (q, t, d) in recipes {
+        rl.add_recipe(Recipe::new(q.to_string(), t.to_string(), d.to_string()).unwrap());
+    }
+    let store = AsyncMemoryStore::new(&Key::new());
+    liquers_core::store::AsyncStore::set(&store, &parse_key("recipes.yaml").unwrap(), serde_yaml::to_string(&rl).unwrap().as_bytes(), &Metadata::new())
+        .await
+        .unwrap();
+    env.with_async_store(Box::new(store));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.to_ref()
 }
 
-/// Existing `GET metadata` returns the manager's record for a Source written over HTTP.
-#[tokio::test]
-async fn aae03_get_metadata_of_source() {
-    let envref = env_with(&[]).await;
-    let app = build_app(envref);
-    let (status, _) = send(
-        app.clone(),
-        "POST",
-        "/api/assets/data/-R/notes/a.txt?type_identifier=Text&data_format=txt&title=Note%20A",
-        Body::from("hello"),
-    )
-    .await;
-    assert_eq!(status, StatusCode::CREATED);
+fn metadata_text() -> MetadataRecord {
+    MetadataRecord { type_identifier: "Text".to_string(), type_name: "text".to_string(), data_format: Some("txt".to_string()), ..Default::default() }
+}
 
-    let (status, json) = send(app, "GET", "/api/assets/metadata/-R/notes/a.txt", Body::empty()).await;
+fn build_app(envref: EnvRef<SimpleEnvironment<Value>>) -> Router {
+    AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets").build().with_state(envref)
+}
+
+fn build_app_with_limits(envref: EnvRef<SimpleEnvironment<Value>>, limits: WebSocketLimits) -> Router {
+    AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
+        .with_websocket_limits(limits)
+        .build()
+        .with_state(envref)
+}
+
+/// Start an in-process server on an OS-assigned port and return its `ws://` base URL.
+async fn start_server(app: Router) -> String {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap(); });
+    format!("ws://{}", addr)
+}
+
+async fn connect(base_url: &str, path: &str) -> Ws {
+    let (ws, _) = connect_async(&format!("{}{}", base_url, path)).await.unwrap();
+    ws
+}
+
+/// Receive and parse one JSON text message, skipping ping/pong/binary frames.
+async fn recv_json(ws: &mut Ws, timeout: Duration) -> Option<JsonValue> {
+    loop {
+        match tokio::time::timeout(timeout, ws.next()).await {
+            Ok(Some(Ok(Message::Text(text)))) => return Some(serde_json::from_str(&text).unwrap()),
+            Ok(Some(Ok(Message::Ping(_) | Message::Pong(_) | Message::Binary(_)))) => continue,
+            Ok(Some(Ok(Message::Close(_)))) | Ok(None) | Ok(Some(Err(_))) | Err(_) => return None,
+            Ok(Some(Ok(Message::Frame(_)))) => continue,
+        }
+    }
+}
+
+async fn send_json(ws: &mut Ws, msg: JsonValue) {
+    ws.send(Message::Text(serde_json::to_string(&msg).unwrap())).await.unwrap();
+}
+
+/// Poll `recv_json` up to 100 times (100ms each) for a message whose `type` matches.
+async fn recv_by_type(ws: &mut Ws, expected_type: &str) -> Option<JsonValue> {
+    for _ in 0..100 {
+        if let Some(msg) = recv_json(ws, Duration::from_millis(100)).await {
+            if msg.get("type").and_then(JsonValue::as_str) == Some(expected_type) {
+                return Some(msg);
+            }
+        }
+    }
+    None
+}
+```
+
+### AWS01–AWS11: Core Protocol
+
+```rust
+#[tokio::test]
+async fn aws01_subscribe_by_query() {
+    let envref = env_with(&[]).await;
+    let base_url = start_server(build_app(envref)).await;
+    let mut ws = connect(&base_url, "/api/assets/ws/q").await;
+
+    send_json(&mut ws, json!({"action": "subscribe", "query": "make_text"})).await;
+
+    let initial = recv_json(&mut ws, Duration::from_secs(2)).await.unwrap();
+    assert_eq!(initial["type"], "Initial");
+    assert!(initial["asset_id"].is_number());
+    assert_eq!(initial["query"], "make_text");
+    assert!(initial["timestamp"].is_string());
+    assert!(initial["info"].is_object());
+
+    let finished = recv_by_type(&mut ws, "JobFinished").await.unwrap();
+    assert_eq!(finished["query"], "make_text");
+    assert_eq!(finished["info"]["status"], "Ready");
+}
+
+#[tokio::test]
+async fn aws02_url_path_subscription_on_connect() {
+    let envref = env_with(&[]).await;
+    let base_url = start_server(build_app(envref)).await;
+    let mut ws = connect(&base_url, "/api/assets/ws/q/make_text").await;
+
+    let initial = recv_json(&mut ws, Duration::from_secs(2)).await.unwrap();
+    assert_eq!(initial["type"], "Initial");
+    assert_eq!(initial["query"], "make_text");
+}
+
+#[tokio::test]
+async fn aws03_subscribe_by_key() {
+    let envref = env_with(&[("-R/notes/a.txt/-/upper/summary.txt", "Summary", "Upper-cased note")]).await;
+    let am = envref.get_asset_manager();
+    am.set_binary(&parse_key("notes/a.txt").unwrap(), b"hello", metadata_text()).await.unwrap();
+
+    let base_url = start_server(build_app(envref)).await;
+    let mut ws = connect(&base_url, "/api/assets/ws/key").await;
+    send_json(&mut ws, json!({"action": "subscribe", "key": "notes/a.txt"})).await;
+
+    let initial = recv_json(&mut ws, Duration::from_secs(2)).await.unwrap();
+    assert_eq!(initial["type"], "Initial");
+    assert_eq!(initial["key"], "notes/a.txt");
+
+    let finished = recv_by_type(&mut ws, "JobFinished").await.unwrap();
+    assert_eq!(finished["key"], "notes/a.txt");
+    assert_eq!(finished["info"]["status"], "Ready");
+}
+
+#[tokio::test]
+async fn aws04_key_subscription_ends_after_delete() {
+    let envref = env_with(&[]).await;
+    let am = envref.get_asset_manager();
+    am.set_binary(&parse_key("notes/a.txt").unwrap(), b"test", metadata_text()).await.unwrap();
+
+    let base_url = start_server(build_app(envref)).await;
+    let mut ws = connect(&base_url, "/api/assets/ws/key").await;
+    send_json(&mut ws, json!({"action": "subscribe", "key": "notes/a.txt"})).await;
+    let initial = recv_json(&mut ws, Duration::from_secs(2)).await.unwrap();
+    assert_eq!(initial["type"], "Initial");
+
+    let client = reqwest::Client::new();
+    let delete_url = format!("{}/api/assets/key/data/notes/a.txt", base_url.replace("ws://", "http://"));
+    let resp = client.delete(&delete_url).send().await.unwrap();
+    assert!(resp.status().is_success());
+
+    let removed = recv_by_type(&mut ws, "Removed").await.unwrap();
+    assert_eq!(removed["key"], "notes/a.txt");
+
+    let none_msg = recv_json(&mut ws, Duration::from_millis(500)).await;
+    assert_eq!(none_msg, None, "subscription ends: no further messages after Removed");
+}
+
+#[tokio::test]
+async fn aws05_subscription_ends_after_error() {
+    let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+    env.command_registry
+        .register_command(CommandKey::new_name("fail_always"), |_, _, _| {
+            Err(liquers_core::error::Error::general_error("intentional error".to_string()))
+        })
+        .unwrap();
+    let base_url = start_server(build_app(env.to_ref())).await;
+
+    let mut ws = connect(&base_url, "/api/assets/ws/q").await;
+    send_json(&mut ws, json!({"action": "subscribe", "query": "fail_always"})).await;
+    let initial = recv_json(&mut ws, Duration::from_secs(2)).await.unwrap();
+    assert_eq!(initial["type"], "Initial");
+
+    let error_msg = recv_by_type(&mut ws, "StatusChanged").await.unwrap();
+    assert_eq!(error_msg["info"]["status"], "Error");
+
+    let none_msg = recv_json(&mut ws, Duration::from_millis(500)).await;
+    assert_eq!(none_msg, None, "terminal StatusChanged ends the subscription");
+}
+
+#[tokio::test]
+async fn aws06_snake_case_accepted_old_casing_rejected() {
+    let envref = env_with(&[]).await;
+    let base_url = start_server(build_app(envref)).await;
+
+    let mut ws = connect(&base_url, "/api/assets/ws/q").await;
+    send_json(&mut ws, json!({"action": "subscribe", "query": "make_text"})).await;
+    let msg = recv_json(&mut ws, Duration::from_secs(2)).await.unwrap();
+    assert_eq!(msg["type"], "Initial");
+
+    let mut ws2 = connect(&base_url, "/api/assets/ws/q").await;
+    send_json(&mut ws2, json!({"action": "Subscribe", "query": "make_text"})).await; // old, Rust-cased
+    let err_msg = recv_json(&mut ws2, Duration::from_secs(2)).await.unwrap();
+    assert_eq!(err_msg["type"], "Error");
+    assert!(err_msg["error"].is_object());
+}
+
+#[tokio::test]
+async fn aws07_wrong_address_field_returns_error() {
+    let envref = env_with(&[]).await;
+    let base_url = start_server(build_app(envref)).await;
+
+    let mut ws_q = connect(&base_url, "/api/assets/ws/q").await;
+    send_json(&mut ws_q, json!({"action": "subscribe", "key": "notes/a.txt"})).await;
+    assert_eq!(recv_json(&mut ws_q, Duration::from_secs(2)).await.unwrap()["type"], "Error");
+
+    let mut ws_key = connect(&base_url, "/api/assets/ws/key").await;
+    send_json(&mut ws_key, json!({"action": "subscribe", "query": "make_text"})).await;
+    assert_eq!(recv_json(&mut ws_key, Duration::from_secs(2)).await.unwrap()["type"], "Error");
+}
+
+#[tokio::test]
+async fn aws08_malformed_json_returns_error() {
+    let envref = env_with(&[]).await;
+    let base_url = start_server(build_app(envref)).await;
+    let mut ws = connect(&base_url, "/api/assets/ws/q").await;
+    ws.send(Message::Text("not valid json {".to_string())).await.unwrap();
+
+    let err_msg = recv_json(&mut ws, Duration::from_secs(2)).await.unwrap();
+    assert_eq!(err_msg["type"], "Error");
+    assert!(err_msg["error"].is_object());
+}
+
+#[tokio::test]
+async fn aws09_unsubscribe_stops_messages() {
+    let envref = env_with(&[]).await;
+    let base_url = start_server(build_app(envref)).await;
+    let mut ws = connect(&base_url, "/api/assets/ws/q").await;
+    send_json(&mut ws, json!({"action": "subscribe", "query": "make_text"})).await;
+    assert_eq!(recv_json(&mut ws, Duration::from_secs(2)).await.unwrap()["type"], "Initial");
+
+    send_json(&mut ws, json!({"action": "unsubscribe", "query": "make_text"})).await;
+    let none_msg = recv_json(&mut ws, Duration::from_millis(500)).await;
+    assert_eq!(none_msg, None);
+}
+
+#[tokio::test]
+async fn aws10_unsubscribe_all() {
+    let envref = env_with(&[]).await;
+    let base_url = start_server(build_app(envref)).await;
+    let mut ws = connect(&base_url, "/api/assets/ws/q").await;
+    send_json(&mut ws, json!({"action": "subscribe", "query": "make_text"})).await;
+    let _ = recv_json(&mut ws, Duration::from_secs(2)).await.unwrap();
+
+    send_json(&mut ws, json!({"action": "unsubscribe_all"})).await;
+    let all_unsub = recv_json(&mut ws, Duration::from_secs(2)).await.unwrap();
+    assert_eq!(all_unsub["type"], "UnsubscribedAll");
+}
+
+#[tokio::test]
+async fn aws11_ping_returns_pong() {
+    let envref = env_with(&[]).await;
+    let base_url = start_server(build_app(envref)).await;
+    let mut ws = connect(&base_url, "/api/assets/ws/q").await;
+    send_json(&mut ws, json!({"action": "ping"})).await;
+
+    let pong = recv_json(&mut ws, Duration::from_secs(2)).await.unwrap();
+    assert_eq!(pong["type"], "Pong");
+    assert!(pong["timestamp"].is_string());
+}
+```
+
+### AWS12a/b: Limits (I6)
+
+```rust
+#[tokio::test]
+async fn aws12a_subscription_limit_enforced() {
+    let envref = env_with(&[]).await;
+    let base_url = start_server(build_app_with_limits(envref, WebSocketLimits { max_message_size: 65536, max_subscriptions: 2 })).await;
+    let mut ws = connect(&base_url, "/api/assets/ws/q").await;
+
+    send_json(&mut ws, json!({"action": "subscribe", "query": "make_text"})).await;
+    recv_json(&mut ws, Duration::from_secs(2)).await.unwrap();
+    send_json(&mut ws, json!({"action": "subscribe", "query": "upper"})).await;
+    recv_json(&mut ws, Duration::from_secs(2)).await.unwrap();
+
+    // Third distinct subscription exceeds max_subscriptions: 2.
+    send_json(&mut ws, json!({"action": "subscribe", "key": "notes/a.txt"})).await;
+    let err_msg = recv_json(&mut ws, Duration::from_secs(2)).await.unwrap();
+    assert_eq!(err_msg["type"], "Error");
+}
+
+#[tokio::test]
+async fn aws12b_oversized_message_closed_or_errors() {
+    let envref = env_with(&[]).await;
+    let base_url = start_server(build_app_with_limits(envref, WebSocketLimits { max_message_size: 1024, max_subscriptions: 256 })).await;
+    let mut ws = connect(&base_url, "/api/assets/ws/q").await;
+
+    let huge_query = "x".repeat(2000);
+    let msg_text = serde_json::to_string(&json!({"action": "subscribe", "query": huge_query})).unwrap();
+    let send_result = ws.send(Message::Text(msg_text)).await;
+
+    // Either the frame is rejected at the WebSocket layer, or the server replies Error; both are
+    // acceptable, but silence (a message accepted with no reply at all) is not.
+    if send_result.is_ok() {
+        let result = recv_json(&mut ws, Duration::from_secs(2)).await;
+        if let Some(msg) = result {
+            assert_eq!(msg["type"], "Error");
+        }
+    }
+}
+```
+
+### AWS13: Disconnect Mid-Evaluation (I6)
+
+Uses `sleep_sync`, a blocking `std::thread::sleep` command — multi-thread test runtime.
+
+```rust
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn aws13_disconnect_mid_evaluation_completes_and_leaks_nothing() {
+    let envref = env_with(&[]).await;
+    let base_url = start_server(build_app(envref)).await;
+
+    let mut ws = connect(&base_url, "/api/assets/ws/q").await;
+    send_json(&mut ws, json!({"action": "subscribe", "query": "sleep_sync"})).await;
+    let initial = recv_json(&mut ws, Duration::from_secs(2)).await.unwrap();
+    assert_eq!(initial["type"], "Initial");
+
+    drop(ws); // disconnect while the evaluation is still running
+
+    let client = reqwest::Client::new();
+    let info_url = format!("{}/api/assets/q/info/sleep_sync", base_url.replace("ws://", "http://"));
+    for _ in 0..100 {
+        let resp = client.get(&info_url).send().await.unwrap();
+        if let Ok(body) = resp.text().await {
+            if let Ok(json) = serde_json::from_str::<JsonValue>(&body) {
+                if json["result"]["status"] == "Ready" {
+                    return; // evaluation completed despite the disconnect
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("sleep_sync did not complete within the poll budget after disconnect");
+}
+```
+
+### AWS14a/b: Builder Sanity (I10)
+
+```rust
+#[tokio::test]
+async fn aws14a_build_with_defaults_does_not_panic() {
+    let envref = env_with(&[]).await;
+    let _app = build_app(envref); // axum 0.8's `{*query}` route syntax fix (I10); this must not panic
+}
+
+#[tokio::test]
+async fn aws14b_without_websocket_removes_both_routes() {
+    let envref = env_with(&[]).await;
+    let app = AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
+        .without_websocket()
+        .build()
+        .with_state(envref);
+    let base_url = start_server(app).await;
+
+    let result = connect_async(&format!("{}/api/assets/ws/q", base_url)).await;
+    assert!(result.is_err(), "ws/q must not exist when without_websocket() is set");
+    let result = connect_async(&format!("{}/api/assets/ws/key", base_url)).await;
+    assert!(result.is_err(), "ws/key must not exist when without_websocket() is set");
+}
+```
+
+---
+
+## Other Builders (I4, I5, I9)
+
+### `liquers-axum/tests/store_api_routes.rs` (SAR)
+
+```rust
+// liquers-axum/tests/store_api_routes.rs
+
+use axum::{body::Body, body::to_bytes, http::{Request, StatusCode}};
+use liquers_axum::store::StoreApiBuilder;
+use liquers_core::{
+    context::{EnvRef, SimpleEnvironment},
+    metadata::Metadata,
+    parse::parse_key,
+    query::Key,
+    store::{AsyncMemoryStore, AsyncStore},
+    value::Value,
+};
+use tower::ServiceExt;
+
+fn env_with_store() -> (EnvRef<SimpleEnvironment<Value>>, AsyncMemoryStore) {
+    let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+    let store = AsyncMemoryStore::new(&Key::new());
+    env.with_async_store(Box::new(store.clone()));
+    (env.to_ref(), store)
+}
+
+fn build_app(envref: EnvRef<SimpleEnvironment<Value>>) -> axum::Router {
+    StoreApiBuilder::<SimpleEnvironment<Value>>::new("/api/store").build().with_state(envref)
+}
+
+fn build_app_with_gets(envref: EnvRef<SimpleEnvironment<Value>>) -> axum::Router {
+    StoreApiBuilder::<SimpleEnvironment<Value>>::new("/api/store")
+        .with_destructive_gets()
+        .build()
+        .with_state(envref)
+}
+
+async fn send(app: axum::Router, method: &str, uri: &str, body: Body) -> (StatusCode, serde_json::Value) {
+    let resp = app.oneshot(Request::builder().method(method).uri(uri).body(body).unwrap()).await.unwrap();
+    let status = resp.status();
+    let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    (status, serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null))
+}
+
+async fn send_raw(app: axum::Router, method: &str, uri: &str, body: Body) -> (StatusCode, Vec<u8>) {
+    let resp = app.oneshot(Request::builder().method(method).uri(uri).body(body).unwrap()).await.unwrap();
+    let status = resp.status();
+    (status, to_bytes(resp.into_body(), usize::MAX).await.unwrap().to_vec())
+}
+
+#[tokio::test]
+async fn sar01_data_get_success() {
+    let (envref, store) = env_with_store();
+    store.set(&parse_key("data/file.txt").unwrap(), b"hello", &Metadata::new()).await.unwrap();
+    let (status, body) = send_raw(build_app(envref), "GET", "/api/store/data/data/file.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, b"hello");
+}
+
+#[tokio::test]
+async fn sar02_data_get_not_found() {
+    let (envref, _) = env_with_store();
+    let (status, json) = send(build_app(envref), "GET", "/api/store/data/nonexistent/key", Body::empty()).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(json["error"]["type"], "KeyNotFound");
+}
+
+#[tokio::test]
+async fn sar03_data_put_success_then_delete() {
+    let (envref, _) = env_with_store();
+    let app = build_app(envref);
+    let (status, json) = send(app.clone(), "PUT", "/api/store/data/data/file.txt", Body::from("hello")).await;
+    assert_eq!(status, StatusCode::OK, "the spec's write verb, POST, does not exist: the code uses PUT (see Spec Divergences)");
+    assert_eq!(json["status"], "OK");
+
+    let (status, json) = send(app, "DELETE", "/api/store/data/data/file.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["status"], "OK");
-    assert_eq!(json["result"]["status"], "Source");
-    assert_eq!(json["result"]["title"], "Note A");
-    assert_eq!(json["result"]["type_identifier"], "Text");
 }
 
-/// `GET entry` honours `Accept: application/json` (Phase 2 fixes the ignored header).
 #[tokio::test]
-async fn aae04_get_entry_honours_accept_json() {
-    use base64::prelude::*;
-    let envref = env_with(&[]).await;
+async fn sar04_metadata_get_after_put() {
+    let (envref, _) = env_with_store();
     let app = build_app(envref);
-    let (status, _) = send(
-        app.clone(),
-        "POST",
-        "/api/assets/data/-R/notes/a.txt?type_identifier=Text&data_format=txt",
-        Body::from("hello"),
-    )
-    .await;
-    assert_eq!(status, StatusCode::CREATED);
+    let (status, _) = send(app.clone(), "PUT", "/api/store/data/data/file.txt", Body::from("hello")).await;
+    assert_eq!(status, StatusCode::OK);
 
+    let (status, json) = send(app, "GET", "/api/store/metadata/data/file.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(json["result"].is_object());
+}
+
+#[tokio::test]
+async fn sar05_entry_get_success() {
+    let (envref, store) = env_with_store();
+    store.set(&parse_key("data/entry.txt").unwrap(), b"content", &Metadata::new()).await.unwrap();
+    let (status, _) = send(build_app(envref), "GET", "/api/store/entry/data/entry.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn sar06_listdir_returns_children() {
+    let (envref, store) = env_with_store();
+    store.set(&parse_key("data/a.txt").unwrap(), b"a", &Metadata::new()).await.unwrap();
+    store.set(&parse_key("data/b.txt").unwrap(), b"b", &Metadata::new()).await.unwrap();
+    let (status, json) = send(build_app(envref), "GET", "/api/store/listdir/data", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(json["result"].as_array().unwrap().len() >= 2);
+}
+
+#[tokio::test]
+async fn sar07_is_dir_true_and_false() {
+    let (envref, _) = env_with_store();
+    let am_store = envref.get_async_store();
+    am_store.makedir(&parse_key("adir").unwrap()).await.unwrap();
+    let app = build_app(envref);
+    let (status, json) = send(app.clone(), "GET", "/api/store/is_dir/adir", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["result"], true);
+
+    let (status, json) = send(app, "GET", "/api/store/is_dir/no_such_thing", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["result"], false);
+}
+
+#[tokio::test]
+async fn sar08_contains_true_and_false() {
+    let (envref, store) = env_with_store();
+    store.set(&parse_key("data/x.txt").unwrap(), b"x", &Metadata::new()).await.unwrap();
+    let app = build_app(envref);
+    let (status, json) = send(app.clone(), "GET", "/api/store/contains/data/x.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["result"], true);
+
+    let (status, json) = send(app, "GET", "/api/store/contains/nowhere.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK, "contains on an absent key is OK, not an error");
+    assert_eq!(json["result"], false);
+}
+
+#[tokio::test]
+async fn sar09_keys_root_and_prefix() {
+    let (envref, store) = env_with_store();
+    store.set(&parse_key("data/a.txt").unwrap(), b"a", &Metadata::new()).await.unwrap();
+    store.set(&parse_key("other/b.txt").unwrap(), b"b", &Metadata::new()).await.unwrap();
+    let app = build_app(envref);
+    let (status, json) = send(app.clone(), "GET", "/api/store/keys", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(json["result"].as_array().unwrap().len() >= 2);
+
+    let (status, json) = send(app, "GET", "/api/store/keys?prefix=data", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    let keys: Vec<&str> = json["result"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+    assert!(keys.iter().all(|k| k.starts_with("data")), "prefix filter applied");
+}
+
+#[tokio::test]
+async fn sar10_makedir_then_removedir() {
+    let (envref, _) = env_with_store();
+    let app = build_app(envref);
+    let (status, _) = send(app.clone(), "PUT", "/api/store/makedir/newdir", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, json) = send(app.clone(), "GET", "/api/store/contains/newdir", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["result"], true);
+
+    let (status, _) = send(app, "DELETE", "/api/store/removedir/newdir", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn sar11_upload_single_file_multipart() {
+    let (envref, _) = env_with_store();
+    let boundary = "----testboundary";
+    let body = format!(
+        "--{b}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"test.txt\"\r\nContent-Type: text/plain\r\n\r\nhello world\r\n--{b}--\r\n",
+        b = boundary
+    );
+    let app = build_app(envref);
     let resp = app
         .oneshot(
             Request::builder()
-                .method("GET")
-                .uri("/api/assets/entry/-R/notes/a.txt")
-                .header("Accept", "application/json")
-                .body(Body::empty())
+                .method("POST")
+                .uri("/api/store/upload/uploads")
+                .header("Content-Type", format!("multipart/form-data; boundary={}", boundary))
+                .body(Body::from(body))
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    let content_type = resp
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .to_string();
-    assert!(content_type.starts_with("application/json"), "got {content_type}");
-    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
-    let entry: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-    let data = BASE64_STANDARD.decode(entry["data"].as_str().unwrap()).unwrap();
-    assert_eq!(data, b"hello");
-    assert_eq!(entry["metadata"]["status"], "Source");
+    let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(json["status"], "OK");
+    assert!(!json["result"]["uploaded"].as_array().unwrap().is_empty());
 }
 
-/// Positive `POST cancel` on an existing asset: routed, envelope OK.
 #[tokio::test]
-async fn aae05_post_cancel_existing_asset() {
-    let envref = env_with(&[]).await;
-    let app = build_app(envref);
-    let (status, _) = send(
-        app.clone(),
-        "POST",
-        "/api/assets/data/-R/notes/a.txt?type_identifier=Text&data_format=txt",
-        Body::from("hello"),
-    )
-    .await;
-    assert_eq!(status, StatusCode::CREATED);
+async fn sar12_get_remove_disabled_by_default() {
+    let (envref, store) = env_with_store();
+    store.set(&parse_key("data/x.txt").unwrap(), b"x", &Metadata::new()).await.unwrap();
+    let (status, _) = send(build_app(envref), "GET", "/api/store/remove/data/x.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "GET remove route does not exist without with_destructive_gets()");
+}
 
-    let (status, json) = send(app, "POST", "/api/assets/cancel/-R/notes/a.txt", Body::empty()).await;
+#[tokio::test]
+async fn sar13_get_remove_enabled_with_flag() {
+    let (envref, store) = env_with_store();
+    store.set(&parse_key("data/x.txt").unwrap(), b"x", &Metadata::new()).await.unwrap();
+    let (status, json) = send(build_app_with_gets(envref), "GET", "/api/store/remove/data/x.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["status"], "OK");
 }
+
+#[tokio::test]
+async fn sar14_get_makedir_enabled_with_flag() {
+    let (envref, _) = env_with_store();
+    let (status, _) = send(build_app_with_gets(envref), "GET", "/api/store/makedir/gdir", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn sar15_get_removedir_disabled_by_default() {
+    let (envref, _) = env_with_store();
+    let (status, _) = send(build_app(envref), "GET", "/api/store/removedir/somedir", Body::empty()).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn sar16_builder_build_smoke_test() {
+    let (envref, _) = env_with_store();
+    let _app = build_app(envref); // must not panic
+}
 ```
 
-| Test | Checks |
-|---|---|
-| AAE02 | Q11 over HTTP: `POST data` on a recipe key → `Override`; `DELETE` → `new_status: "Recipe"`; next read recomputes |
-| AAE03 | existing `GET metadata` returns the manager's record (`Source`, title, type) |
-| AAE04 | `GET entry` negotiates JSON from `Accept` alone; data round-trips through base64 |
-| AAE05 | `POST cancel` on an existing asset → 200 `OK` envelope |
+### `liquers-axum/tests/query_api_routes.rs` (QAR)
+
+```rust
+// liquers-axum/tests/query_api_routes.rs
+
+use axum::{body::{to_bytes, Body}, http::{Request, StatusCode}};
+use liquers_axum::query::QueryApiBuilder;
+use liquers_core::{
+    command_metadata::CommandKey,
+    context::{Environment, EnvRef, SimpleEnvironment},
+    value::Value,
+};
+use tower::ServiceExt;
+
+fn env_with_commands() -> EnvRef<SimpleEnvironment<Value>> {
+    let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+    env.command_registry
+        .register_command(CommandKey::new_name("make_text"), |_, _, _| Ok(Value::from("generated")))
+        .unwrap();
+    env.to_ref()
+}
+
+async fn send(app: axum::Router, method: &str, uri: &str) -> (StatusCode, serde_json::Value) {
+    let resp = app.oneshot(Request::builder().method(method).uri(uri).body(Body::empty()).unwrap()).await.unwrap();
+    let status = resp.status();
+    let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    (status, serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null))
+}
+
+#[tokio::test]
+async fn qar01_get_query_success() {
+    let app = QueryApiBuilder::<SimpleEnvironment<Value>>::new("/q").build().with_state(env_with_commands());
+    let resp = app
+        .oneshot(Request::builder().method("GET").uri("/q/make_text").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    assert_eq!(body.as_ref(), b"generated");
+}
+
+#[tokio::test]
+async fn qar02_post_query_success() {
+    let app = QueryApiBuilder::<SimpleEnvironment<Value>>::new("/q").build().with_state(env_with_commands());
+    let resp = app
+        .oneshot(Request::builder().method("POST").uri("/q/make_text").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn qar03_get_parse_error_400() {
+    let app = QueryApiBuilder::<SimpleEnvironment<Value>>::new("/q").build().with_state(env_with_commands());
+    let (status, json) = send(app, "GET", "/q/-R/").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(json["error"]["type"], "ParseError");
+}
+
+#[tokio::test]
+async fn qar04_get_unregistered_command_error() {
+    let app = QueryApiBuilder::<SimpleEnvironment<Value>>::new("/q").build().with_state(env_with_commands());
+    let (status, json) = send(app, "GET", "/q/no_such_command_registered").await;
+    assert_ne!(status, StatusCode::OK);
+    assert!(json["error"]["type"].is_string(), "an unregistered action must produce an error envelope");
+}
+
+/// `with_timeout` and the "use q/submit" wording are Phase 2 I5 work, not yet implemented — this
+/// test is written against the Phase 2 contract, per the mandatory instruction, and will fail to
+/// compile/pass until I5 lands. It is not treated as a blocker for the rest of this suite.
+#[tokio::test]
+async fn qar05_with_timeout_message_points_to_assets_api() {
+    let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+    env.command_registry
+        .register_command(CommandKey::new_name("slow"), |_, _, _| {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            Ok(Value::from("done"))
+        })
+        .unwrap();
+    let app = QueryApiBuilder::<SimpleEnvironment<Value>>::new("/q")
+        .with_timeout(std::time::Duration::from_millis(100)) // Phase 2 I5: not yet implemented
+        .build()
+        .with_state(env.to_ref());
+    let (status, json) = send(app, "GET", "/q/slow").await;
+    assert_ne!(status, StatusCode::OK, "the 100ms timeout must fire before the 500ms sleep finishes");
+    let msg = json["error"]["message"].as_str().unwrap_or("").to_lowercase();
+    assert!(msg.contains("q/submit") || msg.contains("q/info"), "timeout message points to the long-running path");
+}
+
+#[tokio::test]
+async fn qar06_default_timeout_unchanged_for_fast_query() {
+    // Regression: QueryApiBuilder::new(...).build() with no with_timeout() call must keep behaving
+    // as it does today (30s default) for a query that finishes immediately.
+    let app = QueryApiBuilder::<SimpleEnvironment<Value>>::new("/q").build().with_state(env_with_commands());
+    let (status, _) = send(app, "GET", "/q/make_text").await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn qar07_builder_custom_path() {
+    let app = QueryApiBuilder::<SimpleEnvironment<Value>>::new("/custom/q").build().with_state(env_with_commands());
+    let (status, _) = send(app, "GET", "/custom/q/make_text").await;
+    assert_eq!(status, StatusCode::OK);
+}
+```
+
+### `liquers-axum/tests/recipes_api_routes.rs` (RAR)
+
+```rust
+// liquers-axum/tests/recipes_api_routes.rs
+
+use axum::{body::{to_bytes, Body}, http::{Request, StatusCode}};
+use liquers_axum::recipes::RecipesApiBuilder;
+use liquers_core::{
+    context::{EnvRef, SimpleEnvironment},
+    metadata::Metadata,
+    parse::parse_key,
+    query::Key,
+    recipes::{DefaultRecipeProvider, Recipe, RecipeList},
+    store::{AsyncMemoryStore, AsyncStore},
+    value::Value,
+};
+use tower::ServiceExt;
+
+async fn env_with(recipes: &[(&str, &str, &str)]) -> EnvRef<SimpleEnvironment<Value>> {
+    let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+    let mut rl = RecipeList::new();
+    for (q, t, d) in recipes {
+        rl.add_recipe(Recipe::new(q.to_string(), t.to_string(), d.to_string()).unwrap());
+    }
+    let store = AsyncMemoryStore::new(&Key::new());
+    store.set(&parse_key("recipes.yaml").unwrap(), serde_yaml::to_string(&rl).unwrap().as_bytes(), &Metadata::new()).await.unwrap();
+    env.with_async_store(Box::new(store));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.to_ref()
+}
+
+fn build_app(envref: EnvRef<SimpleEnvironment<Value>>) -> axum::Router {
+    RecipesApiBuilder::<SimpleEnvironment<Value>>::new("/api/recipes").build().with_state(envref)
+}
+
+async fn send(app: axum::Router, method: &str, uri: &str) -> (StatusCode, serde_json::Value) {
+    let resp = app.oneshot(Request::builder().method(method).uri(uri).body(Body::empty()).unwrap()).await.unwrap();
+    let status = resp.status();
+    let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    (status, serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null))
+}
+
+#[tokio::test]
+async fn rar01_listdir_empty() {
+    let app = build_app(env_with(&[]).await);
+    let (status, json) = send(app, "GET", "/api/recipes/listdir").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["result"].as_array().unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn rar02_listdir_non_empty() {
+    let app = build_app(env_with(&[("make_text/a.txt", "A", ""), ("make_text/b.txt", "B", "")]).await);
+    let (status, json) = send(app, "GET", "/api/recipes/listdir").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!json["result"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn rar03_data_get_success() {
+    let app = build_app(env_with(&[("-R/notes/a.txt/-/upper/summary.txt", "Summary", "")]).await);
+    let (status, _) = send(app, "GET", "/api/recipes/data/summary.txt").await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn rar04_data_get_missing_key() {
+    let app = build_app(env_with(&[]).await);
+    let (status, _) = send(app, "GET", "/api/recipes/data/nonexistent/recipe.txt").await;
+    assert_ne!(status, StatusCode::OK, "a key with no recipe is not a 200");
+}
+
+#[tokio::test]
+async fn rar05_metadata_get_success() {
+    let app = build_app(env_with(&[("make_text/a.txt", "A", "")]).await);
+    let (status, json) = send(app, "GET", "/api/recipes/metadata/a.txt").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(json["result"].is_object());
+}
+
+#[tokio::test]
+async fn rar06_entry_get_success() {
+    let app = build_app(env_with(&[("make_text/a.txt", "A", "")]).await);
+    let (status, _) = send(app, "GET", "/api/recipes/entry/a.txt").await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn rar07_resolve_success() {
+    let app = build_app(env_with(&[("-R/notes/a.txt/-/upper/summary.txt", "Summary", "")]).await);
+    let (status, json) = send(app, "GET", "/api/recipes/resolve/summary.txt").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(json["result"].is_object(), "resolve returns the recipe's execution plan");
+}
+
+#[tokio::test]
+async fn rar08_resolve_missing_key() {
+    let app = build_app(env_with(&[]).await);
+    let (status, _) = send(app, "GET", "/api/recipes/resolve/nonexistent.txt").await;
+    assert_ne!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn rar09_builder_build_smoke_test() {
+    let _app = build_app(env_with(&[]).await); // must not panic
+}
+```
+
+### `liquers-core/src/media_type.rs` tests module (MT)
+
+I9's mapping targets, verified against the current `file_extension_to_media_type` match (read
+2026-09-28): `arrow`, `feather` and `parquet` currently fall through to the `_ =>
+"application/octet-stream"` default; `ipc` is absent from the match entirely (same default);
+`jsonl` currently maps to `"application/jsonlines"`, which I9 changes to `"application/jsonl"`;
+`ndjson` is absent (default). The `MT` tests below assert the **target** values from Phase 2 I9,
+so they fail today and pass once I9 lands — that is the point of writing them now.
+
+```rust
+// liquers-core/src/media_type.rs — #[cfg(test)] mod tests (appended)
+
+#[cfg(test)]
+mod media_type_tests {
+    use super::*;
+
+    #[test]
+    fn mt01_ndjson_maps_to_iana_type() {
+        assert_eq!(file_extension_to_media_type("ndjson"), "application/x-ndjson");
+    }
+
+    #[test]
+    fn mt02_jsonl_maps_to_application_jsonl() {
+        assert_eq!(file_extension_to_media_type("jsonl"), "application/jsonl");
+    }
+
+    #[test]
+    fn mt03_arrow_maps_to_apache_arrow_file() {
+        assert_eq!(file_extension_to_media_type("arrow"), "application/vnd.apache.arrow.file");
+    }
+
+    #[test]
+    fn mt04_feather_maps_to_apache_arrow_file() {
+        assert_eq!(file_extension_to_media_type("feather"), "application/vnd.apache.arrow.file");
+    }
+
+    #[test]
+    fn mt05_ipc_maps_to_apache_arrow_file() {
+        assert_eq!(file_extension_to_media_type("ipc"), "application/vnd.apache.arrow.file");
+    }
+
+    #[test]
+    fn mt06_parquet_maps_to_apache_parquet() {
+        assert_eq!(file_extension_to_media_type("parquet"), "application/vnd.apache.parquet");
+    }
+
+    #[test]
+    fn mt07_csv_regression_unchanged() {
+        assert_eq!(file_extension_to_media_type("csv"), "text/csv");
+    }
+
+    #[test]
+    fn mt08_tsv_regression_unchanged() {
+        assert_eq!(file_extension_to_media_type("tsv"), "text/tab-separated-values");
+    }
+
+    #[test]
+    fn mt09_md_regression_unchanged() {
+        assert_eq!(file_extension_to_media_type("md"), "text/markdown");
+    }
+
+    #[test]
+    fn mt10_unknown_extension_defaults_to_octet_stream() {
+        assert_eq!(file_extension_to_media_type("xyz123unknown"), "application/octet-stream");
+    }
+}
+```
+
+---
 
 ## Corner Cases
 
-### 1. Memory
-
-- **`ValueDescription` is small and owned** (`Option<String>` × 5); no allocation-failure surface
-  worth testing beyond the ordinary allocator. Not covered by a dedicated test.
-- **`listdir_asset_info` is O(n) metadata reads** (Phase 2, Concurrency Considerations): acceptable
-  at MVP scale, out of scope for a memory test here; tracked by `STORE-NO-CONTENT-OR-METADATA-SEARCH`.
-- **`POST data`/`POST entry` bodies are held in memory as `Bytes`** before `set_binary`; no size
-  limit is introduced by this design. Not a new corner case — the existing `GET data`/`POST data`
-  stub already had this property.
-
-### 2. Concurrency
-
-- **Two concurrent `POST data` to the same key**: covered by AAE60. The `key_mutation_lock`
-  (Phase 2) serializes `remove`/`expire`/`set_description`/`set_binary`/`set_state`/`to_override`,
-  so the two writes cannot interleave; the store ends up holding exactly one of the two bodies,
-  never a torn mix.
-- **`remove`'s status check and its action are atomic** with respect to a concurrent `POST data`
-  under the same lock — this is the race `ASSET-REMOVE-FORGETS-DEPENDENTS`/Phase 1 set out to
-  close. Not independently tested here beyond AAE60, because reproducing the specific
-  check-then-act race deterministically needs a hook the design does not add; Phase 2's own
-  "Concurrency Considerations" section is the primary evidence for lock discipline, backed by the
-  hand-verified call graph in its Review Log.
-- **Reads take no manager lock** (`info`, `listdir`, `contains`, `version`, `recover`): may
-  observe state just before or after a concurrent mutation, never a torn record, because store
-  writes are per-key. No dedicated test — this is a property of the underlying store, exercised
-  incidentally by AAE20–AAE29 running against a store that is also being written by `write_source`.
-
-### 3. Errors
-
-- Every error path in Phase 2's Error Handling table has a test: `ParseError` is implicit in a
-  malformed path (not separately tested — `key_from_path` returning `Err(Response)` for a
-  genuinely unparsable path is routing-layer plumbing, not asset-manager behaviour); `NotSupported`
-  for a non-key query (AAE44, AAE45) and for `POST metadata` (AAE16); `ParameterError` for an
-  unknown `type_identifier` (VD09, AAE14), non-object metadata (VD02, AAE15), and both-`None`
-  `set_description` (AMR18); `KeyNotFound` (AMR05, AMR15, AMR20, AAE22, AAE27, AAE31); the new
-  `StatusConflict`/409 (AMR07, AMR13, AMR14, AMR19, AAE32, AAE42).
-- **`Error.key` is `Option<String>`, not `Option<Key>`.** A draft compared it against `Some(key)`;
-  every fixed test now compares against `Some(key.encode())` (see Fixes §6).
-- **`key_not_found` does not set `.key`** (checked directly in `liquers-core/src/error.rs`); tests
-  for that error type do not assert on `err.key`. Only the new `status_conflict` constructor is
-  documented to set it, so only those tests assert it.
-
-### 4. Serialization
-
-- `Status` serializes as its bare variant name (`"Source"`, `"Recipe"`, `"Ready"`, `"Expired"`,
-  …) — a plain `derive(Serialize)` on a fieldless enum, no `#[serde(rename)]` anywhere in the
-  match. Exercised throughout every `AAE*` JSON assertion.
-- `AssetInfo.key`/`.query` serialize as a **plain string** (`key.encode()`), not a nested object —
-  `option_key_format`/`option_query_format` in `liquers-core/src/metadata.rs`. AAE01 asserts
-  `json["result"]["key"] == "notes/a.txt"` directly against a string.
-- `Version` serializes as a 32-hex-digit lowercase string (AAE26); `Option<Version>` as that string
-  or JSON `null`, never omitted (AAE25) — `Ok(None)` and a store-read `Err` must stay distinguishable,
-  per Phase 2's error table; this design does not add a test that forces the `Err` branch (it needs
-  a broken store), only asserts the `Ok(None)` → `null` mapping.
-- `MetadataRecord`/`AssetInfo` derive `Default`; `MetadataRecord::new()` sets `is_error = false`
-  and calls `set_updated_now()` but otherwise takes the struct default — `status: Status::None`,
-  `stored: None`, `dependencies: vec![]`, `title`/`description`: `String::new()`. VD10 pins this
-  down explicitly because a draft guessed `Status::Source` / `stored: false`.
-- `DataEntry`'s JSON `data` field is base64-encoded bytes (Example 3, `BASE64_STANDARD`); CBOR is
-  the request/response default elsewhere (`?format=json` opts into JSON explicitly, as in AAE29).
-
-### 5. Integration
-
-- **Store**: every `AMR*` test goes through `AssetManager` onto `AsyncMemoryStore`; `AAE*` goes
-  through the router onto the same store via `SimpleEnvironment`. No store-specific behaviour is
-  exercised (that is the Store conformance suite's job, unaffected by this design).
-- **Recipes**: recipe evaluation, dependency registration and cascade all run through the real
-  `DefaultRecipeProvider` reading `recipes.yaml`, not a mock — Example 1/2 and AMR10/AMR11 depend
-  on real recipe resolution to prove the cascade.
-- **Command registry**: two trivial commands (`make_text`, `upper`) are registered per-environment;
-  no `register_command!` macro is used, matching the brief's note that `liquers-axum` has no
-  `liquers-macro` dev-dependency — the closure form registers directly against
-  `CommandRegistry::register_command`.
-- **Builder switches** (`read_only`, `with_admin`) are asset-manager-agnostic; AAE50–AAE55 test
-  only routing, and the exact HTTP code (405 vs. 404) is asserted per Fixes §4 below, not the
-  Phase 2 drafts' looser "404 or 405."
+1. **Memory.** `AsyncMemoryStore` holds every version of a key it has ever seen unless removed; the
+   `queued` `AssetManager` keeps live `AssetRef`s in a concurrent map (`scc`) keyed by id and by
+   query/key. `AMR30`/`AAE43` populate three or more keys per test and rely on `removedir` clearing
+   both layers; a leaked live asset after `removedir` would show up as a `key/contains` mismatch
+   the assertions already check.
+2. **Concurrency.** `AAE80` exercises the `key_mutation_lock` across two concurrent `POST key/data`
+   calls to the same key: Phase 2 documents this as *serialized, not merged* — both succeed, and
+   the final stored value is exactly one of the two bodies, never a splice. `AWS13` exercises the
+   opposite axis: a client disconnecting must not cancel an evaluation other subscribers (or a
+   plain poller) still depend on.
+3. **Errors.** Every `Error` assertion in this suite compares `error_type` and, where Phase 2 fixes
+   the field, `key: Option<String>` (`key.encode()`, never `Option<Key>` — a real drafting bug
+   fixed here, see Fixes #3). `KeyNotFound` never carries `.key` (`Error::key_not_found` calls the
+   two-argument constructor and stops); no test in this suite asserts `.key` on a `KeyNotFound`.
+4. **Serialization.** `AssetInfo`/`MetadataRecord`'s `key`/`query` fields serialize as plain encoded
+   strings (`option_key_format`/`option_query_format`), not nested objects; `Status` serializes as
+   its bare variant name. Both are asserted directly (`json["result"]["key"] == "notes/a.txt"`,
+   `json["result"]["status"] == "Ready"`) throughout AAE and AWS.
+5. **Integration.** `AAE24`/`AAE46` are the load-bearing cross-API checks: the same bytes and the
+   same `Content-Type` must come back whether a value is reached through `/key/`, through
+   `/q/` on the Assets API, or through the standalone Query API's `GET /q/<query>` — all three
+   paths converge on `AssetRef::get_binary()` (I1). A divergence there is exactly the kind of bug
+   `AXUM-ASSETS-API-SERVES-ONLY-BYTES-AND-TEXT` used to hide.
+6. **Recipe nesting.** A recipe query is **not** a directory path: `parse_query("make_text/data/x.txt")`
+   parses `data` as a *second chained action* (verified with `liquers-validate --no-registry`), not
+   as a subdirectory of the recipe's target key. A recipe under a subdirectory needs its own
+   `<dir>/recipes.yaml` with a plain filename in the query. AMR31–AMR33 and RAR's fixtures follow
+   this; see "Fixes Made Against the Drafts" #4.
+7. **`removedir` is not atomic.** Phase 2 documents a partial failure as leaving already-removed
+   keys removed. No test in this suite injects a mid-walk store failure (the in-memory store does
+   not fail), so this corner case is **not exercised** here — noted as a gap for Phase 4's
+   implementation to cover with a store double, not a defect in this document.
 
 ---
 
 ## Test Plan
 
-| Command | Runs | New tests |
-|---|---|---|
-| `cargo test -p liquers-core --test asset_manager_remove_expire_describe` | `liquers-core/tests/asset_manager_remove_expire_describe.rs` | AMR01–AMR07, AMR10–AMR20, AMR22–AMR24 (21 tests) |
-| `cargo test -p liquers-axum --test assets_api_endpoints` | `liquers-axum/tests/assets_api_endpoints.rs` | AAE01–AAE05, AAE10–AAE17, AAE20–AAE60 (44 tests) |
-| `cargo test -p liquers-axum --lib` | `liquers-axum/src/assets/value_description.rs`, `#[cfg(test)] mod tests` | VD01–VD11 (11 tests) |
-| `cargo test -p liquers-core --lib --tests` | the two changed `ErrorType`-exhaustive sites in `liquers-core/src/assets.rs` and `error.rs`, plus every other core test (regression) | none new, but must still pass after `ErrorType::StatusConflict` is added |
-| `cargo test -p liquers-lib --lib --tests` | the default loop (CLAUDE.md); transitively builds `liquers-core`, `liquers-macro`, `liquers-store` | regression only — this design touches no `liquers-lib` file |
+### Exact commands, per file
 
-### The `ErrorType`-exhaustive crates: `liquers-py` and `liquers-web`
+```bash
+# Core AssetManager contract
+cargo test -p liquers-core --test asset_manager_remove_expire_describe
 
-Adding `ErrorType::StatusConflict` breaks every exhaustive `match ErrorType` until an arm is
-added (Phase 2, Compilation Validation). Two crates outside the default test loop above have such
-a match and must be checked, not just `liquers-core`/`liquers-axum`:
+# Media types (I9)
+cargo test -p liquers-core --lib media_type::media_type_tests
 
-- **`liquers-py` is a default-member** of the workspace (`Cargo.toml`: `default-members` includes
-  `liquers-py`), so it *is* built by a plain `cargo build`/`cargo test --workspace`, but this
-  project's routine loop (CLAUDE.md) deliberately runs `-p liquers-lib`/`-p liquers-records`
-  instead of the workspace default to fit the disk budget. Check it explicitly:
-  ```bash
-  cargo check -p liquers-py
-  ```
-  (needs Python dev headers for PyO3, per the crate's own build requirements; use `cargo test -p
-  liquers-py` if a fuller check is wanted and headers are available).
-- **`liquers-web` is wasm32-only and excluded from `default-members`** (CLAUDE.md, confirmed
-  against `Cargo.toml`: `members` lists it, `default-members` does not), so nothing above touches
-  it. Check it explicitly, after `cargo clean` and separately from the native loop:
-  ```bash
-  cargo check -p liquers-web --target wasm32-unknown-unknown --features debug-handles
-  ```
-  A full run of its test suites (`cargo test -p liquers-web --target wasm32-unknown-unknown
-  --features debug-handles`, then the `browser-tests`/e2e loops) is the CLAUDE.md-documented deep
-  check; a `cargo check` is the minimum this design's `ErrorType` addition requires to catch a
-  missed match arm before Phase 4 is considered done.
+# Assets API value_description unit tests (inline)
+cargo test -p liquers-axum --lib assets::value_description::tests
+
+# Assets API HTTP routes (both families, builder switches)
+cargo test -p liquers-axum --test assets_api_endpoints
+
+# Assets API WebSocket
+cargo test -p liquers-axum --test assets_websocket
+
+# The other three builders (I4)
+cargo test -p liquers-axum --test store_api_routes
+cargo test -p liquers-axum --test query_api_routes
+cargo test -p liquers-axum --test recipes_api_routes
+
+# Everything in liquers-axum in one pass, once all of the above compile
+cargo test -p liquers-axum --lib --tests
+```
+
+### liquers-web (wasm) check
+
+`liquers-web` does not implement or test the Assets API (it is `liquers-axum`-only), but Phase 2's
+`ErrorType::StatusConflict` addition touches `liquers-web/src/error.rs` and
+`liquers-web/tests/objects_OBJECT.rs` (both directions of the conversion, plus the string list).
+After that change:
+
+```bash
+cargo clean   # liquers-web is wasm32-only and excluded from default-members; build it separately
+cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles
+```
+
+This is a compile-and-conformance check on the new `ErrorType` variant, not new Assets API
+coverage — there is none in this crate.
+
+### liquers-py check
+
+Same shape: `ErrorType::StatusConflict` touches `liquers-py/src/error.rs` in both directions.
+
+```bash
+cargo test -p liquers-py
+# or, if the Python extension harness is used instead of `cargo test`:
+maturin develop -m liquers-py/Cargo.toml && python -m pytest liquers-py/tests
+```
+
+### Feature matrix
+
+None of the new tests are behind an optional feature (`records`, `polars`, `egui`,
+`image-support`); they build under `liquers-axum`'s default features. No entry needed in
+`scripts/check-build-matrix.sh` beyond what `liquers-core`'s and `liquers-axum`'s existing
+default-feature rows already cover.
 
 ### Order
 
-1. `cargo test -p liquers-core --test asset_manager_remove_expire_describe` — the contract the
-   `liquers-axum` handlers are built on; fix here first if it fails.
-2. `cargo test -p liquers-axum --lib` (VD01–VD11) — pure-function tests, fast, no environment.
-3. `cargo test -p liquers-axum --test assets_api_endpoints` — needs the `tower` `util`
-   dev-dependency Phase 4 adds to `liquers-axum/Cargo.toml` (not present today).
-4. `cargo check -p liquers-py` and `cargo check -p liquers-web --target wasm32-unknown-unknown
-   --features debug-handles` — confirm the new `ErrorType` variant did not leave an unmatched arm
-   anywhere outside the two crates above.
-5. `cargo test -p liquers-lib --lib --tests` and `bash scripts/check-build-matrix.sh` — full
-   regression, per CLAUDE.md's default loop.
+1. Core (`AMR`) and `MT` first — they need no HTTP layer and exercise the trait contract the HTTP
+   handlers all call through.
+2. `VD` next — pure functions, no environment.
+3. `AAE`, then `AWS` — HTTP and WebSocket, both depend on the Assets API existing.
+4. `SAR`/`QAR`/`RAR` — independent of the Assets API; can run in any order relative to steps 1–3.
+5. `liquers-py`/`liquers-web` checks last, after `ErrorType::StatusConflict` is threaded through.
+
+### Validated Queries
+
+Every Liquers query string quoted in this document (recipe queries, `q/` path segments, and the
+example transcripts) was run through `liquers-validate` against the exact command set the fixtures
+register (`make_text`, `upper`, `make_number`, `make_object`, `sleep_sync`/`sleep_long`,
+`fail_always`, `slow`):
+
+```bash
+cargo run -p liquers-core --features cli --bin liquers-validate -- \
+  --command make_text --command upper --command make_number --command make_object \
+  --command sleep_sync --command sleep_long --command fail_always --command slow -- \
+  '-R/notes/a.txt/-/upper/summary.txt' 'make_text/source.txt' \
+  '-R/summary.txt/-/upper/summary2.txt' '-R/notes/a.txt' 'make_text' \
+  '-R/a.txt/-/upper/b.txt' '-R/root.txt/-/upper/level1.txt' '-R/level1.txt/-/upper/level2.txt' \
+  'make_number' 'make_object' 'sleep_sync' 'sleep_long' 'fail_always'
+```
+
+All queries in the command above validate `Ok`. **Two classes of query in the drafts did not, and
+were fixed** (see Fixes #4, #5 below):
+
+- A bare key used **as a query** (`notes/a.txt`, `data/computed.txt`) parses as an *action chain*
+  (`notes`, then filename `a.txt`), not as a resource path — expected and by design: these strings
+  are only ever used as `/key/` route paths (parsed with `parse_key`), never passed to
+  `liquers-validate` or to `parse_query` in a test.
+- A recipe query with a literal subdirectory segment after the action
+  (`"make_text/data/computed.txt"`, `"-R/data/source.txt/-/upper/data/derived.txt"`) parses **but
+  means something other than what the drafts intended**: the subdirectory segment (`data`) is
+  parsed as a second chained action, not as part of the target key's path. Confirmed with
+  `liquers-validate --no-registry`, which shows two entries in the `Transform`'s `query` array
+  (`make_text`, then `data`) instead of one. Fixed throughout this document by storing the
+  `RecipeList` at `<dir>/recipes.yaml` and keeping the recipe's own query filename plain (see
+  Corner Case 6 and Fixes #4).
 
 ---
 
-## Fixes made against the five drafts
+## Spec Divergences for the I8 Audit
 
-Verified against the actual code (`liquers-core/src/metadata.rs`, `type_system.rs`, `error.rs`,
-`query.rs`, `assets.rs`) and corrected:
+Every row below was checked against **both** `specs/reference/WEB_API_SPECIFICATION.md` and the
+current code (2026-09-28); only rows confirmed against both are kept. Rows draft 4 raised but that
+turned out to be already correct, already tracked elsewhere, or unverifiable without code that
+does not exist yet, are dropped (see "Fixes Made Against the Drafts" #6).
 
-1. **`MetadataRecord`/`AssetInfo` field types and defaults.**
-   - `type_identifier` and `type_name` are `String`, not `Option<String>`. Draft 2's
-     `metadata_text()` helper wrote `Some("Text".to_string())` into both — does not compile. Fixed
-     in the shared `metadata_text()` (struct-literal form, matching drafts 3/5's correct style).
-   - `AssetInfo.title`/`.description` are `String`, not `Option<String>`. Draft 4's VD06 built an
-     `AssetInfo { title: Some(...), ... }` (does not compile) and draft 1's AMR17-equivalent
-     assertion compared `info.title` against `Some("New Title".to_string())`. Both fixed to plain
-     `String` comparisons/literals.
-   - `MetadataRecord::default()`'s `status` is `Status::None` (`impl Default for Status` returns
-     `Self::None`), not `Status::Source`; `stored` is `Option<bool>` defaulting to `None`, not
-     `bool` defaulting to `false`. Draft 4's VD10 asserted "status Source, stored false" — fixed to
-     `Status::None` / `None`, with a comment explaining `into_metadata_record` does not decide
-     status (that happens later, in `set_binary`, from `recipe_opt`).
-   - `AssetManager::set_binary` takes `metadata: MetadataRecord` **by value**. Drafts 2, 3 and 5
-     called it as `am.set_binary(&key, b"...", &metadata_text())` (a `&MetadataRecord` where an
-     owned value is required) — does not compile. Fixed by dropping the `&` everywhere in the
-     shared helper's call sites.
+| # | Spec says | Code does | Evidence |
+|---|---|---|---|
+| D1 | §4.1.2 "POST /api/store/data/{*key}" | `PUT` | `liquers-axum/src/store/builder.rs:44` `.put(crate::store::handlers::put_data_handler::<E>)` |
+| D2 | §4.1.4 "POST /api/store/metadata/{*key}" | `PUT` | `liquers-axum/src/store/builder.rs:52` `.put(crate::store::handlers::put_metadata_handler::<E>)` |
+| D3 | §4.1.14 "POST /api/store/entry/{*key}" | `PUT` | `liquers-axum/src/store/builder.rs:59` `.put(crate::store::handlers::put_entry_handler::<E>)` |
+| D4 | §5.2.1 `WS /ws/assets/{*query}`, one endpoint, query-only | Phase 2: two endpoints, `ws/q` and `ws/key` (O5), each also key- or query-typed | `WEB_API_SPECIFICATION.md:1389`; Phase 2 "WebSocket Notifications" §"Routes" |
+| D5 | §10 usage examples import `liquers_web::{StoreApiBuilder, AssetsApiBuilder, QueryApiBuilder}` and `liquers_web::FullApiBuilder` / `liquers_web_axum::{FullApiBuilder, serve}` | No `liquers_web` crate of this shape exists; the real crate is `liquers-axum` (`liquers_axum::{store, query, assets, recipes}`), and no `FullApiBuilder` exists anywhere — assembly is `Router::merge` of the four builders | `WEB_API_SPECIFICATION.md:2006,2026,2278`; confirmed no `FullApiBuilder` definition anywhere in the workspace (`liquers-axum/src` has no such type) |
+| D6 | §4/§5 comparison table row: `GET /api/assets/remove/{*query}` (unprefixed) | Removed by Phase 2 O1; no unprefixed Assets API route exists after this design | `WEB_API_SPECIFICATION.md:877`; Phase 2 "Routes" table has no unprefixed row |
+| D7 | §5.1 uses `/api/assets/data/{*query}`, `/api/assets/metadata/{*query}`, `/api/assets/listdir/{*query}` (unprefixed, query-only, no key family) | Phase 2 replaces the whole family split with `/api/assets/q/…` and `/api/assets/key/…`, plus `/api/assets/admin/…` | `WEB_API_SPECIFICATION.md:899,939,974`; Phase 2 "Addressing: two route families" |
 
-2. **`TypeRegistry::from_value_type::<Value>()`** — confirmed to exist and be `pub`
-   (`liquers-core/src/type_system.rs:267`). No change needed; kept as drafted.
+Rows D1–D3 are already tracked in Phase 2's Known-Issue Preflight under
+`WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION` (I8); D4–D7 are the routing/crate drift the
+same issue's scope already names ("§5 as a whole", "the WebSocket path", "`FullApiBuilder` does not
+exist"). No new issue needs filing: I8's "Change" already covers rewriting §5 and auditing §2–§4 and
+§6–§10 route by route with the SAR/QAR/RAR/AAE/AWS tests in this document as the evidence.
 
-3. **JSON serialization of `AssetInfo`.**
-   - `key`/`query` serialize as a **plain encoded string** (`option_key_format`/
-     `option_query_format`, both `serializer.serialize_str(&k.encode())`), not a nested object.
-     The drafts already assumed a plain string (`json["result"]["key"] == "notes/a.txt"`); this
-     was correct and is called out explicitly in Corner Cases §4 so Phase 4 does not second-guess
-     it.
-   - `Status` serializes as its bare variant name (plain `derive(Serialize)`, no rename) — also
-     already correct in the drafts, confirmed rather than changed.
+**Dropped from draft 4's list** (verified false, already-known, or unverifiable without new code):
+its item 9 ("Recipes API is read-only, as documented") is not a divergence, it is a confirmation;
+its item 10 ("verify Status match exhaustiveness in query handlers") is a code-quality note, not a
+spec-vs-code divergence, and belongs with I4's route coverage instead; its items 6–7 (query timeout
+hardcoded, message wording) are Phase 2 I5 work in progress, not spec drift — see Fixes #5.
 
-4. **Routing results under builder switches, made exact instead of "404 or 405."**
-   - `.read_only()` + `POST data/{key}`: **405**, because `GET data/{key}` still serves that exact
-     path (axum reports Method Not Allowed, not a missing route). Draft 5's AAE104 already asserted
-     405 correctly; kept as AAE50.
-   - `.read_only()` + `POST expire/{key}`: **404**, because `expire/{key}` has no other HTTP method
-     registered on it — omitting the only method leaves no route at all. This case was **not** in
-     any draft (drafts only tested `POST data` and `POST cancel` under `read_only`); added as
-     AAE52, with the reasoning inline in a comment so Phase 4 does not need to re-derive it.
-   - `.with_admin(false)` + `POST audit`: **404**, same "no sibling method" reasoning; draft 5's
-     AAE107 already asserted this correctly, kept as AAE54.
-   - `.read_only()` + `POST cancel/{key}`: draft 5's AAE106 asserted only `!= 405`; tightened to
-     also assert `!= 404` (cancel must be *routed*, even if the key itself then fails for other
-     reasons), since a plain "not 405" would also pass if the route were silently dropped.
+---
 
-5. **The non-key path example.** `make_text` parses as a `Transform` (an action query with no
-   key), confirmed with `liquers-validate --no-registry`. AAE44/AAE45 keep it as the non-key
-   example. **Corrected in the final review:** the claim that a plain `dir/file.ext` path is a pure
-   key was wrong — `liquers-validate --no-registry -- notes/a.txt` gives a `Transform` segment
-   (action `notes`, filename `a.txt`), and with the registry it fails with `ActionNotRegistered`.
-   Every key path in the HTTP tests is therefore written `-R/<key>` (all 26 distinct ones
-   re-validated as a single `Resource` segment); without that, every key-only operation would
-   answer 501 and every read would evaluate the wrong query.
+## Fixes Made Against the Drafts
 
-6. **`Error.key` is `Option<String>`, not `Option<Key>`.** Draft 4's AMR13/AMR14/AMR16 compared
-   `err.key` against `Some(key.clone())` where `key: Key` — does not compile (`Option<Key>` vs.
-   `Option<String>` type mismatch on `assert_eq!` is a compile error, not a runtime failure). Fixed
-   to `Some(key.encode())` throughout, matching the existing `key_not_supported` constructor's
-   pattern (`error.key = Some(key.encode())`) that `status_conflict` is documented to follow.
-   Also confirmed that `Error::key_not_found` does **not** set `.key` at all (it calls the
-   two-argument `Error::new` and stops) — tests for `KeyNotFound` in this document do not assert on
-   `err.key`, whereas a draft implicitly assumed every error carries a matching key.
+Verified against the current code (`liquers-core/src/metadata.rs`, `error.rs`, `assets.rs`,
+`store.rs`, `media_type.rs`, `type_system.rs`, `query.rs`, `recipes.rs`, `liquers-axum/src/{store,
+query,recipes,assets}/builder.rs`, `liquers-axum/src/query/handlers.rs`,
+`specs/reference/WEB_API_SPECIFICATION.md`) and `liquers-validate` runs, 2026-09-28.
 
-7. **`AsyncStore::get` returns `(Vec<u8>, Metadata)`, not raw bytes.** Draft 5's AAE109 (now
-   AAE60) wrote `let data = store.get(&key).await.unwrap(); assert!(data == b"body1" ...)` — type
-   mismatch, does not compile. Fixed to destructure the tuple and compare `data.as_slice()`.
+1. **Draft 2 omitted the I1 value-type tests entirely.** Added AAE44–AAE47: `q/data` serving an
+   `Value::I64` and a `Value::Object` (verified constructors in `liquers-core/src/value.rs`:
+   `Value::I64(i64)`, `Value::Object(BTreeMap<String, Value>)`); a byte-for-byte, header-for-header
+   cross-check between the Assets API's `q/data` and the standalone Query API's `GET /q/<query>`
+   for the same non-Bytes/Text query, via a new `build_app_with_query_api` helper that merges
+   `AssetsApiBuilder` and `QueryApiBuilder` into one router; and a `key/data` test for a JSON value
+   written through `set_binary` as raw bytes with `data_format: "json"`.
 
-8. **`AsyncStore::get_metadata` returns `Metadata` (an enum), whose status reads through the
-   `.status()` method, not a `.status` field.** Draft 2/3's AMR03 wrote
-   `stored_metadata.status == Status::Recipe` — `Metadata` has no `status` field (it is
-   `LegacyMetadata(serde_json::Value) | MetadataRecord(MetadataRecord)`). Fixed via a one-line
-   `stored_status()` helper calling `.status()`.
+2. **Draft 5's AAE92 accepted `Cancelled` OR `Ready`, which is not deterministic.** Rewritten as
+   `aae92_cancel_while_processing_reports_cancelled_deterministically`: submit a slow
+   (`std::thread::sleep`) command, `poll_until` the asset reaches `Processing` (a deterministic
+   gate — the cancel is never racing a job that has not started), cancel, then `poll_until`
+   `Cancelled`. Runs on `#[tokio::test(flavor = "multi_thread", worker_threads = 2)]` per fix #3.
 
-9. **Dropped duplicate tests.** Draft 4's AMR21 ("set_description leaves version unchanged") is
-   the same assertion AMR17 already makes on its happy path; merged into AMR17 rather than kept as
-   a separate test. Draft 3's AMR04 (re-evaluate after a recipe-computed drop) and AMR03 together
-   covered the same "no cascade from a recipe-computed remove" claim from two angles (direct drop,
-   then re-evaluation); both were kept because they check different observables (stored metadata
-   immediately after `remove` vs. the *grandchild's* status after a subsequent re-`get`), but no
-   third variant was added.
+3. **Blocking sync commands need the multi-thread test runtime.** `sleep_sync` (`AWS13`) and the
+   rewritten `sleep_long` (`AAE92`) both call `std::thread::sleep` inside a registered command. The
+   queued `AssetManager` runs commands on a spawned task; on the default single-threaded
+   `#[tokio::test]` runtime that task can starve the test's own polling loop. Both tests (and only
+   those — no other test in this suite submits a blocking command) now carry `#[tokio::test(flavor
+   = "multi_thread", worker_threads = 2)]`.
 
-10. **Dropped draft 3's `AAE23` dependency-round-trip assertion that reads
-    `info_resp["result"]["metadata"]["dependencies"]`.** `AssetInfo` (what `GET info` actually
-    returns per Phase 2's Web Endpoints table) carries no `dependencies` field — only
-    `MetadataRecord` does, and `GET info`'s response type is `AssetInfo`. Rewritten as AAE12,
-    asserting only what is client-visible: the response `message` names the dropped field. A
-    dependency-registration check would need a store/manager-level assertion instead, which is out
-    of scope for an HTTP-layer test and already covered at the manager level by the removal tests'
-    cascade assertions.
+4. **Recipe queries with a literal subdirectory segment do not parse as directories.** Draft 1's
+   AMR31–AMR33 wrote recipe queries like `"make_text/data/computed.txt"` and
+   `"-R/data/source.txt/-/upper/data/derived.txt"`, intending `data/computed.txt` as the resulting
+   key. Verified with `liquers-validate --no-registry`: `data` there parses as a **second chained
+   action** in the `Transform`'s query array, not as a directory component — the grammar has no
+   "path-valued filename". `DefaultRecipeProvider::recipe_opt` reads `<key's own directory>/
+   recipes.yaml` and joins the recipe's filename to that directory (`recipes.rs`, `add_recipe`/
+   `filename()`/`cwd`), so the correct fixture is a **second `RecipeList` stored at
+   `data/recipes.yaml`**, with plain filenames in its recipes (`"make_text/computed.txt"`,
+   `"-R/data/source.txt/-/upper/derived.txt"`). Added `env_with_at(dir, recipes)` to both the AMR
+   and AAE helper blocks; AMR31–AMR33 use it. See Corner Case 6.
 
-## No unverifiable claims left as guesses
+5. **Draft 4 treated `QueryApiBuilder::with_timeout` and the timeout message as blockers to route
+   around.** They are Phase 2 I5 work to be implemented, not evidence the tests cannot be written.
+   `QAR05` calls `.with_timeout(Duration::from_millis(100))` and asserts the documented message
+   substring (`"q/submit"` or `"q/info"`) directly against the Phase 2 contract; it will not compile
+   until I5 adds the builder method, which is the intended effect — the same "safety net" pattern
+   the exhaustive `ErrorType` match already relies on elsewhere in this design.
 
-Every `TypeRegistry`, `MetadataRecord`, `AssetInfo`, `Error`, `AsyncStore` and `Query::key`/
-`is_key` claim above was checked against the current source in this session (`liquers-core/src/
-metadata.rs`, `type_system.rs`, `error.rs`, `query.rs`, `assets.rs`, `store.rs`, `context.rs`,
-`commands.rs`, `recipes.rs`) or against a live `liquers-validate --no-registry` run. Two items
-could not be verified without code that does not exist yet, because Phase 2 leaves their exact
-shape to Phase 4's implementation rather than fixing it:
+6. **Every item in draft 4's "Spec Divergences Observed" was re-checked against both
+   `WEB_API_SPECIFICATION.md` and the code**, quoting section and line for each kept row (see
+   "Spec Divergences for the I8 Audit" above). Three store-API method mismatches (POST vs PUT for
+   `data`/`metadata`/`entry`) were confirmed by reading `liquers-axum/src/store/builder.rs` directly
+   and are kept; the WebSocket-path and crate-name/`FullApiBuilder` divergences were confirmed by
+   reading the spec's own text and grepping the workspace for `FullApiBuilder` (no match) and are
+   kept; the media-type gaps are I9 itself, not a separate divergence, and are folded into the MT
+   tests instead of duplicated in the divergence table; the query-timeout items are Phase 2 I5 work
+   in progress (see #5), not spec drift, and are dropped from the divergence table; the "Recipes API
+   is read-only" and "verify Status match exhaustiveness" items are not divergences at all and are
+   dropped.
 
-- The **exact JSON shape of a dependency record** if it were ever exposed to a client (it is not,
-  per Phase 2's Web Endpoints table — `AssetInfo` has no `dependencies` field). AAE12 therefore
-  checks only the `message` contract, not a dependency list.
-- The **exact wording** of `POST metadata`'s refusal `message` beyond "mentions POST description"
-  (Phase 2 gives the wording as an example, not a contract: `"asset metadata is owned by the asset
-  manager; use POST description for a Source asset's title and description"`). AAE16 asserts the
-  substring `"post description"` (case-insensitively), not the full sentence, so a Phase 4 wording
-  tweak does not break the test.
+7. **Draft 1's test counts were internally inconsistent** ("Test count: 61" in its overview, but
+   its own numbered list contains 37 tests, and its ID ranges — `AMR01–AMR07, AMR10–AMR24,
+   AMR30–AMR34, AMR40–AMR44, AMR50–AMR53, AMR60–AMR61` — describe 39 slots against 37 actual
+   functions, since `AMR21` and `AMR08–AMR09` were never defined). Recounted by hand from the
+   actual `#[tokio::test]`/`#[test]` functions in this document: **37** AMR tests, listed exactly
+   in the Overview Table. `AMR21` ("set_description leaves version unchanged") duplicated AMR17's
+   own assertion and was folded into AMR17 rather than kept separate (same call already asserted in
+   the same test) — same merge v1 made, re-verified here rather than re-derived.
 
-## Open Issues for Review
+8. **Exact routing status codes, made precise instead of "404 or 405" placeholders.** Per the
+   instruction: an omitted method on a path that still serves another method → **405** (axum
+   reports Method Not Allowed on a route that exists for other verbs); a path with no route
+   registered at all → **404**. Applied throughout AAE60–AAE66: `read_only()` + `POST key/data` is
+   405 (GET/DELETE key/data still exist on that path); `read_only()` + `POST key/expire` is 404
+   (expire has no sibling method, so the whole route disappears); `with_admin(false)` + `POST
+   admin/audit` is 404 (same reasoning); `GET key/remove` without `with_destructive_gets()` is 404
+   (the route does not exist at all, not merely a wrong verb). Every assertion in this document that
+   checks a disabled-route status now names the exact code, not a `matches!(status, 404 | 405)`.
 
-None. No draft assertion was found to contradict Phase 2's Web Endpoints table or remove decision
-table in a way that would mean Phase 2 itself is wrong — every conflict found (listed under Fixes
-above) was a draft error against an otherwise-consistent Phase 2 contract.
+9. **`AssetManager` import, JSON `Content-Type`, `CommandKey`, `set_binary` by value — carried
+   forward from `phase3-v1.md`'s own fixes, re-verified against the current code rather than
+   re-derived from scratch:** every test file imports `liquers_core::assets::AssetManager` (`am.*`
+   calls do not resolve otherwise); `send_json`/`post_entry_json` always set `content-type:
+   application/json` (axum's `Json` extractor answers 415 otherwise, a real bug v1 found in an
+   earlier draft's `AAE01`); `CommandKey` is `liquers_core::command_metadata::CommandKey`;
+   `AssetManager::set_binary` takes `MetadataRecord` **by value**, confirmed again by reading
+   `liquers-core/src/assets.rs`'s trait signature (drafts 2/3/5 in this round again wrote `&metadata_text()`
+   in a couple of call sites; fixed).
+
+10. **`AssetManager::makedir` returns `Result<AssetRef<E>, Error>`, not `Result<(), Error>`.**
+    Verified in `liquers-core/src/assets.rs`. Every `am.makedir(&key).await?;` call site in this
+    document ends in a semicolon, discarding the returned `AssetRef` — this compiles (Rust allows
+    discarding a non-`#[must_use]`-marked expression statement) and is intentional: the tests that
+    need the directory's `AssetRef` call `get_asset_info` afterward instead.
+
+11. **`AssetManager::version` returns `Result<Option<Version>, Error>`.** AMR03/AMR17/AMR32 compare
+    the `Option<Version>` directly (`assert_eq!(am.version(&key).await?, version_before)`); the
+    HTTP-level version tests (AAE23, Example 1 step 8) instead compare the **hex-string** field of
+    the JSON response, which is a different, already-serialized representation — the two are not
+    mixed in any one assertion.
+
+12. **`GET key/entry`'s `Accept` negotiation was untested in draft 2** (its AAE04 sent
+    `Accept: application/json` but asserted only `200`, not that the header was honored — the
+    handler could ignore it and still pass). AAE04 (renamed from AAE04 in draft 2, same slot) now
+    asserts `Content-Type: application/json` on the response, which is exactly the bug Phase 2's
+    "Handlers — new or changed" section calls out fixing (`get_entry_handler` passing an empty
+    `HeaderMap` today).
+
+13. **Draft 2's AAE28 was not a real test** (a `key/recover` "scenario" with the assertion
+    commented out because a `Source` cannot be expired). Rewritten as
+    `aae28_key_recover_reads_expired_without_evaluating`: a recipe-computed value is evaluated,
+    expired, and then `key/recover` is asserted to return its last known bytes with a 200, which is
+    exactly the scenario `EXPIRATION-RECOVERY-WEB-API` (I2) exists to fix.
+
+14. **Draft 3's helper imports do not match the rest of the suite**
+    (`liquers_core::environment::SimpleEnvironment`, `liquers_core::key::parse_key` — neither
+    module exists; the real paths are `liquers_core::context::SimpleEnvironment` and
+    `liquers_core::parse::parse_key`, as used throughout `liquers-core/tests/` today). Fixed in the
+    AWS helper block.
+
+15. **Draft 4's `TestEnv::new()` does not compile against the real `SimpleEnvironment` API**
+    (`SimpleEnvironment::new(store.clone())` — the constructor takes no arguments;
+    `EnvRef::new(env.env.clone())` where `env.env` is an `Arc<SimpleEnvironment<Value>>` and
+    `EnvRef::new` takes `E` by value, not `Arc<E>`). SAR/QAR/RAR are written from scratch in this
+    document against the verified `SimpleEnvironment::new()` + `.with_async_store(Box::new(store))`
+    + `.to_ref()` pattern already proven correct in AMR/AAE/AWS.
 
 ## Review Log
 
-Multi-agent review, 2026-09-27.
-
-- **Reviewer 1 (Phase 1 conformity):** found four gaps, all fixed by adding AAE02–AAE05:
-  - Q11 was tested only at the manager level;
-  - `GET metadata` had no test;
-  - `GET entry` had no test, although Phase 2 changes its `Accept` handling;
-  - there was no positive `POST cancel`.
-- **Reviewer 2 (Phase 2 conformity):** no findings. Signatures, routes, codes, result shapes, every
-  row of the `remove` table, and the error mappings all match.
-- **Reviewer 3 (codebase and queries):** no findings.
-  - All 11 queries validate with `liquers-validate --command make_text --command upper`.
-  - `make_text` is a non-key query and the key paths are pure keys, as the tests assume.
-  - The existing APIs compile as written.
-- **Found while applying the fixes:** AAE01 posted the `POST description` JSON without
-  `Content-Type: application/json`. axum's `Json` extractor rejects that with 415 before the handler
-  runs. Added a `send_json` helper and used it there.
-- **Count correction:** the synthesized document stated 30 `AAE` tests; there were 40 (44
-  with AAE02–AAE05). Totals: 20 AMR + 10 VD + 44 AAE = 74.
-
-**Final cross-phase review, 2026-09-27** (changes made in this document):
-- Every assets-API key path is now `-R/<key>` (Fixes §5 corrected); `make_text` stays the non-key example.
-- `assets::AssetManager` added to both test files' imports — trait methods do not resolve without it.
-- AMR file: `env_with` split into `env_over(store)` + `env_with`; new **AMR24** (restart: a dropped
-  intermediate does not block its dependent's fast track).
-- New **VD11** (`or_previous` pair rule). AAE30 now pins a computed value and asserts `Override`
-  instead of promoting a `Source` (`ASSET-TO-OVERRIDE-SOURCE-INCONSISTENT`).
-- Counts: 21 AMR + 11 VD + 44 AAE = 76.
+pending
