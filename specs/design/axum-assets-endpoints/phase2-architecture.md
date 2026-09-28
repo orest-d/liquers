@@ -82,7 +82,27 @@ Verified against the code (2026-09-28):
   `get_asset` and so triggers evaluation.
 - **Inline managers:** on `ImmediateAssetManager` (`EvalMode::Inline`), `get`/`get_asset` evaluate
   before returning, so `submit` answers with the *final* status. The native default
-  (`SimpleEnvironment`, the `Queued` kind) returns at once. The spec documents both.
+  (`SimpleEnvironment`, the `Queued` kind) returns at once. The spec documents both. On the
+  inline manager an evaluation error propagates out of `get_asset`/`get`, so `submit` answers
+  with that error rather than an `AssetInfo` whose status is `Error`.
+- **Assets that are never mapped (final review).** A **volatile** query or key and a key whose
+  recipe says `cached: false` get a fresh asset per request that is never inserted in
+  `query_assets`/`assets` (`get_volatile_query_asset`, `get_volatile_resource_asset`,
+  `get_uncached_resource_asset`, and `make_volatile` on the inline manager). `submit` still answers
+  with its `AssetInfo`, but the observe routes cannot see it: `q/info`, `q/metadata`, `q/version`
+  and `q/cancel` answer 404, `key/info` reports the stored or recipe state, and a later `data`
+  evaluates again. Such an asset is followed on the WebSocket (the subscription holds the
+  `AssetRef`) or read with `data`. The spec states this under `submit`.
+- **Inline expiry (final review).** `ImmediateAssetManager` has no expiration monitor; it expires
+  lazily inside `get_asset`/`get`. `lookup_query_asset` is synchronous and does not apply that
+  check, so on the inline manager `q/info` can report `Ready` for an entry whose expiration time
+  has passed, which `q/data` then recomputes. Accepted; documented in the spec.
+- **When `submit` fails fast.** Only errors raised synchronously by `get_asset`/`get` are
+  returned as errors: parse errors (400), volatility and plan resolution errors, and — because the
+  handlers pre-check with `AssetManager::contains` (store or recipe provider, no evaluation) — an
+  absent key for `key/submit` or a pure-key `q/submit` (404). Without that pre-check `get(key)`
+  maps a fresh asset for any key and fails later. Anything that fails during evaluation (an
+  unknown command, a missing resource inside a query) is reported as `status: Error` by `info`.
 
 ### Removal of directories (Q24)
 
@@ -98,6 +118,20 @@ API:
 /// Holds `key_mutation_lock` per key, not for the whole walk.
 async fn removedir(&self, key: &Key) -> Result<(), Error>;
 ```
+
+Final review, implementation rules:
+- `removedir` takes **no lock itself**. "Per key" means that each `remove` call takes and releases
+  `key_mutation_lock`; calling `remove` while `removedir` held the guard would self-deadlock
+  (`tokio::sync::Mutex` is not reentrant).
+- `listdir_keys_deep` returns directory keys as well; those are skipped (`remove` refuses a
+  `Directory` with 409) and go with the final `store.removedir`.
+- An absent key → `key_not_found`; a key that exists but is not a directory → `status_conflict(…,
+  "removedir")`. `AsyncMemoryStore::removedir` returns `Ok` for an absent key, so this is checked
+  first (AMR34).
+- **Open (final review):** `store.removedir` deletes *everything* under the key — the `Recipe`
+  entries `remove` just kept for their version, and the directory's own `recipes.yaml`. So "keep
+  the version" and "recipe-declared keys survive" do not hold after `removedir`, and AMR32 and
+  AMR33 fail as written. See Open Question O15.
 
 It is not atomic: a failure part-way leaves the keys already removed removed, as
 `AsyncStore::removedir` is documented to behave (`STORE_SEMANTICS.md` §5). The error names the
@@ -539,6 +573,11 @@ pub async fn refresh_command_versions_handler<E>(State<EnvRef<E>>) -> Response;
   after scheduling. The handler never awaits the value.
 - **Observe handlers never call `get_asset` or `get`.** That is the invariant AAE tests assert: an
   observe call on an unevaluated recipe key leaves it in `Recipe`.
+- **A pure-key query on the `/q/` observe routes** (`q/info/-R/a.txt`, `q/metadata/…`,
+  `q/version/…`) is answered by the key-family observe path (`get_asset_info(key)`, the key
+  metadata chain, `AssetManager::version`), not by `lookup_query_asset`, which only sees a live
+  asset and would give 404 for a stored key. This is what "answered like `key/info`" in "Access
+  Modes" means (final review).
 - **`key_cancel`/`q_cancel`** use the lookups, so they never start an evaluation. This closes
   `AXUM-ASSETS-CANCEL-STARTS-EVALUATION` (I3).
 
@@ -668,14 +707,37 @@ them: a cancel arrives as `StatusChanged(Cancelled)`.
 **A subscription is tied to one asset (O10, W5).** Today a keyed asset that has not been
 requested cannot be managed, so there is nothing to wait for. A subscription therefore follows
 one `AssetRef` (one `AssetData`) for its whole life, and **ends** when that asset's lifecycle
-ends. The terminal notifications are:
-- `StatusChanged` to `Error` or `Cancelled`;
+ends. The terminal notifications are (detected as described under "Terminality is decided on
+the snapshot" below):
+- any notification whose `info.status` is `Error`, `Cancelled` or `Volatile`;
 - `Expired`, after which the manager replaces the asset on the next request;
 - `Removed`.
 
 The server forwards the terminal notification, with the `info` snapshot, then drops the
 subscription. To continue, the client subscribes again, which requests a fresh asset. For a key
 subscription that terminal `info` is read with `get_asset_info(key)`, which does not evaluate.
+
+**Terminality is decided on the snapshot, not on the message (final review).** The core never
+sends `StatusChanged(Error)`: a failure sends `ErrorOccurred` then `JobFinished` (`fail_asset`),
+and a cancel sends `StatusChanged(Cancelled)` then `JobFinished`. The watch keeps only the latest
+value, so a subscription that matched on those messages would usually see only `JobFinished` and
+never end. The subscription task therefore treats the message as a wake-up, as `AssetRef::get`,
+`liquers-lib/src/ui/element.rs` and `runner.rs` already do, and ends when:
+- the re-read `info.status` is `Error`, `Cancelled`, `Expired` or `Volatile` (a volatile asset is
+  used once and is in no map, so nothing further can happen to it); or
+- the message is `Removed`, which no status reflects (see the ordering rule below).
+
+It subscribes to the watch **before** reading the snapshot it sends as `Initial`, and ends at once
+if that snapshot is already terminal; otherwise an asset that failed between `get_asset` and the
+subscribe would never wake it. The terminal message is sent with an awaited `send`, not the
+drop-when-full `try_send` used for intermediate messages (I6), so a client under load does not
+lose the one message that tells it to resubscribe.
+
+**`Removed` ordering.** `remove`, `set_binary` and `set_state` first `cancel()` the live asset
+(which waits for `Cancelled`/`JobFinished`), **then** send `Removed`, then unmap it. `Removed` is
+therefore the last message the asset sends, and it cannot be overwritten in the watch by the
+cancel's own `JobFinished`. Only a cancel that hit its 5 s timeout can still emit later; that
+case is accepted (see "Concurrency Considerations").
 
 To make `Removed` observable, the core gains one notification (O8: kept consistent with the
 original notification set, and meaningful for any in-process observer as well):
@@ -684,8 +746,17 @@ original notification set, and meaningful for any in-process observer as well):
 pub enum AssetNotificationMessage { …, Removed }  // liquers-core/src/assets.rs
 ```
 
-- It is sent by `remove`, `set_binary` and `set_state` just before they unmap a live asset. It is
-  **not** sent by `remove_expired_from_maps`, since expiry already announced `Expired`.
+- It is sent by `remove`, `set_binary` and `set_state` after cancelling and just before unmapping
+  a live asset. It is **not** sent by `remove_expired_from_maps`, since expiry already announced
+  `Expired`.
+- Core waiters (final review): `wait_to_finish` and the wait inside `AssetRef::cancel` have a
+  `_ =>` arm today and would wait forever once `Removed` has replaced `JobFinished` in the watch,
+  so both return `Ok(())` on `Removed`, exactly as on `JobFinished`/`Cancelled` (the caller
+  re-reads the asset's state). `AssetRef::get` gains an arm that re-polls the state and, only if
+  there is none, returns an error ("asset was removed while waiting"), like its `Expired` arm. A
+  caller whose in-flight asset was replaced by `set_binary` therefore still gets the cancelled
+  state it gets today, never the replacement value; the error only replaces a wait that would
+  otherwise hang.
 - `AssetNotificationMessage` is matched exhaustively in the WebSocket and in
   `liquers-lib/src/ui/element.rs` (≈516; `Removed` joins the arm that ignores status-only
   messages). Core's own matches gain the arm too; Phase 4 lists every site.
@@ -1049,6 +1120,10 @@ replaced by `HeaderValue::from_static`, since `mime_type()` returns `&'static st
 - **Reads** (`info`, `listdir`, `contains`, `version`, `recover`) take no manager lock. They may
   observe the state just before or just after a concurrent mutation, never a torn record: store
   writes are per-key.
+- `GET key/listdir?deep=true` uses `AssetManager::listdir_keys_deep`, which adds recipe-declared
+  keys only for subdirectories, not for the listed directory itself
+  (`ASSET-MANAGER-LISTDIR-KEYS-DEEP-OMITS-TOP-LEVEL-RECIPES`, filed in the final review; not fixed
+  here).
 - `listdir_asset_info` is O(n) `get_asset_info` calls, each at most one store metadata read. That
   is acceptable at the MVP's ~300 documents; `STORE-NO-CONTENT-OR-METADATA-SEARCH` covers scale.
 
@@ -1168,7 +1243,17 @@ Answered by the user, 2026-09-28:
 | O13 | `removedir` is recursive, with `remove`'s per-status semantics for each key. |
 | O14 | GET alternatives are off by default (`with_destructive_gets()`). |
 
-No questions are open.
+**Open (final review, 2026-09-28):**
+
+- **O15 — what does `removedir` leave behind?** `store.removedir` is recursive, so it deletes the
+  kept-version `Recipe` entries and `<dir>/recipes.yaml` (itself a stored key, which `remove`
+  would also delete as a user value). Options: (a) accept it — a removed directory takes its
+  recipes and versions with it; AMR32/AMR33 are rewritten to assert that and the doc comment loses
+  "Recipe-declared keys survive"; (b) `removedir` removes only what `remove` deletes, spares
+  `recipes.yaml` and kept entries, and removes the directory only if it is then empty (otherwise
+  it answers with the surviving keys); (c) refuse (409) a directory that holds a `recipes.yaml`.
+  Recommendation: (a), the Store API's meaning and the simplest contract. Blocks Step 3's
+  `removedir` and AMR32/AMR33.
 
 ## Review Log
 
@@ -1233,6 +1318,16 @@ open questions (O11, O12).
   evaluates. I verified that `key/info` never evaluates, including the recipe-provider path.
 - `metadata` moved to observe mode.
 - Added `submit`, `removedir` (core and route) and the full route table.
+
+**Final review, 2026-09-28** (changes made in this document):
+- Access Modes: assets that are never mapped (volatile, `cached: false`), inline expiry, and which
+  `submit` errors are synchronous (`contains` pre-check for keys).
+- Handlers: a pure-key query on the `/q/` observe routes uses the key-family observe path.
+- WebSocket: terminality from the re-read status (the core never sends `StatusChanged(Error)`, and
+  `JobFinished` overwrites the terminal message), subscribe-before-snapshot, `Volatile` terminal,
+  awaited terminal send; `Removed` sent after `cancel()`; the core waiters' `Removed` semantics.
+- `removedir`: no lock of its own, skips directory keys, absent/not-a-directory errors; O15 opened
+  (`store.removedir` deletes kept versions and `recipes.yaml`, contradicting AMR32/AMR33).
 
 **Answers to O1–O14, 2026-09-28:**
 - The WebSocket moves to `ws/q` and `ws/key`, a subscription is tied to one asset and ends with

@@ -32,10 +32,13 @@ four blocks:
 - **`AssetManager` bounds.** The trait carries `#[allow(private_bounds)]` (≈3894), so the
   `pub(crate)` supertrait `KeyMutationAccess` needs no new lint allowance.
 - **`AssetNotificationMessage` match sites.** Adding `Removed` touches:
-  - `liquers-core/src/assets.rs` ≈2455 and ≈3160: wait loops with a pre-existing `_ =>` arm. They
-    must treat `Removed` as **terminal**, like `Cancelled`, so a waiter cannot hang on an unmapped
-    asset;
-  - `assets.rs` ≈3446: exhaustive;
+  - `liquers-core/src/assets.rs` ≈2455 (`wait_to_finish`) and ≈3160 (the wait inside
+    `AssetRef::cancel`): wait loops with a pre-existing `_ =>` arm. They must treat `Removed` as
+    **terminal** and return `Ok(())`, as they do for `JobFinished`/`Cancelled` (neither loop has an
+    error to reuse; the caller re-reads the state), so a waiter cannot hang once `Removed` has
+    replaced `JobFinished` in the watch;
+  - `assets.rs` ≈3446 (`AssetRef::get`): exhaustive. `Removed` re-polls the state and, only if
+    there is none, returns an error "asset was removed while waiting", like the `Expired` arm;
   - `liquers-axum/src/assets/websocket.rs` ≈319: exhaustive, and rewritten in Step 10;
   - `liquers-lib/src/ui/element.rs` ≈516: exhaustive; `Removed` joins the arm that ignores
     status-only messages.
@@ -103,9 +106,9 @@ the compiler finds every missed site.
 **Action:**
 - `pub(crate) trait KeyMutationAccess { fn key_mutation_lock(&self) -> &tokio::sync::Mutex<()>; }`,
   implemented by both managers and added to the `AssetManager` supertraits.
-- `AssetNotificationMessage::Removed`, with arms at every site in the pre-flight list. The two
-  wait loops treat it as terminal and return the same error as for `Cancelled`, with the message
-  "asset was removed".
+- `AssetNotificationMessage::Removed`, with arms at every site in the pre-flight list, with the
+  semantics given there (final review: the two `_ =>` loops return `Ok(())`; `AssetRef::get`
+  re-polls, then errors).
 - `fn lookup_query_asset(&self, query: &Query) -> Option<AssetRef<E>>`, **required**. A pure-key
   query delegates to `lookup_key_asset`; otherwise it reads the manager's `query_assets` map
   without inserting.
@@ -127,17 +130,22 @@ Notifications" (the `Removed` part) · the wait-loop semantics need judgement.
 
 **Action**, exactly as Phase 2 "Trait Implementations" and "Access Modes":
 - **`remove`:** a default method implementing the decision table. Delete both per-manager bodies
-  (≈5643, ≈6939). Send `Removed` before unmapping a live asset. Cascade **before**
+  (≈5643, ≈6939). For a live asset: `cancel()` first, **then** send `Removed`, then unmap, so
+  `Removed` is the asset's last message and the cancel's `JobFinished` cannot overwrite it. Cascade **before**
   `dependency_manager().remove`. The drop-computed branch writes `store.set(key, &[], md)` with
   `status = Recipe` and the version kept. A live `None`/`Recipe` status defers to the stored
   status; a stored `Recipe` is a no-op; `LegacyMetadata` is deleted. Use an exhaustive `match`
   on `Status`.
-- **`set_binary` and `set_state`:** send `Removed` before unmapping a live asset. **Not**
+- **`set_binary` and `set_state`:** send `Removed` after cancelling and before unmapping a live
+  asset (same order as `remove`). **Not**
   `remove_expired_from_maps`: expiry has already announced `Expired` (O8). Do not copy the send
   into that path.
 - **`expire`**, **`set_description`**, **`removedir`**, all as default methods:
-  - `removedir` walks `listdir_keys_deep` deepest first, calls `remove` for each stored key
-    (taking the lock per key, never across the walk), then calls `store.removedir`;
+  - `removedir` walks `listdir_keys_deep` deepest first, **skips directory keys**, and calls
+    `remove` for each remaining key, then calls `store.removedir`. It takes **no lock itself**:
+    each `remove` takes and releases it (holding the guard while calling `remove` deadlocks).
+    Absent → `key_not_found`; not a directory → `status_conflict`. What survives is **blocked on
+    Phase 2 O15**, and so are AMR32/AMR33;
   - `set_description` uses the new `pub(crate) AssetRef::set_description_fields`.
 - **`to_override`:** the store-only branch skips a `Source`.
 - **`get_asset_info`:** the live branch uses `lookup_key_asset`, in both bodies (the simplest way
@@ -149,7 +157,9 @@ Notifications" (the `Removed` part) · the wait-loop semantics need judgement.
   and `AssetRef` methods. **Never** call `get`, `owned_key_asset`, `to_override`, `set_binary`,
   `set_state` or `remove_expired_from_maps`: `tokio::sync::Mutex` is not reentrant.
 
-**Validation:** `cargo test -p liquers-core --lib`; `cargo test -p liquers-core --tests`. If
+**Validation:** `cargo test -p liquers-core --lib`; `cargo test -p liquers-core --tests`;
+`cargo test -p liquers-lib --lib --tests` (its UI and listing code call `remove`,
+`get_asset_info` and the notifications). If
 `EXPIRATION-INTEGRATION-SUITE-FAILING-AT-HEAD` is still open, compare any expiration failure
 against the base commit before attributing it here.
 
@@ -234,6 +244,8 @@ type), plus the VD tests.
 - `key_handlers.rs` (new).
 
 **Action:**
+- After the `git mv`, update `assets/mod.rs` and the handler paths the current `builder.rs` routes
+  use, so this step compiles on its own (the routes themselves change in Step 9).
 - The response DTOs (`AssetListing`, `KeyListing`, `RemoveResult`, `ContainsResult`,
   `VersionResult`, `AuditResult`, `DescriptionRequest`) go in `common.rs` in this step.
 - Every handler in Phase 2 "Handlers — new or changed", with the three modes exactly as
@@ -273,7 +285,12 @@ Phase 2 is the single source of truth for extractors, shapes and codes.
 - Update the example's printed URLs to the new families.
 
 **Route-presence rule** (one rule, no special cases):
-- A **primary** mutation route (POST/PUT/DELETE on `key/…`) exists unless `read_only()` is set.
+- A **primary** mutation route — exactly the rows whose "Disabled by" column in Phase 2's route
+  table names `read_only` (`POST key/data|entry`, `DELETE key/data|entry`, `DELETE
+  key/removedir`, `PUT key/makedir`, `POST key/description|expire|override`) — exists unless
+  `read_only()` is set. `POST key/submit`, `POST q/submit` and the always-501 `POST key/metadata`
+  are not mutations and always exist (final review: "every POST/PUT/DELETE on `key/…`" would
+  have dropped them).
 - An **admin** route (`admin/…`) exists unless `read_only()` is set or `with_admin(false)` is
   given.
 - A **GET alternative** exists iff its primary route exists **and** `with_destructive_gets()` is
@@ -299,12 +316,18 @@ eight combinations of `read_only` × `with_admin` × `with_destructive_gets`.
 - an `AssetInfo` snapshot re-read on every change;
 - snake_case client messages with a `query` or `key` field, and `Error` replies;
 - the spec-named server messages, including `Removed`;
-- the subscription ends after its terminal notification (O10);
+- the subscription ends after its terminal notification (O10), decided on the re-read
+  `info.status` (`Error`, `Cancelled`, `Expired`, `Volatile`) or a `Removed` message, never on
+  the message type alone; subscribe before taking the `Initial` snapshot and end at once if it is
+  terminal; send the terminal message with an awaited `send` (Phase 2, final review);
 - `WebSocketLimits` (I6): `max_message_size` through `WebSocketUpgrade::max_message_size`, a
   subscription cap, and task abort on disconnect;
 - a bounded writer channel.
+- `examples/websocket_client.rs` and `examples/WEBSOCKET_EXAMPLE.md`: move to `ws/q` and the new
+  messages. The example's mock route `/ws/assets/:path` also panics under axum 0.8 (`:` segments
+  are rejected like `*`), so it becomes `{*path}`.
 
-**Validation:** `cargo check -p liquers-axum`; clippy.
+**Validation:** `cargo check -p liquers-axum --examples`; clippy.
 
 **Agent:** sonnet · rust-best-practices · Phase 2 WebSocket section; tokio `watch`/`mpsc`; the
 axum 0.8 `ws` API.
@@ -360,6 +383,14 @@ Step 4, a failure is judged against Phase 2.
   - §3.3: 409 for `StatusConflict`;
   - apply Phase 3's divergences D1–D7, and audit §2–§4 and §6–§10 route by route against the I4
     tests;
+  - audit the **non-route** content too, which no route test covers: every Rust type, trait and
+    signature the spec shows (§4.2, §5.3, §6.2, §7.2 "Module Trait"s, §8 `Router` trait and
+    composition, §9 `FullApiBuilder`/`SessionInterface`, §10, Appendix A) is checked against the
+    code and corrected; material that is a plan rather than a fact (§9.2's review note, Appendix C)
+    is marked as not implemented or moved to an issue; the header's `Status`/`Version` block and
+    the old "Revision History" table are reconciled with `## History`;
+  - document the unmapped-asset limits of `submit` (volatile, `cached: false`) and inline expiry
+    (Phase 2 "Access Modes");
   - replace `FullApiBuilder` with the `Router::merge` assembly;
   - document `with_timeout`;
   - add a History row and bump `reviewed:`.
@@ -370,7 +401,9 @@ Step 4, a failure is judged against Phase 2.
   - **→ `closed`:**
     - `AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED`;
     - `AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS`;
-    - `WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION`;
+    - `WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION` — **only if** the audit leaves no
+      untrue statement anywhere in the document; otherwise it stays `in_progress` with the
+      remaining items listed in its body;
     - `AXUM-ASSETS-API-SERVES-ONLY-BYTES-AND-TEXT`;
     - `EXPIRATION-RECOVERY-WEB-API`;
     - `AXUM-ASSETS-CANCEL-STARTS-EVALUATION`;
@@ -546,3 +579,16 @@ Multi-agent review, 2026-09-28.
   Its "blocking" item (`tower` lacks `util`) is what Step 12 adds, so it is not a finding. The
   build-matrix note is expanded.
 
+**Final cross-phase review, 2026-09-28** (checked against `assets.rs`, `store.rs` and axum 0.8.9):
+- Pre-flight and Step 2: the `Removed` semantics of the two `_ =>` wait loops (`Ok(())`, there is
+  no `Cancelled` error to reuse) and of `AssetRef::get` (re-poll, then error).
+- Step 3: `Removed` is sent after `cancel()` and before unmapping; `removedir` takes no lock of
+  its own and skips directory keys; its outcome is blocked on Phase 2 O15; Step 3 also runs the
+  `liquers-lib` suites.
+- Step 8 keeps the tree compiling after the `git mv`. Step 9's rule names the primary routes
+  explicitly (`POST submit` and `POST key/metadata` always exist). Step 10 decides terminality
+  from the snapshot and fixes the WebSocket example, whose `:path` route also panics.
+- Step 13: the I8 audit covers non-route content, and the spec issue closes only if the whole
+  document is true.
+- Not a finding: `tower`'s `util` feature is already enabled through axum's own dependency, so no
+  step before Step 12 goes red for lack of `ServiceExt`.

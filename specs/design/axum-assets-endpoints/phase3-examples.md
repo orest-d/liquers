@@ -1052,6 +1052,8 @@ async fn amr31_removedir_source_child_cascades_dependents() -> Result<(), Box<dy
     Ok(())
 }
 
+// BLOCKED on Phase 2 O15 (final review): `store.removedir` deletes the kept `Recipe` entry and
+// `data/recipes.yaml`, so AMR32 and AMR33 fail as written. Rewrite both once O15 is answered.
 #[tokio::test]
 async fn amr32_removedir_computed_child_dropped_with_version() -> Result<(), Box<dyn std::error::Error>> {
     let envref = env_with_at(&parse_key("data")?, &[("make_text/computed.txt", "Computed", "")]).await;
@@ -2505,7 +2507,7 @@ async fn env_with(recipes: &[(&str, &str, &str)]) -> EnvRef<SimpleEnvironment<Va
             Ok(Value::from(state.try_into_string()?.to_uppercase()))
         })
         .unwrap();
-    // Blocking sync command; tests that submit it run on the multi-thread runtime (AWS13).
+    // Blocking sync command; tests that submit it run on the multi-thread runtime (AWS09, AWS13).
     env.command_registry
         .register_command(CommandKey::new_name("sleep_sync"), |_, _, _| {
             std::thread::sleep(Duration::from_millis(300));
@@ -2625,14 +2627,16 @@ async fn aws03_subscribe_by_key() {
 
     let base_url = start_server(build_app(envref)).await;
     let mut ws = connect(&base_url, "/api/assets/ws/key").await;
-    send_json(&mut ws, json!({"action": "subscribe", "key": "notes/a.txt"})).await;
+    // Final review: subscribe to the recipe key, not the Source. A Source is already finished
+    // (status `Source`, never `Ready`), so it never emits `JobFinished` after the subscribe.
+    send_json(&mut ws, json!({"action": "subscribe", "key": "summary.txt"})).await;
 
     let initial = recv_json(&mut ws, Duration::from_secs(2)).await.unwrap();
     assert_eq!(initial["type"], "Initial");
-    assert_eq!(initial["key"], "notes/a.txt");
+    assert_eq!(initial["key"], "summary.txt");
 
     let finished = recv_by_type(&mut ws, "JobFinished").await.unwrap();
-    assert_eq!(finished["key"], "notes/a.txt");
+    assert_eq!(finished["key"], "summary.txt");
     assert_eq!(finished["info"]["status"], "Ready");
 }
 
@@ -2672,14 +2676,23 @@ async fn aws05_subscription_ends_after_error() {
 
     let mut ws = connect(&base_url, "/api/assets/ws/q").await;
     send_json(&mut ws, json!({"action": "subscribe", "query": "fail_always"})).await;
-    let initial = recv_json(&mut ws, Duration::from_secs(2)).await.unwrap();
-    assert_eq!(initial["type"], "Initial");
+    let mut msg = recv_json(&mut ws, Duration::from_secs(2)).await.unwrap();
+    assert_eq!(msg["type"], "Initial");
 
-    let error_msg = recv_by_type(&mut ws, "StatusChanged").await.unwrap();
-    assert_eq!(error_msg["info"]["status"], "Error");
+    // Final review: the core never sends StatusChanged(Error) — a failure is ErrorOccurred then
+    // JobFinished, and the watch may coalesce them — so the terminal message is recognised by its
+    // `info.status`, whatever its `type` (the Initial snapshot itself may already say Error).
+    let mut seen = 0;
+    while msg["info"]["status"] != "Error" {
+        seen += 1;
+        assert!(seen < 50, "no message reported status Error");
+        msg = recv_json(&mut ws, Duration::from_secs(2))
+            .await
+            .expect("the subscription ended before reporting Error");
+    }
 
     let none_msg = recv_json(&mut ws, Duration::from_millis(500)).await;
-    assert_eq!(none_msg, None, "terminal StatusChanged ends the subscription");
+    assert_eq!(none_msg, None, "the terminal (Error) notification ends the subscription");
 }
 
 #[tokio::test]
@@ -2725,17 +2738,24 @@ async fn aws08_malformed_json_returns_error() {
     assert!(err_msg["error"].is_object());
 }
 
-#[tokio::test]
+/// Final review: `make_text` finishes at once, so its `JobFinished` could already be on the wire
+/// before `unsubscribe` is processed. A 300 ms `sleep_sync` makes the check meaningful: messages
+/// sent before the unsubscribe (JobSubmitted/JobStarted) are tolerated, the completion is not.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn aws09_unsubscribe_stops_messages() {
     let envref = env_with(&[]).await;
     let base_url = start_server(build_app(envref)).await;
     let mut ws = connect(&base_url, "/api/assets/ws/q").await;
-    send_json(&mut ws, json!({"action": "subscribe", "query": "make_text"})).await;
+    send_json(&mut ws, json!({"action": "subscribe", "query": "sleep_sync"})).await;
     assert_eq!(recv_json(&mut ws, Duration::from_secs(2)).await.unwrap()["type"], "Initial");
 
-    send_json(&mut ws, json!({"action": "unsubscribe", "query": "make_text"})).await;
-    let none_msg = recv_json(&mut ws, Duration::from_millis(500)).await;
-    assert_eq!(none_msg, None);
+    send_json(&mut ws, json!({"action": "unsubscribe", "query": "sleep_sync"})).await;
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(800);
+    while let Some(msg) =
+        recv_json(&mut ws, deadline.saturating_duration_since(tokio::time::Instant::now())).await
+    {
+        assert_ne!(msg["type"], "JobFinished", "no completion is forwarded after unsubscribe");
+    }
 }
 
 #[tokio::test]
@@ -2747,7 +2767,8 @@ async fn aws10_unsubscribe_all() {
     let _ = recv_json(&mut ws, Duration::from_secs(2)).await.unwrap();
 
     send_json(&mut ws, json!({"action": "unsubscribe_all"})).await;
-    let all_unsub = recv_json(&mut ws, Duration::from_secs(2)).await.unwrap();
+    // The subscription's own JobFinished may arrive first (final review).
+    let all_unsub = recv_by_type(&mut ws, "UnsubscribedAll").await.unwrap();
     assert_eq!(all_unsub["type"], "UnsubscribedAll");
 }
 
@@ -2773,14 +2794,17 @@ async fn aws12a_subscription_limit_enforced() {
     let base_url = start_server(build_app_with_limits(envref, WebSocketLimits { max_message_size: 65536, max_subscriptions: 2 })).await;
     let mut ws = connect(&base_url, "/api/assets/ws/q").await;
 
+    // Final review: two queries that end `Ready` (a live subscription, not a terminal one — a
+    // failing `upper` without input would end and free its slot), and a third that is a valid
+    // `query` address (a `key` field on ws/q is an Error for the wrong reason, AWS07).
     send_json(&mut ws, json!({"action": "subscribe", "query": "make_text"})).await;
-    recv_json(&mut ws, Duration::from_secs(2)).await.unwrap();
-    send_json(&mut ws, json!({"action": "subscribe", "query": "upper"})).await;
-    recv_json(&mut ws, Duration::from_secs(2)).await.unwrap();
+    recv_by_type(&mut ws, "Initial").await.unwrap();
+    send_json(&mut ws, json!({"action": "subscribe", "query": "make_text/upper"})).await;
+    recv_by_type(&mut ws, "Initial").await.unwrap();
 
     // Third distinct subscription exceeds max_subscriptions: 2.
-    send_json(&mut ws, json!({"action": "subscribe", "key": "notes/a.txt"})).await;
-    let err_msg = recv_json(&mut ws, Duration::from_secs(2)).await.unwrap();
+    send_json(&mut ws, json!({"action": "subscribe", "query": "make_text/upper/upper"})).await;
+    let err_msg = recv_by_type(&mut ws, "Error").await.unwrap();
     assert_eq!(err_msg["type"], "Error");
 }
 
@@ -3736,3 +3760,14 @@ revision.
 
 No test in this pass duplicates an existing ID; free ranges (`AAE06–AAE09`, `AAE18–AAE19`,
 `AAE30–AAE39`, `AAE48–AAE49`, `AAE67–AAE69`) were used exactly as assigned.
+
+**Final review, 2026-09-28** (cross-phase, against the core code):
+- AWS03 subscribed to a `Source`, which is already finished and never reports `Ready` or a later
+  `JobFinished`; it now subscribes to the recipe key `summary.txt`.
+- AWS05 waited for `StatusChanged` with status `Error`, which the core never sends (a failure is
+  `ErrorOccurred` + `JobFinished`); it now waits for any message whose `info.status` is `Error`.
+- AWS09 raced `make_text`'s immediate `JobFinished`; it now uses `sleep_sync` (multi-thread).
+  AWS10 and AWS12a use `recv_by_type`, and AWS12a's third subscription is a valid query (a `key`
+  field on `ws/q` was an `Error` for the wrong reason).
+- AMR32/AMR33 are marked blocked on Phase 2 O15 (`store.removedir` deletes the kept entries and
+  `recipes.yaml`).
