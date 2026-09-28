@@ -179,6 +179,10 @@ Still open: none — Phase 1 is ready for approval.
   the web API are handled here. `AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS` and
   `WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION` are in scope; further candidates are listed
   in Phase 2 "Known-Issue Preflight" for decision.
+- **Q22:** every recommended web-API issue is included, in one design: serving all value types,
+  expiration recovery, cancel without evaluation, route tests for all four builders, a
+  configurable query timeout, part of WebSocket hardening, the `liquers-axum` `unwrap()` calls, and
+  tabular media types (Phase 2, "Web API Known Issues in Scope").
 - **Q20:** the WebSocket is in scope. It must be consistent with the REST families, and it never
   forwarded notifications.
 

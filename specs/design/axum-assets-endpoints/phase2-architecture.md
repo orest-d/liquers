@@ -63,16 +63,23 @@ So the family must be visible in the URL, and each family has exactly one parser
 |---|---|---|---|---|---|
 | `AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED` | draft | P0 | the defect this design fixes | — | close on merge |
 | `ASSET-REMOVE-FORGETS-DEPENDENTS` | draft | P2 | fixed by the new `remove` | no | close on merge |
-| `AXUM-HANDLER-TEST-COVERAGE` | accepted | P2 | this design adds the scaffold for the assets handlers | no | note partial progress; the Store, Query and Recipes APIs remain |
+| `AXUM-HANDLER-TEST-COVERAGE` | accepted | P2 | **in scope (I4):** route tests for all four builders | no | close on merge |
 | `TEXT-VALUE-CANNOT-BE-STORED-AS-MARKDOWN` | draft (filed now) | P2 | `POST data` defaults to `Bytes` because of it | no | monitor; the default can become `Text` once it is fixed |
 | `CORE-SESSION-AND-KEY-ACL` | accepted | P2 | real access control; the builder switches are a stop-gap until it lands | no | monitor |
 | `STORE-NO-READ-ONLY-ADAPTER` | draft | P2 | a corpus mounted from a file store is writable through `POST`/`DELETE` unless the router is `read_only()` | no | document `read_only()` as the mitigation |
 | `QUEUED-MANAGER-EVICTION-RACE` | accepted | P2 | `remove` unmaps the live asset under the same lock as today | no | unchanged |
 | `WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION` | draft | P1 | **in scope (Q21):** the whole of `WEB_API_SPECIFICATION.md` is made true at HEAD. That covers the store entry write (`PUT`), the nonexistent `FullApiBuilder` and crate names, the WebSocket path, and every other drift the audit finds. | no | close on merge |
 | `ASSETS-API-ADMIN-OPERATIONS` | draft | P3 | deferred endpoints | no | none |
+| `AXUM-ASSETS-API-SERVES-ONLY-BYTES-AND-TEXT` | draft | P2 | **in scope (I1)** | no | close on merge |
+| `EXPIRATION-RECOVERY-WEB-API` | accepted | P2 | **in scope (I2);** delivered by `key/recover` and `key/override` | no | close on merge |
+| `AXUM-QUERY-TIMEOUT-HARDCODED` | draft | P2 | **in scope (I5)** | no | close on merge |
+| `AXUM-WEBSOCKET-HARDENING` | accepted | P3 | **partly in scope (I6)** | no | progress note; stays `accepted` |
+| `LIBRARY-CODE-USES-UNWRAP-AND-EXPECT` | draft | P2 | **the `liquers-axum` part in scope (I7)** | no | progress note; stays open for other crates |
+| `MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS` | draft | P3 | **in scope (I9)** | no | close on merge |
+| out of scope: `ERROR-WITH-KEY-SETS-QUERY-FIELD`, `CORE-SESSION-AND-KEY-ACL`, `NO-REMOTE-STORE-OR-ASSET-MANAGER`, `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`, `TYPE-REGISTRY-NOT-REALM-AWARE`, `WORKSPACE-SERDE-DERIVE-UNDECLARED`, `HTTP-STORE-METADATA-DROPS-THE-EXTENSION-MEDIA-TYPE` | — | — | reviewed 2026-09-28: cross-crate core redesigns, or not the server's web API | no | none |
 | `DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION` | draft | P1 | the `get_asset_info` change fixes exactly this (both bodies) | no | close on merge, or hand to `store-and-asset-search` if it lands first (final review) |
 | `ASSET-TO-OVERRIDE-SOURCE-INCONSISTENT` | draft | P3 | decided: `to_override` on a `Source` does nothing in both paths | no | fixed here; close on merge |
-| `AXUM-ASSETS-CANCEL-STARTS-EVALUATION` | draft | P3 | `POST cancel` via `get_asset` starts the evaluation it cancels | no | `key/cancel` fixes it for keys; for queries see Open Question O2 |
+| `AXUM-ASSETS-CANCEL-STARTS-EVALUATION` | draft | P3 | **in scope (I3):** `POST cancel` via `get_asset` starts the evaluation it cancels | no | `key/cancel` fixes it for keys; for queries it needs O2; close on merge if O2 is accepted |
 | `AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS` | draft (filed in final review); **in scope (Q21)** | P1 | `build()` panics with the default WebSocket path | **yes, for every router test** | fixed in `builder.rs`; close on merge |
 
 None is blocking.
@@ -624,6 +631,156 @@ client (already a dev-dependency). The tests cover:
 - `unsubscribe` stops messages;
 - the URL-path subscription on connect.
 
+## Web API Known Issues in Scope
+
+Decided 2026-09-28 (Q21, Q22): the goal is a working web and WebSocket interface, delivered as
+**one design**. Every open issue of the web API that the user accepted is handled here. Each
+subsection names the issue, the change, and the test that proves it.
+
+### I1 `AXUM-ASSETS-API-SERVES-ONLY-BYTES-AND-TEXT` (P2)
+
+**Problem.** Assets `GET data` and `GET entry` turn the value into bytes with `try_into_bytes`,
+which is a conversion, not serialization. Core accepts only `Bytes` and `Text`, and
+`CombinedValue` refuses every extended value. So a number, a JSON object, a DataFrame or an image
+fails, while `GET /q` serves the same query correctly through `AssetRef::get_binary()`, which
+applies the effective data format, reuses the cached encoding and refuses an expired read.
+
+**Change.** One shared function in `assets/common.rs`, used by every byte-returning route:
+`q/data`, `q/entry`, `key/data` and `key/entry`. `key/recover` uses `get_binary_any_status`,
+which is already format-aware.
+
+```rust
+/// The asset's serialized form, exactly as `GET /q` serves it.
+async fn asset_bytes<E: Environment>(asset: &AssetRef<E>) -> Result<(Arc<Vec<u8>>, Arc<Metadata>), Error> {
+    asset.get_binary().await
+}
+```
+
+**Test.** An integer, a JSON object and an array (core `Value`) are served by
+`q/data` and `key/data` with the same bytes and `Content-Type` as `GET /q`.
+
+### I2 `EXPIRATION-RECOVERY-WEB-API` (P2)
+
+**Already delivered by this design.**
+- The recovery read is `GET key/recover`, through `get_binary_any_status`. It never evaluates, and
+  the metadata in the response says `Expired`.
+- Promotion is `POST key/override`, through `to_override`.
+- Both are key-only, as the issue requires.
+- The WebSocket reports `Expired` as its own message (O8).
+
+Close the issue on merge with those tests as evidence.
+
+### I3 `AXUM-ASSETS-CANCEL-STARTS-EVALUATION` (P3)
+
+`key/cancel` uses `lookup_key_asset` and never creates an asset. `q/cancel` needs the
+non-creating query lookup from **O2**. With O2 accepted, the issue closes. Without it, it stays
+open for queries only.
+
+### I4 `AXUM-HANDLER-TEST-COVERAGE` (P2)
+
+The assets API gets the suite from Phase 3. In addition, **every route of every builder** gets at
+least one in-process test (`tower::ServiceExt::oneshot`), which is also how the specification
+audit (I8) is proven:
+
+| Builder | Routes to cover |
+|---|---|
+| `StoreApiBuilder` | `data` (GET/PUT/DELETE), `metadata` (GET/PUT), `entry` (GET/PUT/DELETE), `listdir`, `is_dir`, `contains`, `keys`, `makedir`, `removedir`, `upload` (multipart), and the opt-in destructive GETs `remove`, `removedir` and `makedir` with and without `with_destructive_gets()` |
+| `QueryApiBuilder` | `GET` and `POST {base}/{*query}`: success, a parse error, an evaluation error, and the timeout (I5) |
+| `RecipesApiBuilder` | `listdir`, `data`, `metadata`, `entry`, `resolve` |
+| `AssetsApiBuilder` | Phase 3's suite, plus a `build()` test for every switch combination (the WebSocket route panic is a `build()` failure) |
+
+Each builder also gets a test that `build()` succeeds with default options. The issue closes on
+merge.
+
+### I5 `AXUM-QUERY-TIMEOUT-HARDCODED` (P2)
+
+`get_query_handler` (`query/handlers.rs` ≈41) polls with an inline `Duration::from_secs(30)`.
+
+**Change:**
+
+```rust
+impl<E: Environment> QueryApiBuilder<E> {
+    /// How long `GET/POST {base}/{*query}` waits for a value (default 30 s, unchanged).
+    pub fn with_timeout(mut self, timeout: std::time::Duration) -> Self;
+}
+```
+
+The timeout reaches the handler through a small `QueryApiConfig` layered with `Extension`, so the
+handler signature stays generic over `E` only. On timeout the error message names the duration and
+points to the long-running path: "use GET {assets}/q/info or the WebSocket at {assets}/q/ws to
+follow a long evaluation". The `ErrorType` stays `ExecutionError`; see O11.
+
+**Test:** a command that sleeps longer than a 100 ms timeout gives the documented error.
+
+### I6 `AXUM-WEBSOCKET-HARDENING` (P3), partial
+
+Taken now, because the socket is rewritten anyway:
+- **Message-size cap:** `WebSocketUpgrade::max_message_size`, default 64 KiB. A client message is
+  a small JSON control message.
+- **Per-socket subscription cap:** default 256. A `subscribe` beyond it gets an `Error` reply.
+- **Disconnect cleanup:** dropping the socket aborts every subscription task. It does **not**
+  cancel the subscribed evaluations, because other clients may share them.
+- **Tests:** oversized message, subscription cap, and disconnect mid-evaluation (the evaluation
+  still completes, and no task is left behind).
+
+```rust
+pub struct WebSocketLimits { pub max_message_size: usize, pub max_subscriptions: usize }
+impl Default for WebSocketLimits { /* 64 * 1024, 256 */ }
+impl<E: Environment> AssetsApiBuilder<E> { pub fn with_websocket_limits(mut self, limits: WebSocketLimits) -> Self; }
+```
+
+Left in the issue, which stays `accepted` with a progress note: connection-count limits, idle
+timeouts and server-initiated keep-alive, and slow-consumer back-pressure policy. The writer
+channel is bounded, and a full channel drops that subscription's message; the next change carries
+a fresh `AssetInfo` snapshot anyway.
+
+### I7 `LIBRARY-CODE-USES-UNWRAP-AND-EXPECT`, the `liquers-axum` part
+
+The nine library sites, verified 2026-09-28:
+
+| Site | Replacement |
+|---|---|
+| `axum_integration.rs` 37, 45, 70, 86, 96 (`Response::builder()…unwrap()`) | a `fn build_or_500(builder, body) -> Response` helper that falls back to a plain 500 response; a builder only fails on an invalid header |
+| `recipes/handlers.rs` 102 (`"text/plain".parse().unwrap()`) | `HeaderValue::from_static("text/plain")` |
+| `recipes/handlers.rs` 190, `assets/handlers.rs` 290 (`format.mime_type().parse().unwrap()`) | `HeaderValue::from_static(format.mime_type())` |
+| `store/handlers.rs` 479 | the same `build_or_500` helper |
+
+After this, the crate-wide `cargo clippy -p liquers-axum -- -D clippy::unwrap_used -D
+clippy::expect_used` passes (tests are exempt, since clippy lints only non-test code by default).
+It replaces Phase 4's file-scoped `awk` check. The issue stays open for the other crates, with a
+note that `liquers-axum` is clean.
+
+### I8 `WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION` (P1), and the whole specification
+
+`WEB_API_SPECIFICATION.md` is a `reference/` document and must be true at HEAD. The issue lists
+three drifts: the store entry write is `PUT`, `FullApiBuilder` does not exist (nor do the crate
+names `liquers_web`/`liquers_web_axum` used with it), and the WebSocket path. This design found
+more:
+- §5 as a whole (routes, 501 stubs, envelopes);
+- §5.2 message names, casing and payloads (W3, W4);
+- the non-existent statuses `External`/`Unavailable` in §5.2;
+- `GET /api/assets/remove`.
+
+**Change.** Rewrite §5 for the `/q/`, `/key/` and admin families and the WebSocket. Then audit
+§2–§4 and §6–§10 against the four builders, **route by route, using the I4 tests as the
+evidence**: every documented route either has a passing test or is corrected. Replace
+`FullApiBuilder` with the real assembly (`Router::merge` of the four builders), and document the
+new builder options (`read_only`, `with_admin`, `with_websocket_limits`, `with_timeout`). Add a
+`## History` row and bump `reviewed:`. The issue closes on merge.
+
+### I9 `MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS` (P3)
+
+In `liquers-core/src/media_type.rs`: `ndjson` → `application/x-ndjson`; `jsonl` →
+`application/jsonl`; `arrow`/`feather`/`ipc` → `application/vnd.apache.arrow.file`; `parquet` →
+`application/vnd.apache.parquet`. Each value is **checked against the IANA registry during
+implementation**, as the issue asks, rather than taken from this document. Add a unit test per
+extension. The issue closes on merge.
+
+### I10 `AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS` (P1)
+
+Covered by "WebSocket Notifications" (the route becomes `{{*query}}`) and by I4's `build()` tests.
+The issue closes on merge.
+
 ## Integration Points
 
 | Crate | File | Change |
@@ -635,6 +792,12 @@ client (already a dev-dependency). The tests cover:
 | liquers-axum | `src/assets/builder.rs` | `/q/`, `/key/` and admin routes; unprefixed routes removed; `read_only`, `with_admin`; WebSocket default `{base}/q/ws` with route `{*query}` (panics today) |
 | liquers-axum | `src/assets/websocket.rs` | rewritten per "WebSocket Notifications": writer task and subscription tasks, snake_case client messages with `query`/`key`, spec-named server messages with an `AssetInfo` snapshot, `Error` replies, subscription on the URL path |
 | liquers-core | `src/assets.rs` | `AssetNotificationMessage::Removed`, sent by `remove`, `set_binary` and `set_state` before they unmap a live asset; exhaustive matches on `AssetNotificationMessage` gain the arm |
+| liquers-axum | `src/assets/common.rs` | `asset_bytes` (I1) and the shared helpers |
+| liquers-axum | `src/query/builder.rs`, `query/handlers.rs` | `with_timeout`, `QueryApiConfig` and the timeout message (I5) |
+| liquers-axum | `src/axum_integration.rs`, `recipes/handlers.rs`, `store/handlers.rs` | the nine `unwrap()` sites (I7) |
+| liquers-axum | `tests/store_api_routes.rs`, `tests/query_api_routes.rs`, `tests/recipes_api_routes.rs` (new) | route tests for every builder (I4) |
+| liquers-core | `src/media_type.rs` | tabular media types (I9) |
+| specs | `reference/WEB_API_SPECIFICATION.md` | full audit and §5 rewrite (I8) |
 | liquers-axum | `examples/assets_recipes_basic.rs` | printed and documented URLs move to `/q/` |
 | liquers-axum | `src/assets/mod.rs` | `mod value_description;` |
 | liquers-axum | `src/assets/handlers.rs`, `builder.rs` module docs | point at `specs/design/axum-assets-endpoints/` as well as the original `axum-assets-recipes-api` |
@@ -906,6 +1069,13 @@ For the user (my lean in brackets):
   (never creating one), or immediately re-request it with `get(key)` (which may evaluate)?
   *[Wait passively; a client that wants the value recomputed asks for it through `/key/data`.]*
 
+- **O11. Query timeout status code.** A timeout currently answers 500 (`ExecutionError`). HTTP 504
+  would say "took too long, not broken", but no `ErrorType` maps to 504 and adding one touches
+  every exhaustive match again (as `StatusConflict` does). *[Keep 500 with the pointing message;
+  revisit if a second timeout-like case appears.]*
+- **O12. WebSocket limits defaults.** 64 KiB per client message and 256 subscriptions per socket?
+  *[Yes; both configurable through `with_websocket_limits`.]*
+
 ## Review Log
 
 Multi-agent review, 2026-09-27.
@@ -958,4 +1128,8 @@ stale until this revision is approved.
 Notifications" section was added: forwarding, the route, spec-conformant messages, key
 subscriptions, and `AssetNotificationMessage::Removed`. Open Questions O8–O10 were added. Hardening
 and scope subscriptions stay with their existing issues.
+
+**Scope extension, 2026-09-28** (Q22, the user accepted every recommended issue in one design):
+added "Web API Known Issues in Scope" (I1–I10), extended the preflight, integration points and
+open questions (O11, O12).
 
