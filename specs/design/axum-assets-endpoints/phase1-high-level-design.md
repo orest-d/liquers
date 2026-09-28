@@ -183,6 +183,12 @@ Still open: none — Phase 1 is ready for approval.
   expiration recovery, cancel without evaluation, route tests for all four builders, a
   configurable query timeout, part of WebSocket hardening, the `liquers-axum` `unwrap()` calls, and
   tabular media types (Phase 2, "Web API Known Issues in Scope").
+- **Q23:** access modes on both families: (a) request and wait (`data`, `entry`), (b) `submit`,
+  which returns the status at once, and (c) observe (`info`, `metadata`, `version`), which never
+  triggers evaluation.
+- **Q24:** `DELETE` on a directory does not remove it; a separate `removedir` does.
+- **Q25:** GET alternatives for every operation that has no request body, opt-in as in the Store
+  API.
 - **Q20:** the WebSocket is in scope. It must be consistent with the REST families, and it never
   forwarded notifications.
 

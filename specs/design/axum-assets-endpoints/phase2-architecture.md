@@ -44,8 +44,8 @@ So the family must be visible in the URL, and each family has exactly one parser
 
 | Family | Prefix | Parser | Core entry point | Evaluates? |
 |---|---|---|---|---|
-| query | `{base}/q/<op>/{*query}` | `parse_query` | `get_asset(query)`, then `AssetRef` methods | yes: `get_asset` creates the asset and submits it (queued manager returns at once; inline manager evaluates first) |
-| key | `{base}/key/<op>/{*key}` | `parse_key` | keyed `AssetManager` methods | only `GET data`, `GET entry` and `GET metadata`, through `get(key)`; every other key route answers from the live asset, the store or the recipe provider, without evaluating |
+| query | `{base}/q/<op>/{*query}` | `parse_query` | `get_asset(query)` to request; `lookup_query_asset(query)` to observe | only the *request* modes (see "Access modes") |
+| key | `{base}/key/<op>/{*key}` | `parse_key` | `get(key)` to request; the keyed describe/read methods to observe | only the *request* modes |
 | admin | `{base}/<op>` | — | manager-wide methods | no |
 
 - A pure-key query on the query family (`q/data/-R/notes/a.txt`) is still valid: `get_asset`
@@ -56,6 +56,77 @@ So the family must be visible in the URL, and each family has exactly one parser
   q/cancel`, with notifications on the WebSocket.
 - Non-keyed assets are never stored and never listed. Their lifecycle is request, observe and
   cancel, and that is exactly what `/q/` offers.
+
+## Access Modes
+
+Decided 2026-09-28 (Q23). Each family offers the same three modes, and **only the first two
+may start an evaluation**:
+
+| Mode | Routes (both families) | Core | Starts evaluation? | Returns |
+|---|---|---|---|---|
+| **a) request and wait for the result** | `data`, `entry` | `get_asset` / `get`, then `AssetRef::get_binary()` (I1) | yes, if not already available | the value (bytes, or a negotiated `DataEntry`) or the evaluation's error |
+| **b) submit** | `submit` (`POST`, and `GET`, which is always on because it changes no data) | `get_asset` / `get`, not awaited | yes | **immediately**: `AssetInfo` (e.g. `Submitted`, `Processing`, or `Ready` if cached), or the error of a failed submission (parse 400, unknown command or plan error 400, key not found 404) |
+| **c) observe (polling)** | `info`, `metadata`, `version` (plus `contains`, `recover`, `listdir` on `/key/`) | `lookup_query_asset` for `/q/`; for `/key/`, the live asset, then the store, then the recipe provider | **never** | current state; for `/q/` a query nobody has requested gives 404 (`NotAvailable`, "submit it first") |
+
+Verified against the code (2026-09-28):
+- **`key/info` never evaluates**, once `get_asset_info` stops calling `get`. All three of its
+  branches only read: `AssetRef::get_asset_info`, `AsyncStore::get_asset_info`, and the recipe
+  provider's `get_asset_info`. The last one builds the recipe's plan through
+  `create_plan_with_init_metadata`, whose `has_volatile_dependencies` and
+  `has_expirable_dependencies` walk recipe keys with `recipe_opt` and never evaluate. Polling a
+  recipe key therefore costs plan building and recipe reads, not command execution.
+- **`q/info`, as first designed, did evaluate:** it went through `get_asset`, which creates and
+  submits the asset. It now uses a non-creating lookup (O2, now required). A pure-key query
+  (`q/info/-R/a.txt`) is answered like `key/info`.
+- **`metadata` moves to the observe mode** on both families. Today's `GET metadata` calls
+  `get_asset` and so triggers evaluation.
+- **Inline managers:** on `ImmediateAssetManager` (`EvalMode::Inline`), `get`/`get_asset` evaluate
+  before returning, so `submit` answers with the *final* status. The native default
+  (`SimpleEnvironment`, the `Queued` kind) returns at once. The spec documents both.
+
+### Removal of directories (Q24)
+
+`DELETE key/data` on a `Directory` does **not** perform a directory removal: it answers 409
+(`StatusConflict`) and names `key/removedir`. Directory removal is its own route, as in the Store
+API:
+
+```rust
+/// NEW, default method. Remove a directory and everything in it: `remove` (with its
+/// status-aware semantics — delete+cascade for Source/Override, drop-and-keep-version for
+/// recipe-computed values) for every stored key under it (`listdir_keys_deep`), deepest first,
+/// then `store.removedir(key)`. Recipe-declared keys survive (their recipes are not stored data).
+/// Holds `key_mutation_lock` per key, not for the whole walk.
+async fn removedir(&self, key: &Key) -> Result<(), Error>;
+```
+
+It is not atomic: a failure part-way leaves the keys already removed removed, as
+`AsyncStore::removedir` is documented to behave (`STORE_SEMANTICS.md` §5). The error names the
+first key that failed.
+
+### GET alternatives for every operation (Q25)
+
+The Store API offers opt-in GET routes for its destructive operations
+(`StoreApiBuilder::with_destructive_gets()`, default off). The Assets API follows the same
+approach, and applies it to **every** operation that does not need a request body:
+
+| Operation | Primary | GET alternative (with `with_destructive_gets()`) |
+|---|---|---|
+| remove | `DELETE key/data`, `DELETE key/entry` | `GET key/remove/{*key}` |
+| removedir | `DELETE key/removedir/{*key}` | `GET key/removedir/{*key}` |
+| makedir | `PUT key/makedir/{*key}` | `GET key/makedir/{*key}` |
+| expire | `POST key/expire/{*key}` | `GET key/expire/{*key}` |
+| override | `POST key/override/{*key}` | `GET key/override/{*key}` |
+| description | `POST key/description/{*key}` (JSON) | `GET key/description/{*key}?title=…&description=…` |
+| cancel | `POST q/cancel`, `POST key/cancel` | `GET q/cancel/{*query}`, `GET key/cancel/{*key}` |
+| audit | `POST key/audit/{*key}`, `POST audit` | `GET key/audit/{*key}`, `GET audit` |
+| refresh | `POST refresh_command_versions` | `GET refresh_command_versions` |
+| submit | `POST q/submit`, `POST key/submit` | `GET q/submit`, `GET key/submit`, **always on** (no data changes) |
+
+- **Excluded:** `POST data` and `POST entry`, because they carry a request body, and
+  `POST metadata`, which always refuses.
+- `read_only()` removes the GET alternatives of everything it disables, and `with_admin(false)`
+  removes them for the admin operations.
+- This brings `GET remove` into scope, so the row in `ASSETS-API-ADMIN-OPERATIONS` is removed.
 
 ## Known-Issue Preflight
 
@@ -203,6 +274,13 @@ pub trait AssetManager<E: Environment>: MaybeSend + MaybeSync
     // changed store-only branch: a stored `Source` is left alone (no-op), matching
     // `AssetRef::to_override`, instead of being rewritten to an `Override` without a recipe
     async fn to_override(&self, key: &Key) -> Result<(), Error> { … }
+
+    /// NEW, required (both managers hold a query map). The live asset for a query, without
+    /// creating or submitting one. A pure-key query delegates to `lookup_key_asset`.
+    fn lookup_query_asset(&self, query: &Query) -> Option<AssetRef<E>>;
+
+    /// NEW, default. See "Removal of directories".
+    async fn removedir(&self, key: &Key) -> Result<(), Error> { /* default */ }
 
     // changed body: uses the live asset directly instead of `self.get(key)`
     async fn get_asset_info(&self, key: &Key) -> Result<AssetInfo, Error> { … }
@@ -415,50 +493,54 @@ to parse as a key.
 Handlers live in two modules so the family is visible in the code as well as in the URL:
 `assets/query_handlers.rs` (renamed from today's `handlers.rs`, whose four real handlers are
 already query-addressed) and `assets/key_handlers.rs` (new). Shared helpers go in
-`assets/common.rs`.
+`assets/common.rs`. Mode (a) is request-and-wait, (b) submit, (c) observe.
 
 ```rust
-// ---- assets/query_handlers.rs — path parsed with parse_query, core entry get_asset(query)
-pub async fn q_get_data_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;              // today's get_data_handler
-pub async fn q_get_metadata_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;          // today's get_metadata_handler
-pub async fn q_get_entry_handler<E>(State<EnvRef<E>>, Path<String>, HeaderMap, AxumQuery<HashMap<String,String>>) -> Response;
-pub async fn q_info_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;      // NEW: AssetRef::get_asset_info
-pub async fn q_version_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;   // NEW: AssetRef::get_metadata().version()
-pub async fn q_cancel_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;    // today's cancel_handler
+// ---- assets/query_handlers.rs — parse_query
+pub async fn q_get_data_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;                // (a) get_asset + get_binary
+pub async fn q_get_entry_handler<E>(State<EnvRef<E>>, Path<String>, HeaderMap, AxumQuery<HashMap<String,String>>) -> Response; // (a)
+pub async fn q_submit_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;                  // (b) get_asset, not awaited → AssetInfo
+pub async fn q_info_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;                    // (c) lookup_query_asset → AssetInfo | 404
+pub async fn q_get_metadata_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;            // (c) lookup_query_asset → metadata | 404
+pub async fn q_version_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;                 // (c) lookup → version | null
+pub async fn q_cancel_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;                  // lookup → cancel | 404; never creates
 
-// ---- assets/key_handlers.rs — path parsed with parse_key, keyed AssetManager methods
-pub async fn key_get_data_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;       // get(key), evaluates
-pub async fn key_get_metadata_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;   // get(key)
-pub async fn key_get_entry_handler<E>(State<EnvRef<E>>, Path<String>, HeaderMap, AxumQuery<HashMap<String,String>>) -> Response;
-pub async fn key_info_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;           // get_asset_info, no evaluation
-pub async fn key_contains_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;
-pub async fn key_version_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;        // AssetManager::version
-pub async fn key_recover_handler<E>(State<EnvRef<E>>, Path<String>, HeaderMap, AxumQuery<HashMap<String,String>>) -> Response;
-pub async fn key_listdir_handler<E>(State<EnvRef<E>>, Path<String>, AxumQuery<HashMap<String,String>>) -> Response;
-pub async fn key_listdir_root_handler<E>(State<EnvRef<E>>, AxumQuery<HashMap<String,String>>) -> Response;
+// ---- assets/key_handlers.rs — parse_key
+pub async fn key_get_data_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;              // (a) get(key) + get_binary
+pub async fn key_get_entry_handler<E>(State<EnvRef<E>>, Path<String>, HeaderMap, AxumQuery<HashMap<String,String>>) -> Response; // (a)
+pub async fn key_submit_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;                // (b) get(key), not awaited
+pub async fn key_info_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;                  // (c) get_asset_info
+pub async fn key_get_metadata_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;          // (c) live asset → store → recipe; never get()
+pub async fn key_version_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;               // (c) AssetManager::version
+pub async fn key_contains_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;              // (c)
+pub async fn key_recover_handler<E>(State<EnvRef<E>>, Path<String>, HeaderMap, AxumQuery<HashMap<String,String>>) -> Response; // (c)
+pub async fn key_listdir_handler<E>(State<EnvRef<E>>, Path<String>, AxumQuery<HashMap<String,String>>) -> Response;          // (c)
+pub async fn key_listdir_root_handler<E>(State<EnvRef<E>>, AxumQuery<HashMap<String,String>>) -> Response;                   // (c)
 pub async fn key_post_data_handler<E>(State<EnvRef<E>>, Path<String>, AxumQuery<HashMap<String,String>>, Bytes) -> Response;
 pub async fn key_post_entry_handler<E>(State<EnvRef<E>>, Path<String>, HeaderMap, AxumQuery<HashMap<String,String>>, Bytes) -> Response;
-pub async fn key_post_metadata_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;  // specified refusal, 501
-pub async fn key_delete_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;          // DELETE data and DELETE entry
-pub async fn key_description_handler<E>(State<EnvRef<E>>, Path<String>, Json<DescriptionRequest>) -> Response;
+pub async fn key_post_metadata_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;        // specified refusal, 501
+pub async fn key_remove_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;               // DELETE data|entry, GET remove
+pub async fn key_removedir_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;            // DELETE|GET removedir
+pub async fn key_makedir_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;              // PUT|GET makedir
+pub async fn key_description_handler<E>(State<EnvRef<E>>, Path<String>, Option<Json<DescriptionRequest>>, AxumQuery<DescriptionRequest>) -> Response; // POST body or GET params
 pub async fn key_expire_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;
 pub async fn key_override_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;
-pub async fn key_makedir_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;
-pub async fn key_cancel_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;   // lookup_key_asset → cancel; never creates
-pub async fn key_audit_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;    // trigger_dependency_audit(&key.into())
+pub async fn key_cancel_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;               // lookup_key_asset → cancel | 404
+pub async fn key_audit_handler<E>(State<EnvRef<E>>, Path<String>) -> Response;
 
 // ---- admin (root of base path)
 pub async fn audit_all_handler<E>(State<EnvRef<E>>) -> Response;
 pub async fn refresh_command_versions_handler<E>(State<EnvRef<E>>) -> Response;
 ```
 
-- **`q_info`** reports the asset's *current* state (`AssetInfo`: status, message, progress, type,
-  title), so a client can watch a non-keyed computation without waiting for it.
-- **`q_version`** is `null` until the asset has finished (Open Question O3).
-- **`key_cancel`** cancels only a live asset and returns 404 when the key has none. It never
-  starts an evaluation, which fixes `AXUM-ASSETS-CANCEL-STARTS-EVALUATION` for keys.
-- **`key_audit`** replaces the earlier `audit/{*query}`: an audit of a non-key query is always
-  empty (core's own rule), so it belongs to the key family.
+- One handler serves a POST/PUT/DELETE route and its GET alternative. The route table decides
+  which methods exist.
+- **`submit`** returns as soon as `get_asset`/`get` returns. On the queued manager that is right
+  after scheduling. The handler never awaits the value.
+- **Observe handlers never call `get_asset` or `get`.** That is the invariant AAE tests assert: an
+  observe call on an unevaluated recipe key leaves it in `Recipe`.
+- **`key_cancel`/`q_cancel`** use the lookups, so they never start an evaluation. This closes
+  `AXUM-ASSETS-CANCEL-STARTS-EVALUATION` (I3).
 
 Today's `get_entry_handler` ignores the `Accept` header: it passes an empty `HeaderMap` to
 `select_format`. Both entry handlers and `key_recover_handler` take the real headers. The fix is
@@ -809,35 +891,34 @@ The issue closes on merge.
 
 ### Routes (relative to `base_path`)
 
-| Method and path | Handler | Disabled by |
-|---|---|---|
-| **query family** | | |
-| `GET q/data/{*query}` | `q_get_data_handler` | — |
-| `GET q/metadata/{*query}` | `q_get_metadata_handler` | — |
-| `GET q/entry/{*query}` (`?format=`, `Accept`) | `q_get_entry_handler` | — |
-| `GET q/info/{*query}` | `q_info_handler` | — |
-| `GET q/version/{*query}` | `q_version_handler` | — |
-| `POST q/cancel/{*query}` | `q_cancel_handler` | — |
-| `GET q/ws`, `GET q/ws/{*query}` (WebSocket; default path, configurable; see "WebSocket Notifications") | `websocket_handler` | `without_websocket()` |
-| **key family** | | |
-| `GET key/data/{*key}`, `GET key/metadata/{*key}`, `GET key/entry/{*key}` | `key_get_*_handler` | — |
-| `GET key/info/{*key}` | `key_info_handler` | — |
-| `GET key/contains/{*key}` | `key_contains_handler` | — |
-| `GET key/version/{*key}` | `key_version_handler` | — |
-| `GET key/recover/{*key}` (`?format=`, `Accept`) | `key_recover_handler` | — |
-| `GET key/listdir`, `GET key/listdir/{*key}` (`?deep=true`) | `key_listdir_root_handler`, `key_listdir_handler` | — |
-| `POST key/data/{*key}`, `POST key/entry/{*key}` | `key_post_data_handler`, `key_post_entry_handler` | `read_only` |
-| `POST key/metadata/{*key}` | `key_post_metadata_handler` (always refuses, 501) | — |
-| `DELETE key/data/{*key}`, `DELETE key/entry/{*key}` | `key_delete_handler` | `read_only` |
-| `POST key/description/{*key}` | `key_description_handler` | `read_only` |
-| `POST key/expire/{*key}` | `key_expire_handler` | `read_only` |
-| `POST key/override/{*key}` | `key_override_handler` | `read_only` |
-| `PUT key/makedir/{*key}` | `key_makedir_handler` | `read_only` |
-| `POST key/cancel/{*key}` | `key_cancel_handler` | — |
-| `POST key/audit/{*key}` | `key_audit_handler` | `read_only`, `with_admin(false)` |
-| **admin** | | |
-| `POST audit` | `audit_all_handler` | `read_only`, `with_admin(false)` |
-| `POST refresh_command_versions` | `refresh_command_versions_handler` | `read_only`, `with_admin(false)` |
+`(G)` marks a GET alternative, present only with `with_destructive_gets()` (Q25).
+
+| Method and path | Handler | Mode | Disabled by |
+|---|---|---|---|
+| **query family** | | | |
+| `GET q/data/{*query}`, `GET q/entry/{*query}` | `q_get_data_handler`, `q_get_entry_handler` | a | — |
+| `POST q/submit/{*query}`, `GET q/submit/{*query}` | `q_submit_handler` | b | — |
+| `GET q/info/{*query}`, `GET q/metadata/{*query}`, `GET q/version/{*query}` | `q_info_handler`, `q_get_metadata_handler`, `q_version_handler` | c | — |
+| `POST q/cancel/{*query}`, (G) `GET q/cancel/{*query}` | `q_cancel_handler` | — | — |
+| `GET q/ws`, `GET q/ws/{*query}` (WebSocket) | `websocket_handler` | b + c | `without_websocket()` |
+| **key family** | | | |
+| `GET key/data/{*key}`, `GET key/entry/{*key}` | `key_get_data_handler`, `key_get_entry_handler` | a | — |
+| `POST key/submit/{*key}`, `GET key/submit/{*key}` | `key_submit_handler` | b | — |
+| `GET key/info`, `metadata`, `version`, `contains`, `recover` `/{*key}` | `key_*_handler` | c | — |
+| `GET key/listdir`, `GET key/listdir/{*key}` (`?deep=true`) | `key_listdir_root_handler`, `key_listdir_handler` | c | — |
+| `POST key/data/{*key}`, `POST key/entry/{*key}` | `key_post_data_handler`, `key_post_entry_handler` | — | `read_only` |
+| `POST key/metadata/{*key}` | `key_post_metadata_handler` (always 501) | — | — |
+| `DELETE key/data/{*key}`, `DELETE key/entry/{*key}`, (G) `GET key/remove/{*key}` | `key_remove_handler` | — | `read_only` |
+| `DELETE key/removedir/{*key}`, (G) `GET key/removedir/{*key}` | `key_removedir_handler` | — | `read_only` |
+| `PUT key/makedir/{*key}`, (G) `GET key/makedir/{*key}` | `key_makedir_handler` | — | `read_only` |
+| `POST key/description/{*key}`, (G) `GET key/description/{*key}?title=&description=` | `key_description_handler` | — | `read_only` |
+| `POST key/expire/{*key}`, (G) `GET key/expire/{*key}` | `key_expire_handler` | — | `read_only` |
+| `POST key/override/{*key}`, (G) `GET key/override/{*key}` | `key_override_handler` | — | `read_only` |
+| `POST key/cancel/{*key}`, (G) `GET key/cancel/{*key}` | `key_cancel_handler` | — | — |
+| `POST key/audit/{*key}`, (G) `GET key/audit/{*key}` | `key_audit_handler` | — | `read_only`, `with_admin(false)` |
+| **admin** | | | |
+| `POST audit`, (G) `GET audit` | `audit_all_handler` | — | `read_only`, `with_admin(false)` |
+| `POST refresh_command_versions`, (G) `GET refresh_command_versions` | `refresh_command_versions_handler` | — | `read_only`, `with_admin(false)` |
 
 **Unprefixed routes.** The current `GET data|metadata|entry/{*query}` and `POST cancel/{*query}`
 are removed, and their handlers move to `/q/` (Open Question O1). The only in-repo client is the
@@ -865,11 +946,16 @@ Envelope: §3 `ApiResponse` for everything except the byte-returning reads (`GET
 
 | Endpoint | Success | Body `result` | Errors |
 |---|---|---|---|
-| `GET q/data|metadata|entry/{query}` | 200 | as today (bytes; metadata record; negotiated `DataEntry`) | 400 parse; evaluation errors as today |
-| `GET q/info/{query}` | 200 | `AssetInfo` of the asset's current state (may be `Submitted`/`Processing` with progress) | 400 parse; `get_asset` errors (e.g. unknown command 400) |
-| `GET q/version/{query}` | 200 | `{version: "…" \| null}`, `null` until the asset has finished | as `q/info` |
+| `GET q/data|entry/{query}` (a) | 200 | bytes via `get_binary` (I1); negotiated `DataEntry` | 400 parse; evaluation errors |
+| `POST|GET q/submit/{query}` (b) | 200 | `AssetInfo` right after submission (`Submitted`, `Processing`, or `Ready` if cached) | 400 parse or plan error; 404 missing key |
+| `GET q/metadata/{query}` (c) | 200 | the live asset's metadata record | 404 `NotAvailable` when nobody requested it |
+| `POST|GET key/submit/{key}` (b) | 200 | as `q/submit` | 400 parse; 404 when neither stored nor declared by a recipe |
+| `DELETE key/removedir/{key}` | 200 | `{removed: true}` | 404; the first failing key's error |
+| `GET q/info/{query}` (c) | 200 | `AssetInfo` of the live asset's current state (with progress while `Processing`); never starts evaluation | 400 parse; 404 `NotAvailable` "submit it first" |
+| `GET q/version/{query}` (c) | 200 | `{version: "…" \| null}`, `null` until the asset has finished | as `q/info` |
 | `POST q/cancel/{query}` | 200 | as today | as today |
-| `GET key/data|metadata|entry/{key}` | 200 | as the `q/` reads, via `get(key)` | 400 parse (a `-R/` path gets a hint); 404 |
+| `GET key/data|entry/{key}` (a) | 200 | as the `q/` reads, via `get(key)` | 400 parse (a `-R/` path gets a hint); 404 |
+| `GET key/metadata/{key}` (c) | 200 | the live asset's, else the stored, else the recipe's metadata; never evaluates | 404 |
 | `POST key/cancel/{key}` | 200 | `AssetInfo` after the cancel | 404 when no live asset holds the key |
 | `POST key/audit/{key}` | 200 | `{checked, expired}` | — |
 | `GET key/listdir[/{key}]` | 200 | `{assets: [AssetInfo…]}`; with `deep=true`, `{keys: ["a/b.md", …]}` | store error |
@@ -880,7 +966,7 @@ Envelope: §3 `ApiResponse` for everything except the byte-returning reads (`GET
 | `POST key/data/{key}` | **201** | `AssetInfo` after the write; `message` names ignored parameters | 400 unparsable key, unknown type or bad format |
 | `POST key/entry/{key}` | **201** | as above; `message` names the dropped metadata fields | 400 undecodable body or non-object metadata |
 | `POST key/metadata/{key}` | — | — | always 501 `NotSupported`: "asset metadata is owned by the asset manager; use POST description for a Source asset's title and description" |
-| `DELETE key/data|entry/{key}` | 200 | `{removed: true, new_status: "Recipe" \| "None"}` | 404; 409 for a directory |
+| `DELETE key/data|entry/{key}` | 200 | `{removed: true, new_status: "Recipe" \| "None"}` | 404; 409 for a directory (use `key/removedir`) |
 | `POST key/description/{key}` | 200 | `AssetInfo` after the change | 400 when both fields are absent; 404; 409 when not `Source` |
 | `POST key/expire/{key}` | 200 | `AssetInfo` after the change | 404; 409 when the status cannot expire |
 | `POST key/override/{key}` | 200 | `AssetInfo` after the change; a `Source` is left unchanged | 404 when there is no data (`to_override`'s `key_not_found`) |
@@ -1023,6 +1109,10 @@ current shape.
     subscribed but never forwarded, used the wrong client-message casing, and could not even be
     registered under axum 0.8. It had no test. Every notification path in this design gets an
     end-to-end test.
+14. **Observing must never trigger.** A polling client that starts the computation it is
+    polling for (`q/info` through `get_asset`, `GET metadata` today) cannot be used to watch
+    without side effects. Request, submit and observe are distinct modes, and only the first two
+    may evaluate.
 
 ## Open Questions
 
@@ -1031,12 +1121,19 @@ Decided at the Phase 4 gate (2026-09-28):
   keys).
 - **Q19:** `to_override` on a `Source` does nothing, in both paths.
 
+- **Q23:** two ways to get an asset on both families: (a) request and wait (`data`, `entry`)
+  and (b) `submit`, which returns `AssetInfo` at once. `info`, `metadata` and `version` observe
+  without triggering.
+- **Q24:** `DELETE` on a directory does not remove it; `key/removedir` does.
+- **Q25:** GET alternatives for every operation without a body, as in the Store API
+  (`with_destructive_gets()`).
+
 For the user (my lean in brackets):
 
 - **O1. Unprefixed routes.** Remove `GET data|metadata|entry/{*query}` and `POST cancel/{*query}`
   (move them to `/q/`), or keep them as aliases for a transition? The only client in the repo is
   the example. *[Remove.]*
-- **O2. A non-creating query lookup.** Add `AssetManager::lookup_query_asset(&Query) ->
+- **O2. A non-creating query lookup (now required by Q23: observe must not trigger).** Add `AssetManager::lookup_query_asset(&Query) ->
   Option<AssetRef<E>>`, a default returning `None`, which `DefaultAssetManager` answers from its
   `query_assets` map? With it:
   - `q/cancel` would no longer start the evaluation it cancels;
@@ -1075,6 +1172,12 @@ For the user (my lean in brackets):
   revisit if a second timeout-like case appears.]*
 - **O12. WebSocket limits defaults.** 64 KiB per client message and 256 subscriptions per socket?
   *[Yes; both configurable through `with_websocket_limits`.]*
+
+- **O13. `removedir` depth.** Recursive over stored keys (as `AsyncStore::removedir`), applying
+  `remove`'s per-status semantics to each key? *[Yes.]*
+- **O14. GET alternatives default.** Off, as the Store API's `with_destructive_gets()`, or on?
+  *[Off: a crawler or link prefetcher must not delete data. `submit` and the observe routes are
+  GETs anyway.]*
 
 ## Review Log
 
@@ -1132,4 +1235,11 @@ and scope subscriptions stay with their existing issues.
 **Scope extension, 2026-09-28** (Q22, the user accepted every recommended issue in one design):
 added "Web API Known Issues in Scope" (I1–I10), extended the preflight, integration points and
 open questions (O11, O12).
+
+**Access modes, 2026-09-28** (user review):
+- Q23 (request / submit / observe), Q24 (`removedir`), Q25 (GET alternatives).
+- `q/info`, `q/metadata` and `q/version` now use `lookup_query_asset`, so observing never
+  evaluates. I verified that `key/info` never evaluates, including the recipe-provider path.
+- `metadata` moved to observe mode.
+- Added `submit`, `removedir` (core and route) and the full route table.
 

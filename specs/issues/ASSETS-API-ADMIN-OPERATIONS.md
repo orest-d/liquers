@@ -20,13 +20,12 @@ client-meaningful operations were deliberately left without an endpoint:
 |---|---|
 | `eval_mode`, `is_started` | `GET manager` |
 | a guarded `remove` refusing `Source` / `Override` (for cache-clearing clients) | `POST remove_cached` |
-| `remove` via GET, as the Store API's opt-in destructive GETs | `GET remove` |
 
 ## Impact
 
 Low. Manager status is a deployment detail; a cache-clearing client can check the status with
 `GET info` before calling `DELETE`, but that races a concurrent write — a `Source` written in
-between is deleted — which is what `remove_cached` would close; a state-changing GET is prefetchable and cacheable, which is why it was left out.
+between is deleted — which is what `remove_cached` would close. (`GET remove` was brought into scope by the design's Q25, opt-in as in the Store API.)
 
 ## Expected behaviour
 
