@@ -637,6 +637,25 @@ the environment), the RAR environment registers the `make_text`/`upper` commands
 (`resolve` builds the plan), and SAR15 expects 405, not 404 — `DELETE removedir` is registered on
 that path (the AAE69 rule).
 
+**Step 14 (validation), 2026-09-28:**
+
+| Check | Result |
+|---|---|
+| `cargo test -p liquers-core` (lib, integration, doc tests) | pass |
+| `cargo test -p liquers-axum` (lib, AAE, AWS, SAR, QAR, RAR, existing suites) | pass |
+| `cargo test -p liquers-lib --lib --tests` | pass |
+| `cargo test -p liquers-records --all-features --lib --tests` (after Step 5) | pass |
+| `cargo check -p liquers-py` | pass |
+| `cargo check -p liquers-core --no-default-features` | pass |
+| `cargo clippy -p liquers-axum --no-deps -- -D clippy::unwrap_used -D clippy::expect_used` | pass, and no clippy warnings in the new files |
+| `cargo clean && cargo check -p liquers-web --target wasm32-unknown-unknown` | pass |
+| `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles` | test targets compile; **not run** — `wasm-bindgen-test-runner` is not installed in the build environment |
+| `python3 scripts/docs_index.py --check` | 0 errors |
+
+`--no-deps` is needed for the clippy check: without it the `-D` flags also apply to the path
+dependency `liquers-core`, whose own `unwrap()`s are outside this design
+(`LIBRARY-CODE-USES-UNWRAP-AND-EXPECT`).
+
 ## Execution Options
 
 After approval:
