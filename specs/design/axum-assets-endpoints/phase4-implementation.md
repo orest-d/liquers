@@ -1,574 +1,498 @@
-# Phase 4: Implementation Plan - Assets API over the whole AssetManager
+# Phase 4: Implementation Plan - A working web and WebSocket interface for the asset manager
 
 ## Overview
 
-Ten steps, each ending in a state that compiles and passes its own validation. Core first
-(error type, then trait methods, then core tests); then axum (value description, handlers,
-routes, HTTP tests); then documentation; then a full validation run. Steps 1–4 touch
-`liquers-core` and, for the error variant only, `liquers-axum`, `liquers-py` and `liquers-web`.
-Steps 5–8 touch only `liquers-axum`. The contract is Phase 2. The tests are Phase 3, pasted
-verbatim except where this plan says otherwise.
+Fourteen steps. Each one ends in a state that compiles and passes its own validation, and each is
+one commit on `claude/fervent-cori-ew4kvn`. Phase 2 (re-approved 2026-09-28) is the contract, and
+Phase 3 v2 (169 tests) is pasted verbatim except where a step says otherwise. The work falls in
+four blocks:
 
-**Pre-flight facts** (verified 2026-09-27, so no step has to rediscover them):
+1. **Core, Steps 1–5:**
+   - the error type, internal plumbing and the new notification;
+   - `AssetManager` behaviour (`remove`, `expire`, `set_description`, `removedir`,
+     `lookup_query_asset`, `to_override`, `get_asset_info`);
+   - core tests;
+   - media types.
+2. **Axum foundations, Steps 6–7:** the `unwrap()` removal and the WebSocket route fix, then
+   `ValueDescription`.
+3. **Axum features, Steps 8–12:**
+   - handlers for both families;
+   - routes and switches;
+   - the WebSocket rewrite;
+   - the query timeout;
+   - the HTTP and WebSocket tests.
+4. **Documentation and validation, Steps 13–14:** the specification audit and issue statuses, then
+   full validation.
 
-- Only one existing test calls `AssetManager::remove`: `test_remove_asset`, `assets.rs` ≈9146. It
-  removes a `Source`, so its assertion (the store no longer contains the key) holds under the new
-  semantics. No existing test matches on `expire`'s "Cannot expire…" messages.
-- `AssetManager` already carries `#[allow(private_bounds)]` (`assets.rs` ≈3894), so adding the
+**Pre-flight facts** (verified 2026-09-28; no step has to rediscover them):
+
+- **`remove` callers.** Only `test_remove_asset` (`assets.rs` ≈9146) calls `AssetManager::remove`,
+  on a `Source`, and it still holds under the new semantics. No test matches on `expire`'s
+  "Cannot expire…" messages.
+- **`AssetManager` bounds.** The trait carries `#[allow(private_bounds)]` (≈3894), so the
   `pub(crate)` supertrait `KeyMutationAccess` needs no new lint allowance.
-- `mark_expired_status` may run on a **non-keyed** asset, and `Error::status_conflict(&Key, …)`
-  needs a key. There it uses `Error::from_error(ErrorType::StatusConflict, msg)`, plus
-  `.with_key(&k)` (which sets `query`) when `self.key()` is `Some`. The keyed `AssetManager::expire`
-  path checks the live status first and uses `status_conflict`, so its errors carry `key`.
-- **Key paths over HTTP are `-R/<key>`.** A bare `notes/a.txt` parses as the action `notes`
-  (verified with `liquers-validate`); Phase 3's tests use `-R/…` throughout.
-- **`AssetsApiBuilder::build()` panics today** with the default WebSocket path: the route is
-  registered as `{ws}/*query`, which axum 0.8 rejects. Step 7 fixes it; until then no router test
-  can run.
-- `liquers-web` is not in `default-members`; check it with
-  `--target wasm32-unknown-unknown`. `liquers-py` is a default member; `cargo check` is enough,
-  because running its tests needs a Python toolchain.
-- Disk: run `cargo clean` between the native loop and the wasm check if space is low (CLAUDE.md,
-  "Building and testing").
+- **`AssetNotificationMessage` match sites.** Adding `Removed` touches:
+  - `liquers-core/src/assets.rs` ≈2455 and ≈3160: wait loops with a pre-existing `_ =>` arm. They
+    must treat `Removed` as **terminal**, like `Cancelled`, so a waiter cannot hang on an unmapped
+    asset;
+  - `assets.rs` ≈3446: exhaustive;
+  - `liquers-axum/src/assets/websocket.rs` ≈319: exhaustive, and rewritten in Step 10;
+  - `liquers-lib/src/ui/element.rs` ≈516: exhaustive; `Removed` joins the arm that ignores
+    status-only messages.
+- **`StatusConflict` match sites:**
+  - `assets.rs` ≈2239–2252;
+  - `liquers-axum/src/api_core/error.rs` ≈28/79/110/136/322;
+  - `liquers-py/src/error.rs`, both directions and its own `ErrorType`;
+  - `liquers-web/src/error.rs`, both directions, plus `tests/objects_OBJECT.rs` ≈39.
+- **`get_asset_info`** has two bodies: the trait default (≈4067) and a `DefaultAssetManager`
+  override (≈5518).
+- **`dependency_blocks_fast_track`** is at ≈1076.
+- **`mark_expired_status`** is at ≈3280; it may run on a non-keyed asset.
+- **Query maps.** Both managers hold one: `DefaultAssetManager.query_assets` (`scc::HashMap`) and
+  `ImmediateAssetManager.query_assets` (`Mutex<HashMap>`). So `lookup_query_asset` is a required
+  method with two small bodies.
+- **The nine `unwrap()` calls in `liquers-axum` library code:**
+  - `axum_integration.rs` 37, 45, 70, 86, 96;
+  - `recipes/handlers.rs` 102, 190;
+  - `store/handlers.rs` 479;
+  - `assets/handlers.rs` 290.
+- **The WebSocket route `{}/*query`** panics in axum 0.8 (`AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS`).
+  Every router test is blocked on it, so Step 6 fixes it first.
+- **Package layout.** `liquers-web` is wasm-only (checked with `--target
+  wasm32-unknown-unknown`). `liquers-py` is a default member (`cargo check`).
+- **Dev-dependencies.** `tokio-tungstenite` 0.23 and `reqwest` 0.12 are already dev-dependencies
+  of `liquers-axum`. `tower` needs `features = ["util"]` in dev-dependencies.
+- **Disk.** Run `cargo clean` before the wasm check if space is tight (CLAUDE.md).
 
 ## Implementation Steps
 
-### Step 1: `ErrorType::StatusConflict` across every exhaustive match
+### Step 1: `ErrorType::StatusConflict` everywhere
 
-**Files:**
-- `liquers-core/src/error.rs`
-- `liquers-core/src/assets.rs` (≈2239–2252)
-- `liquers-axum/src/api_core/error.rs` (≈32, ≈83, ≈110–123, ≈136–149, ≈322–326)
-- `liquers-py/src/error.rs` (both conversions, plus its own `ErrorType` enum)
-- `liquers-web/src/error.rs` (both directions)
-- `liquers-web/tests/objects_OBJECT.rs` (≈39)
+**Files:** `liquers-core/src/error.rs`; the match sites listed above.
 
 **Action:**
-- Add the `StatusConflict` variant, with the doc comment from Phase 2, after `DependencyCycle`.
-- Add `pub fn status_conflict(key: &Key, status: Status, operation: &str) -> Self`. Its message is
-  `"Cannot {operation} '{key}': asset status is {status:?}"`, and it sets `key` and `query` the
-  same way `key_not_found` and `dependency_cycle` do. `Status` is imported from
-  `crate::metadata`. Check that this creates no import cycle: `metadata` already imports `error`,
-  which is fine inside one crate.
-- The arm pattern, for reference:
+- Add the variant, with its Phase 2 doc comment, after `DependencyCycle`.
+- Add `pub fn status_conflict(key: &Key, status: Status, operation: &str) -> Self`: message
+  `"Cannot {operation} '{key}': asset status is {status:?}"`, setting `key` (encoded) and `query`.
+- Add the match arms:
 
-  ```rust
-  // liquers-axum/src/api_core/error.rs, error_to_status_code
-  ErrorType::StatusConflict => StatusCode::CONFLICT,
-  // liquers-web/src/error.rs, the ErrorType → str direction
-  ErrorType::StatusConflict => "status_conflict",
-  // liquers-py/src/error.rs, the py → core direction
-  ErrorType::StatusConflict => liquers_core::error::ErrorType::StatusConflict,
-  ```
-- Add an arm at each match site:
-  - `assets.rs`: → `PersistenceStatus::NotPersisted`
-  - axum `error_to_status_code`: → `StatusCode::CONFLICT`
-  - axum `parse_error_type`: `"StatusConflict"`
-  - axum test lists: the variant
-  - py: the variant in both directions, and in the Python enum
-  - web: `"status_conflict"` in both directions, and the test list
-
-**Validation:**
-```bash
-cargo check -p liquers-core -p liquers-axum -p liquers-py
-cargo test -p liquers-axum --lib api_core
-cargo check -p liquers-web --target wasm32-unknown-unknown   # after `cargo clean` if disk is tight
+```rust
+ErrorType::StatusConflict => PersistenceStatus::NotPersisted,                 // assets.rs
+ErrorType::StatusConflict => StatusCode::CONFLICT,                            // axum error_to_status_code
+"StatusConflict" => Ok(ErrorType::StatusConflict),                            // axum parse_error_type
+ErrorType::StatusConflict => "status_conflict",                               // liquers-web, and back
+ErrorType::StatusConflict => liquers_core::error::ErrorType::StatusConflict,  // liquers-py, and back
 ```
 
-**Rollback:** `git checkout -- <the files above>`. The variant is additive, so nothing else
-depends on it until Step 3.
+**Validation:** `cargo check -p liquers-core -p liquers-axum -p liquers-py -p liquers-lib`;
+`cargo test -p liquers-axum --lib api_core`; `cargo check -p liquers-web --target
+wasm32-unknown-unknown`.
 
-**Agent Specification:**
-- **Model:** haiku
-- **Skills:** rust-best-practices
-- **Knowledge:** Phase 2 "New Enums"; the match-site list above; `Error::dependency_cycle` as the
-  constructor pattern
-- **Rationale:** mechanical, and the compiler lists every missed site
+**Rollback:** revert the commit (the change is additive).
+
+**Agent:** haiku · rust-best-practices · Phase 2 "New Enums" + the site list · mechanical, and
+the compiler finds every missed site.
 
 ---
 
-### Step 2: `KeyMutationAccess`, the refusals in `mark_expired_status`, and a doc fix
+### Step 2: Core plumbing — `KeyMutationAccess`, `Removed`, `lookup_query_asset`, refusals, doc fix
 
-**File:** `liquers-core/src/assets.rs`
+**File:** `liquers-core/src/assets.rs` (+ `liquers-lib/src/ui/element.rs` arm,
+`liquers-axum/src/assets/websocket.rs` arm).
 
 **Action:**
-- Next to `DependencyManagerAccess`, add:
+- `pub(crate) trait KeyMutationAccess { fn key_mutation_lock(&self) -> &tokio::sync::Mutex<()>; }`,
+  implemented by both managers and added to the `AssetManager` supertraits.
+- `AssetNotificationMessage::Removed`, with arms at every site in the pre-flight list. The two
+  wait loops treat it as terminal and return the same error as for `Cancelled`, with the message
+  "asset was removed".
+- `fn lookup_query_asset(&self, query: &Query) -> Option<AssetRef<E>>`, **required**. A pure-key
+  query delegates to `lookup_key_asset`; otherwise it reads the manager's `query_assets` map
+  without inserting.
+- `mark_expired_status` refusals become `Error::from_error(ErrorType::StatusConflict, …)`.
+- Move the orphaned doc paragraph above `expire_stored_copy` back to `DependencyManagerAccess`.
 
-  ```rust
-  pub(crate) trait KeyMutationAccess {
-      fn key_mutation_lock(&self) -> &tokio::sync::Mutex<()>;
-  }
-  ```
+**Validation:** `cargo test -p liquers-core --lib`; `cargo check -p liquers-lib -p liquers-axum`.
 
-  Implement it for `DefaultAssetManager<E>` and `ImmediateAssetManager<E>`, each returning
-  `&self.key_mutation_lock`. Add `+ KeyMutationAccess` to the `AssetManager` supertraits.
-- In `mark_expired_status`, replace both `Error::general_error(...)` refusals with
-  `Error::from_error(ErrorType::StatusConflict, <same message>)`, adding `.with_key(&k)` when
-  `owner_key` is `Some`. The messages stay the same. (`with_key` fills the `query` field, not
-  `key` — `ERROR-WITH-KEY-SETS-QUERY-FIELD` — which is why the keyed manager path in Step 3
-  refuses non-expirable live statuses itself with `status_conflict`.)
-- The paragraph "Internal access to the runtime dependency graph…" currently sits above
-  `expire_stored_copy`. Move it back above `pub(crate) trait DependencyManagerAccess`, which it
-  describes.
+**Rollback:** revert the commit.
 
-**Validation:**
-```bash
-cargo test -p liquers-core --lib assets
-```
-
-**Rollback:** `git checkout liquers-core/src/assets.rs`
-
-**Agent Specification:**
-- **Model:** haiku
-- **Skills:** rust-best-practices
-- **Knowledge:** Phase 2, "Why defaults behind a lock accessor"; `assets.rs` ≈3822–3900 and
-  ≈3280–3320
-- **Rationale:** small and pattern-following; `DependencyManagerAccess` is the template
+**Agent:** sonnet · rust-best-practices · Phase 2 "Trait Implementations", "WebSocket
+Notifications" (the `Removed` part) · the wait-loop semantics need judgement.
 
 ---
 
-### Step 3: The new `AssetManager` behaviour
+### Step 3: Core behaviour
 
-**File:** `liquers-core/src/assets.rs`
+**File:** `liquers-core/src/assets.rs`.
 
-**Action:**
-- **`remove` becomes a default method** implementing Phase 2's decision table. Delete both
-  per-manager `remove` bodies (≈5643 `DefaultAssetManager`, ≈6939 `ImmediateAssetManager`). The
-  body runs in this order:
-  1. `let _g = self.key_mutation_lock().lock().await;`
-  2. Read the status: `lookup_key_asset(key)` then `asset.status().await`; if there is no live
-     asset, **or its status is `None`/`Recipe`**, use the store: `contains`, then
-     `get_metadata(key)?.status()`.
-  3. Compute `has_recipe = self.recipe_opt(key).await?.is_some()`.
-  4. Decide with an **exhaustive `match` on `Status`**; no `_ =>`.
-  5. **Delete branch:** cancel the live asset, `untrack_expiration(id)`, `remove_key_asset(key)`,
-     then `cascade_expire_dependents(&dep_key)`, **then** `dependency_manager().remove(&dep_key)`,
-     then `store.remove(key)` if the store contains the key.
-  6. **Drop-computed branch:** cancel, untrack and unmap the live asset; if the store contains the
-     key, take the stored `MetadataRecord` and set `status = Recipe`, `file_size = None`,
-     `is_error = false`, `error_data = None` and `progress` cleared, keeping `version`; then
-     `store.set(key, &[], &md.into())`. Leave the dependency graph alone. A stored
-     `Metadata::LegacyMetadata` is deleted (`store.remove`) instead.
-     A stored `Recipe` (already dropped) with a recipe is an idempotent `Ok(())`.
-  7. **`Directory`:** `Err(Error::status_conflict(key, Status::Directory, "remove"))`.
-  8. **Nothing live and nothing stored:** `Ok(())` if a recipe exists, otherwise
-     `Err(Error::key_not_found(key))`.
-- **`expire`** becomes a default method, holding the lock:
-  - a live asset (status not `None`/`Recipe`): `Ready | Override | Expired` →
-    `asset.expire().await`; any other status → `status_conflict(key, status, "expire")`;
-  - stored `Ready` or `Override`: `expire_stored_copy(store, key).await`, then
-    `cascade_expire_dependents`;
-  - stored `Expired`: `Ok(())`;
-  - any other stored status: `status_conflict(key, status, "expire")`;
-  - nothing live or stored: `status_conflict(key, Status::Recipe, "expire")` if a recipe exists,
-    otherwise `key_not_found`.
-- **`set_description`** becomes a default method, holding the lock:
-  - if both arguments are `None`: `Err(Error::from_error(ErrorType::ParameterError, …))`;
-  - a live asset: its status must be `Source`, otherwise `status_conflict(…, "set_description")`;
-    then call `asset.set_description_fields(title.clone(), description.clone()).await`;
-  - stored: `get_metadata`; the status must be `Source`; set the fields on the record, then
-    `set_metadata`. When both a live asset and a stored copy exist, update both.
-  - neither: `key_not_found`.
-- **`AssetRef::set_description_fields(&self, title: Option<String>, description: Option<String>)`**
-  is new and `pub(crate)`. It takes a write lock on `data`, and each `Some` field replaces
-  `metadata`'s `title` or `description`. For a `Metadata::LegacyMetadata`, ignore the call and
-  write a note with `eprintln!`: legacy metadata cannot hold a `Source` set by this path.
-- **`get_asset_info`**: replace `let assetref = self.get(key).await?; assetref.get_asset_info()`
-  with `asset.get_asset_info().await`, using the asset returned by `lookup_key_asset`. Do it in
-  **both** bodies — the trait default (≈4067) and `DefaultAssetManager`'s override (≈5518), or
-  delete the override. In both, the final "Asset not found" `general_error` becomes
-  `Error::key_not_found(key)` (AMR01, AAE22 expect `KeyNotFound`/404).
-- **`AssetData::dependency_blocks_fast_track`** (≈1076): in the store branch, a stored
-  `Status::Recipe` does not block (`status != Status::Recipe && !status_permits_reuse(status)`,
-  no `_ =>`). Live branch unchanged. Tested by AMR24.
+**Action**, exactly as Phase 2 "Trait Implementations" and "Access Modes":
+- **`remove`:** a default method implementing the decision table. Delete both per-manager bodies
+  (≈5643, ≈6939). Send `Removed` before unmapping a live asset. Cascade **before**
+  `dependency_manager().remove`. The drop-computed branch writes `store.set(key, &[], md)` with
+  `status = Recipe` and the version kept. A live `None`/`Recipe` status defers to the stored
+  status; a stored `Recipe` is a no-op; `LegacyMetadata` is deleted. Use an exhaustive `match`
+  on `Status`.
+- **`set_binary` and `set_state`:** send `Removed` before unmapping a live asset.
+- **`expire`**, **`set_description`**, **`removedir`**, all as default methods:
+  - `removedir` walks `listdir_keys_deep` deepest first, calls `remove` for each stored key
+    (taking the lock per key, never across the walk), then calls `store.removedir`;
+  - `set_description` uses the new `pub(crate) AssetRef::set_description_fields`.
+- **`to_override`:** the store-only branch skips a `Source`.
+- **`get_asset_info`:** the live branch uses `lookup_key_asset`, in both bodies (the simplest way
+  is to delete the override). Not found → `Error::key_not_found`.
+- **`dependency_blocks_fast_track`:** in the store branch, a stored `Recipe` does not block.
 - **Lock discipline** (Phase 2): while holding the guard, never call `get`, `owned_key_asset`,
   `to_override`, `set_binary`, `set_state` or `remove_expired_from_maps`.
 
-**Validation:**
-```bash
-cargo test -p liquers-core --lib            # existing suite, incl. test_remove_asset
-cargo test -p liquers-core --tests          # integration suites, incl. the expiration ones
-```
-If `EXPIRATION-INTEGRATION-SUITE-FAILING-AT-HEAD` is still open, compare any expiration failure
-with a run at the base commit before attributing it to this step.
+**Validation:** `cargo test -p liquers-core --lib`; `cargo test -p liquers-core --tests`. If
+`EXPIRATION-INTEGRATION-SUITE-FAILING-AT-HEAD` is still open, compare any expiration failure
+against the base commit before attributing it here.
 
-**Rollback:** `git checkout liquers-core/src/assets.rs`. Step 2's edits sit in the same file, so
-revert to the Step 2 commit rather than to HEAD~.
+**Rollback:** revert to the Step 2 commit.
 
-**Agent Specification:**
-- **Model:** sonnet
-- **Skills:** rust-best-practices
-- **Knowledge:** Phase 2, the `remove` decision table and the lock discipline; the current
-  `remove`, `set_binary`, `to_override` and `expire_stored_copy`; `ASSETS.md` "Remove Semantics"
-- **Rationale:** judgement is needed on status reads, lock scope and cascade order; this is the
-  only step with real concurrency risk
+**Agent:** sonnet · rust-best-practices · Phase 2 decision tables + lock discipline; `ASSETS.md`
+"Remove Semantics" · the only step with real concurrency risk.
 
 ---
 
-### Step 4: Core tests
+### Step 4: Core tests (AMR, 37)
 
-**File:** `liquers-core/tests/asset_manager_remove_expire_describe.rs` (new)
+**File:** `liquers-core/tests/asset_manager_remove_expire_describe.rs` (new): Phase 3's shared
+helpers and AMR01–AMR61, including AMR24 (the restart fast-track).
 
-**Action:** paste Phase 3's AMR tests: the shared helpers from Example 2 (`env_over`, `env_with`,
-`metadata_text`, `stored_status`), then AMR01–AMR07 and AMR10–AMR24 from "Integration Tests"
-(21 tests). Only public API is used. Replace any `println!`
-with `eprintln!`.
+**Validation:** `cargo test -p liquers-core --test asset_manager_remove_expire_describe`. A
+failure is judged **against Phase 2**, and any divergence is recorded under "Implementation
+Notes" below; tests are never edited silently.
 
-**Validation:**
-```bash
-cargo test -p liquers-core --test asset_manager_remove_expire_describe
-```
-If a test fails, decide whether the code or the test is wrong **against Phase 2**, not against
-the test. Record a divergence in this document's "Implementation Notes" rather than silently
-editing the test.
-
-**Rollback:** delete the file.
-
-**Agent Specification:**
-- **Model:** sonnet
-- **Skills:** liquers-unittest, rust-best-practices
-- **Knowledge:** Phase 3 (Example 2 and the AMR sections); Phase 2's decision table
-- **Rationale:** failing tests need a diagnosis, not a transcription
+**Agent:** sonnet · liquers-unittest, rust-best-practices · Phase 3 AMR sections.
 
 ---
 
-### Step 5: `ValueDescription`
+### Step 5: Tabular media types (I9, MT 10)
+
+**File:** `liquers-core/src/media_type.rs`.
+
+**Action:**
+- Set the Phase 2 I9 values, **each confirmed against the IANA media-types registry**. Where a
+  value is not registered (`application/x-ndjson`, `application/jsonl`), keep the common
+  unregistered form and say so in a comment.
+- Add the MT01–MT10 tests.
+
+**Validation:** `cargo test -p liquers-core --lib media_type`.
+
+**Agent:** haiku · — · Phase 2 I9, Phase 3 MT.
+
+---
+
+### Step 6: Axum foundations — `unwrap()` removal (I7) and the WebSocket route (I10)
+
+**Files:** `axum_integration.rs`, `recipes/handlers.rs`, `store/handlers.rs`,
+`assets/handlers.rs`, `assets/builder.rs`.
+
+**Action:**
+- Add a `build_or_500(builder, body) -> Response` helper, and replace
+  `mime_type().parse().unwrap()` with `HeaderValue::from_static`, at the nine sites.
+- Change the WebSocket route to `{{*query}}`, so `build()` stops panicking before the Step 10
+  rewrite.
+
+**Validation:**
+- `cargo clippy -p liquers-axum -- -D clippy::unwrap_used -D clippy::expect_used` passes
+  crate-wide. This replaces the file-scoped `awk` check of the previous plan.
+- `cargo test -p liquers-axum`.
+
+**Agent:** haiku · rust-best-practices · Phase 2 I7 table.
+
+---
+
+### Step 7: `ValueDescription` (VD 11)
+
+**Files:** `liquers-axum/src/assets/value_description.rs` (new) and `mod.rs`.
+
+**Action:** the struct, `from_json`, `from_params`, `or_previous` (the pair rule),
+`into_metadata_record` (`Bytes` default, registry `type_name`, `ParameterError` for an unknown
+type), plus the VD tests.
+
+**Validation:** `cargo test -p liquers-axum --lib value_description`.
+
+**Agent:** haiku · rust-best-practices, liquers-unittest.
+
+---
+
+### Step 8: Handlers for both families
 
 **Files:**
-- `liquers-axum/src/assets/value_description.rs` (new)
-- `liquers-axum/src/assets/mod.rs` (`pub mod value_description;`)
+- `liquers-axum/src/assets/common.rs` (new): `key_from_path`, `query_from_path`,
+  `error_response`, `created`, `status_after_remove` and `asset_bytes` (I1).
+- `query_handlers.rs`: `git mv` of `handlers.rs`, then adapted.
+- `key_handlers.rs` (new).
 
-**Action:**
-- Implement the struct, `VALUE_DESCRIPTION_FIELDS`, `from_json`, `from_params`, `or_previous` and
-  `into_metadata_record`, exactly as specified in Phase 2 — including `or_previous`'s pair rule
-  (type and format only together, only from a data-bearing previous with a non-empty type).
-- Errors are built with `Error::from_error(ErrorType::ParameterError, …)`.
-- `into_metadata_record` builds a record with `MetadataRecord::new()` and sets only
-  `type_identifier`, `type_name` (from the registry's `TypeInfo`), `data_format`, `media_type`,
-  `title` and `description`.
-- Paste the VD01–VD11 tests into `#[cfg(test)] mod tests` at the end of the file.
+**Action:** every handler in Phase 2 "Handlers — new or changed", with modes (a), (b) and (c)
+exactly as specified:
+- observe handlers never call `get`/`get_asset`;
+- submit handlers do not await the value;
+- the reads use `asset_bytes`;
+- `Accept` is honoured;
+- every status output is an `ApiResponse`;
+- the version is never null.
 
-**Validation:**
-```bash
-cargo test -p liquers-axum --lib value_description
-```
+Phase 2 is the single source of truth for extractors, shapes and codes.
 
-**Rollback:** delete the file and the `mod` line.
+**Validation:** `cargo check -p liquers-axum`; clippy as in Step 6.
 
-**Agent Specification:**
-- **Model:** haiku
-- **Skills:** rust-best-practices, liquers-unittest
-- **Knowledge:** Phase 2 "`ValueDescription`"; Phase 3 VD tests; `TypeRegistry::get`;
-  `MetadataRecord` fields
-- **Rationale:** self-contained pure code with its tests given
+**Agent:** sonnet · rust-best-practices · Phase 2 "Access Modes", "Handlers", "Web Endpoints",
+"Error Handling"; `store/handlers.rs` `put_entry_handler` for entry decoding.
 
 ---
 
-### Step 6: Handlers
+### Step 9: Routes and builder switches
 
-**File:** `liquers-axum/src/assets/handlers.rs`
-
-**Phase 2 is the single source of truth** for every handler signature, the extractors each one
-takes, the result shapes and the status codes. Where this step and Phase 2 differ, Phase 2 wins, and
-the difference is recorded under "Implementation Notes".
+**Files:** `liquers-axum/src/assets/builder.rs`, `examples/assets_recipes_basic.rs`.
 
 **Action:**
-- Add the helpers `key_from_path`, `error_response`, `created` and `status_after_remove`, plus the
-  DTOs, as specified in Phase 2.
-- Fill in the seven existing stubs and add the eleven new handlers, with the signatures and result
-  shapes from Phase 2 ("Handlers" and "Web Endpoints").
-- In `post_data_handler` and `post_entry_handler`, run this sequence:
-  `key_from_path` → `ValueDescription::from_params` / `from_json` →
-  `.or_previous(am.get_asset_info(&key).await.ok().as_ref())` → `into_metadata_record(registry)` →
-  `am.set_binary(&key, &bytes, record)` → `am.get_asset_info(&key)` → `created(info, message)`,
-  where `message` names any dropped fields.
-- `get_entry_handler`: pass the request's real `HeaderMap` to `select_format`, and replace
-  `.parse().unwrap()` with `HeaderValue::from_static(format.mime_type())`.
-- Set `query` on every `ApiResponse` built here.
-- Update the module doc comment to point at `specs/design/axum-assets-endpoints/` as well as the
-  original design.
+- Register the Phase 2 route table: `q/`, `key/`, `admin/`, `ws/q` and `ws/key`.
+- Remove the unprefixed routes (O1).
+- Add the builder options:
+  - `read_only()`;
+  - `with_admin(bool)`;
+  - `with_destructive_gets()` for the GET alternatives, default off (O14); `submit` GETs are
+    always on;
+  - `with_websocket_limits(WebSocketLimits)`;
+  - `with_websocket_path(base)`, which replaces the `{base}/ws` prefix.
+- Update the example's printed URLs to the new families.
 
-**Validation:**
-```bash
-cargo check -p liquers-axum
-# No new unwrap()/expect() in the files this step writes (library code, before `mod tests`).
-# A crate-wide `clippy -D clippy::unwrap_used` would fail on pre-existing calls in
-# axum_integration.rs, recipes/handlers.rs and store/handlers.rs, tracked by
-# LIBRARY-CODE-USES-UNWRAP-AND-EXPECT, so the check is scoped:
-awk '/#\[cfg\(test\)\]/{nextfile} /\.unwrap\(\)|\.expect\(/{print FILENAME": "FNR": "$0}' \
-  liquers-axum/src/assets/handlers.rs liquers-axum/src/assets/value_description.rs \
-  liquers-axum/src/assets/builder.rs
-# Expected: no output.
-```
+**Validation:** `cargo test -p liquers-axum --lib`; add a `build()` test for each switch
+combination.
 
-**Rollback:** `git checkout liquers-axum/src/assets/handlers.rs`
-
-**Agent Specification:**
-- **Model:** sonnet
-- **Skills:** rust-best-practices
-- **Knowledge:** Phase 2, sections "Handlers", "Web Endpoints" and "Error Handling"; the existing
-  `store/handlers.rs` `put_entry_handler` (format detection and entry decoding to reuse);
-  `api_core/format.rs`
-- **Rationale:** the largest step, with many small decisions about response shape
+**Agent:** haiku · rust-best-practices · Phase 2 route table.
 
 ---
 
-### Step 7: Routes and builder switches
+### Step 10: WebSocket rewrite
 
-**File:** `liquers-axum/src/assets/builder.rs`
+**File:** `liquers-axum/src/assets/websocket.rs`.
 
-**Action:**
-- Add the `read_only: bool` (default `false`) and `admin: bool` (default `true`) fields and the
-  `read_only()` and `with_admin(bool)` methods.
-- In `build()`, register each route from Phase 2's route table conditionally. A route whose
-  method must be omitted is simply not chained onto the `MethodRouter`: `get(h)` alone rather
-  than `get(h).post(p)`.
-- `POST metadata` is always registered, because it always refuses.
-- `POST cancel` stays registered under `read_only()`.
-- **Fix the WebSocket route**: `format!("{}/*query", ws_path)` → `format!("{}/{{*query}}", ws_path)`.
-  axum 0.8 panics on the old form, so without this every Step 8 test panics in `build()`. Add a
-  unit test in `builder.rs` that calls `AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets").build()`
-  (default WebSocket on) and `.read_only().with_admin(false).build()`, so a panicking route table
-  fails in `--lib`. Close `AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS` in Step 9.
+**Action:** Phase 2 "WebSocket Notifications", in full:
+- `ws_query_handler` and `ws_key_handler`, with subscription on the URL path;
+- a writer task, plus one task per subscription holding the `AssetRef` and its `watch::Receiver`;
+- an `AssetInfo` snapshot re-read on every change;
+- snake_case client messages with a `query` or `key` field, and `Error` replies;
+- the spec-named server messages, including `Removed`;
+- the subscription ends after its terminal notification (O10);
+- `WebSocketLimits` (I6): `max_message_size` through `WebSocketUpgrade::max_message_size`, a
+  subscription cap, and task abort on disconnect;
+- a bounded writer channel.
 
-**Validation:**
-```bash
-cargo check -p liquers-axum
-cargo test -p liquers-axum --lib
-```
+**Validation:** `cargo check -p liquers-axum`; clippy.
 
-**Rollback:** `git checkout liquers-axum/src/assets/builder.rs`
-
-**Agent Specification:**
-- **Model:** haiku
-- **Skills:** rust-best-practices
-- **Knowledge:** Phase 2 route table; axum 0.8 `MethodRouter` chaining
-- **Rationale:** mechanical once the table is fixed
+**Agent:** sonnet · rust-best-practices · Phase 2 WebSocket section; tokio `watch`/`mpsc`; the
+axum 0.8 `ws` API.
 
 ---
 
-### Step 8: HTTP tests
+### Step 11: Query timeout (I5)
+
+**Files:** `liquers-axum/src/query/builder.rs` and `handlers.rs`.
+
+**Action:**
+- `QueryApiBuilder::with_timeout(Duration)`, default 30 s, carried to the handler in
+  `QueryApiConfig` through an `Extension` layer.
+- The timeout message names the duration and points to `{assets}/q/submit`, `q/info` and `ws/q`.
+
+**Validation:** `cargo check -p liquers-axum`.
+
+**Agent:** haiku · rust-best-practices.
+
+---
+
+### Step 12: HTTP and WebSocket tests
 
 **Files:**
-- `liquers-axum/Cargo.toml`: add `tower = { version = "0.5.3", features = ["util"] }` to
-  `[dev-dependencies]`.
-- `liquers-axum/tests/assets_api_endpoints.rs` (new).
-- `liquers-axum/src/assets/tests.rs` and the `#[cfg(test)] mod tests;` line in `assets/mod.rs`:
-  delete. The file is an empty placeholder, which the new suite replaces.
+- `liquers-axum/Cargo.toml`: `[dev-dependencies] tower = { version = "0.5.3", features =
+  ["util"] }`.
+- New test files: `tests/assets_api_endpoints.rs` (AAE 63), `tests/assets_websocket.rs`
+  (AWS 16), `tests/store_api_routes.rs` (SAR 16), `tests/query_api_routes.rs` (QAR 7) and
+  `tests/recipes_api_routes.rs` (RAR 9).
+- Delete the placeholder `src/assets/tests.rs` and its `mod tests;` line.
 
-**Action:**
-- Paste Phase 3's shared helpers (`env_with`, `metadata_text`, `build_app`, `send`, `send_raw`,
-  `send_json`, and Example 3's `post_entry_json`), then all 44 AAE tests: Example 1, "Review-round additions", Example 3, and the
-  AAE20–AAE60 integration tests.
-- `liquers-macro` is not a dependency of liquers-axum; the tests use the closure form of
-  `register_command`.
+**Action:** paste the Phase 3 test files with their shared helpers. Tests that use a blocking
+command run as `multi_thread`. `AWS12b` pins down whichever axum behaviour it observes for an
+oversized message, and records it in "Implementation Notes".
 
-**Validation:**
-```bash
-cargo test -p liquers-axum --test assets_api_endpoints
-cargo test -p liquers-axum                 # the whole crate, including the existing suites
-```
+**Validation:** `cargo test -p liquers-axum`, run as five `--test` targets plus `--lib`. As in
+Step 4, a failure is judged against Phase 2.
 
-**Rollback:** delete the new test file, revert the `Cargo.toml` and `mod.rs` edits, and restore
-`tests.rs`.
-
-**Agent Specification:**
-- **Model:** sonnet
-- **Skills:** liquers-unittest, rust-best-practices
-- **Knowledge:** Phase 3 in full; Phase 2 "Web Endpoints"
-- **Rationale:** as in Step 4, a failure must be judged against Phase 2
+**Agent:** sonnet · liquers-unittest, rust-best-practices · Phase 3 in full.
 
 ---
 
-### Step 9: Documentation, issue status, index
+### Step 13: Documentation, issue statuses, index
 
 **Files and actions:**
+- **`specs/reference/WEB_API_SPECIFICATION.md` (I8):**
+  - rewrite §5 for `/q/`, `/key/`, `admin/`, the access modes, removal, the GET alternatives, the
+    builder options and the WebSocket (`ws/q`, `ws/key`, messages, lifecycle, limits);
+  - §3.3: 409 for `StatusConflict`;
+  - apply Phase 3's divergences D1–D7, and audit §2–§4 and §6–§10 route by route against the I4
+    tests;
+  - replace `FullApiBuilder` with the `Router::merge` assembly;
+  - document `with_timeout`;
+  - add a History row and bump `reviewed:`.
+- **`specs/reference/ASSETS.md`:** rewrite "Remove Semantics" and "Scenario 5" (with the
+  `Removed` notification); document `expire`, `set_description`, `removedir` and
+  `lookup_query_asset`; add a History row and bump `reviewed:`.
+- **Issue statuses (§4.3, each with a resolution note that cites its tests):**
+  - **→ `closed`:**
+    - `AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED`;
+    - `AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS`;
+    - `WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION`;
+    - `AXUM-ASSETS-API-SERVES-ONLY-BYTES-AND-TEXT`;
+    - `EXPIRATION-RECOVERY-WEB-API`;
+    - `AXUM-ASSETS-CANCEL-STARTS-EVALUATION`;
+    - `AXUM-HANDLER-TEST-COVERAGE`;
+    - `AXUM-QUERY-TIMEOUT-HARDCODED`;
+    - `MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS`;
+    - `ASSET-REMOVE-FORGETS-DEPENDENTS`;
+    - `ASSET-TO-OVERRIDE-SOURCE-INCONSISTENT`;
+    - `DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION`.
+  - **Progress note, status unchanged:** `AXUM-WEBSOCKET-HARDENING` (stays `accepted`) and
+    `LIBRARY-CODE-USES-UNWRAP-AND-EXPECT` (`liquers-axum` is clean).
+  - Set `design: axum-assets-endpoints` on each of them.
+- **`specs/design/axum-assets-endpoints/DESIGN.md`:** tick Phase 4; add `gh_pr` once the PR
+  exists (then `status` carries no derived value, §5.5).
+- **`specs/README.md`:** update the capability map line for the web API.
+- **`liquers-axum/README.md`:** document the builder options.
+- Run `python3 scripts/docs_index.py`, then `python3 scripts/docs_index.py --check`.
 
-- **`specs/reference/WEB_API_SPECIFICATION.md`**
-  - §3.3: add `StatusConflict` → 409.
-  - §5.0.1: update the table. Drop `GET /api/assets/remove`; add `info`, `contains`, `version`,
-    `recover`, `description`, `expire`, `override`, `makedir`, `audit` and
-    `refresh_command_versions`.
-  - §5.0: replace "Limited (POST entry…)" with the real write surface, and add
-    "Metadata ownership".
-  - §5.1: rewrite 5.1.3–5.1.9 to Phase 2's "Web Endpoints": `POST metadata` refuses with 501,
-    POSTs answer 201, and removals report `new_status`. Add a subsection for each new endpoint,
-    plus one for `read_only()` and `with_admin()`.
-  - Add a `## History` row and bump `reviewed:`.
-- **`specs/reference/ASSETS.md`**: rewrite "Remove Semantics (RESOLVED)" and "Scenario 5: Remove
-  and Recalculate" with the decision table. Document `expire(key)` and `set_description`. Add a
-  History row and bump `reviewed:`.
-- **Issues** (§4.3):
-  - `AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED`, `ASSET-REMOVE-FORGETS-DEPENDENTS` and
-    `AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS` → `closed`, with a resolution note naming the tests
-    (AAE01–AAE60; AMR01–AMR07, AMR24; the Step 7 builder test) and the commit.
-  - `DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION` → `closed` (AMR22, AMR23), unless its own
-    design (`store-and-asset-search`) closed it first. Set
-    `design: axum-assets-endpoints`.
-  - `AXUM-HANDLER-TEST-COVERAGE` stays `accepted`; add a progress note that the assets handlers
-    now have a scaffold and the Store, Query and Recipes APIs remain.
-- **`specs/design/axum-assets-endpoints/DESIGN.md`**: tick Phase 4; add `gh_pr` once the PR exists.
-  With `gh_pr` set, `status` must not carry `in_implementation` or `implemented` (§5.5).
-- **`specs/README.md`**: capability map line for the assets API.
-- Run `python3 scripts/docs_index.py`.
-- **Not needed:** `specs/command_registry.yaml`. No `register_command!` signature changes, so
-  `export-command-registry` is not rerun and no CHANGELOG line is added.
-- Add one line to `LIBRARY-CODE-USES-UNWRAP-AND-EXPECT`: the `assets/handlers.rs` occurrence
-  (≈290) was removed by this work, and the other `liquers-axum` sites remain.
+**Not needed:** `specs/command_registry.yaml` (no command signature changes).
 
-**Validation:**
-```bash
-python3 scripts/docs_index.py && git diff --stat specs/index.csv
-python3 scripts/docs_index.py --check      # verified: the script has a check mode
-```
-
-**Rollback:** `git checkout -- specs/`
-
-**Agent Specification:**
-- **Model:** sonnet
-- **Skills:** none beyond reading `specs/DOCS_STRUCTURE_GUIDE.md` §4.3, §5.5, §8.1 and §9.2
-- **Knowledge:** Phases 1–3; the implemented code; the current §5 of `WEB_API_SPECIFICATION.md`
-- **Rationale:** a specification must end up true at HEAD, which needs the code open beside it
+**Agent:** sonnet · — · `DOCS_STRUCTURE_GUIDE.md` §4.3/§5.5/§8.1/§9.2; Phases 1–3; the
+implemented code.
 
 ---
 
-### Step 10: Full validation
+### Step 14: Full validation
 
 ```bash
 cargo test -p liquers-core
 cargo test -p liquers-axum
-cargo test -p liquers-lib --lib --tests          # core's AssetManager changed; lib builds on it
+cargo test -p liquers-lib --lib --tests          # AssetNotificationMessage arm, core changes
 cargo check -p liquers-py
 cargo check -p liquers-core --no-default-features
+cargo clippy -p liquers-axum -- -D clippy::unwrap_used -D clippy::expect_used
 cargo clean && cargo check -p liquers-web --target wasm32-unknown-unknown
 cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles   # if node is available
 ```
 
-`scripts/check-build-matrix.sh` is **not** needed. No `#[cfg(feature)]`, optional dependency or
-`ExtValue` match changes.
+`scripts/check-build-matrix.sh` is not needed: there are no `#[cfg(feature)]`, optional-dependency
+or `ExtValue` changes.
 
-**Agent Specification:**
-- **Model:** haiku
-- **Skills:** none
-- **Knowledge:** CLAUDE.md "Building and testing"
-- **Rationale:** runs commands and reports
+**Agent:** haiku · — · CLAUDE.md "Building and testing".
 
 ## Testing Plan
 
 ### Unit Tests
 
-| Suite | Command | When |
+| Suite | Command | Step |
 |---|---|---|
-| `api_core::error` variant lists and mapping | `cargo test -p liquers-axum --lib api_core` | Step 1 |
-| existing core lib suite (incl. `test_remove_asset`) | `cargo test -p liquers-core --lib` | Steps 2–3 |
-| VD01–VD11 | `cargo test -p liquers-axum --lib value_description` | Step 5 |
+| `api_core::error` | `cargo test -p liquers-axum --lib api_core` | 1 |
+| core lib (incl. `test_remove_asset`) | `cargo test -p liquers-core --lib` | 2, 3 |
+| MT01–MT10 | `cargo test -p liquers-core --lib media_type` | 5 |
+| VD01–VD11 | `cargo test -p liquers-axum --lib value_description` | 7 |
+| builder switch combinations | `cargo test -p liquers-axum --lib` | 9 |
 
 ### Integration Tests
 
-| Suite | Command | When |
+| Suite | Command | Step |
 |---|---|---|
-| AMR01–AMR24 (21) | `cargo test -p liquers-core --test asset_manager_remove_expire_describe` | Step 4 |
-| AAE01–AAE60 (44) | `cargo test -p liquers-axum --test assets_api_endpoints` | Step 8 |
-| every existing suite | Step 10 list | Step 10 |
+| AMR (37) | `cargo test -p liquers-core --test asset_manager_remove_expire_describe` | 4 |
+| AAE (63) | `cargo test -p liquers-axum --test assets_api_endpoints` | 12 |
+| AWS (16) | `cargo test -p liquers-axum --test assets_websocket` | 12 |
+| SAR (16), QAR (7), RAR (9) | `cargo test -p liquers-axum --test store_api_routes`, `query_api_routes`, `recipes_api_routes` | 12 |
+| all existing suites | Step 14 | 14 |
 
 ### Manual Validation
 
 ```bash
-cargo run -p liquers-axum --example assets_recipes_basic &   # mounts /liquer/api/assets on :3000
-curl -s -X POST 'localhost:3000/liquer/api/assets/data/-R/notes/a.txt?type_identifier=Text&title=A' --data-binary hello
-curl -s localhost:3000/liquer/api/assets/listdir/-R/notes | jq .
-curl -s -X DELETE localhost:3000/liquer/api/assets/data/-R/notes/a.txt | jq .result
+cargo run -p liquers-axum --example assets_recipes_basic &    # /liquer/api/assets on :3000
+curl -s -X POST 'localhost:3000/liquer/api/assets/key/data/notes/a.txt?type_identifier=Text&title=A' --data-binary hello
+curl -s localhost:3000/liquer/api/assets/key/listdir/notes | jq .result
+curl -s -X POST localhost:3000/liquer/api/assets/q/submit/text-hello/upper | jq .result.status
+curl -s localhost:3000/liquer/api/assets/q/info/text-hello/upper | jq .result.status
+curl -s localhost:3000/liquer/api/assets/q/data/text-hello/upper
 ```
-`basic_server` does not mount the Assets API; `assets_recipes_basic` does, at `/liquer/api/assets`, port 3000.
 
 ## Agent Assignment Summary
 
-| Step | Model | Skills | Parallel with |
+| Step | Model | Needs | Can run in parallel with |
 |---|---|---|---|
-| 1 error variant | haiku | rust-best-practices | — |
-| 2 lock access + refusals | haiku | rust-best-practices | 5 |
-| 3 AssetManager behaviour | sonnet | rust-best-practices | 5 |
-| 4 core tests | sonnet | liquers-unittest, rust-best-practices | 5, 6 |
-| 5 ValueDescription | haiku | rust-best-practices, liquers-unittest | 2, 3, 4 |
-| 6 handlers | sonnet | rust-best-practices | 4 (needs 1, 3 and 5) |
-| 7 routes | haiku | rust-best-practices | — (needs 6) |
-| 8 HTTP tests | sonnet | liquers-unittest, rust-best-practices | — (needs 7) |
-| 9 docs | sonnet | — | — (needs 8 green) |
-| 10 validation | haiku | — | — |
+| 1 error variant | haiku | — | — |
+| 2 core plumbing | sonnet | 1 | 5, 6, 7 |
+| 3 core behaviour | sonnet | 2 | 5, 6, 7 |
+| 4 core tests | sonnet | 3 | 5, 6, 7, 11 |
+| 5 media types | haiku | — | 2–4 |
+| 6 unwrap + WebSocket route | haiku | 1 | 2–5 |
+| 7 ValueDescription | haiku | — | 2–6 |
+| 8 handlers | sonnet | 3, 6, 7 | 11 |
+| 9 routes and switches | haiku | 8 | 11 |
+| 10 WebSocket | sonnet | 2, 9 | 11 |
+| 11 query timeout | haiku | 6 | 8–10 |
+| 12 tests | sonnet | 8–11 | — |
+| 13 docs | sonnet | 12 green | — |
+| 14 validation | haiku | 13 | — |
 
-Parallel steps edit disjoint files. Step 5 edits only `liquers-axum/src/assets/`; Steps 2–4 edit
-only `liquers-core`.
+Parallel steps edit disjoint files:
+- Steps 2–4 edit `liquers-core/src/assets.rs` and the test file.
+- Step 5 edits `media_type.rs`.
+- Step 6 edits the axum files other than `assets/handlers.rs`'s later rewrite (Step 8 runs after
+  it).
+- Step 7 edits `value_description.rs`.
+- Step 11 edits `query/`.
 
 ## Rollback Plan
 
 ### Per-Step Rollback
 
-Each step is one commit on `claude/fervent-cori-ew4kvn`. Revert that commit
-(`git revert <sha>`), never rewriting pushed history. Steps 2 and 3 share `assets.rs`; revert them
-in reverse order.
+`git revert <sha>` of that step's commit; never rewrite pushed history. Steps 2 and 3 share
+`assets.rs` and must be reverted in reverse order. Steps 8 and 9 go together: routes without
+handlers do not compile.
 
 ### Full Feature Rollback
 
-`git revert` the step commits from newest to oldest. The design documents stay: they record the
-decision, not the code. Reopen the issues that Step 9 closed, with a note.
+Revert the step commits newest first, and reopen the issues that Step 13 closed, with a note. The
+design documents stay.
 
 ### Partial Completion
 
-- **Steps 1–4 alone** are a coherent core change: status-aware `remove`, `expire(key)`,
-  `set_description` and `StatusConflict`, usable from commands through `Context`, with the axum
-  stubs still at 501. If work stops there, update `ASSETS.md` (the part of Step 9 about it) and
-  leave `AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED` `in_progress`.
-- **Steps 5–8 depend on 1 and 3.**
+These are coherent stopping points:
+- **After Step 5:** the core is complete and usable from commands through `Context`. The HTTP
+  stubs stay, `ASSETS.md` is updated, and `AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED` stays
+  `in_progress`.
+- **After Step 7:** the Step 6 fixes (`build()` no longer panics, crate-wide clippy is clean)
+  also stand alone and close `AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS`.
 
 ## Documentation Updates
 
 ### CLAUDE.md
 
-No change. No new convention is introduced: `KeyMutationAccess` is internal, and the
-`register_command` and test conventions are unchanged.
+No change: no new convention.
 
 ### PROJECT_OVERVIEW.md
 
-No change. Query and Key encoding are untouched. `ASSETS.md` and `WEB_API_SPECIFICATION.md` carry
-the behaviour (Step 9).
+No change: Query and Key encoding are untouched.
 
 ### README.md
 
-`liquers-axum/README.md`: add a short `read_only()` / `with_admin()` note if it lists builder
-options. Check during Step 9.
+`liquers-axum/README.md` gains the builder options and the two families (Step 13).
+
+## Implementation Notes
+
+(Filled in during execution: divergences from Phase 2 found by the tests, the observed axum
+behaviour for an oversized WebSocket message, and the IANA outcome for each media type.)
 
 ## Execution Options
 
 After approval:
-1. **Execute now:** run Steps 1–10 in this session, committing and pushing after each step.
-2. **Create a task list:** record Steps 1–10 as tasks for a later session.
-3. **Revise the plan:** return to this document.
+1. **Execute now:** Steps 1–14 in this session, committing and pushing each step.
+2. **Create a task list:** record Steps 1–14 for a later session.
+3. **Revise the plan.**
 4. **Exit:** implement manually from this plan.
-
-## Review Log
-
-Multi-agent review, 2026-09-27.
-
-- **Reviewer 1 (Phase 1):** nothing blocking. Three advisories were applied:
-  - the arm-pattern example in Step 1;
-  - "Phase 2 is the single source of truth" in Step 6;
-  - `command_registry.yaml` is not regenerated (Step 9).
-- **Reviewer 2 (Phase 2):** no findings. Every Phase 2 item has a step, Step 3's algorithms match
-  the tables, and the lock discipline is carried over verbatim.
-- **Reviewer 3 (Phase 3):** nothing blocking. It suggested naming `post_entry_json` among the Step 8
-  helpers, which was applied.
-- **Reviewer 4 (codebase):** one **blocking** finding, fixed. A crate-wide
-  `clippy -D clippy::unwrap_used` fails on `unwrap()` calls that already exist
-  (`axum_integration.rs`, `recipes/handlers.rs` ≈102/≈190, `store/handlers.rs` ≈479; verified), which
-  `LIBRARY-CODE-USES-UNWRAP-AND-EXPECT` already tracks. The check is now scoped to the files this
-  work writes. Every cited path, line number, example, feature and command was otherwise verified,
-  and `docs_index.py --check` exists.
-
-**Final cross-phase review, 2026-09-27** (changes made in this document):
-- Pre-flight: key paths are `-R/<key>`; `build()` panics today on the WebSocket route (fixed in
-  Step 7, with a `--lib` builder test so Steps 7–8 cannot go red for this reason).
-- Step 3: `get_asset_info` changed in both bodies and returns `key_not_found`;
-  `dependency_blocks_fast_track` accepts a stored `Recipe`; `remove` status source, legacy and
-  idempotent cases; `expire` refuses non-expirable live statuses itself.
-- Step 2: noted that `with_key` sets `query`. Steps 4/5 and the Testing Plan: AMR24, VD11 (21 AMR,
-  11 VD). Step 9 closes `AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS`. Manual `curl` lines use `-R/`.

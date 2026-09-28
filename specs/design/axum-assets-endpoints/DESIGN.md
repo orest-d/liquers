@@ -3,7 +3,7 @@ id: AXUM-ASSETS-ENDPOINTS
 kind: design
 title: A working web and WebSocket interface for the asset manager
 status: draft
-phase: examples
+phase: implementation
 area: [axum, core/assets, core/error, docs]
 gh_pr: []
 issues: [AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED, AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS, WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION, AXUM-ASSETS-API-SERVES-ONLY-BYTES-AND-TEXT, EXPIRATION-RECOVERY-WEB-API, AXUM-ASSETS-CANCEL-STARTS-EVALUATION, AXUM-HANDLER-TEST-COVERAGE, AXUM-QUERY-TIMEOUT-HARDCODED, AXUM-WEBSOCKET-HARDENING, LIBRARY-CODE-USES-UNWRAP-AND-EXPECT, MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS, ASSET-REMOVE-FORGETS-DEPENDENTS, ASSET-TO-OVERRIDE-SOURCE-INCONSISTENT, DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION]
@@ -18,7 +18,7 @@ superseded_by:
 
 - [x] Phase 1: High-Level Design (approved 2026-09-27)
 - [x] Phase 2: Solution & Architecture (approved 2026-09-27; reopened and re-approved 2026-09-28: `/q/`+`/key/` families, access modes, WebSocket, web API issues I1–I10)
-- [ ] Phase 3: Examples & Testing (being regenerated for the re-approved Phase 2)
+- [x] Phase 3: Examples & Testing (v2 approved 2026-09-28: 169 runnable tests)
 - [ ] Phase 4: Implementation Plan
 - [ ] Implementation Complete
 
