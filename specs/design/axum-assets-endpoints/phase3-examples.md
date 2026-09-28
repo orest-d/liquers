@@ -27,18 +27,21 @@ Counts below are **counted**, not estimated, from the code blocks in this docume
 |---|---|---|---|
 | `liquers-core/tests/asset_manager_remove_expire_describe.rs` | core `AssetManager` (`remove`, `expire`, `set_description`, `removedir`, `lookup_query_asset`, `Removed` notification, `to_override`) | **37** | AMR01–AMR07, AMR10–AMR20, AMR22–AMR24, AMR30–AMR34, AMR40–AMR44, AMR50–AMR53, AMR60–AMR61 |
 | `liquers-axum/src/assets/value_description.rs` `#[cfg(test)] mod tests` | `ValueDescription` allow-list, `from_json`, `from_params`, `or_previous`, `into_metadata_record` | **11** | VD01–VD11 |
-| `liquers-axum/tests/assets_api_endpoints.rs` | Assets API HTTP routes, both families, builder switches | **42** | AAE01–AAE05, AAE10–AAE17, AAE20–AAE29, AAE40–AAE43, AAE44–AAE47, AAE60–AAE66, AAE80, AAE90–AAE92 |
+| `liquers-axum/tests/assets_api_endpoints.rs` | Assets API HTTP routes, both families, builder switches | **63** | AAE01–AAE49, AAE60–AAE69, AAE80, AAE90–AAE92 |
 | `liquers-axum/tests/assets_websocket.rs` | WebSocket forwarding, casing, limits, lifecycle | **16** | AWS01–AWS11, AWS12a, AWS12b, AWS13, AWS14a, AWS14b |
 | `liquers-axum/tests/store_api_routes.rs` | `StoreApiBuilder` routes (I4) | **16** | SAR01–SAR16 |
 | `liquers-axum/tests/query_api_routes.rs` | `QueryApiBuilder` routes, `with_timeout` (I4, I5) | **7** | QAR01–QAR07 |
 | `liquers-axum/tests/recipes_api_routes.rs` | `RecipesApiBuilder` routes (I4) | **9** | RAR01–RAR09 |
 | `liquers-core/src/media_type.rs` tests module | tabular media types (I9) | **10** | MT01–MT10 |
-| **Total** | | **148** | |
+| **Total** | | **169** | |
 
 Per-file breakdown (counted from the headings in each section below):
 
 - AMR: 7 (remove) + 11 (expire/describe, AMR10–AMR20) + 3 (AMR22–24) + 5 (removedir) + 5 (lookup_query_asset) + 4 (notifications) + 2 (to_override) = **37**.
-- AAE: 1 (Example 1) + 4 (AAE02–05) + 8 (AAE10–17) + 10 (AAE20–29) + 4 (AAE40–43) + 4 (AAE44–47, I1) + 7 (AAE60–66) + 1 (AAE80) + 3 (AAE90–92) = **42**.
+- AAE: 1 (Example 1) + 2 (AAE06–07, version zeros) + 2 (AAE08–09, submit GET alternative) + 4
+  (AAE02–05) + 8 (AAE10–17) + 2 (AAE18–19, admin audit) + 10 (AAE20–29) + 4 (AAE30–33, override) +
+  1 (AAE34, description GET) + 3 (AAE35–37, query observe/read) + 4 (AAE40–43) + 4 (AAE44–47, I1)
+  + 7 (AAE60–66) + 2 (AAE38–39) + 2 (AAE48–49) + 3 (AAE67–69) + 1 (AAE80) + 3 (AAE90–92) = **63**.
 - AWS: 11 (AWS01–11) + 2 (AWS12a/b) + 1 (AWS13) + 2 (AWS14a/b) = **16**.
 
 ---
@@ -2014,6 +2017,417 @@ async fn aae66_with_admin_true_includes_audit_200() {
 }
 ```
 
+#### AAE06–AAE07: Version Zeros (O3, Review 2 Finding 1)
+
+Purpose: `key/version` and `q/version` must report `Version::unknown()` (32 zeros), never null or
+an error, whenever nothing has finished yet — a never-evaluated recipe key, or a query still
+`Processing` right after `submit`.
+
+```rust
+#[tokio::test]
+async fn aae06_key_version_zero_for_never_evaluated_recipe() {
+    // O3: a recipe key that has never produced a value has no version yet; the route must
+    // report the all-zero sentinel (Version::unknown()), never null or an error.
+    let envref = env_with(&[("make_text/never.txt", "Never", "recipe only, never evaluated")]).await;
+    let app = build_app(envref);
+
+    let (status, json) = send(app, "GET", "/api/assets/key/version/never.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["result"]["version"], "0".repeat(32));
+}
+
+/// Blocking `std::thread::sleep` inside the registered command — multi-thread test runtime, so
+/// the queued manager's worker is not starved by this test's own runtime (see Fixes #3).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn aae07_q_version_zero_right_after_submit_before_slow_query_finishes() {
+    let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+    env.command_registry
+        .register_command(CommandKey::new_name("sleep_version"), |_, _, _| {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            Ok(Value::from("slept"))
+        })
+        .unwrap();
+    let envref = env.to_ref();
+    let app = build_app(envref);
+
+    let (status, _) = send(app.clone(), "POST", "/api/assets/q/submit/sleep_version", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+
+    // Right after submit, before the 500ms sleep finishes: version must be zeros (O3).
+    let (status, json) = send(app.clone(), "GET", "/api/assets/q/version/sleep_version", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["result"]["version"], "0".repeat(32), "unfinished query reports the unknown-version sentinel");
+
+    // Drain to completion so no background task outlives the test.
+    poll_until(app, "/api/assets/q/info/sleep_version", "Ready", 100).await;
+}
+```
+
+#### AAE08–AAE09: `submit` GET Alternative, Always On (Review 2 Finding 2)
+
+Purpose: `GET q/submit` and `GET key/submit` are the one GET alternative that needs no
+`with_destructive_gets()` (Phase 2 Routes table: submit "always on", it changes no data), and must
+answer 200 with a live `AssetInfo`.
+
+```rust
+#[tokio::test]
+async fn aae08_get_q_submit_returns_200_asset_info() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref);
+    let (status, json) = send(app, "GET", "/api/assets/q/submit/make_text", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK, "GET q/submit is always on, no destructive_gets needed");
+    assert_eq!(json["status"], "OK");
+    assert!(
+        ["Submitted", "Processing", "Ready"].contains(&json["result"]["status"].as_str().unwrap()),
+        "GET q/submit returns a live AssetInfo, like POST"
+    );
+}
+
+#[tokio::test]
+async fn aae09_get_key_submit_returns_200_asset_info() {
+    let envref = env_with(&[("make_text/computed.txt", "Computed", "recipe")]).await;
+    let app = build_app(envref);
+    let (status, json) = send(app, "GET", "/api/assets/key/submit/computed.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK, "GET key/submit is always on, no destructive_gets needed");
+    assert_eq!(json["status"], "OK");
+    assert!(
+        ["Submitted", "Processing", "Ready", "Dependencies"].contains(&json["result"]["status"].as_str().unwrap()),
+        "GET key/submit returns a live AssetInfo, like POST"
+    );
+}
+```
+
+#### AAE18–AAE19: Admin Audit Routes (Review 2 Finding 3)
+
+Purpose: `POST admin/audit/{key}` (always on), and, with `with_destructive_gets()`, `GET
+admin/audit` and `GET admin/audit/{key}` — every shape returns `AuditResult`'s `{checked,
+expired}`.
+
+```rust
+#[tokio::test]
+async fn aae18_post_admin_audit_key_returns_checked_and_expired() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref.clone());
+    let am = envref.get_asset_manager();
+    am.set_binary(&parse_key("notes/a.txt").unwrap(), b"test", metadata_text()).await.unwrap();
+
+    let (status, json) = send(app, "POST", "/api/assets/admin/audit/notes/a.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(json["result"]["checked"].is_array(), "AuditResult.checked is present");
+    assert!(json["result"]["expired"].is_array(), "AuditResult.expired is present");
+}
+
+#[tokio::test]
+async fn aae19_get_admin_audit_and_audit_key_with_destructive_gets() {
+    let envref = env_with(&[]).await;
+    let am = envref.get_asset_manager();
+    am.set_binary(&parse_key("notes/a.txt").unwrap(), b"test", metadata_text()).await.unwrap();
+    let app = liquers_axum::assets::AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
+        .with_destructive_gets()
+        .build()
+        .with_state(envref);
+
+    let (status, json) = send(app.clone(), "GET", "/api/assets/admin/audit", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK, "GET admin/audit is routed with the flag");
+    assert!(json["result"]["checked"].is_array());
+    assert!(json["result"]["expired"].is_array());
+
+    let (status, json) = send(app, "GET", "/api/assets/admin/audit/notes/a.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK, "GET admin/audit/{key} is routed with the flag");
+    assert!(json["result"]["checked"].is_array());
+    assert!(json["result"]["expired"].is_array());
+}
+```
+
+#### AAE30–AAE33: `POST`/`GET key/override` (Review 2 Finding 4)
+
+Purpose: override on a computed `Ready` value promotes it to `Override` (both `POST` and, with
+`with_destructive_gets()`, `GET`); override on a `Source` with no recipe is a no-op (Q19); override
+with no data at all is `to_override`'s `key_not_found`, 404.
+
+```rust
+#[tokio::test]
+async fn aae30_post_key_override_on_computed_ready_becomes_override() {
+    let envref = env_with(&[("make_text/computed.txt", "Computed", "recipe")]).await;
+    let app = build_app(envref.clone());
+    let am = envref.get_asset_manager();
+    let key = parse_key("computed.txt").unwrap();
+    let _ = am.get(&key).await.unwrap().get().await.unwrap();
+    assert_eq!(am.get_asset_info(&key).await.unwrap().status, Status::Ready);
+
+    let (status, json) = send(app, "POST", "/api/assets/key/override/computed.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["result"]["status"], "Override", "to_override promotes a computed Ready value");
+}
+
+#[tokio::test]
+async fn aae31_get_key_override_with_destructive_gets() {
+    let envref = env_with(&[("make_text/computed.txt", "Computed", "recipe")]).await;
+    let am = envref.get_asset_manager();
+    let key = parse_key("computed.txt").unwrap();
+    let _ = am.get(&key).await.unwrap().get().await.unwrap();
+
+    let app = liquers_axum::assets::AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
+        .with_destructive_gets()
+        .build()
+        .with_state(envref);
+
+    let (status, json) = send(app, "GET", "/api/assets/key/override/computed.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK, "GET override is routed with the flag");
+    assert_eq!(json["result"]["status"], "Override");
+}
+
+#[tokio::test]
+async fn aae32_override_on_source_is_a_noop_q19() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref.clone());
+    let am = envref.get_asset_manager();
+    am.set_binary(&parse_key("notes/a.txt").unwrap(), b"test", metadata_text()).await.unwrap();
+    assert_eq!(am.get_asset_info(&parse_key("notes/a.txt").unwrap()).await.unwrap().status, Status::Source);
+
+    let (status, json) = send(app, "POST", "/api/assets/key/override/notes/a.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["result"]["status"], "Source", "to_override on a Source with no recipe is a no-op (Q19)");
+}
+
+#[tokio::test]
+async fn aae33_override_with_no_data_404() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref);
+    let (status, json) = send(app, "POST", "/api/assets/key/override/phantom/nothing.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "to_override's key_not_found when there is no data");
+    assert_eq!(json["error"]["type"], "KeyNotFound");
+}
+```
+
+#### AAE34: `GET key/description` (Review 2 Finding 5)
+
+Purpose: the GET alternative of `POST key/description`, with `with_destructive_gets()` and
+`?title=&description=` query parameters, updates a `Source`'s title and description.
+
+```rust
+#[tokio::test]
+async fn aae34_get_key_description_with_destructive_gets_updates_source() {
+    let envref = env_with(&[]).await;
+    let am = envref.get_asset_manager();
+    am.set_binary(&parse_key("notes/a.txt").unwrap(), b"test", metadata_text()).await.unwrap();
+
+    let app = liquers_axum::assets::AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
+        .with_destructive_gets()
+        .build()
+        .with_state(envref);
+
+    let (status, json) = send(
+        app,
+        "GET",
+        "/api/assets/key/description/notes/a.txt?title=T&description=D",
+        Body::empty(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "GET description is routed with the flag");
+    assert_eq!(json["result"]["title"], "T");
+    assert_eq!(json["result"]["description"], "D");
+}
+```
+
+#### AAE35–AAE37: Query-Family Observe/Read Routes (Review 2 Finding 6)
+
+Purpose: `q/metadata` after `submit` reaches `Ready` returns the cached metadata record; on an
+uncached query it is 404 `NotAvailable`, exactly like `q/info`; `q/entry?format=json` returns a
+negotiated `DataEntry` with base64-encoded `data`, at the top level (not under `result` — value
+transfers are the one exception to the `ApiResponse` envelope, Phase 2 "Web Endpoints").
+
+```rust
+#[tokio::test]
+async fn aae35_q_metadata_after_submit_and_ready() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref);
+    let (status, _) = send(app.clone(), "POST", "/api/assets/q/submit/make_text", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    poll_until(app.clone(), "/api/assets/q/info/make_text", "Ready", 50).await;
+
+    let (status, json) = send(app, "GET", "/api/assets/q/metadata/make_text", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(json["result"]["type_identifier"].is_string(), "metadata record of a cached query");
+}
+
+#[tokio::test]
+async fn aae36_q_metadata_uncached_404_not_available() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref);
+    let (status, json) = send(app, "GET", "/api/assets/q/metadata/make_text", Body::empty()).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(json["error"]["type"], "NotAvailable");
+}
+
+#[tokio::test]
+async fn aae37_q_entry_json_format_gives_data_entry_with_base64_data() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref);
+    use base64::prelude::*;
+    let (status, json) = send(app, "GET", "/api/assets/q/entry/make_text?format=json", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(json["metadata"].is_object(), "negotiated DataEntry carries metadata, no result wrapper");
+    let data = json["data"].as_str().expect("data is a base64 string");
+    let decoded = BASE64_STANDARD.decode(data).expect("valid base64");
+    assert_eq!(decoded, b"generated");
+}
+```
+
+#### AAE38–AAE39, AAE48–AAE49, AAE67–AAE69: Remaining GET Alternatives (Review 2 Finding 7)
+
+Purpose: one focused test per remaining `with_destructive_gets()` GET alternative
+(`q/cancel`, `key/cancel`, `key/removedir`, `key/makedir`, `key/expire`,
+`admin/refresh_command_versions`), plus one test proving the *exact* status of each when the flag
+is off. Every one of these six routes keeps another method (POST, PUT or DELETE) registered on the
+same path regardless of `with_destructive_gets()`, so turning the flag off never removes the route
+— it only removes the GET registration on it. axum therefore answers **405** (the path matches,
+the method does not), never 404. This is the opposite case from AAE63 (`read_only()` + `key/expire`
+→ 404), where the *only* method on the path is removed and the whole route disappears.
+
+```rust
+/// Blocking `std::thread::sleep` inside the registered command — multi-thread test runtime
+/// (see Fixes #3).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn aae38_get_q_cancel_with_destructive_gets() {
+    let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+    env.command_registry
+        .register_command(CommandKey::new_name("sleep_cancel_q"), |_, _, _| {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            Ok(Value::from("slept"))
+        })
+        .unwrap();
+    let envref = env.to_ref();
+    let app = liquers_axum::assets::AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
+        .with_destructive_gets()
+        .build()
+        .with_state(envref);
+
+    let (status, _) = send(app.clone(), "POST", "/api/assets/q/submit/sleep_cancel_q", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    poll_until(app.clone(), "/api/assets/q/info/sleep_cancel_q", "Processing", 50).await;
+
+    let (status, json) = send(app.clone(), "GET", "/api/assets/q/cancel/sleep_cancel_q", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK, "GET q/cancel is routed with the flag");
+    assert_eq!(json["status"], "OK");
+
+    poll_until(app, "/api/assets/q/info/sleep_cancel_q", "Cancelled", 50).await;
+}
+
+#[tokio::test]
+async fn aae39_get_key_cancel_with_destructive_gets() {
+    let envref = env_with(&[]).await;
+    let am = envref.get_asset_manager();
+    am.set_binary(&parse_key("notes/a.txt").unwrap(), b"test", metadata_text()).await.unwrap();
+    let _ = am.get(&parse_key("notes/a.txt").unwrap()).await.unwrap();
+
+    let app = liquers_axum::assets::AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
+        .with_destructive_gets()
+        .build()
+        .with_state(envref);
+
+    let (status, json) = send(app, "GET", "/api/assets/key/cancel/notes/a.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK, "GET key/cancel is routed with the flag");
+    assert_eq!(json["status"], "OK");
+}
+
+#[tokio::test]
+async fn aae48_get_key_removedir_with_destructive_gets() {
+    let envref = env_with(&[]).await;
+    let am = envref.get_asset_manager();
+    am.makedir(&parse_key("mydir").unwrap()).await.unwrap();
+    am.set_binary(&parse_key("mydir/file.txt").unwrap(), b"content", metadata_text()).await.unwrap();
+
+    let app = liquers_axum::assets::AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
+        .with_destructive_gets()
+        .build()
+        .with_state(envref.clone());
+
+    let (status, json) = send(app.clone(), "GET", "/api/assets/key/removedir/mydir", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK, "GET key/removedir is routed with the flag");
+    assert_eq!(json["result"]["removed"], true);
+
+    let (status, json) = send(app, "GET", "/api/assets/key/contains/mydir/file.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["result"]["contains"], false, "children are gone after GET removedir");
+}
+
+#[tokio::test]
+async fn aae49_get_key_makedir_with_destructive_gets_201() {
+    let envref = env_with(&[]).await;
+    let app = liquers_axum::assets::AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
+        .with_destructive_gets()
+        .build()
+        .with_state(envref);
+
+    let (status, json) = send(app, "GET", "/api/assets/key/makedir/newdir", Body::empty()).await;
+    assert_eq!(status, StatusCode::CREATED, "PUT key/makedir returns 201; the GET alternative matches");
+    assert_eq!(json["result"]["status"], "Directory");
+}
+
+#[tokio::test]
+async fn aae67_get_key_expire_with_destructive_gets() {
+    let envref = env_with(&[("make_text/a.txt", "A", "")]).await;
+    let am = envref.get_asset_manager();
+    let key = parse_key("a.txt").unwrap();
+    let _ = am.get(&key).await.unwrap().get().await.unwrap();
+
+    let app = liquers_axum::assets::AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
+        .with_destructive_gets()
+        .build()
+        .with_state(envref);
+
+    let (status, json) = send(app, "GET", "/api/assets/key/expire/a.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK, "GET key/expire is routed with the flag");
+    assert_eq!(json["result"]["status"], "Expired");
+}
+
+#[tokio::test]
+async fn aae68_get_admin_refresh_command_versions_with_destructive_gets() {
+    let envref = env_with(&[]).await;
+    let app = liquers_axum::assets::AssetsApiBuilder::<SimpleEnvironment<Value>>::new("/api/assets")
+        .with_destructive_gets()
+        .build()
+        .with_state(envref);
+
+    let (status, json) = send(app, "GET", "/api/assets/admin/refresh_command_versions", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK, "GET admin/refresh_command_versions is routed with the flag");
+    assert_eq!(json["status"], "OK");
+    assert!(json["result"].is_null(), "refresh_command_versions returns null in result, with a message");
+}
+
+#[tokio::test]
+async fn aae69_get_alternatives_without_destructive_gets_are_405_not_404() {
+    // None of these six paths loses its only method when with_destructive_gets() is off: q/cancel,
+    // key/cancel, key/expire and admin/refresh_command_versions keep their POST route,
+    // key/removedir keeps its DELETE route, and key/makedir keeps its PUT route. So a GET on any
+    // of them matches the path but not the method: axum answers 405 Method Not Allowed, never 404
+    // (contrast AAE63, where read_only() removes the *only* registered method on key/expire and
+    // the whole route disappears, giving 404).
+    let envref = env_with(&[]).await;
+    let am = envref.get_asset_manager();
+    am.set_binary(&parse_key("notes/a.txt").unwrap(), b"test", metadata_text()).await.unwrap();
+    am.makedir(&parse_key("mydir").unwrap()).await.unwrap();
+    let app = build_app(envref);
+
+    for uri in [
+        "/api/assets/q/cancel/make_text",             // POST q/cancel/{*query} exists
+        "/api/assets/key/cancel/notes/a.txt",         // POST key/cancel/{*key} exists
+        "/api/assets/key/removedir/mydir",            // DELETE key/removedir/{*key} exists
+        "/api/assets/key/makedir/mydir",              // PUT key/makedir/{*key} exists
+        "/api/assets/key/expire/notes/a.txt",         // POST key/expire/{*key} exists
+        "/api/assets/admin/refresh_command_versions", // POST …, with_admin defaults to true
+    ] {
+        let (status, _) = send(app.clone(), "GET", uri, Body::empty()).await;
+        assert_eq!(
+            status,
+            StatusCode::METHOD_NOT_ALLOWED,
+            "GET {uri} without with_destructive_gets() hits an existing route with the wrong method"
+        );
+    }
+}
+```
+
 #### AAE80: Concurrent Writes
 
 ```rust
@@ -3272,4 +3686,53 @@ query,recipes,assets}/builder.rs`, `liquers-axum/src/query/handlers.rs`,
 
 ## Review Log
 
-pending
+Multi-agent review, 2026-09-28 (Phase 3 review pass, three reviewers), fixer pass applied in this
+revision.
+
+- **Reviewer 1 (Phase 1 conformity):** no blocking findings. One gap was fixed: version-zeros
+  behavior (O3) had no test on either family. Added AAE06 (`key/version` on a never-evaluated
+  recipe key) and AAE07 (`q/version` read right after `q/submit` of a slow query, before it
+  finishes), both asserting the 32-zero `Version::unknown()` sentinel. Reviewer 1 also claimed the
+  `MT` tests (media types, I9) had no code in this document — **that claim was checked and found
+  wrong**: `liquers-core/src/media_type.rs` tests module already carries ten full `#[test]`
+  functions (MT01–MT10, counted directly by `grep -c 'fn mt'` against this document), so no action
+  was taken on that point.
+- **Reviewer 2 (Phase 2 route-coverage gaps):** found that several routes named in Phase 2's
+  "Routes" and "GET alternatives for every operation" tables had no test anywhere in this document.
+  All are fixed here, with free `AAE` IDs:
+  - Finding 1 (version zeros) — folded into Reviewer 1's item above (AAE06–AAE07).
+  - Finding 2: `GET q/submit`/`GET key/submit`, the one GET alternative that is always on — AAE08,
+    AAE09.
+  - Finding 3: `POST admin/audit/{key}`, and with `with_destructive_gets()`, `GET admin/audit` and
+    `GET admin/audit/{key}` — AAE18, AAE19.
+  - Finding 4: `POST`/`GET key/override` on a computed `Ready` value (→ `Override`), on a `Source`
+    with no recipe (no-op, Q19), and with no data at all (404) — AAE30–AAE33.
+  - Finding 5: `GET key/description?title=&description=` with `with_destructive_gets()` — AAE34.
+  - Finding 6: the query-family observe/read routes `q/metadata` (cached and uncached) and
+    `q/entry?format=json` — AAE35–AAE37.
+  - Finding 7: the remaining `with_destructive_gets()` GET alternatives (`q/cancel`, `key/cancel`,
+    `key/removedir`, `key/makedir`, `key/expire`, `admin/refresh_command_versions`), one focused
+    test each, plus one test (AAE69) proving that, with the flag off, every one of those six paths
+    answers **405** rather than 404, because each keeps another method (POST/PUT/DELETE)
+    registered on the same path — the reasoning is stated inline in that test, path by path, and
+    contrasted with AAE63 (`read_only()` removes `key/expire`'s only method, giving 404 instead) —
+    AAE38–AAE39, AAE48–AAE49, AAE67–AAE69.
+
+  Overview Table, per-file counts and the Test Plan are updated to match: `assets_api_endpoints.rs`
+  grew from 42 to **63** tests (IDs `AAE01–AAE49, AAE60–AAE69, AAE80, AAE90–AAE92` — the ranges
+  `01`–`49` are now contiguous), and the document total from 148 to **169**, both counted by
+  grepping `fn aae`/`fn amr`/`fn vd`/`fn aws`/`fn sar`/`fn qar`/`fn rar`/`fn mt` against this
+  document rather than estimated.
+- **Reviewer 3 (codebase and query alignment):** no findings. Re-ran `liquers-validate` over every
+  query string quoted or introduced in this revision (the new tests reuse `make_text`, `upper`,
+  `make_number`, `make_object`, plus new one-off slow commands local to their own tests, none of
+  which are queries — only `make_text`/`computed.txt`/`a.txt`/`never.txt` recipe targets and bare
+  `/key/` paths appear, already covered by the existing "Validated Queries" run) — no new query
+  shapes were added, so no new validation gap exists. Confirmed the per-directory `recipes.yaml`
+  approach (`env_with_at`, Corner Case 6) against `DefaultRecipeProvider::recipe_opt` again: it
+  still reads `<key's own directory>/recipes.yaml` and joins the recipe's own filename to that
+  directory, exactly as the existing AMR31–AMR33 fixtures assume; none of the new tests introduce a
+  nested-path recipe query, so the existing fix is sufficient and nothing further was needed.
+
+No test in this pass duplicates an existing ID; free ranges (`AAE06–AAE09`, `AAE18–AAE19`,
+`AAE30–AAE39`, `AAE48–AAE49`, `AAE67–AAE69`) were used exactly as assigned.
