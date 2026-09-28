@@ -4,7 +4,7 @@ kind: design
 title: Dependency audit correctness, audit policy and expiry provenance
 status: draft
 workflow: liquers-designer
-phase: high-level
+phase: architecture
 area: [core/assets]
 gh_pr: []
 issues: [AUDIT-CANNOT-EXPIRE-ON-A-FIRST-OBSERVED-VERSION, DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE, EXPIRY-RECORDS-NO-REASON, DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED, STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST]
@@ -17,7 +17,7 @@ superseded_by:
 
 ## Phase Status
 
-- [ ] Phase 1: High-Level Design
+- [x] Phase 1: High-Level Design (approved 2026-09-28)
 - [ ] Phase 2: Solution & Architecture
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
@@ -32,6 +32,14 @@ Groups five open `core/assets` issues around dependency verification and expiry.
 is a candidate sixth (Phase 1 open question 5).
 
 **Phase 1 drafted 2026-09-28.** Cited code sites were checked against HEAD before drafting.
+
+**Phase 2 drafted 2026-09-28.** All five Phase 1 questions are settled: membership-only
+listing versions; a per-environment `DependencyAuditPolicy { Explicit, OnLoad }`; the reachability
+test through a public `Context::schedule_dependency`; log levels per reason; the uncached race
+excluded. It found and filed `IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES` (the immediate
+manager's deadline check compares status with status) and proposes it for this design's scope. The
+multi-agent review could not run because of a spend limit, so both review passes were done inline
+(see Phase 2 §"Phase 2 review").
 
 ## Links
 

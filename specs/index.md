@@ -8,10 +8,10 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 145
+Total rows: 146
 - P0: 1
 - P1: 2
-- P2: 82
+- P2: 83
 - P3: 60
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
@@ -33,6 +33,7 @@ Total rows: 145
 | [`CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS`](issues/CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS.md) | issue | AsyncFileStore listings drop a metadata-only key instead of reporting it | draft |  | P2 | S | core/store;store/backends;docs |  | 2026-09-03 |
 | [`DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS`](issues/DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS.md) | issue | The generated index.md emits design phase links in filesystem order | draft |  | P2 | S | docs;build |  | 2026-09-04 |
 | [`HTTP-STORE-METADATA-DROPS-THE-EXTENSION-MEDIA-TYPE`](issues/HTTP-STORE-METADATA-DROPS-THE-EXTENSION-MEDIA-TYPE.md) | issue | liquers-web's http store reports no media type for a key whose extension determines one | draft |  | P2 | S | web;core/store |  | 2026-09-27 |
+| [`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`](issues/IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES.md) | issue | ImmediateAssetManager's lazy deadline expiry tests a condition that can never be true | draft |  | P2 | S | core/assets | [phase1](specs/design/dependency-audit-and-expiry-provenance/phase1-high-level-design.md)  [phase2](specs/design/dependency-audit-and-expiry-provenance/phase2-architecture.md)  [phase3](specs/design/dependency-audit-and-expiry-provenance/phase3-examples.md)  [phase4](specs/design/dependency-audit-and-expiry-provenance/phase4-implementation.md)  | 2026-09-28 |
 | [`MANIFEST-PROVIDER-FOLDER-LISTING-NEVER-REFRESHES`](issues/MANIFEST-PROVIDER-FOLDER-LISTING-NEVER-REFRESHES.md) | issue | ManifestRecipeProvider's per-folder manifest listing cache never refreshes | draft |  | P2 | S | records | [chunking](specs/design/record-streams/chunking-and-resumability.md)  [engine](specs/design/record-streams/engine-survey.md)  [manifest](specs/design/record-streams/manifest-format.md)  [phase1](specs/design/record-streams/phase1-high-level-design.md)  [phase2](specs/design/record-streams/phase2-architecture.md)  [phase3](specs/design/record-streams/phase3-examples.md)  [phase3](specs/design/record-streams/phase3-tests.md)  [phase4](specs/design/record-streams/phase4-implementation.md)  [phase5](specs/design/record-streams/phase5-documentation.md)  [phase5](specs/design/record-streams/phase5-evidence.md)  [record](specs/design/record-streams/record-model.md)  | 2026-09-26 |
 | [`METADATA-LACKS-SERIALIZE-DESERIALIZE-AND-PARTIALEQ`](issues/METADATA-LACKS-SERIALIZE-DESERIALIZE-AND-PARTIALEQ.md) | issue | Metadata lacks Serialize, Deserialize and PartialEq | draft |  | P2 | S | core/value |  | 2026-09-26 |
 | [`RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY`](issues/RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY.md) | issue | AsyncRecipeProvider::contains has a default that silently assumes recipes are enumerable | draft |  | P2 | S | core/assets | [chunking](specs/design/record-streams/chunking-and-resumability.md)  [engine](specs/design/record-streams/engine-survey.md)  [manifest](specs/design/record-streams/manifest-format.md)  [phase1](specs/design/record-streams/phase1-high-level-design.md)  [phase2](specs/design/record-streams/phase2-architecture.md)  [phase3](specs/design/record-streams/phase3-examples.md)  [phase3](specs/design/record-streams/phase3-tests.md)  [phase4](specs/design/record-streams/phase4-implementation.md)  [phase5](specs/design/record-streams/phase5-documentation.md)  [phase5](specs/design/record-streams/phase5-evidence.md)  [record](specs/design/record-streams/record-model.md)  | 2026-09-20 |
