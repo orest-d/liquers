@@ -23,7 +23,7 @@ No change to `Status`, to `AsyncStore`, to the query syntax, or to any command s
 | 1 | What a listing version covers | **Membership only**: the sorted names `AssetManager::listdir` returns (store names ∪ recipe names), not recursive, no per-entry version | That is exactly the set a `-R-dir/` step exposes as its entries. A dependent that reads an entry's *content* already has a `-R/` edge to that entry, so folding entry versions in would duplicate edges and force a metadata read per entry. `listdir` is one call, whereas `listdir_asset_info` walks the subtree (`STORE-SEMANTICS-CHILDREN-RULE-CONTRADICTS-EVERY-STORE`). |
 | 1b | When it is refreshed | When the listing is produced (the step), after every asset-manager write or removal under that directory **if something depends on it**, and when an audit resolves a `-R-dir/` gap | A write straight into the store without going through the manager is invisible except to an audit. That matches how `-R/` keys already behave. |
 | 2 | Policy scope and depth | **Per environment**, in `AssetManagerOptions`. Direct dependencies only; transitivity comes from the cascade, and from `trigger_dependency_audit_all_registered` for a sweep | Per-key/per-recipe policy needs a place to declare it (recipe metadata) that is not otherwise needed now; it can be added later as an override without changing this shape. |
-| 3 | Stale-dependency test | **Option 1**, through a public `Context::schedule_dependency` → `ScheduledDependency::wait`. **Needs your confirmation** (see Questions) | It is a real capability (a command that starts several dependencies and then waits for them), not a test-only hook. It is also the only way a command can hold a scheduled dependency across its own work. |
+| 3 | Stale-dependency test | **Option 1**, through a public `Context::submit` + `Context::wait_for_dependency` (revised at the gate: no new handle type) | It is a real capability (a command that starts several dependencies and then waits for them), not a test-only hook. It is also the only way a command can hold a submitted dependency across its own work. |
 | 4 | Log levels | `Deadline`, `Explicit`, `Cascade` → `info`; `Audit`, `StaleDependency` → `warning` | The first three are the contract working as designed. The last two mean a stored assumption turned out false, or the normal contract was departed from. |
 | 5 | `UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION` | **Excluded.** It stays open | Its fix orders expiry against write-back through the key mutation lock, which is persistence ordering rather than verification. Part C makes the race *visible* (the overwritten mark has a reason in the log), and that makes it easier to test later. |
 
@@ -258,44 +258,59 @@ because on the evaluation path a first registration really is not a change.
 pub fn is_store_resolvable(&self) -> bool;
 ```
 
-### `Context<E>` (`context.rs`), for Part E
+### `Context<E>` (`context.rs`), for Part E (revised after the Phase 2 gate)
+
+The owner asked for the "start" half to be called **submit** and for **no new handle type**:
+`AssetRef` already is the handle. The revision follows both requests:
 
 ```rust
-/// Schedule `query` as a dependency of this asset without waiting for it. The returned handle
-/// is waited on later, so a command can start several dependencies before blocking, or hold one
-/// across its own work. Recording and cycle checks are those of `get_dependency_state`.
-pub async fn schedule_dependency(&self, query: &Query) -> Result<ScheduledDependency<E>, Error>;
+/// Start evaluating `query` as a dependency of the current asset and return at once with its
+/// asset. The dependency is recorded (and cycle-checked) exactly as `get_dependency_state` does.
+/// The command can then do other work and later wait with `wait_for_dependency`.
+pub async fn submit(&self, query: &Query) -> Result<AssetRef<E>, Error>;
 
-/// A dependency scheduled but not yet waited for.
-pub struct ScheduledDependency<E: Environment> { /* AssetRef<E>, Option<DependencyKey>, Context<E> */ }
-
-impl<E: Environment> ScheduledDependency<E> {
-    /// Wait through `wait_for_dependency_recording`: the claim-aware wait, including the
-    /// expired-dependency policy. Consumes the handle.
-    pub async fn wait(self) -> Result<State<E::Value>, Error>;
-}
+/// Wait for a dependency previously returned by `submit` (or by `evaluate`), applying the
+/// dependency policy: while waiting the parent is shown as `Status::Dependencies`, and a
+/// dependency that expired in the meantime is used as-is and the parent is marked for
+/// recomputation (`ExpiryReason::StaleDependency`). The dependency's version is recorded.
+pub async fn wait_for_dependency(&self, dependency: &AssetRef<E>) -> Result<State<E::Value>, Error>;
 ```
 
-**Reuse check.** `Context::evaluate(&Query) -> Result<AssetRef<E>, Error>` (`context.rs:746`)
-already schedules and records a dependency and hands back the asset. It is not enough on its own for
-two reasons. Waiting on the returned asset means `AssetRef::get`, which bypasses the manager's
-claim-aware `wait_for_dependency` and therefore the stale-value policy. And it discards the
-`DependencyKey` that the version upgrade needs: `wait_for_dependency_recording` insists that the key
-is passed in rather than re-derived, because `add_dependency` upserts by key equality
-(`context.rs:685-690`). `ScheduledDependency` is the handle that carries both, so it is a thin
-public face over `schedule_dependency_asset_with_key` + `wait_for_dependency_recording`, the pair
-`get_dependency_state` already calls. `evaluate` stays as it is.
+`wait_for_dependency` already exists as `pub(crate)` with this exact signature (`context.rs:711`).
+The change makes it public and has it record the version.
 
-`get_dependency_state` becomes `self.schedule_dependency(q).await?.wait().await`, which is
-behaviourally identical and removes a duplicated sequence. Dropping a handle without waiting
-leaves a scheduled dependency that simply completes. That is the same as scheduling in the
-pre-pass, and `leave_dependencies_and_resume` is never entered, so no parent is left in
+**Why a context method rather than `AssetRef::get` / `poll_state`.** They answer different
+questions. `AssetRef::get` asks for the value of *an* asset. It knows nothing about who is waiting,
+and on an expired asset it returns an error (`assets.rs:3401-3412`). Waiting *as a dependency*
+also needs the parent: to show the parent as `Dependencies` while it waits, to use a stale value
+rather than fail, and to record which version was consumed. Only the context knows the parent,
+which is why the wait lives on `Context` and `AssetRef` stays unchanged.
+
+**How the key is found without a handle.** The version record has to be updated under the
+same `DependencyKey` that `submit` wrote, because `Context::add_dependency` matches records by key
+(`context.rs:996`). A key re-derived from the asset could differ, since the record uses the
+*resolved query* and the asset may be keyed. So `submit` also remembers
+`asset id → DependencyKey` in a small map shared by the context's clones (beside
+`pending_dependencies`, `context.rs:424`), and `wait_for_dependency` looks it up. An asset the
+context did not submit is waited on without a version upgrade, which is what the `pub(crate)`
+method does today.
+
+**Relation to the existing `Context::evaluate`** (`context.rs:746`, public, no callers in
+`liquers-lib`). It already does most of `submit`: it schedules, records, drains the local queue and
+returns the `AssetRef`. It becomes `submit` followed by the drain, so both remember the key and
+`evaluate` keeps its behaviour. `submit` does not drain. On the immediate (inline) manager that
+means the dependency runs when it is first waited for, so a command can submit several
+dependencies before any of them runs.
+
+`get_dependency_state` becomes `let a = self.submit(q).await?; self.wait_for_dependency(&a).await`,
+which behaves the same as today. An `AssetRef` that is submitted and never waited for simply
+completes. That is what a pre-pass-scheduled dependency does today, and no parent is left in
 `Status::Dependencies`.
 
 ## Generic Parameters & Bounds
 
 Everything is generic over `E: Environment`, as the surrounding code is. No new bounds.
-`ScheduledDependency<E>` holds `AssetRef<E>` and `Context<E>`, both `Clone + Send + Sync` already.
+The new `asset id → DependencyKey` map is `Arc<tokio::sync::Mutex<HashMap<u64, DependencyKey>>>`, the same shape as `pending_dependencies`.
 
 ## Sync vs Async Decisions
 
@@ -305,7 +320,7 @@ Everything is generic over `E: Environment`, as the surrounding code is. No new 
 | `dependency_version`, `refresh_listing_version` | async | store I/O (`listdir`, `get_metadata`) |
 | `ExpiryReason::log_entry`, `listing_version` | sync | pure |
 | `dependency_audit_policy` | sync | reads a `Copy` field |
-| `Context::schedule_dependency`, `ScheduledDependency::wait` | async | wraps existing async calls |
+| `Context::submit`, `Context::wait_for_dependency` | async | wrap existing async calls |
 
 **Lock discipline (blocking constraint from `EXPIRY-RECORDS-NO-REASON`).** `mark_expired_status`
 writes `expiry_reason` and the log entry **under the same `data` write lock** that flips the status,
@@ -389,7 +404,7 @@ is left as it is and noted on the issue.
 | `assets.rs` | `AuditMode`, `AuditFinding`, `AuditReport::findings`; reasons at every route; `audit_gaps` rewrite; `OnLoad` in `try_fast_track`; `register_plan_dependencies` unknown edges; `refresh_listing_version` calls; immediate-manager condition; `stale_dependency: Option<DependencyKey>` |
 | `environment_builder.rs` | `DependencyAuditPolicy`; `AssetManagerOptions::dependency_audit` (+ `with_dependency_audit`) |
 | `interpreter.rs` | `GetAssetDirectory` registers and records the listing version |
-| `context.rs` | `schedule_dependency`, `ScheduledDependency`; `get_dependency_state` rewritten on top |
+| `context.rs` | `submit`; `wait_for_dependency` made public and version-recording; submitted-key map; `evaluate` and `get_dependency_state` rewritten on top |
 
 ### Other crates
 
@@ -429,8 +444,8 @@ No new error types or constructors. Existing typed constructors cover everything
 | `listdir` fails while refreshing a listing version after a write | `eprintln!` and continue. The write already succeeded, and the next audit resolves the listing |
 | `dependency_version` store error in an audit | propagated as `Err` (unchanged `version()` contract: an error is not "no version") |
 | Same, under `OnLoad` in `try_fast_track` | refuse the fast track (recompute). A store that cannot answer is not evidence of freshness |
-| `schedule_dependency` cycle | `Error::dependency_cycle`, as `get_dependency_state` today |
-| `ScheduledDependency::wait` on an expired-and-evicted dependency | unchanged `wait_for_dependency` error |
+| `submit` cycle | `Error::dependency_cycle`, as `get_dependency_state` today |
+| `wait_for_dependency` on an expired-and-evicted dependency | unchanged `wait_for_dependency` error |
 
 ## Serialization Strategy
 
@@ -458,7 +473,7 @@ an `EnvironmentConfig` with and without `dependency_audit` parses.
 - **`refresh_listing_version` after a write** runs outside `key_mutation_lock`. Two concurrent
   writes into the same directory may each list and register. `register_version` is idempotent for
   equal versions, and the last listing wins, which is the true current membership.
-- **`ScheduledDependency`** keeps an `AssetRef`, which keeps the dependency's value alive, so the
+- **The `AssetRef` returned by `submit`** keeps the dependency's value alive, so the
   stale-value arm has a value to use. That is the property the end-to-end test depends on.
 - The `Option<DependencyKey>` in `AssetData` is written under the existing `data` lock
   (`note_expired_dependency` already takes it).
@@ -469,7 +484,7 @@ an `EnvironmentConfig` with and without `dependency_audit` parses.
 cargo check -p liquers-core
 cargo test -p liquers-core --lib --tests
 cargo test -p liquers-lib --lib --tests          # AssetInfo consumers
-bash scripts/check-build-matrix.sh               # wasm32 row: ScheduledDependency must be !Send-safe via maybe_send
+bash scripts/check-build-matrix.sh               # wasm32 row
 ```
 
 ## rust-best-practices review (applied)
@@ -491,7 +506,7 @@ bash scripts/check-build-matrix.sh               # wasm32 row: ScheduledDependen
 - `AuditReport` gains a public field. Consider `#[non_exhaustive]` now, while it has a single
   external consumer (`keyed_version_cascade.rs`), so the next addition is not breaking. It is
   proposed, but not applied without a decision, because it forbids struct literals in tests too.
-- `ScheduledDependency` is `#[must_use]`, so a dropped handle is a lint rather than silence.
+- `submit` is `#[must_use]`, so a dropped handle is a lint rather than silence.
 - The `trigger` field on `ExpiredDependents` only makes sense for a non-empty set. Keep
   `ExpiredDependents::new()` for the empty case and add `ExpiredDependents::for_trigger(key)`,
   so there is no way to build a non-empty set without a trigger.
@@ -538,14 +553,14 @@ unregistered dependency, so adding `unknown` edges breaks no test; Phase 3 adds 
 new behaviour.
 
 Left for Phase 4 to verify at implementation time: whether `liquers-web`'s `.d.ts` stubs list
-`AssetInfo` fields (`check-stubs.sh`), and that `ScheduledDependency` compiles on wasm32 under the
-crate's `maybe_send` conventions.
+`AssetInfo` fields (`check-stubs.sh`).
 
-## Questions for you (genuine decisions)
+## Gate decisions (2026-09-28)
 
-1. **Part E seam.** Is a public `Context::schedule_dependency` / `ScheduledDependency::wait` acceptable
-   as new command-facing API? The alternative (issue option 2) is to document that the path is
-   reachable only by a race and add no test. Recommended: the public API.
-2. **`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES` in scope?** It is a one-line fix plus a
-   test, and without it the `Deadline` reason is untestable on the immediate manager. Recommended: include.
-3. **`#[non_exhaustive]` on `AuditReport`**: yes or no.
+1. **Part E API.** The owner accepts the capability, asks for the name `submit`, and asks for no
+   new handle type because `AssetRef` is already the handle. Applied as `Context::submit` plus a
+   now-public `Context::wait_for_dependency`, with the key kept in the context (see Part E).
+2. **`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`.** In scope, because it fits the design:
+   it is one of the routes into `Expired` that Part C gives a reason to.
+3. **`#[non_exhaustive]` on `AuditReport` / `AuditFinding`.** Explained to the owner and awaiting
+   an answer. The recommendation is yes.
