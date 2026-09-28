@@ -4411,8 +4411,10 @@ pub trait AssetManager<E: Environment>:
         }
         let mut keys = self.listdir_keys_deep(key).await?;
         keys.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
+        let mut directories = vec![key.clone()];
         for subkey in keys {
             if store.is_dir(&subkey).await? {
+                directories.push(subkey);
                 continue;
             }
             match self.remove(&subkey).await {
@@ -4421,7 +4423,17 @@ pub trait AssetManager<E: Environment>:
                 Err(e) => return Err(e),
             }
         }
-        store.removedir(key).await
+        store.removedir(key).await?;
+        // Directory assets made live by `get`/`makedir` describe what no longer exists.
+        let _mutation = self.key_mutation_lock().lock().await;
+        for directory in directories {
+            if let Some(asset) = self.lookup_key_asset(&directory) {
+                asset.notify_removed().await;
+                self.untrack_expiration(asset.id());
+                self.remove_key_asset(&directory).await;
+            }
+        }
+        Ok(())
     }
 
     /// Remove asset for a query (resolves to key first)
@@ -4577,11 +4589,27 @@ pub trait AssetManager<E: Environment>:
         Ok(keys.into_iter().collect())
     }
 
-    /// Make a directory
+    /// Make a directory, and return an asset describing it (status `Directory`).
+    ///
+    /// The asset is not registered in the manager and nothing is evaluated: a directory holds no
+    /// value, so `get` on its key fails, and the directory is described by the store.
     async fn makedir(&self, key: &Key) -> Result<AssetRef<E>, Error> {
         let store = self.get_envref().get_async_store();
-        let _sink = store.makedir(key).await?;
-        self.get(key).await
+        store.makedir(key).await?;
+        let mut data = AssetData::new(
+            self.next_id_for_asset(),
+            key.into(),
+            Some(key.clone()),
+            self.get_envref(),
+        );
+        data.data = Some(Arc::new(E::Value::none()));
+        data.status = Status::Directory;
+        if let Metadata::MetadataRecord(ref mut record) = data.metadata {
+            record.status = Status::Directory;
+            record.is_dir = true;
+        }
+        retype_as_none::<E>(&mut data.metadata);
+        Ok(data.to_ref())
     }
 
     // --- lifecycle / manager-primitive methods (moved from the concrete manager) ---
@@ -6338,13 +6366,6 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         }
 
         Ok(keys.into_iter().collect())
-    }
-
-    async fn makedir(&self, key: &Key) -> Result<AssetRef<E>, Error> {
-        let store = self.get_envref().get_async_store();
-        let _sink = store.makedir(key).await?;
-        let asset = self.get(key).await?;
-        Ok(asset)
     }
 
     // --- manager-primitive methods (delegate to inherent bodies / provide new ones) ---

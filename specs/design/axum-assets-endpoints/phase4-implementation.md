@@ -550,6 +550,31 @@ No change: Query and Key encoding are untouched.
 (Filled in during execution: divergences from Phase 2 found by the tests, the observed axum
 behaviour for an oversized WebSocket message, and the IANA outcome for each media type.)
 
+**Step 3–4 (core), 2026-09-28:**
+
+- **`AssetManager::makedir` was broken for every store** and had no caller: after
+  `store.makedir` it called `get(key)`, which fast-tracks through `store.get`, and that refuses a
+  directory (`KeyNotFound`). `key/makedir` depends on it, so it was fixed here: `makedir` now
+  returns an unmapped asset with status `Directory` and the none value, and never evaluates. The
+  `DefaultAssetManager` override (identical to the old default) was deleted. Making
+  `try_fast_track` load directories was tried first and rejected: `-R/<dir>` must keep failing
+  (`records_end_to_end::file_records_lists_a_store_directory_through_a_query`).
+- **`removedir` also unmaps live `Directory` assets** under the key (with `Removed`), after the
+  store removal and under the lock; the per-key `remove` calls stay unlocked as specified.
+- **`set_description` on a live `Source`** updates the in-memory record *and* the stored metadata
+  when the store holds the key, so `info` and a later fast-track agree. The refusal names the
+  operation `describe`.
+- **Phase 3 test corrections** (each a transcription error, judged against Phase 2):
+  - `AssetRef::subscribe_to_notifications` is `async` (AMR50–53 lacked `.await`), and
+    `AssetNotificationMessage` has no `PartialEq` (it carries an `Error`): the assertions use
+    `matches!`.
+  - AMR43 made the asset live with `set_binary`, which is store-only by contract; it now calls
+    `get` first.
+  - AMR31 put the dependent inside the removed directory, where O15 = (a) removes it too
+    (`KeyNotFound`); the dependent's recipe is now at the root, which is what the test is about
+    (a `Source` under a removed directory cascades to dependents outside it).
+- Every locking call in the AMR file goes through a `within` helper (10 s timeout).
+
 ## Execution Options
 
 After approval:
