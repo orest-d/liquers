@@ -1052,10 +1052,9 @@ async fn amr31_removedir_source_child_cascades_dependents() -> Result<(), Box<dy
     Ok(())
 }
 
-// BLOCKED on Phase 2 O15 (final review): `store.removedir` deletes the kept `Recipe` entry and
-// `data/recipes.yaml`, so AMR32 and AMR33 fail as written. Rewrite both once O15 is answered.
+// O15 = (a): a removed directory takes its recipes and kept versions with it.
 #[tokio::test]
-async fn amr32_removedir_computed_child_dropped_with_version() -> Result<(), Box<dyn std::error::Error>> {
+async fn amr32_removedir_takes_computed_child_and_its_version() -> Result<(), Box<dyn std::error::Error>> {
     let envref = env_with_at(&parse_key("data")?, &[("make_text/computed.txt", "Computed", "")]).await;
     let am = envref.get_asset_manager();
     let store = envref.get_async_store();
@@ -1064,31 +1063,29 @@ async fn amr32_removedir_computed_child_dropped_with_version() -> Result<(), Box
     let computed_key = parse_key("data/computed.txt")?;
 
     let _ = am.get(&computed_key).await?.get().await?;
-    let version_before = am.version(&computed_key).await?;
+    assert!(am.version(&computed_key).await?.is_some());
 
-    am.makedir(&data_key).await?;
     am.removedir(&data_key).await?;
 
-    assert!(store.contains(&computed_key).await?, "metadata should survive");
-    let stored = store.get_metadata(&computed_key).await?;
-    assert_eq!(stored_status(&stored), Status::Recipe);
-    assert_eq!(am.version(&computed_key).await?, version_before, "version preserved");
+    assert!(!store.contains(&computed_key).await?, "the kept entry goes with the directory");
+    assert!(!store.contains(&parse_key("data/recipes.yaml")?).await?, "recipes.yaml goes too");
+    assert_eq!(am.version(&computed_key).await?, None);
     Ok(())
 }
 
 #[tokio::test]
-async fn amr33_removedir_recipe_declared_keys_survive() -> Result<(), Box<dyn std::error::Error>> {
+async fn amr33_removedir_takes_recipe_declared_keys() -> Result<(), Box<dyn std::error::Error>> {
     let envref = env_with_at(&parse_key("data")?, &[("make_text/recipe_only.txt", "RecipeOnly", "")]).await;
     let am = envref.get_asset_manager();
 
     let data_key = parse_key("data")?;
     let recipe_only_key = parse_key("data/recipe_only.txt")?;
+    assert_eq!(am.get_asset_info(&recipe_only_key).await?.status, Status::Recipe);
 
-    am.makedir(&data_key).await?;
     am.removedir(&data_key).await?;
 
-    let info = am.get_asset_info(&recipe_only_key).await?;
-    assert_eq!(info.status, Status::Recipe, "recipe-declared key survives directory removal");
+    let err = am.get_asset_info(&recipe_only_key).await.expect_err("recipe went with the directory");
+    assert_eq!(err.error_type, ErrorType::KeyNotFound);
     Ok(())
 }
 

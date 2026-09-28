@@ -144,8 +144,8 @@ Notifications" (the `Removed` part) · the wait-loop semantics need judgement.
   - `removedir` walks `listdir_keys_deep` deepest first, **skips directory keys**, and calls
     `remove` for each remaining key, then calls `store.removedir`. It takes **no lock itself**:
     each `remove` takes and releases it (holding the guard while calling `remove` deadlocks).
-    Absent → `key_not_found`; not a directory → `status_conflict`. What survives is **blocked on
-    Phase 2 O15**, and so are AMR32/AMR33;
+    Absent → `key_not_found`; not a directory → `status_conflict`. Per O15 = (a), the directory's
+    `recipes.yaml` and kept entries go with it (AMR32/AMR33);
   - `set_description` uses the new `pub(crate) AssetRef::set_description_fields`.
 - **`to_override`:** the store-only branch skips a `Source`.
 - **`get_asset_info`:** the live branch uses `lookup_key_asset`, in both bodies (the simplest way
@@ -583,7 +583,7 @@ Multi-agent review, 2026-09-28.
 - Pre-flight and Step 2: the `Removed` semantics of the two `_ =>` wait loops (`Ok(())`, there is
   no `Cancelled` error to reuse) and of `AssetRef::get` (re-poll, then error).
 - Step 3: `Removed` is sent after `cancel()` and before unmapping; `removedir` takes no lock of
-  its own and skips directory keys; its outcome is blocked on Phase 2 O15; Step 3 also runs the
+  its own and skips directory keys; its outcome follows O15 = (a); Step 3 also runs the
   `liquers-lib` suites.
 - Step 8 keeps the tree compiling after the `git mv`. Step 9's rule names the primary routes
   explicitly (`POST submit` and `POST key/metadata` always exist). Step 10 decides terminality

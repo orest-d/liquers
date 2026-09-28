@@ -114,7 +114,8 @@ API:
 /// NEW, default method. Remove a directory and everything in it: `remove` (with its
 /// status-aware semantics — delete+cascade for Source/Override, drop-and-keep-version for
 /// recipe-computed values) for every stored key under it (`listdir_keys_deep`), deepest first,
-/// then `store.removedir(key)`. Recipe-declared keys survive (their recipes are not stored data).
+/// then `store.removedir(key)`, which also deletes the directory's `recipes.yaml` and kept version
+/// entries (O15 = a): a removed directory takes its recipes with it.
 /// Holds `key_mutation_lock` per key, not for the whole walk.
 async fn removedir(&self, key: &Key) -> Result<(), Error>;
 ```
@@ -128,10 +129,11 @@ Final review, implementation rules:
 - An absent key → `key_not_found`; a key that exists but is not a directory → `status_conflict(…,
   "removedir")`. `AsyncMemoryStore::removedir` returns `Ok` for an absent key, so this is checked
   first (AMR34).
-- **Open (final review):** `store.removedir` deletes *everything* under the key — the `Recipe`
-  entries `remove` just kept for their version, and the directory's own `recipes.yaml`. So "keep
-  the version" and "recipe-declared keys survive" do not hold after `removedir`, and AMR32 and
-  AMR33 fail as written. See Open Question O15.
+- **Decided (O15 = a):** a removed directory takes its recipes and kept versions with it.
+  `store.removedir` deletes everything under the key, including the `Recipe` entries `remove` kept
+  and the directory's `recipes.yaml`. Afterwards no key under the directory resolves:
+  `get_asset_info` answers `KeyNotFound`. `remove`'s per-key semantics still decide *dependents*:
+  user values under the directory cascade, and computed ones do not.
 
 It is not atomic: a failure part-way leaves the keys already removed removed, as
 `AsyncStore::removedir` is documented to behave (`STORE_SEMANTICS.md` §5). The error names the
@@ -1243,17 +1245,10 @@ Answered by the user, 2026-09-28:
 | O13 | `removedir` is recursive, with `remove`'s per-status semantics for each key. |
 | O14 | GET alternatives are off by default (`with_destructive_gets()`). |
 
-**Open (final review, 2026-09-28):**
+**Answered 2026-09-28:**
 
-- **O15 — what does `removedir` leave behind?** `store.removedir` is recursive, so it deletes the
-  kept-version `Recipe` entries and `<dir>/recipes.yaml` (itself a stored key, which `remove`
-  would also delete as a user value). Options: (a) accept it — a removed directory takes its
-  recipes and versions with it; AMR32/AMR33 are rewritten to assert that and the doc comment loses
-  "Recipe-declared keys survive"; (b) `removedir` removes only what `remove` deletes, spares
-  `recipes.yaml` and kept entries, and removes the directory only if it is then empty (otherwise
-  it answers with the surviving keys); (c) refuse (409) a directory that holds a `recipes.yaml`.
-  Recommendation: (a), the Store API's meaning and the simplest contract. Blocks Step 3's
-  `removedir` and AMR32/AMR33.
+- **O15 = (a):** a removed directory takes its recipes and kept versions with it. This matches
+  the Store API's meaning of `removedir`. AMR32 and AMR33 assert it.
 
 ## Review Log
 

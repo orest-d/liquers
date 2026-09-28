@@ -19,7 +19,7 @@ superseded_by:
 - [x] Phase 1: High-Level Design (approved 2026-09-27)
 - [x] Phase 2: Solution & Architecture (approved 2026-09-27; reopened and re-approved 2026-09-28: `/q/`+`/key/` families, access modes, WebSocket, web API issues I1–I10)
 - [x] Phase 3: Examples & Testing (v2 approved 2026-09-28: 169 runnable tests)
-- [ ] Phase 4: Implementation Plan
+- [x] Phase 4: Implementation Plan (approved 2026-09-28; O15 = a; executing)
 - [ ] Implementation Complete
 
 ## Notes
