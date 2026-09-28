@@ -3,9 +3,11 @@
 /// This example demonstrates the primary use cases for the Assets API and Recipes API:
 ///
 /// **Assets API** - HTTP interface to AssetManager for computed/cached data lifecycle:
-///   - GET /api/assets/data/{query} - retrieve computed asset (trigger evaluation)
-///   - GET /api/assets/metadata/{query} - check asset status/metadata
-///   - GET /api/assets/entry/{query} - unified data+metadata access
+///   - GET /api/assets/q/data/{query} - retrieve computed asset (trigger evaluation)
+///   - POST /api/assets/q/submit/{query} - start an evaluation, return its status at once
+///   - GET /api/assets/q/info/{query} - poll the status without evaluating
+///   - GET /api/assets/q/entry/{query} - unified data+metadata access
+///   - GET /api/assets/key/info/{key} - describe a keyed asset (bare key, no -R/)
 ///
 /// **Recipes API** - HTTP interface to AsyncRecipeProvider for recipe definitions:
 ///   - GET /api/recipes/listdir - list all recipes
@@ -165,15 +167,21 @@ STORE API EXAMPLES:
   GET /liquer/api/store/data/test.txt  → Retrieve data
   PUT /liquer/api/store/data/test.txt  → Store data (via curl)
 
-ASSETS API EXAMPLES (Primary Use Cases - when implemented):
-  GET /liquer/api/assets/data/text-hello/upper
+ASSETS API EXAMPLES (query family /q/, key family /key/):
+  GET /liquer/api/assets/q/data/text-hello/upper
     → Retrieve computed asset (triggers evaluation if needed)
 
-  GET /liquer/api/assets/metadata/text-hello/upper
-    → Check asset metadata and status (Ready/Processing/Error)
+  POST /liquer/api/assets/q/submit/text-hello/upper
+    → Start the evaluation, answer with its status at once
 
-  GET /liquer/api/assets/entry/text-hello/upper
+  GET /liquer/api/assets/q/info/text-hello/upper
+    → Poll the status (Ready/Processing/Error) without evaluating
+
+  GET /liquer/api/assets/q/entry/text-hello/upper
     → Unified data+metadata response (multiple formats: json/cbor/bincode)
+
+  GET /liquer/api/assets/key/listdir
+    → Describe the stored and recipe-declared assets, without evaluating
 
 RECIPES API EXAMPLES (Primary Use Cases - when implemented):
   GET /liquer/api/recipes/listdir
@@ -234,17 +242,17 @@ fn print_usage_examples() {
     println!("Assets API provides HTTP interface to AssetManager for cached computations.");
     println!("Primary use cases:");
 
-    println!("\n  1. GET /api/assets/data/{{query}}");
+    println!("\n  1. GET /api/assets/q/data/{{query}}");
     println!("     - Retrieve computed asset (triggers evaluation if not cached)");
     println!("     - Returns binary data with metadata in response headers");
-    println!("     - Example: GET /api/assets/data/text-hello/upper");
+    println!("     - Example: GET /api/assets/q/data/text-hello/upper");
 
-    println!("\n  2. GET /api/assets/metadata/{{query}}");
-    println!("     - Check asset status without retrieving data");
+    println!("\n  2. GET /api/assets/q/info/{{query}}");
+    println!("     - Check asset status without retrieving data or evaluating (submit first)");
     println!("     - Status values: Recipe, Submitted, Processing, Ready, Error, Cancelled");
-    println!("     - Returns: {{\"status\": \"Ready\", \"created_at\": \"...\", ...}}");
+    println!("     - Returns: {{\"status\": \"OK\", \"result\": {{\"status\": \"Ready\", ...}}}}");
 
-    println!("\n  3. GET /api/assets/entry/{{query}}?format=json");
+    println!("\n  3. GET /api/assets/q/entry/{{query}}?format=json");
     println!("     - Unified data+metadata response (DataEntry)");
     println!("     - Supports multiple formats: json, cbor (default), bincode");
     println!("     - Returns: {{\"data\": \"...\", \"metadata\": {{...}}}}");
