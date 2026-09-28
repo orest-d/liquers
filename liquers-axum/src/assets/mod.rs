@@ -9,9 +9,11 @@
 /// The Assets API wraps the `AssetManager` service and exposes it via HTTP.
 pub mod builder;
 pub mod handlers;
+pub mod value_description;
 pub mod websocket;
 
 pub use builder::AssetsApiBuilder;
+pub use value_description::ValueDescription;
 
 #[cfg(test)]
 mod tests;
