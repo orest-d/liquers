@@ -1089,6 +1089,10 @@ impl<E: Environment> AssetData<E> {
             return !Self::status_permits_reuse(asset.status().await);
         }
         match self.get_envref().get_async_store().get_metadata(&key).await {
+            // A stored `Recipe` is a computed value that was removed with its version kept
+            // (`AssetManager::remove`): the dependent was built from that version, so, like a key
+            // the store does not hold, it does not block.
+            Ok(metadata) if metadata.status() == Status::Recipe => false,
             Ok(metadata) => !Self::status_permits_reuse(metadata.status()),
             Err(_) => false, // absent or unreadable — inconclusive
         }
@@ -3199,6 +3203,28 @@ impl<E: Environment> AssetRef<E> {
         lock.is_cancelled()
     }
 
+    /// Announce that the manager has removed this asset: the terminal
+    /// [`AssetNotificationMessage::Removed`]. Sent after `cancel` and before the asset is
+    /// unmapped, so it is the last message a subscriber sees.
+    pub(crate) async fn notify_removed(&self) {
+        let lock = self.data.read().await;
+        let _ = lock
+            .notification_tx
+            .send(AssetNotificationMessage::Removed);
+    }
+
+    /// Set `title` and/or `description` of the in-memory metadata; `None` leaves a field as it
+    /// is. Data, status and version are untouched. Used by [`AssetManager::set_description`],
+    /// which checks the status first.
+    pub(crate) async fn set_description_fields(
+        &self,
+        title: Option<String>,
+        description: Option<String>,
+    ) -> Result<(), Error> {
+        let mut lock = self.data.write().await;
+        set_metadata_description(&mut lock.metadata, title, description)
+    }
+
     /// Converts this runtime asset to `Override`, preventing recipe re-evaluation.
     ///
     /// For keyed recovery, prefer [`AssetManager::to_override`], which also
@@ -3895,6 +3921,82 @@ fn expire_refusal(key: Option<&Key>, status: Status, message: String) -> Error {
     }
 }
 
+/// Set `title` and/or `description` on a metadata document; `None` leaves a field unchanged.
+fn set_metadata_description(
+    metadata: &mut Metadata,
+    title: Option<String>,
+    description: Option<String>,
+) -> Result<(), Error> {
+    match metadata {
+        Metadata::MetadataRecord(record) => {
+            if let Some(title) = title {
+                record.title = title;
+            }
+            if let Some(description) = description {
+                record.description = description;
+            }
+            Ok(())
+        }
+        Metadata::LegacyMetadata(_) => Err(Error::from_error(
+            ErrorType::NotSupported,
+            "Cannot set the title or description of legacy metadata".to_string(),
+        )),
+    }
+}
+
+/// Whether a live asset's status says nothing about the key yet, so the stored status decides
+/// (see [`AssetManager::remove`]): an asset just created by a `get` is `None` or `Recipe`.
+fn live_status_defers_to_store(status: Status) -> bool {
+    match status {
+        Status::None | Status::Recipe => true,
+        Status::Directory
+        | Status::Submitted
+        | Status::Dependencies
+        | Status::Processing
+        | Status::Partial
+        | Status::Error
+        | Status::Storing
+        | Status::Ready
+        | Status::Expired
+        | Status::Source
+        | Status::Override
+        | Status::Cancelled
+        | Status::Volatile => false,
+    }
+}
+
+/// What [`AssetManager::remove`] does with a key.
+enum RemoveAction {
+    /// Delete the value and the key's place in the dependency graph, cascading to dependents.
+    Delete,
+    /// Drop a recipe-computed value; keep the stored record as `Recipe` with its version.
+    DropComputed,
+    /// Nothing to remove (a recipe key with no value).
+    Nothing,
+}
+
+/// The stored record kept by [`AssetManager::remove`] for a dropped computed value: status
+/// `Recipe`, data-bearing fields cleared, version and dependencies kept. `None` for legacy
+/// metadata, which cannot carry the version faithfully and is deleted instead.
+fn dropped_computed_metadata<E: Environment>(metadata: Metadata) -> Option<Metadata> {
+    match metadata {
+        Metadata::MetadataRecord(mut record) => {
+            record.status = Status::Recipe;
+            record.file_size = None;
+            record.is_error = false;
+            record.error_data = None;
+            record.progress.clear();
+            record.add_log_entry(LogEntry::info(
+                "Computed value removed; the recipe remains".to_string(),
+            ));
+            let mut metadata = Metadata::MetadataRecord(record);
+            retype_as_none::<E>(&mut metadata);
+            Some(metadata)
+        }
+        Metadata::LegacyMetadata(_) => None,
+    }
+}
+
 /// Internal access to the runtime dependency graph.
 ///
 /// Dependency tracking is automatic. Keeping this separate from [`AssetManager`]'s public
@@ -4073,9 +4175,254 @@ pub trait AssetManager<E: Environment>:
         result
     }
 
-    /// Remove asset data from AssetManager and store.
-    /// This does NOT trigger recalculation.
-    async fn remove(&self, key: &Key) -> Result<(), Error>;
+    /// Status-aware removal of a keyed asset. Never triggers an evaluation.
+    ///
+    /// The status is the live asset's, unless it is `None`/`Recipe` (just created, nothing
+    /// produced yet) or there is no live asset; then the stored status decides.
+    ///
+    /// | Status | Recipe? | Effect |
+    /// |---|---|---|
+    /// | `Directory` | any | `StatusConflict` — use [`Self::removedir`] |
+    /// | any other | no | delete: the live asset, the dependency-graph entry and the stored entry; dependents are expired |
+    /// | `Source`, `Override` | yes | delete the user value as above; the key falls back to its recipe |
+    /// | computed (`Ready`, `Expired`, `Error`, in-flight, …) | yes | drop the value: the live asset is unmapped and the stored entry is rewritten as `Recipe` with its version kept; dependents are **not** expired |
+    /// | none, or stored `Recipe` | yes | nothing to do |
+    /// | nothing live, nothing stored | no | `KeyNotFound` |
+    ///
+    /// A live asset is cancelled, then receives [`AssetNotificationMessage::Removed`], then is
+    /// unmapped. Dependents are expired before the key leaves the dependency graph, because the
+    /// cascade walks the edges the removal deletes.
+    async fn remove(&self, key: &Key) -> Result<(), Error> {
+        let _mutation = self.key_mutation_lock().lock().await;
+        let store = self.get_envref().get_async_store();
+        let live = self.lookup_key_asset(key);
+        let live_status = match &live {
+            Some(asset) => Some(asset.status().await),
+            None => None,
+        };
+        let is_dir = live_status == Some(Status::Directory) || store.is_dir(key).await?;
+        if is_dir {
+            return Err(Error::status_conflict(key, Status::Directory, "remove"));
+        }
+        let stored_metadata = if store.contains(key).await? {
+            Some(store.get_metadata(key).await?)
+        } else {
+            None
+        };
+        let has_recipe = self.recipe_opt(key).await?.is_some();
+
+        let decisive = match live_status {
+            Some(status) if !live_status_defers_to_store(status) => Some(status),
+            Some(_) | None => stored_metadata.as_ref().map(|m| m.status()),
+        };
+        let action = if !has_recipe {
+            if live.is_none() && stored_metadata.is_none() {
+                return Err(Error::key_not_found(key));
+            }
+            RemoveAction::Delete
+        } else {
+            match decisive {
+                None => RemoveAction::Nothing,
+                Some(status) => match status {
+                    Status::None | Status::Recipe => RemoveAction::Nothing,
+                    Status::Source | Status::Override => RemoveAction::Delete,
+                    Status::Ready
+                    | Status::Expired
+                    | Status::Error
+                    | Status::Cancelled
+                    | Status::Volatile
+                    | Status::Partial
+                    | Status::Submitted
+                    | Status::Dependencies
+                    | Status::Processing
+                    | Status::Storing => RemoveAction::DropComputed,
+                    Status::Directory => {
+                        return Err(Error::status_conflict(key, Status::Directory, "remove"))
+                    }
+                },
+            }
+        };
+
+        match action {
+            RemoveAction::Nothing => Ok(()),
+            RemoveAction::Delete => {
+                if let Some(asset) = live {
+                    asset.cancel().await?;
+                    asset.notify_removed().await;
+                    self.untrack_expiration(asset.id());
+                    self.remove_key_asset(key).await;
+                }
+                let dep_key = crate::metadata::DependencyKey::from(key);
+                self.cascade_expire_dependents(&dep_key).await;
+                self.dependency_manager().remove(&dep_key).await;
+                if stored_metadata.is_some() {
+                    store.remove(key).await?;
+                }
+                Ok(())
+            }
+            RemoveAction::DropComputed => {
+                if let Some(asset) = live {
+                    asset.cancel().await?;
+                    asset.notify_removed().await;
+                    self.untrack_expiration(asset.id());
+                    self.remove_key_asset(key).await;
+                }
+                if let Some(metadata) = stored_metadata {
+                    match dropped_computed_metadata::<E>(metadata) {
+                        Some(metadata) => store.set(key, &[], &metadata).await?,
+                        None => store.remove(key).await?,
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// Expire a keyed asset and cascade to its dependents, whether it is live or only stored.
+    ///
+    /// `Ready` and `Override` become `Expired`; `Expired` is left as it is. Any other status,
+    /// including `Source` (no recipe to recover from) and a recipe key with no value, is a
+    /// `StatusConflict`. A key that is neither live, stored nor a recipe is `KeyNotFound`.
+    async fn expire(&self, key: &Key) -> Result<(), Error> {
+        let _mutation = self.key_mutation_lock().lock().await;
+        if let Some(asset) = self.lookup_key_asset(key) {
+            let status = asset.status().await;
+            if !live_status_defers_to_store(status) {
+                return match status {
+                    Status::Ready | Status::Override | Status::Expired => asset.expire().await,
+                    Status::None
+                    | Status::Recipe
+                    | Status::Directory
+                    | Status::Submitted
+                    | Status::Dependencies
+                    | Status::Processing
+                    | Status::Partial
+                    | Status::Error
+                    | Status::Storing
+                    | Status::Source
+                    | Status::Cancelled
+                    | Status::Volatile => Err(Error::status_conflict(key, status, "expire")),
+                };
+            }
+        }
+        let store = self.get_envref().get_async_store();
+        if store.is_dir(key).await? {
+            return Err(Error::status_conflict(key, Status::Directory, "expire"));
+        }
+        if store.contains(key).await? {
+            let status = store.get_metadata(key).await?.status();
+            return match status {
+                Status::Ready | Status::Override => {
+                    expire_stored_copy(store, key).await;
+                    let dep_key = crate::metadata::DependencyKey::from(key);
+                    self.cascade_expire_dependents(&dep_key).await;
+                    Ok(())
+                }
+                Status::Expired => Ok(()),
+                Status::None
+                | Status::Recipe
+                | Status::Directory
+                | Status::Submitted
+                | Status::Dependencies
+                | Status::Processing
+                | Status::Partial
+                | Status::Error
+                | Status::Storing
+                | Status::Source
+                | Status::Cancelled
+                | Status::Volatile => Err(Error::status_conflict(key, status, "expire")),
+            };
+        }
+        if self.recipe_opt(key).await?.is_some() {
+            Err(Error::status_conflict(key, Status::Recipe, "expire"))
+        } else {
+            Err(Error::key_not_found(key))
+        }
+    }
+
+    /// Set the `title` and/or `description` of a `Source` asset; `None` leaves a field as it is.
+    ///
+    /// Only a user-supplied value (`Source`) can be described: the metadata of a computed value
+    /// is owned by the asset manager, so any other status is a `StatusConflict`. Data and version
+    /// are unchanged, so nothing is expired. Both arguments `None` is a `ParameterError`; a key
+    /// that is neither live nor stored is `KeyNotFound`.
+    async fn set_description(
+        &self,
+        key: &Key,
+        title: Option<String>,
+        description: Option<String>,
+    ) -> Result<(), Error> {
+        if title.is_none() && description.is_none() {
+            return Err(Error::from_error(
+                ErrorType::ParameterError,
+                format!("Nothing to set for '{}': give a title, a description or both", key),
+            ));
+        }
+        let _mutation = self.key_mutation_lock().lock().await;
+        let store = self.get_envref().get_async_store();
+        let stored = store.contains(key).await?;
+        if let Some(asset) = self.lookup_key_asset(key) {
+            let status = asset.status().await;
+            if !live_status_defers_to_store(status) {
+                if status != Status::Source {
+                    return Err(Error::status_conflict(key, status, "describe"));
+                }
+                asset
+                    .set_description_fields(title.clone(), description.clone())
+                    .await?;
+                if stored {
+                    let mut metadata = store.get_metadata(key).await?;
+                    set_metadata_description(&mut metadata, title, description)?;
+                    store.set_metadata(key, &metadata).await?;
+                }
+                return Ok(());
+            }
+        }
+        if !stored {
+            return Err(Error::key_not_found(key));
+        }
+        let mut metadata = store.get_metadata(key).await?;
+        let status = metadata.status();
+        if status != Status::Source {
+            return Err(Error::status_conflict(key, status, "describe"));
+        }
+        set_metadata_description(&mut metadata, title, description)?;
+        store.set_metadata(key, &metadata).await
+    }
+
+    /// Remove a directory and everything in it.
+    ///
+    /// Every key under it ([`Self::listdir_keys_deep`]) is removed with [`Self::remove`], deepest
+    /// first, so user values cascade to their dependents and computed values do not; then
+    /// `store.removedir` deletes what is left, including the directory's recipes and the `Recipe`
+    /// entries `remove` kept. Takes no lock itself: each `remove` takes and releases it.
+    ///
+    /// Not atomic: on failure the keys already removed stay removed, and the error names the key
+    /// that failed. An absent key is `KeyNotFound`; a key that is not a directory is a
+    /// `StatusConflict`.
+    async fn removedir(&self, key: &Key) -> Result<(), Error> {
+        let store = self.get_envref().get_async_store();
+        if !store.is_dir(key).await? {
+            if !store.contains(key).await? {
+                return Err(Error::key_not_found(key));
+            }
+            let status = store.get_metadata(key).await?.status();
+            return Err(Error::status_conflict(key, status, "removedir"));
+        }
+        let mut keys = self.listdir_keys_deep(key).await?;
+        keys.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
+        for subkey in keys {
+            if store.is_dir(&subkey).await? {
+                continue;
+            }
+            match self.remove(&subkey).await {
+                Ok(()) => {}
+                Err(e) if e.error_type == ErrorType::KeyNotFound => {}
+                Err(e) => return Err(e),
+            }
+        }
+        store.removedir(key).await
+    }
 
     /// Remove asset for a query (resolves to key first)
     async fn remove_asset(&self, query: &Query) -> Result<(), Error> {
@@ -4106,10 +4453,11 @@ pub trait AssetManager<E: Environment>:
     /// - Supports non-serializable data (store metadata only if serialization fails)
     async fn set_state(&self, key: &Key, state: State<E::Value>) -> Result<(), Error>;
 
-    /// Get asset info
+    /// Describe a keyed asset **without evaluating it**: the live asset's current state if there
+    /// is one (including a cached `Expired`, `Error` or `Cancelled` entry, which `get` would
+    /// re-evaluate), otherwise the stored entry, otherwise the recipe. `KeyNotFound` if none.
     async fn get_asset_info(&self, key: &Key) -> Result<AssetInfo, Error> {
-        if self.lookup_key_asset(key).is_some() {
-            let assetref = self.get(key).await?;
+        if let Some(assetref) = self.lookup_key_asset(key) {
             assetref.get_asset_info().await
         } else {
             let store = self.get_envref().get_async_store();
@@ -4120,11 +4468,7 @@ pub trait AssetManager<E: Environment>:
                 if rp.contains(key, self.get_envref()).await? {
                     rp.get_asset_info(key, self.get_envref()).await
                 } else {
-                    Err(Error::general_error(format!(
-                        "Asset not found for key {} (get_asset_info)",
-                        key
-                    ))
-                    .with_key(key))
+                    Err(Error::key_not_found(key))
                 }
             }
         }
@@ -4618,6 +4962,10 @@ pub trait AssetManager<E: Environment>:
         let (_binary, mut metadata) = store.get(key).await?;
         if !metadata.status().has_data() {
             return Err(Error::key_not_found(key));
+        }
+        if metadata.status() == Status::Source {
+            // A user value is already authoritative; as `AssetRef::to_override`, a no-op.
+            return Ok(());
         }
         metadata.set_status(Status::Override)?;
         store.set_metadata(key, &metadata).await?;
@@ -5272,6 +5620,10 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         if !metadata.status().has_data() {
             return Err(Error::key_not_found(key));
         }
+        if metadata.status() == Status::Source {
+            // A user value is already authoritative; as `AssetRef::to_override`, a no-op.
+            return Ok(());
+        }
         metadata.set_status(Status::Override)?;
         store.set_metadata(key, &metadata).await?;
         Ok(())
@@ -5562,39 +5914,6 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         }
     }
 
-    /// Get asset infor for a resource asset
-    ///
-    /// Arguments:
-    /// - `key`: Store key identifying the target asset/resource.
-    async fn get_asset_info(&self, key: &Key) -> Result<AssetInfo, Error> {
-        if self.assets.contains_async(key).await {
-            let assetref = self.get(key).await?;
-            assetref.get_asset_info().await
-        } else {
-            let store = self.get_envref().get_async_store();
-            eprintln!(
-                "Checking if store contains key {} {:?}",
-                key,
-                store.contains(key).await
-            );
-            if store.contains(key).await? {
-                eprintln!("Getting asset info from store for key {}", key);
-                store.get_asset_info(key).await
-            } else {
-                let rp = self.get_recipe_provider();
-                if rp.contains(key, self.get_envref()).await? {
-                    rp.get_asset_info(key, self.get_envref()).await
-                } else {
-                    Err(Error::general_error(format!(
-                        "Asset not found for key {} (get_asset_info)",
-                        key
-                    ))
-                    .with_key(key))
-                }
-            }
-        }
-    }
-
     /// Create an ad-hoc asset applied to a state, and evaluate it before returning.
     ///
     /// Ad hoc means: in no map, never reused, not a keyed asset, never written to the store. It
@@ -5683,46 +6002,6 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         }
     }
 
-    /// Remove resource asset
-    /// If asset is being evaluated, it is canceled. Asset is removed from the asset manager.
-    /// Persistent value is removed from the store.
-    /// Note: This does not remove the recipe, so an asset with a recipe can be requested again. However, it would remove an override.
-    /// Used by: `remove_asset`, `run_expiration_monitor`, `test_remove_asset` in this module.
-    ///
-    /// Arguments:
-    /// - `key`: Store key identifying the target asset/resource.
-    async fn remove(&self, key: &Key) -> Result<(), Error> {
-        let _mutation = self.key_mutation_lock.lock().await;
-        // 1. Check if asset exists in memory and cancel if processing
-        if self.assets.contains_async(key).await {
-            if let Some(asset_entry) = self.assets.get_async(key).await {
-                let asset_ref = asset_entry.get().clone();
-                drop(asset_entry);
-
-                // Cancel if processing
-                asset_ref.cancel().await?;
-                // Cancel any pending expiration tracking for this asset
-                self.untrack_expiration(asset_ref.id());
-            }
-
-            // Remove from assets map
-            let _ = self.assets.remove_async(key).await;
-        }
-
-        // 1b. Remove from dependency manager
-        self.dependency_manager
-            .remove(&crate::metadata::DependencyKey::from(key))
-            .await;
-
-        // 2. Remove from store
-        let store = self.get_envref().get_async_store();
-        if store.contains(key).await? {
-            store.remove(key).await?;
-        }
-
-        Ok(())
-    }
-
     /// Set binary value ot the asset
     /// Equivalent of store set method.
     /// For assets with recipes, this can be considered an Override, and the status is set accordingly.
@@ -5749,6 +6028,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
 
                 // Cancel if processing
                 asset_ref.cancel().await?;
+                // The replaced asset's last message: it is unmapped next.
+                asset_ref.notify_removed().await;
                 // Cancel any pending expiration tracking for this asset
                 self.untrack_expiration(asset_ref.id());
             }
@@ -5857,6 +6138,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
 
                 // Cancel if processing
                 asset_ref.cancel().await?;
+                // The replaced asset's last message: it is unmapped next.
+                asset_ref.notify_removed().await;
                 // Cancel any pending expiration tracking for this asset
                 self.untrack_expiration(asset_ref.id());
             }
@@ -6857,6 +7140,10 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         if !metadata.status().has_data() {
             return Err(Error::key_not_found(key));
         }
+        if metadata.status() == Status::Source {
+            // A user value is already authoritative; as `AssetRef::to_override`, a no-op.
+            return Ok(());
+        }
         metadata.set_status(Status::Override)?;
         store.set_metadata(key, &metadata).await?;
         Ok(())
@@ -7001,25 +7288,6 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         }
     }
 
-    async fn remove(&self, key: &Key) -> Result<(), Error> {
-        let _mutation = self.key_mutation_lock.lock().await;
-        let old = {
-            let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
-            map.remove(key)
-        };
-        if let Some(asset) = old {
-            asset.cancel().await?;
-        }
-        self.dependency_manager
-            .remove(&crate::metadata::DependencyKey::from(key))
-            .await;
-        let store = self.envref().get_async_store();
-        if store.contains(key).await? {
-            store.remove(key).await?;
-        }
-        Ok(())
-    }
-
     async fn set_binary(
         &self,
         key: &Key,
@@ -7027,12 +7295,11 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         mut metadata: MetadataRecord,
     ) -> Result<(), Error> {
         let _mutation = self.key_mutation_lock.lock().await;
-        let old = {
-            let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
-            map.remove(key)
-        };
+        let old = self.lookup_key_asset(key);
         if let Some(asset) = old {
             asset.cancel().await?;
+            asset.notify_removed().await;
+            self.remove_key_asset(key).await;
         }
         let final_status = match metadata.status {
             Status::Expired => Status::Expired,
@@ -7076,12 +7343,11 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
 
     async fn set_state(&self, key: &Key, state: State<E::Value>) -> Result<(), Error> {
         let _mutation = self.key_mutation_lock.lock().await;
-        let old = {
-            let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
-            map.remove(key)
-        };
+        let old = self.lookup_key_asset(key);
         if let Some(asset) = old {
             asset.cancel().await?;
+            asset.notify_removed().await;
+            self.remove_key_asset(key).await;
         }
         let final_status = match state.metadata.status() {
             Status::Expired => Status::Expired,
