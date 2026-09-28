@@ -1,12 +1,12 @@
 ---
 id: AXUM-ASSETS-ENDPOINTS
 kind: design
-title: Assets API endpoints for every client-meaningful AssetManager operation
+title: A working web and WebSocket interface for the asset manager
 status: draft
 phase: architecture
 area: [axum, core/assets]
 gh_pr: []
-issues: [AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED]
+issues: [AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED, AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS, WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION]
 created: 2026-09-27
 superseded_by:
 ---

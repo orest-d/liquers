@@ -175,6 +175,10 @@ Still open: none — Phase 1 is ready for approval.
   The omission of non-keyed assets (no info, status, version or notifications for a query) was
   the design's most serious flaw.
 - **Q19:** `to_override` on a `Source` does nothing.
+- **Q21 (scope):** the goal is a **working web and WebSocket interface**, and the known issues of
+  the web API are handled here. `AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS` and
+  `WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION` are in scope; further candidates are listed
+  in Phase 2 "Known-Issue Preflight" for decision.
 - **Q20:** the WebSocket is in scope. It must be consistent with the REST families, and it never
   forwarded notifications.
 

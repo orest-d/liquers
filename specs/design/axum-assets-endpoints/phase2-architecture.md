@@ -68,12 +68,12 @@ So the family must be visible in the URL, and each family has exactly one parser
 | `CORE-SESSION-AND-KEY-ACL` | accepted | P2 | real access control; the builder switches are a stop-gap until it lands | no | monitor |
 | `STORE-NO-READ-ONLY-ADAPTER` | draft | P2 | a corpus mounted from a file store is writable through `POST`/`DELETE` unless the router is `read_only()` | no | document `read_only()` as the mitigation |
 | `QUEUED-MANAGER-EVICTION-RACE` | accepted | P2 | `remove` unmaps the live asset under the same lock as today | no | unchanged |
-| `WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION` | draft | P1 | §5 is rewritten here; the Store API parts stay with that issue | no | touch only §5 and §3.3 |
+| `WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION` | draft | P1 | **in scope (Q21):** the whole of `WEB_API_SPECIFICATION.md` is made true at HEAD. That covers the store entry write (`PUT`), the nonexistent `FullApiBuilder` and crate names, the WebSocket path, and every other drift the audit finds. | no | close on merge |
 | `ASSETS-API-ADMIN-OPERATIONS` | draft | P3 | deferred endpoints | no | none |
 | `DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION` | draft | P1 | the `get_asset_info` change fixes exactly this (both bodies) | no | close on merge, or hand to `store-and-asset-search` if it lands first (final review) |
 | `ASSET-TO-OVERRIDE-SOURCE-INCONSISTENT` | draft | P3 | decided: `to_override` on a `Source` does nothing in both paths | no | fixed here; close on merge |
 | `AXUM-ASSETS-CANCEL-STARTS-EVALUATION` | draft | P3 | `POST cancel` via `get_asset` starts the evaluation it cancels | no | `key/cancel` fixes it for keys; for queries see Open Question O2 |
-| `AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS` | draft (filed in final review) | P1 | `build()` panics with the default WebSocket path | **yes, for every router test** | fixed in `builder.rs`; close on merge |
+| `AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS` | draft (filed in final review); **in scope (Q21)** | P1 | `build()` panics with the default WebSocket path | **yes, for every router test** | fixed in `builder.rs`; close on merge |
 
 None is blocking.
 
