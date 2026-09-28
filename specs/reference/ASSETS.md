@@ -3,7 +3,7 @@ title: Assets Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-09-27
+reviewed: 2026-09-28
 ---
 # Assets Specification
 
@@ -170,12 +170,17 @@ pub enum AssetNotificationMessage {
     PrimaryProgressUpdated(ProgressEntry),
     SecondaryProgressUpdated(ProgressEntry),
     JobFinished,                       // Processing complete
-    // New (from ASSET_SET_OPERATION):
-    Removed,                           // Asset was removed
-    Cancelling,                        // Cancel in progress
-    MetadataChanged,                   // Metadata-only update occurred
+    Expired,                           // The asset expired
+    Removed,                           // The manager removed or replaced the asset (terminal)
 }
 ```
+
+`Removed` is sent by `AssetManager::remove`, `set_binary` and `set_state` to the live asset they
+unmap: after `cancel()`, after the unmap, and after the key's new state is written, so it is the
+asset's last message and an observer re-reading the key sees what the removal or write left. It is
+not sent by expiry (`remove_expired_from_maps`), which has already announced `Expired`. Waiters treat
+it as terminal: `wait_to_finish` and the wait inside `cancel` return, and `AssetRef::get` re-polls
+the state and errors only if there is none ("removed while waiting").
 
 **Note on watch channel**: The notification channel uses `watch` which only keeps the latest value. Intermediate notifications may be lost (e.g., multiple LogMessages). This is acceptable - clients should poll for full state if needed, notifications are hints only.
 
@@ -596,14 +601,12 @@ Submitted/Dependencies/Processing
 
 ### Scenario 3: Set External Data (Override)
 ```
-1. set(key, data, metadata) called
-2. Check if asset exists in AssetManager
-3a. If Processing/Submitted: cancel().await
-3b. Wait for cancellation
-4. Check if recipe exists for key
-5. Status → Override (recipe exists) or Source (no recipe)
-6. Store data to store
-7. Notification: ValueProduced, StatusChanged
+1. set_binary(key, data, metadata) or set_state(key, state) called; takes key_mutation_lock
+2. If a live asset holds the key: cancel().await (waits for the cancellation), then unmap it
+3. Check if recipe exists for key
+4. Status → Override (recipe exists) or Source (no recipe)
+5. Store data to store; register the new version, expire dependents
+6. Notification to the replaced asset: Removed (its last message)
 ```
 
 ### Scenario 4: Cancellation
@@ -619,12 +622,15 @@ Submitted/Dependencies/Processing
 
 ### Scenario 5: Remove and Recalculate
 ```
-1. remove(key) called on AssetManager
-2. Notification: Removed sent
-3. Lock AssetData, clear data/binary
-4. Remove AssetRef from AssetManager maps
-5. Remove data from store
-6. (Optional) If recipe exists, trigger get_asset(key) for recalculation
+1. remove(key) called on AssetManager; takes key_mutation_lock
+2. Decide by status (see "Remove Semantics" below): Directory → StatusConflict
+3. If a live asset holds the key: cancel().await, untrack expiration, unmap it
+4a. Delete (user value, or a key without a recipe): expire dependents, then drop the key from
+    the dependency graph, then remove it from the store
+4b. Drop a computed value: keep the stored record as status Recipe with its version; dependents
+    are not expired
+5. Notification to the unmapped asset: Removed (its last message)
+6. A later get(key) on a key with a recipe evaluates it again
 ```
 
 ### Scenario 6: Preview Mode with Partial Status
@@ -826,7 +832,47 @@ The following issues were identified and resolved through discussion:
 ### 10. Remove Semantics (RESOLVED)
 **Problem**: Should remove() behave differently based on status?
 
-**Resolution**: Same behavior for all statuses - always delete. Recipes cannot be deleted (at the moment). After remove(), if AssetManager is asked for the asset and a recipe exists, the asset automatically starts in `Recipe` status. If no recipe exists, the asset doesn't exist.
+**Resolution** (`design/axum-assets-endpoints/`, superseding "always delete"): yes. `remove` is a
+default method of `AssetManager`, serialized by the manager's `key_mutation_lock`. The status is
+the live asset's, unless it is `None`/`Recipe` (nothing produced yet) or there is no live asset;
+then the stored status decides.
+
+| Status | Recipe? | Effect | Dependents |
+|---|---|---|---|
+| `Directory` | any | `Err(StatusConflict)` — use `removedir` | — |
+| any other | no | delete: live asset, dependency-graph entry, stored entry | expired, **before** the key leaves the graph |
+| `Source`, `Override` | yes | delete the user value as above; the key falls back to its recipe | expired |
+| `Ready`, `Expired`, `Error`, `Cancelled`, `Volatile`, `Partial`, in flight | yes | drop the computed value: unmap the live asset; the stored record is rewritten as `Recipe`, data-bearing fields cleared, **version kept** (legacy metadata is deleted instead) | **not** expired — a recomputation that changes the content hash cascades then |
+| none, or stored `Recipe` | yes | nothing to do (idempotent) | — |
+| nothing live, nothing stored | no | `Err(KeyNotFound)` | — |
+
+Keeping the version lets `AssetManager::version` answer for a dropped intermediate, so
+`trigger_dependency_audit` keeps its dependents valid; a stored `Recipe` has no data
+(`has_data()` is false), so nothing reads the empty bytes as a value, and it does not block a
+dependent's fast track (`dependency_blocks_fast_track` treats it like an absent dependency).
+Recipes themselves cannot be deleted by `remove`.
+
+**Related keyed operations**, all default methods of `AssetManager` and none of them evaluating:
+
+- `removedir(key)`: `remove` for every key under the directory (deepest first, directory keys
+  skipped), then `store.removedir`, which also deletes the directory's `recipes.yaml` and the
+  `Recipe` records `remove` kept; live `Directory` assets under it are unmapped. It takes no lock
+  itself (each `remove` does) and is not atomic. Absent → `KeyNotFound`; not a directory →
+  `StatusConflict`.
+- `expire(key)`: a live `Ready`/`Override` asset expires and cascades (`AssetRef::expire`); a
+  stored-only `Ready`/`Override` entry is marked `Expired` and its dependents are expired;
+  `Expired` is idempotent; anything else (a `Source`, a recipe key with no value, an in-flight
+  asset) is `StatusConflict`; unknown → `KeyNotFound`.
+- `set_description(key, title, description)`: only for a `Source` (live and/or stored); data and
+  version are unchanged; both `None` → `ParameterError`; another status → `StatusConflict`.
+- `to_override(key)`: a `Source` is left unchanged, whether live or only stored.
+- `get_asset_info(key)`: reads the live asset as it is (a cached `Expired`/`Error`/`Cancelled`
+  entry is reported, not re-evaluated), else the store, else the recipe provider; unknown →
+  `KeyNotFound`.
+- `lookup_query_asset(query)`: the live asset for a query, without creating or submitting one (a
+  pure-key query looks up the key). The observe-only counterpart of `get_asset`.
+- `makedir(key)`: creates the directory in the store and returns an unmapped asset with status
+  `Directory`; it does not call `get`, which fails on a directory.
 
 ### 11. Concurrent set() Calls (RESOLVED)
 **Problem**: Could concurrent set() calls cause inconsistency?
@@ -933,6 +979,7 @@ re-evaluation is a property of *requesting* the asset, not of awaiting an in-fli
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-28 | §Notification Channel: the enum as implemented, with `Expired` and `Removed` (and when `Removed` is sent); the never-implemented `Cancelling`/`MetadataChanged` removed. Scenarios 3 and 5 rewritten. §Remove Semantics: the status-aware decision table replaces "always delete", plus `removedir`, `expire`, `set_description`, `to_override` on a `Source`, the non-evaluating `get_asset_info`, `lookup_query_asset` and `makedir`. | `design/axum-assets-endpoints/` |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. Added §`stored` and `cached` to §AssetManager: what each flag skips in both managers, that an existing stored copy is still preferred, that neither makes an asset volatile, that an uncached keyed asset stays the key's dependency-graph node (`bound_owner_key`) and has its stored copy marked `Expired` on an upstream change, and that `set_state`/`set_binary` read the supplied metadata's flag. §Key ownership: `cached: false` is a third way to have no registered owner. | phase-5 |
 | 2026-09-15 | §Expiry: a stale-dependency completion is *born* `Expired` in `finalize_status_with_version` rather than relabelled afterwards by `finish_run_with_result`, so the stored status agrees with the manager. | `stale-dependency-status-finalization` |
 | 2026-09-15 | Added §The one meaning of `Expired` (one meaning, two provenances, and why a `Stale` variant is not the answer) and §Who decides status (the manager is authoritative, every keyed expiry writes through to the store, ask the manager before the store, and two environments over one live store is not a supported configuration). | `stale-dependency-status-finalization` |

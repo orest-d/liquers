@@ -2,11 +2,11 @@
 id: ASSET-REMOVE-FORGETS-DEPENDENTS
 kind: issue
 title: AssetManager::remove drops a key's dependency edges without expiring its dependents
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [core/assets]
-design: 
+design: axum-assets-endpoints
 created: 2026-09-27
 github:
 ---
@@ -48,3 +48,12 @@ dependents.
 
 Reading `remove` and `DependencyManager::remove` while resolving Q9 of
 `specs/design/axum-assets-endpoints/phase1-high-level-design.md`, 2026-09-27.
+
+## Resolution
+
+`AssetManager::remove` is now one status-aware default method: deleting a user value (a `Source`,
+or an `Override` of a recipe key) expires its dependents **before** the key leaves the dependency
+graph, and dropping a recipe-computed value keeps a `Recipe` record with its version and does not
+cascade. Evidence: AMR01–AMR07, AMR24; `ASSETS.md` §Remove Semantics.
+
+Fixed on branch `claude/fervent-cori-ew4kvn` (design `axum-assets-endpoints`, 2026-09-28).

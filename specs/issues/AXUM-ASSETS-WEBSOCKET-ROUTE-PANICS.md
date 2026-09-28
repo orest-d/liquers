@@ -2,7 +2,7 @@
 id: AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS
 kind: issue
 title: AssetsApiBuilder::build panics whenever the WebSocket route is enabled
-status: draft
+status: closed
 priority: P1
 complexity: S
 area: [axum]
@@ -34,3 +34,12 @@ the default configuration so a route-table panic fails the unit loop.
 
 Final cross-phase review of `specs/design/axum-assets-endpoints/`, 2026-09-27, while checking
 whether the Phase 3 router tests could run. The fix is planned in that design's Phase 4, Step 7.
+
+## Resolution
+
+The WebSocket routes use axum 0.8 wildcard syntax (`{ws}/q/{*query}`, `{ws}/key/{*key}`, plus the
+bare `{ws}/q` and `{ws}/key`), so `AssetsApiBuilder::build()` no longer panics. Evidence:
+`liquers-axum/tests/assets_websocket.rs` AWS14a/AWS14b, and every router test in
+`assets_api_endpoints.rs`.
+
+Fixed on branch `claude/fervent-cori-ew4kvn` (design `axum-assets-endpoints`, 2026-09-28).

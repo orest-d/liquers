@@ -2,11 +2,11 @@
 id: ASSET-TO-OVERRIDE-SOURCE-INCONSISTENT
 kind: issue
 title: AssetManager::to_override turns a stored-only Source into a recipe-less Override
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/assets]
-design:
+design: axum-assets-endpoints
 created: 2026-09-27
 github:
 ---
@@ -33,3 +33,10 @@ Either both branches leave a `Source` unchanged, or both refuse it (`StatusConfl
 Final cross-phase review of `specs/design/axum-assets-endpoints/`, 2026-09-27: its AAE30 test
 originally asserted a 200 for `POST override` on a stored `Source`; the test was moved to a
 computed value instead.
+
+## Resolution
+
+`to_override` leaves a `Source` unchanged in both paths: the live one (`AssetRef::to_override`,
+unchanged) and now the store-only one in all three bodies. Evidence: AMR60, AMR61, AAE32.
+
+Fixed on branch `claude/fervent-cori-ew4kvn` (design `axum-assets-endpoints`, 2026-09-28).

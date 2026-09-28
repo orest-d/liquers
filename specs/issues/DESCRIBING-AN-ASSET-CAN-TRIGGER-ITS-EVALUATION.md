@@ -2,11 +2,11 @@
 id: DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION
 kind: issue
 title: Describing an asset can trigger its evaluation
-status: draft
+status: closed
 priority: P1
 complexity: M
 area: [core/assets]
-design: store-and-asset-search
+design: axum-assets-endpoints
 created: 2026-09-17
 github:
 ---
@@ -102,3 +102,13 @@ subtree without evaluating it. Verified at HEAD: `get_asset_info` routes through
 at `assets.rs:3967` and `:5334`; `get` submits to the job queue at `:5424`; `Status::Recipe` is
 defined at `metadata.rs:304`; `EvalMode` (`assets.rs:3725`) chooses between queued and inline
 execution and offers no "do not execute" mode.
+
+## Resolution
+
+`AssetManager::get_asset_info` reads the live asset directly (`lookup_key_asset`) instead of calling
+`get`, in the one remaining body (the `DefaultAssetManager` override was deleted), and answers
+`KeyNotFound` for an unknown key. A cached `Expired`, `Error` or `Cancelled` entry is described as
+it is. `listdir_asset_info` inherits the fix. Evidence: AMR22, AMR23, AAE22, AAE01 step 3.
+(Previously linked to `store-and-asset-search`, which had not landed.)
+
+Fixed on branch `claude/fervent-cori-ew4kvn` (design `axum-assets-endpoints`, 2026-09-28).
