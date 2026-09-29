@@ -4,7 +4,7 @@ kind: design
 title: Dependency audit correctness, audit policy, expiry provenance, outside-change detection and external asset managers
 status: draft
 workflow: liquers-project
-phase: architecture
+phase: examples
 area: [core/assets]
 gh_pr: []
 affects_docs: [DEPENDENCIES_STATUS, ASSETS, ASSET_LIFECYCLE, DOC_03_ASSETS_EXECUTION_LIFECYCLE, DOC_04_ENVIRONMENT_CONTEXT_EVALUATION, ENVIRONMENT_CONFIG, COMMAND_REGISTRATION_GUIDE, ENVIRONMENT_CONSTRUCTION_GUIDE, STORE_IMPLEMENTATION_GUIDE, UNITTEST_GUIDE]
@@ -19,7 +19,7 @@ superseded_by:
 ## Phase Status
 
 - [x] Phase 1: High-Level Design (approved 2026-09-28)
-- [ ] Phase 2: Solution & Architecture
+- [x] Phase 2: Solution & Architecture (approved 2026-09-29)
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
