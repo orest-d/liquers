@@ -2958,6 +2958,9 @@ mod key_absolute_tests {
     ///
     /// `DirOnlyStore` implements the two methods that have no default, plus `is_dir`. Everything
     /// else exercised here is the trait's own body, so this checks the default and not an override.
+    ///
+    /// Same contract as conformance rule `dir05`, which the trait-defaults suite (`C4`) cannot run
+    /// because it declares no directory support — so this is the only check of it for the defaults.
     #[tokio::test]
     async fn traitdef01_default_contains_falls_back_to_is_dir() -> Result<(), Error> {
         struct DirOnlyStore;

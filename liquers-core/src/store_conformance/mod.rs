@@ -1069,7 +1069,7 @@ mod tests {
 
     /// **`sibling01` catches the data-loss defect.** The rule is only worth having if it fails here.
     #[tokio::test]
-    async fn sibling01_catches_a_prefix_deleting_store() {
+    async fn refute_sibling01_catches_a_prefix_deleting_store() {
         let fixture = BrokenFixture {
             store: PrefixDeletingStore {
                 inner: crate::store::AsyncMemoryStore::new(&Key::new()),
