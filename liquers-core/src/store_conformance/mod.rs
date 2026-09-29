@@ -1092,6 +1092,109 @@ mod tests {
         }
     }
 
+    /// An `AsyncMemoryStore` whose directory metadata is altered on the way out.
+    ///
+    /// Everything a rule touches is forwarded; only `get_metadata` of a directory is rewritten, by
+    /// `tamper`. Used to show that `dir07` fails a store that gets `children` wrong.
+    struct TamperingStore {
+        inner: crate::store::AsyncMemoryStore,
+        tamper: fn(&Key, &mut MetadataRecord),
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl AsyncStore for TamperingStore {
+        async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+            self.inner.get(key).await
+        }
+        async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+            let metadata = self.inner.get_metadata(key).await?;
+            match metadata {
+                Metadata::MetadataRecord(mut record) if record.is_dir => {
+                    (self.tamper)(key, &mut record);
+                    Ok(Metadata::MetadataRecord(record))
+                }
+                Metadata::MetadataRecord(record) => Ok(Metadata::MetadataRecord(record)),
+                Metadata::LegacyMetadata(value) => Ok(Metadata::LegacyMetadata(value)),
+            }
+        }
+        async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+            self.inner.set(key, data, metadata).await
+        }
+        async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+            self.inner.set_metadata(key, metadata).await
+        }
+        async fn contains(&self, key: &Key) -> Result<bool, Error> {
+            self.inner.contains(key).await
+        }
+        async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+            self.inner.is_dir(key).await
+        }
+        async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+            self.inner.listdir(key).await
+        }
+        async fn remove(&self, key: &Key) -> Result<(), Error> {
+            self.inner.remove(key).await
+        }
+        async fn removedir(&self, key: &Key) -> Result<(), Error> {
+            self.inner.removedir(key).await
+        }
+        fn is_supported(&self, key: &Key) -> bool {
+            self.inner.is_supported(key)
+        }
+    }
+
+    /// Runs one registered rule against `store` through a `GenericFixture`.
+    async fn run_rule_on(id: &str, store: Box<dyn AsyncStore>) -> RuleOutcome {
+        let fixture = crate::store_conformance::GenericFixture::new(
+            format!("refuting {id}"),
+            store,
+            Key::new(),
+            all_capabilities(),
+            SafetyLevel::Scratch,
+        );
+        let rule = rule(id).unwrap_or_else(|| panic!("{id} is registered"));
+        run_one(&fixture, rule).await.outcome
+    }
+
+    #[tokio::test]
+    async fn refute_dir07_passes_one_level_children() {
+        let store = crate::store::AsyncMemoryStore::new(&Key::new());
+        match run_rule_on("dir07", Box::new(store)).await {
+            RuleOutcome::Passed => {}
+            other => panic!("dir07 must pass a store with one-level children, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn refute_dir07_fails_empty_children() {
+        let store = TamperingStore {
+            inner: crate::store::AsyncMemoryStore::new(&Key::new()),
+            tamper: |_key, record| record.children.clear(),
+        };
+        match run_rule_on("dir07", Box::new(store)).await {
+            RuleOutcome::Failed { .. } => {}
+            other => panic!("dir07 must fail a store with no children, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn refute_dir07_fails_children_that_differ_from_listdir() {
+        let store = TamperingStore {
+            inner: crate::store::AsyncMemoryStore::new(&Key::new()),
+            // A grandchild: the one-level contract is what this breaks.
+            tamper: |key, record| {
+                let mut extra = crate::metadata::AssetInfo::new();
+                extra.with_key(key.join("deeper").join("grandchild"));
+                record.children.push(extra);
+            },
+        };
+        match run_rule_on("dir07", Box::new(store)).await {
+            RuleOutcome::Failed { .. } => {}
+            other => panic!("dir07 must fail a store listing a grandchild, got {other:?}"),
+        }
+    }
+
     /// The gate itself, end to end: `run_all` produces one entry per rule, in order.
     #[tokio::test]
     async fn harness_runs_every_rule_in_order() {

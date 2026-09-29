@@ -148,7 +148,7 @@ static RULES: &[Rule] = &[
     ),
     rule!(
         "dir07",
-        "directory metadata does not populate children",
+        "directory metadata populates children with the direct children only",
         "STORE_SEMANTICS.md §2",
         [Directories, Write],
         CreateOnly,

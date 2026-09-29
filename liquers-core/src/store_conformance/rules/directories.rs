@@ -293,15 +293,15 @@ pub async fn dir06(f: &dyn Fixture) -> RuleOutcome {
     }
 }
 
-/// `dir07` — directory metadata does not populate `children`.
+/// `dir07` — directory metadata populates `children` with the direct children only.
 ///
-/// **Blocked, and deliberately so.** `STORE_SEMANTICS.md` §2 says directory metadata must not carry
-/// `children`, and *every* implementation populates it — including the `AsyncStore` trait default
-/// the sentence itself points at. A rule no implementation has ever followed is a rule that was
-/// never agreed, so this reports `Blocked` rather than failing eight stores or passing vacuously.
+/// §2 settles what this rule used to report as `Blocked`: every store fills `children`, one
+/// `AssetInfo` per direct child, and a child directory is described without its own children. So
+/// the set of child names must be exactly what `listdir` gives for the same directory — an empty
+/// list fails, and so does a grandchild or a name the listing does not have.
 ///
-/// The check below still runs, so the moment the question is settled this becomes a live rule by
-/// deleting one branch. See `STORE-SEMANTICS-CHILDREN-RULE-CONTRADICTS-EVERY-STORE`.
+/// `children` lives on the record, so a store returning legacy metadata cannot populate it and
+/// trivially conforms — which is why this reads the record rather than `get_asset_info`.
 pub async fn dir07(f: &dyn Fixture) -> RuleOutcome {
     let (leaf, parent) = match nested(f).await {
         Ok(p) => p,
@@ -311,21 +311,43 @@ pub async fn dir07(f: &dyn Fixture) -> RuleOutcome {
         return outcome;
     }
 
-    // `children` lives on the record, so a store returning legacy metadata cannot populate it and
-    // trivially conforms — which is why this reads the record rather than `get_asset_info`.
-    match f.store().get_metadata(&parent).await {
-        Ok(Metadata::MetadataRecord(record)) if record.children.is_empty() => RuleOutcome::Passed,
-        Ok(Metadata::MetadataRecord(record)) => RuleOutcome::Blocked {
-            issue: "STORE-SEMANTICS-CHILDREN-RULE-CONTRADICTS-EVERY-STORE".to_owned(),
-            detail: format!(
-                "metadata for {} carries {} children. The contract forbids this and every \
-                 implementation does it, so the contract is what has to be settled first",
+    let record = match f.store().get_metadata(&parent).await {
+        Ok(Metadata::MetadataRecord(record)) => record,
+        Ok(Metadata::LegacyMetadata(_)) => return RuleOutcome::Passed,
+        Err(e) => return e.into(),
+    };
+    let listed: std::collections::BTreeSet<String> = match f.store().listdir(&parent).await {
+        Ok(names) => names.into_iter().collect(),
+        Err(e) => return e.into(),
+    };
+    // A child is named by its key's last segment; a child with no key, or a key that is not
+    // directly under `parent`, is reported as the full key so it cannot match a listed name.
+    let described: std::collections::BTreeSet<String> = record
+        .children
+        .iter()
+        .map(|info| match &info.key {
+            Some(key) if key.parent() == parent => key
+                .filename()
+                .map(|name| name.encode().to_string())
+                .unwrap_or_else(|| key.encode()),
+            Some(key) => key.encode(),
+            None => "<child with no key>".to_owned(),
+        })
+        .collect();
+
+    if described == listed {
+        RuleOutcome::Passed
+    } else {
+        failed_at(
+            format!(
+                "metadata for {} describes children {:?}, but listdir gives {:?}; §2 requires one \
+                 entry per direct child",
                 parent.encode(),
-                record.children.len()
+                described,
+                listed
             ),
-        },
-        Ok(_) => RuleOutcome::Passed,
-        Err(e) => e.into(),
+            vec![parent, leaf],
+        )
     }
 }
 

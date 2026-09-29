@@ -372,7 +372,7 @@ PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,core/query
 RECORD_STREAMS,reference,Record Streams,current,local,,,,,records;lib/value;lib/commands;web,,,,,2026-09-27,,specs/reference/RECORD_STREAMS.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,macro;core/commands,,,,,2026-09-27,,specs/reference/REGISTER_COMMAND_FSD.md
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,store/config,,,,,2026-09-04,,specs/reference/STORE_CONFIG_FSD.md
-STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,core/store;store/backends;web,,,,,2026-09-04,,specs/reference/STORE_SEMANTICS.md
+STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,core/store;store/backends;web,,,,,2026-09-29,,specs/reference/STORE_SEMANTICS.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,core/value;lib/value,,,,,2026-09-27,,specs/reference/VALUE_TYPE_SYSTEM.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,axum;web,,,,,2026-09-29,,specs/reference/WEB_API_SPECIFICATION.md
@@ -384,7 +384,7 @@ LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,we
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,core/query,,,,,2026-08-14,,specs/guides/QUERY_ESCAPING_GUIDE.md
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,records;lib/value,,,,,2026-09-27,,specs/guides/RECORD_STREAM_GUIDE.md
 STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,core/store;store/config,,,,,2026-09-02,,specs/guides/STORE_FACTORY_GUIDE.md
-STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,core/store;store/backends;web,,,,,2026-09-15,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
+STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,core/store;store/backends;web,,,,,2026-09-29,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,core/value;lib/value,,,,,2026-09-27,,specs/guides/TYPE_SYSTEM_GUIDE.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,build;core/assets,,,,,2026-09-15,,specs/guides/UNITTEST_GUIDE.md
 WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,axum;web,,,,,2026-09-29,,specs/guides/WEB_API_GUIDE.md

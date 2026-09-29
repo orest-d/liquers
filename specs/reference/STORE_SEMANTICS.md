@@ -3,7 +3,7 @@ title: Store Behavioural Semantics
 kind: reference
 audience: internal
 area: [core/store, store/backends, web]
-reviewed: 2026-09-04
+reviewed: 2026-09-29
 ---
 # Store Behavioural Semantics
 
@@ -30,9 +30,8 @@ is the operational counterpart — how to implement a store that satisfies this,
 suite against it.
 
 **Rows marked ⚠ are known to be unsettled.** They name the issue tracking them rather than stating a
-rule the code does not follow. Two remain: §2's `children` question, which the conformance suite
-surfaced and which needs a decision rather than a fix, and §7's, which is a *parsing* limit rather
-than a store one.
+rule the code does not follow. One remains: §7's, which is a *parsing* limit rather than a store one.
+§2's `children` question was settled on 2026-09-29.
 
 **This document is trait-neutral where the rule is.** `AsyncStore` is the only store trait that
 must satisfy it today — the synchronous `Store` is obsolete and unreachable
@@ -89,14 +88,18 @@ one bounded listing on the branch that would otherwise have failed.
   directory, which is what a caller reading the record directly receives. `get_asset_info` is built
   on `get_metadata`, so a store that cannot produce directory metadata cannot answer `-R-dir/`
   queries.
-- ⚠ **Directory metadata and `children` — unsettled.** This section used to state that directory
-  metadata does *not* populate `children`, on the grounds that `listdir_asset_info` calls
-  `get_asset_info` per child, which calls `get_metadata` per child directory: a full recursive walk
-  of the subtree for one directory read. The cost is real. But seven of the nine implementations
-  populate it, including the `AsyncStore` default this very sentence pointed at, and only
-  `AsyncOpenDALStore` does not — so the document sided with the minority while describing the
-  majority's behaviour. Rule `dir07` reports `Blocked` until this is decided.
-  `STORE-SEMANTICS-CHILDREN-RULE-CONTRADICTS-EVERY-STORE`.
+- **Directory metadata populates `children`, one level deep.** A directory's record carries one
+  `AssetInfo` per direct child — the same names `listdir` gives — and a child directory is described
+  by a directory-shaped `AssetInfo` without its own children. The `AsyncStore` default
+  `get_asset_info` guarantees the depth bound: for a directory it answers from
+  `default_metadata(key, true)` instead of reading the directory's metadata, so filling a parent's
+  `children` never recurses. The cost that remains is **width**: a directory of *n* entries costs
+  one listing plus one `get_asset_info` per entry, which for a data child is one metadata read. The
+  price of the bound is that a directory's own stored fields (a title in a sidecar, say) are not in
+  its `AssetInfo`; nothing in tree writes directory metadata today.
+  Settled on 2026-09-29 in favour of what every implementation already did — the text used to
+  forbid `children` — and `AsyncOpenDALStore`, the one store that left it empty, now fills it
+  (`design/store-conformance-backlog/`).
 
 *Enforced by:* `dir01`, `dir02`, `dir03`, `dir04`, `dir05`, `dir06`, `dir07`, `dir08`, `data01`,
 `data03`, and the refuting rules `nowrite01` and `nodir01`.
@@ -311,6 +314,7 @@ and `AsyncOpenDALStore` already behave as specified here.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-29 | §2 settled: directory metadata populates `children` with the direct children, one level deep, and the `AsyncStore` default `get_asset_info` answers a directory without reading its metadata, which is what bounds the depth. `dir07` now checks this instead of reporting `Blocked`; `AsyncOpenDALStore` fills `children` like every other store. One ⚠ row remains. | `design/store-conformance-backlog/` step 4 |
 | 2026-09-04 | §4 now defines `listdir` on an absent addressable directory as `Ok([])`, while retaining errors for failed filesystem operations and invalid or unsupported keys. This lets a router enumerate an uncreated file-store prefix without treating it as a failed backend. | phase-5 |
 | 2026-09-03 | §8 restated as **reserved names** rather than one sidecar suffix: reserved in *any* segment rather than only the filename, declared per store by its own layout, and covering both the suffix form and the exact name — the latter being the predecessor Python implementation's `__metadata__` folder, cited because nothing in this repository evidences it. Named the three kinds of caller that must consult the rule, and why satisfying only `is_supported` is the defect the section exists to prevent. Recorded that listings *skip* reserved names, that the refusal is `KeyNotSupported` with `as_absolute` checked first, and that `get` repairs unparseable metadata — which is what makes an already-corrupted store recoverable. | `design/sidecar-colliding-keys/` Phase 5 |
 | 2026-09-02 | Completed the contract. §5 restated as a **postcondition** — `Ok(())` means the directory is gone — from which recursion and the absent-directory case follow, and which makes the trait default's `Err(KeyNotSupported)` correct rather than divergent. §9 settled: `keys()` returns data keys, directories and the prefix, and **every returned key starts with the prefix**; the cost, that an enumerated key is not necessarily readable, is stated rather than hidden. Every *Enforced by* line now names rules in `liquers_core::store_conformance`. Stated trait-neutrally against the possible return of a synchronous store. Two of the three ⚠ rows are gone; §6's was cleared by `async-memory-store-prefix-support`. | `design/store-conformance-suite/` Phase 4 step 1 |

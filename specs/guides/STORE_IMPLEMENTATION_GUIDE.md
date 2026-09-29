@@ -3,7 +3,7 @@ title: Store Implementation Guide
 kind: guide
 audience: internal
 area: [core/store, store/backends, web]
-reviewed: 2026-09-15
+reviewed: 2026-09-29
 ---
 # Store Implementation Guide
 
@@ -369,7 +369,7 @@ As of 2026-09-02, from the suites above.
 
 | Store | Rules run | Status | Notes |
 |---|---|---|---|
-| `AsyncMemoryStore` | 29 | `CONFORMANT` | `dir07` blocked pending the contract decision |
+| `AsyncMemoryStore` | 29 | `CONFORMANT` | |
 | `AsyncFileStore` | 28 | `CONFORMANT` | `derived_directories: false` — real directories persist |
 | `AsyncStoreRouter` | 28 | `CONFORMANT` | needs each member's prefix to exist (`CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER`) |
 | `AsyncOpenDALStore` (memory) | 31 | `CONFORMANT` | the widest coverage in tree |
@@ -387,6 +387,7 @@ serde for exactly this reason. Regenerate it rather than editing it.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-29 | §9: `dir07` is no longer blocked — STORE_SEMANTICS §2 settled that directory metadata populates `children` one level deep. The rest of the §9 table is rewritten from the final reports when `design/store-conformance-backlog/` reaches Phase 5. | `design/store-conformance-backlog/` step 4 |
 | 2026-09-15 | §1: added "A wrapper is not two methods" — `AsyncStore`'s twenty defaults are error stubs rather than forwarding defaults, so a wrapper must be sized by compiling and an undeclared default is an oversight rather than a declined capability. | `stale-dependency-status-finalization` |
 | 2026-09-04 | Added the `listdir` absence rule: an absent addressable directory is empty, but a failed filesystem operation must remain an error. | phase-5 |
 | 2026-09-03 | §"The key space" now says *how* to refuse an unrepresentable key, not only that you must: one `ReservedNames` predicate consulted by `is_supported`, the path builders and the listing filters, declaring what your own layout reserves and no more. Records the three failure modes behind that advice — `is_supported` is a routing hint and does not bind a direct caller; an unfiltered listing turns a refusal into a failed enumeration; over-reserving refuses keys for nothing — and the recovery routes for a store that already holds a colliding file. | `design/sidecar-colliding-keys/` Phase 5 |
