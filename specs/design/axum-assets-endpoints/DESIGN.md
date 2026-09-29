@@ -2,10 +2,9 @@
 id: AXUM-ASSETS-ENDPOINTS
 kind: design
 title: A working web and WebSocket interface for the asset manager
-status: approved
 phase: implementation
 area: [axum, core/assets, core/error, docs]
-gh_pr: []
+gh_pr: [73]
 issues: [AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED, AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS, WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION, AXUM-ASSETS-API-SERVES-ONLY-BYTES-AND-TEXT, EXPIRATION-RECOVERY-WEB-API, AXUM-ASSETS-CANCEL-STARTS-EVALUATION, AXUM-HANDLER-TEST-COVERAGE, AXUM-QUERY-TIMEOUT-HARDCODED, AXUM-WEBSOCKET-HARDENING, LIBRARY-CODE-USES-UNWRAP-AND-EXPECT, MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS, ASSET-REMOVE-FORGETS-DEPENDENTS, ASSET-TO-OVERRIDE-SOURCE-INCONSISTENT, DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION]
 created: 2026-09-27
 superseded_by:
@@ -20,7 +19,7 @@ superseded_by:
 - [x] Phase 2: Solution & Architecture (approved 2026-09-27; reopened and re-approved 2026-09-28: `/q/`+`/key/` families, access modes, WebSocket, web API issues I1–I10)
 - [x] Phase 3: Examples & Testing (v2 approved 2026-09-28: 169 runnable tests)
 - [x] Phase 4: Implementation Plan (approved 2026-09-28; O15 = a)
-- [x] Implementation Complete (2026-09-28, branch `claude/fervent-cori-ew4kvn`; no PR opened yet)
+- [x] Implementation Complete (2026-09-28, branch `claude/fervent-cori-ew4kvn`, PR #73)
 
 ## Notes
 
@@ -33,7 +32,7 @@ superseded_by:
 - Filed during implementation: `ASSET-CANCEL-DURING-PROCESSING-FINISHES-READY`,
   `AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS`,
   `AXUM-STORE-UPLOAD-AND-METADATA-DROP-INFORMATION`, `AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN`.
-- `gh_pr` is set when the implementing PR is opened (§5.5).
+- Implementing PR: orest-d/liquers#73; the design's status is derived from it (§5.5).
 
 ## Links
 
