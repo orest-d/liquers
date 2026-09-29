@@ -19,7 +19,7 @@ The examples are ordered from the representative path to the sharp edges:
 2. **Example 2 (detail): a shared data folder.** Builds on Example 1's environment and adds the two
    inputs that are not a plain `-R/` value: a folder listing (Part D, problem 4) and a file edited by
    hand (Part G, problem 8), including the two policies for a recipe-backed file.
-3. **Example 3 (pitfalls).** Ten ways to get the feature wrong, each with symptom, cause, correct
+3. **Example 3 (pitfalls).** Eleven ways to get the feature wrong, each with symptom, cause, correct
    use and the test that guards it. It also carries the correction to the drafts (unknown-expecting
    edges) that the test plan depends on.
 
@@ -66,7 +66,7 @@ Validation). Where a snippet leans on something Phase 2 leaves open, the Learnin
 | 3. An expired asset cannot say why | C | Ex. 1 | `every_route_persists_its_reason` (I1), `ExpiryReason` tests (U2) |
 | 4. Folder listing never updates | D | Ex. 2 | `adding_a_file_expires_the_index`, `listing_gap_resolved_by_audit_after_restart` (I1) |
 | 5. "Use the old input" rule untested | E | Ex. 3 pitfall 1 | `stale_dependency_end_to_end_queued` / `_immediate` (I1) |
-| 6. Time limits never fire on the immediate manager | C | (test only) | `immediate_manager_deadline_fires` (I4) |
+| 6. Time limits never fire on the immediate manager | C | Ex. 3 pitfall 11 | `immediate_manager_deadline_fires` (I4) |
 | 7. Nobody outside core can write a manager | F | Ex. 3 pitfall 6, Learning Log | `external_asset_manager.rs` (I3) |
 | 8. Content changed by another program | G | Ex. 2 | `hand_edited_source_is_input_and_expires_dependents`, `recipe_backed_edit_follows_policy` (I2) |
 
@@ -405,6 +405,24 @@ Each entry: symptom, cause, correct use or recovery, protective test.
     `expired` is always empty in `ReportOnly`; the answer is in `findings`. *Test:*
     `report_only_audit_changes_nothing` asserts both.
 
+11. **Relying on `expires:` on the immediate manager** (problem 6). *Symptom:* in `liquers-web`
+    (immediate manager), a result declared `expires: "in 1 sec"` is still served, `Ready`, minutes
+    later. *Cause (before this design):* the lazy check compared the status with itself, so it never
+    fired. *Correct behaviour (after):* every lookup compares the clock with the deadline, and the
+    second request recomputes:
+
+    ```rust
+    let env = immediate_env_with(|cr| register_command!(cr, fn stamp() -> result expires: "in 1 sec"));
+    let first = env.evaluate("stamp").await?.get().await?;
+    wait_past_deadline().await;                  // test clock / short sleep
+    let second = env.evaluate("stamp").await?.get().await?;
+    assert_ne!(first.try_into_string()?, second.try_into_string()?);  // recomputed
+    ```
+
+    *Note:* lazy expiry on the immediate manager expires the asset without cascading. That matches
+    today's code and differs from the queued monitor, and it is recorded on the issue rather than
+    changed here. *Test:* `immediate_manager_deadline_fires` (I4).
+
 ## Corner Cases
 
 ### 1. Memory
@@ -662,13 +680,19 @@ async fn stale_edges_is_read_only() -> TestResult {
 #[test]
 fn external_change_action_decision_table() {
     let (v, ui, co) = (Version::from_content(b"x"), ExternalChangePolicy::UserInput, ExternalChangePolicy::Corrupted);
+    let input = Some(ExternalChangeAction::AcceptAsInput { actual: v });
     for policy in [ui, co] {
-        assert_eq!(external_change_action(Status::Source, false, policy, v), ExternalChangeAction::AcceptAsInput { actual: v });
-        assert_eq!(external_change_action(Status::Override, true, policy, v), ExternalChangeAction::AcceptAsInput { actual: v });
+        assert_eq!(external_change_action(Status::Source, false, policy, v), input);
+        assert_eq!(external_change_action(Status::Source, true, policy, v), input);     // recipe added since
+        assert_eq!(external_change_action(Status::Override, true, policy, v), input);
+        assert_eq!(external_change_action(Status::Ready, false, policy, v), input);     // recipe removed since
+        for unchecked in [Status::None, Status::Directory, Status::Error, Status::Volatile] {
+            assert_eq!(external_change_action(unchecked, true, policy, v), None);
+        }
     }
     for status in [Status::Ready, Status::Expired] {       // recipe-backed
-        assert_eq!(external_change_action(status, true, ui, v), ExternalChangeAction::ConvertToOverride { actual: v });
-        assert_eq!(external_change_action(status, true, co, v), ExternalChangeAction::Delete);
+        assert_eq!(external_change_action(status, true, ui, v), Some(ExternalChangeAction::ConvertToOverride { actual: v }));
+        assert_eq!(external_change_action(status, true, co, v), Some(ExternalChangeAction::Delete));
     }
 }
 ```
@@ -805,9 +829,10 @@ fn source_is_always_input_under_both_policies() {
     for policy in [ExternalChangePolicy::UserInput, ExternalChangePolicy::Corrupted] {
         let action = external_change_action(Status::Source, false, policy, v);
         match action {
-            ExternalChangeAction::AcceptAsInput { actual } => assert_eq!(actual, v),
-            ExternalChangeAction::ConvertToOverride { .. } => unreachable!("Source is never converted"),
-            ExternalChangeAction::Delete => unreachable!("Source is never deleted"),
+            Some(ExternalChangeAction::AcceptAsInput { actual }) => assert_eq!(actual, v),
+            Some(ExternalChangeAction::ConvertToOverride { .. }) => panic!("Source is never converted"),
+            Some(ExternalChangeAction::Delete) => panic!("Source is never deleted"),
+            None => panic!("Source is always checked"),
         }
     }
 }

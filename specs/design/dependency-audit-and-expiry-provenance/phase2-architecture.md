@@ -659,6 +659,19 @@ Applying an action, in `AssetManager::apply_external_change(key, metadata, actio
 #### G3. When it runs
 
 ```rust
+// environment_builder.rs
+/// Whether stored bytes are re-hashed and compared with their recorded version.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VersionVerification {
+    /// Never re-hash; outside edits go unnoticed (today's behaviour).
+    Off,
+    /// Re-hash wherever the manager has already read the bytes (fast track, `*_any_status`).
+    #[default]
+    OnRead,
+}
+impl VersionVerification { pub fn is_on_read(&self) -> bool; }
+
 // environment_builder.rs, AssetManagerOptions
 #[serde(default, skip_serializing_if = "VersionVerification::is_on_read")]
 pub verify_versions: VersionVerification,   // off | on_read (default on_read)
@@ -1079,3 +1092,5 @@ The Phase 3 synthesis found four gaps in this document, and they were settled fr
 4. **Reasons across a transitive audit expiry.** Direct dependents get `Audit { dependency, found }`,
    and transitive ones get `Cascade { trigger: dependency }`, so `expire_dependencies_result_with`
    takes the direct set.
+5. **`VersionVerification` defined.** It was named but never declared; it is now declared in G3
+   (found by the Phase 3 review).

@@ -72,6 +72,17 @@ read and on demand; a `Source` or `Override` always taken as input; a recipe-bac
 `Override` by default, or deleted under the opt-in `Corrupted` policy. Only content hashes are
 flagged, so command versions do not change on upgrade.
 
+**Phase 3 drafted 2026-09-29.** Conceptual code, by the owner's choice. Five parallel drafters
+(two examples, pitfalls, unit and integration test plans) were merged by a synthesizer, which
+corrected the drafts against Phase 2. In particular, an audit *expires* edges recorded as unknown,
+because those are the attribution edges of results reached through intermediate queries. The
+synthesis found four gaps in Phase 2, which were settled and recorded there: policy accessors,
+`external_change_action` returning `Option`, `on_load` treating a recorded unknown as compatible,
+and direct-vs-transitive audit reasons. Three reviewers found nothing blocking. They raised three
+fixes, all applied: `VersionVerification` was not declared in Phase 2; the decision-table tests
+ignored the `Option`; and problem 6 had no example, now pitfall 11. The reviewer that ran the code
+check validated all five example queries with `liquers-validate`.
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)
