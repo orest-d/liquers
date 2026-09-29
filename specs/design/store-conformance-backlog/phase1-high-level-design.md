@@ -71,6 +71,11 @@ protocol), the seven issue files (closed in Phase 5), the three stub designs (â†
 3. Scope: is the `http` media-type issue in, or deferred? It shares only the web test loop.
 4. Unit-test cleanup: rename only, or rename and delete verified duplicates in this project?
 
+**Resolved at approval (2026-09-29), all as recommended:** (1) `children` stays populated;
+the cost is documented. (2) Only `null`/`undefined` signals absence. (3) The `http` media-type issue
+is in scope. (4) Rename the tests, then delete only duplicates whose rule is shown to fail when the
+behaviour breaks. Phase 2 records how each decision is implemented.
+
 ## References
 
 - `specs/design/store-conformance-suite/` (complete); `specs/reference/STORE_SEMANTICS.md`
