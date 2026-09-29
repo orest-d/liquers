@@ -21,11 +21,12 @@
 use liquers_axum::{AssetsApiBuilder, QueryApiBuilder, RecipesApiBuilder, StoreApiBuilder};
 use liquers_core::store::AsyncFileStore;
 use liquers_core::{
-    command_metadata::CommandKey,
+    command_metadata::{ArgumentInfo, CommandKey},
     commands::CommandArguments,
     context::{Context, Environment, SimpleEnvironment},
-    error::Error,
+    error::{Error, ErrorType},
     query::Key,
+    state::State,
     value::Value,
 };
 
@@ -44,7 +45,8 @@ fn register_commands(mut env: SimpleEnvironment<Value>) -> Result<SimpleEnvironm
     )?;
     metadata
         .with_label("Text")
-        .with_doc("Create a text value from the given string");
+        .with_doc("Create a text value from the given string")
+        .with_argument(ArgumentInfo::string_argument("text"));
 
     // Register 'upper' command - converts text to uppercase
     let key = CommandKey::new_name("upper");
@@ -85,6 +87,28 @@ fn register_commands(mut env: SimpleEnvironment<Value>) -> Result<SimpleEnvironm
         .with_label("Count")
         .with_doc("Count the length of input text");
 
+    // Register 'wait' command - an async command that waits the given number of seconds, then
+    // passes its input text through. Gives an evaluation a visible duration, for trying out
+    // q/submit, q/info polling and the WebSocket.
+    let key = CommandKey::new_name("wait");
+    let metadata = cr.register_async_command(
+        key,
+        |state: State<Value>, args: CommandArguments<_>, _context: Context<_>| {
+            let seconds: Result<String, Error> = args.get(0, "seconds");
+            Box::pin(async move {
+                let seconds: f64 = seconds?.parse().map_err(|e| {
+                    Error::from_error(ErrorType::ParameterError, format!("seconds: {e}"))
+                })?;
+                tokio::time::sleep(std::time::Duration::from_secs_f64(seconds)).await;
+                Ok(Value::from(state.try_into_string()?))
+            })
+        },
+    )?;
+    metadata
+        .with_label("Wait")
+        .with_doc("Wait the given number of seconds, then pass the input text through")
+        .with_argument(ArgumentInfo::string_argument("seconds"));
+
     Ok(env)
 }
 
@@ -105,6 +129,8 @@ async fn main() {
 
     let mut env = SimpleEnvironment::<Value>::new();
     env.with_async_store(Box::new(async_store));
+    // Recipes are read from `recipes.yaml` files in the store.
+    env.with_default_recipe_provider();
 
     // Register example commands
     let env = register_commands(env).expect("Failed to register commands");

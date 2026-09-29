@@ -3,7 +3,7 @@ title: Liquers Web API Specification
 kind: reference
 audience: internal
 area: [axum, web]
-reviewed: 2026-09-28
+reviewed: 2026-09-29
 ---
 # Liquers Web API Specification
 
@@ -12,6 +12,9 @@ status code below is checked against the code and exercised by the route suites 
 `liquers-axum/tests/` (`store_api_routes.rs`, `assets_api_endpoints.rs`, `assets_websocket.rs`,
 `recipes_api_routes.rs`, `query_api_routes.rs`). The design of the Assets API is
 `specs/design/axum-assets-endpoints/`.
+
+For a task-oriented introduction with curl and Python examples, see
+[`guides/WEB_API_GUIDE.md`](../guides/WEB_API_GUIDE.md).
 
 ## Table of Contents
 
@@ -581,6 +584,7 @@ Not available at HEAD; listed so that no reader mistakes them for features:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-29 | Review fixes of PR #73: §5.8 — each subscription requests its asset in its own task, so the connection stays responsive; with an inline manager `Initial` arrives after the evaluation. §7 — the timeout bounds the whole wait, evaluation included. Linked the new `WEB_API_GUIDE.md`. | `design/axum-assets-endpoints/` |
 | 2026-09-28 | Rewritten against the implementation (full audit): the Store API's writes are `PUT` and its results are as served; §3 lists the real `ErrorType` → HTTP mapping, with `StatusConflict` → 409; §5 is the new Assets API — `q/`, `key/` and `admin/` families, access modes, status-aware removal, `removedir`, `expire`, `override`, `description`, the metadata allow-list, GET alternatives and builder switches, and the `ws/q` / `ws/key` WebSocket protocol with its lifecycle and limits; §7 documents `with_timeout` and the `get_binary` read; the nonexistent `FullApiBuilder`, `liquers_web` crate, `Router` trait, `SessionInterface` and `ApiError` are replaced by the `Router::merge` assembly and the real handler pattern; the old version/status header and "Revision History" table are folded into this table. | `design/axum-assets-endpoints/` |
 | 2026-08-17 | Added `KeyNotAbsolute` (400) and `KeyNotSupported` (404) to the error-type table: a key containing `.` or `..` is now refused by every store, and the two refusals are deliberately distinct — malformed address versus unrouted key. | `design/store-key-guard/` |
 | 2026-03-02 | Present at repository import (version 1.0.0 draft of 2026-01-19); content unchanged since. Not reviewed against the implementation. | migration |
