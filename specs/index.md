@@ -8,10 +8,10 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 147
+Total rows: 148
 - P0: 1
 - P1: 2
-- P2: 84
+- P2: 85
 - P3: 60
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
@@ -95,6 +95,7 @@ Total rows: 147
 | [`RESOURCE-NAME-ASCII-ONLY`](issues/RESOURCE-NAME-ASCII-ONLY.md) | issue | Non-ASCII resource names are unaddressable | draft |  | P2 | L | core/query;core/store |  | 2026-08-14 |
 | [`STORE-METADATA-LAYOUT-HARDCODED-PER-STORE`](issues/STORE-METADATA-LAYOUT-HARDCODED-PER-STORE.md) | issue | Every writable store hard-codes its own metadata layout | draft |  | P2 | L | core/store;store/backends;web;docs |  | 2026-09-03 |
 | [`STORE-NO-CONTENT-OR-METADATA-SEARCH`](issues/STORE-NO-CONTENT-OR-METADATA-SEARCH.md) | feature | A store cannot be asked which keys match content or metadata | draft |  | P2 | L | core/store | [indexation](specs/design/store-and-asset-search/indexation-policy.md)  [interoperability](specs/design/store-and-asset-search/interoperability-layer.md)  [options](specs/design/store-and-asset-search/options-analysis.md)  [phase1](specs/design/store-and-asset-search/phase1-high-level-design.md)  [phase2](specs/design/store-and-asset-search/phase2-architecture.md)  [phase3](specs/design/store-and-asset-search/phase3-examples.md)  [phase4](specs/design/store-and-asset-search/phase4-implementation.md)  [phase5](specs/design/store-and-asset-search/phase5-documentation.md)  [research](specs/design/store-and-asset-search/research-questions.md)  [roadmap.md](specs/design/store-and-asset-search/roadmap.md)  [use](specs/design/store-and-asset-search/use-cases.md)  | 2026-09-15 |
+| [`STORE-VERSION-BLIND-TO-CHANGES-MADE-OUTSIDE-LIQUERS`](issues/STORE-VERSION-BLIND-TO-CHANGES-MADE-OUTSIDE-LIQUERS.md) | issue | A stored value's version changes only when Liquers writes it, so edits made by other programs are invisible to dependency checks | draft |  | P2 | L | core/store;core/assets |  | 2026-09-29 |
 | [`TYPE-REGISTRY-NOT-REALM-AWARE`](issues/TYPE-REGISTRY-NOT-REALM-AWARE.md) | feature | A query spanning two realms cannot know which types the other realm supports | draft |  | P2 | L | core/value;core/commands;core/plan;web;axum |  | 2026-08-18 |
 | [`UI-QUERY-EDITOR-LACKS-LIVE-VALIDATION`](issues/UI-QUERY-EDITOR-LACKS-LIVE-VALIDATION.md) | issue | Query editor cannot validate the current text with command metadata | draft |  | P2 | L | lib/ui;lib/egui;web;core/plan;core/query |  | 2026-09-04 |
 | [`VALUE-CONVERSION-CAPABILITY`](issues/VALUE-CONVERSION-CAPABILITY.md) | feature | Values cannot be converted between types, automatically or explicitly | draft |  | P2 | L | core/value;core/commands;lib/value |  | 2026-08-18 |

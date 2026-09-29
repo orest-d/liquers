@@ -7,7 +7,7 @@ built and the ordering precedent set by `stale-dependency-status-finalization`:
 
 | Part | Closes | Shape |
 |---|---|---|
-| A. Audit compares against expectations | `AUDIT-CANNOT-EXPIRE-ON-A-FIRST-OBSERVED-VERSION` | New `DependencyManager::audit_version`; `audit_gaps` uses it instead of `register_version` |
+| A. Audit compares current with recorded versions | `AUDIT-CANNOT-EXPIRE-ON-A-FIRST-OBSERVED-VERSION` | New `DependencyManager::audit_version`; `audit_gaps` uses it instead of `register_version` |
 | B. Audit policy and report-only audits | `DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE` | `DependencyAuditPolicy` in `AssetManagerOptions`; `AuditMode`; `AuditFinding` in `AuditReport` |
 | C. Expiry provenance | `EXPIRY-RECORDS-NO-REASON` (+ `IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`) | `ExpiryReason` in `MetadataRecord` / `AssetInfo`; a log entry naming both participants |
 | D. Directory-listing dependencies | `DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED` | A version for a listing, registered at the step and refreshed on manager writes; audit and fast-track resolve it |
@@ -18,6 +18,72 @@ No change to `Status`, to `AsyncStore`, to the query syntax, or to any command s
 `liquers-axum` change. The titled scope grows with Part F: the design is now also "asset managers
 can be implemented outside core". Every other part is built so an external manager gets it for
 free, through default trait methods.
+
+## Terms
+
+Plain definitions, with a worked example for each problem, are in Phase 1 §"Terms used in this
+design" and §"The problems, on examples". Here the same terms are mapped to the code:
+
+| Term | In the code |
+|---|---|
+| Version | `metadata::Version(u128)`, a blake3 hash of the serialized bytes (`Version::from_bytes`), stored in `MetadataRecord.version`. `Version::unknown()` = `Version(0)`. |
+| Dependency key | `metadata::DependencyKey`: `-R/<key>` (a stored value), `-R-dir/<key>` (a folder's list of names), `ns-dep/command_metadata-…` / `ns-dep/command_impl-…` (a command). |
+| Recorded version | Two copies of one fact. Persistent: `MetadataRecord.dependencies: Vec<DependencyRecord { key, version }>` of the dependent. In memory: the edge `keyed_dependents[dependency][dependent] = version` in `DependencyManager`. |
+| Current version | `AssetManager::version(&Key) -> Result<Option<Version>, Error>` (`assets.rs:4346`): the live asset's metadata version if it has one, else the store's metadata version, else `None`. It never evaluates and never reads the value. Part D extends it to `-R-dir/` keys as `dependency_version`. |
+| Version map | `DependencyManager.versions: scc::HashMap<DependencyKey, Version>`. It is empty in a new process. |
+| Gap | A dependency that some dependent has a concrete recorded version for, but that is missing from the version map (`missing_versions_for`, `dependencies.rs:834`). Only gaps are audited. A key already in the map was checked when it got there. |
+| Cascade | `DependencyManager::expire_stale_dependents` / `expire_from_frontier`, applied by `AssetManager::expire_dependencies_result`. |
+
+### The Phase 1 examples, traced through the code
+
+Each trace names the call that goes wrong today and the call that replaces it.
+
+**Example 1 (Part A), audit after a restart.** A new process loads `report.txt`. Its metadata
+records `-R/data/a.csv @ V1`, so `load_from_records` adds the edge `a.csv → report.txt @ V1`, and
+the map has no `a.csv`. `trigger_dependency_audit` → `missing_versions_for(report.txt)` = `[a.csv]`
+→ `version(a.csv)` = `Some(V2)` → `register_version(a.csv, V2)` finds the map entry *vacant*,
+inserts `V2`, sets `version_changed = false`, and expires nothing (`dependencies.rs:158-180`).
+**Replaced by** `audit_version(a.csv, V2)`: it inserts `V2`, then always runs
+`expire_stale_dependents(a.csv, V2)`, which compares `V2` with the edge's `V1`, finds them different,
+and expires `report.txt`.
+
+**Example 2 (Part B), when to check.** The service sets `dependency_audit: on_load`. In
+`try_fast_track` (`assets.rs:1170-1200`), a recorded dependency the map does not know is skipped
+today (`if let Some(dm_version) = …`). Under `OnLoad` it is resolved through `dependency_version`,
+and a mismatch or `None` refuses the fast track, so `report.txt` is recomputed. The researcher keeps
+`explicit`, so loading is as today. `trigger_dependency_audit_with(q, ReportOnly)` fills `findings`
+with `(a.csv, report.txt, expected V1, found Some(V2))` and changes nothing.
+
+**Example 3 (Part C), why expired.** `a.csv` is stored again with `V3` in-process →
+`register_version` → cascade → `expire_dependencies_result` → `report_ref.expire_without_cascade()`
+→ `mark_expired_status` flips the status and writes nothing else (`assets.rs:3280`). **Replaced
+by** the same path carrying `ExpiredDependents.trigger = -R/data/a.csv`. `mark_expired_status`
+writes `expiry_reason = Cascade { trigger }` and a log entry under the same lock that flips the
+status, so the persisted metadata carries both.
+
+**Example 4 (Part D), folder listing.** `-R-dir/data/-/index_files` validates as
+`GetAssetDirectory[data]` followed by the action (checked with `liquers-validate --command index_files`).
+At runtime, `find_dependencies` adds the dependency `-R-dir/data` to the plan (`plan.rs:2647`; the
+offline validator does not run that step, so it shows no dependencies). `register_plan_dependencies`
+then drops it, because `get_version(-R-dir/data)` is `None` and nothing ever registers one. **Replaced
+by** the step registering `listing_version(["a.csv", "b.csv"])` and recording it. Storing
+`data/new.csv` calls `refresh_listing_version(data)`, the names become
+`["a.csv", "b.csv", "new.csv"]`, the version moves, and `index.txt` is expired.
+
+**Example 5 (Part E), stale input mid-evaluation.** A test command calls
+`context.submit("-R/data/a.csv")`, then waits on a test-controlled gate. The test expires `a.csv`
+and opens the gate. The command calls `context.wait_for_dependency(&a)`, which reaches the manager's
+`Status::Expired` arm (`assets.rs:5446`), uses the retained value and calls
+`note_expired_dependency`. The result finishes `Expired` with `StaleDependency { dependency: -R/data/a.csv }`.
+
+**Example 6 (Part C), deadline on the immediate manager.** `get` checks
+`status == Ready && assetref.is_expired()` (`assets.rs:6911`). `is_expired()` is
+`status == Expired`, so the condition cannot hold. **Replaced by** `assetref.expiration_time().await.is_expired()`,
+followed by `expire_without_cascade(Deadline { expiration_time })`.
+
+**Example 7 (Part F), external manager.** `impl<E> AssetManager<E> for ClusterManager<E>` in
+another crate fails, because the supertrait `DependencyManagerAccess` is `pub(crate)`. After Part F it
+compiles, and `tests/external_asset_manager.rs` is that impl.
 
 ## Known-Issue Preflight
 
@@ -37,6 +103,7 @@ and store-listing issues, since Part D hashes `listdir`. Checked at HEAD on 2026
 | `METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED` | draft | P3 | Part B's `OnLoad` check sits in `try_fast_track`, beside the corrupted-data branch. | no | no | Independent. The version check runs after deserialization succeeds, so the two do not interact. | keep |
 | `UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION` | draft | P3 | Same expiry path, different mechanism (write-back ordering). Excluded in Phase 1 Q5. | no | no | Part C makes the overwritten mark visible in the log, which helps a later fix. | keep |
 | `IMMEDIATE-SET-STATE-STATUS-MATCH-HAS-DEFAULT-ARM` | draft | P3 | A one-line cleanup in `ImmediateAssetManager`, which Part C already edits. | no | no | Fold in if the same function is touched; otherwise leave it. | keep |
+| `STORE-VERSION-BLIND-TO-CHANGES-MADE-OUTSIDE-LIQUERS` (filed 2026-09-29 while writing the examples) | draft | P2 | Every check in Parts A, B and D compares *recorded* versions, which change only when Liquers writes. An outside edit of `data/a.csv` keeps `V1`, so `OnLoad` is not a guarantee for stores that other programs write. | no | no | Stated as a limit in the `DependencyAuditPolicy` docs and in `DEPENDENCIES_STATUS`. The design is correct for Liquers-written data and does not need to change when a store-side change token is added later. | keep |
 | `ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET` | draft | P2 | Future consumer of Part C: an expiry event would carry the `ExpiryReason`. | no | no | None now. The reason type is serializable, so an event can reuse it. | keep |
 | `COMBINED-EXPIRES` | accepted | P2 | Adjacent: the combined expiry of dependencies would produce `Deadline` reasons. | no | no | None now. | keep |
 | `CORE-TOKIO-REMOVAL` | accepted | P3 | Part F makes `run` public, and `run` spawns tokio tasks. Publishing it makes that dependency part of the implementor surface. | no | no | The `run` contract doc says it is the queued (native) primitive, and that `run_inline` is the one to use on wasm32. | keep |
@@ -78,8 +145,8 @@ pub enum ExpiryReason {
     /// A dependency changed and the graph cascaded. `trigger` is the key whose change started
     /// the cascade: the root, not the immediate parent, because the root is what the operator can act on.
     Cascade { trigger: DependencyKey },
-    /// An audit found that `dependency`'s durable version is not the one recorded. `found` is
-    /// `None` when the dependency has no durable version at all.
+    /// An audit found that `dependency`'s current version is not the one recorded. `found` is
+    /// `None` when the dependency has no current version at all.
     Audit { dependency: DependencyKey, found: Option<Version> },
     /// Evaluated using a dependency that expired mid-evaluation (the stale-value policy).
     StaleDependency { dependency: DependencyKey },
@@ -99,7 +166,7 @@ already derives both (`expiration.rs:775`).
 #### `DependencyAuditPolicy` (`liquers-core/src/environment_builder.rs`)
 
 ```rust
-/// When recorded dependency versions are verified against durable ones.
+/// When recorded dependency versions are verified against current ones.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DependencyAuditPolicy {
@@ -108,7 +175,7 @@ pub enum DependencyAuditPolicy {
     #[default]
     Explicit,
     /// Also when a keyed asset is loaded from the store (`try_fast_track`): each recorded
-    /// dependency the manager holds no version for is resolved, and a mismatch or a missing durable
+    /// dependency the manager holds no version for is resolved, and a mismatch or a missing current
     /// version refuses the fast track, so the asset is recomputed. The strict service.
     OnLoad,
 }
@@ -140,7 +207,7 @@ pub enum AuditMode {
 
 ```rust
 /// One edge an audit found stale: `dependent` recorded `expected` for `dependency`, and the
-/// durable version is `found`.
+/// current version is `found`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct AuditFinding {
@@ -240,7 +307,7 @@ async fn trigger_dependency_audit_with(&self, query: &Query, mode: AuditMode)
 async fn trigger_dependency_audit_all_registered_with(&self, mode: AuditMode)
     -> Result<AuditReport, Error>;
 
-/// Durable version of any store-addressable dependency key, without evaluating:
+/// Current version of any store-addressable dependency key, without evaluating:
 /// `-R/` → the existing `version(&Key)`; `-R-dir/` → `listing_version` of `listdir(key)`;
 /// anything else → `Ok(None)` with "not store-resolvable" meaning, distinguished by the caller
 /// through `DependencyKey::is_store_resolvable()` (below) rather than by the `None`.
@@ -268,12 +335,12 @@ nothing is skipped.
 
 ```rust
 /// Audit counterpart of `register_version`: record `version` for `key`, then compare it against
-/// **every** dependent's recorded expectation, whether or not this manager held a version before.
+/// **every** dependent's recorded version, whether or not this manager held a version before.
 /// Returns the expired set (trigger = key) and the direct findings.
 pub(crate) async fn audit_version(&self, key: &DependencyKey, version: Version)
     -> (ExpiredDependents<E>, Vec<AuditFinding>);
 
-/// Read-only: the direct edges of `key` that `version` (or `None` = no durable version)
+/// Read-only: the direct edges of `key` that `version` (or `None` = no current version)
 /// contradicts, under the same sparing rules as `audit_version` / `report_no_version`.
 /// Used by `AuditMode::ReportOnly`; mutates nothing.
 pub(crate) async fn stale_edges(&self, key: &DependencyKey, version: Option<Version>)
@@ -570,7 +637,7 @@ Extend, no new reference (Phase 1 rationale: one contract, one document).
 
 | Path | Audience | Area | Change |
 |---|---|---|---|
-| `specs/reference/DEPENDENCIES_STATUS.md` | internal | core/assets | §"Current contract": audits compare durable versions with recorded ones even on first observation; `DependencyAuditPolicy` (`explicit` / `on_load`); `AuditMode::ReportOnly` and `AuditFinding`; `-R-dir/` dependencies (membership version, when refreshed, backend caveat); plan dependencies with no version get an `unknown` edge. §"Function glossary": `audit_version`, `stale_edges`, `dependency_version`, `refresh_listing_version`. Replace the sentence citing `DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE` as open. |
+| `specs/reference/DEPENDENCIES_STATUS.md` | internal | core/assets | §"Current contract": audits compare current versions with recorded ones even on first observation; `DependencyAuditPolicy` (`explicit` / `on_load`); `AuditMode::ReportOnly` and `AuditFinding`; `-R-dir/` dependencies (membership version, when refreshed, backend caveat); plan dependencies with no version get an `unknown` edge. §"Function glossary": `audit_version`, `stale_edges`, `dependency_version`, `refresh_listing_version`. Replace the sentence citing `DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE` as open. |
 | `specs/reference/ASSETS.md` | internal | core/assets | §"The one meaning of `Expired`": `ExpiryReason`, its five variants and which route sets each, the "meaningful only while `Expired`" rule, the log levels, and why it is not a status. §"AssetManager": the trait is implementable outside core; point to the new guide. |
 
 ### Guide Plan

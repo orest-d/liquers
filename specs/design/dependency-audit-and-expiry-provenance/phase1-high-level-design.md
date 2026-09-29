@@ -15,6 +15,92 @@ dependency on a directory listing actually triggers invalidation. Closes
 `STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST`. `stale-dependency-status-finalization` left the
 last three explicitly open for this follow-up.
 
+*Added at the Phase 2 gate: `IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES` and
+`ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE` (see `DESIGN.md`). The two sections below
+were added on 2026-09-29 at the owner's request. This document is longer than the usual 30 lines
+because of them.*
+
+## Terms used in this design
+
+All examples use two stored files: `data/a.csv`, and `data/report.txt`, whose recipe reads
+`a.csv` (for example `-R/data/a.csv/-/summarize`).
+
+| Term | Meaning, on the example |
+|---|---|
+| **Version** | A fingerprint (a hash) of a stored value's bytes, kept in its metadata. When Liquers stores `a.csv` it records `version: V1`. A different content gets a different version (`V2`). *Unknown* (`Version(0)`) means "no fingerprint was taken". |
+| **Dependency** | `report.txt` depends on `a.csv`, because its recipe read it. Dependencies are named by *dependency keys*: `-R/data/a.csv` for a stored value, `-R-dir/data` for the list of names in a folder, `ns-dep/command_impl-…` for a command's code. |
+| **Recorded version** (the design also says *recorded expectation*) | When `report.txt` is computed, its metadata stores the version of every input it read: `dependencies: [{key: -R/data/a.csv, version: V1}]`. It means "`report.txt` is valid as long as `a.csv` is still `V1`". The same fact is kept in memory as an edge `a.csv → report.txt` labelled `V1`. |
+| **Current version** (the design also says *durable version*) | What `a.csv`'s version is *now*, read from metadata without computing anything: from the live asset if this process holds one, otherwise from the store's metadata. "Durable" means it survives a restart, because it is in the store. `None` means `a.csv` has no stored metadata at all. |
+| **Version map** | The asset manager's in-memory table `dependency key → version` of what *this process* has seen. It is empty after a restart and fills as assets are loaded or computed. |
+| **Stale** | `report.txt` is stale when the current version of an input differs from its recorded version (current `V2`, recorded `V1`). |
+| **Cascade** | When `a.csv` changes, everything that depends on it is expired, and everything that depends on *those*, transitively. |
+| **Audit** | An explicit check, on request: for each dependency whose version the map does not know, read its current version from metadata and compare it with the recorded versions. Expire what is stale. |
+| **Fast track** | Loading `report.txt` straight from the store instead of recomputing it, when its stored status is `Ready`. |
+| **Expired** | Status meaning "this value is out of date; the next request recomputes it". |
+
+## The problems, on examples
+
+**1. An audit after a restart misses a changed input** (`AUDIT-CANNOT-EXPIRE-…`). On Monday
+`report.txt` is computed from `a.csv` at `V1`, and both are stored. The server stops. A batch job
+stores a new `a.csv` through Liquers, so its metadata now says `V2`. On Tuesday the server starts
+and serves `report.txt` from the store: the version map is empty, so there is nothing to compare
+against. An operator runs `trigger_dependency_audit("-R/data/report.txt")`. The audit reads `V2`
+for `a.csv` and puts it in the map. Because the map had *no previous entry*, it treats this as
+"first seen", not as "changed", and expires nothing: `AuditReport { checked: [a.csv], expired: [] }`.
+`report.txt` stays `Ready` and wrong. **After:** the audit compares `V2` with `report.txt`'s
+recorded `V1`, which differ, so `report.txt` is expired.
+
+**2. Nobody can say when to check** (`DEPENDENCY-AUDIT-POLICY-…`). A production service that
+restarts nightly wants "never serve `report.txt` built on an old `a.csv`", so it wants a check every
+time a stored result is loaded. A researcher who deleted the 20 GB intermediate `data/big.parquet`
+to save disk wants the final `report.html` built from it to stay usable. A strict check would see
+`big.parquet` gone and recompute `report.html`, which needs `big.parquet` again. Today only explicit
+calls exist, with no setting and no "just tell me" mode. **After:**
+`assets: {dependency_audit: on_load}` for the service, and the default (`explicit`) for the
+researcher. A report-only audit lists what is stale without changing anything.
+
+**3. An expired asset cannot say why** (`EXPIRY-RECORDS-NO-REASON`). `report.txt`'s stored
+metadata says `status: Expired`, and its log ends with the entries from its last evaluation. There is no way to
+tell whether its time limit ran out, `a.csv` changed three steps upstream, someone called
+`expire()`, or an audit found it stale. The one message that exists says *"Dependency asset 17
+expired…"*, where 17 is an in-memory counter that means nothing after a restart. **After:**
+`expiry_reason: {kind: cascade, trigger: "-R/data/a.csv"}` in the metadata, plus the log line
+*"data/report.txt expired: dependency data/a.csv changed"*.
+
+**4. A result built from a folder listing never updates** (`DIRECTORY-LISTING-…`).
+`data/index.txt` is computed by `-R-dir/data/-/index_files`: it reads the *list of names* in
+`data/` and indexes them. The plan records the dependency `-R-dir/data`, but nothing ever gives
+that listing a version, so the dependency is silently dropped. Store `data/new.csv`, and `index.txt`
+keeps its old list forever, including after a restart. **After:** the listing gets a version (a
+fingerprint of the sorted names). Adding `new.csv` through Liquers changes that version, so
+`index.txt` is expired and recomputed.
+
+**5. The "use the old input" rule is never tested through a real command**
+(`STALE-DEPENDENCY-PATH-…`). If `a.csv` expires *while* `report.txt` is being computed, the rule
+is: finish with the value already read, and mark `report.txt` `Expired` so the next request
+recomputes it. Every test calls the internal function directly, because an ordinary command cannot
+pause between asking for `a.csv` and receiving it. This path has already been silently dead once
+(`DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE`). **After:** a command can `submit` `a.csv`, do other
+work, and `wait_for_dependency` later. A test pauses the command in between, expires `a.csv`, and
+checks that `report.txt` ends up `Expired`.
+
+**6. Time limits never fire on the in-browser manager**
+(`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`). `report.txt`'s command declares
+`expires: "in 1 sec"`. On the immediate manager (used by `liquers-web`), request it, wait two
+seconds, and request it again: you get the old value, still `Ready`. The check that should compare
+the clock with the deadline compares the status with itself. **After:** the second request
+recomputes.
+
+**7. No one outside `liquers-core` can write an asset manager**
+(`ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE`). Suppose you want a manager that runs
+evaluations on a cluster. `impl AssetManager<E> for ClusterManager` in your own crate does not
+compile, because the trait requires a private trait. **After:** it compiles, using a documented set
+of public building blocks, and a test in `liquers-core/tests/` proves it by doing exactly that.
+
+Not solved here, and filed as `STORE-VERSION-BLIND-TO-CHANGES-MADE-OUTSIDE-LIQUERS`: a version is
+recorded only when *Liquers* writes a value. If another program overwrites `data/a.csv` directly,
+its metadata still says `V1`, and no check, however strict, can see the change.
+
 ## Core Interactions
 
 ### Query System
