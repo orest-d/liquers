@@ -117,6 +117,8 @@ async fn get_asset_info(&self, key: &Key) -> Result<metadata::AssetInfo, Error> 
         info.is_dir = true;
         return Ok(info);
     }
+    // `Metadata::get_asset_info` returns `Result` (legacy metadata can fail to convert);
+    // `MetadataRecord::get_asset_info` above does not. This branch keeps today's body.
     let mut info = self
         .get_metadata(key)
         .await?
