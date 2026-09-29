@@ -1,14 +1,14 @@
 ---
 id: DEPENDENCY-AUDIT-AND-EXPIRY-PROVENANCE
 kind: design
-title: Dependency audit correctness, audit policy, expiry provenance and external asset managers
+title: Dependency audit correctness, audit policy, expiry provenance, outside-change detection and external asset managers
 status: draft
 workflow: liquers-project
 phase: architecture
 area: [core/assets]
 gh_pr: []
 affects_docs: [DEPENDENCIES_STATUS, ASSETS, ASSET_LIFECYCLE, DOC_03_ASSETS_EXECUTION_LIFECYCLE, DOC_04_ENVIRONMENT_CONTEXT_EVALUATION, ENVIRONMENT_CONFIG, COMMAND_REGISTRATION_GUIDE, ENVIRONMENT_CONSTRUCTION_GUIDE, STORE_IMPLEMENTATION_GUIDE, UNITTEST_GUIDE]
-issues: [AUDIT-CANNOT-EXPIRE-ON-A-FIRST-OBSERVED-VERSION, DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE, EXPIRY-RECORDS-NO-REASON, DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED, STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST, IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES, ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE]
+issues: [AUDIT-CANNOT-EXPIRE-ON-A-FIRST-OBSERVED-VERSION, DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE, EXPIRY-RECORDS-NO-REASON, DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED, STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST, IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES, ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE, STORE-VERSION-BLIND-TO-CHANGES-MADE-OUTSIDE-LIQUERS]
 created: 2026-09-28
 superseded_by:
 ---
@@ -64,6 +64,13 @@ new workflow requires and the old one did not: a Documentation Intent section in
 after that phase's approval and marked as such), a Known-Issue Preflight and a Documentation
 Architecture in Phase 2, `affects_docs`, and a mandatory Phase 5. The empty Phase 3 and 4 templates
 were replaced with the `liquers-project` templates. Nothing already written was changed in meaning.
+
+**Phase 2 gate, third round (2026-09-29).** A glossary and worked examples were added to Phase 1,
+with code-level traces in Phase 2. `STORE-VERSION-BLIND-TO-CHANGES-MADE-OUTSIDE-LIQUERS` was brought
+in as Part G, following the owner's solution: content-hash versions flagged by bit 127, verified on
+read and on demand; a `Source` or `Override` always taken as input; a recipe-backed value converted to
+`Override` by default, or deleted under the opt-in `Corrupted` policy. Only content hashes are
+flagged, so command versions do not change on upgrade.
 
 ## Links
 

@@ -15,8 +15,9 @@ dependency on a directory listing actually triggers invalidation. Closes
 `STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST`. `stale-dependency-status-finalization` left the
 last three explicitly open for this follow-up.
 
-*Added at the Phase 2 gate: `IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES` and
-`ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE` (see `DESIGN.md`). The two sections below
+*Added at the Phase 2 gate: `IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`,
+`ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE` and
+`STORE-VERSION-BLIND-TO-CHANGES-MADE-OUTSIDE-LIQUERS` (see `DESIGN.md`). The two sections below
 were added on 2026-09-29 at the owner's request. This document is longer than the usual 30 lines
 because of them.*
 
@@ -97,9 +98,16 @@ evaluations on a cluster. `impl AssetManager<E> for ClusterManager` in your own 
 compile, because the trait requires a private trait. **After:** it compiles, using a documented set
 of public building blocks, and a test in `liquers-core/tests/` proves it by doing exactly that.
 
-Not solved here, and filed as `STORE-VERSION-BLIND-TO-CHANGES-MADE-OUTSIDE-LIQUERS`: a version is
-recorded only when *Liquers* writes a value. If another program overwrites `data/a.csv` directly,
-its metadata still says `V1`, and no check, however strict, can see the change.
+**8. Content changed by another program goes unnoticed**
+(`STORE-VERSION-BLIND-TO-CHANGES-MADE-OUTSIDE-LIQUERS`, added 2026-09-29). A version is recorded
+only when *Liquers* writes a value. If a user overwrites `data/a.csv` in the folder by hand, its
+metadata still says `V1`, and no check, however strict, can see the change, because every check
+reads metadata. **After:** when `a.csv` is read, its bytes are hashed and compared with `V1`. They
+differ, so the new content is taken as the user's input: `a.csv` gets version `V2`, and
+`report.txt` is expired. If the changed file is `report.txt` itself, which has a recipe, the
+configured policy decides. By default the edit is kept and `report.txt` becomes `Override` (a
+user-pinned value). Optionally it is treated as corrupted: the stored copy is deleted and
+recomputed. To tell a hash apart from a time-based version, hash versions carry a flag bit.
 
 ## Core Interactions
 

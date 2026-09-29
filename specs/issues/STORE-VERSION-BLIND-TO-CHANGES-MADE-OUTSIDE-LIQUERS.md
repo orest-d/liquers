@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: L
 area: [core/store, core/assets]
-design:
+design: dependency-audit-and-expiry-provenance
 created: 2026-09-29
 github:
 ---

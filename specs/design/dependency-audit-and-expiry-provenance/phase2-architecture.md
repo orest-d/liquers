@@ -2,7 +2,7 @@
 
 ## Overview
 
-Six parts in `liquers-core`. Parts A–E are built on the dependency graph that `keyed-expiry-cascade-fix`
+Seven parts in `liquers-core`. Parts A–E are built on the dependency graph that `keyed-expiry-cascade-fix`
 built and the ordering precedent set by `stale-dependency-status-finalization`:
 
 | Part | Closes | Shape |
@@ -13,6 +13,7 @@ built and the ordering precedent set by `stale-dependency-status-finalization`:
 | D. Directory-listing dependencies | `DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED` | A version for a listing, registered at the step and refreshed on manager writes; audit and fast-track resolve it |
 | E. Stale-dependency reachability | `STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST` | `Context::submit` + public `Context::wait_for_dependency`, which double as the test seam |
 | F. Asset managers outside core | `ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE` (added at the Phase 2 gate) | `DependencyManagerAccess` and an opaque `DependencyManager` made public; the lifecycle primitives a manager needs made public; an external manager in `tests/` runs the parametric manager suite |
+| G. Content changed outside Liquers | `STORE-VERSION-BLIND-TO-CHANGES-MADE-OUTSIDE-LIQUERS` (added 2026-09-29) | Content-hash versions carry a flag bit; stored bytes are re-hashed on read and on demand; a mismatch is user input for `Source`/`Override` and a policy choice (`UserInput` → `Override`, or `Corrupted` → delete) for recipe-backed values |
 
 No change to `Status`, to `AsyncStore`, to the query syntax, or to any command signature. No
 `liquers-axum` change. The titled scope grows with Part F: the design is now also "asset managers
@@ -85,6 +86,13 @@ followed by `expire_without_cascade(Deadline { expiration_time })`.
 another crate fails, because the supertrait `DependencyManagerAccess` is `pub(crate)`. After Part F it
 compiles, and `tests/external_asset_manager.rs` is that impl.
 
+**Example 8 (Part G), edited by hand.** `data/a.csv` was stored with `from_content` → `V1`
+(flag bit set). A user overwrites the file. On the next read, `try_fast_track` has the bytes and
+calls `V1.verify(bytes)`, which returns `Mismatch { actual: V2 }`. `a.csv` is a `Source`, so
+`external_change_action` returns `AcceptAsInput { actual: V2 }`. `apply_external_change` writes `V2`
+into the metadata and calls `register_version(-R/data/a.csv, V2)`, which cascades to `report.txt`
+(recorded `V1`) with `Cascade { trigger: -R/data/a.csv }`.
+
 ## Known-Issue Preflight
 
 Searched: the issues linked from `DESIGN.md`; every open (`draft`, `accepted`, `in_progress`)
@@ -103,7 +111,8 @@ and store-listing issues, since Part D hashes `listdir`. Checked at HEAD on 2026
 | `METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED` | draft | P3 | Part B's `OnLoad` check sits in `try_fast_track`, beside the corrupted-data branch. | no | no | Independent. The version check runs after deserialization succeeds, so the two do not interact. | keep |
 | `UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION` | draft | P3 | Same expiry path, different mechanism (write-back ordering). Excluded in Phase 1 Q5. | no | no | Part C makes the overwritten mark visible in the log, which helps a later fix. | keep |
 | `IMMEDIATE-SET-STATE-STATUS-MATCH-HAS-DEFAULT-ARM` | draft | P3 | A one-line cleanup in `ImmediateAssetManager`, which Part C already edits. | no | no | Fold in if the same function is touched; otherwise leave it. | keep |
-| `STORE-VERSION-BLIND-TO-CHANGES-MADE-OUTSIDE-LIQUERS` (filed 2026-09-29 while writing the examples) | draft | P2 | Every check in Parts A, B and D compares *recorded* versions, which change only when Liquers writes. An outside edit of `data/a.csv` keeps `V1`, so `OnLoad` is not a guarantee for stores that other programs write. | no | no | Stated as a limit in the `DependencyAuditPolicy` docs and in `DEPENDENCIES_STATUS`. The design is correct for Liquers-written data and does not need to change when a store-side change token is added later. | keep |
+| `STORE-VERSION-BLIND-TO-CHANGES-MADE-OUTSIDE-LIQUERS` (filed 2026-09-29) | draft | P2 | Every check in Parts A, B and D compares *recorded* versions, which change only when Liquers writes. | — | no | **Brought into scope as Part G** (owner, 2026-09-29). | keep |
+| `STORE-NO-READ-ONLY-ADAPTER` | draft | P2 | Part G writes metadata on read when it accepts a change, so reading can write to the store. Against a read-only backend that write fails. | no | no | Apply the action in memory, log the failed write, and do not fail the read. The in-memory version is correct for this process, and the next process re-detects the change. | keep |
 | `ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET` | draft | P2 | Future consumer of Part C: an expiry event would carry the `ExpiryReason`. | no | no | None now. The reason type is serializable, so an event can reuse it. | keep |
 | `COMBINED-EXPIRES` | accepted | P2 | Adjacent: the combined expiry of dependencies would produce `Deadline` reasons. | no | no | None now. | keep |
 | `CORE-TOKIO-REMOVAL` | accepted | P3 | Part F makes `run` public, and `run` spawns tokio tasks. Publishing it makes that dependency part of the implementor surface. | no | no | The `run` contract doc says it is the queued (native) primitive, and that `run_inline` is the one to use on wasm32. | keep |
@@ -514,6 +523,165 @@ follow-up to file if external managers appear in practice.
   they are the manager-implementation surface and may be refined. Semver discipline for them is the
   owner's call when an external manager ships.
 
+### Part G: detecting content changed outside Liquers
+
+*Added 2026-09-29 at the owner's request, together with the solution direction. Closes
+`STORE-VERSION-BLIND-TO-CHANGES-MADE-OUTSIDE-LIQUERS`. Phase 1 example 8.*
+
+**Precondition verified at HEAD.** The version recorded for a stored value is the hash of *exactly*
+the bytes handed to `store.set`: evaluation reuses the same buffer (`PreparedVersion.binary`,
+`assets.rs:2020-2024`), `set_binary` hashes the binary it stores (`:5746`), and `set_state` hashes
+`state.as_bytes()`, which is the same call whose result it stores (`:5860`, `:5887`). Verification
+re-hashes the *stored* bytes rather than re-serializing, so whether a serializer is deterministic
+does not matter.
+
+#### G1. Versions that say whether they are a hash
+
+```rust
+// metadata.rs
+impl Version {
+    /// Bit 127. Set on every content hash, and on nothing else.
+    pub const HASH_FLAG: u128 = 1 << 127;
+
+    /// Content hash of stored bytes: blake3, first 128 bits, with `HASH_FLAG` set (127 bits
+    /// of hash). Used wherever an *asset's content* is versioned.
+    pub fn from_content(bytes: &[u8]) -> Self;
+
+    /// True when this version was produced by `from_content`, and so can be re-checked.
+    pub fn is_content_hash(&self) -> bool;
+
+    /// Compare against `bytes`.
+    pub fn verify(&self, bytes: &[u8]) -> VersionCheck;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VersionCheck {
+    /// The bytes are what this version fingerprinted.
+    Verified,
+    /// A content hash whose bytes have changed; `actual` is `from_content(bytes)`.
+    Mismatch { actual: Version },
+    /// Not a content hash (unknown, time-based, unique, or a legacy value that does not match),
+    /// so nothing can be concluded.
+    NotVerifiable,
+}
+```
+
+- **`from_bytes` stays as it is** (unflagged). It is also used for command metadata versions
+  (`command_metadata.rs:1233`), and flagging those would change the version of about half of all
+  commands on upgrade, which would recompute about half of every stored result once. Only the
+  five *content* sites switch to `from_content` (`assets.rs:2022`, `:5746`, `:5860`, `:6985`,
+  `:7036`). `:1961` is a `new_unique` fallback, not a hash, and stays.
+- `from_time_now`, `from_specific_time` and `new_unique` **mask bit 127 off** explicitly. Today
+  they leave it clear only by magnitude, and `new_unique` would reach it in 2262.
+- **Legacy hashes** (stored before this change, unflagged): `verify` also accepts an unflagged value
+  equal to the *unflagged* hash of the bytes, and reports `Verified`, because a 128-bit hash cannot
+  equal a timestamp by chance. An unflagged value that does *not* match is `NotVerifiable`, because
+  it might be a timestamp. So unchanged legacy data is recognised, and a changed legacy value is
+  missed until the value is rewritten. There is no migration pass and no forced recomputation.
+
+#### G2. The decision, as one pure function
+
+```rust
+// assets.rs
+/// What to do when a stored value's bytes no longer match its recorded version.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExternalChangePolicy {
+    /// Keep the new content as the user's: a recipe-backed value becomes `Override`.
+    #[default]
+    UserInput,
+    /// Treat the content as damaged: delete the stored copy, so the recipe recomputes it.
+    Corrupted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExternalChangeAction {
+    /// `Source` / `Override`: keep the status, adopt `actual` as the version.
+    AcceptAsInput { actual: Version },
+    /// Recipe-backed, `UserInput`: set status `Override`, adopt `actual` as the version.
+    ConvertToOverride { actual: Version },
+    /// Recipe-backed, `Corrupted`: remove data and metadata from the store.
+    Delete,
+}
+
+fn external_change_action(
+    status: Status,
+    has_recipe: bool,
+    policy: ExternalChangePolicy,
+    actual: Version,
+) -> ExternalChangeAction;
+```
+
+| Stored status | Recipe? | `UserInput` (default) | `Corrupted` |
+|---|---|---|---|
+| `Source` | no | accept as input | accept as input (the owner's rule: a `Source` is always input) |
+| `Override` | either | accept as input | accept as input (an override is the user's by definition) |
+| `Ready`, `Expired` | yes | convert to `Override` | delete |
+| *no metadata at all* (file dropped in) | no | not a change: already a `Source`, nothing recorded to compare | same |
+| *no metadata at all* | yes | convert to `Override` (owner, gate answer 3) | delete |
+
+The match over `Status` is explicit. Every other status (`None`, `Directory`, `Error`, `Volatile`, …)
+is **not checked**, because there is no reusable stored value to protect.
+
+Applying an action, in `AssetManager::apply_external_change(key, metadata, action)` (a default method):
+
+1. For `AcceptAsInput` and `ConvertToOverride`: write the new version (and status) into the stored
+   metadata, and log *"content of data/a.csv changed outside Liquers; accepted as user input"*
+   (`warning`). Then call `register_version(key, actual)`, which cascades to dependents with reason
+   `Cascade { trigger: key }` (Part C). They recorded the old version, so they are now stale.
+2. For `Delete`: remove the key's data and metadata from the store, log to stderr (the metadata
+   that would hold the log is gone), and `cascade_expire_dependents(key)`.
+3. Take `key_mutation_lock` around the store writes, as the other keyed mutations do.
+
+#### G3. When it runs
+
+```rust
+// environment_builder.rs, AssetManagerOptions
+#[serde(default, skip_serializing_if = "VersionVerification::is_on_read")]
+pub verify_versions: VersionVerification,   // off | on_read (default on_read)
+#[serde(default, skip_serializing_if = "ExternalChangePolicy::is_user_input")]
+pub external_change: ExternalChangePolicy,  // user_input (default) | corrupted
+```
+
+- **On read** (default `on_read`): wherever the asset manager has already read the stored
+  bytes, which is `try_fast_track` (`assets.rs:1116`) and the store branches of `get_any_status`
+  / `get_binary_any_status` (`:4476`, `:4516`). The extra cost is one blake3 pass over bytes that
+  were read anyway. In `try_fast_track`, `ConvertToOverride` and `AcceptAsInput` continue loading
+  with the new version and status, and `Delete` returns `false`, so the recipe recomputes.
+- **On demand:**
+
+```rust
+/// Read every stored value under `key` (recursively when `deep`), verify its version and apply
+/// the configured policy (or only report, with `AuditMode::ReportOnly` from Part B).
+async fn verify_stored_versions(&self, key: &Key, deep: bool, mode: AuditMode)
+    -> Result<VersionVerificationReport, Error>;
+
+#[non_exhaustive]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct VersionVerificationReport {
+    pub verified: Vec<Key>,
+    pub not_verifiable: Vec<Key>,
+    pub changed: Vec<(Key, ExternalChangeAction)>,   // in ReportOnly: what *would* be done
+}
+```
+
+- **Not a mismatch:** missing bytes. Deleted data with metadata kept is the exploratory workflow
+  (`DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE`), so a key whose data is gone is skipped. Also not a
+  mismatch: a metadata-only entry (no bytes by design), whose version is `new_unique` and so
+  `NotVerifiable` (`METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED`).
+- **The Part B audit is unchanged.** It compares *recorded* versions using metadata only. Part G is
+  what makes that metadata truthful: after verification, a changed `a.csv` carries its real
+  version, so example 1 then works for outside edits too.
+
+#### G4. Relation to the other parts
+
+- **C:** no new `ExpiryReason`. Dependents are expired by the ordinary cascade, and the changed
+  asset itself is not expired: it becomes input (`Source` / `Override`) or is deleted. The log
+  line on the asset records what happened.
+- **F:** `apply_external_change` and `verify_stored_versions` are default trait methods, so
+  external managers get them. The read-path check lives in `AssetData::try_fast_track`, which is
+  shared by all managers.
+
 ## Generic Parameters & Bounds
 
 Everything is generic over `E: Environment`, as the surrounding code is. No new bounds.
@@ -614,6 +782,7 @@ is left as it is and noted on the issue.
 | `assets.rs` (Part F) | `DependencyManagerAccess` public, `#[allow(private_bounds)]` removed; `run`, `run_inline`, `submitted`, `set_payload_path`, `expire_without_cascade` public with contracts; `refresh_command_versions` default body |
 | `dependencies.rs` (Part F) | `DependencyManager` public and opaque (methods narrowed to `pub(crate)`), `Default` |
 | `tests/external_asset_manager.rs`, `tests/common/manager_scenarios.rs` (Part F) | from-scratch external manager; scenarios shared with `manager_parametric.rs` |
+| `metadata.rs`, `assets.rs`, `environment_builder.rs` (Part G) | `Version::HASH_FLAG`, `from_content`, `is_content_hash`, `verify`, `VersionCheck`; time/unique constructors mask bit 127; five content sites use `from_content`; `ExternalChangePolicy`, `ExternalChangeAction`, `external_change_action`, `apply_external_change`, `verify_stored_versions`, `VersionVerificationReport`; check in `try_fast_track` and the `*_any_status` store branches; `AssetManagerOptions::{verify_versions, external_change}` |
 | `context.rs` | `submit`; `wait_for_dependency` made public and version-recording; submitted-key map; `evaluate` and `get_dependency_state` rewritten on top |
 
 ### Other crates
@@ -638,7 +807,7 @@ Extend, no new reference (Phase 1 rationale: one contract, one document).
 | Path | Audience | Area | Change |
 |---|---|---|---|
 | `specs/reference/DEPENDENCIES_STATUS.md` | internal | core/assets | §"Current contract": audits compare current versions with recorded ones even on first observation; `DependencyAuditPolicy` (`explicit` / `on_load`); `AuditMode::ReportOnly` and `AuditFinding`; `-R-dir/` dependencies (membership version, when refreshed, backend caveat); plan dependencies with no version get an `unknown` edge. §"Function glossary": `audit_version`, `stale_edges`, `dependency_version`, `refresh_listing_version`. Replace the sentence citing `DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE` as open. |
-| `specs/reference/ASSETS.md` | internal | core/assets | §"The one meaning of `Expired`": `ExpiryReason`, its five variants and which route sets each, the "meaningful only while `Expired`" rule, the log levels, and why it is not a status. §"AssetManager": the trait is implementable outside core; point to the new guide. |
+| `specs/reference/ASSETS.md` | internal | core/assets | §"The one meaning of `Expired`": `ExpiryReason`, its five variants and which route sets each, the "meaningful only while `Expired`" rule, the log levels, and why it is not a status. §"AssetManager": the trait is implementable outside core; point to the new guide. New section "Content changed outside Liquers" (Part G): content-hash versions and the flag bit, what is verifiable (including legacy values), the decision table, when the check runs, and the read-only-store behaviour. |
 
 ### Guide Plan
 
@@ -668,7 +837,7 @@ Every row gets `reviewed:` bumped and a `## History` row (§9.2).
 | `ASSET_LIFECYCLE` | yes | where it lists the routes into `Expired` (monitor, lazy, explicit, cascade), name the reason each sets; correct the immediate manager's lazy check |
 | `DOC_03_ASSETS_EXECUTION_LIFECYCLE` | yes | §"Expiration, recovery, and cancellation": the same route/reason table. Its P1 API finding ("public trait exposes a private dependency-manager type") is resolved by Part F, so update that row. |
 | `DOC_04_ENVIRONMENT_CONTEXT_EVALUATION` | yes | §"Dependency and apply methods": add `submit` and the now-public `wait_for_dependency` to the table (payload and CWD rules as for `get_dependency_state`); `evaluate` = `submit` + drain |
-| `ENVIRONMENT_CONFIG` | yes | §"Format": `assets.dependency_audit: explicit \| on_load`, with its default and meaning |
+| `ENVIRONMENT_CONFIG` | yes | §"Format": `assets.dependency_audit: explicit \| on_load`, `assets.verify_versions: off \| on_read`, `assets.external_change: user_input \| corrupted`, with defaults and meaning |
 | `COMMAND_REGISTRATION_GUIDE` | yes | see Guide Plan |
 | `ENVIRONMENT_CONSTRUCTION_GUIDE` | yes | where manager kinds are chosen: one line and a link to the new guide for a custom kind; `with_dependency_audit` on `AssetManagerOptions` |
 | `STORE_IMPLEMENTATION_GUIDE` | yes | one "see also" line to the new guide |
@@ -863,3 +1032,11 @@ Left for Phase 4 to verify at implementation time: whether `liquers-web`'s `.d.t
      are covered above);
    - the new policy arrives through the already-public `AssetManagerOptions` passed to
      `AssetManagerKind::build`.
+5. **`STORE-VERSION-BLIND-TO-CHANGES-MADE-OUTSIDE-LIQUERS` is in scope as Part G** (owner,
+   2026-09-29). The owner set the solution direction: a hash flag bit, verification on read, a
+   `Source` always taken as input, and a choice for recipe-backed values. Default `UserInput`
+   (convert to `Override`), with `Corrupted` (delete) opt-in, set per environment. A file with no
+   metadata under a recipe follows the same choice.
+   Two refinements in the design, not in the owner's statement: only *content* hashes carry the flag
+   (`from_content`), so command metadata versions do not change on upgrade; and unflagged legacy
+   hashes still verify when unchanged.
