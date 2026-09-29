@@ -234,6 +234,18 @@ impl AsyncOpenDALStore {
         let entries = self.map_read_error(key, self.op.list_with(&path).limit(1).await)?;
         Ok(!entries.is_empty())
     }
+
+    /// A directory's metadata: `default_metadata(key, true)` with its direct children.
+    ///
+    /// Both directory branches of `get_metadata` return this — `stat().is_dir()` for services with
+    /// directory objects, the `has_children` fallback for flat ones — so they cannot diverge.
+    /// `children` is one level deep: the `AsyncStore` default `get_asset_info` answers a child
+    /// directory without reading its own children (STORE_SEMANTICS §2).
+    async fn directory_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+        let mut metadata = self.default_metadata(key, true);
+        metadata.children = self.listdir_asset_info(key).await?;
+        Ok(Metadata::MetadataRecord(metadata))
+    }
 }
 
 #[cfg(feature = "async_store")]
@@ -305,11 +317,7 @@ impl AsyncStore for AsyncOpenDALStore {
             if self.map_read_error(key, self.op.exists(&path).await)? {
                 let stat = self.map_read_error(key, self.op.stat(&path).await)?;
                 if stat.is_dir() {
-                    // Directory children are deliberately not populated here: `listdir_asset_info`
-                    // calls `get_asset_info` per child, which calls `get_metadata` per child
-                    // directory — a full recursive walk of the subtree for one directory read.
-                    let metadata = self.default_metadata(key, true);
-                    return Ok(Metadata::MetadataRecord(metadata));
+                    return self.directory_metadata(key).await;
                 } else {
                     let mut metadata = self.default_metadata(key, false);
                     metadata.warning(&format!("Metadata file {} does not exist.", path));
@@ -331,7 +339,7 @@ impl AsyncStore for AsyncOpenDALStore {
                 // The value returned is the one the `stat().is_dir()` branch above returns, so the
                 // two paths cannot diverge.
                 if self.has_children(key).await? {
-                    return Ok(Metadata::MetadataRecord(self.default_metadata(key, true)));
+                    return self.directory_metadata(key).await;
                 }
                 Err(Error::key_not_found(key))
             }
@@ -1217,6 +1225,53 @@ mod tests {
         assert!(record.is_dir, "a directory must be marked as one");
         assert_eq!(record.key, Some(dir), "and must name its key");
         Ok(())
+    }
+
+    /// Directory metadata lists the direct children, on both services.
+    ///
+    /// The two services reach it by different branches of `get_metadata` — memory has no directory
+    /// objects and takes the `has_children` fallback, fs takes `stat().is_dir()` — so each is
+    /// checked. `sub` is itself a directory: it appears once, directory-shaped, and its own child
+    /// is not listed here (STORE_SEMANTICS §2, one level).
+    async fn check_directory_children(store: &AsyncOpenDALStore) -> Result<(), Error> {
+        store
+            .set(&parse_key("data/reports/q3.csv")?, b"rows", &Metadata::new())
+            .await?;
+        store
+            .set(&parse_key("data/reports/sub/deep.txt")?, b"x", &Metadata::new())
+            .await?;
+
+        let Metadata::MetadataRecord(record) =
+            store.get_metadata(&parse_key("data/reports")?).await?
+        else {
+            panic!("expected a MetadataRecord for a directory");
+        };
+        let mut children: Vec<(String, bool)> = record
+            .children
+            .iter()
+            .filter_map(|info| Some((info.key.as_ref()?.encode(), info.is_dir)))
+            .collect();
+        children.sort();
+        assert_eq!(
+            children,
+            vec![
+                ("data/reports/q3.csv".to_owned(), false),
+                ("data/reports/sub".to_owned(), true),
+            ]
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn opendal_directory_metadata_lists_children_memory() -> Result<(), Error> {
+        check_directory_children(&memory_store()).await
+    }
+
+    #[cfg(feature = "services-fs")]
+    #[tokio::test]
+    async fn opendal_directory_metadata_lists_children_fs() -> Result<(), Error> {
+        let fs = fs_store("dirchildren");
+        check_directory_children(&fs.store).await
     }
 
     /// `PATHMAP07` — the directory form refuses a reserved key, like the other forms.
