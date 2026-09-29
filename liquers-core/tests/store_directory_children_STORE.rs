@@ -56,7 +56,6 @@ async fn check_listing(store: &dyn AsyncStore) -> TestResult {
 }
 
 #[tokio::test]
-#[ignore = "store-conformance-backlog: fixed in step 5"]
 async fn file_store_lists_children_and_metadata_only_keys() -> TestResult {
     let root = temp_root("file");
     tokio::fs::create_dir_all(&root).await?;

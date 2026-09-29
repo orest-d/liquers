@@ -1323,16 +1323,27 @@ impl AsyncStore for AsyncFileStore {
             .await
             .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?;
         let mut names = Vec::new();
+        let mut seen = std::collections::HashSet::new();
         while let Some(entry) = dir
             .next_entry()
             .await
             .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?
         {
-            let name = entry.file_name().to_string_lossy().to_string();
-            // The same predicate the path builders use. Skipping rather than failing is what
-            // §8 requires, and it is not optional: `listdir_keys_deep` calls `is_dir` on every
-            // child, so a reserved name left in a listing would make `keys()` fail outright.
-            if !Self::RESERVED.is_reserved_name(&name) {
+            let entry_name = entry.file_name().to_string_lossy().to_string();
+            // A sidecar implies its data key (§8): `orphan.__metadata__` is listed as `orphan`, so
+            // a key that has metadata and no data is still enumerable. The data file and its
+            // sidecar imply the same name, which is listed once.
+            let name = match entry_name.strip_suffix(METADATA_SUFFIX) {
+                Some(implied) => implied.to_owned(),
+                None => entry_name,
+            };
+            // The same predicate the path builders use, applied to the *implied* name too.
+            // Skipping rather than failing is what §8 requires, and it is not optional:
+            // `listdir_keys_deep` calls `is_dir` on every child, so a reserved name left in a
+            // listing would make `keys()` fail outright. An entry that is exactly the suffix
+            // implies the empty name, which is not a key.
+            if !name.is_empty() && !Self::RESERVED.is_reserved_name(&name) && seen.insert(name.clone())
+            {
                 names.push(name);
             }
         }
@@ -2379,6 +2390,68 @@ mod tests {
             !store.called("get", "a/b/c/leaf"),
             "a grandchild was read: the read recursed"
         );
+        Ok(())
+    }
+
+    /// A fresh `AsyncFileStore` over a uniquely named temporary directory.
+    async fn temp_file_store(label: &str) -> Result<(AsyncFileStore, PathBuf), Error> {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        let root = std::env::temp_dir().join(format!("lq-listdir-{label}-{nanos}"));
+        tokio::fs::create_dir_all(&root)
+            .await
+            .map_err(|e| Error::general_error(format!("temp dir: {e}")))?;
+        let store = AsyncFileStore::new(root.to_string_lossy().as_ref(), &Key::new());
+        Ok((store, root))
+    }
+
+    /// A key that has metadata and no data is listed, by its own name (§8).
+    #[tokio::test]
+    async fn file_store_lists_a_metadata_only_key() -> Result<(), Error> {
+        let (store, root) = temp_file_store("metaonly").await?;
+        store
+            .set_metadata(&parse_key("sub/orphan")?, &Metadata::new())
+            .await?;
+        let names = store.listdir(&parse_key("sub")?).await;
+        let _ = tokio::fs::remove_dir_all(&root).await;
+        assert_eq!(names?, vec!["orphan".to_owned()]);
+        Ok(())
+    }
+
+    /// Data and its sidecar imply the same name, which is listed once.
+    #[tokio::test]
+    async fn file_store_lists_data_and_sidecar_once() -> Result<(), Error> {
+        let (store, root) = temp_file_store("dedup").await?;
+        store
+            .set(&parse_key("sub/file.txt")?, b"x", &Metadata::new())
+            .await?;
+        let names = store.listdir(&parse_key("sub")?).await;
+        let _ = tokio::fs::remove_dir_all(&root).await;
+        assert_eq!(names?, vec!["file.txt".to_owned()]);
+        Ok(())
+    }
+
+    /// A sidecar whose implied name is reserved, a lock file, the legacy metadata folder and an
+    /// entry that is exactly the suffix are all skipped rather than listed.
+    #[tokio::test]
+    async fn file_store_skips_sidecars_implying_reserved_names() -> Result<(), Error> {
+        let (store, root) = temp_file_store("reserved").await?;
+        let sub = root.join("sub");
+        let setup = async {
+            tokio::fs::create_dir_all(sub.join(METADATA_FOLDER)).await?;
+            tokio::fs::write(sub.join(format!("x{LOCK_SUFFIX}{METADATA_SUFFIX}")), b"{}").await?;
+            tokio::fs::write(sub.join(format!("y{LOCK_SUFFIX}")), b"").await?;
+            tokio::fs::write(sub.join(METADATA_SUFFIX), b"{}").await?;
+            tokio::fs::write(sub.join("kept.txt"), b"x").await
+        };
+        setup
+            .await
+            .map_err(|e| Error::general_error(format!("setup: {e}")))?;
+        let names = store.listdir(&parse_key("sub")?).await;
+        let _ = tokio::fs::remove_dir_all(&root).await;
+        assert_eq!(names?, vec!["kept.txt".to_owned()]);
         Ok(())
     }
 
