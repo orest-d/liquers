@@ -143,3 +143,67 @@ pub async fn sidecar02(f: &dyn Fixture) -> RuleOutcome {
         Err(e) => e.into(),
     }
 }
+
+/// `sidecar04` — a key holding only metadata is listed by its parent.
+///
+/// A sidecar implies its data key (§8), so `set_metadata` on a key with no data must leave that
+/// key enumerable: `contains` answers it and its parent's `listdir` names it. The file stores used
+/// to drop the sidecar from listings, which made such a key invisible while `contains` and
+/// `get_metadata` still answered it — and made the answer depend on which backend a key landed in.
+///
+/// A store may instead **refuse** metadata for a key with no data, with `KeyNotFound`; that is a
+/// consistent answer and passes. What fails is accepting the write and then hiding the key.
+///
+/// Needs `Directories` as well as `StoredMetadata`: "listed by its parent" means nothing for a store
+/// that has no listing, such as the bare trait defaults, whose `contains` consults only `is_dir`.
+pub async fn sidecar04(f: &dyn Fixture) -> RuleOutcome {
+    let request = KeyRequest::FreshNested { depth: 1 };
+    let keys = match keys_for(f, request.clone()).await {
+        Ok(k) => k,
+        Err(outcome) => return outcome,
+    };
+    let Some(key) = keys.first().cloned() else {
+        return failed("the fixture returned no key for FreshNested");
+    };
+    let parent = key.parent();
+    if let Err(outcome) = require_absent(f, &key, request).await {
+        return outcome;
+    }
+
+    let mut record = MetadataRecord::new();
+    record.with_key(key.clone()).with_title("conformance sidecar04".to_owned());
+    match f.store().set_metadata(&key, &Metadata::MetadataRecord(record)).await {
+        Ok(()) => f.record_created(&key),
+        Err(e) if e.error_type == crate::error::ErrorType::KeyNotFound => {
+            return RuleOutcome::Passed
+        }
+        Err(e) => return e.into(),
+    }
+
+    match f.store().contains(&key).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return failed_at(
+                format!(
+                    "set_metadata({}) succeeded on a key with no data, but contains is false",
+                    key.encode()
+                ),
+                vec![key],
+            )
+        }
+        Err(e) => return e.into(),
+    }
+    match f.store().listdir_keys(&parent).await {
+        Ok(listed) if listed.contains(&key) => RuleOutcome::Passed,
+        Ok(listed) => failed_at(
+            format!(
+                "set_metadata({}) succeeded on a key with no data, but listdir({}) omits it; got {:?}",
+                key.encode(),
+                parent.encode(),
+                listed.iter().map(|k| k.encode()).collect::<Vec<_>>()
+            ),
+            vec![key, parent],
+        ),
+        Err(e) => e.into(),
+    }
+}

@@ -359,7 +359,7 @@ the two sets agree, so a rule cannot be added without the contract naming it.
 | §5 removal | `remove01` `remove02` `remove03` `data02` |
 | §6 prefixes | `prefix01` `prefix02` `prefix03` `prefix04` |
 | §7 key shape | `keyshape01` `keyshape02` |
-| §8 sidecars and reserved names | `sidecar01` `sidecar02` `sidecar03`, plus `prefix03` and `sibling05` when the fixture declares an unsupported shape |
+| §8 sidecars and reserved names | `sidecar01` `sidecar02` `sidecar03` `sidecar04`, plus `prefix03` and `sibling05` when the fixture declares an unsupported shape |
 | §9 enumeration | `keys01` `keys02` |
 | refuting rules | `nowrite01` `noremove01` `nodir01` `nomakedir01` `noremovedir01` `nokeys01` |
 
@@ -387,6 +387,7 @@ serde for exactly this reason. Regenerate it rather than editing it.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-29 | §8: added `sidecar04` — a key holding only metadata is listed by its parent. | `design/store-conformance-backlog/` step 6 |
 | 2026-09-29 | §9: `dir07` is no longer blocked — STORE_SEMANTICS §2 settled that directory metadata populates `children` one level deep. The rest of the §9 table is rewritten from the final reports when `design/store-conformance-backlog/` reaches Phase 5. | `design/store-conformance-backlog/` step 4 |
 | 2026-09-15 | §1: added "A wrapper is not two methods" — `AsyncStore`'s twenty defaults are error stubs rather than forwarding defaults, so a wrapper must be sized by compiling and an undeclared default is an oversight rather than a declined capability. | `stale-dependency-status-finalization` |
 | 2026-09-04 | Added the `listdir` absence rule: an absent addressable directory is empty, but a failed filesystem operation must remain an error. | phase-5 |

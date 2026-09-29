@@ -1195,6 +1195,111 @@ mod tests {
         }
     }
 
+    /// How [`MetadataOnlyStore`] treats a key that has metadata and no data.
+    #[derive(Clone, Copy)]
+    enum MetadataOnly {
+        /// `set_metadata` on a key with no data answers `KeyNotFound` — a permitted refusal.
+        Refuse,
+        /// The write is accepted, but `listdir` hides the key — the defect `sidecar04` exists for.
+        Hide,
+    }
+
+    /// An `AsyncMemoryStore` with one deliberate policy for metadata-only keys.
+    struct MetadataOnlyStore {
+        inner: crate::store::AsyncMemoryStore,
+        mode: MetadataOnly,
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl AsyncStore for MetadataOnlyStore {
+        async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+            self.inner.get(key).await
+        }
+        async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+            self.inner.set(key, data, metadata).await
+        }
+        async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+            match self.mode {
+                MetadataOnly::Refuse if !self.inner.contains(key).await? => {
+                    Err(Error::key_not_found(key))
+                }
+                MetadataOnly::Refuse | MetadataOnly::Hide => {
+                    self.inner.set_metadata(key, metadata).await
+                }
+            }
+        }
+        async fn contains(&self, key: &Key) -> Result<bool, Error> {
+            self.inner.contains(key).await
+        }
+        async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+            self.inner.is_dir(key).await
+        }
+        async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+            let names = self.inner.listdir(key).await?;
+            match self.mode {
+                MetadataOnly::Refuse => Ok(names),
+                MetadataOnly::Hide => {
+                    // The memory store keeps an empty body for a metadata-only key.
+                    let mut kept = Vec::new();
+                    for name in names {
+                        let child = key.join(&name);
+                        let empty_data = match self.inner.get(&child).await {
+                            Ok((data, _)) => data.is_empty(),
+                            Err(_) => false,
+                        };
+                        if !empty_data {
+                            kept.push(name);
+                        }
+                    }
+                    Ok(kept)
+                }
+            }
+        }
+        async fn remove(&self, key: &Key) -> Result<(), Error> {
+            self.inner.remove(key).await
+        }
+        async fn removedir(&self, key: &Key) -> Result<(), Error> {
+            self.inner.removedir(key).await
+        }
+        fn is_supported(&self, key: &Key) -> bool {
+            self.inner.is_supported(key)
+        }
+    }
+
+    #[tokio::test]
+    async fn refute_sidecar04_passes_a_store_that_lists_metadata_only_keys() {
+        let store = crate::store::AsyncMemoryStore::new(&Key::new());
+        match run_rule_on("sidecar04", Box::new(store)).await {
+            RuleOutcome::Passed => {}
+            other => panic!("sidecar04 must pass AsyncMemoryStore, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn refute_sidecar04_accepts_a_refusal() {
+        let store = MetadataOnlyStore {
+            inner: crate::store::AsyncMemoryStore::new(&Key::new()),
+            mode: MetadataOnly::Refuse,
+        };
+        match run_rule_on("sidecar04", Box::new(store)).await {
+            RuleOutcome::Passed => {}
+            other => panic!("refusing a metadata-only key is permitted, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn refute_sidecar04_fails_a_store_that_hides_metadata_only_keys() {
+        let store = MetadataOnlyStore {
+            inner: crate::store::AsyncMemoryStore::new(&Key::new()),
+            mode: MetadataOnly::Hide,
+        };
+        match run_rule_on("sidecar04", Box::new(store)).await {
+            RuleOutcome::Failed { .. } => {}
+            other => panic!("sidecar04 must fail a store that hides the key, got {other:?}"),
+        }
+    }
+
     /// The gate itself, end to end: `run_all` produces one entry per rule, in order.
     #[tokio::test]
     async fn harness_runs_every_rule_in_order() {
