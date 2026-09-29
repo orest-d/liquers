@@ -3,7 +3,7 @@ id: STORE-CONFORMANCE-BACKLOG
 kind: design
 title: Store conformance backlog — make every store agree with STORE_SEMANTICS
 workflow: liquers-project
-status: draft
+status: in_review
 phase: examples
 area: [core/store, store/backends, web, docs]
 gh_pr: []
@@ -20,7 +20,7 @@ superseded_by:
 
 - [x] Phase 1: High-Level Design (approved 2026-09-29)
 - [x] Phase 2: Solution & Architecture (approved 2026-09-29)
-- [ ] Phase 3: Examples & Testing (runnable examples chosen)
+- [x] Phase 3: Examples & Testing (runnable; awaiting approval)
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete

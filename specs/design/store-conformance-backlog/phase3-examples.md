@@ -459,3 +459,24 @@ The liquers-unittest conventions were applied to the plan above:
 - `Result<(), Box<dyn std::error::Error>>` returns in new integration files.
 - `parse_key` for keys and `AsyncMemoryStore::new(&Key::new())` for memory stores.
 - Error paths are asserted by `error_type`, never by message text.
+
+## Review Outcome
+
+Three independent reviews were run. None of them found a blocking problem in this document, so
+no fixer pass was needed.
+
+- **Phase 1 conformity:** no issues. All seven issues are demonstrated or tested. All four approved
+  decisions are respected. The examples are runnable.
+- **Phase 2 conformity:** every Phase 2 behaviour maps to a test, and the example code breaks no
+  Rust convention. The reviewer's remaining "gaps" were the Phase 2 changes themselves, which are
+  not implemented yet. That is expected before Phase 4, and the examples mark which assertions fail
+  at HEAD.
+- **Codebase validation:** the APIs, constructors, test files, feature names and router forwarding
+  were confirmed. One finding was rejected after checking: it claimed that `{ title: "a file" }`
+  loses its title in `metadata_from_js_value`. It does not. `MetadataRecord` is
+  `#[serde(default, deny_unknown_fields)]`, so a partial object takes the full-record path at
+  `liquers-web/src/store/mod.rs:79` and keeps `title`. The reviewer had read only the fallback
+  overlay below it.
+
+The author added one item during review: the table of deletion candidates for area E, which
+Phase 2 had deferred to this phase.
