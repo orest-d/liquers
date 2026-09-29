@@ -4,7 +4,9 @@ pub fn file_extension_to_media_type(extension: &str) -> &str {
     match extension {
         "7z" => "application/x-7z-compressed",
         "aiff" => "audio/aiff",
-        "arrow" => "application/octet-stream",
+        // Registered with IANA (Apache Arrow IPC file format); `feather` v2 and `ipc` are the same
+        // format under other extensions.
+        "arrow" => "application/vnd.apache.arrow.file",
         "avi" => "video/avi",
         "avro" => "application/avro",
         "b" => "application/octet-stream",
@@ -26,7 +28,7 @@ pub fn file_extension_to_media_type(extension: &str) -> &str {
         "eps" => "image/eps",
         "epub" => "application/epub+zip",
         "fbx" => "application/fbx",
-        "feather" => "application/octet-stream",
+        "feather" => "application/vnd.apache.arrow.file",
         "flac" => "audio/flac",
         "flv" => "video/x-flv",
         "geojson" => "application/geo+json",
@@ -46,12 +48,15 @@ pub fn file_extension_to_media_type(extension: &str) -> &str {
         "html" => "text/html",
         "ico" => "image/x-icon",
         "ipynb" => "application/x-ipynb+json",
+        "ipc" => "application/vnd.apache.arrow.file",
         "java" => "text/x-java",
         "jpeg" => "image/jpeg",
         "jpg" => "image/jpeg",
         "js" => "text/javascript",
         "json" => "application/json",
-        "jsonl" => "application/jsonlines",
+        // Neither JSON Lines nor NDJSON has a registered media type; these are the forms in common
+        // use (`application/jsonlines` is not).
+        "jsonl" => "application/jsonl",
         "less" => "text/x-less",
         "lz4" => "application/lz4",
         "md" => "text/markdown",
@@ -64,6 +69,7 @@ pub fn file_extension_to_media_type(extension: &str) -> &str {
         "mp4" => "video/mp4",
         "msgpack" => "application/x-msgpack",
         "nc" => "application/x-netcdf",
+        "ndjson" => "application/x-ndjson",
         "npy" => "application/octet-stream",
         "npz" => "application/octet-stream",
         "obj" => "model/obj",
@@ -71,7 +77,8 @@ pub fn file_extension_to_media_type(extension: &str) -> &str {
         "ogg" => "audio/ogg",
         "onnx" => "application/onnx",
         "orc" => "application/octet-stream",
-        "parquet" => "application/octet-stream",
+        // Registered with IANA.
+        "parquet" => "application/vnd.apache.parquet",
         "pb" => "application/octet-stream",
         "pbf" => "application/octet-stream",
         "pcd" => "application/octet-stream",
@@ -136,5 +143,60 @@ pub fn file_extension_to_media_type(extension: &str) -> &str {
         "zip" => "application/zip",
         "zst" => "application/zstd",
         _ => "application/octet-stream",
+    }
+}
+
+#[cfg(test)]
+mod media_type_tests {
+    use super::*;
+
+    #[test]
+    fn mt01_ndjson_maps_to_iana_type() {
+        assert_eq!(file_extension_to_media_type("ndjson"), "application/x-ndjson");
+    }
+
+    #[test]
+    fn mt02_jsonl_maps_to_application_jsonl() {
+        assert_eq!(file_extension_to_media_type("jsonl"), "application/jsonl");
+    }
+
+    #[test]
+    fn mt03_arrow_maps_to_apache_arrow_file() {
+        assert_eq!(file_extension_to_media_type("arrow"), "application/vnd.apache.arrow.file");
+    }
+
+    #[test]
+    fn mt04_feather_maps_to_apache_arrow_file() {
+        assert_eq!(file_extension_to_media_type("feather"), "application/vnd.apache.arrow.file");
+    }
+
+    #[test]
+    fn mt05_ipc_maps_to_apache_arrow_file() {
+        assert_eq!(file_extension_to_media_type("ipc"), "application/vnd.apache.arrow.file");
+    }
+
+    #[test]
+    fn mt06_parquet_maps_to_apache_parquet() {
+        assert_eq!(file_extension_to_media_type("parquet"), "application/vnd.apache.parquet");
+    }
+
+    #[test]
+    fn mt07_csv_regression_unchanged() {
+        assert_eq!(file_extension_to_media_type("csv"), "text/csv");
+    }
+
+    #[test]
+    fn mt08_tsv_regression_unchanged() {
+        assert_eq!(file_extension_to_media_type("tsv"), "text/tab-separated-values");
+    }
+
+    #[test]
+    fn mt09_md_regression_unchanged() {
+        assert_eq!(file_extension_to_media_type("md"), "text/markdown");
+    }
+
+    #[test]
+    fn mt10_unknown_extension_defaults_to_octet_stream() {
+        assert_eq!(file_extension_to_media_type("xyz123unknown"), "application/octet-stream");
     }
 }

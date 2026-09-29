@@ -47,10 +47,45 @@ async fn main() {
 
 ## API Endpoints
 
+The full specification, with result shapes and status codes, is
+[`specs/reference/WEB_API_SPECIFICATION.md`](../specs/reference/WEB_API_SPECIFICATION.md).
+
 ### Query Execution API
 
 - **GET `/q/{*query}`** - Execute query, return binary result
 - **POST `/q/{*query}`** - Execute query with optional JSON body
+- `QueryApiBuilder::with_timeout(Duration)` bounds the wait (default 30 s)
+
+### Assets API (`AssetsApiBuilder`)
+
+Two families: `q/…` takes any query (`parse_query`), `key/…` takes a bare key (`parse_key`, no
+`-R/`). Reads (`data`, `entry`) evaluate and wait; `submit` starts an evaluation and returns its
+status at once; observe routes (`info`, `metadata`, `version`, `contains`, `recover`, `listdir`)
+never evaluate.
+
+- **GET `q/data|entry/{*query}`**, **POST|GET `q/submit/{*query}`**, **GET `q/info|metadata|version/{*query}`**, **POST `q/cancel/{*query}`**
+- **GET `key/data|entry/{*key}`**, **POST|GET `key/submit/{*key}`**, **GET `key/info|metadata|version|contains|recover/{*key}`**, **GET `key/listdir[/{*key}][?deep=true]`**
+- **POST `key/data|entry/{*key}`** (201) - write a `Source` / `Override`; only `type_identifier`, `data_format`, `media_type`, `title`, `description` are client-settable
+- **DELETE `key/data|entry/{*key}`** - status-aware remove; **DELETE `key/removedir/{*key}`**; **PUT `key/makedir/{*key}`** (201)
+- **POST `key/description|expire|override|cancel/{*key}`**
+- **POST `admin/audit[/{*key}]`**, **POST `admin/refresh_command_versions`**
+- **WebSocket `ws/q[/{*query}]`, `ws/key[/{*key}]`** - notifications with an `AssetInfo` snapshot; see `examples/WEBSOCKET_EXAMPLE.md`
+
+Builder options:
+
+| Option | Default | Effect |
+|---|---|---|
+| `read_only()` | off | omit every mutation route and the admin routes (cancel stays) |
+| `with_admin(bool)` | `true` | include or omit `admin/…` |
+| `with_destructive_gets()` | off | GET forms of the body-less operations (`key/remove`, `key/expire`, …) |
+| `with_websocket_path(p)` / `without_websocket()` | `{base}/ws` | move or remove the WebSocket endpoints |
+| `with_websocket_limits(WebSocketLimits)` | 64 KiB, 256 | message size and subscriptions per connection |
+
+These switches are a stop-gap: there is no access control yet (`CORE-SESSION-AND-KEY-ACL`).
+
+### Recipes API (`RecipesApiBuilder`, read-only)
+
+- **GET `listdir`**, **GET `data|metadata|entry/{*key}`**, **GET `resolve/{*key}`**
 
 ### Store API - Data & Metadata
 
@@ -71,7 +106,7 @@ async fn main() {
 - **GET `/api/store/listdir/{*key}`** - List directory contents
 - **GET `/api/store/is_dir/{*key}`** - Check if key is directory
 - **GET `/api/store/contains/{*key}`** - Check if key exists
-- **GET `/api/store/keys?prefix={prefix}`** - List all keys with optional prefix
+- **GET `/api/store/keys?prefix={prefix}`** - List the keys directly in the prefix directory (root by default)
 - **PUT `/api/store/makedir/{*key}`** - Create directory
 - **DELETE `/api/store/removedir/{*key}`** - Remove directory
 
@@ -165,12 +200,14 @@ All endpoints return consistent error responses:
 }
 ```
 
-HTTP status codes follow the specification:
-- `200 OK` - Success
+HTTP status codes follow the error type (specification §3.1):
+- `200 OK` / `201 Created` - Success
 - `400 Bad Request` - Parse/parameter errors
-- `404 Not Found` - Key not found
+- `404 Not Found` - Key not found, or a query not cached (`NotAvailable`)
+- `409 Conflict` - The operation does not apply to the asset's current status (`StatusConflict`)
 - `422 Unprocessable Entity` - Conversion/serialization errors
-- `500 Internal Server Error` - Execution errors
+- `500 Internal Server Error` - Execution and store errors
+- `501 Not Implemented` - `NotSupported`
 
 ## Testing
 

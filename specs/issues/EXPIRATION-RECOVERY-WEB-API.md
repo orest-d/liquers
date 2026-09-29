@@ -2,11 +2,11 @@
 id: EXPIRATION-RECOVERY-WEB-API
 kind: issue
 title: Expiration recovery has no web API surface
-status: accepted
+status: closed
 priority: P2
 complexity: M
 area: [axum, core/assets]
-design: 
+design: axum-assets-endpoints
 created: 2026-08-08
 github:
 ---
@@ -47,3 +47,12 @@ Expose both operations through `liquers-axum` (the assets router, `liquers-axum/
 then (a) the recovery-read route returns the stale value with expired metadata while the normal
 `get` route treats it as a cache miss / recomputes, and (b) the promote route flips the asset to
 `Override` so a subsequent normal `get` serves it without recomputation.
+
+## Resolution
+
+Expiration recovery is on the web API: `GET key/recover/{*key}` returns the last known value
+whatever its status (an `Expired` one included) without evaluating, and `POST key/override/{*key}`
+pins it as `Override`; `POST key/expire/{*key}` expires a key and its dependents. Evidence: AAE28,
+AAE30–AAE33, AAE67.
+
+Fixed on branch `claude/fervent-cori-ew4kvn` (design `axum-assets-endpoints`, 2026-09-28).

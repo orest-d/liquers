@@ -244,7 +244,8 @@ submit, and submitted query state is not preserved.
 ### Bindings and servers
 
 - **Web API** — documented → [`reference/WEB_API_SPECIFICATION.md`](reference/WEB_API_SPECIFICATION.md)
-- **Web API specification currentness** — planned → [`issues/WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION.md`](issues/WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION.md)
+- **Using the web API (curl, Python)** — documented → [`guides/WEB_API_GUIDE.md`](guides/WEB_API_GUIDE.md)
+- **Assets HTTP and WebSocket API (`q/`, `key/`, `admin/`, `ws/q`, `ws/key`)** — built → [`design/axum-assets-endpoints/`](design/axum-assets-endpoints/)
 - **Language integration** — documented → [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md)
 - **Assets and recipes HTTP API** — built → [`design/axum-assets-recipes-api/`](design/axum-assets-recipes-api/)
 - **Web API library** — built → [`design/web-api-library/`](design/web-api-library/)
@@ -254,8 +255,6 @@ submit, and submitted query state is not preserved.
 - **Executor-agnostic core** — planned → [`issues/CORE-TOKIO-REMOVAL.md`](issues/CORE-TOKIO-REMOVAL.md)
 - **Browser stores (localStorage, fetch, JS, routing)** — built → [`design/liquers-web-store/`](design/liquers-web-store/)
 - **Browser-native store and command backend** — planned → [`issues/WEB-NATIVE-IO-TIER2.md`](issues/WEB-NATIVE-IO-TIER2.md)
-- **Assets HTTP API completeness** — planned → [`issues/AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED.md`](issues/AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED.md)
-- **Query endpoint timeout configuration** — planned → [`issues/AXUM-QUERY-TIMEOUT-HARDCODED.md`](issues/AXUM-QUERY-TIMEOUT-HARDCODED.md)
 - **Agent memory service** — designing → [`design/agent-memory-mvp/`](design/agent-memory-mvp/)
 
 The memory service is the first line here that is an *application* of Liquers rather than a way
@@ -263,12 +262,13 @@ into it: a store router holding the corpus, a `ns-mem` command namespace, and th
 client interface serving `specs/` as tiered, searchable agent memory — where the tiers are
 `AssetInfo`'s existing `title` and `description`. Phase 1 of `liquers-project`, awaiting approval.
 
-Designing it is what found `AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED`: six of the assets API's ten
-endpoints, all of them specified in `WEB_API_SPECIFICATION.md` §5.1, return 501. `GET /listdir` is
-the one that matters most — an asset listing is the only call that returns a directory's
-descriptive metadata without reading data — and it is the service's first prerequisite. Three
-further gaps are worked around rather than fixed: `STORE-NO-CONTENT-OR-METADATA-SEARCH`,
-`CORE-METADATA-NO-APPLICATION-ATTRIBUTES` and `STORE-WRITE-HAS-NO-PRECONDITION`.
+Designing it found that six of the assets API's ten endpoints returned 501. `axum-assets-endpoints`
+replaced them with a complete interface to the asset manager: a key family (`key/…`, bare keys) and a
+query family (`q/…`, any query), request / submit / observe access modes — `key/listdir` describes
+a directory without evaluating anything, which the memory service needs first — status-aware removal,
+and a working WebSocket. Three further gaps are still worked around rather than fixed:
+`STORE-NO-CONTENT-OR-METADATA-SEARCH`, `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` and
+`STORE-WRITE-HAS-NO-PRECONDITION`.
 
 ### Build and repository
 
@@ -281,9 +281,7 @@ question are both measure-first items.
 ## Open issues attached to live design work
 
 <!-- BEGIN generated: issues -->
-| Issue | Pri | Cx | Design |
-|---|---|---|---|
-| [`DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION`](issues/DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION.md) | P1 | M | `store-and-asset-search` |
+*None.*
 <!-- END generated: issues -->
 
 ## Not yet placed
@@ -358,6 +356,7 @@ deliberately folded behind a broader line.
 - design `web-value04-bytes-identifier`
 - feature `AGENT-MEMORY-SERVICE`
 - feature `ASSET-REGISTRATION-OWNERSHIP-CONTRACT`
+- feature `ASSETS-API-ADMIN-OPERATIONS`
 - feature `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`
 - feature `COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS`
 - feature `DATA-FORMAT-CONSTANTS-AND-TOOLING`
@@ -367,6 +366,7 @@ deliberately folded behind a broader line.
 - feature `LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION`
 - feature `LANGUAGE-STORE-TYPE-NOT-DEFINABLE`
 - feature `NO-RELATIONAL-DATABASE-ACCESS-LAYER`
+- feature `NO-REMOTE-STORE-OR-ASSET-MANAGER`
 - feature `RECORDS-ARROW-C-DATA-EXPORT-NOT-BUILT`
 - feature `STORE-COMMAND-NAMESPACE-MISSING`
 - feature `STORE-CONFIG-FROM-URI`
@@ -391,6 +391,7 @@ deliberately folded behind a broader line.
 - [`STORE_IMPLEMENTATION_GUIDE.md`](guides/STORE_IMPLEMENTATION_GUIDE.md) — How to implement an `AsyncStore` that satisfies
 - [`TYPE_SYSTEM_GUIDE.md`](guides/TYPE_SYSTEM_GUIDE.md) — How to add a value type so the system can describe it, store it and read it back. For *why* the
 - [`UNITTEST_GUIDE.md`](guides/UNITTEST_GUIDE.md) — This guide explains how to write comprehensive unit tests for the Liquers query evaluation flow, covering environment setup, command registration, query evaluat
+- [`WEB_API_GUIDE.md`](guides/WEB_API_GUIDE.md) — This guide shows how to use a Liquers server over HTTP and WebSocket: evaluating queries, running
 - [`autonomous_bulk_design.md`](guides/autonomous_bulk_design.md) — This is the binding procedure for a coding agent asked to create or finish design documents for
 - [`autonomous_issue_fixing.md`](guides/autonomous_issue_fixing.md) — This is the binding procedure for a coding agent asked to fix an issue autonomously. The words
 <!-- END generated: guides -->

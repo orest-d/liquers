@@ -4,10 +4,31 @@ use crate::api_core::{
 };
 use axum::{
     body::Body,
-    http::{header, Response, StatusCode},
+    http::{header, response::Builder, HeaderValue, Response, StatusCode},
     response::IntoResponse,
 };
 use serde::Serialize;
+
+/// Finish a response builder, or answer 500 if the builder rejected a part of it (an invalid
+/// header value, typically a media type taken from metadata). Library code never panics on a
+/// response it cannot build.
+pub(crate) fn build_or_500(builder: Builder, body: Body) -> Response<Body> {
+    match builder.body(body) {
+        Ok(response) => response,
+        Err(e) => {
+            tracing::error!("Failed to build response: {}", e);
+            let mut response = Response::new(Body::from(
+                r#"{"status":"ERROR","message":"Failed to build response"}"#,
+            ));
+            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+            response.headers_mut().insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            );
+            response
+        }
+    }
+}
 
 /// Implement IntoResponse for ApiResponse<T>
 impl<T: Serialize> IntoResponse for ApiResponse<T> {
@@ -28,21 +49,21 @@ impl<T: Serialize> IntoResponse for ApiResponse<T> {
             Ok(json) => json,
             Err(e) => {
                 tracing::error!("Failed to serialize ApiResponse: {}", e);
-                return Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .header(header::CONTENT_TYPE, "application/json")
-                    .body(Body::from(
-                        r#"{"status":"ERROR","message":"Serialization failed"}"#,
-                    ))
-                    .unwrap();
+                return build_or_500(
+                    Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .header(header::CONTENT_TYPE, "application/json"),
+                    Body::from(r#"{"status":"ERROR","message":"Serialization failed"}"#),
+                );
             }
         };
 
-        Response::builder()
-            .status(status)
-            .header(header::CONTENT_TYPE, "application/json")
-            .body(Body::from(json))
-            .unwrap()
+        build_or_500(
+            Response::builder()
+                .status(status)
+                .header(header::CONTENT_TYPE, "application/json"),
+            Body::from(json),
+        )
     }
 }
 
@@ -67,7 +88,7 @@ impl IntoResponse for BinaryResponse {
         // Add metadata status header
         response = response.header("X-Liquers-Status", format!("{:?}", self.metadata.status()));
 
-        response.body(Body::from(self.data)).unwrap()
+        build_or_500(response, Body::from(self.data))
     }
 }
 
@@ -79,21 +100,23 @@ impl IntoResponse for DataEntry {
         let format = SerializationFormat::Cbor;
 
         match serialize_data_entry(&self, format) {
-            Ok(bytes) => Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, format.mime_type())
-                .body(Body::from(bytes))
-                .unwrap(),
+            Ok(bytes) => build_or_500(
+                Response::builder()
+                    .status(StatusCode::OK)
+                    .header(header::CONTENT_TYPE, format.mime_type()),
+                Body::from(bytes),
+            ),
             Err(e) => {
                 tracing::error!("Failed to serialize DataEntry: {}", e);
-                Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .header(header::CONTENT_TYPE, "application/json")
-                    .body(Body::from(format!(
+                build_or_500(
+                    Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .header(header::CONTENT_TYPE, "application/json"),
+                    Body::from(format!(
                         r#"{{"status":"ERROR","message":"Serialization failed: {}"}}"#,
                         e
-                    )))
-                    .unwrap()
+                    )),
+                )
             }
         }
     }

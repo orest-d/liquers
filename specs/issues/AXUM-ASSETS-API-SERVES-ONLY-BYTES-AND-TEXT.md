@@ -2,11 +2,11 @@
 id: AXUM-ASSETS-API-SERVES-ONLY-BYTES-AND-TEXT
 kind: issue
 title: The assets data and entry endpoints serialize with try_into_bytes, so they serve only bytes and text values
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [axum]
-design:
+design: axum-assets-endpoints
 created: 2026-09-24
 github:
 ---
@@ -52,3 +52,13 @@ a correctness bug that can be fixed on its own, before that design exists.
 
 Still open. `record-streams` did not touch `liquers-axum`. A `RecordView` asset is another value
 the assets endpoints refuse; it serves correctly through `/q`.
+
+## Resolution
+
+Every byte-returning assets route (`q/data`, `q/entry`, `key/data`, `key/entry`) reads the value
+with `AssetRef::get_binary` (`assets/common.rs`, `asset_bytes`/`asset_entry`), and `key/recover`
+with `get_binary_any_status`. The Query API's `GET /q` was found to serialize nothing itself (it
+only polled cached bytes) and now also reads through `get_binary`, so both APIs serve the same
+bytes and `Content-Type`. Evidence: AAE44–AAE47.
+
+Fixed on branch `claude/fervent-cori-ew4kvn` (design `axum-assets-endpoints`, 2026-09-28).
