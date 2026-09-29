@@ -2,8 +2,8 @@
 id: ACTIVE-06
 kind: design
 title: Design for WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND
-status: in_review
-phase: implementation
+status: superseded
+superseded_by: store-conformance-backlog
 readiness: ready
 area: [web, core/store]
 issues: [WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND]

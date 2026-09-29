@@ -3,8 +3,8 @@ id: STORE-CONFORMANCE-BACKLOG
 kind: design
 title: Store conformance backlog — make every store agree with STORE_SEMANTICS
 workflow: liquers-project
-status: in_review
-phase: architecture
+status: draft
+phase: examples
 area: [core/store, store/backends, web, docs]
 gh_pr: []
 issues: [STORE-SEMANTICS-CHILDREN-RULE-CONTRADICTS-EVERY-STORE, WEB-JS-STORE-HAS-NO-DIRECTORY-METADATA, WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND, LOCAL-STORAGE-STORE-FAILS-CONFORMANCE-IN-A-BROWSER, CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS, STORE-TEST-IDS-COLLIDE-WITH-CONFORMANCE-RULE-IDS, HTTP-STORE-METADATA-DROPS-THE-EXTENSION-MEDIA-TYPE]
@@ -19,8 +19,8 @@ superseded_by:
 ## Phase Status
 
 - [x] Phase 1: High-Level Design (approved 2026-09-29)
-- [x] Phase 2: Solution & Architecture (awaiting approval)
-- [ ] Phase 3: Examples & Testing
+- [x] Phase 2: Solution & Architecture (approved 2026-09-29)
+- [ ] Phase 3: Examples & Testing (runnable examples chosen)
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
@@ -31,8 +31,8 @@ superseded_by:
   (`design/store-conformance-suite/`, complete).
 - Absorbs three pre-generated stub designs — `store-directory-metadata-children`,
   `js-store-directory-metadata`, `js-store-not-found-sentinel` — whose phase documents are
-  template-level. They are to be marked `superseded` with `superseded_by: store-conformance-backlog`
-  when this design is approved at Phase 2.
+  template-level. They were marked `superseded` (`superseded_by: store-conformance-backlog`) when
+  Phase 2 was approved on 2026-09-29.
 
 ## Links
 

@@ -322,8 +322,6 @@ deliberately folded behind a broader line.
 - design `error-with-key-field`
 - design `expiration-integration-suite-failing-at-head`
 - design `foreign-value-type-registration`
-- design `js-store-directory-metadata`
-- design `js-store-not-found-sentinel`
 - design `lib-integration-test-feature-gates`
 - design `lib-polars-ethnum-rust-1-98`
 - design `listdir-keys-deep-child-check`
@@ -345,7 +343,6 @@ deliberately folded behind a broader line.
 - design `state-argument-serde-default`
 - design `store-conformance-backlog`
 - design `store-conformance-suite`
-- design `store-directory-metadata-children`
 - design `store-key-guard`
 - design `store-keys-contract`
 - design `store-router-empty-prefix`

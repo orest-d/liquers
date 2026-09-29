@@ -2,8 +2,8 @@
 id: ACTIVE-05
 kind: design
 title: Design for STORE-SEMANTICS-CHILDREN-RULE-CONTRADICTS-EVERY-STORE
-status: in_review
-phase: implementation
+status: superseded
+superseded_by: store-conformance-backlog
 readiness: needs-decision
 area: [core/store, store/backends, web, docs]
 issues: [STORE-SEMANTICS-CHILDREN-RULE-CONTRADICTS-EVERY-STORE]
