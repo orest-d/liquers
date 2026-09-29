@@ -3,10 +3,11 @@ id: DEPENDENCY-AUDIT-AND-EXPIRY-PROVENANCE
 kind: design
 title: Dependency audit correctness, audit policy, expiry provenance and external asset managers
 status: draft
-workflow: liquers-designer
+workflow: liquers-project
 phase: architecture
 area: [core/assets]
 gh_pr: []
+affects_docs: [DEPENDENCIES_STATUS, ASSETS, ASSET_LIFECYCLE, DOC_03_ASSETS_EXECUTION_LIFECYCLE, DOC_04_ENVIRONMENT_CONTEXT_EVALUATION, ENVIRONMENT_CONFIG, COMMAND_REGISTRATION_GUIDE, ENVIRONMENT_CONSTRUCTION_GUIDE, STORE_IMPLEMENTATION_GUIDE, UNITTEST_GUIDE]
 issues: [AUDIT-CANNOT-EXPIRE-ON-A-FIRST-OBSERVED-VERSION, DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE, EXPIRY-RECORDS-NO-REASON, DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED, STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST, IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES, ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE]
 created: 2026-09-28
 superseded_by:
@@ -21,6 +22,7 @@ superseded_by:
 - [ ] Phase 2: Solution & Architecture
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
+- [ ] Phase 5: Documentation
 - [ ] Implementation Complete
 
 ## Notes
@@ -56,9 +58,17 @@ documented contracts. `refresh_command_versions` gets a default body. A from-scr
 manager in `tests/` runs the shared manager scenarios. This widens the design beyond the
 Phase 1 scope, and that is recorded here rather than by editing the approved Phase 1.
 
+**Workflow switched to `liquers-project` (2026-09-29)**, at the owner's request, while Phase 2 was
+awaiting approval. The design was started under `liquers-designer`. The switch added what the
+new workflow requires and the old one did not: a Documentation Intent section in Phase 1 (added
+after that phase's approval and marked as such), a Known-Issue Preflight and a Documentation
+Architecture in Phase 2, `affects_docs`, and a mandatory Phase 5. The empty Phase 3 and 4 templates
+were replaced with the `liquers-project` templates. Nothing already written was changed in meaning.
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
+- [Phase 5](./phase5-documentation.md)

@@ -19,6 +19,34 @@ No change to `Status`, to `AsyncStore`, to the query syntax, or to any command s
 can be implemented outside core". Every other part is built so an external manager gets it for
 free, through default trait methods.
 
+## Known-Issue Preflight
+
+Searched: the issues linked from `DESIGN.md`; every open (`draft`, `accepted`, `in_progress`)
+record in `specs/index.csv` with area `core/assets`; issues touching the integration points (fast
+track, `save_to_store`, the expiration monitor, the inline run path, `listdir`, `EnvRef` ownership);
+and store-listing issues, since Part D hashes `listdir`. Checked at HEAD on 2026-09-29.
+
+| Issue | Status | Current priority | Relevance and solution impact | Must be addressed first? | Blocking? | Required action | Priority action |
+|---|---|---|---|---|---|---|---|
+| `ASSET-REGISTRATION-OWNERSHIP-CONTRACT` | draft | P2 | Part F: `AssetRef::bound_owner_key` decides ownership by looking the key up in the *manager's* map. An external manager whose `lookup_key_asset` is wrong breaks ownership, so persistence and cascades silently misbehave. | no | no | The new guide states today's registration invariants as a requirement (at most one registered asset per key; `lookup_key_asset` returns exactly that asset; never register a volatile asset), and the external test manager follows them. The open contract questions stay on the issue. | keep |
+| `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` | draft | P2 | Part F: an external manager holds `EnvRef<E>` strongly, as the built-in ones do, so it inherits the leak. | no | no | The guide notes the cycle and links the issue; nothing here makes it worse. | keep |
+| `INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS` | draft | P2 | Part F makes `run_inline` public, so external callers can reach this defect. | no | no | The `run_inline` contract doc states the limitation and links the issue. | keep |
+| `DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION` | draft | P1 | Parts B and D must not evaluate while resolving a version. They go through `version()` (metadata only) and `AssetManager::listdir` (names only), never through `get_asset_info`. | no | no | Independent by construction. Phase 3 has a test that an audit never evaluates. | keep |
+| `CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS` | draft | P2 | Part D hashes `listdir`. A metadata-only key appears in an OpenDAL listing but not in a file-store listing, so the listing version differs by backend for the same logical contents. | no | no | Tolerated. The version is compared only within one store, so the difference never produces a false change. Fixing the issue later shifts versions once, which costs one recomputation. Noted in the `DEPENDENCIES_STATUS` update. | keep |
+| `SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED` | draft | P2 | Part D refreshes a listing after `save_to_store`. A cancelled write reports success, so the listing is refreshed although nothing changed. | no | no | Harmless: `register_version` with an unchanged version cascades nothing. Only the cost of one `listdir`. | keep |
+| `METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED` | draft | P3 | Part B's `OnLoad` check sits in `try_fast_track`, beside the corrupted-data branch. | no | no | Independent. The version check runs after deserialization succeeds, so the two do not interact. | keep |
+| `UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION` | draft | P3 | Same expiry path, different mechanism (write-back ordering). Excluded in Phase 1 Q5. | no | no | Part C makes the overwritten mark visible in the log, which helps a later fix. | keep |
+| `IMMEDIATE-SET-STATE-STATUS-MATCH-HAS-DEFAULT-ARM` | draft | P3 | A one-line cleanup in `ImmediateAssetManager`, which Part C already edits. | no | no | Fold in if the same function is touched; otherwise leave it. | keep |
+| `ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET` | draft | P2 | Future consumer of Part C: an expiry event would carry the `ExpiryReason`. | no | no | None now. The reason type is serializable, so an event can reuse it. | keep |
+| `COMBINED-EXPIRES` | accepted | P2 | Adjacent: the combined expiry of dependencies would produce `Deadline` reasons. | no | no | None now. | keep |
+| `CORE-TOKIO-REMOVAL` | accepted | P3 | Part F makes `run` public, and `run` spawns tokio tasks. Publishing it makes that dependency part of the implementor surface. | no | no | The `run` contract doc says it is the queued (native) primitive, and that `run_inline` is the one to use on wasm32. | keep |
+
+### Blocking and Priority Decision
+
+No blocking issue. The two with the most influence on Part F, `ASSET-REGISTRATION-OWNERSHIP-CONTRACT`
+and `INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS`, are handled by documenting today's behaviour as
+the implementor's contract, not by depending on their resolution. No priority change is recommended.
+
 ### How the Phase 1 open questions are settled
 
 | # | Question | Decision | Why |
@@ -533,6 +561,76 @@ is left as it is and noted on the issue.
 ### Dependencies
 
 None added. `blake3` is already used by `Version::from_bytes`.
+
+## Documentation Architecture
+
+### Reference Plan
+
+Extend, no new reference (Phase 1 rationale: one contract, one document).
+
+| Path | Audience | Area | Change |
+|---|---|---|---|
+| `specs/reference/DEPENDENCIES_STATUS.md` | internal | core/assets | §"Current contract": audits compare durable versions with recorded ones even on first observation; `DependencyAuditPolicy` (`explicit` / `on_load`); `AuditMode::ReportOnly` and `AuditFinding`; `-R-dir/` dependencies (membership version, when refreshed, backend caveat); plan dependencies with no version get an `unknown` edge. §"Function glossary": `audit_version`, `stale_edges`, `dependency_version`, `refresh_listing_version`. Replace the sentence citing `DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE` as open. |
+| `specs/reference/ASSETS.md` | internal | core/assets | §"The one meaning of `Expired`": `ExpiryReason`, its five variants and which route sets each, the "meaningful only while `Expired`" rule, the log levels, and why it is not a status. §"AssetManager": the trait is implementable outside core; point to the new guide. |
+
+### Guide Plan
+
+| Path | Action | Audience | Area | Task and content | Links |
+|---|---|---|---|---|---|
+| `specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md` | **create** | internal and external implementors | core/assets | How to implement `AssetManager` outside core: what to hold (a `DependencyManager`, an `EnvRef`), which methods are required, which defaults to keep, the five lifecycle primitives and their contracts, the registration invariants (from `ASSET-REGISTRATION-OWNERSHIP-CONTRACT`), how to provide an `AssetManagerKind`, and how to run the shared manager scenarios. Snippets come from `tests/external_asset_manager.rs`. | `ASSETS.md`, `DEPENDENCIES_STATUS.md`, `ENVIRONMENT_CONSTRUCTION_GUIDE.md`, `STORE_IMPLEMENTATION_GUIDE.md` (as the pattern) |
+| `specs/guides/COMMAND_REGISTRATION_GUIDE.md` | extend | command authors | core/commands | New section: start several dependencies with `context.submit`, wait with `context.wait_for_dependency`, and why not `asset.get()`. The existing example at `COMMAND_REGISTRATION_GUIDE.md:123` waits through `asset.get()` after `context.evaluate`. That is exactly the pattern that fails on an expired dependency, so it is rewritten to `context.wait_for_dependency(&asset)`. | `DOC_04` |
+
+### Other Documents to Create
+
+None. The per-design summary is `phase5-documentation.md` in this folder.
+
+### New Reference or Guide Documents
+
+| Path | Kind | Audience | Area | Purpose |
+|---|---|---|---|---|
+| `specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md` | guide | both | core/assets | Implement and verify an asset manager outside `liquers-core` |
+
+### Existing Documents to Review or Update
+
+Every row gets `reviewed:` bumped and a `## History` row (§9.2).
+
+| Document | In `affects_docs` | Change |
+|---|---|---|
+| `DEPENDENCIES_STATUS` | yes | see Reference Plan |
+| `ASSETS` | yes | see Reference Plan |
+| `ASSET_LIFECYCLE` | yes | where it lists the routes into `Expired` (monitor, lazy, explicit, cascade), name the reason each sets; correct the immediate manager's lazy check |
+| `DOC_03_ASSETS_EXECUTION_LIFECYCLE` | yes | §"Expiration, recovery, and cancellation": the same route/reason table. Its P1 API finding ("public trait exposes a private dependency-manager type") is resolved by Part F, so update that row. |
+| `DOC_04_ENVIRONMENT_CONTEXT_EVALUATION` | yes | §"Dependency and apply methods": add `submit` and the now-public `wait_for_dependency` to the table (payload and CWD rules as for `get_dependency_state`); `evaluate` = `submit` + drain |
+| `ENVIRONMENT_CONFIG` | yes | §"Format": `assets.dependency_audit: explicit \| on_load`, with its default and meaning |
+| `COMMAND_REGISTRATION_GUIDE` | yes | see Guide Plan |
+| `ENVIRONMENT_CONSTRUCTION_GUIDE` | yes | where manager kinds are chosen: one line and a link to the new guide for a custom kind; `with_dependency_audit` on `AssetManagerOptions` |
+| `STORE_IMPLEMENTATION_GUIDE` | yes | one "see also" line to the new guide |
+| `UNITTEST_GUIDE` | yes | a short note on `tests/common/manager_scenarios.rs`: write manager-contract tests there so every manager, including external ones, runs them |
+| `PROJECT_OVERVIEW` | **no** (discarded) | area match only. It states no expiry or audit detail that changes, and the key types list is unaffected |
+| `DOC_01_ARCHITECTURE_REFERENCE`, `DOC_08_RECIPES_PLANS` | **no** (discarded) | area match only. The plan still emits the same `-R-dir/` dependency, and only its handling changes |
+| `ASSET_SET_OPERATION` | **no** (discarded) | `set_state` / `set_binary` semantics are unchanged; the listing refresh after them is internal |
+| `PAYLOAD_GUIDE` | **no** (discarded) | `submit` inherits the payload exactly as `get_dependency_state` does. It is covered by the DOC_04 row, so the payload guide has nothing new to say |
+
+### Design and Capability Links
+
+- **During design:** the `specs/README.md` line "Dependency audit correctness, audit policy and
+  expiry provenance — designing" is renamed to include external asset managers.
+- **At Phase 5:** that line moves to `documented`, pointing at `reference/DEPENDENCIES_STATUS.md` with the
+  design in parentheses. A new capability line, "Asset managers outside core — documented", points at
+  the new guide. The existing "Versions for computed keyed assets, and dependency audit" line gains
+  a pointer to the policy section.
+- `STORE_IMPLEMENTATION_GUIDE.md` gets a one-line "see also" to the new guide. §9.2 has no
+  link-only exemption, so it is in `affects_docs` and gets a History row and a `reviewed:` bump like
+  the rest.
+
+### Evidence to Collect During Implementation
+
+- Which primitive, if any, turned out to be missing when writing the from-scratch external manager.
+  This is the most likely place for Part F to be wrong, and the guide must say it.
+- Whether `OnLoad` changes any existing test outcome (it should not: the default is `Explicit`).
+- Real log lines for each `ExpiryReason`, for use in the `ASSETS.md` examples.
+- Whether any backend's `listdir` ordering or duplicates affected the listing version. The function
+  sorts, but record it if a store returns duplicates.
 
 ## Relevant Commands
 

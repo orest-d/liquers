@@ -75,7 +75,16 @@ git checkout [file-path]
 
 ## Documentation Updates
 
-[CLAUDE.md, PROJECT_OVERVIEW.md, README.md updates]
+[New reference/guide files, affected existing documents, History/reviewed updates, capability-map
+links, and a step for collecting implementation/review learning for Phase 5]
+
+## Phase 5 Entry Criteria
+
+- [ ] Implementation is finished and validated
+- [ ] All user comments are answered
+- [ ] All review comments are answered
+- [ ] Documentation can be verified against implemented and tested behavior
+- [ ] Phase 5 documentation is included in the implementation PR when practical
 
 ## Execution Options
 

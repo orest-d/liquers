@@ -78,7 +78,7 @@ volatility work all landed in `assets.rs`.
 - **Keyed delegation as a hand-off** — built → [`design/keyed-delegation-hand-off/`](design/keyed-delegation-hand-off/) *(rule documented in [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md))*
 - **Terminal outcome contract** — built → [`design/wp2-terminal-outcome/`](design/wp2-terminal-outcome/)
 - **Recipe-provider selection by name** — built → [`design/recipe-provider-selection/`](design/recipe-provider-selection/) *(contract in [`reference/api/DOC_08_RECIPES_PLANS.md`](reference/api/DOC_08_RECIPES_PLANS.md))*
-- **Dependency audit correctness, audit policy and expiry provenance** — designing → [`design/dependency-audit-and-expiry-provenance/`](design/dependency-audit-and-expiry-provenance/)
+- **Dependency audit correctness, audit policy, expiry provenance and external asset managers** — designing → [`design/dependency-audit-and-expiry-provenance/`](design/dependency-audit-and-expiry-provenance/)
 - **Combined expiration algebra** — planned → [`issues/COMBINED-EXPIRES.md`](issues/COMBINED-EXPIRES.md)
 - **Execution classes beyond simple loading** — planned → [`issues/EXTENDED-FAST-TRACK.md`](issues/EXTENDED-FAST-TRACK.md)
 - **Asset garbage collection** — planned → [`issues/CORE-ASSET-GC.md`](issues/CORE-ASSET-GC.md)

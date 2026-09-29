@@ -60,6 +60,32 @@ any code change (the field is additive to serde). `liquers-axum` is out of scope
 `liquers-py` and `liquers-web` need only to pass the new `AssetInfo` field through, if they do so
 explicitly.
 
+## Documentation Intent
+
+*Added 2026-09-29, after this phase was approved, when the design moved to the `liquers-project`
+workflow. It records intent only; Phase 2 §"Documentation Architecture" has the details.*
+
+**Reference:** Extend existing ones, with no new reference. `reference/DEPENDENCIES_STATUS.md` already
+owns the dependency and audit contract; it gains audit policy, report-only audits and directory-listing
+dependencies. `reference/ASSETS.md` §"The one meaning of `Expired`" gains expiry reasons. A new
+reference would split one contract across two documents.
+
+**Guide:** Create `guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md` (added with Part F). Implementing an
+asset manager outside core becomes a repeatable task with its own rules, the counterpart of
+`STORE_IMPLEMENTATION_GUIDE.md`. Extend `guides/COMMAND_REGISTRATION_GUIDE.md` with the
+`submit` / `wait_for_dependency` pattern for commands.
+
+**Other documents to create:** None. The summary is Phase 5 of this folder.
+
+**Specific documents to update:** `ENVIRONMENT_CONFIG.md` (the new `assets.dependency_audit` field),
+`api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md` (the new Context methods),
+`api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md` and `ASSET_LIFECYCLE.md` (expiry routes and reasons),
+`ENVIRONMENT_CONSTRUCTION_GUIDE.md` (pointer to the new guide), `UNITTEST_GUIDE.md` (the shared manager
+scenarios), and the capability map in `specs/README.md`.
+
+Audience: internal developers and coding agents working on assets, and authors of external asset
+managers or commands that start several dependencies.
+
 ## Open Questions
 
 1. What is a directory listing's version computed from: entry names only, or names plus each entry's
