@@ -30,6 +30,13 @@ a registered rule is not cited in both the contract and the guide. Steps 4 and 6
 those documents for `dir07` and `sidecar04`, where the code change happens. Phase 5 then reviews
 all documentation against the finished code and writes the remaining prose.
 
+**Gated test files pass vacuously without their feature.** Both conformance test files carry a
+file-level cfg: `liquers-core/tests/store_conformance_CONF.rs` needs `store-conformance`, and
+`liquers-store/tests/store_conformance_CONF.rs` needs `store-conformance` and `opendal`. Built
+without the feature, such a file compiles to **zero tests and reports `ok`**. Every command below
+therefore passes `--features store-conformance`. A validation counts only if its output shows a
+non-zero `running N tests` line.
+
 **Disk:** follow `CLAUDE.md` §Building and testing. The native loop is
 `cargo test -p liquers-lib --lib --tests` plus the crate-specific commands below, with
 `CARGO_INCREMENTAL=0`. Run `cargo clean` before the wasm and browser loops.
@@ -47,7 +54,7 @@ all documentation against the finished code and writes the remaining prose.
 ```bash
 CARGO_INCREMENTAL=0 cargo test -p liquers-core --features store-conformance \
   --test store_conformance_CONF -- --nocapture 2>&1 | tee …/evidence/baseline-core.txt
-CARGO_INCREMENTAL=0 cargo test -p liquers-store --test store_conformance_CONF -- --nocapture \
+CARGO_INCREMENTAL=0 cargo test -p liquers-store --features store-conformance --test store_conformance_CONF -- --nocapture \
   2>&1 | tee …/evidence/baseline-store.txt
 # Expected: all pass; dir07 reported Blocked wherever Directories is declared.
 ```
@@ -204,7 +211,7 @@ cargo test -p liquers-store --lib opendal
 cargo test -p liquers-core --lib store_conformance
 cargo test -p liquers-core --features store-conformance --test store_conformance_CONF \
   --test conformance_docs_CONF
-cargo test -p liquers-store --test store_conformance_CONF
+cargo test -p liquers-store --features store-conformance --test store_conformance_CONF
 # Expected: dir07 Passed in every suite that declares Directories; D1 green
 ```
 
@@ -293,7 +300,7 @@ cargo test -p liquers-core --features store-conformance --test store_conformance
 cargo test -p liquers-core --lib store_conformance
 cargo test -p liquers-core --features store-conformance --test store_conformance_CONF \
   --test conformance_docs_CONF
-cargo test -p liquers-store --test store_conformance_CONF
+cargo test -p liquers-store --features store-conformance --test store_conformance_CONF
 # Expected: sidecar04 Passed for memory, file and OpenDAL; skipped by capability for the trait
 # defaults; D1 green
 ```
@@ -452,7 +459,7 @@ cargo test -p liquers-core --features store-conformance --test conformance_docs_
 
 **Action:** for each row of the Phase 3 deletion-candidates table:
 1. On a local scratch commit, apply the break.
-2. Run `cargo test -p liquers-store --test store_conformance_CONF`.
+2. Run `cargo test -p liquers-store --features store-conformance --test store_conformance_CONF`.
 3. Confirm the named rule reports `Failed`.
 4. Discard the scratch commit and never push it.
 
@@ -461,7 +468,7 @@ deleted) in `evidence/deletion-trials.txt`.
 
 **Validation:**
 ```bash
-cargo test -p liquers-store --lib --tests
+cargo test -p liquers-store --features store-conformance --lib --tests
 ```
 
 **Rollback:** `git revert` restores a deleted test.
@@ -518,7 +525,7 @@ cd liquers-web/tests/e2e && npm install && npx playwright test store.spec.ts
 ```bash
 CARGO_INCREMENTAL=0 cargo test -p liquers-lib --lib --tests
 cargo test -p liquers-core --features store-conformance --lib --tests
-cargo test -p liquers-store --lib --tests
+cargo test -p liquers-store --features store-conformance --lib --tests
 bash scripts/check-build-matrix.sh
 python3 scripts/docs_index.py --check
 # then, after cargo clean, the three liquers-web loops from Steps 7, 8 and 11
