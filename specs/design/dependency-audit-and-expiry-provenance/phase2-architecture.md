@@ -51,8 +51,11 @@ and expires `report.txt`.
 **Example 2 (Part B), when to check.** The service sets `dependency_audit: on_load`. In
 `try_fast_track` (`assets.rs:1170-1200`), a recorded dependency the map does not know is skipped
 today (`if let Some(dm_version) = …`). Under `OnLoad` it is resolved through `dependency_version`,
-and a mismatch or `None` refuses the fast track, so `report.txt` is recomputed. The researcher keeps
-`explicit`, so loading is as today. `trigger_dependency_audit_with(q, ReportOnly)` fills `findings`
+and a mismatch or `None` refuses the fast track, so `report.txt` is recomputed. A recorded `Version::unknown()`
+(a legacy sidecar, or a listing edge not yet upgraded) is **not** a mismatch: the check uses
+`Version::matches`, under which unknown is compatible with anything, exactly as the in-process check
+at `assets.rs:1178` does. So switching to `on_load` does not recompute every legacy result. The
+researcher keeps `explicit`, so loading is as today. `trigger_dependency_audit_with(q, ReportOnly)` fills `findings`
 with `(a.csv, report.txt, expected V1, found Some(V2))` and changes nothing.
 
 **Example 3 (Part C), why expired.** `a.csv` is stored again with `V3` in-process →
@@ -308,6 +311,10 @@ meaningful, so `liquers-py` / `liquers-web` implementors are unaffected.
 ```rust
 /// The configured audit policy. Default: `Explicit`.
 fn dependency_audit_policy(&self) -> DependencyAuditPolicy { DependencyAuditPolicy::Explicit }
+/// Part G: whether stored bytes are re-hashed on read. Default: `OnRead`.
+fn version_verification(&self) -> VersionVerification { VersionVerification::OnRead }
+/// Part G: what a mismatch on a recipe-backed value means. Default: `UserInput`.
+fn external_change_policy(&self) -> ExternalChangePolicy { ExternalChangePolicy::UserInput }
 
 /// `trigger_dependency_audit` with a mode. The existing method becomes
 /// `self.trigger_dependency_audit_with(query, AuditMode::Expire)`.
@@ -327,9 +334,16 @@ async fn dependency_version(&self, dep_key: &DependencyKey) -> Result<Option<Ver
 /// manager-mediated store write or removal, with the written key's parent.
 async fn refresh_listing_version(&self, dir: &Key);
 
-/// `expire_dependencies_result` with an explicit reason, for the audit. The existing method
-/// becomes `..._with(expired, reason_from_trigger)`, where the reason is `Cascade { trigger }`.
-async fn expire_dependencies_result_with(&self, expired: ExpiredDependents<E>, reason: ExpiryReason);
+/// `expire_dependencies_result` with an explicit reason for the *directly* affected keys, for
+/// the audit. `direct` gets `reason`, and every other key in `expired` (transitive dependents)
+/// gets `Cascade { trigger }`. The existing method becomes `..._with(expired, &[], _)`, so all
+/// keys get `Cascade { trigger }`.
+async fn expire_dependencies_result_with(
+    &self,
+    expired: ExpiredDependents<E>,
+    direct: &[DependencyKey],
+    reason: ExpiryReason,
+);
 ```
 
 `register_plan_dependencies` (`:4452`) changes behaviour but not signature. A plan dependency with
@@ -609,7 +623,7 @@ fn external_change_action(
     has_recipe: bool,
     policy: ExternalChangePolicy,
     actual: Version,
-) -> ExternalChangeAction;
+) -> Option<ExternalChangeAction>;   // `None`: status not checked
 ```
 
 | Stored status | Recipe? | `UserInput` (default) | `Corrupted` |
@@ -617,11 +631,20 @@ fn external_change_action(
 | `Source` | no | accept as input | accept as input (the owner's rule: a `Source` is always input) |
 | `Override` | either | accept as input | accept as input (an override is the user's by definition) |
 | `Ready`, `Expired` | yes | convert to `Override` | delete |
+| `Ready`, `Expired` | no (the recipe was removed since) | accept as input: there is nothing to recompute from | same |
+| `Source` | yes (a recipe was added since) | accept as input (a `Source` is always input) | same |
 | *no metadata at all* (file dropped in) | no | not a change: already a `Source`, nothing recorded to compare | same |
 | *no metadata at all* | yes | convert to `Override` (owner, gate answer 3) | delete |
 
 The match over `Status` is explicit. Every other status (`None`, `Directory`, `Error`, `Volatile`, …)
-is **not checked**, because there is no reusable stored value to protect.
+returns `None` (**not checked**), because there is no reusable stored value to protect. The caller
+does nothing for `None`.
+
+The policies reach the shared `try_fast_track` through the manager's `version_verification()` and
+`external_change_policy()` accessors. `AssetData` already reaches its manager through
+`envref.get_asset_manager()`, as the dependency check there does today. The built-in managers
+store both values from `AssetManagerOptions` at `build`. An external manager overrides the
+accessors, or keeps the defaults.
 
 Applying an action, in `AssetManager::apply_external_change(key, metadata, action)` (a default method):
 
@@ -1040,3 +1063,19 @@ Left for Phase 4 to verify at implementation time: whether `liquers-web`'s `.d.t
    Two refinements in the design, not in the owner's statement: only *content* hashes carry the flag
    (`from_content`), so command metadata versions do not change on upgrade; and unflagged legacy
    hashes still verify when unchanged.
+
+## Corrections made during Phase 3 (2026-09-29)
+
+The Phase 3 synthesis found four gaps in this document, and they were settled from context:
+
+1. **Policy accessors for Part G.** `version_verification()` and `external_change_policy()` are
+   added as default trait accessors beside `dependency_audit_policy()`, so the shared fast track,
+   and external managers, can reach them.
+2. **`external_change_action` returns `Option`.** `None` means "status not checked". Two rows were
+   added: `Ready`/`Expired` whose recipe has been removed are accepted as input, and a `Source`
+   that gained a recipe is still input.
+3. **`OnLoad` and a recorded unknown version.** Not a mismatch (`Version::matches`), so enabling
+   `on_load` does not recompute legacy results.
+4. **Reasons across a transitive audit expiry.** Direct dependents get `Audit { dependency, found }`,
+   and transitive ones get `Cascade { trigger: dependency }`, so `expire_dependencies_result_with`
+   takes the direct set.
