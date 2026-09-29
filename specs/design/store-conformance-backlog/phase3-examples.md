@@ -379,6 +379,21 @@ Every changed rule gets a broken-store unit test beside it (`PrefixDeletingStore
 | `owned_rule_families_come_from_the_registry` | `liquers-core/tests/conformance_docs_CONF.rs` | the family set is derived from the rule IDs (`dir07` → `dir`); it includes `nomakedir` and `sidecar` | new |
 | `no_unit_test_uses_an_owned_rule_id` | same | a text scan of the `src/` and `tests/` directories of `liquers-core`, `liquers-store` and `liquers-web` for `fn <family><digits>_`; the message names file and line | fails at HEAD (11 `liquers-store` names) |
 
+**Deletion candidates** (area E, decision 4). A renamed test is deleted only when both checks
+succeed on a scratch commit that is never pushed:
+
+1. Break the behaviour it covers in the OpenDAL store.
+2. Confirm that the named rule reports `Failed` against the OpenDAL memory-service suite.
+
+| Renamed test | Replacing rule | Break to apply | Otherwise |
+|---|---|---|---|
+| `opendal_is_dir_on_an_absent_key_is_false` | `dir02` | make `is_dir` return `Err` on not-found | kept |
+| `opendal_removedir_on_an_absent_directory_is_ok` | `absence03` | make `removedir` return `KeyNotFound` when absent | kept |
+
+All other renamed tests are kept without trial. They assert something no rule does: depth scoping,
+router reach, root removal, `listdir_keys_deep` sibling exclusion, prefixed enumeration, and that
+detection does not depend on a count. Phase 5 records the outcome of each trial.
+
 The `local_storage.rs` changes run only in a browser and are covered by C9 below, not by a
 Node-side unit test.
 
