@@ -63,9 +63,15 @@ Reserve **bit 127 as the hash flag**: `from_bytes` sets it to 1, and `is_hash()`
 properties make this safe:
 
 - `unknown()` = 0 has the bit clear, so it can never be mistaken for a hash.
-- The time-based and unique kinds cannot set it: nanoseconds since 1970 are about 2^61 today and
-  will not reach 2^127. Everything that is not a hash therefore reads as "not verifiable" without
-  any change to those constructors.
+- The time-based and unique kinds do not set it today. A plain nanosecond count is about 2^61 and
+  far below 2^127. `new_unique` shifts that count left by 64 (`metadata.rs:86`), so it reaches bit
+  127 only when nanoseconds reach 2^63, which is the year 2262. Everything that is not a hash
+  therefore reads as "not verifiable" without any change to those constructors. Even so, it is safer
+  to have `new_unique` and the time constructors clear bit 127 explicitly, so the rule is enforced
+  rather than depending on the date.
+- Command metadata versions are already hashes (`calculate_metadata_version` uses `from_bytes`,
+  `command_metadata.rs:1233`). They gain the flag automatically, which is harmless: nothing
+  re-hashes them.
 
 A hash then carries 127 bits instead of 128, which is still far beyond any collision concern.
 
