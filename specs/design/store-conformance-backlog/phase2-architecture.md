@@ -100,7 +100,7 @@ is empty or differs from the listing. The `Blocked` branch is deleted. Registry 
 
 1. Ask the data path first (`getMetadata`, or `get` when absent) — the common case pays nothing
    extra.
-2. On `Err` whose `error_type() == ErrorType::KeyNotFound`, and **only** then: if the delegate has
+2. On `Err(e)` with `e.error_type == ErrorType::KeyNotFound` (a public field; `ErrorType: PartialEq`), and **only** then: if the delegate has
    `isDir` and it answers truthy, return `default_metadata(key, true)` with `children =
    self.listdir_asset_info(key).await?` (area A contract). Otherwise re-return the `KeyNotFound`.
 3. Any other error is returned unchanged — a thrown value is a failure, not a hint to try the
@@ -357,3 +357,18 @@ store (OpenDAL).
 | OpenDAL directory reads become slower | One listing plus per-child stat, bounded by one level. Phase 3 adds a test that a nested tree is not walked. |
 | JS delegates relying on `getMetadata → null` meaning "empty" | Documented break; TypeScript declaration updated; no in-tree user (checked: e2e, examples). |
 | Renames lose a test | Renames only change names; the deletion pass is gated on break-and-fail evidence. |
+
+## Review Outcome
+
+Two independent reviews were run (Phase 1 conformity; codebase alignment). There were **no blocking
+findings**, so no fixer pass was needed. One correction was made inline: `Error::error_type` is a
+public field, not a method (area B). The advisory findings are recorded here as accepted deviations
+from the source issues' own "Expected behaviour":
+
+1. **`http` media type (F):** the test expectation is corrected instead of the store. Writing the
+   derived media type would regress the metadata level model.
+2. **Sync `FileStore` (D):** not fixed. The sync trait is obsolete and unreachable
+   (`CORE-SYNC-STORE-TRAIT-OBSOLETE`), which is stated in the issue's closing note.
+3. **`getMetadata` → `null` (C):** the source issue called the sentinel fully backward-compatible. It
+   is for `get`, but not for a `getMetadata` that returned `null` for an existing key. That case is
+   a documented break (see area C, *Compatibility*).
