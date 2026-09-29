@@ -405,15 +405,28 @@ pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSyn
         self.get(key).await.map(|(_, metadata)| metadata)
     }
 
-    /// Get asset info
+    /// Get asset info.
+    ///
+    /// A directory's info is built from `default_metadata(key, true)` without reading its
+    /// metadata. `AssetInfo` carries no children, so populating them only to discard them made
+    /// one directory read walk the whole subtree: `get_metadata` on a directory fills `children`
+    /// through `listdir_asset_info`, which calls this per child (STORE_SEMANTICS §2).
     async fn get_asset_info(&self, key: &Key) -> Result<metadata::AssetInfo, Error> {
+        if self.is_dir(key).await? {
+            let mut info = self.default_metadata(key, true).get_asset_info();
+            info.with_key(key.to_owned());
+            info.is_dir = true;
+            return Ok(info);
+        }
+        // `Metadata::get_asset_info` returns `Result` (legacy metadata can fail to convert);
+        // `MetadataRecord::get_asset_info` above does not.
         let mut info = self
             .get_metadata(key)
             .await?
             .get_asset_info()
             .unwrap_or_else(|_e| AssetInfo::new());
         info.with_key(key.to_owned());
-        info.is_dir = self.is_dir(key).await?;
+        info.is_dir = false;
         Ok(info)
     }
 
@@ -2280,6 +2293,108 @@ mod tests {
     use super::*;
 
     use crate::parse::parse_key;
+
+    /// Records the `get` and `listdir` calls that reach an `AsyncMemoryStore`.
+    ///
+    /// Only the methods without a usable default are forwarded, so `get_metadata`,
+    /// `get_asset_info` and `listdir_asset_info` are the trait's own bodies — which is what the
+    /// one-level tests below are about. `get_metadata` itself cannot be counted for the same
+    /// reason: it is not forwarded, so the default runs.
+    struct CountingStore {
+        inner: AsyncMemoryStore,
+        calls: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl CountingStore {
+        fn new() -> Self {
+            CountingStore {
+                inner: AsyncMemoryStore::new(&Key::new()),
+                calls: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+        fn log(&self, call: &str, key: &Key) {
+            if let Ok(mut calls) = self.calls.lock() {
+                calls.push(format!("{call}({})", key.encode()));
+            }
+        }
+        fn called(&self, call: &str, key: &str) -> bool {
+            let wanted = format!("{call}({key})");
+            self.calls
+                .lock()
+                .map(|calls| calls.iter().any(|c| *c == wanted))
+                .unwrap_or(false)
+        }
+        fn count(&self) -> usize {
+            self.calls.lock().map(|calls| calls.len()).unwrap_or(0)
+        }
+        fn reset(&self) {
+            if let Ok(mut calls) = self.calls.lock() {
+                calls.clear();
+            }
+        }
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl AsyncStore for CountingStore {
+        async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+            self.log("get", key);
+            self.inner.get(key).await
+        }
+        async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+            self.inner.set(key, data, metadata).await
+        }
+        async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+            self.inner.set_metadata(key, metadata).await
+        }
+        async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+            self.inner.is_dir(key).await
+        }
+        async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+            self.log("listdir", key);
+            self.inner.listdir(key).await
+        }
+    }
+
+    /// Reading a directory's metadata describes its children without reading *their* children.
+    #[tokio::test]
+    async fn default_directory_metadata_reads_one_level() -> Result<(), Error> {
+        let store = CountingStore::new();
+        store
+            .set(&parse_key("a/b/c/leaf")?, b"x", &Metadata::new())
+            .await?;
+        store.reset();
+
+        let Metadata::MetadataRecord(record) = store.get_metadata(&parse_key("a")?).await? else {
+            panic!("directory metadata must be a record");
+        };
+        assert_eq!(record.children.len(), 1);
+        assert!(record.children[0].is_dir);
+        assert!(store.called("listdir", "a"));
+        assert!(
+            !store.called("listdir", "a/b"),
+            "the child directory a/b was listed: the read recursed"
+        );
+        assert!(
+            !store.called("get", "a/b/c/leaf"),
+            "a grandchild was read: the read recursed"
+        );
+        Ok(())
+    }
+
+    /// A directory's asset info is directory-shaped and costs no data read or listing.
+    #[tokio::test]
+    async fn default_directory_asset_info_is_directory_shaped() -> Result<(), Error> {
+        let store = CountingStore::new();
+        store.set(&parse_key("a/b/leaf")?, b"x", &Metadata::new()).await?;
+        store.reset();
+
+        let info = store.get_asset_info(&parse_key("a/b")?).await?;
+        assert!(info.is_dir);
+        assert_eq!(info.key, Some(parse_key("a/b")?));
+        assert_eq!(store.count(), 0, "a directory's asset info read or listed something");
+        Ok(())
+    }
 
     #[test]
     fn test_simple_store() -> Result<(), Error> {
