@@ -50,17 +50,25 @@ async fn serve_query<E: Environment>(
         Ok(q) => q,
         Err(e) => return error_response(&e, "Failed to parse query"),
     };
-    let asset_ref = match env.evaluate(&query).await {
-        Ok(asset) => asset,
-        Err(e) => return error_response(&e, "Query evaluation failed"),
+    // The timeout bounds the whole wait: with an inline manager (`EvalMode::Inline`),
+    // `evaluate` itself runs the evaluation to completion before returning.
+    let evaluation = async {
+        let asset_ref = env
+            .evaluate(&query)
+            .await
+            .map_err(|e| (e, "Query evaluation failed"))?;
+        asset_ref
+            .get_binary()
+            .await
+            .map_err(|e| (e, "Query execution failed"))
     };
-    match tokio::time::timeout(config.timeout, asset_ref.get_binary()).await {
+    match tokio::time::timeout(config.timeout, evaluation).await {
         Ok(Ok((data, metadata))) => BinaryResponse {
             data: (*data).clone(),
             metadata: (*metadata).clone(),
         }
         .into_response(),
-        Ok(Err(e)) => error_response(&e, "Query execution failed"),
+        Ok(Err((e, message))) => error_response(&e, message),
         Err(_) => {
             let error_detail = crate::api_core::ErrorDetail {
                 error_type: "ExecutionError".to_string(),

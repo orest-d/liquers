@@ -453,18 +453,23 @@ impl<E: Environment> Session<E> {
             .await;
             return;
         }
-        match request(&self.env, self.family, &address).await {
-            Ok(subscribed) => {
-                let task = tokio::spawn(subscription_task(
-                    self.env.clone(),
-                    subscribed,
-                    self.tx.clone(),
-                ));
-                if let Some(previous) = self.subscriptions.insert(address, task) {
-                    previous.abort();
+        // The request runs in the subscription's own task: with an inline manager
+        // (`EvalMode::Inline`) `get`/`get_asset` evaluate before returning, and the session must
+        // keep answering `ping` and `unsubscribe` meanwhile.
+        let env = self.env.clone();
+        let family = self.family;
+        let tx = self.tx.clone();
+        let target = address.clone();
+        let task = tokio::spawn(async move {
+            match request(&env, family, &target).await {
+                Ok(subscribed) => subscription_task(env, subscribed, tx).await,
+                Err(e) => {
+                    let _ = tx.send(error_message(&e)).await;
                 }
             }
-            Err(e) => self.reply(error_message(&e)).await,
+        });
+        if let Some(previous) = self.subscriptions.insert(address, task) {
+            previous.abort();
         }
     }
 

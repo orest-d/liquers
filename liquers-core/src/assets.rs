@@ -4243,7 +4243,10 @@ pub trait AssetManager<E: Environment>:
             }
         };
 
-        if let RemoveAction::Nothing = action {
+        // Nothing to remove from the store — but a live placeholder (a `None`/`Recipe` asset a
+        // concurrent `get` has mapped and not yet submitted) is still unmapped below, so it cannot
+        // be submitted after this removal reports success.
+        if let (RemoveAction::Nothing, None) = (&action, &live) {
             return Ok(());
         }
         if let Some(asset) = &live {
@@ -4311,10 +4314,14 @@ pub trait AssetManager<E: Environment>:
             return Err(Error::status_conflict(key, Status::Directory, "expire"));
         }
         if store.contains(key).await? {
-            let status = store.get_metadata(key).await?.status();
+            let mut metadata = store.get_metadata(key).await?;
+            let status = metadata.status();
             return match status {
                 Status::Ready | Status::Override => {
-                    expire_stored_copy(store, key).await;
+                    // Unlike the cascade's best-effort `expire_stored_copy`, an explicit expire
+                    // must not report success, or expire dependents, if the write failed.
+                    metadata.set_status(Status::Expired)?;
+                    store.set_metadata(key, &metadata).await?;
                     let dep_key = crate::metadata::DependencyKey::from(key);
                     self.cascade_expire_dependents(&dep_key).await;
                     Ok(())

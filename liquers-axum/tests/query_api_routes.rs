@@ -98,3 +98,33 @@ async fn qar07_builder_custom_path() {
     let (status, _) = send(app, "GET", "/custom/q/make_text").await;
     assert_eq!(status, StatusCode::OK);
 }
+
+/// With an inline manager `evaluate` runs the whole evaluation before returning, so the timeout
+/// must bound it too, not only the read that follows.
+#[tokio::test]
+async fn qar08_timeout_bounds_inline_evaluation() {
+    use liquers_core::context::ImmediateEnvironment;
+    let mut env: ImmediateEnvironment<Value> = ImmediateEnvironment::new();
+    env.command_registry
+        .register_async_command(CommandKey::new_name("slow_async"), |_, _, _| {
+            Box::pin(async {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                Ok(Value::from("done"))
+            })
+        })
+        .unwrap();
+    let app = QueryApiBuilder::<ImmediateEnvironment<Value>>::new("/q")
+        .with_timeout(std::time::Duration::from_millis(100))
+        .build()
+        .with_state(env.to_ref());
+    let started = std::time::Instant::now();
+    let resp = app
+        .oneshot(Request::builder().method("GET").uri("/q/slow_async").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_ne!(resp.status(), StatusCode::OK);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(2),
+        "the request must end at the timeout, not after the 5 s evaluation"
+    );
+}

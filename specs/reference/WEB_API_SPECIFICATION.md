@@ -388,6 +388,11 @@ A path in the URL is subscribed on connect. `read_only()` does not affect the en
 subscribing changes no data. Subscribing *requests* the asset; there is no observe-only
 subscription.
 
+Each subscription requests its asset in its own task, so the connection keeps answering `ping`
+and `unsubscribe` while a request is pending. With an inline manager (`EvalMode::Inline`) the
+request evaluates before it returns, so `Initial` arrives only once the evaluation has finished and
+no intermediate progress is seen.
+
 **Client messages** (JSON text, snake_case):
 
 ```json
@@ -476,7 +481,8 @@ whatever follows the base path (`QueryApiBuilder::new("/liquer/q")` serves
 
 The value is read with `AssetRef::get_binary`: the request waits for the evaluation, the value is
 serialized in its effective format, and an `Error`, `Cancelled`, `Expired` or `Directory` result
-answers that asset's own error. The wait is bounded by `QueryApiBuilder::with_timeout(Duration)`
+answers that asset's own error. The whole wait — evaluation included, which matters for an
+inline manager — is bounded by `QueryApiBuilder::with_timeout(Duration)`
 (default 30 s); on timeout the answer is 500 `ExecutionError`, whose message names the duration and
 points to the Assets API's `q/submit`, `q/info` and `ws/q` for long evaluations.
 
