@@ -41,11 +41,64 @@ outside edit so the audit treats the key as changed.
 
 ## Expected behaviour
 
-A store can report a **change token** that it observes without Liquers having written the value, such
-as a file's modification time and size, an object store's ETag or generation, or a database row
-version. The version check compares against it, or the recorded version is refreshed from it.
-Decide per backend whether this is cheap enough to do on every check or only in an audit. Keep the
-"metadata kept, data deleted" workflow working (see `DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE`).
+*Solution direction set by the project owner on 2026-09-29. It replaces an earlier idea of
+backend-specific change tokens.*
+
+**Verify versions on demand by re-hashing the bytes.** When a stored value is read (or when a
+verification is requested), hash its bytes and compare the result with the version in its metadata.
+Equal means the metadata is truthful. Different means the content was changed outside Liquers.
+
+**Only hash versions can be verified, so a hash version must be recognizable.** Today a `Version`
+is an opaque `u128` produced in several ways (`metadata.rs:17-70`):
+
+| Constructor | Kind | Verifiable by re-hashing? |
+|---|---|---|
+| `from_bytes` | content hash (first 128 bits of blake3) | yes |
+| `from_time_now`, `from_specific_time` | nanoseconds since 1970 | no |
+| `new_unique` | nanoseconds (high 64 bits) + counter (low 64 bits) | no |
+| `unknown()` | `0` | no (means "no fingerprint") |
+| `new(v)` | arbitrary (tests, command versions) | no |
+
+Reserve **bit 127 as the hash flag**: `from_bytes` sets it to 1, and `is_hash()` tests it. Two
+properties make this safe:
+
+- `unknown()` = 0 has the bit clear, so it can never be mistaken for a hash.
+- The time-based and unique kinds cannot set it: nanoseconds since 1970 are about 2^61 today and
+  will not reach 2^127. Everything that is not a hash therefore reads as "not verifiable" without
+  any change to those constructors.
+
+A hash then carries 127 bits instead of 128, which is still far beyond any collision concern.
+
+**Migration.** Existing stored hashes were produced without the flag, so about half of them have
+bit 127 set by chance and half do not. Those with the bit clear read as "not verifiable" and are
+simply not checked. Those with it set verify correctly, because the flag leaves them unchanged. When
+such a value is next written, its new flagged version differs from the old one, which causes a
+single cascade for its dependents. That is a one-time recomputation, not a correctness problem.
+
+**What a mismatch means depends on the asset:**
+
+| Asset | On mismatch |
+|---|---|
+| `Status::Source` (no recipe; the data *is* the input) | **Always user input.** Accept the content, set its version to the new hash, and cascade to dependents. |
+| `Status::Override` (a user-pinned value) | User input, as for `Source`. |
+| Has a recipe (`Ready`, `Expired`, …) | **A choice:** (a) *corrupted*: delete the stored copy and recompute on the next request; or (b) *user input*: keep the content, convert it to `Override` with the new hash, and cascade to dependents. |
+
+**Where the check runs.** On read, when the bytes are already in hand (the fast track; the binary
+read paths), so the only extra cost is the hash, which blake3 computes at gigabytes per second. It
+also runs as an explicit on-demand operation that walks a folder or the whole store. A metadata-only
+check (such as today's audit) cannot detect this, because it never sees the bytes.
+
+**Open questions:**
+
+- Where does the choice for recipe-backed assets live: per environment, per recipe, or both?
+  Which default? Deleting is destructive, which argues for "user input" as the default.
+- A file with *no* metadata (dropped in by another program) has no recorded hash to compare against.
+  With no recipe it is already a `Source`. With a recipe, the same choice as above applies.
+- Should a mismatch on read also be recorded as an `ExpiryReason` / log entry, such as
+  "changed outside Liquers" (see `design/dependency-audit-and-expiry-provenance/` Part C)?
+
+Keep the "metadata kept, data deleted" workflow working (see `DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE`):
+missing bytes are not a mismatch.
 
 ## Discovery
 
