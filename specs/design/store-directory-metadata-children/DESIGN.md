@@ -4,7 +4,6 @@ kind: design
 title: Design for STORE-SEMANTICS-CHILDREN-RULE-CONTRADICTS-EVERY-STORE
 status: superseded
 superseded_by: store-conformance-backlog
-readiness: needs-decision
 area: [core/store, store/backends, web, docs]
 issues: [STORE-SEMANTICS-CHILDREN-RULE-CONTRADICTS-EVERY-STORE]
 created: 2026-09-03

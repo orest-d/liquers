@@ -2,11 +2,11 @@
 id: STORE-SEMANTICS-CHILDREN-RULE-CONTRADICTS-EVERY-STORE
 kind: issue
 title: STORE_SEMANTICS forbids children in directory metadata; seven stores populate it and one does not
-status: draft
+status: in_progress
 priority: P2
 complexity: S
 area: [core/store, store/backends, web, docs]
-design: store-directory-metadata-children
+design: store-conformance-backlog
 created: 2026-09-02
 github:
 ---

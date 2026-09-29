@@ -2,11 +2,11 @@
 id: WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND
 kind: issue
 title: A JsStore delegate has no way to signal absence, so a missing key reads as a read error
-status: draft
+status: in_progress
 priority: P2
 complexity: S
 area: [web, core/store]
-design: js-store-not-found-sentinel
+design: store-conformance-backlog
 created: 2026-09-02
 github:
 ---

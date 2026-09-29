@@ -4,7 +4,6 @@ kind: design
 title: Design for WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND
 status: superseded
 superseded_by: store-conformance-backlog
-readiness: ready
 area: [web, core/store]
 issues: [WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND]
 created: 2026-09-03

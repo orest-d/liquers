@@ -2,11 +2,11 @@
 id: CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS
 kind: issue
 title: AsyncFileStore listings drop a metadata-only key instead of reporting it
-status: draft
+status: in_progress
 priority: P2
 complexity: S
 area: [core/store, store/backends, docs]
-design:
+design: store-conformance-backlog
 created: 2026-09-03
 github:
 ---

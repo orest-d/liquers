@@ -2,11 +2,11 @@
 id: STORE-TEST-IDS-COLLIDE-WITH-CONFORMANCE-RULE-IDS
 kind: issue
 title: Store unit tests share IDs with conformance rules that check different contracts
-status: draft
+status: in_progress
 priority: P2
 complexity: M
 area: [core/store, store/backends, docs]
-design: store-conformance-suite
+design: store-conformance-backlog
 created: 2026-09-02
 github:
 ---

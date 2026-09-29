@@ -2,11 +2,11 @@
 id: LOCAL-STORAGE-STORE-FAILS-CONFORMANCE-IN-A-BROWSER
 kind: issue
 title: LocalStorageStore fails three conformance rules, and its conformance test never runs in a browser
-status: draft
+status: in_progress
 priority: P2
 complexity: M
 area: [web, core/store]
-design:
+design: store-conformance-backlog
 created: 2026-09-27
 github:
 ---

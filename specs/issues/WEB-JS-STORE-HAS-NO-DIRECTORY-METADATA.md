@@ -2,11 +2,11 @@
 id: WEB-JS-STORE-HAS-NO-DIRECTORY-METADATA
 kind: issue
 title: JsStore::get_metadata delegates a directory key to get, which throws
-status: draft
+status: in_progress
 priority: P2
 complexity: S
 area: [web, core/store]
-design: js-store-directory-metadata
+design: store-conformance-backlog
 created: 2026-09-02
 github:
 ---

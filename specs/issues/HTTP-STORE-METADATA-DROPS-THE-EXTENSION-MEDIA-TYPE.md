@@ -2,11 +2,11 @@
 id: HTTP-STORE-METADATA-DROPS-THE-EXTENSION-MEDIA-TYPE
 kind: issue
 title: liquers-web's http store reports no media type for a key whose extension determines one
-status: draft
+status: in_progress
 priority: P2
 complexity: S
 area: [web, core/store]
-design:
+design: store-conformance-backlog
 created: 2026-09-27
 github:
 ---
