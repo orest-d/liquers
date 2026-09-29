@@ -316,8 +316,15 @@ passes and pins the rule that a failure is never a directory.
 |---|---|---|
 | Relative key to `LocalStorageStore::contains` / `is_dir` / `listdir` | `KeyNotAbsolute` | C9 `keyshape01` |
 | `removedir` on an absent directory (`LocalStorageStore`) | `Ok(())` | C9 `absence03` |
-| `set_metadata` refused for a key with no data | `KeyNotFound`; `sidecar04` passes | `sidecar04_accepts_a_refusal` |
+| `set_metadata` refused for a key with no data | `KeyNotFound`; `sidecar04` passes | `refute_sidecar04_accepts_a_refusal` |
 | `JsStore` `isDir` absent, data `null` | `KeyNotFound` | `STORE12a` (absent key) |
+
+- **Unreadable sidecar with no data** (file, OpenDAL): now listed, so the parent directory's
+  `get_metadata` fails on it, because there is no data from which `get` could repair it. This is
+  stated in §8. Before this project the key was invisible instead.
+- **Metadata-only assets left by `AssetManager`** (failed or in progress) now appear in file-store
+  listings, and so in the axum store API and the UI. This matches the memory and OpenDAL stores,
+  which already listed them.
 
 ### 4. Serialization
 
@@ -327,9 +334,11 @@ nothing nests.
 
 ### 5. Integration (Cross-Crate Interactions)
 
-- `AsyncStoreRouter` forwards `get_metadata` to the one member owning the key, and there is no
-  merging. A router-level directory above several members uses the trait default and so gets the
-  one-level behaviour of area A. The `C7` router suite covers this through `dir07`.
+- `AsyncStoreRouter::get_metadata` forwards to the one member owning the key, with no merging. A
+  directory *above* the member prefixes gets `KeyNotFound` from the router although `is_dir` is
+  true (`store.rs:2092-2098`). This gap predates this project, is not covered by any rule (the
+  fixtures stay inside one member's prefix), and is filed as
+  `CORE-STORE-ROUTER-DIRECTORY-ABOVE-MEMBERS-HAS-NO-METADATA`. The router suite is `C3`.
 - `liquers-axum`'s store handlers and the UI read `get_metadata`/`listdir` and see the corrected
   answers. No code changes there.
 
@@ -366,18 +375,18 @@ Every changed rule gets a broken-store unit test beside it (`PrefixDeletingStore
 
 | Test | File | Checks | At HEAD |
 |---|---|---|---|
-| `default_directory_metadata_reads_one_level` | `liquers-core/src/store.rs` tests | A counting wrapper over `AsyncMemoryStore` (only `get`, `set`, `set_metadata`, `is_dir`, `listdir` forwarded, so the trait defaults run) over `a/b/c/leaf`: `get_metadata(a)` calls `get_metadata`/`get` for no key below `a/b` | fails (recurses) |
+| `default_directory_metadata_reads_one_level` | `liquers-core/src/store.rs` tests | A counting wrapper over `AsyncMemoryStore` (only `get`, `set`, `set_metadata`, `is_dir`, `listdir` forwarded, so the trait defaults run) over `a/b/c/leaf`: `get_metadata(a)` makes no `listdir(a/b)` call and no `get(a/b/c/leaf)` call (the wrapper cannot count `get_metadata`, which it does not forward) | fails (recurses) |
 | `default_directory_asset_info_is_directory_shaped` | same | `get_asset_info(dir)` gives `is_dir == true` and the key, with zero `get` calls | fails (reads) |
 | `file_store_lists_a_metadata_only_key` | same | `set_metadata` only → `listdir` contains the name exactly once | fails |
 | `file_store_lists_data_and_sidecar_once` | same | data + sidecar → one name | passes (pins dedup) |
 | `file_store_skips_sidecars_implying_reserved_names` | same | `x.__lock__.__metadata__` and a bare `__metadata__/` folder are not listed | passes (pins filter) |
 | `opendal_directory_metadata_lists_children` | `liquers-store/src/opendal_store.rs` tests (memory service) | directory `children` equals the direct children | fails |
-| `sidecar04_passes_a_store_that_lists_metadata_only_keys` | `liquers-core/src/store_conformance/mod.rs` tests | `AsyncMemoryStore` → `Passed` | new |
-| `sidecar04_accepts_a_refusal` | same | wrapper whose `set_metadata` on an absent key returns `KeyNotFound` → `Passed` | new |
-| `sidecar04_fails_a_store_that_hides_metadata_only_keys` | same | wrapper filtering such keys out of `listdir` → `Failed` | new |
-| `dir07_passes_one_level_children` / `dir07_fails_empty_children` / `dir07_fails_children_that_differ_from_listdir` | same | the inverted rule, with a wrapper that clears `children` and one that adds a grandchild | new |
+| `refute_sidecar04_passes_a_store_that_lists_metadata_only_keys` | `liquers-core/src/store_conformance/mod.rs` tests | `AsyncMemoryStore` → `Passed` | new |
+| `refute_sidecar04_accepts_a_refusal` | same | wrapper whose `set_metadata` on an absent key returns `KeyNotFound` → `Passed` | new |
+| `refute_sidecar04_fails_a_store_that_hides_metadata_only_keys` | same | wrapper filtering such keys out of `listdir` → `Failed` | new |
+| `refute_dir07_passes_one_level_children` / `refute_dir07_fails_empty_children` / `refute_dir07_fails_children_that_differ_from_listdir` | same | the inverted rule, with a wrapper that clears `children` and one that adds a grandchild | new |
 | `owned_rule_families_come_from_the_registry` | `liquers-core/tests/conformance_docs_CONF.rs` | the family set is derived from the rule IDs (`dir07` → `dir`); it includes `nomakedir` and `sidecar` | new |
-| `no_unit_test_uses_an_owned_rule_id` | same | a text scan of the `src/` and `tests/` directories of `liquers-core`, `liquers-store` and `liquers-web` for `fn <family><digits>_`; the message names file and line | fails at HEAD (11 `liquers-store` names) |
+| `no_unit_test_uses_an_owned_rule_id` | same | a text scan of the `src/` and `tests/` directories of `liquers-core`, `liquers-store` and `liquers-web` for `fn <family><digits>_`; the message names file and line | fails at HEAD (12 `liquers-store` names and `sibling01_catches_…` in `liquers-core`) |
 
 **Deletion candidates** (area E, decision 4). A renamed test is deleted only when both checks
 succeed on a scratch commit that is never pushed:

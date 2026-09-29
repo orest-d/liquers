@@ -45,21 +45,26 @@ non-zero `running N tests` line.
 
 ### Step 0: Baseline evidence
 
-**Files:** none changed. Output is saved to `specs/design/store-conformance-backlog/evidence/`
-(`baseline-*.txt`), a folder that Phase 5 summarises and then deletes.
+**Files:** the seven issue files in `specs/issues/`, which move from `status: draft` to
+`status: in_progress` (`DOCS_STRUCTURE_GUIDE.md` §4.3 allows `draft → closed` only for work found
+already fixed at triage). No code changes.
+
+**Evidence** is kept **outside the repository**, in a scratch directory (`$EVIDENCE`, for example
+the session scratchpad), and is never committed. Phase 5 summarises it in
+`phase5-documentation.md`.
 
 **Action:** record the conformance reports at HEAD so every later change in them is attributable.
 
 **Validation:**
 ```bash
 CARGO_INCREMENTAL=0 cargo test -p liquers-core --features store-conformance \
-  --test store_conformance_CONF -- --nocapture 2>&1 | tee …/evidence/baseline-core.txt
+  --test store_conformance_CONF -- --nocapture 2>&1 | tee $EVIDENCE/baseline-core.txt
 CARGO_INCREMENTAL=0 cargo test -p liquers-store --features store-conformance --test store_conformance_CONF -- --nocapture \
-  2>&1 | tee …/evidence/baseline-store.txt
+  2>&1 | tee $EVIDENCE/baseline-store.txt
 # Expected: all pass; dir07 reported Blocked wherever Directories is declared.
 ```
 
-**Rollback:** delete the evidence folder.
+**Rollback:** `git revert` the issue-status commit. The evidence is outside the repository.
 
 **Agent Specification:**
 - **Model:** haiku
@@ -82,7 +87,7 @@ Phase 3 predicts:
 - `STORE12a` fails at the directory assertion.
 - `STORE12c` gets an empty record.
 
-Record the failures in `evidence/examples-at-head.txt`. Commit with the failing tests marked
+Record the failures in `$EVIDENCE/examples-at-head.txt`. Commit with the failing tests marked
 `#[ignore = "store-conformance-backlog: fixed in step N"]`, so that each later step removes its own
 `ignore` and every commit stays green.
 
@@ -91,7 +96,11 @@ Record the failures in `evidence/examples-at-head.txt`. Commit with the failing 
 cargo test -p liquers-core --test store_directory_children_STORE -- --include-ignored
 # Expected: the memory test passes; the file test fails on listdir
 ```
-The wasm half is checked in Step 7, after `cargo clean`.
+```bash
+cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles \
+  --test store_js_STORE --no-run
+# Expected: STORE12a–c compile. They are run, and their ignores removed, in Step 7.
+```
 
 **Rollback:** `git revert` the commit.
 
@@ -135,7 +144,8 @@ Add the doc comment given in Phase 2 area A. Add these unit tests to the file's 
 - `default_directory_asset_info_is_directory_shaped`
 
 Both use a counting wrapper that forwards only the required methods, so that the trait defaults
-run. Do **not** change the synchronous `Store` trait.
+run. Because the wrapper does not forward `get_metadata`, it cannot count it; the one-level test
+counts `listdir(a/b)` and `get(a/b/c/leaf)` instead, and asserts both are zero. Do **not** change the synchronous `Store` trait.
 
 **Validation:**
 ```bash
@@ -159,12 +169,14 @@ cargo test -p liquers-core --features store-conformance --test store_conformance
 
 ### Step 3: Area A: OpenDAL populates `children`
 
-**File:** `liquers-store/src/opendal_store.rs`, the directory branch of `get_metadata` (around lines
-307–312)
+**File:** `liquers-store/src/opendal_store.rs`, `get_metadata`: **both** directory branches
+(`stat().is_dir()` around lines 307–312, and the `has_children` fallback around lines 333–335)
 
-**Action:** set `metadata.children = self.listdir_asset_info(key).await?` before returning, and
-replace the "deliberately not populated" comment with a citation of STORE_SEMANTICS §2. Add the
-unit test `opendal_directory_metadata_lists_children` (memory service).
+**Action:** add a private helper, `directory_metadata(&self, key)`, which returns
+`default_metadata(key, true)` with `children = self.listdir_asset_info(key).await?`. Call it from
+both branches. Replace the "deliberately not populated" comment with a citation of STORE_SEMANTICS
+§2. Add the unit test `opendal_directory_metadata_lists_children` for **both** services: memory
+takes the fallback branch and fs takes the `stat` branch.
 
 **Validation:**
 ```bash
@@ -174,10 +186,11 @@ cargo test -p liquers-store --lib opendal
 **Rollback:** `git revert`.
 
 **Agent Specification:**
-- **Model:** haiku
-- **Skills:** liquers-unittest
-- **Knowledge:** Phase 2 area A; the existing OpenDAL unit-test helpers in the same file
-- **Rationale:** a one-line change following the pattern of the other stores
+- **Model:** sonnet
+- **Skills:** rust-best-practices, liquers-unittest
+- **Knowledge:** Phase 2 area A; `get_metadata` in full, including the comment at lines 326–332;
+  the existing OpenDAL unit-test helpers in the same file
+- **Rationale:** two branches reached by different services; the helper keeps them aligned
 
 ---
 
@@ -200,13 +213,15 @@ cargo test -p liquers-store --lib opendal
    The `Blocked` branch is deleted. The doc comment becomes "directory metadata populates `children`
    with the direct children only".
 2. Change the registry label to match. Capabilities are unchanged.
-3. Add the tests `dir07_passes_one_level_children`, `dir07_fails_empty_children` and
-   `dir07_fails_children_that_differ_from_listdir`. Use two wrappers in the `PrefixDeletingStore`
+3. Add the tests `refute_dir07_passes_one_level_children`, `refute_dir07_fails_empty_children` and
+   `refute_dir07_fails_children_that_differ_from_listdir`. Use two wrappers in the `PrefixDeletingStore`
    style: one clears `children`, one appends a grandchild.
 4. Replace the ⚠ bullet in `STORE_SEMANTICS.md` §2 with the one-level contract and its cost (width,
    not depth, is unbounded). Update the "two remain" sentence. Add a History row and bump `reviewed:`.
 5. In the guide §9, drop "`dir07` blocked…" from the `AsyncMemoryStore` note. Add a History row and
-   bump `reviewed:`.
+   bump `reviewed:`. That table's rule counts and the `JsStore`/`LocalStorageStore` rows are left
+   for Phase 5, which rewrites the whole table from the final reports and cites
+   `STORE-GUIDE-STATUS-TABLE-HAS-NO-GENERATOR`.
 
 **Validation:**
 ```bash
@@ -214,7 +229,8 @@ cargo test -p liquers-core --lib store_conformance
 cargo test -p liquers-core --features store-conformance --test store_conformance_CONF \
   --test conformance_docs_CONF
 cargo test -p liquers-store --features store-conformance --test store_conformance_CONF
-# Expected: dir07 Passed in every suite that declares Directories; D1 green
+# Expected: dir07 Passed in every suite that declares Directories, including OpenDAL memory (C6)
+# and fs (C7) after Step 3; D1 green
 ```
 
 **Rollback:** `git revert` restores the `Blocked` rule and the documents together.
@@ -289,9 +305,9 @@ cargo test -p liquers-core --features store-conformance --test store_conformance
    - `record_created`, then check `contains` and `listdir_keys(parent)`
 2. Register it: `[StoredMetadata, Write]`, `CreateOnly`.
 3. Add these tests:
-   - `sidecar04_passes_a_store_that_lists_metadata_only_keys`
-   - `sidecar04_accepts_a_refusal`
-   - `sidecar04_fails_a_store_that_hides_metadata_only_keys`
+   - `refute_sidecar04_passes_a_store_that_lists_metadata_only_keys`
+   - `refute_sidecar04_accepts_a_refusal`
+   - `refute_sidecar04_fails_a_store_that_hides_metadata_only_keys`
 4. In §8, replace the "file stores do not yet report…" sentence with the rule and the permitted
    refusal, and add `sidecar04` to *Enforced by*.
 5. In the guide's "Where each rule comes from" table, add `sidecar04` to the §8 row.
@@ -399,7 +415,7 @@ CHROMEDRIVER=$(which chromedriver) cargo test -p liquers-web --target wasm32-unk
 ```
 If the chromedriver and Chromium major versions cannot be matched, use the `NO_HEADLESS=1` route
 in `liquers-web/README.md` (around line 99). Record which route was used in
-`evidence/browser-run.txt`.
+`$EVIDENCE/browser-run.txt`.
 
 **Rollback:** `git revert`. The moved test goes back together with the store changes.
 
@@ -418,7 +434,8 @@ in `liquers-web/README.md` (around line 99). Record which route was used in
 ### Step 9: Area E: rename the colliding tests, and enforce the rule
 
 **Files:**
-- `liquers-store/src/opendal_store.rs` (11 renames)
+- `liquers-store/src/opendal_store.rs` (12 renames)
+- `liquers-core/src/store_conformance/mod.rs` (`sibling01_catches_…` → `refute_sibling01_catches_…`)
 - `liquers-core/src/store.rs` (`traitdef01` doc comment)
 - `liquers-core/tests/conformance_docs_CONF.rs`
 
@@ -432,13 +449,15 @@ in `liquers-web/README.md` (around line 99). Record which route was used in
    `no_unit_test_uses_an_owned_rule_id`. The second walks the `src/` and `tests/` directories of
    `liquers-core`, `liquers-store` and `liquers-web` with `std::fs` recursion. Collect the matches
    of `fn <family><digits>_` into a list of `file:line` and assert that it is empty. No regex
-   dependency: match on `"fn "` followed by a family prefix and digits, by hand.
+   dependency: match on `"fn "` followed by a family prefix and digits, by hand. Like
+   `specs_dir()`, the scan skips with an `eprintln!` warning when a sibling crate directory is
+   absent (a packaged crate).
 
 **Validation:**
 ```bash
 cargo test -p liquers-store --lib
 cargo test -p liquers-core --features store-conformance --test conformance_docs_CONF
-# Expected: green. Before the renames, the new D1 test lists all 11 names
+# Expected: green. Before the renames, the new D1 test lists all 13 names
 # (check this first, then rename).
 ```
 
@@ -466,7 +485,7 @@ cargo test -p liquers-core --features store-conformance --test conformance_docs_
 4. Discard the scratch commit and never push it.
 
 Delete the unit test only if the rule failed. Record each outcome (rule output excerpt, kept or
-deleted) in `evidence/deletion-trials.txt`.
+deleted) in `$EVIDENCE/deletion-trials.txt`.
 
 **Validation:**
 ```bash
@@ -513,13 +532,23 @@ cd liquers-web/tests/e2e && npm install && npx playwright test store.spec.ts
 **Files:**
 - `liquers-web/README.md`: the `JsStore` absence protocol and the new browser conformance file
 - `specs/issues/STORE-GUIDE-STATUS-TABLE-HAS-NO-GENERATOR.md` (new)
-- `specs/design/store-conformance-backlog/DESIGN.md`: `phase: implementation`
+- `specs/issues/CORE-STORE-ROUTER-DIRECTORY-ABOVE-MEMBERS-HAS-NO-METADATA.md` (new)
+- `specs/issues/JS-STORE-WRAPPER-HAS-NO-EFFECTIVE-MEDIA-TYPE.md` (new)
+- `specs/design/store-conformance-backlog/DESIGN.md`: `phase: documentation`, and `gh_pr` set
+  when the implementation PR is opened
 
 **Action:**
 1. Confirm that no `#[ignore = "store-conformance-backlog…"]` remains.
 2. Update the web README.
-3. File `STORE-GUIDE-STATUS-TABLE-HAS-NO-GENERATOR` (P3, S, docs; store/backends). The guide §9
-   says the table is generated from the reports, and no generator exists.
+3. File three issues, `status: draft`, after searching `specs/index.csv` for duplicates
+   (`DOCS_STRUCTURE_GUIDE.md` §4.8):
+   - `STORE-GUIDE-STATUS-TABLE-HAS-NO-GENERATOR` (P3, S, docs; store/backends). The guide §9 says
+     the table is generated from the reports, and no generator exists.
+   - `CORE-STORE-ROUTER-DIRECTORY-ABOVE-MEMBERS-HAS-NO-METADATA` (P3, S, core/store).
+     `AsyncStoreRouter::get_metadata` returns `KeyNotFound` for a directory above its members'
+     prefixes, although `is_dir` is true.
+   - `JS-STORE-WRAPPER-HAS-NO-EFFECTIVE-MEDIA-TYPE` (P3, S, web). A page can read declared metadata
+     but not the effective media type (Phase 2 area F).
 4. Run the full validation set below.
 5. Regenerate the index with `python3 scripts/docs_index.py`.
 
@@ -576,7 +605,7 @@ Compare the reports against the Step 0 baseline.
 
 ```bash
 # 1. Compare conformance reports before and after
-diff <(grep -E 'dir07|sidecar04' …/evidence/baseline-core.txt) \
+diff <(grep -E 'dir07|sidecar04' $EVIDENCE/baseline-core.txt) \
      <(cargo test -p liquers-core --features store-conformance --test store_conformance_CONF \
        -- --nocapture 2>&1 | grep -E 'dir07|sidecar04')
 # Expected output: dir07 moves from Blocked to Passed; sidecar04 appears
@@ -596,7 +625,7 @@ grep -rn "RuleOutcome::Blocked {" liquers-core/src/store_conformance/rules
 | 0 | haiku | — | run commands, save output |
 | 1 | haiku | liquers-unittest | copy approved tests, mark ignores |
 | 2 | sonnet | rust-best-practices, liquers-unittest | shared trait default; counting test |
-| 3 | haiku | liquers-unittest | one-line change following other stores |
+| 3 | sonnet | rust-best-practices, liquers-unittest | two directory branches, one helper |
 | 4 | sonnet | rust-best-practices, liquers-unittest | rule semantics plus contract prose |
 | 5 | sonnet | rust-best-practices, liquers-unittest | reserved-name safety |
 | 6 | sonnet | rust-best-practices, liquers-unittest | new rule plus contract prose |
@@ -664,9 +693,9 @@ None (Phase 2).
 
 ### Phase 5 Evidence Capture
 
-`evidence/` holds the baseline and final reports, the examples-at-HEAD failures, the browser route
-used, and the deletion trials. Phase 5 summarises them in `phase5-documentation.md` and deletes
-the folder.
+`$EVIDENCE/` holds the baseline and final reports, the examples-at-HEAD failures, the browser route
+used, and the deletion trials. It is outside the repository and never committed; Phase 5 quotes
+what matters from it in `phase5-documentation.md`.
 
 ### CLAUDE.md
 
@@ -687,4 +716,45 @@ No change. No core concept changes.
   remains.
 - `scripts/check-build-matrix.sh` is green.
 - All review comments are resolved.
-- `STORE-GUIDE-STATUS-TABLE-HAS-NO-GENERATOR` is filed.
+- The three issues of Step 12 are filed.
+- The seven source issues are `in_progress`. In Phase 5 they move to `closed` with a resolution
+  note, and their `design:` field is repointed to `store-conformance-backlog`.
+
+## Review Outcome
+
+Four focused reviews (Phases 1, 2, 3, and codebase) and one final review of all phase documents
+were run.
+
+**Blocking findings, both fixed:**
+1. **The rename table missed a twelfth colliding name,**
+   `prefix01_a_prefixed_store_reports_and_respects_its_prefix`, and the D1 scan would also have
+   flagged `sibling01_catches_…` and this design's own rule refutation tests. Fix: the rename is
+   added, and refutation tests are named `refute_<rule id>_…`, so no scan exclusion is needed
+   (Phase 2 area E; Steps 4, 6 and 9).
+2. **OpenDAL has two directory branches.** The memory service takes the `has_children` fallback,
+   not the `stat` branch. Fix: one `directory_metadata` helper serves both branches; Step 3 is
+   upgraded to sonnet and tests both services.
+
+**Advisory findings, all applied:**
+- Phase 3's router corner case is corrected, and the router gap is filed as a new issue in Step 12.
+- The wider failure surface of listed metadata-only keys, and the dropped sidecar fields of
+  directories, are recorded in Phase 2's risk table and Phase 3's corner cases.
+- The file-store `listdir` skips an entry named exactly `.__metadata__`.
+- Step 1 compiles the wasm tests with `--no-run`.
+- The Step 2 counting test counts calls it can observe.
+- Phase 5 rewrites the guide's §9 table.
+- Issue statuses follow §4.3: the seven issues are `in_progress` from Step 0.
+- `phase: documentation` and `gh_pr` are set after implementation.
+- `JS-STORE-WRAPPER-HAS-NO-EFFECTIVE-MEDIA-TYPE` is filed.
+- Evidence is kept outside the repository.
+- The D1 scan skips a missing sibling crate.
+
+**Rejected finding:** one reviewer claimed that Step 2's `unwrap_or_else` does not compile. It does
+compile: `Metadata::get_asset_info` returns `Result` (`metadata.rs:1625`), while only
+`MetadataRecord::get_asset_info` (`metadata.rs:1160`) returns `AssetInfo`. A comment in Step 2 now
+says so.
+
+**Questions resolved by the author:**
+- `HTTP-STORE-METADATA-DROPS-THE-EXTENSION-MEDIA-TYPE` ends `closed`, not `rejected`. The failure
+  was real; it was in the test, and correcting the test resolves it.
+- Dropping a directory's sidecar fields in `get_asset_info` is accepted and recorded as a risk.

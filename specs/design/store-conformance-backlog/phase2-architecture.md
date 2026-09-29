@@ -84,9 +84,13 @@ Afterwards, reading a directory's metadata costs one `listdir` plus one `is_dir`
 warned about goes away. A side effect is one fewer `is_dir` call per file `get_asset_info` (today it
 calls `is_dir` after `get_metadata`).
 
-**`AsyncOpenDALStore`** is changed to match everyone else. Its directory branch
-(`opendal_store.rs:307-312`) sets `metadata.children = self.listdir_asset_info(key).await?`, and
-the comment explaining the omission is removed. This is now affordable because of the fix above.
+**`AsyncOpenDALStore`** is changed to match everyone else. It has **two** directory branches, and
+both return `default_metadata(key, true)`: `stat().is_dir()` (`opendal_store.rs:307-312`, taken by
+services with directory objects, such as fs) and the `has_children` fallback (`:333-335`, taken by
+flat services, such as memory). Both go through one new private helper,
+`async fn directory_metadata(&self, key: &Key) -> Result<Metadata, Error>`, which builds the record
+and sets `children = self.listdir_asset_info(key).await?`, so that the two branches cannot diverge.
+The comment explaining the omission is removed. This is now affordable because of the fix above.
 
 **Rule `dir07`** is inverted and made live. It now says "directory metadata populates `children`
 with the direct children only". It passes when `record.children` holds exactly the `listdir` names
@@ -102,7 +106,8 @@ is empty or differs from the listing. The `Blocked` branch is deleted. Registry 
    extra.
 2. On `Err(e)` with `e.error_type == ErrorType::KeyNotFound` (a public field; `ErrorType: PartialEq`), and **only** then: if the delegate has
    `isDir` and it answers truthy, return `default_metadata(key, true)` with `children =
-   self.listdir_asset_info(key).await?` (area A contract). Otherwise re-return the `KeyNotFound`.
+   self.listdir_asset_info(key).await?`. If the delegate lacks `listdir`, that call fails with
+   `KeyNotSupported`, which is the protocol's documented answer for a missing optional method (area A contract). Otherwise re-return the `KeyNotFound`.
 3. Any other error is returned unchanged — a thrown value is a failure, not a hint to try the
    directory branch.
 
@@ -132,7 +137,8 @@ with a default arm.
 
 ### Area D — metadata-only keys are listed (`CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS`)
 
-- **`AsyncFileStore::listdir`** (`store.rs:1312-1325`): for each entry name, if it ends with
+- **`AsyncFileStore::listdir`** (`store.rs:1312-1325`): an entry that is exactly `.__metadata__`
+  implies the empty name and is skipped. Otherwise, for each entry name, if it ends with
   `.__metadata__` (the `METADATA` suffix constant), strip the suffix and push the *implied* name. The
   implied name must itself pass `!RESERVED.is_reserved_name` (for example, `x.__lock__.__metadata__`
   implies a reserved name and is skipped). Other reserved names (the `.__lock__` suffix, the bare
@@ -172,6 +178,10 @@ have no common module for it.
 
 ### Area E — rule-ID ownership (`STORE-TEST-IDS-COLLIDE-WITH-CONFORMANCE-RULE-IDS`)
 
+**Refutation tests are the one place a rule ID appears in a test name**, and it must not come
+first: they are named `refute_<rule id>_…` (for example `refute_dir07_fails_empty_children`). The
+scan below matches only names that *begin* with an owned family, so no exclusion list is needed.
+
 **Convention:** every ID family used by the conformance rule registry is **owned by conformance
 rules**. Today that is `absence`, `data`, `dir`, `explicit`, `keys`, `keyshape`, `nodir`, `nokeys`,
 `nomakedir`, `noremove`, `noremovedir`, `nowrite`, `prefix`, `remove`, `sibling` and `sidecar`. The
@@ -195,6 +205,8 @@ Renames (behaviour unchanged):
 | `sibling04_a_prefixed_store_enumerates_only_its_own_subtree` | `opendal_prefixed_store_enumerates_only_its_own_subtree` |
 | `remove01_removedir_on_an_absent_directory_is_ok` | `opendal_removedir_on_an_absent_directory_is_ok` |
 | `remove02_removedir_on_the_root_empties_the_store` | `opendal_removedir_on_the_root_empties_the_store` |
+| `prefix01_a_prefixed_store_reports_and_respects_its_prefix` | `opendal_prefixed_store_reports_and_respects_its_prefix` |
+| `liquers-core` `store_conformance/mod.rs` `sibling01_catches_a_prefix_deleting_store` | `refute_sibling01_catches_a_prefix_deleting_store` |
 
 `traitdef01` keeps its ID: it is not in a rule family, and it is the only coverage of the default
 `contains` fallback, because `C4` declares `directories: false`. The doc comment gains "same
@@ -356,6 +368,8 @@ store (OpenDAL).
 | `get_asset_info` default change alters a caller's result | It returned `is_dir: true` plus directory-shaped fields before as well. Only discarded work goes away. Existing `dir04`, `dir06` and `dir07` cover this, and area A adds a count-of-calls unit test in Phase 3. |
 | OpenDAL directory reads become slower | One listing plus per-child stat, bounded by one level. Phase 3 adds a test that a nested tree is not walked. |
 | JS delegates relying on `getMetadata → null` meaning "empty" | Documented break; TypeScript declaration updated; no in-tree user (checked: e2e, examples). |
+| A directory that also has a sidecar loses its stored fields (e.g. `title`) in `get_asset_info` | Accepted. The new directory branch answers from `default_metadata` and does not read the sidecar. Nothing in tree writes directory sidecars; recorded in §2. |
+| Newly listed metadata-only keys widen the failure surface | An unparseable sidecar with no data now reaches `listdir_asset_info` and fails the parent's `get_metadata` (no repair path without data). Assets that `AssetManager` leaves as metadata-only (failed or in progress) become visible in listings. Both are stated in §8. |
 | Renames lose a test | Renames only change names; the deletion pass is gated on break-and-fail evidence. |
 
 ## Review Outcome
