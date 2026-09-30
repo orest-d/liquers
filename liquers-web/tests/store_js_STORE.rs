@@ -345,7 +345,6 @@ async fn c11_methods_are_bound_at_construction() {
 
 /// STORE12a — `null` means absent, and a directory gets directory-shaped metadata.
 #[wasm_bindgen_test]
-#[ignore = "store-conformance-backlog: fixed in step 7"]
 async fn store12a_absence_sentinel_and_directory_metadata() {
     let source = r#"(function () {
         const data = new Map([
@@ -404,7 +403,6 @@ async fn store12b_thrown_error_is_not_a_directory() {
 /// STORE12c — documented break: `getMetadata` returning `null` now means absent, even when
 /// `get` has data. It used to yield an empty record.
 #[wasm_bindgen_test]
-#[ignore = "store-conformance-backlog: fixed in step 7"]
 async fn store12c_get_metadata_null_is_not_found() {
     let store = JsStore::new(
         &key("d"),
