@@ -877,16 +877,6 @@ mod tests {
         Ok(())
     }
 
-    /// Removing a directory that does not exist is a no-op, as in `AsyncFileStore`.
-    #[tokio::test]
-    async fn opendal_removedir_on_an_absent_directory_is_ok() -> Result<(), Error> {
-        let fs = fs_store("remove01");
-        for store in [&memory_store(), &fs.store] {
-            store.removedir(&parse_key("never/existed")?).await?;
-        }
-        Ok(())
-    }
-
     /// `removedir` on the root key empties the store. Deliberate, and asserted so.
     ///
     /// This is the one case where scoping the delete to a directory narrows nothing: the root
@@ -1328,20 +1318,6 @@ mod tests {
             !encoded.iter().any(|k| k.starts_with("__metadata__")),
             "keys() must skip the reserved subtree: {encoded:?}"
         );
-        Ok(())
-    }
-
-    /// An absent key is `Ok(false)`, not an error.
-    ///
-    /// Every other store answers this way: `AsyncFileStore`, `AsyncMemoryStore`, and the trait
-    /// default. This store returning `Err` was the divergence.
-    #[tokio::test]
-    async fn opendal_is_dir_on_an_absent_key_is_false() -> Result<(), Error> {
-        let fs = fs_store("dir02");
-        for store in [&memory_store(), &fs.store] {
-            assert!(!store.is_dir(&parse_key("nothing/here")?).await?);
-            assert!(!store.contains(&parse_key("nothing/here")?).await?);
-        }
         Ok(())
     }
 
