@@ -2,7 +2,7 @@
 id: WEB-JS-STORE-HAS-NO-DIRECTORY-METADATA
 kind: issue
 title: JsStore::get_metadata delegates a directory key to get, which throws
-status: in_progress
+status: closed
 priority: P2
 complexity: S
 area: [web, core/store]
@@ -42,3 +42,12 @@ delegating to `getMetadata`/`get` only for a data key. That is what `AsyncMemory
 Found on 2026-09-02 by `C10` of the conformance suite (Phase 4 step 12 of
 `design/store-conformance-suite/`). Recorded as an allowed failure on that suite so it cannot be
 forgotten and cannot outlive its fix.
+
+## Resolution
+
+Closed 2026-09-30 by `design/store-conformance-backlog/` step 7 (`9d504ad`). `JsStore::get_metadata`
+asks the data path first and, only when that answers `KeyNotFound`, consults `isDir`. A directory
+gets `default_metadata(key, true)` with its `children`, and a thrown error is never treated as a
+directory. Data first rather than `is_dir` first, because `isDir` is optional in the protocol. The
+`dir04`/`dir07` allowed failures are deleted from `c10_js_store`, and `STORE12a`/`STORE12b` pin the
+behaviour.

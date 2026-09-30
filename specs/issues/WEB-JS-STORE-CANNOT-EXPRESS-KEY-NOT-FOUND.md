@@ -2,7 +2,7 @@
 id: WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND
 kind: issue
 title: A JsStore delegate has no way to signal absence, so a missing key reads as a read error
-status: in_progress
+status: closed
 priority: P2
 complexity: S
 area: [web, core/store]
@@ -47,3 +47,12 @@ Option 1 fits the protocol's existing style, where an absent optional method is 
 Found on 2026-09-02 by `C10` of the conformance suite (Phase 4 step 12 of
 `design/store-conformance-suite/`), against a stub delegate implementing the full protocol. Recorded
 as an allowed failure on that suite, so `H5` will report it the moment it is fixed.
+
+## Resolution
+
+Closed 2026-09-30 by `design/store-conformance-backlog/` step 7 (`9d504ad`), with option 1: the
+`null`/`undefined` sentinel. `get` already implemented it; what was missing was `getMetadata`
+(where `null` produced an empty record), the documentation, and a conformance stub that used it.
+Now `null`/`undefined` from either method is `KeyNotFound`, and a thrown value stays
+`KeyReadError`. This is a documented break for a `getMetadata` that returned `null` for an existing
+key (`STORE12c`). The `absence01`/`remove03` allowed failures are deleted, and C10 is conformant.

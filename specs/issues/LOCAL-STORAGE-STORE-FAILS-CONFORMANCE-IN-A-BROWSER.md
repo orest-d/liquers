@@ -2,7 +2,7 @@
 id: LOCAL-STORAGE-STORE-FAILS-CONFORMANCE-IN-A-BROWSER
 kind: issue
 title: LocalStorageStore fails three conformance rules, and its conformance test never runs in a browser
-status: in_progress
+status: closed
 priority: P2
 complexity: M
 area: [web, core/store]
@@ -40,3 +40,13 @@ all three rules.
 Found 2026-09-27 in record-streams Step 8.3, running the browser loop through the README's
 `NO_HEADLESS=1` route. The container's chromedriver (147) does not match its Chromium (141). The
 test file is unchanged by `record-streams`.
+
+## Resolution
+
+Closed 2026-09-30 by `design/store-conformance-backlog/` step 8 (`0f040e7`). `removedir` on an
+absent directory is `Ok(())`, `contains`/`is_dir`/`listdir` refuse a relative key, and `keys()`
+returns data keys, their directories and the prefix. A metadata-only key is also indexed, which
+the new rule `sidecar04` requires. C9 moved to `tests/store_conformance_browser_CONF.rs`, which
+configures `run_in_browser`. It was run through the README's `NO_HEADLESS=1` route with Playwright's
+Chromium 141 (the container's chromedriver is 147): 30 of 43 rules, 0 failed.
+`store_local_STORE`: 11/11.

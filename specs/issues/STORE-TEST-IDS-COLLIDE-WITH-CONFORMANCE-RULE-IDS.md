@@ -2,7 +2,7 @@
 id: STORE-TEST-IDS-COLLIDE-WITH-CONFORMANCE-RULE-IDS
 kind: issue
 title: Store unit tests share IDs with conformance rules that check different contracts
-status: in_progress
+status: closed
 priority: P2
 complexity: M
 area: [core/store, store/backends, docs]
@@ -65,3 +65,14 @@ suite's scope entirely.
 Found on 2026-09-02 at Phase 4 step 15 of `design/store-conformance-suite/`, by reading the test
 names the mapping table proposed to delete rather than trusting the table. The table was built from
 ID families, and IDs turned out not to identify contracts.
+
+## Resolution
+
+Closed 2026-09-30 by `design/store-conformance-backlog/` steps 9 and 10. Twelve `liquers-store` unit
+tests, not the seven listed here (`dir01`–`dir05`, `sibling01`–`sibling04`, `remove01`–`remove02`,
+`prefix01`), were renamed by subject (`opendal_*`), and the harness's own test became
+`refute_sibling01_*` (`9cc750f`). D1 now fails on any `fn <family><digits>_*`, with the families
+derived from the rule registry. The deletion pass ran as described here, break first: two tests
+were deleted after their rules went red on a scratch copy (`absence03` Failed; `dir02` Errored,
+which also fails the suite), and the rest were kept (`6233acf`). `traitdef01` kept its ID and now
+states it is the defaults' only check of the `dir05` contract.

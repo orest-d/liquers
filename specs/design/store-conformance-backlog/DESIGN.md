@@ -3,12 +3,12 @@ id: STORE-CONFORMANCE-BACKLOG
 kind: design
 title: Store conformance backlog — make every store agree with STORE_SEMANTICS
 workflow: liquers-project
-status: approved
-phase: implementation
+status: in_review
+phase: documentation
 area: [core/store, store/backends, web, docs]
 gh_pr: []
 issues: [STORE-SEMANTICS-CHILDREN-RULE-CONTRADICTS-EVERY-STORE, WEB-JS-STORE-HAS-NO-DIRECTORY-METADATA, WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND, LOCAL-STORAGE-STORE-FAILS-CONFORMANCE-IN-A-BROWSER, CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS, STORE-TEST-IDS-COLLIDE-WITH-CONFORMANCE-RULE-IDS, HTTP-STORE-METADATA-DROPS-THE-EXTENSION-MEDIA-TYPE]
-affects_docs: [specs/reference/STORE_SEMANTICS.md, specs/guides/STORE_IMPLEMENTATION_GUIDE.md]
+affects_docs: [specs/reference/STORE_SEMANTICS.md, specs/guides/STORE_IMPLEMENTATION_GUIDE.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md]
 created: 2026-09-29
 superseded_by:
 ---
@@ -21,9 +21,9 @@ superseded_by:
 - [x] Phase 1: High-Level Design (approved 2026-09-29)
 - [x] Phase 2: Solution & Architecture (approved 2026-09-29)
 - [x] Phase 3: Examples & Testing (approved 2026-09-29)
-- [x] Phase 4: Implementation Plan (approved 2026-09-29; implementing)
-- [ ] Phase 5: Documentation
-- [ ] Implementation Complete
+- [x] Phase 4: Implementation Plan (approved 2026-09-29)
+- [x] Implementation Complete (steps 0-12, 2026-09-30)
+- [x] Phase 5: Documentation (awaiting approval)
 
 ## Notes
 

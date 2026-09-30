@@ -3,7 +3,7 @@ title: Store Behavioural Semantics
 kind: reference
 audience: internal
 area: [core/store, store/backends, web]
-reviewed: 2026-09-29
+reviewed: 2026-09-30
 ---
 # Store Behavioural Semantics
 
@@ -145,6 +145,10 @@ returns `Ok([])`. This is what lets a router enumerate a newly configured member
 not been created on a filesystem yet. A failed existence check, metadata read, or directory read is
 still a backend error, not an empty listing. Key-shape and store-specific refusals are checked
 before absence and remain errors.
+
+A store that **delegates** to code in another language must give that code a way to answer
+"absent" as distinct from "failed", or it cannot satisfy this table: `JsStore` treats `null` or
+`undefined` from a page's `get`/`getMetadata` as `KeyNotFound` and a thrown value as `KeyReadError`.
 
 *Enforced by:* `absence01`, `absence02`, `absence03`, `dir02`.
 
@@ -322,6 +326,7 @@ and `AsyncOpenDALStore` already behave as specified here.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-30 | §4: a delegating store must let the delegate express absence, with `JsStore`'s `null` sentinel as the example. Reviewed §2, §8 and §9 against the implementation and the final conformance reports: every in-tree store passes `dir07` and `sidecar04`. | phase-5 (`design/store-conformance-backlog/`) |
 | 2026-09-29 | §8: a key with metadata and no data is enumerable — listed by its parent and answered by `contains` — unless the store refuses the write with `KeyNotFound`. The file stores now list the implied key of a sidecar instead of dropping it. Recorded the two consequences for callers. Enforced by the new rule `sidecar04`. | `design/store-conformance-backlog/` step 6 |
 | 2026-09-29 | §2 settled: directory metadata populates `children` with the direct children, one level deep, and the `AsyncStore` default `get_asset_info` answers a directory without reading its metadata, which is what bounds the depth. `dir07` now checks this instead of reporting `Blocked`; `AsyncOpenDALStore` fills `children` like every other store. One ⚠ row remains. | `design/store-conformance-backlog/` step 4 |
 | 2026-09-04 | §4 now defines `listdir` on an absent addressable directory as `Ok([])`, while retaining errors for failed filesystem operations and invalid or unsupported keys. This lets a router enumerate an uncreated file-store prefix without treating it as a failed backend. | phase-5 |

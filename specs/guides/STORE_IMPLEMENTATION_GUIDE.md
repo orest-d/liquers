@@ -3,7 +3,7 @@ title: Store Implementation Guide
 kind: guide
 audience: internal
 area: [core/store, store/backends, web]
-reviewed: 2026-09-29
+reviewed: 2026-09-30
 ---
 # Store Implementation Guide
 
@@ -142,6 +142,11 @@ the ones that bite later.
   check or directory read remains an error; never catch every listing error as an empty result.
   This is the single most commonly failed rule in tree.
 - **How do backend errors map onto `ErrorType`?** Callers match on the type, never on the message.
+- **If your store delegates to code you do not control, can that code say "absent"?** A protocol
+  whose only error channel is "throw" makes every missing key a read failure. `JsStore` fixed this
+  with a sentinel — `null`/`undefined` from `get` or `getMetadata` is `KeyNotFound`, a thrown value
+  is `KeyReadError` — and its directory metadata depends on the same distinction: only an answer of
+  "absent" leads to asking `isDir`, so a failure is never mistaken for a directory.
 - **What does enumeration cost?** Is `keys()` a full backend scan? Is that acceptable?
 - **Atomicity, concurrency and limits.** Are data and metadata written together? What happens on a
   concurrent `set`? Can a write partially succeed at a quota boundary? (Refusing is fine; refusing
@@ -292,7 +297,28 @@ report.assert_conformant(&[AllowedFailure {
 `assert_conformant` fails in **both** directions: a disallowed failure is an error, and **an allowed
 rule that passed is also an error**, naming the entry to delete. A fixed issue forces its own
 bookkeeping out rather than waiting for someone to remember. Such a store's row reads `BLOCKED`,
-not `PARTIAL` — it is finished; something it depends on is not.
+not `PARTIAL` — it is finished; something it depends on is not. (The example's issue is fixed; no
+in-tree suite carries an allowed failure today.)
+
+### Naming your tests
+
+The rule IDs belong to the rules. Every family the registry uses — `dir`, `sibling`, `sidecar`,
+`absence`, `prefix` and the rest — is **owned**: `STORE_SEMANTICS.md` cites the IDs and this guide
+lists them, so a unit test called `dir03_…` that checks something else makes one ID mean two
+things. That happened, twelve times, and it blocked the clean-up of duplicated tests until the
+names were fixed.
+
+- A unit test about your store's internals takes a descriptive name, prefixed by its subject:
+  `opendal_removedir_is_scoped_at_depth`, not `sibling02_…`.
+- A rule's own refutation test — the one proving the rule fails against a store built to break
+  it — is `refute_<rule id>_…`, e.g. `refute_dir07_fails_empty_children`.
+- `D1` enforces this: `no_unit_test_uses_an_owned_rule_id` in
+  `liquers-core/tests/conformance_docs_CONF.rs` fails on any `fn <family><digits>_…` in
+  `liquers-core`, `liquers-store` or `liquers-web`, with the owned families derived from the
+  registry.
+
+Before deleting a unit test because a rule "covers" it, break the behaviour on a scratch copy and
+watch the rule go red. Several tests that looked duplicated asserted more than any rule does.
 
 ## 6. A store the suite mostly does not apply to
 
@@ -365,28 +391,30 @@ the two sets agree, so a rule cannot be added without the contract naming it.
 
 ## 9. Status of the in-tree stores
 
-As of 2026-09-02, from the suites above.
+As of 2026-09-30, from the suites above: 43 rules are registered.
 
 | Store | Rules run | Status | Notes |
 |---|---|---|---|
-| `AsyncMemoryStore` | 29 | `CONFORMANT` | |
-| `AsyncFileStore` | 28 | `CONFORMANT` | `derived_directories: false` — real directories persist |
-| `AsyncStoreRouter` | 28 | `CONFORMANT` | needs each member's prefix to exist (`CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER`) |
-| `AsyncOpenDALStore` (memory) | 31 | `CONFORMANT` | the widest coverage in tree |
-| `AsyncOpenDALStore` (fs) | 31 | `CONFORMANT` | `derived_directories: false` |
-| Trait defaults | 8 | `CONFORMANT` | no directory support, no enumeration |
-| `NoAsyncStore` | 4 | `CONFORMANT` | accepts no key, and says so correctly |
-| `FetchStore` | 6 | `CONFORMANT` | read-only; its configured key set is the subject source |
-| `JsStore` | 28 | `BLOCKED` | `WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND`, `WEB-JS-STORE-HAS-NO-DIRECTORY-METADATA` |
-| `LocalStorageStore` | — | `NS` | behind `browser-tests`; needs a chromedriver to run |
+| `AsyncMemoryStore` | 31 | `CONFORMANT` | |
+| `AsyncFileStore` | 33 | `CONFORMANT` | `derived_directories: false` — real directories persist |
+| `AsyncStoreRouter` | 30 | `CONFORMANT` | needs each member's prefix to exist (`CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER`); a directory above its members has no metadata (`CORE-STORE-ROUTER-DIRECTORY-ABOVE-MEMBERS-HAS-NO-METADATA`), which no fixture requests |
+| `AsyncOpenDALStore` (memory) | 34 | `CONFORMANT` | the widest coverage in tree |
+| `AsyncOpenDALStore` (fs) | 33 | `CONFORMANT` | `derived_directories: false` |
+| Trait defaults | 14 | `CONFORMANT` | no directory support, no enumeration |
+| `NoAsyncStore` | 6 | `CONFORMANT` | accepts no key, and says so correctly |
+| `FetchStore` | 9 | `CONFORMANT` | read-only; its configured key set is the subject source |
+| `JsStore` | 30 | `CONFORMANT` | over a stub delegate that uses the `null` sentinel for absence |
+| `LocalStorageStore` | 30 | `CONFORMANT` | in a real browser (`store_conformance_browser_CONF.rs`, behind `browser-tests`) |
 
-This table is **generated from the reports**, not maintained by hand — `ConformanceReport` derives
-serde for exactly this reason. Regenerate it rather than editing it.
+This table is **maintained by hand** from the printed reports — no generator exists yet, although
+`ConformanceReport` derives serde so that one could (`STORE-GUIDE-STATUS-TABLE-HAS-NO-GENERATOR`).
+Update it when a rule is added or a store's result changes.
 
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-30 | §2: delegated stores must be able to say "absent". §5: "Naming your tests" — rule families are owned by the rules, unit tests are named by subject, refutation tests are `refute_<rule id>_…`, and D1 enforces it; noted that no suite carries an allowed failure. §9 rewritten from the final reports: 43 rules, every in-tree store conformant, `JsStore` and `LocalStorageStore` included; the table is said to be maintained by hand, which it always was. | phase-5 (`design/store-conformance-backlog/`) |
 | 2026-09-29 | §8: added `sidecar04` — a key holding only metadata is listed by its parent. | `design/store-conformance-backlog/` step 6 |
 | 2026-09-29 | §9: `dir07` is no longer blocked — STORE_SEMANTICS §2 settled that directory metadata populates `children` one level deep. The rest of the §9 table is rewritten from the final reports when `design/store-conformance-backlog/` reaches Phase 5. | `design/store-conformance-backlog/` step 4 |
 | 2026-09-15 | §1: added "A wrapper is not two methods" — `AsyncStore`'s twenty defaults are error stubs rather than forwarding defaults, so a wrapper must be sized by compiling and an undeclared default is an oversight rather than a declined capability. | `stale-dependency-status-finalization` |
