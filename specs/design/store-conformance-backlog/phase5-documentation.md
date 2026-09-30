@@ -6,8 +6,7 @@
 - [x] All user comments are answered or incorporated
 - [x] All review comments are answered or incorporated
 - [x] Documentation is consistent with implemented and tested behavior
-- [ ] Documentation is included in the implementation PR when practical. No PR has been opened
-  yet; code and documentation are on the same branch, `claude/related-issues-synergy-62xbkc`.
+- [x] Documentation is included in the implementation PR when practical (PR #74)
 
 ## Implementation Summary
 
