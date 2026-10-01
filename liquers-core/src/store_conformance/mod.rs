@@ -1300,6 +1300,22 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn refute_dir07_fails_duplicated_children() {
+        let store = TamperingStore {
+            inner: crate::store::AsyncMemoryStore::new(&Key::new()),
+            tamper: |_key, record| {
+                if let Some(first) = record.children.first().cloned() {
+                    record.children.push(first);
+                }
+            },
+        };
+        match run_rule_on("dir07", Box::new(store)).await {
+            RuleOutcome::Failed { .. } => {}
+            other => panic!("dir07 must fail a store listing a child twice, got {other:?}"),
+        }
+    }
+
     /// The gate itself, end to end: `run_all` produces one entry per rule, in order.
     #[tokio::test]
     async fn harness_runs_every_rule_in_order() {

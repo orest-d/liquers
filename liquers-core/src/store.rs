@@ -1332,11 +1332,20 @@ impl AsyncStore for AsyncFileStore {
             let entry_name = entry.file_name().to_string_lossy().to_string();
             // A sidecar implies its data key (§8): `orphan.__metadata__` is listed as `orphan`, so
             // a key that has metadata and no data is still enumerable. The data file and its
-            // sidecar imply the same name, which is listed once.
-            let name = match entry_name.strip_suffix(METADATA_SUFFIX) {
-                Some(implied) => implied.to_owned(),
-                None => entry_name,
+            // sidecar imply the same name, which is listed once. Only a *file* is a sidecar: a
+            // directory that happens to carry the suffix is a reserved entry, not metadata, and is
+            // left undecoded so the filter below skips it rather than inventing a key.
+            let is_file = entry
+                .file_type()
+                .await
+                .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?
+                .is_file();
+            let implied = if is_file {
+                entry_name.strip_suffix(METADATA_SUFFIX).map(str::to_owned)
+            } else {
+                None
             };
+            let name = implied.unwrap_or(entry_name);
             // The same predicate the path builders use, applied to the *implied* name too.
             // Skipping rather than failing is what §8 requires, and it is not optional:
             // `listdir_keys_deep` calls `is_dir` on every child, so a reserved name left in a
@@ -2433,14 +2442,17 @@ mod tests {
         Ok(())
     }
 
-    /// A sidecar whose implied name is reserved, a lock file, the legacy metadata folder and an
-    /// entry that is exactly the suffix are all skipped rather than listed.
+    /// A sidecar whose implied name is reserved, a lock file, the legacy metadata folder, an
+    /// entry that is exactly the suffix and a directory carrying the suffix are all skipped rather
+    /// than listed.
     #[tokio::test]
     async fn file_store_skips_sidecars_implying_reserved_names() -> Result<(), Error> {
         let (store, root) = temp_file_store("reserved").await?;
         let sub = root.join("sub");
         let setup = async {
             tokio::fs::create_dir_all(sub.join(METADATA_FOLDER)).await?;
+            // A *directory* carrying the suffix is a reserved entry, not a sidecar: no `z` key.
+            tokio::fs::create_dir_all(sub.join(format!("z{METADATA_SUFFIX}"))).await?;
             tokio::fs::write(sub.join(format!("x{LOCK_SUFFIX}{METADATA_SUFFIX}")), b"{}").await?;
             tokio::fs::write(sub.join(format!("y{LOCK_SUFFIX}")), b"").await?;
             tokio::fs::write(sub.join(METADATA_SUFFIX), b"{}").await?;

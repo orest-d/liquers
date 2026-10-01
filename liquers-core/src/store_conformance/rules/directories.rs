@@ -316,13 +316,16 @@ pub async fn dir07(f: &dyn Fixture) -> RuleOutcome {
         Ok(Metadata::LegacyMetadata(_)) => return RuleOutcome::Passed,
         Err(e) => return e.into(),
     };
-    let listed: std::collections::BTreeSet<String> = match f.store().listdir(&parent).await {
-        Ok(names) => names.into_iter().collect(),
+    let mut listed: Vec<String> = match f.store().listdir(&parent).await {
+        Ok(names) => names,
         Err(e) => return e.into(),
     };
+    listed.sort();
     // A child is named by its key's last segment; a child with no key, or a key that is not
     // directly under `parent`, is reported as the full key so it cannot match a listed name.
-    let described: std::collections::BTreeSet<String> = record
+    // A list, not a set: "one entry per direct child" is violated by a duplicate as much as by a
+    // missing or extra name, and a set would hide it.
+    let mut described: Vec<String> = record
         .children
         .iter()
         .map(|info| match &info.key {
@@ -334,6 +337,7 @@ pub async fn dir07(f: &dyn Fixture) -> RuleOutcome {
             None => "<child with no key>".to_owned(),
         })
         .collect();
+    described.sort();
 
     if described == listed {
         RuleOutcome::Passed
