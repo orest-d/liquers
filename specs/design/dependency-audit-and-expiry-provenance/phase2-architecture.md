@@ -1268,7 +1268,11 @@ and `Removed` (`remove` now cascades, since `main`).
 3. **A file with no metadata, in `external_change_action`.** The caller passes `Status::Source` when
    the key has no recipe, and `Status::Ready` when it has one (content exists that the recipe would
    produce). The decision table then gives "accept as input" and "convert to `Override`" / "delete"
-   respectively. Accepting writes a new sidecar, except for the read-only case (Part G, preflight).
+   respectively. **Owner decision (2026-10-02):** for the `Source` case, accepting keeps the hash in
+   the version map only and writes **no** sidecar, since nothing about the value changes and the next
+   process recomputes the same hash. This avoids littering config files such as `recipes.yaml` with
+   sidecars on a whole-store sweep. For the recipe-backed case a sidecar is written, because the
+   status changes to `Override`. Read-only stores: in memory, as in the preflight.
 4. **How far an audit reaches.** An audit expires along edges loaded in *this* process. A dependent
    that has not been loaded yet is not missed: the audit leaves the current version in the version
    map, and when that dependent is later fast-tracked, the existing check compares its recorded

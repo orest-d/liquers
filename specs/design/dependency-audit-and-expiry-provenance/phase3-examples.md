@@ -409,8 +409,8 @@ never equal the recomputed hash, so it is a mismatch like any other:
 
 | Dropped file | Recipe? | Result |
 |---|---|---|
-| `data/notes.csv`, no sidecar | no | stays `Source`; its version is set to `from_content(bytes)`; log `warning`: "no content hash was recorded for data/notes.csv; adopting its content as user input" (the recorded kind was `Unknown`) |
-| `data/report.txt` bytes, no sidecar | yes | `user_input`: `Override`; `corrupted`: deleted and recomputed |
+| `data/notes.csv`, no sidecar | no | stays `Source`; its version is the hash `from_content(bytes)`, **held in memory only, and no sidecar is written** (owner decision, 2026-10-02): nothing about the value changes, and the next process computes the same hash. No log line, because there is no sidecar to hold one |
+| `data/report.txt` bytes, no sidecar | yes | `user_input`: `Override`, and a sidecar is written (the status really changes); `corrupted`: deleted and recomputed |
 
 A sweep finds edits nobody has read yet. `ReportOnly` changes nothing and says what *would* happen:
 
@@ -1065,7 +1065,8 @@ All in `liquers-core/tests/`, over `AsyncMemoryStore`, restarting with `fixtures
   bumped and `summary.txt` is expired with `UpdatedInStore`, under `corrupted` the stored copy is
   deleted and `summary.txt` gets the same reason); `override_is_never_deleted`;
   `file_with_no_metadata_and_no_recipe_becomes_source_with_hash_version` (recorded 0, so a mismatch;
-  status stays `Source`; log line says no hash was recorded);
+  status stays `Source`; the version map holds the hash; **no sidecar is written**, which is
+  asserted with `store.get_metadata` still reporting no stored metadata);
   `file_with_no_metadata_under_recipe_follows_policy`;
   `timestamp_versioned_value_with_bytes_is_adopted` (recorded kind `Timestamp`);
   `verify_stored_versions_report_only_changes_nothing`; `verify_stored_versions_applies_policy`;

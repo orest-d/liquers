@@ -4,7 +4,7 @@ kind: design
 title: Dependency audit correctness, audit policy, expiry provenance, outside-change detection and external asset managers
 status: draft
 workflow: liquers-project
-phase: examples
+phase: implementation
 area: [core/assets]
 gh_pr: []
 affects_docs: [DEPENDENCIES_STATUS, ASSETS, ASSET_LIFECYCLE, DOC_03_ASSETS_EXECUTION_LIFECYCLE, DOC_04_ENVIRONMENT_CONTEXT_EVALUATION, ENVIRONMENT_CONFIG, COMMAND_REGISTRATION_GUIDE, ENVIRONMENT_CONSTRUCTION_GUIDE, STORE_IMPLEMENTATION_GUIDE, UNITTEST_GUIDE]
@@ -20,7 +20,7 @@ superseded_by:
 
 - [x] Phase 1: High-Level Design (approved 2026-09-28)
 - [x] Phase 2: Solution & Architecture (approved 2026-09-29)
-- [ ] Phase 3: Examples & Testing
+- [x] Phase 3: Examples & Testing (approved 2026-10-02)
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
@@ -93,8 +93,10 @@ asset-manager method (`record_expiry`), and set the directory version to the has
 listing. Phases 1 to 3 were updated. The reviews ran in full this time: Phase 2 with 2 reviewers,
 which found 3 call sites missing from the cause table; Phase 3 with 3 reviewers, which found
 nothing blocking, and one advisory test was added. The Phase 3 update also found 7
-underspecifications in Phase 2, settled in its "Revision 2, clarifications" section. One owner
-question is open: whether files without metadata are adopted in memory only, or get a sidecar.
+underspecifications in Phase 2, settled in its "Revision 2, clarifications" section. The open owner question was settled: a file with no metadata and no recipe is adopted in memory
+only, with no sidecar; under a recipe a sidecar is written.
+
+**Phases 2 and 3 approved 2026-10-02.**
 
 ## Links
 
