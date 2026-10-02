@@ -98,6 +98,27 @@ only, with no sidecar; under a recipe a sidecar is written.
 
 **Phases 2 and 3 approved 2026-10-02.**
 
+**Phase 4 drafted and reviewed (2026-10-02).** Four parallel reviewers checked it against Phases 1,
+2 and 3 and against the code. Three found nothing; the Phase 3 reviewer found that the plan's tests
+used invented names, so most Phase 3 tests were unassigned. The final (opus) reviewer re-aligned
+every one of the 136 Phase 3 tests to exactly one step and added a test assignment index. It also
+fixed what would have failed in practice:
+- the hash switch moved to Step 1, because later tests expect `from_content` versions;
+- a new Step 3b moves the shared scenarios into `tests/common/` first;
+- Step 5 depends on Step 4;
+- a second sealing supertrait, `KeyMutationAccess`, must also be made public;
+- the stale-dependency branch sets `Expired` directly, and its dependents expire through
+  `track_keyed_asset`;
+- two deadlock rules: `record_expiry` takes the manager and the subject from the lock guard, and
+  outside changes are applied only after the asset's data lock is dropped;
+- the `on_load` check must not use `Version::matches`;
+- the file store writes a sidecar for a bare file on first read, so "no metadata" is defined as a
+  stored `Source`/`None` with version 0;
+- `expiry_reason` is cleared when the status leaves `Expired`.
+
+The estimate was raised to 8–11 days. The log wording is fixed in Step 2, and Phases 2 and 3 now
+match it. Three questions remain for the owner: see Phase 4 §"Phase 4 review".
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)

@@ -294,15 +294,15 @@ and, in the researcher's log after the real audit (`warning`, because an audit m
 assumption was false; wording indicative, fixed in Phase 4, from Phase 2 §"ExpiryCause and
 ExpiryReason"):
 ```
-data/report.txt expired: an audit found -R/data/a.csv at a different version than recorded
+data/report.txt expired: an audit that found -R/data/a.csv at a different version than recorded triggered a cascade expiration
 ```
+(Wording as fixed in Phase 4 Step 2.)
 For the two-step variant, `report.txt` names the path it came through:
 ```
-data/report.txt expired: an audit found -R/data/a.csv at a different version than recorded (via direct dependency -R/data/b.csv)
+data/report.txt expired: an audit that found -R/data/a.csv at a different version than recorded triggered a cascade expiration via direct dependency -R/data/b.csv
 ```
-The second wording is **not** in Phase 2 (it gives one cascaded-audit message, for `via == root`).
-The format test pins that the message contains `root` and, when `via != root`, `via` (see the
-Learning Log).
+Both lines follow the wording table fixed in Phase 4 Step 2; `log_line_format_per_cause` asserts
+them exactly.
 
 ## Example 2: A shared data folder
 
@@ -601,7 +601,7 @@ Each entry: symptom, cause, correct use or recovery, protective test.
 ### 3. Errors
 - `version()` store error in an audit propagates as `Err`, never as `Version::unknown()`:
   `audit_store_error_propagates` (I1). Under `OnLoad` the same error refuses the fast track:
-  `on_load_store_error_refuses_fast_track` (U3).
+  `on_load_refuses_fast_track_on_store_error` (U3).
 - `listdir` fails while refreshing after a write: `eprintln!`, the write stands.
   `listdir_error_after_write_is_logged_not_fatal` (I1).
 - A key whose bytes are missing is skipped by `verify_stored_versions` (`skipped`), not reported
@@ -647,6 +647,7 @@ through the public lifecycle primitives:
 pub struct MinimalInlineAssetManager<E: Environment> {
     envref: EnvRef<E>,
     graph: DependencyManager<E>,                 // created once, never called into directly
+    mutation_lock: tokio::sync::Mutex<()>,       // serializes keyed mutations (KeyMutationAccess)
     assets: scc::HashMap<Key, AssetRef<E>>,      // at most one asset per key
     policy: DependencyAuditPolicy,
     // test-only: every record_expiry call, to prove the method is the single writer
@@ -655,10 +656,13 @@ pub struct MinimalInlineAssetManager<E: Environment> {
 impl<E: Environment> DependencyManagerAccess<E> for MinimalInlineAssetManager<E> {
     fn dependency_manager(&self) -> &DependencyManager<E> { &self.graph }
 }
+impl<E: Environment> KeyMutationAccess for MinimalInlineAssetManager<E> {   // second supertrait
+    fn key_mutation_lock(&self) -> &tokio::sync::Mutex<()> { &self.mutation_lock }
+}
 #[async_trait]
 impl<E: Environment> AssetManager<E> for MinimalInlineAssetManager<E> {
     fn dependency_audit_policy(&self) -> DependencyAuditPolicy { self.policy } // honour the option
-    async fn start(&self) -> Result<(), Error> { self.refresh_command_versions().await; Ok(()) }
+    fn start(&self) -> Result<(), Error> { self.refresh_command_versions()?; Ok(()) } // both sync
     // Override the single writer of expiry provenance: remember the call, then do what the
     // default does (set the reason, append the log entry). Called under the asset's data lock.
     fn record_expiry(&self, metadata: &mut Metadata, subject: &str, reason: &ExpiryReason) {
@@ -1066,7 +1070,9 @@ All in `liquers-core/tests/`, over `AsyncMemoryStore`, restarting with `fixtures
   deleted and `summary.txt` gets the same reason); `override_is_never_deleted`;
   `file_with_no_metadata_and_no_recipe_becomes_source_with_hash_version` (recorded 0, so a mismatch;
   status stays `Source`; the version map holds the hash; **no sidecar is written**, which is
-  asserted with `store.get_metadata` still reporting no stored metadata);
+  asserted by `store.get_metadata` still recording no version: the manager writes nothing. A store
+  can synthesize a sidecar on a bare file's first read by itself, which `AsyncFileStore` does today
+  (`STORE-NO-READ-ONLY-ADAPTER`), so the test does not assert that no sidecar exists);
   `file_with_no_metadata_under_recipe_follows_policy`;
   `timestamp_versioned_value_with_bytes_is_adopted` (recorded kind `Timestamp`);
   `verify_stored_versions_report_only_changes_nothing`; `verify_stored_versions_applies_policy`;
@@ -1103,9 +1109,10 @@ its `AuditReport` equality asserts for `findings`.
   the asset and `Cascaded` on its dependents; the other four occur only as `Cascaded`.
 - `audit_never_expires_the_root`: after an audit that expires dependents, the audited key's status and
   `expiry_reason` are unchanged.
-- `via_names_the_direct_dependency_on_a_two_step_cascade`: Example 1's variant. `a.csv -> b.csv ->
-  report.txt`, an `Updated` cascade this time (`set_binary(a.csv)` in process): `b.csv` has `via ==
-  root == a.csv`, `report.txt` has `root == a.csv` and `via == b.csv`.
+- `via_names_the_direct_dependency_on_a_two_step_cascade`: Example 1's variant, exactly as sketched
+  there. `a.csv -> b.csv -> report.txt` after a restart and an `Audit` cascade: `b.csv` has
+  `via == root == a.csv`, and `report.txt` has `root == a.csv` and `via == b.csv`. The same `via`
+  shape for an in-process `Updated` cascade is covered by `set_binary_of_a_dependency_cascades_with_updated`.
 - `every_cause_writes_a_log_line` (table-driven, added after the Phase 3 review): one row per
   `ExpiryCause` (`Deadline`, `Explicit`, `Audit`, `StaleDependency`, `UpdatedInStore`, `Updated`,
   `Removed`). Each row drives its route (see the route table below) on an `a.csv → report.txt`

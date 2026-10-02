@@ -210,7 +210,7 @@ Which causes occur in which scope:
 | `Deadline` | the asset whose time elapsed | its dependents | info |
 | `Explicit` | the asset `expire()` was called on | its dependents | info |
 | `Audit` | — (the root is the *dependency*, which is not expired) | the dependents found stale, and theirs | warning |
-| `StaleDependency` | the asset that used the stale value | its dependents (`cascade_expire_dependents` at finalization) | warning |
+| `StaleDependency` | the asset that used the stale value | its dependents (expired at finalization through the dependency manager's `track_keyed_asset`, `assets.rs:2927`; corrected in Phase 4) | warning |
 | `UpdatedInStore` | — (the root becomes `Override`/stays `Source`, see Part G) | its dependents | warning |
 | `Updated` | — (the root holds the new value) | its dependents | info |
 | `Removed` | — (the root is gone) | its dependents | info |
@@ -225,9 +225,13 @@ named by key or query, never by runtime asset id. Examples:
 - *"data/a.csv expired: its expiration time 2026-10-02T10:00:00Z passed"* (direct deadline)
 - *"data/report.txt expired: expiration deadline on -R/data/a.csv triggered a cascade expiration via
   direct dependency -R/data/b.csv"* (cascaded deadline)
-- *"data/report.txt expired: an audit found -R/data/a.csv at a different version than recorded"*
-  (cascaded audit, `via` = root)
-- *"data/report.txt expired: -R/data/a.csv was changed in the store outside Liquers"* (cascaded `UpdatedInStore`)
+- *"data/report.txt expired: an audit that found -R/data/a.csv at a different version than recorded
+  triggered a cascade expiration"* (cascaded audit, `via` = root)
+- *"data/report.txt expired: a change to -R/data/a.csv made in the store outside Liquers triggered a
+  cascade expiration"* (cascaded `UpdatedInStore`)
+
+The full wording table is fixed in Phase 4 Step 2 (corrected 2026-10-02: two earlier examples here
+omitted "triggered a cascade expiration", contrary to the rule).
 
 `ExpirationTime` implements `Serialize`/`Deserialize` by hand (`expiration.rs:751-757`), so the
 `Deadline` field needs nothing extra. Both enums derive `PartialEq, Eq`, and `ExpirationTime`
@@ -562,8 +566,11 @@ Otherwise making the struct public would silently publish the whole graph API, w
 already), because `expire_dependencies_result*` takes it.
 
 `keyed-expiry-cascade-fix` planned a second sealed supertrait, `VersionResolver`. It does not exist
-at HEAD (no `trait VersionResolver` in `liquers-core/src`), so `DependencyManagerAccess` is the only
-seal. Narrowing the graph methods breaks nothing: the type is `pub(crate)` today, so no code outside
+at HEAD (no `trait VersionResolver` in `liquers-core/src`). *Correction (Phase 4 review,
+2026-10-02):* `DependencyManagerAccess` is **not** the only seal. The `main` merge added a second
+`pub(crate)` supertrait, `KeyMutationAccess` (`assets.rs:4015`, `fn key_mutation_lock(&self) ->
+&tokio::sync::Mutex<()>`), so it is made public in the same change; it exposes only a lock the
+implementor holds. Narrowing the graph methods breaks nothing: the type is `pub(crate)` today, so no code outside
 `liquers-core/src` can call them now.
 
 #### F2. The lifecycle primitives an implementor calls
