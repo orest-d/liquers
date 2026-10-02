@@ -1540,11 +1540,27 @@ pub struct AssetRef<E: Environment> {
 /// and it names what happened rather than counting it, so a later caller does not have to
 /// reconstruct the detail.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct AuditReport {
     /// The dependency keys whose versions the audit tried to resolve.
     pub checked: Vec<crate::metadata::DependencyKey>,
-    /// The keys expired as a result, including transitive ones.
+    /// The keys expired as a result, including transitive ones. Always empty in
+    /// [`AuditMode::ReportOnly`].
     pub expired: Vec<crate::metadata::DependencyKey>,
+    /// The direct edges found stale, one per (dependency, dependent) pair. In
+    /// [`AuditMode::ReportOnly`] this is what *would* have been expired directly.
+    pub findings: Vec<AuditFinding>,
+}
+
+/// What a dependency audit does with what it finds.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AuditMode {
+    /// Expire what is found stale (the behaviour of `trigger_dependency_audit`).
+    #[default]
+    Expire,
+    /// Change nothing: no version is registered, no edge removed, nothing expired. Only
+    /// [`AuditReport::findings`] (and `checked`) is filled.
+    ReportOnly,
 }
 
 /// One edge an audit found stale: `dependent` recorded `expected` for `dependency`, and the
@@ -4878,29 +4894,56 @@ pub trait AssetManager<E: Environment>:
     /// method exists to make answerable without reopening the dependency manager; see
     /// `DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE`.
     ///
-    /// Three outcomes per gap, from [`Self::version`]: a version that matches leaves the dependent
+    /// Three outcomes per gap, from [`Self::dependency_version`]: a version that matches leaves the dependent
     /// alone, one that differs expires it, and no durable version at all expires it — an asset
     /// that left no trace cannot be shown to reconstruct identically.
     ///
     /// A non-keyed query has no recorded dependencies to audit and yields an empty report rather
     /// than an error.
     async fn trigger_dependency_audit(&self, query: &Query) -> Result<AuditReport, Error> {
+        self.trigger_dependency_audit_with(query, AuditMode::Expire).await
+    }
+
+    /// [`Self::trigger_dependency_audit`] with an explicit [`AuditMode`].
+    async fn trigger_dependency_audit_with(
+        &self,
+        query: &Query,
+        mode: AuditMode,
+    ) -> Result<AuditReport, Error> {
         let Some(key) = query.key() else {
             return Ok(AuditReport::default());
         };
         let dep_key = crate::metadata::DependencyKey::from(&key);
         let gaps = self.dependency_manager().missing_versions_for(&dep_key);
-        self.audit_gaps(gaps).await
+        self.audit_gaps(gaps, mode).await
     }
 
     /// [`Self::trigger_dependency_audit`] over every gap the dependency manager knows of.
     async fn trigger_dependency_audit_all_registered(&self) -> Result<AuditReport, Error> {
-        let gaps = self.dependency_manager().missing_versions();
-        self.audit_gaps(gaps).await
+        self.trigger_dependency_audit_all_registered_with(AuditMode::Expire).await
     }
 
-    /// Resolve each gap through [`Self::version`] and push the answer back into the graph, which
-    /// is what produces the expirations.
+    /// [`Self::trigger_dependency_audit_all_registered`] with an explicit [`AuditMode`].
+    async fn trigger_dependency_audit_all_registered_with(
+        &self,
+        mode: AuditMode,
+    ) -> Result<AuditReport, Error> {
+        let gaps = self.dependency_manager().missing_versions();
+        self.audit_gaps(gaps, mode).await
+    }
+
+    /// Resolve each gap through [`Self::dependency_version`] and compare it with what the
+    /// dependents recorded.
+    ///
+    /// In [`AuditMode::Expire`] the answer goes through `DependencyManager::audit_version`, which
+    /// records the version and expires every dependent that does not positively match — also on a
+    /// first observation, which `register_version` would treat as "no change". In
+    /// [`AuditMode::ReportOnly`] it goes through `stale_edges`, which registers and expires
+    /// nothing.
+    ///
+    /// The audit reaches the dependents loaded in this process. One loaded later is not missed:
+    /// the current version stays in the version map, and the check in `try_fast_track` refuses
+    /// the stale copy.
     ///
     /// The gap list is a snapshot and the graph may change under it. That is fine for a
     /// policy-triggered operation, and deliberately takes no lock: locking here would put
@@ -4909,37 +4952,54 @@ pub trait AssetManager<E: Environment>:
     async fn audit_gaps(
         &self,
         gaps: Vec<crate::metadata::DependencyKey>,
+        mode: AuditMode,
     ) -> Result<AuditReport, Error> {
         let mut report = AuditReport::default();
         for dep_key in gaps {
             report.checked.push(dep_key.clone());
-            let key = match dep_key.key() {
-                Ok(Some(key)) => key,
-                // Not an asset key (a command dependency, say): the manager holds those
-                // authoritatively already and there is nothing to resolve from a store.
-                Ok(None) | Err(_) => continue,
-            };
-            let found = self.version(&key).await?;
-            let expired = match found {
-                Some(version) => {
-                    self.dependency_manager()
-                        .register_version(&dep_key, version)
-                        .await
+            // Not store-resolvable (a command dependency, say): the manager holds those
+            // authoritatively already and there is nothing to resolve from a store.
+            if !dep_key.is_store_resolvable() {
+                continue;
+            }
+            let found = self.dependency_version(&dep_key).await?;
+            match mode {
+                AuditMode::Expire => {
+                    let (expired, findings) =
+                        self.dependency_manager().audit_version(&dep_key, found).await;
+                    report.findings.extend(findings);
+                    report
+                        .expired
+                        .extend(expired.keys.iter().map(|expired_key| expired_key.key.clone()));
+                    self.expire_dependencies_result(expired, ExpiryCause::Audit { found })
+                        .await;
                 }
-                None => self.dependency_manager().report_no_version(&dep_key).await,
-            };
-            report.expired.extend(expired.keys.iter().map(|expired_key| expired_key.key.clone()));
-            // `Audit { found }` arrives with Step 6 of the dependency-audit design; until then
-            // the audit's expirations read as the dependency's (re)registered version.
-            self.expire_dependencies_result(
-                expired,
-                ExpiryCause::Updated {
-                    version: found.unwrap_or(Version::unknown()),
-                },
-            )
-            .await;
+                AuditMode::ReportOnly => {
+                    let findings = self.dependency_manager().stale_edges(&dep_key, found).await;
+                    report.findings.extend(findings);
+                }
+            }
         }
         Ok(report)
+    }
+
+    /// The current version of a store-resolvable dependency key, **without evaluating**.
+    ///
+    /// `-R/` keys answer [`Self::version`]. `-R-dir/` keys answer `Version::unknown()` until the
+    /// listing version arrives (Step 8 of the design). Any other key answers
+    /// `Version::unknown()` as well; callers ask `DependencyKey::is_store_resolvable` first.
+    /// A store error stays `Err`.
+    async fn dependency_version(
+        &self,
+        dep_key: &crate::metadata::DependencyKey,
+    ) -> Result<Version, Error> {
+        if dep_key.is_pure_key() {
+            return match dep_key.key() {
+                Ok(Some(key)) => self.version(&key).await,
+                Ok(None) | Err(_) => Ok(Version::unknown()),
+            };
+        }
+        Ok(Version::unknown())
     }
 
     /// The authoritative version of a keyed asset, **without evaluating it**.
@@ -4949,8 +5009,7 @@ pub trait AssetManager<E: Environment>:
     /// 1. a live asset registered for `key`, *if it has a version yet* — an asset that is
     ///    mid-evaluation does not, and must not shadow the durable answer below;
     /// 2. otherwise, the store's metadata for `key`, if it holds any;
-    /// 3. otherwise `None` — the key has no durable version, which is **not** the same as
-    ///    [`Version::unknown()`] and must not be conflated with it.
+    /// 3. otherwise [`Version::unknown()`] (0) — the key has no durable version.
     ///
     /// This never evaluates and never submits, for the same reason [`Self::owned_key_asset`] does
     /// not (`specs/design/keyed-recipe-ownership/`): asking a question about an asset must not be
@@ -4962,21 +5021,25 @@ pub trait AssetManager<E: Environment>:
     /// it is what lets a user delete large intermediates and keep the results that were derived
     /// from them.
     ///
-    /// `Ok(None)` and `Err` are different answers and stay different: a store that fails to read
-    /// is not a key without a version, and collapsing them would expire dependents on a transient
+    /// `Ok(Version::unknown())` and `Err` are different answers and stay different: a store that
+    /// fails to read is not a key without a version, and collapsing them would expire dependents on a transient
     /// store error. `contains` is asked first for exactly this reason, since
     /// [`AsyncStore::get_metadata`] reports a missing key as `Err`.
-    async fn version(&self, key: &Key) -> Result<Option<Version>, Error> {
+    async fn version(&self, key: &Key) -> Result<Version, Error> {
         if let Some(asset) = self.lookup_key_asset(key) {
             if let Some(version) = asset.get_metadata().await?.version() {
-                return Ok(Some(version));
+                return Ok(version);
             }
         }
         let store = self.get_envref().get_async_store();
         if !store.contains(key).await? {
-            return Ok(None);
+            return Ok(Version::unknown());
         }
-        Ok(store.get_metadata(key).await?.version())
+        Ok(store
+            .get_metadata(key)
+            .await?
+            .version()
+            .unwrap_or_else(Version::unknown))
     }
 
     /// The recipe provider (via the environment).
@@ -10941,7 +11004,10 @@ recipes:
         let manager = envref.get_asset_manager();
         let key = parse_key("counted.txt").expect("key");
 
-        assert_eq!(manager.version(&key).await.expect("version"), None);
+        assert_eq!(
+            manager.version(&key).await.expect("version"),
+            Version::unknown()
+        );
         assert_eq!(
             calls.load(Ordering::SeqCst),
             0,
@@ -10950,16 +11016,71 @@ recipes:
     }
 
     #[tokio::test]
-    async fn version_of_an_absent_key_is_none() {
+    async fn version_of_absent_key_is_unknown() {
         let (envref, _calls) = ownership_env().await;
         let manager = envref.get_asset_manager();
         let key = parse_key("nothing-here.txt").expect("key");
 
         assert_eq!(
             manager.version(&key).await.expect("absent is not an error"),
-            None,
-            "an absent key is Ok(None), never Err — a store failure must stay distinguishable"
+            Version::unknown(),
+            "an absent key is Ok(unknown), never Err — a store failure must stay distinguishable"
         );
+    }
+
+    /// A store that cannot answer is not a key without a version: `Err`, never `unknown`.
+    #[tokio::test]
+    async fn store_error_is_not_unknown() {
+        struct UnreadableStore;
+
+        #[async_trait]
+        impl AsyncStore for UnreadableStore {
+            async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+                Err(Error::key_not_found(key))
+            }
+
+            async fn set_metadata(&self, _key: &Key, _metadata: &Metadata) -> Result<(), Error> {
+                Ok(())
+            }
+
+            async fn contains(&self, key: &Key) -> Result<bool, Error> {
+                Err(Error::key_read_error(key, "UnreadableStore", "intentional failure"))
+            }
+        }
+
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(UnreadableStore));
+        let envref = env.to_ref();
+        let key = parse_key("unreadable.txt").expect("key");
+
+        let result = envref.get_asset_manager().version(&key).await;
+
+        assert!(result.is_err(), "a store failure must stay an error: {result:?}");
+    }
+
+    #[test]
+    fn audit_finding_new_and_report_default_assignment() {
+        let dependency = crate::metadata::DependencyKey::new("-R/a.txt");
+        let dependent = crate::metadata::DependencyKey::new("-R/b.txt");
+        let finding = AuditFinding::new(
+            dependency.clone(),
+            dependent.clone(),
+            Version::new(1),
+            Version::unknown(),
+        );
+        assert_eq!(finding.dependency, dependency);
+        assert_eq!(finding.dependent, dependent);
+        assert_eq!(finding.expected, Version::new(1));
+        assert_eq!(finding.found, Version::unknown());
+
+        // `#[non_exhaustive]` forbids a struct literal outside the crate, so callers start from
+        // `default()` and assign fields.
+        let mut report = AuditReport::default();
+        assert!(report.checked.is_empty() && report.expired.is_empty() && report.findings.is_empty());
+        report.checked.push(dependency);
+        report.findings.push(finding.clone());
+        assert_eq!(report.findings, vec![finding]);
+        assert_eq!(AuditMode::default(), AuditMode::Expire);
     }
 
     #[tokio::test]
@@ -10979,7 +11100,7 @@ recipes:
 
         assert_eq!(
             manager.version(&key).await.expect("version"),
-            Some(Version::new(4242))
+            Version::new(4242)
         );
     }
 
@@ -11011,7 +11132,7 @@ recipes:
 
         assert_eq!(
             manager.version(&key).await.expect("version"),
-            Some(Version::new(77)),
+            Version::new(77),
             "fall through to the store rather than reporting no durable version"
         );
     }

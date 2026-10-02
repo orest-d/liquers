@@ -24,7 +24,7 @@ use liquers_core::{
 
 use common::manager_scenarios::{
     provenance_store, register_provenance_commands, scenario_every_expired_asset_has_reason_and_log_line,
-    scenario_expiry_reason_cascade,
+    scenario_audit_after_restart, scenario_expiry_reason_cascade,
     counting_recipe_store, register_counted, register_dependent, register_greet, register_vol_cmd,
     recipe_store, scenario_adhoc_apply_is_not_keyed, scenario_basic_eval, scenario_cache_and_mode,
     scenario_concurrent_first_evaluations, scenario_entry_point_equivalence,
@@ -561,4 +561,28 @@ async fn every_expired_asset_has_reason_and_log_line_immediate() -> Result<(), E
     env.with_async_store(Box::new(provenance_store(true).await?));
     env.with_recipe_provider(Box::new(DefaultRecipeProvider));
     scenario_every_expired_asset_has_reason_and_log_line(env.to_ref()).await
+}
+
+#[tokio::test]
+async fn audit_after_restart_default() -> Result<(), Error> {
+    scenario_audit_after_restart(|store| {
+        let mut env = SimpleEnvironment::<Value>::new();
+        register_provenance_commands(&mut env.command_registry);
+        env.with_async_store(Box::new(store));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+        env.to_ref()
+    })
+    .await
+}
+
+#[tokio::test]
+async fn audit_after_restart_immediate() -> Result<(), Error> {
+    scenario_audit_after_restart(|store| {
+        let mut env = ImmediateEnvironment::<Value>::new();
+        register_provenance_commands(&mut env.command_registry);
+        env.with_async_store(Box::new(store));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+        env.to_ref()
+    })
+    .await
 }

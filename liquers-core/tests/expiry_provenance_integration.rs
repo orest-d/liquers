@@ -8,20 +8,23 @@
 //! goes through `within`, so a lock-discipline mistake fails in seconds instead of hanging.
 
 mod common;
+mod fixtures;
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use liquers_core::{
-    assets::{AssetManager, AssetRef},
+    assets::{AssetManager, AssetRef, AuditMode},
     context::{EnvRef, Environment, SimpleEnvironment},
     error::Error,
     metadata::{DependencyKey, ExpiryCause, ExpiryReason, LogEntryKind, Metadata, Status, Version},
     parse::parse_key,
     query::Key,
     recipes::DefaultRecipeProvider,
+    store::{AsyncMemoryStore, AsyncStore},
     value::Value,
 };
+use fixtures::StoreSnapshot;
 
 use common::manager_scenarios::{
     provenance_evaluate_chain, provenance_store, provenance_text_metadata,
@@ -316,5 +319,59 @@ async fn reader_never_sees_expired_without_reason() -> TestResult {
 
     assert_eq!(seen_expired.load(Ordering::SeqCst), watched.len());
     assert_eq!(torn.load(Ordering::SeqCst), 0, "a reader saw Expired without its reason");
+    Ok(())
+}
+
+/// The audit expires the *dependents* of the key it audited; the audited key itself is the
+/// evidence, not the casualty. After an audit that expires `b.txt` and `report.txt`, `a.txt`'s
+/// status and reason are untouched — in the store and in the live asset.
+#[tokio::test]
+async fn audit_never_expires_the_root() -> TestResult {
+    let snapshot = {
+        let envref = provenance_env(false).await?;
+        let am = envref.get_asset_manager();
+        within(am.set_binary(&key("data/a.txt"), b"hello", provenance_text_metadata())).await?;
+        provenance_evaluate_chain(&envref).await?;
+        let keys: Vec<Key> = ["data/recipes.yaml", "data/a.txt", "data/b.txt", "data/report.txt"]
+            .into_iter()
+            .map(key)
+            .collect();
+        StoreSnapshot::capture(&envref.get_async_store(), &keys).await?
+    };
+    let store = AsyncMemoryStore::new(&Key::new());
+    snapshot.replay_into(&store).await?;
+    let mut a_metadata = store.get_metadata(&key("data/a.txt")).await?;
+    a_metadata.set_version(Some(Version::new(0xB0_0B)))?;
+    store.set_metadata(&key("data/a.txt"), &a_metadata).await?;
+    let status_before = a_metadata.status();
+    let mut env = TestEnv::new();
+    register_provenance_commands(&mut env.command_registry);
+    env.with_async_store(Box::new(store));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    let envref = env.to_ref();
+    // `a.txt` stays unloaded: loading it would register its moved version and make `b.txt` refuse
+    // to load, leaving the audit nothing to expire.
+    let b = live(&envref, "data/b.txt").await?;
+    let report_asset = live(&envref, "data/report.txt").await?;
+
+    let report = within(envref.get_asset_manager().trigger_dependency_audit_with(
+        &liquers_core::parse::parse_query("-R/data/b.txt")?,
+        AuditMode::Expire,
+    ))
+    .await?;
+
+    assert!(
+        report.expired.contains(&dep("data/b.txt")) || b.status().await == Status::Expired,
+        "precondition: the audit must have expired a dependent: {report:?}"
+    );
+    assert_eq!(b.status().await, Status::Expired);
+    assert_eq!(report_asset.status().await, Status::Expired);
+    assert!(!report.expired.contains(&dep("data/a.txt")), "{report:?}");
+    let a = live(&envref, "data/a.txt").await?;
+    assert_eq!(a.status().await, status_before, "the audited key keeps its status");
+    assert_eq!(a.get_metadata().await?.expiry_reason(), None, "and has no expiry reason");
+    let stored = stored(&envref, "data/a.txt").await?;
+    assert_eq!(stored.status(), status_before);
+    assert_eq!(stored.expiry_reason(), None);
     Ok(())
 }

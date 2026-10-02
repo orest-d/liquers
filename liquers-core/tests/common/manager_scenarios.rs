@@ -777,3 +777,67 @@ where
     }
     Ok(())
 }
+
+/// A restarted environment over the persisted chain audits a moved dependency and expires its
+/// dependents, with the reason `Cascaded { Audit { found } }`.
+///
+/// `make_env` builds a fresh environment, with the provenance commands registered, over the store
+/// it is given. Called twice: once for the process that computes the chain, once for the "restart"
+/// over a replayed copy of what the first one persisted. Expects [`provenance_store`]`(false)`.
+pub async fn scenario_audit_after_restart<E, F>(make_env: F) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+    F: Fn(AsyncMemoryStore) -> EnvRef<E>,
+{
+    use liquers_core::metadata::{DependencyKey, ExpiryCause, ExpiryReason, Version};
+    let a = parse_key("data/a.txt")?;
+    let b = parse_key("data/b.txt")?;
+    let keys = [parse_key("data/recipes.yaml")?, a.clone(), b.clone(), parse_key("data/report.txt")?];
+
+    let first = make_env(provenance_store(false).await?);
+    first
+        .get_asset_manager()
+        .set_binary(&a, b"hello", provenance_text_metadata())
+        .await?;
+    provenance_evaluate_chain(&first).await?;
+    let first_store = first.get_async_store();
+    let mut persisted = Vec::new();
+    for key in &keys {
+        let (bytes, metadata) = first_store.get(key).await?;
+        persisted.push((key.clone(), bytes, metadata));
+    }
+
+    let replay = AsyncMemoryStore::new(&Key::new());
+    for (key, bytes, metadata) in &persisted {
+        replay.set(key, bytes, metadata).await?;
+    }
+    let moved = Version::new(0xB0_0B);
+    let mut a_metadata = replay.get_metadata(&a).await?;
+    a_metadata.set_version(Some(moved))?;
+    replay.set_metadata(&a, &a_metadata).await?;
+    let second = make_env(replay);
+
+    let loaded = second.get_asset_manager().get(&b).await?;
+    let _ = loaded.get().await?;
+    assert_eq!(loaded.status().await, Status::Ready, "precondition: served as stored");
+
+    let report = second
+        .get_asset_manager()
+        .trigger_dependency_audit(&q("-R/data/b.txt"))
+        .await?;
+
+    let b_dep = DependencyKey::from(&b);
+    assert_eq!(report.expired, vec![b_dep.clone()]);
+    assert_eq!(report.findings.len(), 1);
+    assert_eq!(report.findings[0].found, moved);
+    assert_eq!(loaded.status().await, Status::Expired);
+    assert_eq!(
+        loaded.get_metadata().await?.expiry_reason(),
+        Some(ExpiryReason::Cascaded {
+            cause: ExpiryCause::Audit { found: moved },
+            root: DependencyKey::from(&a),
+            via: DependencyKey::from(&a),
+        })
+    );
+    Ok(())
+}

@@ -8,8 +8,8 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 148
-- P2: 79
+Total rows: 149
+- P2: 80
 - P3: 69
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
@@ -45,6 +45,7 @@ Total rows: 148
 | [`DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED`](issues/DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED.md) | issue | Directory listing dependency is never registered or checked | in_progress |  | P2 | M | core/assets | [phase1](specs/design/dependency-audit-and-expiry-provenance/phase1-high-level-design.md)  [phase2](specs/design/dependency-audit-and-expiry-provenance/phase2-architecture.md)  [phase3](specs/design/dependency-audit-and-expiry-provenance/phase3-examples.md)  [phase4](specs/design/dependency-audit-and-expiry-provenance/phase4-implementation.md)  [phase5](specs/design/dependency-audit-and-expiry-provenance/phase5-documentation.md)  | 2026-09-17 |
 | [`EGUI-ASSET-MANAGER-INTEGRATION`](issues/EGUI-ASSET-MANAGER-INTEGRATION.md) | feature | No stable adapter between egui widgets and the asset manager | accepted |  | P2 | M | lib/egui |  | 2026-08-08 |
 | [`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`](issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md) | issue | Environment and asset manager hold each other with strong Arcs, so every environment leaks | draft |  | P2 | M | core/assets;core/context | [phase1](specs/design/environment-builder/phase1-high-level-design.md)  [phase2](specs/design/environment-builder/phase2-architecture.md)  [phase3](specs/design/environment-builder/phase3-examples.md)  [phase4](specs/design/environment-builder/phase4-implementation.md)  [phase5](specs/design/environment-builder/phase5-documentation.md)  | 2026-08-27 |
+| [`EVALUATING-A-LONG-DEPENDENCY-CHAIN-GETS-SUPER-LINEARLY-SLOW`](issues/EVALUATING-A-LONG-DEPENDENCY-CHAIN-GETS-SUPER-LINEARLY-SLOW.md) | issue | Evaluating a long dependency chain gets super-linearly slow | draft |  | P2 | M | core/assets |  | 2026-10-02 |
 | [`EXPIRY-RECORDS-NO-REASON`](issues/EXPIRY-RECORDS-NO-REASON.md) | issue | An asset that becomes Expired records no reason, and the one path that does names the dependency by asset id | in_progress |  | P2 | M | core/assets | [phase1](specs/design/dependency-audit-and-expiry-provenance/phase1-high-level-design.md)  [phase2](specs/design/dependency-audit-and-expiry-provenance/phase2-architecture.md)  [phase3](specs/design/dependency-audit-and-expiry-provenance/phase3-examples.md)  [phase4](specs/design/dependency-audit-and-expiry-provenance/phase4-implementation.md)  [phase5](specs/design/dependency-audit-and-expiry-provenance/phase5-documentation.md)  | 2026-09-04 |
 | [`FREE-FUNCTION-EVALUATE-BAKES-A-BIN-DATA-FORMAT`](issues/FREE-FUNCTION-EVALUATE-BAKES-A-BIN-DATA-FORMAT.md) | issue | Every unkeyed/ad-hoc asset declares a bin data format it usually cannot serialize as | draft |  | P2 | M | core/plan |  | 2026-09-26 |
 | [`INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS`](issues/INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS.md) | issue | An inline run dropped mid-flight leaves callers already waiting on it parked forever | draft |  | P2 | M | core/assets;web |  | 2026-09-04 |
