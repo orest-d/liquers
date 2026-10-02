@@ -222,6 +222,11 @@ impl DependencyKey {
         self.0.starts_with("ns-dep/command_impl-")
     }
 
+    /// True for `-R/` and `-R-dir/` keys, whose version a store can answer.
+    pub fn is_store_resolvable(&self) -> bool {
+        self.is_pure_key() || self.is_dir_key()
+    }
+
     fn extract_prefixed_key(&self, prefix: &str) -> Result<Option<Key>, Error> {
         if self.0 == prefix {
             return Ok(Some(Key::new()));
@@ -400,6 +405,140 @@ pub enum Status {
 impl Default for Status {
     fn default() -> Self {
         Self::None
+    }
+}
+
+/// What happened to the root key of an expiration.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ExpiryCause {
+    /// The root's own expiration time elapsed (queued monitor, or the immediate manager's lazy check).
+    Deadline { expiration_time: ExpirationTime },
+    /// Someone asked: `AssetRef::expire`, directly or through an API.
+    Explicit,
+    /// An audit found that the root's current version is not the one its dependents recorded.
+    /// `found` is the current version, `Version::unknown()` (0) when the root has none.
+    Audit { found: Version },
+    /// The root was evaluated with a dependency that expired mid-evaluation (the stale-value policy).
+    StaleDependency { dependency: DependencyKey },
+    /// The root's stored bytes no longer match its recorded version, detected when it was read
+    /// (Part G). `actual` is the new content hash.
+    UpdatedInStore { actual: Version },
+    /// The root received new content through Liquers (recomputed, `set_state`, `set_binary`, a new
+    /// command version, a changed folder listing). `version` is the new version.
+    Updated { version: Version },
+    /// The root was removed (`AssetManager::remove` of a `Source` or `Override`).
+    Removed,
+}
+
+/// Why an asset is `Expired`. Recorded, never consulted by read paths: every consumer treats
+/// `Expired` the same regardless of reason (see `EXPIRY-RECORDS-NO-REASON` for why this is not a
+/// `Status` variant).
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(tag = "scope", rename_all = "snake_case")]
+pub enum ExpiryReason {
+    /// This asset is the root.
+    Direct { cause: ExpiryCause },
+    /// `root` is the key the cause happened to; `via` is this asset's own dependency through which
+    /// the cascade reached it.
+    Cascaded {
+        cause: ExpiryCause,
+        root: DependencyKey,
+        via: DependencyKey,
+    },
+}
+
+impl ExpiryReason {
+    /// The cause at the root of this reason.
+    pub fn cause(&self) -> &ExpiryCause {
+        match self {
+            ExpiryReason::Direct { cause } => cause,
+            ExpiryReason::Cascaded { cause, .. } => cause,
+        }
+    }
+
+    /// Default log entry for `subject` (the expired asset's key, or its query when it has none).
+    /// Used by `AssetManager::record_expiry`'s default body.
+    ///
+    /// Wording (Phase 4 Step 2 of `design/dependency-audit-and-expiry-provenance/`): a direct reason
+    /// reads "`{subject}` expired: `{what happened to it}`"; a cascaded one reads "`{subject}`
+    /// expired: `{what happened to root}` triggered a cascade expiration", followed by " via direct
+    /// dependency `{via}`" iff `via != root`. No version number or asset id appears.
+    pub fn log_entry(&self, subject: &str) -> LogEntry {
+        let cause = self.cause();
+        let message = match self {
+            ExpiryReason::Direct { cause } => {
+                format!("{} expired: {}", subject, Self::direct_phrase(cause))
+            }
+            ExpiryReason::Cascaded { cause, root, via } => {
+                let mut message = format!(
+                    "{} expired: {} triggered a cascade expiration",
+                    subject,
+                    Self::cascaded_phrase(cause, root)
+                );
+                if via != root {
+                    message.push_str(&format!(" via direct dependency {}", via));
+                }
+                message
+            }
+        };
+        LogEntry::new(Self::log_level(cause), message)
+    }
+
+    /// Log level per cause: the contract working as designed is `Info`; a stored assumption found
+    /// false, or a departure from the normal contract, is `Warning`.
+    fn log_level(cause: &ExpiryCause) -> LogEntryKind {
+        match cause {
+            ExpiryCause::Deadline { .. }
+            | ExpiryCause::Explicit
+            | ExpiryCause::Updated { .. }
+            | ExpiryCause::Removed => LogEntryKind::Info,
+            ExpiryCause::Audit { .. }
+            | ExpiryCause::StaleDependency { .. }
+            | ExpiryCause::UpdatedInStore { .. } => LogEntryKind::Warning,
+        }
+    }
+
+    /// What happened to the expired asset itself (direct scope).
+    fn direct_phrase(cause: &ExpiryCause) -> String {
+        match cause {
+            ExpiryCause::Deadline { expiration_time } => {
+                format!("its expiration time {} passed", expiration_time)
+            }
+            ExpiryCause::Explicit => "expiration was requested explicitly".to_string(),
+            ExpiryCause::Audit { .. } => {
+                "an audit found it at a different version than recorded".to_string()
+            }
+            ExpiryCause::StaleDependency { dependency } => {
+                format!("it was evaluated with the expired value of {}", dependency)
+            }
+            ExpiryCause::UpdatedInStore { .. } => {
+                "its stored content was changed outside Liquers".to_string()
+            }
+            ExpiryCause::Updated { .. } => "it received new content".to_string(),
+            ExpiryCause::Removed => "it was removed".to_string(),
+        }
+    }
+
+    /// What happened to `root` (cascaded scope).
+    fn cascaded_phrase(cause: &ExpiryCause, root: &DependencyKey) -> String {
+        match cause {
+            ExpiryCause::Deadline { .. } => format!("expiration deadline on {}", root),
+            ExpiryCause::Explicit => format!("explicit expiration of {}", root),
+            ExpiryCause::Audit { .. } => format!(
+                "an audit that found {} at a different version than recorded",
+                root
+            ),
+            ExpiryCause::StaleDependency { dependency } => format!(
+                "the evaluation of {} with the expired value of {}",
+                root, dependency
+            ),
+            ExpiryCause::UpdatedInStore { .. } => {
+                format!("a change to {} made in the store outside Liquers", root)
+            }
+            ExpiryCause::Updated { .. } => format!("new content of {}", root),
+            ExpiryCause::Removed => format!("the removal of {}", root),
+        }
     }
 }
 
@@ -834,12 +973,18 @@ pub struct AssetInfo {
     /// The contract: `specs/design/record-streams/phase2-architecture.md`, §"C. `stored` and `cached`".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cached: Option<bool>,
+
+    /// Why this asset is `Expired`. Meaningful only while `status == Expired`; read it through
+    /// `Metadata::expiry_reason()`, which enforces that.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expiry_reason: Option<ExpiryReason>,
 }
 
 impl AssetInfo {
     pub fn new() -> AssetInfo {
         AssetInfo {
             is_error: false,
+            expiry_reason: None,
             ..Self::default()
         }
     }
@@ -935,6 +1080,7 @@ impl From<AssetInfo> for MetadataRecord {
         metadata.expiration_time = asset_info.expiration_time;
         metadata.stored = asset_info.stored;
         metadata.cached = asset_info.cached;
+        metadata.expiry_reason = asset_info.expiry_reason;
         metadata
     }
 }
@@ -1088,6 +1234,11 @@ pub struct MetadataRecord {
     /// The contract: `specs/design/record-streams/phase2-architecture.md`, §"C. `stored` and `cached`".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cached: Option<bool>,
+
+    /// Why this asset is `Expired`. Meaningful only while `status == Expired`; read it through
+    /// `Metadata::expiry_reason()`, which enforces that.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expiry_reason: Option<ExpiryReason>,
 }
 
 mod query_format {
@@ -1247,6 +1398,7 @@ impl MetadataRecord {
             expiration_time: self.expiration_time.clone(),
             stored: self.stored,
             cached: self.cached,
+            expiry_reason: self.expiry_reason.clone(),
         }
     }
 
@@ -1278,6 +1430,9 @@ impl MetadataRecord {
     pub fn with_status(&mut self, status: Status) -> &mut Self {
         self.status = status;
         self.is_error = status == Status::Error;
+        if status != Status::Expired {
+            self.expiry_reason = None;
+        }
         self.set_updated_now();
         self
     }
@@ -2140,6 +2295,9 @@ impl Metadata {
         match self {
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
                 o.insert("status".to_string(), serde_json::to_value(status).unwrap());
+                if status != Status::Expired {
+                    o.remove("expiry_reason");
+                }
                 Ok(())
             }
             Metadata::MetadataRecord(m) => {
@@ -2149,6 +2307,9 @@ impl Metadata {
             Metadata::LegacyMetadata(serde_json::Value::Null) => {
                 let mut m = MetadataRecord::new();
                 m.status = status;
+                if status != Status::Expired {
+                    m.expiry_reason = None;
+                }
                 *self = Metadata::MetadataRecord(m);
                 Ok(())
             }
@@ -2209,6 +2370,39 @@ impl Metadata {
             }
             Metadata::LegacyMetadata(_) => Err(Error::general_error(
                 "Cannot set dependencies on unsupported legacy metadata".to_string(),
+            )),
+        }
+    }
+
+    /// Get the expiry reason from metadata, if available and status is Expired.
+    pub fn expiry_reason(&self) -> Option<ExpiryReason> {
+        match self {
+            Metadata::MetadataRecord(m) => {
+                if m.status == Status::Expired {
+                    m.expiry_reason.clone()
+                } else {
+                    None
+                }
+            }
+            Metadata::LegacyMetadata(_) => None,
+        }
+    }
+
+    /// Set the expiry reason in metadata.
+    pub fn set_expiry_reason(&mut self, reason: ExpiryReason) -> Result<(), Error> {
+        match self {
+            Metadata::MetadataRecord(m) => {
+                m.expiry_reason = Some(reason);
+                Ok(())
+            }
+            Metadata::LegacyMetadata(serde_json::Value::Null) => {
+                let mut m = MetadataRecord::new();
+                m.expiry_reason = Some(reason);
+                *self = Metadata::MetadataRecord(m);
+                Ok(())
+            }
+            Metadata::LegacyMetadata(_) => Err(Error::general_error(
+                "Cannot set expiry reason on unsupported legacy metadata".to_string(),
             )),
         }
     }
@@ -3538,5 +3732,232 @@ mod tests {
         assert_eq!(null_version.0, 0);
         assert_eq!(null_version.kind(), VersionKind::Unknown);
         assert_eq!(null_version.is_unknown(), true);
+    }
+
+    #[test]
+    fn expiry_reason_round_trips_json_and_yaml() {
+        let reason = ExpiryReason::Direct {
+            cause: ExpiryCause::Explicit,
+        };
+
+        let json = serde_json::to_string(&reason).unwrap();
+        let restored: ExpiryReason = serde_json::from_str(&json).unwrap();
+        assert_eq!(reason, restored);
+    }
+
+    #[test]
+    fn expiry_reason_is_internally_tagged_snake_case() {
+        let reason = ExpiryReason::Direct {
+            cause: ExpiryCause::Explicit,
+        };
+
+        let json = serde_json::to_string(&reason).unwrap();
+        assert!(json.contains("\"scope\":\"direct\""));
+        assert!(json.contains("\"kind\":\"explicit\""));
+    }
+
+    #[test]
+    fn expiry_reason_json_shape() {
+        let reason = ExpiryReason::Cascaded {
+            cause: ExpiryCause::Updated { version: Version::new(123) },
+            root: DependencyKey::new("-R/data/a.csv"),
+            via: DependencyKey::new("-R/data/b.csv"),
+        };
+
+        let json = serde_json::to_string(&reason).unwrap();
+        let restored: ExpiryReason = serde_json::from_str(&json).unwrap();
+        assert_eq!(reason, restored);
+    }
+
+    #[test]
+    fn log_line_format_per_cause() {
+        // Test direct forms
+        let direct_deadline = ExpiryReason::Direct {
+            cause: ExpiryCause::Deadline {
+                expiration_time: ExpirationTime::At(chrono::Utc::now()),
+            },
+        };
+        let entry = direct_deadline.log_entry("data/a.csv");
+        assert!(entry.message.contains("data/a.csv expired:"));
+        assert!(entry.message.contains("expiration time"));
+        assert_eq!(entry.kind, LogEntryKind::Info);
+
+        let direct_explicit = ExpiryReason::Direct {
+            cause: ExpiryCause::Explicit,
+        };
+        let entry = direct_explicit.log_entry("data/b.csv");
+        assert!(entry.message.contains("data/b.csv expired:"));
+        assert!(entry.message.contains("expiration was requested explicitly"));
+        assert_eq!(entry.kind, LogEntryKind::Info);
+
+        // Test cascaded forms
+        let cascaded_same = ExpiryReason::Cascaded {
+            cause: ExpiryCause::Updated { version: Version::new(456) },
+            root: DependencyKey::new("-R/data/a.csv"),
+            via: DependencyKey::new("-R/data/a.csv"),
+        };
+        let entry = cascaded_same.log_entry("data/report.txt");
+        assert!(entry.message.contains("data/report.txt expired:"));
+        assert!(entry.message.contains("triggered a cascade expiration"));
+        assert!(!entry.message.contains("via direct dependency"));
+        assert_eq!(entry.kind, LogEntryKind::Info);
+
+        let cascaded_diff = ExpiryReason::Cascaded {
+            cause: ExpiryCause::Updated { version: Version::new(789) },
+            root: DependencyKey::new("-R/data/a.csv"),
+            via: DependencyKey::new("-R/data/b.csv"),
+        };
+        let entry = cascaded_diff.log_entry("data/report.txt");
+        assert!(entry.message.contains("via direct dependency -R/data/b.csv"));
+        assert_eq!(entry.kind, LogEntryKind::Info);
+
+        // Test warning level causes
+        let cascaded_audit = ExpiryReason::Cascaded {
+            cause: ExpiryCause::Audit { found: Version::new(111) },
+            root: DependencyKey::new("-R/data/a.csv"),
+            via: DependencyKey::new("-R/data/a.csv"),
+        };
+        let entry = cascaded_audit.log_entry("data/report.txt");
+        assert_eq!(entry.kind, LogEntryKind::Warning);
+    }
+
+    #[test]
+    fn expiry_reason_log_entry_uses_the_query_when_the_asset_has_no_key() {
+        let reason = ExpiryReason::Direct {
+            cause: ExpiryCause::Explicit,
+        };
+
+        let entry = reason.log_entry("some-query");
+        assert!(entry.message.contains("some-query expired:"));
+    }
+
+    #[test]
+    fn record_without_expiry_reason_loads() {
+        let json = r#"{
+            "log": [],
+            "query": "",
+            "key": null,
+            "status": "Ready",
+            "type_identifier": "test",
+            "is_error": false,
+            "unicode_icon": "📄",
+            "is_dir": false,
+            "progress": [],
+            "updated": "2026-01-01T00:00:00Z",
+            "is_volatile": false
+        }"#;
+
+        let record: MetadataRecord = serde_json::from_str(json).unwrap();
+        assert_eq!(record.expiry_reason, None);
+    }
+
+    #[test]
+    fn non_expired_record_json_is_unchanged() {
+        let mut record = MetadataRecord::new();
+        record.status = Status::Ready;
+        record.expiry_reason = None;
+
+        let json = serde_json::to_string(&record).unwrap();
+        assert!(!json.contains("expiry_reason"));
+    }
+
+    #[test]
+    fn expired_record_serializes_reason() {
+        let mut record = MetadataRecord::new();
+        record.status = Status::Expired;
+        record.expiry_reason = Some(ExpiryReason::Direct {
+            cause: ExpiryCause::Explicit,
+        });
+
+        let json = serde_json::to_string(&record).unwrap();
+        assert!(json.contains("expiry_reason"));
+        assert!(json.contains("\"scope\":\"direct\""));
+    }
+
+    #[test]
+    fn unknown_field_record_degrades_to_legacy() {
+        let json = r#"{
+            "log": [],
+            "query": "",
+            "status": "Ready",
+            "type_identifier": "test",
+            "is_error": false,
+            "unicode_icon": "📄",
+            "is_dir": false,
+            "progress": [],
+            "updated": "2026-01-01T00:00:00Z",
+            "is_volatile": false,
+            "custom_field": "this_should_cause_degradation"
+        }"#;
+
+        let metadata = Metadata::from_json(json).unwrap();
+        assert!(matches!(metadata, Metadata::LegacyMetadata(_)));
+    }
+
+    #[test]
+    fn expiry_reason_accessor_hides_reason_unless_expired() {
+        let mut metadata = Metadata::MetadataRecord(MetadataRecord::new());
+        metadata.set_status(Status::Ready).unwrap();
+        let _ = metadata.set_expiry_reason(ExpiryReason::Direct {
+            cause: ExpiryCause::Explicit,
+        });
+
+        // Reason should be hidden because status is not Expired
+        assert_eq!(metadata.expiry_reason(), None);
+
+        metadata.set_status(Status::Expired).unwrap();
+        // Now we need to manually set the reason since set_status might have cleared it
+        let _ = metadata.set_expiry_reason(ExpiryReason::Direct {
+            cause: ExpiryCause::Explicit,
+        });
+
+        // Reason should be visible when status is Expired
+        assert!(metadata.expiry_reason().is_some());
+    }
+
+    #[test]
+    fn asset_info_projects_expiry_reason() {
+        let mut record = MetadataRecord::new();
+        record.status = Status::Expired;
+        record.expiry_reason = Some(ExpiryReason::Direct {
+            cause: ExpiryCause::Explicit,
+        });
+
+        // Test projection from MetadataRecord to AssetInfo
+        let info = record.get_asset_info();
+        assert_eq!(info.expiry_reason, record.expiry_reason);
+
+        // Test projection from AssetInfo to MetadataRecord
+        let record2: MetadataRecord = info.into();
+        assert_eq!(record2.expiry_reason, record.expiry_reason);
+    }
+
+    #[test]
+    fn dependency_key_is_store_resolvable() {
+        let pure_key = DependencyKey::new("-R/data/file.csv");
+        assert!(pure_key.is_store_resolvable());
+
+        let dir_key = DependencyKey::new("-R-dir/data");
+        assert!(dir_key.is_store_resolvable());
+
+        let cmd_key = DependencyKey::new("ns-dep/command_metadata-realm-ns-name");
+        assert!(!cmd_key.is_store_resolvable());
+
+        let recipe_key = DependencyKey::new("-R-recipe/data/file.csv");
+        assert!(!recipe_key.is_store_resolvable());
+    }
+
+    #[test]
+    fn set_status_clears_expiry_reason() {
+        let mut metadata = Metadata::MetadataRecord(MetadataRecord::new());
+        metadata.set_status(Status::Expired).unwrap();
+        let _ = metadata.set_expiry_reason(ExpiryReason::Direct {
+            cause: ExpiryCause::Explicit,
+        });
+
+        assert!(metadata.expiry_reason().is_some());
+
+        metadata.set_status(Status::Ready).unwrap();
+        assert!(metadata.expiry_reason().is_none());
     }
 }
