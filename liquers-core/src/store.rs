@@ -405,15 +405,28 @@ pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSyn
         self.get(key).await.map(|(_, metadata)| metadata)
     }
 
-    /// Get asset info
+    /// Get asset info.
+    ///
+    /// A directory's info is built from `default_metadata(key, true)` without reading its
+    /// metadata. `AssetInfo` carries no children, so populating them only to discard them made
+    /// one directory read walk the whole subtree: `get_metadata` on a directory fills `children`
+    /// through `listdir_asset_info`, which calls this per child (STORE_SEMANTICS §2).
     async fn get_asset_info(&self, key: &Key) -> Result<metadata::AssetInfo, Error> {
+        if self.is_dir(key).await? {
+            let mut info = self.default_metadata(key, true).get_asset_info();
+            info.with_key(key.to_owned());
+            info.is_dir = true;
+            return Ok(info);
+        }
+        // `Metadata::get_asset_info` returns `Result` (legacy metadata can fail to convert);
+        // `MetadataRecord::get_asset_info` above does not.
         let mut info = self
             .get_metadata(key)
             .await?
             .get_asset_info()
             .unwrap_or_else(|_e| AssetInfo::new());
         info.with_key(key.to_owned());
-        info.is_dir = self.is_dir(key).await?;
+        info.is_dir = false;
         Ok(info)
     }
 
@@ -1310,16 +1323,36 @@ impl AsyncStore for AsyncFileStore {
             .await
             .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?;
         let mut names = Vec::new();
+        let mut seen = std::collections::HashSet::new();
         while let Some(entry) = dir
             .next_entry()
             .await
             .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?
         {
-            let name = entry.file_name().to_string_lossy().to_string();
-            // The same predicate the path builders use. Skipping rather than failing is what
-            // §8 requires, and it is not optional: `listdir_keys_deep` calls `is_dir` on every
-            // child, so a reserved name left in a listing would make `keys()` fail outright.
-            if !Self::RESERVED.is_reserved_name(&name) {
+            let entry_name = entry.file_name().to_string_lossy().to_string();
+            // A sidecar implies its data key (§8): `orphan.__metadata__` is listed as `orphan`, so
+            // a key that has metadata and no data is still enumerable. The data file and its
+            // sidecar imply the same name, which is listed once. Only a *file* is a sidecar: a
+            // directory that happens to carry the suffix is a reserved entry, not metadata, and is
+            // left undecoded so the filter below skips it rather than inventing a key.
+            let is_file = entry
+                .file_type()
+                .await
+                .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?
+                .is_file();
+            let implied = if is_file {
+                entry_name.strip_suffix(METADATA_SUFFIX).map(str::to_owned)
+            } else {
+                None
+            };
+            let name = implied.unwrap_or(entry_name);
+            // The same predicate the path builders use, applied to the *implied* name too.
+            // Skipping rather than failing is what §8 requires, and it is not optional:
+            // `listdir_keys_deep` calls `is_dir` on every child, so a reserved name left in a
+            // listing would make `keys()` fail outright. An entry that is exactly the suffix
+            // implies the empty name, which is not a key.
+            if !name.is_empty() && !Self::RESERVED.is_reserved_name(&name) && seen.insert(name.clone())
+            {
                 names.push(name);
             }
         }
@@ -2281,6 +2314,173 @@ mod tests {
 
     use crate::parse::parse_key;
 
+    /// Records the `get` and `listdir` calls that reach an `AsyncMemoryStore`.
+    ///
+    /// Only the methods without a usable default are forwarded, so `get_metadata`,
+    /// `get_asset_info` and `listdir_asset_info` are the trait's own bodies — which is what the
+    /// one-level tests below are about. `get_metadata` itself cannot be counted for the same
+    /// reason: it is not forwarded, so the default runs.
+    struct CountingStore {
+        inner: AsyncMemoryStore,
+        calls: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl CountingStore {
+        fn new() -> Self {
+            CountingStore {
+                inner: AsyncMemoryStore::new(&Key::new()),
+                calls: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+        fn log(&self, call: &str, key: &Key) {
+            if let Ok(mut calls) = self.calls.lock() {
+                calls.push(format!("{call}({})", key.encode()));
+            }
+        }
+        fn called(&self, call: &str, key: &str) -> bool {
+            let wanted = format!("{call}({key})");
+            self.calls
+                .lock()
+                .map(|calls| calls.iter().any(|c| *c == wanted))
+                .unwrap_or(false)
+        }
+        fn count(&self) -> usize {
+            self.calls.lock().map(|calls| calls.len()).unwrap_or(0)
+        }
+        fn reset(&self) {
+            if let Ok(mut calls) = self.calls.lock() {
+                calls.clear();
+            }
+        }
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl AsyncStore for CountingStore {
+        async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+            self.log("get", key);
+            self.inner.get(key).await
+        }
+        async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+            self.inner.set(key, data, metadata).await
+        }
+        async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+            self.inner.set_metadata(key, metadata).await
+        }
+        async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+            self.inner.is_dir(key).await
+        }
+        async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+            self.log("listdir", key);
+            self.inner.listdir(key).await
+        }
+    }
+
+    /// Reading a directory's metadata describes its children without reading *their* children.
+    #[tokio::test]
+    async fn default_directory_metadata_reads_one_level() -> Result<(), Error> {
+        let store = CountingStore::new();
+        store
+            .set(&parse_key("a/b/c/leaf")?, b"x", &Metadata::new())
+            .await?;
+        store.reset();
+
+        let Metadata::MetadataRecord(record) = store.get_metadata(&parse_key("a")?).await? else {
+            panic!("directory metadata must be a record");
+        };
+        assert_eq!(record.children.len(), 1);
+        assert!(record.children[0].is_dir);
+        assert!(store.called("listdir", "a"));
+        assert!(
+            !store.called("listdir", "a/b"),
+            "the child directory a/b was listed: the read recursed"
+        );
+        assert!(
+            !store.called("get", "a/b/c/leaf"),
+            "a grandchild was read: the read recursed"
+        );
+        Ok(())
+    }
+
+    /// A fresh `AsyncFileStore` over a uniquely named temporary directory.
+    async fn temp_file_store(label: &str) -> Result<(AsyncFileStore, PathBuf), Error> {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        let root = std::env::temp_dir().join(format!("lq-listdir-{label}-{nanos}"));
+        tokio::fs::create_dir_all(&root)
+            .await
+            .map_err(|e| Error::general_error(format!("temp dir: {e}")))?;
+        let store = AsyncFileStore::new(root.to_string_lossy().as_ref(), &Key::new());
+        Ok((store, root))
+    }
+
+    /// A key that has metadata and no data is listed, by its own name (§8).
+    #[tokio::test]
+    async fn file_store_lists_a_metadata_only_key() -> Result<(), Error> {
+        let (store, root) = temp_file_store("metaonly").await?;
+        store
+            .set_metadata(&parse_key("sub/orphan")?, &Metadata::new())
+            .await?;
+        let names = store.listdir(&parse_key("sub")?).await;
+        let _ = tokio::fs::remove_dir_all(&root).await;
+        assert_eq!(names?, vec!["orphan".to_owned()]);
+        Ok(())
+    }
+
+    /// Data and its sidecar imply the same name, which is listed once.
+    #[tokio::test]
+    async fn file_store_lists_data_and_sidecar_once() -> Result<(), Error> {
+        let (store, root) = temp_file_store("dedup").await?;
+        store
+            .set(&parse_key("sub/file.txt")?, b"x", &Metadata::new())
+            .await?;
+        let names = store.listdir(&parse_key("sub")?).await;
+        let _ = tokio::fs::remove_dir_all(&root).await;
+        assert_eq!(names?, vec!["file.txt".to_owned()]);
+        Ok(())
+    }
+
+    /// A sidecar whose implied name is reserved, a lock file, the legacy metadata folder, an
+    /// entry that is exactly the suffix and a directory carrying the suffix are all skipped rather
+    /// than listed.
+    #[tokio::test]
+    async fn file_store_skips_sidecars_implying_reserved_names() -> Result<(), Error> {
+        let (store, root) = temp_file_store("reserved").await?;
+        let sub = root.join("sub");
+        let setup = async {
+            tokio::fs::create_dir_all(sub.join(METADATA_FOLDER)).await?;
+            // A *directory* carrying the suffix is a reserved entry, not a sidecar: no `z` key.
+            tokio::fs::create_dir_all(sub.join(format!("z{METADATA_SUFFIX}"))).await?;
+            tokio::fs::write(sub.join(format!("x{LOCK_SUFFIX}{METADATA_SUFFIX}")), b"{}").await?;
+            tokio::fs::write(sub.join(format!("y{LOCK_SUFFIX}")), b"").await?;
+            tokio::fs::write(sub.join(METADATA_SUFFIX), b"{}").await?;
+            tokio::fs::write(sub.join("kept.txt"), b"x").await
+        };
+        setup
+            .await
+            .map_err(|e| Error::general_error(format!("setup: {e}")))?;
+        let names = store.listdir(&parse_key("sub")?).await;
+        let _ = tokio::fs::remove_dir_all(&root).await;
+        assert_eq!(names?, vec!["kept.txt".to_owned()]);
+        Ok(())
+    }
+
+    /// A directory's asset info is directory-shaped and costs no data read or listing.
+    #[tokio::test]
+    async fn default_directory_asset_info_is_directory_shaped() -> Result<(), Error> {
+        let store = CountingStore::new();
+        store.set(&parse_key("a/b/leaf")?, b"x", &Metadata::new()).await?;
+        store.reset();
+
+        let info = store.get_asset_info(&parse_key("a/b")?).await?;
+        assert!(info.is_dir);
+        assert_eq!(info.key, Some(parse_key("a/b")?));
+        assert_eq!(store.count(), 0, "a directory's asset info read or listed something");
+        Ok(())
+    }
+
     #[test]
     fn test_simple_store() -> Result<(), Error> {
         let store = MemoryStore::new(&Key::new());
@@ -2770,6 +2970,9 @@ mod key_absolute_tests {
     ///
     /// `DirOnlyStore` implements the two methods that have no default, plus `is_dir`. Everything
     /// else exercised here is the trait's own body, so this checks the default and not an override.
+    ///
+    /// Same contract as conformance rule `dir05`, which the trait-defaults suite (`C4`) cannot run
+    /// because it declares no directory support — so this is the only check of it for the defaults.
     #[tokio::test]
     async fn traitdef01_default_contains_falls_back_to_is_dir() -> Result<(), Error> {
         struct DirOnlyStore;

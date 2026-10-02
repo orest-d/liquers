@@ -13,8 +13,8 @@
 //!
 //! | Method | Required | Absent ⇒ |
 //! |---|---|---|
-//! | `get(key)` → `{data, metadata}` | **yes** | construction fails |
-//! | `getMetadata(key)` → object | no | derived from `get` |
+//! | `get(key)` → `{data, metadata}`, or `null`/`undefined` when absent | **yes** | construction fails |
+//! | `getMetadata(key)` → object, or `null`/`undefined` when absent | no | derived from `get` |
 //! | `set` / `setMetadata` / `remove` / `removedir` / `makedir` | no | `KeyNotSupported` |
 //! | `contains(key)` / `isDir(key)` / `listdir(key)` | no | `KeyNotSupported` |
 //! | `isSupported(key)` → bool (**sync**) | no | every key under the prefix is supported |
@@ -25,6 +25,17 @@
 //! vacuously. Failing loudly is worth more than a default that lies. `isSupported` is the one
 //! exception: it is synchronous, and a store answering "no" to everything is invisible to the
 //! router, so its absence means *supported*.
+//!
+//! **Absence is `null` or `undefined`; failure is a thrown value.** Either read method returning
+//! `null`/`undefined` becomes `KeyNotFound`, and anything thrown becomes `KeyReadError` — the
+//! distinction STORE_SEMANTICS §4 makes load-bearing. So a `getMetadata` returning `null` for a key
+//! that exists reads as absent; before 2026-09-29 it produced an empty record, and a delegate that
+//! relied on that should return `{}`.
+//!
+//! **Directories.** A directory has no data, so the data path reports it absent. `get_metadata`
+//! then asks `isDir`, and if it answers truthy returns directory metadata whose `children` come
+//! from `listdir` (STORE_SEMANTICS §2). Only absence leads there: a thrown value is returned as the
+//! failure it is.
 //!
 //! Methods are resolved **once, at construction**, so a missing one fails at registration with a
 //! message naming it, rather than as a `TypeError` at first use — and so removing a method from
@@ -195,16 +206,45 @@ impl AsyncStore for JsStore {
         ))
     }
 
+    /// The data path first, then — only when it says the key is absent — the directory branch.
+    ///
+    /// Data first because `isDir` is optional in the protocol, and because a file read then costs
+    /// one call rather than two. A thrown value is a failure (`KeyReadError`) and is returned as
+    /// is: a failure is never reinterpreted as a directory.
     async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
         check_key(key, &self.store_name())?;
-        match &self.methods.get_metadata {
+        let data_path = match &self.methods.get_metadata {
             Some(function) => {
                 let value = self.call(function, &self.args1(key)).await?;
-                self.metadata_from_js(key, &value)
+                // `null`/`undefined` means absent, as it does for `get`. `metadata_from_js` would
+                // turn it into an empty record, which is right for the write direction — where it
+                // means "no metadata supplied" — and wrong here.
+                if value.is_null() || value.is_undefined() {
+                    Err(Error::key_not_found(key))
+                } else {
+                    self.metadata_from_js(key, &value)
+                }
             }
             // Deriving it from `get` costs a body read, but a store that can serve data can always
             // answer this, so refusing would be worse than being slow.
             None => self.get(key).await.map(|(_, metadata)| metadata),
+        };
+        match data_path {
+            Err(e) if e.error_type == ErrorType::KeyNotFound => {
+                // A directory has no data, so the data path reports it absent (STORE_SEMANTICS §2).
+                let is_dir = match &self.methods.is_dir {
+                    Some(function) => Self::truthy(&self.call(function, &self.args1(key)).await?),
+                    None => false,
+                };
+                if is_dir {
+                    let mut record = self.default_metadata(key, true);
+                    record.children = self.listdir_asset_info(key).await?;
+                    Ok(Metadata::MetadataRecord(record))
+                } else {
+                    Err(e)
+                }
+            }
+            other => other,
         }
     }
 

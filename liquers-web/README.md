@@ -94,7 +94,10 @@ than depending on GC timing. Without the feature that one test is compiled out.
 `wasm_bindgen_test_configure!(run_in_browser)`. They are gated rather than always present because
 a single such file makes the *whole* Node loop demand a WebDriver, which would cost every other
 suite its fast, dependency-free harness. Only tests that cannot work otherwise belong behind it —
-`LocalStorageStore`, because `web_sys::window()` returns `None` under Node.
+`LocalStorageStore`, because `web_sys::window()` returns `None` under Node. Its unit tests are in
+`tests/store_local_STORE.rs` and its conformance suite (`C9`) in
+`tests/store_conformance_browser_CONF.rs`; the Node-side conformance suites (`C8`, `C10`) stay in
+`tests/store_conformance_CONF.rs`.
 
 **The chromedriver's major version must match the installed browser.** A mismatch is refused
 outright (`This version of ChromeDriver only supports Chrome version N`), and the error names both
@@ -132,9 +135,23 @@ const bytes = await store.get('data/input.csv');
 | `http` / `https` | `fetch`; `url_prefix` + the key minus its routing prefix | no |
 | `js` | an object the page implements, registered with `registerStoreObject` | as implemented |
 
-A page-implemented store needs only `get`. Return `undefined` for an absent key — throwing signals
-a *failure* instead. Omitted optional methods report `key_not_supported` rather than quietly
-answering "empty", so a half-written store says so.
+A page-implemented store needs only `get`. Return `null` or `undefined` from `get` or
+`getMetadata` for an absent key — throwing signals a *failure* instead, and the two surface as
+`key_not_found` and `key_read_error`. A key that exists but has no metadata to report should
+return `{}` from `getMetadata`: `null` there means absent (before 2026-09-29 it produced an empty
+record). Omitted optional methods report `key_not_supported` rather than quietly answering "empty",
+so a half-written store says so.
+
+A directory has no data, so `get` reports it absent; implement `isDir` and `listdir` and the store
+answers directory metadata listing its children. A thrown error is never treated as a directory.
+
+```js
+env.registerStoreObject('mine', {
+  get(key) { return files.has(key) ? { data: files.get(key) } : null; },  // null: absent
+  isDir(key) { return dirs.has(key); },
+  listdir(key) { return childrenOf(key); },
+});
+```
 
 ## Known limitations
 

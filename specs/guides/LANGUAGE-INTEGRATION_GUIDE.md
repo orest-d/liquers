@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets]
-reviewed: 2026-09-27
+reviewed: 2026-09-30
 ---
 # Liquers Language Integration Guide
 
@@ -1093,7 +1093,7 @@ built-in types at all**, and factories chain with the **first to resolve an entr
 overriding a shared type name is done by chaining your factory *earlier*, not by relying on
 factories preceding built-ins. See `STORE_CONFIG_FSD.md` §"Building stores: the factory model".
 
-**Issues and patterns.** Data and metadata must remain consistent; do not treat `set_metadata` as optional. Preserve `KeyNotFound`, read, and write error distinctions. Run blocking host I/O outside async workers. In a browser, IndexedDB-backed methods are naturally Promise-based and non-`Send`.
+**Issues and patterns.** Data and metadata must remain consistent; do not treat `set_metadata` as optional. Preserve `KeyNotFound`, read, and write error distinctions — and give a *language*-defined store a way to express them: if the *language* side can signal only by raising, every absent key becomes a read failure. `liquers-web`'s `JsStore` uses a sentinel (`null`/`undefined` means absent; a throw means failure), and only an "absent" answer leads it to ask `isDir` for directory metadata. Run blocking host I/O outside async workers. In a browser, IndexedDB-backed methods are naturally Promise-based and non-`Send`.
 
 **Every selected store gets the suite, not just one of them.** `STORE01`–`STORE07` describe *a*
 store; an *integration* shipping three must run them against all three, and say per store where a
@@ -2799,6 +2799,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-09-30 | STORE: a *language*-defined store needs a way to express absence as distinct from failure, with `JsStore`'s sentinel as the example. | phase-5 (`design/store-conformance-backlog/`) |
 | 2026-09-27 | Reviewed against the implemented `record-streams` code (Phase 5). RECORDS: states that `liquers-web` crosses a batch as lent buffers, not Arrow — `LiquersRecordBatch` (JS `RecordBatch`) with column descriptors, `columnCopy` and `columnView`, a view materialized first, a source not yet mapped; inventory corrected (`ChunkKeys` does not exist and is removed; `RecordValue` and the manifest types added). RECIPE: provider composition is `RecipeProviderChain` via `with_appended_recipe_provider`, and a chain answers `contains` through each provider's `recipe_opt`. | phase-5 |
 | 2026-09-25 | RECORDS: the records live in their own crate, `liquers-records`, over `liquers-core`; an integration may depend on it alone through the `RecordValue` adapter, or reach it through `liquers-lib`. | `design/record-streams/` |
 | 2026-09-25 | RECORDS inventory: the mutable table (`RecordViewMut`, `RecordBatchMut`, `ColumnMut`) replaces the builder, rows carry an implicit `RowId` so the explicit `Id` is optional, and `to_record` / `to_record_source` are the conversions a binding can call to hand bytes, text or JSON to the record layer. | `design/record-streams/` |

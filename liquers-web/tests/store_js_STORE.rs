@@ -343,6 +343,82 @@ async fn c11_methods_are_bound_at_construction() {
         .expect("the store keeps the function it resolved at construction");
 }
 
+/// STORE12a — `null` means absent, and a directory gets directory-shaped metadata.
+#[wasm_bindgen_test]
+async fn store12a_absence_sentinel_and_directory_metadata() {
+    let source = r#"(function () {
+        const data = new Map([
+            ["d/file.txt", { data: new Uint8Array([102]), metadata: { title: "a file" } }],
+        ]);
+        const dirs = new Set(["d", "d/subdir"]);
+        return {
+            get(key) { return data.has(key) ? data.get(key) : null; },
+            getMetadata(key) { return data.has(key) ? data.get(key).metadata : null; },
+            isDir(key) { return dirs.has(key); },
+            listdir(key) { return key === "d" ? ["file.txt", "subdir"] : []; },
+        };
+    })()"#;
+    let store = JsStore::new(&key("d"), "mixed", object(source)).expect("adapts");
+
+    let file = store.get_metadata(&key("d/file.txt")).await.expect("file metadata");
+    let Metadata::MetadataRecord(file) = file else { panic!("record expected") };
+    assert_eq!(file.title, "a file");
+
+    let dir = store.get_metadata(&key("d")).await.expect("directory metadata");
+    let Metadata::MetadataRecord(dir) = dir else { panic!("record expected") };
+    assert!(dir.is_dir);
+    let mut names: Vec<String> = dir
+        .children
+        .iter()
+        .filter_map(|i| i.key.as_ref().map(|k| k.encode()))
+        .collect();
+    names.sort();
+    assert_eq!(names, vec!["d/file.txt", "d/subdir"]);
+
+    match store.get_metadata(&key("d/absent")).await {
+        Err(e) => assert_eq!(e.error_type, ErrorType::KeyNotFound, "{}", e.message),
+        Ok(m) => panic!("absent key gave {m:?}"),
+    }
+    match store.get(&key("d/absent")).await {
+        Err(e) => assert_eq!(e.error_type, ErrorType::KeyNotFound, "{}", e.message),
+        Ok(_) => panic!("absent key gave data"),
+    }
+}
+
+/// STORE12b — a throwing delegate is a failure, and is never reinterpreted as a directory.
+#[wasm_bindgen_test]
+async fn store12b_thrown_error_is_not_a_directory() {
+    let store = JsStore::new(
+        &key("d"),
+        "thrower",
+        object(r#"({ get(key) { throw new Error("read boom"); }, isDir(key) { return true; } })"#),
+    )
+    .expect("adapts");
+    match store.get_metadata(&key("d/x")).await {
+        Err(e) => assert_eq!(e.error_type, ErrorType::KeyReadError, "{}", e.message),
+        Ok(m) => panic!("a thrown error became {m:?}"),
+    }
+}
+
+/// STORE12c — documented break: `getMetadata` returning `null` now means absent, even when
+/// `get` has data. It used to yield an empty record.
+#[wasm_bindgen_test]
+async fn store12c_get_metadata_null_is_not_found() {
+    let store = JsStore::new(
+        &key("d"),
+        "nullmeta",
+        object(r#"({
+            get(key) { return key === "d/x.bin" ? { data: new Uint8Array([255]) } : null; },
+            getMetadata(key) { return null; },
+        })"#),
+    )
+    .expect("adapts");
+    match store.get_metadata(&key("d/x.bin")).await {
+        Err(e) => assert_eq!(e.error_type, ErrorType::KeyNotFound, "{}", e.message),
+        Ok(m) => panic!("getMetadata → null gave {m:?}"),
+    }
+}
+
 /// C12 — a `js` entry naming an unregistered object fails at configuration time, saying which.
 #[wasm_bindgen_test]
 fn c12_unregistered_object_fails_with_its_name() {

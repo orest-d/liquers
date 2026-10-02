@@ -133,7 +133,7 @@ expansion time rather than at runtime. That is the cheapest item here.
 - **Configuring a store from a URI** — designing → [`design/store-config-uri/`](design/store-config-uri/)
 - **Type-enforced key absoluteness** — planned → [`issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md`](issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md)
 - **OpenDAL path normalization** — documented → [`reference/STORE_SEMANTICS.md`](reference/STORE_SEMANTICS.md) *(design in [`design/opendal-path-mapping/`](design/opendal-path-mapping/))*
-- **Store behavioural semantics** — documented → [`reference/STORE_SEMANTICS.md`](reference/STORE_SEMANTICS.md)
+- **Store behavioural semantics** — documented → [`reference/STORE_SEMANTICS.md`](reference/STORE_SEMANTICS.md); implementing and testing a store: [`guides/STORE_IMPLEMENTATION_GUIDE.md`](guides/STORE_IMPLEMENTATION_GUIDE.md) *(every in-tree store passes the conformance suite as of 2026-09-30; see [`design/store-conformance-backlog/`](design/store-conformance-backlog/))*
 - **Shared directory support for backends without directories** — documented → `liquers-core/src/store_dir_index.rs` *(design in [`design/opendal-path-mapping/`](design/opendal-path-mapping/))*
 - **Streaming binary access (`openbin`)** — planned → [`issues/CORE-STORE-OPENBIN-MISSING.md`](issues/CORE-STORE-OPENBIN-MISSING.md)
 - **Record streams — a chunked, Arrow-interoperable tabular abstraction** — built → [`reference/RECORD_STREAMS.md`](reference/RECORD_STREAMS.md); producing records: [`guides/RECORD_STREAM_GUIDE.md`](guides/RECORD_STREAM_GUIDE.md) *(design in [`design/record-streams/`](design/record-streams/))*
@@ -290,7 +290,6 @@ Regenerated on every run. Anything listed here is missing from the capability ma
 deliberately folded behind a broader line.
 
 <!-- BEGIN generated: unplaced -->
-- `guides/STORE_IMPLEMENTATION_GUIDE.md`
 - `guides/TYPE_SYSTEM_GUIDE.md`
 - `reference/CONFORMANCE_TERMS.md`
 - `reference/VALUE_TYPE_SYSTEM.md`
@@ -322,8 +321,6 @@ deliberately folded behind a broader line.
 - design `error-with-key-field`
 - design `expiration-integration-suite-failing-at-head`
 - design `foreign-value-type-registration`
-- design `js-store-directory-metadata`
-- design `js-store-not-found-sentinel`
 - design `lib-integration-test-feature-gates`
 - design `lib-polars-ethnum-rust-1-98`
 - design `listdir-keys-deep-child-check`
@@ -344,7 +341,6 @@ deliberately folded behind a broader line.
 - design `sidecar-colliding-keys`
 - design `state-argument-serde-default`
 - design `store-conformance-suite`
-- design `store-directory-metadata-children`
 - design `store-key-guard`
 - design `store-keys-contract`
 - design `store-router-empty-prefix`

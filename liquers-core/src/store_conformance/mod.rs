@@ -1069,7 +1069,7 @@ mod tests {
 
     /// **`sibling01` catches the data-loss defect.** The rule is only worth having if it fails here.
     #[tokio::test]
-    async fn sibling01_catches_a_prefix_deleting_store() {
+    async fn refute_sibling01_catches_a_prefix_deleting_store() {
         let fixture = BrokenFixture {
             store: PrefixDeletingStore {
                 inner: crate::store::AsyncMemoryStore::new(&Key::new()),
@@ -1089,6 +1089,230 @@ mod tests {
                 );
             }
             other => panic!("sibling01 must fail against a prefix-deleting store, got {other:?}"),
+        }
+    }
+
+    /// An `AsyncMemoryStore` whose directory metadata is altered on the way out.
+    ///
+    /// Everything a rule touches is forwarded; only `get_metadata` of a directory is rewritten, by
+    /// `tamper`. Used to show that `dir07` fails a store that gets `children` wrong.
+    struct TamperingStore {
+        inner: crate::store::AsyncMemoryStore,
+        tamper: fn(&Key, &mut MetadataRecord),
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl AsyncStore for TamperingStore {
+        async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+            self.inner.get(key).await
+        }
+        async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+            let metadata = self.inner.get_metadata(key).await?;
+            match metadata {
+                Metadata::MetadataRecord(mut record) if record.is_dir => {
+                    (self.tamper)(key, &mut record);
+                    Ok(Metadata::MetadataRecord(record))
+                }
+                Metadata::MetadataRecord(record) => Ok(Metadata::MetadataRecord(record)),
+                Metadata::LegacyMetadata(value) => Ok(Metadata::LegacyMetadata(value)),
+            }
+        }
+        async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+            self.inner.set(key, data, metadata).await
+        }
+        async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+            self.inner.set_metadata(key, metadata).await
+        }
+        async fn contains(&self, key: &Key) -> Result<bool, Error> {
+            self.inner.contains(key).await
+        }
+        async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+            self.inner.is_dir(key).await
+        }
+        async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+            self.inner.listdir(key).await
+        }
+        async fn remove(&self, key: &Key) -> Result<(), Error> {
+            self.inner.remove(key).await
+        }
+        async fn removedir(&self, key: &Key) -> Result<(), Error> {
+            self.inner.removedir(key).await
+        }
+        fn is_supported(&self, key: &Key) -> bool {
+            self.inner.is_supported(key)
+        }
+    }
+
+    /// Runs one registered rule against `store` through a `GenericFixture`.
+    async fn run_rule_on(id: &str, store: Box<dyn AsyncStore>) -> RuleOutcome {
+        let fixture = crate::store_conformance::GenericFixture::new(
+            format!("refuting {id}"),
+            store,
+            Key::new(),
+            all_capabilities(),
+            SafetyLevel::Scratch,
+        );
+        let rule = rule(id).unwrap_or_else(|| panic!("{id} is registered"));
+        run_one(&fixture, rule).await.outcome
+    }
+
+    #[tokio::test]
+    async fn refute_dir07_passes_one_level_children() {
+        let store = crate::store::AsyncMemoryStore::new(&Key::new());
+        match run_rule_on("dir07", Box::new(store)).await {
+            RuleOutcome::Passed => {}
+            other => panic!("dir07 must pass a store with one-level children, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn refute_dir07_fails_empty_children() {
+        let store = TamperingStore {
+            inner: crate::store::AsyncMemoryStore::new(&Key::new()),
+            tamper: |_key, record| record.children.clear(),
+        };
+        match run_rule_on("dir07", Box::new(store)).await {
+            RuleOutcome::Failed { .. } => {}
+            other => panic!("dir07 must fail a store with no children, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn refute_dir07_fails_children_that_differ_from_listdir() {
+        let store = TamperingStore {
+            inner: crate::store::AsyncMemoryStore::new(&Key::new()),
+            // A grandchild: the one-level contract is what this breaks.
+            tamper: |key, record| {
+                let mut extra = crate::metadata::AssetInfo::new();
+                extra.with_key(key.join("deeper").join("grandchild"));
+                record.children.push(extra);
+            },
+        };
+        match run_rule_on("dir07", Box::new(store)).await {
+            RuleOutcome::Failed { .. } => {}
+            other => panic!("dir07 must fail a store listing a grandchild, got {other:?}"),
+        }
+    }
+
+    /// How [`MetadataOnlyStore`] treats a key that has metadata and no data.
+    #[derive(Clone, Copy)]
+    enum MetadataOnly {
+        /// `set_metadata` on a key with no data answers `KeyNotFound` — a permitted refusal.
+        Refuse,
+        /// The write is accepted, but `listdir` hides the key — the defect `sidecar04` exists for.
+        Hide,
+    }
+
+    /// An `AsyncMemoryStore` with one deliberate policy for metadata-only keys.
+    struct MetadataOnlyStore {
+        inner: crate::store::AsyncMemoryStore,
+        mode: MetadataOnly,
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl AsyncStore for MetadataOnlyStore {
+        async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+            self.inner.get(key).await
+        }
+        async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+            self.inner.set(key, data, metadata).await
+        }
+        async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+            match self.mode {
+                MetadataOnly::Refuse if !self.inner.contains(key).await? => {
+                    Err(Error::key_not_found(key))
+                }
+                MetadataOnly::Refuse | MetadataOnly::Hide => {
+                    self.inner.set_metadata(key, metadata).await
+                }
+            }
+        }
+        async fn contains(&self, key: &Key) -> Result<bool, Error> {
+            self.inner.contains(key).await
+        }
+        async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+            self.inner.is_dir(key).await
+        }
+        async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+            let names = self.inner.listdir(key).await?;
+            match self.mode {
+                MetadataOnly::Refuse => Ok(names),
+                MetadataOnly::Hide => {
+                    // The memory store keeps an empty body for a metadata-only key.
+                    let mut kept = Vec::new();
+                    for name in names {
+                        let child = key.join(&name);
+                        let empty_data = match self.inner.get(&child).await {
+                            Ok((data, _)) => data.is_empty(),
+                            Err(_) => false,
+                        };
+                        if !empty_data {
+                            kept.push(name);
+                        }
+                    }
+                    Ok(kept)
+                }
+            }
+        }
+        async fn remove(&self, key: &Key) -> Result<(), Error> {
+            self.inner.remove(key).await
+        }
+        async fn removedir(&self, key: &Key) -> Result<(), Error> {
+            self.inner.removedir(key).await
+        }
+        fn is_supported(&self, key: &Key) -> bool {
+            self.inner.is_supported(key)
+        }
+    }
+
+    #[tokio::test]
+    async fn refute_sidecar04_passes_a_store_that_lists_metadata_only_keys() {
+        let store = crate::store::AsyncMemoryStore::new(&Key::new());
+        match run_rule_on("sidecar04", Box::new(store)).await {
+            RuleOutcome::Passed => {}
+            other => panic!("sidecar04 must pass AsyncMemoryStore, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn refute_sidecar04_accepts_a_refusal() {
+        let store = MetadataOnlyStore {
+            inner: crate::store::AsyncMemoryStore::new(&Key::new()),
+            mode: MetadataOnly::Refuse,
+        };
+        match run_rule_on("sidecar04", Box::new(store)).await {
+            RuleOutcome::Passed => {}
+            other => panic!("refusing a metadata-only key is permitted, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn refute_sidecar04_fails_a_store_that_hides_metadata_only_keys() {
+        let store = MetadataOnlyStore {
+            inner: crate::store::AsyncMemoryStore::new(&Key::new()),
+            mode: MetadataOnly::Hide,
+        };
+        match run_rule_on("sidecar04", Box::new(store)).await {
+            RuleOutcome::Failed { .. } => {}
+            other => panic!("sidecar04 must fail a store that hides the key, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn refute_dir07_fails_duplicated_children() {
+        let store = TamperingStore {
+            inner: crate::store::AsyncMemoryStore::new(&Key::new()),
+            tamper: |_key, record| {
+                if let Some(first) = record.children.first().cloned() {
+                    record.children.push(first);
+                }
+            },
+        };
+        match run_rule_on("dir07", Box::new(store)).await {
+            RuleOutcome::Failed { .. } => {}
+            other => panic!("dir07 must fail a store listing a child twice, got {other:?}"),
         }
     }
 

@@ -185,7 +185,10 @@ impl LocalStorageStore {
                 fresh.used_bytes = fresh.used_bytes.saturating_add(value.len() as u64);
             }
             match kind {
-                EntryKind::Data => {
+                // A metadata entry implies its data key (STORE_SEMANTICS §8): a key whose metadata
+                // was written before, or without, its data is still enumerable. Both entries of an
+                // ordinary key index the same key, which the sets absorb.
+                EntryKind::Data | EntryKind::Metadata => {
                     fresh.keys.insert(key.clone());
                     index_key(&mut fresh.dirs, &key);
                 }
@@ -194,9 +197,6 @@ impl LocalStorageStore {
                     fresh.dirs.entry(key.clone()).or_default();
                     index_key(&mut fresh.dirs, &key);
                 }
-                // Metadata entries follow their data entry and add no index information of
-                // their own; they are counted above for the byte budget.
-                EntryKind::Metadata => {}
             }
         }
         *self.state.borrow_mut() = fresh;
@@ -473,7 +473,12 @@ impl AsyncStore for LocalStorageStore {
             &storage,
             key,
             &[(self.entry_name(EntryKind::Metadata, key), json)],
-        )
+        )?;
+        // Indexed like `set`: a key holding only metadata is listed by its parent (§8).
+        let mut state = self.state.borrow_mut();
+        state.keys.insert(key.clone());
+        index_key(&mut state.dirs, key);
+        Ok(())
     }
 
     async fn remove(&self, key: &Key) -> Result<(), Error> {
@@ -487,8 +492,10 @@ impl AsyncStore for LocalStorageStore {
 
     async fn removedir(&self, key: &Key) -> Result<(), Error> {
         self.check(key)?;
+        // Absent means the postcondition already holds (STORE_SEMANTICS §4, §5). The key-shape
+        // check above stays first, so a refused key is still an error rather than a no-op.
         if !self.is_dir(key).await? {
-            return Err(Error::key_not_found(key));
+            return Ok(());
         }
         let storage = self.storage()?;
         let doomed: Vec<Key> = {
@@ -534,16 +541,21 @@ impl AsyncStore for LocalStorageStore {
         Ok(())
     }
 
+    // The index lookups refuse a key the store would refuse to write (STORE_SEMANTICS §7): a store
+    // never resolves a relative key, including when merely asked whether it holds one.
     async fn contains(&self, key: &Key) -> Result<bool, Error> {
+        self.check(key)?;
         let state = self.state.borrow();
         Ok(state.keys.contains(key) || state.dirs.contains_key(key))
     }
 
     async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+        self.check(key)?;
         Ok(self.state.borrow().dirs.contains_key(key))
     }
 
     async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+        self.check(key)?;
         Ok(self
             .state
             .borrow()
@@ -553,8 +565,19 @@ impl AsyncStore for LocalStorageStore {
             .unwrap_or_default())
     }
 
+    /// Data keys, the directories above them, and the prefix (STORE_SEMANTICS §9).
     async fn keys(&self) -> Result<Vec<Key>, Error> {
-        Ok(self.state.borrow().keys.iter().cloned().collect())
+        let state = self.state.borrow();
+        let mut keys: BTreeSet<Key> = state.keys.iter().cloned().collect();
+        keys.extend(
+            state
+                .dirs
+                .keys()
+                .filter(|dir| dir.has_key_prefix(&self.prefix))
+                .cloned(),
+        );
+        keys.insert(self.prefix.clone());
+        Ok(keys.into_iter().collect())
     }
 
     /// Must be overridden: the trait default is `false`, and `AsyncStoreRouter` consults it.
