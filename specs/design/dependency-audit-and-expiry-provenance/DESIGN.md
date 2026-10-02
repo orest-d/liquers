@@ -164,6 +164,16 @@ match it. Three questions remained for the owner (Phase 4 §"Phase 4 review").
   - In the whole `liquers-lib` suite only raw-seeded files without metadata mismatched (adopted in
     memory, nothing written); every value Liquers stored verified.
   - Also filed: `ANY-STATUS-READ-MISSES-STORED-VALUE-OF-UNLOADED-LIVE-ASSET`.
+- **Step 10, deviations from Phase 2 Part E.**
+  - `submit` is not lazy on either manager: the queued manager starts the job at once, and the inline
+    manager runs it to completion inside `submit`. Phase 2's "the inline manager runs it on the
+    first wait" was wrong. Filed as `SUBMIT-IS-NOT-LAZY-ON-ANY-MANAGER`. The planned test
+    `submit_does_not_run_on_inline_manager_until_waited` was replaced by two tests that pin the
+    actual behaviour (a submitted dependency is recorded once, and waiting returns its state).
+  - The trait-default `wait_for_dependency`, used by the inline manager, now applies the stale
+    dependency policy, as the queued manager already did. Without it, `submit` + wait on an inline
+    environment bypassed `OnLoad`.
+  - Mutation check: reverting `submit` to an immediate `evaluate` fails the recording test.
 - **Filed during Step 4:** `SUPPLIED-EXPIRED-STATUS-STORED-WITHOUT-REASON` and
   `DEPENDENCY-FAILURE-ERRORS-NAME-ASSET-IDS`.
 

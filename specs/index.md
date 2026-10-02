@@ -8,9 +8,9 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 151
+Total rows: 152
 - P2: 80
-- P3: 71
+- P3: 72
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
@@ -128,6 +128,7 @@ Total rows: 151
 | [`SIMPLE-VALUE-WRITES-FEWER-FORMATS-THAN-DECLARED`](issues/SIMPLE-VALUE-WRITES-FEWER-FORMATS-THAN-DECLARED.md) | issue | liquers-lib's base value declares formats its serializer refuses | draft |  | P3 | S | lib/value |  | 2026-09-25 |
 | [`STORE-GUIDE-STATUS-TABLE-HAS-NO-GENERATOR`](issues/STORE-GUIDE-STATUS-TABLE-HAS-NO-GENERATOR.md) | issue | The store guide's status table claims to be generated from the conformance reports, and no generator exists | draft |  | P3 | S | docs;store/backends |  | 2026-09-30 |
 | [`STUBS01-GREP-MISSES-DERIVE-INTERLEAVED-CLASSES`](issues/STUBS01-GREP-MISSES-DERIVE-INTERLEAVED-CLASSES.md) | issue | check-stubs.sh's STUBS01 grep misses classes with an interleaved derive attribute | draft |  | P3 | S | web |  | 2026-09-27 |
+| [`SUBMIT-IS-NOT-LAZY-ON-ANY-MANAGER`](issues/SUBMIT-IS-NOT-LAZY-ON-ANY-MANAGER.md) | issue | Context::submit starts the dependency at once on both managers, contrary to the Phase 2 design text | draft |  | P3 | S | core/assets |  | 2026-10-02 |
 | [`SUPPLIED-EXPIRED-STATUS-STORED-WITHOUT-REASON`](issues/SUPPLIED-EXPIRED-STATUS-STORED-WITHOUT-REASON.md) | issue | set_binary and set_state accept a supplied Expired status and store it without an expiry reason | draft |  | P3 | S | core/assets | [phase1](specs/design/dependency-audit-and-expiry-provenance/phase1-high-level-design.md)  [phase2](specs/design/dependency-audit-and-expiry-provenance/phase2-architecture.md)  [phase3](specs/design/dependency-audit-and-expiry-provenance/phase3-examples.md)  [phase4](specs/design/dependency-audit-and-expiry-provenance/phase4-implementation.md)  [phase5](specs/design/dependency-audit-and-expiry-provenance/phase5-documentation.md)  | 2026-10-02 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  | P3 | S | core/value |  | 2026-09-24 |
 | [`ASSETS-API-ADMIN-OPERATIONS`](issues/ASSETS-API-ADMIN-OPERATIONS.md) | feature | Manager status and a guarded remove have no assets API endpoint | draft |  | P3 | M | axum;core/assets |  | 2026-09-27 |

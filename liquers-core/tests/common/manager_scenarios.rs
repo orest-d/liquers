@@ -927,3 +927,133 @@ where
     assert_eq!(calls.load(Ordering::SeqCst), 2);
     Ok(())
 }
+
+// --- stale dependency, end to end (dependency-audit-and-expiry-provenance, Step 10) ---
+
+/// The two hand-offs of the gate command `gate_parent`: it signals `entered` once it has
+/// submitted its dependency, then blocks on `release` before waiting for that dependency.
+pub struct StaleGate {
+    pub entered: tokio::sync::Notify,
+    pub release: tokio::sync::Notify,
+}
+
+impl StaleGate {
+    pub fn new() -> Arc<Self> {
+        Arc::new(StaleGate {
+            entered: tokio::sync::Notify::new(),
+            release: tokio::sync::Notify::new(),
+        })
+    }
+}
+
+/// `gate_parent`: submits the computed `data/a.txt`, signals `gate.entered`, blocks on
+/// `gate.release`, then waits for the dependency as a dependency (`wait_for_dependency`).
+/// Together with [`register_provenance_commands`] (for `make_text`).
+pub fn register_gate_command<E>(
+    cr: &mut liquers_core::commands::CommandRegistry<E>,
+    gate: Arc<StaleGate>,
+) where
+    E: Environment<Value = Value>,
+{
+    cr.register_async_command(CommandKey::new_name("gate_parent"), move |_state, _args, ctx| {
+        let gate = gate.clone();
+        Box::pin(async move {
+            let dependency = ctx.submit(&q("-R/data/a.txt")).await?;
+            gate.entered.notify_one();
+            gate.release.notified().await;
+            let a = ctx.wait_for_dependency(&dependency).await?.try_into_string()?;
+            Ok(Value::from(format!("gated {a}")))
+        })
+    })
+    .expect("register gate_parent");
+}
+
+/// [`provenance_store`]`(true)` plus `data/gated.txt = gate_parent`.
+pub async fn stale_dependency_store() -> Result<AsyncMemoryStore, Error> {
+    use liquers_core::recipes::{Recipe, RecipeList};
+    let mut rl = RecipeList::new();
+    rl.add_recipe(Recipe::new(
+        "make_text/a.txt".to_string(),
+        "A".into(),
+        "computed dependency".into(),
+    )?);
+    rl.add_recipe(Recipe::new(
+        "gate_parent/gated.txt".to_string(),
+        "Gated".into(),
+        "submits a.txt, waits at a gate, then waits for it".into(),
+    )?);
+    let yaml = serde_yaml::to_string(&rl)
+        .map_err(|e| Error::general_error(format!("recipes.yaml: {e}")))?;
+    let store = AsyncMemoryStore::new(&Key::new());
+    store
+        .set(&parse_key("data/recipes.yaml")?, yaml.as_bytes(), &Metadata::new())
+        .await?;
+    Ok(store)
+}
+
+/// A command reaches the stale-dependency arm of `wait_for_dependency` by evaluating a recipe.
+///
+/// `gated.txt` submits the computed `a.txt`, then blocks at the gate; this scenario expires
+/// `a.txt` while it is blocked, then opens the gate. `gated.txt` waits for a dependency that is
+/// `Expired`, so it must use the value it can still read and end `Expired` itself, with
+/// `Direct { StaleDependency { a.txt } }` — not `Ready`, and not failed. Waiting through
+/// `AssetRef::get` would fail on the expired dependency instead, which is what makes this a
+/// check of reachability and not only of the arm.
+///
+/// Expects [`stale_dependency_store`], [`register_provenance_commands`] and
+/// [`register_gate_command`] with `gate`.
+pub async fn scenario_stale_dependency<E>(
+    envref: EnvRef<E>,
+    gate: Arc<StaleGate>,
+) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    use liquers_core::metadata::{DependencyKey, ExpiryCause, ExpiryReason};
+    let within = |what: &'static str| async move {
+        tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+        Error::general_error(format!("stale-dependency scenario stalled: {what}"))
+    };
+    let gated = parse_key("data/gated.txt")?;
+    let a = parse_key("data/a.txt")?;
+
+    // The whole evaluation runs on its own task: on the inline manager `get` evaluates in the
+    // caller's future, and that future blocks at the gate.
+    let parent_env = envref.clone();
+    let parent_key = gated.clone();
+    let evaluation = tokio::spawn(async move {
+        let asset = parent_env.get_asset_manager().get(&parent_key).await?;
+        // The parent ends `Expired`, which `get` reports as an error; the status is asserted below.
+        let _ = asset.get().await;
+        Ok::<_, Error>(asset)
+    });
+
+    tokio::select! {
+        _ = gate.entered.notified() => {}
+        e = within("the command never reached the gate") => return Err(e),
+    }
+    let am = envref.get_asset_manager();
+    let dependency = am.get(&a).await?;
+    assert_eq!(dependency.status().await, Status::Ready, "precondition: a.txt was computed by submit");
+    dependency.expire().await?;
+    assert_eq!(dependency.status().await, Status::Expired, "precondition: the dependency expired in the window");
+    gate.release.notify_one();
+
+    let asset = tokio::select! {
+        joined = evaluation => joined.map_err(|e| Error::general_error(format!("evaluation task: {e}")))??,
+        e = within("the command never finished") => return Err(e),
+    };
+
+    assert_eq!(asset.status().await, Status::Expired);
+    let stale_value = asset.get_any_status().await.map(|s| s.try_into_string()).transpose()?;
+    assert_eq!(stale_value.as_deref(), Some("gated generated"), "built from the retained value");
+    assert_eq!(
+        asset.get_metadata().await?.expiry_reason(),
+        Some(ExpiryReason::Direct {
+            cause: ExpiryCause::StaleDependency {
+                dependency: DependencyKey::from(&a),
+            },
+        })
+    );
+    Ok(())
+}

@@ -4805,7 +4805,26 @@ pub trait AssetManager<E: Environment>:
         dependency: &AssetRef<E>,
     ) -> Result<State<E::Value>, Error> {
         parent.enter_dependencies(dependency).await?;
-        let result = dependency.get().await;
+        let result = match dependency.get().await {
+            Ok(state) => Ok(state),
+            Err(error) => {
+                // The stale-dependency policy (see `DefaultAssetManager::wait_for_dependency`):
+                // a dependency that expired during this evaluation is used as it stands and the
+                // parent is marked for recomputation, rather than failing on `get`'s refusal to
+                // hand out expired data. An expired dependency whose value is gone stays an error.
+                if dependency.status().await == Status::Expired {
+                    match dependency.poll_state_any_status().await {
+                        Some(state) => {
+                            parent.note_expired_dependency(dependency).await?;
+                            Ok(state)
+                        }
+                        None => Err(error),
+                    }
+                } else {
+                    Err(error)
+                }
+            }
+        };
         parent.leave_dependencies_and_resume().await?;
         result
     }

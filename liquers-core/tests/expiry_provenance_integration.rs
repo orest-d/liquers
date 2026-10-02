@@ -27,8 +27,8 @@ use liquers_core::{
 use fixtures::StoreSnapshot;
 
 use common::manager_scenarios::{
-    provenance_evaluate_chain, provenance_store, provenance_text_metadata,
-    register_provenance_commands,
+    provenance_evaluate_chain, provenance_store, provenance_text_metadata, register_gate_command,
+    register_provenance_commands, stale_dependency_store, wait_until_stored, StaleGate,
 };
 
 type TestEnv = SimpleEnvironment<Value>;
@@ -373,5 +373,339 @@ async fn audit_never_expires_the_root() -> TestResult {
     let stored = stored(&envref, "data/a.txt").await?;
     assert_eq!(stored.status(), status_before);
     assert_eq!(stored.expiry_reason(), None);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------------------------
+// Every route into `Expired`, driven from outside the crate (Step 10)
+// ---------------------------------------------------------------------------------------------
+
+/// One row per [`ExpiryCause`]: the way into `Expired` that produces it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Route {
+    /// A recipe with `expires: "in 1 sec"`, expired by the queued monitor.
+    Deadline,
+    /// `AssetRef::expire` on a computed root.
+    Explicit,
+    /// A command that waits (`Context::wait_for_dependency`) for a dependency that expired after
+    /// the command submitted it.
+    StaleDependency,
+    /// `trigger_dependency_audit_with` in a restarted environment whose root moved.
+    Audit,
+    /// `set_binary` of a dependency with new content.
+    Updated,
+    /// `remove` of a `Source`.
+    Removed,
+    /// A `Source` whose bytes were rewritten outside Liquers, found when it is read.
+    UpdatedInStore,
+}
+
+impl Route {
+    const ALL: [Route; 7] = [
+        Route::Deadline,
+        Route::Explicit,
+        Route::StaleDependency,
+        Route::Audit,
+        Route::Updated,
+        Route::Removed,
+        Route::UpdatedInStore,
+    ];
+}
+
+/// The route that produces `cause`. Exhaustive: a new `ExpiryCause` is a compile error here until
+/// it has a row.
+fn route_of(cause: &ExpiryCause) -> Route {
+    match cause {
+        ExpiryCause::Deadline { .. } => Route::Deadline,
+        ExpiryCause::Explicit => Route::Explicit,
+        ExpiryCause::StaleDependency { .. } => Route::StaleDependency,
+        ExpiryCause::Audit { .. } => Route::Audit,
+        ExpiryCause::Updated { .. } => Route::Updated,
+        ExpiryCause::Removed => Route::Removed,
+        ExpiryCause::UpdatedInStore { .. } => Route::UpdatedInStore,
+    }
+}
+
+/// The level Phase 2 assigns to `route`'s cause: the contract working as designed is `Info`, a
+/// stored assumption found false or a departure from the contract is `Warning`.
+fn expected_level(route: Route) -> LogEntryKind {
+    match route {
+        Route::Deadline | Route::Explicit | Route::Updated | Route::Removed => LogEntryKind::Info,
+        Route::StaleDependency | Route::Audit | Route::UpdatedInStore => LogEntryKind::Warning,
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Scope {
+    /// The asset is the root of the cause.
+    Direct,
+    /// The cause reached the asset through `root` and `via`.
+    Cascaded,
+}
+
+/// An asset the route expired, as the store holds it.
+struct Observed {
+    name: &'static str,
+    scope: Scope,
+    metadata: Metadata,
+}
+
+async fn observe(
+    envref: &EnvRef<TestEnv>,
+    name: &'static str,
+    scope: Scope,
+) -> Result<Observed, Box<dyn std::error::Error>> {
+    within(wait_until_stored(envref, &key(name), Status::Expired)).await?;
+    Ok(Observed {
+        name,
+        scope,
+        metadata: stored(envref, name).await?,
+    })
+}
+
+/// Process one of a restart: `a.txt` written, `b.txt` and `report.txt` computed and persisted.
+async fn persisted_chain(a: &[u8]) -> Result<StoreSnapshot, Box<dyn std::error::Error>> {
+    // The recipes file is re-seeded through `set_binary` so that it carries a content-hash
+    // version, which a store sweep then finds verified.
+    let seed = provenance_store(false).await?;
+    let recipes = seed.get_bytes(&key("data/recipes.yaml")).await?;
+    let mut env = TestEnv::new();
+    register_provenance_commands(&mut env.command_registry);
+    env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    let envref = env.to_ref();
+    let am = envref.get_asset_manager();
+    within(am.set_binary(&key("data/recipes.yaml"), &recipes, provenance_text_metadata())).await?;
+    within(am.set_binary(&key("data/a.txt"), a, provenance_text_metadata())).await?;
+    within(provenance_evaluate_chain(&envref)).await?;
+    let keys: Vec<Key> = ["data/recipes.yaml", "data/a.txt", "data/b.txt", "data/report.txt"]
+        .into_iter()
+        .map(key)
+        .collect();
+    Ok(StoreSnapshot::capture(&envref.get_async_store(), &keys).await?)
+}
+
+/// A fresh store holding `snapshot`, with `edit` applied to it first: what a restarted process
+/// finds. Only the bytes are rewritten, keeping the sidecar, as a text editor would.
+async fn replayed_store(
+    snapshot: &StoreSnapshot,
+    edit: Option<(&str, &[u8])>,
+) -> Result<AsyncMemoryStore, Error> {
+    let store = AsyncMemoryStore::new(&Key::new());
+    snapshot.replay_into(&store).await?;
+    if let Some((name, bytes)) = edit {
+        let metadata = store.get_metadata(&key(name)).await?;
+        store.set(&key(name), bytes, &metadata).await?;
+    }
+    Ok(store)
+}
+
+async fn provenance_env_over(store: AsyncMemoryStore) -> Result<EnvRef<TestEnv>, Error> {
+    let mut env = TestEnv::new();
+    register_provenance_commands(&mut env.command_registry);
+    env.with_async_store(Box::new(store));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    Ok(env.to_ref())
+}
+
+/// Drive `route` on the `a.txt -> b.txt -> report.txt` fixture and return the assets it expired,
+/// each read from the store's metadata.
+async fn drive(route: Route) -> Result<Vec<Observed>, Box<dyn std::error::Error>> {
+    match route {
+        Route::Deadline => {
+            use liquers_core::expiration::Expires;
+            use liquers_core::recipes::{Recipe, RecipeList};
+            let mut rl = RecipeList::new();
+            let mut root = Recipe::new("make_text/a.txt".to_string(), "A".into(), "expires".into())?;
+            root.expires = Expires::InDuration(std::time::Duration::from_secs(1));
+            rl.add_recipe(root);
+            rl.add_recipe(Recipe::new(
+                "-R/data/a.txt/-/upper/b.txt".to_string(),
+                "B".into(),
+                "depends on a.txt".into(),
+            )?);
+            rl.add_recipe(Recipe::new(
+                "summarize/report.txt".to_string(),
+                "Report".into(),
+                "depends on b.txt".into(),
+            )?);
+            let yaml = serde_yaml::to_string(&rl)
+                .map_err(|e| Error::general_error(format!("recipes.yaml: {e}")))?;
+            let store = AsyncMemoryStore::new(&Key::new());
+            store
+                .set(&key("data/recipes.yaml"), yaml.as_bytes(), &Metadata::new())
+                .await?;
+            let envref = provenance_env_over(store).await?;
+            within(provenance_evaluate_chain(&envref)).await?;
+            Ok(vec![
+                observe(&envref, "data/a.txt", Scope::Direct).await?,
+                observe(&envref, "data/b.txt", Scope::Cascaded).await?,
+                observe(&envref, "data/report.txt", Scope::Cascaded).await?,
+            ])
+        }
+        Route::Explicit => {
+            let envref = provenance_env(true).await?;
+            within(provenance_evaluate_chain(&envref)).await?;
+            let a = live(&envref, "data/a.txt").await?;
+            within(wait_until_stored(&envref, &key("data/a.txt"), Status::Ready)).await?;
+            within(a.expire()).await?;
+            Ok(vec![
+                observe(&envref, "data/a.txt", Scope::Direct).await?,
+                observe(&envref, "data/b.txt", Scope::Cascaded).await?,
+                observe(&envref, "data/report.txt", Scope::Cascaded).await?,
+            ])
+        }
+        Route::StaleDependency => {
+            let gate = StaleGate::new();
+            let mut env = TestEnv::new();
+            register_provenance_commands(&mut env.command_registry);
+            register_gate_command(&mut env.command_registry, gate.clone());
+            env.with_async_store(Box::new(stale_dependency_store().await?));
+            env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+            let envref = env.to_ref();
+            let am = envref.get_asset_manager();
+            let evaluation = {
+                let (envref, gated) = (envref.clone(), key("data/gated.txt"));
+                tokio::spawn(async move {
+                    let asset = envref.get_asset_manager().get(&gated).await?;
+                    let _ = asset.get().await;
+                    Ok::<_, Error>(())
+                })
+            };
+            within(gate.entered.notified()).await;
+            let dependency = within(am.get(&key("data/a.txt"))).await?;
+            within(dependency.expire()).await?;
+            gate.release.notify_one();
+            within(evaluation).await??;
+            Ok(vec![observe(&envref, "data/gated.txt", Scope::Direct).await?])
+        }
+        Route::Audit => {
+            let snapshot = persisted_chain(b"hello").await?;
+            let store = replayed_store(&snapshot, None).await?;
+            let mut a_metadata = store.get_metadata(&key("data/a.txt")).await?;
+            a_metadata.set_version(Some(Version::new(0xB0_0B)))?;
+            store.set_metadata(&key("data/a.txt"), &a_metadata).await?;
+            let envref = provenance_env_over(store).await?;
+            // `a.txt` stays unloaded: loading it would register its moved version and make
+            // `b.txt` refuse to load, leaving the audit nothing to expire.
+            let _b = live(&envref, "data/b.txt").await?;
+            let _report = live(&envref, "data/report.txt").await?;
+            within(envref.get_asset_manager().trigger_dependency_audit_with(
+                &liquers_core::parse::parse_query("-R/data/b.txt")?,
+                AuditMode::Expire,
+            ))
+            .await?;
+            Ok(vec![
+                observe(&envref, "data/b.txt", Scope::Cascaded).await?,
+                observe(&envref, "data/report.txt", Scope::Cascaded).await?,
+            ])
+        }
+        Route::Updated => {
+            let envref = provenance_env(false).await?;
+            let am = envref.get_asset_manager();
+            within(am.set_binary(&key("data/a.txt"), b"hello", provenance_text_metadata())).await?;
+            provenance_evaluate_chain(&envref).await?;
+            within(am.set_binary(&key("data/a.txt"), b"changed", provenance_text_metadata())).await?;
+            Ok(vec![
+                observe(&envref, "data/b.txt", Scope::Cascaded).await?,
+                observe(&envref, "data/report.txt", Scope::Cascaded).await?,
+            ])
+        }
+        Route::Removed => {
+            let envref = provenance_env(false).await?;
+            let am = envref.get_asset_manager();
+            within(am.set_binary(&key("data/a.txt"), b"hello", provenance_text_metadata())).await?;
+            provenance_evaluate_chain(&envref).await?;
+            within(am.remove(&key("data/a.txt"))).await?;
+            Ok(vec![
+                observe(&envref, "data/b.txt", Scope::Cascaded).await?,
+                observe(&envref, "data/report.txt", Scope::Cascaded).await?,
+            ])
+        }
+        Route::UpdatedInStore => {
+            let snapshot = persisted_chain(b"hello").await?;
+            let store =
+                replayed_store(&snapshot, Some(("data/a.txt", b"hello, edited by hand"))).await?;
+            let envref = provenance_env_over(store).await?;
+            // Serve `b.txt` as stored (loading the edge a -> b at the old version), then read the
+            // edited source: its new content hash is found different from the recorded one.
+            let _ = live(&envref, "data/b.txt").await?;
+            let _ = live(&envref, "data/report.txt").await?;
+            let _ = live(&envref, "data/a.txt").await?;
+            Ok(vec![
+                observe(&envref, "data/b.txt", Scope::Cascaded).await?,
+                observe(&envref, "data/report.txt", Scope::Cascaded).await?,
+            ])
+        }
+    }
+}
+
+/// One scenario per route: whatever the route expired is stored `Expired` with a reason of that
+/// route's cause, at the scope the route has — `Deadline`, `Explicit` and `StaleDependency` are
+/// `Direct` on the asset they happened to and `Cascaded` on its dependents; the other four occur
+/// only as `Cascaded`, on dependents of a root that is not itself expired.
+#[tokio::test]
+async fn every_route_persists_its_reason() -> TestResult {
+    let mut seen = Vec::new();
+    for route in Route::ALL {
+        let observed = drive(route).await?;
+        assert!(!observed.is_empty(), "{route:?} expired nothing");
+        for Observed { name, scope, metadata } in observed {
+            assert_eq!(metadata.status(), Status::Expired, "{route:?}: {name}");
+            let Some(reason) = metadata.expiry_reason() else {
+                panic!("{route:?}: {name} is stored Expired without a reason");
+            };
+            match (scope, &reason) {
+                (Scope::Direct, ExpiryReason::Direct { cause }) => {
+                    assert_eq!(route_of(cause), route, "{route:?}: {name}: {reason:?}");
+                    if let ExpiryCause::StaleDependency { dependency } = cause {
+                        assert_eq!(*dependency, dep("data/a.txt"), "{route:?}: {name}");
+                    }
+                }
+                (Scope::Cascaded, ExpiryReason::Cascaded { cause, root, .. }) => {
+                    assert_eq!(route_of(cause), route, "{route:?}: {name}: {reason:?}");
+                    assert_eq!(*root, dep("data/a.txt"), "{route:?}: {name}");
+                }
+                (Scope::Direct, ExpiryReason::Cascaded { .. })
+                | (Scope::Cascaded, ExpiryReason::Direct { .. }) => {
+                    panic!("{route:?}: {name}: expected scope {scope:?}, stored {reason:?}");
+                }
+            }
+            seen.push(route_of(reason.cause()));
+        }
+    }
+    for route in Route::ALL {
+        assert!(seen.contains(&route), "no stored reason carried the {route:?} cause");
+    }
+    Ok(())
+}
+
+/// Every cause writes its log line, in the same write as the status: the stored log holds exactly
+/// one line that is the reason's own `log_entry`, at the level Phase 2 gives the cause.
+#[tokio::test]
+async fn every_cause_writes_a_log_line() -> TestResult {
+    for route in Route::ALL {
+        for Observed { name, metadata, .. } in drive(route).await? {
+            let Some(reason) = metadata.expiry_reason() else {
+                panic!("{route:?}: {name} is stored Expired without a reason");
+            };
+            let expected = reason.log_entry(name);
+            assert_eq!(expected.kind, expected_level(route), "{route:?}: the level of the cause");
+            let matching: Vec<_> = log_of(&metadata)
+                .into_iter()
+                .filter(|(_, message)| message.contains(" expired: "))
+                .collect();
+            assert_eq!(
+                matching,
+                vec![(expected.kind.clone(), expected.message.clone())],
+                "{route:?}: {name}: exactly one expiry line, the reason's own"
+            );
+            assert!(
+                !expected.message.to_lowercase().contains("asset "),
+                "{route:?}: {name}: the line names a key, not a runtime asset: {}",
+                expected.message
+            );
+        }
+    }
     Ok(())
 }

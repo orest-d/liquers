@@ -29,8 +29,8 @@ use liquers_core::{
 };
 
 use common::manager_scenarios::{
-    provenance_evaluate_chain, provenance_store, provenance_text_metadata,
-    register_provenance_commands,
+    provenance_evaluate_chain, provenance_store, provenance_text_metadata, register_gate_command,
+    register_provenance_commands, scenario_stale_dependency, stale_dependency_store, StaleGate,
 };
 use fixtures::StoreSnapshot;
 
@@ -1167,5 +1167,40 @@ async fn listdir_error_after_write_is_logged_not_fatal() -> TestResult {
         Status::Ready,
         "the refresh failed, so nothing was moved or expired"
     );
+    Ok(())
+}
+
+// ======================================================================================
+// A command reaches the stale-dependency arm by evaluating a recipe (Step 10).
+// ======================================================================================
+
+/// `gated.txt` submits the computed `a.txt`, blocks on a test-controlled gate, then waits for it
+/// with `Context::wait_for_dependency`. The test expires `a.txt` while the command is blocked, so
+/// the wait finds an `Expired` dependency: the command must use its retained value and `gated.txt`
+/// must end `Expired` with `Direct { StaleDependency { a.txt } }`. Nothing here races: the gate
+/// fixes the order, and a command that waited through `AssetRef::get` instead would fail on the
+/// expired dependency and fail this test (`STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST`).
+#[tokio::test]
+async fn stale_dependency_end_to_end_queued() -> TestResult {
+    let gate = StaleGate::new();
+    let mut env = TestEnv::new();
+    register_provenance_commands(&mut env.command_registry);
+    register_gate_command(&mut env.command_registry, gate.clone());
+    env.with_async_store(Box::new(stale_dependency_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_stale_dependency(env.to_ref(), gate).await?;
+    Ok(())
+}
+
+/// As [`stale_dependency_end_to_end_queued`], on the inline manager.
+#[tokio::test]
+async fn stale_dependency_end_to_end_immediate() -> TestResult {
+    let gate = StaleGate::new();
+    let mut env = liquers_core::context::ImmediateEnvironment::<Value>::new();
+    register_provenance_commands(&mut env.command_registry);
+    register_gate_command(&mut env.command_registry, gate.clone());
+    env.with_async_store(Box::new(stale_dependency_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_stale_dependency(env.to_ref(), gate).await?;
     Ok(())
 }

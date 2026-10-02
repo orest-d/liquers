@@ -96,6 +96,7 @@
 //! Evaluating a payload-requiring plan without a payload is an error.
 
 use core::panic;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use crate::maybe_send::MaybeBoxed;
@@ -423,6 +424,12 @@ pub struct Context<E: Environment> {
     /// Collected here and written to the asset's metadata after evaluation completes.
     pending_dependencies: Arc<tokio::sync::Mutex<Vec<DependencyRecord>>>,
 
+    /// Which `DependencyKey` each asset returned by [`Self::submit`] was recorded under, by asset
+    /// id. [`Self::wait_for_dependency`] looks the key up so the dependency's settled version
+    /// upgrades the record `submit` wrote. Shared across context clones, like
+    /// `pending_dependencies`.
+    submitted_dependencies: Arc<tokio::sync::Mutex<HashMap<u64, DependencyKey>>>,
+
     /// Queries currently being evaluated with an inherited payload, along this evaluation path.
     ///
     /// Payload-evaluated assets are not registered in the dependency graph — a payload is not
@@ -452,6 +459,7 @@ impl<E: Environment> Context<E> {
             payload: None,
             is_volatile, // Initialize from parameter
             pending_dependencies: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            submitted_dependencies: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             active_payload_queries: Arc::new(tokio::sync::Mutex::new(Vec::new())),
         }
     }
@@ -706,13 +714,28 @@ impl<E: Environment> Context<E> {
         Ok(state)
     }
 
-    /// Wait on a previously-scheduled dependency AssetRef on behalf of the current asset.
-    /// Thin wrapper over `AssetManager::wait_for_dependency`; idempotent.
-    pub(crate) async fn wait_for_dependency(
+    /// Waits for a dependency started with [`Self::submit`] (or [`Self::evaluate`]), on behalf of
+    /// the current asset.
+    ///
+    /// While waiting, the current asset is shown as `Status::Dependencies`. A dependency that
+    /// expired in the meantime is used as it stands and the current asset is marked for
+    /// recomputation (`Direct { cause: StaleDependency { .. } }`) — this is the stale-dependency
+    /// policy, and only this method applies it; `AssetRef::get` on the dependency would fail on
+    /// an expired asset instead. The dependency's settled version is recorded under the key
+    /// `submit` used. An asset this context did not submit is waited for the same way, without a
+    /// version upgrade. Idempotent.
+    pub async fn wait_for_dependency(
         &self,
         asset: &AssetRef<E>,
     ) -> Result<State<E::Value>, Error> {
-        self.wait_for_dependency_recording(asset, None).await
+        let dep_key = self
+            .submitted_dependencies
+            .lock()
+            .await
+            .get(&asset.id())
+            .cloned();
+        self.wait_for_dependency_recording(asset, dep_key.as_ref())
+            .await
     }
 
     /// Drains the current asset's scheduled local dependency queue.
@@ -732,19 +755,39 @@ impl<E: Environment> Context<E> {
     /// map and is never reused, so there is nothing to schedule it for. The dependency edge is
     /// recorded either way.
     pub async fn get_dependency_state(&self, query: &Query) -> Result<State<E::Value>, Error> {
-        let (asset, dep_key) = self.schedule_dependency_asset_with_key(query).await?;
-        self.wait_for_dependency_recording(&asset, Some(&dep_key))
-            .await
+        let asset = self.submit(query).await?;
+        self.wait_for_dependency(&asset).await
     }
 
-    /// Schedules and records a dependency, then returns its asset handle.
+    /// Starts evaluating `query` as a dependency of the current asset and returns its asset at
+    /// once, without waiting for it.
     ///
-    /// The local dependency queue is drained before return so callers can safely
-    /// wait through [`AssetRef::get`](crate::assets::AssetRef::get). If the nested query
-    /// requires a payload, this context's payload is inherited and the nested asset is
-    /// evaluated inline instead of being queued.
+    /// The dependency is recorded and cycle-checked exactly as [`Self::get_dependency_state`]
+    /// does. The command can do other work, or submit further dependencies, and then wait with
+    /// [`Self::wait_for_dependency`]. `submit` does not drain the local queue: on the inline
+    /// manager the dependency runs when it is first waited for. An asset that is submitted and
+    /// never waited for simply completes; no parent is left in `Status::Dependencies`.
+    #[must_use = "a submitted dependency is only used when it is waited for with `wait_for_dependency`"]
+    pub async fn submit(&self, query: &Query) -> Result<AssetRef<E>, Error> {
+        let (asset, dep_key) = self.schedule_dependency_asset_with_key(query).await?;
+        self.submitted_dependencies
+            .lock()
+            .await
+            .insert(asset.id(), dep_key);
+        Ok(asset)
+    }
+
+    /// Submits a dependency (see [`Self::submit`]) and drains the local dependency queue, then
+    /// returns its asset handle.
+    ///
+    /// To wait for the value as a dependency, pass the handle to [`Self::wait_for_dependency`]:
+    /// that applies the dependency policy (the parent shows `Status::Dependencies`, a dependency
+    /// that expired meanwhile is used as it stands and the parent is marked stale). Waiting
+    /// through `AssetRef::get` bypasses it. If the nested query requires a payload, this
+    /// context's payload is inherited and the nested asset is evaluated inline instead of being
+    /// queued.
     pub async fn evaluate(&self, query: &Query) -> Result<AssetRef<E>, Error> {
-        let asset = self.schedule_dependency_asset(query).await?;
+        let asset = self.submit(query).await?;
         self.evaluate_local_queue().await?;
         Ok(asset)
     }
@@ -815,6 +858,7 @@ impl<E: Environment> Context<E> {
             payload: self.payload.clone(),
             is_volatile: volatile || self.is_volatile, // Propagate if parent is volatile
             pending_dependencies: self.pending_dependencies.clone(),
+            submitted_dependencies: self.submitted_dependencies.clone(),
             active_payload_queries: self.active_payload_queries.clone(),
         }
     }
@@ -877,6 +921,7 @@ impl<E: Environment> Context<E> {
             payload: self.payload.clone(),
             is_volatile: self.is_volatile,
             pending_dependencies: self.pending_dependencies.clone(),
+            submitted_dependencies: self.submitted_dependencies.clone(),
             active_payload_queries: self.active_payload_queries.clone(),
         }
     }
@@ -1055,6 +1100,7 @@ impl<E: Environment> Clone for Context<E> {
             payload: self.payload.clone(),
             is_volatile: self.is_volatile,
             pending_dependencies: self.pending_dependencies.clone(),
+            submitted_dependencies: self.submitted_dependencies.clone(),
             active_payload_queries: self.active_payload_queries.clone(),
         }
     }
@@ -1571,6 +1617,7 @@ mod tests {
                 payload: None,
                 is_volatile: false,
                 pending_dependencies: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            submitted_dependencies: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                 active_payload_queries: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             },
             service_rx,
@@ -1888,6 +1935,184 @@ mod tests {
                 .expect("applied value")
                 .as_ref(),
             &expected
+        );
+    }
+
+    // --- `submit` / `wait_for_dependency` (dependency-audit-and-expiry-provenance, Step 10) ---
+
+    /// A context for a temporary asset in `envref`, with a counting `counted` command registered
+    /// by `env_with_counted`.
+    async fn context_in(envref: EnvRef<TestEnvironment>) -> Context<TestEnvironment> {
+        let assetref = AssetData::<TestEnvironment>::new_temporary(envref.clone()).to_ref();
+        Context::new(assetref, false).await
+    }
+
+    fn env_with_counted(calls: Arc<std::sync::atomic::AtomicUsize>) -> EnvRef<TestEnvironment> {
+        let mut env = TestEnvironment::new();
+        env.command_registry
+            .register_command(
+                CommandKey::new_name("counted"),
+                move |_state, _args, _ctx| -> Result<Value, Error> {
+                    calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Ok(Value::from("counted"))
+                },
+            )
+            .expect("register counted");
+        env.to_ref()
+    }
+
+    /// `submit` writes the dependency record under the key that `wait_for_dependency` then looks
+    /// up, so waiting upgrades that one record instead of adding a second.
+    #[tokio::test]
+    async fn submit_records_dependency_under_the_key_wait_uses() {
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let context = context_in(env_with_counted(calls)).await;
+        let query = parse_query("counted").expect("query");
+
+        let asset = context.submit(&query).await.expect("submit");
+
+        let expected_key = DependencyKey::from(&query);
+        assert_eq!(
+            context.submitted_dependencies.lock().await.get(&asset.id()),
+            Some(&expected_key),
+            "submit remembers the key it recorded under, by asset id"
+        );
+        let state = context.wait_for_dependency(&asset).await.expect("wait");
+        assert_eq!(state.try_into_string().expect("text"), "counted");
+
+        let records = context.take_pending_dependencies().await;
+        assert_eq!(records.len(), 1, "one record, upgraded in place: {records:?}");
+        assert_eq!(records[0].key, expected_key);
+    }
+
+    /// A key asset that submits itself is a dependency cycle, reported at submit time.
+    #[tokio::test]
+    async fn submit_cycle_is_an_error() {
+        let envref = TestEnvironment::new().to_ref();
+        let manager = envref.get_asset_manager();
+        let key = parse_key("a/b/loop.txt").expect("key");
+        let asset = AssetRef::new_from_recipe(
+            manager.next_id_for_asset(),
+            key.clone().into(),
+            Some(key.clone()),
+            envref.clone(),
+        );
+        assert!(manager.try_insert_key_asset(&key, asset.clone()).await);
+        let context = Context::new(asset, false).await;
+
+        let query = parse_query("-R/a/b/loop.txt").expect("query");
+        let Err(error) = context.submit(&query).await else {
+            std::panic!("a self-dependency must be refused");
+        };
+
+        assert_eq!(error.error_type, crate::error::ErrorType::DependencyCycle);
+        assert!(context.submitted_dependencies.lock().await.is_empty());
+    }
+
+    /// On the queued manager `submit` returns while the dependency is still running, so a command
+    /// can start several dependencies and do other work before it waits for any of them.
+    ///
+    /// The Step 10 plan named this test for the *inline* manager and described the dependency as
+    /// not running until waited for. Neither holds: the queued manager starts a dependency at once
+    /// when it has capacity (this test), and the inline manager evaluates it inside `submit`
+    /// ([`submit_runs_dependency_at_once_on_inline_manager`]).
+    #[tokio::test]
+    async fn submit_returns_before_the_dependency_finishes_on_queued_manager() {
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let (entered_by_command, release_by_test) = (entered.clone(), release.clone());
+        let mut env = SimpleEnvironment::<Value>::new();
+        env.command_registry
+            .register_async_command(CommandKey::new_name("gated"), move |_state, _args, _ctx| {
+                let (entered, release) = (entered_by_command.clone(), release_by_test.clone());
+                Box::pin(async move {
+                    entered.notify_one();
+                    release.notified().await;
+                    Ok(Value::from("gated"))
+                })
+            })
+            .expect("register gated");
+        let envref = env.to_ref();
+        let assetref =
+            AssetData::<SimpleEnvironment<Value>>::new_temporary(envref.clone()).to_ref();
+        let context = Context::new(assetref, false).await;
+        let query = parse_query("gated").expect("query");
+
+        let asset = context.submit(&query).await.expect("submit returns at once");
+        tokio::time::timeout(std::time::Duration::from_secs(10), entered.notified())
+            .await
+            .expect("the dependency starts without being waited for");
+        assert!(!asset.status().await.is_finished(), "still running after submit returned");
+
+        release.notify_one();
+        let state = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            context.wait_for_dependency(&asset),
+        )
+        .await
+        .expect("wait finishes")
+        .expect("wait");
+        assert_eq!(state.try_into_string().expect("text"), "gated");
+    }
+
+    /// The inline manager resolves a dependency through `get_asset`, which evaluates it there and
+    /// then; `submit` is therefore not lazy on it. The dependency is already `Ready` when
+    /// `submit` returns, and the later wait only collects it.
+    #[tokio::test]
+    async fn submit_runs_dependency_at_once_on_inline_manager() {
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let context = context_in(env_with_counted(calls.clone())).await;
+        let query = parse_query("counted").expect("query");
+
+        let asset = context.submit(&query).await.expect("submit");
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1, "run by submit");
+        assert!(asset.status().await.is_finished());
+
+        let _ = context.wait_for_dependency(&asset).await.expect("wait");
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1, "not run again");
+    }
+
+    /// An asset this context did not submit is waited for without a version upgrade: nothing is
+    /// recorded for it, because no key is known to record it under.
+    #[tokio::test]
+    async fn wait_for_dependency_on_unsubmitted_asset_records_no_version_upgrade() {
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let envref = env_with_counted(calls);
+        let context = context_in(envref.clone()).await;
+        let asset = envref
+            .get_asset_manager()
+            .get_asset(&parse_query("counted").expect("query"))
+            .await
+            .expect("asset");
+
+        let state = context.wait_for_dependency(&asset).await.expect("wait");
+
+        assert_eq!(state.try_into_string().expect("text"), "counted");
+        assert!(context.take_pending_dependencies().await.is_empty());
+        assert!(context.submitted_dependencies.lock().await.is_empty());
+    }
+
+    /// `get_dependency_state` is `submit` + `wait_for_dependency`: same state, same record.
+    #[tokio::test]
+    async fn get_dependency_state_matches_submit_then_wait() {
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let envref = env_with_counted(calls);
+        let query = parse_query("counted").expect("query");
+
+        let direct = context_in(envref.clone()).await;
+        let direct_state = direct.get_dependency_state(&query).await.expect("direct");
+
+        let stepwise = context_in(envref).await;
+        let asset = stepwise.submit(&query).await.expect("submit");
+        let stepwise_state = stepwise.wait_for_dependency(&asset).await.expect("wait");
+
+        assert_eq!(
+            direct_state.try_into_string().expect("text"),
+            stepwise_state.try_into_string().expect("text")
+        );
+        assert_eq!(
+            direct.take_pending_dependencies().await,
+            stepwise.take_pending_dependencies().await
         );
     }
 }

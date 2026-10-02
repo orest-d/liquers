@@ -25,6 +25,7 @@ use liquers_core::{
 use common::manager_scenarios::{
     listing_store, provenance_store, register_index_files, register_provenance_commands, scenario_listing_dependency, scenario_every_expired_asset_has_reason_and_log_line,
     scenario_audit_after_restart, scenario_expiry_reason_cascade,
+    register_gate_command, scenario_stale_dependency, stale_dependency_store, StaleGate,
     counting_recipe_store, register_counted, register_dependent, register_greet, register_vol_cmd,
     recipe_store, scenario_adhoc_apply_is_not_keyed, scenario_basic_eval, scenario_cache_and_mode,
     scenario_concurrent_first_evaluations, scenario_entry_point_equivalence,
@@ -609,4 +610,28 @@ async fn listing_dependency_immediate() -> Result<(), Error> {
     env.with_async_store(Box::new(listing_store().await?));
     env.with_recipe_provider(Box::new(DefaultRecipeProvider));
     scenario_listing_dependency(env.to_ref(), calls).await
+}
+
+// --- stale dependency, end to end (dependency-audit-and-expiry-provenance, Step 10) ---
+
+#[tokio::test]
+async fn stale_dependency_default() -> Result<(), Error> {
+    let gate = StaleGate::new();
+    let mut env = SimpleEnvironment::<Value>::new();
+    register_provenance_commands(&mut env.command_registry);
+    register_gate_command(&mut env.command_registry, gate.clone());
+    env.with_async_store(Box::new(stale_dependency_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_stale_dependency(env.to_ref(), gate).await
+}
+
+#[tokio::test]
+async fn stale_dependency_immediate() -> Result<(), Error> {
+    let gate = StaleGate::new();
+    let mut env = ImmediateEnvironment::<Value>::new();
+    register_provenance_commands(&mut env.command_registry);
+    register_gate_command(&mut env.command_registry, gate.clone());
+    env.with_async_store(Box::new(stale_dependency_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_stale_dependency(env.to_ref(), gate).await
 }
