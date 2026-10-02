@@ -317,7 +317,7 @@ type PsmJoinError = tokio::task::JoinError;
 type PsmJoinError = std::convert::Infallible;
 use crate::metadata::{
     AssetInfo, DependencyKey, DependencyRecord, ExpiryCause, ExpiryReason, LogEntry,
-    MetadataRecord, ProgressEntry, ReadExposure, Version,
+    MetadataRecord, ProgressEntry, ReadExposure, Version, VersionCheck, VersionKind,
 };
 use crate::environment_builder::{DependencyAuditPolicy, VersionVerification};
 use crate::value::ValueInterface;
@@ -601,6 +601,14 @@ pub struct AssetData<E: Environment> {
     /// is labeled `Expired` — with `Direct { StaleDependency { dependency } }` as its reason — so
     /// the next access recomputes it. See `wait_for_dependency`.
     stale_dependency: Option<DependencyKey>,
+
+    /// An outside change [`Self::try_fast_track`] found in the stored bytes, waiting to be applied
+    /// with [`AssetManager::apply_external_change`].
+    ///
+    /// It cannot be applied where it is found: `try_fast_track` runs under this asset's `data`
+    /// write lock, and applying takes `key_mutation_lock`, which every keyed mutation takes
+    /// *before* asset locks. [`AssetRef::fast_track`] takes it after dropping the lock.
+    pending_external_change: Option<PendingExternalChange>,
 
     _marker: std::marker::PhantomData<E>,
 }
@@ -972,6 +980,7 @@ impl<E: Environment> AssetData<E> {
             persistence_status: PersistenceStatus::None,
             last_persistence_error: None,
             stale_dependency: None,
+            pending_external_change: None,
             _marker: std::marker::PhantomData,
             status: Status::None,
         };
@@ -1222,15 +1231,53 @@ impl<E: Environment> AssetData<E> {
                     }
                 };
 
+                let envref = self.get_envref();
+                let manager = envref.get_asset_manager();
+                let dm = manager.dependency_manager();
+
+                // Part G: the bytes are in hand, so check them against the recorded version.
+                // Only the decision and the in-memory adoption happen here; the store write,
+                // the version map and the cascade are applied by `AssetRef::fast_track` after
+                // this asset's `data` lock is dropped (see `pending_external_change`).
+                let mut metadata = metadata;
+                let mut stored_status = stored_status;
+                let mut adopted_external_change = false;
+                if let Some((actual, action)) =
+                    decide_external_change(&*manager, &key, &binary, &metadata).await?
+                {
+                    let recorded = metadata.version().unwrap_or_else(Version::unknown);
+                    self.pending_external_change = Some(PendingExternalChange {
+                        key: key.clone(),
+                        recorded: metadata.clone(),
+                        actual,
+                        action: action.clone(),
+                    });
+                    match action {
+                        ExternalChangeAction::Delete => {
+                            eprintln!(
+                                "Asset {}: content of {} changed outside Liquers and is treated \
+                                 as corrupted; recomputing",
+                                self.id(),
+                                key
+                            );
+                            self.clear_fast_track_payload();
+                            return Ok(false);
+                        }
+                        ExternalChangeAction::AcceptAsInput { .. }
+                        | ExternalChangeAction::ConvertToOverride { .. } => {
+                            adopt_external_change(&mut metadata, &key, recorded, &action);
+                            stored_status = metadata.status();
+                            adopted_external_change = true;
+                        }
+                    }
+                }
+
                 self.binary = Some(Arc::new(binary));
                 self.data = Some(Arc::new(value));
                 self.status = stored_status;
                 self.metadata = metadata;
 
                 // Validate stored dependencies against the DM
-                let envref = self.get_envref();
-                let manager = envref.get_asset_manager();
-                let dm = manager.dependency_manager();
 
                 if let Metadata::MetadataRecord(ref mr) = self.metadata {
                     for dep_record in mr.get_dependencies() {
@@ -1296,7 +1343,15 @@ impl<E: Environment> AssetData<E> {
                 {
                     let dep_key = DependencyKey::from(&key);
                     let loaded_version = self.metadata.version();
-                    if let Some(version) = loaded_version {
+                    // An adopted outside change registers its version when it is applied, with
+                    // its own cause (`UpdatedInStore`); registering it here would cascade first
+                    // with `Updated`.
+                    let registered_version = if adopted_external_change {
+                        None
+                    } else {
+                        loaded_version
+                    };
+                    if let Some(version) = registered_version {
                         let expired = dm.register_version(&dep_key, version).await;
                         manager
                             .expire_dependencies_result(expired, ExpiryCause::Updated { version })
@@ -2076,6 +2131,41 @@ impl<E: Environment> AssetRef<E> {
     pub async fn get_envref(&self) -> EnvRef<E> {
         let lock = self.data.read().await;
         lock.get_envref()
+    }
+
+    /// Try to load this asset from the store ([`AssetData::try_fast_track`]) and apply any
+    /// outside change the load found ([`AssetManager::apply_external_change`]).
+    ///
+    /// This is how a manager fast-tracks. `try_fast_track` runs under the `data` write lock,
+    /// while applying a change takes `key_mutation_lock`, which keyed mutations (`remove`,
+    /// `expire`, …) take *before* asset locks; so the change is applied here, after the lock is
+    /// dropped, and before this returns — in particular before a refused fast track (`false`)
+    /// submits a recomputation. A failure to apply is reported on stderr and does not fail the
+    /// load.
+    pub async fn fast_track(&self) -> Result<bool, Error> {
+        let (result, pending, envref) = {
+            let mut lock = self.data.write().await;
+            let result = lock.try_fast_track().await;
+            (result, lock.pending_external_change.take(), lock.get_envref())
+        };
+        if let Some(pending) = pending {
+            let manager = envref.get_asset_manager();
+            if let Err(e) = manager
+                .apply_external_change(
+                    &pending.key,
+                    &pending.recorded,
+                    pending.actual,
+                    pending.action,
+                )
+                .await
+            {
+                eprintln!(
+                    "Could not apply the outside change of {}: {}",
+                    pending.key, e
+                );
+            }
+        }
+        result
     }
 
     /// Creates the execution context used by the interpreter and commands.
@@ -4266,6 +4356,288 @@ impl ExternalChangePolicy {
     }
 }
 
+/// What [`AssetManager::apply_external_change`] does with a stored value whose bytes no longer
+/// match its recorded version (Part G of `dependency-audit-and-expiry-provenance`).
+///
+/// Decided by [`external_change_action`]. The changed asset itself is never expired: it becomes
+/// input, or is deleted. Its dependents are expired with
+/// [`ExpiryCause::UpdatedInStore`](crate::metadata::ExpiryCause::UpdatedInStore).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExternalChangeAction {
+    /// `Source` / `Override` (or a value whose recipe is gone): keep the status, adopt `actual`
+    /// as the version.
+    AcceptAsInput { actual: Version },
+    /// Recipe-backed, [`ExternalChangePolicy::UserInput`]: set status `Override`, adopt `actual`.
+    ConvertToOverride { actual: Version },
+    /// Recipe-backed, [`ExternalChangePolicy::Corrupted`]: remove data and metadata from the
+    /// store, so the recipe recomputes the value.
+    Delete,
+}
+
+/// The decision table for content changed outside Liquers (Phase 2, G2).
+///
+/// `status` is the stored status, except for a file with no metadata (recorded version 0 on a
+/// stored `Source` or `None`), for which the caller passes `Source` when the key has no recipe
+/// and `Ready` when it has one — [`external_change_status`] does that mapping. `None` means the
+/// status is not checked: there is no reusable stored value to protect.
+pub fn external_change_action(
+    status: Status,
+    has_recipe: bool,
+    policy: ExternalChangePolicy,
+    actual: Version,
+) -> Option<ExternalChangeAction> {
+    match status {
+        // A `Source` is always input (even when a recipe was added since), and an `Override` is
+        // the user's by definition: neither is ever converted or deleted.
+        Status::Source | Status::Override => Some(ExternalChangeAction::AcceptAsInput { actual }),
+        Status::Ready | Status::Expired => {
+            if !has_recipe {
+                // The recipe was removed since: there is nothing to recompute from.
+                return Some(ExternalChangeAction::AcceptAsInput { actual });
+            }
+            match policy {
+                ExternalChangePolicy::UserInput => {
+                    Some(ExternalChangeAction::ConvertToOverride { actual })
+                }
+                ExternalChangePolicy::Corrupted => Some(ExternalChangeAction::Delete),
+            }
+        }
+        Status::None
+        | Status::Directory
+        | Status::Recipe
+        | Status::Submitted
+        | Status::Dependencies
+        | Status::Processing
+        | Status::Partial
+        | Status::Error
+        | Status::Storing
+        | Status::Cancelled
+        | Status::Volatile => None,
+    }
+}
+
+/// The status [`external_change_action`] is asked about for a stored entry.
+///
+/// **"No metadata", operationally.** A store cannot be relied on to say that a file had no
+/// sidecar: `AsyncFileStore` synthesizes and writes one (status `Source`, no version) on a bare
+/// file's first read (`STORE-NO-READ-ONLY-ADAPTER`), and a memory store always holds some metadata.
+/// So a file with no metadata is recognised by a recorded version of 0 on a stored status of
+/// `Source` or `None`, and is asked about as `Source` without a recipe and as `Ready` with one
+/// (Phase 2, Revision 2 clarification 3). A value Liquers wrote always carries a version, so this
+/// does not catch one.
+pub fn external_change_status(stored_status: Status, recorded: Version, has_recipe: bool) -> Status {
+    let no_metadata = recorded.is_unknown()
+        && match stored_status {
+            Status::Source | Status::None => true,
+            Status::Directory
+            | Status::Recipe
+            | Status::Submitted
+            | Status::Dependencies
+            | Status::Processing
+            | Status::Partial
+            | Status::Error
+            | Status::Storing
+            | Status::Ready
+            | Status::Expired
+            | Status::Cancelled
+            | Status::Override
+            | Status::Volatile => false,
+        };
+    if !no_metadata {
+        stored_status
+    } else if has_recipe {
+        Status::Ready
+    } else {
+        Status::Source
+    }
+}
+
+/// Whether a stored entry is checked at all. Whether the key has a recipe never changes the
+/// answer, only the action, so it can be asked before the recipe (and the bytes) are read.
+fn external_change_checked(stored_status: Status, recorded: Version) -> bool {
+    let status = external_change_status(stored_status, recorded, false);
+    external_change_action(
+        status,
+        false,
+        ExternalChangePolicy::UserInput,
+        Version::unknown(),
+    )
+    .is_some()
+}
+
+/// Whether an empty data object stands for "no bytes" — a metadata-only entry — rather than for
+/// empty content.
+///
+/// A store that keeps metadata without a data object usually says so (`get_bytes` reports
+/// `KeyNotFound`), but `AsyncMemoryStore` answers with empty bytes. Liquers records a timestamp
+/// version only when it stored no bytes (serialization failed, or the fallback of
+/// `version_for_tracking`), and a content hash whenever it stored some; so empty bytes under a
+/// timestamp version are such an entry, and are not checked. Empty bytes under a content hash, or
+/// with no recorded version, are content and are checked.
+fn no_bytes_by_design(bytes: &[u8], recorded: Version) -> bool {
+    bytes.is_empty()
+        && match recorded.kind() {
+            VersionKind::Timestamp => true,
+            VersionKind::ContentHash | VersionKind::Unknown => false,
+        }
+}
+
+/// Whether applying `action` writes the sidecar. Everything is written except an
+/// `AcceptAsInput` whose recorded version was 0: a file with no metadata and no recipe is adopted
+/// in memory only (owner decision, 2026-10-02), because nothing about the value changes and the
+/// next process computes the same hash, and writing would litter the store with sidecars on a
+/// whole-store sweep. Under a recipe the status changes, so `ConvertToOverride` is written.
+fn external_change_writes_sidecar(recorded: Version, action: &ExternalChangeAction) -> bool {
+    match action {
+        ExternalChangeAction::AcceptAsInput { .. } => !recorded.is_unknown(),
+        ExternalChangeAction::ConvertToOverride { .. } => true,
+        ExternalChangeAction::Delete => false,
+    }
+}
+
+/// The warning logged on a changed asset (Phase 2, G2). `None` for `Delete`, whose metadata is
+/// gone with the value; that is reported on stderr instead.
+fn external_change_log_entry(
+    key: &Key,
+    recorded: Version,
+    action: &ExternalChangeAction,
+) -> Option<LogEntry> {
+    match action {
+        ExternalChangeAction::AcceptAsInput { .. }
+        | ExternalChangeAction::ConvertToOverride { .. } => {}
+        ExternalChangeAction::Delete => return None,
+    }
+    let message = match recorded.kind() {
+        VersionKind::ContentHash => {
+            format!("content of {key} changed outside Liquers; accepted as user input")
+        }
+        VersionKind::Timestamp | VersionKind::Unknown => format!(
+            "no content hash was recorded for {key}; adopting its content as user input"
+        ),
+    };
+    Some(LogEntry::warning(message))
+}
+
+/// Adopt an accepted change into `metadata`: the version becomes `actual`, a conversion sets
+/// `Override`, and, when the sidecar is written, the warning is logged. `Delete` changes nothing.
+fn adopt_external_change(
+    metadata: &mut Metadata,
+    key: &Key,
+    recorded: Version,
+    action: &ExternalChangeAction,
+) {
+    let (actual, status) = match action {
+        ExternalChangeAction::AcceptAsInput { actual } => (*actual, None),
+        ExternalChangeAction::ConvertToOverride { actual } => (*actual, Some(Status::Override)),
+        ExternalChangeAction::Delete => return,
+    };
+    if let Err(e) = metadata.set_version(Some(actual)) {
+        eprintln!("Could not record version {actual:?} on {key}: {e}");
+    }
+    if let Some(status) = status {
+        if let Err(e) = metadata.set_status(status) {
+            eprintln!("Could not set status {status:?} on {key}: {e}");
+        }
+    }
+    if external_change_writes_sidecar(recorded, action) {
+        if let Some(entry) = external_change_log_entry(key, recorded, action) {
+            let _ = metadata.add_log_entry(entry);
+        }
+    }
+}
+
+/// Re-hash `bytes` against the version recorded in `metadata` and decide what to do about a
+/// mismatch. `Ok(None)`: verified, not checked, or verification is `Off`. Changes nothing.
+async fn decide_external_change<E, M>(
+    manager: &M,
+    key: &Key,
+    bytes: &[u8],
+    metadata: &Metadata,
+) -> Result<Option<(Version, ExternalChangeAction)>, Error>
+where
+    E: Environment,
+    M: AssetManager<E> + ?Sized,
+{
+    match manager.version_verification() {
+        VersionVerification::Off => return Ok(None),
+        VersionVerification::OnRead => {}
+    }
+    let recorded = metadata.version().unwrap_or_else(Version::unknown);
+    if !external_change_checked(metadata.status(), recorded) || no_bytes_by_design(bytes, recorded)
+    {
+        return Ok(None);
+    }
+    let actual = match recorded.verify(bytes) {
+        VersionCheck::Verified => return Ok(None),
+        VersionCheck::Mismatch { actual, .. } => actual,
+    };
+    let has_recipe = manager.recipe_opt(key).await?.is_some();
+    let status = external_change_status(metadata.status(), recorded, has_recipe);
+    Ok(
+        external_change_action(status, has_recipe, manager.external_change_policy(), actual)
+            .map(|action| (actual, action)),
+    )
+}
+
+/// The verification step of a store read that holds no asset lock (the store branches of
+/// [`AssetManager::get_any_status`] / [`AssetManager::get_binary_any_status`]): decide, apply,
+/// and adopt the result into the `metadata` about to be returned. `Ok(false)` when the stored
+/// value was deleted (`Corrupted`), so there is nothing left to return.
+async fn verify_store_read<E, M>(
+    manager: &M,
+    key: &Key,
+    bytes: &[u8],
+    metadata: &mut Metadata,
+) -> Result<bool, Error>
+where
+    E: Environment,
+    M: AssetManager<E> + ?Sized,
+{
+    let Some((actual, action)) = decide_external_change(manager, key, bytes, metadata).await?
+    else {
+        return Ok(true);
+    };
+    let recorded = metadata.version().unwrap_or_else(Version::unknown);
+    if let Err(e) = manager
+        .apply_external_change(key, metadata, actual, action.clone())
+        .await
+    {
+        eprintln!("Could not apply the outside change of {key}: {e}");
+    }
+    match action {
+        ExternalChangeAction::Delete => Ok(false),
+        ExternalChangeAction::AcceptAsInput { .. }
+        | ExternalChangeAction::ConvertToOverride { .. } => {
+            adopt_external_change(metadata, key, recorded, &action);
+            Ok(true)
+        }
+    }
+}
+
+/// An outside change found by `try_fast_track`, carried to [`AssetRef::fast_track`].
+#[derive(Debug, Clone)]
+pub(crate) struct PendingExternalChange {
+    key: Key,
+    /// The stored metadata the decision was made on.
+    recorded: Metadata,
+    actual: Version,
+    action: ExternalChangeAction,
+}
+
+/// What [`AssetManager::verify_stored_versions`] found.
+#[non_exhaustive]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct VersionVerificationReport {
+    /// Stored bytes matching their recorded version.
+    pub verified: Vec<Key>,
+    /// Not checked: no bytes to check (the store holds metadata but no data object), or a status
+    /// with no reusable stored value (`external_change_action` returns `None`).
+    pub skipped: Vec<Key>,
+    /// Changed outside Liquers, with the action taken — in `ReportOnly`, the action that *would*
+    /// be taken.
+    pub changed: Vec<(Key, ExternalChangeAction)>,
+}
+
 /// Asset evaluation, keyed mutation, recovery, directory, and lifecycle service.
 ///
 /// An [`Environment`] selects one implementation through its `AssetManager`
@@ -5321,6 +5693,185 @@ pub trait AssetManager<E: Environment>:
         }
     }
 
+    /// Apply an outside change to `key`'s stored value (Part G): `recorded` is the stored metadata
+    /// the decision was made on, `actual` the content hash of the bytes now stored.
+    ///
+    /// - `AcceptAsInput` / `ConvertToOverride`: the version becomes `actual` (and a conversion sets
+    ///   `Override`) in the sidecar, with a warning in the asset's log — except for an
+    ///   `AcceptAsInput` whose recorded version was 0, a file with no metadata and no recipe, which
+    ///   is adopted in memory only and writes nothing. `actual` is then recorded in the version map
+    ///   and every dependent that recorded anything else is expired with
+    ///   `Cascaded { UpdatedInStore { actual }, root: key, via }`. The map is updated as an audit
+    ///   updates it, not as `register_version` does, because after a restart this is the first
+    ///   version the map sees for `key`, which `register_version` would take as "no change".
+    /// - `Delete`: the data and metadata are removed from the store, reported on stderr (the
+    ///   metadata that would hold a log line is gone), and the dependents are expired with
+    ///   `cascade_expire_dependents(key, UpdatedInStore { actual })`.
+    ///
+    /// Runs under `key_mutation_lock`, and does nothing when the change has already been applied —
+    /// by a concurrent reader of the same key, or earlier in this process — or when the stored
+    /// entry is no longer the one the decision was made on. **Never call it while holding an
+    /// asset's `data` lock**: keyed mutations take `key_mutation_lock` first and asset locks
+    /// second, so that would invert the order.
+    ///
+    /// A store write that fails — a read-only store — is reported on stderr and the result is
+    /// kept in memory: the version map and the cascade still happen, and the next process detects
+    /// the change again. Only a failure to re-read the stored metadata is returned as `Err`; by
+    /// then nothing has changed.
+    async fn apply_external_change(
+        &self,
+        key: &Key,
+        recorded: &Metadata,
+        actual: Version,
+        action: ExternalChangeAction,
+    ) -> Result<(), Error> {
+        let store = self.get_envref().get_async_store();
+        let dep_key = crate::metadata::DependencyKey::from(key);
+        let recorded_version = recorded.version().unwrap_or_else(Version::unknown);
+        let _mutation = self.key_mutation_lock().lock().await;
+
+        let dm = self.dependency_manager();
+        if dm.get_version(&dep_key).await == Some(actual) {
+            return Ok(()); // applied earlier in this process (possibly in memory only)
+        }
+        if !store.contains(key).await? {
+            return Ok(()); // removed since it was read
+        }
+        let mut current = store.get_metadata(key).await?;
+        let stored_version = current.version().unwrap_or_else(Version::unknown);
+        if stored_version == actual || stored_version != recorded_version {
+            // Already applied by another reader, or rewritten since the read: either way the
+            // stored version is no longer the one this decision was about.
+            return Ok(());
+        }
+
+        match &action {
+            ExternalChangeAction::AcceptAsInput { .. }
+            | ExternalChangeAction::ConvertToOverride { .. } => {
+                if external_change_writes_sidecar(recorded_version, &action) {
+                    adopt_external_change(&mut current, key, recorded_version, &action);
+                    if let Err(e) = store.set_metadata(key, &current).await {
+                        eprintln!(
+                            "Content of {key} changed outside Liquers; the new version could not \
+                             be written to the store, so it is kept in memory only: {e}"
+                        );
+                    }
+                }
+                let (expired, _findings) = dm.audit_version(&dep_key, actual).await;
+                self.expire_dependencies_result(expired, ExpiryCause::UpdatedInStore { actual })
+                    .await;
+            }
+            ExternalChangeAction::Delete => {
+                match store.remove(key).await {
+                    Ok(()) => eprintln!(
+                        "Content of {key} changed outside Liquers; deleted as corrupted \
+                         (external_change: corrupted), so its recipe recomputes it"
+                    ),
+                    Err(e) => eprintln!(
+                        "Content of {key} changed outside Liquers and is treated as corrupted, \
+                         but it could not be deleted from the store: {e}"
+                    ),
+                }
+                self.cascade_expire_dependents(&dep_key, ExpiryCause::UpdatedInStore { actual })
+                    .await;
+                // Holds `key_mutation_lock`; safe, because the refresh does not take it.
+                self.refresh_listing_version(&key.parent()).await;
+            }
+        }
+        Ok(())
+    }
+
+    /// Re-hash every stored value under `key` (recursively when `deep`; `key` itself when it is
+    /// not a directory), compare it with its recorded version, and apply the configured
+    /// [`ExternalChangePolicy`] to each mismatch through [`Self::apply_external_change`] — or,
+    /// in [`AuditMode::ReportOnly`], only report what would be done, writing and registering
+    /// nothing.
+    ///
+    /// This is how an edit nobody has read yet is found; the Part B audit compares recorded
+    /// versions only and cannot see it. A key whose store entry has metadata but no data object
+    /// is `skipped`, not changed: deleting large intermediates while keeping their metadata is a
+    /// supported workflow. An *empty* data object is bytes, and is checked — except under a
+    /// timestamp version, which Liquers records only when it stored no bytes: a store that
+    /// answers a metadata-only entry with empty bytes (`AsyncMemoryStore`) is not mistaken for
+    /// one whose content was emptied.
+    ///
+    /// A live asset loaded before the edit still holds the old content; when a change is applied
+    /// it is unmapped, so the next request reads the store. Under [`VersionVerification::Off`]
+    /// nothing is hashed and the report is empty.
+    async fn verify_stored_versions(
+        &self,
+        key: &Key,
+        deep: bool,
+        mode: AuditMode,
+    ) -> Result<VersionVerificationReport, Error> {
+        let mut report = VersionVerificationReport::default();
+        match self.version_verification() {
+            VersionVerification::Off => return Ok(report),
+            VersionVerification::OnRead => {}
+        }
+        let store = self.get_envref().get_async_store();
+        let keys = if store.is_dir(key).await? {
+            if deep {
+                store.listdir_keys_deep(key).await?
+            } else {
+                store.listdir_keys(key).await?
+            }
+        } else {
+            vec![key.clone()]
+        };
+        for key in keys {
+            if store.is_dir(&key).await? {
+                continue;
+            }
+            if !store.contains(&key).await? {
+                report.skipped.push(key);
+                continue;
+            }
+            let metadata = store.get_metadata(&key).await?;
+            let recorded = metadata.version().unwrap_or_else(Version::unknown);
+            if !external_change_checked(metadata.status(), recorded) {
+                report.skipped.push(key);
+                continue;
+            }
+            let bytes = match store.get_bytes(&key).await {
+                Ok(bytes) if no_bytes_by_design(&bytes, recorded) => {
+                    report.skipped.push(key);
+                    continue;
+                }
+                Ok(bytes) => bytes,
+                Err(e) if e.error_type == ErrorType::KeyNotFound => {
+                    report.skipped.push(key);
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
+            let Some((actual, action)) =
+                decide_external_change(self, &key, &bytes, &metadata).await?
+            else {
+                report.verified.push(key);
+                continue;
+            };
+            report.changed.push((key.clone(), action.clone()));
+            match mode {
+                AuditMode::ReportOnly => {}
+                AuditMode::Expire => {
+                    self.apply_external_change(&key, &metadata, actual, action)
+                        .await?;
+                    if let Some(asset) = self.lookup_key_asset(&key) {
+                        let stale = asset.status().await.has_data()
+                            && asset.get_metadata().await?.version() != Some(actual);
+                        if stale {
+                            let _mutation = self.key_mutation_lock().lock().await;
+                            self.untrack_expiration(asset.id());
+                            self.remove_key_asset_if(&key, asset.id()).await;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(report)
+    }
+
     /// Register plan dependencies into the dependency manager.
     async fn register_plan_dependencies(
         &self,
@@ -5367,7 +5918,7 @@ pub trait AssetManager<E: Environment>:
         if !store.contains(key).await? {
             return Ok(None);
         }
-        let (binary, metadata) = store.get(key).await?;
+        let (binary, mut metadata) = store.get(key).await?;
         if !metadata.status().has_data() {
             return Ok(None);
         }
@@ -5381,7 +5932,14 @@ pub trait AssetManager<E: Environment>:
             envref.get_type_registry(),
         )?;
         match value {
-            Some(value) => Ok(Some(State::from_parts(Arc::new(value), Arc::new(metadata)))),
+            Some(value) => {
+                // Part G: the bytes are read anyway, so verify them, once they are known to be a
+                // value (as the fast track does). No asset lock is held here.
+                if !verify_store_read(self, key, &binary, &mut metadata).await? {
+                    return Ok(None);
+                }
+                Ok(Some(State::from_parts(Arc::new(value), Arc::new(metadata))))
+            }
             // Degraded: the caller asked for a value of a type this build does not know.
             None => Err(Error::general_error(format!(
                 "Type identifier '{}' is not registered in this build, so the stored value cannot be materialized",
@@ -5412,11 +5970,15 @@ pub trait AssetManager<E: Environment>:
         if !store.contains(key).await? {
             return Ok(None);
         }
-        let (binary, metadata) = store.get(key).await?;
+        let (binary, mut metadata) = store.get(key).await?;
         // `has_data()` is the right question here — this asks whether the store entry holds a
         // value at all, not whether a reader may see it. That is the distinction from
         // `ReadExposure`, which gates reads.
         if !metadata.status().has_data() {
+            return Ok(None);
+        }
+        // Part G: the bytes are read anyway, so verify them (no asset lock is held here).
+        if !verify_store_read(self, key, &binary, &mut metadata).await? {
             return Ok(None);
         }
         Ok(Some((Arc::new(binary), Arc::new(metadata))))
@@ -6195,11 +6757,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 if status.is_finished() {
                     return Ok(assetref);
                 }
-                {
-                    let mut lock = assetref.data.write().await;
-                    if lock.try_fast_track().await? {
-                        return Ok(assetref.clone());
-                    }
+                if assetref.fast_track().await? {
+                    return Ok(assetref.clone());
                 }
 
                 self.job_queue.submit(assetref.clone()).await?;
@@ -6250,10 +6809,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 return Ok(asset);
             }
             // Fast-track from the store if the value is already persisted.
-            let fast_tracked = {
-                let mut lock = asset.data.write().await;
-                lock.try_fast_track().await?
-            };
+            let fast_tracked = asset.fast_track().await?;
             if fast_tracked {
                 return Ok(asset);
             }
@@ -6491,15 +7047,10 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             if status.is_finished() {
                 return Ok(asset_ref);
             }
-            {
-                eprintln!("Trying fast track for asset with key {}", key);
-                let asset_ref = asset_ref.clone();
-                let mut lock = asset_ref.data.write().await;
-                if lock.try_fast_track().await? {
-                    eprintln!("Fast track successful for asset with key {}", key);
-                    drop(lock);
-                    return Ok(asset_ref);
-                }
+            eprintln!("Trying fast track for asset with key {}", key);
+            if asset_ref.fast_track().await? {
+                eprintln!("Fast track successful for asset with key {}", key);
+                return Ok(asset_ref);
             }
             eprintln!("Submitting asset with key {} to job queue", key);
             self.job_queue.submit(asset_ref.clone()).await?;
@@ -7873,12 +8424,8 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 }
                 return Ok(asset_ref);
             }
-            {
-                let mut data = asset_ref.data.write().await;
-                if data.try_fast_track().await? {
-                    drop(data);
-                    return Ok(asset_ref);
-                }
+            if asset_ref.fast_track().await? {
+                return Ok(asset_ref);
             }
             // Backstop against re-entry — see the note in `get_asset`.
             asset_ref.run_inline(None).await?;
@@ -12332,6 +12879,273 @@ recipes:
             AssetData::<SimpleEnvironment<Value>>::new(9801, key.clone().into(), Some(key), envref);
         let dir = DependencyKey::from_dir_key(&parse_key("data")?);
         assert!(!asset.dependency_blocks_fast_track(&manager, &dir).await);
+        Ok(())
+    }
+
+    // --- Step 9: content changed outside Liquers (Part G) ---
+
+    #[test]
+    fn external_change_action_decision_table() {
+        let (v, ui, co) = (
+            Version::from_content(b"x"),
+            ExternalChangePolicy::UserInput,
+            ExternalChangePolicy::Corrupted,
+        );
+        let input = Some(ExternalChangeAction::AcceptAsInput { actual: v });
+        for policy in [ui, co] {
+            assert_eq!(external_change_action(Status::Source, false, policy, v), input);
+            // A recipe added since: a Source is still input.
+            assert_eq!(external_change_action(Status::Source, true, policy, v), input);
+            assert_eq!(external_change_action(Status::Override, false, policy, v), input);
+            assert_eq!(external_change_action(Status::Override, true, policy, v), input);
+            // The recipe removed since: nothing to recompute from.
+            assert_eq!(external_change_action(Status::Ready, false, policy, v), input);
+            assert_eq!(external_change_action(Status::Expired, false, policy, v), input);
+        }
+        for status in [Status::Ready, Status::Expired] {
+            assert_eq!(
+                external_change_action(status, true, ui, v),
+                Some(ExternalChangeAction::ConvertToOverride { actual: v })
+            );
+            assert_eq!(
+                external_change_action(status, true, co, v),
+                Some(ExternalChangeAction::Delete)
+            );
+        }
+        // No metadata at all: recorded version 0 on a stored Source or None.
+        let zero = Version::unknown();
+        for stored in [Status::Source, Status::None] {
+            assert_eq!(external_change_status(stored, zero, false), Status::Source);
+            assert_eq!(external_change_status(stored, zero, true), Status::Ready);
+            let without = external_change_status(stored, zero, false);
+            let with = external_change_status(stored, zero, true);
+            for policy in [ui, co] {
+                assert_eq!(external_change_action(without, false, policy, v), input);
+            }
+            assert_eq!(
+                external_change_action(with, true, ui, v),
+                Some(ExternalChangeAction::ConvertToOverride { actual: v })
+            );
+            assert_eq!(external_change_action(with, true, co, v), Some(ExternalChangeAction::Delete));
+        }
+        // A recorded version, or any other stored status, is taken as it is.
+        let recorded = Version::from_content(b"old");
+        assert_eq!(external_change_status(Status::Source, recorded, true), Status::Source);
+        assert_eq!(external_change_status(Status::None, recorded, true), Status::None);
+        assert_eq!(external_change_status(Status::Ready, zero, true), Status::Ready);
+        assert_eq!(external_change_status(Status::Override, zero, true), Status::Override);
+    }
+
+    #[test]
+    fn external_change_action_statuses_not_checked() {
+        let v = Version::from_content(b"x");
+        let unchecked = [
+            Status::None,
+            Status::Directory,
+            Status::Recipe,
+            Status::Submitted,
+            Status::Dependencies,
+            Status::Processing,
+            Status::Partial,
+            Status::Error,
+            Status::Storing,
+            Status::Cancelled,
+            Status::Volatile,
+        ];
+        for policy in [ExternalChangePolicy::UserInput, ExternalChangePolicy::Corrupted] {
+            for has_recipe in [false, true] {
+                for status in unchecked {
+                    assert_eq!(
+                        external_change_action(status, has_recipe, policy, v),
+                        None,
+                        "{status:?} has no reusable stored value to protect"
+                    );
+                }
+            }
+        }
+        // With a recorded version, a stored `None` is not the "no metadata" case: not checked.
+        assert!(!external_change_checked(Status::None, Version::new(5)));
+        assert!(external_change_checked(Status::None, Version::unknown()));
+        for status in unchecked {
+            if status != Status::None {
+                assert!(!external_change_checked(status, Version::unknown()), "{status:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn source_is_always_input_under_both_policies() {
+        let v = Version::from_content(b"edited");
+        for policy in [ExternalChangePolicy::UserInput, ExternalChangePolicy::Corrupted] {
+            for has_recipe in [false, true] {
+                let action = external_change_action(Status::Source, has_recipe, policy, v);
+                match action {
+                    Some(ExternalChangeAction::AcceptAsInput { actual }) => assert_eq!(actual, v),
+                    Some(ExternalChangeAction::ConvertToOverride { .. }) => {
+                        panic!("Source is never converted")
+                    }
+                    Some(ExternalChangeAction::Delete) => panic!("Source is never deleted"),
+                    None => panic!("Source is always checked"),
+                }
+            }
+        }
+    }
+
+    /// `route/a.txt` and `route/b.txt` stored `Ready` at version 7; unless `edge_only`, `a`'s
+    /// version is registered and `b` depends on it at 7. With `edge_only`, `b` depends on `a` at
+    /// 1 and `a` has no registered version (an audit gap).
+    async fn route_fixture(
+        edge_only: bool,
+    ) -> Result<(EnvRef<SimpleEnvironment<Value>>, Key, Key), Box<dyn std::error::Error>> {
+        let envref = expiry_test_envref();
+        let a = parse_key("route/a.txt")?;
+        let b = parse_key("route/b.txt")?;
+        store_ready_copy(&envref, &a).await?;
+        store_ready_copy(&envref, &b).await?;
+        let manager = envref.get_asset_manager();
+        let dm = manager.dependency_manager();
+        let (ka, kb) = (DependencyKey::from(&a), DependencyKey::from(&b));
+        if edge_only {
+            let _ = dm.add_dependency(&kb, &ka, Version::new(1)).await?;
+        } else {
+            let _ = dm.register_version(&ka, Version::new(7)).await;
+            let _ = dm.add_dependency(&kb, &ka, Version::new(7)).await?;
+        }
+        Ok((envref, a, b))
+    }
+
+    async fn stored_reason(
+        envref: &EnvRef<SimpleEnvironment<Value>>,
+        key: &Key,
+    ) -> Result<Option<ExpiryReason>, Box<dyn std::error::Error>> {
+        Ok(envref.get_async_store().get_metadata(key).await?.expiry_reason())
+    }
+
+    /// Every route into `Expired` sets its reason: `Direct` on the asset whose cause it is (only
+    /// deadline, explicit and stale dependency), `Cascaded { cause, root, via }` on its
+    /// dependents (Phase 3 route table).
+    #[tokio::test]
+    async fn each_route_sets_its_reason() -> Result<(), Box<dyn std::error::Error>> {
+        let cascaded = |cause: ExpiryCause, root: &Key| ExpiryReason::Cascaded {
+            cause,
+            root: DependencyKey::from(root),
+            via: DependencyKey::from(root),
+        };
+
+        // Deadline: the queued monitor's call.
+        {
+            let (envref, a, b) = route_fixture(false).await?;
+            let asset = ready_keyed_asset(9951, &a, &envref).await?;
+            let expiration_time = ExpirationTime::At(chrono::Utc::now());
+            let cause = ExpiryCause::Deadline { expiration_time };
+            asset
+                .expire_with_reason(ExpiryReason::Direct { cause: cause.clone() })
+                .await?;
+            assert_eq!(
+                asset.get_metadata().await?.expiry_reason(),
+                Some(ExpiryReason::Direct { cause: cause.clone() })
+            );
+            assert_eq!(stored_reason(&envref, &b).await?, Some(cascaded(cause, &a)));
+        }
+        // Explicit: `AssetManager::expire` of a stored copy.
+        {
+            let (envref, a, b) = route_fixture(false).await?;
+            envref.get_asset_manager().expire(&a).await?;
+            assert_eq!(
+                stored_reason(&envref, &a).await?,
+                Some(ExpiryReason::Direct { cause: ExpiryCause::Explicit })
+            );
+            assert_eq!(stored_reason(&envref, &b).await?, Some(cascaded(ExpiryCause::Explicit, &a)));
+        }
+        // Audit: the audited key is not expired.
+        {
+            let (envref, a, b) = route_fixture(true).await?;
+            envref
+                .get_asset_manager()
+                .trigger_dependency_audit_all_registered()
+                .await?;
+            assert_eq!(stored_reason(&envref, &a).await?, None);
+            assert_eq!(
+                stored_reason(&envref, &b).await?,
+                Some(cascaded(ExpiryCause::Audit { found: Version::new(7) }, &a))
+            );
+        }
+        // Stale dependency: noted during the run, decided at finalization.
+        {
+            let (envref, a, _b) = route_fixture(false).await?;
+            let dependency = AssetData::<SimpleEnvironment<Value>>::new(
+                9952,
+                Query::from(a.clone()).into(),
+                Some(a.clone()),
+                envref.clone(),
+            )
+            .to_ref();
+            let consumer = AssetData::<SimpleEnvironment<Value>>::new(
+                9953,
+                parse_query("route/c.txt")?.into(),
+                None,
+                envref.clone(),
+            )
+            .to_ref();
+            consumer.data.write().await.data = Some(Arc::new(Value::from("value")));
+            consumer.note_expired_dependency(&dependency).await?;
+            consumer.finalize_status_with_version(None).await;
+            assert_eq!(consumer.status().await, Status::Expired);
+            assert_eq!(
+                consumer.get_metadata().await?.expiry_reason(),
+                Some(ExpiryReason::Direct {
+                    cause: ExpiryCause::StaleDependency {
+                        dependency: DependencyKey::from(&a)
+                    }
+                })
+            );
+        }
+        // Updated: new content through Liquers.
+        {
+            let (envref, a, b) = route_fixture(false).await?;
+            let mut record = MetadataRecord::new();
+            record.type_identifier = "Text".to_string();
+            record.type_name = "text".to_string();
+            record.data_format = Some("txt".to_string());
+            envref.get_asset_manager().set_binary(&a, b"new", record).await?;
+            assert_eq!(stored_reason(&envref, &a).await?, None);
+            assert_eq!(
+                stored_reason(&envref, &b).await?,
+                Some(cascaded(
+                    ExpiryCause::Updated { version: Version::from_content(b"new") },
+                    &a
+                ))
+            );
+        }
+        // Removed: the key is gone.
+        {
+            let (envref, a, b) = route_fixture(false).await?;
+            envref.get_asset_manager().remove(&a).await?;
+            assert!(!envref.get_async_store().contains(&a).await?);
+            assert_eq!(stored_reason(&envref, &b).await?, Some(cascaded(ExpiryCause::Removed, &a)));
+        }
+        // Updated in store: content changed outside Liquers; the root becomes input.
+        {
+            let (envref, a, b) = route_fixture(false).await?;
+            let actual = Version::from_content(b"stored bytes");
+            let recorded = envref.get_async_store().get_metadata(&a).await?;
+            envref
+                .get_asset_manager()
+                .apply_external_change(
+                    &a,
+                    &recorded,
+                    actual,
+                    ExternalChangeAction::AcceptAsInput { actual },
+                )
+                .await?;
+            let a_meta = envref.get_async_store().get_metadata(&a).await?;
+            assert_eq!(a_meta.expiry_reason(), None);
+            assert_eq!(a_meta.version(), Some(actual));
+            assert_eq!(
+                stored_reason(&envref, &b).await?,
+                Some(cascaded(ExpiryCause::UpdatedInStore { actual }, &a))
+            );
+        }
         Ok(())
     }
 }

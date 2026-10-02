@@ -461,8 +461,14 @@ async fn snapshot_of_chain() -> Result<StoreSnapshot, Box<dyn std::error::Error>
 #[tokio::test]
 async fn cascade_over_100_link_chain() -> TestResult {
     const LINKS: usize = 100;
+    // Each link's version is the content hash of its bytes, as Liquers writes it: a version that
+    // does not fingerprint the stored bytes would be taken for an edit made outside Liquers
+    // when the link is loaded (Part G), which is not what this test is about.
+    fn link_bytes(i: usize) -> Vec<u8> {
+        format!("x{i}").into_bytes()
+    }
     fn link_version(i: usize) -> Version {
-        Version::new(1_000 + i as u128)
+        Version::from_content(&link_bytes(i))
     }
     let store = AsyncMemoryStore::new(&Key::new());
     for i in 0..=LINKS {
@@ -476,7 +482,7 @@ async fn cascade_over_100_link_chain() -> TestResult {
             ));
         }
         store
-            .set(&parse_key(&format!("data/l{i}.txt"))?, b"x", &Metadata::MetadataRecord(record))
+            .set(&parse_key(&format!("data/l{i}.txt"))?, &link_bytes(i), &Metadata::MetadataRecord(record))
             .await?;
     }
     let mut head = store.get_metadata(&parse_key("data/l0.txt")?).await?;

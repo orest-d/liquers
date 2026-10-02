@@ -151,6 +151,19 @@ match it. Three questions remained for the owner (Phase 4 §"Phase 4 review").
   re-evaluating index is not expired by its own registration. Refresh calls run after
   `key_mutation_lock` is dropped (for `set_binary` and `set_state`), and a `listdir` error is logged,
   not fatal.
+- **Step 9, deviations from Phase 2 Part G.**
+  - `apply_external_change` cascades through `audit_version`, not `register_version`. After a
+    restart, the new hash is the first version the map sees, and `register_version` treats a first
+    observation as "no change".
+  - `try_fast_track` only *decides*. `AssetRef::fast_track` applies the change after the data lock
+    is dropped, so `key_mutation_lock` is never taken under an asset lock.
+  - Empty bytes under a *timestamp* version count as "no bytes", because `AsyncMemoryStore` answers
+    a metadata-only entry with empty bytes. Filed as `MEMORY-STORE-METADATA-ONLY-ENTRY-READS-AS-EMPTY-BYTES`.
+  - The signature gained `actual`, because `Delete` carries no version.
+  - Under `Off`, `verify_stored_versions` returns an empty report.
+  - In the whole `liquers-lib` suite only raw-seeded files without metadata mismatched (adopted in
+    memory, nothing written); every value Liquers stored verified.
+  - Also filed: `ANY-STATUS-READ-MISSES-STORED-VALUE-OF-UNLOADED-LIVE-ASSET`.
 - **Filed during Step 4:** `SUPPLIED-EXPIRED-STATUS-STORED-WITHOUT-REASON` and
   `DEPENDENCY-FAILURE-ERRORS-NAME-ASSET-IDS`.
 
