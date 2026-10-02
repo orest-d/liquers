@@ -133,7 +133,7 @@ async fn computed_keyed_asset_version_is_the_hash_of_stored_bytes(
 
     assert_eq!(
         state.metadata.version(),
-        Some(Version::from_bytes(&stored)),
+        Some(Version::from_content(&stored)),
         "the version must describe exactly the bytes the store holds"
     );
     Ok(())

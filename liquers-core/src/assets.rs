@@ -2027,7 +2027,7 @@ impl<E: Environment> AssetRef<E> {
 
         match state.as_bytes() {
             Ok(bytes) => Some(PreparedVersion {
-                version: Version::from_bytes(&bytes),
+                version: Version::from_content(&bytes),
                 binary: Some(Arc::new(bytes)),
                 serialization_error: None,
             }),
@@ -6111,7 +6111,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             // 4. Compute version from binary content and store in metadata
             let dep_key = crate::metadata::DependencyKey::from(key);
             if final_status != Status::Volatile && final_status != Status::Error {
-                let version = crate::metadata::Version::from_bytes(binary);
+                let version = crate::metadata::Version::from_content(binary);
                 metadata.version = Some(version);
             }
 
@@ -6234,7 +6234,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             let dep_key = crate::metadata::DependencyKey::from(key);
             if final_status != Status::Volatile && final_status != Status::Error {
                 let version = match state.as_bytes() {
-                    Ok(binary) => crate::metadata::Version::from_bytes(&binary),
+                    Ok(binary) => crate::metadata::Version::from_content(&binary),
                     // `new_unique`, not `from_time_now`: what is needed here is a *distinct* version
                     // per set, and a bare timestamp can repeat within one clock tick.
                     Err(_) => crate::metadata::Version::new_unique(),
@@ -7359,7 +7359,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             metadata.add_log_entry(LogEntry::info("Data set externally".to_string()));
             let dep_key = crate::metadata::DependencyKey::from(key);
             if final_status != Status::Volatile && final_status != Status::Error {
-                metadata.version = Some(crate::metadata::Version::from_bytes(binary));
+                metadata.version = Some(crate::metadata::Version::from_content(binary));
             }
             let store = self.envref().get_async_store();
             // `stored: false` on the supplied metadata (true unless the caller set it) skips this
@@ -7418,7 +7418,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             let dep_key = crate::metadata::DependencyKey::from(key);
             if final_status != Status::Volatile && final_status != Status::Error {
                 let version = match state.as_bytes() {
-                    Ok(binary) => crate::metadata::Version::from_bytes(&binary),
+                    Ok(binary) => crate::metadata::Version::from_content(&binary),
                     // `new_unique`, not `from_time_now`: what is needed here is a *distinct* version
                     // per set, and a bare timestamp can repeat within one clock tick.
                     Err(_) => crate::metadata::Version::new_unique(),
