@@ -83,6 +83,19 @@ fixes, all applied: `VersionVerification` was not declared in Phase 2; the decis
 ignored the `Option`; and problem 6 had no example, now pitfall 11. The reviewer that ran the code
 check validated all five example queries with `liquers-validate`.
 
+**Revision 2 (2026-10-02).** `main` was merged (the `store-conformance-backlog` and
+`axum-assets-endpoints` work, which rewrote much of `assets.rs`), and every `assets.rs` citation was
+re-pointed. The owner corrected the version kinds (hash flag; any non-matching recorded version is
+a mismatch), required 0 instead of `None` for current versions, made a mismatch on load bump the
+version and default to an override, redesigned expiry reasons as `Direct` / `Cascaded` with root
+cause, root key and `via`, written to every expired asset's log through one overridable
+asset-manager method (`record_expiry`), and set the directory version to the hash of the ordered
+listing. Phases 1 to 3 were updated. The reviews ran in full this time: Phase 2 with 2 reviewers,
+which found 3 call sites missing from the cause table; Phase 3 with 3 reviewers, which found
+nothing blocking, and one advisory test was added. The Phase 3 update also found 7
+underspecifications in Phase 2, settled in its "Revision 2, clarifications" section. One owner
+question is open: whether files without metadata are adopted in memory only, or get a sidecar.
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)

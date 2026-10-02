@@ -77,7 +77,7 @@ Phase 2 leaves open, the Learning Log says so.
 | 2. Nobody can say when to check | B | Ex. 1, Ex. 3 pitfalls 2 and 10 | `on_load_refuses_stale_fast_track`, `explicit_policy_serves_when_intermediate_deleted`, `report_only_audit_changes_nothing` (I1); `on_load_does_not_refuse_recorded_unknown_version` (U3) |
 | 3. An expired asset cannot say why | C | Ex. 1, Ex. 3 pitfall 12 | `every_route_persists_its_reason`, `audit_never_expires_the_root` (I5); `expired_dependents_via_*` (U1); `ExpiryReason` / `ExpiryCause` tests (U2) |
 | 3a. A cascade names the root and the path (`via`) | C | Ex. 1 variant | `via_names_the_direct_dependency_on_a_two_step_cascade` (I5), `expire_from_frontier_records_via_per_key` (U1) |
-| 3b. One method writes every reason (`record_expiry`) | C, F | Ex. 3 pitfall 6 | `record_expiry_is_called_for_every_expired_asset` (I5), `record_expiry_is_overridable_by_a_manager` (I3), `scenario_every_expired_asset_has_reason_and_log_line` (I3) |
+| 3b. One method writes every reason (`record_expiry`) | C, F | Ex. 3 pitfall 6 | `record_expiry_is_called_for_every_expired_asset`, `every_cause_writes_a_log_line` (I5), `record_expiry_is_overridable_by_a_manager` (I3), `scenario_every_expired_asset_has_reason_and_log_line` (I3) |
 | 3c. The log line says what happened | C | Ex. 1 | `log_line_format_per_cause` (U2), `log_line_is_persisted_with_the_status` (I5) |
 | 3d. Removal and new content are causes too | C | Ex. 2 | `removing_a_source_cascades_with_removed` (I5), `set_binary_of_a_dependency_cascades_with_updated` (I5) |
 | 4. Folder listing never updates | D | Ex. 2 | `adding_a_file_expires_the_index`, `listing_gap_resolved_by_audit_after_restart` (I1) |
@@ -1105,6 +1105,11 @@ its `AuditReport` equality asserts for `findings`.
 - `via_names_the_direct_dependency_on_a_two_step_cascade`: Example 1's variant. `a.csv -> b.csv ->
   report.txt`, an `Updated` cascade this time (`set_binary(a.csv)` in process): `b.csv` has `via ==
   root == a.csv`, `report.txt` has `root == a.csv` and `via == b.csv`.
+- `every_cause_writes_a_log_line` (table-driven, added after the Phase 3 review): one row per
+  `ExpiryCause` (`Deadline`, `Explicit`, `Audit`, `StaleDependency`, `UpdatedInStore`, `Updated`,
+  `Removed`). Each row drives its route (see the route table below) on an `a.csv → report.txt`
+  fixture, and asserts that the expired asset's stored log gained exactly one entry naming the cause
+  with the level from Phase 2's table, and that its `expiry_reason` has the expected scope.
 - `record_expiry_is_called_for_every_expired_asset` (sketch below): a manager that overrides
   `record_expiry` and counts calls; `a.csv` changes with three dependents, one live and held, one live
   and finished, one **stored-only** (live asset unmapped with `remove_key_asset`, graph edge and stored
