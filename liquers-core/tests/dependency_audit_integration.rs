@@ -16,6 +16,8 @@ use liquers_core::{
     assets::{AssetManager, AssetRef, AuditMode, AuditReport},
     command_metadata::CommandKey,
     context::{EnvRef, Environment, SimpleEnvironment},
+    environment_builder::{AssetManagerOptions, DependencyAuditPolicy, EnvironmentBuilder, Queued},
+    environment_config::EnvironmentConfig,
     error::Error,
     metadata::{DependencyKey, DependencyRecord, ExpiryCause, ExpiryReason, LogEntryKind, Metadata, Status, Version},
     parse::{parse_key, parse_query},
@@ -116,8 +118,15 @@ async fn within<T>(future: impl std::future::Future<Output = T>) -> T {
 /// ran nothing. Same names and (default) versions as `register_provenance_commands`, which is what
 /// lets the first and the second environment disagree about nothing but the counter.
 fn register_counting_commands(env: &mut TestEnv, calls: Arc<AtomicUsize>) {
+    register_counting_commands_in(&mut env.command_registry, calls)
+}
+
+fn register_counting_commands_in(
+    cr: &mut liquers_core::commands::CommandRegistry<TestEnv>,
+    calls: Arc<AtomicUsize>,
+) {
     let upper_calls = calls.clone();
-    env.command_registry
+    cr
         .register_command(
             CommandKey::new_name("upper"),
             move |state: &State<Value>, _args, _ctx| -> Result<Value, Error> {
@@ -126,13 +135,13 @@ fn register_counting_commands(env: &mut TestEnv, calls: Arc<AtomicUsize>) {
             },
         )
         .expect("register upper");
-    env.command_registry
+    cr
         .register_command(
             CommandKey::new_name("make_text"),
             |_state, _args, _ctx| -> Result<Value, Error> { Ok(Value::from("generated")) },
         )
         .expect("register make_text");
-    env.command_registry
+    cr
         .register_async_command(CommandKey::new_name("summarize"), move |_state, _args, ctx| {
             let calls = calls.clone();
             Box::pin(async move {
@@ -192,6 +201,16 @@ async fn second_process(
     changed: &[(&str, Version)],
     calls: Arc<AtomicUsize>,
 ) -> Result<EnvRef<TestEnv>, Box<dyn std::error::Error>> {
+    second_process_with(snapshot, changed, calls, DependencyAuditPolicy::Explicit).await
+}
+
+/// [`second_process`] under a given audit policy.
+async fn second_process_with(
+    snapshot: &StoreSnapshot,
+    changed: &[(&str, Version)],
+    calls: Arc<AtomicUsize>,
+    policy: DependencyAuditPolicy,
+) -> Result<EnvRef<TestEnv>, Box<dyn std::error::Error>> {
     let store = AsyncMemoryStore::new(&Key::new());
     snapshot.replay_into(&store).await?;
     for (name, version) in changed {
@@ -200,7 +219,12 @@ async fn second_process(
         metadata.set_version(Some(*version))?;
         store.set_metadata(&key, &metadata).await?;
     }
-    Ok(counting_env(Box::new(store), calls))
+    let mut builder = EnvironmentBuilder::<Value, (), Queued>::new()
+        .with_asset_manager_options(AssetManagerOptions::default().with_dependency_audit(policy))
+        .with_async_store(Arc::new(store))
+        .with_recipe_provider(Arc::new(DefaultRecipeProvider));
+    register_counting_commands_in(&mut builder.command_registry, calls);
+    Ok(builder.build()?)
 }
 
 /// Load `name` the way a restarted service would: evaluate it and wait. It must fast-track, which
@@ -647,5 +671,131 @@ async fn unloaded_dependent_is_refused_on_later_load() -> TestResult {
         "the stale copy was refused and recomputed, not served"
     );
     assert_eq!(c.status().await, Status::Ready);
+    Ok(())
+}
+
+// ======================================================================================
+// The `on_load` policy (Step 7 of the dependency-audit design).
+// ======================================================================================
+
+/// Example 1: after a restart in which a batch job moved the dependency, a strict service refuses
+/// the stale result and recomputes it, while a lax one serves it until an audit says otherwise.
+#[tokio::test]
+async fn strict_service_after_restart() -> TestResult {
+    let (snapshot, _) = first_process().await?;
+    let changed = [("data/a.txt", moved())];
+
+    let strict_calls = Arc::new(AtomicUsize::new(0));
+    let strict =
+        second_process_with(&snapshot, &changed, strict_calls.clone(), DependencyAuditPolicy::OnLoad).await?;
+    let b = within(strict.evaluate("-R/data/b.txt")).await?;
+    assert_eq!(within(b.get()).await?.try_into_string()?, "HELLO");
+    assert_eq!(strict_calls.load(Ordering::SeqCst), 1, "the stale copy was refused and recomputed");
+
+    let lax_calls = Arc::new(AtomicUsize::new(0));
+    let lax =
+        second_process_with(&snapshot, &changed, lax_calls.clone(), DependencyAuditPolicy::Explicit).await?;
+    let served = load(&lax, "data/b.txt").await?;
+    assert_eq!(lax_calls.load(Ordering::SeqCst), 0, "loading is as before: served as stored");
+    let report = within(
+        lax.get_asset_manager()
+            .trigger_dependency_audit_with(&parse_query("-R/data/b.txt")?, AuditMode::ReportOnly),
+    )
+    .await?;
+    assert!(report.expired.is_empty(), "ReportOnly never expires: {report:?}");
+    assert_eq!(report.findings.len(), 1);
+    assert_eq!(report.findings[0].dependency, dep("data/a.txt"));
+    assert_eq!(report.findings[0].dependent, dep("data/b.txt"));
+    assert_eq!(report.findings[0].found, moved());
+    assert_eq!(served.status().await, Status::Ready);
+    let wet = within(
+        lax.get_asset_manager()
+            .trigger_dependency_audit(&parse_query("-R/data/b.txt")?),
+    )
+    .await?;
+    assert_eq!(wet.expired, vec![dep("data/b.txt")]);
+    // The operator can read why: the audited dependency is the root, and b depends on it directly.
+    assert_eq!(served.status().await, Status::Expired);
+    assert_eq!(
+        served.get_metadata().await?.expiry_reason(),
+        Some(ExpiryReason::Cascaded {
+            cause: ExpiryCause::Audit { found: moved() },
+            root: dep("data/a.txt"),
+            via: dep("data/a.txt"),
+        })
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn on_load_refuses_stale_fast_track() -> TestResult {
+    let (snapshot, _) = first_process().await?;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let envref = second_process_with(
+        &snapshot,
+        &[("data/a.txt", moved())],
+        calls.clone(),
+        DependencyAuditPolicy::OnLoad,
+    )
+    .await?;
+    let b = within(envref.evaluate("-R/data/b.txt")).await?;
+    let _ = within(b.get()).await?;
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(b.status().await, Status::Ready);
+    Ok(())
+}
+
+/// A dependency that left no durable version cannot be shown to be what the dependent used, so
+/// `on_load` refuses (a current 0 against a concrete recorded version is not "compatible").
+#[tokio::test]
+async fn on_load_refuses_when_dependency_has_no_version() -> TestResult {
+    let (snapshot, _) = first_process().await?;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let envref = second_process_with(
+        &snapshot,
+        &[("data/a.txt", Version::unknown())],
+        calls.clone(),
+        DependencyAuditPolicy::OnLoad,
+    )
+    .await?;
+    let b = within(envref.evaluate("-R/data/b.txt")).await?;
+    let _ = within(b.get()).await?;
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "refused and recomputed");
+    Ok(())
+}
+
+/// Pitfall 2: under `explicit`, deleting an intermediate by hand does not make its dependents
+/// recompute on load.
+#[tokio::test]
+async fn explicit_policy_serves_when_intermediate_deleted() -> TestResult {
+    let (snapshot, _) = first_process().await?;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let envref =
+        second_process_with(&snapshot, &[], calls.clone(), DependencyAuditPolicy::Explicit).await?;
+    envref.get_async_store().remove(&parse_key("data/a.txt")?).await?;
+    let _ = load(&envref, "data/b.txt").await?;
+    assert_eq!(calls.load(Ordering::SeqCst), 0, "served as stored");
+    Ok(())
+}
+
+#[tokio::test]
+async fn audit_policy_from_config_yaml() -> TestResult {
+    let config = EnvironmentConfig::from_yaml("assets:\n  dependency_audit: on_load\n")?;
+    let envref = EnvironmentBuilder::<Value, (), Queued>::new()
+        .with_asset_manager_options(config.assets)
+        .build()?;
+    assert_eq!(
+        envref.get_asset_manager().dependency_audit_policy(),
+        DependencyAuditPolicy::OnLoad
+    );
+    let default = EnvironmentBuilder::<Value, (), Queued>::new().build()?;
+    assert_eq!(
+        default.get_asset_manager().dependency_audit_policy(),
+        DependencyAuditPolicy::Explicit
+    );
+    assert_eq!(
+        default.get_asset_manager().version_verification(),
+        liquers_core::environment_builder::VersionVerification::OnRead
+    );
     Ok(())
 }

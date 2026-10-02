@@ -319,6 +319,7 @@ use crate::metadata::{
     AssetInfo, DependencyKey, DependencyRecord, ExpiryCause, ExpiryReason, LogEntry,
     MetadataRecord, ProgressEntry, ReadExposure, Version,
 };
+use crate::environment_builder::{DependencyAuditPolicy, VersionVerification};
 use crate::value::ValueInterface;
 use crate::{context::Context, metadata::LogEntryKind};
 use crate::{
@@ -1236,6 +1237,36 @@ impl<E: Environment> AssetData<E> {
                                 );
                                 self.clear_fast_track_payload();
                                 return Ok(false); // Force re-evaluation
+                            }
+                        } else if manager.dependency_audit_policy() == DependencyAuditPolicy::OnLoad
+                            && dep_record.key.is_store_resolvable()
+                            && !dep_record.version.is_unknown()
+                        {
+                            // The map does not know this dependency: resolve its current version.
+                            // A recorded unknown is compatible, so it is not asked at all. The
+                            // comparison is equality, not `Version::matches`, which would accept a
+                            // current 0 — and a dependency with no durable version refuses.
+                            let refuse = match manager.dependency_version(&dep_record.key).await {
+                                Ok(current) => current != dep_record.version,
+                                Err(e) => {
+                                    eprintln!(
+                                        "Asset {}: current version of dependency {} unavailable: {}",
+                                        self.id(),
+                                        dep_record.key,
+                                        e
+                                    );
+                                    true
+                                }
+                            };
+                            if refuse {
+                                eprintln!(
+                                    "Asset {} stale (on_load): dependency {} differs from the recorded version {:?}",
+                                    self.id(),
+                                    dep_record.key,
+                                    dep_record.version
+                                );
+                                self.clear_fast_track_payload();
+                                return Ok(false);
                             }
                         }
                         // The version check above answers "was this dependency recomputed into
@@ -4204,6 +4235,24 @@ pub(crate) trait KeyMutationAccess {
     fn key_mutation_lock(&self) -> &tokio::sync::Mutex<()>;
 }
 
+/// What to do when a stored value's bytes no longer match its recorded version.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExternalChangePolicy {
+    /// Keep the new content as the user's: a recipe-backed value becomes `Override`.
+    #[default]
+    UserInput,
+    /// Treat the content as damaged: delete the stored copy, so the recipe recomputes it.
+    Corrupted,
+}
+
+impl ExternalChangePolicy {
+    /// True for the default; used by `skip_serializing_if`.
+    pub fn is_user_input(&self) -> bool {
+        matches!(self, ExternalChangePolicy::UserInput)
+    }
+}
+
 /// Asset evaluation, keyed mutation, recovery, directory, and lifecycle service.
 ///
 /// An [`Environment`] selects one implementation through its `AssetManager`
@@ -4229,6 +4278,19 @@ pub trait AssetManager<E: Environment>:
     + DependencyManagerAccess<E>
     + KeyMutationAccess
 {
+    /// The configured audit policy. Default: `Explicit`.
+    fn dependency_audit_policy(&self) -> DependencyAuditPolicy {
+        DependencyAuditPolicy::Explicit
+    }
+    /// Whether stored bytes are re-hashed on read. Default: `OnRead`.
+    fn version_verification(&self) -> VersionVerification {
+        VersionVerification::OnRead
+    }
+    /// What a mismatch on a recipe-backed value means. Default: `UserInput`.
+    fn external_change_policy(&self) -> ExternalChangePolicy {
+        ExternalChangePolicy::UserInput
+    }
+
     /// Resolves a query to an asset.
     ///
     /// A pure key query delegates to [`Self::get`] and therefore yields a
@@ -5411,10 +5473,26 @@ pub struct DefaultAssetManager<E: Environment> {
     monitor_tx: mpsc::UnboundedSender<ExpirationMonitorMessage<E>>,
     /// Runtime dependency graph for cascade expiration
     dependency_manager: crate::dependencies::DependencyManager<E>,
+    dependency_audit: DependencyAuditPolicy,
+    verify_versions: VersionVerification,
+    external_change: ExternalChangePolicy,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl<E: Environment> DefaultAssetManager<E> {
+    /// Sets the policies read by the trait accessors. Called by the builder before sharing.
+    pub(crate) fn with_policies(
+        mut self,
+        dependency_audit: DependencyAuditPolicy,
+        verify_versions: VersionVerification,
+        external_change: ExternalChangePolicy,
+    ) -> Self {
+        self.dependency_audit = dependency_audit;
+        self.verify_versions = verify_versions;
+        self.external_change = external_change;
+        self
+    }
+
     /// Atomically claims an empty keyed asset slot.
     pub(crate) async fn try_insert_key_asset(&self, key: &Key, asset: AssetRef<E>) -> bool {
         self.assets.insert_async(key.clone(), asset).await.is_ok()
@@ -5441,6 +5519,9 @@ impl<E: Environment> DefaultAssetManager<E> {
             job_queue: job_queue.clone(),
             monitor_tx,
             dependency_manager: crate::dependencies::DependencyManager::new(),
+            dependency_audit: DependencyAuditPolicy::default(),
+            verify_versions: VersionVerification::default(),
+            external_change: ExternalChangePolicy::default(),
         };
         tokio::spawn(async move {
             job_queue.run().await;
@@ -5952,6 +6033,15 @@ impl<E: Environment> Drop for DefaultAssetManager<E> {
 #[cfg(not(target_arch = "wasm32"))]
 #[async_trait]
 impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
+    fn dependency_audit_policy(&self) -> DependencyAuditPolicy {
+        self.dependency_audit
+    }
+    fn version_verification(&self) -> VersionVerification {
+        self.verify_versions
+    }
+    fn external_change_policy(&self) -> ExternalChangePolicy {
+        self.external_change
+    }
     async fn owned_key_asset(&self, key: &Key) -> Option<AssetRef<E>> {
         let asset = self.lookup_key_asset(key)?;
         if !asset.is_volatile().await {
@@ -7341,9 +7431,25 @@ pub struct ImmediateAssetManager<E: Environment> {
     /// `tokio::sync::OnceCell` this used to be: a one-shot cell would foreclose
     /// [`AssetManager::refresh_command_versions`], and startup is no longer asynchronous.
     started: std::sync::atomic::AtomicBool,
+    dependency_audit: DependencyAuditPolicy,
+    verify_versions: VersionVerification,
+    external_change: ExternalChangePolicy,
 }
 
 impl<E: Environment> ImmediateAssetManager<E> {
+    /// Sets the policies read by the trait accessors. Called by the builder before sharing.
+    pub(crate) fn with_policies(
+        mut self,
+        dependency_audit: DependencyAuditPolicy,
+        verify_versions: VersionVerification,
+        external_change: ExternalChangePolicy,
+    ) -> Self {
+        self.dependency_audit = dependency_audit;
+        self.verify_versions = verify_versions;
+        self.external_change = external_change;
+        self
+    }
+
     /// Atomically claims an empty keyed asset slot.
     pub(crate) async fn try_insert_key_asset(&self, key: &Key, asset: AssetRef<E>) -> bool {
         let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
@@ -7368,6 +7474,9 @@ impl<E: Environment> ImmediateAssetManager<E> {
             query_assets: std::sync::Mutex::new(std::collections::HashMap::new()),
             dependency_manager: crate::dependencies::DependencyManager::new(),
             started: std::sync::atomic::AtomicBool::new(false),
+            dependency_audit: DependencyAuditPolicy::default(),
+            verify_versions: VersionVerification::default(),
+            external_change: ExternalChangePolicy::default(),
         }
     }
 
@@ -7485,6 +7594,15 @@ impl<E: Environment> ImmediateAssetManager<E> {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
+    fn dependency_audit_policy(&self) -> DependencyAuditPolicy {
+        self.dependency_audit
+    }
+    fn version_verification(&self) -> VersionVerification {
+        self.verify_versions
+    }
+    fn external_change_policy(&self) -> ExternalChangePolicy {
+        self.external_change
+    }
     async fn owned_key_asset(&self, key: &Key) -> Option<AssetRef<E>> {
         let asset = self.lookup_key_asset(key)?;
         if !asset.is_volatile().await {
@@ -11941,6 +12059,141 @@ recipes:
             .iter()
             .any(|m| m == "prov/only_stored.txt expired: expiration was requested explicitly"));
         Ok(())
+    }
+
+    // ---- OnLoad dependency check in try_fast_track (design Step 7) -----------------------------
+
+    /// Delegates to a memory store; `data/a.txt` reads fail while `failing` is set.
+    struct DependencyFailingStore {
+        inner: AsyncMemoryStore,
+        failing: bool,
+    }
+
+    #[async_trait]
+    impl AsyncStore for DependencyFailingStore {
+        async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+            self.inner.get(key).await
+        }
+
+        async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+            self.inner.set_metadata(key, metadata).await
+        }
+
+        async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+            if self.failing && key.encode() == "data/a.txt" {
+                return Err(Error::key_read_error(key, "DependencyFailingStore", "intentional failure"));
+            }
+            self.inner.get_metadata(key).await
+        }
+
+        async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+            self.inner.set(key, data, metadata).await
+        }
+
+        async fn contains(&self, key: &Key) -> Result<bool, Error> {
+            if self.failing && key.encode() == "data/a.txt" {
+                return Err(Error::key_read_error(key, "DependencyFailingStore", "intentional failure"));
+            }
+            self.inner.contains(key).await
+        }
+
+        async fn remove(&self, key: &Key) -> Result<(), Error> {
+            self.inner.remove(key).await
+        }
+    }
+
+    type OnLoadEnv = crate::context::GenericEnvironment<Value, (), crate::environment_builder::Inline>;
+
+    /// `data/b.txt` is stored `Ready` and records `-R/data/a.txt` at `recorded`. `data/a.txt` is
+    /// stored `Source` with `current` as its version (`None`: absent from the store). The
+    /// environment is fresh, so its dependency manager knows no version. Returns whether
+    /// `b.txt` was fast-tracked.
+    async fn fast_track_b(
+        policy: crate::environment_builder::DependencyAuditPolicy,
+        recorded: Version,
+        current: Option<Version>,
+        failing: bool,
+    ) -> bool {
+        let a = parse_key("data/a.txt").unwrap();
+        let b = parse_key("data/b.txt").unwrap();
+        let inner = AsyncMemoryStore::new(&Key::new());
+        if let Some(version) = current {
+            let mut record = MetadataRecord::new();
+            record.with_key(a.clone());
+            record.with_type_identifier("Text".to_owned());
+            record.with_status(Status::Source);
+            record.version = Some(version);
+            inner.set(&a, b"hello", &Metadata::MetadataRecord(record)).await.unwrap();
+        }
+        let mut record = MetadataRecord::new();
+        record.with_key(b.clone());
+        record.with_type_identifier("Text".to_owned());
+        record.data_format = Some("txt".to_owned());
+        record.with_status(Status::Ready);
+        record.add_dependency(DependencyRecord::new(
+            crate::metadata::DependencyKey::from(&a),
+            recorded,
+        ));
+        inner.set(&b, b"HELLO", &Metadata::MetadataRecord(record)).await.unwrap();
+
+        let envref = crate::environment_builder::EnvironmentBuilder::<
+            Value,
+            (),
+            crate::environment_builder::Inline,
+        >::new()
+        .with_async_store(Arc::new(DependencyFailingStore { inner, failing }))
+        .with_asset_manager_options(
+            crate::environment_builder::AssetManagerOptions::default().with_dependency_audit(policy),
+        )
+        .build()
+        .unwrap();
+        let mut asset =
+            AssetData::<OnLoadEnv>::new(7001, b.clone().into(), Some(b.clone()), envref.clone());
+        asset.try_fast_track().await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn on_load_refuses_fast_track_on_mismatch() {
+        use crate::environment_builder::DependencyAuditPolicy::OnLoad;
+        let served = fast_track_b(OnLoad, Version::new(1), Some(Version::new(2)), false).await;
+        assert!(!served, "a moved dependency version refuses the fast track");
+        let served = fast_track_b(OnLoad, Version::new(1), Some(Version::new(1)), false).await;
+        assert!(served, "an unchanged dependency version is served");
+    }
+
+    #[tokio::test]
+    async fn on_load_refuses_fast_track_on_missing_version() {
+        use crate::environment_builder::DependencyAuditPolicy::OnLoad;
+        // Current 0 against a concrete recorded version must refuse (not `Version::matches`).
+        let served = fast_track_b(OnLoad, Version::new(1), Some(Version::unknown()), false).await;
+        assert!(!served, "stored with no version");
+        let served = fast_track_b(OnLoad, Version::new(1), None, false).await;
+        assert!(!served, "dependency absent from the store");
+    }
+
+    #[tokio::test]
+    async fn on_load_refuses_fast_track_on_store_error() {
+        use crate::environment_builder::DependencyAuditPolicy::OnLoad;
+        let served = fast_track_b(OnLoad, Version::new(1), Some(Version::new(1)), true).await;
+        assert!(!served, "a store that cannot answer refuses");
+    }
+
+    #[tokio::test]
+    async fn on_load_does_not_refuse_recorded_unknown_version() {
+        use crate::environment_builder::DependencyAuditPolicy::OnLoad;
+        let served = fast_track_b(OnLoad, Version::unknown(), Some(Version::new(2)), false).await;
+        assert!(served, "a recorded unknown is compatible with any current version");
+        let served = fast_track_b(OnLoad, Version::unknown(), Some(Version::unknown()), false).await;
+        assert!(served);
+    }
+
+    #[tokio::test]
+    async fn explicit_ignores_unknown_map_entries() {
+        use crate::environment_builder::DependencyAuditPolicy::Explicit;
+        let served = fast_track_b(Explicit, Version::new(1), Some(Version::new(2)), false).await;
+        assert!(served, "under Explicit the load does not resolve dependency versions");
+        let served = fast_track_b(Explicit, Version::new(1), None, true).await;
+        assert!(served, "nor does it ask the store");
     }
 
 }

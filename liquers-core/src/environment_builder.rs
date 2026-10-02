@@ -27,6 +27,7 @@ use std::sync::Arc;
 
 use crate::assets::AssetManager;
 use crate::commands::{CommandRegistry, PayloadType};
+use crate::assets::ExternalChangePolicy;
 use crate::context::{EnvRef, Environment, GenericEnvironment};
 use crate::error::Error;
 use crate::issue_report::IssueReport;
@@ -53,9 +54,75 @@ pub struct AssetManagerOptions {
     /// evaluations and never run them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub job_capacity: Option<usize>,
+    /// When recorded dependency versions are verified. Default: [`DependencyAuditPolicy::Explicit`].
+    #[serde(default, skip_serializing_if = "DependencyAuditPolicy::is_explicit")]
+    pub dependency_audit: DependencyAuditPolicy,
+    /// Whether stored bytes are re-hashed on read. Default: [`VersionVerification::OnRead`].
+    #[serde(default, skip_serializing_if = "VersionVerification::is_on_read")]
+    pub verify_versions: VersionVerification,
+    /// What a version mismatch on a recipe-backed value means. Default: `UserInput`.
+    #[serde(default, skip_serializing_if = "ExternalChangePolicy::is_user_input")]
+    pub external_change: ExternalChangePolicy,
+}
+
+/// When recorded dependency versions are verified against current ones.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DependencyAuditPolicy {
+    /// Only when `trigger_dependency_audit*` is called. Today's behaviour, and the choice for
+    /// exploratory work where intermediates are deleted by hand.
+    #[default]
+    Explicit,
+    /// Also when a keyed asset is loaded from the store (`try_fast_track`): each recorded
+    /// dependency the manager holds no version for is resolved, and a mismatch or a missing current
+    /// version refuses the fast track, so the asset is recomputed. The strict service.
+    OnLoad,
+}
+
+impl DependencyAuditPolicy {
+    /// True for the default; used by `skip_serializing_if`.
+    pub fn is_explicit(&self) -> bool {
+        matches!(self, DependencyAuditPolicy::Explicit)
+    }
+}
+
+/// Whether stored bytes are re-hashed and compared with their recorded version.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VersionVerification {
+    /// Never re-hash; outside edits go unnoticed (today's behaviour).
+    Off,
+    /// Re-hash wherever the manager has already read the bytes (fast track, `*_any_status`).
+    #[default]
+    OnRead,
+}
+
+impl VersionVerification {
+    /// True for the default; used by `skip_serializing_if`.
+    pub fn is_on_read(&self) -> bool {
+        matches!(self, VersionVerification::OnRead)
+    }
 }
 
 impl AssetManagerOptions {
+    /// Sets the dependency audit policy.
+    pub fn with_dependency_audit(mut self, policy: DependencyAuditPolicy) -> Self {
+        self.dependency_audit = policy;
+        self
+    }
+
+    /// Sets the version verification policy.
+    pub fn with_verify_versions(mut self, policy: VersionVerification) -> Self {
+        self.verify_versions = policy;
+        self
+    }
+
+    /// Sets the external change policy.
+    pub fn with_external_change(mut self, policy: ExternalChangePolicy) -> Self {
+        self.external_change = policy;
+        self
+    }
+
     /// Sets the job-queue capacity.
     pub fn with_job_capacity(mut self, capacity: usize) -> Self {
         self.job_capacity = Some(capacity);
@@ -115,7 +182,7 @@ impl AssetManagerKind for Queued {
         envref: EnvRef<E>,
         options: &AssetManagerOptions,
     ) -> Result<Arc<Self::Manager<E>>, Error> {
-        Ok(Arc::new(match options.job_capacity {
+        let manager = match options.job_capacity {
             // A zero capacity is not "no limit", it is a deadlock: the job queue starts an asset
             // only while `running_count < capacity`, so with zero nothing ever starts and every
             // submitted evaluation parks forever. The caller gets a hang with no error, which is
@@ -129,7 +196,12 @@ impl AssetManagerKind for Queued {
             }
             Some(capacity) => crate::assets::DefaultAssetManager::with_capacity(envref, capacity),
             None => crate::assets::DefaultAssetManager::new(envref),
-        }))
+        };
+        Ok(Arc::new(manager.with_policies(
+            options.dependency_audit,
+            options.verify_versions,
+            options.external_change,
+        )))
     }
 }
 
@@ -151,7 +223,13 @@ impl AssetManagerKind for Inline {
                 "job_capacity is set, but the inline asset manager has no job queue".to_string(),
             ));
         }
-        Ok(Arc::new(crate::assets::ImmediateAssetManager::new(envref)))
+        Ok(Arc::new(
+            crate::assets::ImmediateAssetManager::new(envref).with_policies(
+                options.dependency_audit,
+                options.verify_versions,
+                options.external_change,
+            ),
+        ))
     }
 }
 
@@ -705,4 +783,63 @@ mod tests {
             Err(e) => assert!(e.to_string().contains("store configuration")),
         }
     }
+    #[test]
+    fn audit_policy_defaults_to_explicit_and_round_trips() {
+        assert_eq!(DependencyAuditPolicy::default(), DependencyAuditPolicy::Explicit);
+        assert!(DependencyAuditPolicy::Explicit.is_explicit());
+        assert!(!DependencyAuditPolicy::OnLoad.is_explicit());
+        assert_eq!(AssetManagerOptions::default().dependency_audit, DependencyAuditPolicy::Explicit);
+        for policy in [DependencyAuditPolicy::Explicit, DependencyAuditPolicy::OnLoad] {
+            let yaml = serde_yaml::to_string(&policy).expect("serialize");
+            let back: DependencyAuditPolicy = serde_yaml::from_str(&yaml).expect("parse");
+            assert_eq!(back, policy);
+        }
+        let on_load: DependencyAuditPolicy = serde_yaml::from_str("on_load").expect("snake_case");
+        assert_eq!(on_load, DependencyAuditPolicy::OnLoad);
+    }
+
+    #[test]
+    fn options_omit_defaults_in_yaml() {
+        let yaml = serde_yaml::to_string(&AssetManagerOptions::default()).expect("serialize");
+        assert!(!yaml.contains("dependency_audit"), "{yaml}");
+        assert!(!yaml.contains("verify_versions"), "{yaml}");
+        assert!(!yaml.contains("external_change"), "{yaml}");
+        let parsed: AssetManagerOptions = serde_yaml::from_str("{}").expect("empty parses");
+        assert_eq!(parsed, AssetManagerOptions::default());
+    }
+
+    #[test]
+    fn options_write_non_defaults() {
+        let options = AssetManagerOptions::default()
+            .with_dependency_audit(DependencyAuditPolicy::OnLoad)
+            .with_verify_versions(VersionVerification::Off)
+            .with_external_change(ExternalChangePolicy::Corrupted);
+        let yaml = serde_yaml::to_string(&options).expect("serialize");
+        assert!(yaml.contains("dependency_audit: on_load"), "{yaml}");
+        assert!(yaml.contains("verify_versions: off"), "{yaml}");
+        assert!(yaml.contains("external_change: corrupted"), "{yaml}");
+        let back: AssetManagerOptions = serde_yaml::from_str(&yaml).expect("parse");
+        assert_eq!(back, options);
+    }
+
+    #[test]
+    fn with_dependency_audit_sets_policy() {
+        let options = AssetManagerOptions::default().with_dependency_audit(DependencyAuditPolicy::OnLoad);
+        assert_eq!(options.dependency_audit, DependencyAuditPolicy::OnLoad);
+    }
+
+    #[test]
+    fn with_verify_versions_sets_policy() {
+        assert_eq!(AssetManagerOptions::default().verify_versions, VersionVerification::OnRead);
+        let options = AssetManagerOptions::default().with_verify_versions(VersionVerification::Off);
+        assert_eq!(options.verify_versions, VersionVerification::Off);
+    }
+
+    #[test]
+    fn with_external_change_sets_policy() {
+        assert_eq!(AssetManagerOptions::default().external_change, ExternalChangePolicy::UserInput);
+        let options = AssetManagerOptions::default().with_external_change(ExternalChangePolicy::Corrupted);
+        assert_eq!(options.external_change, ExternalChangePolicy::Corrupted);
+    }
+
 }
