@@ -8,9 +8,9 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 152
+Total rows: 153
 - P2: 80
-- P3: 72
+- P3: 73
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
@@ -113,6 +113,7 @@ Total rows: 152
 | [`DEPENDENCY-FAILURE-ERRORS-NAME-ASSET-IDS`](issues/DEPENDENCY-FAILURE-ERRORS-NAME-ASSET-IDS.md) | issue | Dependency failure errors name the dependency by runtime asset id | draft |  | P3 | S | core/assets |  | 2026-10-02 |
 | [`DESIGNER-INIT-FEATURE-ACCEPTS-FLAGS-AS-NAMES`](issues/DESIGNER-INIT-FEATURE-ACCEPTS-FLAGS-AS-NAMES.md) | issue | Designer init_feature.py treats any argument, including --help, as a feature name | draft |  | P3 | S | docs |  | 2026-09-27 |
 | [`EXT-VALUE-DESCRIPTION-COMPLETENESS-TEST-SAMPLES-TWO-VARIANTS`](issues/EXT-VALUE-DESCRIPTION-COMPLETENESS-TEST-SAMPLES-TWO-VARIANTS.md) | issue | The ExtValue description-completeness test samples only two of the variants | draft |  | P3 | S | lib/value |  | 2026-09-27 |
+| [`EXTERNAL-MANAGER-CANNOT-NOTIFY-REPLACED-ASSET`](issues/EXTERNAL-MANAGER-CANNOT-NOTIFY-REPLACED-ASSET.md) | issue | An AssetManager implemented outside liquers-core cannot tell a replaced asset it was removed, or store a non-serializable state | draft |  | P3 | S | core/assets |  | 2026-10-02 |
 | [`IMMEDIATE-SET-STATE-STATUS-MATCH-HAS-DEFAULT-ARM`](issues/IMMEDIATE-SET-STATE-STATUS-MATCH-HAS-DEFAULT-ARM.md) | issue | ImmediateAssetManager::set_state matches Status with a default arm | draft |  | P3 | S | core/assets |  | 2026-09-25 |
 | [`JS-STORE-WRAPPER-HAS-NO-EFFECTIVE-MEDIA-TYPE`](issues/JS-STORE-WRAPPER-HAS-NO-EFFECTIVE-MEDIA-TYPE.md) | issue | A page can read a key's declared metadata but not its effective media type | draft |  | P3 | S | web |  | 2026-09-30 |
 | [`MARKDOWN-TABLE-CANNOT-DISTINGUISH-NULL-FROM-EMPTY-TEXT`](issues/MARKDOWN-TABLE-CANNOT-DISTINGUISH-NULL-FROM-EMPTY-TEXT.md) | issue | A Markdown table reads an empty Text cell back as null, and reads only the first table | draft |  | P3 | S | records | [chunking](specs/design/record-streams/chunking-and-resumability.md)  [engine](specs/design/record-streams/engine-survey.md)  [manifest](specs/design/record-streams/manifest-format.md)  [phase1](specs/design/record-streams/phase1-high-level-design.md)  [phase2](specs/design/record-streams/phase2-architecture.md)  [phase3](specs/design/record-streams/phase3-examples.md)  [phase3](specs/design/record-streams/phase3-tests.md)  [phase4](specs/design/record-streams/phase4-implementation.md)  [phase5](specs/design/record-streams/phase5-documentation.md)  [phase5](specs/design/record-streams/phase5-evidence.md)  [record](specs/design/record-streams/record-model.md)  | 2026-09-27 |

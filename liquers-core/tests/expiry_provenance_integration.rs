@@ -25,6 +25,7 @@ use liquers_core::{
     value::Value,
 };
 use fixtures::StoreSnapshot;
+use common::minimal_manager::MinimalEnv;
 
 use common::manager_scenarios::{
     provenance_evaluate_chain, provenance_store, provenance_text_metadata, register_gate_command,
@@ -707,5 +708,101 @@ async fn every_cause_writes_a_log_line() -> TestResult {
             );
         }
     }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------------------------
+// Phase 3 I5 (Part C): `record_expiry` is the single writer, whatever the route.
+// ---------------------------------------------------------------------------------------------
+
+/// `data/a.txt` with three dependents, each `upper` over `a.txt`: `held` (live, a handle kept),
+/// `finished` (live, evaluated and let go) and `stored_only` (live asset unmapped, graph edge and
+/// stored copy kept).
+async fn recording_store() -> Result<AsyncMemoryStore, Error> {
+    use liquers_core::recipes::{Recipe, RecipeList};
+    let mut recipes = RecipeList::new();
+    for name in ["held", "finished", "stored_only"] {
+        recipes.add_recipe(Recipe::new(
+            format!("-R/data/a.txt/-/upper/{name}.txt"),
+            name.into(),
+            "depends on a.txt".into(),
+        )?);
+    }
+    let yaml = serde_yaml::to_string(&recipes)
+        .map_err(|e| Error::general_error(format!("recipes.yaml: {e}")))?;
+    let store = AsyncMemoryStore::new(&Key::new());
+    store
+        .set(&key("data/recipes.yaml"), yaml.as_bytes(), &Metadata::new())
+        .await?;
+    Ok(store)
+}
+
+/// A manager that overrides `record_expiry` and counts its calls sees exactly one call per
+/// expired asset: three dependents, none for the root, and the stored-only copy included.
+#[tokio::test]
+async fn record_expiry_is_called_for_every_expired_asset() -> TestResult {
+    let mut env = MinimalEnv::new();
+    register_provenance_commands(&mut env.command_registry);
+    env.with_async_store(Box::new(recording_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    let envref = env.to_ref();
+    let mgr = envref.get_asset_manager();
+
+    let a = key("data/a.txt");
+    within(mgr.set_binary(&a, b"hello", provenance_text_metadata())).await?;
+    let held = within(mgr.get(&key("data/held.txt"))).await?;
+    assert_eq!(held.get().await?.try_into_string()?, "HELLO");
+    {
+        let finished = within(mgr.get(&key("data/finished.txt"))).await?;
+        assert_eq!(finished.get().await?.try_into_string()?, "HELLO");
+    }
+    let stored_only = key("data/stored_only.txt");
+    let asset = within(mgr.get(&stored_only)).await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "HELLO");
+    drop(asset);
+    for name in ["held", "finished", "stored_only"] {
+        wait_until_stored(&envref, &key(&format!("data/{name}.txt")), Status::Ready).await?;
+    }
+    mgr.remove_key_asset(&stored_only).await;
+    assert!(mgr.lookup_key_asset(&stored_only).is_none(), "precondition: no live asset");
+    let before = mgr.recorded_expiries().len();
+
+    within(mgr.set_binary(&a, b"changed", provenance_text_metadata())).await?;
+
+    let calls = mgr.recorded_expiries()[before..].to_vec();
+    let mut subjects: Vec<&str> = calls.iter().map(|(subject, _)| subject.as_str()).collect();
+    subjects.sort();
+    assert_eq!(
+        subjects,
+        ["data/finished.txt", "data/held.txt", "data/stored_only.txt"],
+        "one call per expired asset, none for the root: {calls:?}"
+    );
+    let root = dep("data/a.txt");
+    let expected = ExpiryReason::Cascaded {
+        cause: ExpiryCause::Updated {
+            version: Version::from_content(b"changed"),
+        },
+        root: root.clone(),
+        via: root,
+    };
+    for (subject, reason) in &calls {
+        assert_eq!(reason, &expected, "{subject}");
+    }
+    assert_eq!(held.status().await, Status::Expired);
+    assert_eq!(held.get_metadata().await?.expiry_reason(), Some(expected.clone()));
+
+    // The stored-only copy was reached too: its sidecar carries the reason and the log line the
+    // method wrote.
+    let sidecar = envref.get_async_store().get_metadata(&stored_only).await?;
+    assert_eq!(sidecar.status(), Status::Expired);
+    assert_eq!(sidecar.expiry_reason(), Some(expected.clone()));
+    let line = expected.log_entry("data/stored_only.txt");
+    let matching = log_of(&sidecar)
+        .into_iter()
+        .filter(|(kind, message)| *kind == line.kind && *message == line.message)
+        .count();
+    assert_eq!(matching, 1, "exactly one expiry line in the sidecar");
+    // The root is not an expired asset.
+    assert_eq!(envref.get_async_store().get_metadata(&a).await?.status(), Status::Source);
     Ok(())
 }

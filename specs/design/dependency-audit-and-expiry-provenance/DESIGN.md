@@ -174,6 +174,15 @@ match it. Three questions remained for the owner (Phase 4 §"Phase 4 review").
     dependency policy, as the queued manager already did. Without it, `submit` + wait on an inline
     environment bypassed `OnLoad`.
   - Mutation check: reverting `submit` to an immediate `evaluate` fails the recording test.
+- **Step 11, primitives beyond Phase 2 F2.** A from-scratch external manager
+  (`tests/common/minimal_manager.rs`, public API only) passes all 22 shared scenario runs. It
+  needed two more provided trait methods:
+  - `AssetManager::publish_version`, because `DependencyManager::register_version` is now
+    crate-private;
+  - `AssetManager::is_volatile_query`, because `IsVolatile` is crate-private.
+  Its limits: its `set_state` goes through bytes, and it cannot notify a replaced asset. These are
+  filed as `EXTERNAL-MANAGER-CANNOT-NOTIFY-REPLACED-ASSET`. Three `DependencyManager` methods that
+  only in-crate tests use are now `#[cfg(test)]`.
 - **Filed during Step 4:** `SUPPLIED-EXPIRED-STATUS-STORED-WITHOUT-REASON` and
   `DEPENDENCY-FAILURE-ERRORS-NAME-ASSET-IDS`.
 

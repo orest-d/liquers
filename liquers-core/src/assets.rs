@@ -2183,7 +2183,11 @@ impl<E: Environment> AssetRef<E> {
 
     /// Records the chain of payload-evaluated queries leading to this asset, so that the
     /// context created for it can continue cycle detection down the evaluation path.
-    pub(crate) async fn set_payload_path(&self, path: Vec<Query>) {
+    ///
+    /// Contract for an [`AssetManager`] implementation: call it on an asset the manager has just
+    /// constructed for a payload-evaluated query, *before* [`Self::run`] / [`Self::run_inline`],
+    /// passing the path of the asset that requested it. Later calls replace the path.
+    pub async fn set_payload_path(&self, path: Vec<Query>) {
         let mut lock = self.data.write().await;
         lock.payload_path = path;
     }
@@ -2582,8 +2586,12 @@ impl<E: Environment> AssetRef<E> {
         }
     }
 
-    /// Inform the asset that it has been submitted
-    pub(crate) async fn submitted(&self) -> Result<(), Error> {
+    /// Inform the asset that it has been submitted (sets status `Submitted`).
+    ///
+    /// Contract for an [`AssetManager`] implementation: call it once when the asset is accepted
+    /// for evaluation but not yet running, before handing it to [`Self::run`]. A manager that
+    /// runs the asset immediately and never queues it may skip it.
+    pub async fn submitted(&self) -> Result<(), Error> {
         self.set_status(Status::Submitted).await?;
         let lock = self.data.read().await;
 
@@ -2866,8 +2874,13 @@ impl<E: Environment> AssetRef<E> {
     /// `payload` is the optional execution payload; `None` is ordinary evaluation. There is one
     /// evaluation body behind both, so what differs between entry points is the asset they were
     /// given, never how it is evaluated.
+    ///
+    /// This is the native / queued primitive (see `CORE-TOKIO-REMOVAL`): it spawns the service
+    /// message loop on the tokio runtime, so it is not available on wasm32. Call it at most once
+    /// per asset, from the single party that owns the run; the asset's waiters are released when
+    /// it returns. Managers that must not spawn use [`Self::run_inline`].
     #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) async fn run(&self, payload: Option<E::Payload>) -> Result<(), Error> {
+    pub async fn run(&self, payload: Option<E::Payload>) -> Result<(), Error> {
         self.run_with_future(self.evaluate(payload)).await
     }
 
@@ -2926,8 +2939,15 @@ impl<E: Environment> AssetRef<E> {
         self.finish_run_with_result(result, Ok(psm_result)).await
     }
 
-    /// Inline (spawn-free) counterpart of [`Self::run`], used by inline managers and on wasm.
-    pub(crate) async fn run_inline(&self, payload: Option<E::Payload>) -> Result<(), Error> {
+    /// Inline (spawn-free) counterpart of [`Self::run`]: evaluation and the service-message loop
+    /// are polled together in the caller's task. Use this one on wasm32, and in any manager that
+    /// must not spawn.
+    ///
+    /// Call it at most once per asset, from the single party that owns the run. If the returned
+    /// future is dropped before completion the asset's status is repaired, but waiters already
+    /// registered on it can be stranded
+    /// (`INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS`), so await it to the end.
+    pub async fn run_inline(&self, payload: Option<E::Payload>) -> Result<(), Error> {
         self.run_with_future_inline(self.evaluate(payload)).await
     }
 
@@ -3696,7 +3716,12 @@ impl<E: Environment> AssetRef<E> {
     }
 
     /// Expire this asset alone, recording `reason`; the caller owns the cascade (if any).
-    pub(crate) async fn expire_without_cascade(&self, reason: ExpiryReason) -> Result<(), Error> {
+    ///
+    /// Contract for an [`AssetManager`] implementation: this does not touch the dependency graph
+    /// and does not remove the asset from the manager's maps. The manager's own `expire` /
+    /// `expire_dependents` machinery calls it for each asset the graph reports, then reports the
+    /// reason through [`AssetManager::record_expiry`].
+    pub async fn expire_without_cascade(&self, reason: ExpiryReason) -> Result<(), Error> {
         self.mark_expired_status(reason).await.map(|_| ())
     }
 
@@ -4319,22 +4344,28 @@ fn dropped_computed_metadata<E: Environment>(metadata: Metadata) -> Option<Metad
     }
 }
 
-/// Internal access to the runtime dependency graph.
+/// Access to the runtime dependency graph owned by an [`AssetManager`].
 ///
-/// Dependency tracking is automatic. Keeping this separate from [`AssetManager`]'s public
-/// operations prevents the graph implementation from becoming part of the supported API.
-pub(crate) trait DependencyManagerAccess<E: Environment> {
+/// Dependency tracking is automatic: the default methods of [`AssetManager`] drive the graph.
+/// An implementation owns exactly one [`DependencyManager`](crate::dependencies::DependencyManager)
+/// (create it with `DependencyManager::new()` or `Default`), stores it in the manager and returns
+/// the same reference on every call. The graph type is opaque; it is not meant to be called
+/// directly.
+pub trait DependencyManagerAccess<E: Environment> {
     fn dependency_manager(&self) -> &crate::dependencies::DependencyManager<E>;
 }
 
-/// Internal access to the lock that serializes keyed mutations (`remove`, `set_binary`,
+/// Access to the lock that serializes keyed mutations (`remove`, `set_binary`,
 /// `set_state`, `to_override`, `expire`, `set_description`), so they can be written once as
-/// default methods of [`AssetManager`]. Not part of the supported API.
+/// default methods of [`AssetManager`].
+///
+/// Contract: one lock per manager, the same one on every call. It serialises keyed mutations and
+/// must never be taken while an asset's `data` lock is held.
 ///
 /// The lock is a non-reentrant `tokio::sync::Mutex`: a method holding it must not call another
 /// method that takes it (`get`, `owned_key_asset`, `to_override`, `set_binary`, `set_state`,
 /// `remove`, `remove_expired_from_maps`).
-pub(crate) trait KeyMutationAccess {
+pub trait KeyMutationAccess {
     fn key_mutation_lock(&self) -> &tokio::sync::Mutex<()>;
 }
 
@@ -4657,7 +4688,6 @@ pub struct VersionVerificationReport {
 /// [Where the key comes from](crate::assets#where-the-key-comes-from-and-how-to-read-it-back).
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[allow(private_bounds)]
 pub trait AssetManager<E: Environment>:
     crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSync
     + DependencyManagerAccess<E>
@@ -4747,6 +4777,15 @@ pub trait AssetManager<E: Environment>:
         } else {
             Ok(false)
         }
+    }
+
+    /// Returns whether evaluating `query` is volatile, **without evaluating it**.
+    ///
+    /// The query counterpart of [`Self::is_volatile`]. A manager asks it before registering a
+    /// query asset: a volatile asset must never be put in the manager's maps (it can be neither
+    /// shared nor reused), so it is created fresh for each request instead.
+    async fn is_volatile_query(&self, query: &Query) -> Result<bool, Error> {
+        crate::interpreter::IsVolatile::is_volatile(query, self.get_envref()).await
     }
 
     /// Resolve the asset for `query` and schedule it as a dependency of `parent`: start it
@@ -5574,6 +5613,9 @@ pub trait AssetManager<E: Environment>:
     /// Fallible although neither built-in manager can fail today. The `Result` is reserved for a
     /// manager whose startup genuinely can fail — one restoring a persisted dependency graph from
     /// a store — because adding it later would be a breaking change. Do not "simplify" it away.
+    ///
+    /// Required. An implementation must call `self.refresh_command_versions()?` (its result is
+    /// empty at first startup) and then record that it has started, so `is_started` reports true.
     fn start(&self) -> Result<(), Error>;
 
     /// Re-read the command metadata registry and re-register versions.
@@ -5585,7 +5627,11 @@ pub trait AssetManager<E: Environment>:
     /// Returns the dependency keys whose version changed, which are exactly the keys whose
     /// dependents must be expired. It does not expire them itself, because cascade expiration is
     /// asynchronous; [`Self::refresh_command_versions_and_expire`] is the companion that does.
-    fn refresh_command_versions(&self) -> Result<Vec<crate::metadata::DependencyKey>, Error>;
+    fn refresh_command_versions(&self) -> Result<Vec<crate::metadata::DependencyKey>, Error> {
+        let envref = self.get_envref();
+        let cmr = envref.get_command_metadata_registry();
+        Ok(load_command_versions_sync(self.dependency_manager(), cmr))
+    }
 
     /// [`Self::refresh_command_versions`], then cascade-expire everything it reports.
     ///
@@ -5643,6 +5689,27 @@ pub trait AssetManager<E: Environment>:
             }
             Metadata::LegacyMetadata(_) => {}
         }
+    }
+
+    /// Publish `version` as the current version of `dep_key`, and cascade-expire every dependent
+    /// that recorded a different one (cause `Updated { version }`).
+    ///
+    /// The primitive a manager's `set_binary` / `set_state` calls after the new content is
+    /// durable, so that dependents of the written key are expired with the reason recorded through
+    /// [`Self::record_expiry`]. It touches the dependency graph only; it does not write the store
+    /// and does not take [`KeyMutationAccess::key_mutation_lock`], so it is safe to call with that
+    /// lock held. Publishing an unchanged version expires nothing.
+    async fn publish_version(
+        &self,
+        dep_key: &crate::metadata::DependencyKey,
+        version: Version,
+    ) {
+        let expired = self
+            .dependency_manager()
+            .register_version(dep_key, version)
+            .await;
+        self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
+            .await;
     }
 
     /// Cascade-expire all dependents of a changed dependency key, with the root `cause`.
@@ -7526,11 +7593,6 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         Ok(())
     }
 
-    fn refresh_command_versions(&self) -> Result<Vec<crate::metadata::DependencyKey>, Error> {
-        let cmr = self.envref.get_command_metadata_registry();
-        Ok(load_command_versions_sync(&self.dependency_manager, cmr))
-    }
-
     fn is_started(&self) -> bool {
         self.started.load(std::sync::atomic::Ordering::Acquire)
     }
@@ -8658,12 +8720,6 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         self.started
             .store(true, std::sync::atomic::Ordering::Release);
         Ok(())
-    }
-
-    fn refresh_command_versions(&self) -> Result<Vec<crate::metadata::DependencyKey>, Error> {
-        let envref = self.envref();
-        let cmr = envref.get_command_metadata_registry();
-        Ok(load_command_versions_sync(&self.dependency_manager, cmr))
     }
 
     fn is_started(&self) -> bool {

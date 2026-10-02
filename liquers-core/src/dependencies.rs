@@ -144,8 +144,11 @@ pub(crate) enum ScheduleNode {
 
 /// Runtime dependency graph.
 ///
-/// Not part of the public API — users interact via `DefaultAssetManager` methods.
-pub(crate) struct DependencyManager<E: Environment> {
+/// Opaque: an [`AssetManager`](crate::assets::AssetManager) implementation owns one, constructs it
+/// with [`DependencyManager::new`] and hands it out through
+/// [`DependencyManagerAccess`](crate::assets::DependencyManagerAccess). The default trait methods
+/// of `AssetManager` drive it; an implementor never calls into it directly.
+pub struct DependencyManager<E: Environment> {
     /// Current version per tracked dependency key.
     versions: scc::HashMap<DependencyKey, Version>,
     /// Keyed dependents: for key K, the keyed assets that depend on K **and the version each of
@@ -173,7 +176,14 @@ pub(crate) struct DependencyManager<E: Environment> {
     expression_expr_deps: scc::HashMap<DependencyKey, scc::HashSet<DependencyKey>>,
 }
 
+impl<E: Environment> Default for DependencyManager<E> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<E: Environment> DependencyManager<E> {
+    /// An empty graph: no versions registered, no edges.
     pub fn new() -> Self {
         DependencyManager {
             versions: scc::HashMap::new(),
@@ -189,7 +199,7 @@ impl<E: Environment> DependencyManager<E> {
     /// Register (or update) the version for a dependency key.
     ///
     /// If the version changes, all transitive dependents are expired and returned.
-    pub async fn register_version(
+    pub(crate) async fn register_version(
         &self,
         key: &DependencyKey,
         version: Version,
@@ -364,7 +374,7 @@ impl<E: Environment> DependencyManager<E> {
     /// can report `true`, and
     /// [`AssetManager::refresh_command_versions_and_expire`](crate::assets::AssetManager::refresh_command_versions_and_expire)
     /// applies the cascade for it.
-    pub fn register_version_sync(&self, key: &DependencyKey, version: Version) -> bool {
+    pub(crate) fn register_version_sync(&self, key: &DependencyKey, version: Version) -> bool {
         match self.versions.entry_sync(key.clone()) {
             scc::hash_map::Entry::Occupied(mut entry) => {
                 let version_changed = *entry.get() != version;
@@ -382,7 +392,8 @@ impl<E: Environment> DependencyManager<E> {
     ///
     /// **Version 0 semantics:** `Version(0)` means "unknown" and always matches.
     /// Returns `false` if the key is not registered at all.
-    pub async fn version_consistent(&self, key: &DependencyKey, expected: Version) -> bool {
+    #[cfg(test)]
+    pub(crate) async fn version_consistent(&self, key: &DependencyKey, expected: Version) -> bool {
         if expected == Version::new(0) {
             return true;
         }
@@ -397,7 +408,7 @@ impl<E: Environment> DependencyManager<E> {
     }
 
     /// Get the currently registered version for `key`, if any.
-    pub async fn get_version(&self, key: &DependencyKey) -> Option<Version> {
+    pub(crate) async fn get_version(&self, key: &DependencyKey) -> Option<Version> {
         self.versions.get_async(key).await.map(|entry| {
             let v = *entry.get();
             drop(entry);
@@ -422,7 +433,7 @@ impl<E: Environment> DependencyManager<E> {
     /// nothing here checks that it was ever true.
     ///
     /// Returns `Err` only if a cycle would be created.
-    pub async fn add_dependency(
+    pub(crate) async fn add_dependency(
         &self,
         dependent: &DependencyKey,
         dependency: &DependencyKey,
@@ -459,7 +470,7 @@ impl<E: Environment> DependencyManager<E> {
     ///   `DependencyRecord`s from the asset's metadata via `load_from_records`.
     /// - For non-keyed (query) assets: registers as a `dependent_asset` (weak ref)
     ///   on each of its metadata dependencies.
-    pub async fn track_asset(&self, asset: &crate::assets::AssetRef<E>) -> ExpiredDependents<E> {
+    pub(crate) async fn track_asset(&self, asset: &crate::assets::AssetRef<E>) -> ExpiredDependents<E> {
         let mut expired = ExpiredDependents::new();
         let status = asset.status().await;
         match status {
@@ -534,7 +545,7 @@ impl<E: Environment> DependencyManager<E> {
     }
 
     /// Register a `WeakAssetRef` as a dependent of `dependency`.
-    pub async fn add_dependent_asset(
+    pub(crate) async fn add_dependent_asset(
         &self,
         dependency: &DependencyKey,
         dependent: WeakAssetRef<E>,
@@ -557,7 +568,7 @@ impl<E: Environment> DependencyManager<E> {
     /// Starting from `dependent`, we follow the `keyed_dependents` graph upward:
     /// if `dependent` has dependents, and one of them transitively reaches `dependency`,
     /// that would mean `dependency` depends (transitively) on `dependent`, creating a cycle.
-    pub async fn would_create_cycle(
+    pub(crate) async fn would_create_cycle(
         &self,
         dependent: &DependencyKey,
         dependency: &DependencyKey,
@@ -730,6 +741,7 @@ impl<E: Environment> DependencyManager<E> {
 
     /// Drop the transient schedule-time attribution entries for expression `expr`.
     /// Called when the expression asset reaches a terminal status.
+    #[cfg(test)]
     pub(crate) async fn remove_expression(&self, expr: &DependencyKey) {
         self.expression_dependents.remove_async(expr).await;
         self.expression_keyed_deps.remove_async(expr).await;
@@ -743,12 +755,13 @@ impl<E: Environment> DependencyManager<E> {
     /// invalidated since we don't know the real version.
     ///
     /// Acquires `expiration_lock` to serialize concurrent cascades.
-    pub async fn expire(&self, key: &DependencyKey) -> ExpiredDependents<E> {
+    pub(crate) async fn expire(&self, key: &DependencyKey) -> ExpiredDependents<E> {
         self.expire_internal(key, true).await
     }
 
     /// Cascade-expire transitive dependents of `key`, but keep `key` itself alive.
-    pub async fn expire_dependents(&self, key: &DependencyKey) -> ExpiredDependents<E> {
+    #[cfg(test)]
+    pub(crate) async fn expire_dependents(&self, key: &DependencyKey) -> ExpiredDependents<E> {
         self.expire_internal(key, false).await
     }
 
@@ -1001,7 +1014,7 @@ impl<E: Environment> DependencyManager<E> {
     }
 
     /// Remove a key from all tracking structures.
-    pub async fn remove(&self, key: &DependencyKey) {
+    pub(crate) async fn remove(&self, key: &DependencyKey) {
         self.versions.remove_async(key).await;
         self.keyed_dependents.remove_async(key).await;
         self.dependent_assets.remove_async(key).await;
@@ -1011,7 +1024,7 @@ impl<E: Environment> DependencyManager<E> {
     ///
     /// For each record, calls `add_dependency`. Ignores `DependencyVersionMismatch`
     /// errors (the loaded dependency version may have advanced since the record was written).
-    pub async fn load_from_records(
+    pub(crate) async fn load_from_records(
         &self,
         dependent: &DependencyKey,
         records: &[DependencyRecord],
