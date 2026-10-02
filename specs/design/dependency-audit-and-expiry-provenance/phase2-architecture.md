@@ -2,6 +2,9 @@
 
 ## Overview
 
+*Everything below is a proposal against the code at HEAD. Where a signature changes, the current
+one is quoted as "today" or "the existing". Types and methods that do not exist yet are new.*
+
 Seven parts in `liquers-core`. Parts A–E are built on the dependency graph that `keyed-expiry-cascade-fix`
 built and the ordering precedent set by `stale-dependency-status-finalization`:
 
@@ -878,7 +881,9 @@ Call sites that pick a reason:
 |---|---|
 | Queued expiration monitor, `assets.rs:5214` (`expire()` today) | the asset: `Direct { Deadline }`; its dependents: `Cascaded { Deadline, root, via }` |
 | Immediate manager lazy check, `:7218` / `:7306` | the asset: `Direct { Deadline }`, **after fixing the dead condition** (see below) |
-| `AssetRef::expire` | `Direct { Explicit }`, dependents `Cascaded { Explicit, … }` |
+| `AssetRef::expire` (`assets.rs:3299`) | `Direct { Explicit }`, dependents `Cascaded { Explicit, … }` |
+| `AssetManager::expire(key)` (`assets.rs:4290`, on main since 2026-10-01): live asset → `AssetRef::expire`; **stored-only copy** → it rewrites the stored status itself (`:4318-4324`) | the stored copy: `Direct { Explicit }` via `record_expiry` on the metadata before `set_metadata`; dependents `Cascaded { Explicit, … }` |
+| `record_dependency_on_asset` (`:1734`) and `register_plan_dependencies` (`:4896`) apply the result of `DependencyManager::add_dependency`, which records and never expires (it always returns an empty set) | `Updated`, nominally. The set is empty, so nothing is written. Kept so that every call site passes a cause and the signature is uniform. |
 | `finalize_status_with_version` stale branch, `:2106` | the asset: `Direct { StaleDependency { dependency } }`; its dependents `Cascaded { StaleDependency, … }` |
 | `audit_gaps` | dependents of the audited key: `Cascaded { Audit { found }, root: key, via }` |
 | `register_version` on evaluation, `set_state`, `set_binary`, fast-track load, `refresh_command_versions`, `refresh_listing_version` | dependents: `Cascaded { Updated { version }, … }` |
