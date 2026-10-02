@@ -30,7 +30,7 @@ design" and §"The problems, on examples". Here the same terms are mapped to the
 | Version | `metadata::Version(u128)`, a blake3 hash of the serialized bytes (`Version::from_bytes`), stored in `MetadataRecord.version`. `Version::unknown()` = `Version(0)`. |
 | Dependency key | `metadata::DependencyKey`: `-R/<key>` (a stored value), `-R-dir/<key>` (a folder's list of names), `ns-dep/command_metadata-…` / `ns-dep/command_impl-…` (a command). |
 | Recorded version | Two copies of one fact. Persistent: `MetadataRecord.dependencies: Vec<DependencyRecord { key, version }>` of the dependent. In memory: the edge `keyed_dependents[dependency][dependent] = version` in `DependencyManager`. |
-| Current version | `AssetManager::version(&Key) -> Result<Option<Version>, Error>` (`assets.rs:4346`): the live asset's metadata version if it has one, else the store's metadata version, else `None`. It never evaluates and never reads the value. Part D extends it to `-R-dir/` keys as `dependency_version`. |
+| Current version | `AssetManager::version(&Key) -> Result<Version, Error>` (today `Result<Option<Version>, Error>`, `assets.rs:4777`; changed by this design): the live asset's metadata version if it has one, else the store's metadata version, else `Version::unknown()` (0). `None` is not used for a current version. It never evaluates and never reads the value. Part D extends it to `-R-dir/` keys as `dependency_version`. |
 | Version map | `DependencyManager.versions: scc::HashMap<DependencyKey, Version>`. It is empty in a new process. |
 | Gap | A dependency that some dependent has a concrete recorded version for, but that is missing from the version map (`missing_versions_for`, `dependencies.rs:834`). Only gaps are audited. A key already in the map was checked when it got there. |
 | Cascade | `DependencyManager::expire_stale_dependents` / `expire_from_frontier`, applied by `AssetManager::expire_dependencies_result`. |
@@ -42,27 +42,30 @@ Each trace names the call that goes wrong today and the call that replaces it.
 **Example 1 (Part A), audit after a restart.** A new process loads `report.txt`. Its metadata
 records `-R/data/a.csv @ V1`, so `load_from_records` adds the edge `a.csv → report.txt @ V1`, and
 the map has no `a.csv`. `trigger_dependency_audit` → `missing_versions_for(report.txt)` = `[a.csv]`
-→ `version(a.csv)` = `Some(V2)` → `register_version(a.csv, V2)` finds the map entry *vacant*,
+→ `version(a.csv)` = `V2` → `register_version(a.csv, V2)` finds the map entry *vacant*,
 inserts `V2`, sets `version_changed = false`, and expires nothing (`dependencies.rs:158-180`).
 **Replaced by** `audit_version(a.csv, V2)`: it inserts `V2`, then always runs
 `expire_stale_dependents(a.csv, V2)`, which compares `V2` with the edge's `V1`, finds them different,
 and expires `report.txt`.
 
 **Example 2 (Part B), when to check.** The service sets `dependency_audit: on_load`. In
-`try_fast_track` (`assets.rs:1170-1200`), a recorded dependency the map does not know is skipped
+`try_fast_track` (`assets.rs:1178-1200`), a recorded dependency the map does not know is skipped
 today (`if let Some(dm_version) = …`). Under `OnLoad` it is resolved through `dependency_version`,
 and a mismatch or `None` refuses the fast track, so `report.txt` is recomputed. A recorded `Version::unknown()`
 (a legacy sidecar, or a listing edge not yet upgraded) is **not** a mismatch: the check uses
 `Version::matches`, under which unknown is compatible with anything, exactly as the in-process check
-at `assets.rs:1178` does. So switching to `on_load` does not recompute every legacy result. The
+at `assets.rs:1186` does. So switching to `on_load` does not recompute every legacy result. The
 researcher keeps `explicit`, so loading is as today. `trigger_dependency_audit_with(q, ReportOnly)` fills `findings`
-with `(a.csv, report.txt, expected V1, found Some(V2))` and changes nothing.
+with `(a.csv, report.txt, expected V1, found V2)` and changes nothing.
 
 **Example 3 (Part C), why expired.** `a.csv` is stored again with `V3` in-process →
 `register_version` → cascade → `expire_dependencies_result` → `report_ref.expire_without_cascade()`
-→ `mark_expired_status` flips the status and writes nothing else (`assets.rs:3280`). **Replaced
-by** the same path carrying `ExpiredDependents.trigger = -R/data/a.csv`. `mark_expired_status`
-writes `expiry_reason = Cascade { trigger }` and a log entry under the same lock that flips the
+→ `mark_expired_status` flips the status and writes nothing else (`assets.rs:3316`). **Replaced
+by** the same path carrying `ExpiredDependents.root = -R/data/a.csv`, with `via = -R/data/a.csv` for
+`report.txt`, and the caller's cause `Updated { version: V3 }`. `mark_expired_status` calls
+`record_expiry`, which writes
+`expiry_reason = Cascaded { cause: Updated { version: V3 }, root: -R/data/a.csv, via: -R/data/a.csv }`
+and a log entry under the same lock that flips the
 status, so the persisted metadata carries both.
 
 **Example 4 (Part D), folder listing.** `-R-dir/data/-/index_files` validates as
@@ -77,11 +80,11 @@ by** the step registering `listing_version(["a.csv", "b.csv"])` and recording it
 **Example 5 (Part E), stale input mid-evaluation.** A test command calls
 `context.submit("-R/data/a.csv")`, then waits on a test-controlled gate. The test expires `a.csv`
 and opens the gate. The command calls `context.wait_for_dependency(&a)`, which reaches the manager's
-`Status::Expired` arm (`assets.rs:5446`), uses the retained value and calls
-`note_expired_dependency`. The result finishes `Expired` with `StaleDependency { dependency: -R/data/a.csv }`.
+`Status::Expired` arm (`assets.rs:5883`), uses the retained value and calls
+`note_expired_dependency`. The result finishes `Expired` with `Direct { cause: StaleDependency { dependency: -R/data/a.csv } }`.
 
 **Example 6 (Part C), deadline on the immediate manager.** `get` checks
-`status == Ready && assetref.is_expired()` (`assets.rs:6911`). `is_expired()` is
+`status == Ready && assetref.is_expired()` (`assets.rs:7306`). `is_expired()` is
 `status == Expired`, so the condition cannot hold. **Replaced by** `assetref.expiration_time().await.is_expired()`,
 followed by `expire_without_cascade(Deadline { expiration_time })`.
 
@@ -94,7 +97,7 @@ compiles, and `tests/external_asset_manager.rs` is that impl.
 calls `V1.verify(bytes)`, which returns `Mismatch { actual: V2 }`. `a.csv` is a `Source`, so
 `external_change_action` returns `AcceptAsInput { actual: V2 }`. `apply_external_change` writes `V2`
 into the metadata and calls `register_version(-R/data/a.csv, V2)`, which cascades to `report.txt`
-(recorded `V1`) with `Cascade { trigger: -R/data/a.csv }`.
+(recorded `V1`) with `Cascaded { cause: UpdatedInStore { actual: V2 }, root: -R/data/a.csv, via: -R/data/a.csv }`.
 
 ## Known-Issue Preflight
 
@@ -108,8 +111,11 @@ and store-listing issues, since Part D hashes `listdir`. Checked at HEAD on 2026
 | `ASSET-REGISTRATION-OWNERSHIP-CONTRACT` | draft | P2 | Part F: `AssetRef::bound_owner_key` decides ownership by looking the key up in the *manager's* map. An external manager whose `lookup_key_asset` is wrong breaks ownership, so persistence and cascades silently misbehave. | no | no | The new guide states today's registration invariants as a requirement (at most one registered asset per key; `lookup_key_asset` returns exactly that asset; never register a volatile asset), and the external test manager follows them. The open contract questions stay on the issue. | keep |
 | `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` | draft | P2 | Part F: an external manager holds `EnvRef<E>` strongly, as the built-in ones do, so it inherits the leak. | no | no | The guide notes the cycle and links the issue; nothing here makes it worse. | keep |
 | `INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS` | draft | P2 | Part F makes `run_inline` public, so external callers can reach this defect. | no | no | The `run_inline` contract doc states the limitation and links the issue. | keep |
-| `DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION` | draft | P1 | Parts B and D must not evaluate while resolving a version. They go through `version()` (metadata only) and `AssetManager::listdir` (names only), never through `get_asset_info`. | no | no | Independent by construction. Phase 3 has a test that an audit never evaluates. | keep |
-| `CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS` | draft | P2 | Part D hashes `listdir`. A metadata-only key appears in an OpenDAL listing but not in a file-store listing, so the listing version differs by backend for the same logical contents. | no | no | Tolerated. The version is compared only within one store, so the difference never produces a false change. Fixing the issue later shifts versions once, which costs one recomputation. Noted in the `DEPENDENCIES_STATUS` update. | keep |
+| `DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION` | **closed** on main (2026-10-01) | P1 | Parts B and D must not evaluate while resolving a version. They go through `version()` (metadata only) and `AssetManager::listdir` (names only), never through `get_asset_info`. | no | no | Independent by construction. Phase 3 has a test that an audit never evaluates. | keep |
+| `CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS` | **closed** on main (2026-10-01, `store-conformance-backlog`) | P2 | Part D hashes `listdir`. Every store now lists metadata-only keys (conformance rule `sidecar04`), so listing versions agree across backends. | no | no | None. The backend caveat is dropped from the docs plan. | — |
+| `ASSET-REMOVE-FORGETS-DEPENDENTS` | **closed** on main (2026-10-01, `axum-assets-endpoints`) | P2 | `remove` is now status-aware and expires dependents when a `Source`/`Override` goes (`assets.rs:4195`). This adds a route into `Expired`. | no | no | Part C gives it the cause `Removed`. Part D's `refresh_listing_version` runs after it like any other removal. | — |
+| `ASSET-TO-OVERRIDE-SOURCE-INCONSISTENT` | **closed** on main | P3 | Part G's `ConvertToOverride` must not turn a `Source` into `Override`. | no | no | The decision table never converts a `Source`; `apply_external_change` writes the status itself and does not call `to_override`. | — |
+| `NO-REMOTE-STORE-OR-ASSET-MANAGER` | draft (filed on main) | P2 | A remote asset manager is an `AssetManager` implemented outside core, which Part F makes possible. It needs manager-owned metadata (status, versions, dependencies, expiry reason) to travel between peers. | no | no | Part F is a prerequisite for it. `ExpiryReason` is serializable, so it can travel with the entry. No change here. | keep |
 | `SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED` | draft | P2 | Part D refreshes a listing after `save_to_store`. A cancelled write reports success, so the listing is refreshed although nothing changed. | no | no | Harmless: `register_version` with an unchanged version cascades nothing. Only the cost of one `listdir`. | keep |
 | `METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED` | draft | P3 | Part B's `OnLoad` check sits in `try_fast_track`, beside the corrupted-data branch. | no | no | Independent. The version check runs after deserialization succeeds, so the two do not interact. | keep |
 | `UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION` | draft | P3 | Same expiry path, different mechanism (write-back ordering). Excluded in Phase 1 Q5. | no | no | Part C makes the overwritten mark visible in the log, which helps a later fix. | keep |
@@ -141,39 +147,84 @@ the implementor's contract, not by depending on their resolution. No priority ch
 
 ### New Enums
 
-#### `ExpiryReason` (`liquers-core/src/metadata.rs`)
+#### `ExpiryCause` and `ExpiryReason` (`liquers-core/src/metadata.rs`)
+
+*Revised 2026-10-02 (owner). The first version could not name the root cause of a cascade.*
+
+An expiration has a **root cause**, which happens to one key, and a **scope**. Either the expired
+asset *is* that key (`Direct`), or it was reached through the dependency graph (`Cascaded`). A
+cascaded reason names both the root key and this asset's own dependency through which the cascade
+arrived (`via`). For a direct dependent of the root, `via == root`.
 
 ```rust
+/// What happened to the root key.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ExpiryCause {
+    /// The root's own expiration time elapsed (queued monitor, or the immediate manager's lazy check).
+    Deadline { expiration_time: ExpirationTime },
+    /// Someone asked: `AssetRef::expire`, directly or through an API.
+    Explicit,
+    /// An audit found that the root's current version is not the one its dependents recorded.
+    /// `found` is the current version, `Version::unknown()` (0) when the root has none.
+    Audit { found: Version },
+    /// The root was evaluated with a dependency that expired mid-evaluation (the stale-value policy).
+    StaleDependency { dependency: DependencyKey },
+    /// The root's stored bytes no longer match its recorded version, detected when it was read
+    /// (Part G). `actual` is the new content hash.
+    UpdatedInStore { actual: Version },
+    /// The root received new content through Liquers (recomputed, `set_state`, `set_binary`, a new
+    /// command version, a changed folder listing). `version` is the new version.
+    Updated { version: Version },
+    /// The root was removed (`AssetManager::remove` of a `Source` or `Override`).
+    Removed,
+}
+
 /// Why an asset is `Expired`. Recorded, never consulted by read paths: every consumer treats
 /// `Expired` the same regardless of reason (see `EXPIRY-RECORDS-NO-REASON` for why this is not a
 /// `Status` variant).
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "scope", rename_all = "snake_case")]
 pub enum ExpiryReason {
-    /// The asset's own expiration time elapsed.
-    Deadline { expiration_time: ExpirationTime },
-    /// Someone asked: `AssetRef::expire`, directly or through an API.
-    Explicit,
-    /// A dependency changed and the graph cascaded. `trigger` is the key whose change started
-    /// the cascade: the root, not the immediate parent, because the root is what the operator can act on.
-    Cascade { trigger: DependencyKey },
-    /// An audit found that `dependency`'s current version is not the one recorded. `found` is
-    /// `None` when the dependency has no current version at all.
-    Audit { dependency: DependencyKey, found: Option<Version> },
-    /// Evaluated using a dependency that expired mid-evaluation (the stale-value policy).
-    StaleDependency { dependency: DependencyKey },
+    /// This asset is the root.
+    Direct { cause: ExpiryCause },
+    /// `root` is the key the cause happened to; `via` is this asset's own dependency through which
+    /// the cascade reached it.
+    Cascaded { cause: ExpiryCause, root: DependencyKey, via: DependencyKey },
 }
 
 impl ExpiryReason {
-    /// The log entry recording this transition for `subject` (the expired asset's key or query).
-    /// Level per the table above.
+    /// Default log entry for `subject` (the expired asset's key, or its query when it has none).
+    /// Used by `AssetManager::record_expiry`'s default body; level per the table below.
     pub fn log_entry(&self, subject: &str) -> LogEntry;
 }
 ```
 
+Which causes occur in which scope:
+
+| Cause | `Direct` on | `Cascaded` on | Log level |
+|---|---|---|---|
+| `Deadline` | the asset whose time elapsed | its dependents | info |
+| `Explicit` | the asset `expire()` was called on | its dependents | info |
+| `Audit` | — (the root is the *dependency*, which is not expired) | the dependents found stale, and theirs | warning |
+| `StaleDependency` | the asset that used the stale value | its dependents (`cascade_expire_dependents` at finalization) | warning |
+| `UpdatedInStore` | — (the root becomes `Override`/stays `Source`, see Part G) | its dependents | warning |
+| `Updated` | — (the root holds the new value) | its dependents | info |
+| `Removed` | — (the root is gone) | its dependents | info |
+
+Messages, which are illustrative and fixed in Phase 4:
+
+- *"data/a.csv expired: its expiration time 2026-10-02T10:00:00Z passed"* (direct deadline)
+- *"data/report.txt expired: expiration deadline on -R/data/a.csv triggered a cascade expiration via
+  direct dependency -R/data/b.csv"* (cascaded deadline)
+- *"data/report.txt expired: an audit found -R/data/a.csv at a different version than recorded"*
+  (cascaded audit, `via` = root)
+- *"data/report.txt expired: -R/data/a.csv was changed in the store outside Liquers"* (cascaded `UpdatedInStore`)
+
 `ExpirationTime` implements `Serialize`/`Deserialize` by hand (`expiration.rs:751-757`), so the
-`Deadline` field needs nothing extra. `ExpiryReason` derives `PartialEq, Eq`, and `ExpirationTime`
-already derives both (`expiration.rs:775`).
+`Deadline` field needs nothing extra. Both enums derive `PartialEq, Eq`, and `ExpirationTime`
+already derives both (`expiration.rs:775`). Serialized, a reason reads
+`{"scope":"cascaded","cause":{"kind":"deadline","expiration_time":"…"},"root":"-R/data/a.csv","via":"-R/data/b.csv"}`.
 
 #### `DependencyAuditPolicy` (`liquers-core/src/environment_builder.rs`)
 
@@ -219,19 +270,19 @@ pub enum AuditMode {
 
 ```rust
 /// One edge an audit found stale: `dependent` recorded `expected` for `dependency`, and the
-/// current version is `found`.
+/// current version is `found` (`Version::unknown()` when the dependency has none).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct AuditFinding {
     pub dependency: DependencyKey,
     pub dependent: DependencyKey,
     pub expected: Version,
-    pub found: Option<Version>,
+    pub found: Version,
 }
 
 impl AuditFinding {
     pub fn new(dependency: DependencyKey, dependent: DependencyKey, expected: Version,
-               found: Option<Version>) -> Self;
+               found: Version) -> Self;
 }
 
 #[non_exhaustive] // was already Debug, Clone, Default, PartialEq, Eq
@@ -246,21 +297,33 @@ Adding a public field is technically breaking for struct-literal construction. T
 constructions are `AuditReport::default()` in core and equality asserts in
 `liquers-core/tests/keyed_version_cascade.rs`, and those get updated.
 
-#### `ExpiredDependents<E>` (`dependencies.rs:69`), one new field
+#### `ExpiredDependents<E>` (`dependencies.rs:69`): root and per-key `via`
 
 ```rust
 pub struct ExpiredDependents<E: Environment> {
-    pub keys: Vec<DependencyKey>,
-    pub assets: Vec<WeakAssetRef<E>>,
-    /// The dependency whose change produced this set. `None` only for `new()` (empty).
-    pub trigger: Option<DependencyKey>,
+    /// The key whose change produced this set. `None` only for `new()` (empty).
+    pub root: Option<DependencyKey>,
+    /// Each expired keyed dependent, with the dependency through which the walk reached it.
+    pub keys: Vec<ExpiredKey>,
+    /// Untracked (query) assets, with the key whose dependents they were.
+    pub assets: Vec<(WeakAssetRef<E>, DependencyKey)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpiredKey {
+    pub key: DependencyKey,
+    pub via: DependencyKey,
 }
 ```
 
-This is the one change that lets all 15 `expire_dependencies_result` call sites record a `Cascade`
-reason without being edited: the producer (`register_version`, `expire`, `report_no_version`,
-`audit_version`) already knows the key. It is constructed only at `dependencies.rs:79` and `:790`,
-and nothing outside `liquers-core/src` constructs it.
+The graph knows *which key* changed and *how* the cascade travelled, but not *why* the key changed.
+So `DependencyManager` fills `root` and `via`, and the caller supplies the `ExpiryCause`.
+`via` comes from the breadth-first walk in `expire_from_frontier` (`dependencies.rs:738`). When a
+key is first queued, its predecessor is recorded; frontier keys get `via = root`. The walk already
+keeps a `visited` set, so this is one extra map entry per expired key, and each key gets the shortest
+path. Constructed only in `dependencies.rs` (`new()` and `expire_from_frontier`); the readers are
+`expire_dependencies_result` and the tests in core. Nothing outside `liquers-core/src` reads or
+builds it.
 
 #### `MetadataRecord` and `AssetInfo` (`metadata.rs`), one new field each
 
@@ -281,11 +344,11 @@ therefore does not ignore it: the record falls into the legacy branch
 degraded, not unreadable, and `skip_serializing_if` confines it to expired records. It is the same
 trade-off `stored` and `cached` made. This is recorded rather than worked around.
 
-#### `AssetData` (`assets.rs:596`)
+#### `AssetData` (`assets.rs:600`)
 
 `stale_dependency: bool` becomes `stale_dependency: Option<DependencyKey>` (the first stale
-dependency observed; later ones only add log entries). The two readers at `:2098` and `:2869` test
-`is_some()`, and `finalize_status_with_version` builds `ExpiryReason::StaleDependency` from it.
+dependency observed; later ones only add log entries). The two readers at `:2106` and `:2871` test
+`is_some()`, and `finalize_status_with_version` builds `Direct { cause: StaleDependency { dependency } }` from it.
 
 #### `AssetManagerOptions` (`environment_builder.rs:48`)
 
@@ -323,30 +386,41 @@ async fn trigger_dependency_audit_with(&self, query: &Query, mode: AuditMode)
 async fn trigger_dependency_audit_all_registered_with(&self, mode: AuditMode)
     -> Result<AuditReport, Error>;
 
-/// Current version of any store-addressable dependency key, without evaluating:
-/// `-R/` → the existing `version(&Key)`; `-R-dir/` → `listing_version` of `listdir(key)`;
-/// anything else → `Ok(None)` with "not store-resolvable" meaning, distinguished by the caller
-/// through `DependencyKey::is_store_resolvable()` (below) rather than by the `None`.
-async fn dependency_version(&self, dep_key: &DependencyKey) -> Result<Option<Version>, Error>;
+/// Current version of a store-resolvable dependency key, without evaluating: `-R/` → `version`;
+/// `-R-dir/` → `listing_version` of `listdir(key)`. `Version::unknown()` (0) when there is none.
+/// Callers ask `DependencyKey::is_store_resolvable()` first; for any other key this returns 0.
+async fn dependency_version(&self, dep_key: &DependencyKey) -> Result<Version, Error>;
+
+/// **Changed signature** (owner, 2026-10-02: no `None` for a current version). The existing
+/// `version(&Key) -> Result<Option<Version>, Error>` (`assets.rs:4777`) becomes
+/// `-> Result<Version, Error>`, with `Version::unknown()` where it returned `None`. A store error is
+/// still `Err` and still not conflated with "no version". The stored field
+/// `MetadataRecord.version: Option<Version>` is **not** changed: old sidecars write it as `null`, and
+/// changing the field type would send them down the legacy branch.
+async fn version(&self, key: &Key) -> Result<Version, Error>;
+
+/// Record why `subject` expired: set `expiry_reason` on `metadata` and append the log entry.
+/// **Every** route into `Expired` calls this, for every expired asset, live or stored-only. It is
+/// called while the asset's `data` lock is held, so it is synchronous and must not block. Default:
+/// `metadata.set_expiry_reason(reason)` plus `reason.log_entry(subject)`. Override it to change
+/// wording or levels, add fields, or forward the event (`ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET`).
+fn record_expiry(&self, metadata: &mut Metadata, subject: &str, reason: &ExpiryReason);
 
 /// Recompute and register the listing version of `dir` **iff** the dependency manager already
 /// holds one (i.e. something depends on the listing); cascades if it moved. Called after every
 /// manager-mediated store write or removal, with the written key's parent.
 async fn refresh_listing_version(&self, dir: &Key);
 
-/// `expire_dependencies_result` with an explicit reason for the *directly* affected keys, for
-/// the audit. `direct` gets `reason`, and every other key in `expired` (transitive dependents)
-/// gets `Cascade { trigger }`. The existing method becomes `..._with(expired, &[], _)`, so all
-/// keys get `Cascade { trigger }`.
-async fn expire_dependencies_result_with(
-    &self,
-    expired: ExpiredDependents<E>,
-    direct: &[DependencyKey],
-    reason: ExpiryReason,
-);
+/// **Changed signature:** applies `ExpiredDependents` with the root cause. Each expired asset gets
+/// `Cascaded { cause, root: expired.root, via: its ExpiredKey::via }`. All 15 call sites now pass
+/// a cause; the table under "Call sites that pick a reason" says which.
+async fn expire_dependencies_result(&self, expired: ExpiredDependents<E>, cause: ExpiryCause);
+
+/// `cascade_expire_dependents(dep_key)` gains the cause too: `(dep_key, cause)`.
+async fn cascade_expire_dependents(&self, dep_key: &DependencyKey, cause: ExpiryCause);
 ```
 
-`register_plan_dependencies` (`:4452`) changes behaviour but not signature. A plan dependency with
+`register_plan_dependencies` (`:4883`) changes behaviour but not signature. A plan dependency with
 no registered version is **added with `Version::unknown()`** instead of being skipped. An
 unknown-expecting edge is expired by any `register_version` change and spared by
 `report_no_version` (`dependencies.rs:196-240`), which is the conservative answer for a dependency
@@ -359,24 +433,28 @@ nothing is skipped.
 ```rust
 /// Audit counterpart of `register_version`: record `version` for `key`, then compare it against
 /// **every** dependent's recorded version, whether or not this manager held a version before.
-/// Returns the expired set (trigger = key) and the direct findings.
+/// Returns the expired set (`root` = key) and the direct findings. A `version` of 0 dispatches to
+/// `report_no_version`'s rules (spare unknown-expecting edges).
 pub(crate) async fn audit_version(&self, key: &DependencyKey, version: Version)
     -> (ExpiredDependents<E>, Vec<AuditFinding>);
 
-/// Read-only: the direct edges of `key` that `version` (or `None` = no current version)
-/// contradicts, under the same sparing rules as `audit_version` / `report_no_version`.
-/// Used by `AuditMode::ReportOnly`; mutates nothing.
-pub(crate) async fn stale_edges(&self, key: &DependencyKey, version: Option<Version>)
+/// Read-only: the direct edges of `key` that `version` (0 = no current version) contradicts,
+/// under the same sparing rules as `audit_version`. Used by `AuditMode::ReportOnly`; mutates
+/// nothing.
+pub(crate) async fn stale_edges(&self, key: &DependencyKey, version: Version)
     -> Vec<AuditFinding>;
 ```
 
-`audit_version` is `stale_edges(key, Some(version))` for the findings, then the version insert
+`audit_version` is `stale_edges(key, version)` for the findings, then the version insert
 (occupied or vacant alike), then `expire_stale_dependents`. That last step already spares only on
 positive evidence, which is why it is safe on a first observation (the
 `AUDIT-CANNOT-EXPIRE-ON-A-FIRST-OBSERVED-VERSION` analysis). `register_version` is **not** changed,
 because on the evaluation path a first registration really is not a change.
 
-`report_no_version` gets the same findings via `stale_edges(key, None)` and sets `trigger`.
+With the current version represented as `Version` (0 = none), `audit_version(key, 0)` *is*
+today's `report_no_version`: it spares unknown-expecting edges, because "the dependency has no
+version" does not contradict an edge that never expected one. `report_no_version` stays as the
+private implementation of that branch. Both set `root`.
 
 ### `DependencyKey` (`metadata.rs`)
 
@@ -400,7 +478,7 @@ pub async fn submit(&self, query: &Query) -> Result<AssetRef<E>, Error>;
 /// Wait for a dependency previously returned by `submit` (or by `evaluate`), applying the
 /// dependency policy: while waiting the parent is shown as `Status::Dependencies`, and a
 /// dependency that expired in the meantime is used as-is and the parent is marked for
-/// recomputation (`ExpiryReason::StaleDependency`). The dependency's version is recorded.
+/// recomputation (`Direct { cause: StaleDependency { .. } }`). The dependency's version is recorded.
 pub async fn wait_for_dependency(&self, dependency: &AssetRef<E>) -> Result<State<E::Value>, Error>;
 ```
 
@@ -409,7 +487,7 @@ The change makes it public and has it record the version.
 
 **Why a context method rather than `AssetRef::get` / `poll_state`.** They answer different
 questions. `AssetRef::get` asks for the value of *an* asset. It knows nothing about who is waiting,
-and on an expired asset it returns an error (`assets.rs:3401-3412`). Waiting *as a dependency*
+and on an expired asset it returns an error (`assets.rs:3440-3452`). Waiting *as a dependency*
 also needs the parent: to show the parent as `Dependencies` while it waits, to use a stale value
 rather than fail, and to record which version was consumed. Only the context knows the parent,
 which is why the wait lives on `Context` and `AssetRef` stays unchanged.
@@ -438,9 +516,9 @@ completes. That is what a pre-pass-scheduled dependency does today, and no paren
 ### Part F: implementing `AssetManager` outside `liquers-core`
 
 **Today.** `AssetManager<E>` is sealed by accident of visibility. It requires
-`DependencyManagerAccess<E>`, which is `pub(crate)` (`assets.rs:3871`) and returns the
+`DependencyManagerAccess<E>`, which is `pub(crate)` (`assets.rs:4004`) and returns the
 `pub(crate)` `DependencyManager<E>` (`dependencies.rs:114`). The trait is compiled under
-`#[allow(private_bounds)]` (`assets.rs:3894`), so the compiler does not complain. The owner
+`#[allow(private_bounds)]` (`assets.rs:4038`), so the compiler does not complain. The owner
 decided at the gate that `DependencyManagerAccess` can be public.
 
 **Principle: expose what an implementor must *hold* and *call*, not the graph.** An
@@ -483,17 +561,17 @@ seal. Narrowing the graph methods breaks nothing: the type is `pub(crate)` today
 #### F2. The lifecycle primitives an implementor calls
 
 Derived from what `ImmediateAssetManager` (the simpler built-in) calls to implement its
-*required* methods (`assets.rs:6616-7175`). The same set covers a queued manager with `run`.
+*required* methods (`assets.rs:7148-7575`). The same set covers a queued manager with `run`.
 
 | Primitive | Today | Becomes | Why an implementor needs it |
 |---|---|---|---|
 | `AssetData::new(id, recipe, key, envref)`, `.to_ref()` | `pub` | unchanged | construct an asset |
-| `AssetRef::run_inline(payload)` | `pub(crate)` (`:2657`) | `pub` | evaluate in the current task (inline manager) |
-| `AssetRef::run(payload)` | `pub(crate)` (`:2597`) | `pub` | evaluate as a spawned job (queued manager) |
-| `AssetRef::submitted()` | `pub(crate)` (`:2315`) | `pub` | mark an asset queued before `run` |
-| `AssetRef::set_payload_path(path)` | `pub(crate)` (`:1916`) | `pub` | `get_dependency_asset_with_payload` |
-| `AssetRef::expire_without_cascade(reason)` | `pub(crate)` (`:3349`) | `pub` | lazy/deadline expiry in the manager's own lookup (Part C adds `reason`) |
-| `load_command_versions_sync` | `pub(crate)` free fn (`:3800`) | stays `pub(crate)` | not needed: see F3 |
+| `AssetRef::run_inline(payload)` | `pub(crate)` (`:2668`) | `pub` | evaluate in the current task (inline manager) |
+| `AssetRef::run(payload)` | `pub(crate)` (`:2608`) | `pub` | evaluate as a spawned job (queued manager) |
+| `AssetRef::submitted()` | `pub(crate)` (`:2324`) | `pub` | mark an asset queued before `run` |
+| `AssetRef::set_payload_path(path)` | `pub(crate)` (`:1924`) | `pub` | `get_dependency_asset_with_payload` |
+| `AssetRef::expire_without_cascade(reason)` | `pub(crate)` (`:3388`) | `pub` | lazy/deadline expiry in the manager's own lookup (Part C adds `reason`) |
+| `load_command_versions_sync` | `pub(crate)` free fn (`:3849`) | stays `pub(crate)` | not needed: see F3 |
 
 Each one made public gets a doc comment stating its contract: when it may be called, what
 status it expects and leaves, and what it must not be combined with. That is the documentation
@@ -506,7 +584,7 @@ claim internally, and raw status writes would let an implementor bypass the stat
 
 #### F3. Fewer required methods
 
-`refresh_command_versions` is identical in both built-ins (`assets.rs:6068`, `:7124`). It moves to
+`refresh_command_versions` is identical in both built-ins (`assets.rs:6452`, `:7526`). It moves to
 a default trait body over `self.dependency_manager()` and `self.get_envref()`. That removes the
 only reason an implementor would need `load_command_versions_sync`. `start` stays required,
 because it owns the manager's own "started" flag, but its documentation says to call
@@ -544,54 +622,76 @@ follow-up to file if external managers appear in practice.
 
 **Precondition verified at HEAD.** The version recorded for a stored value is the hash of *exactly*
 the bytes handed to `store.set`: evaluation reuses the same buffer (`PreparedVersion.binary`,
-`assets.rs:2020-2024`), `set_binary` hashes the binary it stores (`:5746`), and `set_state` hashes
-`state.as_bytes()`, which is the same call whose result it stores (`:5860`, `:5887`). Verification
+`assets.rs:2028-2032`), `set_binary` hashes the binary it stores (`:6114`), and `set_state` hashes
+`state.as_bytes()`, which is the same call whose result it stores (`:6237`, `:6276`). Verification
 re-hashes the *stored* bytes rather than re-serializing, so whether a serializer is deterministic
 does not matter.
 
 #### G1. Versions that say whether they are a hash
 
+*Revised 2026-10-02 (owner).* A `Version` is a unique 128-bit number, and `0` has the special
+meaning "unknown". Today there are three kinds, and more may be added later:
+
+| Kind | Produced by | Bit 127 | Can be recomputed from the bytes? |
+|---|---|---|---|
+| **content hash** | `from_content` (blake3, first 128 bits, bit 127 forced to 1) | 1 | yes |
+| **timestamp** | `from_time_now`, `from_specific_time`, `new_unique` (bit 127 forced to 0) | 0 | no |
+| **unknown** | `unknown()` = 0 | 0 | — |
+
+One bit is reserved so that a hash can be **recognised**. Only a hash can be checked by
+recomputing it. A timestamp says nothing about the bytes. 0 is never a hash.
+
 ```rust
 // metadata.rs
 impl Version {
-    /// Bit 127. Set on every content hash, and on nothing else.
+    /// Bit 127: set on every content hash, and on nothing else.
     pub const HASH_FLAG: u128 = 1 << 127;
-
-    /// Content hash of stored bytes: blake3, first 128 bits, with `HASH_FLAG` set (127 bits
-    /// of hash). Used wherever an *asset's content* is versioned.
+    /// Content hash of stored bytes (127 bits of blake3 + the flag).
     pub fn from_content(bytes: &[u8]) -> Self;
-
-    /// True when this version was produced by `from_content`, and so can be re-checked.
-    pub fn is_content_hash(&self) -> bool;
-
-    /// Compare against `bytes`.
+    pub fn kind(&self) -> VersionKind;
+    /// Re-hash `bytes` and compare with `self`.
     pub fn verify(&self, bytes: &[u8]) -> VersionCheck;
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VersionKind { Unknown, ContentHash, Timestamp }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VersionCheck {
     /// The bytes are what this version fingerprinted.
     Verified,
-    /// A content hash whose bytes have changed; `actual` is `from_content(bytes)`.
-    Mismatch { actual: Version },
-    /// Not a content hash (unknown, time-based, unique, or a legacy value that does not match),
-    /// so nothing can be concluded.
-    NotVerifiable,
+    /// Anything else. `actual` is `from_content(bytes)`; `recorded` says what the old version
+    /// was, so the log can say "content changed" (a hash) rather than "no content hash was
+    /// recorded" (a timestamp or 0).
+    Mismatch { actual: Version, recorded: VersionKind },
 }
 ```
 
-- **`from_bytes` stays as it is** (unflagged). It is also used for command metadata versions
-  (`command_metadata.rs:1233`), and flagging those would change the version of about half of all
-  commands on upgrade, which would recompute about half of every stored result once. Only the
-  five *content* sites switch to `from_content` (`assets.rs:2022`, `:5746`, `:5860`, `:6985`,
-  `:7036`). `:1961` is a `new_unique` fallback, not a hash, and stays.
-- `from_time_now`, `from_specific_time` and `new_unique` **mask bit 127 off** explicitly. Today
-  they leave it clear only by magnitude, and `new_unique` would reach it in 2262.
-- **Legacy hashes** (stored before this change, unflagged): `verify` also accepts an unflagged value
-  equal to the *unflagged* hash of the bytes, and reports `Verified`, because a 128-bit hash cannot
-  equal a timestamp by chance. An unflagged value that does *not* match is `NotVerifiable`, because
-  it might be a timestamp. So unchanged legacy data is recognised, and a changed legacy value is
-  missed until the value is rewritten. There is no migration pass and no forced recomputation.
+**A timestamp or 0 never matches the recomputed hash**, so it is a mismatch, as the owner
+specified. There is no "cannot tell" outcome. This is safe for values Liquers writes, checked at
+HEAD: every value stored *with bytes* gets a content hash (`assets.rs:2030`, `:6114`, `:6237`,
+`:7362`, `:7421`). A timestamp version is used only where serialization failed (`:2038`, `:6240`,
+`:7424`) or as the unpersisted fallback of `version_for_tracking` (`:1968`), and in all of these no
+bytes are stored, so no check runs. A mismatch on a non-hash version therefore means the bytes came
+from outside Liquers (dropped in, or written through the store directly), which is the case
+the owner wants adopted.
+
+**Two compatibility rules, needed so that upgrading does not convert every stored result to
+`Override`:**
+
+- **Legacy hashes.** Values stored before this change carry an *unflagged* blake3 hash
+  (`from_bytes`). An unflagged recorded version equal to `from_bytes(bytes)` is `Verified`. A 128-bit
+  hash cannot equal a timestamp by chance, so this cannot mask a real change. A legacy value that
+  *was* changed matches neither and is a `Mismatch`, so it is detected too. Nothing is rewritten on
+  load. A legacy value gets a flagged version the next time Liquers writes it, which costs its
+  dependents one cascade.
+- **`from_bytes` stays unflagged.** It also produces command metadata versions
+  (`command_metadata.rs:1233`). Flagging those would change about half of all command versions on
+  upgrade and recompute about half of every stored result once. Only the five *content* sites listed
+  above switch to `from_content`.
+
+The time constructors mask bit 127 to 0 explicitly. Today they leave it clear only by magnitude,
+and `new_unique` would reach it in 2262.
 
 #### G2. The decision, as one pure function
 
@@ -633,7 +733,7 @@ fn external_change_action(
 | `Ready`, `Expired` | yes | convert to `Override` | delete |
 | `Ready`, `Expired` | no (the recipe was removed since) | accept as input: there is nothing to recompute from | same |
 | `Source` | yes (a recipe was added since) | accept as input (a `Source` is always input) | same |
-| *no metadata at all* (file dropped in) | no | not a change: already a `Source`, nothing recorded to compare | same |
+| *no metadata at all* (file dropped in) | no | recorded version is 0, so a mismatch; it stays `Source` and its version becomes the hash | same |
 | *no metadata at all* | yes | convert to `Override` (owner, gate answer 3) | delete |
 
 The match over `Status` is explicit. Every other status (`None`, `Directory`, `Error`, `Volatile`, …)
@@ -648,12 +748,14 @@ accessors, or keeps the defaults.
 
 Applying an action, in `AssetManager::apply_external_change(key, metadata, action)` (a default method):
 
-1. For `AcceptAsInput` and `ConvertToOverride`: write the new version (and status) into the stored
-   metadata, and log *"content of data/a.csv changed outside Liquers; accepted as user input"*
-   (`warning`). Then call `register_version(key, actual)`, which cascades to dependents with reason
-   `Cascade { trigger: key }` (Part C). They recorded the old version, so they are now stale.
+1. For `AcceptAsInput` and `ConvertToOverride`: **bump the version** to `actual` and write it (and
+   the status) into the stored metadata. Log on the asset itself (`warning`): *"content of
+   data/a.csv changed outside Liquers; accepted as user input"*, or for a non-hash recorded version
+   *"no content hash was recorded for data/a.csv; adopting its content as user input"*. Then
+   `register_version(key, actual)` and `expire_dependencies_result(.., UpdatedInStore { actual })`.
+   Each dependent gets `Cascaded { UpdatedInStore, root: key, via }` through `record_expiry`.
 2. For `Delete`: remove the key's data and metadata from the store, log to stderr (the metadata
-   that would hold the log is gone), and `cascade_expire_dependents(key)`.
+   that would hold the log is gone), and `cascade_expire_dependents(key, UpdatedInStore { actual })`.
 3. Take `key_mutation_lock` around the store writes, as the other keyed mutations do.
 
 #### G3. When it runs
@@ -680,8 +782,8 @@ pub external_change: ExternalChangePolicy,  // user_input (default) | corrupted
 ```
 
 - **On read** (default `on_read`): wherever the asset manager has already read the stored
-  bytes, which is `try_fast_track` (`assets.rs:1116`) and the store branches of `get_any_status`
-  / `get_binary_any_status` (`:4476`, `:4516`). The extra cost is one blake3 pass over bytes that
+  bytes, which is `try_fast_track` (`assets.rs:1112`) and the store branches of `get_any_status`
+  / `get_binary_any_status` (`:4907`, `:4947`). The extra cost is one blake3 pass over bytes that
   were read anyway. In `try_fast_track`, `ConvertToOverride` and `AcceptAsInput` continue loading
   with the new version and status, and `Delete` returns `false`, so the recipe recomputes.
 - **On demand:**
@@ -696,24 +798,26 @@ async fn verify_stored_versions(&self, key: &Key, deep: bool, mode: AuditMode)
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VersionVerificationReport {
     pub verified: Vec<Key>,
-    pub not_verifiable: Vec<Key>,
+    /// No bytes to check (data deleted with metadata kept, or a metadata-only entry).
+    pub skipped: Vec<Key>,
     pub changed: Vec<(Key, ExternalChangeAction)>,   // in ReportOnly: what *would* be done
 }
 ```
 
-- **Not a mismatch:** missing bytes. Deleted data with metadata kept is the exploratory workflow
-  (`DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE`), so a key whose data is gone is skipped. Also not a
-  mismatch: a metadata-only entry (no bytes by design), whose version is `new_unique` and so
-  `NotVerifiable` (`METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED`).
+- **Not checked at all:** a key with no bytes. Deleted data with metadata kept is the exploratory
+  workflow (`DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE`), and a metadata-only entry has no bytes by
+  design (`METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED`). Both are reported as `skipped`. "No bytes"
+  means the store holds metadata but no data object. An *empty* data object is bytes, and is
+  checked.
 - **The Part B audit is unchanged.** It compares *recorded* versions using metadata only. Part G is
   what makes that metadata truthful: after verification, a changed `a.csv` carries its real
   version, so example 1 then works for outside edits too.
 
 #### G4. Relation to the other parts
 
-- **C:** no new `ExpiryReason`. Dependents are expired by the ordinary cascade, and the changed
-  asset itself is not expired: it becomes input (`Source` / `Override`) or is deleted. The log
-  line on the asset records what happened.
+- **C:** the cause is `ExpiryCause::UpdatedInStore { actual }`. Dependents get it as `Cascaded`.
+  The changed asset itself is not expired: it becomes input (`Source` / `Override`) with its
+  version bumped, or is deleted. A log line on the asset records which.
 - **F:** `apply_external_change` and `verify_stored_versions` are default trait methods, so
   external managers get them. The read-path check lives in `AssetData::try_fast_track`, which is
   shared by all managers.
@@ -729,14 +833,17 @@ The new `asset id → DependencyKey` map is `Arc<tokio::sync::Mutex<HashMap<u64,
 |---|---|---|
 | `audit_version`, `stale_edges` | async | `scc` async entry APIs, same as `register_version` |
 | `dependency_version`, `refresh_listing_version` | async | store I/O (`listdir`, `get_metadata`) |
-| `ExpiryReason::log_entry`, `listing_version` | sync | pure |
+| `ExpiryReason::log_entry`, `listing_version`, `Version::verify` | sync | pure |
+| `AssetManager::record_expiry` | sync | called under the asset's `data` write lock; must not await |
 | `dependency_audit_policy` | sync | reads a `Copy` field |
 | `Context::submit`, `Context::wait_for_dependency` | async | wrap existing async calls |
 
 **Lock discipline (blocking constraint from `EXPIRY-RECORDS-NO-REASON`).** `mark_expired_status`
-writes `expiry_reason` and the log entry **under the same `data` write lock** that flips the status,
-before `persist_info` is cloned (`assets.rs:3280-3325`). The persisted metadata therefore carries the
-reason. `expire_stored_copy` sets both on the metadata it reads before `set_metadata`.
+calls `manager.record_expiry(&mut lock.metadata, subject, &reason)` **under the same `data` write
+lock** that flips the status,
+before `persist_info` is cloned (`assets.rs:3316-3361`). The persisted metadata therefore carries the
+reason. `expire_stored_copy` calls `record_expiry` on the metadata it reads before `set_metadata`.
+`record_expiry` reaches no other asset and no lock, so calling it under the lock cannot deadlock.
 
 ## Function Signatures (changed internals)
 
@@ -751,11 +858,13 @@ pub(crate) async fn note_expired_dependency(&self, dependency: &AssetRef<E>) -> 
     // this asset's `asset_reference()`, never `id()`
 
 // assets.rs: free fn
-async fn expire_stored_copy(store: Arc<dyn AsyncStore>, key: &Key, reason: &ExpiryReason);
+async fn expire_stored_copy(manager: &M, store: Arc<dyn AsyncStore>, key: &Key, reason: &ExpiryReason);
+    // M: the manager, for `record_expiry`
 
 // dependencies.rs: free fn
-/// Version of a directory's membership: blake3 over the sorted names, each length-prefixed so
-/// no concatenation of names can collide with another.
+/// Version of a directory listing (owner, 2026-10-02): the content hash of the **ordered
+/// listing**, i.e. `from_content` over the names in sorted order, each length-prefixed so that no
+/// two listings serialize alike. A content hash, so it carries the flag.
 pub(crate) fn listing_version(names: &[String]) -> Version;
 
 // metadata.rs: Metadata
@@ -767,12 +876,16 @@ Call sites that pick a reason:
 
 | Site | Reason |
 |---|---|
-| Queued expiration monitor, `assets.rs:4779` (`expire()` today) | `expire_with_reason(Deadline { expiration_time })` |
-| Immediate manager lazy check, `:6823` / `:6911` | `Deadline`, **after fixing the dead condition** (see below) |
-| `AssetRef::expire` | `Explicit` |
-| `expire_dependencies_result` | `Cascade { trigger }` from `ExpiredDependents::trigger` |
-| `audit_gaps` | `Audit { dependency, found }` via `expire_dependencies_result_with` |
-| `finalize_status_with_version` stale branch, `:2098` | `StaleDependency { dependency }` from `AssetData::stale_dependency` |
+| Queued expiration monitor, `assets.rs:5214` (`expire()` today) | the asset: `Direct { Deadline }`; its dependents: `Cascaded { Deadline, root, via }` |
+| Immediate manager lazy check, `:7218` / `:7306` | the asset: `Direct { Deadline }`, **after fixing the dead condition** (see below) |
+| `AssetRef::expire` | `Direct { Explicit }`, dependents `Cascaded { Explicit, … }` |
+| `finalize_status_with_version` stale branch, `:2106` | the asset: `Direct { StaleDependency { dependency } }`; its dependents `Cascaded { StaleDependency, … }` |
+| `audit_gaps` | dependents of the audited key: `Cascaded { Audit { found }, root: key, via }` |
+| `register_version` on evaluation, `set_state`, `set_binary`, fast-track load, `refresh_command_versions`, `refresh_listing_version` | dependents: `Cascaded { Updated { version }, … }` |
+| `remove` of a `Source` / `Override` (`assets.rs:4195`, on main since 2026-10-01) | dependents: `Cascaded { Removed, … }` |
+| `apply_external_change` (Part G) | dependents: `Cascaded { UpdatedInStore { actual }, … }` |
+
+Every row reaches the expired asset's metadata through `AssetManager::record_expiry`.
 
 **Found while enumerating the routes: the immediate manager's deadline route is dead code.**
 `status == Status::Ready && assetref.is_expired().await` compares status with status, not the
@@ -810,15 +923,15 @@ is left as it is and noted on the issue.
 
 | File | Change |
 |---|---|
-| `metadata.rs` | `ExpiryReason`; `expiry_reason` on `MetadataRecord` + `AssetInfo` + projections; `Metadata::expiry_reason`; `DependencyKey::is_store_resolvable` |
-| `dependencies.rs` | `ExpiredDependents::trigger`; `audit_version`; `stale_edges`; `listing_version`; `report_no_version` findings |
-| `assets.rs` | `AuditMode`, `AuditFinding`, `AuditReport::findings`; reasons at every route; `audit_gaps` rewrite; `OnLoad` in `try_fast_track`; `register_plan_dependencies` unknown edges; `refresh_listing_version` calls; immediate-manager condition; `stale_dependency: Option<DependencyKey>` |
+| `metadata.rs` | `ExpiryCause`, `ExpiryReason`; `expiry_reason` on `MetadataRecord` + `AssetInfo` + projections; `Metadata::expiry_reason`; `DependencyKey::is_store_resolvable` |
+| `dependencies.rs` | `ExpiredDependents::{root, keys: Vec<ExpiredKey>, assets}` with `via` from the walk; `audit_version`; `stale_edges`; `listing_version`; `report_no_version` findings |
+| `assets.rs` | `AuditMode`, `AuditFinding`, `AuditReport::findings`; `record_expiry`; `version` and `dependency_version` return `Version`; `expire_dependencies_result` and `cascade_expire_dependents` take a cause; reasons at every route; `audit_gaps` rewrite; `OnLoad` in `try_fast_track`; `register_plan_dependencies` unknown edges; `refresh_listing_version` calls; immediate-manager condition; `stale_dependency: Option<DependencyKey>` |
 | `environment_builder.rs` | `DependencyAuditPolicy`; `AssetManagerOptions::dependency_audit` (+ `with_dependency_audit`) |
 | `interpreter.rs` | `GetAssetDirectory` registers and records the listing version |
 | `assets.rs` (Part F) | `DependencyManagerAccess` public, `#[allow(private_bounds)]` removed; `run`, `run_inline`, `submitted`, `set_payload_path`, `expire_without_cascade` public with contracts; `refresh_command_versions` default body |
 | `dependencies.rs` (Part F) | `DependencyManager` public and opaque (methods narrowed to `pub(crate)`), `Default` |
 | `tests/external_asset_manager.rs`, `tests/common/manager_scenarios.rs` (Part F) | from-scratch external manager; scenarios shared with `manager_parametric.rs` |
-| `metadata.rs`, `assets.rs`, `environment_builder.rs` (Part G) | `Version::HASH_FLAG`, `from_content`, `is_content_hash`, `verify`, `VersionCheck`; time/unique constructors mask bit 127; five content sites use `from_content`; `ExternalChangePolicy`, `ExternalChangeAction`, `external_change_action`, `apply_external_change`, `verify_stored_versions`, `VersionVerificationReport`; check in `try_fast_track` and the `*_any_status` store branches; `AssetManagerOptions::{verify_versions, external_change}` |
+| `metadata.rs`, `assets.rs`, `environment_builder.rs` (Part G) | `Version::HASH_FLAG`, `from_content`, `kind`, `verify`, `VersionKind`, `VersionCheck`; time/unique constructors mask bit 127; five content sites use `from_content`; `ExternalChangePolicy`, `ExternalChangeAction`, `external_change_action`, `apply_external_change`, `verify_stored_versions`, `VersionVerificationReport`; check in `try_fast_track` and the `*_any_status` store branches; `AssetManagerOptions::{verify_versions, external_change}` |
 | `context.rs` | `submit`; `wait_for_dependency` made public and version-recording; submitted-key map; `evaluate` and `get_dependency_state` rewritten on top |
 
 ### Other crates
@@ -842,8 +955,8 @@ Extend, no new reference (Phase 1 rationale: one contract, one document).
 
 | Path | Audience | Area | Change |
 |---|---|---|---|
-| `specs/reference/DEPENDENCIES_STATUS.md` | internal | core/assets | §"Current contract": audits compare current versions with recorded ones even on first observation; `DependencyAuditPolicy` (`explicit` / `on_load`); `AuditMode::ReportOnly` and `AuditFinding`; `-R-dir/` dependencies (membership version, when refreshed, backend caveat); plan dependencies with no version get an `unknown` edge. §"Function glossary": `audit_version`, `stale_edges`, `dependency_version`, `refresh_listing_version`. Replace the sentence citing `DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE` as open. |
-| `specs/reference/ASSETS.md` | internal | core/assets | §"The one meaning of `Expired`": `ExpiryReason`, its five variants and which route sets each, the "meaningful only while `Expired`" rule, the log levels, and why it is not a status. §"AssetManager": the trait is implementable outside core; point to the new guide. New section "Content changed outside Liquers" (Part G): content-hash versions and the flag bit, what is verifiable (including legacy values), the decision table, when the check runs, and the read-only-store behaviour. |
+| `specs/reference/DEPENDENCIES_STATUS.md` | internal | core/assets | §"Current contract": audits compare current versions with recorded ones even on first observation; `DependencyAuditPolicy` (`explicit` / `on_load`); `AuditMode::ReportOnly` and `AuditFinding`; `-R-dir/` dependencies (the version is the hash of the ordered listing; when it is refreshed); plan dependencies with no version get an `unknown` edge. §"Function glossary": `audit_version`, `stale_edges`, `dependency_version`, `refresh_listing_version`. Replace the sentence citing `DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE` as open. |
+| `specs/reference/ASSETS.md` | internal | core/assets | §"The one meaning of `Expired`": `ExpiryReason` (`Direct` / `Cascaded` with root and via), the seven `ExpiryCause`s and which route sets each, `record_expiry` as the single writer and how to override it, the "meaningful only while `Expired`" rule, the log levels, and why it is not a status. §"AssetManager": the trait is implementable outside core; point to the new guide. New section "Content changed outside Liquers" (Part G): content-hash versions and the flag bit, what is verifiable (including legacy values), the decision table, when the check runs, and the read-only-store behaviour. |
 
 ### Guide Plan
 
@@ -934,7 +1047,8 @@ No new error types or constructors. Existing typed constructors cover everything
 
 ## Serialization Strategy
 
-- `ExpiryReason`: internally tagged (`"kind": "cascade", "trigger": "-R/a.txt"`), `snake_case`.
+- `ExpiryReason` / `ExpiryCause`: internally tagged (`"scope"` and `"kind"`), `snake_case`, e.g.
+  `{"scope":"cascaded","cause":{"kind":"updated","version":…},"root":"-R/a.txt","via":"-R/b.txt"}`.
   Readable in a sidecar, and new variants can be added.
 - `expiry_reason`: `default` + `skip_serializing_if = "Option::is_none"` on both structs. Old
   records load. New non-expired records serialize byte-identically to today. See the
@@ -991,9 +1105,9 @@ bash scripts/check-build-matrix.sh               # wasm32 row
 - `AuditReport` gains a public field. `#[non_exhaustive]` is applied to `AuditReport` and
   `AuditFinding` so the next addition is not breaking (see gate decision 3).
 - `submit` is `#[must_use]`, so a dropped handle is a lint rather than silence.
-- The `trigger` field on `ExpiredDependents` only makes sense for a non-empty set. Keep
-  `ExpiredDependents::new()` for the empty case and add `ExpiredDependents::for_trigger(key)`,
-  so there is no way to build a non-empty set without a trigger.
+- The `root` field on `ExpiredDependents` only makes sense for a non-empty set. Keep
+  `ExpiredDependents::new()` for the empty case and add `ExpiredDependents::for_root(key)`,
+  so there is no way to build a non-empty set without a root.
 
 ## Phase 2 review
 
@@ -1028,8 +1142,8 @@ document leans on. Corrections applied:
 Confirmed as stated: `register_version`'s `Vacant` arm makes no comparison (`dependencies.rs:158`).
 `add_dependency` on the dependency manager tolerates an unregistered dependency, with tests
 (`dependencies.rs:1076`). `register_plan_dependencies` skips on `get_version == None`
-(`assets.rs:4452`). `MetadataRecord` is `deny_unknown_fields` (`metadata.rs:910`). The immediate
-manager's lazy check compares status with status (`assets.rs:6823`, `:6911` against `:3365`).
+(`assets.rs:4883`). `MetadataRecord` is `deny_unknown_fields` (`metadata.rs:910`). The immediate
+manager's lazy check compares status with status (`assets.rs:7218`, `:7306` against `:3404`).
 `ExpiredDependents` is constructed only at `dependencies.rs:79` and `:790`. No crate outside core
 builds `AuditReport` or `AssetInfo` by struct literal (`liquers-py`'s `AssetInfo` is an enum
 variant wrapping the core type). No existing test asserts that `register_plan_dependencies` skips an
@@ -1053,11 +1167,11 @@ Left for Phase 4 to verify at implementation time: whether `liquers-web`'s `.d.t
    works from any crate. To make it convenient:
    - `AuditReport::default()` (exists); fields stay `pub` and mutable;
    - `AuditFinding::new(dependency, dependent, expected, found)`;
-   - `ExpiredDependents::for_trigger(key)` (already proposed in the rust-best-practices advisory).
+   - `ExpiredDependents::for_root(key)` (already proposed in the rust-best-practices advisory).
 
    Checking this showed that a custom manager outside core is **impossible today** for an unrelated
    reason. `AssetManager` requires the crate-private supertrait `DependencyManagerAccess`
-   (`assets.rs:3871`, `:3895`), so it is sealed. That was filed as
+   (`assets.rs:4004`, `:4039`), so it is sealed. That was filed as
    `ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE`.
 4. **`ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE` is in scope**, and
    `DependencyManagerAccess` may be public (owner, 2026-09-28). This is Part F. Parts A–E are built
@@ -1088,9 +1202,44 @@ The Phase 3 synthesis found four gaps in this document, and they were settled fr
    added: `Ready`/`Expired` whose recipe has been removed are accepted as input, and a `Source`
    that gained a recipe is still input.
 3. **`OnLoad` and a recorded unknown version.** Not a mismatch (`Version::matches`), so enabling
-   `on_load` does not recompute legacy results.
-4. **Reasons across a transitive audit expiry.** Direct dependents get `Audit { dependency, found }`,
-   and transitive ones get `Cascade { trigger: dependency }`, so `expire_dependencies_result_with`
-   takes the direct set.
+   `on_load` does not recompute legacy results. This is the check of a *dependent's recorded
+   dependency version* against the dependency's current version. It is a different check from
+   Part G, which compares an asset's *own* recorded version with its bytes, where 0 does mismatch
+   (Revision 2).
+4. **Reasons across a transitive audit expiry.** *Superseded by Revision 2:* every dependent gets
+   `Cascaded { cause: Audit { found }, root, via }`, and `via` says how far it is from the root.
 5. **`VersionVerification` defined.** It was named but never declared; it is now declared in G3
    (found by the Phase 3 review).
+
+## Revision 2 (2026-10-02): owner corrections
+
+After `main` was merged (the `store-conformance-backlog` and `axum-assets-endpoints` work, which
+rewrote much of `assets.rs`; every `assets.rs` citation here was re-pointed), the owner corrected
+five points. Each is applied in place above.
+
+1. **Version kinds.** A version is a unique 128-bit number: a content hash (bit 127 = 1), a
+   timestamp (bit 127 = 0) or unknown (0); more kinds may come later. Only a hash can be recomputed,
+   which is why one bit marks it. A recomputed hash never equals a timestamp or 0, so **any**
+   non-matching recorded version is a mismatch. `VersionCheck::NotVerifiable` is gone, and
+   `VersionKind` only shapes the log message (G1). The legacy-hash rule and the unflagged `from_bytes`
+   stay. Both are compatibility measures so that upgrading does not turn every stored result into an
+   `Override`; the owner should confirm them.
+2. **No `None` for a current version.** `version`, `dependency_version`, `stale_edges`,
+   `AuditFinding.found` and `ExpiryCause::Audit.found` all use `Version`, with 0 for "none". The
+   stored `MetadataRecord.version` stays `Option` for sidecar compatibility.
+3. **A mismatch on load is a user override by default.** A recipe-backed value becomes `Override`,
+   and a `Source` stays `Source`. Either way the version is bumped to the new hash, and dependents
+   are expired (`UpdatedInStore`). This was already the default `UserInput` policy; the version bump
+   and the cause are now explicit.
+4. **Expiry reasons name the root cause.** `ExpiryReason` is now `Direct { cause }` or
+   `Cascaded { cause, root, via }`, over seven `ExpiryCause`s: deadline, explicit, audit, stale
+   dependency, updated in store, updated, removed. `via` comes from the cascade walk. **Every**
+   expired asset gets its reason written to its log through one overridable asset-manager method,
+   `record_expiry`. `expire_dependencies_result` and `cascade_expire_dependents` take the cause.
+   The first design inferred `Cascade { trigger }` instead, which could not say what happened to the
+   trigger.
+5. **Directory version** = the content hash of the ordered listing (flagged, since it is a hash).
+
+Two causes were added beyond the owner's list, because they are routes into `Expired` that exist
+at HEAD: `Updated` (a dependency got new content through Liquers, which is the ordinary cascade)
+and `Removed` (`remove` now cascades, since `main`).

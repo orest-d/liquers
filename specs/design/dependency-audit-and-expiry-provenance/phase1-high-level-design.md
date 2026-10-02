@@ -28,10 +28,10 @@ All examples use two stored files: `data/a.csv`, and `data/report.txt`, whose re
 
 | Term | Meaning, on the example |
 |---|---|
-| **Version** | A fingerprint (a hash) of a stored value's bytes, kept in its metadata. When Liquers stores `a.csv` it records `version: V1`. A different content gets a different version (`V2`). *Unknown* (`Version(0)`) means "no fingerprint was taken". |
+| **Version** | A unique 128-bit number identifying one content of a value, kept in its metadata. Usually a fingerprint (a blake3 hash) of the stored bytes: when Liquers stores `a.csv` it records `version: V1`, and a different content gets `V2`. It can also be a timestamp, used when there are no bytes to hash, and other kinds may come later. One bit marks a hash, because only a hash can be recomputed from the bytes and checked. *Unknown* (`0`) means "no version". |
 | **Dependency** | `report.txt` depends on `a.csv`, because its recipe read it. Dependencies are named by *dependency keys*: `-R/data/a.csv` for a stored value, `-R-dir/data` for the list of names in a folder, `ns-dep/command_impl-…` for a command's code. |
 | **Recorded version** (the design also says *recorded expectation*) | When `report.txt` is computed, its metadata stores the version of every input it read: `dependencies: [{key: -R/data/a.csv, version: V1}]`. It means "`report.txt` is valid as long as `a.csv` is still `V1`". The same fact is kept in memory as an edge `a.csv → report.txt` labelled `V1`. |
-| **Current version** (the design also says *durable version*) | What `a.csv`'s version is *now*, read from metadata without computing anything: from the live asset if this process holds one, otherwise from the store's metadata. "Durable" means it survives a restart, because it is in the store. `None` means `a.csv` has no stored metadata at all. |
+| **Current version** (the design also says *durable version*) | What `a.csv`'s version is *now*, read from metadata without computing anything: from the live asset if this process holds one, otherwise from the store's metadata. "Durable" means it survives a restart, because it is in the store. `0` (unknown) means `a.csv` has no version, for example no stored metadata at all. |
 | **Version map** | The asset manager's in-memory table `dependency key → version` of what *this process* has seen. It is empty after a restart and fills as assets are loaded or computed. |
 | **Stale** | `report.txt` is stale when the current version of an input differs from its recorded version (current `V2`, recorded `V1`). |
 | **Cascade** | When `a.csv` changes, everything that depends on it is expired, and everything that depends on *those*, transitively. |
@@ -65,15 +65,20 @@ metadata says `status: Expired`, and its log ends with the entries from its last
 tell whether its time limit ran out, `a.csv` changed three steps upstream, someone called
 `expire()`, or an audit found it stale. The one message that exists says *"Dependency asset 17
 expired…"*, where 17 is an in-memory counter that means nothing after a restart. **After:**
-`expiry_reason: {kind: cascade, trigger: "-R/data/a.csv"}` in the metadata, plus the log line
-*"data/report.txt expired: dependency data/a.csv changed"*.
+the metadata names the **root cause** and the path it took, for example
+`expiry_reason: {scope: cascaded, cause: {kind: deadline, …}, root: "-R/data/a.csv", via: "-R/data/b.csv"}`.
+Every expired asset's log gets a line such as *"data/report.txt expired: expiration deadline on
+-R/data/a.csv triggered a cascade expiration via direct dependency -R/data/b.csv"*. The root causes
+are: deadline, explicit request, audit, stale dependency used mid-evaluation, content updated in the
+store (found when reading), content updated through Liquers, and removal. The log line is written
+through one asset-manager method, so its wording or policy can be changed in one place.
 
 **4. A result built from a folder listing never updates** (`DIRECTORY-LISTING-…`).
 `data/index.txt` is computed by `-R-dir/data/-/index_files`: it reads the *list of names* in
 `data/` and indexes them. The plan records the dependency `-R-dir/data`, but nothing ever gives
 that listing a version, so the dependency is silently dropped. Store `data/new.csv`, and `index.txt`
-keeps its old list forever, including after a restart. **After:** the listing gets a version (a
-fingerprint of the sorted names). Adding `new.csv` through Liquers changes that version, so
+keeps its old list forever, including after a restart. **After:** the listing gets a version (the hash
+of the ordered listing of names). Adding `new.csv` through Liquers changes that version, so
 `index.txt` is expired and recomputed.
 
 **5. The "use the old input" rule is never tested through a real command**
@@ -103,11 +108,12 @@ of public building blocks, and a test in `liquers-core/tests/` proves it by doin
 only when *Liquers* writes a value. If a user overwrites `data/a.csv` in the folder by hand, its
 metadata still says `V1`, and no check, however strict, can see the change, because every check
 reads metadata. **After:** when `a.csv` is read, its bytes are hashed and compared with `V1`. They
-differ, so the new content is taken as the user's input: `a.csv` gets version `V2`, and
-`report.txt` is expired. If the changed file is `report.txt` itself, which has a recipe, the
+differ, so the new content is taken as the user's input: `a.csv` stays a `Source`, its version
+is bumped to `V2`, and `report.txt` is expired with the cause "a.csv updated in store". If the changed file is `report.txt` itself, which has a recipe, the
 configured policy decides. By default the edit is kept and `report.txt` becomes `Override` (a
 user-pinned value). Optionally it is treated as corrupted: the stored copy is deleted and
-recomputed. To tell a hash apart from a time-based version, hash versions carry a flag bit.
+recomputed. A recorded version that is not a hash (a timestamp, or 0) can never match the
+recomputed hash, so it counts as a change too.
 
 ## Core Interactions
 
@@ -128,14 +134,15 @@ need a test-only seam near `Context::wait_for_dependency`.
   durable version against each dependent's recorded expectation, even for a first observation.
   `register_version` stays unchanged on the evaluation path.
 - **Audit policy:** a setting in `AssetManagerOptions` (`EnvironmentConfig.assets`) chooses when
-  audits run: never (the default, which is today's behaviour), at startup or on keyed load. A
+  audits run: only on explicit request (the default, which is today's behaviour) or on keyed load. A
   report-only mode returns an `AuditReport` without expiring anything.
-- **Provenance:** a typed optional expiry reason (deadline, cascade from a named dependency,
-  explicit request, stale dependency) goes into `MetadataRecord`. `AssetInfo` exposes it, and a
-  log entry names both participants by key or query rather than by runtime id. It is written under
+- **Provenance:** a typed expiry reason goes into `MetadataRecord`. It is either direct (this asset
+  is the root cause) or cascaded, naming the root key and the direct dependency it came through.
+  `AssetInfo` exposes it, and a log entry, written through an overridable asset-manager method,
+  names the participants by key or query rather than by runtime id. *(Revised 2026-10-02.)* It is written under
   the same lock as the status, before the status is persisted. `Status` gets no new variant (the
   analysis in `EXPIRY-RECORDS-NO-REASON` settles this).
-- **Directory dependencies:** a listing gets a version computed from its entries. That version is
+- **Directory dependencies:** a listing gets a version, the hash of the ordered listing. That version is
   registered when the listing is produced and resolved by audit and fast-track. A plan dependency
   that resolves to no version stops being skipped silently.
 - **End-to-end stale-dependency test:** one test reaches the expired arm of
@@ -202,6 +209,6 @@ managers or commands that start several dependencies.
 - `specs/design/keyed-expiry-cascade-fix/` (introduced `trigger_dependency_audit`, `AuditReport`)
 - `specs/design/store-and-asset-search/options-analysis.md` §E2 (consumer of directory dependencies)
 - Code at HEAD: `dependencies.rs:158` `register_version`, `:227` `report_no_version`;
-  `assets.rs:3280` `mark_expired_status`, `:1613` `note_expired_dependency`, `:4295` `audit_gaps`,
-  `:4452` `register_plan_dependencies`, `:1076` `dependency_blocks_fast_track`;
+  `assets.rs:3316` `mark_expired_status`, `:1621` `note_expired_dependency`, `:4726` `audit_gaps`,
+  `:4883` `register_plan_dependencies`, `:1080` `dependency_blocks_fast_track`;
   `plan.rs:2663` `from_dir_key`
