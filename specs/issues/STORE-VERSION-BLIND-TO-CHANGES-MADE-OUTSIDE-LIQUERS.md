@@ -2,7 +2,7 @@
 id: STORE-VERSION-BLIND-TO-CHANGES-MADE-OUTSIDE-LIQUERS
 kind: issue
 title: A stored value's version changes only when Liquers writes it, so edits made by other programs are invisible to dependency checks
-status: draft
+status: in_progress
 priority: P2
 complexity: L
 area: [core/store, core/assets]

@@ -2,11 +2,11 @@
 id: STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST
 kind: issue
 title: The stale-dependency path cannot be reached deterministically from a command, so no test drives it end to end
-status: draft
+status: in_progress
 priority: P2
 complexity: M
 area: [core/assets]
-design: stale-dependency-status-finalization
+design: dependency-audit-and-expiry-provenance
 created: 2026-09-15
 github:
 ---

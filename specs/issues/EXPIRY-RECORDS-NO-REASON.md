@@ -2,11 +2,11 @@
 id: EXPIRY-RECORDS-NO-REASON
 kind: issue
 title: An asset that becomes Expired records no reason, and the one path that does names the dependency by asset id
-status: draft
+status: in_progress
 priority: P2
 complexity: M
 area: [core/assets]
-design:
+design: dependency-audit-and-expiry-provenance
 created: 2026-09-04
 github:
 ---

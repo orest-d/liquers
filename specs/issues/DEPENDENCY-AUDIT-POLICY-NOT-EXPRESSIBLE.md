@@ -2,11 +2,11 @@
 id: DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE
 kind: feature
 title: There is no way to say when dependency versions should be verified, so the strict and the exploratory workflow cannot both be served
-status: draft
+status: in_progress
 priority: P2
 complexity: M
 area: [core/assets]
-design:
+design: dependency-audit-and-expiry-provenance
 created: 2026-09-05
 github:
 ---

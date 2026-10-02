@@ -2,7 +2,7 @@
 id: IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES
 kind: issue
 title: ImmediateAssetManager's lazy deadline expiry tests a condition that can never be true
-status: draft
+status: in_progress
 priority: P2
 complexity: S
 area: [core/assets]

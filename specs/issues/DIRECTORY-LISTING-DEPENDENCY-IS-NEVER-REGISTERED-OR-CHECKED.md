@@ -2,11 +2,11 @@
 id: DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED
 kind: issue
 title: Directory listing dependency is never registered or checked
-status: draft
+status: in_progress
 priority: P2
 complexity: M
 area: [core/assets]
-design: 
+design: dependency-audit-and-expiry-provenance
 created: 2026-09-17
 github:
 ---

@@ -2,7 +2,7 @@
 id: DEPENDENCY-AUDIT-AND-EXPIRY-PROVENANCE
 kind: design
 title: Dependency audit correctness, audit policy, expiry provenance, outside-change detection and external asset managers
-status: draft
+status: approved
 workflow: liquers-project
 phase: implementation
 area: [core/assets]
@@ -125,6 +125,8 @@ match it. Three questions remained for the owner (Phase 4 §"Phase 4 review").
 - "no metadata" means a stored `Source`/`None` with version 0, kept in memory only; the file store's
   own sidecar-on-first-read stays out of scope (`STORE-NO-READ-ONLY-ADAPTER`);
 - the log wording table of Step 2 is confirmed.
+
+**Implementation started 2026-10-02** (Step 0): the eight issues are set to `in_progress`.
 
 ## Links
 

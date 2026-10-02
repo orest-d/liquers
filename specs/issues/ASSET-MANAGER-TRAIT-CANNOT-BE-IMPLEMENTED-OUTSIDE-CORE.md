@@ -2,7 +2,7 @@
 id: ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE
 kind: issue
 title: The AssetManager trait is sealed, so a custom asset manager cannot be written outside liquers-core
-status: draft
+status: in_progress
 priority: P2
 complexity: L
 area: [core/assets]

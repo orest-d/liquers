@@ -2,11 +2,11 @@
 id: AUDIT-CANNOT-EXPIRE-ON-A-FIRST-OBSERVED-VERSION
 kind: issue
 title: An explicit dependency audit cannot expire a dependent whose dependency version merely moved
-status: draft
+status: in_progress
 priority: P2
 complexity: S
 area: [core/assets]
-design:
+design: dependency-audit-and-expiry-provenance
 created: 2026-09-15
 github:
 ---
