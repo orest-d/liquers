@@ -7491,10 +7491,12 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             }
             if status.is_finished() {
                 // Lazy expiration-on-access (replaces the monitor task).
-                if status == Status::Ready && assetref.is_expired().await {
-                    // Step 5 of the dependency-audit design fixes the condition above
-                    // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`); the reason is right
-                    // already.
+                if status == Status::Ready && assetref.expiration_time().await.is_expired() {
+                    // Lazy expiration-on-access: the deadline, not the status, decides
+                    // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`; this used to test
+                    // `is_expired()`, i.e. the status, which can never be `Expired` here). Unlike
+                    // the queued monitor, lazy expiry does not cascade to dependents; whether it
+                    // should is recorded on that issue.
                     let expiration_time = assetref.expiration_time().await;
                     let _ = assetref
                         .expire_without_cascade(ExpiryReason::Direct {
@@ -7587,10 +7589,12 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 continue;
             }
             if status.is_finished() {
-                if status == Status::Ready && asset_ref.is_expired().await {
-                    // Step 5 of the dependency-audit design fixes the condition above
-                    // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`); the reason is right
-                    // already.
+                if status == Status::Ready && asset_ref.expiration_time().await.is_expired() {
+                    // Lazy expiration-on-access: the deadline, not the status, decides
+                    // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`; this used to test
+                    // `is_expired()`, i.e. the status, which can never be `Expired` here). Unlike
+                    // the queued monitor, lazy expiry does not cascade to dependents; whether it
+                    // should is recorded on that issue.
                     let expiration_time = asset_ref.expiration_time().await;
                     let _ = asset_ref
                         .expire_without_cascade(ExpiryReason::Direct {
@@ -11817,4 +11821,5 @@ recipes:
             .any(|m| m == "prov/only_stored.txt expired: expiration was requested explicitly"));
         Ok(())
     }
+
 }
