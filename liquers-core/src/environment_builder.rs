@@ -587,7 +587,7 @@ mod tests {
         let expired = manager.dependency_manager().expire(&command_key).await;
         let dependent_dep_key = DependencyKey::from(&dependent);
         assert!(
-            expired.keys.contains(&dependent_dep_key),
+            expired.contains_key(&dependent_dep_key),
             "expiring the command must cascade to the asset that depends on it; got {:?}",
             expired.keys
         );
@@ -630,7 +630,7 @@ mod tests {
         let expired = manager.dependency_manager().expire(&unknown).await;
         let dependent_dep_key = DependencyKey::from(&dependent);
         assert!(
-            !expired.keys.contains(&dependent_dep_key),
+            !expired.contains_key(&dependent_dep_key),
             "no edge can exist for a version the manager never saw; got {:?}",
             expired.keys
         );

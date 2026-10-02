@@ -1491,6 +1491,37 @@ pub struct AuditReport {
     pub expired: Vec<crate::metadata::DependencyKey>,
 }
 
+/// One edge an audit found stale: `dependent` recorded `expected` for `dependency`, and the
+/// current version is `found` (`Version::unknown()` when the dependency has none).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct AuditFinding {
+    /// The dependency whose current version was compared.
+    pub dependency: crate::metadata::DependencyKey,
+    /// The dependent whose recorded version disagrees.
+    pub dependent: crate::metadata::DependencyKey,
+    /// The version the dependent recorded for `dependency`.
+    pub expected: crate::metadata::Version,
+    /// The current version of `dependency` (`Version::unknown()` when it has none).
+    pub found: crate::metadata::Version,
+}
+
+impl AuditFinding {
+    pub fn new(
+        dependency: crate::metadata::DependencyKey,
+        dependent: crate::metadata::DependencyKey,
+        expected: crate::metadata::Version,
+        found: crate::metadata::Version,
+    ) -> Self {
+        AuditFinding {
+            dependency,
+            dependent,
+            expected,
+            found,
+        }
+    }
+}
+
 /// The bytes and version an evaluation settled on, ready to be installed alongside its status.
 struct PreparedVersion {
     /// The serialized value, when it serialized. Reused by the store write rather than recomputed.
@@ -4744,7 +4775,7 @@ pub trait AssetManager<E: Environment>:
                 }
                 None => self.dependency_manager().report_no_version(&dep_key).await,
             };
-            report.expired.extend(expired.keys.iter().cloned());
+            report.expired.extend(expired.keys.iter().map(|expired_key| expired_key.key.clone()));
             self.expire_dependencies_result(expired).await;
         }
         Ok(report)
@@ -4863,8 +4894,8 @@ pub trait AssetManager<E: Environment>:
     /// `mark_expired_status` would persist it for a registered one. Without that, the stored copy
     /// stays `Ready` and a fresh process fast-tracks it on data the graph knows is stale.
     async fn expire_dependencies_result(&self, expired: crate::dependencies::ExpiredDependents<E>) {
-        for dk in &expired.keys {
-            if let Ok(k) = Key::try_from(dk) {
+        for expired_key in &expired.keys {
+            if let Ok(k) = Key::try_from(&expired_key.key) {
                 if let Some(ar) = self.lookup_key_asset(&k) {
                     let _ = ar.expire_without_cascade().await;
                 } else {
@@ -4872,7 +4903,7 @@ pub trait AssetManager<E: Environment>:
                 }
             }
         }
-        for weak_ref in &expired.assets {
+        for (weak_ref, _via) in &expired.assets {
             if let Some(ar) = weak_ref.upgrade() {
                 let _ = ar.expire_without_cascade().await;
             }
