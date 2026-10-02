@@ -8,9 +8,9 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 146
+Total rows: 148
 - P2: 79
-- P3: 67
+- P3: 69
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
@@ -108,6 +108,7 @@ Total rows: 146
 | [`COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ`](issues/COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ.md) | issue | CommandMetadata.cache is declared, documented and exported, but nothing reads it | draft |  | P3 | S | core/commands;macro |  | 2026-09-19 |
 | [`CORE-STORE-ROUTER-DIRECTORY-ABOVE-MEMBERS-HAS-NO-METADATA`](issues/CORE-STORE-ROUTER-DIRECTORY-ABOVE-MEMBERS-HAS-NO-METADATA.md) | issue | AsyncStoreRouter reports KeyNotFound for the metadata of a directory above its members' prefixes | draft |  | P3 | S | core/store |  | 2026-09-30 |
 | [`CSV-ROW-NUMBERS-COUNT-RECORDS-AND-SHORT-ROWS-READ-AS-NULL`](issues/CSV-ROW-NUMBERS-COUNT-RECORDS-AND-SHORT-ROWS-READ-AS-NULL.md) | issue | CSV errors number records rather than file lines, and a row shorter than the header reads its missing cells as null | draft |  | P3 | S | records | [chunking](specs/design/record-streams/chunking-and-resumability.md)  [engine](specs/design/record-streams/engine-survey.md)  [manifest](specs/design/record-streams/manifest-format.md)  [phase1](specs/design/record-streams/phase1-high-level-design.md)  [phase2](specs/design/record-streams/phase2-architecture.md)  [phase3](specs/design/record-streams/phase3-examples.md)  [phase3](specs/design/record-streams/phase3-tests.md)  [phase4](specs/design/record-streams/phase4-implementation.md)  [phase5](specs/design/record-streams/phase5-documentation.md)  [phase5](specs/design/record-streams/phase5-evidence.md)  [record](specs/design/record-streams/record-model.md)  | 2026-09-27 |
+| [`DEPENDENCY-FAILURE-ERRORS-NAME-ASSET-IDS`](issues/DEPENDENCY-FAILURE-ERRORS-NAME-ASSET-IDS.md) | issue | Dependency failure errors name the dependency by runtime asset id | draft |  | P3 | S | core/assets |  | 2026-10-02 |
 | [`DESIGNER-INIT-FEATURE-ACCEPTS-FLAGS-AS-NAMES`](issues/DESIGNER-INIT-FEATURE-ACCEPTS-FLAGS-AS-NAMES.md) | issue | Designer init_feature.py treats any argument, including --help, as a feature name | draft |  | P3 | S | docs |  | 2026-09-27 |
 | [`EXT-VALUE-DESCRIPTION-COMPLETENESS-TEST-SAMPLES-TWO-VARIANTS`](issues/EXT-VALUE-DESCRIPTION-COMPLETENESS-TEST-SAMPLES-TWO-VARIANTS.md) | issue | The ExtValue description-completeness test samples only two of the variants | draft |  | P3 | S | lib/value |  | 2026-09-27 |
 | [`IMMEDIATE-SET-STATE-STATUS-MATCH-HAS-DEFAULT-ARM`](issues/IMMEDIATE-SET-STATE-STATUS-MATCH-HAS-DEFAULT-ARM.md) | issue | ImmediateAssetManager::set_state matches Status with a default arm | draft |  | P3 | S | core/assets |  | 2026-09-25 |
@@ -124,6 +125,7 @@ Total rows: 146
 | [`SIMPLE-VALUE-WRITES-FEWER-FORMATS-THAN-DECLARED`](issues/SIMPLE-VALUE-WRITES-FEWER-FORMATS-THAN-DECLARED.md) | issue | liquers-lib's base value declares formats its serializer refuses | draft |  | P3 | S | lib/value |  | 2026-09-25 |
 | [`STORE-GUIDE-STATUS-TABLE-HAS-NO-GENERATOR`](issues/STORE-GUIDE-STATUS-TABLE-HAS-NO-GENERATOR.md) | issue | The store guide's status table claims to be generated from the conformance reports, and no generator exists | draft |  | P3 | S | docs;store/backends |  | 2026-09-30 |
 | [`STUBS01-GREP-MISSES-DERIVE-INTERLEAVED-CLASSES`](issues/STUBS01-GREP-MISSES-DERIVE-INTERLEAVED-CLASSES.md) | issue | check-stubs.sh's STUBS01 grep misses classes with an interleaved derive attribute | draft |  | P3 | S | web |  | 2026-09-27 |
+| [`SUPPLIED-EXPIRED-STATUS-STORED-WITHOUT-REASON`](issues/SUPPLIED-EXPIRED-STATUS-STORED-WITHOUT-REASON.md) | issue | set_binary and set_state accept a supplied Expired status and store it without an expiry reason | draft |  | P3 | S | core/assets | [phase1](specs/design/dependency-audit-and-expiry-provenance/phase1-high-level-design.md)  [phase2](specs/design/dependency-audit-and-expiry-provenance/phase2-architecture.md)  [phase3](specs/design/dependency-audit-and-expiry-provenance/phase3-examples.md)  [phase4](specs/design/dependency-audit-and-expiry-provenance/phase4-implementation.md)  [phase5](specs/design/dependency-audit-and-expiry-provenance/phase5-documentation.md)  | 2026-10-02 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  | P3 | S | core/value |  | 2026-09-24 |
 | [`ASSETS-API-ADMIN-OPERATIONS`](issues/ASSETS-API-ADMIN-OPERATIONS.md) | feature | Manager status and a guarded remove have no assets API endpoint | draft |  | P3 | M | axum;core/assets |  | 2026-09-27 |
 | [`AXUM-WEBSOCKET-HARDENING`](issues/AXUM-WEBSOCKET-HARDENING.md) | issue | WebSocket endpoint is not hardened | accepted |  | P3 | M | axum | [phase1](specs/design/axum-assets-endpoints/phase1-high-level-design.md)  [phase2](specs/design/axum-assets-endpoints/phase2-architecture.md)  [phase3](specs/design/axum-assets-endpoints/phase3-examples.md)  [phase4](specs/design/axum-assets-endpoints/phase4-implementation.md)  | 2026-08-08 |

@@ -582,3 +582,198 @@ where
     }
     Ok(())
 }
+
+// --- expiry provenance (dependency-audit-and-expiry-provenance, Step 4) ---
+//
+// The chain is `data/a.txt -> data/b.txt -> data/report.txt`. `b.txt` is `upper` over `a.txt` in
+// its plan; `report.txt` reads `b.txt` from inside its command (`summarize`), so it records `b.txt`
+// as its only data dependency. Through the plan it would also record `a.txt` — a query's plan
+// carries its dependency's own dependencies — and a cascade from `a.txt` would then reach it
+// directly (`via == root`), leaving no second hop to observe. `a.txt` is a `Source` written with
+// `set_binary`, or computed by `make_text` when `with_a_recipe` is set. Observed only through the
+// store's metadata, so any manager can run these.
+
+/// The provenance chain's commands: `upper` (the links) and `make_text` (a computed root).
+pub fn register_provenance_commands<E>(cr: &mut liquers_core::commands::CommandRegistry<E>)
+where
+    E: Environment<Value = Value>,
+{
+    cr.register_command(
+        CommandKey::new_name("upper"),
+        |state: &State<Value>, _args, _ctx| -> Result<Value, Error> {
+            Ok(Value::from(state.try_into_string()?.to_uppercase()))
+        },
+    )
+    .expect("register upper");
+    cr.register_command(
+        CommandKey::new_name("make_text"),
+        |_state, _args, _ctx| -> Result<Value, Error> { Ok(Value::from("generated")) },
+    )
+    .expect("register make_text");
+    cr.register_async_command(CommandKey::new_name("summarize"), |_state, _args, ctx| {
+        Box::pin(async move {
+            let b = ctx
+                .get_dependency_state(&q("-R/data/b.txt"))
+                .await?
+                .try_into_string()?;
+            Ok(Value::from(format!("summary of {b}")))
+        })
+    })
+    .expect("register summarize");
+}
+
+/// Store holding `data/recipes.yaml` for the provenance chain.
+pub async fn provenance_store(with_a_recipe: bool) -> Result<AsyncMemoryStore, Error> {
+    use liquers_core::recipes::{Recipe, RecipeList};
+    let mut rl = RecipeList::new();
+    if with_a_recipe {
+        rl.add_recipe(Recipe::new(
+            "make_text/a.txt".to_string(),
+            "A".into(),
+            "computed root".into(),
+        )?);
+    }
+    rl.add_recipe(Recipe::new(
+        "-R/data/a.txt/-/upper/b.txt".to_string(),
+        "B".into(),
+        "depends on a.txt".into(),
+    )?);
+    rl.add_recipe(Recipe::new(
+        "summarize/report.txt".to_string(),
+        "Report".into(),
+        "depends on b.txt".into(),
+    )?);
+    let yaml = serde_yaml::to_string(&rl)
+        .map_err(|e| Error::general_error(format!("recipes.yaml: {e}")))?;
+    let store = AsyncMemoryStore::new(&Key::new());
+    store
+        .set(&parse_key("data/recipes.yaml")?, yaml.as_bytes(), &Metadata::new())
+        .await?;
+    Ok(store)
+}
+
+/// Plain-text metadata for `set_binary`.
+pub fn provenance_text_metadata() -> liquers_core::metadata::MetadataRecord {
+    liquers_core::metadata::MetadataRecord {
+        type_identifier: "Text".to_string(),
+        type_name: "text".to_string(),
+        data_format: Some("txt".to_string()),
+        ..Default::default()
+    }
+}
+
+/// Wait until the store holds `key` with `status`. A queued manager persists after `get()`
+/// returns, and a cascade that ran before the write would find nothing stored to expire.
+pub async fn wait_until_stored<E>(envref: &EnvRef<E>, key: &Key, status: Status) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    let store = envref.get_async_store();
+    for _ in 0..500 {
+        if store.contains(key).await? && store.get_metadata(key).await?.status() == status {
+            return Ok(());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    Err(Error::general_error(format!(
+        "{key} never reached {status:?} in the store"
+    )))
+}
+
+/// Evaluate `data/report.txt` (and so the whole chain) and wait until every link is stored.
+pub async fn provenance_evaluate_chain<E>(envref: &EnvRef<E>) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    let am = envref.get_asset_manager();
+    let report = am.get(&parse_key("data/report.txt")?).await?;
+    let _ = report.get().await?;
+    wait_until_stored(envref, &parse_key("data/b.txt")?, Status::Ready).await?;
+    wait_until_stored(envref, &parse_key("data/report.txt")?, Status::Ready).await?;
+    Ok(())
+}
+
+/// A two-step `Updated` cascade records `Cascaded` with the root and the direct dependency.
+///
+/// Expects [`provenance_store`]`(false)` and [`register_provenance_commands`].
+pub async fn scenario_expiry_reason_cascade<E>(envref: EnvRef<E>) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    use liquers_core::metadata::{DependencyKey, ExpiryCause, ExpiryReason, Version};
+    let am = envref.get_asset_manager();
+    let a = parse_key("data/a.txt")?;
+    am.set_binary(&a, b"hello", provenance_text_metadata()).await?;
+    provenance_evaluate_chain(&envref).await?;
+
+    am.set_binary(&a, b"changed", provenance_text_metadata()).await?;
+
+    let root = DependencyKey::from(&a);
+    let b_dep = DependencyKey::from(&parse_key("data/b.txt")?);
+    let cause = ExpiryCause::Updated {
+        version: Version::from_content(b"changed"),
+    };
+    let store = envref.get_async_store();
+    let b_meta = store.get_metadata(&parse_key("data/b.txt")?).await?;
+    assert_eq!(b_meta.status(), Status::Expired);
+    assert_eq!(
+        b_meta.expiry_reason(),
+        Some(ExpiryReason::Cascaded {
+            cause: cause.clone(),
+            root: root.clone(),
+            via: root.clone(),
+        }),
+        "a direct dependent: via == root"
+    );
+    let report_meta = store.get_metadata(&parse_key("data/report.txt")?).await?;
+    assert_eq!(report_meta.status(), Status::Expired);
+    assert_eq!(
+        report_meta.expiry_reason(),
+        Some(ExpiryReason::Cascaded {
+            cause,
+            root,
+            via: b_dep,
+        }),
+        "the second hop names its own direct dependency"
+    );
+    Ok(())
+}
+
+/// Every asset an explicit expiry reaches — the root and both dependents — is stored `Expired`
+/// with a reason and exactly one log line, the one `ExpiryReason::log_entry` writes.
+///
+/// Expects [`provenance_store`]`(true)` and [`register_provenance_commands`].
+pub async fn scenario_every_expired_asset_has_reason_and_log_line<E>(
+    envref: EnvRef<E>,
+) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    let am = envref.get_asset_manager();
+    provenance_evaluate_chain(&envref).await?;
+    let a = parse_key("data/a.txt")?;
+    wait_until_stored(&envref, &a, Status::Ready).await?;
+
+    am.expire(&a).await?;
+
+    let store = envref.get_async_store();
+    for name in ["data/a.txt", "data/b.txt", "data/report.txt"] {
+        let key = parse_key(name)?;
+        let metadata = store.get_metadata(&key).await?;
+        assert_eq!(metadata.status(), Status::Expired, "{name}");
+        let Some(reason) = metadata.expiry_reason() else {
+            panic!("{name} is stored Expired without a reason");
+        };
+        let expected = reason.log_entry(&key.to_string());
+        let Metadata::MetadataRecord(mr) = &metadata else {
+            panic!("{name}: expected a MetadataRecord");
+        };
+        let matching = mr
+            .log
+            .iter()
+            .filter(|e| e.message == expected.message && e.kind == expected.kind)
+            .count();
+        assert_eq!(matching, 1, "{name}: exactly one expiry log line; log = {:?}", mr.log);
+    }
+    Ok(())
+}

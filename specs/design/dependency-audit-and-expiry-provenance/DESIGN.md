@@ -128,6 +128,21 @@ match it. Three questions remained for the owner (Phase 4 §"Phase 4 review").
 
 **Implementation started 2026-10-02** (Step 0): the eight issues are set to `in_progress`.
 
+**Implementation evidence for Phase 5 (Steps 1–4).**
+- **Step 1.** The toolchain had to be updated (rustc 1.94 to 1.99, because `egui` 0.36 needs
+  1.95). Review caught `new_unique` masking bit 127 *before* the shift, so the bit was not cleared.
+- **Step 2.** Review rewrote `log_entry` to remove `unwrap` and catch-all arms; the level is now a
+  typed `LogEntryKind`.
+- **Step 3.** `DependencyManager::expire(key)` lists the root itself in the expired set.
+- **Step 4.** The root gets `Direct { cause }`, and an asset already `Expired` keeps its reason,
+  because only a real transition records. The `enter_dependencies` log line now names keys, not ids.
+- **Correction to Phase 3 Example 1's variant.** A recipe that reads its dependency through its
+  plan (`-R/data/b.txt/-/upper`) also records that dependency's own dependency as a direct record.
+  A cascade from `a` then reaches `report` directly, with `via == root`. A real second hop needs
+  the command to read `b` itself (`ctx.get_dependency_state`), which is what the test fixture does.
+- **Filed during Step 4:** `SUPPLIED-EXPIRED-STATUS-STORED-WITHOUT-REASON` and
+  `DEPENDENCY-FAILURE-ERRORS-NAME-ASSET-IDS`.
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)

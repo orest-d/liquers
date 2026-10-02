@@ -316,8 +316,8 @@ type PsmJoinError = tokio::task::JoinError;
 #[cfg(target_arch = "wasm32")]
 type PsmJoinError = std::convert::Infallible;
 use crate::metadata::{
-    AssetInfo, DependencyKey, DependencyRecord, LogEntry, MetadataRecord, ProgressEntry,
-    ReadExposure, Version,
+    AssetInfo, DependencyKey, DependencyRecord, ExpiryCause, ExpiryReason, LogEntry,
+    MetadataRecord, ProgressEntry, ReadExposure, Version,
 };
 use crate::value::ValueInterface;
 use crate::{context::Context, metadata::LogEntryKind};
@@ -594,10 +594,12 @@ pub struct AssetData<E: Environment> {
     /// Last persistence error, when relevant.
     last_persistence_error: Option<Error>,
 
-    /// Set when this asset consumed a dependency whose value had expired mid-execution.
-    /// The stale value is used (no mid-run recompute), but at completion the asset is
-    /// labeled `Expired` so the next access recomputes it. See `wait_for_dependency`.
-    stale_dependency: bool,
+    /// Set when this asset consumed a dependency whose value had expired mid-execution: the
+    /// **first** such dependency, by key (or by query when it has no key); later ones only add
+    /// log entries. The stale value is used (no mid-run recompute), but at completion the asset
+    /// is labeled `Expired` — with `Direct { StaleDependency { dependency } }` as its reason — so
+    /// the next access recomputes it. See `wait_for_dependency`.
+    stale_dependency: Option<DependencyKey>,
 
     _marker: std::marker::PhantomData<E>,
 }
@@ -968,7 +970,7 @@ impl<E: Environment> AssetData<E> {
             expiration_time: ExpirationTime::Never,
             persistence_status: PersistenceStatus::None,
             last_persistence_error: None,
-            stale_dependency: false,
+            stale_dependency: None,
             _marker: std::marker::PhantomData,
             status: Status::None,
         };
@@ -1034,6 +1036,50 @@ impl<E: Environment> AssetData<E> {
             return format!("Pure query asset {}: {}", self.id(), q);
         }
         format!("Complex asset {}: {:?}", self.id(), self.recipe)
+    }
+
+    /// This asset's identity in provenance records: its key, or its query when it has none.
+    ///
+    /// Never the runtime asset id, which means nothing outside this process. `None` only for an
+    /// asset with neither a key nor a query (an anonymous temporary asset).
+    pub(crate) fn provenance_key(&self) -> Option<DependencyKey> {
+        if let Some(key) = &self.key {
+            return Some(DependencyKey::from(key));
+        }
+        if let Some(query) = self.query.as_ref() {
+            return Some(DependencyKey::from(query));
+        }
+        self.recipe
+            .get_query()
+            .ok()
+            .map(|query| DependencyKey::from(&query))
+    }
+
+    /// The subject an expiry log line names: this asset's key, else its query — never its id.
+    pub(crate) fn expiry_subject(&self) -> String {
+        if let Some(key) = &self.key {
+            return key.to_string();
+        }
+        if let Some(query) = self.query.as_ref() {
+            return query.encode();
+        }
+        match self.recipe.get_query() {
+            Ok(query) => query.encode(),
+            Err(_) => "an anonymous asset".to_string(),
+        }
+    }
+
+    /// Record `reason` in this asset's metadata through the asset manager's
+    /// [`AssetManager::record_expiry`].
+    ///
+    /// Called with this `AssetData` already borrowed from its `data` write lock, so the reason is
+    /// written in the same transaction as the status. The manager and the subject come from
+    /// `self`, never from the `AssetRef` accessors (`get_envref`, `key`), which would take the
+    /// same lock again and deadlock.
+    fn record_expiry(&mut self, reason: &ExpiryReason) {
+        let manager = self.envref.get_asset_manager();
+        let subject = self.expiry_subject();
+        manager.record_expiry(&mut self.metadata, &subject, reason);
     }
 
     /// Check if the asset is a pure query (no initial value and recipe is a pure query)
@@ -1213,14 +1259,24 @@ impl<E: Environment> AssetData<E> {
                 // Dependencies are consistent — register in DM
                 {
                     let dep_key = DependencyKey::from(&key);
-                    if let Some(version) = self.metadata.version() {
+                    let loaded_version = self.metadata.version();
+                    if let Some(version) = loaded_version {
                         let expired = dm.register_version(&dep_key, version).await;
-                        manager.expire_dependencies_result(expired).await;
+                        manager
+                            .expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                            .await;
                     }
                     let deps = self.metadata.get_dependencies();
                     if !deps.is_empty() {
                         let expired = dm.load_from_records(&dep_key, deps).await;
-                        manager.expire_dependencies_result(expired).await;
+                        manager
+                            .expire_dependencies_result(
+                                expired,
+                                ExpiryCause::Updated {
+                                    version: loaded_version.unwrap_or(Version::unknown()),
+                                },
+                            )
+                            .await;
                     }
                 }
 
@@ -1594,14 +1650,24 @@ impl<E: Environment> AssetRef<E> {
     /// This is scheduler-local lifecycle bookkeeping only: dependency facts are
     /// recorded in metadata and the `DependencyManager`.
     pub(crate) async fn enter_dependencies(&self, dependency: &AssetRef<E>) -> Result<(), Error> {
+        // Named by key or query, never by runtime id, which means nothing in a persisted log.
+        // Read before taking this asset's lock: holding one `data` lock while waiting for another
+        // is how lock-order inversions start.
+        let dependency_name = {
+            let dep = dependency.data.read().await;
+            match dep.provenance_key() {
+                Some(key) => key.to_string(),
+                None => dep.expiry_subject(),
+            }
+        };
         let mut lock = self.data.write().await;
         if lock.status.is_finished() {
             return Ok(());
         }
         lock.set_status(Status::Dependencies)?;
         let _ = lock.metadata.add_log_entry(LogEntry::info(format!(
-            "Waiting for dependency asset {}",
-            dependency.id()
+            "Waiting for dependency {}",
+            dependency_name
         )));
         let _ = lock
             .notification_tx
@@ -1649,17 +1715,31 @@ impl<E: Environment> AssetRef<E> {
     /// shorter than this asset's evaluation time). The stale value is used and this flag is
     /// set so that, at completion, the asset is labeled `Expired` and recomputed on next
     /// access (staleness propagation). A warning is logged now for timing diagnostics.
+    ///
+    /// The dependency is recorded by key, or by query when it has none — never by runtime asset
+    /// id — and the first one wins: it becomes the `dependency` of this asset's
+    /// `Direct { StaleDependency }` expiry reason at finalization.
     pub(crate) async fn note_expired_dependency(
         &self,
         dependency: &AssetRef<E>,
     ) -> Result<(), Error> {
+        // Read before taking this asset's lock: the two are different assets, and holding one
+        // `data` lock while waiting for another is how lock-order inversions start.
+        let dependency_key = {
+            let dep = dependency.data.read().await;
+            dep.provenance_key()
+                .unwrap_or_else(|| DependencyKey::new(dep.expiry_subject()))
+        };
         let mut lock = self.data.write().await;
-        lock.stale_dependency = true;
+        let subject = lock.expiry_subject();
         let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
-            "Dependency asset {} expired during evaluation; using its stale value and \
-             marking this asset expired for recomputation on next access",
-            dependency.id()
+            "Dependency {} of {} expired during evaluation; using its stale value and \
+             marking {} expired for recomputation on next access",
+            dependency_key, subject, subject
         )));
+        if lock.stale_dependency.is_none() {
+            lock.stale_dependency = Some(dependency_key);
+        }
         Ok(())
     }
 
@@ -1762,7 +1842,16 @@ impl<E: Environment> AssetRef<E> {
                 .add_dependency(&current_dep_key, &dep_key, version)
                 .await
             {
-                manager.expire_dependencies_result(expired).await;
+                // `add_dependency` records and never expires (the set is always empty); the
+                // cause is nominal, so that every call site passes one.
+                manager
+                    .expire_dependencies_result(
+                        expired,
+                        ExpiryCause::Updated {
+                            version: Version::unknown(),
+                        },
+                    )
+                    .await;
             }
         }
         Ok(())
@@ -2134,7 +2223,7 @@ impl<E: Environment> AssetRef<E> {
                     )));
                 }
                 lock.expiration_time = lock.metadata.expiration_time();
-            } else if lock.stale_dependency {
+            } else if let Some(dependency) = lock.stale_dependency.clone() {
                 // A dependency expired mid-execution and its stale value was used rather than
                 // recomputed (see `AssetManager::wait_for_dependency`, which sets the flag to
                 // avoid an unbounded recompute loop). The result is correct but must not be
@@ -2155,11 +2244,11 @@ impl<E: Environment> AssetRef<E> {
                         e,
                     )));
                 }
-                let _ = lock.metadata.add_log_entry(LogEntry::warning(
-                    "Asset evaluated with an expired dependency value; labeled expired \
-                     for recomputation on next access"
-                        .to_string(),
-                ));
+                // The reason, under this same lock and after `set_status` (which clears a reason
+                // on any other status), so the record `save_to_store` persists carries both.
+                lock.record_expiry(&ExpiryReason::Direct {
+                    cause: ExpiryCause::StaleDependency { dependency },
+                });
                 // Mirrors the `Ready` arm: `finish_run_with_result` reads what these set when it
                 // decides whether to schedule expiration.
                 if let Err(e) = lock.metadata.set_expiration_time_from(&metadata_expires) {
@@ -2908,7 +2997,7 @@ impl<E: Environment> AssetRef<E> {
                         lock.save_in_background,
                         lock.is_cancelled(),
                         lock.is_volatile,
-                        lock.stale_dependency,
+                        lock.stale_dependency.clone(),
                     )
                 };
 
@@ -2929,7 +3018,7 @@ impl<E: Environment> AssetRef<E> {
                 // Register in DM for non-volatile assets.
                 if lock_is_volatile {
                     // A volatile asset is not a dependency-graph node.
-                } else if stale_dependency {
+                } else if let Some(dependency) = stale_dependency {
                     // `track_asset` refuses an `Expired` asset, and this one is `Expired` — but
                     // only in the "do not cache me" sense. It holds a freshly computed value with
                     // a NEW content version, so its dependents are built on the key's previous
@@ -2955,14 +3044,32 @@ impl<E: Environment> AssetRef<E> {
                         // No `data` lock is held across this: the DM takes its own locks and,
                         // through `version_for_tracking`, this asset's write lock.
                         let expired = dm.track_keyed_asset(self, &key, &records).await;
-                        manager.expire_dependencies_result(expired).await;
+                        // The dependents get `Cascaded { StaleDependency, root: this asset, via }`
+                        // (Phase 2, Revision 2 clarification 1): `expired.root` is this key, and
+                        // the cause still names the stale input.
+                        manager
+                            .expire_dependencies_result(
+                                expired,
+                                ExpiryCause::StaleDependency { dependency },
+                            )
+                            .await;
                     }
                 } else {
                     let envref = self.get_envref().await;
                     let manager = envref.get_asset_manager();
                     let dm = manager.dependency_manager();
                     let expired = dm.track_asset(self).await;
-                    manager.expire_dependencies_result(expired).await;
+                    // Read after `track_asset`, which may have assigned a fallback version.
+                    let version = self
+                        .data
+                        .read()
+                        .await
+                        .metadata
+                        .version()
+                        .unwrap_or(Version::unknown());
+                    manager
+                        .expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                        .await;
                 }
 
                 Ok(())
@@ -3327,24 +3434,43 @@ impl<E: Environment> AssetRef<E> {
     ///
     /// `Expired` is idempotent. A `Source` cannot expire because it has no recipe
     /// from which to recover. Other statuses return an error.
+    ///
+    /// Records `Direct { Explicit }` as the reason; the dependents get
+    /// `Cascaded { Explicit, root: this key, via }`.
     pub async fn expire(&self) -> Result<(), Error> {
-        let key_opt = self.key().await;
+        self.expire_with_reason(ExpiryReason::Direct {
+            cause: ExpiryCause::Explicit,
+        })
+        .await
+    }
 
-        let transitioned_to_expired = self.mark_expired_status().await?;
+    /// [`Self::expire`] with the reason to record. The cascade to dependents carries
+    /// `reason.cause()`.
+    pub(crate) async fn expire_with_reason(&self, reason: ExpiryReason) -> Result<(), Error> {
+        let key_opt = self.key().await;
+        let cause = reason.cause().clone();
+
+        let transitioned_to_expired = self.mark_expired_status(reason).await?;
 
         if transitioned_to_expired {
             if let Some(key) = key_opt {
                 let dep_key = DependencyKey::from(&key);
                 let envref = self.get_envref().await;
                 let manager = envref.get_asset_manager();
-                manager.cascade_expire_dependents(&dep_key).await;
+                manager.cascade_expire_dependents(&dep_key, cause).await;
             }
         }
 
         Ok(())
     }
 
-    async fn mark_expired_status(&self) -> Result<bool, Error> {
+    /// Flip a `Ready`/`Override` asset to `Expired`, recording `reason`, and persist it.
+    ///
+    /// The reason is recorded through [`AssetManager::record_expiry`] **under the same `data`
+    /// write lock** that flips the status and **before** the metadata is cloned for persistence,
+    /// so no reader sees `Expired` without its reason and the stored copy carries both. Only the
+    /// transition records: an asset already `Expired` keeps the reason it has.
+    async fn mark_expired_status(&self, reason: ExpiryReason) -> Result<bool, Error> {
         // The same recorded key `save_to_store` writes under. Before this change these were two
         // independent derivations with opposite precedence.
         let owner_key = self.key().await;
@@ -3357,6 +3483,9 @@ impl<E: Environment> AssetRef<E> {
                 if let Metadata::MetadataRecord(ref mut mr) = lock.metadata {
                     mr.status = Status::Expired;
                 }
+                // Manager and subject come from the guard: `AssetRef::get_envref` and `key`
+                // take this same lock.
+                lock.record_expiry(&reason);
                 let _ = lock.notification_tx.send(AssetNotificationMessage::Expired);
                 Ok(())
             }
@@ -3416,8 +3545,9 @@ impl<E: Environment> AssetRef<E> {
         result.map(|_| transitioned_to_expired)
     }
 
-    pub(crate) async fn expire_without_cascade(&self) -> Result<(), Error> {
-        self.mark_expired_status().await.map(|_| ())
+    /// Expire this asset alone, recording `reason`; the caller owns the cascade (if any).
+    pub(crate) async fn expire_without_cascade(&self, reason: ExpiryReason) -> Result<(), Error> {
+        self.mark_expired_status(reason).await.map(|_| ())
     }
 
     /// Returns the resolved expiration time.
@@ -3908,7 +4038,15 @@ pub(crate) fn load_command_versions_sync<E: Environment>(
 /// recipe to recover from, and every other status is already not reusable. A key the store does
 /// not hold is not written, so no phantom metadata-only entry is created. Failures are reported on
 /// stderr and otherwise ignored, as the in-memory path does.
-async fn expire_stored_copy(store: Arc<dyn crate::store::AsyncStore>, key: &Key) {
+///
+/// `reason` is recorded through `manager`'s [`AssetManager::record_expiry`] on the metadata read
+/// here, after the status change and before `set_metadata`, so the stored copy carries both.
+async fn expire_stored_copy<E: Environment, M: AssetManager<E> + ?Sized>(
+    manager: &M,
+    store: Arc<dyn crate::store::AsyncStore>,
+    key: &Key,
+    reason: &ExpiryReason,
+) {
     if !store.contains(key).await.unwrap_or(false) {
         return;
     }
@@ -3936,7 +4074,10 @@ async fn expire_stored_copy(store: Arc<dyn crate::store::AsyncStore>, key: &Key)
         | Status::Volatile => return,
     }
     let result = match metadata.set_status(Status::Expired) {
-        Ok(()) => store.set_metadata(key, &metadata).await,
+        Ok(()) => {
+            manager.record_expiry(&mut metadata, &key.to_string(), reason);
+            store.set_metadata(key, &metadata).await
+        }
         Err(e) => Err(e),
     };
     if let Err(e) = result {
@@ -4289,7 +4430,8 @@ pub trait AssetManager<E: Environment>:
             RemoveAction::Nothing => Ok(()),
             RemoveAction::Delete => {
                 let dep_key = crate::metadata::DependencyKey::from(key);
-                self.cascade_expire_dependents(&dep_key).await;
+                self.cascade_expire_dependents(&dep_key, ExpiryCause::Removed)
+                    .await;
                 self.dependency_manager().remove(&dep_key).await;
                 if stored_metadata.is_some() {
                     store.remove(key).await
@@ -4351,10 +4493,20 @@ pub trait AssetManager<E: Environment>:
                 Status::Ready | Status::Override => {
                     // Unlike the cascade's best-effort `expire_stored_copy`, an explicit expire
                     // must not report success, or expire dependents, if the write failed.
+                    // `set_status` first: it clears a reason on any other status, and the reason
+                    // is recorded on the record that is about to be written.
                     metadata.set_status(Status::Expired)?;
+                    self.record_expiry(
+                        &mut metadata,
+                        &key.to_string(),
+                        &ExpiryReason::Direct {
+                            cause: ExpiryCause::Explicit,
+                        },
+                    );
                     store.set_metadata(key, &metadata).await?;
                     let dep_key = crate::metadata::DependencyKey::from(key);
-                    self.cascade_expire_dependents(&dep_key).await;
+                    self.cascade_expire_dependents(&dep_key, ExpiryCause::Explicit)
+                        .await;
                     Ok(())
                 }
                 Status::Expired => Ok(()),
@@ -4767,7 +4919,8 @@ pub trait AssetManager<E: Environment>:
                 // authoritatively already and there is nothing to resolve from a store.
                 Ok(None) | Err(_) => continue,
             };
-            let expired = match self.version(&key).await? {
+            let found = self.version(&key).await?;
+            let expired = match found {
                 Some(version) => {
                     self.dependency_manager()
                         .register_version(&dep_key, version)
@@ -4776,7 +4929,15 @@ pub trait AssetManager<E: Environment>:
                 None => self.dependency_manager().report_no_version(&dep_key).await,
             };
             report.expired.extend(expired.keys.iter().map(|expired_key| expired_key.key.clone()));
-            self.expire_dependencies_result(expired).await;
+            // `Audit { found }` arrives with Step 6 of the dependency-audit design; until then
+            // the audit's expirations read as the dependency's (re)registered version.
+            self.expire_dependencies_result(
+                expired,
+                ExpiryCause::Updated {
+                    version: found.unwrap_or(Version::unknown()),
+                },
+            )
+            .await;
         }
         Ok(report)
     }
@@ -4856,7 +5017,14 @@ pub trait AssetManager<E: Environment>:
     /// asset built against the old command.
     async fn refresh_command_versions_and_expire(&self) -> Result<(), Error> {
         for key in self.refresh_command_versions()? {
-            self.cascade_expire_dependents(&key).await;
+            // Read before the cascade, which drops the root's version from the map.
+            let version = self
+                .dependency_manager()
+                .get_version(&key)
+                .await
+                .unwrap_or(Version::unknown());
+            self.cascade_expire_dependents(&key, ExpiryCause::Updated { version })
+                .await;
         }
         Ok(())
     }
@@ -4881,31 +5049,89 @@ pub trait AssetManager<E: Environment>:
 
     // --- shared default methods (identical for all managers; see Q1) ---
 
-    /// Cascade-expire all dependents of a changed dependency key.
-    async fn cascade_expire_dependents(&self, dep_key: &crate::metadata::DependencyKey) {
-        let expired = self.dependency_manager().expire(dep_key).await;
-        self.expire_dependencies_result(expired).await;
+    /// Record why `subject` expired: set the expiry reason on `metadata` and append its log entry.
+    ///
+    /// **Every** route into `Expired` calls this, for every expired asset, live or stored-only. It
+    /// is called while the asset's `data` write lock is held, so it is synchronous and must not
+    /// block, and it must not reach any asset or lock. `subject` is the expired asset's key, or
+    /// its query when it has none — never its runtime id.
+    ///
+    /// The default sets [`Metadata::set_expiry_reason`] and appends [`ExpiryReason::log_entry`].
+    /// Legacy metadata is left untouched, as every other best-effort metadata write leaves it.
+    /// Override it to change the wording or levels, add fields, or forward the event.
+    fn record_expiry(&self, metadata: &mut Metadata, subject: &str, reason: &ExpiryReason) {
+        match metadata {
+            Metadata::MetadataRecord(_) => {
+                let _ = metadata.set_expiry_reason(reason.clone());
+                let _ = metadata.add_log_entry(reason.log_entry(subject));
+            }
+            Metadata::LegacyMetadata(_) => {}
+        }
     }
 
-    /// Apply an `ExpiredDependents` result: expire keyed and untracked assets.
+    /// Cascade-expire all dependents of a changed dependency key, with the root `cause`.
+    async fn cascade_expire_dependents(
+        &self,
+        dep_key: &crate::metadata::DependencyKey,
+        cause: ExpiryCause,
+    ) {
+        let expired = self.dependency_manager().expire(dep_key).await;
+        self.expire_dependencies_result(expired, cause).await;
+    }
+
+    /// Apply an `ExpiredDependents` result: expire keyed and untracked assets, recording
+    /// `Cascaded { cause, root: expired.root, via }` on each.
     ///
     /// A key with no registered asset — a `cached: false` key is never registered — is expired in
     /// the store instead: its stored metadata is marked `Expired`, exactly as
     /// `mark_expired_status` would persist it for a registered one. Without that, the stored copy
     /// stays `Ready` and a fresh process fast-tracks it on data the graph knows is stale.
-    async fn expire_dependencies_result(&self, expired: crate::dependencies::ExpiredDependents<E>) {
+    ///
+    /// [`DependencyManager::expire`](crate::dependencies::DependencyManager::expire) reports the
+    /// root key itself among the expired keys. The root is not its own dependent, so it gets
+    /// `Direct { cause }` rather than a cascade from itself; in practice its caller has already
+    /// expired it, and an asset that is already `Expired` keeps the reason it has (only a
+    /// transition records).
+    async fn expire_dependencies_result(
+        &self,
+        expired: crate::dependencies::ExpiredDependents<E>,
+        cause: ExpiryCause,
+    ) {
+        let reason_for = |via: &crate::metadata::DependencyKey,
+                          key: Option<&crate::metadata::DependencyKey>|
+         -> ExpiryReason {
+            match &expired.root {
+                Some(root) if key == Some(root) => ExpiryReason::Direct {
+                    cause: cause.clone(),
+                },
+                Some(root) => ExpiryReason::Cascaded {
+                    cause: cause.clone(),
+                    root: root.clone(),
+                    via: via.clone(),
+                },
+                // Only `ExpiredDependents::new()` has no root, and it is empty; were one ever
+                // non-empty, the dependency it was reached through is the best root available.
+                None => ExpiryReason::Cascaded {
+                    cause: cause.clone(),
+                    root: via.clone(),
+                    via: via.clone(),
+                },
+            }
+        };
         for expired_key in &expired.keys {
             if let Ok(k) = Key::try_from(&expired_key.key) {
+                let reason = reason_for(&expired_key.via, Some(&expired_key.key));
                 if let Some(ar) = self.lookup_key_asset(&k) {
-                    let _ = ar.expire_without_cascade().await;
+                    let _ = ar.expire_without_cascade(reason).await;
                 } else {
-                    expire_stored_copy(self.get_envref().get_async_store(), &k).await;
+                    expire_stored_copy(self, self.get_envref().get_async_store(), &k, &reason)
+                        .await;
                 }
             }
         }
-        for (weak_ref, _via) in &expired.assets {
+        for (weak_ref, via) in &expired.assets {
             if let Some(ar) = weak_ref.upgrade() {
-                let _ = ar.expire_without_cascade().await;
+                let _ = ar.expire_without_cascade(reason_for(via, None)).await;
             }
         }
     }
@@ -4924,7 +5150,14 @@ pub trait AssetManager<E: Environment>:
                     .add_dependency(&dep_key, &plan_dep.key, ver)
                     .await
                 {
-                    self.expire_dependencies_result(expired).await;
+                    // `add_dependency` never expires anything; the cause is nominal.
+                    self.expire_dependencies_result(
+                        expired,
+                        ExpiryCause::Updated {
+                            version: Version::unknown(),
+                        },
+                    )
+                    .await;
                 }
             }
         }
@@ -5242,7 +5475,15 @@ impl<E: Environment> DefaultAssetManager<E> {
 
                                 // 1. Expire the asset and decide whether map-eviction is safe.
                                 //    In-flight states are preserved on expire failure.
-                                let expire_result = asset_ref.expire().await;
+                                let expire_result = asset_ref
+                                    .expire_with_reason(ExpiryReason::Direct {
+                                        cause: ExpiryCause::Deadline {
+                                            expiration_time: ExpirationTime::At(
+                                                timed.expiration,
+                                            ),
+                                        },
+                                    })
+                                    .await;
                                 let should_evict = match expire_result {
                                     Ok(()) => true,
                                     Err(e) => {
@@ -6179,7 +6420,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                         .dependency_manager
                         .register_version(&dep_key, version)
                         .await;
-                    self.expire_dependencies_result(expired).await;
+                    self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                        .await;
                 }
             }
 
@@ -6319,16 +6561,19 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 final_status,
                 Status::Ready | Status::Source | Status::Override
             ) {
+                let version = metadata.version().unwrap_or(Version::unknown());
                 if let Some(version) = metadata.version() {
                     let expired = self
                         .dependency_manager
                         .register_version(&dep_key, version)
                         .await;
-                    self.expire_dependencies_result(expired).await;
+                    self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                        .await;
                 }
                 // Track the asset in the dependency manager
                 let expired = self.dependency_manager.track_asset(&asset_ref).await;
-                self.expire_dependencies_result(expired).await;
+                self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                    .await;
             }
 
             Ok(())
@@ -7247,7 +7492,15 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             if status.is_finished() {
                 // Lazy expiration-on-access (replaces the monitor task).
                 if status == Status::Ready && assetref.is_expired().await {
-                    let _ = assetref.expire_without_cascade().await;
+                    // Step 5 of the dependency-audit design fixes the condition above
+                    // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`); the reason is right
+                    // already.
+                    let expiration_time = assetref.expiration_time().await;
+                    let _ = assetref
+                        .expire_without_cascade(ExpiryReason::Direct {
+                            cause: ExpiryCause::Deadline { expiration_time },
+                        })
+                        .await;
                     let mut map = self.query_assets.lock().unwrap_or_else(|e| e.into_inner());
                     let asset_id = assetref.id();
                     if let Some(existing) = map.get(query) {
@@ -7335,7 +7588,15 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             }
             if status.is_finished() {
                 if status == Status::Ready && asset_ref.is_expired().await {
-                    let _ = asset_ref.expire_without_cascade().await;
+                    // Step 5 of the dependency-audit design fixes the condition above
+                    // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`); the reason is right
+                    // already.
+                    let expiration_time = asset_ref.expiration_time().await;
+                    let _ = asset_ref
+                        .expire_without_cascade(ExpiryReason::Direct {
+                            cause: ExpiryCause::Deadline { expiration_time },
+                        })
+                        .await;
                     let asset_id = asset_ref.id();
                     let _mutation = self.key_mutation_lock.lock().await;
                     let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
@@ -7411,7 +7672,8 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                         .dependency_manager
                         .register_version(&dep_key, version)
                         .await;
-                    self.expire_dependencies_result(expired).await;
+                    self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                        .await;
                 }
             }
             Ok(())
@@ -7479,15 +7741,18 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 final_status,
                 Status::Ready | Status::Source | Status::Override
             ) {
+                let version = metadata.version().unwrap_or(Version::unknown());
                 if let Some(version) = metadata.version() {
                     let expired = self
                         .dependency_manager
                         .register_version(&dep_key, version)
                         .await;
-                    self.expire_dependencies_result(expired).await;
+                    self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                        .await;
                 }
                 let expired = self.dependency_manager.track_asset(&asset).await;
-                self.expire_dependencies_result(expired).await;
+                self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                    .await;
             }
             Ok(())
         }
@@ -9817,7 +10082,8 @@ recipes:
         {
             let mut lock = asset.data.write().await;
             lock.data = Some(Arc::new(Value::from("value")));
-            lock.stale_dependency = stale;
+            // The dependency a real run would have noted through `note_expired_dependency`.
+            lock.stale_dependency = stale.then(|| DependencyKey::new("-R/stale/input.csv"));
             lock.is_volatile = volatile;
         }
         asset
@@ -10170,10 +10436,21 @@ recipes:
         let Metadata::MetadataRecord(ref mr) = lock.metadata else {
             panic!("expected a MetadataRecord");
         };
+        // Wording from `ExpiryReason::log_entry` since the dependency-audit design's Step 4: the
+        // log line and the structured reason are written together by `record_expiry`.
         assert!(
             mr.log.iter().any(|e| e.kind == LogEntryKind::Warning
-                && e.message.contains("expired dependency value")),
+                && e.message
+                    .contains("it was evaluated with the expired value of -R/stale/input.csv")),
             "the reason must be recorded in the same locked decision as the status"
+        );
+        assert_eq!(
+            lock.metadata.expiry_reason(),
+            Some(ExpiryReason::Direct {
+                cause: ExpiryCause::StaleDependency {
+                    dependency: DependencyKey::new("-R/stale/input.csv"),
+                },
+            })
         );
     }
 
@@ -11183,5 +11460,361 @@ recipes:
         // An absent media type is not a divergence — it means "derive".
         let derived = super::soft_consistency_entries("csv", Some("csv"), "", "text/csv");
         assert!(derived.is_empty());
+    }
+
+    // ==================================================================================
+    // Expiry provenance — `dependency-audit-and-expiry-provenance` Step 4 (Phase 3 U3).
+    // ==================================================================================
+
+    /// The log messages of `metadata`; empty for legacy metadata.
+    fn expiry_test_log(metadata: &Metadata) -> Vec<String> {
+        match metadata {
+            Metadata::MetadataRecord(mr) => mr.log.iter().map(|e| e.message.clone()).collect(),
+            Metadata::LegacyMetadata(_) => Vec::new(),
+        }
+    }
+
+    /// A `SimpleEnvironment` over a fresh memory store.
+    fn expiry_test_envref() -> EnvRef<SimpleEnvironment<Value>> {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+        env.to_ref()
+    }
+
+    /// Write a stored `Ready` copy of `key`, as an earlier run would have left it.
+    async fn store_ready_copy(
+        envref: &EnvRef<SimpleEnvironment<Value>>,
+        key: &Key,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut mr = MetadataRecord::new();
+        mr.status = Status::Ready;
+        mr.version = Some(Version::new(7));
+        envref
+            .get_async_store()
+            .set(key, b"stored bytes", &Metadata::MetadataRecord(mr))
+            .await?;
+        Ok(())
+    }
+
+    /// A live keyed `Ready` asset whose value is also in the store, as `mark_expired_status`
+    /// requires before it persists.
+    async fn ready_keyed_asset(
+        id: u64,
+        key: &Key,
+        envref: &EnvRef<SimpleEnvironment<Value>>,
+    ) -> Result<AssetRef<SimpleEnvironment<Value>>, Box<dyn std::error::Error>> {
+        store_ready_copy(envref, key).await?;
+        let asset = AssetData::<SimpleEnvironment<Value>>::new(
+            id,
+            Query::from(key.clone()).into(),
+            Some(key.clone()),
+            envref.clone(),
+        )
+        .to_ref();
+        {
+            let mut lock = asset.data.write().await;
+            lock.data = Some(Arc::new(Value::from("value")));
+            lock.set_status(Status::Ready)?;
+        }
+        Ok(asset)
+    }
+
+    #[tokio::test]
+    async fn mark_expired_status_persists_reason_with_status(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let envref = expiry_test_envref();
+        let key = parse_key("prov/m.txt")?;
+        let asset = ready_keyed_asset(9901, &key, &envref).await?;
+        let reason = ExpiryReason::Direct {
+            cause: ExpiryCause::Explicit,
+        };
+
+        assert!(asset.mark_expired_status(reason.clone()).await?);
+
+        let live = asset.get_metadata().await?;
+        assert_eq!(live.status(), Status::Expired);
+        assert_eq!(live.expiry_reason(), Some(reason.clone()));
+
+        // The persisted copy carries the reason with the status: it was recorded before the
+        // metadata was cloned for `set_metadata`.
+        let stored = envref.get_async_store().get_metadata(&key).await?;
+        assert_eq!(stored.status(), Status::Expired);
+        assert_eq!(stored.expiry_reason(), Some(reason));
+        assert!(expiry_test_log(&stored)
+            .iter()
+            .any(|m| m == "prov/m.txt expired: expiration was requested explicitly"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn mark_expired_status_calls_record_expiry_once_under_the_lock(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let envref = expiry_test_envref();
+        let key = parse_key("prov/once.txt")?;
+        let asset = ready_keyed_asset(9902, &key, &envref).await?;
+
+        // A reader racing the transition: it must never see `Expired` without its reason, which
+        // is what "recorded under the same lock" means observably.
+        let observer = asset.clone();
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stop_reader = stop.clone();
+        let reader = tokio::spawn(async move {
+            let mut torn = 0usize;
+            while !stop_reader.load(Ordering::SeqCst) {
+                {
+                    let lock = observer.data.read().await;
+                    if lock.status == Status::Expired && lock.metadata.expiry_reason().is_none() {
+                        torn += 1;
+                    }
+                }
+                tokio::task::yield_now().await;
+            }
+            torn
+        });
+
+        let first = ExpiryReason::Direct {
+            cause: ExpiryCause::Explicit,
+        };
+        let second = ExpiryReason::Direct {
+            cause: ExpiryCause::Removed,
+        };
+        assert!(asset.mark_expired_status(first.clone()).await?);
+        // A second expiry of an already-`Expired` asset records nothing.
+        assert!(!asset.mark_expired_status(second).await?);
+
+        stop.store(true, Ordering::SeqCst);
+        assert_eq!(reader.await?, 0, "a reader saw Expired without its reason");
+
+        let metadata = asset.get_metadata().await?;
+        assert_eq!(metadata.expiry_reason(), Some(first));
+        let expiry_lines = expiry_test_log(&metadata)
+            .into_iter()
+            .filter(|m| m.starts_with("prov/once.txt expired:"))
+            .count();
+        assert_eq!(expiry_lines, 1, "record_expiry must run once, on the transition only");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn expire_stored_copy_calls_record_expiry() -> Result<(), Box<dyn std::error::Error>> {
+        let envref = expiry_test_envref();
+        let key = parse_key("prov/stored.txt")?;
+        store_ready_copy(&envref, &key).await?;
+        let reason = ExpiryReason::Cascaded {
+            cause: ExpiryCause::Updated {
+                version: Version::new(42),
+            },
+            root: DependencyKey::new("-R/prov/a.csv"),
+            via: DependencyKey::new("-R/prov/b.csv"),
+        };
+
+        let manager = envref.get_asset_manager();
+        expire_stored_copy(&*manager, envref.get_async_store(), &key, &reason).await;
+
+        let stored = envref.get_async_store().get_metadata(&key).await?;
+        assert_eq!(stored.status(), Status::Expired);
+        assert_eq!(stored.expiry_reason(), Some(reason));
+        assert!(expiry_test_log(&stored).iter().any(|m| m
+            == "prov/stored.txt expired: new content of -R/prov/a.csv triggered a cascade \
+                expiration via direct dependency -R/prov/b.csv"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn expire_dependencies_result_assigns_cascaded_reason_per_key(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let envref = expiry_test_envref();
+        let a = parse_key("prov/a.csv")?;
+        let b = parse_key("prov/b.csv")?;
+        let c = parse_key("prov/c.txt")?;
+        for key in [&a, &b, &c] {
+            store_ready_copy(&envref, key).await?;
+        }
+        // An untracked (query) asset found in b's dependent list.
+        let query_asset = AssetData::<SimpleEnvironment<Value>>::new(
+            9903,
+            parse_query("prov/b.csv/-/q")?.into(),
+            None,
+            envref.clone(),
+        )
+        .to_ref();
+        {
+            let mut lock = query_asset.data.write().await;
+            lock.data = Some(Arc::new(Value::from("q")));
+            lock.set_status(Status::Ready)?;
+        }
+
+        let (ka, kb, kc) = (
+            DependencyKey::from(&a),
+            DependencyKey::from(&b),
+            DependencyKey::from(&c),
+        );
+        // `DependencyManager::expire` reports the root itself (via == root), then the walk.
+        let expired = crate::dependencies::ExpiredDependents {
+            root: Some(ka.clone()),
+            keys: vec![
+                crate::dependencies::ExpiredKey {
+                    key: ka.clone(),
+                    via: ka.clone(),
+                },
+                crate::dependencies::ExpiredKey {
+                    key: kb.clone(),
+                    via: ka.clone(),
+                },
+                crate::dependencies::ExpiredKey {
+                    key: kc.clone(),
+                    via: kb.clone(),
+                },
+            ],
+            assets: vec![(query_asset.downgrade(), kb.clone())],
+        };
+        let manager = envref.get_asset_manager();
+        manager
+            .expire_dependencies_result(expired, ExpiryCause::Explicit)
+            .await;
+
+        let store = envref.get_async_store();
+        assert_eq!(
+            store.get_metadata(&a).await?.expiry_reason(),
+            Some(ExpiryReason::Direct {
+                cause: ExpiryCause::Explicit
+            }),
+            "the root is not cascaded from itself"
+        );
+        assert_eq!(
+            store.get_metadata(&b).await?.expiry_reason(),
+            Some(ExpiryReason::Cascaded {
+                cause: ExpiryCause::Explicit,
+                root: ka.clone(),
+                via: ka.clone(),
+            })
+        );
+        assert_eq!(
+            store.get_metadata(&c).await?.expiry_reason(),
+            Some(ExpiryReason::Cascaded {
+                cause: ExpiryCause::Explicit,
+                root: ka.clone(),
+                via: kb.clone(),
+            })
+        );
+        assert_eq!(
+            query_asset.get_metadata().await?.expiry_reason(),
+            Some(ExpiryReason::Cascaded {
+                cause: ExpiryCause::Explicit,
+                root: ka,
+                via: kb,
+            })
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn cascade_expire_dependents_takes_the_cause() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let envref = expiry_test_envref();
+        let a = parse_key("prov/src.csv")?;
+        let b = parse_key("prov/dep.txt")?;
+        store_ready_copy(&envref, &b).await?;
+        let (ka, kb) = (DependencyKey::from(&a), DependencyKey::from(&b));
+        let manager = envref.get_asset_manager();
+        let dm = manager.dependency_manager();
+        let _ = dm.register_version(&ka, Version::new(1)).await;
+        let _ = dm.add_dependency(&kb, &ka, Version::new(1)).await?;
+
+        manager
+            .cascade_expire_dependents(&ka, ExpiryCause::Removed)
+            .await;
+
+        let stored = envref.get_async_store().get_metadata(&b).await?;
+        assert_eq!(stored.status(), Status::Expired);
+        assert_eq!(
+            stored.expiry_reason(),
+            Some(ExpiryReason::Cascaded {
+                cause: ExpiryCause::Removed,
+                root: ka.clone(),
+                via: ka,
+            })
+        );
+        assert!(expiry_test_log(&stored).iter().any(|m| m
+            == "prov/dep.txt expired: the removal of -R/prov/src.csv triggered a cascade \
+                expiration"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stale_dependency_records_dependency_key_not_id(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let envref = expiry_test_envref();
+        let dep_key = parse_key("prov/input.csv")?;
+        let dependency = AssetData::<SimpleEnvironment<Value>>::new(
+            987_654_321,
+            Query::from(dep_key.clone()).into(),
+            Some(dep_key.clone()),
+            envref.clone(),
+        )
+        .to_ref();
+        let other = AssetData::<SimpleEnvironment<Value>>::new(
+            987_654_322,
+            parse_query("prov/other.csv/-/q")?.into(),
+            None,
+            envref.clone(),
+        )
+        .to_ref();
+        let asset = AssetData::<SimpleEnvironment<Value>>::new(
+            123_456_789,
+            parse_query("prov/out.txt")?.into(),
+            Some(parse_key("prov/out.txt")?),
+            envref.clone(),
+        )
+        .to_ref();
+
+        asset.note_expired_dependency(&dependency).await?;
+        // A second stale dependency adds a log line but does not replace the first.
+        asset.note_expired_dependency(&other).await?;
+
+        let lock = asset.data.read().await;
+        assert_eq!(
+            lock.stale_dependency,
+            Some(DependencyKey::from(&dep_key)),
+            "the first stale dependency wins, recorded by key"
+        );
+        let log = expiry_test_log(&lock.metadata);
+        assert!(log
+            .iter()
+            .any(|m| m.contains("Dependency -R/prov/input.csv of prov/out.txt expired")));
+        assert!(log.iter().any(|m| m.contains("prov/other.csv/-/q")));
+        for message in &log {
+            for id in ["987654321", "987654322", "123456789"] {
+                assert!(
+                    !message.contains(id),
+                    "log line names a runtime asset id: {}",
+                    message
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn explicit_expire_of_stored_copy_records_reason(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let envref = expiry_test_envref();
+        let key = parse_key("prov/only_stored.txt")?;
+        store_ready_copy(&envref, &key).await?;
+
+        envref.get_asset_manager().expire(&key).await?;
+
+        let stored = envref.get_async_store().get_metadata(&key).await?;
+        assert_eq!(stored.status(), Status::Expired);
+        assert_eq!(
+            stored.expiry_reason(),
+            Some(ExpiryReason::Direct {
+                cause: ExpiryCause::Explicit
+            })
+        );
+        assert!(expiry_test_log(&stored)
+            .iter()
+            .any(|m| m == "prov/only_stored.txt expired: expiration was requested explicitly"));
+        Ok(())
     }
 }
