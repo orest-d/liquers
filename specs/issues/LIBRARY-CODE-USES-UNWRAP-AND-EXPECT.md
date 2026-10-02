@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: L
 area: [core/query, lib/commands, axum]
-design:
+design: axum-assets-endpoints
 created: 2026-08-17
 github:
 ---
@@ -77,3 +77,10 @@ acceptable in genuinely unreachable spots.
 Noticed 2026-08-17 while implementing `specs/design/store-key-guard/`: making
 `AsyncOpenDALStore::key_to_path` fallible required touching `make_sub_dirs`, whose neighbouring
 `unwrap()` is the example above. The survey that followed showed it was not an isolated case.
+
+## Progress
+
+Progress 2026-09-28 (`design/axum-assets-endpoints/`, I7): `liquers-axum` library code has no
+`unwrap()`/`expect()` — the nine sites use `build_or_500` or `HeaderValue::from_static`, and
+`cargo clippy -p liquers-axum --no-deps -- -D clippy::unwrap_used -D clippy::expect_used` passes.
+The other crates remain.

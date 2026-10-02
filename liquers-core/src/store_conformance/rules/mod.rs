@@ -148,7 +148,7 @@ static RULES: &[Rule] = &[
     ),
     rule!(
         "dir07",
-        "directory metadata does not populate children",
+        "directory metadata populates children with the direct children only",
         "STORE_SEMANTICS.md §2",
         [Directories, Write],
         CreateOnly,
@@ -270,6 +270,8 @@ static RULES: &[Rule] = &[
         "STORE_SEMANTICS.md §8", [StoredMetadata, Write], CreateOnly, sidecar::sidecar02),
     rule!("sidecar03", "the fallible operations actually reject a sidecar-colliding key",
         "STORE_SEMANTICS.md §8", [Write], Scratch, sidecar::sidecar03),
+    rule!("sidecar04", "a key holding only metadata is listed by its parent",
+        "STORE_SEMANTICS.md §8", [Directories, StoredMetadata, Write], CreateOnly, sidecar::sidecar04),
     // §9 — what keys() returns.
     rule!("keys01", "every key keys() returns starts with the store's prefix",
         "STORE_SEMANTICS.md §9", [EnumerateKeys], ReadOnly, enumerate::keys01),

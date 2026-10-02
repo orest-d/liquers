@@ -145,7 +145,8 @@ test.describe('STORE — end to end in a real browser', () => {
    * STORE10 — the headers really are read, and the extension really does win.
    *
    * The precedence *rule* is unit-tested; this asserts the store actually reaches a `Response` for
-   * both halves. `input.csv` is served as `text/csv` by the static server and must stay `text/csv`;
+   * both halves. `input.csv` has an extension, which sets its data format; its raw `media_type`
+   * stays absent, because no override was declared and the media type derives from the format.
    * `blob` has no extension, so whatever the server says is what is used.
    */
   test('STORE10 metadata comes from the extension and the response', async ({ page }) => {
@@ -161,10 +162,20 @@ test.describe('STORE — end to end in a real browser', () => {
         });
         const csv = await env.store().getMetadata('data/input.csv');
         const blob = await env.store().getMetadata('data/blob');
-        return { csv: csv.media_type, blob: blob.media_type, size: csv.file_size };
+        return {
+          format: csv.data_format,
+          csvType: csv.media_type ?? null,
+          blob: blob.media_type,
+          size: csv.file_size,
+        };
       `),
     );
-    expect(result.csv).toBe('text/csv');
+    // The extension decides the data format. The raw record's `media_type` holds only a
+    // *declared* override, and nothing declared one here, so it is absent: the effective media
+    // type (`text/csv`) is derived from the format when it is needed (metadata level model,
+    // liquers-core/src/metadata.rs `with_filename`). HTTP-STORE-METADATA-DROPS-THE-EXTENSION-MEDIA-TYPE.
+    expect(result.format).toBe('csv');
+    expect(result.csvType).toBeNull();
     // No extension, so the server's Content-Type is what remains. Any non-empty answer proves the
     // header was read; asserting the exact value would pin the static server's guess, not ours.
     expect(typeof result.blob).toBe('string');

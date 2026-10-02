@@ -234,6 +234,18 @@ impl AsyncOpenDALStore {
         let entries = self.map_read_error(key, self.op.list_with(&path).limit(1).await)?;
         Ok(!entries.is_empty())
     }
+
+    /// A directory's metadata: `default_metadata(key, true)` with its direct children.
+    ///
+    /// Both directory branches of `get_metadata` return this — `stat().is_dir()` for services with
+    /// directory objects, the `has_children` fallback for flat ones — so they cannot diverge.
+    /// `children` is one level deep: the `AsyncStore` default `get_asset_info` answers a child
+    /// directory without reading its own children (STORE_SEMANTICS §2).
+    async fn directory_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+        let mut metadata = self.default_metadata(key, true);
+        metadata.children = self.listdir_asset_info(key).await?;
+        Ok(Metadata::MetadataRecord(metadata))
+    }
 }
 
 #[cfg(feature = "async_store")]
@@ -305,11 +317,7 @@ impl AsyncStore for AsyncOpenDALStore {
             if self.map_read_error(key, self.op.exists(&path).await)? {
                 let stat = self.map_read_error(key, self.op.stat(&path).await)?;
                 if stat.is_dir() {
-                    // Directory children are deliberately not populated here: `listdir_asset_info`
-                    // calls `get_asset_info` per child, which calls `get_metadata` per child
-                    // directory — a full recursive walk of the subtree for one directory read.
-                    let metadata = self.default_metadata(key, true);
-                    return Ok(Metadata::MetadataRecord(metadata));
+                    return self.directory_metadata(key).await;
                 } else {
                     let mut metadata = self.default_metadata(key, false);
                     metadata.warning(&format!("Metadata file {} does not exist.", path));
@@ -331,7 +339,7 @@ impl AsyncStore for AsyncOpenDALStore {
                 // The value returned is the one the `stat().is_dir()` branch above returns, so the
                 // two paths cannot diverge.
                 if self.has_children(key).await? {
-                    return Ok(Metadata::MetadataRecord(self.default_metadata(key, true)));
+                    return self.directory_metadata(key).await;
                 }
                 Err(Error::key_not_found(key))
             }
@@ -796,13 +804,13 @@ mod tests {
         Ok(())
     }
 
-    /// `SIBLING01` — `removedir` must not reach a directory whose name shares its prefix.
+    /// `removedir` must not reach a directory whose name shares its prefix.
     ///
     /// The P0. `remove_all` on a path with no trailing slash deletes by *prefix*, so
     /// `removedir("data")` destroyed `database/`. Reachable through
     /// `DELETE /api/store/removedir/{*key}`.
     #[tokio::test]
-    async fn sibling01_removedir_leaves_a_prefix_sharing_sibling() -> Result<(), Error> {
+    async fn opendal_removedir_leaves_a_prefix_sharing_sibling() -> Result<(), Error> {
         let fs = fs_store("sibling01");
         for store in [&memory_store(), &fs.store] {
             let inside = parse_key("data/input.csv")?;
@@ -822,9 +830,9 @@ mod tests {
         Ok(())
     }
 
-    /// `SIBLING02` — the same, one level down.
+    /// The same, one level down.
     #[tokio::test]
-    async fn sibling02_removedir_is_scoped_at_depth() -> Result<(), Error> {
+    async fn opendal_removedir_is_scoped_at_depth() -> Result<(), Error> {
         let fs = fs_store("sibling02");
         for store in [&memory_store(), &fs.store] {
             store
@@ -842,9 +850,9 @@ mod tests {
         Ok(())
     }
 
-    /// `SIBLING03` — a recursive listing must not return keys from a prefix-sharing sibling.
+    /// A recursive listing must not return keys from a prefix-sharing sibling.
     #[tokio::test]
-    async fn sibling03_listdir_keys_deep_excludes_siblings() -> Result<(), Error> {
+    async fn opendal_listdir_keys_deep_excludes_siblings() -> Result<(), Error> {
         let fs = fs_store("sibling03");
         for store in [&memory_store(), &fs.store] {
             store
@@ -869,22 +877,12 @@ mod tests {
         Ok(())
     }
 
-    /// `REMOVE01` — removing a directory that does not exist is a no-op, as in `AsyncFileStore`.
-    #[tokio::test]
-    async fn remove01_removedir_on_an_absent_directory_is_ok() -> Result<(), Error> {
-        let fs = fs_store("remove01");
-        for store in [&memory_store(), &fs.store] {
-            store.removedir(&parse_key("never/existed")?).await?;
-        }
-        Ok(())
-    }
-
-    /// `REMOVE02` — `removedir` on the root key empties the store. Deliberate, and asserted so.
+    /// `removedir` on the root key empties the store. Deliberate, and asserted so.
     ///
     /// This is the one case where scoping the delete to a directory narrows nothing: the root
     /// directory *is* everything. `AsyncFileStore` would do the same.
     #[tokio::test]
-    async fn remove02_removedir_on_the_root_empties_the_store() -> Result<(), Error> {
+    async fn opendal_removedir_on_the_root_empties_the_store() -> Result<(), Error> {
         let store = memory_store();
         store
             .set(&parse_key("a/b.txt")?, b"x", &Metadata::new())
@@ -939,13 +937,13 @@ mod tests {
         Ok(())
     }
 
-    /// `PREFIX01` — a prefixed store advertises its prefix and enumerates only within it.
+    /// A prefixed store advertises its prefix and enumerates only within it.
     ///
     /// Both halves matter: `key_prefix()` reports `data`, and the backend path still *contains*
     /// `data`, because the prefix is part of the path under the backend root rather than a mount
     /// point that gets stripped. `liquers-web`'s `FetchStore` is the documented exception.
     #[tokio::test]
-    async fn prefix01_a_prefixed_store_reports_and_respects_its_prefix() -> Result<(), Error> {
+    async fn opendal_prefixed_store_reports_and_respects_its_prefix() -> Result<(), Error> {
         let op = Operator::new(Memory::default())
             .expect("memory operator")
             .finish();
@@ -969,13 +967,13 @@ mod tests {
         Ok(())
     }
 
-    /// `SIBLING04` — a prefixed store does not enumerate a prefix-sharing directory beside it.
+    /// A prefixed store does not enumerate a prefix-sharing directory beside it.
     ///
     /// **This test needs both fixes.** Without the trailing slash, `keys()` lists `database/…`
     /// because `list_with("data")` matches by prefix. Without `key_prefix()`, it enumerates from
     /// the backend root and reaches `database/` that way. Remove either and it fails.
     #[tokio::test]
-    async fn sibling04_a_prefixed_store_enumerates_only_its_own_subtree() -> Result<(), Error> {
+    async fn opendal_prefixed_store_enumerates_only_its_own_subtree() -> Result<(), Error> {
         let op = Operator::new(Memory::default())
             .expect("memory operator")
             .finish();
@@ -1029,8 +1027,9 @@ mod tests {
             router.is_dir(&parse_key("other")?).await?,
             "the second store's directory is answered by the second store, not claimed by the first"
         );
-        // `router.is_dir("data")` is asserted by `DIR04`, which delegates to the OpenDAL store and
-        // therefore needs the directory fallback this commit's successor adds.
+        // `router.is_dir("data")` is asserted by `opendal_router_is_dir_reaches_a_prefixed_store`,
+        // which delegates to the OpenDAL store and therefore needs the directory fallback this
+        // commit's successor adds.
         Ok(())
     }
 
@@ -1173,9 +1172,9 @@ mod tests {
         Ok(())
     }
 
-    /// `DIR01` — on a backend with no directory objects, addressing agrees with listing.
+    /// On a backend with no directory objects, addressing agrees with listing.
     #[tokio::test]
-    async fn dir01_directory_key_is_addressable_without_directory_objects() -> Result<(), Error> {
+    async fn opendal_directory_key_is_addressable_without_directory_objects() -> Result<(), Error> {
         let store = memory_store();
         let key = parse_key("data/reports/q3.csv")?;
         let dir = parse_key("data/reports")?;
@@ -1195,12 +1194,12 @@ mod tests {
         Ok(())
     }
 
-    /// `DIR05` — directory metadata says it is a directory, and names its key.
+    /// Directory metadata says it is a directory, and names its key.
     ///
     /// Raised in review of PR #58: `default_metadata` ignored both arguments, so the record a
     /// caller got for a directory was indistinguishable from one for a file.
     #[tokio::test]
-    async fn dir05_directory_metadata_is_marked_as_a_directory() -> Result<(), Error> {
+    async fn opendal_directory_metadata_is_marked_as_a_directory() -> Result<(), Error> {
         let store = memory_store();
         let dir = parse_key("data/reports")?;
         store
@@ -1217,6 +1216,53 @@ mod tests {
         assert!(record.is_dir, "a directory must be marked as one");
         assert_eq!(record.key, Some(dir), "and must name its key");
         Ok(())
+    }
+
+    /// Directory metadata lists the direct children, on both services.
+    ///
+    /// The two services reach it by different branches of `get_metadata` — memory has no directory
+    /// objects and takes the `has_children` fallback, fs takes `stat().is_dir()` — so each is
+    /// checked. `sub` is itself a directory: it appears once, directory-shaped, and its own child
+    /// is not listed here (STORE_SEMANTICS §2, one level).
+    async fn check_directory_children(store: &AsyncOpenDALStore) -> Result<(), Error> {
+        store
+            .set(&parse_key("data/reports/q3.csv")?, b"rows", &Metadata::new())
+            .await?;
+        store
+            .set(&parse_key("data/reports/sub/deep.txt")?, b"x", &Metadata::new())
+            .await?;
+
+        let Metadata::MetadataRecord(record) =
+            store.get_metadata(&parse_key("data/reports")?).await?
+        else {
+            panic!("expected a MetadataRecord for a directory");
+        };
+        let mut children: Vec<(String, bool)> = record
+            .children
+            .iter()
+            .filter_map(|info| Some((info.key.as_ref()?.encode(), info.is_dir)))
+            .collect();
+        children.sort();
+        assert_eq!(
+            children,
+            vec![
+                ("data/reports/q3.csv".to_owned(), false),
+                ("data/reports/sub".to_owned(), true),
+            ]
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn opendal_directory_metadata_lists_children_memory() -> Result<(), Error> {
+        check_directory_children(&memory_store()).await
+    }
+
+    #[cfg(feature = "services-fs")]
+    #[tokio::test]
+    async fn opendal_directory_metadata_lists_children_fs() -> Result<(), Error> {
+        let fs = fs_store("dirchildren");
+        check_directory_children(&fs.store).await
     }
 
     /// `PATHMAP07` — the directory form refuses a reserved key, like the other forms.
@@ -1275,27 +1321,13 @@ mod tests {
         Ok(())
     }
 
-    /// `DIR02` — an absent key is `Ok(false)`, not an error.
-    ///
-    /// Every other store answers this way: `AsyncFileStore`, `AsyncMemoryStore`, and the trait
-    /// default. This store returning `Err` was the divergence.
-    #[tokio::test]
-    async fn dir02_is_dir_on_an_absent_key_is_false_not_an_error() -> Result<(), Error> {
-        let fs = fs_store("dir02");
-        for store in [&memory_store(), &fs.store] {
-            assert!(!store.is_dir(&parse_key("nothing/here")?).await?);
-            assert!(!store.contains(&parse_key("nothing/here")?).await?);
-        }
-        Ok(())
-    }
-
-    /// `DIR03` — `has_children` is non-emptiness, never a count.
+    /// `has_children` is non-emptiness, never a count.
     ///
     /// `limit(1)` is a page-size hint: the memory backend returns two entries for it, because a
     /// data object and its sidecar arrive together. A test asserting a count would pass on one
     /// backend and fail on another.
     #[tokio::test]
-    async fn dir03_directory_detection_does_not_depend_on_a_count() -> Result<(), Error> {
+    async fn opendal_directory_detection_does_not_depend_on_a_count() -> Result<(), Error> {
         let store = memory_store();
         for i in 0..5 {
             store
@@ -1311,13 +1343,13 @@ mod tests {
         Ok(())
     }
 
-    /// `DIR04` — the router's `is_dir` reaches a prefixed OpenDAL store's directory.
+    /// The router's `is_dir` reaches a prefixed OpenDAL store's directory.
     ///
     /// The half of `ROUTER01` that had to wait for this commit: `AsyncStoreRouter::is_dir`
     /// delegates on `key_prefix()`, and the store it delegates to could not answer for a directory
     /// with no directory object.
     #[tokio::test]
-    async fn dir04_router_is_dir_reaches_a_prefixed_opendal_store() -> Result<(), Error> {
+    async fn opendal_router_is_dir_reaches_a_prefixed_store() -> Result<(), Error> {
         use liquers_core::store::{AsyncMemoryStore, AsyncStoreRouter};
 
         let op = Operator::new(Memory::default())

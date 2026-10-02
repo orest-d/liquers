@@ -1,52 +1,83 @@
+//! Query Execution API handlers: `GET/POST {base}/{*query}` evaluate a query and serve its value.
+//!
+//! The value is read through `AssetRef::get_binary`, which waits for the evaluation, applies the
+//! effective data format and refuses an expired, errored or cancelled result with that asset's own
+//! error — the same path the Assets API's `data` routes use. The wait is bounded by
+//! [`QueryApiConfig::timeout`] (`QueryApiBuilder::with_timeout`, default 30 s).
+
+use std::time::Duration;
+
 use crate::api_core::{error_to_detail, ApiResponse, BinaryResponse};
 use axum::{
+    body::Bytes,
     extract::{Path, State},
     response::{IntoResponse, Response},
-    Json,
+    Extension,
 };
 use liquers_core::{
     context::{EnvRef, Environment},
-    metadata::Status,
     parse::parse_query,
 };
 use serde_json::Value as JsonValue;
 
-/// GET /q/{*query} - Execute query and return result
-pub async fn get_query_handler<E: Environment>(
-    State(env): State<EnvRef<E>>,
-    Path(query_path): Path<String>,
+/// Settings of the Query API, handed to its handlers as an `Extension` by `QueryApiBuilder`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct QueryApiConfig {
+    /// How long a request waits for the value before answering with an error.
+    pub timeout: Duration,
+}
+
+impl Default for QueryApiConfig {
+    fn default() -> Self {
+        QueryApiConfig {
+            timeout: Duration::from_secs(30),
+        }
+    }
+}
+
+fn error_response(e: &liquers_core::error::Error, message: &str) -> Response {
+    let response: ApiResponse<()> = ApiResponse::error(error_to_detail(e), message);
+    response.into_response()
+}
+
+/// Evaluate `query_path` and serve the value, or an error.
+async fn serve_query<E: Environment>(
+    env: &EnvRef<E>,
+    query_path: &str,
+    config: QueryApiConfig,
 ) -> Response {
-    // Parse query from path
-    let query = match parse_query(&query_path) {
+    let query = match parse_query(query_path) {
         Ok(q) => q,
-        Err(e) => {
-            let error_detail = error_to_detail(&e);
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Failed to parse query");
-            return response.into_response();
-        }
+        Err(e) => return error_response(&e, "Failed to parse query"),
     };
-
-    // Evaluate query
-    let asset_ref = match env.evaluate(&query).await {
-        Ok(asset) => asset,
-        Err(e) => {
-            let error_detail = error_to_detail(&e);
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Query evaluation failed");
-            return response.into_response();
-        }
+    // The timeout bounds the whole wait: with an inline manager (`EvalMode::Inline`),
+    // `evaluate` itself runs the evaluation to completion before returning.
+    let evaluation = async {
+        let asset_ref = env
+            .evaluate(&query)
+            .await
+            .map_err(|e| (e, "Query evaluation failed"))?;
+        asset_ref
+            .get_binary()
+            .await
+            .map_err(|e| (e, "Query execution failed"))
     };
-
-    // Poll for result with 30-second timeout
-    let timeout = tokio::time::Duration::from_secs(30);
-    let start = tokio::time::Instant::now();
-
-    loop {
-        if start.elapsed() > timeout {
+    match tokio::time::timeout(config.timeout, evaluation).await {
+        Ok(Ok((data, metadata))) => BinaryResponse {
+            data: (*data).clone(),
+            metadata: (*metadata).clone(),
+        }
+        .into_response(),
+        Ok(Err((e, message))) => error_response(&e, message),
+        Err(_) => {
             let error_detail = crate::api_core::ErrorDetail {
                 error_type: "ExecutionError".to_string(),
-                message: "Query execution timed out after 30 seconds".to_string(),
+                message: format!(
+                    "Query execution did not finish within {:?}. To follow a long evaluation, use \
+                     the Assets API: POST {{assets}}/q/submit, then poll GET {{assets}}/q/info or \
+                     subscribe on {{assets}}/ws/q",
+                    config.timeout
+                ),
                 query: Some(query.encode()),
                 key: None,
                 traceback: None,
@@ -54,107 +85,18 @@ pub async fn get_query_handler<E: Environment>(
             };
             let response: ApiResponse<()> =
                 ApiResponse::error(error_detail, "Query execution timeout");
-            return response.into_response();
+            response.into_response()
         }
-
-        // Check if binary data is ready
-        if let Some((data_arc, metadata_arc)) = asset_ref.poll_binary().await {
-            let data = (*data_arc).clone();
-            let metadata = (*metadata_arc).clone();
-            return BinaryResponse { data, metadata }.into_response();
-        }
-
-        // Check status for errors
-        let status = asset_ref.status().await;
-        match status {
-            Status::Error => {
-                // Try to get error details via get_binary() which should fail
-                if let Err(e) = asset_ref.get_binary().await {
-                    let error_detail = error_to_detail(&e);
-                    let response: ApiResponse<()> =
-                        ApiResponse::error(error_detail, "Query execution failed");
-                    return response.into_response();
-                } else {
-                    // Status is error but get_binary succeeded - shouldn't happen
-                    let error_detail = crate::api_core::ErrorDetail {
-                        error_type: "ExecutionError".to_string(),
-                        message: "Query execution failed".to_string(),
-                        query: Some(query.encode()),
-                        key: None,
-                        traceback: None,
-                        metadata: None,
-                    };
-                    let response: ApiResponse<()> =
-                        ApiResponse::error(error_detail, "Query execution failed");
-                    return response.into_response();
-                }
-            }
-            Status::Ready => {
-                // Data should be available, but poll_binary returned None above
-                // This is a race condition - loop again
-            }
-            Status::Cancelled => {
-                let error_detail = crate::api_core::ErrorDetail {
-                    error_type: "ExecutionError".to_string(),
-                    message: "Query execution was cancelled".to_string(),
-                    query: Some(query.encode()),
-                    key: None,
-                    traceback: None,
-                    metadata: None,
-                };
-                let response: ApiResponse<()> =
-                    ApiResponse::error(error_detail, "Query execution cancelled");
-                return response.into_response();
-            }
-            // Expired is a terminal cache miss for a handler that already holds this AssetRef:
-            // re-evaluation belongs at the manager request boundary, and recomputing here would
-            // hide expiry from the caller. Retained data is reachable only by explicit opt-in
-            // (to_override, or the *_any_status reads), which HTTP does not expose yet.
-            Status::Expired => {
-                let error_detail = crate::api_core::ErrorDetail {
-                    error_type: "ExecutionError".to_string(),
-                    message: "Query result is expired".to_string(),
-                    query: Some(query.encode()),
-                    key: None,
-                    traceback: None,
-                    metadata: None,
-                };
-                let response: ApiResponse<()> =
-                    ApiResponse::error(error_detail, "Query result expired");
-                return response.into_response();
-            }
-            // Directory has no binary representation, so poll_binary never yields for it.
-            // Without an explicit arm this would spin to the timeout.
-            Status::Directory => {
-                let error_detail = crate::api_core::ErrorDetail {
-                    error_type: "ExecutionError".to_string(),
-                    message: "Query refers to a directory, which has no binary representation"
-                        .to_string(),
-                    query: Some(query.encode()),
-                    key: None,
-                    traceback: None,
-                    metadata: None,
-                };
-                let response: ApiResponse<()> =
-                    ApiResponse::error(error_detail, "Not a binary asset");
-                return response.into_response();
-            }
-            // Value-bearing statuses: poll_binary yields on the next turn (it may have to
-            // serialize first), so keep looping rather than deciding here.
-            Status::Source | Status::Override | Status::Volatile => {}
-            // Still processing, wait and retry.
-            Status::None
-            | Status::Recipe
-            | Status::Submitted
-            | Status::Dependencies
-            | Status::Processing
-            | Status::Partial
-            | Status::Storing => {}
-        }
-
-        // Not ready yet, wait a bit before polling again
-        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
     }
+}
+
+/// GET /q/{*query} - Execute query and return result
+pub async fn get_query_handler<E: Environment>(
+    State(env): State<EnvRef<E>>,
+    Extension(config): Extension<QueryApiConfig>,
+    Path(query_path): Path<String>,
+) -> Response {
+    serve_query(&env, &query_path, config).await
 }
 
 /// POST /q/{*query} - Execute query with optional JSON body
@@ -163,143 +105,25 @@ pub async fn get_query_handler<E: Environment>(
 /// TODO: Implement parameter passing mechanism once query modification API is finalized
 pub async fn post_query_handler<E: Environment>(
     State(env): State<EnvRef<E>>,
+    Extension(config): Extension<QueryApiConfig>,
     Path(query_path): Path<String>,
-    Json(body): Json<Option<JsonValue>>,
+    body: Bytes,
 ) -> Response {
-    // Log body if present (for future implementation)
-    if let Some(args) = body {
-        tracing::debug!("POST query received with body: {:?}", args);
-        // TODO: Implement query parameter modification once API is designed
+    // The body is optional: an empty POST (with or without a Content-Type) evaluates the query.
+    if !body.is_empty() {
+        match serde_json::from_slice::<JsonValue>(&body) {
+            Ok(args) => {
+                tracing::debug!("POST query received with body: {:?}", args);
+                // TODO: Implement query parameter modification once API is designed
+            }
+            Err(e) => {
+                let e = liquers_core::error::Error::from_error(
+                    liquers_core::error::ErrorType::ParameterError,
+                    format!("POST body must be JSON: {e}"),
+                );
+                return error_response(&e, "Invalid request body");
+            }
+        }
     }
-
-    // Parse query from path (same as GET for now)
-    let query = match parse_query(&query_path) {
-        Ok(q) => q,
-        Err(e) => {
-            let error_detail = error_to_detail(&e);
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Failed to parse query");
-            return response.into_response();
-        }
-    };
-
-    // Evaluate query using the same logic as GET handler
-    let asset_ref = match env.evaluate(&query).await {
-        Ok(asset) => asset,
-        Err(e) => {
-            let error_detail = error_to_detail(&e);
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Query evaluation failed");
-            return response.into_response();
-        }
-    };
-
-    // Poll for result with 30-second timeout (same as GET)
-    let timeout = tokio::time::Duration::from_secs(30);
-    let start = tokio::time::Instant::now();
-
-    loop {
-        if start.elapsed() > timeout {
-            let error_detail = crate::api_core::ErrorDetail {
-                error_type: "ExecutionError".to_string(),
-                message: "Query execution timed out after 30 seconds".to_string(),
-                query: Some(query.encode()),
-                key: None,
-                traceback: None,
-                metadata: None,
-            };
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Query execution timeout");
-            return response.into_response();
-        }
-
-        if let Some((data_arc, metadata_arc)) = asset_ref.poll_binary().await {
-            let data = (*data_arc).clone();
-            let metadata = (*metadata_arc).clone();
-            return BinaryResponse { data, metadata }.into_response();
-        }
-
-        let status = asset_ref.status().await;
-        match status {
-            Status::Error => {
-                if let Err(e) = asset_ref.get_binary().await {
-                    let error_detail = error_to_detail(&e);
-                    let response: ApiResponse<()> =
-                        ApiResponse::error(error_detail, "Query execution failed");
-                    return response.into_response();
-                } else {
-                    let error_detail = crate::api_core::ErrorDetail {
-                        error_type: "ExecutionError".to_string(),
-                        message: "Query execution failed".to_string(),
-                        query: Some(query.encode()),
-                        key: None,
-                        traceback: None,
-                        metadata: None,
-                    };
-                    let response: ApiResponse<()> =
-                        ApiResponse::error(error_detail, "Query execution failed");
-                    return response.into_response();
-                }
-            }
-            Status::Cancelled => {
-                let error_detail = crate::api_core::ErrorDetail {
-                    error_type: "ExecutionError".to_string(),
-                    message: "Query execution was cancelled".to_string(),
-                    query: Some(query.encode()),
-                    key: None,
-                    traceback: None,
-                    metadata: None,
-                };
-                let response: ApiResponse<()> =
-                    ApiResponse::error(error_detail, "Query execution cancelled");
-                return response.into_response();
-            }
-            // Expired is a terminal cache miss for a handler that already holds this AssetRef:
-            // re-evaluation belongs at the manager request boundary, and recomputing here would
-            // hide expiry from the caller. Retained data is reachable only by explicit opt-in
-            // (to_override, or the *_any_status reads), which HTTP does not expose yet.
-            Status::Expired => {
-                let error_detail = crate::api_core::ErrorDetail {
-                    error_type: "ExecutionError".to_string(),
-                    message: "Query result is expired".to_string(),
-                    query: Some(query.encode()),
-                    key: None,
-                    traceback: None,
-                    metadata: None,
-                };
-                let response: ApiResponse<()> =
-                    ApiResponse::error(error_detail, "Query result expired");
-                return response.into_response();
-            }
-            // Directory has no binary representation, so poll_binary never yields for it.
-            // Without an explicit arm this would spin to the timeout.
-            Status::Directory => {
-                let error_detail = crate::api_core::ErrorDetail {
-                    error_type: "ExecutionError".to_string(),
-                    message: "Query refers to a directory, which has no binary representation"
-                        .to_string(),
-                    query: Some(query.encode()),
-                    key: None,
-                    traceback: None,
-                    metadata: None,
-                };
-                let response: ApiResponse<()> =
-                    ApiResponse::error(error_detail, "Not a binary asset");
-                return response.into_response();
-            }
-            // Value-bearing statuses: poll_binary yields on the next turn (it may have to
-            // serialize first), so keep looping rather than deciding here.
-            Status::Ready | Status::Source | Status::Override | Status::Volatile => {}
-            // Still processing, wait and retry.
-            Status::None
-            | Status::Recipe
-            | Status::Submitted
-            | Status::Dependencies
-            | Status::Processing
-            | Status::Partial
-            | Status::Storing => {}
-        }
-
-        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-    }
+    serve_query(&env, &query_path, config).await
 }

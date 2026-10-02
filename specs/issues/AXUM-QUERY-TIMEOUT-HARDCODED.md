@@ -2,11 +2,11 @@
 id: AXUM-QUERY-TIMEOUT-HARDCODED
 kind: issue
 title: The query handler's 30-second timeout is hardcoded
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [axum]
-design: 
+design: axum-assets-endpoints
 created: 2026-09-16
 github:
 ---
@@ -35,3 +35,11 @@ would make the workaround discoverable at the moment it is needed.
 ## Discovery
 
 Analysis for `AGENT-MEMORY-SERVICE`, 2026-09-16. Read at HEAD.
+
+## Resolution
+
+`QueryApiBuilder::with_timeout(Duration)` (default 30 s) reaches the handlers as a
+`QueryApiConfig` extension; the timeout message names the duration and points to the Assets API's
+`q/submit`, `q/info` and `ws/q`. Evidence: QAR05, QAR06.
+
+Fixed on branch `claude/fervent-cori-ew4kvn` (design `axum-assets-endpoints`, 2026-09-28).

@@ -52,6 +52,114 @@ fn cited_rule_like(text: &str) -> BTreeSet<String> {
     out
 }
 
+/// The ID families the conformance rules own: every registered rule ID with its digits removed.
+///
+/// Derived from the registry rather than listed, so a family is owned from its first rule on.
+fn rule_families() -> BTreeSet<String> {
+    rules()
+        .iter()
+        .map(|r| {
+            r.meta
+                .id
+                .trim_end_matches(|c: char| c.is_ascii_digit())
+                .to_owned()
+        })
+        .collect()
+}
+
+/// The family a function name claims, if it begins `<family><digits>_`.
+///
+/// A rule function itself is `fn dir07(` — digits then `(` — so it does not match; only a name
+/// that uses a rule ID as a *prefix of a longer name* does, which is the shape of a unit test.
+fn claimed_family<'a>(name: &str, families: &'a BTreeSet<String>) -> Option<&'a str> {
+    families.iter().map(String::as_str).find(|family| {
+        name.strip_prefix(*family).is_some_and(|rest| {
+            let digits = rest.chars().take_while(char::is_ascii_digit).count();
+            digits > 0 && rest[digits..].starts_with('_')
+        })
+    })
+}
+
+/// Every `.rs` file under `dir`, recursively.
+fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            rust_files(&path, out);
+        } else if path.extension().is_some_and(|e| e == "rs") {
+            out.push(path);
+        }
+    }
+}
+
+#[test]
+fn owned_rule_families_come_from_the_registry() {
+    let families = rule_families();
+    for family in ["dir", "sidecar", "sibling", "prefix", "nomakedir", "absence"] {
+        assert!(families.contains(family), "{family} should be owned: {families:?}");
+    }
+    assert!(families.iter().all(|f| !f.is_empty()));
+    assert_eq!(claimed_family("dir03_detection_is_not_a_count", &families), Some("dir"));
+    assert_eq!(claimed_family("refute_dir07_fails", &families), None);
+    assert_eq!(claimed_family("dir07", &families), None);
+    assert_eq!(claimed_family("directory_metadata", &families), None);
+}
+
+/// **No unit test is named after a conformance rule.** The rule families belong to the rules,
+/// which the contract and the guide cite; a test reusing `dir03_…` for a different claim made one
+/// ID mean two things (`STORE-TEST-IDS-COLLIDE-WITH-CONFORMANCE-RULE-IDS`). A test about one store
+/// takes a descriptive name; a rule's own refutation test is `refute_<rule id>_…`.
+#[test]
+fn no_unit_test_uses_an_owned_rule_id() {
+    let Some(workspace) = Path::new(env!("CARGO_MANIFEST_DIR")).parent() else {
+        eprintln!("warning: no workspace directory; skipping the test-name scan");
+        return;
+    };
+    let families = rule_families();
+    let mut offenders = Vec::new();
+    for krate in ["liquers-core", "liquers-store", "liquers-web"] {
+        let root = workspace.join(krate);
+        if !root.is_dir() {
+            eprintln!("warning: {} not found; skipping it in the test-name scan", root.display());
+            continue;
+        }
+        let mut files = Vec::new();
+        for sub in ["src", "tests"] {
+            rust_files(&root.join(sub), &mut files);
+        }
+        for file in files {
+            let Ok(text) = std::fs::read_to_string(&file) else {
+                continue;
+            };
+            for (number, line) in text.lines().enumerate() {
+                let Some(start) = line.find("fn ") else {
+                    continue;
+                };
+                let name: String = line[start + 3..]
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                    .collect();
+                if let Some(family) = claimed_family(&name, &families) {
+                    offenders.push(format!(
+                        "{}:{}: fn {name} (family `{family}`)",
+                        file.display(),
+                        number + 1
+                    ));
+                }
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "these functions are named after conformance rules; name them by subject, or \
+         `refute_<rule id>_…` for a rule's own refutation test:\n{}",
+        offenders.join("\n")
+    );
+}
+
 #[test]
 fn d1_rule_ids_agree_across_code_contract_and_guide() {
     let Some(specs) = specs_dir() else {
@@ -94,10 +202,7 @@ fn d1_rule_ids_agree_across_code_contract_and_guide() {
     // 2. No document cites a rule the code does not have — but only for the families that *are*
     //    conformance rules. `keyabs`, `diridx`, `pathmap` and `memdir` are component unit tests
     //    that both documents legitimately reference.
-    let rule_families: BTreeSet<&str> = registered
-        .iter()
-        .map(|id| id.trim_end_matches(|c: char| c.is_ascii_digit()))
-        .collect();
+    let rule_families = rule_families();
     for (label, cited) in [("contract", &in_contract), ("guide", &in_guide)] {
         let ghosts: Vec<&String> = cited
             .difference(&registered)

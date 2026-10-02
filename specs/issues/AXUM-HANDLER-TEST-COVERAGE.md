@@ -2,11 +2,11 @@
 id: AXUM-HANDLER-TEST-COVERAGE
 kind: issue
 title: liquers-axum has no handler test scaffolding, so handler behaviour is verified only by review
-status: accepted
+status: closed
 priority: P2
 complexity: M
 area: [axum]
-design: expired-binary-read-safety
+design: axum-assets-endpoints
 created: 2026-08-08
 github:
 ---
@@ -57,3 +57,13 @@ Recorded as the explicit outcome of Step 9 of the `expired-binary-read-safety` i
 which offered a choice between building this scaffolding as part of that work or filing it. Filing
 was chosen to keep a P0 read-contract fix from growing into a test-infrastructure project; the
 obligation to record it rather than merely mention it is why this file exists.
+
+## Resolution
+
+All four builders have route suites driven through `tower::ServiceExt::oneshot` (and a real
+socket for the WebSocket): `store_api_routes.rs` (SAR, 16), `query_api_routes.rs` (QAR, 7),
+`recipes_api_routes.rs` (RAR, 9), `assets_api_endpoints.rs` (AAE, 63), `assets_websocket.rs`
+(AWS, 16), plus a route-presence test over all eight builder-switch combinations in
+`assets/builder.rs`. (Previously linked to `expired-binary-read-safety`, which did not deliver it.)
+
+Fixed on branch `claude/fervent-cori-ew4kvn` (design `axum-assets-endpoints`, 2026-09-28).

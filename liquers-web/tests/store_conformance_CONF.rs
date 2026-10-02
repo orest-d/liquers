@@ -10,9 +10,11 @@
 //! cargo test -p liquers-web --target wasm32-unknown-unknown
 //! ```
 //!
-//! `C9` needs a real browser, because `localStorage` does not exist under Node, so it sits behind
-//! `browser-tests` with the rest of the WebDriver-dependent files — one such file in the default
-//! set would make the whole light loop demand a chromedriver.
+//! `C9` needs a real browser, because `localStorage` does not exist under Node, so it lives in
+//! `store_conformance_browser_CONF.rs`, which configures `run_in_browser` and sits behind
+//! `browser-tests` — one such file in the default set would make the whole light loop demand a
+//! chromedriver. It used to be here, gated on the feature but without `run_in_browser`, so it ran
+//! under Node and panicked before checking anything (LOCAL-STORAGE-STORE-FAILS-CONFORMANCE-IN-A-BROWSER).
 
 #![cfg(target_arch = "wasm32")]
 
@@ -134,7 +136,8 @@ fn stub_js_object() -> js_sys::Object {
         return {
             get(key) {
                 const entry = data.get(key);
-                if (!entry) { throw new Error("not found: " + key); }
+                // `null` is the protocol's "absent"; throwing would say the read failed.
+                if (!entry) { return null; }
                 return { data: entry.data, metadata: entry.metadata };
             },
             set(key, value, metadata) { data.set(key, { data: value, metadata: metadata }); },
@@ -187,100 +190,8 @@ async fn c10_js_store() {
         SafetyLevel::Scratch,
     );
 
-    let result = run_all(&fixture).await;
-    web_sys::console::log_1(&JsValue::from_str(&format!("{result}")));
-    if let Err(e) = result.assert_conformant(&[
-        // The JS protocol has no way to say "not found": a delegate signals every failure by
-        // throwing, and `JsStore` maps a thrown error to `KeyReadError`. §4 makes absence and
-        // failure different answers, so these two cannot pass until the protocol can express it.
-        // WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND.
-        liquers_core::store_conformance::AllowedFailure {
-            rule: "absence01",
-            issue: "WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND",
-        },
-        liquers_core::store_conformance::AllowedFailure {
-            rule: "remove03",
-            issue: "WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND",
-        },
-        // `get_metadata` on a directory key falls through to `get`, which throws because a
-        // directory has no data. §2 requires `default_metadata(key, true)` instead.
-        // WEB-JS-STORE-HAS-NO-DIRECTORY-METADATA.
-        liquers_core::store_conformance::AllowedFailure {
-            rule: "dir04",
-            issue: "WEB-JS-STORE-HAS-NO-DIRECTORY-METADATA",
-        },
-        liquers_core::store_conformance::AllowedFailure {
-            rule: "dir07",
-            issue: "WEB-JS-STORE-HAS-NO-DIRECTORY-METADATA",
-        },
-    ]) {
-        panic!("{}", e.message);
-    }
-}
-
-/// `C9` — `LocalStorageStore`, behind `browser-tests`.
-///
-/// `localStorage` does not exist under Node — `web_sys::window()` returns `None` — so this needs a
-/// real browser and a chromedriver whose major version matches it:
-///
-/// ```text
-/// CHROMEDRIVER=$(which chromedriver) cargo test -p liquers-web \
-///   --target wasm32-unknown-unknown --features browser-tests --test store_conformance_CONF
-/// ```
-///
-/// It is gated off by default because one `run_in_browser` file in the default set would make the
-/// whole light Node loop demand a WebDriver.
-///
-/// **`with_run_id` matters here and nowhere else in tree.** `localStorage` persists across tests in
-/// one browser session, so a fixture using the default in-process stem passes the first time and
-/// meets its own leftovers the second — the failure `store_local_STORE.rs` already documents. The
-/// namespace is cleared first for the same reason.
-#[cfg(feature = "browser-tests")]
-#[wasm_bindgen_test]
-async fn c9_local_storage_store() {
-    use liquers_web::store::LocalStorageStore;
-
-    const NAMESPACE: &str = "lqconf";
-    let storage = web_sys::window()
-        .expect("a browser window")
-        .local_storage()
-        .expect("localStorage is accessible")
-        .expect("localStorage is present");
-    // Clear the namespace: this store outlives the test that wrote it.
-    let mut doomed = Vec::new();
-    for i in 0..storage.length().unwrap_or(0) {
-        if let Ok(Some(k)) = storage.key(i) {
-            if k.starts_with(NAMESPACE) {
-                doomed.push(k);
-            }
-        }
-    }
-    for k in doomed {
-        let _ = storage.remove_item(&k);
-    }
-
-    let prefix = Key::new();
-    let store = LocalStorageStore::new(&prefix, NAMESPACE, None).expect("local storage store");
-
-    let capabilities = StoreCapabilities {
-        write: true,
-        remove: true,
-        directories: true,
-        derived_directories: true,
-        explicit_directories: true,
-        remove_directories: true,
-        stored_metadata: true,
-        enumerate_keys: true,
-    };
-
-    let fixture = GenericFixture::new(
-        "LocalStorageStore",
-        Box::new(store),
-        prefix,
-        capabilities,
-        SafetyLevel::Scratch,
-    )
-    .with_run_id(format!("lqrun{:x}", js_sys::Date::now() as u64));
-
+    // No allowed failures: the stub uses the `null` sentinel for absence, and `JsStore` gives a
+    // directory directory-shaped metadata (WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND,
+    // WEB-JS-STORE-HAS-NO-DIRECTORY-METADATA).
     report(run_all(&fixture).await);
 }

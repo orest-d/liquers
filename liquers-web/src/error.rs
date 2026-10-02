@@ -36,6 +36,7 @@ pub fn error_type_name(t: ErrorType) -> &'static str {
         ErrorType::ExecutionError => "execution_error",
         ErrorType::DependencyVersionMismatch => "dependency_version_mismatch",
         ErrorType::DependencyCycle => "dependency_cycle",
+        ErrorType::StatusConflict => "status_conflict",
         ErrorType::Cancelled => "cancelled",
     }
 }
@@ -68,6 +69,7 @@ pub fn error_type_from_name(name: &str) -> Option<ErrorType> {
         "execution_error" => ErrorType::ExecutionError,
         "dependency_version_mismatch" => ErrorType::DependencyVersionMismatch,
         "dependency_cycle" => ErrorType::DependencyCycle,
+        "status_conflict" => ErrorType::StatusConflict,
         "cancelled" => ErrorType::Cancelled,
         _ => return None,
     };

@@ -99,7 +99,10 @@ pub async fn get_data_handler<E: Environment>(
     // Return recipe as text/plain
     use axum::http::header::{HeaderMap, CONTENT_TYPE};
     let mut headers = HeaderMap::new();
-    headers.insert(CONTENT_TYPE, "text/plain".parse().unwrap());
+    headers.insert(
+        CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("text/plain"),
+    );
     (headers, recipe_yaml).into_response()
 }
 
@@ -187,7 +190,10 @@ pub async fn get_entry_handler<E: Environment>(
             // Return with appropriate Content-Type
             use axum::http::header::{HeaderMap, CONTENT_TYPE};
             let mut headers = HeaderMap::new();
-            headers.insert(CONTENT_TYPE, format.mime_type().parse().unwrap());
+            headers.insert(
+                CONTENT_TYPE,
+                axum::http::HeaderValue::from_static(format.mime_type()),
+            );
             (headers, bytes).into_response()
         }
         Err(e) => {

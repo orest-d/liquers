@@ -2,11 +2,11 @@
 id: CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS
 kind: issue
 title: AsyncFileStore listings drop a metadata-only key instead of reporting it
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/store, store/backends, docs]
-design:
+design: store-conformance-backlog
 created: 2026-09-03
 github:
 ---
@@ -76,3 +76,13 @@ Found on 2026-09-03 during the corner-case analysis of `SIDECAR-COLLIDING-KEYS`,
 the file stores' listing filters do with each reserved name. That design changes the *predicate*
 those two lines use but deliberately not their drop-versus-report behaviour, so it leaves this
 untouched and is not blocked by it.
+
+## Resolution
+
+Closed 2026-09-30 by `design/store-conformance-backlog/` steps 5 and 6. `AsyncFileStore::listdir`
+reports the implied data key of a sidecar, once even when the data file is there too, and skips an
+implied name that is reserved or empty (`888e2dc`). The new conformance rule `sidecar04` (`579c99d`)
+checks that a key holding only metadata is answered by `contains` and listed by its parent, unless
+the store refuses the write with `KeyNotFound`. It is gated on `Directories`, since the bare trait
+defaults have no listing. The synchronous `FileStore` is deliberately unchanged:
+`CORE-SYNC-STORE-TRAIT-OBSOLETE` removes it.

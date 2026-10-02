@@ -151,13 +151,18 @@ export interface LiquersStoreConfig {
  * reports that it is half-implemented instead of looking empty. Any method may return its value
  * directly or as a `Promise`; `isSupported` is the exception and must be synchronous.
  *
- * Return `undefined` from `get` to say a key is absent: that becomes `key_not_found`. Throwing
- * signals a *failure* instead, and becomes `key_read_error`.
+ * Return `null` or `undefined` from `get` or `getMetadata` to say a key is absent: that becomes
+ * `key_not_found`. Throwing signals a *failure* instead, and becomes `key_read_error`. A key that
+ * exists but has no metadata to report should return `{}` from `getMetadata`, not `null`.
+ *
+ * A directory has no data, so `get` says it is absent; when `isDir` then answers `true`, the
+ * store reports directory metadata listing the `listdir` children. A thrown error is never
+ * treated as a directory.
  */
 export interface LiquersStoreObject {
-  get(key: string): { data: Uint8Array; metadata?: object } | undefined
-    | Promise<{ data: Uint8Array; metadata?: object } | undefined>;
-  getMetadata?(key: string): object | Promise<object>;
+  get(key: string): { data: Uint8Array; metadata?: object } | null | undefined
+    | Promise<{ data: Uint8Array; metadata?: object } | null | undefined>;
+  getMetadata?(key: string): object | null | undefined | Promise<object | null | undefined>;
   set?(key: string, data: Uint8Array, metadata: object): void | Promise<void>;
   setMetadata?(key: string, metadata: object): void | Promise<void>;
   remove?(key: string): void | Promise<void>;

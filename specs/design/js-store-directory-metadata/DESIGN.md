@@ -2,9 +2,8 @@
 id: ACTIVE-07
 kind: design
 title: Design for WEB-JS-STORE-HAS-NO-DIRECTORY-METADATA
-status: in_review
-phase: implementation
-readiness: ready
+status: superseded
+superseded_by: store-conformance-backlog
 area: [web, core/store]
 issues: [WEB-JS-STORE-HAS-NO-DIRECTORY-METADATA]
 created: 2026-09-03

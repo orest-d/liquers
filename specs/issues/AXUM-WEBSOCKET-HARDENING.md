@@ -6,7 +6,7 @@ status: accepted
 priority: P3
 complexity: M
 area: [axum]
-design: 
+design: axum-assets-endpoints
 created: 2026-08-08
 github:
 ---
@@ -31,3 +31,13 @@ Stated limits, enforced, with tests for the disconnect-mid-evaluation case.
 ## Discovery
 
 Migration triage, 2026-08-08. Source: work package WP-16. Verified against HEAD: the listdir half is implemented; the hardening half is unscoped. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.0c.
+
+## Progress
+
+Progress 2026-09-28 (`design/axum-assets-endpoints/`, I6): `WebSocketLimits` —
+`max_message_size` (default 64 KiB; a larger message closes the connection) and
+`max_subscriptions` per connection (default 256; beyond it an `Error` reply); a bounded outgoing
+queue that drops intermediate notifications when full but always delivers replies and terminal
+notifications; disconnect aborts every subscription task without cancelling the evaluations.
+Evidence: AWS12a, AWS12b, AWS13. Still open: connection-count limits, idle timeouts and
+server-initiated keep-alive, and a slow-consumer policy beyond the bounded queue.

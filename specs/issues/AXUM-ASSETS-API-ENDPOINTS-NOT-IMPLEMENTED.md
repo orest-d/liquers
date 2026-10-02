@@ -2,11 +2,11 @@
 id: AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED
 kind: issue
 title: Six documented assets API endpoints return 501 Not Implemented
-status: draft
+status: closed
 priority: P0
 complexity: M
 area: [axum, core/assets]
-design: 
+design: axum-assets-endpoints
 created: 2026-09-15
 github:
 ---
@@ -100,3 +100,17 @@ Analysis for `AGENT-MEMORY-SERVICE`, 2026-09-15; corrected 2026-09-16 after read
 `reference/WEB_API_SPECIFICATION.md` §5.1. `AXUM-HANDLER-TEST-COVERAGE` is the reason nothing
 caught it: there is no handler test scaffolding, so a stub and an implementation are
 indistinguishable to the suite.
+
+## Resolution
+
+Every documented assets endpoint is implemented, in two families (`q/…` parsed with `parse_query`,
+`key/…` with `parse_key`) plus `admin/…`; no route answers 501 except `POST key/metadata`, which is a
+specified refusal. `POST key/data|entry` write through `set_binary` with the five-field
+`ValueDescription` allow-list, `DELETE key/data|entry` use the status-aware `AssetManager::remove`,
+and `key/listdir`, `key/removedir`, `key/makedir`, `key/description`, `key/expire`,
+`key/override`, `key/recover`, `key/version`, `key/contains`, `submit` and the observe routes are
+new. Evidence: `liquers-axum/tests/assets_api_endpoints.rs` (AAE, 63 tests),
+`liquers-core/tests/asset_manager_remove_expire_describe.rs` (AMR, 37); specification
+`WEB_API_SPECIFICATION.md` §5.
+
+Fixed on branch `claude/fervent-cori-ew4kvn` (design `axum-assets-endpoints`, 2026-09-28).

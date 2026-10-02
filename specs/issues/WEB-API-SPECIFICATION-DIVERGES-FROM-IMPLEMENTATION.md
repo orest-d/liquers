@@ -2,11 +2,11 @@
 id: WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION
 kind: issue
 title: The web API specification diverges from the implementation in three further ways
-status: draft
+status: closed
 priority: P1
 complexity: S
 area: [axum, docs]
-design: 
+design: axum-assets-endpoints
 created: 2026-09-16
 github:
 ---
@@ -69,3 +69,17 @@ Reported by Codex review on PR #70 (three separate comments, 2026-09-15) against
 `design/agent-memory-mvp/`, which had copied all three forms out of the specification in good
 faith. Each was verified independently against HEAD on 2026-09-16 before filing: the builder
 sources, a repo-wide search, and the specification's own line numbers.
+
+## Resolution
+
+`specs/reference/WEB_API_SPECIFICATION.md` was rewritten against the implementation (2026-09-28):
+every route, method, result shape and status code was checked against the code and the route
+suites (`store_api_routes.rs`, `assets_api_endpoints.rs`, `assets_websocket.rs`,
+`recipes_api_routes.rs`, `query_api_routes.rs`). The Store API's writes are documented as `PUT`, the
+`ErrorType` → HTTP table is the real one, the WebSocket paths are `ws/q` and `ws/key`, and the
+nonexistent `FullApiBuilder`, `liquers_web` crate, `Router` trait and `ApiError` are replaced by the
+`Router::merge` assembly. Behaviour the audit found wrong in the code is documented as it is and
+filed separately (`AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS`,
+`AXUM-STORE-UPLOAD-AND-METADATA-DROP-INFORMATION`, `AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN`).
+
+Fixed on branch `claude/fervent-cori-ew4kvn` (design `axum-assets-endpoints`, 2026-09-28).

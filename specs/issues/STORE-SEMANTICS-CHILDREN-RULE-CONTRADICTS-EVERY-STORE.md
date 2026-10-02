@@ -2,11 +2,11 @@
 id: STORE-SEMANTICS-CHILDREN-RULE-CONTRADICTS-EVERY-STORE
 kind: issue
 title: STORE_SEMANTICS forbids children in directory metadata; seven stores populate it and one does not
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/store, store/backends, web, docs]
-design: store-directory-metadata-children
+design: store-conformance-backlog
 created: 2026-09-02
 github:
 ---
@@ -73,3 +73,14 @@ Found on 2026-09-02 by the conformance suite's first census run, at Phase 4 step
 `AsyncMemoryStore`, and checking the other implementations showed all eight agree with each other
 and disagree with the document. `dir07` reports `Blocked` citing this issue until it is settled —
 the outcome that exists for "the rule is right or the contract is, and someone must say which".
+
+## Resolution
+
+Closed 2026-09-30 by `design/store-conformance-backlog/` (option 1, as this issue recommended).
+STORE_SEMANTICS §2 now says directory metadata populates `children` with the direct children, one
+level deep. The subtree-walk cost is removed rather than recorded as a follow-up: the `AsyncStore`
+default `get_asset_info` answers a directory from `default_metadata(key, true)` without reading its
+metadata (commit `1db2274`, proven by `default_directory_metadata_reads_one_level`).
+`AsyncOpenDALStore` now fills `children` in both of its directory branches (`d8db873`). Rule `dir07`
+checks the contract instead of reporting `Blocked` (`bebc8c7`), with refutation tests
+`refute_dir07_*`. Every in-tree store passes it.

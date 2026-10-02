@@ -2,11 +2,11 @@
 id: MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS
 kind: issue
 title: The extension-to-media-type table lacks or mislabels the common tabular formats
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/value, axum]
-design:
+design: axum-assets-endpoints
 created: 2026-09-24
 github:
 ---
@@ -48,3 +48,14 @@ Found 2026-09-24 while specifying the table formats of `specs/design/record-stre
 Still open. `record-streams` added no media-type entries: `liquers-core/src/media_type.rs` is
 unchanged on that branch. `ndjson`, `ipc` and `parquet` are now formats a `RecordView` really
 writes, so this is no longer hypothetical.
+
+## Resolution
+
+`arrow`, `feather`, `ipc` → `application/vnd.apache.arrow.file`; `parquet` →
+`application/vnd.apache.parquet`; `jsonl` → `application/jsonl`; `ndjson` →
+`application/x-ndjson` (the last two unregistered, as the code comment says). Evidence:
+`media_type::media_type_tests` MT01–MT10. The IANA registry could not be fetched from the build
+environment; the values follow the registry as known when written, recorded in
+`design/axum-assets-endpoints/phase4-implementation.md`.
+
+Fixed on branch `claude/fervent-cori-ew4kvn` (design `axum-assets-endpoints`, 2026-09-28).

@@ -39,6 +39,10 @@ pub enum ErrorType {
     ExecutionError,
     DependencyVersionMismatch,
     DependencyCycle,
+    /// The operation is valid, but not for an asset in its current status: removing a
+    /// directory, expiring a `Source`, describing a computed value. Distinct from
+    /// [`ErrorType::NotSupported`], which means the operation is never available.
+    StatusConflict,
     /// The error type returned when a *value* is requested from a cancelled asset/state.
     /// It is NOT stored as an asset's computed error; being in `Status::Cancelled` is a
     /// legitimate terminal state, and this error is synthesized only at value extraction.
@@ -375,6 +379,19 @@ impl Error {
         let mut error = Error::new(
             ErrorType::DependencyCycle,
             format!("Dependency cycle detected involving '{}'", dep_key.as_str()),
+        );
+        error.query = key_str.clone();
+        error.key = key_str;
+        error
+    }
+
+    /// An operation refused because of the asset's current status (see
+    /// [`ErrorType::StatusConflict`]).
+    pub fn status_conflict(key: &Key, status: crate::metadata::Status, operation: &str) -> Self {
+        let key_str = Some(key.encode());
+        let mut error = Error::new(
+            ErrorType::StatusConflict,
+            format!("Cannot {operation} '{}': asset status is {status:?}", key.encode()),
         );
         error.query = key_str.clone();
         error.key = key_str;
