@@ -143,7 +143,7 @@ the implementor's contract, not by depending on their resolution. No priority ch
 | 1b | When it is refreshed | When the listing is produced (the step), after every asset-manager write or removal under that directory **if something depends on it**, and when an audit resolves a `-R-dir/` gap | A write straight into the store without going through the manager is invisible except to an audit. That matches how `-R/` keys already behave. |
 | 2 | Policy scope and depth | **Per environment**, in `AssetManagerOptions`. Direct dependencies only; transitivity comes from the cascade, and from `trigger_dependency_audit_all_registered` for a sweep | Per-key/per-recipe policy needs a place to declare it (recipe metadata) that is not otherwise needed now; it can be added later as an override without changing this shape. |
 | 3 | Stale-dependency test | **Option 1**, through a public `Context::submit` + `Context::wait_for_dependency` (revised at the gate: no new handle type) | It is a real capability (a command that starts several dependencies and then waits for them), not a test-only hook. It is also the only way a command can hold a submitted dependency across its own work. |
-| 4 | Log levels | `Deadline`, `Explicit`, `Cascade` → `info`; `Audit`, `StaleDependency` → `warning` | The first three are the contract working as designed. The last two mean a stored assumption turned out false, or the normal contract was departed from. |
+| 4 | Log levels | By cause, for both scopes: `Deadline`, `Explicit`, `Updated`, `Removed` → `info`; `Audit`, `StaleDependency`, `UpdatedInStore` → `warning` (see the scope table in "Data Structures"; revised 2026-10-02) | The `info` causes are the contract working as designed. The `warning` causes mean a stored assumption turned out false, or the normal contract was departed from. |
 | 5 | `UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION` | **Excluded.** It stays open | Its fix orders expiry against write-back through the key mutation lock, which is persistence ordering rather than verification. Part C makes the race *visible* (the overwritten mark has a reason in the log), and that makes it easier to test later. |
 
 ## Data Structures
@@ -215,7 +215,12 @@ Which causes occur in which scope:
 | `Updated` | — (the root holds the new value) | its dependents | info |
 | `Removed` | — (the root is gone) | its dependents | info |
 
-Messages, which are illustrative and fixed in Phase 4:
+**Message rule** (wording fixed in Phase 4). A direct reason reads
+*"<subject> expired: <what happened to it>"*. A cascaded reason reads
+*"<subject> expired: <what happened to root> triggered a cascade expiration"*, followed by
+*" via direct dependency <via>"* whenever `via != root`, for every cause. When `via == root` the
+root *is* the direct dependency, so naming it twice adds nothing. Subjects and keys are always
+named by key or query, never by runtime asset id. Examples:
 
 - *"data/a.csv expired: its expiration time 2026-10-02T10:00:00Z passed"* (direct deadline)
 - *"data/report.txt expired: expiration deadline on -R/data/a.csv triggered a cascade expiration via
@@ -651,6 +656,9 @@ impl Version {
     pub const HASH_FLAG: u128 = 1 << 127;
     /// Content hash of stored bytes (127 bits of blake3 + the flag).
     pub fn from_content(bytes: &[u8]) -> Self;
+    /// Bit 127 set → `ContentHash`; 0 → `Unknown`; otherwise `Timestamp`. For an *unflagged
+    /// legacy hash* this is a guess (about half read as `ContentHash`, half as `Timestamp`). It
+    /// affects only the wording of a mismatch log line, never the outcome of `verify`.
     pub fn kind(&self) -> VersionKind;
     /// Re-hash `bytes` and compare with `self`.
     pub fn verify(&self, bytes: &[u8]) -> VersionCheck;
@@ -1248,3 +1256,20 @@ five points. Each is applied in place above.
 Two causes were added beyond the owner's list, because they are routes into `Expired` that exist
 at HEAD: `Updated` (a dependency got new content through Liquers, which is the ordinary cascade)
 and `Removed` (`remove` now cascades, since `main`).
+
+### Revision 2, clarifications from the Phase 3 update (2026-10-02)
+
+1. **`root` of a stale-dependency cascade** is the asset that consumed the stale value: it is
+   `Direct { StaleDependency { dependency } }`, its dependents are
+   `Cascaded { StaleDependency { dependency }, root: that asset, via }`, and `cause.dependency` still
+   names the stale input.
+2. **`via` of an untracked (query) asset** is the key in whose `dependent_assets` list it was found.
+   That is the key the query read, so for a query asset `via` is always its direct dependency.
+3. **A file with no metadata, in `external_change_action`.** The caller passes `Status::Source` when
+   the key has no recipe, and `Status::Ready` when it has one (content exists that the recipe would
+   produce). The decision table then gives "accept as input" and "convert to `Override`" / "delete"
+   respectively. Accepting writes a new sidecar, except for the read-only case (Part G, preflight).
+4. **How far an audit reaches.** An audit expires along edges loaded in *this* process. A dependent
+   that has not been loaded yet is not missed: the audit leaves the current version in the version
+   map, and when that dependent is later fast-tracked, the existing check compares its recorded
+   version against the map (`assets.rs:1186`) and refuses the stale copy, whatever the audit policy.
