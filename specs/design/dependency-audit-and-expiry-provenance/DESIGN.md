@@ -21,7 +21,7 @@ superseded_by:
 - [x] Phase 1: High-Level Design (approved 2026-09-28)
 - [x] Phase 2: Solution & Architecture (approved 2026-09-29)
 - [x] Phase 3: Examples & Testing (approved 2026-10-02)
-- [ ] Phase 4: Implementation Plan
+- [x] Phase 4: Implementation Plan (approved 2026-10-02)
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
 
@@ -117,7 +117,14 @@ fixed what would have failed in practice:
 - `expiry_reason` is cleared when the status leaves `Expired`.
 
 The estimate was raised to 8–11 days. The log wording is fixed in Step 2, and Phases 2 and 3 now
-match it. Three questions remain for the owner: see Phase 4 §"Phase 4 review".
+match it. Three questions remained for the owner (Phase 4 §"Phase 4 review").
+
+**Phase 4 approved 2026-10-02.** The owner agreed to all three:
+- `KeyMutationAccess` becomes public, with the contract "one lock per manager, never taken while an
+  asset's data lock is held";
+- "no metadata" means a stored `Source`/`None` with version 0, kept in memory only; the file store's
+  own sidecar-on-first-read stays out of scope (`STORE-NO-READ-ONLY-ADAPTER`);
+- the log wording table of Step 2 is confirmed.
 
 ## Links
 

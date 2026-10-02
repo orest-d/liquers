@@ -1398,3 +1398,8 @@ checked the plan against the code. Changes it made, besides the test lists:
 - Every `version()` caller is listed (Step 6); `liquers-records` and `liquers-axum` tests are in
   Step 12; `check-stubs.sh` runs with `--build`.
 - The estimate rose from 5–7 to 8–11 days, for about 140 tests.
+
+## Approval (2026-10-02)
+
+Approved by the owner, together with the three answers recorded in `DESIGN.md`. The three answers
+match the assumptions this plan already makes, so no step changes.
