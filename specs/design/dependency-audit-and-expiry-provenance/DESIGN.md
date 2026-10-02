@@ -2,11 +2,10 @@
 id: DEPENDENCY-AUDIT-AND-EXPIRY-PROVENANCE
 kind: design
 title: Dependency audit correctness, audit policy, expiry provenance, outside-change detection and external asset managers
-status: approved
 workflow: liquers-project
 phase: implementation
 area: [core/assets]
-gh_pr: []
+gh_pr: [75]
 affects_docs: [DEPENDENCIES_STATUS, ASSETS, ASSET_LIFECYCLE, DOC_03_ASSETS_EXECUTION_LIFECYCLE, DOC_04_ENVIRONMENT_CONTEXT_EVALUATION, ENVIRONMENT_CONFIG, COMMAND_REGISTRATION_GUIDE, ENVIRONMENT_CONSTRUCTION_GUIDE, STORE_IMPLEMENTATION_GUIDE, UNITTEST_GUIDE]
 issues: [AUDIT-CANNOT-EXPIRE-ON-A-FIRST-OBSERVED-VERSION, DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE, EXPIRY-RECORDS-NO-REASON, DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED, STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST, IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES, ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE, STORE-VERSION-BLIND-TO-CHANGES-MADE-OUTSIDE-LIQUERS]
 created: 2026-09-28
@@ -183,6 +182,10 @@ match it. Three questions remained for the owner (Phase 4 §"Phase 4 review").
   Its limits: its `set_state` goes through bytes, and it cannot notify a replaced asset. These are
   filed as `EXTERNAL-MANAGER-CANNOT-NOTIFY-REPLACED-ASSET`. Three `DependencyManager` methods that
   only in-crate tests use are now `#[cfg(test)]`.
+- **Step 12.** Every native suite, `check-build-matrix.sh` (32 configurations) and
+  `check-stubs.sh --build` passed. `liquers-web`'s wasm suite passed except
+  `object06_every_enum_variant_roundtrips`, which fails on `main` too
+  (`WEB-OBJECT06-EXPECTS-A-STALE-ERROR-TYPE-COUNT`). The PR is orest-d/liquers#75.
 - **Filed during Step 4:** `SUPPLIED-EXPIRED-STATUS-STORED-WITHOUT-REASON` and
   `DEPENDENCY-FAILURE-ERRORS-NAME-ASSET-IDS`.
 
