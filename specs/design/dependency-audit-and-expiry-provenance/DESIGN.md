@@ -140,6 +140,17 @@ match it. Three questions remained for the owner (Phase 4 §"Phase 4 review").
   plan (`-R/data/b.txt/-/upper`) also records that dependency's own dependency as a direct record.
   A cascade from `a` then reaches `report` directly, with `via == root`. A real second hop needs
   the command to read `b` itself (`ctx.get_dependency_state`), which is what the test fixture does.
+- **Step 6.** Filed `EVALUATING-A-LONG-DEPENDENCY-CHAIN-GETS-SUPER-LINEARLY-SLOW` (5 links 0.15 s,
+  20 links 6 s, 40 links 80 s; each link records every upstream link). Not caused by this design.
+- **Step 8, deviation from Phase 2 §"Directory listing".** `-R-dir/data` is an `Evaluate` boundary,
+  so `GetAssetDirectory` runs in its own query asset with no owner key, and the planned
+  `context.add_dependency` / `dm.add_dependency(owner, …)` never reach the dependent. The step
+  therefore also sets the listing version on its own asset's metadata. From there
+  `wait_for_dependency_recording` copies it into the dependent's record, and `track_asset` /
+  `load_from_records` upgrade the edge. The edge is added before `register_version`, so a
+  re-evaluating index is not expired by its own registration. Refresh calls run after
+  `key_mutation_lock` is dropped (for `set_binary` and `set_state`), and a `listdir` error is logged,
+  not fatal.
 - **Filed during Step 4:** `SUPPLIED-EXPIRED-STATUS-STORED-WITHOUT-REASON` and
   `DEPENDENCY-FAILURE-ERRORS-NAME-ASSET-IDS`.
 

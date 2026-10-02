@@ -1129,6 +1129,11 @@ impl<E: Environment> AssetData<E> {
         manager: &Arc<E::AssetManager>,
         dep_key: &DependencyKey,
     ) -> bool {
+        if dep_key.is_dir_key() {
+            // A listing has no status; its staleness is a version question, answered by the
+            // audit (`dependency_version`), not by this status check.
+            return false;
+        }
         let Ok(key) = Key::try_from(dep_key) else {
             return false; // not store-addressable — inconclusive
         };
@@ -3219,7 +3224,15 @@ impl<E: Environment> AssetRef<E> {
                         )));
                     }
                 }
-                store.set(key, &data, &metadata).await
+                let written = store.set(key, &data, &metadata).await;
+                if written.is_ok() {
+                    // Listings that depend on this directory see a new (or rewritten) member.
+                    envref
+                        .get_asset_manager()
+                        .refresh_listing_version(&key.parent())
+                        .await;
+                }
+                written
             } else {
                 Err(Error::general_error(format!(
                     "Cannot determine key to store asset - {}",
@@ -4530,6 +4543,10 @@ pub trait AssetManager<E: Environment>:
         if let Some(asset) = &live {
             asset.notify_removed().await;
         }
+        if result.is_ok() {
+            // Holds `key_mutation_lock`; safe, because the refresh does not take it.
+            self.refresh_listing_version(&key.parent()).await;
+        }
         result
     }
 
@@ -5047,8 +5064,8 @@ pub trait AssetManager<E: Environment>:
 
     /// The current version of a store-resolvable dependency key, **without evaluating**.
     ///
-    /// `-R/` keys answer [`Self::version`]. `-R-dir/` keys answer `Version::unknown()` until the
-    /// listing version arrives (Step 8 of the design). Any other key answers
+    /// `-R/` keys answer [`Self::version`]. `-R-dir/` keys answer the listing version of the
+    /// directory ([`DependencyManager::listing_version`] over [`Self::listdir`]). Any other key answers
     /// `Version::unknown()` as well; callers ask `DependencyKey::is_store_resolvable` first.
     /// A store error stays `Err`.
     async fn dependency_version(
@@ -5061,7 +5078,50 @@ pub trait AssetManager<E: Environment>:
                 Ok(None) | Err(_) => Ok(Version::unknown()),
             };
         }
+        if dep_key.is_dir_key() {
+            return match dep_key.dir_key() {
+                Ok(Some(dir)) => {
+                    let names = self.listdir(&dir).await?;
+                    Ok(crate::dependencies::DependencyManager::<E>::listing_version(&names))
+                }
+                Ok(None) | Err(_) => Ok(Version::unknown()),
+            };
+        }
         Ok(Version::unknown())
+    }
+
+    /// Recompute and register the listing version of `dir` **iff** the dependency manager
+    /// already holds one (something depends on the listing); cascades with
+    /// `ExpiryCause::Updated` when it moved.
+    ///
+    /// Called after every manager-mediated write or removal, with the written key's parent. It
+    /// costs one version-map read when nobody depends on the listing. It never takes
+    /// `key_mutation_lock`, so it is safe to call with that lock held. A `listdir` error is
+    /// reported with `eprintln!`: the write it follows stands, and a failed refresh must not
+    /// undo it.
+    async fn refresh_listing_version(&self, dir: &Key) {
+        let dep_key = crate::metadata::DependencyKey::from_dir_key(dir);
+        if self.dependency_manager().get_version(&dep_key).await.is_none() {
+            return;
+        }
+        match self.listdir(dir).await {
+            Ok(names) => {
+                let version =
+                    crate::dependencies::DependencyManager::<E>::listing_version(&names);
+                let expired = self
+                    .dependency_manager()
+                    .register_version(&dep_key, version)
+                    .await;
+                self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                    .await;
+            }
+            Err(error) => {
+                eprintln!(
+                    "Could not refresh the listing version of '{}' after a write: {}",
+                    dir, error
+                );
+            }
+        }
     }
 
     /// The authoritative version of a keyed asset, **without evaluating it**.
@@ -5269,21 +5329,27 @@ pub trait AssetManager<E: Environment>:
     ) -> Result<(), Error> {
         let dep_key = crate::metadata::DependencyKey::from(dependent_key);
         for plan_dep in plan_deps {
-            if let Some(ver) = self.dependency_manager().get_version(&plan_dep.key).await {
-                if let Ok(expired) = self
-                    .dependency_manager()
-                    .add_dependency(&dep_key, &plan_dep.key, ver)
-                    .await
-                {
-                    // `add_dependency` never expires anything; the cause is nominal.
-                    self.expire_dependencies_result(
-                        expired,
-                        ExpiryCause::Updated {
-                            version: Version::unknown(),
-                        },
-                    )
-                    .await;
-                }
+            // A dependency with no registered version still gets its edge, recording
+            // `Version::unknown()`: the edge is what lets a later registration (a listing, a
+            // value) expire this dependent, and what the audit resolves.
+            let ver = self
+                .dependency_manager()
+                .get_version(&plan_dep.key)
+                .await
+                .unwrap_or_else(Version::unknown);
+            if let Ok(expired) = self
+                .dependency_manager()
+                .add_dependency(&dep_key, &plan_dep.key, ver)
+                .await
+            {
+                // `add_dependency` never expires anything; the cause is nominal.
+                self.expire_dependencies_result(
+                    expired,
+                    ExpiryCause::Updated {
+                        version: Version::unknown(),
+                    },
+                )
+                .await;
             }
         }
         Ok(())
@@ -6585,6 +6651,12 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             // The replaced asset's last message, once the key holds its new value.
             asset.notify_removed().await;
         }
+        if result.is_ok() {
+            // Outside `key_mutation_lock`: two concurrent writes into one directory may each
+            // list and register, and the last listing is the true current membership.
+            drop(_mutation);
+            self.refresh_listing_version(&key.parent()).await;
+        }
         result
     }
 
@@ -6735,6 +6807,12 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         if let Some(asset) = &replaced {
             // The replaced asset's last message, once the key holds its new value.
             asset.notify_removed().await;
+        }
+        if result.is_ok() {
+            // Outside `key_mutation_lock`: two concurrent writes into one directory may each
+            // list and register, and the last listing is the true current membership.
+            drop(_mutation);
+            self.refresh_listing_version(&key.parent()).await;
         }
         result
     }
@@ -7868,6 +7946,12 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             // The replaced asset's last message, once the key holds its new value.
             asset.notify_removed().await;
         }
+        if result.is_ok() {
+            // Outside `key_mutation_lock`: two concurrent writes into one directory may each
+            // list and register, and the last listing is the true current membership.
+            drop(_mutation);
+            self.refresh_listing_version(&key.parent()).await;
+        }
         result
     }
 
@@ -7945,6 +8029,12 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         if let Some(asset) = &replaced {
             // The replaced asset's last message, once the key holds its new value.
             asset.notify_removed().await;
+        }
+        if result.is_ok() {
+            // Outside `key_mutation_lock`: two concurrent writes into one directory may each
+            // list and register, and the last listing is the true current membership.
+            drop(_mutation);
+            self.refresh_listing_version(&key.parent()).await;
         }
         result
     }
@@ -12196,4 +12286,52 @@ recipes:
         assert!(served, "nor does it ask the store");
     }
 
+    // --- Step 8: folder-listing dependencies ---
+
+    #[tokio::test]
+    async fn register_plan_dependencies_adds_unknown_edge_for_unregistered_key(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let envref = expiry_test_envref();
+        let manager = envref.get_asset_manager();
+        let dependent = parse_key("data/index.txt")?;
+        let dir = DependencyKey::from_dir_key(&parse_key("data")?);
+        assert_eq!(
+            manager.dependency_manager().get_version(&dir).await,
+            None,
+            "precondition: nothing registered a version for the listing"
+        );
+
+        manager
+            .register_plan_dependencies(
+                &dependent,
+                &[crate::dependencies::PlanDependency::new(
+                    dir.clone(),
+                    crate::dependencies::DependencyRelation::StateArgument,
+                )],
+            )
+            .await?;
+
+        // The edge exists and records `unknown`: a concrete current version contradicts it.
+        let findings = manager
+            .dependency_manager()
+            .stale_edges(&dir, Version::new(5))
+            .await;
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert_eq!(findings[0].dependent, DependencyKey::from(&dependent));
+        assert!(findings[0].expected.is_unknown());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn dependency_blocks_fast_track_is_false_for_listing_key(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let envref = expiry_test_envref();
+        let manager = envref.get_asset_manager();
+        let key = parse_key("data/index.txt")?;
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(9801, key.clone().into(), Some(key), envref);
+        let dir = DependencyKey::from_dir_key(&parse_key("data")?);
+        assert!(!asset.dependency_blocks_fast_track(&manager, &dir).await);
+        Ok(())
+    }
 }

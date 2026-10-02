@@ -671,15 +671,15 @@ mod tests {
         );
     }
 
-    /// The other half of T2: what the defect actually looked like.
+    /// The other half of T2: a dependency key with no registered version.
     ///
-    /// A dependency key with no registered version is skipped by `register_plan_dependencies`,
-    /// silently, and no edge forms. Before this work *every* command key was in that state during
-    /// the startup window, so this is not a hypothetical failure mode — it is the failure that was
-    /// happening, reproduced here on purpose. It is also why the fix had to be a construction-time
-    /// guarantee rather than a check: there is no error to notice.
+    /// `register_plan_dependencies` used to skip such a key silently, so no edge formed. Before the
+    /// startup guarantee *every* command key was in that state during the startup window. It now
+    /// adds the edge with `Version::unknown()` (dependency-audit-and-expiry-provenance, Step 8),
+    /// so the dependent is reachable by whatever registers a version later — a folder listing, in
+    /// practice — and expires on it.
     #[tokio::test]
-    async fn an_unregistered_dependency_version_registers_no_edge() {
+    async fn an_unregistered_dependency_version_registers_an_unknown_edge() {
         use crate::dependencies::{DependencyRelation, PlanDependency};
 
         let mut builder = EnvironmentBuilder::<Value>::new();
@@ -687,8 +687,7 @@ mod tests {
         let envref = builder.build().expect("build");
         let manager = envref.get_asset_manager();
 
-        // A command that was never registered, so startup never gave it a version — exactly the
-        // state every command was in before `build()` awaited startup.
+        // A command that was never registered, so startup never gave it a version.
         let unknown = DependencyKey::for_command_metadata(&CommandKey::new_name("never_declared"));
         let dependent = crate::parse::parse_key("report.txt").expect("key");
 
@@ -701,15 +700,15 @@ mod tests {
                 )],
             )
             .await
-            .expect("register reports success even though it registered nothing");
+            .expect("register");
 
         // `expire` reports the key itself alongside its dependents, so the assertion is about the
-        // dependent: it is absent, because no edge was ever created for it.
+        // dependent: it is present, because the edge was created with an unknown version.
         let expired = manager.dependency_manager().expire(&unknown).await;
         let dependent_dep_key = DependencyKey::from(&dependent);
         assert!(
-            !expired.contains_key(&dependent_dep_key),
-            "no edge can exist for a version the manager never saw; got {:?}",
+            expired.contains_key(&dependent_dep_key),
+            "the edge exists although no version was registered; got {:?}",
             expired.keys
         );
     }

@@ -23,7 +23,7 @@ use liquers_core::{
 };
 
 use common::manager_scenarios::{
-    provenance_store, register_provenance_commands, scenario_every_expired_asset_has_reason_and_log_line,
+    listing_store, provenance_store, register_index_files, register_provenance_commands, scenario_listing_dependency, scenario_every_expired_asset_has_reason_and_log_line,
     scenario_audit_after_restart, scenario_expiry_reason_cascade,
     counting_recipe_store, register_counted, register_dependent, register_greet, register_vol_cmd,
     recipe_store, scenario_adhoc_apply_is_not_keyed, scenario_basic_eval, scenario_cache_and_mode,
@@ -585,4 +585,28 @@ async fn audit_after_restart_immediate() -> Result<(), Error> {
         env.to_ref()
     })
     .await
+}
+
+// --- folder-listing dependencies (dependency-audit-and-expiry-provenance, Step 8) ---
+
+#[tokio::test]
+async fn listing_dependency_default() -> Result<(), Error> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut env = SimpleEnvironment::<Value>::new();
+    register_provenance_commands(&mut env.command_registry);
+    register_index_files(&mut env.command_registry, calls.clone());
+    env.with_async_store(Box::new(listing_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_listing_dependency(env.to_ref(), calls).await
+}
+
+#[tokio::test]
+async fn listing_dependency_immediate() -> Result<(), Error> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut env = ImmediateEnvironment::<Value>::new();
+    register_provenance_commands(&mut env.command_registry);
+    register_index_files(&mut env.command_registry, calls.clone());
+    env.with_async_store(Box::new(listing_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_listing_dependency(env.to_ref(), calls).await
 }

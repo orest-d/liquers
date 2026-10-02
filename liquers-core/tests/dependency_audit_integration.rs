@@ -799,3 +799,367 @@ async fn audit_policy_from_config_yaml() -> TestResult {
     );
     Ok(())
 }
+
+// ======================================================================================
+// Folder-listing dependencies (Step 8 of the dependency-audit design, Part D).
+// ======================================================================================
+
+/// A store with the provenance recipes in `data/` and, in `home`, one recipe
+/// `index.txt = -R-dir/data/-/index_files`. With `home == "data"` the index lives inside the
+/// folder it lists.
+async fn index_store(home: &str, with_a_recipe: bool) -> Result<AsyncMemoryStore, Error> {
+    let mut rl = RecipeList::new();
+    rl.add_recipe(Recipe::new(
+        "-R-dir/data/-/index_files/index.txt".to_string(),
+        "Index".into(),
+        "lists data".into(),
+    )?);
+    let yaml = serde_yaml::to_string(&rl)
+        .map_err(|e| Error::general_error(format!("recipes.yaml: {e}")))?;
+    let store = if home == "data" {
+        // The provenance store already owns `data/recipes.yaml`; merge the index recipe into it.
+        let store = provenance_store(with_a_recipe).await?;
+        let key = parse_key("data/recipes.yaml")?;
+        let (bytes, _) = store.get(&key).await?;
+        let mut existing: RecipeList = serde_yaml::from_slice(&bytes)
+            .map_err(|e| Error::general_error(format!("recipes.yaml: {e}")))?;
+        for recipe in rl.recipes {
+            existing.add_recipe(recipe);
+        }
+        let merged = serde_yaml::to_string(&existing)
+            .map_err(|e| Error::general_error(format!("recipes.yaml: {e}")))?;
+        store.set(&key, merged.as_bytes(), &Metadata::new()).await?;
+        store
+    } else {
+        let store = provenance_store(with_a_recipe).await?;
+        store
+            .set(&parse_key(&format!("{home}/recipes.yaml"))?, yaml.as_bytes(), &Metadata::new())
+            .await?;
+        store
+    };
+    Ok(store)
+}
+
+fn index_env(store: Box<dyn AsyncStore>, calls: Arc<AtomicUsize>) -> EnvRef<TestEnv> {
+    let mut env = TestEnv::new();
+    register_provenance_commands(&mut env.command_registry);
+    common::manager_scenarios::register_index_files(&mut env.command_registry, calls);
+    env.with_async_store(store);
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.to_ref()
+}
+
+fn index_key(home: &str) -> Result<Key, Error> {
+    parse_key(&format!("{home}/index.txt"))
+}
+
+/// Evaluate the index and wait until it is stored `Ready`; returns its text.
+async fn evaluate_index(envref: &EnvRef<TestEnv>, home: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let key = index_key(home)?;
+    let asset = within(envref.get_asset_manager().get(&key)).await?;
+    let text = within(asset.get()).await?.try_into_string()?;
+    within(common::manager_scenarios::wait_until_stored(envref, &key, Status::Ready)).await?;
+    Ok(text)
+}
+
+async fn put(envref: &EnvRef<TestEnv>, name: &str, content: &[u8]) -> TestResult {
+    within(envref.get_asset_manager().set_binary(
+        &parse_key(name)?,
+        content,
+        provenance_text_metadata(),
+    ))
+    .await?;
+    Ok(())
+}
+
+async fn stored_status(envref: &EnvRef<TestEnv>, key: &Key) -> Result<Status, Error> {
+    Ok(envref.get_async_store().get_metadata(key).await?.status())
+}
+
+/// Example 2: a new file in a listed folder moves the listing version and expires the index.
+#[tokio::test]
+async fn adding_a_file_expires_the_index() -> TestResult {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let envref = index_env(Box::new(index_store("idx", false).await?), calls.clone());
+    put(&envref, "data/a.txt", b"hello").await?;
+    let before = evaluate_index(&envref, "idx").await?;
+    assert!(before.contains("data/a.txt"), "{before}");
+    assert!(!before.contains("data/new.txt"), "{before}");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+    put(&envref, "data/new.txt", b"fresh").await?;
+
+    let index = index_key("idx")?;
+    let metadata = envref.get_async_store().get_metadata(&index).await?;
+    assert_eq!(metadata.status(), Status::Expired);
+    let dir = DependencyKey::from_dir_key(&parse_key("data")?);
+    let Some(ExpiryReason::Cascaded { cause, root, via }) = metadata.expiry_reason() else {
+        panic!("expected a cascaded reason, got {:?}", metadata.expiry_reason());
+    };
+    assert_eq!(root, dir);
+    assert_eq!(via, dir);
+    let ExpiryCause::Updated { version } = cause else {
+        panic!("expected an Updated cause, got {cause:?}");
+    };
+    assert!(!version.is_unknown());
+
+    let after = evaluate_index(&envref, "idx").await?;
+    assert!(after.contains("data/new.txt"), "{after}");
+    assert_eq!(calls.load(Ordering::SeqCst), 2, "recomputed once");
+    Ok(())
+}
+
+/// Pitfall 8: a folder gains a file while nothing is running. After a restart nothing holds the
+/// listing version, the index is served as stored, and an audit finds the gap.
+#[tokio::test]
+async fn listing_gap_resolved_by_audit_after_restart() -> TestResult {
+    let first = index_env(
+        Box::new(index_store("idx", false).await?),
+        Arc::new(AtomicUsize::new(0)),
+    );
+    put(&first, "data/a.txt", b"hello").await?;
+    evaluate_index(&first, "idx").await?;
+    let keys = [
+        parse_key("data/recipes.yaml")?,
+        parse_key("idx/recipes.yaml")?,
+        parse_key("data/a.txt")?,
+        index_key("idx")?,
+    ];
+    let snapshot = StoreSnapshot::capture(&first.get_async_store(), &keys).await?;
+
+    let store = AsyncMemoryStore::new(&Key::new());
+    snapshot.replay_into(&store).await?;
+    // The folder changes behind Liquers' back.
+    store
+        .set(
+            &parse_key("data/outside.txt")?,
+            b"x",
+            &Metadata::MetadataRecord(provenance_text_metadata().into()),
+        )
+        .await?;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let second = index_env(Box::new(store), calls.clone());
+    let index = within(second.evaluate("-R/idx/index.txt")).await?;
+    let _ = within(index.get()).await?;
+    assert_eq!(index.status().await, Status::Ready, "served as stored: nothing knows the gap");
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+
+    let report = within(
+        second
+            .get_asset_manager()
+            .trigger_dependency_audit(&parse_query("-R/idx/index.txt")?),
+    )
+    .await?;
+
+    let dir = DependencyKey::from_dir_key(&parse_key("data")?);
+    assert_eq!(report.checked, vec![dir.clone()], "{report:?}");
+    assert_eq!(report.expired, vec![dep("idx/index.txt")], "{report:?}");
+    assert_eq!(index.status().await, Status::Expired);
+    Ok(())
+}
+
+/// The plan carries `-R-dir/data` with no version. The edge is added anyway, and the step then
+/// upgrades the recorded dependency to the listing's version: one record, concrete.
+#[tokio::test]
+async fn plan_dependency_without_version_gets_unknown_edge_then_upgrade() -> TestResult {
+    let envref = index_env(
+        Box::new(index_store("idx", false).await?),
+        Arc::new(AtomicUsize::new(0)),
+    );
+    put(&envref, "data/a.txt", b"hello").await?;
+    evaluate_index(&envref, "idx").await?;
+
+    let metadata = envref.get_async_store().get_metadata(&index_key("idx")?).await?;
+    let dir = DependencyKey::from_dir_key(&parse_key("data")?);
+    let records: Vec<&DependencyRecord> = metadata
+        .get_dependencies()
+        .iter()
+        .filter(|record| record.key == dir)
+        .collect();
+    assert_eq!(records.len(), 1, "one record for the listing: {:?}", metadata.get_dependencies());
+    assert!(!records[0].version.is_unknown(), "upgraded to the listing version: {:?}", metadata.get_dependencies());
+
+    // Concrete, and the one the audit sees: nothing is stale.
+    let report = within(
+        envref
+            .get_asset_manager()
+            .trigger_dependency_audit(&parse_query("-R/idx/index.txt")?),
+    )
+    .await?;
+    assert!(report.expired.is_empty(), "{report:?}");
+    Ok(())
+}
+
+/// Corner case 2: rewriting a member with other bytes leaves the membership alone.
+#[tokio::test]
+async fn content_change_does_not_move_listing_version() -> TestResult {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let envref = index_env(Box::new(index_store("idx", false).await?), calls.clone());
+    put(&envref, "data/a.txt", b"hello").await?;
+    evaluate_index(&envref, "idx").await?;
+
+    put(&envref, "data/a.txt", b"entirely different").await?;
+
+    assert_eq!(stored_status(&envref, &index_key("idx")?).await?, Status::Ready);
+    let _ = evaluate_index(&envref, "idx").await?;
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "served from the store");
+    Ok(())
+}
+
+/// Corner case 3: dropping the bytes of a computed asset keeps its recipe, so its name stays in
+/// the listing and the version does not move.
+#[tokio::test]
+async fn deleting_bytes_keeps_the_listing_version() -> TestResult {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let envref = index_env(Box::new(index_store("idx", true).await?), calls.clone());
+    let a = parse_key("data/a.txt")?;
+    let value = within(envref.get_asset_manager().get(&a)).await?;
+    let _ = within(value.get()).await?;
+    common::manager_scenarios::wait_until_stored(&envref, &a, Status::Ready).await?;
+    evaluate_index(&envref, "idx").await?;
+
+    within(envref.get_asset_manager().remove(&a)).await?;
+
+    assert_eq!(stored_status(&envref, &index_key("idx")?).await?, Status::Ready);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    Ok(())
+}
+
+/// Corner case 5: an index that lives in the folder it lists is part of that listing from the
+/// start (its recipe puts the name there), so storing it moves nothing.
+#[tokio::test]
+async fn index_inside_listed_folder_does_not_self_expire() -> TestResult {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let envref = index_env(Box::new(index_store("data", false).await?), calls.clone());
+    let text = evaluate_index(&envref, "data").await?;
+    assert!(text.contains("data/index.txt"), "the index is in its own listing: {text}");
+
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    assert_eq!(stored_status(&envref, &index_key("data")?).await?, Status::Ready);
+    let again = evaluate_index(&envref, "data").await?;
+    assert_eq!(again, text);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    Ok(())
+}
+
+/// Many writers into one folder: the refreshes may interleave, and the folder's true membership
+/// is what the next evaluation sees and records.
+#[tokio::test]
+async fn concurrent_writes_settle_on_true_membership() -> TestResult {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let envref = index_env(Box::new(index_store("idx", false).await?), calls.clone());
+    put(&envref, "data/a.txt", b"hello").await?;
+    evaluate_index(&envref, "idx").await?;
+
+    let mut writers = Vec::new();
+    for n in 0..8 {
+        let envref = envref.clone();
+        writers.push(tokio::spawn(async move {
+            let name = format!("data/w{n}.txt");
+            let key = parse_key(&name).map_err(|e| e.to_string())?;
+            envref
+                .get_asset_manager()
+                .set_binary(&key, b"w", provenance_text_metadata())
+                .await
+                .map_err(|e| e.to_string())
+        }));
+    }
+    for writer in writers {
+        within(writer).await??;
+    }
+
+    assert_eq!(stored_status(&envref, &index_key("idx")?).await?, Status::Expired);
+    let text = evaluate_index(&envref, "idx").await?;
+    for n in 0..8 {
+        assert!(text.contains(&format!("data/w{n}.txt")), "w{n} missing: {text}");
+    }
+    let report = within(
+        envref
+            .get_asset_manager()
+            .trigger_dependency_audit(&parse_query("-R/idx/index.txt")?),
+    )
+    .await?;
+    assert!(report.expired.is_empty(), "the index recorded the settled listing: {report:?}");
+    assert_eq!(stored_status(&envref, &index_key("idx")?).await?, Status::Ready);
+    Ok(())
+}
+
+/// A store whose `listdir` can be switched off.
+struct ListdirFailingStore {
+    inner: AsyncMemoryStore,
+    failing: Arc<AtomicBool>,
+}
+
+#[async_trait]
+impl AsyncStore for ListdirFailingStore {
+    async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+        self.inner.get(key).await
+    }
+
+    async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+        self.inner.set_metadata(key, metadata).await
+    }
+
+    async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+        self.inner.get_metadata(key).await
+    }
+
+    async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+        self.inner.set(key, data, metadata).await
+    }
+
+    async fn contains(&self, key: &Key) -> Result<bool, Error> {
+        self.inner.contains(key).await
+    }
+
+    async fn remove(&self, key: &Key) -> Result<(), Error> {
+        self.inner.remove(key).await
+    }
+
+    async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+        self.inner.is_dir(key).await
+    }
+
+    async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+        if self.failing.load(Ordering::SeqCst) {
+            return Err(Error::key_read_error(key, "ListdirFailingStore", "intentional failure"));
+        }
+        self.inner.listdir(key).await
+    }
+}
+
+/// The write is the user's act; a listing that cannot be refreshed afterwards is reported on
+/// stderr and the write stands.
+#[tokio::test]
+async fn listdir_error_after_write_is_logged_not_fatal() -> TestResult {
+    let failing = Arc::new(AtomicBool::new(false));
+    let envref = index_env(
+        Box::new(ListdirFailingStore {
+            inner: index_store("idx", false).await?,
+            failing: failing.clone(),
+        }),
+        Arc::new(AtomicUsize::new(0)),
+    );
+    put(&envref, "data/a.txt", b"hello").await?;
+    evaluate_index(&envref, "idx").await?;
+
+    failing.store(true, Ordering::SeqCst);
+    let written = parse_key("data/late.txt")?;
+    let result = within(envref.get_asset_manager().set_binary(
+        &written,
+        b"late",
+        provenance_text_metadata(),
+    ))
+    .await;
+    failing.store(false, Ordering::SeqCst);
+
+    result?;
+    assert!(envref.get_async_store().contains(&written).await?, "the write stands");
+    assert_eq!(
+        stored_status(&envref, &index_key("idx")?).await?,
+        Status::Ready,
+        "the refresh failed, so nothing was moved or expired"
+    );
+    Ok(())
+}

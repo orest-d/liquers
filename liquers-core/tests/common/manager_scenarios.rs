@@ -841,3 +841,89 @@ where
     );
     Ok(())
 }
+
+// --- folder-listing dependencies (dependency-audit-and-expiry-provenance, Step 8) ---
+
+/// `index_files`: the listing it is given, as the sorted, comma-joined keys. Counts every run.
+pub fn register_index_files<E>(cr: &mut liquers_core::commands::CommandRegistry<E>, calls: Arc<AtomicUsize>)
+where
+    E: Environment<Value = Value>,
+{
+    cr.register_command(
+        CommandKey::new_name("index_files"),
+        move |state: &State<Value>, _args, _ctx| -> Result<Value, Error> {
+            calls.fetch_add(1, Ordering::SeqCst);
+            let Value::AssetInfo(infos) = state.data_unchecked().as_ref() else {
+                return Err(Error::general_error(
+                    "index_files expects a directory listing".to_string(),
+                ));
+            };
+            let mut names: Vec<String> = infos
+                .iter()
+                .filter_map(|info| info.key.as_ref().map(|key| key.encode()))
+                .collect();
+            names.sort();
+            Ok(Value::from(names.join(",")))
+        },
+    )
+    .expect("register index_files");
+}
+
+/// [`provenance_store`]`(false)` plus `idx/recipes.yaml` with `index.txt = -R-dir/data/-/index_files`.
+pub async fn listing_store() -> Result<AsyncMemoryStore, Error> {
+    use liquers_core::recipes::{Recipe, RecipeList};
+    let mut rl = RecipeList::new();
+    rl.add_recipe(Recipe::new(
+        "-R-dir/data/-/index_files/index.txt".to_string(),
+        "Index".into(),
+        "lists data".into(),
+    )?);
+    let yaml = serde_yaml::to_string(&rl)
+        .map_err(|e| Error::general_error(format!("recipes.yaml: {e}")))?;
+    let store = provenance_store(false).await?;
+    store
+        .set(&parse_key("idx/recipes.yaml")?, yaml.as_bytes(), &Metadata::new())
+        .await?;
+    Ok(store)
+}
+
+/// A file added to a listed folder expires the index built from it; one rewritten in place does
+/// not. Expects [`listing_store`], [`register_provenance_commands`] and [`register_index_files`]
+/// (with `calls`).
+pub async fn scenario_listing_dependency<E>(
+    envref: EnvRef<E>,
+    calls: Arc<AtomicUsize>,
+) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    let am = envref.get_asset_manager();
+    let index = parse_key("idx/index.txt")?;
+    am.set_binary(&parse_key("data/a.txt")?, b"hello", provenance_text_metadata())
+        .await?;
+    let first = am.get(&index).await?.get().await?.try_into_string()?;
+    assert!(first.contains("data/a.txt") && !first.contains("data/new.txt"), "{first}");
+    wait_until_stored(&envref, &index, Status::Ready).await?;
+
+    am.set_binary(&parse_key("data/a.txt")?, b"other bytes", provenance_text_metadata())
+        .await?;
+    let store = envref.get_async_store();
+    assert_eq!(
+        store.get_metadata(&index).await?.status(),
+        Status::Ready,
+        "same membership: the index stays"
+    );
+
+    am.set_binary(&parse_key("data/new.txt")?, b"fresh", provenance_text_metadata())
+        .await?;
+    assert_eq!(
+        store.get_metadata(&index).await?.status(),
+        Status::Expired,
+        "a new member moves the listing version"
+    );
+
+    let second = am.get(&index).await?.get().await?.try_into_string()?;
+    assert!(second.contains("data/new.txt"), "{second}");
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    Ok(())
+}
