@@ -501,6 +501,14 @@ impl MetadataRecord {
             .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
     }
 
+    #[getter]
+    pub fn expiry_reason(&self) -> Option<String> {
+        self.inner.expiry_reason.as_ref().map(|reason| {
+            serde_json::to_string(reason)
+                .unwrap_or_else(|_| "null".to_string())
+        })
+    }
+
     pub fn __str__(&self) -> String {
         format!("{:?}", self.inner)
     }
@@ -638,6 +646,14 @@ impl AssetInfo {
     #[setter]
     pub fn set_is_dir(&mut self, is_dir: bool) {
         self.inner.is_dir = is_dir;
+    }
+
+    #[getter]
+    pub fn expiry_reason(&self) -> Option<String> {
+        self.inner.expiry_reason.as_ref().map(|reason| {
+            serde_json::to_string(reason)
+                .unwrap_or_else(|_| "null".to_string())
+        })
     }
 
     pub fn to_json(&self) -> PyResult<String> {

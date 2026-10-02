@@ -276,4 +276,20 @@ assets:
         let _store = envref.get_async_store();
         assert!(envref.get_asset_manager().is_started());
     }
+    #[test]
+    fn config_with_and_without_assets_section_parses() {
+        use crate::environment_builder::DependencyAuditPolicy;
+        let without = EnvironmentConfig::from_yaml("recipes: trivial\n").expect("parse");
+        assert_eq!(without.assets, AssetManagerOptions::default());
+        assert_eq!(without.assets.dependency_audit, DependencyAuditPolicy::Explicit);
+
+        let with = EnvironmentConfig::from_yaml("assets:\n  dependency_audit: on_load\n").expect("parse");
+        assert_eq!(with.assets.dependency_audit, DependencyAuditPolicy::OnLoad);
+        assert_eq!(with.assets.job_capacity, None);
+
+        let yaml = with.to_yaml().expect("to yaml");
+        let again = EnvironmentConfig::from_yaml(&yaml).expect("reparse");
+        assert_eq!(again.assets.dependency_audit, DependencyAuditPolicy::OnLoad);
+    }
+
 }

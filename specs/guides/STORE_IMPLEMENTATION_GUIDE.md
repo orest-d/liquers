@@ -3,7 +3,7 @@ title: Store Implementation Guide
 kind: guide
 audience: internal
 area: [core/store, store/backends, web]
-reviewed: 2026-09-30
+reviewed: 2026-10-02
 ---
 # Store Implementation Guide
 
@@ -21,6 +21,9 @@ integration**, and shares its vocabulary through
 that guide fixes its contract as pseudocode in an appendix, because no single Rust suite could run
 inside every integrated language. Every store here is a Rust `AsyncStore`, so **the suite is
 implemented once and applied to any implementation** — there is no appendix to drift from the code.
+
+See also [`ASSET_MANAGER_IMPLEMENTATION_GUIDE.md`](ASSET_MANAGER_IMPLEMENTATION_GUIDE.md), the same
+kind of guide for an `AssetManager` implemented outside `liquers-core`.
 
 ## 1. What implementing a store actually means
 
@@ -414,6 +417,7 @@ Update it when a rule is added or a store's result changes.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-02 | Added a "see also" link to the new `ASSET_MANAGER_IMPLEMENTATION_GUIDE.md`, which follows this guide's pattern. Link-only change, recorded because §9.2 has no link-only exemption; the store content was not re-verified in this pass. | phase-5 (`design/dependency-audit-and-expiry-provenance/`) |
 | 2026-09-30 | §2: delegated stores must be able to say "absent". §5: "Naming your tests" — rule families are owned by the rules, unit tests are named by subject, refutation tests are `refute_<rule id>_…`, and D1 enforces it; noted that no suite carries an allowed failure. §9 rewritten from the final reports: 43 rules, every in-tree store conformant, `JsStore` and `LocalStorageStore` included; the table is said to be maintained by hand, which it always was. | phase-5 (`design/store-conformance-backlog/`) |
 | 2026-09-29 | §8: added `sidecar04` — a key holding only metadata is listed by its parent. | `design/store-conformance-backlog/` step 6 |
 | 2026-09-29 | §9: `dir07` is no longer blocked — STORE_SEMANTICS §2 settled that directory metadata populates `children` one level deep. The rest of the §9 table is rewritten from the final reports when `design/store-conformance-backlog/` reaches Phase 5. | `design/store-conformance-backlog/` step 4 |

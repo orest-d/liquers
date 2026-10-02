@@ -133,7 +133,7 @@ async fn computed_keyed_asset_version_is_the_hash_of_stored_bytes(
 
     assert_eq!(
         state.metadata.version(),
-        Some(Version::from_bytes(&stored)),
+        Some(Version::from_content(&stored)),
         "the version must describe exactly the bytes the store holds"
     );
     Ok(())
@@ -301,7 +301,7 @@ async fn metadata_kept_data_deleted_still_verifies_clean(
     let manager = envref.get_asset_manager();
     assert_eq!(
         manager.version(&a_key).await?,
-        a_metadata.version(),
+        a_metadata.version().unwrap_or_default(),
         "a version is a fact about metadata, not about the value being present"
     );
     Ok(())

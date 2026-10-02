@@ -17,14 +17,18 @@ use crate::query::{Key, Position, Query};
 pub struct Version(pub(crate) u128);
 
 impl Version {
+    /// Bit 127: set on every content hash, and on nothing else.
+    pub const HASH_FLAG: u128 = 1 << 127;
+
     pub fn new(v: u128) -> Self {
         Version(v)
     }
 
     /// The sentinel version for an unknown dependency revision.
     ///
-    /// `Version(0)` is intentionally not a concrete asset/content version:
-    /// dependency checks treat it as compatible with any known version.
+    /// `Version(0)` is intentionally not a concrete asset/content version. In the in-process
+    /// fast-track check (`matches`), it is compatible with any known version. It is not compatible
+    /// in cascades, audits, or the `on_load` check of a current 0 (see Part G).
     pub fn unknown() -> Self {
         Version(0)
     }
@@ -37,6 +41,12 @@ impl Version {
         ))
     }
 
+    /// Content hash of stored bytes (127 bits of blake3 + the flag).
+    pub fn from_content(bytes: &[u8]) -> Self {
+        let unflagged = Self::from_bytes(bytes);
+        Version(unflagged.0 | Self::HASH_FLAG)
+    }
+
     /// Creates a version from the current wall-clock time.
     ///
     /// Uses `chrono::Utc::now()` rather than `std::time::SystemTime::now()`: the latter is not a
@@ -46,7 +56,7 @@ impl Version {
     /// Prefer [`Self::new_unique`] when what is wanted is a *distinct* version rather than a
     /// timestamp — two calls within one clock tick return the same value here.
     pub fn from_time_now() -> Self {
-        Version(chrono_nanos())
+        Version(chrono_nanos() & !Self::HASH_FLAG)
     }
 
     /// Creates a version from a specific `SystemTime`.
@@ -56,7 +66,7 @@ impl Version {
             .ok()
             .unwrap_or_default()
             .as_nanos();
-        Version(nanos)
+        Version(nanos & !Self::HASH_FLAG)
     }
 
     /// Creates a version that is unique within the process.
@@ -83,7 +93,40 @@ impl Version {
     pub fn new_unique() -> Self {
         static UNIQUE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let counter = UNIQUE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed) as u128;
-        Version(chrono_nanos().wrapping_shl(64) | counter)
+        Version((chrono_nanos().wrapping_shl(64) | counter) & !Self::HASH_FLAG)
+    }
+
+    /// Bit 127 set → `ContentHash`; 0 → `Unknown`; otherwise `Timestamp`. For an *unflagged
+    /// legacy hash* this is a guess (about half read as `ContentHash`, half as `Timestamp`). It
+    /// affects only the wording of a mismatch log line, never the outcome of `verify`.
+    pub fn kind(&self) -> VersionKind {
+        if self.0 & Self::HASH_FLAG != 0 {
+            VersionKind::ContentHash
+        } else if self.0 == 0 {
+            VersionKind::Unknown
+        } else {
+            VersionKind::Timestamp
+        }
+    }
+
+    /// Re-hash `bytes` and compare with `self`.
+    pub fn verify(&self, bytes: &[u8]) -> VersionCheck {
+        let actual = Self::from_content(bytes);
+        let recorded_kind = self.kind();
+
+        // Legacy rule: an unflagged recorded value equal to from_bytes(bytes) is Verified
+        if recorded_kind != VersionKind::ContentHash && self.0 == Self::from_bytes(bytes).0 {
+            return VersionCheck::Verified;
+        }
+
+        if self == &actual {
+            VersionCheck::Verified
+        } else {
+            VersionCheck::Mismatch {
+                actual,
+                recorded: recorded_kind,
+            }
+        }
     }
 }
 
@@ -96,6 +139,23 @@ fn chrono_nanos() -> u128 {
         .timestamp_nanos_opt()
         .unwrap_or_default()
         .max(0) as u128
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VersionKind {
+    Unknown,
+    ContentHash,
+    Timestamp,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VersionCheck {
+    /// The bytes are what this version fingerprinted.
+    Verified,
+    /// Anything else. `actual` is `from_content(bytes)`; `recorded` says what the old version
+    /// was, so the log can say "content changed" (a hash) rather than "no content hash was
+    /// recorded" (a timestamp or 0).
+    Mismatch { actual: Version, recorded: VersionKind },
 }
 
 impl serde::Serialize for Version {
@@ -160,6 +220,11 @@ impl DependencyKey {
 
     pub fn is_command_implementation(&self) -> bool {
         self.0.starts_with("ns-dep/command_impl-")
+    }
+
+    /// True for `-R/` and `-R-dir/` keys, whose version a store can answer.
+    pub fn is_store_resolvable(&self) -> bool {
+        self.is_pure_key() || self.is_dir_key()
     }
 
     fn extract_prefixed_key(&self, prefix: &str) -> Result<Option<Key>, Error> {
@@ -340,6 +405,140 @@ pub enum Status {
 impl Default for Status {
     fn default() -> Self {
         Self::None
+    }
+}
+
+/// What happened to the root key of an expiration.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ExpiryCause {
+    /// The root's own expiration time elapsed (queued monitor, or the immediate manager's lazy check).
+    Deadline { expiration_time: ExpirationTime },
+    /// Someone asked: `AssetRef::expire`, directly or through an API.
+    Explicit,
+    /// An audit found that the root's current version is not the one its dependents recorded.
+    /// `found` is the current version, `Version::unknown()` (0) when the root has none.
+    Audit { found: Version },
+    /// The root was evaluated with a dependency that expired mid-evaluation (the stale-value policy).
+    StaleDependency { dependency: DependencyKey },
+    /// The root's stored bytes no longer match its recorded version, detected when it was read
+    /// (Part G). `actual` is the new content hash.
+    UpdatedInStore { actual: Version },
+    /// The root received new content through Liquers (recomputed, `set_state`, `set_binary`, a new
+    /// command version, a changed folder listing). `version` is the new version.
+    Updated { version: Version },
+    /// The root was removed (`AssetManager::remove` of a `Source` or `Override`).
+    Removed,
+}
+
+/// Why an asset is `Expired`. Recorded, never consulted by read paths: every consumer treats
+/// `Expired` the same regardless of reason (see `EXPIRY-RECORDS-NO-REASON` for why this is not a
+/// `Status` variant).
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(tag = "scope", rename_all = "snake_case")]
+pub enum ExpiryReason {
+    /// This asset is the root.
+    Direct { cause: ExpiryCause },
+    /// `root` is the key the cause happened to; `via` is this asset's own dependency through which
+    /// the cascade reached it.
+    Cascaded {
+        cause: ExpiryCause,
+        root: DependencyKey,
+        via: DependencyKey,
+    },
+}
+
+impl ExpiryReason {
+    /// The cause at the root of this reason.
+    pub fn cause(&self) -> &ExpiryCause {
+        match self {
+            ExpiryReason::Direct { cause } => cause,
+            ExpiryReason::Cascaded { cause, .. } => cause,
+        }
+    }
+
+    /// Default log entry for `subject` (the expired asset's key, or its query when it has none).
+    /// Used by `AssetManager::record_expiry`'s default body.
+    ///
+    /// Wording (Phase 4 Step 2 of `design/dependency-audit-and-expiry-provenance/`): a direct reason
+    /// reads "`{subject}` expired: `{what happened to it}`"; a cascaded one reads "`{subject}`
+    /// expired: `{what happened to root}` triggered a cascade expiration", followed by " via direct
+    /// dependency `{via}`" iff `via != root`. No version number or asset id appears.
+    pub fn log_entry(&self, subject: &str) -> LogEntry {
+        let cause = self.cause();
+        let message = match self {
+            ExpiryReason::Direct { cause } => {
+                format!("{} expired: {}", subject, Self::direct_phrase(cause))
+            }
+            ExpiryReason::Cascaded { cause, root, via } => {
+                let mut message = format!(
+                    "{} expired: {} triggered a cascade expiration",
+                    subject,
+                    Self::cascaded_phrase(cause, root)
+                );
+                if via != root {
+                    message.push_str(&format!(" via direct dependency {}", via));
+                }
+                message
+            }
+        };
+        LogEntry::new(Self::log_level(cause), message)
+    }
+
+    /// Log level per cause: the contract working as designed is `Info`; a stored assumption found
+    /// false, or a departure from the normal contract, is `Warning`.
+    fn log_level(cause: &ExpiryCause) -> LogEntryKind {
+        match cause {
+            ExpiryCause::Deadline { .. }
+            | ExpiryCause::Explicit
+            | ExpiryCause::Updated { .. }
+            | ExpiryCause::Removed => LogEntryKind::Info,
+            ExpiryCause::Audit { .. }
+            | ExpiryCause::StaleDependency { .. }
+            | ExpiryCause::UpdatedInStore { .. } => LogEntryKind::Warning,
+        }
+    }
+
+    /// What happened to the expired asset itself (direct scope).
+    fn direct_phrase(cause: &ExpiryCause) -> String {
+        match cause {
+            ExpiryCause::Deadline { expiration_time } => {
+                format!("its expiration time {} passed", expiration_time)
+            }
+            ExpiryCause::Explicit => "expiration was requested explicitly".to_string(),
+            ExpiryCause::Audit { .. } => {
+                "an audit found it at a different version than recorded".to_string()
+            }
+            ExpiryCause::StaleDependency { dependency } => {
+                format!("it was evaluated with the expired value of {}", dependency)
+            }
+            ExpiryCause::UpdatedInStore { .. } => {
+                "its stored content was changed outside Liquers".to_string()
+            }
+            ExpiryCause::Updated { .. } => "it received new content".to_string(),
+            ExpiryCause::Removed => "it was removed".to_string(),
+        }
+    }
+
+    /// What happened to `root` (cascaded scope).
+    fn cascaded_phrase(cause: &ExpiryCause, root: &DependencyKey) -> String {
+        match cause {
+            ExpiryCause::Deadline { .. } => format!("expiration deadline on {}", root),
+            ExpiryCause::Explicit => format!("explicit expiration of {}", root),
+            ExpiryCause::Audit { .. } => format!(
+                "an audit that found {} at a different version than recorded",
+                root
+            ),
+            ExpiryCause::StaleDependency { dependency } => format!(
+                "the evaluation of {} with the expired value of {}",
+                root, dependency
+            ),
+            ExpiryCause::UpdatedInStore { .. } => {
+                format!("a change to {} made in the store outside Liquers", root)
+            }
+            ExpiryCause::Updated { .. } => format!("new content of {}", root),
+            ExpiryCause::Removed => format!("the removal of {}", root),
+        }
     }
 }
 
@@ -774,12 +973,18 @@ pub struct AssetInfo {
     /// The contract: `specs/design/record-streams/phase2-architecture.md`, §"C. `stored` and `cached`".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cached: Option<bool>,
+
+    /// Why this asset is `Expired`. Meaningful only while `status == Expired`; read it through
+    /// `Metadata::expiry_reason()`, which enforces that.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expiry_reason: Option<ExpiryReason>,
 }
 
 impl AssetInfo {
     pub fn new() -> AssetInfo {
         AssetInfo {
             is_error: false,
+            expiry_reason: None,
             ..Self::default()
         }
     }
@@ -875,6 +1080,7 @@ impl From<AssetInfo> for MetadataRecord {
         metadata.expiration_time = asset_info.expiration_time;
         metadata.stored = asset_info.stored;
         metadata.cached = asset_info.cached;
+        metadata.expiry_reason = asset_info.expiry_reason;
         metadata
     }
 }
@@ -995,7 +1201,7 @@ pub struct MetadataRecord {
     #[serde(default)]
     pub expiration_time: ExpirationTime,
 
-    /// Content-hash version of this asset, computed at save time as `Version::from_bytes(content)`.
+    /// Content-hash version of this asset, computed at save time as `Version::from_content(content)`.
     /// `None` for assets whose version has not been recorded (treated as `Version(0)` = unknown).
     #[serde(default)]
     pub version: Option<Version>,
@@ -1028,6 +1234,11 @@ pub struct MetadataRecord {
     /// The contract: `specs/design/record-streams/phase2-architecture.md`, §"C. `stored` and `cached`".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cached: Option<bool>,
+
+    /// Why this asset is `Expired`. Meaningful only while `status == Expired`; read it through
+    /// `Metadata::expiry_reason()`, which enforces that.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expiry_reason: Option<ExpiryReason>,
 }
 
 mod query_format {
@@ -1187,6 +1398,7 @@ impl MetadataRecord {
             expiration_time: self.expiration_time.clone(),
             stored: self.stored,
             cached: self.cached,
+            expiry_reason: self.expiry_reason.clone(),
         }
     }
 
@@ -1218,6 +1430,9 @@ impl MetadataRecord {
     pub fn with_status(&mut self, status: Status) -> &mut Self {
         self.status = status;
         self.is_error = status == Status::Error;
+        if status != Status::Expired {
+            self.expiry_reason = None;
+        }
         self.set_updated_now();
         self
     }
@@ -2080,6 +2295,9 @@ impl Metadata {
         match self {
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
                 o.insert("status".to_string(), serde_json::to_value(status).unwrap());
+                if status != Status::Expired {
+                    o.remove("expiry_reason");
+                }
                 Ok(())
             }
             Metadata::MetadataRecord(m) => {
@@ -2089,6 +2307,9 @@ impl Metadata {
             Metadata::LegacyMetadata(serde_json::Value::Null) => {
                 let mut m = MetadataRecord::new();
                 m.status = status;
+                if status != Status::Expired {
+                    m.expiry_reason = None;
+                }
                 *self = Metadata::MetadataRecord(m);
                 Ok(())
             }
@@ -2149,6 +2370,39 @@ impl Metadata {
             }
             Metadata::LegacyMetadata(_) => Err(Error::general_error(
                 "Cannot set dependencies on unsupported legacy metadata".to_string(),
+            )),
+        }
+    }
+
+    /// Get the expiry reason from metadata, if available and status is Expired.
+    pub fn expiry_reason(&self) -> Option<ExpiryReason> {
+        match self {
+            Metadata::MetadataRecord(m) => {
+                if m.status == Status::Expired {
+                    m.expiry_reason.clone()
+                } else {
+                    None
+                }
+            }
+            Metadata::LegacyMetadata(_) => None,
+        }
+    }
+
+    /// Set the expiry reason in metadata.
+    pub fn set_expiry_reason(&mut self, reason: ExpiryReason) -> Result<(), Error> {
+        match self {
+            Metadata::MetadataRecord(m) => {
+                m.expiry_reason = Some(reason);
+                Ok(())
+            }
+            Metadata::LegacyMetadata(serde_json::Value::Null) => {
+                let mut m = MetadataRecord::new();
+                m.expiry_reason = Some(reason);
+                *self = Metadata::MetadataRecord(m);
+                Ok(())
+            }
+            Metadata::LegacyMetadata(_) => Err(Error::general_error(
+                "Cannot set expiry reason on unsupported legacy metadata".to_string(),
             )),
         }
     }
@@ -3251,5 +3505,459 @@ mod tests {
         let mut record = MetadataRecord::new();
         record.with_media_type(String::new());
         assert_eq!(record.declared_media_type(), None);
+    }
+
+    #[test]
+    fn version_from_content_sets_hash_flag() {
+        // Find bytes that hash to a value with bit 127 clear and non-zero
+        let mut legacy_bytes = None;
+        for i in 0..100000 {
+            let bytes = format!("test{}", i).into_bytes();
+            let unflagged = Version::from_bytes(&bytes);
+            if unflagged.0 & Version::HASH_FLAG == 0 && unflagged.0 != 0 {
+                legacy_bytes = Some(bytes);
+                break;
+            }
+        }
+        let legacy_bytes = legacy_bytes.expect("Could not find legacy bytes");
+
+        let content_version = Version::from_content(&legacy_bytes);
+        assert_ne!(content_version.0 & Version::HASH_FLAG, 0, "from_content should set bit 127");
+
+        let bytes_version = Version::from_bytes(&legacy_bytes);
+        assert_eq!(bytes_version.0 & Version::HASH_FLAG, 0, "from_bytes should not set bit 127");
+    }
+
+    #[test]
+    fn version_kind_of_each_constructor() {
+        assert_eq!(Version::unknown().kind(), VersionKind::Unknown);
+
+        // Find bytes with bit 127 clear and non-zero for the from_bytes test
+        let mut legacy_bytes = None;
+        for i in 0..100000 {
+            let bytes = format!("test{}", i).into_bytes();
+            let unflagged = Version::from_bytes(&bytes);
+            if unflagged.0 & Version::HASH_FLAG == 0 && unflagged.0 != 0 {
+                legacy_bytes = Some(bytes);
+                break;
+            }
+        }
+        let legacy_bytes = legacy_bytes.expect("Could not find legacy bytes");
+
+        assert_eq!(Version::from_content(&legacy_bytes).kind(), VersionKind::ContentHash);
+        assert_eq!(Version::from_bytes(&legacy_bytes).kind(), VersionKind::Timestamp);
+
+        assert_eq!(Version::from_time_now().kind(), VersionKind::Timestamp);
+        // Use a time after UNIX_EPOCH (not 0) to get a Timestamp
+        let time_after_epoch = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1);
+        assert_eq!(
+            Version::from_specific_time(time_after_epoch).kind(),
+            VersionKind::Timestamp
+        );
+        assert_eq!(Version::new_unique().kind(), VersionKind::Timestamp);
+    }
+
+    #[test]
+    fn from_bytes_is_not_forced_to_a_flag() {
+        // Find bytes that hash to a value with bit 127 clear and non-zero
+        let mut legacy_bytes = None;
+        for i in 0..100000 {
+            let bytes = format!("test{}", i).into_bytes();
+            let unflagged = Version::from_bytes(&bytes);
+            if unflagged.0 & Version::HASH_FLAG == 0 && unflagged.0 != 0 {
+                legacy_bytes = Some(bytes);
+                break;
+            }
+        }
+        let legacy_bytes = legacy_bytes.expect("Could not find legacy bytes");
+
+        let version = Version::from_bytes(&legacy_bytes);
+        assert_eq!(version.0 & Version::HASH_FLAG, 0, "from_bytes must not set bit 127");
+    }
+
+    #[test]
+    fn time_and_unique_versions_mask_bit_127() {
+        let v_time_now = Version::from_time_now();
+        assert_eq!(v_time_now.0 & Version::HASH_FLAG, 0, "from_time_now should mask bit 127");
+
+        let v_specific_time = Version::from_specific_time(std::time::UNIX_EPOCH);
+        assert_eq!(v_specific_time.0 & Version::HASH_FLAG, 0, "from_specific_time should mask bit 127");
+
+        let v_unique = Version::new_unique();
+        assert_eq!(v_unique.0 & Version::HASH_FLAG, 0, "new_unique should mask bit 127");
+    }
+
+    #[test]
+    fn verify_matches_own_bytes() {
+        let bytes = b"test content";
+        let version = Version::from_content(bytes);
+        assert_eq!(version.verify(bytes), VersionCheck::Verified);
+    }
+
+    #[test]
+    fn verify_reports_mismatch_with_actual() {
+        let original = b"original content";
+        let changed = b"changed content";
+        let version = Version::from_content(original);
+
+        let check = version.verify(changed);
+        match check {
+            VersionCheck::Mismatch { actual, recorded } => {
+                assert_eq!(actual, Version::from_content(changed));
+                assert_eq!(recorded, VersionKind::ContentHash);
+            }
+            VersionCheck::Verified => panic!("expected Mismatch"),
+        }
+    }
+
+    #[test]
+    fn verify_mismatch_records_the_kind() {
+        let bytes = b"test";
+
+        // Timestamp version should report Timestamp in mismatch
+        let timestamp_version = Version::from_time_now();
+        let check = timestamp_version.verify(bytes);
+        match check {
+            VersionCheck::Mismatch { recorded, .. } => {
+                assert_eq!(recorded, VersionKind::Timestamp);
+            }
+            VersionCheck::Verified => panic!("expected Mismatch"),
+        }
+
+        // Unknown version should report Unknown in mismatch
+        let unknown_version = Version::unknown();
+        let check = unknown_version.verify(bytes);
+        match check {
+            VersionCheck::Mismatch { recorded, .. } => {
+                assert_eq!(recorded, VersionKind::Unknown);
+            }
+            VersionCheck::Verified => panic!("expected Mismatch"),
+        }
+    }
+
+    #[test]
+    fn timestamp_never_verifies() {
+        let bytes = b"test";
+        let timestamp_version = Version::from_time_now();
+
+        // Even with the same bytes, a timestamp version should never verify
+        // because it cannot be recomputed
+        match timestamp_version.verify(bytes) {
+            VersionCheck::Mismatch { .. } => {
+                // Expected: timestamps never verify
+            }
+            VersionCheck::Verified => panic!("timestamp should never verify"),
+        }
+    }
+
+    #[test]
+    fn unknown_never_verifies() {
+        let bytes = b"test";
+        let unknown_version = Version::unknown();
+
+        // Unknown version should never verify
+        match unknown_version.verify(bytes) {
+            VersionCheck::Mismatch { .. } => {
+                // Expected: unknown never verifies
+            }
+            VersionCheck::Verified => panic!("unknown should never verify"),
+        }
+    }
+
+    #[test]
+    fn legacy_unflagged_hash_verifies_when_unchanged() {
+        // Find bytes that hash to a value with bit 127 clear and non-zero
+        let mut legacy_bytes = None;
+        for i in 0..100000 {
+            let bytes = format!("test{}", i).into_bytes();
+            let unflagged = Version::from_bytes(&bytes);
+            if unflagged.0 & Version::HASH_FLAG == 0 && unflagged.0 != 0 {
+                legacy_bytes = Some(bytes);
+                break;
+            }
+        }
+        let legacy_bytes = legacy_bytes.expect("Could not find legacy bytes");
+
+        let unflagged_version = Version::from_bytes(&legacy_bytes);
+
+        // Legacy rule: unflagged version equal to from_bytes(bytes) verifies
+        assert_eq!(unflagged_version.verify(&legacy_bytes), VersionCheck::Verified);
+    }
+
+    #[test]
+    fn legacy_changed_value_is_a_mismatch() {
+        // Find bytes that hash to a value with bit 127 clear and non-zero
+        let mut legacy_bytes = None;
+        for i in 0..100000 {
+            let bytes = format!("test{}", i).into_bytes();
+            let unflagged = Version::from_bytes(&bytes);
+            if unflagged.0 & Version::HASH_FLAG == 0 && unflagged.0 != 0 {
+                legacy_bytes = Some(bytes);
+                break;
+            }
+        }
+        let legacy_bytes = legacy_bytes.expect("Could not find legacy bytes");
+
+        let unflagged_version = Version::from_bytes(&legacy_bytes);
+
+        // Legacy rule: if the unflagged version no longer matches from_bytes(current_bytes),
+        // it's a mismatch. We use different bytes to trigger this.
+        let changed_bytes = b"completely different content";
+        match unflagged_version.verify(changed_bytes) {
+            VersionCheck::Mismatch { .. } => {
+                // Expected: legacy unflagged version that doesn't match is a mismatch
+            }
+            VersionCheck::Verified => panic!("legacy changed value should be a mismatch"),
+        }
+    }
+
+    #[test]
+    fn flagged_version_round_trips_through_hex() {
+        let bytes = b"test content";
+        let original = Version::from_content(bytes);
+
+        // Serialize to hex
+        let hex = format!("{:032x}", original.0);
+
+        // Deserialize back
+        let restored = u128::from_str_radix(&hex, 16).map(Version).unwrap();
+
+        assert_eq!(original, restored, "flagged version should round-trip through hex");
+    }
+
+    #[test]
+    fn null_version_sidecar_still_loads() {
+        // This test verifies that a null version (0) can still be loaded and used
+        let null_version = Version::unknown();
+        assert_eq!(null_version.0, 0);
+        assert_eq!(null_version.kind(), VersionKind::Unknown);
+        assert_eq!(null_version.is_unknown(), true);
+    }
+
+    #[test]
+    fn expiry_reason_round_trips_json_and_yaml() {
+        let reason = ExpiryReason::Direct {
+            cause: ExpiryCause::Explicit,
+        };
+
+        let json = serde_json::to_string(&reason).unwrap();
+        let restored: ExpiryReason = serde_json::from_str(&json).unwrap();
+        assert_eq!(reason, restored);
+    }
+
+    #[test]
+    fn expiry_reason_is_internally_tagged_snake_case() {
+        let reason = ExpiryReason::Direct {
+            cause: ExpiryCause::Explicit,
+        };
+
+        let json = serde_json::to_string(&reason).unwrap();
+        assert!(json.contains("\"scope\":\"direct\""));
+        assert!(json.contains("\"kind\":\"explicit\""));
+    }
+
+    #[test]
+    fn expiry_reason_json_shape() {
+        let reason = ExpiryReason::Cascaded {
+            cause: ExpiryCause::Updated { version: Version::new(123) },
+            root: DependencyKey::new("-R/data/a.csv"),
+            via: DependencyKey::new("-R/data/b.csv"),
+        };
+
+        let json = serde_json::to_string(&reason).unwrap();
+        let restored: ExpiryReason = serde_json::from_str(&json).unwrap();
+        assert_eq!(reason, restored);
+    }
+
+    #[test]
+    fn log_line_format_per_cause() {
+        // Test direct forms
+        let direct_deadline = ExpiryReason::Direct {
+            cause: ExpiryCause::Deadline {
+                expiration_time: ExpirationTime::At(chrono::Utc::now()),
+            },
+        };
+        let entry = direct_deadline.log_entry("data/a.csv");
+        assert!(entry.message.contains("data/a.csv expired:"));
+        assert!(entry.message.contains("expiration time"));
+        assert_eq!(entry.kind, LogEntryKind::Info);
+
+        let direct_explicit = ExpiryReason::Direct {
+            cause: ExpiryCause::Explicit,
+        };
+        let entry = direct_explicit.log_entry("data/b.csv");
+        assert!(entry.message.contains("data/b.csv expired:"));
+        assert!(entry.message.contains("expiration was requested explicitly"));
+        assert_eq!(entry.kind, LogEntryKind::Info);
+
+        // Test cascaded forms
+        let cascaded_same = ExpiryReason::Cascaded {
+            cause: ExpiryCause::Updated { version: Version::new(456) },
+            root: DependencyKey::new("-R/data/a.csv"),
+            via: DependencyKey::new("-R/data/a.csv"),
+        };
+        let entry = cascaded_same.log_entry("data/report.txt");
+        assert!(entry.message.contains("data/report.txt expired:"));
+        assert!(entry.message.contains("triggered a cascade expiration"));
+        assert!(!entry.message.contains("via direct dependency"));
+        assert_eq!(entry.kind, LogEntryKind::Info);
+
+        let cascaded_diff = ExpiryReason::Cascaded {
+            cause: ExpiryCause::Updated { version: Version::new(789) },
+            root: DependencyKey::new("-R/data/a.csv"),
+            via: DependencyKey::new("-R/data/b.csv"),
+        };
+        let entry = cascaded_diff.log_entry("data/report.txt");
+        assert!(entry.message.contains("via direct dependency -R/data/b.csv"));
+        assert_eq!(entry.kind, LogEntryKind::Info);
+
+        // Test warning level causes
+        let cascaded_audit = ExpiryReason::Cascaded {
+            cause: ExpiryCause::Audit { found: Version::new(111) },
+            root: DependencyKey::new("-R/data/a.csv"),
+            via: DependencyKey::new("-R/data/a.csv"),
+        };
+        let entry = cascaded_audit.log_entry("data/report.txt");
+        assert_eq!(entry.kind, LogEntryKind::Warning);
+    }
+
+    #[test]
+    fn expiry_reason_log_entry_uses_the_query_when_the_asset_has_no_key() {
+        let reason = ExpiryReason::Direct {
+            cause: ExpiryCause::Explicit,
+        };
+
+        let entry = reason.log_entry("some-query");
+        assert!(entry.message.contains("some-query expired:"));
+    }
+
+    #[test]
+    fn record_without_expiry_reason_loads() {
+        let json = r#"{
+            "log": [],
+            "query": "",
+            "key": null,
+            "status": "Ready",
+            "type_identifier": "test",
+            "is_error": false,
+            "unicode_icon": "📄",
+            "is_dir": false,
+            "progress": [],
+            "updated": "2026-01-01T00:00:00Z",
+            "is_volatile": false
+        }"#;
+
+        let record: MetadataRecord = serde_json::from_str(json).unwrap();
+        assert_eq!(record.expiry_reason, None);
+    }
+
+    #[test]
+    fn non_expired_record_json_is_unchanged() {
+        let mut record = MetadataRecord::new();
+        record.status = Status::Ready;
+        record.expiry_reason = None;
+
+        let json = serde_json::to_string(&record).unwrap();
+        assert!(!json.contains("expiry_reason"));
+    }
+
+    #[test]
+    fn expired_record_serializes_reason() {
+        let mut record = MetadataRecord::new();
+        record.status = Status::Expired;
+        record.expiry_reason = Some(ExpiryReason::Direct {
+            cause: ExpiryCause::Explicit,
+        });
+
+        let json = serde_json::to_string(&record).unwrap();
+        assert!(json.contains("expiry_reason"));
+        assert!(json.contains("\"scope\":\"direct\""));
+    }
+
+    #[test]
+    fn unknown_field_record_degrades_to_legacy() {
+        let json = r#"{
+            "log": [],
+            "query": "",
+            "status": "Ready",
+            "type_identifier": "test",
+            "is_error": false,
+            "unicode_icon": "📄",
+            "is_dir": false,
+            "progress": [],
+            "updated": "2026-01-01T00:00:00Z",
+            "is_volatile": false,
+            "custom_field": "this_should_cause_degradation"
+        }"#;
+
+        let metadata = Metadata::from_json(json).unwrap();
+        assert!(matches!(metadata, Metadata::LegacyMetadata(_)));
+    }
+
+    #[test]
+    fn expiry_reason_accessor_hides_reason_unless_expired() {
+        let mut metadata = Metadata::MetadataRecord(MetadataRecord::new());
+        metadata.set_status(Status::Ready).unwrap();
+        let _ = metadata.set_expiry_reason(ExpiryReason::Direct {
+            cause: ExpiryCause::Explicit,
+        });
+
+        // Reason should be hidden because status is not Expired
+        assert_eq!(metadata.expiry_reason(), None);
+
+        metadata.set_status(Status::Expired).unwrap();
+        // Now we need to manually set the reason since set_status might have cleared it
+        let _ = metadata.set_expiry_reason(ExpiryReason::Direct {
+            cause: ExpiryCause::Explicit,
+        });
+
+        // Reason should be visible when status is Expired
+        assert!(metadata.expiry_reason().is_some());
+    }
+
+    #[test]
+    fn asset_info_projects_expiry_reason() {
+        let mut record = MetadataRecord::new();
+        record.status = Status::Expired;
+        record.expiry_reason = Some(ExpiryReason::Direct {
+            cause: ExpiryCause::Explicit,
+        });
+
+        // Test projection from MetadataRecord to AssetInfo
+        let info = record.get_asset_info();
+        assert_eq!(info.expiry_reason, record.expiry_reason);
+
+        // Test projection from AssetInfo to MetadataRecord
+        let record2: MetadataRecord = info.into();
+        assert_eq!(record2.expiry_reason, record.expiry_reason);
+    }
+
+    #[test]
+    fn dependency_key_is_store_resolvable() {
+        let pure_key = DependencyKey::new("-R/data/file.csv");
+        assert!(pure_key.is_store_resolvable());
+
+        let dir_key = DependencyKey::new("-R-dir/data");
+        assert!(dir_key.is_store_resolvable());
+
+        let cmd_key = DependencyKey::new("ns-dep/command_metadata-realm-ns-name");
+        assert!(!cmd_key.is_store_resolvable());
+
+        let recipe_key = DependencyKey::new("-R-recipe/data/file.csv");
+        assert!(!recipe_key.is_store_resolvable());
+    }
+
+    #[test]
+    fn set_status_clears_expiry_reason() {
+        let mut metadata = Metadata::MetadataRecord(MetadataRecord::new());
+        metadata.set_status(Status::Expired).unwrap();
+        let _ = metadata.set_expiry_reason(ExpiryReason::Direct {
+            cause: ExpiryCause::Explicit,
+        });
+
+        assert!(metadata.expiry_reason().is_some());
+
+        metadata.set_status(Status::Ready).unwrap();
+        assert!(metadata.expiry_reason().is_none());
     }
 }

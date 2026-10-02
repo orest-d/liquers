@@ -4,12 +4,12 @@ use std::sync::Arc;
 use crate::maybe_send::MaybeBoxed;
 
 use crate::{
-    assets::{AssetManager, AssetRef},
+    assets::{AssetManager, AssetRef, DependencyManagerAccess},
     command_metadata::{CommandKey, PayloadRequirement},
     commands::{CommandArguments, CommandExecutor},
     context::{Context, EnvRef, Environment},
     error::Error,
-    metadata::{DependencyRecord, LogEntry, Metadata, Version},
+    metadata::{DependencyKey, DependencyRecord, ExpiryCause, LogEntry, Metadata, Version},
     parse::{SimpleTemplate, SimpleTemplateElement},
     plan::{
         has_expirable_dependencies, has_volatile_dependencies, ParameterValue, Plan, PlanBuilder,
@@ -782,6 +782,42 @@ pub fn do_step<E: Environment>(
             let envref1 = envref.clone();
             let asset_manager = envref1.get_asset_manager();
             let d = asset_manager.listdir_asset_info(&key).await?;
+
+            // The listing is a dependency: register its version, so a later change of the
+            // membership (`refresh_listing_version`) expires what was built from it, and record
+            // it on this evaluation. `add_dependency` upgrades the plan-time `unknown` record.
+            let names = asset_manager.listdir(&key).await?;
+            let version = crate::dependencies::DependencyManager::<E>::listing_version(&names);
+            let dir_dep_key = DependencyKey::from_dir_key(&key);
+            let dm = asset_manager.dependency_manager();
+            // The owner's edge is recorded *before* the version is registered: a dependent is
+            // spared by an edge that records exactly the new version, so the asset being
+            // evaluated right now (whose plan-time edge still holds the previous listing) is not
+            // expired by the registration it is itself causing.
+            if let Some(owner) = context.owner_key().await? {
+                let owner_dep_key = DependencyKey::from(&owner);
+                if let Ok(expired) = dm.add_dependency(&owner_dep_key, &dir_dep_key, version).await {
+                    asset_manager
+                        .expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                        .await;
+                }
+            }
+            let expired = dm.register_version(&dir_dep_key, version).await;
+            asset_manager
+                .expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                .await;
+            context
+                .add_dependency(DependencyRecord::new(dir_dep_key, version))
+                .await;
+            // The listing is evaluated as a query asset of its own (`-R-dir/data` is a boundary
+            // in the plan), whose context has no owner. The asset that depends on it learns the
+            // dependency's version from this asset's metadata (`wait_for_dependency_recording`),
+            // so the listing version is the version of the listing asset.
+            {
+                let asset = context.get_asset_ref();
+                let mut lock = asset.data.write().await;
+                lock.metadata.set_version(Some(version))?;
+            }
             Ok(Arc::new(
                 <<E as Environment>::Value as ValueInterface>::from_asset_info(d),
             ))

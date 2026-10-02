@@ -3,7 +3,7 @@ title: Environment, Context and Evaluation Reference
 kind: reference
 audience: internal
 area: [core/context, core/plan]
-reviewed: 2026-09-27
+reviewed: 2026-10-02
 ---
 # DOC-04: Environment, Context, and End-to-End Evaluation
 
@@ -298,7 +298,7 @@ command".
 
 ### Relative queries are refused at the command boundary
 
-`Context::evaluate`, `Context::get_dependency_state` and `Context::apply` reject a
+`Context::submit`, `Context::evaluate`, `Context::get_dependency_state` and `Context::apply` reject a
 query carrying a CWD-relative resource operand, recursively including link
 parameters, with `ErrorType::NotSupported`. The error names the offending segment's
 position and points at `-R-key/.`.
@@ -348,8 +348,10 @@ as keyed owners.
 
 | Context method | Schedules | Waits | Records dependency | Payload behavior |
 |---|---:|---:|---:|---|
-| `evaluate` | Yes | No direct state wait; may inline-run locally queued work | Yes | Inherits only when the nested plan requires it |
-| `get_dependency_state` | Yes | Yes | Yes | Inherits only when the nested plan requires it |
+| `submit` | Yes; the dependency starts at once (see below) | No | Yes | Inherits only when the nested plan requires it |
+| `wait_for_dependency` | No | Yes; applies the stale-dependency policy | Upgrades the record `submit` wrote to the settled version | N/A |
+| `evaluate` | `submit`, then drains the local queue | No direct state wait; may inline-run locally queued work | Yes | Inherits only when the nested plan requires it |
+| `get_dependency_state` | `submit` + `wait_for_dependency` | Yes | Yes | Inherits only when the nested plan requires it |
 | `apply` | According to manager mode | According to manager mode | No | Inherits for payload-required plans and evaluates them immediately |
 | `evaluate_local_queue` | Previously scheduled local dependencies | Runs locally queued work; does not wait for work already running elsewhere | Records were created during scheduling | N/A |
 
@@ -359,7 +361,25 @@ the observed version, and drains the local dependency queue. It still returns an
 `AssetRef`.
 
 `get_dependency_state` is the direct schedule-and-wait operation used by the
-interpreter for linked and resource dependencies.
+interpreter for linked and resource dependencies. It is exactly `submit` followed by
+`wait_for_dependency`, and a command that needs several dependencies can call those two
+itself: submit each, then wait for each.
+
+**`submit` is not lazy.** It returns the dependency's `AssetRef` without waiting for its
+value, but the dependency has already started: the queued manager starts it immediately
+when the job queue has capacity (otherwise it parks on the parent's local queue and runs
+at the wait), and the inline manager evaluates it to completion inside `submit`. Nothing
+can rely on a submitted dependency not having run yet
+(`SUBMIT-IS-NOT-LAZY-ON-ANY-MANAGER`; the doc comment on `Context::submit` still says the
+inline manager runs it on the first wait, which is wrong).
+
+**Wait through `wait_for_dependency`, not `AssetRef::get`.** `wait_for_dependency(&asset)`
+shows the current asset as `Status::Dependencies` while it waits, records the dependency's
+settled version under the key `submit` used, and applies the stale-dependency policy: a
+dependency that expired meanwhile is used as it stands and the current asset is marked
+`Expired` with `Direct { StaleDependency }`. `AssetRef::get` fails on an expired asset
+and keeps the unknown schedule-time version. Both built-in managers apply the policy (the
+inline manager through the trait-default `AssetManager::wait_for_dependency`).
 
 `Context::apply` is an ad-hoc transformation of a supplied state. It does not
 record a dependency. For a payload-required plan it forwards the current payload
@@ -436,7 +456,7 @@ Preferred application-facing APIs:
 - Read-only service access through `EnvRef`
 - Command-facing `Context` payload, metadata, log, progress, dependency, and
   asset/environment access. **Not** the working key: `get_cwd_key` and
-  `set_cwd_key` are crate-private, and `evaluate`/`apply`/`get_dependency_state`
+  `set_cwd_key` are crate-private, and `submit`/`evaluate`/`apply`/`get_dependency_state`
   require absolute queries
 
 Framework extension and lifecycle APIs:
@@ -512,14 +532,15 @@ Review verification on 2026-08-09:
 The earlier DOC-04 completion also passed
 `cargo check --target wasm32-unknown-unknown -p liquers-core`.
 
-The test build still reports existing compiler warnings, including the public
-`AssetManager::dependency_manager`/private `DependencyManager` mismatch already
-tracked by DOC-03. No new compiler warning was introduced by DOC-04.
+The `AssetManager::dependency_manager` / private `DependencyManager` visibility
+mismatch reported at that time is resolved: `DependencyManager` is public (opaque, its
+methods crate-private), so an asset manager can be implemented outside `liquers-core`.
 
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. §Dependency and apply methods: `submit` and the now-public `wait_for_dependency` added; `evaluate` = `submit` + drain and `get_dependency_state` = `submit` + `wait_for_dependency`; `submit` is not lazy on either manager; waiting through `AssetRef::get` bypasses the stale-dependency policy and the version upgrade. `submit` also refuses relative queries. Verification note on the `DependencyManager` visibility warning corrected (the type is now public). | phase-5 |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. §Context lifetime and sharing: the state handed to the next step carries the fetched key as metadata `key` (review fix C2 in `interpreter::apply_plan`), with the step-by-step rule. `LibKind`'s default recipe provider is a chain with `ManifestRecipeProvider` under `records`. | phase-5 |
 | 2026-08-31 | Replaced the initialization sequence with `try_to_ref`'s and documented `EnvironmentBuilder` as the recommended construction path, `init_with_envref`'s strengthened contract, synchronous fallible manager startup, and `GenericEnvironment` with its four aliases and the asset-manager kind. Retired the P0 `EnvRef::new` and P1 unobservable-startup gap rows. | `design/environment-builder/phase-5` |
 | 2026-08-31 | Documented that `Environment::to_ref` refreshes command metadata versions before sharing and that `EnvRef::new` bypasses that lifecycle step. | `design/refresh-command-metadata-versions/phase-5` |

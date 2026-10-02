@@ -1584,3 +1584,55 @@ async fn test_expired_keyed_asset_does_not_fast_track_back(
     Ok(())
 }
 
+/// I4 / Phase 3 pitfall 11 — the immediate (inline) manager expires an in-memory asset whose
+/// deadline has passed, on the next access, with a `Direct { Deadline }` reason
+/// (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`). Before the fix the check compared the
+/// status with itself and the second request was served the old value, still `Ready`.
+#[tokio::test]
+async fn immediate_manager_deadline_fires() -> Result<(), Box<dyn std::error::Error>> {
+    use liquers_core::metadata::{ExpiryCause, ExpiryReason};
+    type CommandEnvironment = ImmediateEnvironment<Value>;
+
+    static CALLS: AtomicUsize = AtomicUsize::new(0);
+    fn stamp(_state: &State<Value>) -> Result<Value, Error> {
+        let n = CALLS.fetch_add(1, Ordering::SeqCst) + 1;
+        Ok(Value::from(format!("call {n}")))
+    }
+
+    let mut env = CommandEnvironment::new();
+    let cr = &mut env.command_registry;
+    register_command!(cr,
+        fn stamp(state) -> result
+        namespace: "test"
+        expires: "in 1 sec"
+    )?;
+    let envref = env.to_ref();
+    let manager = envref.get_asset_manager();
+    let query = parse_query("ns-test/stamp")?;
+
+    let first = manager.get_asset(&query).await?;
+    assert_eq!(first.get().await?.try_into_string()?, "call 1");
+    // Still within the deadline: served from memory, not recomputed.
+    let again = manager.get_asset(&query).await?;
+    assert_eq!(again.get().await?.try_into_string()?, "call 1");
+
+    tokio::time::sleep(Duration::from_millis(1300)).await;
+
+    let after = manager.get_asset(&query).await?;
+    assert_eq!(
+        after.get().await?.try_into_string()?,
+        "call 2",
+        "after the deadline the next request must recompute"
+    );
+    assert_eq!(first.status().await, Status::Expired);
+    let reason = first.get_metadata().await?.expiry_reason();
+    assert!(
+        matches!(
+            reason,
+            Some(ExpiryReason::Direct { cause: ExpiryCause::Deadline { .. } })
+        ),
+        "expected a direct deadline reason, got {reason:?}"
+    );
+    Ok(())
+}
+

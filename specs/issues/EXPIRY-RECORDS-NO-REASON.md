@@ -2,11 +2,11 @@
 id: EXPIRY-RECORDS-NO-REASON
 kind: issue
 title: An asset that becomes Expired records no reason, and the one path that does names the dependency by asset id
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [core/assets]
-design:
+design: dependency-audit-and-expiry-provenance
 created: 2026-09-04
 github:
 ---
@@ -159,3 +159,15 @@ Originally raised by the project owner on 2026-09-04 during Phase 2 of
 invalidate dependents through `cascade_expire_dependents`: a cascade that expires assets silently
 is hard to reason about. Confirmed against HEAD while filing — `mark_expired_status` has no
 `add_log_entry` call, and `note_expired_dependency`'s message interpolates `dependency.id()`.
+
+## Resolution
+
+Fixed 2026-10-02 by `design/dependency-audit-and-expiry-provenance/` (Steps 2 and 4,
+orest-d/liquers#75). This follows the recommendation above: a typed field, not a status.
+`ExpiryReason` is `Direct{cause}` or `Cascaded{cause, root, via}`. The cause is one of deadline,
+explicit, audit, stale dependency, updated in store, updated, or removed. The reason is stored on
+`MetadataRecord` / `AssetInfo` and cleared when the asset leaves `Expired`. It is written to each
+expired asset's log through the overridable `AssetManager::record_expiry`. Evidence:
+`every_route_persists_its_reason`, `every_cause_writes_a_log_line`,
+`two_step_cascade_log_names_root_and_via` and `log_line_names_keys_not_asset_ids`
+(`tests/expiry_provenance_integration.rs`). Reference: `reference/ASSETS.md`.

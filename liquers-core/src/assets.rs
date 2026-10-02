@@ -316,9 +316,10 @@ type PsmJoinError = tokio::task::JoinError;
 #[cfg(target_arch = "wasm32")]
 type PsmJoinError = std::convert::Infallible;
 use crate::metadata::{
-    AssetInfo, DependencyKey, DependencyRecord, LogEntry, MetadataRecord, ProgressEntry,
-    ReadExposure, Version,
+    AssetInfo, DependencyKey, DependencyRecord, ExpiryCause, ExpiryReason, LogEntry,
+    MetadataRecord, ProgressEntry, ReadExposure, Version, VersionCheck, VersionKind,
 };
+use crate::environment_builder::{DependencyAuditPolicy, VersionVerification};
 use crate::value::ValueInterface;
 use crate::{context::Context, metadata::LogEntryKind};
 use crate::{
@@ -594,10 +595,20 @@ pub struct AssetData<E: Environment> {
     /// Last persistence error, when relevant.
     last_persistence_error: Option<Error>,
 
-    /// Set when this asset consumed a dependency whose value had expired mid-execution.
-    /// The stale value is used (no mid-run recompute), but at completion the asset is
-    /// labeled `Expired` so the next access recomputes it. See `wait_for_dependency`.
-    stale_dependency: bool,
+    /// Set when this asset consumed a dependency whose value had expired mid-execution: the
+    /// **first** such dependency, by key (or by query when it has no key); later ones only add
+    /// log entries. The stale value is used (no mid-run recompute), but at completion the asset
+    /// is labeled `Expired` — with `Direct { StaleDependency { dependency } }` as its reason — so
+    /// the next access recomputes it. See `wait_for_dependency`.
+    stale_dependency: Option<DependencyKey>,
+
+    /// An outside change [`Self::try_fast_track`] found in the stored bytes, waiting to be applied
+    /// with [`AssetManager::apply_external_change`].
+    ///
+    /// It cannot be applied where it is found: `try_fast_track` runs under this asset's `data`
+    /// write lock, and applying takes `key_mutation_lock`, which every keyed mutation takes
+    /// *before* asset locks. [`AssetRef::fast_track`] takes it after dropping the lock.
+    pending_external_change: Option<PendingExternalChange>,
 
     _marker: std::marker::PhantomData<E>,
 }
@@ -968,7 +979,8 @@ impl<E: Environment> AssetData<E> {
             expiration_time: ExpirationTime::Never,
             persistence_status: PersistenceStatus::None,
             last_persistence_error: None,
-            stale_dependency: false,
+            stale_dependency: None,
+            pending_external_change: None,
             _marker: std::marker::PhantomData,
             status: Status::None,
         };
@@ -1036,6 +1048,50 @@ impl<E: Environment> AssetData<E> {
         format!("Complex asset {}: {:?}", self.id(), self.recipe)
     }
 
+    /// This asset's identity in provenance records: its key, or its query when it has none.
+    ///
+    /// Never the runtime asset id, which means nothing outside this process. `None` only for an
+    /// asset with neither a key nor a query (an anonymous temporary asset).
+    pub(crate) fn provenance_key(&self) -> Option<DependencyKey> {
+        if let Some(key) = &self.key {
+            return Some(DependencyKey::from(key));
+        }
+        if let Some(query) = self.query.as_ref() {
+            return Some(DependencyKey::from(query));
+        }
+        self.recipe
+            .get_query()
+            .ok()
+            .map(|query| DependencyKey::from(&query))
+    }
+
+    /// The subject an expiry log line names: this asset's key, else its query — never its id.
+    pub(crate) fn expiry_subject(&self) -> String {
+        if let Some(key) = &self.key {
+            return key.to_string();
+        }
+        if let Some(query) = self.query.as_ref() {
+            return query.encode();
+        }
+        match self.recipe.get_query() {
+            Ok(query) => query.encode(),
+            Err(_) => "an anonymous asset".to_string(),
+        }
+    }
+
+    /// Record `reason` in this asset's metadata through the asset manager's
+    /// [`AssetManager::record_expiry`].
+    ///
+    /// Called with this `AssetData` already borrowed from its `data` write lock, so the reason is
+    /// written in the same transaction as the status. The manager and the subject come from
+    /// `self`, never from the `AssetRef` accessors (`get_envref`, `key`), which would take the
+    /// same lock again and deadlock.
+    fn record_expiry(&mut self, reason: &ExpiryReason) {
+        let manager = self.envref.get_asset_manager();
+        let subject = self.expiry_subject();
+        manager.record_expiry(&mut self.metadata, &subject, reason);
+    }
+
     /// Check if the asset is a pure query (no initial value and recipe is a pure query)
     pub fn is_pure_query(&self) -> Result<bool, Error> {
         Ok((!self.has_initial_value()?) && self.recipe.is_pure_query())
@@ -1082,6 +1138,11 @@ impl<E: Environment> AssetData<E> {
         manager: &Arc<E::AssetManager>,
         dep_key: &DependencyKey,
     ) -> bool {
+        if dep_key.is_dir_key() {
+            // A listing has no status; its staleness is a version question, answered by the
+            // audit (`dependency_version`), not by this status check.
+            return false;
+        }
         let Ok(key) = Key::try_from(dep_key) else {
             return false; // not store-addressable — inconclusive
         };
@@ -1170,15 +1231,53 @@ impl<E: Environment> AssetData<E> {
                     }
                 };
 
+                let envref = self.get_envref();
+                let manager = envref.get_asset_manager();
+                let dm = manager.dependency_manager();
+
+                // Part G: the bytes are in hand, so check them against the recorded version.
+                // Only the decision and the in-memory adoption happen here; the store write,
+                // the version map and the cascade are applied by `AssetRef::fast_track` after
+                // this asset's `data` lock is dropped (see `pending_external_change`).
+                let mut metadata = metadata;
+                let mut stored_status = stored_status;
+                let mut adopted_external_change = false;
+                if let Some((actual, action)) =
+                    decide_external_change(&*manager, &key, &binary, &metadata).await?
+                {
+                    let recorded = metadata.version().unwrap_or_else(Version::unknown);
+                    self.pending_external_change = Some(PendingExternalChange {
+                        key: key.clone(),
+                        recorded: metadata.clone(),
+                        actual,
+                        action: action.clone(),
+                    });
+                    match action {
+                        ExternalChangeAction::Delete => {
+                            eprintln!(
+                                "Asset {}: content of {} changed outside Liquers and is treated \
+                                 as corrupted; recomputing",
+                                self.id(),
+                                key
+                            );
+                            self.clear_fast_track_payload();
+                            return Ok(false);
+                        }
+                        ExternalChangeAction::AcceptAsInput { .. }
+                        | ExternalChangeAction::ConvertToOverride { .. } => {
+                            adopt_external_change(&mut metadata, &key, recorded, &action);
+                            stored_status = metadata.status();
+                            adopted_external_change = true;
+                        }
+                    }
+                }
+
                 self.binary = Some(Arc::new(binary));
                 self.data = Some(Arc::new(value));
                 self.status = stored_status;
                 self.metadata = metadata;
 
                 // Validate stored dependencies against the DM
-                let envref = self.get_envref();
-                let manager = envref.get_asset_manager();
-                let dm = manager.dependency_manager();
 
                 if let Metadata::MetadataRecord(ref mr) = self.metadata {
                     for dep_record in mr.get_dependencies() {
@@ -1190,6 +1289,36 @@ impl<E: Environment> AssetData<E> {
                                 );
                                 self.clear_fast_track_payload();
                                 return Ok(false); // Force re-evaluation
+                            }
+                        } else if manager.dependency_audit_policy() == DependencyAuditPolicy::OnLoad
+                            && dep_record.key.is_store_resolvable()
+                            && !dep_record.version.is_unknown()
+                        {
+                            // The map does not know this dependency: resolve its current version.
+                            // A recorded unknown is compatible, so it is not asked at all. The
+                            // comparison is equality, not `Version::matches`, which would accept a
+                            // current 0 — and a dependency with no durable version refuses.
+                            let refuse = match manager.dependency_version(&dep_record.key).await {
+                                Ok(current) => current != dep_record.version,
+                                Err(e) => {
+                                    eprintln!(
+                                        "Asset {}: current version of dependency {} unavailable: {}",
+                                        self.id(),
+                                        dep_record.key,
+                                        e
+                                    );
+                                    true
+                                }
+                            };
+                            if refuse {
+                                eprintln!(
+                                    "Asset {} stale (on_load): dependency {} differs from the recorded version {:?}",
+                                    self.id(),
+                                    dep_record.key,
+                                    dep_record.version
+                                );
+                                self.clear_fast_track_payload();
+                                return Ok(false);
                             }
                         }
                         // The version check above answers "was this dependency recomputed into
@@ -1213,14 +1342,32 @@ impl<E: Environment> AssetData<E> {
                 // Dependencies are consistent — register in DM
                 {
                     let dep_key = DependencyKey::from(&key);
-                    if let Some(version) = self.metadata.version() {
+                    let loaded_version = self.metadata.version();
+                    // An adopted outside change registers its version when it is applied, with
+                    // its own cause (`UpdatedInStore`); registering it here would cascade first
+                    // with `Updated`.
+                    let registered_version = if adopted_external_change {
+                        None
+                    } else {
+                        loaded_version
+                    };
+                    if let Some(version) = registered_version {
                         let expired = dm.register_version(&dep_key, version).await;
-                        manager.expire_dependencies_result(expired).await;
+                        manager
+                            .expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                            .await;
                     }
                     let deps = self.metadata.get_dependencies();
                     if !deps.is_empty() {
                         let expired = dm.load_from_records(&dep_key, deps).await;
-                        manager.expire_dependencies_result(expired).await;
+                        manager
+                            .expire_dependencies_result(
+                                expired,
+                                ExpiryCause::Updated {
+                                    version: loaded_version.unwrap_or(Version::unknown()),
+                                },
+                            )
+                            .await;
                     }
                 }
 
@@ -1484,11 +1631,58 @@ pub struct AssetRef<E: Environment> {
 /// and it names what happened rather than counting it, so a later caller does not have to
 /// reconstruct the detail.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct AuditReport {
     /// The dependency keys whose versions the audit tried to resolve.
     pub checked: Vec<crate::metadata::DependencyKey>,
-    /// The keys expired as a result, including transitive ones.
+    /// The keys expired as a result, including transitive ones. Always empty in
+    /// [`AuditMode::ReportOnly`].
     pub expired: Vec<crate::metadata::DependencyKey>,
+    /// The direct edges found stale, one per (dependency, dependent) pair. In
+    /// [`AuditMode::ReportOnly`] this is what *would* have been expired directly.
+    pub findings: Vec<AuditFinding>,
+}
+
+/// What a dependency audit does with what it finds.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AuditMode {
+    /// Expire what is found stale (the behaviour of `trigger_dependency_audit`).
+    #[default]
+    Expire,
+    /// Change nothing: no version is registered, no edge removed, nothing expired. Only
+    /// [`AuditReport::findings`] (and `checked`) is filled.
+    ReportOnly,
+}
+
+/// One edge an audit found stale: `dependent` recorded `expected` for `dependency`, and the
+/// current version is `found` (`Version::unknown()` when the dependency has none).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct AuditFinding {
+    /// The dependency whose current version was compared.
+    pub dependency: crate::metadata::DependencyKey,
+    /// The dependent whose recorded version disagrees.
+    pub dependent: crate::metadata::DependencyKey,
+    /// The version the dependent recorded for `dependency`.
+    pub expected: crate::metadata::Version,
+    /// The current version of `dependency` (`Version::unknown()` when it has none).
+    pub found: crate::metadata::Version,
+}
+
+impl AuditFinding {
+    pub fn new(
+        dependency: crate::metadata::DependencyKey,
+        dependent: crate::metadata::DependencyKey,
+        expected: crate::metadata::Version,
+        found: crate::metadata::Version,
+    ) -> Self {
+        AuditFinding {
+            dependency,
+            dependent,
+            expected,
+            found,
+        }
+    }
 }
 
 /// The bytes and version an evaluation settled on, ready to be installed alongside its status.
@@ -1563,14 +1757,24 @@ impl<E: Environment> AssetRef<E> {
     /// This is scheduler-local lifecycle bookkeeping only: dependency facts are
     /// recorded in metadata and the `DependencyManager`.
     pub(crate) async fn enter_dependencies(&self, dependency: &AssetRef<E>) -> Result<(), Error> {
+        // Named by key or query, never by runtime id, which means nothing in a persisted log.
+        // Read before taking this asset's lock: holding one `data` lock while waiting for another
+        // is how lock-order inversions start.
+        let dependency_name = {
+            let dep = dependency.data.read().await;
+            match dep.provenance_key() {
+                Some(key) => key.to_string(),
+                None => dep.expiry_subject(),
+            }
+        };
         let mut lock = self.data.write().await;
         if lock.status.is_finished() {
             return Ok(());
         }
         lock.set_status(Status::Dependencies)?;
         let _ = lock.metadata.add_log_entry(LogEntry::info(format!(
-            "Waiting for dependency asset {}",
-            dependency.id()
+            "Waiting for dependency {}",
+            dependency_name
         )));
         let _ = lock
             .notification_tx
@@ -1618,17 +1822,31 @@ impl<E: Environment> AssetRef<E> {
     /// shorter than this asset's evaluation time). The stale value is used and this flag is
     /// set so that, at completion, the asset is labeled `Expired` and recomputed on next
     /// access (staleness propagation). A warning is logged now for timing diagnostics.
+    ///
+    /// The dependency is recorded by key, or by query when it has none — never by runtime asset
+    /// id — and the first one wins: it becomes the `dependency` of this asset's
+    /// `Direct { StaleDependency }` expiry reason at finalization.
     pub(crate) async fn note_expired_dependency(
         &self,
         dependency: &AssetRef<E>,
     ) -> Result<(), Error> {
+        // Read before taking this asset's lock: the two are different assets, and holding one
+        // `data` lock while waiting for another is how lock-order inversions start.
+        let dependency_key = {
+            let dep = dependency.data.read().await;
+            dep.provenance_key()
+                .unwrap_or_else(|| DependencyKey::new(dep.expiry_subject()))
+        };
         let mut lock = self.data.write().await;
-        lock.stale_dependency = true;
+        let subject = lock.expiry_subject();
         let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
-            "Dependency asset {} expired during evaluation; using its stale value and \
-             marking this asset expired for recomputation on next access",
-            dependency.id()
+            "Dependency {} of {} expired during evaluation; using its stale value and \
+             marking {} expired for recomputation on next access",
+            dependency_key, subject, subject
         )));
+        if lock.stale_dependency.is_none() {
+            lock.stale_dependency = Some(dependency_key);
+        }
         Ok(())
     }
 
@@ -1731,7 +1949,16 @@ impl<E: Environment> AssetRef<E> {
                 .add_dependency(&current_dep_key, &dep_key, version)
                 .await
             {
-                manager.expire_dependencies_result(expired).await;
+                // `add_dependency` records and never expires (the set is always empty); the
+                // cause is nominal, so that every call site passes one.
+                manager
+                    .expire_dependencies_result(
+                        expired,
+                        ExpiryCause::Updated {
+                            version: Version::unknown(),
+                        },
+                    )
+                    .await;
             }
         }
         Ok(())
@@ -1906,6 +2133,41 @@ impl<E: Environment> AssetRef<E> {
         lock.get_envref()
     }
 
+    /// Try to load this asset from the store ([`AssetData::try_fast_track`]) and apply any
+    /// outside change the load found ([`AssetManager::apply_external_change`]).
+    ///
+    /// This is how a manager fast-tracks. `try_fast_track` runs under the `data` write lock,
+    /// while applying a change takes `key_mutation_lock`, which keyed mutations (`remove`,
+    /// `expire`, …) take *before* asset locks; so the change is applied here, after the lock is
+    /// dropped, and before this returns — in particular before a refused fast track (`false`)
+    /// submits a recomputation. A failure to apply is reported on stderr and does not fail the
+    /// load.
+    pub async fn fast_track(&self) -> Result<bool, Error> {
+        let (result, pending, envref) = {
+            let mut lock = self.data.write().await;
+            let result = lock.try_fast_track().await;
+            (result, lock.pending_external_change.take(), lock.get_envref())
+        };
+        if let Some(pending) = pending {
+            let manager = envref.get_asset_manager();
+            if let Err(e) = manager
+                .apply_external_change(
+                    &pending.key,
+                    &pending.recorded,
+                    pending.actual,
+                    pending.action,
+                )
+                .await
+            {
+                eprintln!(
+                    "Could not apply the outside change of {}: {}",
+                    pending.key, e
+                );
+            }
+        }
+        result
+    }
+
     /// Creates the execution context used by the interpreter and commands.
     ///
     /// The context refers back to this asset and exposes its environment services.
@@ -1921,7 +2183,11 @@ impl<E: Environment> AssetRef<E> {
 
     /// Records the chain of payload-evaluated queries leading to this asset, so that the
     /// context created for it can continue cycle detection down the evaluation path.
-    pub(crate) async fn set_payload_path(&self, path: Vec<Query>) {
+    ///
+    /// Contract for an [`AssetManager`] implementation: call it on an asset the manager has just
+    /// constructed for a payload-evaluated query, *before* [`Self::run`] / [`Self::run_inline`],
+    /// passing the path of the asset that requested it. Later calls replace the path.
+    pub async fn set_payload_path(&self, path: Vec<Query>) {
         let mut lock = self.data.write().await;
         lock.payload_path = path;
     }
@@ -2027,7 +2293,7 @@ impl<E: Environment> AssetRef<E> {
 
         match state.as_bytes() {
             Ok(bytes) => Some(PreparedVersion {
-                version: Version::from_bytes(&bytes),
+                version: Version::from_content(&bytes),
                 binary: Some(Arc::new(bytes)),
                 serialization_error: None,
             }),
@@ -2103,7 +2369,7 @@ impl<E: Environment> AssetRef<E> {
                     )));
                 }
                 lock.expiration_time = lock.metadata.expiration_time();
-            } else if lock.stale_dependency {
+            } else if let Some(dependency) = lock.stale_dependency.clone() {
                 // A dependency expired mid-execution and its stale value was used rather than
                 // recomputed (see `AssetManager::wait_for_dependency`, which sets the flag to
                 // avoid an unbounded recompute loop). The result is correct but must not be
@@ -2124,11 +2390,11 @@ impl<E: Environment> AssetRef<E> {
                         e,
                     )));
                 }
-                let _ = lock.metadata.add_log_entry(LogEntry::warning(
-                    "Asset evaluated with an expired dependency value; labeled expired \
-                     for recomputation on next access"
-                        .to_string(),
-                ));
+                // The reason, under this same lock and after `set_status` (which clears a reason
+                // on any other status), so the record `save_to_store` persists carries both.
+                lock.record_expiry(&ExpiryReason::Direct {
+                    cause: ExpiryCause::StaleDependency { dependency },
+                });
                 // Mirrors the `Ready` arm: `finish_run_with_result` reads what these set when it
                 // decides whether to schedule expiration.
                 if let Err(e) = lock.metadata.set_expiration_time_from(&metadata_expires) {
@@ -2320,8 +2586,12 @@ impl<E: Environment> AssetRef<E> {
         }
     }
 
-    /// Inform the asset that it has been submitted
-    pub(crate) async fn submitted(&self) -> Result<(), Error> {
+    /// Inform the asset that it has been submitted (sets status `Submitted`).
+    ///
+    /// Contract for an [`AssetManager`] implementation: call it once when the asset is accepted
+    /// for evaluation but not yet running, before handing it to [`Self::run`]. A manager that
+    /// runs the asset immediately and never queues it may skip it.
+    pub async fn submitted(&self) -> Result<(), Error> {
         self.set_status(Status::Submitted).await?;
         let lock = self.data.read().await;
 
@@ -2604,8 +2874,13 @@ impl<E: Environment> AssetRef<E> {
     /// `payload` is the optional execution payload; `None` is ordinary evaluation. There is one
     /// evaluation body behind both, so what differs between entry points is the asset they were
     /// given, never how it is evaluated.
+    ///
+    /// This is the native / queued primitive (see `CORE-TOKIO-REMOVAL`): it spawns the service
+    /// message loop on the tokio runtime, so it is not available on wasm32. Call it at most once
+    /// per asset, from the single party that owns the run; the asset's waiters are released when
+    /// it returns. Managers that must not spawn use [`Self::run_inline`].
     #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) async fn run(&self, payload: Option<E::Payload>) -> Result<(), Error> {
+    pub async fn run(&self, payload: Option<E::Payload>) -> Result<(), Error> {
         self.run_with_future(self.evaluate(payload)).await
     }
 
@@ -2664,8 +2939,16 @@ impl<E: Environment> AssetRef<E> {
         self.finish_run_with_result(result, Ok(psm_result)).await
     }
 
-    /// Inline (spawn-free) counterpart of [`Self::run`], used by inline managers and on wasm.
-    pub(crate) async fn run_inline(&self, payload: Option<E::Payload>) -> Result<(), Error> {
+    /// Inline (spawn-free) counterpart of [`Self::run`]: evaluation and the service-message loop
+    /// are polled together in the caller's task. Use this one on wasm32, and in any manager that
+    /// must not spawn.
+    ///
+    /// Safe to call from several tasks: one claims the run, and the others wait for it to finish.
+    /// On an asset that has already finished it returns at once. If the returned future is
+    /// dropped before completion the asset's status is repaired, but waiters already registered
+    /// on it can be stranded (`INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS`), so await it to the
+    /// end.
+    pub async fn run_inline(&self, payload: Option<E::Payload>) -> Result<(), Error> {
         self.run_with_future_inline(self.evaluate(payload)).await
     }
 
@@ -2877,7 +3160,7 @@ impl<E: Environment> AssetRef<E> {
                         lock.save_in_background,
                         lock.is_cancelled(),
                         lock.is_volatile,
-                        lock.stale_dependency,
+                        lock.stale_dependency.clone(),
                     )
                 };
 
@@ -2898,7 +3181,7 @@ impl<E: Environment> AssetRef<E> {
                 // Register in DM for non-volatile assets.
                 if lock_is_volatile {
                     // A volatile asset is not a dependency-graph node.
-                } else if stale_dependency {
+                } else if let Some(dependency) = stale_dependency {
                     // `track_asset` refuses an `Expired` asset, and this one is `Expired` — but
                     // only in the "do not cache me" sense. It holds a freshly computed value with
                     // a NEW content version, so its dependents are built on the key's previous
@@ -2924,14 +3207,32 @@ impl<E: Environment> AssetRef<E> {
                         // No `data` lock is held across this: the DM takes its own locks and,
                         // through `version_for_tracking`, this asset's write lock.
                         let expired = dm.track_keyed_asset(self, &key, &records).await;
-                        manager.expire_dependencies_result(expired).await;
+                        // The dependents get `Cascaded { StaleDependency, root: this asset, via }`
+                        // (Phase 2, Revision 2 clarification 1): `expired.root` is this key, and
+                        // the cause still names the stale input.
+                        manager
+                            .expire_dependencies_result(
+                                expired,
+                                ExpiryCause::StaleDependency { dependency },
+                            )
+                            .await;
                     }
                 } else {
                     let envref = self.get_envref().await;
                     let manager = envref.get_asset_manager();
                     let dm = manager.dependency_manager();
                     let expired = dm.track_asset(self).await;
-                    manager.expire_dependencies_result(expired).await;
+                    // Read after `track_asset`, which may have assigned a fallback version.
+                    let version = self
+                        .data
+                        .read()
+                        .await
+                        .metadata
+                        .version()
+                        .unwrap_or(Version::unknown());
+                    manager
+                        .expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                        .await;
                 }
 
                 Ok(())
@@ -3034,7 +3335,15 @@ impl<E: Environment> AssetRef<E> {
                         )));
                     }
                 }
-                store.set(key, &data, &metadata).await
+                let written = store.set(key, &data, &metadata).await;
+                if written.is_ok() {
+                    // Listings that depend on this directory see a new (or rewritten) member.
+                    envref
+                        .get_asset_manager()
+                        .refresh_listing_version(&key.parent())
+                        .await;
+                }
+                written
             } else {
                 Err(Error::general_error(format!(
                     "Cannot determine key to store asset - {}",
@@ -3296,24 +3605,43 @@ impl<E: Environment> AssetRef<E> {
     ///
     /// `Expired` is idempotent. A `Source` cannot expire because it has no recipe
     /// from which to recover. Other statuses return an error.
+    ///
+    /// Records `Direct { Explicit }` as the reason; the dependents get
+    /// `Cascaded { Explicit, root: this key, via }`.
     pub async fn expire(&self) -> Result<(), Error> {
-        let key_opt = self.key().await;
+        self.expire_with_reason(ExpiryReason::Direct {
+            cause: ExpiryCause::Explicit,
+        })
+        .await
+    }
 
-        let transitioned_to_expired = self.mark_expired_status().await?;
+    /// [`Self::expire`] with the reason to record. The cascade to dependents carries
+    /// `reason.cause()`.
+    pub(crate) async fn expire_with_reason(&self, reason: ExpiryReason) -> Result<(), Error> {
+        let key_opt = self.key().await;
+        let cause = reason.cause().clone();
+
+        let transitioned_to_expired = self.mark_expired_status(reason).await?;
 
         if transitioned_to_expired {
             if let Some(key) = key_opt {
                 let dep_key = DependencyKey::from(&key);
                 let envref = self.get_envref().await;
                 let manager = envref.get_asset_manager();
-                manager.cascade_expire_dependents(&dep_key).await;
+                manager.cascade_expire_dependents(&dep_key, cause).await;
             }
         }
 
         Ok(())
     }
 
-    async fn mark_expired_status(&self) -> Result<bool, Error> {
+    /// Flip a `Ready`/`Override` asset to `Expired`, recording `reason`, and persist it.
+    ///
+    /// The reason is recorded through [`AssetManager::record_expiry`] **under the same `data`
+    /// write lock** that flips the status and **before** the metadata is cloned for persistence,
+    /// so no reader sees `Expired` without its reason and the stored copy carries both. Only the
+    /// transition records: an asset already `Expired` keeps the reason it has.
+    async fn mark_expired_status(&self, reason: ExpiryReason) -> Result<bool, Error> {
         // The same recorded key `save_to_store` writes under. Before this change these were two
         // independent derivations with opposite precedence.
         let owner_key = self.key().await;
@@ -3326,6 +3654,9 @@ impl<E: Environment> AssetRef<E> {
                 if let Metadata::MetadataRecord(ref mut mr) = lock.metadata {
                     mr.status = Status::Expired;
                 }
+                // Manager and subject come from the guard: `AssetRef::get_envref` and `key`
+                // take this same lock.
+                lock.record_expiry(&reason);
                 let _ = lock.notification_tx.send(AssetNotificationMessage::Expired);
                 Ok(())
             }
@@ -3385,8 +3716,16 @@ impl<E: Environment> AssetRef<E> {
         result.map(|_| transitioned_to_expired)
     }
 
-    pub(crate) async fn expire_without_cascade(&self) -> Result<(), Error> {
-        self.mark_expired_status().await.map(|_| ())
+    /// Expire this asset alone, recording `reason`; the caller owns the cascade (if any).
+    ///
+    /// Contract for an [`AssetManager`] implementation: this does not touch the dependency graph
+    /// and does not remove the asset from the manager's maps. It sets `Expired` with `reason`,
+    /// calls [`AssetManager::record_expiry`] itself (under the asset's data lock, so the manager
+    /// must not call it again), and persists the expired metadata of a stored keyed asset. The
+    /// manager's own `expire` / `expire_dependents` machinery calls it for each asset the graph
+    /// reports.
+    pub async fn expire_without_cascade(&self, reason: ExpiryReason) -> Result<(), Error> {
+        self.mark_expired_status(reason).await.map(|_| ())
     }
 
     /// Returns the resolved expiration time.
@@ -3877,7 +4216,15 @@ pub(crate) fn load_command_versions_sync<E: Environment>(
 /// recipe to recover from, and every other status is already not reusable. A key the store does
 /// not hold is not written, so no phantom metadata-only entry is created. Failures are reported on
 /// stderr and otherwise ignored, as the in-memory path does.
-async fn expire_stored_copy(store: Arc<dyn crate::store::AsyncStore>, key: &Key) {
+///
+/// `reason` is recorded through `manager`'s [`AssetManager::record_expiry`] on the metadata read
+/// here, after the status change and before `set_metadata`, so the stored copy carries both.
+async fn expire_stored_copy<E: Environment, M: AssetManager<E> + ?Sized>(
+    manager: &M,
+    store: Arc<dyn crate::store::AsyncStore>,
+    key: &Key,
+    reason: &ExpiryReason,
+) {
     if !store.contains(key).await.unwrap_or(false) {
         return;
     }
@@ -3905,7 +4252,10 @@ async fn expire_stored_copy(store: Arc<dyn crate::store::AsyncStore>, key: &Key)
         | Status::Volatile => return,
     }
     let result = match metadata.set_status(Status::Expired) {
-        Ok(()) => store.set_metadata(key, &metadata).await,
+        Ok(()) => {
+            manager.record_expiry(&mut metadata, &key.to_string(), reason);
+            store.set_metadata(key, &metadata).await
+        }
         Err(e) => Err(e),
     };
     if let Err(e) = result {
@@ -3997,23 +4347,329 @@ fn dropped_computed_metadata<E: Environment>(metadata: Metadata) -> Option<Metad
     }
 }
 
-/// Internal access to the runtime dependency graph.
+/// Access to the runtime dependency graph owned by an [`AssetManager`].
 ///
-/// Dependency tracking is automatic. Keeping this separate from [`AssetManager`]'s public
-/// operations prevents the graph implementation from becoming part of the supported API.
-pub(crate) trait DependencyManagerAccess<E: Environment> {
+/// Dependency tracking is automatic: the default methods of [`AssetManager`] drive the graph.
+/// An implementation owns exactly one [`DependencyManager`](crate::dependencies::DependencyManager)
+/// (create it with `DependencyManager::new()` or `Default`), stores it in the manager and returns
+/// the same reference on every call. The graph type is opaque; it is not meant to be called
+/// directly.
+pub trait DependencyManagerAccess<E: Environment> {
     fn dependency_manager(&self) -> &crate::dependencies::DependencyManager<E>;
 }
 
-/// Internal access to the lock that serializes keyed mutations (`remove`, `set_binary`,
+/// Access to the lock that serializes keyed mutations (`remove`, `set_binary`,
 /// `set_state`, `to_override`, `expire`, `set_description`), so they can be written once as
-/// default methods of [`AssetManager`]. Not part of the supported API.
+/// default methods of [`AssetManager`].
+///
+/// Contract: one lock per manager, the same one on every call. It serialises keyed mutations and
+/// must never be taken while an asset's `data` lock is held.
 ///
 /// The lock is a non-reentrant `tokio::sync::Mutex`: a method holding it must not call another
 /// method that takes it (`get`, `owned_key_asset`, `to_override`, `set_binary`, `set_state`,
 /// `remove`, `remove_expired_from_maps`).
-pub(crate) trait KeyMutationAccess {
+pub trait KeyMutationAccess {
     fn key_mutation_lock(&self) -> &tokio::sync::Mutex<()>;
+}
+
+/// What to do when a stored value's bytes no longer match its recorded version.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExternalChangePolicy {
+    /// Keep the new content as the user's: a recipe-backed value becomes `Override`.
+    #[default]
+    UserInput,
+    /// Treat the content as damaged: delete the stored copy, so the recipe recomputes it.
+    Corrupted,
+}
+
+impl ExternalChangePolicy {
+    /// True for the default; used by `skip_serializing_if`.
+    pub fn is_user_input(&self) -> bool {
+        matches!(self, ExternalChangePolicy::UserInput)
+    }
+}
+
+/// What [`AssetManager::apply_external_change`] does with a stored value whose bytes no longer
+/// match its recorded version (Part G of `dependency-audit-and-expiry-provenance`).
+///
+/// Decided by [`external_change_action`]. The changed asset itself is never expired: it becomes
+/// input, or is deleted. Its dependents are expired with
+/// [`ExpiryCause::UpdatedInStore`](crate::metadata::ExpiryCause::UpdatedInStore).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExternalChangeAction {
+    /// `Source` / `Override` (or a value whose recipe is gone): keep the status, adopt `actual`
+    /// as the version.
+    AcceptAsInput { actual: Version },
+    /// Recipe-backed, [`ExternalChangePolicy::UserInput`]: set status `Override`, adopt `actual`.
+    ConvertToOverride { actual: Version },
+    /// Recipe-backed, [`ExternalChangePolicy::Corrupted`]: remove data and metadata from the
+    /// store, so the recipe recomputes the value.
+    Delete,
+}
+
+/// The decision table for content changed outside Liquers (Phase 2, G2).
+///
+/// `status` is the stored status, except for a file with no metadata (recorded version 0 on a
+/// stored `Source` or `None`), for which the caller passes `Source` when the key has no recipe
+/// and `Ready` when it has one — [`external_change_status`] does that mapping. `None` means the
+/// status is not checked: there is no reusable stored value to protect.
+pub fn external_change_action(
+    status: Status,
+    has_recipe: bool,
+    policy: ExternalChangePolicy,
+    actual: Version,
+) -> Option<ExternalChangeAction> {
+    match status {
+        // A `Source` is always input (even when a recipe was added since), and an `Override` is
+        // the user's by definition: neither is ever converted or deleted.
+        Status::Source | Status::Override => Some(ExternalChangeAction::AcceptAsInput { actual }),
+        Status::Ready | Status::Expired => {
+            if !has_recipe {
+                // The recipe was removed since: there is nothing to recompute from.
+                return Some(ExternalChangeAction::AcceptAsInput { actual });
+            }
+            match policy {
+                ExternalChangePolicy::UserInput => {
+                    Some(ExternalChangeAction::ConvertToOverride { actual })
+                }
+                ExternalChangePolicy::Corrupted => Some(ExternalChangeAction::Delete),
+            }
+        }
+        Status::None
+        | Status::Directory
+        | Status::Recipe
+        | Status::Submitted
+        | Status::Dependencies
+        | Status::Processing
+        | Status::Partial
+        | Status::Error
+        | Status::Storing
+        | Status::Cancelled
+        | Status::Volatile => None,
+    }
+}
+
+/// The status [`external_change_action`] is asked about for a stored entry.
+///
+/// **"No metadata", operationally.** A store cannot be relied on to say that a file had no
+/// sidecar: `AsyncFileStore` synthesizes and writes one (status `Source`, no version) on a bare
+/// file's first read (`STORE-NO-READ-ONLY-ADAPTER`), and a memory store always holds some metadata.
+/// So a file with no metadata is recognised by a recorded version of 0 on a stored status of
+/// `Source` or `None`, and is asked about as `Source` without a recipe and as `Ready` with one
+/// (Phase 2, Revision 2 clarification 3). A value Liquers wrote always carries a version, so this
+/// does not catch one.
+pub fn external_change_status(stored_status: Status, recorded: Version, has_recipe: bool) -> Status {
+    let no_metadata = recorded.is_unknown()
+        && match stored_status {
+            Status::Source | Status::None => true,
+            Status::Directory
+            | Status::Recipe
+            | Status::Submitted
+            | Status::Dependencies
+            | Status::Processing
+            | Status::Partial
+            | Status::Error
+            | Status::Storing
+            | Status::Ready
+            | Status::Expired
+            | Status::Cancelled
+            | Status::Override
+            | Status::Volatile => false,
+        };
+    if !no_metadata {
+        stored_status
+    } else if has_recipe {
+        Status::Ready
+    } else {
+        Status::Source
+    }
+}
+
+/// Whether a stored entry is checked at all. Whether the key has a recipe never changes the
+/// answer, only the action, so it can be asked before the recipe (and the bytes) are read.
+fn external_change_checked(stored_status: Status, recorded: Version) -> bool {
+    let status = external_change_status(stored_status, recorded, false);
+    external_change_action(
+        status,
+        false,
+        ExternalChangePolicy::UserInput,
+        Version::unknown(),
+    )
+    .is_some()
+}
+
+/// Whether an empty data object stands for "no bytes" — a metadata-only entry — rather than for
+/// empty content.
+///
+/// A store that keeps metadata without a data object usually says so (`get_bytes` reports
+/// `KeyNotFound`), but `AsyncMemoryStore` answers with empty bytes. Liquers records a timestamp
+/// version only when it stored no bytes (serialization failed, or the fallback of
+/// `version_for_tracking`), and a content hash whenever it stored some; so empty bytes under a
+/// timestamp version are such an entry, and are not checked. Empty bytes under a content hash, or
+/// with no recorded version, are content and are checked.
+fn no_bytes_by_design(bytes: &[u8], recorded: Version) -> bool {
+    bytes.is_empty()
+        && match recorded.kind() {
+            VersionKind::Timestamp => true,
+            VersionKind::ContentHash | VersionKind::Unknown => false,
+        }
+}
+
+/// Whether applying `action` writes the sidecar. Everything is written except an
+/// `AcceptAsInput` whose recorded version was 0: a file with no metadata and no recipe is adopted
+/// in memory only (owner decision, 2026-10-02), because nothing about the value changes and the
+/// next process computes the same hash, and writing would litter the store with sidecars on a
+/// whole-store sweep. Under a recipe the status changes, so `ConvertToOverride` is written.
+fn external_change_writes_sidecar(recorded: Version, action: &ExternalChangeAction) -> bool {
+    match action {
+        ExternalChangeAction::AcceptAsInput { .. } => !recorded.is_unknown(),
+        ExternalChangeAction::ConvertToOverride { .. } => true,
+        ExternalChangeAction::Delete => false,
+    }
+}
+
+/// The warning logged on a changed asset (Phase 2, G2). `None` for `Delete`, whose metadata is
+/// gone with the value; that is reported on stderr instead.
+fn external_change_log_entry(
+    key: &Key,
+    recorded: Version,
+    action: &ExternalChangeAction,
+) -> Option<LogEntry> {
+    match action {
+        ExternalChangeAction::AcceptAsInput { .. }
+        | ExternalChangeAction::ConvertToOverride { .. } => {}
+        ExternalChangeAction::Delete => return None,
+    }
+    let message = match recorded.kind() {
+        VersionKind::ContentHash => {
+            format!("content of {key} changed outside Liquers; accepted as user input")
+        }
+        VersionKind::Timestamp | VersionKind::Unknown => format!(
+            "no content hash was recorded for {key}; adopting its content as user input"
+        ),
+    };
+    Some(LogEntry::warning(message))
+}
+
+/// Adopt an accepted change into `metadata`: the version becomes `actual`, a conversion sets
+/// `Override`, and, when the sidecar is written, the warning is logged. `Delete` changes nothing.
+fn adopt_external_change(
+    metadata: &mut Metadata,
+    key: &Key,
+    recorded: Version,
+    action: &ExternalChangeAction,
+) {
+    let (actual, status) = match action {
+        ExternalChangeAction::AcceptAsInput { actual } => (*actual, None),
+        ExternalChangeAction::ConvertToOverride { actual } => (*actual, Some(Status::Override)),
+        ExternalChangeAction::Delete => return,
+    };
+    if let Err(e) = metadata.set_version(Some(actual)) {
+        eprintln!("Could not record version {actual:?} on {key}: {e}");
+    }
+    if let Some(status) = status {
+        if let Err(e) = metadata.set_status(status) {
+            eprintln!("Could not set status {status:?} on {key}: {e}");
+        }
+    }
+    if external_change_writes_sidecar(recorded, action) {
+        if let Some(entry) = external_change_log_entry(key, recorded, action) {
+            let _ = metadata.add_log_entry(entry);
+        }
+    }
+}
+
+/// Re-hash `bytes` against the version recorded in `metadata` and decide what to do about a
+/// mismatch. `Ok(None)`: verified, not checked, or verification is `Off`. Changes nothing.
+async fn decide_external_change<E, M>(
+    manager: &M,
+    key: &Key,
+    bytes: &[u8],
+    metadata: &Metadata,
+) -> Result<Option<(Version, ExternalChangeAction)>, Error>
+where
+    E: Environment,
+    M: AssetManager<E> + ?Sized,
+{
+    match manager.version_verification() {
+        VersionVerification::Off => return Ok(None),
+        VersionVerification::OnRead => {}
+    }
+    let recorded = metadata.version().unwrap_or_else(Version::unknown);
+    if !external_change_checked(metadata.status(), recorded) || no_bytes_by_design(bytes, recorded)
+    {
+        return Ok(None);
+    }
+    let actual = match recorded.verify(bytes) {
+        VersionCheck::Verified => return Ok(None),
+        VersionCheck::Mismatch { actual, .. } => actual,
+    };
+    let has_recipe = manager.recipe_opt(key).await?.is_some();
+    let status = external_change_status(metadata.status(), recorded, has_recipe);
+    Ok(
+        external_change_action(status, has_recipe, manager.external_change_policy(), actual)
+            .map(|action| (actual, action)),
+    )
+}
+
+/// The verification step of a store read that holds no asset lock (the store branches of
+/// [`AssetManager::get_any_status`] / [`AssetManager::get_binary_any_status`]): decide, apply,
+/// and adopt the result into the `metadata` about to be returned. `Ok(false)` when the stored
+/// value was deleted (`Corrupted`), so there is nothing left to return.
+async fn verify_store_read<E, M>(
+    manager: &M,
+    key: &Key,
+    bytes: &[u8],
+    metadata: &mut Metadata,
+) -> Result<bool, Error>
+where
+    E: Environment,
+    M: AssetManager<E> + ?Sized,
+{
+    let Some((actual, action)) = decide_external_change(manager, key, bytes, metadata).await?
+    else {
+        return Ok(true);
+    };
+    let recorded = metadata.version().unwrap_or_else(Version::unknown);
+    if let Err(e) = manager
+        .apply_external_change(key, metadata, actual, action.clone())
+        .await
+    {
+        eprintln!("Could not apply the outside change of {key}: {e}");
+    }
+    match action {
+        ExternalChangeAction::Delete => Ok(false),
+        ExternalChangeAction::AcceptAsInput { .. }
+        | ExternalChangeAction::ConvertToOverride { .. } => {
+            adopt_external_change(metadata, key, recorded, &action);
+            Ok(true)
+        }
+    }
+}
+
+/// An outside change found by `try_fast_track`, carried to [`AssetRef::fast_track`].
+#[derive(Debug, Clone)]
+pub(crate) struct PendingExternalChange {
+    key: Key,
+    /// The stored metadata the decision was made on.
+    recorded: Metadata,
+    actual: Version,
+    action: ExternalChangeAction,
+}
+
+/// What [`AssetManager::verify_stored_versions`] found.
+#[non_exhaustive]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct VersionVerificationReport {
+    /// Stored bytes matching their recorded version.
+    pub verified: Vec<Key>,
+    /// Not checked: no bytes to check (the store holds metadata but no data object), or a status
+    /// with no reusable stored value (`external_change_action` returns `None`).
+    pub skipped: Vec<Key>,
+    /// Changed outside Liquers, with the action taken — in `ReportOnly`, the action that *would*
+    /// be taken.
+    pub changed: Vec<(Key, ExternalChangeAction)>,
 }
 
 /// Asset evaluation, keyed mutation, recovery, directory, and lifecycle service.
@@ -4035,12 +4691,24 @@ pub(crate) trait KeyMutationAccess {
 /// [Where the key comes from](crate::assets#where-the-key-comes-from-and-how-to-read-it-back).
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[allow(private_bounds)]
 pub trait AssetManager<E: Environment>:
     crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSync
     + DependencyManagerAccess<E>
     + KeyMutationAccess
 {
+    /// The configured audit policy. Default: `Explicit`.
+    fn dependency_audit_policy(&self) -> DependencyAuditPolicy {
+        DependencyAuditPolicy::Explicit
+    }
+    /// Whether stored bytes are re-hashed on read. Default: `OnRead`.
+    fn version_verification(&self) -> VersionVerification {
+        VersionVerification::OnRead
+    }
+    /// What a mismatch on a recipe-backed value means. Default: `UserInput`.
+    fn external_change_policy(&self) -> ExternalChangePolicy {
+        ExternalChangePolicy::UserInput
+    }
+
     /// Resolves a query to an asset.
     ///
     /// A pure key query delegates to [`Self::get`] and therefore yields a
@@ -4114,6 +4782,15 @@ pub trait AssetManager<E: Environment>:
         }
     }
 
+    /// Returns whether evaluating `query` is volatile, **without evaluating it**.
+    ///
+    /// The query counterpart of [`Self::is_volatile`]. A manager asks it before registering a
+    /// query asset: a volatile asset must never be put in the manager's maps (it can be neither
+    /// shared nor reused), so it is created fresh for each request instead.
+    async fn is_volatile_query(&self, query: &Query) -> Result<bool, Error> {
+        crate::interpreter::IsVolatile::is_volatile(query, self.get_envref()).await
+    }
+
     /// Resolve the asset for `query` and schedule it as a dependency of `parent`: start it
     /// immediately if queue capacity allows, otherwise enqueue it on `parent`'s local
     /// dependency queue (local-only parking — NOT parked in the global jobs list here).
@@ -4170,7 +4847,26 @@ pub trait AssetManager<E: Environment>:
         dependency: &AssetRef<E>,
     ) -> Result<State<E::Value>, Error> {
         parent.enter_dependencies(dependency).await?;
-        let result = dependency.get().await;
+        let result = match dependency.get().await {
+            Ok(state) => Ok(state),
+            Err(error) => {
+                // The stale-dependency policy (see `DefaultAssetManager::wait_for_dependency`):
+                // a dependency that expired during this evaluation is used as it stands and the
+                // parent is marked for recomputation, rather than failing on `get`'s refusal to
+                // hand out expired data. An expired dependency whose value is gone stays an error.
+                if dependency.status().await == Status::Expired {
+                    match dependency.poll_state_any_status().await {
+                        Some(state) => {
+                            parent.note_expired_dependency(dependency).await?;
+                            Ok(state)
+                        }
+                        None => Err(error),
+                    }
+                } else {
+                    Err(error)
+                }
+            }
+        };
         parent.leave_dependencies_and_resume().await?;
         result
     }
@@ -4258,7 +4954,8 @@ pub trait AssetManager<E: Environment>:
             RemoveAction::Nothing => Ok(()),
             RemoveAction::Delete => {
                 let dep_key = crate::metadata::DependencyKey::from(key);
-                self.cascade_expire_dependents(&dep_key).await;
+                self.cascade_expire_dependents(&dep_key, ExpiryCause::Removed)
+                    .await;
                 self.dependency_manager().remove(&dep_key).await;
                 if stored_metadata.is_some() {
                     store.remove(key).await
@@ -4278,6 +4975,10 @@ pub trait AssetManager<E: Environment>:
         // observer re-reading the key sees what the removal left.
         if let Some(asset) = &live {
             asset.notify_removed().await;
+        }
+        if result.is_ok() {
+            // Holds `key_mutation_lock`; safe, because the refresh does not take it.
+            self.refresh_listing_version(&key.parent()).await;
         }
         result
     }
@@ -4320,10 +5021,20 @@ pub trait AssetManager<E: Environment>:
                 Status::Ready | Status::Override => {
                     // Unlike the cascade's best-effort `expire_stored_copy`, an explicit expire
                     // must not report success, or expire dependents, if the write failed.
+                    // `set_status` first: it clears a reason on any other status, and the reason
+                    // is recorded on the record that is about to be written.
                     metadata.set_status(Status::Expired)?;
+                    self.record_expiry(
+                        &mut metadata,
+                        &key.to_string(),
+                        &ExpiryReason::Direct {
+                            cause: ExpiryCause::Explicit,
+                        },
+                    );
                     store.set_metadata(key, &metadata).await?;
                     let dep_key = crate::metadata::DependencyKey::from(key);
-                    self.cascade_expire_dependents(&dep_key).await;
+                    self.cascade_expire_dependents(&dep_key, ExpiryCause::Explicit)
+                        .await;
                     Ok(())
                 }
                 Status::Expired => Ok(()),
@@ -4689,35 +5400,61 @@ pub trait AssetManager<E: Environment>:
     /// Verify the recorded dependency versions reachable from `query`, expiring what no longer
     /// holds.
     ///
-    /// **Nothing in `liquers-core` calls this.** Verification is opt-in, and the default policy is
-    /// "never" — which is exactly the behaviour before this existed. Deciding *when* an audit runs
-    /// (at startup, on every request, on an explicit user action, never) is a policy question this
-    /// method exists to make answerable without reopening the dependency manager; see
-    /// `DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE`.
+    /// Under the default [`DependencyAuditPolicy::Explicit`](crate::environment_builder::DependencyAuditPolicy)
+    /// nothing in `liquers-core` calls this: an audit runs only when the application asks for one
+    /// (at startup, on a user action). [`DependencyAuditPolicy::OnLoad`](crate::environment_builder::DependencyAuditPolicy)
+    /// instead checks each dependency on the fast track, without a whole-graph audit.
     ///
-    /// Three outcomes per gap, from [`Self::version`]: a version that matches leaves the dependent
+    /// Three outcomes per gap, from [`Self::dependency_version`]: a version that matches leaves the dependent
     /// alone, one that differs expires it, and no durable version at all expires it — an asset
     /// that left no trace cannot be shown to reconstruct identically.
     ///
     /// A non-keyed query has no recorded dependencies to audit and yields an empty report rather
     /// than an error.
     async fn trigger_dependency_audit(&self, query: &Query) -> Result<AuditReport, Error> {
+        self.trigger_dependency_audit_with(query, AuditMode::Expire).await
+    }
+
+    /// [`Self::trigger_dependency_audit`] with an explicit [`AuditMode`].
+    async fn trigger_dependency_audit_with(
+        &self,
+        query: &Query,
+        mode: AuditMode,
+    ) -> Result<AuditReport, Error> {
         let Some(key) = query.key() else {
             return Ok(AuditReport::default());
         };
         let dep_key = crate::metadata::DependencyKey::from(&key);
         let gaps = self.dependency_manager().missing_versions_for(&dep_key);
-        self.audit_gaps(gaps).await
+        self.audit_gaps(gaps, mode).await
     }
 
     /// [`Self::trigger_dependency_audit`] over every gap the dependency manager knows of.
     async fn trigger_dependency_audit_all_registered(&self) -> Result<AuditReport, Error> {
-        let gaps = self.dependency_manager().missing_versions();
-        self.audit_gaps(gaps).await
+        self.trigger_dependency_audit_all_registered_with(AuditMode::Expire).await
     }
 
-    /// Resolve each gap through [`Self::version`] and push the answer back into the graph, which
-    /// is what produces the expirations.
+    /// [`Self::trigger_dependency_audit_all_registered`] with an explicit [`AuditMode`].
+    async fn trigger_dependency_audit_all_registered_with(
+        &self,
+        mode: AuditMode,
+    ) -> Result<AuditReport, Error> {
+        let gaps = self.dependency_manager().missing_versions();
+        self.audit_gaps(gaps, mode).await
+    }
+
+    /// Resolve each gap through [`Self::dependency_version`] and compare it with what the
+    /// dependents recorded.
+    ///
+    /// In [`AuditMode::Expire`] the answer goes through `DependencyManager::audit_version`, which
+    /// records the version and expires every dependent that does not positively match — also on a
+    /// first observation, which `register_version` would treat as "no change". In
+    /// [`AuditMode::ReportOnly`] it goes through `stale_edges`, which registers and expires
+    /// nothing.
+    ///
+    /// The audit reaches the dependents loaded in this process. One loaded later is not missed:
+    /// the current version stays in the version map, and the check in `try_fast_track` refuses
+    /// the stale copy.
     ///
     /// The gap list is a snapshot and the graph may change under it. That is fine for a
     /// policy-triggered operation, and deliberately takes no lock: locking here would put
@@ -4726,28 +5463,97 @@ pub trait AssetManager<E: Environment>:
     async fn audit_gaps(
         &self,
         gaps: Vec<crate::metadata::DependencyKey>,
+        mode: AuditMode,
     ) -> Result<AuditReport, Error> {
         let mut report = AuditReport::default();
         for dep_key in gaps {
             report.checked.push(dep_key.clone());
-            let key = match dep_key.key() {
-                Ok(Some(key)) => key,
-                // Not an asset key (a command dependency, say): the manager holds those
-                // authoritatively already and there is nothing to resolve from a store.
-                Ok(None) | Err(_) => continue,
-            };
-            let expired = match self.version(&key).await? {
-                Some(version) => {
-                    self.dependency_manager()
-                        .register_version(&dep_key, version)
-                        .await
+            // Not store-resolvable (a command dependency, say): the manager holds those
+            // authoritatively already and there is nothing to resolve from a store.
+            if !dep_key.is_store_resolvable() {
+                continue;
+            }
+            let found = self.dependency_version(&dep_key).await?;
+            match mode {
+                AuditMode::Expire => {
+                    let (expired, findings) =
+                        self.dependency_manager().audit_version(&dep_key, found).await;
+                    report.findings.extend(findings);
+                    report
+                        .expired
+                        .extend(expired.keys.iter().map(|expired_key| expired_key.key.clone()));
+                    self.expire_dependencies_result(expired, ExpiryCause::Audit { found })
+                        .await;
                 }
-                None => self.dependency_manager().report_no_version(&dep_key).await,
-            };
-            report.expired.extend(expired.keys.iter().cloned());
-            self.expire_dependencies_result(expired).await;
+                AuditMode::ReportOnly => {
+                    let findings = self.dependency_manager().stale_edges(&dep_key, found).await;
+                    report.findings.extend(findings);
+                }
+            }
         }
         Ok(report)
+    }
+
+    /// The current version of a store-resolvable dependency key, **without evaluating**.
+    ///
+    /// `-R/` keys answer [`Self::version`]. `-R-dir/` keys answer the listing version of the
+    /// directory (`DependencyManager::listing_version` over [`Self::listdir`]). Any other key answers
+    /// `Version::unknown()` as well; callers ask `DependencyKey::is_store_resolvable` first.
+    /// A store error stays `Err`.
+    async fn dependency_version(
+        &self,
+        dep_key: &crate::metadata::DependencyKey,
+    ) -> Result<Version, Error> {
+        if dep_key.is_pure_key() {
+            return match dep_key.key() {
+                Ok(Some(key)) => self.version(&key).await,
+                Ok(None) | Err(_) => Ok(Version::unknown()),
+            };
+        }
+        if dep_key.is_dir_key() {
+            return match dep_key.dir_key() {
+                Ok(Some(dir)) => {
+                    let names = self.listdir(&dir).await?;
+                    Ok(crate::dependencies::DependencyManager::<E>::listing_version(&names))
+                }
+                Ok(None) | Err(_) => Ok(Version::unknown()),
+            };
+        }
+        Ok(Version::unknown())
+    }
+
+    /// Recompute and register the listing version of `dir` **iff** the dependency manager
+    /// already holds one (something depends on the listing); cascades with
+    /// `ExpiryCause::Updated` when it moved.
+    ///
+    /// Called after every manager-mediated write or removal, with the written key's parent. It
+    /// costs one version-map read when nobody depends on the listing. It never takes
+    /// `key_mutation_lock`, so it is safe to call with that lock held. A `listdir` error is
+    /// reported with `eprintln!`: the write it follows stands, and a failed refresh must not
+    /// undo it.
+    async fn refresh_listing_version(&self, dir: &Key) {
+        let dep_key = crate::metadata::DependencyKey::from_dir_key(dir);
+        if self.dependency_manager().get_version(&dep_key).await.is_none() {
+            return;
+        }
+        match self.listdir(dir).await {
+            Ok(names) => {
+                let version =
+                    crate::dependencies::DependencyManager::<E>::listing_version(&names);
+                let expired = self
+                    .dependency_manager()
+                    .register_version(&dep_key, version)
+                    .await;
+                self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                    .await;
+            }
+            Err(error) => {
+                eprintln!(
+                    "Could not refresh the listing version of '{}' after a write: {}",
+                    dir, error
+                );
+            }
+        }
     }
 
     /// The authoritative version of a keyed asset, **without evaluating it**.
@@ -4757,8 +5563,7 @@ pub trait AssetManager<E: Environment>:
     /// 1. a live asset registered for `key`, *if it has a version yet* — an asset that is
     ///    mid-evaluation does not, and must not shadow the durable answer below;
     /// 2. otherwise, the store's metadata for `key`, if it holds any;
-    /// 3. otherwise `None` — the key has no durable version, which is **not** the same as
-    ///    [`Version::unknown()`] and must not be conflated with it.
+    /// 3. otherwise [`Version::unknown()`] (0) — the key has no durable version.
     ///
     /// This never evaluates and never submits, for the same reason [`Self::owned_key_asset`] does
     /// not (`specs/design/keyed-recipe-ownership/`): asking a question about an asset must not be
@@ -4770,21 +5575,25 @@ pub trait AssetManager<E: Environment>:
     /// it is what lets a user delete large intermediates and keep the results that were derived
     /// from them.
     ///
-    /// `Ok(None)` and `Err` are different answers and stay different: a store that fails to read
-    /// is not a key without a version, and collapsing them would expire dependents on a transient
+    /// `Ok(Version::unknown())` and `Err` are different answers and stay different: a store that
+    /// fails to read is not a key without a version, and collapsing them would expire dependents on a transient
     /// store error. `contains` is asked first for exactly this reason, since
-    /// [`AsyncStore::get_metadata`] reports a missing key as `Err`.
-    async fn version(&self, key: &Key) -> Result<Option<Version>, Error> {
+    /// [`AsyncStore::get_metadata`](crate::store::AsyncStore::get_metadata) reports a missing key as `Err`.
+    async fn version(&self, key: &Key) -> Result<Version, Error> {
         if let Some(asset) = self.lookup_key_asset(key) {
             if let Some(version) = asset.get_metadata().await?.version() {
-                return Ok(Some(version));
+                return Ok(version);
             }
         }
         let store = self.get_envref().get_async_store();
         if !store.contains(key).await? {
-            return Ok(None);
+            return Ok(Version::unknown());
         }
-        Ok(store.get_metadata(key).await?.version())
+        Ok(store
+            .get_metadata(key)
+            .await?
+            .version()
+            .unwrap_or_else(Version::unknown))
     }
 
     /// The recipe provider (via the environment).
@@ -4806,6 +5615,9 @@ pub trait AssetManager<E: Environment>:
     /// Fallible although neither built-in manager can fail today. The `Result` is reserved for a
     /// manager whose startup genuinely can fail — one restoring a persisted dependency graph from
     /// a store — because adding it later would be a breaking change. Do not "simplify" it away.
+    ///
+    /// Required. An implementation must call `self.refresh_command_versions()?` (its result is
+    /// empty at first startup) and then record that it has started, so `is_started` reports true.
     fn start(&self) -> Result<(), Error>;
 
     /// Re-read the command metadata registry and re-register versions.
@@ -4817,7 +5629,11 @@ pub trait AssetManager<E: Environment>:
     /// Returns the dependency keys whose version changed, which are exactly the keys whose
     /// dependents must be expired. It does not expire them itself, because cascade expiration is
     /// asynchronous; [`Self::refresh_command_versions_and_expire`] is the companion that does.
-    fn refresh_command_versions(&self) -> Result<Vec<crate::metadata::DependencyKey>, Error>;
+    fn refresh_command_versions(&self) -> Result<Vec<crate::metadata::DependencyKey>, Error> {
+        let envref = self.get_envref();
+        let cmr = envref.get_command_metadata_registry();
+        Ok(load_command_versions_sync(self.dependency_manager(), cmr))
+    }
 
     /// [`Self::refresh_command_versions`], then cascade-expire everything it reports.
     ///
@@ -4825,7 +5641,14 @@ pub trait AssetManager<E: Environment>:
     /// asset built against the old command.
     async fn refresh_command_versions_and_expire(&self) -> Result<(), Error> {
         for key in self.refresh_command_versions()? {
-            self.cascade_expire_dependents(&key).await;
+            // Read before the cascade, which drops the root's version from the map.
+            let version = self
+                .dependency_manager()
+                .get_version(&key)
+                .await
+                .unwrap_or(Version::unknown());
+            self.cascade_expire_dependents(&key, ExpiryCause::Updated { version })
+                .await;
         }
         Ok(())
     }
@@ -4850,33 +5673,291 @@ pub trait AssetManager<E: Environment>:
 
     // --- shared default methods (identical for all managers; see Q1) ---
 
-    /// Cascade-expire all dependents of a changed dependency key.
-    async fn cascade_expire_dependents(&self, dep_key: &crate::metadata::DependencyKey) {
-        let expired = self.dependency_manager().expire(dep_key).await;
-        self.expire_dependencies_result(expired).await;
+    /// Record why `subject` expired: set the expiry reason on `metadata` and append its log entry.
+    ///
+    /// **Every** route into `Expired` calls this, for every expired asset, live or stored-only. It
+    /// is called while the asset's `data` write lock is held, so it is synchronous and must not
+    /// block, and it must not reach any asset or lock. `subject` is the expired asset's key, or
+    /// its query when it has none — never its runtime id.
+    ///
+    /// The default sets [`Metadata::set_expiry_reason`] and appends [`ExpiryReason::log_entry`].
+    /// Legacy metadata is left untouched, as every other best-effort metadata write leaves it.
+    /// Override it to change the wording or levels, add fields, or forward the event.
+    fn record_expiry(&self, metadata: &mut Metadata, subject: &str, reason: &ExpiryReason) {
+        match metadata {
+            Metadata::MetadataRecord(_) => {
+                let _ = metadata.set_expiry_reason(reason.clone());
+                let _ = metadata.add_log_entry(reason.log_entry(subject));
+            }
+            Metadata::LegacyMetadata(_) => {}
+        }
     }
 
-    /// Apply an `ExpiredDependents` result: expire keyed and untracked assets.
+    /// Publish `version` as the current version of `dep_key`, and cascade-expire every dependent
+    /// that recorded a different one (cause `Updated { version }`).
+    ///
+    /// The primitive a manager's `set_binary` / `set_state` calls after the new content is
+    /// durable, so that dependents of the written key are expired with the reason recorded through
+    /// [`Self::record_expiry`]. It touches the dependency graph only; it does not write the store
+    /// and does not take [`KeyMutationAccess::key_mutation_lock`], so it is safe to call with that
+    /// lock held. Publishing an unchanged version expires nothing.
+    async fn publish_version(
+        &self,
+        dep_key: &crate::metadata::DependencyKey,
+        version: Version,
+    ) {
+        let expired = self
+            .dependency_manager()
+            .register_version(dep_key, version)
+            .await;
+        self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
+            .await;
+    }
+
+    /// Cascade-expire all dependents of a changed dependency key, with the root `cause`.
+    async fn cascade_expire_dependents(
+        &self,
+        dep_key: &crate::metadata::DependencyKey,
+        cause: ExpiryCause,
+    ) {
+        let expired = self.dependency_manager().expire(dep_key).await;
+        self.expire_dependencies_result(expired, cause).await;
+    }
+
+    /// Apply an `ExpiredDependents` result: expire keyed and untracked assets, recording
+    /// `Cascaded { cause, root: expired.root, via }` on each.
     ///
     /// A key with no registered asset — a `cached: false` key is never registered — is expired in
     /// the store instead: its stored metadata is marked `Expired`, exactly as
     /// `mark_expired_status` would persist it for a registered one. Without that, the stored copy
     /// stays `Ready` and a fresh process fast-tracks it on data the graph knows is stale.
-    async fn expire_dependencies_result(&self, expired: crate::dependencies::ExpiredDependents<E>) {
-        for dk in &expired.keys {
-            if let Ok(k) = Key::try_from(dk) {
+    ///
+    /// [`DependencyManager::expire`](crate::dependencies::DependencyManager::expire) reports the
+    /// root key itself among the expired keys. The root is not its own dependent, so it gets
+    /// `Direct { cause }` rather than a cascade from itself; in practice its caller has already
+    /// expired it, and an asset that is already `Expired` keeps the reason it has (only a
+    /// transition records).
+    async fn expire_dependencies_result(
+        &self,
+        expired: crate::dependencies::ExpiredDependents<E>,
+        cause: ExpiryCause,
+    ) {
+        let reason_for = |via: &crate::metadata::DependencyKey,
+                          key: Option<&crate::metadata::DependencyKey>|
+         -> ExpiryReason {
+            match &expired.root {
+                Some(root) if key == Some(root) => ExpiryReason::Direct {
+                    cause: cause.clone(),
+                },
+                Some(root) => ExpiryReason::Cascaded {
+                    cause: cause.clone(),
+                    root: root.clone(),
+                    via: via.clone(),
+                },
+                // Only `ExpiredDependents::new()` has no root, and it is empty; were one ever
+                // non-empty, the dependency it was reached through is the best root available.
+                None => ExpiryReason::Cascaded {
+                    cause: cause.clone(),
+                    root: via.clone(),
+                    via: via.clone(),
+                },
+            }
+        };
+        for expired_key in &expired.keys {
+            if let Ok(k) = Key::try_from(&expired_key.key) {
+                let reason = reason_for(&expired_key.via, Some(&expired_key.key));
                 if let Some(ar) = self.lookup_key_asset(&k) {
-                    let _ = ar.expire_without_cascade().await;
+                    let _ = ar.expire_without_cascade(reason).await;
                 } else {
-                    expire_stored_copy(self.get_envref().get_async_store(), &k).await;
+                    expire_stored_copy(self, self.get_envref().get_async_store(), &k, &reason)
+                        .await;
                 }
             }
         }
-        for weak_ref in &expired.assets {
+        for (weak_ref, via) in &expired.assets {
             if let Some(ar) = weak_ref.upgrade() {
-                let _ = ar.expire_without_cascade().await;
+                let _ = ar.expire_without_cascade(reason_for(via, None)).await;
             }
         }
+    }
+
+    /// Apply an outside change to `key`'s stored value (Part G): `recorded` is the stored metadata
+    /// the decision was made on, `actual` the content hash of the bytes now stored.
+    ///
+    /// - `AcceptAsInput` / `ConvertToOverride`: the version becomes `actual` (and a conversion sets
+    ///   `Override`) in the sidecar, with a warning in the asset's log — except for an
+    ///   `AcceptAsInput` whose recorded version was 0, a file with no metadata and no recipe, which
+    ///   is adopted in memory only and writes nothing. `actual` is then recorded in the version map
+    ///   and every dependent that recorded anything else is expired with
+    ///   `Cascaded { UpdatedInStore { actual }, root: key, via }`. The map is updated as an audit
+    ///   updates it, not as `register_version` does, because after a restart this is the first
+    ///   version the map sees for `key`, which `register_version` would take as "no change".
+    /// - `Delete`: the data and metadata are removed from the store, reported on stderr (the
+    ///   metadata that would hold a log line is gone), and the dependents are expired with
+    ///   `cascade_expire_dependents(key, UpdatedInStore { actual })`.
+    ///
+    /// Runs under `key_mutation_lock`, and does nothing when the change has already been applied —
+    /// by a concurrent reader of the same key, or earlier in this process — or when the stored
+    /// entry is no longer the one the decision was made on. **Never call it while holding an
+    /// asset's `data` lock**: keyed mutations take `key_mutation_lock` first and asset locks
+    /// second, so that would invert the order.
+    ///
+    /// A store write that fails — a read-only store — is reported on stderr and the result is
+    /// kept in memory: the version map and the cascade still happen, and the next process detects
+    /// the change again. Only a failure to re-read the stored metadata is returned as `Err`; by
+    /// then nothing has changed.
+    async fn apply_external_change(
+        &self,
+        key: &Key,
+        recorded: &Metadata,
+        actual: Version,
+        action: ExternalChangeAction,
+    ) -> Result<(), Error> {
+        let store = self.get_envref().get_async_store();
+        let dep_key = crate::metadata::DependencyKey::from(key);
+        let recorded_version = recorded.version().unwrap_or_else(Version::unknown);
+        let _mutation = self.key_mutation_lock().lock().await;
+
+        let dm = self.dependency_manager();
+        if dm.get_version(&dep_key).await == Some(actual) {
+            return Ok(()); // applied earlier in this process (possibly in memory only)
+        }
+        if !store.contains(key).await? {
+            return Ok(()); // removed since it was read
+        }
+        let mut current = store.get_metadata(key).await?;
+        let stored_version = current.version().unwrap_or_else(Version::unknown);
+        if stored_version == actual || stored_version != recorded_version {
+            // Already applied by another reader, or rewritten since the read: either way the
+            // stored version is no longer the one this decision was about.
+            return Ok(());
+        }
+
+        match &action {
+            ExternalChangeAction::AcceptAsInput { .. }
+            | ExternalChangeAction::ConvertToOverride { .. } => {
+                if external_change_writes_sidecar(recorded_version, &action) {
+                    adopt_external_change(&mut current, key, recorded_version, &action);
+                    if let Err(e) = store.set_metadata(key, &current).await {
+                        eprintln!(
+                            "Content of {key} changed outside Liquers; the new version could not \
+                             be written to the store, so it is kept in memory only: {e}"
+                        );
+                    }
+                }
+                let (expired, _findings) = dm.audit_version(&dep_key, actual).await;
+                self.expire_dependencies_result(expired, ExpiryCause::UpdatedInStore { actual })
+                    .await;
+            }
+            ExternalChangeAction::Delete => {
+                match store.remove(key).await {
+                    Ok(()) => eprintln!(
+                        "Content of {key} changed outside Liquers; deleted as corrupted \
+                         (external_change: corrupted), so its recipe recomputes it"
+                    ),
+                    Err(e) => eprintln!(
+                        "Content of {key} changed outside Liquers and is treated as corrupted, \
+                         but it could not be deleted from the store: {e}"
+                    ),
+                }
+                self.cascade_expire_dependents(&dep_key, ExpiryCause::UpdatedInStore { actual })
+                    .await;
+                // Holds `key_mutation_lock`; safe, because the refresh does not take it.
+                self.refresh_listing_version(&key.parent()).await;
+            }
+        }
+        Ok(())
+    }
+
+    /// Re-hash every stored value under `key` (recursively when `deep`; `key` itself when it is
+    /// not a directory), compare it with its recorded version, and apply the configured
+    /// [`ExternalChangePolicy`] to each mismatch through [`Self::apply_external_change`] — or,
+    /// in [`AuditMode::ReportOnly`], only report what would be done, writing and registering
+    /// nothing.
+    ///
+    /// This is how an edit nobody has read yet is found; the Part B audit compares recorded
+    /// versions only and cannot see it. A key whose store entry has metadata but no data object
+    /// is `skipped`, not changed: deleting large intermediates while keeping their metadata is a
+    /// supported workflow. An *empty* data object is bytes, and is checked — except under a
+    /// timestamp version, which Liquers records only when it stored no bytes: a store that
+    /// answers a metadata-only entry with empty bytes (`AsyncMemoryStore`) is not mistaken for
+    /// one whose content was emptied.
+    ///
+    /// A live asset loaded before the edit still holds the old content; when a change is applied
+    /// it is unmapped, so the next request reads the store. Under [`VersionVerification::Off`]
+    /// nothing is hashed and the report is empty.
+    async fn verify_stored_versions(
+        &self,
+        key: &Key,
+        deep: bool,
+        mode: AuditMode,
+    ) -> Result<VersionVerificationReport, Error> {
+        let mut report = VersionVerificationReport::default();
+        match self.version_verification() {
+            VersionVerification::Off => return Ok(report),
+            VersionVerification::OnRead => {}
+        }
+        let store = self.get_envref().get_async_store();
+        let keys = if store.is_dir(key).await? {
+            if deep {
+                store.listdir_keys_deep(key).await?
+            } else {
+                store.listdir_keys(key).await?
+            }
+        } else {
+            vec![key.clone()]
+        };
+        for key in keys {
+            if store.is_dir(&key).await? {
+                continue;
+            }
+            if !store.contains(&key).await? {
+                report.skipped.push(key);
+                continue;
+            }
+            let metadata = store.get_metadata(&key).await?;
+            let recorded = metadata.version().unwrap_or_else(Version::unknown);
+            if !external_change_checked(metadata.status(), recorded) {
+                report.skipped.push(key);
+                continue;
+            }
+            let bytes = match store.get_bytes(&key).await {
+                Ok(bytes) if no_bytes_by_design(&bytes, recorded) => {
+                    report.skipped.push(key);
+                    continue;
+                }
+                Ok(bytes) => bytes,
+                Err(e) if e.error_type == ErrorType::KeyNotFound => {
+                    report.skipped.push(key);
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
+            let Some((actual, action)) =
+                decide_external_change(self, &key, &bytes, &metadata).await?
+            else {
+                report.verified.push(key);
+                continue;
+            };
+            report.changed.push((key.clone(), action.clone()));
+            match mode {
+                AuditMode::ReportOnly => {}
+                AuditMode::Expire => {
+                    self.apply_external_change(&key, &metadata, actual, action)
+                        .await?;
+                    if let Some(asset) = self.lookup_key_asset(&key) {
+                        let stale = asset.status().await.has_data()
+                            && asset.get_metadata().await?.version() != Some(actual);
+                        if stale {
+                            let _mutation = self.key_mutation_lock().lock().await;
+                            self.untrack_expiration(asset.id());
+                            self.remove_key_asset_if(&key, asset.id()).await;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(report)
     }
 
     /// Register plan dependencies into the dependency manager.
@@ -4887,14 +5968,27 @@ pub trait AssetManager<E: Environment>:
     ) -> Result<(), Error> {
         let dep_key = crate::metadata::DependencyKey::from(dependent_key);
         for plan_dep in plan_deps {
-            if let Some(ver) = self.dependency_manager().get_version(&plan_dep.key).await {
-                if let Ok(expired) = self
-                    .dependency_manager()
-                    .add_dependency(&dep_key, &plan_dep.key, ver)
-                    .await
-                {
-                    self.expire_dependencies_result(expired).await;
-                }
+            // A dependency with no registered version still gets its edge, recording
+            // `Version::unknown()`: the edge is what lets a later registration (a listing, a
+            // value) expire this dependent, and what the audit resolves.
+            let ver = self
+                .dependency_manager()
+                .get_version(&plan_dep.key)
+                .await
+                .unwrap_or_else(Version::unknown);
+            if let Ok(expired) = self
+                .dependency_manager()
+                .add_dependency(&dep_key, &plan_dep.key, ver)
+                .await
+            {
+                // `add_dependency` never expires anything; the cause is nominal.
+                self.expire_dependencies_result(
+                    expired,
+                    ExpiryCause::Updated {
+                        version: Version::unknown(),
+                    },
+                )
+                .await;
             }
         }
         Ok(())
@@ -4912,7 +6006,7 @@ pub trait AssetManager<E: Environment>:
         if !store.contains(key).await? {
             return Ok(None);
         }
-        let (binary, metadata) = store.get(key).await?;
+        let (binary, mut metadata) = store.get(key).await?;
         if !metadata.status().has_data() {
             return Ok(None);
         }
@@ -4926,7 +6020,14 @@ pub trait AssetManager<E: Environment>:
             envref.get_type_registry(),
         )?;
         match value {
-            Some(value) => Ok(Some(State::from_parts(Arc::new(value), Arc::new(metadata)))),
+            Some(value) => {
+                // Part G: the bytes are read anyway, so verify them, once they are known to be a
+                // value (as the fast track does). No asset lock is held here.
+                if !verify_store_read(self, key, &binary, &mut metadata).await? {
+                    return Ok(None);
+                }
+                Ok(Some(State::from_parts(Arc::new(value), Arc::new(metadata))))
+            }
             // Degraded: the caller asked for a value of a type this build does not know.
             None => Err(Error::general_error(format!(
                 "Type identifier '{}' is not registered in this build, so the stored value cannot be materialized",
@@ -4957,11 +6058,15 @@ pub trait AssetManager<E: Environment>:
         if !store.contains(key).await? {
             return Ok(None);
         }
-        let (binary, metadata) = store.get(key).await?;
+        let (binary, mut metadata) = store.get(key).await?;
         // `has_data()` is the right question here — this asks whether the store entry holds a
         // value at all, not whether a reader may see it. That is the distinction from
         // `ReadExposure`, which gates reads.
         if !metadata.status().has_data() {
+            return Ok(None);
+        }
+        // Part G: the bytes are read anyway, so verify them (no asset lock is held here).
+        if !verify_store_read(self, key, &binary, &mut metadata).await? {
             return Ok(None);
         }
         Ok(Some((Arc::new(binary), Arc::new(metadata))))
@@ -5084,10 +6189,26 @@ pub struct DefaultAssetManager<E: Environment> {
     monitor_tx: mpsc::UnboundedSender<ExpirationMonitorMessage<E>>,
     /// Runtime dependency graph for cascade expiration
     dependency_manager: crate::dependencies::DependencyManager<E>,
+    dependency_audit: DependencyAuditPolicy,
+    verify_versions: VersionVerification,
+    external_change: ExternalChangePolicy,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl<E: Environment> DefaultAssetManager<E> {
+    /// Sets the policies read by the trait accessors. Called by the builder before sharing.
+    pub(crate) fn with_policies(
+        mut self,
+        dependency_audit: DependencyAuditPolicy,
+        verify_versions: VersionVerification,
+        external_change: ExternalChangePolicy,
+    ) -> Self {
+        self.dependency_audit = dependency_audit;
+        self.verify_versions = verify_versions;
+        self.external_change = external_change;
+        self
+    }
+
     /// Atomically claims an empty keyed asset slot.
     pub(crate) async fn try_insert_key_asset(&self, key: &Key, asset: AssetRef<E>) -> bool {
         self.assets.insert_async(key.clone(), asset).await.is_ok()
@@ -5114,6 +6235,9 @@ impl<E: Environment> DefaultAssetManager<E> {
             job_queue: job_queue.clone(),
             monitor_tx,
             dependency_manager: crate::dependencies::DependencyManager::new(),
+            dependency_audit: DependencyAuditPolicy::default(),
+            verify_versions: VersionVerification::default(),
+            external_change: ExternalChangePolicy::default(),
         };
         tokio::spawn(async move {
             job_queue.run().await;
@@ -5211,7 +6335,15 @@ impl<E: Environment> DefaultAssetManager<E> {
 
                                 // 1. Expire the asset and decide whether map-eviction is safe.
                                 //    In-flight states are preserved on expire failure.
-                                let expire_result = asset_ref.expire().await;
+                                let expire_result = asset_ref
+                                    .expire_with_reason(ExpiryReason::Direct {
+                                        cause: ExpiryCause::Deadline {
+                                            expiration_time: ExpirationTime::At(
+                                                timed.expiration,
+                                            ),
+                                        },
+                                    })
+                                    .await;
                                 let should_evict = match expire_result {
                                     Ok(()) => true,
                                     Err(e) => {
@@ -5617,6 +6749,15 @@ impl<E: Environment> Drop for DefaultAssetManager<E> {
 #[cfg(not(target_arch = "wasm32"))]
 #[async_trait]
 impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
+    fn dependency_audit_policy(&self) -> DependencyAuditPolicy {
+        self.dependency_audit
+    }
+    fn version_verification(&self) -> VersionVerification {
+        self.verify_versions
+    }
+    fn external_change_policy(&self) -> ExternalChangePolicy {
+        self.external_change
+    }
     async fn owned_key_asset(&self, key: &Key) -> Option<AssetRef<E>> {
         let asset = self.lookup_key_asset(key)?;
         if !asset.is_volatile().await {
@@ -5704,11 +6845,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 if status.is_finished() {
                     return Ok(assetref);
                 }
-                {
-                    let mut lock = assetref.data.write().await;
-                    if lock.try_fast_track().await? {
-                        return Ok(assetref.clone());
-                    }
+                if assetref.fast_track().await? {
+                    return Ok(assetref.clone());
                 }
 
                 self.job_queue.submit(assetref.clone()).await?;
@@ -5759,10 +6897,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 return Ok(asset);
             }
             // Fast-track from the store if the value is already persisted.
-            let fast_tracked = {
-                let mut lock = asset.data.write().await;
-                lock.try_fast_track().await?
-            };
+            let fast_tracked = asset.fast_track().await?;
             if fast_tracked {
                 return Ok(asset);
             }
@@ -6000,15 +7135,10 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             if status.is_finished() {
                 return Ok(asset_ref);
             }
-            {
-                eprintln!("Trying fast track for asset with key {}", key);
-                let asset_ref = asset_ref.clone();
-                let mut lock = asset_ref.data.write().await;
-                if lock.try_fast_track().await? {
-                    eprintln!("Fast track successful for asset with key {}", key);
-                    drop(lock);
-                    return Ok(asset_ref);
-                }
+            eprintln!("Trying fast track for asset with key {}", key);
+            if asset_ref.fast_track().await? {
+                eprintln!("Fast track successful for asset with key {}", key);
+                return Ok(asset_ref);
             }
             eprintln!("Submitting asset with key {} to job queue", key);
             self.job_queue.submit(asset_ref.clone()).await?;
@@ -6111,7 +7241,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             // 4. Compute version from binary content and store in metadata
             let dep_key = crate::metadata::DependencyKey::from(key);
             if final_status != Status::Volatile && final_status != Status::Error {
-                let version = crate::metadata::Version::from_bytes(binary);
+                let version = crate::metadata::Version::from_content(binary);
                 metadata.version = Some(version);
             }
 
@@ -6148,7 +7278,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                         .dependency_manager
                         .register_version(&dep_key, version)
                         .await;
-                    self.expire_dependencies_result(expired).await;
+                    self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                        .await;
                 }
             }
 
@@ -6158,6 +7289,12 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         if let Some(asset) = &replaced {
             // The replaced asset's last message, once the key holds its new value.
             asset.notify_removed().await;
+        }
+        if result.is_ok() {
+            // Outside `key_mutation_lock`: two concurrent writes into one directory may each
+            // list and register, and the last listing is the true current membership.
+            drop(_mutation);
+            self.refresh_listing_version(&key.parent()).await;
         }
         result
     }
@@ -6234,7 +7371,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             let dep_key = crate::metadata::DependencyKey::from(key);
             if final_status != Status::Volatile && final_status != Status::Error {
                 let version = match state.as_bytes() {
-                    Ok(binary) => crate::metadata::Version::from_bytes(&binary),
+                    Ok(binary) => crate::metadata::Version::from_content(&binary),
                     // `new_unique`, not `from_time_now`: what is needed here is a *distinct* version
                     // per set, and a bare timestamp can repeat within one clock tick.
                     Err(_) => crate::metadata::Version::new_unique(),
@@ -6288,16 +7425,19 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 final_status,
                 Status::Ready | Status::Source | Status::Override
             ) {
+                let version = metadata.version().unwrap_or(Version::unknown());
                 if let Some(version) = metadata.version() {
                     let expired = self
                         .dependency_manager
                         .register_version(&dep_key, version)
                         .await;
-                    self.expire_dependencies_result(expired).await;
+                    self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                        .await;
                 }
                 // Track the asset in the dependency manager
                 let expired = self.dependency_manager.track_asset(&asset_ref).await;
-                self.expire_dependencies_result(expired).await;
+                self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                    .await;
             }
 
             Ok(())
@@ -6306,6 +7446,12 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         if let Some(asset) = &replaced {
             // The replaced asset's last message, once the key holds its new value.
             asset.notify_removed().await;
+        }
+        if result.is_ok() {
+            // Outside `key_mutation_lock`: two concurrent writes into one directory may each
+            // list and register, and the last listing is the true current membership.
+            drop(_mutation);
+            self.refresh_listing_version(&key.parent()).await;
         }
         result
     }
@@ -6447,11 +7593,6 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         self.started
             .store(true, std::sync::atomic::Ordering::Release);
         Ok(())
-    }
-
-    fn refresh_command_versions(&self) -> Result<Vec<crate::metadata::DependencyKey>, Error> {
-        let cmr = self.envref.get_command_metadata_registry();
-        Ok(load_command_versions_sync(&self.dependency_manager, cmr))
     }
 
     fn is_started(&self) -> bool {
@@ -7002,9 +8143,25 @@ pub struct ImmediateAssetManager<E: Environment> {
     /// `tokio::sync::OnceCell` this used to be: a one-shot cell would foreclose
     /// [`AssetManager::refresh_command_versions`], and startup is no longer asynchronous.
     started: std::sync::atomic::AtomicBool,
+    dependency_audit: DependencyAuditPolicy,
+    verify_versions: VersionVerification,
+    external_change: ExternalChangePolicy,
 }
 
 impl<E: Environment> ImmediateAssetManager<E> {
+    /// Sets the policies read by the trait accessors. Called by the builder before sharing.
+    pub(crate) fn with_policies(
+        mut self,
+        dependency_audit: DependencyAuditPolicy,
+        verify_versions: VersionVerification,
+        external_change: ExternalChangePolicy,
+    ) -> Self {
+        self.dependency_audit = dependency_audit;
+        self.verify_versions = verify_versions;
+        self.external_change = external_change;
+        self
+    }
+
     /// Atomically claims an empty keyed asset slot.
     pub(crate) async fn try_insert_key_asset(&self, key: &Key, asset: AssetRef<E>) -> bool {
         let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
@@ -7029,6 +8186,9 @@ impl<E: Environment> ImmediateAssetManager<E> {
             query_assets: std::sync::Mutex::new(std::collections::HashMap::new()),
             dependency_manager: crate::dependencies::DependencyManager::new(),
             started: std::sync::atomic::AtomicBool::new(false),
+            dependency_audit: DependencyAuditPolicy::default(),
+            verify_versions: VersionVerification::default(),
+            external_change: ExternalChangePolicy::default(),
         }
     }
 
@@ -7146,6 +8306,15 @@ impl<E: Environment> ImmediateAssetManager<E> {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
+    fn dependency_audit_policy(&self) -> DependencyAuditPolicy {
+        self.dependency_audit
+    }
+    fn version_verification(&self) -> VersionVerification {
+        self.verify_versions
+    }
+    fn external_change_policy(&self) -> ExternalChangePolicy {
+        self.external_change
+    }
     async fn owned_key_asset(&self, key: &Key) -> Option<AssetRef<E>> {
         let asset = self.lookup_key_asset(key)?;
         if !asset.is_volatile().await {
@@ -7215,8 +8384,18 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             }
             if status.is_finished() {
                 // Lazy expiration-on-access (replaces the monitor task).
-                if status == Status::Ready && assetref.is_expired().await {
-                    let _ = assetref.expire_without_cascade().await;
+                if status == Status::Ready && assetref.expiration_time().await.is_expired() {
+                    // Lazy expiration-on-access: the deadline, not the status, decides
+                    // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`; this used to test
+                    // `is_expired()`, i.e. the status, which can never be `Expired` here). Unlike
+                    // the queued monitor, lazy expiry does not cascade to dependents; whether it
+                    // should is open (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE`).
+                    let expiration_time = assetref.expiration_time().await;
+                    let _ = assetref
+                        .expire_without_cascade(ExpiryReason::Direct {
+                            cause: ExpiryCause::Deadline { expiration_time },
+                        })
+                        .await;
                     let mut map = self.query_assets.lock().unwrap_or_else(|e| e.into_inner());
                     let asset_id = assetref.id();
                     if let Some(existing) = map.get(query) {
@@ -7303,8 +8482,18 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 continue;
             }
             if status.is_finished() {
-                if status == Status::Ready && asset_ref.is_expired().await {
-                    let _ = asset_ref.expire_without_cascade().await;
+                if status == Status::Ready && asset_ref.expiration_time().await.is_expired() {
+                    // Lazy expiration-on-access: the deadline, not the status, decides
+                    // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`; this used to test
+                    // `is_expired()`, i.e. the status, which can never be `Expired` here). Unlike
+                    // the queued monitor, lazy expiry does not cascade to dependents; whether it
+                    // should is open (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE`).
+                    let expiration_time = asset_ref.expiration_time().await;
+                    let _ = asset_ref
+                        .expire_without_cascade(ExpiryReason::Direct {
+                            cause: ExpiryCause::Deadline { expiration_time },
+                        })
+                        .await;
                     let asset_id = asset_ref.id();
                     let _mutation = self.key_mutation_lock.lock().await;
                     let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
@@ -7318,12 +8507,8 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 }
                 return Ok(asset_ref);
             }
-            {
-                let mut data = asset_ref.data.write().await;
-                if data.try_fast_track().await? {
-                    drop(data);
-                    return Ok(asset_ref);
-                }
+            if asset_ref.fast_track().await? {
+                return Ok(asset_ref);
             }
             // Backstop against re-entry — see the note in `get_asset`.
             asset_ref.run_inline(None).await?;
@@ -7359,7 +8544,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             metadata.add_log_entry(LogEntry::info("Data set externally".to_string()));
             let dep_key = crate::metadata::DependencyKey::from(key);
             if final_status != Status::Volatile && final_status != Status::Error {
-                metadata.version = Some(crate::metadata::Version::from_bytes(binary));
+                metadata.version = Some(crate::metadata::Version::from_content(binary));
             }
             let store = self.envref().get_async_store();
             // `stored: false` on the supplied metadata (true unless the caller set it) skips this
@@ -7380,7 +8565,8 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                         .dependency_manager
                         .register_version(&dep_key, version)
                         .await;
-                    self.expire_dependencies_result(expired).await;
+                    self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                        .await;
                 }
             }
             Ok(())
@@ -7389,6 +8575,12 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         if let Some(asset) = &replaced {
             // The replaced asset's last message, once the key holds its new value.
             asset.notify_removed().await;
+        }
+        if result.is_ok() {
+            // Outside `key_mutation_lock`: two concurrent writes into one directory may each
+            // list and register, and the last listing is the true current membership.
+            drop(_mutation);
+            self.refresh_listing_version(&key.parent()).await;
         }
         result
     }
@@ -7418,7 +8610,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             let dep_key = crate::metadata::DependencyKey::from(key);
             if final_status != Status::Volatile && final_status != Status::Error {
                 let version = match state.as_bytes() {
-                    Ok(binary) => crate::metadata::Version::from_bytes(&binary),
+                    Ok(binary) => crate::metadata::Version::from_content(&binary),
                     // `new_unique`, not `from_time_now`: what is needed here is a *distinct* version
                     // per set, and a bare timestamp can repeat within one clock tick.
                     Err(_) => crate::metadata::Version::new_unique(),
@@ -7448,15 +8640,18 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 final_status,
                 Status::Ready | Status::Source | Status::Override
             ) {
+                let version = metadata.version().unwrap_or(Version::unknown());
                 if let Some(version) = metadata.version() {
                     let expired = self
                         .dependency_manager
                         .register_version(&dep_key, version)
                         .await;
-                    self.expire_dependencies_result(expired).await;
+                    self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                        .await;
                 }
                 let expired = self.dependency_manager.track_asset(&asset).await;
-                self.expire_dependencies_result(expired).await;
+                self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                    .await;
             }
             Ok(())
         }
@@ -7464,6 +8659,12 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         if let Some(asset) = &replaced {
             // The replaced asset's last message, once the key holds its new value.
             asset.notify_removed().await;
+        }
+        if result.is_ok() {
+            // Outside `key_mutation_lock`: two concurrent writes into one directory may each
+            // list and register, and the last listing is the true current membership.
+            drop(_mutation);
+            self.refresh_listing_version(&key.parent()).await;
         }
         result
     }
@@ -7521,12 +8722,6 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         self.started
             .store(true, std::sync::atomic::Ordering::Release);
         Ok(())
-    }
-
-    fn refresh_command_versions(&self) -> Result<Vec<crate::metadata::DependencyKey>, Error> {
-        let envref = self.envref();
-        let cmr = envref.get_command_metadata_registry();
-        Ok(load_command_versions_sync(&self.dependency_manager, cmr))
     }
 
     fn is_started(&self) -> bool {
@@ -9786,7 +10981,8 @@ recipes:
         {
             let mut lock = asset.data.write().await;
             lock.data = Some(Arc::new(Value::from("value")));
-            lock.stale_dependency = stale;
+            // The dependency a real run would have noted through `note_expired_dependency`.
+            lock.stale_dependency = stale.then(|| DependencyKey::new("-R/stale/input.csv"));
             lock.is_volatile = volatile;
         }
         asset
@@ -10139,10 +11335,21 @@ recipes:
         let Metadata::MetadataRecord(ref mr) = lock.metadata else {
             panic!("expected a MetadataRecord");
         };
+        // Wording from `ExpiryReason::log_entry` since the dependency-audit design's Step 4: the
+        // log line and the structured reason are written together by `record_expiry`.
         assert!(
             mr.log.iter().any(|e| e.kind == LogEntryKind::Warning
-                && e.message.contains("expired dependency value")),
+                && e.message
+                    .contains("it was evaluated with the expired value of -R/stale/input.csv")),
             "the reason must be recorded in the same locked decision as the status"
+        );
+        assert_eq!(
+            lock.metadata.expiry_reason(),
+            Some(ExpiryReason::Direct {
+                cause: ExpiryCause::StaleDependency {
+                    dependency: DependencyKey::new("-R/stale/input.csv"),
+                },
+            })
         );
     }
 
@@ -10629,7 +11836,10 @@ recipes:
         let manager = envref.get_asset_manager();
         let key = parse_key("counted.txt").expect("key");
 
-        assert_eq!(manager.version(&key).await.expect("version"), None);
+        assert_eq!(
+            manager.version(&key).await.expect("version"),
+            Version::unknown()
+        );
         assert_eq!(
             calls.load(Ordering::SeqCst),
             0,
@@ -10638,16 +11848,71 @@ recipes:
     }
 
     #[tokio::test]
-    async fn version_of_an_absent_key_is_none() {
+    async fn version_of_absent_key_is_unknown() {
         let (envref, _calls) = ownership_env().await;
         let manager = envref.get_asset_manager();
         let key = parse_key("nothing-here.txt").expect("key");
 
         assert_eq!(
             manager.version(&key).await.expect("absent is not an error"),
-            None,
-            "an absent key is Ok(None), never Err — a store failure must stay distinguishable"
+            Version::unknown(),
+            "an absent key is Ok(unknown), never Err — a store failure must stay distinguishable"
         );
+    }
+
+    /// A store that cannot answer is not a key without a version: `Err`, never `unknown`.
+    #[tokio::test]
+    async fn store_error_is_not_unknown() {
+        struct UnreadableStore;
+
+        #[async_trait]
+        impl AsyncStore for UnreadableStore {
+            async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+                Err(Error::key_not_found(key))
+            }
+
+            async fn set_metadata(&self, _key: &Key, _metadata: &Metadata) -> Result<(), Error> {
+                Ok(())
+            }
+
+            async fn contains(&self, key: &Key) -> Result<bool, Error> {
+                Err(Error::key_read_error(key, "UnreadableStore", "intentional failure"))
+            }
+        }
+
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(UnreadableStore));
+        let envref = env.to_ref();
+        let key = parse_key("unreadable.txt").expect("key");
+
+        let result = envref.get_asset_manager().version(&key).await;
+
+        assert!(result.is_err(), "a store failure must stay an error: {result:?}");
+    }
+
+    #[test]
+    fn audit_finding_new_and_report_default_assignment() {
+        let dependency = crate::metadata::DependencyKey::new("-R/a.txt");
+        let dependent = crate::metadata::DependencyKey::new("-R/b.txt");
+        let finding = AuditFinding::new(
+            dependency.clone(),
+            dependent.clone(),
+            Version::new(1),
+            Version::unknown(),
+        );
+        assert_eq!(finding.dependency, dependency);
+        assert_eq!(finding.dependent, dependent);
+        assert_eq!(finding.expected, Version::new(1));
+        assert_eq!(finding.found, Version::unknown());
+
+        // `#[non_exhaustive]` forbids a struct literal outside the crate, so callers start from
+        // `default()` and assign fields.
+        let mut report = AuditReport::default();
+        assert!(report.checked.is_empty() && report.expired.is_empty() && report.findings.is_empty());
+        report.checked.push(dependency);
+        report.findings.push(finding.clone());
+        assert_eq!(report.findings, vec![finding]);
+        assert_eq!(AuditMode::default(), AuditMode::Expire);
     }
 
     #[tokio::test]
@@ -10667,7 +11932,7 @@ recipes:
 
         assert_eq!(
             manager.version(&key).await.expect("version"),
-            Some(Version::new(4242))
+            Version::new(4242)
         );
     }
 
@@ -10699,7 +11964,7 @@ recipes:
 
         assert_eq!(
             manager.version(&key).await.expect("version"),
-            Some(Version::new(77)),
+            Version::new(77),
             "fall through to the store rather than reporting no durable version"
         );
     }
@@ -11152,5 +12417,812 @@ recipes:
         // An absent media type is not a divergence — it means "derive".
         let derived = super::soft_consistency_entries("csv", Some("csv"), "", "text/csv");
         assert!(derived.is_empty());
+    }
+
+    // ==================================================================================
+    // Expiry provenance — `dependency-audit-and-expiry-provenance` Step 4 (Phase 3 U3).
+    // ==================================================================================
+
+    /// The log messages of `metadata`; empty for legacy metadata.
+    fn expiry_test_log(metadata: &Metadata) -> Vec<String> {
+        match metadata {
+            Metadata::MetadataRecord(mr) => mr.log.iter().map(|e| e.message.clone()).collect(),
+            Metadata::LegacyMetadata(_) => Vec::new(),
+        }
+    }
+
+    /// A `SimpleEnvironment` over a fresh memory store.
+    fn expiry_test_envref() -> EnvRef<SimpleEnvironment<Value>> {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+        env.to_ref()
+    }
+
+    /// Write a stored `Ready` copy of `key`, as an earlier run would have left it.
+    async fn store_ready_copy(
+        envref: &EnvRef<SimpleEnvironment<Value>>,
+        key: &Key,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut mr = MetadataRecord::new();
+        mr.status = Status::Ready;
+        mr.version = Some(Version::new(7));
+        envref
+            .get_async_store()
+            .set(key, b"stored bytes", &Metadata::MetadataRecord(mr))
+            .await?;
+        Ok(())
+    }
+
+    /// A live keyed `Ready` asset whose value is also in the store, as `mark_expired_status`
+    /// requires before it persists.
+    async fn ready_keyed_asset(
+        id: u64,
+        key: &Key,
+        envref: &EnvRef<SimpleEnvironment<Value>>,
+    ) -> Result<AssetRef<SimpleEnvironment<Value>>, Box<dyn std::error::Error>> {
+        store_ready_copy(envref, key).await?;
+        let asset = AssetData::<SimpleEnvironment<Value>>::new(
+            id,
+            Query::from(key.clone()).into(),
+            Some(key.clone()),
+            envref.clone(),
+        )
+        .to_ref();
+        {
+            let mut lock = asset.data.write().await;
+            lock.data = Some(Arc::new(Value::from("value")));
+            lock.set_status(Status::Ready)?;
+        }
+        Ok(asset)
+    }
+
+    #[tokio::test]
+    async fn mark_expired_status_persists_reason_with_status(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let envref = expiry_test_envref();
+        let key = parse_key("prov/m.txt")?;
+        let asset = ready_keyed_asset(9901, &key, &envref).await?;
+        let reason = ExpiryReason::Direct {
+            cause: ExpiryCause::Explicit,
+        };
+
+        assert!(asset.mark_expired_status(reason.clone()).await?);
+
+        let live = asset.get_metadata().await?;
+        assert_eq!(live.status(), Status::Expired);
+        assert_eq!(live.expiry_reason(), Some(reason.clone()));
+
+        // The persisted copy carries the reason with the status: it was recorded before the
+        // metadata was cloned for `set_metadata`.
+        let stored = envref.get_async_store().get_metadata(&key).await?;
+        assert_eq!(stored.status(), Status::Expired);
+        assert_eq!(stored.expiry_reason(), Some(reason));
+        assert!(expiry_test_log(&stored)
+            .iter()
+            .any(|m| m == "prov/m.txt expired: expiration was requested explicitly"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn mark_expired_status_calls_record_expiry_once_under_the_lock(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let envref = expiry_test_envref();
+        let key = parse_key("prov/once.txt")?;
+        let asset = ready_keyed_asset(9902, &key, &envref).await?;
+
+        // A reader racing the transition: it must never see `Expired` without its reason, which
+        // is what "recorded under the same lock" means observably.
+        let observer = asset.clone();
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stop_reader = stop.clone();
+        let reader = tokio::spawn(async move {
+            let mut torn = 0usize;
+            while !stop_reader.load(Ordering::SeqCst) {
+                {
+                    let lock = observer.data.read().await;
+                    if lock.status == Status::Expired && lock.metadata.expiry_reason().is_none() {
+                        torn += 1;
+                    }
+                }
+                tokio::task::yield_now().await;
+            }
+            torn
+        });
+
+        let first = ExpiryReason::Direct {
+            cause: ExpiryCause::Explicit,
+        };
+        let second = ExpiryReason::Direct {
+            cause: ExpiryCause::Removed,
+        };
+        assert!(asset.mark_expired_status(first.clone()).await?);
+        // A second expiry of an already-`Expired` asset records nothing.
+        assert!(!asset.mark_expired_status(second).await?);
+
+        stop.store(true, Ordering::SeqCst);
+        assert_eq!(reader.await?, 0, "a reader saw Expired without its reason");
+
+        let metadata = asset.get_metadata().await?;
+        assert_eq!(metadata.expiry_reason(), Some(first));
+        let expiry_lines = expiry_test_log(&metadata)
+            .into_iter()
+            .filter(|m| m.starts_with("prov/once.txt expired:"))
+            .count();
+        assert_eq!(expiry_lines, 1, "record_expiry must run once, on the transition only");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn expire_stored_copy_calls_record_expiry() -> Result<(), Box<dyn std::error::Error>> {
+        let envref = expiry_test_envref();
+        let key = parse_key("prov/stored.txt")?;
+        store_ready_copy(&envref, &key).await?;
+        let reason = ExpiryReason::Cascaded {
+            cause: ExpiryCause::Updated {
+                version: Version::new(42),
+            },
+            root: DependencyKey::new("-R/prov/a.csv"),
+            via: DependencyKey::new("-R/prov/b.csv"),
+        };
+
+        let manager = envref.get_asset_manager();
+        expire_stored_copy(&*manager, envref.get_async_store(), &key, &reason).await;
+
+        let stored = envref.get_async_store().get_metadata(&key).await?;
+        assert_eq!(stored.status(), Status::Expired);
+        assert_eq!(stored.expiry_reason(), Some(reason));
+        assert!(expiry_test_log(&stored).iter().any(|m| m
+            == "prov/stored.txt expired: new content of -R/prov/a.csv triggered a cascade \
+                expiration via direct dependency -R/prov/b.csv"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn expire_dependencies_result_assigns_cascaded_reason_per_key(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let envref = expiry_test_envref();
+        let a = parse_key("prov/a.csv")?;
+        let b = parse_key("prov/b.csv")?;
+        let c = parse_key("prov/c.txt")?;
+        for key in [&a, &b, &c] {
+            store_ready_copy(&envref, key).await?;
+        }
+        // An untracked (query) asset found in b's dependent list.
+        let query_asset = AssetData::<SimpleEnvironment<Value>>::new(
+            9903,
+            parse_query("prov/b.csv/-/q")?.into(),
+            None,
+            envref.clone(),
+        )
+        .to_ref();
+        {
+            let mut lock = query_asset.data.write().await;
+            lock.data = Some(Arc::new(Value::from("q")));
+            lock.set_status(Status::Ready)?;
+        }
+
+        let (ka, kb, kc) = (
+            DependencyKey::from(&a),
+            DependencyKey::from(&b),
+            DependencyKey::from(&c),
+        );
+        // `DependencyManager::expire` reports the root itself (via == root), then the walk.
+        let expired = crate::dependencies::ExpiredDependents {
+            root: Some(ka.clone()),
+            keys: vec![
+                crate::dependencies::ExpiredKey {
+                    key: ka.clone(),
+                    via: ka.clone(),
+                },
+                crate::dependencies::ExpiredKey {
+                    key: kb.clone(),
+                    via: ka.clone(),
+                },
+                crate::dependencies::ExpiredKey {
+                    key: kc.clone(),
+                    via: kb.clone(),
+                },
+            ],
+            assets: vec![(query_asset.downgrade(), kb.clone())],
+        };
+        let manager = envref.get_asset_manager();
+        manager
+            .expire_dependencies_result(expired, ExpiryCause::Explicit)
+            .await;
+
+        let store = envref.get_async_store();
+        assert_eq!(
+            store.get_metadata(&a).await?.expiry_reason(),
+            Some(ExpiryReason::Direct {
+                cause: ExpiryCause::Explicit
+            }),
+            "the root is not cascaded from itself"
+        );
+        assert_eq!(
+            store.get_metadata(&b).await?.expiry_reason(),
+            Some(ExpiryReason::Cascaded {
+                cause: ExpiryCause::Explicit,
+                root: ka.clone(),
+                via: ka.clone(),
+            })
+        );
+        assert_eq!(
+            store.get_metadata(&c).await?.expiry_reason(),
+            Some(ExpiryReason::Cascaded {
+                cause: ExpiryCause::Explicit,
+                root: ka.clone(),
+                via: kb.clone(),
+            })
+        );
+        assert_eq!(
+            query_asset.get_metadata().await?.expiry_reason(),
+            Some(ExpiryReason::Cascaded {
+                cause: ExpiryCause::Explicit,
+                root: ka,
+                via: kb,
+            })
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn cascade_expire_dependents_takes_the_cause() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let envref = expiry_test_envref();
+        let a = parse_key("prov/src.csv")?;
+        let b = parse_key("prov/dep.txt")?;
+        store_ready_copy(&envref, &b).await?;
+        let (ka, kb) = (DependencyKey::from(&a), DependencyKey::from(&b));
+        let manager = envref.get_asset_manager();
+        let dm = manager.dependency_manager();
+        let _ = dm.register_version(&ka, Version::new(1)).await;
+        let _ = dm.add_dependency(&kb, &ka, Version::new(1)).await?;
+
+        manager
+            .cascade_expire_dependents(&ka, ExpiryCause::Removed)
+            .await;
+
+        let stored = envref.get_async_store().get_metadata(&b).await?;
+        assert_eq!(stored.status(), Status::Expired);
+        assert_eq!(
+            stored.expiry_reason(),
+            Some(ExpiryReason::Cascaded {
+                cause: ExpiryCause::Removed,
+                root: ka.clone(),
+                via: ka,
+            })
+        );
+        assert!(expiry_test_log(&stored).iter().any(|m| m
+            == "prov/dep.txt expired: the removal of -R/prov/src.csv triggered a cascade \
+                expiration"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stale_dependency_records_dependency_key_not_id(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let envref = expiry_test_envref();
+        let dep_key = parse_key("prov/input.csv")?;
+        let dependency = AssetData::<SimpleEnvironment<Value>>::new(
+            987_654_321,
+            Query::from(dep_key.clone()).into(),
+            Some(dep_key.clone()),
+            envref.clone(),
+        )
+        .to_ref();
+        let other = AssetData::<SimpleEnvironment<Value>>::new(
+            987_654_322,
+            parse_query("prov/other.csv/-/q")?.into(),
+            None,
+            envref.clone(),
+        )
+        .to_ref();
+        let asset = AssetData::<SimpleEnvironment<Value>>::new(
+            123_456_789,
+            parse_query("prov/out.txt")?.into(),
+            Some(parse_key("prov/out.txt")?),
+            envref.clone(),
+        )
+        .to_ref();
+
+        asset.note_expired_dependency(&dependency).await?;
+        // A second stale dependency adds a log line but does not replace the first.
+        asset.note_expired_dependency(&other).await?;
+
+        let lock = asset.data.read().await;
+        assert_eq!(
+            lock.stale_dependency,
+            Some(DependencyKey::from(&dep_key)),
+            "the first stale dependency wins, recorded by key"
+        );
+        let log = expiry_test_log(&lock.metadata);
+        assert!(log
+            .iter()
+            .any(|m| m.contains("Dependency -R/prov/input.csv of prov/out.txt expired")));
+        assert!(log.iter().any(|m| m.contains("prov/other.csv/-/q")));
+        for message in &log {
+            for id in ["987654321", "987654322", "123456789"] {
+                assert!(
+                    !message.contains(id),
+                    "log line names a runtime asset id: {}",
+                    message
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn explicit_expire_of_stored_copy_records_reason(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let envref = expiry_test_envref();
+        let key = parse_key("prov/only_stored.txt")?;
+        store_ready_copy(&envref, &key).await?;
+
+        envref.get_asset_manager().expire(&key).await?;
+
+        let stored = envref.get_async_store().get_metadata(&key).await?;
+        assert_eq!(stored.status(), Status::Expired);
+        assert_eq!(
+            stored.expiry_reason(),
+            Some(ExpiryReason::Direct {
+                cause: ExpiryCause::Explicit
+            })
+        );
+        assert!(expiry_test_log(&stored)
+            .iter()
+            .any(|m| m == "prov/only_stored.txt expired: expiration was requested explicitly"));
+        Ok(())
+    }
+
+    // ---- OnLoad dependency check in try_fast_track (design Step 7) -----------------------------
+
+    /// Delegates to a memory store; `data/a.txt` reads fail while `failing` is set.
+    struct DependencyFailingStore {
+        inner: AsyncMemoryStore,
+        failing: bool,
+    }
+
+    #[async_trait]
+    impl AsyncStore for DependencyFailingStore {
+        async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+            self.inner.get(key).await
+        }
+
+        async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+            self.inner.set_metadata(key, metadata).await
+        }
+
+        async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+            if self.failing && key.encode() == "data/a.txt" {
+                return Err(Error::key_read_error(key, "DependencyFailingStore", "intentional failure"));
+            }
+            self.inner.get_metadata(key).await
+        }
+
+        async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+            self.inner.set(key, data, metadata).await
+        }
+
+        async fn contains(&self, key: &Key) -> Result<bool, Error> {
+            if self.failing && key.encode() == "data/a.txt" {
+                return Err(Error::key_read_error(key, "DependencyFailingStore", "intentional failure"));
+            }
+            self.inner.contains(key).await
+        }
+
+        async fn remove(&self, key: &Key) -> Result<(), Error> {
+            self.inner.remove(key).await
+        }
+    }
+
+    type OnLoadEnv = crate::context::GenericEnvironment<Value, (), crate::environment_builder::Inline>;
+
+    /// `data/b.txt` is stored `Ready` and records `-R/data/a.txt` at `recorded`. `data/a.txt` is
+    /// stored `Source` with `current` as its version (`None`: absent from the store). The
+    /// environment is fresh, so its dependency manager knows no version. Returns whether
+    /// `b.txt` was fast-tracked.
+    async fn fast_track_b(
+        policy: crate::environment_builder::DependencyAuditPolicy,
+        recorded: Version,
+        current: Option<Version>,
+        failing: bool,
+    ) -> bool {
+        let a = parse_key("data/a.txt").unwrap();
+        let b = parse_key("data/b.txt").unwrap();
+        let inner = AsyncMemoryStore::new(&Key::new());
+        if let Some(version) = current {
+            let mut record = MetadataRecord::new();
+            record.with_key(a.clone());
+            record.with_type_identifier("Text".to_owned());
+            record.with_status(Status::Source);
+            record.version = Some(version);
+            inner.set(&a, b"hello", &Metadata::MetadataRecord(record)).await.unwrap();
+        }
+        let mut record = MetadataRecord::new();
+        record.with_key(b.clone());
+        record.with_type_identifier("Text".to_owned());
+        record.data_format = Some("txt".to_owned());
+        record.with_status(Status::Ready);
+        record.add_dependency(DependencyRecord::new(
+            crate::metadata::DependencyKey::from(&a),
+            recorded,
+        ));
+        inner.set(&b, b"HELLO", &Metadata::MetadataRecord(record)).await.unwrap();
+
+        let envref = crate::environment_builder::EnvironmentBuilder::<
+            Value,
+            (),
+            crate::environment_builder::Inline,
+        >::new()
+        .with_async_store(Arc::new(DependencyFailingStore { inner, failing }))
+        .with_asset_manager_options(
+            crate::environment_builder::AssetManagerOptions::default().with_dependency_audit(policy),
+        )
+        .build()
+        .unwrap();
+        let mut asset =
+            AssetData::<OnLoadEnv>::new(7001, b.clone().into(), Some(b.clone()), envref.clone());
+        asset.try_fast_track().await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn on_load_refuses_fast_track_on_mismatch() {
+        use crate::environment_builder::DependencyAuditPolicy::OnLoad;
+        let served = fast_track_b(OnLoad, Version::new(1), Some(Version::new(2)), false).await;
+        assert!(!served, "a moved dependency version refuses the fast track");
+        let served = fast_track_b(OnLoad, Version::new(1), Some(Version::new(1)), false).await;
+        assert!(served, "an unchanged dependency version is served");
+    }
+
+    #[tokio::test]
+    async fn on_load_refuses_fast_track_on_missing_version() {
+        use crate::environment_builder::DependencyAuditPolicy::OnLoad;
+        // Current 0 against a concrete recorded version must refuse (not `Version::matches`).
+        let served = fast_track_b(OnLoad, Version::new(1), Some(Version::unknown()), false).await;
+        assert!(!served, "stored with no version");
+        let served = fast_track_b(OnLoad, Version::new(1), None, false).await;
+        assert!(!served, "dependency absent from the store");
+    }
+
+    #[tokio::test]
+    async fn on_load_refuses_fast_track_on_store_error() {
+        use crate::environment_builder::DependencyAuditPolicy::OnLoad;
+        let served = fast_track_b(OnLoad, Version::new(1), Some(Version::new(1)), true).await;
+        assert!(!served, "a store that cannot answer refuses");
+    }
+
+    #[tokio::test]
+    async fn on_load_does_not_refuse_recorded_unknown_version() {
+        use crate::environment_builder::DependencyAuditPolicy::OnLoad;
+        let served = fast_track_b(OnLoad, Version::unknown(), Some(Version::new(2)), false).await;
+        assert!(served, "a recorded unknown is compatible with any current version");
+        let served = fast_track_b(OnLoad, Version::unknown(), Some(Version::unknown()), false).await;
+        assert!(served);
+    }
+
+    #[tokio::test]
+    async fn explicit_ignores_unknown_map_entries() {
+        use crate::environment_builder::DependencyAuditPolicy::Explicit;
+        let served = fast_track_b(Explicit, Version::new(1), Some(Version::new(2)), false).await;
+        assert!(served, "under Explicit the load does not resolve dependency versions");
+        let served = fast_track_b(Explicit, Version::new(1), None, true).await;
+        assert!(served, "nor does it ask the store");
+    }
+
+    // --- Step 8: folder-listing dependencies ---
+
+    #[tokio::test]
+    async fn register_plan_dependencies_adds_unknown_edge_for_unregistered_key(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let envref = expiry_test_envref();
+        let manager = envref.get_asset_manager();
+        let dependent = parse_key("data/index.txt")?;
+        let dir = DependencyKey::from_dir_key(&parse_key("data")?);
+        assert_eq!(
+            manager.dependency_manager().get_version(&dir).await,
+            None,
+            "precondition: nothing registered a version for the listing"
+        );
+
+        manager
+            .register_plan_dependencies(
+                &dependent,
+                &[crate::dependencies::PlanDependency::new(
+                    dir.clone(),
+                    crate::dependencies::DependencyRelation::StateArgument,
+                )],
+            )
+            .await?;
+
+        // The edge exists and records `unknown`: a concrete current version contradicts it.
+        let findings = manager
+            .dependency_manager()
+            .stale_edges(&dir, Version::new(5))
+            .await;
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert_eq!(findings[0].dependent, DependencyKey::from(&dependent));
+        assert!(findings[0].expected.is_unknown());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn dependency_blocks_fast_track_is_false_for_listing_key(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let envref = expiry_test_envref();
+        let manager = envref.get_asset_manager();
+        let key = parse_key("data/index.txt")?;
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(9801, key.clone().into(), Some(key), envref);
+        let dir = DependencyKey::from_dir_key(&parse_key("data")?);
+        assert!(!asset.dependency_blocks_fast_track(&manager, &dir).await);
+        Ok(())
+    }
+
+    // --- Step 9: content changed outside Liquers (Part G) ---
+
+    #[test]
+    fn external_change_action_decision_table() {
+        let (v, ui, co) = (
+            Version::from_content(b"x"),
+            ExternalChangePolicy::UserInput,
+            ExternalChangePolicy::Corrupted,
+        );
+        let input = Some(ExternalChangeAction::AcceptAsInput { actual: v });
+        for policy in [ui, co] {
+            assert_eq!(external_change_action(Status::Source, false, policy, v), input);
+            // A recipe added since: a Source is still input.
+            assert_eq!(external_change_action(Status::Source, true, policy, v), input);
+            assert_eq!(external_change_action(Status::Override, false, policy, v), input);
+            assert_eq!(external_change_action(Status::Override, true, policy, v), input);
+            // The recipe removed since: nothing to recompute from.
+            assert_eq!(external_change_action(Status::Ready, false, policy, v), input);
+            assert_eq!(external_change_action(Status::Expired, false, policy, v), input);
+        }
+        for status in [Status::Ready, Status::Expired] {
+            assert_eq!(
+                external_change_action(status, true, ui, v),
+                Some(ExternalChangeAction::ConvertToOverride { actual: v })
+            );
+            assert_eq!(
+                external_change_action(status, true, co, v),
+                Some(ExternalChangeAction::Delete)
+            );
+        }
+        // No metadata at all: recorded version 0 on a stored Source or None.
+        let zero = Version::unknown();
+        for stored in [Status::Source, Status::None] {
+            assert_eq!(external_change_status(stored, zero, false), Status::Source);
+            assert_eq!(external_change_status(stored, zero, true), Status::Ready);
+            let without = external_change_status(stored, zero, false);
+            let with = external_change_status(stored, zero, true);
+            for policy in [ui, co] {
+                assert_eq!(external_change_action(without, false, policy, v), input);
+            }
+            assert_eq!(
+                external_change_action(with, true, ui, v),
+                Some(ExternalChangeAction::ConvertToOverride { actual: v })
+            );
+            assert_eq!(external_change_action(with, true, co, v), Some(ExternalChangeAction::Delete));
+        }
+        // A recorded version, or any other stored status, is taken as it is.
+        let recorded = Version::from_content(b"old");
+        assert_eq!(external_change_status(Status::Source, recorded, true), Status::Source);
+        assert_eq!(external_change_status(Status::None, recorded, true), Status::None);
+        assert_eq!(external_change_status(Status::Ready, zero, true), Status::Ready);
+        assert_eq!(external_change_status(Status::Override, zero, true), Status::Override);
+    }
+
+    #[test]
+    fn external_change_action_statuses_not_checked() {
+        let v = Version::from_content(b"x");
+        let unchecked = [
+            Status::None,
+            Status::Directory,
+            Status::Recipe,
+            Status::Submitted,
+            Status::Dependencies,
+            Status::Processing,
+            Status::Partial,
+            Status::Error,
+            Status::Storing,
+            Status::Cancelled,
+            Status::Volatile,
+        ];
+        for policy in [ExternalChangePolicy::UserInput, ExternalChangePolicy::Corrupted] {
+            for has_recipe in [false, true] {
+                for status in unchecked {
+                    assert_eq!(
+                        external_change_action(status, has_recipe, policy, v),
+                        None,
+                        "{status:?} has no reusable stored value to protect"
+                    );
+                }
+            }
+        }
+        // With a recorded version, a stored `None` is not the "no metadata" case: not checked.
+        assert!(!external_change_checked(Status::None, Version::new(5)));
+        assert!(external_change_checked(Status::None, Version::unknown()));
+        for status in unchecked {
+            if status != Status::None {
+                assert!(!external_change_checked(status, Version::unknown()), "{status:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn source_is_always_input_under_both_policies() {
+        let v = Version::from_content(b"edited");
+        for policy in [ExternalChangePolicy::UserInput, ExternalChangePolicy::Corrupted] {
+            for has_recipe in [false, true] {
+                let action = external_change_action(Status::Source, has_recipe, policy, v);
+                match action {
+                    Some(ExternalChangeAction::AcceptAsInput { actual }) => assert_eq!(actual, v),
+                    Some(ExternalChangeAction::ConvertToOverride { .. }) => {
+                        panic!("Source is never converted")
+                    }
+                    Some(ExternalChangeAction::Delete) => panic!("Source is never deleted"),
+                    None => panic!("Source is always checked"),
+                }
+            }
+        }
+    }
+
+    /// `route/a.txt` and `route/b.txt` stored `Ready` at version 7; unless `edge_only`, `a`'s
+    /// version is registered and `b` depends on it at 7. With `edge_only`, `b` depends on `a` at
+    /// 1 and `a` has no registered version (an audit gap).
+    async fn route_fixture(
+        edge_only: bool,
+    ) -> Result<(EnvRef<SimpleEnvironment<Value>>, Key, Key), Box<dyn std::error::Error>> {
+        let envref = expiry_test_envref();
+        let a = parse_key("route/a.txt")?;
+        let b = parse_key("route/b.txt")?;
+        store_ready_copy(&envref, &a).await?;
+        store_ready_copy(&envref, &b).await?;
+        let manager = envref.get_asset_manager();
+        let dm = manager.dependency_manager();
+        let (ka, kb) = (DependencyKey::from(&a), DependencyKey::from(&b));
+        if edge_only {
+            let _ = dm.add_dependency(&kb, &ka, Version::new(1)).await?;
+        } else {
+            let _ = dm.register_version(&ka, Version::new(7)).await;
+            let _ = dm.add_dependency(&kb, &ka, Version::new(7)).await?;
+        }
+        Ok((envref, a, b))
+    }
+
+    async fn stored_reason(
+        envref: &EnvRef<SimpleEnvironment<Value>>,
+        key: &Key,
+    ) -> Result<Option<ExpiryReason>, Box<dyn std::error::Error>> {
+        Ok(envref.get_async_store().get_metadata(key).await?.expiry_reason())
+    }
+
+    /// Every route into `Expired` sets its reason: `Direct` on the asset whose cause it is (only
+    /// deadline, explicit and stale dependency), `Cascaded { cause, root, via }` on its
+    /// dependents (Phase 3 route table).
+    #[tokio::test]
+    async fn each_route_sets_its_reason() -> Result<(), Box<dyn std::error::Error>> {
+        let cascaded = |cause: ExpiryCause, root: &Key| ExpiryReason::Cascaded {
+            cause,
+            root: DependencyKey::from(root),
+            via: DependencyKey::from(root),
+        };
+
+        // Deadline: the queued monitor's call.
+        {
+            let (envref, a, b) = route_fixture(false).await?;
+            let asset = ready_keyed_asset(9951, &a, &envref).await?;
+            let expiration_time = ExpirationTime::At(chrono::Utc::now());
+            let cause = ExpiryCause::Deadline { expiration_time };
+            asset
+                .expire_with_reason(ExpiryReason::Direct { cause: cause.clone() })
+                .await?;
+            assert_eq!(
+                asset.get_metadata().await?.expiry_reason(),
+                Some(ExpiryReason::Direct { cause: cause.clone() })
+            );
+            assert_eq!(stored_reason(&envref, &b).await?, Some(cascaded(cause, &a)));
+        }
+        // Explicit: `AssetManager::expire` of a stored copy.
+        {
+            let (envref, a, b) = route_fixture(false).await?;
+            envref.get_asset_manager().expire(&a).await?;
+            assert_eq!(
+                stored_reason(&envref, &a).await?,
+                Some(ExpiryReason::Direct { cause: ExpiryCause::Explicit })
+            );
+            assert_eq!(stored_reason(&envref, &b).await?, Some(cascaded(ExpiryCause::Explicit, &a)));
+        }
+        // Audit: the audited key is not expired.
+        {
+            let (envref, a, b) = route_fixture(true).await?;
+            envref
+                .get_asset_manager()
+                .trigger_dependency_audit_all_registered()
+                .await?;
+            assert_eq!(stored_reason(&envref, &a).await?, None);
+            assert_eq!(
+                stored_reason(&envref, &b).await?,
+                Some(cascaded(ExpiryCause::Audit { found: Version::new(7) }, &a))
+            );
+        }
+        // Stale dependency: noted during the run, decided at finalization.
+        {
+            let (envref, a, _b) = route_fixture(false).await?;
+            let dependency = AssetData::<SimpleEnvironment<Value>>::new(
+                9952,
+                Query::from(a.clone()).into(),
+                Some(a.clone()),
+                envref.clone(),
+            )
+            .to_ref();
+            let consumer = AssetData::<SimpleEnvironment<Value>>::new(
+                9953,
+                parse_query("route/c.txt")?.into(),
+                None,
+                envref.clone(),
+            )
+            .to_ref();
+            consumer.data.write().await.data = Some(Arc::new(Value::from("value")));
+            consumer.note_expired_dependency(&dependency).await?;
+            consumer.finalize_status_with_version(None).await;
+            assert_eq!(consumer.status().await, Status::Expired);
+            assert_eq!(
+                consumer.get_metadata().await?.expiry_reason(),
+                Some(ExpiryReason::Direct {
+                    cause: ExpiryCause::StaleDependency {
+                        dependency: DependencyKey::from(&a)
+                    }
+                })
+            );
+        }
+        // Updated: new content through Liquers.
+        {
+            let (envref, a, b) = route_fixture(false).await?;
+            let mut record = MetadataRecord::new();
+            record.type_identifier = "Text".to_string();
+            record.type_name = "text".to_string();
+            record.data_format = Some("txt".to_string());
+            envref.get_asset_manager().set_binary(&a, b"new", record).await?;
+            assert_eq!(stored_reason(&envref, &a).await?, None);
+            assert_eq!(
+                stored_reason(&envref, &b).await?,
+                Some(cascaded(
+                    ExpiryCause::Updated { version: Version::from_content(b"new") },
+                    &a
+                ))
+            );
+        }
+        // Removed: the key is gone.
+        {
+            let (envref, a, b) = route_fixture(false).await?;
+            envref.get_asset_manager().remove(&a).await?;
+            assert!(!envref.get_async_store().contains(&a).await?);
+            assert_eq!(stored_reason(&envref, &b).await?, Some(cascaded(ExpiryCause::Removed, &a)));
+        }
+        // Updated in store: content changed outside Liquers; the root becomes input.
+        {
+            let (envref, a, b) = route_fixture(false).await?;
+            let actual = Version::from_content(b"stored bytes");
+            let recorded = envref.get_async_store().get_metadata(&a).await?;
+            envref
+                .get_asset_manager()
+                .apply_external_change(
+                    &a,
+                    &recorded,
+                    actual,
+                    ExternalChangeAction::AcceptAsInput { actual },
+                )
+                .await?;
+            let a_meta = envref.get_async_store().get_metadata(&a).await?;
+            assert_eq!(a_meta.expiry_reason(), None);
+            assert_eq!(a_meta.version(), Some(actual));
+            assert_eq!(
+                stored_reason(&envref, &b).await?,
+                Some(cascaded(ExpiryCause::UpdatedInStore { actual }, &a))
+            );
+        }
+        Ok(())
     }
 }
