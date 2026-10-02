@@ -2,7 +2,7 @@
 id: IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES
 kind: issue
 title: ImmediateAssetManager's lazy deadline expiry tests a condition that can never be true
-status: in_progress
+status: closed
 priority: P2
 complexity: S
 area: [core/assets]
@@ -50,3 +50,12 @@ short `expires:` shows the asset becoming `Expired` on access.
 Found 2026-09-28 in Phase 2 of `design/dependency-audit-and-expiry-provenance/`, while listing every
 route into `Expired` to give each one an expiry reason. The immediate manager's deadline route
 turned out to be unreachable.
+
+## Resolution
+
+Fixed 2026-10-02 by `design/dependency-audit-and-expiry-provenance/` (Step 5, orest-d/liquers#75).
+Both lazy checks now test `expiration_time().await.is_expired()` and expire the asset with reason
+`Direct{Deadline}`. As the approved design specified (Phase 2, Example 6), they still use
+`expire_without_cascade`, unlike the queued monitor. Whether lazy expiry should cascade remains open;
+it is filed as `IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE`. Evidence:
+`immediate_manager_deadline_fires` (`tests/expiration_integration.rs`), which fails without the fix.

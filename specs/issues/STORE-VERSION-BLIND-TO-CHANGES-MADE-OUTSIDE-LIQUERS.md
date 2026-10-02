@@ -2,7 +2,7 @@
 id: STORE-VERSION-BLIND-TO-CHANGES-MADE-OUTSIDE-LIQUERS
 kind: issue
 title: A stored value's version changes only when Liquers writes it, so edits made by other programs are invisible to dependency checks
-status: in_progress
+status: closed
 priority: P2
 complexity: L
 area: [core/store, core/assets]
@@ -111,3 +111,18 @@ missing bytes are not a mismatch.
 Found 2026-09-29 while writing worked examples for `dependency-audit-and-expiry-provenance`. The
 first example, "a.csv changed, so report.txt must expire", holds only if a.csv changed through
 Liquers.
+
+## Resolution
+
+Fixed 2026-10-02 by `design/dependency-audit-and-expiry-provenance/` (Steps 1 and 9,
+orest-d/liquers#75). Bit 127 flags a content hash (`Version::from_content`), and a legacy unflagged
+hash is still verified. With `VersionVerification::OnRead`, a read re-hashes the bytes and checks
+them against the version. The open questions above were decided as follows:
+- The choice is per environment (`ExternalChangePolicy`), and the default is `UserInput`.
+- A file with no metadata follows the same choice; with no recipe it is a `Source`, its hash kept in
+  memory only.
+- A mismatch is recorded as `ExpiryCause::UpdatedInStore` on dependents.
+`verify_stored_versions` is the on-demand walk. Evidence: `tests/external_change_integration.rs`,
+including `hand_edited_source_is_input_and_expires_dependents`, `recipe_backed_edit_follows_policy`,
+`legacy_changed_value_is_a_mismatch` and `missing_bytes_are_skipped`. Reference:
+`reference/ASSETS.md` §"Content changed outside Liquers".

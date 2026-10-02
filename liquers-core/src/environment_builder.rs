@@ -69,8 +69,9 @@ pub struct AssetManagerOptions {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DependencyAuditPolicy {
-    /// Only when `trigger_dependency_audit*` is called. Today's behaviour, and the choice for
-    /// exploratory work where intermediates are deleted by hand.
+    /// Only when `trigger_dependency_audit*` is called. The default (and the behaviour before
+    /// policies existed), and the choice for exploratory work where intermediates are deleted by
+    /// hand.
     #[default]
     Explicit,
     /// Also when a keyed asset is loaded from the store (`try_fast_track`): each recorded
@@ -90,7 +91,7 @@ impl DependencyAuditPolicy {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VersionVerification {
-    /// Never re-hash; outside edits go unnoticed (today's behaviour).
+    /// Never re-hash; outside edits go unnoticed (the behaviour before verification existed).
     Off,
     /// Re-hash wherever the manager has already read the bytes (fast track, `*_any_status`).
     #[default]
@@ -190,7 +191,7 @@ impl AssetManagerKind for Queued {
             // configuration document, not just from a deliberate `with_capacity(0)`.
             Some(0) => {
                 return Err(Error::general_error(
-                    "job_capacity is 0; the queued asset manager would accept work and never run                      it. Use at least 1, or leave it unset for the default."
+                    "job_capacity is 0; the queued asset manager would accept work and never run it. Use at least 1, or leave it unset for the default."
                         .to_string(),
                 ))
             }

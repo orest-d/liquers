@@ -248,6 +248,13 @@ same reason:
 | `b.csv` | `Cascaded { cause: Audit { found: V2 }, root: -R/data/a.csv, via: -R/data/a.csv }` (direct dependent: `via == root`) |
 | `report.txt` | `Cascaded { cause: Audit { found: V2 }, root: -R/data/a.csv, via: -R/data/b.csv }` (`via` is `report.txt`'s own dependency through which the cascade arrived) |
 
+*Corrected at Phase 5:* with these plain plan-chained recipes, `report.txt`'s plan
+(`-R/data/b.csv/-/summarize`) records `a.csv` as a direct dependency too, because a plan records
+its dependencies' own dependencies. The cascade from `a.csv` then reaches `report.txt` directly,
+with `via == root`. A real second hop needs the command to read `b.csv` itself
+(`context.get_dependency_state`). The implemented test's fixture does exactly that (see `DESIGN.md`
+Notes, Step 4).
+
 ```rust
 #[tokio::test]
 async fn via_names_the_direct_dependency_on_a_two_step_cascade() -> TestResult {

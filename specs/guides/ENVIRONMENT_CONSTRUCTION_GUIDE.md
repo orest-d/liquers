@@ -3,7 +3,7 @@ title: Building and Configuring an Environment
 kind: guide
 audience: both
 area: [core/context, core/assets, core/store]
-reviewed: 2026-09-27
+reviewed: 2026-10-02
 ---
 # Building and Configuring an Environment
 
@@ -42,7 +42,7 @@ Everything that needs `&mut` happens on the builder; `build()` consumes it.
 | Recipe provider | `.with_recipe_provider_choice(RecipeProviderChoice::Default)` (the base) |
 | More recipe providers | `.with_appended_recipe_provider(Arc<dyn AsyncRecipeProvider<_>>)`, consulted after the base |
 | Type registry | `.with_type_registry(registry)` |
-| Manager options | `.with_asset_manager_options(...)` |
+| Manager options | `.with_asset_manager_options(AssetManagerOptions)` — see §Manager options |
 | Everything at once | `.with_config(EnvironmentConfig, factory)` |
 
 The setters take `self` and return `Self`, so they chain. `command_registry` is a field rather than
@@ -68,6 +68,10 @@ EnvironmentBuilder::<Value, UiPayload>::new()         // a payload type
 | `Queued` | job queue plus expiration monitor | two tasks, at construction | **yes** |
 | `Inline` | in the caller's task | nothing | no |
 
+A kind can also be your own: a manager implemented outside `liquers-core` comes with an
+`AssetManagerKind`, and `EnvironmentBuilder::<Value, (), MyKind>` builds with it — see
+[`ASSET_MANAGER_IMPLEMENTATION_GUIDE.md`](ASSET_MANAGER_IMPLEMENTATION_GUIDE.md).
+
 > **Pitfall — synchronous does not mean runtime-free.**
 > ```rust,ignore
 > fn main() {
@@ -91,6 +95,30 @@ match kind {
 }
 ```
 
+## Manager options
+
+`AssetManagerOptions` carries the per-manager settings. Its setters take `self` and chain:
+
+```rust,ignore
+use liquers_core::environment_builder::{
+    AssetManagerOptions, DependencyAuditPolicy, VersionVerification,
+};
+use liquers_core::assets::ExternalChangePolicy;
+
+let options = AssetManagerOptions::default()
+    .with_job_capacity(8)                                     // queued kinds only
+    .with_dependency_audit(DependencyAuditPolicy::OnLoad)     // default: Explicit
+    .with_verify_versions(VersionVerification::OnRead)        // default: OnRead
+    .with_external_change(ExternalChangePolicy::UserInput);   // default: UserInput
+
+let builder = EnvironmentBuilder::<Value>::new().with_asset_manager_options(options);
+```
+
+The three policies apply to both built-in kinds; what each value means is in
+[`ENVIRONMENT_CONFIG.md`](../reference/ENVIRONMENT_CONFIG.md) §`assets`. A kind refuses a field it
+cannot honour at `build()` instead of ignoring it: `job_capacity` on `Inline` is an error, and so is
+`job_capacity: 0` on `Queued`.
+
 ## Configuring from a document
 
 `EnvironmentConfig` describes the store, the recipe provider and the manager options in one
@@ -108,7 +136,10 @@ store:
       prefix: tmp
 recipes: default          # default | trivial
 assets:
-  job_capacity: 8         # queued only
+  job_capacity: 8               # queued only
+  dependency_audit: on_load     # explicit | on_load
+  verify_versions: on_read      # off | on_read
+  external_change: user_input   # user_input | corrupted
 ```
 
 ```rust,ignore
@@ -201,15 +232,11 @@ assert!(envref.get_asset_manager().is_started());
 ```
 
 This is not a formality. Before it existed, `to_ref` spawned startup as a detached task and
-returned, and `AssetManager::register_plan_dependencies` skips any dependency whose version the
-manager does not yet know:
-
-```rust,ignore
-if let Some(ver) = self.dependency_manager().get_version(&plan_dep.key).await { /* register */ }
-```
-
-So a plan evaluated in that window registered **no** dependency edges — silently, with no error
-anywhere — and nothing ever invalidated the assets built from it. Tests had to `sleep` and hope.
+returned, and `AssetManager::register_plan_dependencies` then skipped any dependency whose version
+the manager did not yet know. So a plan evaluated in that window registered **no** dependency
+edges — silently, with no error anywhere — and nothing ever invalidated the assets built from it.
+(It now records such an edge with `Version::unknown()`, so a later registration can still expire
+the dependent; command versions are nevertheless registered before the first evaluation.) Tests had to `sleep` and hope.
 That is `QUEUED-MANAGER-STARTUP-READINESS`, and the fix is structural: the manager is constructed,
 installed and started inside the sequence that produces the `EnvRef`, so an unready reference is
 not reachable rather than merely unlikely.
@@ -305,6 +332,7 @@ is the moment when that is safe: it runs before anything else can observe the re
 - Reference: [Environment Configuration](../reference/ENVIRONMENT_CONFIG.md)
 - Reference: [Store Configuration](../reference/STORE_CONFIG_FSD.md)
 - Guide: [Language Integration](./LANGUAGE-INTEGRATION_GUIDE.md)
+- Guide: [Asset Manager Implementation](./ASSET_MANAGER_IMPLEMENTATION_GUIDE.md), for a custom kind
 - Design: [`design/environment-builder/`](../design/environment-builder/)
 - Executable evidence: `liquers-core/tests/environment_builder.rs`,
   `liquers-core/tests/manager_parametric.rs`
@@ -313,6 +341,7 @@ is the moment when that is safe: it runs before anything else can observe the re
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. New §Manager options: the `AssetManagerOptions` setters `with_job_capacity`, `with_dependency_audit`, `with_verify_versions`, `with_external_change`; the configuration example shows the three policy keys. §Choosing an execution model links the new asset-manager guide for a custom kind. §The readiness guarantee: `register_plan_dependencies` no longer skips a dependency with no version, so the account of the old defect is now in the past tense. | phase-5 |
 | 2026-09-27 | Recipe providers as a chain: `with_appended_recipe_provider`, `liquers-lib`'s default chain with `records`, and `with_records_recipe_provider` for builds that replace the base | phase-5 (`design/record-streams/`) |
 | 2026-09-05 | Added command-metadata preflight, full-report access, bounded build errors, and the builder-only validation boundary. | `design/variadic-metadata-tail-check` |
 | 2026-08-31 | Created: builder, kind selection, configuration document, the readiness guarantee, when `to_ref` applies, and implementing a custom environment. | `design/environment-builder/phase-5` |

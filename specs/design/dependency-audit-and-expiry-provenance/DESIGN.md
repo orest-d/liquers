@@ -3,7 +3,7 @@ id: DEPENDENCY-AUDIT-AND-EXPIRY-PROVENANCE
 kind: design
 title: Dependency audit correctness, audit policy, expiry provenance, outside-change detection and external asset managers
 workflow: liquers-project
-phase: implementation
+phase: documentation
 area: [core/assets]
 gh_pr: [75]
 affects_docs: [DEPENDENCIES_STATUS, ASSETS, ASSET_LIFECYCLE, DOC_03_ASSETS_EXECUTION_LIFECYCLE, DOC_04_ENVIRONMENT_CONTEXT_EVALUATION, ENVIRONMENT_CONFIG, COMMAND_REGISTRATION_GUIDE, ENVIRONMENT_CONSTRUCTION_GUIDE, STORE_IMPLEMENTATION_GUIDE, UNITTEST_GUIDE]
@@ -22,7 +22,7 @@ superseded_by:
 - [x] Phase 3: Examples & Testing (approved 2026-10-02)
 - [x] Phase 4: Implementation Plan (approved 2026-10-02)
 - [ ] Phase 5: Documentation
-- [ ] Implementation Complete
+- [x] Implementation Complete (2026-10-02, orest-d/liquers#75)
 
 ## Notes
 

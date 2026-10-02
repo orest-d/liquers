@@ -2,7 +2,7 @@
 id: AUDIT-CANNOT-EXPIRE-ON-A-FIRST-OBSERVED-VERSION
 kind: issue
 title: An explicit dependency audit cannot expire a dependent whose dependency version merely moved
-status: in_progress
+status: closed
 priority: P2
 complexity: S
 area: [core/assets]
@@ -90,3 +90,12 @@ Found on 2026-09-15 in Phase 5 of `specs/design/stale-dependency-status-finaliza
 writing the cross-process reload tests that `CROSS-PROCESS-RELOAD-IS-UNTESTED` asked for. It is the
 same shape as the gap that design found in `try_fast_track`: a path whose *success* was asserted
 nowhere, so nothing failed when it could not succeed.
+
+## Resolution
+
+Fixed 2026-10-02 by `design/dependency-audit-and-expiry-provenance/` (Step 6, orest-d/liquers#75).
+An audit now goes through `DependencyManager::audit_version`, which compares the current version with
+every recorded one, including on first observation. `register_version` on the evaluation path is
+unchanged. A version `0` (unknown) is reported and spared. Evidence:
+`tests/dependency_audit_integration.rs` `audit_after_restart_expires_dependent`,
+`audit_expires_transitive_dependents` and `cascade_over_100_link_chain`.

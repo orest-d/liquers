@@ -1,10 +1,11 @@
 //! Manager-parametric suite (async-wasm-refactor M-D).
 //!
-//! The same `AssetManager` trait contract is exercised over BOTH implementations —
+//! The same `AssetManager` trait contract is exercised over both built-in implementations —
 //! `DefaultAssetManager` (via `SimpleEnvironment`, queued) and `ImmediateAssetManager` (via
 //! `ImmediateEnvironment`, inline) — proving b1's manager is swappable behind the trait and
 //! that `ImmediateAssetManager` evaluates correctly at runtime. Plus immediate-only checks:
-//! concurrency dedup and the no-tokio-runtime proof (browser-readiness on native).
+//! concurrency dedup and the no-tokio-runtime proof (browser-readiness on native). The shared
+//! scenarios also run against a manager written outside core, in `external_asset_manager.rs`.
 
 mod common;
 

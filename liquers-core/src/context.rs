@@ -764,9 +764,11 @@ impl<E: Environment> Context<E> {
     ///
     /// The dependency is recorded and cycle-checked exactly as [`Self::get_dependency_state`]
     /// does. The command can do other work, or submit further dependencies, and then wait with
-    /// [`Self::wait_for_dependency`]. `submit` does not drain the local queue: on the inline
-    /// manager the dependency runs when it is first waited for. An asset that is submitted and
-    /// never waited for simply completes; no parent is left in `Status::Dependencies`.
+    /// [`Self::wait_for_dependency`]. `submit` is not lazy: the queued manager starts the job at
+    /// once, and the inline manager runs it to completion inside `submit`
+    /// (`SUBMIT-IS-NOT-LAZY-ON-ANY-MANAGER`). It does not drain the local queue. An asset that is
+    /// submitted and never waited for simply completes; no parent is left in
+    /// `Status::Dependencies`.
     #[must_use = "a submitted dependency is only used when it is waited for with `wait_for_dependency`"]
     pub async fn submit(&self, query: &Query) -> Result<AssetRef<E>, Error> {
         let (asset, dep_key) = self.schedule_dependency_asset_with_key(query).await?;

@@ -1,8 +1,9 @@
 //! Generic scenario bodies for the manager-parametric suite.
 //!
-//! These scenarios are written once and run against BOTH `DefaultAssetManager` (queued)
-//! and `ImmediateAssetManager` (inline) implementations, proving the manager trait contract
-//! holds for both.
+//! These scenarios are written once and run against every manager: `DefaultAssetManager`
+//! (queued) and `ImmediateAssetManager` (inline) in `manager_parametric.rs`, and the
+//! from-scratch external `MinimalInlineAssetManager` in `external_asset_manager.rs`. Together
+//! they are the conformance suite for the `AssetManager` trait contract.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;

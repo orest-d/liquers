@@ -519,6 +519,10 @@ returns the `AssetRef`. It becomes `submit` followed by the drain, so both remem
 `evaluate` keeps its behaviour. `submit` does not drain. On the immediate (inline) manager that
 means the dependency runs when it is first waited for, so a command can submit several
 dependencies before any of them runs.
+*Corrected at Phase 5:* this was wrong. `submit` is not lazy on either manager. The queued manager
+starts the job at once, and the inline manager runs it to completion inside `submit`. A command can
+still submit several dependencies and wait later, but on the inline manager they run one after
+another, during the `submit` calls. Filed as `SUBMIT-IS-NOT-LAZY-ON-ANY-MANAGER`.
 
 `get_dependency_state` becomes `let a = self.submit(q).await?; self.wait_for_dependency(&a).await`,
 which behaves the same as today. An `AssetRef` that is submitted and never waited for simply

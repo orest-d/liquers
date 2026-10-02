@@ -3,7 +3,7 @@ title: Command Registration Guide
 kind: guide
 audience: internal
 area: [core/commands, macro]
-reviewed: 2026-09-27
+reviewed: 2026-10-02
 ---
 # Command Registration Guide
 
@@ -82,7 +82,7 @@ See `specs/reference/REGISTER_COMMAND_FSD.md` for the complete DSL specification
 ### Passing the working directory (or any relative query) into a command
 
 A command cannot read the working directory from its `Context`. `get_cwd_key` and
-`set_cwd_key` are crate-private, and `Context::evaluate`, `apply` and
+`set_cwd_key` are crate-private, and `Context::submit`, `evaluate`, `apply` and
 `get_dependency_state` refuse a query with a CWD-relative operand:
 
 ```
@@ -121,7 +121,8 @@ async fn read_sibling(
 ) -> Result<Value, Error> {
     // `dir.join("hello.txt")` is absolute, so this is accepted.
     let asset = context.evaluate(&Query::from(dir.join("hello.txt"))).await?;
-    asset.get().await?.try_into_string().map(Value::from)
+    // Wait through the context, not `asset.get()` — see "Waiting for dependencies" below.
+    context.wait_for_dependency(&asset).await?.try_into_string().map(Value::from)
 }
 ```
 
@@ -152,6 +153,62 @@ when every earlier argument slot is already written. If an earlier argument is a
 omitted, promotion is skipped for that action rather than binding the link to the
 wrong slot. Declare a relative-default argument **first**, or supply the arguments
 before it explicitly, if you want the promoted form.
+
+### Waiting for dependencies from inside a command
+
+A command that reads other assets does it through its `Context`, and those reads are
+recorded as the asset's dependencies:
+
+| Call | Does |
+|---|---|
+| `context.get_dependency_state(&query)` | start the dependency and wait for its `State`, in one call |
+| `context.submit(&query)` | start the dependency and return its `AssetRef` without waiting for the value |
+| `context.wait_for_dependency(&asset)` | wait for a submitted dependency on behalf of the current asset, returning its `State` |
+| `context.evaluate(&query)` | `submit`, then run the locally queued dependencies; returns the `AssetRef` |
+
+To use several dependencies, submit them all first, then wait for each:
+
+```rust
+async fn concat_siblings(
+    _state: State<Value>,
+    dir: Key,
+    context: Context<CommandEnvironment>,
+) -> Result<Value, Error> {
+    // Start both; neither call waits for a value.
+    let a = context.submit(&Query::from(dir.join("a.txt"))).await?;
+    let b = context.submit(&Query::from(dir.join("b.txt"))).await?;
+    // Wait for each on behalf of this asset.
+    let a = context.wait_for_dependency(&a).await?.try_into_string()?;
+    let b = context.wait_for_dependency(&b).await?.try_into_string()?;
+    Ok(Value::from(format!("{a}{b}")))
+}
+
+register_command!(cr, async fn concat_siblings(state, dir: Key = query "-R-key/.", context) -> result)?;
+```
+
+`-R-cwd/proj/-/concat_siblings` reads `proj/a.txt` and `proj/b.txt`.
+
+**Always wait with `context.wait_for_dependency`, never `asset.get()`.** Only the context
+method:
+
+- shows the current asset as `Status::Dependencies` while it waits;
+- records the dependency's settled version — the version `submit` records is read before
+  the dependency has evaluated and is usually unknown, and an unknown record under-detects
+  staleness later;
+- applies the stale-dependency policy: a dependency that expired while this command was
+  using it is returned as it stands, and the current asset finishes `Expired`
+  (`StaleDependency`) so the next request recomputes it. `asset.get()` returns an error
+  for an expired asset instead.
+
+**`submit` is not lazy.** The dependency has already started when it returns: the queued
+manager starts it at once when it has capacity, and the inline manager runs it to
+completion inside `submit`. Do not rely on a submitted dependency not having run yet. A
+submitted dependency that is never waited for simply completes, and leaves the current
+asset in no waiting state; `submit` is `#[must_use]` because its value is only used once
+waited for.
+
+A nested query that requires a payload inherits this context's payload and is evaluated
+inline, exactly as with `get_dependency_state`.
 
 ### Accepting a variable number of parameters
 
@@ -791,6 +848,7 @@ fn apply(...) -> Result<...> { ... }
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. New section "Waiting for dependencies from inside a command": `context.submit` + `context.wait_for_dependency`, why not `asset.get()`, and that `submit` is not lazy. The `read_sibling` example now waits through `context.wait_for_dependency(&asset)`; `submit` added to the methods that refuse relative queries. | phase-5 |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. §6 points to the record-producing command walkthrough in `RECORD_STREAM_GUIDE.md` rather than duplicating it, and lists `liquers-lib/src/records/commands.rs` as an example. | phase-5 |
 | 2026-09-05 | Documented builder-time validation for hand-built and imported metadata, including preflight access to the full report. | `design/variadic-metadata-tail-check` |
 | 2026-08-31 | Documented that metadata customizations should happen before `env.to_ref()`, which refreshes command metadata versions before sharing. | `design/refresh-command-metadata-versions/phase-5` |

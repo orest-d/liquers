@@ -2,7 +2,7 @@
 id: STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST
 kind: issue
 title: The stale-dependency path cannot be reached deterministically from a command, so no test drives it end to end
-status: in_progress
+status: closed
 priority: P2
 complexity: M
 area: [core/assets]
@@ -76,3 +76,12 @@ that design required — "assert the parent is `Expired` early so a missed windo
 fired immediately: the parent was `Ready`, because the gate had been placed after the dependency
 read and could not be placed before it. The test was rewritten as a unit test driving
 `wait_for_dependency` directly, and this issue records what that substitution costs.
+
+## Resolution
+
+Fixed 2026-10-02 by `design/dependency-audit-and-expiry-provenance/` (Step 10, orest-d/liquers#75),
+taking option 1. `Context::submit` and the now-public `Context::wait_for_dependency` are the seam: a
+command submits a dependency, the test expires it, and the wait then takes the expired arm. Evidence:
+`stale_dependency_end_to_end_queued` and `stale_dependency_end_to_end_immediate`
+(`tests/dependency_audit_integration.rs`), and the shared scenario `scenario_stale_dependency`. The
+inline manager's wait now applies the same stale policy as the queued manager.

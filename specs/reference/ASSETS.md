@@ -3,7 +3,7 @@ title: Assets Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-09-28
+reviewed: 2026-10-02
 ---
 # Assets Specification
 
@@ -58,6 +58,16 @@ Manages asset lifecycle:
 - `assets`: Map of Key -> AssetRef (non-volatile key assets)
 - `query_assets`: Map of Query -> AssetRef (non-volatile query assets)
 - `job_queue`: Queue for asset evaluation
+
+`AssetManager` is a public trait that can be implemented **outside `liquers-core`**. Its two
+supertraits are public: `DependencyManagerAccess` (return the manager's one `DependencyManager`,
+an opaque type built with `DependencyManager::new()`) and `KeyMutationAccess` (one
+`tokio::sync::Mutex<()>` per manager, never taken while an asset's `data` lock is held). The
+lifecycle work is in provided methods — among them `record_expiry`, `publish_version`,
+`expire_dependencies_result`, `cascade_expire_dependents`, `apply_external_change` — and three
+policy accessors (`dependency_audit_policy`, `version_verification`, `external_change_policy`)
+default to `Explicit`, `OnRead` and `UserInput`; a manager that is configurable overrides them. How
+to implement and test one: [`ASSET_MANAGER_IMPLEMENTATION_GUIDE.md`](../guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md).
 
 #### Key ownership
 
@@ -262,9 +272,74 @@ about how the run ends, not about what the resulting status means. The asset is 
 This is why the second case is *not* a distinct status. A `Stale` variant would split one meaning
 across two values, oblige roughly sixty-five `match` sites to handle both identically, break the
 language bindings, and break forward compatibility for every store holding a status string a
-previous build wrote. Provenance that is worth recording belongs in metadata beside the status —
-the shape proposed in [`../issues/EXPIRY-RECORDS-NO-REASON`](../issues/EXPIRY-RECORDS-NO-REASON.md)
-— where reading it is opt-in and ignoring it is free.
+previous build wrote. Provenance that is worth recording belongs in metadata beside the status,
+where reading it is opt-in and ignoring it is free — which is what `ExpiryReason` is.
+
+### Why an asset is `Expired`: `ExpiryReason`
+
+`MetadataRecord.expiry_reason` (also on `AssetInfo`; `liquers-core/src/metadata.rs`) records why.
+It is **recorded, never consulted**: no read path branches on it. It is meaningful only while the
+status is `Expired` — `Metadata::expiry_reason()` returns `None` otherwise, and setting any other
+status clears it — and is omitted from serialized metadata when absent, so older records load.
+
+```rust,ignore
+enum ExpiryReason {               // serde: tag "scope", snake_case
+    Direct   { cause: ExpiryCause },                                    // this asset is the root
+    Cascaded { cause: ExpiryCause, root: DependencyKey, via: DependencyKey },
+}
+```
+
+`root` is the key the cause happened to; `via` is this asset's own direct dependency through which
+the cascade reached it (equal to `root` for a direct dependent). The seven causes (serde tag
+`kind`), the route that sets each, and its log level:
+
+| `ExpiryCause` | Route | Root gets | Dependents get | Level |
+|---|---|---|---|---|
+| `Deadline { expiration_time }` | queued manager's expiration monitor; immediate manager's lazy check on `get` / `get_asset` | `Direct` | `Cascaded` (queued only; lazy expiry does not cascade, `IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE`) | Info |
+| `Explicit` | `AssetRef::expire`, `AssetManager::expire(key)` (live or stored-only) | `Direct` | `Cascaded` | Info |
+| `Audit { found }` | `trigger_dependency_audit*` in `AuditMode::Expire`; `found` is the current version, 0 when none | not expired | `Cascaded` | Warning |
+| `StaleDependency { dependency }` | an evaluation that waited (through `wait_for_dependency`) on a dependency that expired meanwhile | `Direct`, born `Expired` | `Cascaded`, root = the asset, cause still naming the stale input | Warning |
+| `UpdatedInStore { actual }` | stored bytes no longer match the recorded version (§Content changed outside Liquers) | not expired: becomes input, or is deleted | `Cascaded` | Warning |
+| `Updated { version }` | new content through Liquers: a recomputation with a new version, `set_state`, `set_binary`, `publish_version`, a fast-track load registering a different version, a changed command version, a changed folder listing | not expired | `Cascaded` | Info |
+| `Removed` | `AssetManager::remove` deleting a value (a `Source`/`Override`, or a key with no recipe) | removed | `Cascaded` | Info |
+
+Info is the contract working as designed; Warning is a stored assumption found false, or a
+departure from the normal contract.
+
+**One writer.** Every route, for every expired asset — live, or a stored-only copy expired in the
+store — writes the reason through `AssetManager::record_expiry(metadata, subject, reason)`, in the
+same metadata write as the `Expired` status. The default sets the field and appends
+`ExpiryReason::log_entry(subject)` to the asset's log; legacy metadata is left untouched. Override
+it to change wording or levels, add fields, or forward the event. It runs under the asset's `data`
+write lock, so it must not block or reach any asset or lock. Only a real transition records: an
+asset already `Expired` keeps the reason it has. A status supplied as `Expired` through `set_state`
+records none (`SUPPLIED-EXPIRED-STATUS-STORED-WITHOUT-REASON`).
+
+**Log lines.** `subject` is the asset's key, else its query, never its runtime id; `root` and `via`
+print as dependency keys (`-R/…`). No version number appears. A direct reason reads
+`{subject} expired: {what happened to it}`; a cascaded one reads
+`{subject} expired: {what happened to root} triggered a cascade expiration`, followed by
+` via direct dependency {via}` only when `via != root`. The phrases, from `log_entry`:
+
+| Cause | Direct: `{subject} expired: …` | Cascaded: `… triggered a cascade expiration` |
+|---|---|---|
+| `Deadline` | `its expiration time {expiration_time} passed` (RFC 3339) | `expiration deadline on {root}` |
+| `Explicit` | `expiration was requested explicitly` | `explicit expiration of {root}` |
+| `Audit` | `an audit found it at a different version than recorded` | `an audit that found {root} at a different version than recorded` |
+| `StaleDependency` | `it was evaluated with the expired value of {dependency}` | `the evaluation of {root} with the expired value of {dependency}` |
+| `UpdatedInStore` | `its stored content was changed outside Liquers` | `a change to {root} made in the store outside Liquers` |
+| `Updated` | `it received new content` | `new content of {root}` |
+| `Removed` | `it was removed` | `the removal of {root}` |
+
+For the chain `data/a.txt → data/b.txt → data/report.txt`, from
+`tests/expiry_provenance_integration.rs`:
+
+```text
+data/a.txt expired: expiration was requested explicitly
+data/b.txt expired: explicit expiration of -R/data/a.txt triggered a cascade expiration
+data/report.txt expired: explicit expiration of -R/data/a.txt triggered a cascade expiration via direct dependency -R/data/b.txt
+data/report.txt expired: new content of -R/data/a.txt triggered a cascade expiration via direct dependency -R/data/b.txt
+```
 
 ### Who decides status
 
@@ -335,6 +410,72 @@ makes it explicitly, through the `*_any_status` reads or `to_override`.
 
 `AssetRef::save_to_store` deliberately bypasses this gate via `AssetData::binary_unchecked`:
 persisting is not a read of the exposed value, and `set_state` persists at statuses the gate hides.
+
+## Content changed outside Liquers
+
+A stored value can be edited by something other than Liquers — a person replacing a file, another
+tool writing the store. Liquers detects it on read by re-hashing the bytes against the recorded
+version.
+
+**Content-hash versions are flagged.** `Version::from_content(bytes)` is 127 bits of blake3 with
+**bit 127** (`Version::HASH_FLAG`) set; every other constructor (`from_time_now`,
+`from_specific_time`, `new_unique`) clears it. `Version::kind()` reads the flag: `ContentHash`,
+`Unknown` (0) or `Timestamp`. Only content hashes are flagged, so command versions do not change.
+`Version::verify(bytes)` returns `Verified`, or `Mismatch { actual, recorded }`, where `actual` is
+`from_content(bytes)` and `recorded` is the old version's kind.
+
+**Legacy values verify.** A value written before the flag existed carries an unflagged
+`Version::from_bytes` hash. `verify` accepts an unflagged recorded version equal to
+`from_bytes(bytes)`, so legacy content is not mistaken for an edit. For such a value `kind()` is a
+guess (about half read as `ContentHash`); it changes only the log wording, never the outcome.
+Anything else — a timestamp, `new_unique`, 0 — never equals a hash and is a mismatch.
+
+**What a mismatch means** (`external_change_action`, the policy is `external_change`:
+`user_input` by default, or `corrupted`):
+
+| Stored status | With recipe | `UserInput` (default) | `Corrupted` |
+|---|---|---|---|
+| `Source` | any | keep `Source`, adopt `actual` (`AcceptAsInput`) | same |
+| `Override` | any | keep `Override`, adopt `actual` | same |
+| `Ready`, `Expired` | yes | becomes `Override`, adopt `actual` (`ConvertToOverride`) | stored data and metadata deleted, so the recipe recomputes it (`Delete`) |
+| `Ready`, `Expired` | no (recipe removed since) | keep, adopt `actual` | same |
+| any other | — | not checked | not checked |
+
+A file with **no metadata** is recognised as a stored `Source` or `None` with recorded version 0,
+and is treated as `Source` without a recipe and `Ready` with one. Without a recipe it is adopted
+**in memory only**: the version map learns `actual`, nothing is written, and the next process
+computes the same hash again. Every other adoption writes the sidecar with the new version (and
+status) and a warning in the asset's log:
+
+```text
+content of data/a.txt changed outside Liquers; accepted as user input
+no content hash was recorded for data/a.txt; adopting its content as user input
+```
+
+The second wording is used when the recorded version was a timestamp or 0. `Delete` leaves no
+metadata to log in, so it reports on stderr. The changed asset itself is never `Expired`; its
+dependents are, with `UpdatedInStore { actual }`. The version map is updated through
+`audit_version`, not `register_version`, because after a restart `actual` is the first version the
+map sees for the key.
+
+**When the check runs.** Under `verify_versions: on_read` (default), wherever the manager already
+holds the bytes: the fast track (`try_fast_track`, before the dependency checks; a `Delete`
+refuses the fast track and the key is recomputed), and the store branch of `get_any_status` /
+`get_binary_any_status`. An edit nobody has read yet is found by
+`AssetManager::verify_stored_versions(key, deep, mode)`, which re-hashes every stored value under
+`key` and reports `verified`, `skipped` and `changed` (`VersionVerificationReport`);
+`AuditMode::ReportOnly` writes and registers nothing. A key with metadata and no data object is
+skipped, not changed — deleting large intermediates is supported — and so are empty bytes under a
+timestamp version, which is how `AsyncMemoryStore` answers a metadata-only entry
+(`MEMORY-STORE-METADATA-ONLY-ENTRY-READS-AS-EMPTY-BYTES`). `verify_versions: off` hashes nothing,
+and `verify_stored_versions` then returns an empty report. A recorded-version audit
+(`trigger_dependency_audit`) cannot see an edit; this can.
+
+**Read-only stores.** `apply_external_change` runs under `key_mutation_lock` and is a no-op when
+the change was already applied, by a concurrent reader or earlier in this process. A store write
+that fails is reported on stderr and the result is kept in memory: the version map and the cascade
+still happen, and the next process detects the change again. (`AsyncFileStore` itself writes a
+sidecar for a bare file on first read; `STORE-NO-READ-ONLY-ADAPTER`.)
 
 ## State Machine Diagram
 
@@ -953,18 +1094,15 @@ log entry).
 recipe (see Terminal Outcome Contract → Re-evaluation). No explicit `retry()` method is needed;
 re-evaluation is a property of *requesting* the asset, not of awaiting an in-flight one.
 
-### Issue 2: Circular Dependencies
-**Problem**: When implementing Dependencies status, how to detect A→B→A cycles?
+### Issue 2: Circular Dependencies — RESOLVED
+Cycles are rejected at schedule time with `Error::dependency_cycle`
+(`DependencyManager::register_scheduled_dependency`, `would_create_cycle`); see
+[`DEPENDENCIES_STATUS.md`](DEPENDENCIES_STATUS.md).
 
-**Options**:
-- Detect during dependency resolution
-- Timeout-based detection
-- Require explicit dependency declaration
-
-### Issue 3: Dependency Invalidation Cascade
-**Problem**: When an asset changes (via set() or recompute), should dependent assets be automatically invalidated?
-
-**Current**: Not implemented, marked as future work.
+### Issue 3: Dependency Invalidation Cascade — RESOLVED
+A change of a key's version expires the dependents that recorded a different one, transitively,
+each with an `ExpiryReason` (§Why an asset is `Expired`). The rules are in
+[`DEPENDENCIES_STATUS.md`](DEPENDENCIES_STATUS.md) §Current contract.
 
 ## References
 
@@ -979,6 +1117,7 @@ re-evaluation is a property of *requesting* the asset, not of awaiting an in-fli
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. §AssetManager: the trait is implementable outside core (public `DependencyManagerAccess` / `KeyMutationAccess`, policy accessors), pointing to the new guide. New §Why an asset is `Expired`: `ExpiryReason` (`Direct` / `Cascaded` with root and via), the seven causes with route, scope and level, `record_expiry` as the single overridable writer, and the log wording with real lines. New §Content changed outside Liquers: `HASH_FLAG` (bit 127), `VersionKind`, legacy unflagged verification, the decision table, no-metadata `Source` kept in memory, when the check runs, read-only stores. Open issues 2 and 3 marked resolved. | phase-5 |
 | 2026-09-28 | §Notification Channel: the enum as implemented, with `Expired` and `Removed` (and when `Removed` is sent); the never-implemented `Cancelling`/`MetadataChanged` removed. Scenarios 3 and 5 rewritten. §Remove Semantics: the status-aware decision table replaces "always delete", plus `removedir`, `expire`, `set_description`, `to_override` on a `Source`, the non-evaluating `get_asset_info`, `lookup_query_asset` and `makedir`. | `design/axum-assets-endpoints/` |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. Added §`stored` and `cached` to §AssetManager: what each flag skips in both managers, that an existing stored copy is still preferred, that neither makes an asset volatile, that an uncached keyed asset stays the key's dependency-graph node (`bound_owner_key`) and has its stored copy marked `Expired` on an upstream change, and that `set_state`/`set_binary` read the supplied metadata's flag. §Key ownership: `cached: false` is a third way to have no registered owner. | phase-5 |
 | 2026-09-15 | §Expiry: a stale-dependency completion is *born* `Expired` in `finalize_status_with_version` rather than relabelled afterwards by `finish_run_with_result`, so the stored status agrees with the manager. | `stale-dependency-status-finalization` |

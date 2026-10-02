@@ -2943,10 +2943,11 @@ impl<E: Environment> AssetRef<E> {
     /// are polled together in the caller's task. Use this one on wasm32, and in any manager that
     /// must not spawn.
     ///
-    /// Call it at most once per asset, from the single party that owns the run. If the returned
-    /// future is dropped before completion the asset's status is repaired, but waiters already
-    /// registered on it can be stranded
-    /// (`INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS`), so await it to the end.
+    /// Safe to call from several tasks: one claims the run, and the others wait for it to finish.
+    /// On an asset that has already finished it returns at once. If the returned future is
+    /// dropped before completion the asset's status is repaired, but waiters already registered
+    /// on it can be stranded (`INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS`), so await it to the
+    /// end.
     pub async fn run_inline(&self, payload: Option<E::Payload>) -> Result<(), Error> {
         self.run_with_future_inline(self.evaluate(payload)).await
     }
@@ -3718,9 +3719,11 @@ impl<E: Environment> AssetRef<E> {
     /// Expire this asset alone, recording `reason`; the caller owns the cascade (if any).
     ///
     /// Contract for an [`AssetManager`] implementation: this does not touch the dependency graph
-    /// and does not remove the asset from the manager's maps. The manager's own `expire` /
-    /// `expire_dependents` machinery calls it for each asset the graph reports, then reports the
-    /// reason through [`AssetManager::record_expiry`].
+    /// and does not remove the asset from the manager's maps. It sets `Expired` with `reason`,
+    /// calls [`AssetManager::record_expiry`] itself (under the asset's data lock, so the manager
+    /// must not call it again), and persists the expired metadata of a stored keyed asset. The
+    /// manager's own `expire` / `expire_dependents` machinery calls it for each asset the graph
+    /// reports.
     pub async fn expire_without_cascade(&self, reason: ExpiryReason) -> Result<(), Error> {
         self.mark_expired_status(reason).await.map(|_| ())
     }
@@ -5397,11 +5400,10 @@ pub trait AssetManager<E: Environment>:
     /// Verify the recorded dependency versions reachable from `query`, expiring what no longer
     /// holds.
     ///
-    /// **Nothing in `liquers-core` calls this.** Verification is opt-in, and the default policy is
-    /// "never" — which is exactly the behaviour before this existed. Deciding *when* an audit runs
-    /// (at startup, on every request, on an explicit user action, never) is a policy question this
-    /// method exists to make answerable without reopening the dependency manager; see
-    /// `DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE`.
+    /// Under the default [`DependencyAuditPolicy::Explicit`](crate::environment_builder::DependencyAuditPolicy)
+    /// nothing in `liquers-core` calls this: an audit runs only when the application asks for one
+    /// (at startup, on a user action). [`DependencyAuditPolicy::OnLoad`](crate::environment_builder::DependencyAuditPolicy)
+    /// instead checks each dependency on the fast track, without a whole-graph audit.
     ///
     /// Three outcomes per gap, from [`Self::dependency_version`]: a version that matches leaves the dependent
     /// alone, one that differs expires it, and no durable version at all expires it — an asset
@@ -5495,7 +5497,7 @@ pub trait AssetManager<E: Environment>:
     /// The current version of a store-resolvable dependency key, **without evaluating**.
     ///
     /// `-R/` keys answer [`Self::version`]. `-R-dir/` keys answer the listing version of the
-    /// directory ([`DependencyManager::listing_version`] over [`Self::listdir`]). Any other key answers
+    /// directory (`DependencyManager::listing_version` over [`Self::listdir`]). Any other key answers
     /// `Version::unknown()` as well; callers ask `DependencyKey::is_store_resolvable` first.
     /// A store error stays `Err`.
     async fn dependency_version(
@@ -5576,7 +5578,7 @@ pub trait AssetManager<E: Environment>:
     /// `Ok(Version::unknown())` and `Err` are different answers and stay different: a store that
     /// fails to read is not a key without a version, and collapsing them would expire dependents on a transient
     /// store error. `contains` is asked first for exactly this reason, since
-    /// [`AsyncStore::get_metadata`] reports a missing key as `Err`.
+    /// [`AsyncStore::get_metadata`](crate::store::AsyncStore::get_metadata) reports a missing key as `Err`.
     async fn version(&self, key: &Key) -> Result<Version, Error> {
         if let Some(asset) = self.lookup_key_asset(key) {
             if let Some(version) = asset.get_metadata().await?.version() {
@@ -8387,7 +8389,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                     // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`; this used to test
                     // `is_expired()`, i.e. the status, which can never be `Expired` here). Unlike
                     // the queued monitor, lazy expiry does not cascade to dependents; whether it
-                    // should is recorded on that issue.
+                    // should is open (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE`).
                     let expiration_time = assetref.expiration_time().await;
                     let _ = assetref
                         .expire_without_cascade(ExpiryReason::Direct {
@@ -8485,7 +8487,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                     // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`; this used to test
                     // `is_expired()`, i.e. the status, which can never be `Expired` here). Unlike
                     // the queued monitor, lazy expiry does not cascade to dependents; whether it
-                    // should is recorded on that issue.
+                    // should is open (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE`).
                     let expiration_time = asset_ref.expiration_time().await;
                     let _ = asset_ref
                         .expire_without_cascade(ExpiryReason::Direct {

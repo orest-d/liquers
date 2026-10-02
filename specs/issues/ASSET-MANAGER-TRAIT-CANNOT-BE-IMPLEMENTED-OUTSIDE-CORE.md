@@ -2,7 +2,7 @@
 id: ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE
 kind: issue
 title: The AssetManager trait is sealed, so a custom asset manager cannot be written outside liquers-core
-status: in_progress
+status: closed
 priority: P2
 complexity: L
 area: [core/assets]
@@ -50,3 +50,15 @@ correctly.
 Found 2026-09-28 while checking whether `#[non_exhaustive]` on `AuditReport` would stop a custom
 asset manager from building one (`design/dependency-audit-and-expiry-provenance/`, Phase 2 gate).
 It would not, but a custom manager cannot exist in the first place.
+
+## Resolution
+
+Fixed 2026-10-02 by `design/dependency-audit-and-expiry-provenance/` (Step 11, orest-d/liquers#75),
+taking option 1. `DependencyManagerAccess` and `KeyMutationAccess` are public, and
+`DependencyManager` is public but opaque. The `AssetRef` lifecycle primitives (`run`, `run_inline`,
+`submitted`, `set_payload_path`, `expire_without_cascade`) are public with contracts.
+`refresh_command_versions` has a default body. `publish_version` and `is_volatile_query` were added
+when the from-scratch manager needed them. Evidence: `tests/common/minimal_manager.rs` (public API
+only) and `tests/external_asset_manager.rs`, whose `external_manager_passes_shared_scenarios` is the
+conformance suite. Known limits are filed as `EXTERNAL-MANAGER-CANNOT-NOTIFY-REPLACED-ASSET`.
+Guide: `guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md`.

@@ -3,7 +3,7 @@ title: Status::Dependencies Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-09-27
+reviewed: 2026-10-02
 ---
 # Dependencies Status Specification
 
@@ -103,8 +103,9 @@ fails fast with `Error::dependency_cycle`. That is pinned by
 - Dependency edges are graph/metadata facts, not status facts. Scheduler-local wait bookkeeping is
   diagnostic only.
 - **Every non-volatile keyed asset carries a concrete version.** It is assigned on the evaluation
-  path — `Version::from_bytes` of the serialized value, or `Version::new_unique()` when the value
-  does not serialize — in the same write transaction as the status change, so no observer can read
+  path — `Version::from_content` of the serialized value (a content hash, flagged by bit 127; see
+  §Content changed outside Liquers in [`ASSETS.md`](ASSETS.md)), or `Version::new_unique()` when
+  the value does not serialize — in the same write transaction as the status change, so no observer can read
   an asset that is ready but unversioned. A **non-keyed (query) asset gets none**: it is not a
   graph node, and serializing one would cost the commonest path in the system for a version
   nothing reads. A **volatile** asset gets none either.
@@ -120,12 +121,48 @@ fails fast with `Error::dependency_cycle`. That is pinned by
   happens on every edge; verifying may need a store read and is meaningful only on load or on
   demand, so fusing them put verification on the hot path and left nowhere to express a policy.
   The dependency graph now performs **no I/O**.
-- **Verification is opt-in and defaults to never.** `AssetManager::trigger_dependency_audit(query)`
-  and `trigger_dependency_audit_all_registered()` ask the graph which versions it is missing,
-  resolve each through `AssetManager::version`, and push the answer back with `register_version` or
-  `report_no_version` — which is what produces the expirations. Nothing in `liquers-core` calls
-  them. Deciding *when* an audit runs is a policy question
-  (`DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE`).
+- **Verification is opt-in.** `AssetManager::trigger_dependency_audit(query)` and
+  `trigger_dependency_audit_all_registered()` ask the graph which versions it is missing, resolve
+  each store-resolvable one (`-R/`, `-R-dir/`) through `AssetManager::dependency_version` — which
+  never evaluates — and hand the answer to `DependencyManager::audit_version`. Nothing in
+  `liquers-core` calls them; the `_with(…, AuditMode)` variants take a mode.
+- **An audit compares current with recorded versions, also on first observation.**
+  `register_version` treats a first registration as "no change", which is right on the
+  evaluation path and wrong for an audit: after a restart the version map is empty, so the first
+  thing an audit learns is the current version. `audit_version` records the version and expires
+  every dependent whose edge does not record exactly that version — an edge recording
+  `Version::unknown()` included, as for any change. A current version of 0 ("none") follows
+  `report_no_version`'s rules instead: only edges that expected a concrete version are expired.
+  The root is not expired; its dependents get `Cascaded { Audit { found }, … }`.
+- **`AuditMode::ReportOnly` changes nothing.** It goes through `stale_edges`, registers no
+  version, removes no edge and expires nothing; the `AuditReport` lists what was `checked` and the
+  direct `findings` (`AuditFinding { dependency, dependent, expected, found }`) that `Expire` mode
+  would have expired. In `Expire` mode `expired` also lists the transitive keys.
+  `AuditReport` and `AuditFinding` are `#[non_exhaustive]`, with `AuditFinding::new` for
+  managers outside core.
+- **`DependencyAuditPolicy` decides when stored dependents are checked.** It is set per
+  environment (`AssetManagerOptions::with_dependency_audit`, or `assets.dependency_audit` in
+  [`ENVIRONMENT_CONFIG.md`](ENVIRONMENT_CONFIG.md)) and read through
+  `AssetManager::dependency_audit_policy()`:
+  - `Explicit` (default): only the audits above.
+  - `OnLoad`: also when `try_fast_track` loads a stored keyed asset. For each recorded dependency
+    the version map does not know, and only for a store-resolvable key with a concrete recorded
+    version, the current version is resolved through `dependency_version`. A different version, a
+    current 0, or a store error refuses the stored copy, so it is recomputed. A recorded unknown is
+    compatible and not asked. The comparison is equality, not `Version::matches`, which would
+    accept a current 0.
+- **A folder listing is a versioned dependency.** `-R-dir/<dir>` (`GetAssetDirectory`) has, as its
+  version, the content hash of its sorted, length-prefixed names (`listing_version`) — membership
+  only, so rewriting an existing member does not change it (the member's own key cascades). The
+  step records the edge and registers the version, and also sets the listing version on its own
+  query asset's metadata: `-R-dir/` is an evaluation boundary, so the dependent learns the version
+  from there through `wait_for_dependency_recording` and `track_asset` / `load_from_records`.
+  After every manager-mediated write or removal — an evaluation persisting a keyed value,
+  `set_binary`, `set_state`, `remove`, and an outside change deleted as corrupted — the parent
+  listing is recomputed by `refresh_listing_version`, **only if** the version map already holds a
+  version for it, and its dependents are expired with `Updated { version }` when it moved. A
+  `listdir` error there is logged, not fatal. A change made to the folder outside Liquers is
+  found only by an audit.
 - **A change expires only what it provably affects.** Each edge records the version its dependent
   observed, and `register_version` spares a dependent only when that expectation is concrete and
   equal to the new version. An edge recording `Version::unknown()` is expired: no evidence either
@@ -235,7 +272,10 @@ This is the runtime dependency path for commands that discover dependencies whil
    - The context owns a shared `pending_dependencies` vector, also shared with cloned contexts.
 
 2. **Command requests dependency**
-   - The command calls `context.evaluate(query)`.
+   - The command calls `context.submit(query)` (start, return the asset), `context.evaluate(query)`
+     (`submit`, then drain the local queue) or `context.get_dependency_state(query)` (`submit`,
+     then `wait_for_dependency`). `submit` is not lazy: the dependency has started, and on the
+     inline manager finished, before it returns (`SUBMIT-IS-NOT-LAZY-ON-ANY-MANAGER`).
    - `Context::evaluate()` gets the current asset key when available.
    - If current and dependency keys are known, it calls
      `DependencyManager::would_create_cycle(current, dependency)` before recording the edge.
@@ -252,18 +292,20 @@ This is the runtime dependency path for commands that discover dependencies whil
      `Context::get_dependency_state` upgrades the record with the dependency's settled version once
      the wait completes, using the key the scheduler handed back rather than one derived at the
      wait — a differently-derived key would write a second record instead of upgrading the first.
-     A command that calls `Context::evaluate` and awaits `AssetRef::get` directly bypasses that
-     upgrade and keeps an unknown record, which under-detects staleness rather than inventing it.
+     A command that calls `Context::evaluate` or `Context::submit` and awaits `AssetRef::get`
+     directly bypasses that upgrade and keeps an unknown record, and also bypasses the
+     stale-dependency policy: `get` fails on an expired dependency.
    - `Context::add_dependency(record)` upserts into `pending_dependencies`; if a known version is
      already present, a later unknown observation is ignored instead of downgrading it.
    - If the current asset is keyed, `add_dependent_asset()` also records the current asset as an
      untracked dependent of the dependency key.
 
 5. **Enter dependency wait**
-   - If the dependency asset is not ready, `Context::evaluate()` calls
-     `current_asset.enter_dependencies(child)`.
-   - The command may then call `child.get().await` to obtain the child state; while it waits, the
-     current asset is observable as `Status::Dependencies`.
+   - The command waits with `context.wait_for_dependency(&child)`, which delegates to
+     `AssetManager::wait_for_dependency`; while it waits, the current asset is observable as
+     `Status::Dependencies`. A dependency that expired meanwhile is used as it stands and the
+     current asset finishes `Expired` with `Direct { StaleDependency { dependency } }`. Both
+     built-in managers apply this policy.
 
 6. **Drain runtime dependencies**
    - Queued `evaluate_recipe()` drains `context.take_pending_dependencies()` after recipe execution
@@ -285,8 +327,10 @@ This path handles dependencies known before command execution.
 1. `recipe.to_plan()` builds a plan.
 2. `finalize_plan()` performs static dependency analysis for volatility/expiration and seeds
    `Context::pending_dependencies` with plan dependencies.
-3. If the plan's query is keyed, `DefaultAssetManager::register_plan_dependencies()` registers
-   direct plan edges in `DependencyManager` when concrete dependency versions are available.
+3. If the plan's query is keyed, `AssetManager::register_plan_dependencies()` registers every
+   direct plan edge in `DependencyManager`, with the dependency's registered version or, when it
+   has none yet, `Version::unknown()`. The unknown edge is what lets a later registration (a
+   listing, a value) expire the dependent, and what an audit resolves.
 4. Later runtime dependency drains merge these static records with runtime records. Duplicate keys
    are represented once, and known versions are preserved over unknown versions in the context
    pending-dependency path.
@@ -297,7 +341,7 @@ This path handles dependencies known before command execution.
    the current asset transitions to `Cancelled`.
 2. The dependency asset is not cancelled; it may be needed by other assets.
 3. Dependency failures propagate through `fail_due_to_dependency()` in the delegation path or as
-   errors returned from `child.get().await` in runtime-command paths.
+   errors returned from `context.wait_for_dependency(&child)` in runtime-command paths.
 4. `Status::Dependencies` itself is never terminal and never exposes data.
 
 ## Function glossary
@@ -305,6 +349,10 @@ This path handles dependencies known before command execution.
 - `Context::evaluate(query)`: runtime dependency entry point for commands. It requests/submits the
   dependency asset, records a pending dependency, performs graph-cycle checks when possible, and
   enters `Status::Dependencies` if the child is not ready.
+- `Context::submit(query)`: schedules and records a dependency and returns its asset without
+  waiting; the dependency has already started.
+- `Context::wait_for_dependency(&asset)`: waits on behalf of the current asset, applies the
+  stale-dependency policy, and upgrades the record `submit` wrote to the settled version.
 - `Context::add_dependency(record)`: pending dependency upsert helper. It preserves a known version
   over a later `Version::unknown()` observation.
 - `Context::take_pending_dependencies()`: drains runtime/static dependency records for metadata
@@ -320,6 +368,15 @@ This path handles dependencies known before command execution.
   evaluation finishes or is resubmitted.
 - `AssetRef::fail_due_to_dependency(error)`: helper for converting dependency failure into parent
   `Error` state.
+- `DependencyManager::audit_version(key, version)` (crate): records `version` and expires every
+  dependent that does not positively match, also on a first observation; returns the expired set
+  and the direct findings.
+- `DependencyManager::stale_edges(key, version)` (crate): the direct edges `version` contradicts.
+  Read-only.
+- `AssetManager::dependency_version(dep_key)`: the current version of a `-R/` key (`version`) or a
+  `-R-dir/` key (listing version), without evaluating; any other key answers 0.
+- `AssetManager::refresh_listing_version(dir)`: recompute and register a listing version iff one
+  is registered; cascades with `Updated` when it moved. Never takes `key_mutation_lock`.
 - `DefaultAssetManager::with_capacity(capacity)`: constructs a manager with configurable queue
   capacity, used to exercise F-1 capacity-sensitive paths.
 - `DefaultAssetManager::shutdown()` and `JobQueue::shutdown()`: stop background queue/expiration
@@ -352,6 +409,7 @@ Dependency evaluation is now non-blocking and deadlock-free (see
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. Current contract: versions are `from_content`; the "never / policy not expressible" bullet replaced by audits on first observation (`audit_version`), `AuditMode::ReportOnly` / `AuditFinding`, `DependencyAuditPolicy` (`explicit` / `on_load`) and folder-listing (`-R-dir/`) versions with their refresh. Flow B uses `submit` / `wait_for_dependency`; Flow C records an unknown edge for an unversioned plan dependency; glossary gains `submit`, `wait_for_dependency`, `audit_version`, `stale_edges`, `dependency_version`, `refresh_listing_version`. | phase-5 |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. Current contract gains two bullets from its review fix: a `cached: false` keyed asset stays its key's graph node through `bound_owner_key` when no other asset is registered, and `expire_dependencies_result` marks the stored copy of an expired key no registered asset holds `Expired` (from `Ready`/`Override` only). The rest of the contract was not re-verified beyond what these touch. | phase-5 |
 | 2026-09-06 | Computed keyed assets now carry a concrete version, assigned atomically with their status; `add_dependency` records without verifying and the graph does no I/O; verification moves to opt-in `trigger_dependency_audit*` with a default of never; edges carry the dependent's expected version so a change expires only what it provably affects; `Version(0)` means "unknown" and nothing else. Current-contract bullets rewritten, Flow A step 3 and Flow B step 4 corrected. | `specs/design/keyed-expiry-cascade-fix/` |
 | 2026-08-12 | Delegation no longer records a dependency: two assets sharing a key are one graph node, compared by construction-time key rather than by the mutable resolved recipe (PR 32 review). New section "Delegation is a hand-off, not a dependency"; F-1 bullet, Flow A step 3 and the `record_dependency_on_asset` glossary entry corrected. Reviewed only for the delegation-recording claim — Flow A steps 5, 7 and 8 still describe the pre-2026-07-15 wait mechanics and are superseded by "Non-blocking dependency scheduling"; not re-verified here. | `specs/design/keyed-delegation-hand-off/` |
