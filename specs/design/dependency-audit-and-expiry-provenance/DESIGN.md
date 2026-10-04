@@ -2,8 +2,8 @@
 id: DEPENDENCY-AUDIT-AND-EXPIRY-PROVENANCE
 kind: design
 title: Dependency audit correctness, audit policy, expiry provenance, outside-change detection and external asset managers
+status: complete
 workflow: liquers-project
-phase: documentation
 area: [core/assets]
 gh_pr: [75]
 affects_docs: [DEPENDENCIES_STATUS, ASSETS, ASSET_LIFECYCLE, DOC_03_ASSETS_EXECUTION_LIFECYCLE, DOC_04_ENVIRONMENT_CONTEXT_EVALUATION, ENVIRONMENT_CONFIG, COMMAND_REGISTRATION_GUIDE, ENVIRONMENT_CONSTRUCTION_GUIDE, STORE_IMPLEMENTATION_GUIDE, UNITTEST_GUIDE]
@@ -21,7 +21,7 @@ superseded_by:
 - [x] Phase 2: Solution & Architecture (approved 2026-09-29)
 - [x] Phase 3: Examples & Testing (approved 2026-10-02)
 - [x] Phase 4: Implementation Plan (approved 2026-10-02)
-- [ ] Phase 5: Documentation
+- [x] Phase 5: Documentation (approved 2026-10-04)
 - [x] Implementation Complete (2026-10-02, orest-d/liquers#75)
 
 ## Notes
@@ -186,6 +186,8 @@ match it. Three questions remained for the owner (Phase 4 §"Phase 4 review").
   `check-stubs.sh --build` passed. `liquers-web`'s wasm suite passed except
   `object06_every_enum_variant_roundtrips`, which fails on `main` too
   (`WEB-OBJECT06-EXPECTS-A-STALE-ERROR-TYPE-COUNT`). The PR is orest-d/liquers#75.
+- **Phase 5 approved 2026-10-04.** The three Codex review findings on orest-d/liquers#75 were
+  fixed before approval (see `phase5-documentation.md`).
 - **Filed during Step 4:** `SUPPLIED-EXPIRED-STATUS-STORED-WITHOUT-REASON` and
   `DEPENDENCY-FAILURE-ERRORS-NAME-ASSET-IDS`.
 
