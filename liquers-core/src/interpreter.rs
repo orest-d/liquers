@@ -781,31 +781,52 @@ pub fn do_step<E: Environment>(
             let key = context.resolve_key_from_cwd(&key)?;
             let envref1 = envref.clone();
             let asset_manager = envref1.get_asset_manager();
-            let d = asset_manager.listdir_asset_info(&key).await?;
-
             // The listing is a dependency: register its version, so a later change of the
             // membership (`refresh_listing_version`) expires what was built from it, and record
             // it on this evaluation. `add_dependency` upgrades the plan-time `unknown` record.
-            let names = asset_manager.listdir(&key).await?;
-            let version = crate::dependencies::DependencyManager::<E>::listing_version(&names);
             let dir_dep_key = DependencyKey::from_dir_key(&key);
             let dm = asset_manager.dependency_manager();
-            // The owner's edge is recorded *before* the version is registered: a dependent is
-            // spared by an edge that records exactly the new version, so the asset being
-            // evaluated right now (whose plan-time edge still holds the previous listing) is not
-            // expired by the registration it is itself causing.
-            if let Some(owner) = context.owner_key().await? {
-                let owner_dep_key = DependencyKey::from(&owner);
-                if let Ok(expired) = dm.add_dependency(&owner_dep_key, &dir_dep_key, version).await {
-                    asset_manager
-                        .expire_dependencies_result(expired, ExpiryCause::Updated { version })
-                        .await;
+            let owner = context.owner_key().await?;
+            // The value and the version come from the same read. A write that lands after that
+            // read and before the version is registered skips its refresh
+            // (`refresh_listing_version` refreshes only a registered listing), so the listing is
+            // read again once registered: if it moved, the step registers and uses the new one.
+            // A write after the last read finds the version registered and refreshes it.
+            const LISTING_READS: usize = 3;
+            let mut names = asset_manager.listdir(&key).await?;
+            let mut version;
+            let mut reads = 1;
+            loop {
+                version = crate::dependencies::DependencyManager::<E>::listing_version(&names);
+                // The owner's edge is recorded *before* the version is registered: a dependent
+                // is spared by an edge that records exactly the new version, so the asset being
+                // evaluated right now (whose plan-time edge still holds the previous listing) is
+                // not expired by the registration it is itself causing.
+                if let Some(owner) = &owner {
+                    let owner_dep_key = DependencyKey::from(owner);
+                    if let Ok(expired) =
+                        dm.add_dependency(&owner_dep_key, &dir_dep_key, version).await
+                    {
+                        asset_manager
+                            .expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                            .await;
+                    }
                 }
+                let expired = dm.register_version(&dir_dep_key, version).await;
+                asset_manager
+                    .expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                    .await;
+                if reads == LISTING_READS {
+                    break;
+                }
+                let again = asset_manager.listdir(&key).await?;
+                reads += 1;
+                if crate::dependencies::DependencyManager::<E>::listing_version(&again) == version {
+                    break;
+                }
+                names = again;
             }
-            let expired = dm.register_version(&dir_dep_key, version).await;
-            asset_manager
-                .expire_dependencies_result(expired, ExpiryCause::Updated { version })
-                .await;
+            let d = asset_manager.asset_info_of_names(&key, &names).await?;
             context
                 .add_dependency(DependencyRecord::new(dir_dep_key, version))
                 .await;

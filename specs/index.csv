@@ -93,6 +93,7 @@ DATA-FORMAT-CONSTANTS-AND-TOOLING,feature,"Data formats are bare string literals
 DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK,issue,DefaultAssetManager's recipe_opt override skips the payload-required rejection,draft,local,,,P2,M,core/assets,,,,,,2026-09-25,specs/issues/DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK.md
 DELEGATED-VALUE-REPERSISTED,issue,An asset that delegates to a key's owner writes the owner's value to the store again,closed,local,,covered,P3,S,core/assets,,,,delegated-value-persistence,,2026-08-12,specs/issues/DELEGATED-VALUE-REPERSISTED.md
 DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE,feature,"There is no way to say when dependency versions should be verified, so the strict and the exploratory workflow cannot both be served",closed,local,,,P2,M,core/assets,,,,dependency-audit-and-expiry-provenance,,2026-09-05,specs/issues/DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE.md
+DEPENDENCY-EDGE-RECORDED-AGAINST-SUPERSEDED-VERSION-IS-NOT-EXPIRED,issue,A dependent that records an edge against a version the map has already replaced stays Ready,draft,local,,,P3,M,core/assets,,,,,,2026-10-04,specs/issues/DEPENDENCY-EDGE-RECORDED-AGAINST-SUPERSEDED-VERSION-IS-NOT-EXPIRED.md
 DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE,issue,Execution-time expired dependency always fails its dependent; the stale-value branch is dead,closed,local,,,P0,S,core/assets,,,,expired-binary-read-safety,,2026-08-08,specs/issues/DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE.md
 DEPENDENCY-FAILURE-ERRORS-NAME-ASSET-IDS,issue,Dependency failure errors name the dependency by runtime asset id,draft,local,,,P3,S,core/assets,,,,,,2026-10-02,specs/issues/DEPENDENCY-FAILURE-ERRORS-NAME-ASSET-IDS.md
 DEPENDENCY-RECORD-VERSION-CAPTURED-BEFORE-DEPENDENCY-EVALUATES,issue,"A dependency record captures the dependency's version before the dependency has been evaluated, so it is always unknown",closed,local,,,P1,M,core/assets,,,,keyed-expiry-cascade-fix,,2026-09-05,specs/issues/DEPENDENCY-RECORD-VERSION-CAPTURED-BEFORE-DEPENDENCY-EVALUATES.md
@@ -376,10 +377,10 @@ DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evalua
 DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,core/plan;core/assets;core/context,,,,,2026-09-27,,specs/reference/api/DOC_08_RECIPES_PLANS.md
 ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,core/assets,,,,,2026-10-02,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,core/assets,,,,,2026-09-27,,specs/reference/ASSET_SET_OPERATION.md
-ASSETS,reference,Assets Specification,current,local,,,,,core/assets,,,,,2026-10-02,,specs/reference/ASSETS.md
+ASSETS,reference,Assets Specification,current,local,,,,,core/assets,,,,,2026-10-04,,specs/reference/ASSETS.md
 COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,core/commands;web;py,,,,,2026-09-05,,specs/reference/COMMAND_DECLARATION.md
 CONFORMANCE_TERMS,reference,Conformance Terms,current,local,,,,,docs,,,,,2026-09-02,,specs/reference/CONFORMANCE_TERMS.md
-DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,,core/assets,,,,,2026-10-02,,specs/reference/DEPENDENCIES_STATUS.md
+DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,,core/assets,,,,,2026-10-04,,specs/reference/DEPENDENCIES_STATUS.md
 ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,core/context;core/store;core/assets,,,,,2026-10-02,,specs/reference/ENVIRONMENT_CONFIG.md
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,local,,,,,lib/image,,,,,2026-03-02,,specs/reference/IMAGE_COMMAND_LIBRARY.md
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,core/context;core/commands,,,,,2026-09-04,,specs/reference/PAYLOAD_GUIDE.md

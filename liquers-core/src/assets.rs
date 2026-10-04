@@ -1320,6 +1320,10 @@ impl<E: Environment> AssetData<E> {
                                 self.clear_fast_track_payload();
                                 return Ok(false);
                             }
+                            // Confirmed: remember it, so that a later write or recomputation of
+                            // the dependency is compared with this version rather than taken as a
+                            // first observation that expires nothing.
+                            dm.observe_version(&dep_record.key, dep_record.version).await;
                         }
                         // The version check above answers "was this dependency recomputed into
                         // different content?" and is silent on "is it stale *right now*?" — the
@@ -5143,6 +5147,9 @@ pub trait AssetManager<E: Environment>:
             }
         }
         store.removedir(key).await?;
+        // The parent's membership changed; refreshed before the lock is taken (see
+        // `refresh_listing_version`).
+        self.refresh_listing_version(&key.parent()).await;
         // Directory assets made live by `get`/`makedir` describe what no longer exists.
         let _mutation = self.key_mutation_lock().lock().await;
         for directory in directories {
@@ -5255,9 +5262,18 @@ pub trait AssetManager<E: Environment>:
     /// Only info of assets present directly in the directory are returned,
     /// subdirectories are not traversed.
     async fn listdir_asset_info(&self, key: &Key) -> Result<Vec<AssetInfo>, Error> {
-        let keys = self.listdir_keys(key).await?;
+        let names = self.listdir(key).await?;
+        self.asset_info_of_names(key, &names).await
+    }
+
+    /// Asset info for the entries `names` of directory `key`, sorted as
+    /// [`Self::listdir_asset_info`] sorts them.
+    ///
+    /// For a caller that already holds a listing ([`Self::listdir`]) and needs the value to
+    /// describe exactly that snapshot, such as the directory step, which versions the same names.
+    async fn asset_info_of_names(&self, key: &Key, names: &[String]) -> Result<Vec<AssetInfo>, Error> {
         let mut asset_info = Vec::new();
-        for k in keys {
+        for k in names.iter().map(|name| key.join(name)) {
             let info = self.get_asset_info(&k).await?;
             asset_info.push(info);
         }
@@ -5315,6 +5331,8 @@ pub trait AssetManager<E: Environment>:
     async fn makedir(&self, key: &Key) -> Result<AssetRef<E>, Error> {
         let store = self.get_envref().get_async_store();
         store.makedir(key).await?;
+        // A new directory is a new member of its parent's listing.
+        self.refresh_listing_version(&key.parent()).await;
         let mut data = AssetData::new(
             self.next_id_for_asset(),
             key.into(),
@@ -5708,7 +5726,7 @@ pub trait AssetManager<E: Environment>:
     ) {
         let expired = self
             .dependency_manager()
-            .register_version(dep_key, version)
+            .register_written_version(dep_key, version)
             .await;
         self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
             .await;
@@ -7274,12 +7292,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 Status::Ready | Status::Source | Status::Override
             ) {
                 if let Some(version) = metadata.version {
-                    let expired = self
-                        .dependency_manager
-                        .register_version(&dep_key, version)
-                        .await;
-                    self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
-                        .await;
+                    self.publish_version(&dep_key, version).await;
                 }
             }
 
@@ -7427,12 +7440,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             ) {
                 let version = metadata.version().unwrap_or(Version::unknown());
                 if let Some(version) = metadata.version() {
-                    let expired = self
-                        .dependency_manager
-                        .register_version(&dep_key, version)
-                        .await;
-                    self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
-                        .await;
+                    self.publish_version(&dep_key, version).await;
                 }
                 // Track the asset in the dependency manager
                 let expired = self.dependency_manager.track_asset(&asset_ref).await;
@@ -8561,12 +8569,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 Status::Ready | Status::Source | Status::Override
             ) {
                 if let Some(version) = metadata.version {
-                    let expired = self
-                        .dependency_manager
-                        .register_version(&dep_key, version)
-                        .await;
-                    self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
-                        .await;
+                    self.publish_version(&dep_key, version).await;
                 }
             }
             Ok(())
@@ -8642,12 +8645,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             ) {
                 let version = metadata.version().unwrap_or(Version::unknown());
                 if let Some(version) = metadata.version() {
-                    let expired = self
-                        .dependency_manager
-                        .register_version(&dep_key, version)
-                        .await;
-                    self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
-                        .await;
+                    self.publish_version(&dep_key, version).await;
                 }
                 let expired = self.dependency_manager.track_asset(&asset).await;
                 self.expire_dependencies_result(expired, ExpiryCause::Updated { version })

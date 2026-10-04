@@ -8,9 +8,9 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 146
+Total rows: 147
 - P2: 72
-- P3: 74
+- P3: 75
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
@@ -132,6 +132,7 @@ Total rows: 146
 | [`COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY`](issues/COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY.md) | issue | ColumnMut always copies validity, and rebuilds the whole column to overwrite one Text/Binary cell | draft |  | P3 | M | records | [chunking](specs/design/record-streams/chunking-and-resumability.md)  [engine](specs/design/record-streams/engine-survey.md)  [manifest](specs/design/record-streams/manifest-format.md)  [phase1](specs/design/record-streams/phase1-high-level-design.md)  [phase2](specs/design/record-streams/phase2-architecture.md)  [phase3](specs/design/record-streams/phase3-examples.md)  [phase3](specs/design/record-streams/phase3-tests.md)  [phase4](specs/design/record-streams/phase4-implementation.md)  [phase5](specs/design/record-streams/phase5-documentation.md)  [phase5](specs/design/record-streams/phase5-evidence.md)  [record](specs/design/record-streams/record-model.md)  | 2026-09-26 |
 | [`CORE-STATE-LOCK-API-CLEANUP`](issues/CORE-STATE-LOCK-API-CLEANUP.md) | issue | `State` holds an `RwLock` that may not be needed | accepted |  | P3 | M | core/value |  | 2026-08-08 |
 | [`CORE-STORE-OPENBIN-MISSING`](issues/CORE-STORE-OPENBIN-MISSING.md) | issue | `openbin` is unimplemented in every store | accepted |  | P3 | M | core/store;store/backends |  | 2026-08-08 |
+| [`DEPENDENCY-EDGE-RECORDED-AGAINST-SUPERSEDED-VERSION-IS-NOT-EXPIRED`](issues/DEPENDENCY-EDGE-RECORDED-AGAINST-SUPERSEDED-VERSION-IS-NOT-EXPIRED.md) | issue | A dependent that records an edge against a version the map has already replaced stays Ready | draft |  | P3 | M | core/assets |  | 2026-10-04 |
 | [`DIRECTORY-KEY-CANNOT-BE-EVALUATED-AS-A-RESOURCE`](issues/DIRECTORY-KEY-CANNOT-BE-EVALUATED-AS-A-RESOURCE.md) | issue | A query on a directory resource fails with "No recipe found" instead of giving a Directory state | draft |  | P3 | M | core/assets | [chunking](specs/design/record-streams/chunking-and-resumability.md)  [engine](specs/design/record-streams/engine-survey.md)  [manifest](specs/design/record-streams/manifest-format.md)  [phase1](specs/design/record-streams/phase1-high-level-design.md)  [phase2](specs/design/record-streams/phase2-architecture.md)  [phase3](specs/design/record-streams/phase3-examples.md)  [phase3](specs/design/record-streams/phase3-tests.md)  [phase4](specs/design/record-streams/phase4-implementation.md)  [phase5](specs/design/record-streams/phase5-documentation.md)  [phase5](specs/design/record-streams/phase5-evidence.md)  [record](specs/design/record-streams/record-model.md)  | 2026-09-26 |
 | [`ISSUE-REPORT-PLAN-AND-METADATA-LOGGING`](issues/ISSUE-REPORT-PLAN-AND-METADATA-LOGGING.md) | feature | Reuse structured issue reports for plan validation and metadata logging | draft |  | P3 | M | core/validate;core/plan;core/commands | [phase1](specs/design/variadic-metadata-tail-check/phase1-high-level-design.md)  [phase2](specs/design/variadic-metadata-tail-check/phase2-architecture.md)  [phase3](specs/design/variadic-metadata-tail-check/phase3-examples.md)  [phase4](specs/design/variadic-metadata-tail-check/phase4-implementation.md)  [phase5](specs/design/variadic-metadata-tail-check/phase5-documentation.md)  | 2026-09-05 |
 | [`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`](issues/LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT.md) | issue | Language exception class and stack are lost in transport | accepted |  | P3 | M | core/error;web;py |  | 2026-08-08 |

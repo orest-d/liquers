@@ -222,6 +222,48 @@ impl<E: Environment> DependencyManager<E> {
         }
     }
 
+    /// Write counterpart of [`Self::register_version`]: record `version` as the content just
+    /// written to `key`, and expire every dependent whose recorded version it contradicts.
+    ///
+    /// A write is a change event, so unlike `register_version` a first registration is not "no
+    /// change": after a restart this manager may hold no version for `key` while dependents
+    /// served from the store carry edges recording the old one. Those edges are compared exactly
+    /// as [`Self::expire_stale_dependents`] compares them, so a dependent that recorded this same
+    /// version is spared. Rewriting the version the map already holds expires nothing, as before.
+    pub(crate) async fn register_written_version(
+        &self,
+        key: &DependencyKey,
+        version: Version,
+    ) -> ExpiredDependents<E> {
+        let unchanged = match self.versions.entry_async(key.clone()).await {
+            scc::hash_map::Entry::Occupied(mut entry) => {
+                let unchanged = *entry.get() == version;
+                *entry.get_mut() = version;
+                unchanged
+            }
+            scc::hash_map::Entry::Vacant(entry) => {
+                entry.insert_entry(version);
+                false
+            }
+        };
+        if unchanged {
+            ExpiredDependents::for_root(key.clone())
+        } else {
+            self.expire_stale_dependents(key, version).await
+        }
+    }
+
+    /// Record `version` for `key` only if this manager holds none, without expiring anything.
+    ///
+    /// For a version the caller has just confirmed against the store (the `on_load` check), so
+    /// that a later write or recomputation of `key` is compared with it rather than treated as a
+    /// first observation. An existing entry is left alone: whoever set it owns its cascade.
+    pub(crate) async fn observe_version(&self, key: &DependencyKey, version: Version) {
+        if let scc::hash_map::Entry::Vacant(entry) = self.versions.entry_async(key.clone()).await {
+            entry.insert_entry(version);
+        }
+    }
+
     /// Audit counterpart of [`Self::register_version`]: record `version` for `key`, then compare
     /// it against **every** dependent's recorded version, whether or not this manager held a
     /// version before.
@@ -1108,6 +1150,48 @@ mod tests {
         let v1 = Version::new_unique();
         let v2 = Version::new_unique();
         assert_ne!(v1, v2);
+    }
+
+    // --- Write-path and observed versions ---
+
+    /// After a restart the map holds no version for `a`, while `b`'s edge (loaded from its
+    /// stored record) expects `V1`. A write of `V2` must expire `b`; `register_version` would
+    /// take it as a first observation and expire nothing.
+    #[tokio::test]
+    async fn written_version_on_an_empty_map_expires_contradicted_edges() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let (a, b, c) = (DependencyKey::new("-R/a"), DependencyKey::new("-R/b"), DependencyKey::new("-R/c"));
+        dm.add_dependency(&b, &a, Version::new(1)).await.unwrap();
+        dm.add_dependency(&c, &a, Version::new(2)).await.unwrap();
+        let expired = dm.register_written_version(&a, Version::new(2)).await;
+        assert!(expired.contains_key(&b), "b recorded V1");
+        assert!(!expired.contains_key(&c), "c recorded the written version");
+        assert_eq!(dm.get_version(&a).await, Some(Version::new(2)));
+    }
+
+    #[tokio::test]
+    async fn rewriting_the_held_version_expires_nothing() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let (a, b) = (DependencyKey::new("-R/a"), DependencyKey::new("-R/b"));
+        dm.register_version(&a, Version::new(2)).await;
+        dm.add_dependency(&b, &a, Version::new(1)).await.unwrap();
+        let expired = dm.register_written_version(&a, Version::new(2)).await;
+        assert!(!expired.contains_key(&b));
+    }
+
+    #[tokio::test]
+    async fn observed_version_fills_only_an_empty_entry_and_later_writes_compare_with_it() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let (a, b) = (DependencyKey::new("-R/a"), DependencyKey::new("-R/b"));
+        dm.add_dependency(&b, &a, Version::new(1)).await.unwrap();
+        dm.observe_version(&a, Version::new(1)).await;
+        assert_eq!(dm.get_version(&a).await, Some(Version::new(1)));
+        dm.observe_version(&a, Version::new(9)).await;
+        assert_eq!(dm.get_version(&a).await, Some(Version::new(1)), "an existing entry is kept");
+        // A recomputation registers through `register_version`: with the observed entry it is a
+        // change, so `b` expires.
+        let expired = dm.register_version(&a, Version::new(2)).await;
+        assert!(expired.contains_key(&b));
     }
 
     // --- Register/Get version tests ---

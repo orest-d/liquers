@@ -1204,3 +1204,142 @@ async fn stale_dependency_end_to_end_immediate() -> TestResult {
     scenario_stale_dependency(env.to_ref(), gate).await?;
     Ok(())
 }
+
+/// After a restart, a dependent served from the store and then a Liquers write of its dependency:
+/// the write must expire the dependent even though this process never held a version for the
+/// dependency before the write.
+async fn write_after_restart_expires_served_dependent(policy: DependencyAuditPolicy) -> TestResult {
+    let (snapshot, _) = first_process().await?;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let envref = second_process_with(&snapshot, &[], calls.clone(), policy).await?;
+    let b = load(&envref, "data/b.txt").await?;
+    assert_eq!(calls.load(Ordering::SeqCst), 0, "precondition: b.txt served from the store");
+    let a = parse_key("data/a.txt")?;
+    within(envref.get_asset_manager().set_binary(&a, b"changed", provenance_text_metadata())).await?;
+    assert_eq!(b.status().await, Status::Expired, "{policy:?}: live b.txt");
+    assert_eq!(stored_status(&envref, &parse_key("data/b.txt")?).await?, Status::Expired, "{policy:?}: stored b.txt");
+    Ok(())
+}
+
+#[tokio::test]
+async fn write_after_restart_expires_served_dependent_on_load() -> TestResult {
+    write_after_restart_expires_served_dependent(DependencyAuditPolicy::OnLoad).await
+}
+
+#[tokio::test]
+async fn write_after_restart_expires_served_dependent_explicit() -> TestResult {
+    write_after_restart_expires_served_dependent(DependencyAuditPolicy::Explicit).await
+}
+
+/// A new subdirectory is a new member of the listed folder, so it expires the index like a new
+/// file does.
+#[tokio::test]
+async fn making_a_subdirectory_expires_the_index() -> TestResult {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let envref = index_env(Box::new(index_store("idx", false).await?), calls.clone());
+    put(&envref, "data/a.txt", b"hello").await?;
+    let before = evaluate_index(&envref, "idx").await?;
+    assert!(!before.contains("data/sub"), "{before}");
+
+    within(envref.get_asset_manager().makedir(&parse_key("data/sub")?)).await?;
+
+    assert_eq!(stored_status(&envref, &index_key("idx")?).await?, Status::Expired);
+    let after = evaluate_index(&envref, "idx").await?;
+    assert!(after.contains("data/sub"), "{after}");
+    assert_eq!(calls.load(Ordering::SeqCst), 2, "recomputed once");
+    Ok(())
+}
+
+/// Removing a subdirectory drops a member of the listed folder.
+#[tokio::test]
+async fn removing_a_subdirectory_expires_the_index() -> TestResult {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let envref = index_env(Box::new(index_store("idx", false).await?), calls.clone());
+    put(&envref, "data/a.txt", b"hello").await?;
+    within(envref.get_asset_manager().makedir(&parse_key("data/sub")?)).await?;
+    let before = evaluate_index(&envref, "idx").await?;
+    assert!(before.contains("data/sub"), "{before}");
+
+    within(envref.get_asset_manager().removedir(&parse_key("data/sub")?)).await?;
+
+    assert_eq!(stored_status(&envref, &index_key("idx")?).await?, Status::Expired);
+    let after = evaluate_index(&envref, "idx").await?;
+    assert!(!after.contains("data/sub"), "{after}");
+    assert_eq!(calls.load(Ordering::SeqCst), 2, "recomputed once");
+    Ok(())
+}
+
+/// A store that, once armed, adds `data/late.txt` straight after answering a `listdir` of `data`:
+/// a write that lands after the directory step took its snapshot, while no listing version is
+/// registered yet, so the write's own refresh has nothing to refresh.
+struct LateWriteStore {
+    inner: AsyncMemoryStore,
+    armed: Arc<AtomicBool>,
+}
+
+#[async_trait]
+impl AsyncStore for LateWriteStore {
+    async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+        self.inner.get(key).await
+    }
+
+    async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+        self.inner.set_metadata(key, metadata).await
+    }
+
+    async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+        self.inner.get_metadata(key).await
+    }
+
+    async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+        self.inner.set(key, data, metadata).await
+    }
+
+    async fn contains(&self, key: &Key) -> Result<bool, Error> {
+        self.inner.contains(key).await
+    }
+
+    async fn remove(&self, key: &Key) -> Result<(), Error> {
+        self.inner.remove(key).await
+    }
+
+    async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+        self.inner.is_dir(key).await
+    }
+
+    async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+        let names = self.inner.listdir(key).await?;
+        if key.encode() == "data" && self.armed.swap(false, Ordering::SeqCst) {
+            self.inner
+                .set(&parse_key("data/late.txt")?, b"late", &provenance_text_metadata().into())
+                .await?;
+        }
+        Ok(names)
+    }
+}
+
+/// The directory step versions the listing it read. A write that lands right after that read, and
+/// whose refresh was skipped because nothing was registered yet, must not be lost: the step reads
+/// the listing again once its version is registered, and builds from the moved one.
+#[tokio::test]
+async fn write_after_the_listing_snapshot_is_not_lost() -> TestResult {
+    let armed = Arc::new(AtomicBool::new(false));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let envref = index_env(
+        Box::new(LateWriteStore { inner: index_store("idx", false).await?, armed: armed.clone() }),
+        calls.clone(),
+    );
+    put(&envref, "data/a.txt", b"hello").await?;
+    armed.store(true, Ordering::SeqCst);
+
+    let key = index_key("idx")?;
+    let first = within(envref.get_asset_manager().get(&key)).await?;
+    let first_text = within(first.get()).await?.try_into_string()?;
+    assert!(!armed.load(Ordering::SeqCst), "precondition: the late write happened");
+    assert!(first_text.contains("data/late.txt"), "the step re-read the moved listing: {first_text}");
+
+    let again = within(envref.get_asset_manager().get(&key)).await?;
+    let text = within(again.get()).await?.try_into_string()?;
+    assert!(text.contains("data/late.txt"), "the late member is not lost: {text}");
+    Ok(())
+}

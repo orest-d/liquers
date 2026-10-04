@@ -57,6 +57,16 @@ four that change what a reader of the design would expect:
   (Step 11).
 - The inline manager's `wait_for_dependency` now applies the stale-dependency policy (Step 10).
 
+**Fixed after the PR review (2026-10-04).** Codex found three defects, all confirmed by a test
+that failed first:
+1. After a restart, a Liquers write to a dependency that this process had not yet seen expired
+   nothing: `register_version` took it as a first observation. This held under both policies.
+   Writes now register through `register_written_version`, and the `on_load` check records the
+   version it confirmed.
+2. `makedir` and `removedir` did not refresh the parent listing.
+3. The directory step built its value and its version from two different reads. It now uses one
+   read, and re-reads once the version is registered.
+
 **Omitted:** nothing from the approved scope. The immediate manager's lazy deadline expiry still
 does not cascade, as Phase 2 Example 6 specified. That open decision is now an issue.
 
@@ -133,6 +143,10 @@ During implementation:
 At Phase 5:
 - `IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE`: the open half of
   `IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`.
+
+From the PR review (2026-10-04):
+- `DEPENDENCY-EDGE-RECORDED-AGAINST-SUPERSEDED-VERSION-IS-NOT-EXPIRED`: the window that remains
+  after the directory-step fix below.
 
 Already open and seen again: `WEB-OBJECT06-EXPECTS-A-STALE-ERROR-TYPE-COUNT`, a `main` failure in
 the wasm suite.

@@ -3,7 +3,7 @@ title: Assets Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-02
+reviewed: 2026-10-04
 ---
 # Assets Specification
 
@@ -998,7 +998,8 @@ Recipes themselves cannot be deleted by `remove`.
 - `removedir(key)`: `remove` for every key under the directory (deepest first, directory keys
   skipped), then `store.removedir`, which also deletes the directory's `recipes.yaml` and the
   `Recipe` records `remove` kept; live `Directory` assets under it are unmapped. It takes no lock
-  itself (each `remove` does) and is not atomic. Absent → `KeyNotFound`; not a directory →
+  itself (each `remove` does) and is not atomic. It refreshes the parent's listing version, so
+  what was built from the parent's listing expires. Absent → `KeyNotFound`; not a directory →
   `StatusConflict`.
 - `expire(key)`: a live `Ready`/`Override` asset expires and cascades (`AssetRef::expire`); a
   stored-only `Ready`/`Override` entry is marked `Expired` and its dependents are expired;
@@ -1012,8 +1013,9 @@ Recipes themselves cannot be deleted by `remove`.
   `KeyNotFound`.
 - `lookup_query_asset(query)`: the live asset for a query, without creating or submitting one (a
   pure-key query looks up the key). The observe-only counterpart of `get_asset`.
-- `makedir(key)`: creates the directory in the store and returns an unmapped asset with status
-  `Directory`; it does not call `get`, which fails on a directory.
+- `makedir(key)`: creates the directory in the store, refreshes the parent's listing version, and
+  returns an unmapped asset with status `Directory`; it does not call `get`, which fails on a
+  directory.
 
 ### 11. Concurrent set() Calls (RESOLVED)
 **Problem**: Could concurrent set() calls cause inconsistency?
@@ -1117,6 +1119,7 @@ each with an `ExpiryReason` (§Why an asset is `Expired`). The rules are in
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-04 | §Related keyed operations: `makedir` and `removedir` refresh the parent's listing version (review fix on orest-d/liquers#75). | phase-5 |
 | 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. §AssetManager: the trait is implementable outside core (public `DependencyManagerAccess` / `KeyMutationAccess`, policy accessors), pointing to the new guide. New §Why an asset is `Expired`: `ExpiryReason` (`Direct` / `Cascaded` with root and via), the seven causes with route, scope and level, `record_expiry` as the single overridable writer, and the log wording with real lines. New §Content changed outside Liquers: `HASH_FLAG` (bit 127), `VersionKind`, legacy unflagged verification, the decision table, no-metadata `Source` kept in memory, when the check runs, read-only stores. Open issues 2 and 3 marked resolved. | phase-5 |
 | 2026-09-28 | §Notification Channel: the enum as implemented, with `Expired` and `Removed` (and when `Removed` is sent); the never-implemented `Cancelling`/`MetadataChanged` removed. Scenarios 3 and 5 rewritten. §Remove Semantics: the status-aware decision table replaces "always delete", plus `removedir`, `expire`, `set_description`, `to_override` on a `Source`, the non-evaluating `get_asset_info`, `lookup_query_asset` and `makedir`. | `design/axum-assets-endpoints/` |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. Added §`stored` and `cached` to §AssetManager: what each flag skips in both managers, that an existing stored copy is still preferred, that neither makes an asset volatile, that an uncached keyed asset stays the key's dependency-graph node (`bound_owner_key`) and has its stored copy marked `Expired` on an upstream change, and that `set_state`/`set_binary` read the supplied metadata's flag. §Key ownership: `cached: false` is a third way to have no registered owner. | phase-5 |

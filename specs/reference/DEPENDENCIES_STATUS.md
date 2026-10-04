@@ -3,7 +3,7 @@ title: Status::Dependencies Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-02
+reviewed: 2026-10-04
 ---
 # Dependencies Status Specification
 
@@ -150,19 +150,32 @@ fails fast with `Error::dependency_cycle`. That is pinned by
     version, the current version is resolved through `dependency_version`. A different version, a
     current 0, or a store error refuses the stored copy, so it is recomputed. A recorded unknown is
     compatible and not asked. The comparison is equality, not `Version::matches`, which would
-    accept a current 0.
+    accept a current 0. A version that passes is recorded in the map (`observe_version`, which
+    fills only an empty entry and expires nothing), so a later recomputation of the dependency is
+    compared with it rather than taken as a first observation.
+- **A write through Liquers is always a change.** `set_binary`, `set_state` and
+  `AssetManager::publish_version` register the written version with `register_written_version`,
+  not `register_version`. When the map holds no version for the key, as after a restart while
+  dependents served from the store carry edges recording the old one, the write still expires
+  every dependent whose edge does not record exactly the written version. Rewriting the version
+  the map already holds expires nothing.
 - **A folder listing is a versioned dependency.** `-R-dir/<dir>` (`GetAssetDirectory`) has, as its
   version, the content hash of its sorted, length-prefixed names (`listing_version`) — membership
   only, so rewriting an existing member does not change it (the member's own key cascades). The
-  step records the edge and registers the version, and also sets the listing version on its own
+  step builds its value and its version from the same `listdir` read. After registering the
+  version it reads the listing again (up to three reads in all): a write that landed before the
+  registration skipped its refresh, so a moved listing is registered and used instead. It records
+  the edge and registers the version, and also sets the listing version on its own
   query asset's metadata: `-R-dir/` is an evaluation boundary, so the dependent learns the version
   from there through `wait_for_dependency_recording` and `track_asset` / `load_from_records`.
   After every manager-mediated write or removal — an evaluation persisting a keyed value,
-  `set_binary`, `set_state`, `remove`, and an outside change deleted as corrupted — the parent
+  `set_binary`, `set_state`, `remove`, `makedir`, `removedir`, and an outside change deleted as
+  corrupted — the parent
   listing is recomputed by `refresh_listing_version`, **only if** the version map already holds a
   version for it, and its dependents are expired with `Updated { version }` when it moved. A
   `listdir` error there is logged, not fatal. A change made to the folder outside Liquers is
-  found only by an audit.
+  found only by an audit. A write after the step's last read, but before the dependent records its
+  edge, is not caught in-process (`DEPENDENCY-EDGE-RECORDED-AGAINST-SUPERSEDED-VERSION-IS-NOT-EXPIRED`).
 - **A change expires only what it provably affects.** Each edge records the version its dependent
   observed, and `register_version` spares a dependent only when that expectation is concrete and
   equal to the new version. An edge recording `Version::unknown()` is expired: no evidence either
@@ -373,6 +386,11 @@ This path handles dependencies known before command execution.
   and the direct findings.
 - `DependencyManager::stale_edges(key, version)` (crate): the direct edges `version` contradicts.
   Read-only.
+- `DependencyManager::register_written_version(key, version)` (crate): the write path's
+  registration. A first registration counts as a change, so dependents whose edges record another
+  version expire; an unchanged entry expires nothing.
+- `DependencyManager::observe_version(key, version)` (crate): fill an empty entry with a version
+  just confirmed against the store, expiring nothing (the `on_load` check).
 - `AssetManager::dependency_version(dep_key)`: the current version of a `-R/` key (`version`) or a
   `-R-dir/` key (listing version), without evaluating; any other key answers 0.
 - `AssetManager::refresh_listing_version(dir)`: recompute and register a listing version iff one
@@ -409,6 +427,7 @@ Dependency evaluation is now non-blocking and deadlock-free (see
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-04 | Review fixes on orest-d/liquers#75: writes register through `register_written_version` (a first registration is a change); `on_load` records a version it confirmed; `makedir` / `removedir` refresh the parent listing; the directory step versions the read that built its value and re-reads once registered. | phase-5 |
 | 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. Current contract: versions are `from_content`; the "never / policy not expressible" bullet replaced by audits on first observation (`audit_version`), `AuditMode::ReportOnly` / `AuditFinding`, `DependencyAuditPolicy` (`explicit` / `on_load`) and folder-listing (`-R-dir/`) versions with their refresh. Flow B uses `submit` / `wait_for_dependency`; Flow C records an unknown edge for an unversioned plan dependency; glossary gains `submit`, `wait_for_dependency`, `audit_version`, `stale_edges`, `dependency_version`, `refresh_listing_version`. | phase-5 |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. Current contract gains two bullets from its review fix: a `cached: false` keyed asset stays its key's graph node through `bound_owner_key` when no other asset is registered, and `expire_dependencies_result` marks the stored copy of an expired key no registered asset holds `Expired` (from `Ready`/`Override` only). The rest of the contract was not re-verified beyond what these touch. | phase-5 |
 | 2026-09-06 | Computed keyed assets now carry a concrete version, assigned atomically with their status; `add_dependency` records without verifying and the graph does no I/O; verification moves to opt-in `trigger_dependency_audit*` with a default of never; edges carry the dependent's expected version so a change expires only what it provably affects; `Version(0)` means "unknown" and nothing else. Current-contract bullets rewritten, Flow A step 3 and Flow B step 4 corrected. | `specs/design/keyed-expiry-cascade-fix/` |
