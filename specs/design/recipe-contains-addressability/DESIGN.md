@@ -1,7 +1,7 @@
 ---
 id: RECIPE-CONTAINS-ADDRESSABILITY
 kind: design
-title: Recipe provider contains answers addressability, not listing
+title: Separate listed (contains) and producible (can_make) questions on recipe providers
 status: in_review
 phase: implementation
 readiness: needs-decision

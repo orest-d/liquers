@@ -1,32 +1,55 @@
-# Phase 3: Examples and Tests - `AsyncRecipeProvider::contains` Answers Addressability
+# Phase 3: Examples and Tests - `contains` (Listed) and `can_make` (Producible)
 
 ## Example
 
-A conversion provider: for any `X.parquet` whose `X.csv` exists, `recipe_opt` returns a recipe
-`-R/<dir>/X.csv/-/to_parquet`, while `assets_with_recipes` lists nothing. Before: `contains` →
-`false`; `AssetManager::contains(data/table.parquet)` → `false` unless stored. After: `true`.
+`data/sales/daily.manifest.yaml` lists explicit chunk `summary.csv` and a template
+`daily_NNNN.csv`.
 
-## Tests to Add (`liquers-core/src/recipes.rs`, `mod tests`)
+| Call | `summary.csv` | `daily_0042.csv` | `other.csv` |
+|---|---|---|---|
+| `ManifestRecipeProvider::contains` | true | **false** (not listed) | false |
+| `ManifestRecipeProvider::can_make` | true | true | false |
+| `AssetManager::contains` (recommended) | true | false | false |
+| `AssetManager::can_make` (recommended) | true | true | false |
+| `AssetManager::get_asset_info` | recipe info | recipe info | `KeyNotFound` |
 
-Use the existing `TestEnv` and `MockProvider` scaffolding (≈2040-2110).
+## Tests to Add or Change
+
+### `liquers-core/src/recipes.rs` (`mod tests`, existing `TestEnv`/`MockProvider` scaffolding ≈2040-2110)
 
 | Test | Setup | Asserts | Criterion |
 |---|---|---|---|
-| `default_contains_answers_for_an_unlisted_producible_key` | new test provider `PatternProvider`: `has_recipes → Ok(false)`, `assets_with_recipes → Ok(vec![])`, `recipe_opt(key) → Some(Recipe::from(&key))` when `key.filename()` ends with `.gen`, else `None`; **no `contains` override** | `contains(a/x.gen) == true`, `contains(a/x.txt) == false` | 1, 2 |
-| `default_provider_contains_matches_its_listing` | `DefaultRecipeProvider` with a `recipes.yaml` in `data/` declaring `a.txt`, `b.txt` | `contains(data/a.txt)`, `contains(data/b.txt)` true; `contains(data/c.txt)` false; `contains(other/a.txt)` false | 3 |
-| `contains_propagates_recipe_errors` | `recipes.yaml` with malformed YAML | `contains(data/a.txt)` is `Err` | 4 |
+| `on_demand_provider_splits_contains_and_can_make` | test `PatternProvider`: lists nothing, `recipe_opt` = `Some(Recipe::from(&key))` for names ending `.gen`; overrides neither method | `contains(a/x.gen) == false`, `can_make(a/x.gen) == true`, both false for `a/x.txt` | 1, 2 |
+| `default_provider_contains_equals_can_make` | `DefaultRecipeProvider`, `data/recipes.yaml` declaring `a.txt`, `b.txt` | for `data/a.txt`, `data/b.txt`, `data/c.txt`, `other/a.txt`: `contains == can_make`, true only for the first two | 3 |
+| `chain_forwards_contains_and_can_make` | chain of `MockProvider` (lists `dir/a`) and `PatternProvider` | `contains(dir/a)`, `!contains(dir/x.gen)`, `can_make(dir/x.gen)` | 5 |
+| `can_make_propagates_recipe_errors` | malformed `recipes.yaml` | `can_make(data/a.txt)` is `Err` | 7 |
+| existing `contains_is_true_if_any_provider_has_the_recipe` (≈2101) | — | re-run; if its mock does not list the keys, rename to `can_make_…` and assert `can_make` | 5 |
 
-Existing tests to keep green: `contains_is_true_if_any_provider_has_the_recipe` (≈2101),
-`liquers-records` `contains_answers_for_a_template_name_far_beyond_any_listing` (≈565), and the
-`plan.rs` `CountingRecipeProvider` tests.
+### `liquers-records/src/provider.rs` (`mod tests`)
 
-For the alternative option, add `trivial_provider_contains_nothing` and keep the three above.
+| Test | Change | Criterion |
+|---|---|---|
+| `contains_answers_for_a_template_name_far_beyond_any_listing` | rename to `can_make_answers_for_a_template_name_far_beyond_any_listing`, assert `can_make`; add `assert!(!contains(...))` for the same key | 4 |
+| new `contains_reports_only_explicit_chunks` | `contains` true for an explicit chunk, false for a template chunk | 4 |
+
+### `liquers-core/src/assets.rs` (`mod tests`, recommended answer)
+
+`manager_can_make_covers_unlisted_producible_keys`: environment whose recipe provider is the
+`PatternProvider`; `contains(a/x.gen) == false`, `can_make(a/x.gen) == true`,
+`get_asset_info(a/x.gen)` is `Ok` (criterion 6).
+
+### `liquers-axum/tests/` (recommended answer)
+
+Extend the assets API integration tests: `GET {b}/key/can_make/a/x.gen` → `can_make: true`;
+`GET {b}/key/contains/a/x.gen` → `contains: false`; `submit` of `a/x.gen` succeeds (guard uses
+`can_make`).
 
 ## Setup
 
-Memory store; `recipes.yaml` written with `store.set`. No commands need executing: `contains`
-does not plan or evaluate. `Recipe::from(&Key)` builds a valid ad-hoc recipe.
+Memory store, `recipes.yaml` written with `store.set`. No commands executed: `contains` and
+`can_make` neither plan nor evaluate.
 
 ## Coverage Review
 
-Criteria 1-4 covered by unit tests; 5 is a documentation step in Phase 4.
+Criteria 1-7 covered by unit tests; criterion 8 is a documentation step. The axum and manager
+tests encode the recommended answer and are the ones to change under the alternative.
