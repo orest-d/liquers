@@ -1,0 +1,22 @@
+# Phase 4: Implementation Plan - Resolvable Design-Phase Links in `index.md`
+
+1. **Reproduce.** In `scripts/docs_index.py` `tracked_markdown_paths`, add `specs / "index.md"`;
+   run `python3 scripts/docs_index.py --check` and confirm it now reports the phase links as dead
+   links in `specs/index.md`. This is the failing proof.
+2. **Fix the link base.** `render_index_markdown`: `x.relative_to(REPO)` → `x.relative_to(SPECS)`.
+   Run `python3 scripts/docs_index.py` (regenerates `specs/index.md`, `index.csv`, README blocks)
+   and `python3 scripts/docs_index.py --check` → 0 errors. Depends on 1.
+3. **Tests.** Add the two Phase 3 tests to `scripts/test_docs_index.py`;
+   `python3 -m unittest scripts/test_docs_index.py`.
+4. **Docs and records.** `specs/DOCS_STRUCTURE_GUIDE.md` §7.2: say the dead-link check also
+   covers the generated `index.md`; History row and `reviewed:` bump. Close
+   `specs/issues/DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS.md` with a resolution naming both tests.
+   Regenerate and check again.
+5. **Review.** Diff: two script lines, tests, the guide, the regenerated files (phase-link
+   rewrite only — confirm no other row changed with `git diff specs/index.md | grep '^[-+]' |
+   grep -v 'design/'`), and the issue.
+
+## Final Review
+
+Consistent across phases; local to the docs tooling. Rollback: revert the two script lines and
+regenerate.

@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [core/context]
-design: 
+design: context-title-description
 created: 2026-09-16
 github:
 ---

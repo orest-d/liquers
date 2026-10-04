@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [web]
-design:
+design: web-object06-error-type-exhaustiveness
 created: 2026-09-30
 github:
 ---

@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [core/value]
-design: 
+design: metadata-serde-partialeq
 created: 2026-09-26
 github:
 ---

@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [core/assets]
-design:
+design: listdir-keys-deep-recipe-union
 created: 2026-09-28
 github:
 ---
