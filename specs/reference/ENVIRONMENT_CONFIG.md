@@ -3,7 +3,7 @@ title: Environment Configuration
 kind: reference
 audience: both
 area: [core/context, core/store, core/assets]
-reviewed: 2026-09-27
+reviewed: 2026-10-02
 ---
 # Environment Configuration
 
@@ -37,13 +37,29 @@ store:                          # StoreRouterConfig, verbatim
 recipes: default                # default | trivial
 assets:
   job_capacity: 8               # queued managers only
+  dependency_audit: on_load     # explicit | on_load
+  verify_versions: on_read      # off | on_read
+  external_change: user_input   # user_input | corrupted
 ```
 
 | Field | Type | Default when absent | Meaning |
 |---|---|---|---|
 | `store` | `StoreRouterConfig` | empty router | Store list and routing prefixes. See [Store Configuration](./STORE_CONFIG_FSD.md); the format is not restated here. |
 | `recipes` | `RecipeProviderChoice` | **`default`** | `default` reads recipes through the store (a folder whose `recipes.yaml` key the store refuses as unsupported simply has none); `trivial` resolves none. Aliases `none` and `no_recipes` are accepted for `trivial`. Selects the **base** provider only — see §The recipe provider chain. |
-| `assets` | `AssetManagerOptions` | all unset | Per-manager settings. `job_capacity` sets the queued manager's job-queue size; **must be at least 1**. |
+| `assets` | `AssetManagerOptions` | all unset | Per-manager settings, below. |
+
+`assets` (`AssetManagerOptions`, `liquers-core/src/environment_builder.rs`). A field at its default
+is omitted when the options are serialized.
+
+| Key | Values | Default | Meaning |
+|---|---|---|---|
+| `job_capacity` | integer | the manager's own (4) | Queued manager's job-queue size; **must be at least 1**. |
+| `dependency_audit` | `explicit` \| `on_load` | `explicit` | When recorded dependency versions are verified. `explicit`: only when `trigger_dependency_audit*` is called. `on_load`: also when a keyed asset is loaded from the store — a recorded dependency the dependency manager holds no version for is resolved, and a different or missing current version refuses the stored copy, so it is recomputed. See [Dependencies status](./DEPENDENCIES_STATUS.md). |
+| `verify_versions` | `off` \| `on_read` | `on_read` | Whether stored bytes are re-hashed against their recorded version where the manager already reads them (fast track, `*_any_status`, `verify_stored_versions`). `off` never hashes, so outside edits go unnoticed. |
+| `external_change` | `user_input` \| `corrupted` | `user_input` | What a mismatch on a **recipe-backed** stored value means: `user_input` turns it into an `Override`; `corrupted` deletes the stored copy so the recipe recomputes it. A `Source` or `Override` is always kept as input. See [ASSETS §Content changed outside Liquers](./ASSETS.md#content-changed-outside-liquers). |
+
+All three policies apply to both built-in kinds (`Queued`, `Inline`). In code they are
+`AssetManagerOptions::with_dependency_audit`, `with_verify_versions` and `with_external_change`.
 
 Every field has a serde default, so a document may configure one section and omit the rest, and a
 field added later does not break an existing document. Unknown keys are currently **ignored**
@@ -169,5 +185,6 @@ yet, so no built-in path calls it today; an application that does must.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. §Format gains the `assets` key table: `dependency_audit` (`explicit` \| `on_load`), `verify_versions` (`off` \| `on_read`) and `external_change` (`user_input` \| `corrupted`), with defaults and meaning, checked against `AssetManagerOptions`' serde names. | phase-5 |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. Added §The recipe provider chain: `RecipeProviderChain` and its delegation rules, `with_appended_recipe_provider` on the builder and on `GenericEnvironment`, `RecipeProviderChoice` unchanged and selecting only the base, `liquers-lib`'s `[DefaultRecipeProvider, ManifestRecipeProvider]` default with `records`, and `with_records_recipe_provider()` for a build that sets its own base. `recipes: default` answers "no recipes" for a folder the store refuses as unsupported. | phase-5 |
 | 2026-08-31 | Created with `EnvironmentConfig`: fields, constructors, deferred failures, the two deliberate omissions, and the `recipes`-absent asymmetry. | `design/environment-builder/phase-5` |

@@ -3,7 +3,7 @@ title: Unit Testing Guide
 kind: guide
 audience: internal
 area: [build, core/assets]
-reviewed: 2026-09-15
+reviewed: 2026-10-02
 ---
 # Liquers Unit Testing Guide
 
@@ -754,6 +754,34 @@ recomputed — and surfaced months later as a complaint about speed. Where one d
 is invisible to the suite, write the test that makes it visible *first*, on unmodified code, so you
 have seen it pass for the right reason.
 
+### Write manager-contract tests once, in `manager_scenarios.rs`
+
+A test of what *any* asset manager must do — not of one manager's scheduling — belongs in
+`liquers-core/tests/common/manager_scenarios.rs`, as a generic function:
+
+```rust
+pub async fn scenario_basic_eval<E>(envref: EnvRef<E>) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    let asset = envref.get_asset_manager().get_asset(&q("greet")).await?;
+    let state = asset.get().await?;
+    assert_eq!(state.status(), Status::Ready);
+    assert_eq!(state.try_into_string()?, "hello");
+    Ok(())
+}
+```
+
+Then call it from every suite that runs the scenarios: `tests/manager_parametric.rs`, once per
+built-in manager (`SimpleEnvironment` is queued, `ImmediateEnvironment` inline), and
+`tests/external_asset_manager.rs`, against `MinimalInlineAssetManager`, a manager written outside
+core. A test written for one manager only proves nothing about the others, and an external manager
+can only be held to a contract it can run. Put the fixture store and command registration the
+scenario needs beside it, generic over `E`, and observe through the public API and the store, not
+through a manager's internals. Do not assert what differs by design, such as the queued manager's
+`Submitted` status. See
+[`ASSET_MANAGER_IMPLEMENTATION_GUIDE.md`](./ASSET_MANAGER_IMPLEMENTATION_GUIDE.md) §10.
+
 ---
 
 ## Best Practices
@@ -867,6 +895,7 @@ async fn test_error_handling() -> Result<(), Box<dyn std::error::Error>> {
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-02 | §Testing Assets: added "Write manager-contract tests once, in `manager_scenarios.rs`" — generic scenarios run by `manager_parametric.rs` against both built-in managers and by `external_asset_manager.rs` against a manager written outside core. Only that section was checked against the code. | phase-5 (`design/dependency-audit-and-expiry-provenance/`) |
 | 2026-09-15 | Added §Testing Assets: wait with `get().await` before reading `status()`; `set_value`/`set_state` persist; simulate a restart by re-hydrating rather than sharing a store, with `StoreSnapshot`; assert an evaluation counter rather than a value; size a store wrapper by compiling it; assert deltas; assert that the success path can succeed. Promoted from `CROSS-PROCESS-RELOAD-IS-UNTESTED`, whose own condition for promotion was a third recurrence. | `stale-dependency-status-finalization` |
 | 2026-09-04 | Replaced the removed synchronous `AsyncStoreWrapper` example with direct `AsyncMemoryStore` setup and async byte writes. | `DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS` |
 | 2026-09-01 | Corrected repository-relative links in the See Also section. | `DOCS-DEAD-LINKS-OUTSIDE-README` |

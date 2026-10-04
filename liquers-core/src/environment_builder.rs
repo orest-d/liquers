@@ -27,6 +27,7 @@ use std::sync::Arc;
 
 use crate::assets::AssetManager;
 use crate::commands::{CommandRegistry, PayloadType};
+use crate::assets::ExternalChangePolicy;
 use crate::context::{EnvRef, Environment, GenericEnvironment};
 use crate::error::Error;
 use crate::issue_report::IssueReport;
@@ -53,9 +54,76 @@ pub struct AssetManagerOptions {
     /// evaluations and never run them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub job_capacity: Option<usize>,
+    /// When recorded dependency versions are verified. Default: [`DependencyAuditPolicy::Explicit`].
+    #[serde(default, skip_serializing_if = "DependencyAuditPolicy::is_explicit")]
+    pub dependency_audit: DependencyAuditPolicy,
+    /// Whether stored bytes are re-hashed on read. Default: [`VersionVerification::OnRead`].
+    #[serde(default, skip_serializing_if = "VersionVerification::is_on_read")]
+    pub verify_versions: VersionVerification,
+    /// What a version mismatch on a recipe-backed value means. Default: `UserInput`.
+    #[serde(default, skip_serializing_if = "ExternalChangePolicy::is_user_input")]
+    pub external_change: ExternalChangePolicy,
+}
+
+/// When recorded dependency versions are verified against current ones.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DependencyAuditPolicy {
+    /// Only when `trigger_dependency_audit*` is called. The default (and the behaviour before
+    /// policies existed), and the choice for exploratory work where intermediates are deleted by
+    /// hand.
+    #[default]
+    Explicit,
+    /// Also when a keyed asset is loaded from the store (`try_fast_track`): each recorded
+    /// dependency the manager holds no version for is resolved, and a mismatch or a missing current
+    /// version refuses the fast track, so the asset is recomputed. The strict service.
+    OnLoad,
+}
+
+impl DependencyAuditPolicy {
+    /// True for the default; used by `skip_serializing_if`.
+    pub fn is_explicit(&self) -> bool {
+        matches!(self, DependencyAuditPolicy::Explicit)
+    }
+}
+
+/// Whether stored bytes are re-hashed and compared with their recorded version.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VersionVerification {
+    /// Never re-hash; outside edits go unnoticed (the behaviour before verification existed).
+    Off,
+    /// Re-hash wherever the manager has already read the bytes (fast track, `*_any_status`).
+    #[default]
+    OnRead,
+}
+
+impl VersionVerification {
+    /// True for the default; used by `skip_serializing_if`.
+    pub fn is_on_read(&self) -> bool {
+        matches!(self, VersionVerification::OnRead)
+    }
 }
 
 impl AssetManagerOptions {
+    /// Sets the dependency audit policy.
+    pub fn with_dependency_audit(mut self, policy: DependencyAuditPolicy) -> Self {
+        self.dependency_audit = policy;
+        self
+    }
+
+    /// Sets the version verification policy.
+    pub fn with_verify_versions(mut self, policy: VersionVerification) -> Self {
+        self.verify_versions = policy;
+        self
+    }
+
+    /// Sets the external change policy.
+    pub fn with_external_change(mut self, policy: ExternalChangePolicy) -> Self {
+        self.external_change = policy;
+        self
+    }
+
     /// Sets the job-queue capacity.
     pub fn with_job_capacity(mut self, capacity: usize) -> Self {
         self.job_capacity = Some(capacity);
@@ -115,7 +183,7 @@ impl AssetManagerKind for Queued {
         envref: EnvRef<E>,
         options: &AssetManagerOptions,
     ) -> Result<Arc<Self::Manager<E>>, Error> {
-        Ok(Arc::new(match options.job_capacity {
+        let manager = match options.job_capacity {
             // A zero capacity is not "no limit", it is a deadlock: the job queue starts an asset
             // only while `running_count < capacity`, so with zero nothing ever starts and every
             // submitted evaluation parks forever. The caller gets a hang with no error, which is
@@ -123,13 +191,18 @@ impl AssetManagerKind for Queued {
             // configuration document, not just from a deliberate `with_capacity(0)`.
             Some(0) => {
                 return Err(Error::general_error(
-                    "job_capacity is 0; the queued asset manager would accept work and never run                      it. Use at least 1, or leave it unset for the default."
+                    "job_capacity is 0; the queued asset manager would accept work and never run it. Use at least 1, or leave it unset for the default."
                         .to_string(),
                 ))
             }
             Some(capacity) => crate::assets::DefaultAssetManager::with_capacity(envref, capacity),
             None => crate::assets::DefaultAssetManager::new(envref),
-        }))
+        };
+        Ok(Arc::new(manager.with_policies(
+            options.dependency_audit,
+            options.verify_versions,
+            options.external_change,
+        )))
     }
 }
 
@@ -151,7 +224,13 @@ impl AssetManagerKind for Inline {
                 "job_capacity is set, but the inline asset manager has no job queue".to_string(),
             ));
         }
-        Ok(Arc::new(crate::assets::ImmediateAssetManager::new(envref)))
+        Ok(Arc::new(
+            crate::assets::ImmediateAssetManager::new(envref).with_policies(
+                options.dependency_audit,
+                options.verify_versions,
+                options.external_change,
+            ),
+        ))
     }
 }
 
@@ -587,21 +666,21 @@ mod tests {
         let expired = manager.dependency_manager().expire(&command_key).await;
         let dependent_dep_key = DependencyKey::from(&dependent);
         assert!(
-            expired.keys.contains(&dependent_dep_key),
+            expired.contains_key(&dependent_dep_key),
             "expiring the command must cascade to the asset that depends on it; got {:?}",
             expired.keys
         );
     }
 
-    /// The other half of T2: what the defect actually looked like.
+    /// The other half of T2: a dependency key with no registered version.
     ///
-    /// A dependency key with no registered version is skipped by `register_plan_dependencies`,
-    /// silently, and no edge forms. Before this work *every* command key was in that state during
-    /// the startup window, so this is not a hypothetical failure mode — it is the failure that was
-    /// happening, reproduced here on purpose. It is also why the fix had to be a construction-time
-    /// guarantee rather than a check: there is no error to notice.
+    /// `register_plan_dependencies` used to skip such a key silently, so no edge formed. Before the
+    /// startup guarantee *every* command key was in that state during the startup window. It now
+    /// adds the edge with `Version::unknown()` (dependency-audit-and-expiry-provenance, Step 8),
+    /// so the dependent is reachable by whatever registers a version later — a folder listing, in
+    /// practice — and expires on it.
     #[tokio::test]
-    async fn an_unregistered_dependency_version_registers_no_edge() {
+    async fn an_unregistered_dependency_version_registers_an_unknown_edge() {
         use crate::dependencies::{DependencyRelation, PlanDependency};
 
         let mut builder = EnvironmentBuilder::<Value>::new();
@@ -609,8 +688,7 @@ mod tests {
         let envref = builder.build().expect("build");
         let manager = envref.get_asset_manager();
 
-        // A command that was never registered, so startup never gave it a version — exactly the
-        // state every command was in before `build()` awaited startup.
+        // A command that was never registered, so startup never gave it a version.
         let unknown = DependencyKey::for_command_metadata(&CommandKey::new_name("never_declared"));
         let dependent = crate::parse::parse_key("report.txt").expect("key");
 
@@ -623,15 +701,15 @@ mod tests {
                 )],
             )
             .await
-            .expect("register reports success even though it registered nothing");
+            .expect("register");
 
         // `expire` reports the key itself alongside its dependents, so the assertion is about the
-        // dependent: it is absent, because no edge was ever created for it.
+        // dependent: it is present, because the edge was created with an unknown version.
         let expired = manager.dependency_manager().expire(&unknown).await;
         let dependent_dep_key = DependencyKey::from(&dependent);
         assert!(
-            !expired.keys.contains(&dependent_dep_key),
-            "no edge can exist for a version the manager never saw; got {:?}",
+            expired.contains_key(&dependent_dep_key),
+            "the edge exists although no version was registered; got {:?}",
             expired.keys
         );
     }
@@ -705,4 +783,63 @@ mod tests {
             Err(e) => assert!(e.to_string().contains("store configuration")),
         }
     }
+    #[test]
+    fn audit_policy_defaults_to_explicit_and_round_trips() {
+        assert_eq!(DependencyAuditPolicy::default(), DependencyAuditPolicy::Explicit);
+        assert!(DependencyAuditPolicy::Explicit.is_explicit());
+        assert!(!DependencyAuditPolicy::OnLoad.is_explicit());
+        assert_eq!(AssetManagerOptions::default().dependency_audit, DependencyAuditPolicy::Explicit);
+        for policy in [DependencyAuditPolicy::Explicit, DependencyAuditPolicy::OnLoad] {
+            let yaml = serde_yaml::to_string(&policy).expect("serialize");
+            let back: DependencyAuditPolicy = serde_yaml::from_str(&yaml).expect("parse");
+            assert_eq!(back, policy);
+        }
+        let on_load: DependencyAuditPolicy = serde_yaml::from_str("on_load").expect("snake_case");
+        assert_eq!(on_load, DependencyAuditPolicy::OnLoad);
+    }
+
+    #[test]
+    fn options_omit_defaults_in_yaml() {
+        let yaml = serde_yaml::to_string(&AssetManagerOptions::default()).expect("serialize");
+        assert!(!yaml.contains("dependency_audit"), "{yaml}");
+        assert!(!yaml.contains("verify_versions"), "{yaml}");
+        assert!(!yaml.contains("external_change"), "{yaml}");
+        let parsed: AssetManagerOptions = serde_yaml::from_str("{}").expect("empty parses");
+        assert_eq!(parsed, AssetManagerOptions::default());
+    }
+
+    #[test]
+    fn options_write_non_defaults() {
+        let options = AssetManagerOptions::default()
+            .with_dependency_audit(DependencyAuditPolicy::OnLoad)
+            .with_verify_versions(VersionVerification::Off)
+            .with_external_change(ExternalChangePolicy::Corrupted);
+        let yaml = serde_yaml::to_string(&options).expect("serialize");
+        assert!(yaml.contains("dependency_audit: on_load"), "{yaml}");
+        assert!(yaml.contains("verify_versions: off"), "{yaml}");
+        assert!(yaml.contains("external_change: corrupted"), "{yaml}");
+        let back: AssetManagerOptions = serde_yaml::from_str(&yaml).expect("parse");
+        assert_eq!(back, options);
+    }
+
+    #[test]
+    fn with_dependency_audit_sets_policy() {
+        let options = AssetManagerOptions::default().with_dependency_audit(DependencyAuditPolicy::OnLoad);
+        assert_eq!(options.dependency_audit, DependencyAuditPolicy::OnLoad);
+    }
+
+    #[test]
+    fn with_verify_versions_sets_policy() {
+        assert_eq!(AssetManagerOptions::default().verify_versions, VersionVerification::OnRead);
+        let options = AssetManagerOptions::default().with_verify_versions(VersionVerification::Off);
+        assert_eq!(options.verify_versions, VersionVerification::Off);
+    }
+
+    #[test]
+    fn with_external_change_sets_policy() {
+        assert_eq!(AssetManagerOptions::default().external_change, ExternalChangePolicy::UserInput);
+        let options = AssetManagerOptions::default().with_external_change(ExternalChangePolicy::Corrupted);
+        assert_eq!(options.external_change, ExternalChangePolicy::Corrupted);
+    }
+
 }

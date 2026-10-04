@@ -3,7 +3,7 @@ title: Assets and Execution Lifecycle Reference
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-09-27
+reviewed: 2026-10-02
 ---
 # DOC-03: Assets and Execution Lifecycle
 
@@ -262,8 +262,27 @@ entry. Except for explicitly supplied `Expired` and `Error`, external values bec
 - Public expiration cascades to dependents.
 
 The queued manager monitors finite future deadlines. The immediate manager has no
-timer and detects expiration lazily during manager access. Volatile assets finish
-as `Volatile` and are not placed in the reusable maps.
+timer and detects expiration lazily during manager access (`get`, `get_asset`):
+a `Ready` asset whose deadline has passed is expired and replaced, without a
+cascade to its dependents. Volatile assets finish as `Volatile` and are not placed
+in the reusable maps.
+
+Every route into `Expired` records why, as `MetadataRecord.expiry_reason`, through
+`AssetManager::record_expiry` and in the same metadata write as the status:
+
+| Route | Expired asset | Its dependents |
+|---|---|---|
+| Queued expiration monitor; immediate lazy check | `Direct { Deadline { expiration_time } }` | `Cascaded { Deadline, root, via }` (queued only) |
+| `AssetRef::expire`, `AssetManager::expire(key)` | `Direct { Explicit }` | `Cascaded { Explicit, … }` |
+| Run that consumed a dependency expired meanwhile | `Direct { StaleDependency { dependency } }` | `Cascaded { StaleDependency, root: this asset, … }` |
+| Dependency audit (`trigger_dependency_audit*`) | — | `Cascaded { Audit { found }, … }` |
+| New content through Liquers (recompute, `set_state`, `set_binary`, command version, folder listing) | — | `Cascaded { Updated { version }, … }` |
+| Stored bytes changed outside Liquers | — (becomes input or is deleted) | `Cascaded { UpdatedInStore { actual }, … }` |
+| `AssetManager::remove` deleting a value | — | `Cascaded { Removed, … }` |
+
+The reason is read through `Metadata::expiry_reason()` and is `None` unless the
+status is `Expired`. It is never consulted by a read; the wording and levels of its
+log line are in [`ASSETS.md`](../ASSETS.md) §Why an asset is `Expired`.
 
 If a dependency expires after it has already been admitted to an evaluation, the
 current run uses the retained value rather than recursively restarting. The parent
@@ -291,9 +310,11 @@ uses:
 terminal notification and returns success on timeout. The cancellation flag guards
 later store writes.
 
-`AssetManager::remove` cancels an in-memory keyed asset, removes it from the manager
-and dependency manager, and removes stored data. It does not delete the recipe, so
-a recipe-backed asset can be requested and evaluated again.
+`AssetManager::remove` cancels an in-memory keyed asset and unmaps it, then decides by
+status: a user value (`Source`, `Override`) or a key without a recipe is deleted from the
+store and the dependency graph, expiring its dependents; a computed value under a recipe
+is dropped and its stored record rewritten as `Recipe` with the version kept, expiring
+nothing. It never deletes the recipe. See [`ASSETS.md`](../ASSETS.md) §Remove Semantics.
 
 ## Public versus infrastructure APIs
 
@@ -357,7 +378,6 @@ Synchronous startup did not change that, and the distinction is per manager rath
 | Priority | Gap | Evidence and impact | Recommended action |
 |---:|---|---|---|
 | P0 | Recovery “data-bearing” contract differs between memory and store | Manager `get_any_status` checks `has_data` for store fallback, but delegates to `AssetRef::get_any_status` in memory, where `Error` and `Cancelled` produce no-value states | Define whether recovery returns diagnostic no-value states or only retained values, then test both paths |
-| P1 | Public trait exposes a private dependency-manager type | Rust warns that `AssetManager::dependency_manager` is public while `DependencyManager` is `pub(crate)`; external implementations cannot name the required return type | Move lifecycle primitives to a sealed/internal trait or make the type intentionally public |
 | P1 | Existing asset specifications describe nonexistent partial/checkpoint APIs | `ASSETS.md` presents `Context::set_partial`, `get_partial`, `has_partial`, preview/checkpoint metadata, and transitions that are absent from source | Mark those sections proposed or move them to a design document |
 | P1 | Existing lifecycle map uses stale public/private entry points and source lines | `ASSET_LIFECYCLE.md` presents internal `run`, `run_immediately`, and other methods as public entry points and predates the inline manager | Regenerate it from the verified reference or label it historical |
 | P1 | `AssetRef::to_override` and manager `to_override` have different safety envelopes | The handle method can manufacture a none-valued override from several data-less states; the manager method is documented as promoting a data-bearing keyed state | Define one promotion invariant and reject states that do not satisfy it |
@@ -407,14 +427,17 @@ Review verification on 2026-08-09:
 - All relative Markdown links in `specs/reference/api/` resolve
 - `git diff --check` passes
 
-The test build still reports the existing `private_interfaces` warning for
-`AssetManager::dependency_manager`; that verified warning is recorded above as an
-API-surface gap.
+The `private_interfaces` warning for `AssetManager::dependency_manager` reported at
+that time is gone: `DependencyManager` and the `DependencyManagerAccess` /
+`KeyMutationAccess` supertraits are public, and `tests/external_asset_manager.rs`
+implements a manager outside the crate against the shared manager scenarios. See
+[`ASSET_MANAGER_IMPLEMENTATION_GUIDE.md`](../../guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md).
 
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. §Expiration, recovery, and cancellation: the route/reason table for `expiry_reason`, the immediate manager's lazy check (fires on the deadline, does not cascade), and `remove` corrected to the status-aware behaviour. The P1 "public trait exposes a private dependency-manager type" row is removed: resolved, the trait is implementable outside core. | phase-5 |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. §Identity, caching, and fast track: a `cached: false` key gets a fresh unregistered, non-volatile asset that stays its key's graph node. §Persistence contract: `stored: false` skips every write including the metadata saver's, a skipped write records `None` (fixed in this phase; it had recorded `Persisted`), and `set_state`/`set_binary` follow the supplied metadata's flag. Step 5 corrected from "a key or `store_to` key" to "keyed", as the 2026-09-04 row already stated. | phase-5 |
 | 2026-09-15 | Execution-time expiry: the parent's `Expired` status reaches the store, its version is still registered, and `try_fast_track` declines a dependency it can see is stale while treating an undeterminable one as inconclusive. | `stale-dependency-status-finalization` |
 | 2026-09-15 | §Identity, caching, and fast track: the dependency-status check is now a numbered step of its own, with a note on why the version check and the status check are independent and what "inconclusive" means. | `stale-dependency-status-finalization` |

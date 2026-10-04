@@ -85,7 +85,9 @@ impl StoreSnapshot {
 }
 
 /// An `AsyncMemoryStore` that counts `get_metadata` calls, for asserting that a code path did
-/// **not** read the store.
+/// **not** read the store, and value reads (`get`, `get_bytes`), for asserting that a value is
+/// read once (Part G of `dependency-audit-and-expiry-provenance`: verification hashes the bytes
+/// the manager already read).
 ///
 /// **Size a wrapper like this by compiling, not by counting required methods.** `AsyncStore` has
 /// two required methods, but its other twenty defaults are not forwarding defaults — `set`'s
@@ -95,6 +97,7 @@ impl StoreSnapshot {
 pub struct CountingStore {
     inner: Arc<AsyncMemoryStore>,
     pub metadata_reads: Arc<AtomicUsize>,
+    pub byte_reads: Arc<AtomicUsize>,
 }
 
 impl CountingStore {
@@ -102,18 +105,30 @@ impl CountingStore {
         Self {
             inner: Arc::new(inner),
             metadata_reads: Arc::new(AtomicUsize::new(0)),
+            byte_reads: Arc::new(AtomicUsize::new(0)),
         }
     }
 
     pub fn reads(&self) -> usize {
         self.metadata_reads.load(Ordering::SeqCst)
     }
+
+    /// Value reads: `get` and `get_bytes` calls.
+    pub fn byte_reads(&self) -> usize {
+        self.byte_reads.load(Ordering::SeqCst)
+    }
 }
 
 #[async_trait]
 impl AsyncStore for CountingStore {
     async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+        self.byte_reads.fetch_add(1, Ordering::SeqCst);
         self.inner.get(key).await
+    }
+
+    async fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
+        self.byte_reads.fetch_add(1, Ordering::SeqCst);
+        self.inner.get_bytes(key).await
     }
 
     async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {

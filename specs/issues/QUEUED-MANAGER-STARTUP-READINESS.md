@@ -109,7 +109,7 @@ Verification items, all covered:
 | 6. Native queued and wasm-compatible inline | the same parametric pair, plus `inline_builds_without_a_tokio_runtime` |
 
 The defect itself is pinned as a differential: `plan_dependencies_registered_immediately_after_build`
-asserts the edge now forms, and `an_unregistered_dependency_version_registers_no_edge` reproduces
+asserts the edge now forms, and `an_unregistered_dependency_version_registers_no_edge` (renamed `an_unregistered_dependency_version_registers_an_unknown_edge` by `dependency-audit-and-expiry-provenance` Step 8, which inverted its assertion) reproduces
 the failure mode on a key with no registered version — showing that
 `register_plan_dependencies` skips silently, which is why the fix had to be a construction-time
 guarantee rather than a check.

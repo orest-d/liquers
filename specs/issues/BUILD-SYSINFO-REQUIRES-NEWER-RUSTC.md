@@ -149,3 +149,12 @@ exists to check — but it is the difference between "no local signal at all" an
 default-off configurations", and it is worth naming here so the next contributor does not have to
 rediscover it.
 
+
+## Update 2026-10-02
+
+Seen again while implementing `dependency-audit-and-expiry-provenance`: under rustc 1.94.1,
+`cargo test -p liquers-lib --lib --tests` refused to build because `egui`/`eframe` 0.36.2 (and
+friends) require rustc 1.95. `rustup update stable` in the cloud session (to rustc 1.99.0) fixed it,
+and the whole `liquers-lib` suite then passed. The workaround is therefore a toolchain update, not a
+code change. Whether to pin a minimum toolchain (`rust-version` / `rust-toolchain.toml`) remains
+the open decision.

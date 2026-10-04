@@ -10,7 +10,7 @@ use liquers_core::{
     command_metadata::CommandKey,
     context::{Environment, EnvRef, SimpleEnvironment},
     error::ErrorType,
-    metadata::{Metadata, MetadataRecord, Status},
+    metadata::{Metadata, MetadataRecord, Status, Version},
     parse::{parse_key, parse_query},
     query::Key,
     recipes::{DefaultRecipeProvider, Recipe, RecipeList},
@@ -148,7 +148,7 @@ async fn amr03_remove_ready_keeps_metadata_and_version() -> Result<(), Box<dyn s
     let value = am.get(&summary_key).await?.get().await?;
     assert_eq!(value.try_into_string()?, "HELLO");
     let version_before = am.version(&summary_key).await?;
-    assert!(version_before.is_some());
+    assert!(!version_before.is_unknown());
 
     within(am.remove(&summary_key)).await?;
 
@@ -513,13 +513,13 @@ async fn amr32_removedir_takes_computed_child_and_its_version() -> Result<(), Bo
     let computed_key = parse_key("data/computed.txt")?;
 
     let _ = am.get(&computed_key).await?.get().await?;
-    assert!(am.version(&computed_key).await?.is_some());
+    assert!(!am.version(&computed_key).await?.is_unknown());
 
     within(am.removedir(&data_key)).await?;
 
     assert!(!store.contains(&computed_key).await?, "the kept entry goes with the directory");
     assert!(!store.contains(&parse_key("data/recipes.yaml")?).await?, "recipes.yaml goes too");
-    assert_eq!(am.version(&computed_key).await?, None);
+    assert_eq!(am.version(&computed_key).await?, Version::unknown());
     Ok(())
 }
 

@@ -2,11 +2,11 @@
 id: DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE
 kind: feature
 title: There is no way to say when dependency versions should be verified, so the strict and the exploratory workflow cannot both be served
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [core/assets]
-design:
+design: dependency-audit-and-expiry-provenance
 created: 2026-09-05
 github:
 ---
@@ -75,3 +75,15 @@ Revision 2, as a question about whether the design already contained such a seam
 design now separates recording from verification and introduces the audit entry points so the
 policy can be added without reopening the dependency manager; this issue carries the policy
 vocabulary itself.
+
+## Resolution
+
+Fixed 2026-10-02 by `design/dependency-audit-and-expiry-provenance/` (Step 7, orest-d/liquers#75).
+`DependencyAuditPolicy {Explicit, OnLoad}` is set per environment (`AssetManagerOptions`,
+`EnvironmentConfig` `assets.dependency_audit`). `Explicit` (the default) keeps today's behaviour, and
+`OnLoad` checks dependencies on the fast track. `AuditMode::ReportOnly` and `AuditReport.findings`
+give a diagnostic audit. The "metadata kept, data deleted" workflow still verifies clean. Evidence:
+`strict_service_after_restart`, `on_load_refuses_stale_fast_track`,
+`report_only_audit_changes_nothing` and `audit_policy_from_config_yaml`
+(`tests/dependency_audit_integration.rs`), plus `metadata_kept_data_deleted_still_verifies_clean`
+(`tests/keyed_version_cascade.rs`). Reference: `reference/DEPENDENCIES_STATUS.md`.

@@ -2,11 +2,11 @@
 id: DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED
 kind: issue
 title: Directory listing dependency is never registered or checked
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [core/assets]
-design: 
+design: dependency-audit-and-expiry-provenance
 created: 2026-09-17
 github:
 ---
@@ -82,3 +82,17 @@ Found while writing the options analysis for `store-and-asset-search`, 2026-09-1
 an index could be maintained as a derived asset. Verified at HEAD by following every
 `register_version` call site and both `Key::try_from(&DependencyKey)` uses; no test exercises a
 `-R-dir/` dependency beyond `DependencyKey` classification.
+
+## Resolution
+
+Fixed 2026-10-02 by `design/dependency-audit-and-expiry-provenance/` (Step 8, orest-d/liquers#75).
+The design answered the questions above. A listing's version is a content hash over its sorted,
+length-prefixed entry names: membership only, not recursive, and not the entries' contents.
+`GetAssetDirectory` records the version, and writes through Liquers refresh it. An audit after a
+restart covers changes made while the process was down. A plan dependency with no version gets an
+`unknown` edge, which is upgraded later instead of being skipped. Evidence:
+`adding_a_file_expires_the_index`, `content_change_does_not_move_listing_version`,
+`listing_gap_resolved_by_audit_after_restart` and
+`plan_dependency_without_version_gets_unknown_edge_then_upgrade`
+(`tests/dependency_audit_integration.rs`). The shared scenario `scenario_listing_dependency` runs on
+every manager.

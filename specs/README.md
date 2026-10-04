@@ -73,21 +73,24 @@ volatility work all landed in `assets.rs`.
 - **Weak references in the expiration monitor** — built → [`design/expiration-monitor-assetref/`](design/expiration-monitor-assetref/)
 - **Expired-safe binary reads** — built → [`design/expired-binary-read-safety/`](design/expired-binary-read-safety/)
 - **Volatility tracking** — built → [`design/volatility-system/`](design/volatility-system/)
-- **Versions for computed keyed assets, and dependency audit** — built → [`design/keyed-expiry-cascade-fix/`](design/keyed-expiry-cascade-fix/) *(contract in [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md))*
+- **Versions for computed keyed assets, and dependency audit** — built → [`design/keyed-expiry-cascade-fix/`](design/keyed-expiry-cascade-fix/) *(contract and audit policies in [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md))*
 - **Keyed-recipe ownership** — built → [`design/keyed-recipe-ownership/`](design/keyed-recipe-ownership/)
 - **Keyed delegation as a hand-off** — built → [`design/keyed-delegation-hand-off/`](design/keyed-delegation-hand-off/) *(rule documented in [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md))*
 - **Terminal outcome contract** — built → [`design/wp2-terminal-outcome/`](design/wp2-terminal-outcome/)
 - **Recipe-provider selection by name** — built → [`design/recipe-provider-selection/`](design/recipe-provider-selection/) *(contract in [`reference/api/DOC_08_RECIPES_PLANS.md`](reference/api/DOC_08_RECIPES_PLANS.md))*
+- **Dependency audit, audit policy and listing dependencies** — documented → [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md) *(design in [`design/dependency-audit-and-expiry-provenance/`](design/dependency-audit-and-expiry-provenance/))*
+- **Expiry reasons, and content changed outside Liquers** — documented → [`reference/ASSETS.md`](reference/ASSETS.md) *(design in [`design/dependency-audit-and-expiry-provenance/`](design/dependency-audit-and-expiry-provenance/))*
+- **Asset managers outside core** — documented → [`guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md`](guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md) *(design in [`design/dependency-audit-and-expiry-provenance/`](design/dependency-audit-and-expiry-provenance/))*
 - **Combined expiration algebra** — planned → [`issues/COMBINED-EXPIRES.md`](issues/COMBINED-EXPIRES.md)
 - **Execution classes beyond simple loading** — planned → [`issues/EXTENDED-FAST-TRACK.md`](issues/EXTENDED-FAST-TRACK.md)
 - **Asset garbage collection** — planned → [`issues/CORE-ASSET-GC.md`](issues/CORE-ASSET-GC.md)
 - **Persistence, eviction safety and upload limits** — planned → [`issues/ASSETS-IMPROVEMENTS.md`](issues/ASSETS-IMPROVEMENTS.md)
 
-Eleven designs have landed here and none has a `reference/` document of its own — `ASSETS.md` is the
+Twelve designs have landed here and none has a `reference/` document of its own — `ASSETS.md` is the
 only settled description and it predates most of them, though `keyed-recipe-ownership` did fold its
 ownership and volatility rules back into it, `keyed-delegation-hand-off` folded the
 same-key hand-off rule into `DEPENDENCIES_STATUS.md`, and `recipe-provider-selection` folded the
-named provider choice into `DOC_08_RECIPES_PLANS.md`. **That is the largest documentation gap in the
+named provider choice into `DOC_08_RECIPES_PLANS.md`, and `dependency-audit-and-expiry-provenance` folded its contracts into `DEPENDENCIES_STATUS.md` and `ASSETS.md`. **That is the largest documentation gap in the
 project.** Two structural issues sit on top: `CORE-EVALUATE-PATH-CONSOLIDATION` (P1), which is
 the conclusion `ASSETS-FIX1` reaches from the other direction, and nothing collects assets that
 simply stop being wanted.
@@ -356,7 +359,6 @@ deliberately folded behind a broader line.
 - feature `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`
 - feature `COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS`
 - feature `DATA-FORMAT-CONSTANTS-AND-TOOLING`
-- feature `DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE`
 - feature `ISSUE-REPORT-PLAN-AND-METADATA-LOGGING`
 - feature `JS-COMMAND-CANNOT-ACCESS-CONTEXT`
 - feature `LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION`
@@ -378,6 +380,7 @@ deliberately folded behind a broader line.
 ## Guides
 
 <!-- BEGIN generated: guides -->
+- [`ASSET_MANAGER_IMPLEMENTATION_GUIDE.md`](guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md) — How to implement `AssetManager<E>` outside `liquers-core`, and how to check that it behaves like the
 - [`COMMAND_REGISTRATION_GUIDE.md`](guides/COMMAND_REGISTRATION_GUIDE.md) — This guide covers defining and registering new commands in Liquers. It covers both the `register_command!` macro approach and manual registration.
 - [`ENVIRONMENT_CONSTRUCTION_GUIDE.md`](guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md) — An `Environment` owns the global services a query evaluation needs: the command registry, the
 - [`LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md) — Status: Draft

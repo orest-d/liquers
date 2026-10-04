@@ -265,9 +265,7 @@ pub(crate) async fn key_version<E: Environment>(
     key: &Key,
 ) -> Result<VersionResult, Error> {
     let version = env.get_asset_manager().version(key).await?;
-    Ok(VersionResult {
-        version: version.unwrap_or_else(Version::unknown),
-    })
+    Ok(VersionResult { version })
 }
 
 /// Mode (b) for a key: refuse a key that is neither stored nor declared by a recipe (a `get`

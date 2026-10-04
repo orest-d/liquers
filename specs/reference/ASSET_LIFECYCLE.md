@@ -3,7 +3,7 @@ title: Asset Evaluation — Flows and Public Surface
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-09-27
+reviewed: 2026-10-02
 ---
 # Asset Evaluation — Flows and Public Surface
 
@@ -34,9 +34,9 @@ crate-internal. A caller obtains a handle from a manager, then reads from it.
 | Evaluate a query with a payload | `EnvRef::evaluate_immediately` → `AssetManager::apply` |
 | Fetch a keyed resource | `AssetManager::get` |
 | Apply a recipe to a supplied state | `AssetManager::apply` |
-| Evaluate a nested query from inside a command | `Context::evaluate`, `Context::get_dependency_state` |
+| Evaluate a nested query from inside a command | `Context::get_dependency_state`, or `Context::submit` then `Context::wait_for_dependency` (`Context::evaluate` = `submit` + drain) |
 | Apply a query to a state from inside a command | `Context::apply` |
-| Wait for a value | `AssetRef::get` |
+| Wait for a value | `AssetRef::get`; from inside a command, for a dependency, `Context::wait_for_dependency` |
 | Look without waiting | `AssetRef::poll_state`, `AssetRef::status`, `AssetRef::try_poll_state` |
 | Describe an asset to a client | `AssetRef::get_asset_info` |
 | Install or remove a keyed value | `AssetManager::set_state`, `set_binary`, `remove`, `to_override` |
@@ -163,12 +163,16 @@ Read the contrapositive: **not keyed means never stored and never loadable.**
 ### Reusing a stored asset: what the fast track verifies
 
 `try_fast_track` loads a stored entry instead of evaluating it. It admits only a stored status the
-system would itself reuse — `Ready`, `Source`, `Override` — and then asks two independent questions
-about every recorded dependency.
+system would itself reuse — `Ready`, `Source`, `Override`. Under `verify_versions: on_read` (the
+default) it first re-hashes the bytes against the recorded version; a mismatch is an edit made
+outside Liquers and is handled as in §Content changed outside Liquers of [`ASSETS.md`](ASSETS.md) —
+adopted as input, or, under `external_change: corrupted`, deleted so the key is recomputed. The
+decision is made under the asset's lock and applied after it is dropped. It then asks two
+independent questions about every recorded dependency.
 
 | Question | Answered from | Catches |
 |---|---|---|
-| Was this dependency recomputed into *different content*? | the dependency manager's version for the key | a dependency that ran again |
+| Was this dependency recomputed into *different content*? | the dependency manager's version for the key; under `dependency_audit: on_load`, when the manager has none, the current version resolved from the store (`dependency_version`) for a `-R/` or `-R-dir/` dependency recorded with a concrete version — a different or missing one refuses | a dependency that ran again; under `on_load`, also one that changed before this process started |
 | Is this dependency stale *right now*? | the dependency's live asset status, or failing that its stored metadata status | a dependency that expired and was never recomputed |
 
 The second exists because the first is silent exactly where it matters most. A version comparison
@@ -192,6 +196,24 @@ merely recomputed — every assertion in the suite still passes, and the loss ar
 "everything got slow" rather than as a red test. **Where one direction of a mistake is invisible to
 the test suite, the code must lean the other way, and a test must assert the lean.**
 (`keyed_version_cascade::fast_track_proceeds_when_the_dependency_check_is_inconclusive`.)
+
+### Routes into `Expired`
+
+Every route records an `ExpiryReason` on each asset it expires, through
+`AssetManager::record_expiry` and in the same write as the status (details and log wording in
+§Why an asset is `Expired` of [`ASSETS.md`](ASSETS.md)):
+
+| Route | The asset itself | Its dependents |
+|---|---|---|
+| Queued manager's expiration monitor | `Direct { Deadline }` | `Cascaded { Deadline }` |
+| Immediate manager's lazy check, on `get` / `get_asset` of a `Ready` asset whose deadline has passed | `Direct { Deadline }`, then a fresh asset is built | not expired (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE`) |
+| `AssetRef::expire`, `AssetManager::expire(key)` | `Direct { Explicit }` | `Cascaded { Explicit }` |
+| Evaluation that consumed a dependency expired meanwhile (step 6) | `Direct { StaleDependency }` | `Cascaded { StaleDependency }` |
+| Cascade from a new version (`Updated`), an audit (`Audit`), an outside edit (`UpdatedInStore`) or a removal (`Removed`) | not expired | `Cascaded { … }` |
+
+The immediate manager's lazy check compares the **deadline**, not the status. It used to test the
+status, which is never `Expired` at that point, so it never fired
+(`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`, fixed).
 
 ### Ownership versus registration
 
@@ -266,6 +288,7 @@ arrives mid-evaluation and must join the first rather than be turned away.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. §1: `Context::submit` / `wait_for_dependency`. §Reusing a stored asset: the content check under `verify_versions: on_read` comes first, and the version question resolves the store under `dependency_audit: on_load`. New §Routes into `Expired` naming the reason each route records, with the corrected immediate-manager lazy deadline check. | phase-5 |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. Steps 8 and 9, §4's axes, §5's persistence table and §6's metadata table now cover the `stored` and `cached` recipe flags: `stored: false` skips every write but still reads an existing copy, `cached: false` skips registration but keeps the asset the key's graph node, and neither is volatility. Details in `ASSETS.md` §`stored` and `cached`. | phase-5 |
 | 2026-09-15 | Step 6 now names the four outcomes the status authority decides between, including the stale-dependency one, and step 9 records the dependency-graph branch. Added §Reusing a stored asset: what the fast track verifies — the two dependency questions, manager-before-store, and "inconclusive is not expired" with the reason that rule has to be stated. | `stale-dependency-status-finalization` |
 | 2026-09-04 | Recorded two corrections from the PR #61 review: the payload requirement is written before the gate that rejects a missing payload, and both `Drop` repairs cover `Dependencies` alongside `Processing`. Added the inline repair's residual limit (`INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS`). | PR #61 review |
