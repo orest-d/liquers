@@ -1,6 +1,6 @@
 # Phase 2: Solution and Architecture - Folder-Cache Invalidation for `ManifestRecipeProvider`
 
-## Chosen Solution (recommended answers)
+## Chosen Solution (decided 2026-10-04)
 
 ### 1. Trait hook — `liquers-core/src/recipes.rs`
 
@@ -43,7 +43,7 @@ Doc comment updated: "Also tells the recipe provider, unconditionally". No other
 - Doc comment on the type: replace "cached for the life of the provider" with the freshness
   contract (mediated writes seen; out-of-band writes need `clear_cache`).
 
-### 4. Store API — `liquers-axum/src/store/handlers.rs` (Q2 recommended)
+### 4. Store API — `liquers-axum/src/store/handlers.rs`
 
 After each successful `store.set`, `store.set_metadata`, `store.remove`/`removedir` in the
 handlers (≈80, ≈211, ≈576, ≈701 and the delete handlers), call
@@ -82,7 +82,7 @@ answers after writes.
 
 ## Questions
 
-- **Open design question - freshness contract** and **Store API hook**: Phase 1.
+- **Freshness contract** and **Store API hook**: decided (Phase 1 decision record).
 - **Implementation detail - generation counter:** chosen over a lock to keep reads lock-free.
 
 ## Risk Table
@@ -97,7 +97,7 @@ answers after writes.
 | Concurrency/performance | one hook call per write; retain is O(cache size) per write — caches are per-folder, small; generation guard for the fill race |
 | Security | none |
 | Recovery | default no-op hook makes reverting the provider part alone safe |
-| Certainty | high for mechanics; contract pending decision |
+| Certainty | high |
 
 ## Review
 

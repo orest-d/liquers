@@ -4,7 +4,7 @@ kind: design
 title: Context methods for a command to set its asset's title and description
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
 area: [core/context]
 issues: [CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION]
 created: 2026-10-04

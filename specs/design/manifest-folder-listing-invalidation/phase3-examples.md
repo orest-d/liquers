@@ -19,7 +19,7 @@ the exact setup).
 | Test | Steps | Asserts | Criterion |
 |---|---|---|---|
 | `a_manifest_added_after_listing_is_seen_after_directory_changed` | list `data/sales` (caches), `store.set` a second manifest, call `provider.directory_changed(&data/sales)` | its explicit chunk is in `assets_with_recipes`; `contains` true | 1 |
-| `a_manifest_added_without_notice_is_not_seen` | same without the call | still absent — documents the contract | Q1 contract |
+| `a_manifest_added_without_notice_is_not_seen` | same without the call | still absent — documents the contract | freshness contract |
 | `a_removed_manifest_stops_resolving_after_directory_changed` | cache, `store.remove` manifest, notify | `recipe_opt` of its chunk `None`; `manifests` no longer holds it | 2 |
 | `directory_changed_drops_the_subtree` | cache `data` and `data/sales`, notify `data` | both listings re-read (counting store sees two `listdir`) | 3 |
 | `clear_cache_drops_everything` | cache two folders, `clear_cache()` | both re-read | 5 |
@@ -38,7 +38,6 @@ resolves through `AssetManager::contains` — proves the manager hook and chain 
 
 `POST /api/store/data/data/sales/weekly.manifest.yaml` after a first recipe lookup, then
 `GET /api/assets/...` (or `recipe_opt` via the env) resolves the new chunk (criterion 4).
-Only if Q2 is answered as recommended.
 
 ### `liquers-core/src/recipes.rs` (`mod tests`)
 
@@ -54,4 +53,4 @@ form; no action segment intended).
 ## Coverage Review
 
 Every criterion and the race finding has a test; the "not seen without notice" test pins the
-recommended contract and is the one to change if a TTL is chosen.
+decided contract.

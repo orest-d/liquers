@@ -3,9 +3,10 @@
 ## Design Readiness
 
 - **Readiness:** needs-decision
-- **Leading issue:** **Open design question - trait shape:** keep a default `contains` that
-  delegates to `recipe_opt` (non-breaking), or remove the default so every implementer must write
-  one (the issue's suggestion; a breaking change for out-of-tree providers).
+- **Leading issue:** **Open design question - trait shape:** fix the provider's default
+  `contains` to ask `recipe_opt` ("can you produce it") instead of searching the listing
+  (non-breaking), or remove the default so every provider must write its own (the issue's
+  suggestion; breaks every provider outside this repository).
 - **Explanation:** Either option makes `contains` answer "can this key be produced" instead of
   "is this key listed", and both are fully specified below; the choice is a public-API
   compatibility decision, so it stays visible.
@@ -25,13 +26,47 @@
 
 ## Problem and Evidence
 
-`AsyncRecipeProvider::contains` (`liquers-core/src/recipes.rs` ≈550) defaults to
-`has_recipes(parent)` then a search of `assets_with_recipes(parent)`: it **enumerates**. A
-provider that can produce keys it deliberately does not list (pattern/template-generated names,
-conversion on demand) silently answers `false`. `ManifestRecipeProvider`
-(`liquers-records/src/provider.rs` ≈378) had to override it for exactly this reason, as does
-`RecipeProviderChain` (≈1048). `AssetManager::contains` (`assets.rs` ≈5216) and the manager's
-recipe probe (≈5206) consult it, so a wrong `false` makes an addressable key look absent.
+There are three `contains`, one per layer:
+
+| Layer | Method | Answers |
+|---|---|---|
+| Store | `AsyncStore::contains(key)` | is something **physically stored** at `key`? |
+| Recipe provider | `AsyncRecipeProvider::contains(key)` | can the provider **make** `key` (does it have a recipe for it)? |
+| Assets | `AssetManager::contains(key)` (`liquers-core/src/assets.rs` ≈5216) | store says yes, **or** the recipe provider says yes |
+
+So the asset layer already learns the recipe half from the recipe provider; nothing about that is
+wrong. The defect is one level down, in *how the provider answers by default*.
+
+A provider has two separate questions to answer about a directory:
+
+- `assets_with_recipes(dir)` — what to **show** when the directory is listed;
+- `recipe_opt(key)` — what it can **produce** if asked for a key.
+
+These can legitimately differ. `ManifestRecipeProvider` can produce chunk `data_0042.csv` from a
+template but lists only a manifest's explicit chunks, since a template's chunk names are
+unbounded. A conversion provider could produce `table.parquet` from `table.csv` without listing a
+`.parquet` twin of every file.
+
+The trait's default `contains` (`liquers-core/src/recipes.rs` ≈550) answers the "can you
+produce it" question by looking at the "what do you show" list: `has_recipes(parent)`, then
+searching `assets_with_recipes(parent)` for the name. For a provider whose two answers differ, it
+says `false` for a key that `recipe_opt` would produce. Since `AssetManager::contains` and
+`AssetManager::get_asset_info` (≈5206) trust it, such a key looks absent at the asset layer, with
+no error.
+
+Example, for a provider that produces `X.parquet` from `X.csv` and lists nothing:
+
+| Call for `data/table.parquet` | Today | After the fix |
+|---|---|---|
+| `provider.recipe_opt` | `Some(recipe)` | `Some(recipe)` |
+| `provider.contains` (default) | `false` (not in the list) | `true` |
+| `AssetManager::contains` | `false` | `true` |
+| `AssetManager::get(...)` | works (it uses `recipe_opt`) | works |
+
+The two shipped providers that need it already override `contains` with a correct answer
+(`ManifestRecipeProvider` ≈378, `RecipeProviderChain` ≈1048). The issue is that the next provider
+of this kind inherits the wrong default silently. For `DefaultRecipeProvider` (`recipes.yaml`)
+both questions have the same answer, so it is not affected.
 
 ## Expected Behaviour and Acceptance Criteria
 

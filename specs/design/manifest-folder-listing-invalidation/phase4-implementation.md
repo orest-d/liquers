@@ -1,8 +1,8 @@
 # Phase 4: Implementation Plan - Folder-Cache Invalidation for `ManifestRecipeProvider`
 
-0. **Decision gate.** Confirm Q1 (event-driven contract) and Q2 (Store API hook). If a TTL is
-   chosen, revise Phase 2 first; if Q2 is declined, skip step 5 and document Store API writes as
-   out-of-band in step 6.
+Freshness contract and Store API hook were decided on 2026-10-04 (event-driven; Store API
+notifies); no decision gate remains.
+
 1. **Trait hook.** `liquers-core/src/recipes.rs`: add `directory_changed` with a no-op default;
    forward it in `RecipeProviderChain`. Add `chain_forwards_directory_changed`.
    Proof: `cargo test -p liquers-core --lib recipes::`; `cargo check -p liquers-core --target
@@ -23,13 +23,13 @@
    Proof: `cargo test -p liquers-axum`.
 6. **Docs and records.** Freshness contract in `reference/RECORD_STREAMS.md` and
    `guides/RECORD_STREAM_GUIDE.md` (where `ManifestRecipeProvider` is described); hook in
-   `reference/api/DOC_08_RECIPES_PLANS.md`. History rows + `reviewed:`. Close the issue with the
-   decision recorded. Regenerate and check the docs index.
+   `reference/api/DOC_08_RECIPES_PLANS.md`. History rows + `reviewed:`. Close the issue, recording the
+   decision. Regenerate and check the docs index.
 7. **Checks.** `cargo fmt`; `bash scripts/check-build-matrix.sh` (records feature split and wasm
    rows — the provider is built for wasm via `liquers-lib`); diff review for: hook called before
    the early return, no `Result` swallowed silently in write paths, no `println!`, no `_ =>`.
 
 ## Final Review
 
-Executable once Q1/Q2 are confirmed. Steps 1-2 are safe alone (no-op default); step 3 is the
+Executable as written. Steps 1-2 are safe alone (no-op default); step 3 is the
 behaviour change; step 5 is separable. Rollback per step.

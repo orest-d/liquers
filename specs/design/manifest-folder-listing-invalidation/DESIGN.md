@@ -4,7 +4,7 @@ kind: design
 title: Invalidating ManifestRecipeProvider's folder cache when a directory changes
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
 area: [records]
 issues: [MANIFEST-PROVIDER-FOLDER-LISTING-NEVER-REFRESHES]
 created: 2026-10-04
