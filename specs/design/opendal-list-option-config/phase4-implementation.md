@@ -12,3 +12,13 @@
 5. Review the diff for accidental service-schema logic, secrets in error messages, non-OpenDAL
    config changes, generated-file edits, debug output, and unrelated refactors. Rollback restores
    the converter and reference contract together.
+
+## Post-Phase-4 Review (2026-10-05)
+
+- **State:** already implemented. `config_as_string_map` comma-joins lists
+  (`liquers-core/src/store_config.rs` ≈205), the source issue is `closed`, and Phase 5 is
+  written.
+- **Action:** not an implementation candidate. Set `status: complete` and remove `phase` once
+  Phase 5 is approved. Its remaining `readiness: ready` makes it look like open work in the queue.
+- **Interactions:** `opendal-derived-store-arguments` should document the list convention this
+  design introduced.

@@ -19,3 +19,17 @@
 ## Final Review
 
 Documentation-only, consistent with the macro and the existing test. Rollback is a text revert.
+
+## Post-Phase-4 Review (2026-10-05)
+
+- **Problem still valid:** yes for the FSD table (rows stop at `volatile`, ≈364), `CLAUDE.md`
+  (≈366) and the registration guide. `PAYLOAD_GUIDE.md` already covers it, as the design notes.
+- **Solution correct:** yes. Link to `PAYLOAD_GUIDE.md` rather than duplicating it.
+- **Unnecessary:** none.
+- **Detail / tests:** sufficient for a docs change.
+- **Interactions:** **merge with `REGISTER-COMMAND-EXPIRES-AND-VERSION-STATEMENTS-UNDOCUMENTED`.**
+  It is the same FSD table, the same `CLAUDE.md` line and the same guide bullet. Doing them
+  separately costs two History rows per document for one coherent edit, and the second issue is
+  P3/S with no design of its own. `context-title-description` also edits
+  `COMMAND_REGISTRATION_GUIDE.md` (History-row conflict only).
+- **Verdict:** ready. Widen the scope to `expires:` / `version:`.

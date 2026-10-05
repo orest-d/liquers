@@ -9,3 +9,23 @@
 
 The plan is intentionally implementation-free. It must be rechecked against current signatures before execution and rolled back as a single scoped change if validation fails.
 
+## Post-Phase-4 Review (2026-10-05)
+
+- **Problem still valid:** half. `entities.rs` is live: it holds the named-entity tables used by
+  `escape.rs` and `bin/generate_entities.rs`. `cache.rs` (`BinCache`, `Cache`, `NoCache`) has
+  exactly one compiled consumer, `liquers-py/src/context.rs`, whose legacy `Environment` is
+  obsolete in the same way as the sync `Store` trait. `liquers-py/src/cache.rs` is an undeclared
+  orphan module (`PY-MODULES-NOT-DECLARED-IN-LIB`). Phase 1 says "entities and cache are live",
+  which is only half true.
+- **Solution correct:** incomplete. "Close the issue with evidence" fits `entities.rs`. For
+  `cache.rs` the right outcome is to hand it to the issue that removes the obsolete sync layer.
+- **Unnecessary abstractions:** none proposed.
+- **Detail:** **insufficient.** Phases 2-4 are generic template text ("Implement Re-audit
+  the named modules…"). They name no evidence, no decision per module and no files to change.
+- **Tests:** the Phase 3 table is a placeholder. `cargo test -p liquers-core cache` proves
+  nothing about dead code. A records-only change needs no tests; this one needs a `grep`/build
+  evidence record instead.
+- **Interactions:** overlaps `CORE-SYNC-STORE-TRAIT-OBSOLETE` (the sync `Cache` goes with the sync
+  `Store`) and `PY-MODULES-NOT-DECLARED-IN-LIB` (the orphan `liquers-py/src/cache.rs`).
+- **Verdict:** not ready as written. Recommend `readiness: covered`. Close the `entities.rs` half
+  with the evidence above, and move the `cache.rs` half into `CORE-SYNC-STORE-TRAIT-OBSOLETE`.

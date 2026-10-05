@@ -15,3 +15,21 @@
 6. Run formatting, focused asset tests, full core tests, core clippy, and docs-index checks. Review
    for lock-order changes, async guards held across awaits, unconditional map removal, debug output,
    and unrelated asset refactors. Rollback is confined to helper call sites and tests.
+
+## Post-Phase-4 Review (2026-10-05)
+
+- **Problem still valid:** yes for the **query** map. `remove_expired_from_maps` (`assets.rs`
+  ≈6497) and the stale-terminal branch of `get_asset` (≈6855) both do `get_async` / compare /
+  `drop` / `remove_async`. For the **key** map the race is probably already closed: that branch
+  runs under `key_mutation_lock`, and key-slot insertion (`get_nonvolatile_resource_asset`
+  ≈6601) takes the same lock. Phase 1 should check this and say so instead of treating both maps
+  as racy. Using `remove_key_asset_if` there is still a worthwhile simplification.
+- **Solution correct:** yes. `remove_if_async` is the right primitive and `ImmediateAssetManager`
+  is already correct (one mutex).
+- **Unnecessary:** none. One private `remove_query_asset_if` helper.
+- **Detail:** adequate, though Phase 4 gives no line anchors.
+- **Tests:** the sequential identity tests are enough to prove the decisions. The concurrent test
+  has an escape hatch ("rely on helper atomicity"); state up front that atomicity is proven
+  structurally, so nobody adds a production hook to reach the window.
+- **Interactions:** none semantically. It edits `assets.rs`, as do five other designs.
+- **Verdict:** ready.

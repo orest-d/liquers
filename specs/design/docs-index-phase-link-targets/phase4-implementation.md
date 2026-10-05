@@ -20,3 +20,19 @@
 
 Consistent across phases; local to the docs tooling. Rollback: revert the two script lines and
 regenerate.
+
+## Post-Phase-4 Review (2026-10-05)
+
+- **Problem still valid:** yes. `render_index_markdown` still emits
+  `x.relative_to(REPO)` (`scripts/docs_index.py` ≈455), and `specs/index.md` contains links of
+  the form `specs/design/…`, which resolve to `specs/specs/…`. `tracked_markdown_paths` still
+  leaves out `index.md`.
+- **Solution correct:** yes. It is a two-line change, and putting the generator's output under
+  the existing link check is the right guard.
+- **Unnecessary abstractions:** none. `test_index_markdown_phase_links_resolve` largely repeats
+  what `--check` does once `index.md` is tracked. It is harmless; keep it if a fast unit-level
+  signal is wanted.
+- **Detail / tests:** sufficient.
+- **Interactions:** every other design's implementation regenerates `specs/index.md`. Land this
+  one **first**, so later PRs regenerate correct links and the new check guards them.
+- **Verdict:** ready.

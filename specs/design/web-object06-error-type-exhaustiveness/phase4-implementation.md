@@ -18,3 +18,15 @@
 ## Final Review
 
 Consistent across phases; test-only. Rollback restores the literal list.
+
+## Post-Phase-4 Review (2026-10-05)
+
+- **Problem still valid:** yes. The test still asserts `len() == 22`
+  (`liquers-web/tests/objects_OBJECT.rs` ≈133), and `ErrorType` has 24 variants, including
+  `KeyNotAbsolute`.
+- **Solution correct:** yes. The macro gives a compile-time check with no core dependency.
+- **Unnecessary:** none. `strum` was correctly rejected.
+- **Detail / tests:** sufficient. The guarantee fires only in the wasm loop, which is where the
+  test runs.
+- **Interactions:** none.
+- **Verdict:** ready.

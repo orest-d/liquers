@@ -34,3 +34,22 @@ Precedence was decided on 2026-10-04 (recipe wins, per field); no decision gate 
 
 Phases 1-4 agree with the recorded decision; no open question remains. Rollback: remove the
 `Context` methods and the command-side write; the flags are inert without them.
+
+## Post-Phase-4 Review (2026-10-05)
+
+- **Problem still valid:** yes. `Context` has `set_filename` (`context.rs` ≈877) but no title or
+  description setter; `set_metadata_description` and the recipe adoption block (`assets.rs` ≈3044)
+  are as described.
+- **Solution correct:** yes. Two private flags is the smallest way to implement "recipe wins", and
+  the check and the write happen under one lock.
+- **Unnecessary abstractions:** none. Reusing `set_metadata_description` keeps the
+  legacy-metadata refusal in one place.
+- **Detail:** sufficient.
+- **Tests:** sufficient for the criteria. Two cases are missing: (a) run the recipe tests on
+  `ImmediateAssetManager` as well as the default manager (the flags live on `AssetData`, but
+  adoption runs on both managers' paths); (b) a nested `apply` chain where two steps call
+  `set_title` and the later one wins (Phase 1 states this, nothing tests it).
+- **Interactions:** shares `assets.rs` persistence code with `save-to-store-skip-outcome`, with no
+  semantic overlap. Both this design and `register-command-payload-docs` edit
+  `COMMAND_REGISTRATION_GUIDE.md`, so expect History-row conflicts only. Independent.
+- **Verdict:** ready.

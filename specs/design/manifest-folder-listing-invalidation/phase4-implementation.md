@@ -33,3 +33,33 @@ notifies); no decision gate remains.
 
 Executable as written. Steps 1-2 are safe alone (no-op default); step 3 is the
 behaviour change; step 5 is separable. Rollback per step.
+
+## Post-Phase-4 Review (2026-10-05)
+
+- **Problem still valid:** yes. `folders` is filled once per folder and never invalidated
+  (`liquers-records/src/provider.rs`, type doc ≈61-66).
+- **Solution correct:** mostly. Two defects:
+  1. **The race guard as written does not close the race.** "Read `generation` before `listdir`;
+     insert only if unchanged" is a check followed by an insert, and an invalidation can land
+     between the two. Insert first, then re-read `generation`; if it moved, remove the entry
+     just inserted (`remove_if` on the same `Arc`). Alternatively, do the check and the insert
+     under the `entry_async` guard.
+  2. **The invalidation is too broad for the record-stream workload.** Chunks are stored in the
+     manifest's own folder (`cwd` = folder), so every materialized chunk write calls
+     `refresh_listing_version(folder)`. That drops the folder listing **and** every parsed
+     manifest in it, so the next chunk lookup re-lists and re-parses. The `manifests` cache is
+     already version-checked on every lookup, so dropping it is redundant. Drop only `folders`.
+     Better still, pass the changed key (or a "manifest file changed" bit) so writes of names
+     that do not end in `.manifest.yaml` skip the invalidation.
+- **Unnecessary:** the `manifests` subtree drop (see 2). `clear_cache` is justified by the
+  decided freshness contract.
+- **Detail:** sufficient apart from the above.
+- **Tests:** good. Add one test: writing a non-manifest file into a folder does not force the
+  manifest to be re-parsed (a `get` counter on the counting store). It guards defect 2.
+- **Interactions:** edits the same trait, `RecipeProviderChain` impl, `ManifestRecipeProvider`
+  and axum crate as `recipe-contains-addressability`, and its own lib test already refers to
+  that design's `can_make`. The hook sits in `refresh_listing_version`, which `save_to_store`
+  calls, so it also touches `save-to-store-skip-outcome` (compatible: the hook fires only on
+  `Written`). `listdir-keys-deep-recipe-union` reads the listings this cache feeds.
+- **Verdict:** needs the two fixes above. Recommend implementing it **together with
+  `recipe-contains-addressability`** (one PR that changes the recipe-provider contract).
