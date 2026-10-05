@@ -90,7 +90,9 @@ def _issue(issue_id: str, design: str, priority: str = "P2") -> dict:
     }
 
 
-def _design(slug: str, issues: list[str], readiness: str = "ready") -> dict:
+def _design(
+    slug: str, issues: list[str], readiness: str = "ready", merged: str = "2026-10-05"
+) -> dict:
     fm = {
         "id": slug.upper(),
         "kind": "design",
@@ -101,6 +103,8 @@ def _design(slug: str, issues: list[str], readiness: str = "ready") -> dict:
     }
     if readiness:
         fm["readiness"] = readiness
+    if merged and len(issues) > 1:
+        fm["merged"] = merged
     return {
         "id": slug.upper(),
         "kind": "design",
@@ -168,6 +172,49 @@ class MergedDesignTests(unittest.TestCase):
             [
                 "specs/design/orphan/DESIGN.md: readiness-labeled design must name at least "
                 "one source issue or feature (§5.1.1)"
+            ],
+        )
+
+    def test_several_sources_without_a_recorded_merge_are_refused(self):
+        rows = [
+            _issue("LEAD", "unmarked"),
+            _issue("OTHER", "unmarked"),
+            _design("unmarked", ["LEAD", "OTHER"], merged=""),
+        ]
+
+        errors = docs_index.readiness_errors(rows)
+
+        self.assertEqual(
+            errors,
+            [
+                "specs/design/unmarked/DESIGN.md: a readiness-labeled design with several "
+                "sources must record the maintainer's merge as `merged: YYYY-MM-DD` (§5.1.1)"
+            ],
+        )
+
+    def test_a_merged_predecessor_must_be_superseded_without_readiness(self):
+        predecessor = _design("old", ["LEAD"])
+        predecessor["_fm"]["superseded_by"] = "merged"
+        rows = [
+            _issue("LEAD", "merged"),
+            _issue("OTHER", "merged"),
+            _design("merged", ["LEAD", "OTHER"]),
+            predecessor,
+        ]
+
+        errors = [e for e in docs_index.readiness_errors(rows) if "old" in e.split(":")[0]]
+
+        self.assertEqual(
+            errors,
+            [
+                "specs/design/old/DESIGN.md: source 'LEAD' links to design 'merged', "
+                "expected 'old' (§5.1.1)",
+                "specs/design/old/DESIGN.md: source 'LEAD' is already owned by "
+                "readiness-labeled design 'merged' (§5.1.1)",
+                "specs/design/old/DESIGN.md: superseded_by 'merged' requires status "
+                "'superseded' (§5.1.1)",
+                "specs/design/old/DESIGN.md: merged into 'merged', so it must drop "
+                "readiness (§5.1.1)",
             ],
         )
 

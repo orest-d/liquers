@@ -427,7 +427,9 @@ without readiness metadata retain their original many-issue relationships.
 
 **Merged designs.** When the maintainer decides that readiness-labeled designs depend on each other
 closely enough to be implemented as one, they are merged into a new design that owns every source.
-Its `issues:` list names all of them, **leading source first**: the design row in `index.csv`
+It records the decision as `merged: YYYY-MM-DD` (the date the maintainer decided), and only a
+design carrying that field may list more than one source, so an ordinary or autonomous design
+cannot pass as merged by accident. Its `issues:` list names all of them, **leading source first**: the design row in `index.csv`
 inherits the leading source's priority, complexity and GitHub issue, and its readiness is projected
 onto every source. Every source's `design:` field links to the merged design, and no other
 readiness-labeled design may claim any of them. Each original design becomes `superseded`, names the
@@ -736,8 +738,10 @@ tooling, no network and no Python can still record what it found.
    phase name is accepted on a file that already carried it and rejected on a new one — so the
    check must compare against `HEAD`, not just the working tree.
 7. When a design carries `readiness`, it uses one of the values in §5.1.1, names at least one
-   existing source issue or feature (exactly one unless it is a merged design), owns every source
-   reciprocally, and shares none with another readiness-labeled design.
+   existing source issue or feature (more than one only with a `merged:` date), owns every source
+   reciprocally, and shares none with another readiness-labeled design. A design whose
+   `superseded_by` names another is `superseded`, and one merged into a design carries no
+   `readiness`.
 8. `index.csv` and `index.md` match what regeneration would produce.
 9. Every relative link target in current `README.md`, issue, design, reference, and guide
    documents exists, and every issue ID referenced by `specs/README.md` exists. Fragment-only,
@@ -1058,6 +1062,6 @@ neither.
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-05 | §5.1.1: a readiness-labeled design may own several sources when designs that depend on each other are merged; the leading source is listed first; originals become `superseded`. `docs_index.py --check` enforces the link-back and single-ownership rules for every source. | maintainer decision, `design/recipe-provider-listing-contract/` |
+| 2026-10-05 | §5.1.1: a readiness-labeled design may own several sources when designs that depend on each other are merged; the leading source is listed first; originals become `superseded`. a merged design records `merged: YYYY-MM-DD`, and `docs_index.py --check` enforces the marker, the link-back and single-ownership rules for every source, and the predecessors' `superseded` status. | maintainer decision, `design/recipe-provider-listing-contract/` |
 | 2026-09-26 | Added the `records` area for the new `liquers-records` crate. | `design/record-streams/` Phase 4, Step 2.3 |
 | 2026-09-01 | Expanded check 9 to cover relative links in all current tracked Markdown documents while excluding archive history and non-filesystem targets. | `DOCS-DEAD-LINKS-OUTSIDE-README` |

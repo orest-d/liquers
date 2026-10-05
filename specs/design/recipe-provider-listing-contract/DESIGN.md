@@ -8,6 +8,7 @@ phase: implementation
 readiness: ready
 area: [core/assets, records, axum]
 issues: [RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY, MANIFEST-PROVIDER-FOLDER-LISTING-NEVER-REFRESHES, ASSET-MANAGER-LISTDIR-KEYS-DEEP-OMITS-TOP-LEVEL-RECIPES]
+merged: 2026-10-05
 affects_docs: [reference/api/DOC_08_RECIPES_PLANS.md, reference/ASSETS.md, reference/RECORD_STREAMS.md, guides/RECORD_STREAM_GUIDE.md, reference/WEB_API_SPECIFICATION.md, guides/WEB_API_GUIDE.md, guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md]
 created: 2026-10-05
 ---

@@ -147,6 +147,7 @@ COLUMNS = [
 # via .gitattributes (linguist-generated), and --check enforces that it matches regeneration —
 # which is the protection that actually holds. A comment was only ever advisory.
 
+ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 REPO = Path(__file__).resolve().parent.parent
 SPECS = REPO / "specs"
 
@@ -649,6 +650,11 @@ def readiness_errors(rows: list[dict]) -> list[str]:
                 )
             elif len(set(sources)) != len(sources):
                 errors.append(f"{where}: a source is listed twice in issues (§5.1.1)")
+            elif len(sources) > 1 and not ISO_DATE_RE.fullmatch(str(f.get("merged", ""))):
+                errors.append(
+                    f"{where}: a readiness-labeled design with several sources must record "
+                    f"the maintainer's merge as `merged: YYYY-MM-DD` (§5.1.1)"
+                )
             for source in dict.fromkeys(sources):
                 if source not in issue_rows:
                     errors.append(
@@ -669,6 +675,23 @@ def readiness_errors(rows: list[dict]) -> list[str]:
                         )
                     else:
                         readiness_design_by_issue[source] = r["design"]
+    # A design merged into another is `superseded`, names it, and no longer claims readiness.
+    by_slug = {r["design"]: r for r in rows if r["kind"] == "design" and r["_fm"]}
+    for r in rows:
+        if r["kind"] != "design" or not r["_fm"]:
+            continue
+        f, where = r["_fm"], r["file"]
+        successor = f.get("superseded_by")
+        if not successor or successor not in by_slug:
+            continue
+        if f.get("status") != "superseded":
+            errors.append(
+                f"{where}: superseded_by '{successor}' requires status 'superseded' (§5.1.1)"
+            )
+        if f.get("readiness") and by_slug[successor]["_fm"].get("merged"):
+            errors.append(
+                f"{where}: merged into '{successor}', so it must drop readiness (§5.1.1)"
+            )
     return errors
 
 

@@ -8,6 +8,7 @@ phase: implementation
 readiness: ready
 area: [docs, core/commands, macro]
 issues: [REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED, REGISTER-COMMAND-EXPIRES-AND-VERSION-STATEMENTS-UNDOCUMENTED]
+merged: 2026-10-05
 affects_docs: [reference/REGISTER_COMMAND_FSD.md, guides/COMMAND_REGISTRATION_GUIDE.md]
 created: 2026-10-04
 ---
