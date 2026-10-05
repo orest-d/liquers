@@ -25,4 +25,4 @@
 
 **Resolution (2026-10-05):** nothing to incorporate. The design is implemented and its Phase 5
 summary is written; it waits only for the maintainer's Phase 5 approval (`proceed`), after which
-`status: complete` is set and `phase` removed.
+`status: complete` is set and `phase` removed. Approved 2026-10-05: `status: complete`.
