@@ -1,12 +1,14 @@
 ---
 id: ACTIVE-10
 kind: design
-title: Design for REPO-DEAD-CODE-HYGIENE
+title: Account for the entities and cache modules of liquers-core
+workflow: liquers-project
 status: in_review
 phase: implementation
 readiness: ready
 area: [build]
 issues: [REPO-DEAD-CODE-HYGIENE]
+affects_docs: [reference/PROJECT_OVERVIEW.md]
 created: 2026-09-03
 ---
 
@@ -16,4 +18,15 @@ created: 2026-09-03
 - [x] Phase 2: Architecture
 - [x] Phase 3: Examples and Tests
 - [x] Phase 4: Implementation Plan
+- [ ] Phase 5: Documentation (plan written; executed after implementation)
 
+Phases 1-4 were rewritten on 2026-10-05: the first version was generic template text, which the
+post-Phase-4 review found too thin to implement from.
+
+## Links
+
+- [Phase 1](./phase1-high-level-design.md)
+- [Phase 2](./phase2-architecture.md)
+- [Phase 3](./phase3-examples.md)
+- [Phase 4](./phase4-implementation.md)
+- [Phase 5](./phase5-documentation.md)

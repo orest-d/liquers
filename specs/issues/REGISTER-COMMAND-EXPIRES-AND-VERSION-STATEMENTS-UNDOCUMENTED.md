@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [docs, macro, core/commands]
-design:
+design: register-command-payload-docs
 created: 2026-10-04
 github:
 ---
@@ -40,4 +40,11 @@ list and the registration guide mention them.
 ## Discovery
 
 Found 2026-10-04 while verifying `REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED` for
-`design/register-command-payload-docs/`; kept separate so that design names one source.
+`design/register-command-payload-docs/`; first kept separate so that design names one source.
+
+## Design (2026-10-05)
+
+Merged into [`design/register-command-payload-docs/`](../design/register-command-payload-docs/DESIGN.md)
+by maintainer decision after the post-Phase-4 review: the same FSD table, `CLAUDE.md` line and guide
+bullet. That design also documents `#[liquers_macro::command_version]`, which `version: auto`
+requires.

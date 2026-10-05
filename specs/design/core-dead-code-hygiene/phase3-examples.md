@@ -1,14 +1,17 @@
-# Phase 3: Examples and Tests
+# Phase 3: Examples and Tests - Account for `entities.rs` and `cache.rs`
 
-| Case | Expected result |
-|---|---|
-| Source reproduction | The source issue's failure becomes the stated successful or typed-error outcome. |
-| Compatibility/error path | Existing callers retain their documented behaviour and invalid input retains a typed error. |
-| Regression boundary | A focused test proves the precise changed contract, not only execution reachability. |
+## Evidence Instead of Tests
 
-## Test Plan
+The change adds a comment and removes an unused import, so no Rust test is added: a test could
+only assert that a comment exists. What must be proven is the audit, and that nothing breaks.
 
-Add or amend focused tests beside the named implementation or in the named integration suite. Use descriptive single-behaviour test names, `#[tokio::test]` for async store paths, and assertions on error kind or structured fields rather than message parsing.
+| Check | Command | Expected |
+|---|---|---|
+| `entities` is live | `grep -rn "entities::" liquers-core/src --include=*.rs` | hits in `escape.rs` and `bin/generate_entities.rs` |
+| `cache` has no core caller | `grep -rn "crate::cache\|cache::" liquers-core/src --include=*.rs` | only `lib.rs`'s `pub mod cache;` |
+| `cache`'s compiled consumers | `grep -rn "liquers_core::cache" --include=*.rs liquers-*/src` | `liquers-py/src/context.rs` (compiled) and `liquers-py/src/cache.rs` (orphan, not declared in `lib.rs`) |
+| core still builds | `cargo check -p liquers-core` and `cargo check -p liquers-core --target wasm32-unknown-unknown` | no new warning |
+| py still builds | `cargo check -p liquers-py --lib` | unchanged warnings |
+| docs | `python3 scripts/docs_index.py --check` | 0 errors |
 
-**Validation commands:** cargo test -p liquers-core entities; cargo test -p liquers-core cache.
-
+The evidence table goes into the issue's resolution, so the next audit starts from it.

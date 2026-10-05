@@ -1,12 +1,14 @@
 ---
 id: REGISTER-COMMAND-PAYLOAD-DOCS
 kind: design
-title: Documenting the payload metadata statement of register_command!
+title: Documenting the payload, expires and version metadata statements of register_command!
+workflow: liquers-project
 status: in_review
 phase: implementation
 readiness: ready
 area: [docs, core/commands, macro]
-issues: [REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED]
+issues: [REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED, REGISTER-COMMAND-EXPIRES-AND-VERSION-STATEMENTS-UNDOCUMENTED]
+affects_docs: [reference/REGISTER_COMMAND_FSD.md, guides/COMMAND_REGISTRATION_GUIDE.md]
 created: 2026-10-04
 ---
 # register-command-payload-docs Design Tracking
@@ -27,3 +29,13 @@ Autonomous bulk design (`guides/autonomous_bulk_design.md`) for
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
+
+## Scope Change (2026-10-05)
+
+After the post-Phase-4 review the maintainer merged
+`REGISTER-COMMAND-EXPIRES-AND-VERSION-STATEMENTS-UNDOCUMENTED` into this design: the same FSD table,
+the same `CLAUDE.md` line and the same guide bullet, so one coherent edit instead of two History rows
+per document. The payload issue stays the leading source. The design now follows the five-phase
+`liquers-project` contract; Phase 5 holds the documentation plan.
+
+- [Phase 5](./phase5-documentation.md) (plan; executed after implementation)

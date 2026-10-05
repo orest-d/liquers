@@ -1,22 +1,51 @@
-# Phase 2: Solution and Architecture
+# Phase 2: Solution and Architecture - Account for `entities.rs` and `cache.rs`
 
 ## Chosen Solution
 
-Re-audit the named modules, retain modules with callers, and close the stale issue with evidence rather than deleting live code.
+1. **`liquers-core/src/cache.rs`** — insert a module doc comment before the two `#![allow]`
+   attributes:
 
-## Integration Boundary
+   ```rust
+   //! Legacy synchronous query cache (`BinCache`, `Cache`). **Obsolete: do not use in new code.**
+   //!
+   //! Assets provide caching (`crate::assets`); nothing in `liquers-core` uses this module. Its one
+   //! remaining consumer is `liquers-py`'s legacy `Environment` (`cache` field, `with_cache`), and it
+   //! is removed together with the synchronous `Store` trait and that environment's fields
+   //! (`CORE-SYNC-STORE-TRAIT-OBSOLETE`).
+   ```
 
-**Files and symbols:** liquers-core/src/lib.rs, liquers-core/src/entities.rs, liquers-core/src/cache.rs, liquers-py/src/cache.rs, liquers-core/src/escape.rs, specs/issues/REPO-DEAD-CODE-HYGIENE.md. Reuse existing typed Error constructors and existing async traits; avoid new ownership or dispatch abstractions unless the named boundary requires them. Serialized additions are optional and additive; public Rust renames retain explicit compatibility handling where stated.
+   Delete `use chrono::format;`. Leave the other imports and both `#![allow]` attributes: the module
+   is going away, and tightening lints on it is churn.
 
-## Alternatives and Errors
+2. **`specs/reference/PROJECT_OVERVIEW.md`** ≈103: the row becomes
+   `| cache.rs | ~350 | Legacy synchronous cache; obsolete (assets cache results), removal tracked in CORE-SYNC-STORE-TRAIT-OBSOLETE |`.
 
-Reject pre-checks that race or duplicate I/O, broad catch-all error mapping, and unrelated refactors. Fallible paths return existing `Result<_, Error>` types and retain typed error kinds.
+3. **`specs/issues/CORE-SYNC-STORE-TRAIT-OBSOLETE.md`** — records that its removal covers
+   `liquers_core::cache` and `liquers-py`'s `Environment.cache` / `with_cache` (§Related, added with
+   this design on 2026-10-05).
 
-## Risk Review
+## Rejected Alternatives
 
-| Risk | Validation and recovery |
+- **Delete `cache.rs` now** — forces a `liquers-py` public API change separate from the one
+  `CORE-SYNC-STORE-TRAIT-OBSOLETE` already plans for the same struct.
+- **`#[deprecated]` on the items** — every use in `liquers-py` would warn until the removal, adding
+  noise without new information; the doc comment and the tracking issue carry the decision.
+- **Delete `entities.rs`** — it is live.
+
+## Files and Symbols
+
+| File | Change |
 |---|---|
-| Contract or compatibility drift | Pin the source acceptance cases and preserve documented wire/error behaviour. Revert the isolated change if the contract cannot be met. |
-| Async or ownership regression | Keep existing AsyncStore/wasm Send bounds and borrow inputs; run focused crate tests. |
-| Documentation or generated-data drift | Update named current documents and regenerate/check required indexes. |
+| `liquers-core/src/cache.rs` | module doc; remove one import |
+| `specs/reference/PROJECT_OVERVIEW.md` | one row; History + `reviewed:` |
+| `specs/issues/CORE-SYNC-STORE-TRAIT-OBSOLETE.md` | scope note |
+| `specs/issues/REPO-DEAD-CODE-HYGIENE.md` | `status: closed`, resolution |
 
+## Risk Table
+
+| Aspect | Assessment |
+|---|---|
+| Compatibility | none |
+| Build | removing an unused import cannot break a build; `cargo check` proves it |
+| Recovery | revert |
+| Certainty | high |
