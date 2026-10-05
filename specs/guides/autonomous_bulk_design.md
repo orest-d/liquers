@@ -3,7 +3,7 @@ title: Autonomous Bulk Design Procedure
 kind: guide
 audience: internal
 area: [docs, build]
-reviewed: 2026-08-31
+reviewed: 2026-10-05
 ---
 
 # Autonomous Bulk Design Procedure
@@ -55,7 +55,10 @@ merely to use this procedure.
 6. **One source, one design.** Every selected issue and feature gets its own design folder and
    readiness value, and each design names exactly one source ID. Never merge several issues or
    features into one design, even when the implementation overlaps. A duplicate or covered item
-   still gets its own design record, which points to the covering design.
+   still gets its own design record, which points to the covering design. The one exception is a
+   merge the **maintainer** decides after review, for designs whose implementations depend on each
+   other (`DOCS_STRUCTURE_GUIDE.md` §5.1.1, "Merged designs"); an autonomous run never merges on its
+   own initiative.
 7. **Keep records truthful.** Shared findings and dependencies may be cross-linked, but one
    design's certainty MUST NOT conceal another's blocker or replace its separate analysis.
 
@@ -132,9 +135,10 @@ count, and do not stop the whole run merely because one design is blocked.
 ## 5. Design folder and lifecycle metadata
 
 Create `specs/design/<slug>/DESIGN.md` using the contract in `DOCS_STRUCTURE_GUIDE.md`. Its
-`issues:` list MUST contain exactly one issue or feature ID, and that source document's `design:`
+`issues:` list MUST contain exactly one issue or feature ID (a maintainer-merged design excepted), and that source document's `design:`
 field MUST link back to this design slug. No other readiness-labeled design may claim the same
-source. Similarity, shared code, or a common dependency does not permit combining sources.
+source. Similarity, shared code, or a common dependency does not permit combining sources; only a
+maintainer-directed merge does (`DOCS_STRUCTURE_GUIDE.md` §5.1.1).
 
 When the source is a duplicate or its work is fully covered elsewhere, retain this separate design,
 set `readiness: covered`, and state the covering issue and design explicitly in Phase 1 and Phase 2.
@@ -323,4 +327,5 @@ as implementation-ready merely because four files exist.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-05 | Rule 6 and §5: one exception to one-source-per-design, a maintainer-directed merge of designs whose implementations depend on each other (`DOCS_STRUCTURE_GUIDE.md` §5.1.1). | maintainer decision |
 | 2026-08-31 | Added the autonomous four-phase bulk-design procedure, one-source-per-design enforcement, finished-Phase-4 exclusion, dependency recording, continuous feasibility review, final Phase 1 synthesis, tiered questions, partial-design resumption, and indexed readiness states. | documentation |

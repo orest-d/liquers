@@ -66,5 +66,111 @@ class RelativeLinkTests(unittest.TestCase):
             self.assertEqual(docs_index.relative_link_errors(specs), [])
 
 
+def _issue(issue_id: str, design: str, priority: str = "P2") -> dict:
+    return {
+        "id": issue_id,
+        "kind": "issue",
+        "design": design,
+        "file": f"specs/issues/{issue_id}.md",
+        "priority": priority,
+        "complexity": "S",
+        "gh_issue": "",
+        "readiness": "",
+        "status": "draft",
+        "_path": Path(f"specs/issues/{issue_id}.md"),
+        "_fm": {
+            "id": issue_id,
+            "kind": "issue",
+            "status": "draft",
+            "priority": priority,
+            "complexity": "S",
+            "area": ["docs"],
+            "design": design,
+        },
+    }
+
+
+def _design(slug: str, issues: list[str], readiness: str = "ready") -> dict:
+    fm = {
+        "id": slug.upper(),
+        "kind": "design",
+        "status": "in_review",
+        "phase": "implementation",
+        "area": ["docs"],
+        "issues": issues,
+    }
+    if readiness:
+        fm["readiness"] = readiness
+    return {
+        "id": slug.upper(),
+        "kind": "design",
+        "design": slug,
+        "file": f"specs/design/{slug}/DESIGN.md",
+        "priority": "",
+        "complexity": "",
+        "gh_issue": "",
+        "readiness": "",
+        "status": "in_review",
+        "_path": Path(f"specs/design/{slug}/DESIGN.md"),
+        "_fm": fm,
+    }
+
+
+class MergedDesignTests(unittest.TestCase):
+    def test_merged_readiness_design_may_own_several_sources(self):
+        rows = [
+            _issue("LEAD", "merged", priority="P1"),
+            _issue("OTHER", "merged", priority="P3"),
+            _design("merged", ["LEAD", "OTHER"]),
+        ]
+
+        errors = docs_index.readiness_errors(rows)
+
+        self.assertEqual(errors, [])
+
+    def test_merged_design_inherits_the_leading_source_and_projects_readiness(self):
+        rows = [
+            _issue("LEAD", "merged", priority="P1"),
+            _issue("OTHER", "merged", priority="P3"),
+            _design("merged", ["LEAD", "OTHER"]),
+        ]
+
+        docs_index.join_design_sources(rows)
+
+        self.assertEqual(rows[2]["priority"], "P1")
+        self.assertEqual([rows[0]["readiness"], rows[1]["readiness"]], ["ready", "ready"])
+
+    def test_every_source_of_a_merged_design_must_link_back(self):
+        rows = [
+            _issue("LEAD", "merged"),
+            _issue("OTHER", "elsewhere"),
+            _design("merged", ["LEAD", "OTHER"]),
+            _design("elsewhere", [], readiness=""),
+        ]
+
+        errors = docs_index.readiness_errors(rows)
+
+        self.assertEqual(
+            errors,
+            [
+                "specs/design/merged/DESIGN.md: source 'OTHER' links to design "
+                "'elsewhere', expected 'merged' (§5.1.1)"
+            ],
+        )
+
+    def test_a_readiness_design_needs_a_source(self):
+        rows = [_design("orphan", [])]
+
+        errors = docs_index.readiness_errors(rows)
+
+        self.assertEqual(
+            errors,
+            [
+                "specs/design/orphan/DESIGN.md: readiness-labeled design must name at least "
+                "one source issue or feature (§5.1.1)"
+            ],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

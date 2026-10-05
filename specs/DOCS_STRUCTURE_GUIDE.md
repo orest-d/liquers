@@ -420,10 +420,20 @@ readiness remains filterable alongside the queue fields in either representation
 [`guides/autonomous_bulk_design.md`](guides/autonomous_bulk_design.md) defines how autonomous bulk
 design work assigns and maintains it.
 
-Every readiness-labeled design owns exactly one source issue or feature. Its `issues:` list contains
-that one ID, the source document's `design:` field links back to the design slug, and no second
-readiness-labeled design may claim the same source. Historical designs without readiness metadata
-retain their original many-issue relationships.
+Every readiness-labeled design owns its source issues and features. Normally that is exactly one:
+its `issues:` list contains that one ID, the source document's `design:` field links back to the
+design slug, and no second readiness-labeled design may claim the same source. Historical designs
+without readiness metadata retain their original many-issue relationships.
+
+**Merged designs.** When the maintainer decides that readiness-labeled designs depend on each other
+closely enough to be implemented as one, they are merged into a new design that owns every source.
+Its `issues:` list names all of them, **leading source first**: the design row in `index.csv`
+inherits the leading source's priority, complexity and GitHub issue, and its readiness is projected
+onto every source. Every source's `design:` field links to the merged design, and no other
+readiness-labeled design may claim any of them. Each original design becomes `superseded`, names the
+merged design in `superseded_by`, drops its `readiness`, and carries a note saying what moved where.
+Its `issues:` list is kept as history. A related issue that is not merged is recorded in Phase 1's
+Design Dependencies with its relationship (`requires`, `required-by`, `covered-by`, `overlaps`).
 
 `workflow` records which gated skill created the effort. `workflow: liquers-project` is the
 unambiguous five-phase contract and makes `documentation` mandatory. An omitted `workflow` denotes
@@ -599,7 +609,7 @@ id,kind,title,status,status_source,phase,readiness,priority,complexity,area,gh_i
 | `status_source` | `local` for issues and features, which always own their status locally. Designs may read `github` only while their PR-derived status is cached. |
 | `phase` | `kind: design` only, and only in a status that carries one (§5.1). Empty otherwise. |
 | `readiness` | Optional implementation-readiness assessment authored by a readiness-labeled design (§5.1.1), rendered on both its one linked `kind: issue` or `kind: feature` row and its design row. Empty when there is no readiness-labeled reciprocal pair. |
-| `priority`, `complexity` | From an issue or feature. A design with exactly one known source inherits those values; other design rows are empty. |
+| `priority`, `complexity` | From an issue or feature. A design with exactly one known source inherits those values, as does a merged readiness-labeled design from its leading (first-listed) source (§5.1.1); other design rows are empty. |
 | `area` | `;`-separated. |
 | `gh_issue` | Number, or empty. Written by hand once, in the issue's front-matter (§4.3). |
 | `gh_pr` | `;`-separated numbers. For an **issue**, derived from GitHub's issue↔PR links. For a **design**, seeded from `DESIGN.md` front-matter, where it is written by hand once (§5.5); the *state* of those PRs is always GitHub's. |
@@ -650,7 +660,7 @@ Then the rank each kind actually has:
 | Kind | Ordered by |
 |---|---|
 | `issue`, `feature` | `priority` ascending, then `complexity` **smallest first** — the top of the file is the most urgent thing that is also the least work. A missing value sorts last rather than first, so an unranked issue cannot squat at the top. |
-| `design` | Source priority ascending, then source complexity smallest first, when the design has exactly one known source. Other designs have no queue rank. |
+| `design` | Source priority ascending, then source complexity smallest first, when the design has exactly one known source or is a merged readiness-labeled design (leading source). Other designs have no queue rank. |
 | `guide`, `reference` | `overdue` above `current`, so a document owed a review is the one you see. |
 
 `id` breaks every remaining tie. Columns are never padded for alignment.
@@ -725,9 +735,9 @@ tooling, no network and no Python can still record what it found.
 6. `phase` is present exactly when §5.1 requires it, and names a phase from §5.2. A `retired`
    phase name is accepted on a file that already carried it and rejected on a new one — so the
    check must compare against `HEAD`, not just the working tree.
-7. When a design carries `readiness`, it uses one of the values in §5.1.1, names exactly one
-   existing source issue or feature, owns that source reciprocally, and does not share it with
-   another readiness-labeled design.
+7. When a design carries `readiness`, it uses one of the values in §5.1.1, names at least one
+   existing source issue or feature (exactly one unless it is a merged design), owns every source
+   reciprocally, and shares none with another readiness-labeled design.
 8. `index.csv` and `index.md` match what regeneration would produce.
 9. Every relative link target in current `README.md`, issue, design, reference, and guide
    documents exists, and every issue ID referenced by `specs/README.md` exists. Fragment-only,
@@ -1048,5 +1058,6 @@ neither.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-05 | §5.1.1: a readiness-labeled design may own several sources when designs that depend on each other are merged; the leading source is listed first; originals become `superseded`. `docs_index.py --check` enforces the link-back and single-ownership rules for every source. | maintainer decision, `design/recipe-provider-listing-contract/` |
 | 2026-09-26 | Added the `records` area for the new `liquers-records` crate. | `design/record-streams/` Phase 4, Step 2.3 |
 | 2026-09-01 | Expanded check 9 to cover relative links in all current tracked Markdown documents while excluding archive history and non-filesystem targets. | `DOCS-DEAD-LINKS-OUTSIDE-README` |

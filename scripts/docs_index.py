@@ -367,26 +367,37 @@ def collect() -> list[dict]:
                 }
             )
 
-    # A design with one known source inherits its source-owned queue fields. A readiness design
-    # also projects its design-owned readiness back onto that source. Invalid or ambiguous links
-    # remain unjoined and are reported by check().
+    join_design_sources(rows)
+    return rows
+
+
+def join_design_sources(rows: list[dict]) -> None:
+    """Project source-owned queue fields onto designs, and readiness back onto sources.
+
+    A design with one known source inherits its priority, complexity and GitHub issue. A
+    readiness-labeled design formed by merging designs (§5.1.1) lists several sources: the first
+    is its **leading** source, whose queue fields the design row inherits, and its readiness is
+    projected onto every source. Invalid or ambiguous links remain unjoined and are reported by
+    check().
+    """
     issue_rows = {row["id"]: row for row in rows if row["kind"] in ("issue", "feature")}
     for row in rows:
         if row["kind"] != "design":
             continue
         readiness = row["_fm"].get("readiness", "")
         sources = _list(row["_fm"], "issues")
-        if len(sources) != 1 or sources[0] not in issue_rows:
+        if not sources or any(source not in issue_rows for source in sources):
             continue
-        source = issue_rows[sources[0]]
-        row["priority"] = source["priority"]
-        row["complexity"] = source["complexity"]
-        row["gh_issue"] = source["gh_issue"]
+        if len(sources) > 1 and not readiness:
+            continue
+        leading = issue_rows[sources[0]]
+        row["priority"] = leading["priority"]
+        row["complexity"] = leading["complexity"]
+        row["gh_issue"] = leading["gh_issue"]
         row["readiness"] = readiness
         if readiness:
-            source["readiness"] = readiness
-
-    return rows
+            for source in sources:
+                issue_rows[source]["readiness"] = readiness
 
 
 # --------------------------------------------------------------------------- writing
@@ -618,6 +629,49 @@ def render_readme_blocks(rows: list[dict], readme: str) -> str:
 
 
 # --------------------------------------------------------------------------- checks
+def readiness_errors(rows: list[dict]) -> list[str]:
+    """§5.1.1: a readiness-labeled design owns one or more sources, each linking back to it, and
+    no source is owned by two readiness-labeled designs. Several sources arise only from merging
+    designs whose implementations depend on each other; the first listed is the leading one."""
+    errors: list[str] = []
+    issue_rows = {r["id"]: r for r in rows if r["kind"] in ("issue", "feature")}
+    readiness_design_by_issue: dict[str, str] = {}
+    for r in rows:
+        if r["kind"] != "design" or not r["_fm"]:
+            continue
+        f, where = r["_fm"], r["file"]
+        if f.get("readiness"):
+            sources = _list(f, "issues")
+            if not sources:
+                errors.append(
+                    f"{where}: readiness-labeled design must name at least one "
+                    f"source issue or feature (§5.1.1)"
+                )
+            elif len(set(sources)) != len(sources):
+                errors.append(f"{where}: a source is listed twice in issues (§5.1.1)")
+            for source in dict.fromkeys(sources):
+                if source not in issue_rows:
+                    errors.append(
+                        f"{where}: source issue or feature '{source}' does not exist"
+                    )
+                else:
+                    linked_design = issue_rows[source]["_fm"].get("design")
+                    if linked_design != r["design"]:
+                        errors.append(
+                            f"{where}: source '{source}' links to design "
+                            f"'{linked_design}', expected '{r['design']}' (§5.1.1)"
+                        )
+                    owner = readiness_design_by_issue.get(source)
+                    if owner:
+                        errors.append(
+                            f"{where}: source '{source}' is already owned by "
+                            f"readiness-labeled design '{owner}' (§5.1.1)"
+                        )
+                    else:
+                        readiness_design_by_issue[source] = r["design"]
+    return errors
+
+
 def check(rows: list[dict]) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -626,7 +680,7 @@ def check(rows: list[dict]) -> tuple[list[str], list[str]]:
     designs = {r["design"] for r in rows if r["kind"] == "design"}
     issue_ids = {r["id"] for r in rows if r["kind"] in ("issue", "feature")}
     issue_rows = {r["id"]: r for r in rows if r["kind"] in ("issue", "feature")}
-    readiness_design_by_issue: dict[str, str] = {}
+    errors.extend(readiness_errors(rows))
 
     for r in rows:
         f, where = r["_fm"], r["file"]
@@ -705,34 +759,6 @@ def check(rows: list[dict]) -> tuple[list[str], list[str]]:
                 errors.append(f"{where}: unknown phase '{f['phase']}' (see guide §5.2)")
             if f.get("readiness") and f["readiness"] not in DESIGN_READINESS:
                 errors.append(f"{where}: readiness '{f['readiness']}' not in §5.1.1")
-            if f.get("readiness"):
-                sources = _list(f, "issues")
-                if len(sources) != 1:
-                    errors.append(
-                        f"{where}: readiness-labeled design must name exactly one "
-                        f"source issue or feature (§5.1.1)"
-                    )
-                else:
-                    source = sources[0]
-                    if source not in issue_rows:
-                        errors.append(
-                            f"{where}: source issue or feature '{source}' does not exist"
-                        )
-                    else:
-                        linked_design = issue_rows[source]["_fm"].get("design")
-                        if linked_design != r["design"]:
-                            errors.append(
-                                f"{where}: source '{source}' links to design "
-                                f"'{linked_design}', expected '{r['design']}' (§5.1.1)"
-                            )
-                        owner = readiness_design_by_issue.get(source)
-                        if owner:
-                            errors.append(
-                                f"{where}: source '{source}' is already owned by "
-                                f"readiness-labeled design '{owner}' (§5.1.1)"
-                            )
-                        else:
-                            readiness_design_by_issue[source] = r["design"]
             sb = f.get("superseded_by")
             if sb and sb not in designs:
                 errors.append(f"{where}: superseded_by '{sb}' does not exist")
