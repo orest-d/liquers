@@ -77,6 +77,7 @@ volatility work all landed in `assets.rs`.
 - **Keyed-recipe ownership** — built → [`design/keyed-recipe-ownership/`](design/keyed-recipe-ownership/)
 - **Keyed delegation as a hand-off** — built → [`design/keyed-delegation-hand-off/`](design/keyed-delegation-hand-off/) *(rule documented in [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md))*
 - **Terminal outcome contract** — built → [`design/wp2-terminal-outcome/`](design/wp2-terminal-outcome/)
+- **Listed vs producible recipe keys, manifest-cache freshness, complete deep listings** — designing → [`design/recipe-provider-listing-contract/`](design/recipe-provider-listing-contract/) *(merges three former designs; contract to be folded into [`reference/api/DOC_08_RECIPES_PLANS.md`](reference/api/DOC_08_RECIPES_PLANS.md) in its Phase 5)*
 - **Recipe-provider selection by name** — built → [`design/recipe-provider-selection/`](design/recipe-provider-selection/) *(contract in [`reference/api/DOC_08_RECIPES_PLANS.md`](reference/api/DOC_08_RECIPES_PLANS.md))*
 - **Dependency audit, audit policy and listing dependencies** — documented → [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md) *(design in [`design/dependency-audit-and-expiry-provenance/`](design/dependency-audit-and-expiry-provenance/))*
 - **Expiry reasons, and content changed outside Liquers** — documented → [`reference/ASSETS.md`](reference/ASSETS.md) *(design in [`design/dependency-audit-and-expiry-provenance/`](design/dependency-audit-and-expiry-provenance/))*
@@ -329,8 +330,6 @@ deliberately folded behind a broader line.
 - design `lib-integration-test-feature-gates`
 - design `lib-polars-ethnum-rust-1-98`
 - design `listdir-keys-deep-child-check`
-- design `listdir-keys-deep-recipe-union`
-- design `manifest-folder-listing-invalidation`
 - design `metadata-error-traceback`
 - design `metadata-serde-partialeq`
 - design `opendal-derived-store-arguments`
@@ -344,7 +343,6 @@ deliberately folded behind a broader line.
 - design `predecessor-cut-equivalence`
 - design `query-leading-slash-field`
 - design `queued-manager-conditional-eviction`
-- design `recipe-contains-addressability`
 - design `recipe-plan-declarations`
 - design `refresh-command-metadata-versions`
 - design `register-command-payload-docs`

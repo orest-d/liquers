@@ -1,5 +1,10 @@
 # Phase 1: High-Level Design - Folder-Cache Invalidation for `ManifestRecipeProvider`
 
+> **Superseded on 2026-10-05** by [`recipe-provider-listing-contract`](../recipe-provider-listing-contract/DESIGN.md), Part B (folder-cache invalidation). The maintainer
+> merged this design with the two others it depended on after the post-Phase-4 review; the merged
+> design carries this content with the review's corrections and owns this design's source issue.
+> This folder is kept for the reasoning; do not implement from it.
+
 ## Design Readiness
 
 - **Readiness:** ready
