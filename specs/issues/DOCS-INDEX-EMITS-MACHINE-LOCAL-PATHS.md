@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [docs, build]
-design:
+design: docs-index-phase-link-targets
 created: 2026-09-04
 github:
 ---
@@ -74,3 +74,13 @@ determined before the fix; if separate, it is its own issue.
 Found on 2026-09-04 while regenerating the index after adding the
 `stale-dependency-status-finalization` design folder. The regeneration rewrote 60+ unrelated rows,
 which is what made the absolute paths visible.
+
+## Re-verified 2026-10-04
+
+The ordering half is fixed: every path list in `scripts/docs_index.py`, the design-phase listing
+included, goes through `stable_paths` (closed `DOCS-INDEX-GENERATION-DIFFERS-BY-HOST`). The
+link-target half is **not**: `e326a45` made the phase links relative to the *repository*
+(`specs/design/<slug>/phase1-….md`), but `specs/index.md` lives in `specs/`, so every phase link
+resolves to `specs/specs/design/…` and is dead. The issue links in the same table use
+`relative_specs_path()` and work. `--check` does not report it because `tracked_markdown_paths`
+does not include `specs/index.md`. Designed in `design/docs-index-phase-link-targets/`.

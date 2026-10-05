@@ -311,6 +311,7 @@ deliberately folded behind a broader line.
 - design `command-registry-issue-fields-coverage`
 - design `command-registry-issue-fields`
 - design `configuration-error-kind`
+- design `context-title-description`
 - design `core-dead-code-hygiene`
 - design `core-error-payload-size`
 - design `core-no-default-features-compatibility`
@@ -319,6 +320,7 @@ deliberately folded behind a broader line.
 - design `delegated-value-repersisted`
 - design `docs-current-link-validation`
 - design `docs-dead-links`
+- design `docs-index-phase-link-targets`
 - design `documentation-currentness-small-fixes`
 - design `error-store-name-payload`
 - design `error-with-key-field`
@@ -327,7 +329,10 @@ deliberately folded behind a broader line.
 - design `lib-integration-test-feature-gates`
 - design `lib-polars-ethnum-rust-1-98`
 - design `listdir-keys-deep-child-check`
+- design `listdir-keys-deep-recipe-union`
+- design `manifest-folder-listing-invalidation`
 - design `metadata-error-traceback`
+- design `metadata-serde-partialeq`
 - design `opendal-derived-store-arguments`
 - design `opendal-feature-without-async-store`
 - design `opendal-list-option-config`
@@ -339,8 +344,11 @@ deliberately folded behind a broader line.
 - design `predecessor-cut-equivalence`
 - design `query-leading-slash-field`
 - design `queued-manager-conditional-eviction`
+- design `recipe-contains-addressability`
 - design `recipe-plan-declarations`
 - design `refresh-command-metadata-versions`
+- design `register-command-payload-docs`
+- design `save-to-store-skip-outcome`
 - design `sidecar-colliding-keys`
 - design `state-argument-serde-default`
 - design `store-conformance-suite`
@@ -348,10 +356,12 @@ deliberately folded behind a broader line.
 - design `store-keys-contract`
 - design `store-router-empty-prefix`
 - design `store-test-output-hygiene`
+- design `text-value-markdown-format`
 - design `ui-query-console-error-highlight`
 - design `value-type-system`
 - design `variadic-metadata-tail-check`
 - design `web-liquers-error-constructor`
+- design `web-object06-error-type-exhaustiveness`
 - design `web-value04-bytes-identifier`
 - feature `AGENT-MEMORY-SERVICE`
 - feature `ASSET-REGISTRATION-OWNERSHIP-CONTRACT`

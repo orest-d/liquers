@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [docs, core/commands, macro]
-design:
+design: register-command-payload-docs
 created: 2026-09-03
 github:
 ---

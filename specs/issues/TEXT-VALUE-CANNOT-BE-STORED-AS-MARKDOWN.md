@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [core/value]
-design: 
+design: text-value-markdown-format
 created: 2026-09-27
 github:
 ---

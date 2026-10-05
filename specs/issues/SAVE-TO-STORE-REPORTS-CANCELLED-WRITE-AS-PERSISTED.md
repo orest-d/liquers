@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [core/assets]
-design:
+design: save-to-store-skip-outcome
 created: 2026-09-04
 github:
 ---

@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [records]
-design: record-streams
+design: manifest-folder-listing-invalidation
 created: 2026-09-26
 github:
 ---
@@ -75,3 +75,7 @@ Noted while implementing `ManifestRecipeProvider` (Phase 4 Step 4.3): the per-ma
 listing cache (`folders`) that Step 4.3 also asks for has no equivalent, because
 `AsyncStore` exposes no directory-level version to check it against. Not covered by any existing
 test; filed rather than fixed, per `CLAUDE.md`'s "file it before you finish the task."
+
+## Design 2026-10-04
+
+`design:` now points to `design/manifest-folder-listing-invalidation/` (autonomous bulk design, one source per design). `record-streams` is complete and frozen; it recorded this limitation but did not design the remaining fix, which that folder now specifies through Phase 4 (`readiness: needs-decision` — see its Phase 1 for the open question).

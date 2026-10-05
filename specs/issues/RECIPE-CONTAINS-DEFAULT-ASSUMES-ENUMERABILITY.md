@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [core/assets]
-design: record-streams
+design: recipe-contains-addressability
 created: 2026-09-20
 github:
 ---
@@ -103,3 +103,7 @@ pitfall `ManifestRecipeProvider` had to work around. Status stays `draft`; `prio
 unchanged. Closing this properly is still the trait-level change described above, tracked here, not
 in `record-streams`.
 
+
+## Design 2026-10-04
+
+`design:` now points to `design/recipe-contains-addressability/` (autonomous bulk design, one source per design). `record-streams` is complete and frozen; it recorded this limitation but did not design the remaining fix, which that folder now specifies through Phase 4 (`readiness: needs-decision` — see its Phase 1 for the open question).
