@@ -9,8 +9,8 @@
 |---|---|---|---|
 | `ManifestRecipeProvider::contains` | true | **false** (not listed) | false |
 | `ManifestRecipeProvider::can_make` | true | true | false |
-| `AssetManager::contains` (recommended) | true | false | false |
-| `AssetManager::can_make` (recommended) | true | true | false |
+| `AssetManager::contains` | true | false | false |
+| `AssetManager::can_make` | true | true | false |
 | `AssetManager::get_asset_info` | recipe info | recipe info | `KeyNotFound` |
 
 ## Tests to Add or Change
@@ -32,13 +32,13 @@
 | `contains_answers_for_a_template_name_far_beyond_any_listing` | rename to `can_make_answers_for_a_template_name_far_beyond_any_listing`, assert `can_make`; add `assert!(!contains(...))` for the same key | 4 |
 | new `contains_reports_only_explicit_chunks` | `contains` true for an explicit chunk, false for a template chunk | 4 |
 
-### `liquers-core/src/assets.rs` (`mod tests`, recommended answer)
+### `liquers-core/src/assets.rs` (`mod tests`)
 
 `manager_can_make_covers_unlisted_producible_keys`: environment whose recipe provider is the
 `PatternProvider`; `contains(a/x.gen) == false`, `can_make(a/x.gen) == true`,
 `get_asset_info(a/x.gen)` is `Ok` (criterion 6).
 
-### `liquers-axum/tests/` (recommended answer)
+### `liquers-axum/tests/`
 
 Extend the assets API integration tests: `GET {b}/key/can_make/a/x.gen` → `can_make: true`;
 `GET {b}/key/contains/a/x.gen` → `contains: false`; `submit` of `a/x.gen` succeeds (guard uses
@@ -51,5 +51,4 @@ Memory store, `recipes.yaml` written with `store.set`. No commands executed: `co
 
 ## Coverage Review
 
-Criteria 1-7 covered by unit tests; criterion 8 is a documentation step. The axum and manager
-tests encode the recommended answer and are the ones to change under the alternative.
+Criteria 1-7 covered by unit tests; criterion 8 is a documentation step.

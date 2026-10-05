@@ -30,8 +30,9 @@ the exact setup).
 
 Environment from `LibKind` with the default provider chain (which carries
 `ManifestRecipeProvider`) and a memory store. Write a manifest via
-`envref.get_asset_manager().set(...)` (or `set_state`) after a first lookup; assert the new chunk
-resolves through `AssetManager::contains` — proves the manager hook and chain forwarding
+`envref.get_asset_manager().set(...)` (or `set_state`) after a first lookup; assert the new manifest's explicit chunk
+answers `AssetManager::contains` and a template chunk answers `AssetManager::can_make` (the
+split from `recipe-contains-addressability`; use `contains` alone if that design lands later) — proves the manager hook and chain forwarding
 (criteria 1, 7).
 
 ### `liquers-axum/tests/` — extend the store API integration tests

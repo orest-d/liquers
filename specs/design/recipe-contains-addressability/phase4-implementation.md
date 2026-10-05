@@ -1,11 +1,8 @@
 # Phase 4: Implementation Plan - `contains` (Listed) and `can_make` (Producible)
 
-The provider-level shape was decided on 2026-10-04. Steps 1-4 do not depend on the open
-manager/HTTP question; steps 5-6 implement its recommended answer.
+The provider contract was decided on 2026-10-04 and the mirrored asset-manager/HTTP split on
+2026-10-05; no decision gate remains.
 
-0. **Decision gate (steps 5-6 only).** Confirm the asset-manager and HTTP naming (Phase 1). Under
-   the alternative, replace steps 5-6 with: change `AssetManager::contains`'s provider call to
-   `can_make` (both bodies) and leave axum unchanged.
 1. **Trait.** `liquers-core/src/recipes.rs`: add `can_make` with the `recipe_opt` default; rewrite
    `contains`' doc ("what its directory shows"); add the trait-level paragraph. Add
    `on_demand_provider_splits_contains_and_can_make`, `default_provider_contains_equals_can_make`,
@@ -39,5 +36,5 @@ manager/HTTP question; steps 5-6 implement its recommended answer.
 
 ## Final Review
 
-Steps 1-4 are safe to execute now and fix the defect at the provider level. Steps 5-6 wait on
-the naming decision. Rollback per step; `can_make`'s default makes step 1 harmless on its own.
+Executable as written. Steps 1-4 fix the defect at the provider level; steps 5-6 add the
+mirrored manager method and HTTP route. Rollback per step; `can_make`'s default makes step 1 harmless on its own.

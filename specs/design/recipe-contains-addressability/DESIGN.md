@@ -4,7 +4,7 @@ kind: design
 title: Separate listed (contains) and producible (can_make) questions on recipe providers
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
 area: [core/assets]
 issues: [RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY]
 created: 2026-10-04

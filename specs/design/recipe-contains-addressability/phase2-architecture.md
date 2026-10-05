@@ -40,7 +40,7 @@ Trait-level doc: one paragraph naming the two questions (show vs produce) and th
 | `liquers-core/src/assets.rs` | `AssetManager::get_asset_info` (≈5206) | `rp.contains` → `rp.can_make` |
 | `liquers-axum/src/assets/common.rs` | unevaluated-key metadata (≈253) | `provider.contains` → `provider.can_make` |
 
-## Asset Manager (recommended answer to the open question)
+## Asset Manager (mirrored split, decided 2026-10-05)
 
 `trait AssetManager<E>` (`liquers-core/src/assets.rs`):
 
@@ -75,11 +75,11 @@ uses the defaults.
 | `assets/key_handlers.rs` | new `key_can_make_handler`, same shape, `ContainsResult`-like `{ can_make: bool }` body |
 | `assets/builder.rs` (≈180) | route `{b}/key/can_make/{*key}` beside `key/contains` |
 
-**Under the alternative** (no manager split): `AssetManager::contains`'s provider call becomes
-`can_make`, nothing is added at the manager or HTTP layer, and the axum guards stay as they are.
-
 ## Rejected Alternatives
 
+- **Keep `AssetManager::contains` meaning "can be got"** (no manager split). Rejected by the
+  maintainer on 2026-10-05: `contains` would mean "listed" for providers and "producible" for
+  the manager.
 - **One method, default via `recipe_opt`** (the earlier recommendation). Superseded by the
   maintainer's two-method decision, which keeps the listing question answerable.
 - **Remove the default** of either method — breaks out-of-tree providers; not needed.
@@ -93,7 +93,7 @@ trait (`?Send` on wasm). No new error types.
 
 ## Questions
 
-- **Open design question - asset-manager and HTTP naming:** Phase 1.
+- **Asset-manager and HTTP naming:** decided — mirror the split (Phase 1 decision record).
 - **Implementation detail - keep or delete `DefaultAssetManager`'s identical `contains`
   override:** either.
 
@@ -102,10 +102,10 @@ trait (`?Send` on wasm). No new error types.
 | Aspect | Assessment |
 |---|---|
 | Likely files | `recipes.rs`, `assets.rs`, `liquers-records/src/provider.rs`, axum `common.rs`, `websocket.rs`, `key_handlers.rs`, `builder.rs` |
-| Affected workflows/crates | describing/submitting unevaluated recipe keys; manifest chunks; HTTP `key/contains` (recommended answer) |
+| Affected workflows/crates | describing/submitting unevaluated recipe keys; manifest chunks; HTTP `key/contains` |
 | Existing-test impact | records `contains_answers_for_a_template_name_far_beyond_any_listing` → `can_make`; core chain test may need its mock to list the key; axum `key/contains` tests on template chunks (if any) change expectation |
 | New validation | default split on an on-demand provider; parity for default provider; chain forwarding for both; manifest provider split; manager `can_make`; axum route and guards |
-| Compatibility/data | out-of-tree providers compile unchanged; HTTP `key/contains` narrows (recommended answer) |
+| Compatibility/data | out-of-tree providers compile unchanged; HTTP `key/contains` narrows for unlisted producible keys |
 | Concurrency/performance | `can_make` costs one `recipe_opt`; equal to today's chain path |
 | Security | none |
 | Recovery | each layer reverts independently; `can_make` default is harmless |

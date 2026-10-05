@@ -2,30 +2,13 @@
 
 ## Design Readiness
 
-- **Readiness:** needs-decision
-- **Leading issue:** **Open design question - asset-manager and HTTP naming:** whether the
-  asset manager mirrors the provider split (`AssetManager::contains` = stored or listed,
-  new `AssetManager::can_make` = can be got), and which of the two the HTTP
-  `GET …/key/contains/{key}` endpoint reports.
-- **Explanation:** The provider-level shape was decided by the maintainer on 2026-10-04: two
-  methods, `contains` for what a folder shows and `can_make` for what can be produced on demand,
-  each overridable, with `can_make` defaulting to `recipe_opt`. Every current caller of the
-  provider's `contains` is really asking "can this be made?", so the decision also moves those
-  callers to `can_make`; the manager-level name is the remaining choice.
-- **Open questions:**
-  1. **Open design question - asset-manager and HTTP naming.** *Recommended:* mirror the split.
-     `AssetManager::contains(key)` = `store.contains || provider.contains` (stored or listed),
-     and a new `AssetManager::can_make(key)` = `store.contains || provider.can_make`. The
-     internal guards that precede a `get` (axum `submit_key`, the websocket subscribe handlers)
-     switch to `can_make`. The HTTP `key/contains` endpoint keeps reporting
-     `AssetManager::contains`, and a `key/can_make` route is added next to it. Consequence:
-     the same word means the same thing in all three layers. A manifest template chunk such
-     as `daily_0042.csv` then answers `contains: false` over HTTP (it does today: `true`) and
-     `can_make: true`.
-     *Alternative:* keep `AssetManager::contains` meaning "can be got" (implemented with the
-     provider's `can_make`), add nothing at the manager or HTTP layer. Consequence: no HTTP
-     behaviour change, but `contains` means "listed" for providers and "producible" for the
-     manager.
+- **Readiness:** ready
+- **Leading issue:** None
+- **Explanation:** The maintainer decided the contract at both layers (2026-10-04 and
+  2026-10-05): recipe providers answer two questions, `contains` (what a folder shows) and
+  `can_make` (what can be produced), and the asset manager mirrors the split, with an HTTP route
+  for each. Every current caller that guards producing or describing a key moves to `can_make`.
+- **Open questions:** None
 
 ## Decision Record
 
@@ -34,6 +17,7 @@
 | Trait shape | Two methods on `AsyncRecipeProvider`: `contains(key)` — the key is among what its folder **shows** (`assets_with_recipes`); `can_make(key)` — the key can be **produced**, including recipes for assets created on demand that are not listed |
 | Overridable | Each provider may implement its own `contains` and `can_make` |
 | Defaults | `can_make` defaults to `recipe_opt(key).is_some()`; `contains` keeps its current default (search of `assets_with_recipes(parent)`), which is exactly "what the folder shows" |
+| Asset manager and HTTP (2026-10-05) | **Mirror the split.** `AssetManager::contains` = stored or listed; new `AssetManager::can_make` = stored or producible. The guards before a `get` (axum `submit_key`, websocket subscribe) use `can_make`. HTTP `key/contains` keeps reporting `AssetManager::contains`; a new `key/can_make` route reports `can_make`. Consequence: a manifest template chunk such as `daily_0042.csv` now answers `contains: false` over HTTP (previously `true`) and `can_make: true` |
 
 Derived from the decision: **`can_make` ⊇ `contains`.** A listed key can be produced. The
 default `can_make` satisfies this for any provider whose `recipe_opt` answers for its own listed
@@ -62,7 +46,7 @@ key:
 
 | Caller | Purpose | Should ask |
 |---|---|---|
-| `AssetManager::contains` (trait default ≈5216, `DefaultAssetManager` ≈7472) | "does this key exist" | see open question |
+| `AssetManager::contains` (trait default ≈5216, `DefaultAssetManager` ≈7472) | "does this key exist" | keeps `contains` (stored or listed); `can_make` is added beside it |
 | `AssetManager::get_asset_info` (≈5206) | describe an unevaluated recipe key | `can_make` |
 | `liquers-axum/src/assets/common.rs` ≈253 (metadata of an unevaluated key) | describe | `can_make` |
 
@@ -90,7 +74,7 @@ Callers of `AssetManager::contains`, all guards before `manager.get(key)`:
 ## Affected Systems
 
 `liquers-core` (trait, chain, managers), `liquers-records` (manifest provider), `liquers-axum`
-(asset API helpers and, under the recommendation, one new route). No query, store or
+(asset API helpers and one new route). No query, store or
 serialization change.
 
 ## Scope and Non-Goals
@@ -101,14 +85,13 @@ Non-goals: changing `assets_with_recipes` or `has_recipes`; the store contract
 ## Compatibility
 
 Source-compatible for out-of-tree providers: the new method has a default and `contains` keeps
-its default. Behaviour: the manifest provider's `contains` narrows to explicit chunks, which only
-matters to callers that keep using `contains`. Under the recommended answer, HTTP `key/contains`
-narrows the same way, and clients wanting "can I get this" use `key/can_make`.
+its default. Behaviour: the manifest provider's `contains` narrows to explicit chunks, and so does HTTP
+`key/contains`; clients asking "can I get this" use the new `key/can_make`.
 
 ## Documentation Assessment
 
 `reference/api/DOC_08_RECIPES_PLANS.md` (provider contract) — both methods and the subset rule.
-`reference/ASSETS.md` — `AssetManager::contains`/`can_make`. Under the recommendation, the axum
+`reference/ASSETS.md` — `AssetManager::contains`/`can_make`. The axum
 assets API reference (the document `axum-assets-endpoints` produced) — the new route. History
 rows and `reviewed:` bumps. Close the issue, recording the decision.
 
@@ -137,5 +120,4 @@ rows and `reviewed:` bumps. Close the issue, recording the decision.
 
 ## Review
 
-The provider-level contract is decided and fully specified; the manager/HTTP naming is the one
-remaining user-facing choice, with a recommended answer.
+The contract is decided at every layer and fully specified; no open question remains.
