@@ -3,8 +3,21 @@
 ## Overview
 
 Reuse `scc::HashMap::remove_if_async` for queued-manager cache eviction. Keep the existing
-`remove_key_asset_if` helper for key assets, add the corresponding query-map helper if needed, and
-replace open-coded lookup/compare/drop/remove sequences.
+`remove_key_asset_if` helper for key assets (`assets.rs` ≈7568), add the query-map counterpart, and
+replace the open-coded lookup/compare/drop/remove sequences at ≈6497, ≈6505 and ≈6855:
+
+```rust
+/// Removes `query`'s entry only if it is still the asset `asset_id`, under one bucket lock.
+async fn remove_query_asset_if(&self, query: &Query, asset_id: u64) -> bool {
+    self.query_assets
+        .remove_if_async(query, |asset| asset.id() == asset_id)
+        .await
+        .is_some()
+}
+```
+
+A private inherent method on `DefaultAssetManager`; no trait change. The key branch keeps taking
+`key_mutation_lock` around `remove_key_asset_if`, preserving today's lock order.
 
 ## Known-Issue Preflight
 

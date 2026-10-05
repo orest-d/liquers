@@ -67,6 +67,12 @@ about its traits — review only. Close the issue on implementation.
 - `overlaps` `record-streams` (complete): its `ChunkDescriptor` is the motivating consumer; this
   design only refreshes the doc comment there and does not change that type's derives.
 
+Post-Phase-4 review (2026-10-05): after this change `ChunkDescriptor` still cannot derive the
+traits (its `query: Query` serializes in struct form), so `Serialize` / `Deserialize` gain no
+in-tree user yet. Kept because the issue asks for them, they are cheap, and they fix the wire form
+in advance so a later consumer cannot introduce an externally tagged one. `PartialEq` is useful at
+once (tests, snapshot comparisons).
+
 ## Consolidated Findings
 
 - The untagged form is not a design choice but a constraint: stores already persist `to_json`

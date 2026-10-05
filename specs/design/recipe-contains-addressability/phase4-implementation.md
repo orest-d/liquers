@@ -57,3 +57,6 @@ mirrored manager method and HTTP route. Rollback per step; `can_make`'s default 
   (defines what "listed" means for the deep listing).
 - **Verdict:** ready. Implement **first** among the three recipe-provider designs, together with
   `manifest-folder-listing-invalidation`.
+
+**Resolution (2026-10-05):** this design is superseded by `recipe-provider-listing-contract`, which
+incorporates the findings above (see its Phase 4, §Post-Phase-4 Review Resolution).

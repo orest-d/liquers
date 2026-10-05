@@ -14,6 +14,15 @@
 removes by key in several stale-terminal eviction paths. A replacement inserted between compare
 and remove can be deleted even though its id differs.
 
+Re-verified 2026-10-05 (post-Phase-4 review), per map:
+
+| Map | Site | Racy? |
+|---|---|---|
+| `query_assets` | `DefaultAssetManager::remove_expired_from_maps` query branch (`assets.rs` ≈6497) | **yes** — `get_async` / compare / `drop` / `remove_async`, no lock; `get_query_asset` inserts through `entry_async` (≈6715) without one |
+| `query_assets` | stale-terminal branch of `get_asset` (≈6855) | **yes**, same sequence |
+| `assets` (keys) | `remove_expired_from_maps` key branch (≈6505) | **no in practice** — it holds `key_mutation_lock`, and key-slot insertion (`get_nonvolatile_resource_asset` ≈6601, `try_insert_key_asset` callers) takes the same lock. It is switched to `remove_key_asset_if` anyway, so its correctness no longer depends on every inserter remembering the lock |
+| either map | `ImmediateAssetManager` (≈8732) | no — compare and remove under one `Mutex` guard |
+
 ## Expected Behaviour and Acceptance Criteria
 
 Each stale eviction removes the map entry only if the entry still has the stale asset id at removal

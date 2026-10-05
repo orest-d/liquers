@@ -45,3 +45,7 @@ serializers must agree, which the existing registry/serializer agreement tests e
   serializer arms.
 - **Interactions:** none among the ready designs (consumer: `AGENT-MEMORY-SERVICE`).
 - **Verdict:** ready.
+
+**Resolution (2026-10-05):** the findings above are incorporated into Phases 1-4.
+`phase5-documentation.md` holds the documentation plan; where a Phase 4 step names documentation
+work, that plan is the authoritative list.

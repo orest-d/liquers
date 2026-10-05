@@ -39,3 +39,7 @@ cross-crate edit is a doc comment. Rollback is the revert of steps 1-2 and their
 - **Detail / tests:** sufficient. The variant-choice test against `from_json` is the right guard.
 - **Interactions:** none.
 - **Verdict:** ready (low value, low risk).
+
+**Resolution (2026-10-05):** the findings above are incorporated into Phases 1-4.
+`phase5-documentation.md` holds the documentation plan; where a Phase 4 step names documentation
+work, that plan is the authoritative list.

@@ -63,3 +63,6 @@ behaviour change; step 5 is separable. Rollback per step.
   `Written`). `listdir-keys-deep-recipe-union` reads the listings this cache feeds.
 - **Verdict:** needs the two fixes above. Recommend implementing it **together with
   `recipe-contains-addressability`** (one PR that changes the recipe-provider contract).
+
+**Resolution (2026-10-05):** this design is superseded by `recipe-provider-listing-contract`, which
+incorporates the findings above (see its Phase 4, §Post-Phase-4 Review Resolution).

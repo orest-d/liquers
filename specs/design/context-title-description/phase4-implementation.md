@@ -15,9 +15,9 @@ Precedence was decided on 2026-10-04 (recipe wins, per field); no decision gate 
    Proof: `cargo test -p liquers-core --lib command_description_fields`.
 4. **Context methods.** `liquers-core/src/context.rs`: `set_title` and `set_description` after
    `set_filename`, with the Phase 2 doc comments. Depends on 3.
-5. **Integration tests.** Add `liquers-core/tests/context_title_description.rs` (five tests).
+5. **Integration tests.** Add `liquers-core/tests/context_title_description.rs` (seven tests).
    Validate its queries first:
-   `cargo run -p liquers-core --features cli --bin liquers-validate -- --command titled --command plain -- titled plain`.
+   `cargo run -p liquers-core --features cli --bin liquers-validate -- --command titled --command plain --command retitled -- titled plain titled/retitled`.
    Proof: `cargo test -p liquers-core --test context_title_description`.
 6. **Docs and records.** `specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`: add both
    methods where metadata-writing context methods are listed (≈423, ≈469), with the
@@ -53,3 +53,7 @@ Phases 1-4 agree with the recorded decision; no open question remains. Rollback:
   semantic overlap. Both this design and `register-command-payload-docs` edit
   `COMMAND_REGISTRATION_GUIDE.md`, so expect History-row conflicts only. Independent.
 - **Verdict:** ready.
+
+**Resolution (2026-10-05):** the findings above are incorporated into Phases 1-4.
+`phase5-documentation.md` holds the documentation plan; where a Phase 4 step names documentation
+work, that plan is the authoritative list.

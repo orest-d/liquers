@@ -44,3 +44,7 @@ Rollback: revert steps 2-4 together.
   Phase 2 already does. It also sits in the same persistence code as
   `context-title-description` (whose metadata it writes). Neither conflicts.
 - **Verdict:** ready.
+
+**Resolution (2026-10-05):** the findings above are incorporated into Phases 1-4.
+`phase5-documentation.md` holds the documentation plan; where a Phase 4 step names documentation
+work, that plan is the authoritative list.

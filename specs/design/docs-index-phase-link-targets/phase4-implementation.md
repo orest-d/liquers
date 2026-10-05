@@ -9,7 +9,7 @@
 3. **Tests.** Add the two Phase 3 tests to `scripts/test_docs_index.py`;
    `python3 -m unittest scripts/test_docs_index.py`.
 4. **Docs and records.** `specs/DOCS_STRUCTURE_GUIDE.md` §7.2: say the dead-link check also
-   covers the generated `index.md`; History row and `reviewed:` bump. Close
+   covers the generated `index.md`; History row (no `reviewed:` field exists). Close
    `specs/issues/DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS.md` with a resolution naming both tests.
    Regenerate and check again.
 5. **Review.** Diff: two script lines, tests, the guide, the regenerated files (phase-link
@@ -36,3 +36,7 @@ regenerate.
 - **Interactions:** every other design's implementation regenerates `specs/index.md`. Land this
   one **first**, so later PRs regenerate correct links and the new check guards them.
 - **Verdict:** ready.
+
+**Resolution (2026-10-05):** the findings above are incorporated into Phases 1-4.
+`phase5-documentation.md` holds the documentation plan; where a Phase 4 step names documentation
+work, that plan is the authoritative list.

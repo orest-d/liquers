@@ -31,7 +31,9 @@
    - `deserialize_from_bytes`: add `"md"` to the `"txt" | "html" | "toml"` arm (it returns
      `Text` unconditionally).
    - Test helper in `every_declared_format_round_trips_or_is_recorded_as_unwritable`: the
-     expected-value match becomes `"txt" | "html" | "md" => …`.
+     expected-value match (`simple.rs` ≈1037, a third `"txt" | "html"` pattern besides the two
+     serializer arms at ≈556 and ≈649) becomes `"txt" | "html" | "md" => …`. Edit all three;
+     missing this one makes the test compare against the unconverted value.
 
 ## Rejected Alternatives
 

@@ -51,3 +51,6 @@ test. Rollback is confined to the method body and the deleted override.
   Both touch the same `AssetManager` default block (≈5216-5320).
 - **Verdict:** ready after the criterion-5 decision. Implement after
   `recipe-contains-addressability` (same PR or next).
+
+**Resolution (2026-10-05):** this design is superseded by `recipe-provider-listing-contract`, which
+incorporates the findings above (see its Phase 4, §Post-Phase-4 Review Resolution).
