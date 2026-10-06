@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/store]
-design:
+design: store-router-directory-above-members
 created: 2026-09-30
 github:
 ---

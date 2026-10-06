@@ -24,3 +24,19 @@ created: 2026-08-31
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
+
+## Review 2026-10-06
+
+Re-verified against HEAD after the latest merges. **Updated.** Three corrections:
+
+1. The design relied on a "byte-identical export test". `liquers-lib/tests/registry_export.rs`
+   compares **signatures** (`signature_of`: the serialized command with `impl_version` zeroed),
+   not file bytes. The acceptance criterion is restated: an empty `hints` map is omitted from
+   serialization, so `signature_of` and `metadata_version` of every existing command are
+   unchanged.
+2. New dependency: `argument-info-description` (`ARGUMENT-INFO-HAS-NO-DESCRIPTION`) is the mirror
+   gap. **Recommended maintainer merge (M3)**, leading source this design's feature.
+3. New dependency: `command-cache-flag` (decided 2026-10-06: remove `cache`) changes the same
+   struct and regenerates the same registry, so ship them in one release.
+
+The open question (macro spelling `hint key: "value"`) is unchanged. Readiness stays `needs-decision`.

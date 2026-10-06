@@ -30,3 +30,10 @@ post-Phase-4 review found too thin to implement from.
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
 - [Phase 5](./phase5-documentation.md)
+
+## Review 2026-10-06
+
+Re-verified against HEAD after the latest merges. **Still valid; no change.** `liquers-core/src/cache.rs` is
+unchanged (still has the unused `use chrono::format;`), its only consumer is still
+`liquers-py/src/cache.rs`, `PROJECT_OVERVIEW.md` still lists it as "Query result caching", and
+`CORE-SYNC-STORE-TRAIT-OBSOLETE` still carries the scope note. Readiness stays `ready`.

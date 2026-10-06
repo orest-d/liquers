@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/assets]
-design:
+design: finished-asset-progress-contract
 created: 2026-09-03
 github:
 ---

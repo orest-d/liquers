@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [core/assets]
-design:
+design: dependency-edge-superseded-version
 created: 2026-10-04
 github:
 ---

@@ -1,14 +1,9 @@
 # Phase 3: Examples and Tests
 
-| Case | Expected result |
-|---|---|
-| Source reproduction | The source issue's failure becomes the stated successful or typed-error outcome. |
-| Compatibility/error path | Existing callers retain their documented behaviour and invalid input retains a typed error. |
-| Regression boundary | A focused test proves the precise changed contract, not only execution reachability. |
+| # | Kind | Checks |
+|---|---|---|
+| T1 | test | `committed_registry_impl_versions_are_fresh` passes at HEAD (verified fresh on 2026-10-06) |
+| T2 | manual negative | Add a comment inside the body of an `auto`-versioned command (e.g. `liquers-lib/src/commands.rs` `command_metadata`) → T1 fails naming `dep/command_metadata`; regenerate → passes; revert |
+| T3 | manual negative | Temporarily switch one command to `version: now` → T1 fails with the `now` message; revert |
 
-## Test Plan
-
-Add or amend focused tests beside the named implementation or in the named integration suite. Use descriptive single-behaviour test names, `#[tokio::test]` for async store paths, and assertions on error kind or structured fields rather than message parsing.
-
-**Validation commands:** cargo test -p liquers-lib --test registry_export; cargo run -p liquers-lib --features cli --bin export-command-registry -- --format yaml -o specs/command_registry.yaml.
-
+Run with default features: `cargo test -p liquers-lib --test registry_export`.

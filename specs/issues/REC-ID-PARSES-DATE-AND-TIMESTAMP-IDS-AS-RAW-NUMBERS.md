@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [records, lib/commands]
-design: record-streams
+design: rec-id-iso-date-parsing
 created: 2026-09-27
 github:
 ---

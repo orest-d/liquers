@@ -40,3 +40,12 @@ per document. The payload issue stays the leading source. The design now follows
 `liquers-project` contract; Phase 5 holds the documentation plan.
 
 - [Phase 5](./phase5-documentation.md) (plan; executed after implementation)
+
+## Review 2026-10-06
+
+Re-verified against HEAD after the latest merges. **Still valid; no change.** The macro arms (`"payload"`,
+`"expires"`, `"version"` with `auto`/`now`/string/integer in `liquers-macro/src/registration.rs`
+≈839–915) and emitters (`payload_required_code`, `expires_code`, `impl_version_code`) match
+Phase 2. The three statements are still undocumented in `REGISTER_COMMAND_FSD.md`,
+`COMMAND_REGISTRATION_GUIDE.md` (changed by `context-title-description`, but not in this area) and
+`CLAUDE.md`. Readiness stays `ready`.

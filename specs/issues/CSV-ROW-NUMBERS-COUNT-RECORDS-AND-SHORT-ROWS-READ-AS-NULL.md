@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [records]
-design: record-streams
+design: csv-physical-lines-short-rows
 created: 2026-09-27
 github:
 ---

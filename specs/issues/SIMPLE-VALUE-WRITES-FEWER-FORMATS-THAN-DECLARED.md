@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [lib/value]
-design:
+design: simple-value-serializer-parity
 created: 2026-09-25
 github:
 ---

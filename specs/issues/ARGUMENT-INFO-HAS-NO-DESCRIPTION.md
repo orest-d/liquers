@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/commands, macro]
-design:
+design: argument-info-description
 created: 2026-09-24
 github:
 ---

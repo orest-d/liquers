@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [core/context, core/plan]
-design: context-title-description
+design: context-title-predecessor-inheritance
 created: 2026-10-06
 github:
 ---

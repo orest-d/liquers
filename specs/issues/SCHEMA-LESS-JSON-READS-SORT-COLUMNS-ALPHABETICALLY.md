@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [records]
-design: record-streams
+design: json-table-column-order
 created: 2026-09-26
 github:
 ---

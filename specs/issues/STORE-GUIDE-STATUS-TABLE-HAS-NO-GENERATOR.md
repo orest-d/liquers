@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [docs, store/backends]
-design:
+design: store-guide-status-table
 created: 2026-09-30
 github:
 ---

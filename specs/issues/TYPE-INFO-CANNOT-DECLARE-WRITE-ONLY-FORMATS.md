@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/value]
-design:
+design: type-info-write-only-formats
 created: 2026-09-24
 github:
 ---

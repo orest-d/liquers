@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/assets]
-design: 
+design: immediate-set-state-status-match
 created: 2026-09-25
 github:
 ---

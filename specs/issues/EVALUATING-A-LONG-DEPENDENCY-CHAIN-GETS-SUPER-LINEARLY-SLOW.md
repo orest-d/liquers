@@ -6,6 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [core/assets]
+design: dependency-chain-analysis-cost
 created: 2026-10-02
 github:
 ---
