@@ -319,6 +319,7 @@ deliberately folded behind a broader line.
 - design `core-no-default-features`
 - design `delegated-value-persistence`
 - design `delegated-value-repersisted`
+- design `dependency-failure-error-subject`
 - design `docs-current-link-validation`
 - design `docs-dead-links`
 - design `docs-index-phase-link-targets`
@@ -326,7 +327,11 @@ deliberately folded behind a broader line.
 - design `error-store-name-payload`
 - design `error-with-key-field`
 - design `expiration-integration-suite-failing-at-head`
+- design `external-manager-replacement-surface`
+- design `finished-asset-progress-contract`
 - design `foreign-value-type-registration`
+- design `immediate-lazy-expiry-cascade`
+- design `immediate-set-state-status-match`
 - design `lib-integration-test-feature-gates`
 - design `lib-polars-ethnum-rust-1-98`
 - design `listdir-keys-deep-child-check`
@@ -344,6 +349,7 @@ deliberately folded behind a broader line.
 - design `query-leading-slash-field`
 - design `queued-manager-conditional-eviction`
 - design `recipe-plan-declarations`
+- design `recovery-read-defers-placeholder`
 - design `refresh-command-metadata-versions`
 - design `register-command-payload-docs`
 - design `save-to-store-skip-outcome`
@@ -354,6 +360,7 @@ deliberately folded behind a broader line.
 - design `store-keys-contract`
 - design `store-router-empty-prefix`
 - design `store-test-output-hygiene`
+- design `submit-eagerness-documentation`
 - design `text-value-markdown-format`
 - design `ui-query-console-error-highlight`
 - design `value-type-system`

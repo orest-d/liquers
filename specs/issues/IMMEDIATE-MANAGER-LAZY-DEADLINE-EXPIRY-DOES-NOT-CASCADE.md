@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/assets]
-design:
+design: immediate-lazy-expiry-cascade
 created: 2026-10-02
 github:
 ---
