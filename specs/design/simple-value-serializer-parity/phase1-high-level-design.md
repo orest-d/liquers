@@ -37,6 +37,10 @@ change rewrites.
 
 ## Design Dependencies
 
+- `text-value-markdown-format` (P2, ready) — **overlaps**, same `as_bytes` arms in `simple.rs`.
+  It adds `md` to `Text` in both serializers. Implement it first. This design then mirrors core
+  *including* `md`, and its strict round-trip test covers `md` too. Either order compiles. The
+  recommended order only avoids a merge conflict in the same match.
 - `type-info-write-only-formats` — **overlaps**. It defines how a deliberately write-only format is
   declared. This design leaves no write-only pair, so it does not depend on it.
 
