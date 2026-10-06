@@ -2,7 +2,7 @@
 id: CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION
 kind: issue
 title: A command cannot set its asset's title or description through Context
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/context]
@@ -62,3 +62,12 @@ Analysis for `AGENT-MEMORY-SERVICE`, 2026-09-16, on maintainer review of
 `METADATA-TITLE-AND-DESCRIPTION-NEVER-POPULATED` — which claimed the fields were never populated
 at all. They are, by recipes and by supplied metadata; this is the one route that is genuinely
 missing. Verified at HEAD against the `Context` method list.
+
+## Resolution
+
+Implemented 2026-10-06 as `Context::set_title` / `Context::set_description`
+(`design/context-title-description/`). Decision (2026-10-04): a recipe's non-empty title or
+description wins, per field, and the call is then a silent `Ok`; a field the recipe left empty is
+filled by the command and persisted with the keyed asset's metadata; `version` is unaffected.
+Tests: `liquers-core/tests/context_title_description.rs` and the `command_description_fields_*` /
+`reset_clears_recipe_description_flags` unit tests in `assets.rs`.

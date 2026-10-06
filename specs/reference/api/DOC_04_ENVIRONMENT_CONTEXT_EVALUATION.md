@@ -3,7 +3,7 @@ title: Environment, Context and Evaluation Reference
 kind: reference
 audience: internal
 area: [core/context, core/plan]
-reviewed: 2026-10-02
+reviewed: 2026-10-06
 ---
 # DOC-04: Environment, Context, and End-to-End Evaluation
 
@@ -425,6 +425,19 @@ expiration and the asset's resolved deadline. Both are public today, although
 `set_expires` exists primarily so environment implementations can complete the
 `apply_recipe` protocol.
 
+`set_title` and `set_description` set the human-facing metadata of the asset the command is
+producing, so a command can describe its result ("1 284 rows") rather than only its input.
+The rule is **recipe wins, per field**: a title or description that the key's resolved recipe
+declared (non-empty) is final, and the call then does nothing and still returns `Ok(())` — a
+generic command cannot know whether a recipe exists for the key it runs under. A field the
+recipe left empty is filled by the command, and an empty string from a command clears a field no
+recipe set. The values live in the asset's metadata, so a keyed asset's stored metadata carries
+them; they never enter the content-hash `version`. Both return `NotSupported` on legacy JSON
+metadata, but only when something would actually be written. A plan applied to an input state
+runs all its steps in one asset and context (the last call wins); plain evaluation of a query cuts
+a cacheable prefix off as a predecessor asset of its own, and a title set by a command in that
+prefix belongs to the prefix asset, not the final one.
+
 `get_metadata` returns only `MetadataRecord`; it errors if the asset contains
 legacy JSON metadata.
 
@@ -540,6 +553,7 @@ methods crate-private), so an asset manager can be implemented outside `liquers-
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-06 | Reviewed against `design/context-title-description/`. §Metadata-writing methods: `Context::set_title` / `set_description`, recipe-wins-per-field, `Ok(())` when the recipe's value is kept, persistence, no effect on `version`, and the predecessor-asset caveat. | phase-5 |
 | 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. §Dependency and apply methods: `submit` and the now-public `wait_for_dependency` added; `evaluate` = `submit` + drain and `get_dependency_state` = `submit` + `wait_for_dependency`; `submit` is not lazy on either manager; waiting through `AssetRef::get` bypasses the stale-dependency policy and the version upgrade. `submit` also refuses relative queries. Verification note on the `DependencyManager` visibility warning corrected (the type is now public). | phase-5 |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. §Context lifetime and sharing: the state handed to the next step carries the fetched key as metadata `key` (review fix C2 in `interpreter::apply_plan`), with the step-by-step rule. `LibKind`'s default recipe provider is a chain with `ManifestRecipeProvider` under `records`. | phase-5 |
 | 2026-08-31 | Replaced the initialization sequence with `try_to_ref`'s and documented `EnvironmentBuilder` as the recommended construction path, `init_with_envref`'s strengthened contract, synchronous fallible manager startup, and `GenericEnvironment` with its four aliases and the asset-manager kind. Retired the P0 `EnvRef::new` and P1 unobservable-startup gap rows. | `design/environment-builder/phase-5` |

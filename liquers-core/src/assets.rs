@@ -602,6 +602,12 @@ pub struct AssetData<E: Environment> {
     /// the next access recomputes it. See `wait_for_dependency`.
     stale_dependency: Option<DependencyKey>,
 
+    /// The key's resolved recipe declared a non-empty title, which is then final: a command's
+    /// `Context::set_title` does not replace it. See `design/context-title-description/`.
+    recipe_sets_title: bool,
+    /// The same for the description.
+    recipe_sets_description: bool,
+
     /// An outside change [`Self::try_fast_track`] found in the stored bytes, waiting to be applied
     /// with [`AssetManager::apply_external_change`].
     ///
@@ -980,6 +986,8 @@ impl<E: Environment> AssetData<E> {
             persistence_status: PersistenceStatus::None,
             last_persistence_error: None,
             stale_dependency: None,
+            recipe_sets_title: false,
+            recipe_sets_description: false,
             pending_external_change: None,
             _marker: std::marker::PhantomData,
             status: Status::None,
@@ -1566,6 +1574,8 @@ impl<E: Environment> AssetData<E> {
         self.status = Status::None;
         self.persistence_status = PersistenceStatus::None;
         self.last_persistence_error = None;
+        self.recipe_sets_title = false;
+        self.recipe_sets_description = false;
         self.notification_tx
             .send(AssetNotificationMessage::Initial)
             .ok();
@@ -3039,6 +3049,8 @@ impl<E: Environment> AssetRef<E> {
                         {
                             let mut lock = self.data.write().await;
                             lock.recipe = recipe.clone();
+                            lock.recipe_sets_title = !recipe.title.is_empty();
+                            lock.recipe_sets_description = !recipe.description.is_empty();
                             if let Metadata::MetadataRecord(metadata) = &mut lock.metadata {
                                 metadata
                                     .with_title(recipe.title.clone())
@@ -3535,6 +3547,24 @@ impl<E: Environment> AssetRef<E> {
         description: Option<String>,
     ) -> Result<(), Error> {
         let mut lock = self.data.write().await;
+        set_metadata_description(&mut lock.metadata, title, description)
+    }
+
+    /// Sets `title` and/or `description` from the command producing this asset, except a field
+    /// whose value came from the key's resolved recipe, which is kept. `Ok(())` either way.
+    /// Used by `Context::set_title` and `Context::set_description`; unlike
+    /// [`Self::set_description_fields`] it does not override the recipe.
+    pub(crate) async fn set_description_fields_from_command(
+        &self,
+        title: Option<String>,
+        description: Option<String>,
+    ) -> Result<(), Error> {
+        let mut lock = self.data.write().await;
+        let title = title.filter(|_| !lock.recipe_sets_title);
+        let description = description.filter(|_| !lock.recipe_sets_description);
+        if title.is_none() && description.is_none() {
+            return Ok(());
+        }
         set_metadata_description(&mut lock.metadata, title, description)
     }
 
@@ -9509,6 +9539,50 @@ recipes:
         let value = state2.try_into_string().unwrap();
         assert_eq!(value, "Hello, world!");
         assert!(!state2.is_error().unwrap());
+    }
+
+    fn bare_asset_data() -> AssetData<SimpleEnvironment<Value>> {
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        AssetData::new(1, Recipe::default(), None, env.to_ref())
+    }
+
+    #[tokio::test]
+    async fn command_description_fields_refuse_legacy_metadata() {
+        let mut data = bare_asset_data();
+        data.metadata = Metadata::LegacyMetadata(serde_json::json!({}));
+        let assetref = data.to_ref();
+        let err = assetref
+            .set_description_fields_from_command(Some("t".to_owned()), None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.error_type, ErrorType::NotSupported);
+    }
+
+    #[tokio::test]
+    async fn command_description_fields_are_kept_when_the_recipe_set_them() {
+        let mut data = bare_asset_data();
+        data.metadata = Metadata::LegacyMetadata(serde_json::json!({}));
+        data.recipe_sets_title = true;
+        data.recipe_sets_description = true;
+        let assetref = data.to_ref();
+        assetref
+            .set_description_fields_from_command(Some("t".to_owned()), Some("d".to_owned()))
+            .await
+            .unwrap();
+        assert!(matches!(
+            assetref.data.read().await.metadata,
+            Metadata::LegacyMetadata(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn reset_clears_recipe_description_flags() {
+        let mut data = bare_asset_data();
+        data.recipe_sets_title = true;
+        data.recipe_sets_description = true;
+        data.reset();
+        assert!(!data.recipe_sets_title);
+        assert!(!data.recipe_sets_description);
     }
 
     #[tokio::test]
