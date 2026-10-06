@@ -8,6 +8,7 @@
 //! 4.3 (including its "Lookup cost" rules, which this file's caching follows).
 
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -59,11 +60,13 @@ struct CachedManifest {
 ///   used when the store provides one, and a full re-read is the fallback otherwise, rather than
 ///   inventing a directory-independent hash the store cannot actually attest to.
 /// - **`folders`** — a folder's `*.manifest.yaml` filenames, so an explicit-chunk lookup does not
-///   call [`AsyncStore::listdir`] on every request. This list is cached **for the life of the
-///   provider**: a manifest added to (or removed from) a folder after it was first listed is not
-///   noticed until a fresh `ManifestRecipeProvider` is built, because `AsyncStore` has no
-///   directory-level version to check the way `manifests` checks a file's. Filed as
-///   `MANIFEST-PROVIDER-FOLDER-LISTING-NEVER-REFRESHES`.
+///   call [`AsyncStore::listdir`] on every request. `AsyncStore` has no directory-level version
+///   to check the way `manifests` checks a file's, so this list is **event-driven**: the asset
+///   manager calls [`AsyncRecipeProvider::directory_changed`] after every write or removal it
+///   mediates (and the HTTP Store API does so through it), and that drops the listings of the
+///   directory and its subtree. A change made behind Liquers' back (directly on disk) is not
+///   noticed until [`ManifestRecipeProvider::clear_cache`] is called or the provider is rebuilt.
+///   A listing fill that races an invalidation is never kept (see `generation`).
 ///
 /// A name that does not look like a generated chunk, and whose folder holds no manifest at all,
 /// costs exactly one `listdir` (cached thereafter) and no `get` — a plain file with no manifest is
@@ -73,6 +76,9 @@ struct CachedManifest {
 pub struct ManifestRecipeProvider {
     manifests: scc::HashMap<Key, CachedManifest>,
     folders: scc::HashMap<Key, Arc<Vec<String>>>,
+    /// Bumped by every invalidation. A folder listing read while it moved is not kept: it may
+    /// predate the write that caused the invalidation.
+    generation: AtomicU64,
 }
 
 impl ManifestRecipeProvider {
@@ -81,7 +87,16 @@ impl ManifestRecipeProvider {
         ManifestRecipeProvider {
             manifests: scc::HashMap::new(),
             folders: scc::HashMap::new(),
+            generation: AtomicU64::new(0),
         }
+    }
+
+    /// Drops every cached manifest and folder listing, for a host reacting to a change made behind
+    /// Liquers' back (directly on disk). Changes made through Liquers need no call.
+    pub async fn clear_cache(&self) {
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        self.folders.clear_async().await;
+        self.manifests.clear_async().await;
     }
 
     /// `folder`'s `*.manifest.yaml` filenames — cached; see the type's own doc comment for what
@@ -95,6 +110,7 @@ impl ManifestRecipeProvider {
         if let Some(names) = self.folders.read_async(folder, |_, names| names.clone()).await {
             return Ok(names);
         }
+        let generation_before = self.generation.load(Ordering::SeqCst);
         let entries = match store.listdir(folder).await {
             Ok(entries) => entries,
             // A folder the store refuses holds no manifests. Not cached: the refusal belongs to
@@ -109,8 +125,22 @@ impl ManifestRecipeProvider {
             .filter(|name| name.ends_with(".manifest.yaml"))
             .collect();
         let names = Arc::new(names);
-        let _ = self.folders.insert_async(folder.clone(), names.clone()).await;
+        self.cache_listing(folder, names.clone(), generation_before).await;
         Ok(names)
+    }
+
+    /// Keeps `names` as `folder`'s listing unless an invalidation ran since `generation_before`
+    /// was read. Insert first, then re-check: an invalidation is "bump, then retain", so either
+    /// its bump precedes the re-check (this fill removes its own entry) or follows it (the
+    /// insert already happened, so its retain removes the entry).
+    async fn cache_listing(&self, folder: &Key, names: Arc<Vec<String>>, generation_before: u64) {
+        let _ = self.folders.insert_async(folder.clone(), names.clone()).await;
+        if self.generation.load(Ordering::SeqCst) != generation_before {
+            let _ = self
+                .folders
+                .remove_if_async(folder, |cached| Arc::ptr_eq(cached, &names))
+                .await;
+        }
     }
 
     /// The parsed manifest at `key`, cached and refreshed per the type's own doc comment. `Ok(None)`
@@ -372,11 +402,13 @@ impl<E: Environment> AsyncRecipeProvider<E> for ManifestRecipeProvider {
         Ok(None)
     }
 
-    /// Matches the same way [`Self::recipe_opt`] does, without enumerating — a template's
-    /// generated names are unbounded, which is exactly what the default `contains`
-    /// (`RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY`) cannot answer for.
-    async fn contains(&self, key: &Key, envref: EnvRef<E>) -> Result<bool, Error> {
-        Ok(self.recipe_opt(key, envref).await?.is_some())
+    /// Drops the cached folder listings of `dir` and its subtree. Parsed manifests stay: each hit
+    /// is version-checked, and a removed manifest is evicted by that check.
+    async fn directory_changed(&self, dir: &Key) {
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        self.folders
+            .retain_async(|folder, _| !folder.has_key_prefix(dir))
+            .await;
     }
 }
 
@@ -562,7 +594,7 @@ arguments:
     }
 
     #[tokio::test]
-    async fn contains_answers_for_a_template_name_far_beyond_any_listing(
+    async fn can_make_answers_for_a_template_name_far_beyond_any_listing(
     ) -> Result<(), Box<dyn std::error::Error>> {
         let store = AsyncMemoryStore::new(&Key::new());
         set_yaml(
@@ -575,9 +607,246 @@ arguments:
         let envref = env_with_store(store);
         let provider = ManifestRecipeProvider::new();
 
-        // An index no listing would ever enumerate — `contains` must not need to.
+        // An index no listing would ever enumerate — `can_make` must not need to.
         let key = parse_key("data/sales/daily_999999.csv")?;
-        assert!(AsyncRecipeProvider::contains(&provider, &key, envref.clone()).await?);
+        assert!(AsyncRecipeProvider::can_make(&provider, &key, envref.clone()).await?);
+        assert!(!AsyncRecipeProvider::contains(&provider, &key, envref.clone()).await?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn contains_reports_only_explicit_chunks() -> Result<(), Box<dyn std::error::Error>> {
+        let store = AsyncMemoryStore::new(&Key::new());
+        set_yaml(&store, &parse_key("data/sales/daily.manifest.yaml")?, DAILY_MANIFEST, 1).await;
+        let envref = env_with_store(store);
+        let provider = ManifestRecipeProvider::new();
+        let explicit = parse_key("data/sales/orders_eu.csv")?;
+        let generated = parse_key("data/sales/daily_0042.csv")?;
+        assert!(AsyncRecipeProvider::contains(&provider, &explicit, envref.clone()).await?);
+        assert!(!AsyncRecipeProvider::contains(&provider, &generated, envref.clone()).await?);
+        assert!(AsyncRecipeProvider::can_make(&provider, &explicit, envref.clone()).await?);
+        Ok(())
+    }
+
+    /// Delegates to an in-memory store and counts `listdir` calls and `get` calls of manifest files.
+    struct CountingStore {
+        inner: AsyncMemoryStore,
+        listdirs: std::sync::atomic::AtomicUsize,
+        gets: std::sync::atomic::AtomicUsize,
+    }
+
+    impl CountingStore {
+        fn new() -> Self {
+            CountingStore {
+                inner: AsyncMemoryStore::new(&Key::new()),
+                listdirs: Default::default(),
+                gets: Default::default(),
+            }
+        }
+        fn listdirs(&self) -> usize {
+            self.listdirs.load(Ordering::SeqCst)
+        }
+        fn gets(&self) -> usize {
+            self.gets.load(Ordering::SeqCst)
+        }
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl AsyncStore for CountingStore {
+        async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+            if key.encode().ends_with(".manifest.yaml") {
+                self.gets.fetch_add(1, Ordering::SeqCst);
+            }
+            self.inner.get(key).await
+        }
+        async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+            self.inner.get_metadata(key).await
+        }
+        async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+            self.inner.set(key, data, metadata).await
+        }
+        async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+            self.inner.set_metadata(key, metadata).await
+        }
+        async fn contains(&self, key: &Key) -> Result<bool, Error> {
+            self.inner.contains(key).await
+        }
+        async fn remove(&self, key: &Key) -> Result<(), Error> {
+            self.inner.remove(key).await
+        }
+        async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+            self.listdirs.fetch_add(1, Ordering::SeqCst);
+            self.inner.listdir(key).await
+        }
+    }
+
+    fn counting_env(store: Arc<CountingStore>) -> EnvRef<TestEnv> {
+        struct Shared(Arc<CountingStore>);
+        #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+        #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+        impl AsyncStore for Shared {
+            async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+                self.0.get(key).await
+            }
+            async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+                self.0.get_metadata(key).await
+            }
+            async fn set(&self, key: &Key, d: &[u8], m: &Metadata) -> Result<(), Error> {
+                self.0.set(key, d, m).await
+            }
+            async fn set_metadata(&self, key: &Key, m: &Metadata) -> Result<(), Error> {
+                self.0.set_metadata(key, m).await
+            }
+            async fn contains(&self, key: &Key) -> Result<bool, Error> {
+                self.0.contains(key).await
+            }
+            async fn remove(&self, key: &Key) -> Result<(), Error> {
+                self.0.remove(key).await
+            }
+            async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+                self.0.listdir(key).await
+            }
+        }
+        let mut env = TestEnv::new();
+        env.with_async_store(Box::new(Shared(store)));
+        env.to_ref()
+    }
+
+    async fn can_make_key(
+        provider: &ManifestRecipeProvider,
+        envref: &EnvRef<TestEnv>,
+        key: &str,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        Ok(AsyncRecipeProvider::can_make(provider, &parse_key(key)?, envref.clone()).await?)
+    }
+
+    #[tokio::test]
+    async fn a_manifest_added_after_listing_is_seen_after_directory_changed(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let store = Arc::new(CountingStore::new());
+        let envref = counting_env(store.clone());
+        let provider = ManifestRecipeProvider::new();
+        assert!(!can_make_key(&provider, &envref, "data/sales/orders_eu.csv").await?);
+        set_yaml_dyn(&envref, "data/sales/weekly.manifest.yaml", DAILY_MANIFEST.to_string()).await;
+        AsyncRecipeProvider::<TestEnv>::directory_changed(&provider, &parse_key("data/sales")?).await;
+        assert!(can_make_key(&provider, &envref, "data/sales/orders_eu.csv").await?);
+        Ok(())
+    }
+
+    async fn set_yaml_dyn(envref: &EnvRef<TestEnv>, key: &str, yaml: String) {
+        let mut metadata = Metadata::new();
+        metadata.set_version(Some(Version::from_bytes(yaml.as_bytes()))).expect("version");
+        envref
+            .get_async_store()
+            .set(&parse_key(key).expect("key"), yaml.as_bytes(), &metadata)
+            .await
+            .expect("set");
+    }
+
+    #[tokio::test]
+    async fn a_manifest_added_without_notice_is_not_seen() -> Result<(), Box<dyn std::error::Error>> {
+        let store = Arc::new(CountingStore::new());
+        let envref = counting_env(store.clone());
+        let provider = ManifestRecipeProvider::new();
+        assert!(!can_make_key(&provider, &envref, "data/sales/orders_eu.csv").await?);
+        set_yaml_dyn(&envref, "data/sales/weekly.manifest.yaml", DAILY_MANIFEST.to_string()).await;
+        // Out-of-band: the cached listing is still served — the decided contract.
+        assert!(!can_make_key(&provider, &envref, "data/sales/orders_eu.csv").await?);
+        provider.clear_cache().await;
+        assert!(can_make_key(&provider, &envref, "data/sales/orders_eu.csv").await?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_removed_manifest_stops_resolving_after_directory_changed(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let store = Arc::new(CountingStore::new());
+        let envref = counting_env(store.clone());
+        set_yaml_dyn(&envref, "data/sales/daily.manifest.yaml", DAILY_MANIFEST.to_string()).await;
+        let provider = ManifestRecipeProvider::new();
+        assert!(can_make_key(&provider, &envref, "data/sales/orders_eu.csv").await?);
+        envref.get_async_store().remove(&parse_key("data/sales/daily.manifest.yaml")?).await?;
+        AsyncRecipeProvider::<TestEnv>::directory_changed(&provider, &parse_key("data/sales")?).await;
+        assert!(!can_make_key(&provider, &envref, "data/sales/orders_eu.csv").await?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn directory_changed_drops_the_subtree() -> Result<(), Box<dyn std::error::Error>> {
+        let store = Arc::new(CountingStore::new());
+        let envref = counting_env(store.clone());
+        let provider = ManifestRecipeProvider::new();
+        for key in ["data/a/x_0001.csv", "data/b/x_0001.csv", "other/x_0001.csv"] {
+            can_make_key(&provider, &envref, key).await?;
+        }
+        assert_eq!(store.listdirs(), 3);
+        AsyncRecipeProvider::<TestEnv>::directory_changed(&provider, &parse_key("data")?).await;
+        for key in ["data/a/x_0001.csv", "data/b/x_0001.csv", "other/x_0001.csv"] {
+            can_make_key(&provider, &envref, key).await?;
+        }
+        // data/a and data/b re-listed; other/ still cached.
+        assert_eq!(store.listdirs(), 5);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn clear_cache_drops_everything() -> Result<(), Box<dyn std::error::Error>> {
+        let store = Arc::new(CountingStore::new());
+        let envref = counting_env(store.clone());
+        set_yaml_dyn(&envref, "data/sales/daily.manifest.yaml", DAILY_MANIFEST.to_string()).await;
+        let provider = ManifestRecipeProvider::new();
+        assert!(can_make_key(&provider, &envref, "data/sales/orders_eu.csv").await?);
+        let (lists, gets) = (store.listdirs(), store.gets());
+        provider.clear_cache().await;
+        assert!(can_make_key(&provider, &envref, "data/sales/orders_eu.csv").await?);
+        assert!(store.listdirs() > lists || store.gets() > gets);
+        assert_eq!(store.gets(), gets + 1, "the manifest is parsed again");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn an_unchanged_folder_is_listed_once() -> Result<(), Box<dyn std::error::Error>> {
+        let store = Arc::new(CountingStore::new());
+        let envref = counting_env(store.clone());
+        let provider = ManifestRecipeProvider::new();
+        for _ in 0..3 {
+            can_make_key(&provider, &envref, "data/sales/plain.txt").await?;
+        }
+        assert_eq!(store.listdirs(), 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_non_manifest_write_does_not_reparse_the_manifest(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let store = Arc::new(CountingStore::new());
+        let envref = counting_env(store.clone());
+        set_yaml_dyn(&envref, "data/sales/daily.manifest.yaml", DAILY_MANIFEST.to_string()).await;
+        let provider = ManifestRecipeProvider::new();
+        assert!(can_make_key(&provider, &envref, "data/sales/orders_eu.csv").await?);
+        let (lists, gets) = (store.listdirs(), store.gets());
+        set_yaml_dyn(&envref, "data/sales/other.csv", "a,b".to_string()).await;
+        AsyncRecipeProvider::<TestEnv>::directory_changed(&provider, &parse_key("data/sales")?).await;
+        assert!(can_make_key(&provider, &envref, "data/sales/orders_eu.csv").await?);
+        assert_eq!(store.listdirs(), lists + 1);
+        assert_eq!(store.gets(), gets);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_fill_racing_an_invalidation_is_not_kept() -> Result<(), Box<dyn std::error::Error>> {
+        let store = Arc::new(CountingStore::new());
+        let envref = counting_env(store.clone());
+        let provider = ManifestRecipeProvider::new();
+        let folder = parse_key("data/sales")?;
+        // A fill that read its generation, then an invalidation ran before it inserted.
+        let before = provider.generation.load(Ordering::SeqCst);
+        AsyncRecipeProvider::<TestEnv>::directory_changed(&provider, &folder).await;
+        provider.cache_listing(&folder, Arc::new(vec![]), before).await;
+        assert!(provider.folders.read_async(&folder, |_, _| ()).await.is_none());
+        can_make_key(&provider, &envref, "data/sales/plain.txt").await?;
+        assert_eq!(store.listdirs(), 1);
         Ok(())
     }
 

@@ -3,7 +3,7 @@ title: Assets Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-04
+reviewed: 2026-10-06
 ---
 # Assets Specification
 
@@ -995,8 +995,15 @@ Recipes themselves cannot be deleted by `remove`.
 
 **Related keyed operations**, all default methods of `AssetManager` and none of them evaluating:
 
+- `contains(key)` is *stored, or listed by the recipe provider*; `can_make(key)` is *stored, or
+  producible by the recipe provider* (a template chunk is producible but not listed). Describing and
+  submitting an unevaluated key use `can_make`.
+- `listdir_keys_deep(key)` returns, for every **store** directory `d` under `key` (and `key`
+  itself), everything `listdir_keys(d)` reports — recipe-declared keys included — never `key`
+  itself, sorted and duplicate-free; so `keys()` includes root-level recipes. Directories only a
+  recipe provider declares are not descended. Both managers share this one implementation.
 - `removedir(key)`: `remove` for every key under the directory (deepest first, directory keys
-  skipped), then `store.removedir`, which also deletes the directory's `recipes.yaml` and the
+  skipped; the directory's own recipe keys are included, so their live assets are unmapped), then `store.removedir`, which also deletes the directory's `recipes.yaml` and the
   `Recipe` records `remove` kept; live `Directory` assets under it are unmapped. It takes no lock
   itself (each `remove` does) and is not atomic. It refreshes the parent's listing version, so
   what was built from the parent's listing expires. Absent → `KeyNotFound`; not a directory →
@@ -1119,6 +1126,7 @@ each with an `ExpiryReason` (§Why an asset is `Expired`). The rules are in
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-06 | §Related keyed operations: `contains` vs `can_make`; `listdir_keys_deep` is complete (recipe keys at every store directory, `keys()` includes root recipes); `removedir` unmaps the directory's own recipe assets. `refresh_listing_version` also notifies the recipe provider. | phase-5 |
 | 2026-10-04 | §Related keyed operations: `makedir` and `removedir` refresh the parent's listing version (review fix on orest-d/liquers#75). | phase-5 |
 | 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. §AssetManager: the trait is implementable outside core (public `DependencyManagerAccess` / `KeyMutationAccess`, policy accessors), pointing to the new guide. New §Why an asset is `Expired`: `ExpiryReason` (`Direct` / `Cascaded` with root and via), the seven causes with route, scope and level, `record_expiry` as the single overridable writer, and the log wording with real lines. New §Content changed outside Liquers: `HASH_FLAG` (bit 127), `VersionKind`, legacy unflagged verification, the decision table, no-metadata `Source` kept in memory, when the check runs, read-only stores. Open issues 2 and 3 marked resolved. | phase-5 |
 | 2026-09-28 | §Notification Channel: the enum as implemented, with `Expired` and `Removed` (and when `Removed` is sent); the never-implemented `Cancelling`/`MetadataChanged` removed. Scenarios 3 and 5 rewritten. §Remove Semantics: the status-aware decision table replaces "always delete", plus `removedir`, `expire`, `set_description`, `to_override` on a `Source`, the non-evaluating `get_asset_info`, `lookup_query_asset` and `makedir`. | `design/axum-assets-endpoints/` |

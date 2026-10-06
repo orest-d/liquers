@@ -6,12 +6,22 @@ use axum::{
     Json,
 };
 use liquers_core::{
+    assets::AssetManager,
     context::{EnvRef, Environment},
     metadata::Metadata,
     parse::parse_key,
     query::Key,
 };
 use std::collections::HashMap;
+
+/// Tells the asset manager that `key` was written or removed through the store directly, so the
+/// recipe provider drops directory-derived caches and registered listing versions refresh. The
+/// write already succeeded; a failed refresh never undoes it.
+async fn refresh_after_write<E: Environment>(env: &EnvRef<E>, key: &Key) {
+    env.get_asset_manager()
+        .refresh_listing_version(&key.parent())
+        .await;
+}
 
 /// GET /api/store/data/{*key} - Retrieve raw data from store
 pub async fn get_data_handler<E: Environment>(
@@ -79,6 +89,7 @@ pub async fn put_data_handler<E: Environment>(
     // Store data with metadata
     match store.set(&key, &body, &metadata).await {
         Ok(()) => {
+            refresh_after_write(&env, &key).await;
             let response: ApiResponse<String> =
                 ApiResponse::ok(key.encode(), "Data stored successfully");
             response.into_response()
@@ -113,6 +124,7 @@ pub async fn delete_data_handler<E: Environment>(
     // Delete data
     match store.remove(&key).await {
         Ok(()) => {
+            refresh_after_write(&env, &key).await;
             let response: ApiResponse<String> =
                 ApiResponse::ok(key.encode(), "Data deleted successfully");
             response.into_response()
@@ -210,6 +222,7 @@ pub async fn put_metadata_handler<E: Environment>(
     // Update metadata in store
     match store.set_metadata(&key, &metadata).await {
         Ok(()) => {
+            refresh_after_write(&env, &key).await;
             let response: ApiResponse<String> =
                 ApiResponse::ok(key.encode(), "Metadata updated successfully");
             response.into_response()
@@ -382,6 +395,7 @@ pub async fn makedir_handler<E: Environment>(
 
     match store.makedir(&key).await {
         Ok(()) => {
+            refresh_after_write(&env, &key).await;
             let response: ApiResponse<String> =
                 ApiResponse::ok(key.encode(), "Directory created successfully");
             response.into_response()
@@ -413,6 +427,7 @@ pub async fn removedir_handler<E: Environment>(
 
     match store.removedir(&key).await {
         Ok(()) => {
+            refresh_after_write(&env, &key).await;
             let response: ApiResponse<String> =
                 ApiResponse::ok(key.encode(), "Directory removed successfully");
             response.into_response()
@@ -575,6 +590,7 @@ pub async fn put_entry_handler<E: Environment>(
     // Store data and metadata
     match store.set(&key, &entry.data, &metadata).await {
         Ok(()) => {
+            refresh_after_write(&env, &key).await;
             let response: ApiResponse<String> =
                 ApiResponse::ok(key.encode(), "Entry stored successfully");
             response.into_response()
@@ -700,6 +716,7 @@ pub async fn upload_handler<E: Environment>(
         // Store the file
         match store.set(&file_key, &data, &metadata).await {
             Ok(()) => {
+                refresh_after_write(&env, &file_key).await;
                 uploaded_files.push(file_key.encode());
             }
             Err(e) => {

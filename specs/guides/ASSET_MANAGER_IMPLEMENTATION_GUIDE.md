@@ -4,7 +4,7 @@ title: Asset Manager Implementation Guide
 kind: guide
 audience: both
 area: [core/assets]
-reviewed: 2026-10-02
+reviewed: 2026-10-06
 ---
 # Asset Manager Implementation Guide
 
@@ -178,7 +178,7 @@ rustdoc; the summary:
 | `AssetRef::expire_without_cascade(reason)` | Expire this asset alone. `Ready` and `Override` become `Expired` and the reason is recorded through `record_expiry`; already `Expired` is a no-op; any other status is an error. Persists the `Expired` status for a stored keyed asset. Does not touch the graph or your maps — the cascade and the eviction are the caller's. |
 | `AssetRef::cancel()` | Cancel the asset a write replaces. |
 | `AssetManager::publish_version(dep_key, version)` | Publish a written key's new version and cascade-expire dependents that recorded another (`Updated`). Graph only: no store write, no lock, safe under the key-mutation lock. Unchanged version, no cascade. |
-| `AssetManager::refresh_listing_version(dir)` | Re-hash a directory listing that something depends on. Call it with the written key's parent after every write or removal. |
+| `AssetManager::refresh_listing_version(dir)` | Call it with the written key's parent after every write or removal. First tells the recipe provider (`directory_changed`, so a caching provider such as the manifest provider drops its folder listing), then re-hashes a directory listing that something depends on. |
 | `AssetManager::is_volatile(key)`, `is_volatile_query(query)` | Volatility **without evaluating**, asked before registering (§7). |
 
 Not exposed, deliberately: the run claims, the job queue, `set_status`, `set_value`, `fail_asset`
@@ -470,4 +470,5 @@ store conformance suite: shared scenarios, no rule numbers and no capability mod
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-06 | `refresh_listing_version` also notifies the recipe provider; every write path must call it. | phase-5 |
 | 2026-10-02 | Created: decisions before writing code, what to hold, required and provided methods, the lifecycle primitives and their contracts, the key-mutation lock, registration invariants, overriding `record_expiry`, providing an `AssetManagerKind`, running the shared scenarios, known limits. Snippets from `tests/common/minimal_manager.rs` and `tests/external_asset_manager.rs`. | phase-5 (`design/dependency-audit-and-expiry-provenance/`) |

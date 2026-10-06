@@ -11,7 +11,7 @@ ASSET-EXPIRED-CACHED-BINARY-READ,issue,Expired asset can still return its cached
 ASSET-FINISHED-PROGRESS-CONTRACT-UNDEFINED,issue,"What progress a finished asset reports is undefined, and was asserted by a race",draft,local,,,P3,S,core/assets,,,,,,2026-09-03,specs/issues/ASSET-FINISHED-PROGRESS-CONTRACT-UNDEFINED.md
 ASSET-KEYED-DELEGATION-ALWAYS-CYCLES,issue,The keyed delegation branch cannot succeed - it always records a self-dependency,closed,local,,,P0,M,core/assets,,,,keyed-delegation-hand-off,,2026-08-09,specs/issues/ASSET-KEYED-DELEGATION-ALWAYS-CYCLES.md
 ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE,issue,insert_key_asset silently does nothing on the queued manager when the key is taken,closed,local,,covered,P2,S,core/assets,,,,asset-manager-insert-key-asset-no-overwrite,,2026-08-09,specs/issues/ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE.md
-ASSET-MANAGER-LISTDIR-KEYS-DEEP-OMITS-TOP-LEVEL-RECIPES,issue,AssetManager::listdir_keys_deep omits recipe-declared keys of the listed directory itself,draft,local,,ready,P2,S,core/assets,,,,recipe-provider-listing-contract,,2026-09-28,specs/issues/ASSET-MANAGER-LISTDIR-KEYS-DEEP-OMITS-TOP-LEVEL-RECIPES.md
+ASSET-MANAGER-LISTDIR-KEYS-DEEP-OMITS-TOP-LEVEL-RECIPES,issue,AssetManager::listdir_keys_deep omits recipe-declared keys of the listed directory itself,closed,local,,ready,P2,S,core/assets,,,,recipe-provider-listing-contract,,2026-09-28,specs/issues/ASSET-MANAGER-LISTDIR-KEYS-DEEP-OMITS-TOP-LEVEL-RECIPES.md
 ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE,issue,"The AssetManager trait is sealed, so a custom asset manager cannot be written outside liquers-core",closed,local,,,P2,L,core/assets,,,,dependency-audit-and-expiry-provenance,,2026-09-28,specs/issues/ASSET-MANAGER-TRAIT-CANNOT-BE-IMPLEMENTED-OUTSIDE-CORE.md
 ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED,issue,An asset never records that its evaluation required a payload,closed,local,,,P2,M,core/assets;core/context,,,,evaluate-path-consolidation,,2026-09-03,specs/issues/ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED.md
 ASSET-REGISTRATION-OWNERSHIP-CONTRACT,feature,"Registration of a keyed asset is a manager convenience, not a contract anything can rely on",draft,local,,,P2,L,core/assets,,,,,,2026-09-03,specs/issues/ASSET-REGISTRATION-OWNERSHIP-CONTRACT.md
@@ -148,7 +148,7 @@ LINK-IN-VARIADIC-DOES-NOT-EXPAND,issue,A link inside a variadic argument yields 
 LOCAL-STORAGE-STORE-FAILS-CONFORMANCE-IN-A-BROWSER,issue,"LocalStorageStore fails three conformance rules, and its conformance test never runs in a browser",closed,local,,,P2,M,web;core/store,,,,store-conformance-backlog,,2026-09-27,specs/issues/LOCAL-STORAGE-STORE-FAILS-CONFORMANCE-IN-A-BROWSER.md
 MACRO-LEAVES-STALE-METADATA-VERSION,issue,"A macro-registered command's metadata_version is computed from its bare key, not its content",closed,local,,,P1,S,core/commands;macro;core/assets,,,,refresh-command-metadata-versions,,2026-08-30,specs/issues/MACRO-LEAVES-STALE-METADATA-VERSION.md
 MACRO-QUERY-VALIDATION-AND-HINTS,issue,`register_command!` does not validate queries or implement hints,accepted,local,,,P3,M,macro,,,,,,2026-08-08,specs/issues/MACRO-QUERY-VALIDATION-AND-HINTS.md
-MANIFEST-PROVIDER-FOLDER-LISTING-NEVER-REFRESHES,issue,ManifestRecipeProvider's per-folder manifest listing cache never refreshes,draft,local,,ready,P2,S,records,,,,recipe-provider-listing-contract,,2026-09-26,specs/issues/MANIFEST-PROVIDER-FOLDER-LISTING-NEVER-REFRESHES.md
+MANIFEST-PROVIDER-FOLDER-LISTING-NEVER-REFRESHES,issue,ManifestRecipeProvider's per-folder manifest listing cache never refreshes,closed,local,,ready,P2,S,records,,,,recipe-provider-listing-contract,,2026-09-26,specs/issues/MANIFEST-PROVIDER-FOLDER-LISTING-NEVER-REFRESHES.md
 MARKDOWN-TABLE-CANNOT-DISTINGUISH-NULL-FROM-EMPTY-TEXT,issue,"A Markdown table reads an empty Text cell back as null, and reads only the first table",draft,local,,,P3,S,records,,,,record-streams,,2026-09-27,specs/issues/MARKDOWN-TABLE-CANNOT-DISTINGUISH-NULL-FROM-EMPTY-TEXT.md
 MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS,issue,The extension-to-media-type table lacks or mislabels the common tabular formats,closed,local,,,P3,S,core/value;axum,,,,axum-assets-endpoints,,2026-09-24,specs/issues/MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS.md
 MEMORY-STORE-METADATA-ONLY-ENTRY-READS-AS-EMPTY-BYTES,issue,"AsyncMemoryStore answers a metadata-only entry with empty bytes, indistinguishable from empty content",draft,local,,,P3,S,core/store,,,,,,2026-10-02,specs/issues/MEMORY-STORE-METADATA-ONLY-ENTRY-READS-AS-EMPTY-BYTES.md
@@ -183,7 +183,7 @@ QUERY-BUILDER-TOOLING,issue,No programmatic builder for constructing queries,acc
 QUEUED-MANAGER-EVICTION-RACE,issue,The queued manager's cache evictions can delete a replacement asset,accepted,local,,ready,P2,S,core/assets,,,,queued-manager-conditional-eviction,,2026-08-09,specs/issues/QUEUED-MANAGER-EVICTION-RACE.md
 QUEUED-MANAGER-STARTUP-READINESS,issue,Queued asset manager accepts work before it is ready to run it,closed,local,,,P1,L,core/assets,,,,environment-builder,,2026-08-08,specs/issues/QUEUED-MANAGER-STARTUP-READINESS.md
 REC-ID-PARSES-DATE-AND-TIMESTAMP-IDS-AS-RAW-NUMBERS,issue,"ns-rec/rec_id reads a Date or Timestamp id as a raw day or microsecond count, not as ISO text",draft,local,,,P3,S,records;lib/commands,,,,record-streams,,2026-09-27,specs/issues/REC-ID-PARSES-DATE-AND-TIMESTAMP-IDS-AS-RAW-NUMBERS.md
-RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY,issue,AsyncRecipeProvider::contains has a default that silently assumes recipes are enumerable,draft,local,,ready,P2,S,core/assets,,,,recipe-provider-listing-contract,,2026-09-20,specs/issues/RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY.md
+RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY,issue,AsyncRecipeProvider::contains has a default that silently assumes recipes are enumerable,closed,local,,ready,P2,S,core/assets,,,,recipe-provider-listing-contract,,2026-09-20,specs/issues/RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY.md
 RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING,issue,Recipe plan analysis runs outside plan building,draft,local,,,P3,M,core/plan;core/assets,,,,,,2026-08-26,specs/issues/RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING.md
 RECIPE-PROVIDER-BY-NAME,feature,"Recipe providers cannot be selected by name, so a configuration document cannot choose one",closed,local,,,P0,S,core/assets;web,,,,recipe-provider-selection,,2026-08-27,specs/issues/RECIPE-PROVIDER-BY-NAME.md
 RECIPE-PROVIDERS-FAIL-ON-A-KEY-THE-STORE-DOES-NOT-SUPPORT,issue,Recipe providers fail a query when the store refuses the recipes.yaml or manifest key as unsupported,closed,local,,,P1,S,core/assets;records;web,,,,record-streams,,2026-09-27,specs/issues/RECIPE-PROVIDERS-FAIL-ON-A-KEY-THE-STORE-DOES-NOT-SUPPORT.md
@@ -346,7 +346,7 @@ QUERY-VALIDATION,design,Offline query and recipe validation,complete,local,,,,,c
 QUEUED-MANAGER-CONDITIONAL-EVICTION,design,Conditional queued-manager cache eviction,in_review,local,implementation,ready,P2,S,core/assets,,,,queued-manager-conditional-eviction,,2026-08-29,specs/design/queued-manager-conditional-eviction/DESIGN.md
 RECIPE-CONTAINS-ADDRESSABILITY,design,Separate listed (contains) and producible (can_make) questions on recipe providers,superseded,local,,,P2,S,core/assets,,,,recipe-contains-addressability,,2026-10-04,specs/design/recipe-contains-addressability/DESIGN.md
 COVERED-07,design,Coverage record for RECIPE-TO-PLAN-IGNORES-RECIPE-LEVEL-VOLATILE-AND-EXPIRES,in_review,local,architecture,covered,P2,S,docs,,,,recipe-plan-declarations,,2026-09-03,specs/design/recipe-plan-declarations/DESIGN.md
-RECIPE-PROVIDER-LISTING-CONTRACT,design,"Recipe-provider listing contract — listed vs producible keys, folder-cache invalidation, complete deep listings",in_review,local,implementation,ready,P2,S,core/assets;records;axum,,,,recipe-provider-listing-contract,,2026-10-05,specs/design/recipe-provider-listing-contract/DESIGN.md
+RECIPE-PROVIDER-LISTING-CONTRACT,design,"Recipe-provider listing contract — listed vs producible keys, folder-cache invalidation, complete deep listings",complete,local,,ready,P2,S,core/assets;records;axum,,79,,recipe-provider-listing-contract,,2026-10-05,specs/design/recipe-provider-listing-contract/DESIGN.md
 RECIPE-PROVIDER-SELECTION,design,Selecting a recipe provider by name,complete,local,,,P0,S,core/assets;web,,48,,recipe-provider-selection,,2026-08-29,specs/design/recipe-provider-selection/DESIGN.md
 RECORD-STREAMS,design,"Record streams — a lightweight, chunked, Arrow-interoperable tabular abstraction",complete,local,,,,,records;lib/value;lib/commands;core/assets;web,,,,record-streams,,2026-09-19,specs/design/record-streams/DESIGN.md
 REFRESH-COMMAND-METADATA-VERSIONS,design,Refresh command metadata versions before environment sharing,complete,local,,,P1,S,core/commands;macro;core/context;core/assets,,,,refresh-command-metadata-versions,,2026-08-30,specs/design/refresh-command-metadata-versions/DESIGN.md
@@ -387,10 +387,10 @@ DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,
 DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,core/query,,,,,2026-08-17,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
 DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,core/assets,,,,,2026-10-02,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
 DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,core/context;core/plan,,,,,2026-10-02,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
-DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,core/plan;core/assets;core/context,,,,,2026-09-27,,specs/reference/api/DOC_08_RECIPES_PLANS.md
+DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,core/plan;core/assets;core/context,,,,,2026-10-06,,specs/reference/api/DOC_08_RECIPES_PLANS.md
 ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,core/assets,,,,,2026-10-02,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,core/assets,,,,,2026-09-27,,specs/reference/ASSET_SET_OPERATION.md
-ASSETS,reference,Assets Specification,current,local,,,,,core/assets,,,,,2026-10-04,,specs/reference/ASSETS.md
+ASSETS,reference,Assets Specification,current,local,,,,,core/assets,,,,,2026-10-06,,specs/reference/ASSETS.md
 COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,core/commands;web;py,,,,,2026-09-05,,specs/reference/COMMAND_DECLARATION.md
 CONFORMANCE_TERMS,reference,Conformance Terms,current,local,,,,,docs,,,,,2026-09-02,,specs/reference/CONFORMANCE_TERMS.md
 DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,,core/assets,,,,,2026-10-04,,specs/reference/DEPENDENCIES_STATUS.md
@@ -399,23 +399,23 @@ IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,loca
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,core/context;core/commands,,,,,2026-09-04,,specs/reference/PAYLOAD_GUIDE.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,lib/polars,,,,,2026-09-04,,specs/reference/POLARS_COMMAND_LIBRARY.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-09-27,,specs/reference/PROJECT_OVERVIEW.md
-RECORD_STREAMS,reference,Record Streams,current,local,,,,,records;lib/value;lib/commands;web,,,,,2026-09-27,,specs/reference/RECORD_STREAMS.md
+RECORD_STREAMS,reference,Record Streams,current,local,,,,,records;lib/value;lib/commands;web,,,,,2026-10-06,,specs/reference/RECORD_STREAMS.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,macro;core/commands,,,,,2026-09-27,,specs/reference/REGISTER_COMMAND_FSD.md
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,store/config,,,,,2026-09-04,,specs/reference/STORE_CONFIG_FSD.md
 STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,core/store;store/backends;web,,,,,2026-09-30,,specs/reference/STORE_SEMANTICS.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,core/value;lib/value,,,,,2026-09-27,,specs/reference/VALUE_TYPE_SYSTEM.md
-WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,axum;web,,,,,2026-09-29,,specs/reference/WEB_API_SPECIFICATION.md
-ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,core/assets,,,,,2026-10-02,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
+WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,axum;web,,,,,2026-10-06,,specs/reference/WEB_API_SPECIFICATION.md
+ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,core/assets,,,,,2026-10-06,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
 autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,docs;build,,,,,2026-10-05,,specs/guides/autonomous_bulk_design.md
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,,docs;build,,,,,2026-08-11,,specs/guides/autonomous_issue_fixing.md
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,core/commands;macro,,,,,2026-10-02,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,core/context;core/assets;core/store,,,,,2026-10-02,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-09-30,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,core/query,,,,,2026-08-14,,specs/guides/QUERY_ESCAPING_GUIDE.md
-RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,records;lib/value,,,,,2026-09-27,,specs/guides/RECORD_STREAM_GUIDE.md
+RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,records;lib/value,,,,,2026-10-06,,specs/guides/RECORD_STREAM_GUIDE.md
 STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,core/store;store/config,,,,,2026-09-02,,specs/guides/STORE_FACTORY_GUIDE.md
 STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,core/store;store/backends;web,,,,,2026-10-02,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,core/value;lib/value,,,,,2026-09-27,,specs/guides/TYPE_SYSTEM_GUIDE.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,build;core/assets,,,,,2026-10-02,,specs/guides/UNITTEST_GUIDE.md
-WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,axum;web,,,,,2026-09-29,,specs/guides/WEB_API_GUIDE.md
+WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,axum;web,,,,,2026-10-06,,specs/guides/WEB_API_GUIDE.md

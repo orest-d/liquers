@@ -546,7 +546,9 @@ pub trait AsyncRecipeProvider<E: Environment>:
     ///
     /// Provider I/O, decoding, and validation failures remain errors.
     async fn recipe_opt(&self, key: &Key, envref: EnvRef<E>) -> Result<Option<Recipe>, Error>;
-    /// Returns whether the complete asset `key` has a recipe.
+    /// Whether `key` is among the assets its directory **shows** — the entries
+    /// [`Self::assets_with_recipes`] lists for `key.parent()`. See [`Self::can_make`] for the
+    /// weaker question "can it be produced".
     async fn contains(&self, key: &Key, envref: EnvRef<E>) -> Result<bool, Error> {
         if let Some(name) = key.filename() {
             let parent_key = key.parent();
@@ -561,6 +563,19 @@ pub trait AsyncRecipeProvider<E: Environment>:
         } else {
             Ok(false)
         }
+    }
+    /// Whether this provider can **produce** `key`: every key [`Self::contains`] reports, plus
+    /// keys made on demand without being listed (e.g. template-generated names). Must be `true`
+    /// whenever `contains` is. Override only with a cheaper test giving the same answer.
+    async fn can_make(&self, key: &Key, envref: EnvRef<E>) -> Result<bool, Error> {
+        Ok(self.recipe_opt(key, envref).await?.is_some())
+    }
+    /// The contents of directory `dir`, or of something below it, changed. Called by the asset
+    /// manager after every write or removal it mediates, with the written key's parent. A
+    /// provider caching directory-derived state drops it for `dir` and its subtree. The default
+    /// does nothing.
+    async fn directory_changed(&self, dir: &Key) {
+        let _ = dir;
     }
     /// Describes the recipe registered at `key` and includes planning diagnostics.
     ///
@@ -1046,7 +1061,22 @@ impl<E: Environment> AsyncRecipeProvider<E> for RecipeProviderChain<E> {
     }
 
     async fn contains(&self, key: &Key, envref: EnvRef<E>) -> Result<bool, Error> {
+        for provider in &self.providers {
+            if provider.contains(key, envref.clone()).await? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    async fn can_make(&self, key: &Key, envref: EnvRef<E>) -> Result<bool, Error> {
         Ok(self.provider_index_for(key, envref).await?.is_some())
+    }
+
+    async fn directory_changed(&self, dir: &Key) {
+        for provider in &self.providers {
+            provider.directory_changed(dir).await;
+        }
     }
 
     async fn get_asset_info(&self, key: &Key, envref: EnvRef<E>) -> Result<AssetInfo, Error> {
@@ -2098,13 +2128,162 @@ mod recipe_provider_chain_tests {
     }
 
     #[tokio::test]
-    async fn contains_is_true_if_any_provider_has_the_recipe() -> Result<(), Error> {
+    async fn can_make_is_true_if_any_provider_has_the_recipe() -> Result<(), Error> {
         let provider1 = MockProvider::new(vec![("dir/a", Some(Recipe::default()))]);
         let provider2 = MockProvider::new(vec![("dir/b", Some(Recipe::default()))]);
         let chain = RecipeProviderChain::new(vec![Arc::new(provider1), Arc::new(provider2)]);
-        assert!(chain.contains(&parse_key("dir/a")?, envref()).await?);
-        assert!(chain.contains(&parse_key("dir/b")?, envref()).await?);
-        assert!(!chain.contains(&parse_key("dir/c")?, envref()).await?);
+        assert!(chain.can_make(&parse_key("dir/a")?, envref()).await?);
+        assert!(chain.can_make(&parse_key("dir/b")?, envref()).await?);
+        assert!(!chain.can_make(&parse_key("dir/c")?, envref()).await?);
+        // The mocks declare recipes but list nothing, so nothing is "shown".
+        assert!(!chain.contains(&parse_key("dir/a")?, envref()).await?);
+        Ok(())
+    }
+
+    /// Produces `<name>.gen` in any folder; lists nothing.
+    struct PatternProvider;
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl AsyncRecipeProvider<TestEnv> for PatternProvider {
+        async fn has_recipes(&self, _key: &Key, _envref: EnvRef<TestEnv>) -> Result<bool, Error> {
+            Ok(false)
+        }
+        async fn assets_with_recipes(
+            &self,
+            _key: &Key,
+            _envref: EnvRef<TestEnv>,
+        ) -> Result<Vec<ResourceName>, Error> {
+            Ok(vec![])
+        }
+        async fn recipe_plan(&self, key: &Key, _envref: EnvRef<TestEnv>) -> Result<Plan, Error> {
+            Err(Error::key_not_found(key))
+        }
+        async fn recipe(&self, key: &Key, envref: EnvRef<TestEnv>) -> Result<Recipe, Error> {
+            self.recipe_opt(key, envref)
+                .await?
+                .ok_or_else(|| Error::key_not_found(key))
+        }
+        async fn recipe_opt(
+            &self,
+            key: &Key,
+            _envref: EnvRef<TestEnv>,
+        ) -> Result<Option<Recipe>, Error> {
+            Ok(key
+                .filename()
+                .filter(|n| n.name.ends_with(".gen"))
+                .map(|_| Recipe::default()))
+        }
+    }
+
+    /// Records every `directory_changed` argument.
+    struct RecordingProvider {
+        seen: std::sync::Mutex<Vec<Key>>,
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl AsyncRecipeProvider<TestEnv> for RecordingProvider {
+        async fn has_recipes(&self, _key: &Key, _envref: EnvRef<TestEnv>) -> Result<bool, Error> {
+            Ok(false)
+        }
+        async fn assets_with_recipes(
+            &self,
+            _key: &Key,
+            _envref: EnvRef<TestEnv>,
+        ) -> Result<Vec<ResourceName>, Error> {
+            Ok(vec![])
+        }
+        async fn recipe_plan(&self, key: &Key, _envref: EnvRef<TestEnv>) -> Result<Plan, Error> {
+            Err(Error::key_not_found(key))
+        }
+        async fn recipe(&self, key: &Key, _envref: EnvRef<TestEnv>) -> Result<Recipe, Error> {
+            Err(Error::key_not_found(key))
+        }
+        async fn recipe_opt(
+            &self,
+            _key: &Key,
+            _envref: EnvRef<TestEnv>,
+        ) -> Result<Option<Recipe>, Error> {
+            Ok(None)
+        }
+        async fn directory_changed(&self, dir: &Key) {
+            if let Ok(mut seen) = self.seen.lock() {
+                seen.push(dir.clone());
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn on_demand_provider_splits_contains_and_can_make() -> Result<(), Error> {
+        let provider = PatternProvider;
+        let key = parse_key("a/x.gen")?;
+        assert!(!provider.contains(&key, envref()).await?);
+        assert!(provider.can_make(&key, envref()).await?);
+        assert!(!provider.can_make(&parse_key("a/x.txt")?, envref()).await?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn chain_forwards_contains_and_can_make() -> Result<(), Error> {
+        let listing = MockProvider::with_assets(vec![("dir", vec!["a"])]);
+        let chain = RecipeProviderChain::new(vec![Arc::new(PatternProvider), Arc::new(listing)]);
+        let listed = parse_key("dir/a")?;
+        let produced = parse_key("dir/x.gen")?;
+        assert!(chain.contains(&listed, envref()).await?);
+        assert!(!chain.contains(&produced, envref()).await?);
+        assert!(chain.can_make(&produced, envref()).await?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn can_make_propagates_recipe_errors() {
+        struct Failing;
+        #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+        #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+        impl AsyncRecipeProvider<TestEnv> for Failing {
+            async fn has_recipes(&self, _k: &Key, _e: EnvRef<TestEnv>) -> Result<bool, Error> {
+                Ok(false)
+            }
+            async fn assets_with_recipes(
+                &self,
+                _k: &Key,
+                _e: EnvRef<TestEnv>,
+            ) -> Result<Vec<ResourceName>, Error> {
+                Ok(vec![])
+            }
+            async fn recipe_plan(&self, k: &Key, _e: EnvRef<TestEnv>) -> Result<Plan, Error> {
+                Err(Error::key_not_found(k))
+            }
+            async fn recipe(&self, k: &Key, _e: EnvRef<TestEnv>) -> Result<Recipe, Error> {
+                Err(Error::key_not_found(k))
+            }
+            async fn recipe_opt(
+                &self,
+                _k: &Key,
+                _e: EnvRef<TestEnv>,
+            ) -> Result<Option<Recipe>, Error> {
+                Err(Error::general_error("malformed recipes".to_string()))
+            }
+        }
+        let key = parse_key("a/b").expect("test key");
+        assert!(Failing.can_make(&key, envref()).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn chain_forwards_directory_changed() -> Result<(), Error> {
+        let first = Arc::new(RecordingProvider { seen: Default::default() });
+        let second = Arc::new(RecordingProvider { seen: Default::default() });
+        let chain = RecipeProviderChain::new(vec![first.clone(), second.clone()]);
+        chain.directory_changed(&parse_key("a/b")?).await;
+        assert_eq!(*first.seen.lock().unwrap(), vec![parse_key("a/b")?]);
+        assert_eq!(*second.seen.lock().unwrap(), vec![parse_key("a/b")?]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn default_directory_changed_is_a_no_op() -> Result<(), Error> {
+        MockProvider::new(vec![]).directory_changed(&parse_key("a")?).await;
         Ok(())
     }
 
