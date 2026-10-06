@@ -3,7 +3,7 @@ title: Assets Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-04
+reviewed: 2026-10-06
 ---
 # Assets Specification
 
@@ -1007,6 +1007,8 @@ Recipes themselves cannot be deleted by `remove`.
   asset) is `StatusConflict`; unknown → `KeyNotFound`.
 - `set_description(key, title, description)`: only for a `Source` (live and/or stored); data and
   version are unchanged; both `None` → `ParameterError`; another status → `StatusConflict`.
+  Its command-side counterpart is `Context::set_title` / `set_description`, which does *not*
+  override a title or description the recipe declared (see `DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`).
 - `to_override(key)`: a `Source` is left unchanged, whether live or only stored.
 - `get_asset_info(key)`: reads the live asset as it is (a cached `Expired`/`Error`/`Cancelled`
   entry is reported, not re-evaluated), else the store, else the recipe provider; unknown →
@@ -1119,6 +1121,7 @@ each with an `ExpiryReason` (§Why an asset is `Expired`). The rules are in
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-06 | §Remove Semantics: `set_description` points to `Context::set_title` / `set_description` and its recipe-wins rule. | phase-5 |
 | 2026-10-04 | §Related keyed operations: `makedir` and `removedir` refresh the parent's listing version (review fix on orest-d/liquers#75). | phase-5 |
 | 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. §AssetManager: the trait is implementable outside core (public `DependencyManagerAccess` / `KeyMutationAccess`, policy accessors), pointing to the new guide. New §Why an asset is `Expired`: `ExpiryReason` (`Direct` / `Cascaded` with root and via), the seven causes with route, scope and level, `record_expiry` as the single overridable writer, and the log wording with real lines. New §Content changed outside Liquers: `HASH_FLAG` (bit 127), `VersionKind`, legacy unflagged verification, the decision table, no-metadata `Source` kept in memory, when the check runs, read-only stores. Open issues 2 and 3 marked resolved. | phase-5 |
 | 2026-09-28 | §Notification Channel: the enum as implemented, with `Expired` and `Removed` (and when `Removed` is sent); the never-implemented `Cancelling`/`MetadataChanged` removed. Scenarios 3 and 5 rewritten. §Remove Semantics: the status-aware decision table replaces "always delete", plus `removedir`, `expire`, `set_description`, `to_override` on a `Source`, the non-evaluating `get_asset_info`, `lookup_query_asset` and `makedir`. | `design/axum-assets-endpoints/` |

@@ -3,7 +3,7 @@ title: Command Registration Guide
 kind: guide
 audience: internal
 area: [core/commands, macro]
-reviewed: 2026-10-02
+reviewed: 2026-10-06
 ---
 # Command Registration Guide
 
@@ -209,6 +209,25 @@ waited for.
 
 A nested query that requires a payload inherits this context's payload and is evaluated
 inline, exactly as with `get_dependency_state`.
+
+### Describing the result: title and description
+
+A command that knows what it produced can say so with `context.set_title` and
+`context.set_description`; the text is readable from an asset listing without fetching the value.
+
+```rust
+async fn summarize(state: State<Value>, context: Context<E>) -> Result<Value, Error> {
+    let text = state.try_into_string()?;
+    context.set_title("Summary").await?;
+    context.set_description(&format!("{} lines", text.lines().count())).await?;
+    Ok(Value::from(text))
+}
+register_command!(cr, async fn summarize(state, context) -> result)?;
+```
+
+**A recipe's title takes precedence**, per field: if the recipe for the key declares a title,
+`set_title` keeps it (and returns `Ok`); a description the recipe left empty is still filled by the
+command. The values never change the asset's `version`. See `reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`.
 
 ### Accepting a variable number of parameters
 
@@ -848,6 +867,7 @@ fn apply(...) -> Result<...> { ... }
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-06 | New section "Describing the result: title and description" (`context.set_title` / `set_description`, recipe title takes precedence per field). | phase-5 |
 | 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. New section "Waiting for dependencies from inside a command": `context.submit` + `context.wait_for_dependency`, why not `asset.get()`, and that `submit` is not lazy. The `read_sibling` example now waits through `context.wait_for_dependency(&asset)`; `submit` added to the methods that refuse relative queries. | phase-5 |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. §6 points to the record-producing command walkthrough in `RECORD_STREAM_GUIDE.md` rather than duplicating it, and lists `liquers-lib/src/records/commands.rs` as an example. | phase-5 |
 | 2026-09-05 | Documented builder-time validation for hand-built and imported metadata, including preflight access to the full report. | `design/variadic-metadata-tail-check` |
