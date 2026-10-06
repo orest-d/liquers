@@ -65,6 +65,28 @@ class RelativeLinkTests(unittest.TestCase):
 
             self.assertEqual(docs_index.relative_link_errors(specs), [])
 
+    def test_index_md_is_link_checked(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            specs = Path(temporary) / "specs"
+            specs.mkdir()
+            (specs / "index.md").write_text(
+                "[phase1](design/missing.md)", encoding="utf-8"
+            )
+
+            self.assertEqual(
+                docs_index.relative_link_errors(specs),
+                ["specs/index.md: dead link design/missing.md (§8.4)"],
+            )
+
+    def test_index_markdown_phase_links_resolve(self):
+        text = docs_index.render_index_markdown(docs_index.collect())
+        targets = [m.group(1) for m in docs_index.RELATIVE_LINK_RE.finditer(text)]
+
+        self.assertTrue(any(t.startswith("design/") for t in targets))
+        self.assertEqual(
+            [t for t in targets if not (docs_index.SPECS / t).exists()], []
+        )
+
 
 def _issue(issue_id: str, design: str, priority: str = "P2") -> dict:
     return {

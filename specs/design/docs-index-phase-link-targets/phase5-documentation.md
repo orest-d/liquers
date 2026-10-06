@@ -7,11 +7,11 @@ after implementation are present and marked *pending*.
 
 ## Completion Preconditions
 
-- [ ] Implementation is finished and validated (Phase 4)
-- [ ] All user comments are answered or incorporated
-- [ ] All review comments are answered or incorporated
-- [ ] Documentation is consistent with the implemented and tested behavior
-- [ ] Documentation is included in the implementation PR
+- [x] Implementation is finished and validated (Phase 4)
+- [x] All user comments are answered or incorporated
+- [x] All review comments are answered or incorporated
+- [x] Documentation is consistent with the implemented and tested behavior
+- [x] Documentation is included in the implementation PR
 
 ## Documentation Plan
 
@@ -46,24 +46,24 @@ None needed in `specs/README.md`: the capability is reached through the document
 
 ## Implementation Summary
 
-*Pending — written after implementation.*
+`render_index_markdown` links relative to `SPECS`; `tracked_markdown_paths` adds `index.md`; two tests; `index.md` regenerated (only phase links changed).
 
 ## Documentation Delivered
 
-*Pending.*
+`DOCS_STRUCTURE_GUIDE.md` §7.2 check 9 and History row; issue `DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS` closed with a resolution.
 
 ## Issues Filed
 
-*Pending.*
+None.
 
 ## Important Learning
 
-*Pending.* Seed: a partial fix chose a different base path and created a second defect of the same kind; the general checker now guards the generated file.
+Seed (confirmed): a partial fix chose a different base path and created a second defect of the same kind; the general checker now guards the generated file.
 
 ## Conformance and Remaining Work
 
-*Pending.*
+All four acceptance criteria met; nothing remaining.
 
 ## Validation
 
-*Pending.* Planned: `python3 scripts/docs_index.py --check` (now including `index.md`); `python3 -m unittest scripts/test_docs_index.py`.
+`python3 scripts/docs_index.py --check` → 420 documents, 0 errors (352 dead links before the fix); `python3 -m unittest scripts/test_docs_index.py` → 12 tests OK. Planned: `python3 scripts/docs_index.py --check` (now including `index.md`); `python3 -m unittest scripts/test_docs_index.py`.

@@ -746,7 +746,8 @@ tooling, no network and no Python can still record what it found.
 9. Every relative link target in current `README.md`, issue, design, reference, and guide
    documents exists, and every issue ID referenced by `specs/README.md` exists. Fragment-only,
    absolute-path, and HTTP(S) links are outside this filesystem check; archived documents are
-   excluded because they are immutable historical records.
+   excluded because they are immutable historical records. The generated `specs/index.md` is
+   covered too, so a link column the generator emits wrongly fails `--check`.
 10. Every stage marker in the capability map matches the directory its link points into (§8.1).
 11. Every `reference/` and `guides/` document has `reviewed:`, a `## History` section, and a top
     History row whose date equals `reviewed:` (§9.5).
@@ -1062,6 +1063,7 @@ neither.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-06 | §7.2 check 9: the dead-link check also covers the generated `specs/index.md`. | `DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS`, `design/docs-index-phase-link-targets/` |
 | 2026-10-05 | §5.1.1: a readiness-labeled design may own several sources when designs that depend on each other are merged; the leading source is listed first; originals become `superseded`. a merged design records `merged: YYYY-MM-DD`, and `docs_index.py --check` enforces the marker, the link-back and single-ownership rules for every source, and the predecessors' `superseded` status. | maintainer decision, `design/recipe-provider-listing-contract/` |
 | 2026-09-26 | Added the `records` area for the new `liquers-records` crate. | `design/record-streams/` Phase 4, Step 2.3 |
 | 2026-09-01 | Expanded check 9 to cover relative links in all current tracked Markdown documents while excluding archive history and non-filesystem targets. | `DOCS-DEAD-LINKS-OUTSIDE-README` |

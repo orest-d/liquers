@@ -2,7 +2,7 @@
 id: DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS
 kind: issue
 title: The generated index.md emits design phase links in filesystem order
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [docs, build]
@@ -84,3 +84,10 @@ link-target half is **not**: `e326a45` made the phase links relative to the *rep
 resolves to `specs/specs/design/…` and is dead. The issue links in the same table use
 `relative_specs_path()` and work. `--check` does not report it because `tracked_markdown_paths`
 does not include `specs/index.md`. Designed in `design/docs-index-phase-link-targets/`.
+
+## Resolution
+
+Closed on 2026-10-06 by `design/docs-index-phase-link-targets/`. Phase links in `specs/index.md`
+are now relative to `specs/`, and `tracked_markdown_paths` includes `index.md`, so `--check`
+validates the generated file (it reported 352 dead links before the fix, 0 after). Covered by
+`test_index_markdown_phase_links_resolve` and `test_index_md_is_link_checked`.
