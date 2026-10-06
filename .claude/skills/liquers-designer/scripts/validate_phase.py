@@ -16,6 +16,7 @@ Example:
     # Validates specs/design/parquet-support/phase1-high-level-design.md
 """
 
+import argparse
 import sys
 import re
 from pathlib import Path
@@ -183,27 +184,26 @@ def validate_phase(feature_name, phase_num):
     return True
 
 
-def main():
-    if len(sys.argv) != 3:
-        print("Usage: validate_phase.py <feature-name> <phase-number>")
-        print("\nExample:")
-        print("  python3 validate_phase.py parquet-support 1")
-        print("\nValidates:")
-        print("  specs/design/<feature-name>/phase<phase-number>-*.md")
-        sys.exit(1)
+# Lowercase-kebab, as defined by specs/DOCS_STRUCTURE_GUIDE.md §2 "Naming".
+SLUG_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
-    feature_name = sys.argv[1]
-    try:
-        phase_num = int(sys.argv[2])
-    except ValueError:
-        print(f"❌ Error: Phase number must be an integer (1-4)")
-        sys.exit(1)
 
-    if phase_num not in [1, 2, 3, 4]:
-        print(f"❌ Error: Phase number must be 1, 2, 3, or 4")
-        sys.exit(1)
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Validate specs/design/<feature-name>/phase<phase-number>-*.md.",
+        epilog="Example: python3 validate_phase.py parquet-support 1",
+    )
+    parser.add_argument("feature_name", help="lowercase-kebab design slug, e.g. parquet-support")
+    parser.add_argument("phase_number", type=int, choices=[1, 2, 3, 4], help="phase to validate")
+    args = parser.parse_args(argv)
+    if not SLUG_RE.match(args.feature_name):
+        parser.error(f"'{args.feature_name}' is not a lowercase-kebab slug")
+    return args
 
-    result = validate_phase(feature_name, phase_num)
+
+def main(argv=None):
+    args = parse_args(argv)
+    result = validate_phase(args.feature_name, args.phase_number)
     if not result:
         sys.exit(1)
 

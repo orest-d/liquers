@@ -18,6 +18,8 @@ Example:
     # Creates specs/design/parquet-support/ with all phase documents
 """
 
+import argparse
+import re
 import sys
 from pathlib import Path
 from datetime import datetime
@@ -405,22 +407,31 @@ def init_feature(feature_name):
     return feature_dir
 
 
-def main():
-    if len(sys.argv) != 2:
-        print("Usage: init_feature.py <feature-name>")
-        print("\nExample:")
-        print("  python3 init_feature.py parquet-support")
-        sys.exit(1)
+# Lowercase-kebab, as defined by specs/DOCS_STRUCTURE_GUIDE.md §2 "Naming".
+SLUG_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
-    feature_name = sys.argv[1]
 
-    # Validate feature name (basic sanity check)
-    if not feature_name.replace("-", "").replace("_", "").isalnum():
-        print(f"❌ Invalid feature name: {feature_name}")
-        print(f"   Feature names should contain only letters, numbers, hyphens, and underscores.")
-        sys.exit(1)
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Create specs/design/<feature-name>/ with the phase templates.",
+        epilog="Example: python3 init_feature.py parquet-support",
+    )
+    parser.add_argument(
+        "feature_name",
+        help="lowercase-kebab design slug (DOCS_STRUCTURE_GUIDE.md §2), e.g. parquet-support",
+    )
+    args = parser.parse_args(argv)
+    if not SLUG_RE.match(args.feature_name):
+        parser.error(
+            f"'{args.feature_name}' is not a lowercase-kebab slug "
+            "(lowercase letters and digits separated by single hyphens)"
+        )
+    return args
 
-    result = init_feature(feature_name)
+
+def main(argv=None):
+    args = parse_args(argv)
+    result = init_feature(args.feature_name)
     if result is None:
         sys.exit(1)
 

@@ -2,8 +2,7 @@
 id: DESIGNER-INIT-ARGUMENT-PARSING
 kind: design
 title: Design skill init scripts parse options and validate the slug
-status: in_review
-phase: implementation
+status: complete
 readiness: ready
 area: [docs]
 issues: [DESIGNER-INIT-FEATURE-ACCEPTS-FLAGS-AS-NAMES]
@@ -27,3 +26,7 @@ the first four phases, reviewed without phase approval. Not an approval and not 
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
+
+## Implementation (2026-10-06)
+
+Implemented as planned (Wave 0 of `archive/2026-10-06-p2-p3-s-implementation-order-revised.md`): `argparse` and the lowercase-kebab check in both skills' `init_feature.py` and both `validate_phase.py` (phase as `type=int` with `choices`). T1-T5 pass for both skills in a scratch directory; results are in the issue's resolution.
