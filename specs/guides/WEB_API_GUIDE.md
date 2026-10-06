@@ -3,7 +3,7 @@ title: Web API Guide
 kind: guide
 audience: both
 area: [axum, web]
-reviewed: 2026-09-29
+reviewed: 2026-10-06
 ---
 # Using the Liquers web API
 
@@ -277,7 +277,8 @@ curl "$A/key/listdir?deep=true"           # every key: {"result":{"keys":["docs"
 curl $A/key/info/notes/todo.txt           # status, title, description, media type, …
 curl $A/key/metadata/notes/todo.txt       # the full metadata record
 curl $A/key/version/notes/todo.txt        # {"result":{"version":"51fc1b88…"}}
-curl $A/key/contains/notes/todo.txt       # {"result":{"contains":true}}
+curl $A/key/contains/notes/todo.txt       # {"result":{"contains":true}}  stored, or listed by a recipe provider
+curl $A/key/can_make/notes/todo.txt       # {"result":{"can_make":true}}  stored, or producible (a template chunk is, though unlisted)
 
 curl -X POST -H 'Content-Type: application/json' -d '{"description":"Weekly shopping"}' \
   $A/key/description/notes/todo.txt       # title/description of a Source; data and version unchanged
@@ -437,4 +438,5 @@ runnable Rust client that also follows a key through its deletion is
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-06 | Added a `key/can_make` example beside `key/contains`. | phase-5 |
 | 2026-09-29 | Created: organization and conventions, short queries, parameters, submit and poll, the Store API, the Assets API (writing, navigating, recipes, dependencies, removal), and the WebSocket, with curl and Python examples run against `examples/assets_recipes_basic.rs`. | `design/axum-assets-endpoints/` |

@@ -2,7 +2,7 @@
 id: MANIFEST-PROVIDER-FOLDER-LISTING-NEVER-REFRESHES
 kind: issue
 title: ManifestRecipeProvider's per-folder manifest listing cache never refreshes
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [records]
@@ -86,3 +86,7 @@ Owned by [`design/recipe-provider-listing-contract/`](../design/recipe-provider-
 design `manifest-folder-listing-invalidation` (now `superseded`) with the designs of `RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY`,
 `MANIFEST-PROVIDER-FOLDER-LISTING-NEVER-REFRESHES` and `ASSET-MANAGER-LISTDIR-KEYS-DEEP-OMITS-TOP-LEVEL-RECIPES`,
 because their implementations depend on each other. The three issues are resolved by one implementation.
+
+## Resolution
+
+Event-driven invalidation: `AsyncRecipeProvider::directory_changed`, called by `refresh_listing_version` (which the HTTP Store API now also calls), drops the folder listings of the directory and subtree; `ManifestRecipeProvider::clear_cache()` covers out-of-band edits; an insert-then-recheck generation guard keeps a racing fill out of the cache. Decisions: Phase 1 of `design/recipe-provider-listing-contract/`. Evidence: records tests `a_manifest_added_after_listing_is_seen_after_directory_changed`, `a_removed_manifest_stops_resolving_after_directory_changed`, `directory_changed_drops_the_subtree`, `a_fill_racing_an_invalidation_is_not_kept`; `liquers-lib/tests/records_manifest_refresh.rs`; axum `rplc03`.

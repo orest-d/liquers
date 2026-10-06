@@ -1261,3 +1261,19 @@ async fn aae80_two_concurrent_post_data_same_key_both_succeed() {
     let final_value = String::from_utf8(body).unwrap();
     assert!(matches!(final_value.as_str(), "FIRST" | "SECOND"), "final value is exactly one of the two request bodies");
 }
+
+#[tokio::test]
+async fn aae_deep_listing_includes_the_folders_own_recipes() {
+    let envref = env_with_at(&parse_key("data").unwrap(), &[("make_text/top.txt", "Top", "")]).await;
+    let app = build_app(envref.clone());
+    envref
+        .get_asset_manager()
+        .set_binary(&parse_key("data/a.txt").unwrap(), b"a", metadata_text())
+        .await
+        .unwrap();
+    let (status, json) = send(app, "GET", "/api/assets/key/listdir/data?deep=true", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    let text = json.to_string();
+    assert!(text.contains("data/top.txt"), "the folder's own recipe is listed: {text}");
+    assert!(text.contains("data/a.txt"), "{text}");
+}

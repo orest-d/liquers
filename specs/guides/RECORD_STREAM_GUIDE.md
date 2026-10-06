@@ -3,7 +3,7 @@ title: Record Stream Guide
 kind: guide
 audience: internal
 area: [records, lib/value]
-reviewed: 2026-09-27
+reviewed: 2026-10-06
 ---
 
 # Record Stream Guide
@@ -417,6 +417,16 @@ add it back. See `with_records_recipe_provider_serves_a_manifest_chunk_over_a_tr
 `liquers-lib/src/environment.rs`.
 
 ---
+
+### Adding or changing a manifest on a running server
+
+Write the manifest through Liquers — `AssetManager::set_binary`, or the HTTP Store API
+(`PUT /api/store/data/<folder>/<name>.manifest.yaml`) — and its chunks resolve at once: the write
+tells the manifest provider that the folder changed, and it re-lists the folder on the next lookup.
+Removing the manifest the same way makes its chunks stop resolving. If you edited the files
+directly on disk, Liquers was not told: call `ManifestRecipeProvider::clear_cache()` (or restart).
+Template chunks (`daily_0042.csv`) are *producible* but never *listed*; use `key/can_make`, not
+`key/contains`, to ask whether one exists. Executable version: `liquers-lib/tests/records_manifest_refresh.rs`.
 
 ## 4. Choosing a batch size
 
@@ -896,6 +906,7 @@ write-only. Parquet is written here and read back only through polars
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-06 | §3: adding or changing a manifest on a running server (event-driven folder listing, `clear_cache`, template chunks are producible not listed). | phase-5 |
 | 2026-09-27 | §6.4: a generator command (`RowFnView`) and a template source over it, with a note on when a source is worth it over a lazy view; §6.4–6.5 renumbered to 6.5–6.6. | user request |
 | 2026-09-27 | PR #72 review: pitfall 7 now gives the working directory query, `-R-sdir/<dir>/-/ns-rec/file_records`, with its end-to-end test. | PR #72 review |
 | 2026-09-27 | Created: the shape decision, the record-producing command walkthrough, the manifest walkthrough, batch sizing, views as a DataFrame, writing views and sources, the polars/Parquet/IPC and JavaScript hand-offs, pitfalls from implementation and review, and testing. Every snippet is taken from a passing test. | `design/record-streams/` phase-5 |

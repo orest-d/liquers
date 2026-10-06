@@ -2,7 +2,7 @@
 id: ASSET-MANAGER-LISTDIR-KEYS-DEEP-OMITS-TOP-LEVEL-RECIPES
 kind: issue
 title: AssetManager::listdir_keys_deep omits recipe-declared keys of the listed directory itself
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/assets]
@@ -46,3 +46,7 @@ Owned by [`design/recipe-provider-listing-contract/`](../design/recipe-provider-
 design `listdir-keys-deep-recipe-union` (now `superseded`) with the designs of `RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY`,
 `MANIFEST-PROVIDER-FOLDER-LISTING-NEVER-REFRESHES` and `ASSET-MANAGER-LISTDIR-KEYS-DEEP-OMITS-TOP-LEVEL-RECIPES`,
 because their implementations depend on each other. The three issues are resolved by one implementation.
+
+## Resolution
+
+`listdir_keys_deep` is rebuilt on the manager's own `listdir` over store directories, so it contains the shallow listing of every directory it walks and `keys()` includes root-level recipes; `DefaultAssetManager`'s duplicate overrides were deleted, so both managers share one implementation; `removedir` now unmaps the directory's own recipe assets. Decisions: Phase 1 of `design/recipe-provider-listing-contract/`. Evidence: `assets.rs` tests `listdir_keys_deep_is_complete_default_manager` / `_immediate_manager`, `removedir_unmaps_a_live_asset_of_the_directorys_own_recipe`; axum `aae_deep_listing_includes_the_folders_own_recipes`.

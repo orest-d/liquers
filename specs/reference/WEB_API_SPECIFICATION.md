@@ -3,7 +3,7 @@ title: Liquers Web API Specification
 kind: reference
 audience: internal
 area: [axum, web]
-reviewed: 2026-09-29
+reviewed: 2026-10-06
 ---
 # Liquers Web API Specification
 
@@ -277,7 +277,8 @@ show.
 | `GET key/info/{*key}` | c | `AssetInfo` of the live asset, else the stored entry, else the recipe; a cached `Expired`/`Error`/`Cancelled` entry is reported as it is, not re-evaluated | 404 `KeyNotFound` |
 | `GET key/metadata/{*key}` | c | the live, stored or recipe metadata record | 404 |
 | `GET key/version/{*key}` | c | `{"version": "…"}`; all zeros (`Version::unknown()`) when the key has no version | a store read error stays an error (500) |
-| `GET key/contains/{*key}` | c | `{"contains": bool}` — stored, or declared by a recipe | — |
+| `GET key/contains/{*key}` | c | `{"contains": bool}` — stored, or listed by the recipe provider | — |
+| `GET key/can_make/{*key}` | c | `{"can_make": bool}` — stored, or producible by the recipe provider (a template-generated key is producible but not listed) | — |
 | `GET key/recover/{*key}` | c | a negotiated `DataEntry` of the last known value, whatever its status (an `Expired` one included) | 404 when there is no data-bearing state |
 | `GET key/listdir`, `GET key/listdir/{*key}` | c | `{"assets": [AssetInfo…]}`, directories first; with `?deep=true`, `{"keys": ["a/b.md", …]}` | the store's error |
 | `POST key/data/{*key}` | — | **201**, `AssetInfo` after the write | 400 unknown type; 422 a format the type cannot be written in |
@@ -291,8 +292,10 @@ show.
 | `POST key/override/{*key}` | — | `AssetInfo` after the change | 404 no data to pin |
 | `POST key/cancel/{*key}` | — | `AssetInfo` after the cancel | 404 `NotAvailable` when no live asset holds the key |
 
-- `key/listdir?deep=true` adds recipe-declared keys only for subdirectories, not for the listed
-  directory itself (`ASSET-MANAGER-LISTDIR-KEYS-DEEP-OMITS-TOP-LEVEL-RECIPES`).
+- `key/listdir?deep=true` contains the shallow listing of every store directory under the key,
+  recipe-declared keys included, and never the key itself.
+- `key/submit` and the WebSocket `subscribe` accept any key `can_make` reports.
+- Store API writes and removals refresh the recipe provider's directory caches, as mediated writes do.
 - `key/cancel`, like `q/cancel`, never creates or starts an asset.
 
 #### Writing a value (`POST key/data`, `POST key/entry`)
@@ -584,6 +587,7 @@ Not available at HEAD; listed so that no reader mistakes them for features:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-06 | Added `key/can_make`; `key/contains` is stored-or-listed; deep listing is complete; Store API writes notify the provider. | phase-5 |
 | 2026-09-29 | Review fixes of PR #73: §5.8 — each subscription requests its asset in its own task, so the connection stays responsive; with an inline manager `Initial` arrives after the evaluation. §7 — the timeout bounds the whole wait, evaluation included. Linked the new `WEB_API_GUIDE.md`. | `design/axum-assets-endpoints/` |
 | 2026-09-28 | Rewritten against the implementation (full audit): the Store API's writes are `PUT` and its results are as served; §3 lists the real `ErrorType` → HTTP mapping, with `StatusConflict` → 409; §5 is the new Assets API — `q/`, `key/` and `admin/` families, access modes, status-aware removal, `removedir`, `expire`, `override`, `description`, the metadata allow-list, GET alternatives and builder switches, and the `ws/q` / `ws/key` WebSocket protocol with its lifecycle and limits; §7 documents `with_timeout` and the `get_binary` read; the nonexistent `FullApiBuilder`, `liquers_web` crate, `Router` trait, `SessionInterface` and `ApiError` are replaced by the `Router::merge` assembly and the real handler pattern; the old version/status header and "Revision History" table are folded into this table. | `design/axum-assets-endpoints/` |
 | 2026-08-17 | Added `KeyNotAbsolute` (400) and `KeyNotSupported` (404) to the error-type table: a key containing `.` or `..` is now refused by every store, and the two refusals are deliberately distinct — malformed address versus unrouted key. | `design/store-key-guard/` |

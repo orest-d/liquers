@@ -4,7 +4,7 @@ kind: design
 title: Recipe-provider listing contract — listed vs producible keys, folder-cache invalidation, complete deep listings
 workflow: liquers-project
 status: in_review
-phase: implementation
+phase: documentation
 readiness: ready
 area: [core/assets, records, axum]
 issues: [RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY, MANIFEST-PROVIDER-FOLDER-LISTING-NEVER-REFRESHES, ASSET-MANAGER-LISTDIR-KEYS-DEEP-OMITS-TOP-LEVEL-RECIPES]
@@ -33,7 +33,7 @@ tests rely on Part A's `can_make`, and Part C defines its result in terms of Par
 - [x] Phase 2: Solution & Architecture
 - [x] Phase 3: Examples and Tests
 - [x] Phase 4: Implementation Plan
-- [ ] Phase 5: Documentation (plan written; executed after implementation)
+- [x] Phase 5: Documentation (written 2026-10-06; awaiting approval)
 
 ## Links
 

@@ -1,16 +1,16 @@
 # Phase 5: Documentation - Recipe-Provider Listing Contract
 
-**Status: plan.** Written with Phase 4 on 2026-10-05 and executed after implementation, following
+**Status: executed 2026-10-06.** Written with Phase 4 on 2026-10-05 and executed after implementation, following
 `.claude/skills/liquers-project/references/phase5-documentation.md`. The sections the skill
 requires after implementation are present and marked *pending*.
 
 ## Completion Preconditions
 
-- [ ] Implementation is finished and validated (Phase 4 steps 1-16)
-- [ ] All user comments are answered or incorporated
-- [ ] All review comments are answered or incorporated
-- [ ] Documentation is consistent with the implemented and tested behavior
-- [ ] Documentation is included in the implementation PR
+- [x] Implementation is finished and validated (Phase 4 steps 1-16)
+- [x] All user comments are answered or incorporated
+- [x] All review comments are answered or incorporated
+- [x] Documentation is consistent with the implemented and tested behavior
+- [x] Documentation is included in the implementation PR
 
 ## Documentation Plan
 
@@ -59,25 +59,58 @@ naming its tests and recording the decisions of Phase 1.
 
 ## Implementation Summary
 
-*Pending — written after implementation.*
+Implemented as planned, in the order A, B, C.
+
+- **A.** `AsyncRecipeProvider::can_make` (default `recipe_opt(..).is_some()`); `contains` keeps its
+  listing meaning; the chain's `contains` is any member's `contains`, its `can_make` the old
+  `recipe_opt` test. `ManifestRecipeProvider`'s `contains` override is deleted.
+  `AssetManager::can_make` is new; `get_asset_info`, axum `key_metadata`/`submit_key` and the
+  websocket subscribe guards use it; new route `GET key/can_make/{*key}`.
+- **B.** `AsyncRecipeProvider::directory_changed` (no-op default, forwarded by the chain), called as
+  the first statement of `refresh_listing_version`; the Store API write/remove/makedir/removedir
+  handlers call that method through a private `refresh_after_write`. `ManifestRecipeProvider` drops
+  folder listings only, guarded by an atomic `generation` (insert, then re-check); `clear_cache()`.
+- **C.** `listdir_keys_deep` rebuilt on `listdir` over store directories; `DefaultAssetManager`'s
+  duplicate `contains`, `keys`, `listdir`, `listdir_keys`, `listdir_keys_deep` overrides deleted;
+  `removedir` therefore unmaps the directory's own recipe assets with no further change.
 
 ## Documentation Delivered
 
-*Pending.*
+The seven `affects_docs` documents were updated as planned (each with a History row and a
+`reviewed:` bump); the three source issues are `closed` with resolutions; `specs/README.md` marks
+the capability `built`. No new reference or guide.
 
 ## Issues Filed
 
-*Pending.* Candidate known now: none.
+None.
 
 ## Important Learning
 
-*Pending.* Seed from Phase 3's learning log.
+- An overloaded method answered two questions and every caller wanted the one its default did not
+  answer; splitting it removed the need for a manifest override.
+- Caches that are version-checked per hit need no invalidation; only listings do.
+- **Deviation from the Phase 1/3 scenario:** a *template* chunk of a manifest uploaded to a running
+  server was never hidden by the folder cache — the template fast path names its manifest by
+  prefix and does not read the listing (and `ManifestRecipeProvider` was `can_make`-true for it
+  before this design). The stale listing hid *explicit* chunks and non-canonical names. The tests
+  and the reference text use explicit chunks for the freshness behaviour accordingly.
+- Counting `get` on a manifest provider's store must count manifest keys only: the
+  `recipes.yaml` collision check also reads the store.
 
 ## Conformance and Remaining Work
 
-*Pending.*
+All acceptance criteria A1-A7, B1-B8 and C1-C6 are covered by tests (see below). Not implemented
+by decision: a websocket-level subscribe test (the guards are the same `can_make` call as
+`submit_key`, covered by `rplc02`); `default_provider_contains_equals_can_make` (parity is
+exercised by the deep-listing tests, which require every listed key to satisfy
+`AssetManager::contains`).
 
 ## Validation
 
-*Pending.* Planned: `python3 scripts/docs_index.py --check`; every planned document reviewed against
-the code; `affects_docs` matches the documents actually reviewed.
+`cargo test -p liquers-core --lib --tests`, `cargo test -p liquers-records --all-features --lib --tests`,
+`cargo test -p liquers-records --lib --tests`, `cargo test -p liquers-axum`,
+`cargo test -p liquers-lib --test records_manifest_refresh`;
+`python3 scripts/docs_index.py --check`.
+
+Not run: `scripts/check-build-matrix.sh` and the wasm32 rows (the wasm32 target is not installed in
+this environment); `cargo test -p liquers-lib --lib --tests` and the commands above passed.

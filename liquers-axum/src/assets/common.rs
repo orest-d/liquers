@@ -58,6 +58,12 @@ pub struct ContainsResult {
     pub contains: bool,
 }
 
+/// `GET key/can_make`.
+#[derive(Debug, Clone, Serialize)]
+pub struct CanMakeResult {
+    pub can_make: bool,
+}
+
 /// `GET key/version`, `GET q/version`: 32 hex digits; all zeros means unknown.
 #[derive(Debug, Clone, Serialize)]
 pub struct VersionResult {
@@ -250,7 +256,7 @@ pub(crate) async fn key_metadata<E: Environment>(
         return Ok(metadata_json(&store.get_metadata(key).await?));
     }
     let provider = env.get_recipe_provider();
-    if provider.contains(key, env.clone()).await? {
+    if provider.can_make(key, env.clone()).await? {
         let info = provider.get_asset_info(key, env.clone()).await?;
         let record = MetadataRecord::from(info);
         return Ok(serde_json::to_value(&record).unwrap_or(serde_json::Value::Null));
@@ -275,7 +281,7 @@ pub(crate) async fn submit_key<E: Environment>(
     key: &Key,
 ) -> Result<AssetInfo, Error> {
     let manager = env.get_asset_manager();
-    if !manager.contains(key).await? {
+    if !manager.can_make(key).await? {
         return Err(Error::key_not_found(key));
     }
     let asset = manager.get(key).await?;

@@ -24,7 +24,7 @@ use liquers_core::{
 use super::common::{
     asset_bytes, asset_entry, created, entry_response, error_response, key_from_path,
     key_metadata, key_version, ok, ok_key, status_after_remove, submit_key, AssetListing,
-    AuditResult, ContainsResult, DescriptionRequest, KeyListing, RemoveDirResult, RemoveResult,
+    AuditResult, CanMakeResult, ContainsResult, DescriptionRequest, KeyListing, RemoveDirResult, RemoveResult,
 };
 use super::value_description::ValueDescription;
 use crate::api_core::{
@@ -138,7 +138,7 @@ pub async fn key_version_handler<E: Environment>(
     }
 }
 
-/// `GET key/contains/{*key}` — stored, or declared by a recipe.
+/// `GET key/contains/{*key}` — stored, or listed by the recipe provider.
 pub async fn key_contains_handler<E: Environment>(
     State(env): State<EnvRef<E>>,
     Path(key_path): Path<String>,
@@ -146,6 +146,18 @@ pub async fn key_contains_handler<E: Environment>(
     let key = parse_key_or_return!(key_path);
     match env.get_asset_manager().contains(&key).await {
         Ok(contains) => ok_key(ContainsResult { contains }, "Contains", &key),
+        Err(e) => error_response(&e, "Failed to check the key"),
+    }
+}
+
+/// `GET key/can_make/{*key}` — stored, or producible by the recipe provider (listed or not).
+pub async fn key_can_make_handler<E: Environment>(
+    State(env): State<EnvRef<E>>,
+    Path(key_path): Path<String>,
+) -> Response {
+    let key = parse_key_or_return!(key_path);
+    match env.get_asset_manager().can_make(&key).await {
+        Ok(can_make) => ok_key(CanMakeResult { can_make }, "CanMake", &key),
         Err(e) => error_response(&e, "Failed to check the key"),
     }
 }
