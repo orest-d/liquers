@@ -60,11 +60,20 @@ decl="$dist/liquers_web.d.ts"
 # Every #[wasm_bindgen] class and free function in the crate must appear in the declarations. The
 # expected list is derived from the source, not hand-maintained, so adding an export without a
 # declaration is caught.
-expected_classes=$(grep -rhoP '#\[wasm_bindgen\(js_name\s*=\s*\K\w+(?=\)\s*\]\s*\npub struct)' \
-    --include='*.rs' -z "$crate/src" 2>/dev/null | tr '\0' '\n' | sort -u)
-# The -z/-P combination is brittle across grep builds; fall back to the known surface.
+#
+# The awk pass remembers the name in the last `#[wasm_bindgen(js_name = X)]` line, keeps it across
+# further attributes, doc comments and blank lines, and emits it at the next `pub struct` or
+# `pub enum`. Any other line clears it, so a `js_name` on a method or an extern type is ignored.
+expected_classes=$(find "$crate/src" -name '*.rs' -print0 | xargs -0 awk '
+    FNR == 1 { pending = "" }
+    /#\[wasm_bindgen\(js_name *= *[A-Za-z_][A-Za-z0-9_]*\)\]/ {
+        match($0, /js_name *= *[A-Za-z_][A-Za-z0-9_]*/); s = substr($0, RSTART, RLENGTH)
+        sub(/js_name *= */, "", s); pending = s; next }
+    /^[[:space:]]*(#\[|\/\/\/|$)/ { next }
+    /^[[:space:]]*pub (struct|enum) / { if (pending != "") print pending; pending = ""; next }
+    { pending = "" }' | sort -u)
 if [[ -z "$expected_classes" ]]; then
-    expected_classes=$'Asset\nEnvironment\nKey\nLiquersError\nQuery\nState\nStore\nValue'
+    fail "STUBS01 found no #[wasm_bindgen(js_name = …)] classes — detection is broken"
 fi
 while read -r class; do
     [[ -z "$class" ]] && continue
