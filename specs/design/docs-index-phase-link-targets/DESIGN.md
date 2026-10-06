@@ -22,7 +22,7 @@ Autonomous bulk design (`guides/autonomous_bulk_design.md`) for
 - [x] Phase 2: Solution & Architecture
 - [x] Phase 3: Examples and Tests
 - [x] Phase 4: Implementation Plan
-- [ ] Phase 5: Documentation (plan written; executed after implementation)
+- [x] Phase 5: Documentation
 
 ## Links
 

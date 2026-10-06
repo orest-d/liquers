@@ -746,7 +746,8 @@ tooling, no network and no Python can still record what it found.
 9. Every relative link target in current `README.md`, issue, design, reference, and guide
    documents exists, and every issue ID referenced by `specs/README.md` exists. Fragment-only,
    absolute-path, and HTTP(S) links are outside this filesystem check; archived documents are
-   excluded because they are immutable historical records.
+   excluded because they are immutable historical records. The generated `specs/index.md` is
+   covered too, so a link column the generator emits wrongly fails `--check`.
 10. Every stage marker in the capability map matches the directory its link points into (§8.1).
 11. Every `reference/` and `guides/` document has `reviewed:`, a `## History` section, and a top
     History row whose date equals `reviewed:` (§9.5).

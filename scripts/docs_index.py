@@ -161,7 +161,7 @@ def stable_paths(paths) -> list[Path]:
 
 def tracked_markdown_paths(specs: Path) -> list[Path]:
     """Return current-state Markdown documents whose local links are validated."""
-    paths = [specs / "README.md"]
+    paths = [specs / "README.md", specs / "index.md"]
     for directory in ("issues", "design", "reference", "guides"):
         paths.extend((specs / directory).rglob("*.md"))
     return stable_paths(path for path in paths if path.is_file())
@@ -464,7 +464,7 @@ def render_index_markdown(rows: list[dict]) -> str:
         design = r["design"]
         if design and design in designs:
             design_phases = ' '.join(
-                f"[{x.name.split('-')[0]}]({x.relative_to(REPO).as_posix()}) "
+                f"[{x.name.split('-')[0]}]({x.relative_to(SPECS).as_posix()}) "
                 for x in stable_paths(Path(designs[design]["_path"]).parent.iterdir())
                 if x.name != "DESIGN.md" and x.name.endswith(".md")
             )
