@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [lib/commands]
-design: 
+design: register-all-commands-feature-gating
 created: 2026-09-25
 github:
 ---

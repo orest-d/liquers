@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/assets]
-design: dependency-audit-and-expiry-provenance
+design: supplied-expired-status-reason
 created: 2026-10-02
 github:
 ---

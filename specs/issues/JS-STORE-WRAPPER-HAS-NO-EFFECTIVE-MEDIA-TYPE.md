@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [web]
-design:
+design: js-store-effective-media-type
 created: 2026-09-30
 github:
 ---

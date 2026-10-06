@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [lib/value]
-design: 
+design: ext-value-description-completeness
 created: 2026-09-27
 github:
 ---

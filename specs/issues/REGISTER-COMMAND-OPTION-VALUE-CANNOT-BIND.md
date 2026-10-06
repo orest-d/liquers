@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [macro]
-design:
+design: register-command-option-value
 created: 2026-09-26
 github:
 ---

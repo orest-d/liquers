@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [docs, build]
-design:
+design: docs-link-check-code-spans
 created: 2026-10-04
 github:
 ---

@@ -7,7 +7,7 @@ priority: P3
 complexity: S
 area: [core/commands, macro]
 created: 2026-09-19
-design:
+design: command-cache-flag
 github:
 ---
 # `CommandMetadata.cache` is declared, documented and exported, but nothing reads it

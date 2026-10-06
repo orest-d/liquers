@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [records, lib/polars]
-design: record-streams
+design: record-timestamp-utc
 created: 2026-09-27
 github:
 ---

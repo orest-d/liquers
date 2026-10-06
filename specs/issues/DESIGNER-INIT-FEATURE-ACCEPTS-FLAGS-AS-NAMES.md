@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [docs]
-design: 
+design: designer-init-argument-parsing
 created: 2026-09-27
 github:
 ---

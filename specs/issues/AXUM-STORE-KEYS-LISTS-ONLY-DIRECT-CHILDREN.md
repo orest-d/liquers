@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [axum]
-design:
+design: axum-store-keys-deep
 created: 2026-09-28
 github:
 ---

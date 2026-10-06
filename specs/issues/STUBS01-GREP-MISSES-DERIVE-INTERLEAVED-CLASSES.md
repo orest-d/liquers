@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [web]
-design: 
+design: stubs01-class-detection
 created: 2026-09-27
 github:
 ---

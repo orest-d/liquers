@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [lib/value, records]
-design: record-streams
+design: null-cell-string-option
 created: 2026-09-27
 github:
 ---

@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/assets]
-design:
+design: metadata-only-entry-reload
 created: 2026-09-24
 github:
 ---
