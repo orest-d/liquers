@@ -38,3 +38,25 @@ The provider contract was decided on 2026-10-04 and the mirrored asset-manager/H
 
 Executable as written. Steps 1-4 fix the defect at the provider level; steps 5-6 add the
 mirrored manager method and HTTP route. Rollback per step; `can_make`'s default makes step 1 harmless on its own.
+
+## Post-Phase-4 Review (2026-10-05)
+
+- **Problem still valid:** yes. `ManifestRecipeProvider::contains` (≈378) and
+  `RecipeProviderChain::contains` (≈1048) mean "producible", while the default means "listed".
+- **Solution correct:** yes. The maintainer decisions are reflected consistently, and
+  `can_make ⊇ contains` is the right invariant.
+- **Unnecessary:** the "moved override" on `ManifestRecipeProvider`. Its current body
+  (`recipe_opt(..).is_some()`) is exactly the new default `can_make`, so **delete** the override
+  rather than renaming it. `DefaultAssetManager`'s identical `contains` override can also go,
+  which leaves one implementation, as `listdir-keys-deep-recipe-union` does for its method.
+- **Detail:** sufficient.
+- **Tests:** good. Missing: a websocket subscribe test for a template chunk (one of the two
+  guards switched to `can_make`); only `submit` is tested over HTTP.
+- **Interactions:** strong, with `manifest-folder-listing-invalidation` (same trait, chain impl,
+  provider file and axum crate; its test uses `can_make`) and `listdir-keys-deep-recipe-union`
+  (defines what "listed" means for the deep listing).
+- **Verdict:** ready. Implement **first** among the three recipe-provider designs, together with
+  `manifest-folder-listing-invalidation`.
+
+**Resolution (2026-10-05):** this design is superseded by `recipe-provider-listing-contract`, which
+incorporates the findings above (see its Phase 4, §Post-Phase-4 Review Resolution).

@@ -31,3 +31,21 @@
 All phases agree. The only behaviour change beyond the requested write is untyped `.md` reads
 becoming `Text`, recorded in Phase 1. Rollback: revert steps 1-3 together (the registry and the
 serializers must agree, which the existing registry/serializer agreement tests enforce).
+
+## Post-Phase-4 Review (2026-10-05)
+
+- **Problem still valid:** yes. `md` is absent from both serializers (`value.rs` ≈944/≈1010,
+  `simple.rs` ≈556/≈649) and from `Text`'s `TypeInfo`.
+- **Solution correct:** yes. Declaring `md` on `Text` only (not in `TEXTUAL`), with separate write
+  arms, is correct and keeps `UNWRITABLE` unchanged.
+- **Unnecessary:** none.
+- **Detail / tests:** sufficient. The integration test proves the write path the issue is about.
+  Note: `simple.rs` has a third `"txt" | "html"` match (≈1037, the test's expected-value table),
+  which Phase 2 does name. Make sure the implementer edits that one and not only the two
+  serializer arms.
+- **Interactions:** none among the ready designs (consumer: `AGENT-MEMORY-SERVICE`).
+- **Verdict:** ready.
+
+**Resolution (2026-10-05):** the findings above are incorporated into Phases 1-4.
+`phase5-documentation.md` holds the documentation plan; where a Phase 4 step names documentation
+work, that plan is the authoritative list.

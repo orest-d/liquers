@@ -66,6 +66,12 @@ any statement of what `PersistenceStatus::None` means and align it. Close the is
 - `overlaps` `stale-dependency-status-finalization` (where the issue was found) — no ordering.
 - `overlaps` `record-streams` — fixed the `stored: false` trigger in the caller; this design
   removes the remaining duplicate check's wrong result.
+- `overlaps` `recipe-provider-listing-contract` — `save_to_store` calls
+  `refresh_listing_version` after a successful `store.set`, and that design hooks the recipe
+  provider's cache invalidation into it. This design keeps the call on the `Written` path only, so
+  a skipped write notifies nobody. Either order of implementation works.
+- `overlaps` `context-title-description` — the metadata a command sets through `Context` is what
+  `save_to_store` writes; no interaction beyond sharing the file.
 
 ## Consolidated Findings
 

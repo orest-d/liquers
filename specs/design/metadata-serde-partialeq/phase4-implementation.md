@@ -25,3 +25,21 @@
 
 Phases agree: the wire form is fixed by existing code, so no decision is open. The only
 cross-crate edit is a doc comment. Rollback is the revert of steps 1-2 and their tests.
+
+## Post-Phase-4 Review (2026-10-05)
+
+- **Problem still valid:** yes. `enum Metadata` derives only `Debug, Clone` (`metadata.rs`
+  ≈1819).
+- **Solution correct:** yes. The hand-written untagged impls reproduce `to_json` /
+  `from_json_value` exactly.
+- **Unnecessary:** the stated motivating consumer (`ChunkDescriptor`) still cannot derive the
+  traits afterwards because of `Query`'s serialized form, so `Serialize`/`Deserialize` have no
+  in-tree user yet. They are cheap, so this is not a blocker. `PartialEq` is useful on its own
+  (tests, snapshot comparisons).
+- **Detail / tests:** sufficient. The variant-choice test against `from_json` is the right guard.
+- **Interactions:** none.
+- **Verdict:** ready (low value, low risk).
+
+**Resolution (2026-10-05):** the findings above are incorporated into Phases 1-4.
+`phase5-documentation.md` holds the documentation plan; where a Phase 4 step names documentation
+work, that plan is the authoritative list.

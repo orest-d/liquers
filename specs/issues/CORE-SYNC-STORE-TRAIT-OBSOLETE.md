@@ -56,3 +56,10 @@ future synchronous store inherits the contract instead of re-deriving it.
 
 Recorded on 2026-09-02 while scoping `design/store-conformance-suite/`, when deciding whether the
 conformance suite should cover the synchronous trait. It should not; the trait should go.
+
+## Related (2026-10-05)
+
+`design/core-dead-code-hygiene/` (issue `REPO-DEAD-CODE-HYGIENE`) found `liquers_core::cache`
+(`BinCache`, `Cache`, `NoCache`, …) obsolete for the same reason as `Store`: its only consumer is
+`liquers-py`'s legacy `Environment` (`cache` field, `with_cache`). It assigns the module's deletion
+to this issue (`covered-by`), so that `liquers-py`'s `Environment` changes once, not twice.

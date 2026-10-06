@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [core/assets]
-design: recipe-contains-addressability
+design: recipe-provider-listing-contract
 created: 2026-09-20
 github:
 ---
@@ -107,3 +107,10 @@ in `record-streams`.
 ## Design 2026-10-04
 
 `design:` now points to `design/recipe-contains-addressability/` (autonomous bulk design, one source per design). `record-streams` is complete and frozen; it recorded this limitation but did not design the remaining fix, which that folder now specifies through Phase 4 (`readiness: needs-decision` — see its Phase 1 for the open question).
+
+## Design (2026-10-05)
+
+Owned by [`design/recipe-provider-listing-contract/`](../design/recipe-provider-listing-contract/DESIGN.md) (Part A, and the leading source), which merged this issue's former
+design `recipe-contains-addressability` (now `superseded`) with the designs of `RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY`,
+`MANIFEST-PROVIDER-FOLDER-LISTING-NEVER-REFRESHES` and `ASSET-MANAGER-LISTDIR-KEYS-DEEP-OMITS-TOP-LEVEL-RECIPES`,
+because their implementations depend on each other. The three issues are resolved by one implementation.

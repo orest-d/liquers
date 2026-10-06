@@ -53,3 +53,8 @@ injected-payload parameter it pairs with.
 Found on 2026-09-03 while drafting the Phase 3 test plan for
 `specs/design/evaluate-path-consolidation/`: a test needed a payload-requiring command, and the
 declaration had to be recovered from the macro source because no document names it.
+
+## Design scope (2026-10-05)
+
+`design/register-command-payload-docs/` now also owns
+`REGISTER-COMMAND-EXPIRES-AND-VERSION-STATEMENTS-UNDOCUMENTED`; this issue remains its leading source.

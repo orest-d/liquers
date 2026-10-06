@@ -27,3 +27,24 @@
 
 Consistent across phases; the change is private except for the corrected status value.
 Rollback: revert steps 2-4 together.
+
+## Post-Phase-4 Review (2026-10-05)
+
+- **Problem still valid:** yes. `save_to_store` (`assets.rs` ≈3261) still returns `Ok(())` on
+  its cancellation checks, and `record_persistence_result` (≈2535) maps every `Ok(())` to
+  `Persisted`.
+- **Solution correct:** yes. A private `SaveOutcome` is better than a fake error or a new public
+  `PersistenceStatus` variant.
+- **Unnecessary:** none.
+- **Detail / tests:** sufficient. The test that passes `cancelled = false` so that the check
+  *inside* `save_to_store` fires is the right construction. The post-serialization check is
+  covered only structurally, which is acceptable.
+- **Interactions:** `save_to_store` calls `refresh_listing_version` on success, which is where
+  `manifest-folder-listing-invalidation` hooks in. Keep the call on the `Written` path only, as
+  Phase 2 already does. It also sits in the same persistence code as
+  `context-title-description` (whose metadata it writes). Neither conflicts.
+- **Verdict:** ready.
+
+**Resolution (2026-10-05):** the findings above are incorporated into Phases 1-4.
+`phase5-documentation.md` holds the documentation plan; where a Phase 4 step names documentation
+work, that plan is the authoritative list.

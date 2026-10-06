@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [core/assets]
-design: listdir-keys-deep-recipe-union
+design: recipe-provider-listing-contract
 created: 2026-09-28
 github:
 ---
@@ -39,3 +39,10 @@ subdirectory, including recipe-declared entries at every level. Either start the
 
 Final cross-phase review of `specs/design/axum-assets-endpoints/` (2026-09-28), while checking
 what `removedir` walks.
+
+## Design (2026-10-05)
+
+Owned by [`design/recipe-provider-listing-contract/`](../design/recipe-provider-listing-contract/DESIGN.md) (Part C), which merged this issue's former
+design `listdir-keys-deep-recipe-union` (now `superseded`) with the designs of `RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY`,
+`MANIFEST-PROVIDER-FOLDER-LISTING-NEVER-REFRESHES` and `ASSET-MANAGER-LISTDIR-KEYS-DEEP-OMITS-TOP-LEVEL-RECIPES`,
+because their implementations depend on each other. The three issues are resolved by one implementation.

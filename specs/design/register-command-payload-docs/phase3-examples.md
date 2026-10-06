@@ -1,9 +1,10 @@
-# Phase 3: Examples and Tests - Documenting `payload: required`
+# Phase 3: Examples and Tests - Documenting `payload:`, `expires:` and `version:`
 
-## Snippet for the Guide and FSD
+## Snippets for the Guide and FSD
 
 ```rust
-// The payload type implements InjectedFromContext<E> (see PAYLOAD_GUIDE.md).
+// A command that reads the evaluation payload. The payload type implements
+// InjectedFromContext<E> (see PAYLOAD_GUIDE.md).
 fn whoami(_state: &State<Value>, user: UserId) -> Result<Value, Error> {
     Ok(Value::from(user.0))
 }
@@ -14,25 +15,39 @@ register_command!(cr,
 )?;
 ```
 
-This is the same shape as `PAYLOAD_GUIDE.md`'s quick start (≈35-42) and as
-`test_payload_required_sets_metadata_and_volatile` (statement after the signature, bare
-identifier).
+```rust
+// A versioned command whose cached results expire after five minutes. `version: auto` hashes
+// the function's source, so editing the function invalidates results computed by the old code.
+#[liquers_macro::command_version]
+fn shout(state: &State<Value>) -> Result<Value, Error> {
+    Ok(Value::from(state.try_into_string()?.to_uppercase()))
+}
+
+register_command!(cr,
+    fn shout(state) -> result
+    expires: "in 5 min"
+    version: auto
+)?;
+```
+
+Both follow existing compiled forms: `volatility_integration.rs::test_payload_required_sets_metadata_and_volatile`
+(statement after the signature, bare identifier), `expiration_integration.rs` (`expires: "in 5 min"`),
+and `liquers-lib/src/commands.rs` (`#[liquers_macro::command_version]` with `version: auto`, ≈19/≈268).
 
 ## Validation (no new tests)
 
-The change adds no code, so no unit tests are added. Validation:
+The change adds no code, so no unit tests are added.
 
-1. **Snippet compiles** — the statement form is already compiled by
-   `liquers-core/tests/volatility_integration.rs::test_payload_required_sets_metadata_and_volatile`;
-   the injected-parameter form by `PAYLOAD_GUIDE.md`'s examples' counterparts in
-   `liquers-core/tests` (search `injected` + `payload: required`). Run
-   `cargo test -p liquers-core --test volatility_integration test_payload_required` to confirm
-   the grammar at implementation time.
-2. **Negative forms** — confirm the FSD's claim that `payload: "required"` and `payload: true`
-   are rejected: read the parser arm (`input.parse::<syn::Ident>()`), which rejects literals; no
-   trybuild test is added (the macro crate has none to extend).
-3. **Links** — `python3 scripts/docs_index.py --check` (dead relative links fail it).
+1. **Grammar.** `cargo test -p liquers-macro version` and
+   `cargo test -p liquers-core --test volatility_integration test_payload_required` and
+   `cargo test -p liquers-core --test expiration_integration test_register_command_expires_in_plan`.
+2. **Negative forms.** Confirm from the parser that `payload: "required"` / `payload: true` are
+   rejected (`input.parse::<syn::Ident>()`), that `version: later` is rejected with "Unknown version
+   specification", and that `expires` accepts only a string literal. No trybuild test is added (the
+   macro crate has none to extend).
+3. **`version: now` claim.** Confirm the emitter calls `Version::from_time_now()` (≈1346).
+4. **Links.** `python3 scripts/docs_index.py --check`.
 
 ## Coverage Review
 
-Criteria 1-4 are textual and checked by review against Phase 2; criterion 5 by item 1.
+Criteria 1-6 are textual and checked against Phase 2; criterion 7 by item 1.

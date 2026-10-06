@@ -2,8 +2,7 @@
 id: OPENDAL-LIST-OPTION-CONFIG
 kind: design
 title: OpenDAL list option configuration encoding
-status: in_review
-phase: documentation
+status: complete
 readiness: ready
 area: [store/backends]
 issues: [STORE-OPENDAL-LIST-OPTION-MISPARSED]
@@ -31,3 +30,5 @@ Simplified autonomous issue design for `STORE-OPENDAL-LIST-OPTION-MISPARSED`.
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
 - [Phase 5](./phase5-documentation.md)
+
+Phase 5 approved by the maintainer on 2026-10-05; the design is complete and this folder is frozen.

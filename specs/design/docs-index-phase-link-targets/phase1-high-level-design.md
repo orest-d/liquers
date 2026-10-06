@@ -54,7 +54,7 @@ implementing PR). No consumer parses those links.
 ## Documentation Assessment
 
 `specs/DOCS_STRUCTURE_GUIDE.md` §7.2 ("What `--check` validates") — add `index.md` to the link
-check's scope (History row + `reviewed:`; it carries both). Close the issue.
+check's scope (History row; the guide has no `reviewed:` field). Close the issue.
 
 ## Design Dependencies
 
@@ -62,6 +62,9 @@ check's scope (History row + `reviewed:`; it carries both). Close the issue.
   `DOCS-INDEX-GENERATION-DIFFERS-BY-HOST` (no design folder).
 - `overlaps` `docs-current-link-validation`, `docs-dead-links` (both complete): built the link
   checker this design extends to one more file.
+- `required-by` (ordering, not content): every other design's implementation regenerates
+  `specs/index.md`. Landing this one **first** means later PRs regenerate correct links and are
+  guarded by the new check (post-Phase-4 review, 2026-10-05).
 
 ## Consolidated Findings
 
