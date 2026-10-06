@@ -1,7 +1,7 @@
 # Phase 5: Documentation - `Context::set_title` and `Context::set_description`
 
-**Status: plan.** Written on 2026-10-05, when the design adopted the five-phase `liquers-project`
-contract; executed after implementation, following
+**Status: executed 2026-10-06**, pending approval. Written on 2026-10-05, when the design adopted the five-phase `liquers-project`
+contract; followed
 `.claude/skills/liquers-project/references/phase5-documentation.md`. The sections the skill requires
 after implementation are present and marked *pending*.
 
@@ -48,24 +48,36 @@ None needed in `specs/README.md`: the capability is reached through the document
 
 ## Implementation Summary
 
-*Pending — written after implementation.*
+`Context::set_title` / `set_description` added (`context.rs`), backed by
+`AssetRef::set_description_fields_from_command` and two private `AssetData` flags
+(`recipe_sets_title`, `recipe_sets_description`) set when the recipe is adopted and cleared by
+`reset`. Recipe wins per field; otherwise the command's text is written to the live metadata and
+persisted with it; `version` is unchanged. Seven integration tests
+(`liquers-core/tests/context_title_description.rs`, most run on both asset managers) and three unit
+tests (`assets.rs`) pass; `cargo test -p liquers-core --lib --tests` is green (949 lib tests).
 
 ## Documentation Delivered
 
-*Pending.*
+`DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`, `COMMAND_REGISTRATION_GUIDE.md` and `ASSETS.md`
+updated as planned, each with a History row and `reviewed:` bump; the issue is `closed`; the docs
+index was regenerated (`docs_index.py --check`: 0 errors).
 
 ## Issues Filed
 
-*Pending.* Candidate: exposing the setters in `liquers-py` / `liquers-web` (non-goals) if a user asks; not filed pre-emptively.
+`CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY` (P3).
 
 ## Important Learning
 
-*Pending.*
+The Phase 3 assumption that every step of a query shares one `Context` is false for plain
+evaluation: the cacheable prefix becomes a predecessor asset (`finalize_plan`). Chain tests that
+need a shared context must `apply` with an input state.
 
 ## Conformance and Remaining Work
 
-*Pending.*
+Matches the approved design. Deviation: the chained-step test uses `apply` with a state (see
+above). Not run here: `liquers-lib` tests and the wasm32 check (no `liquers-lib`/`liquers-py`/
+`liquers-web` code changed).
 
 ## Validation
 
-*Pending.* Planned: `python3 scripts/docs_index.py --check`; the seven integration and three unit tests.
+`cargo test -p liquers-core --lib --tests`; `python3 scripts/docs_index.py --check`.

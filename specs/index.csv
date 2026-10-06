@@ -52,7 +52,8 @@ COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS,feature,A usage hint can be attached
 COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED,issue,CommandRegistryIssue constructors transpose namespace and name,closed,local,,covered,P3,S,core/commands,,,,command-registry-issue-fields-coverage,,2026-08-12,specs/issues/COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED.md
 COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE,issue,Variadic command arguments cannot be declared or retrieved,closed,local,,,P1,M,macro;core/commands;lib/commands,,,,variadic-arguments-declaration,,2026-08-12,specs/issues/COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE.md
 CONTEXT-APPLY-BARE-KEY-ILL-DEFINED,issue,Context::apply with a bare key discards the input state and writes to the store,rejected,local,,,P0,S,core/assets,,,,,,2026-08-09,specs/issues/CONTEXT-APPLY-BARE-KEY-ILL-DEFINED.md
-CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION,issue,A command cannot set its asset's title or description through Context,draft,local,,ready,P2,S,core/context,,,,context-title-description,,2026-09-16,specs/issues/CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION.md
+CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION,issue,A command cannot set its asset's title or description through Context,closed,local,,ready,P2,S,core/context,,,,context-title-description,,2026-09-16,specs/issues/CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION.md
+CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY,issue,A title or description set by a command in a cut predecessor does not reach the final asset,draft,local,,,P3,M,core/context;core/plan,,,,context-title-description,,2026-10-06,specs/issues/CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY.md
 CORE-ASSET-GC,issue,Assets are never garbage collected,accepted,local,,,P3,L,core/assets;core/store,,,,,,2026-08-08,specs/issues/CORE-ASSET-GC.md
 CORE-ASYNC-MEMORY-STORE-IS-SUPPORTED-IGNORES-PREFIX,issue,AsyncMemoryStore::is_supported claims keys outside its own prefix,closed,local,,,P1,S,core/store,,,,async-memory-store-prefix-support,,2026-09-02,specs/issues/CORE-ASYNC-MEMORY-STORE-IS-SUPPORTED-IGNORES-PREFIX.md
 CORE-ASYNC-MEMORY-STORE-MAKEDIR-DOES-NOTHING,issue,AsyncMemoryStore::makedir succeeds without creating a directory,closed,local,,,P0,S,core/store,,,,opendal-path-mapping,,2026-09-02,specs/issues/CORE-ASYNC-MEMORY-STORE-MAKEDIR-DOES-NOTHING.md
@@ -393,7 +394,7 @@ API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,
 DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
 DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,core/query,,,,,2026-08-17,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
 DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,core/assets,,,,,2026-10-02,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
-DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,core/context;core/plan,,,,,2026-10-02,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
+DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,core/context;core/plan,,,,,2026-10-06,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
 DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,core/plan;core/assets;core/context,,,,,2026-10-06,,specs/reference/api/DOC_08_RECIPES_PLANS.md
 ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,core/assets,,,,,2026-10-02,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,core/assets,,,,,2026-09-27,,specs/reference/ASSET_SET_OPERATION.md
@@ -416,7 +417,7 @@ WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,
 ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,core/assets,,,,,2026-10-06,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
 autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,docs;build,,,,,2026-10-05,,specs/guides/autonomous_bulk_design.md
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,,docs;build,,,,,2026-08-11,,specs/guides/autonomous_issue_fixing.md
-COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,core/commands;macro,,,,,2026-10-02,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
+COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,core/commands;macro,,,,,2026-10-06,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,core/context;core/assets;core/store,,,,,2026-10-02,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-09-30,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,core/query,,,,,2026-08-14,,specs/guides/QUERY_ESCAPING_GUIDE.md

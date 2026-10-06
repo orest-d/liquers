@@ -883,6 +883,22 @@ impl<E: Environment> Context<E> {
             .set_filename(filename)
             .map(|_| ())
     }
+    /// Sets the title of the asset this command is producing.
+    ///
+    /// A title declared by the key's recipe takes precedence and is kept; the call then does
+    /// nothing and still returns `Ok`. Persisted with a keyed asset's metadata; never changes its
+    /// `version`. `NotSupported` on legacy metadata.
+    pub async fn set_title(&self, title: &str) -> Result<(), Error> {
+        self.assetref
+            .set_description_fields_from_command(Some(title.to_string()), None)
+            .await
+    }
+    /// Sets the description of the asset this command is producing. Same rules as [`Self::set_title`].
+    pub async fn set_description(&self, description: &str) -> Result<(), Error> {
+        self.assetref
+            .set_description_fields_from_command(None, Some(description.to_string()))
+            .await
+    }
     /// Sends a structured log entry to the current asset.
     pub fn add_log_entry(&self, entry: LogEntry) -> Result<(), Error> {
         self.service_tx
