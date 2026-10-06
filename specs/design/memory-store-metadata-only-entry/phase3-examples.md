@@ -8,6 +8,7 @@
 | T4 | conformance | `sidecar05` on every suite in `tests/store_conformance_CONF.rs` |
 | T5 | unit (`assets.rs`) | Part G: a metadata-only memory entry with a content-hash version is skipped (no longer misread as changed outside Liquers) |
 | T6 | unit | Part G: an empty data object with a timestamp version is checked (formerly skipped by the heuristic) |
+| T7 | integration (`tests/metadata_only_entry_reload.rs`) | Memory store: a metadata-only `Ready` `Text`/`txt` entry with a recipe is recomputed (`"generated"`), not served as `""` |
 
 Commands to run: `cargo test -p liquers-core --lib store`,
 `cargo test -p liquers-core --test store_conformance_CONF`,

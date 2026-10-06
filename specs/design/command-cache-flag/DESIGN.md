@@ -1,15 +1,15 @@
 ---
 id: COMMAND-CACHE-FLAG
 kind: design
-title: Retire the unread CommandMetadata.cache flag
+title: Remove the unread CommandMetadata.cache flag
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
 area: [core/commands, macro]
 issues: [COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ]
 created: 2026-10-06
 ---
-# Retire the unread CommandMetadata.cache flag
+# Remove the unread CommandMetadata.cache flag
 
 Produced under [`guides/autonomous_bulk_design.md`](../../guides/autonomous_bulk_design.md):
 the first four phases, reviewed without phase approval. Not an approval and not an implementation.

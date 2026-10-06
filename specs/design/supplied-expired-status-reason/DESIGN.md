@@ -1,15 +1,15 @@
 ---
 id: SUPPLIED-EXPIRED-STATUS-REASON
 kind: design
-title: A supplied Expired status records an expiry reason
+title: A value written already Expired is logged as expired, with after-the-fact diagnostics
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
 area: [core/assets]
 issues: [SUPPLIED-EXPIRED-STATUS-STORED-WITHOUT-REASON]
 created: 2026-10-06
 ---
-# A supplied Expired status records an expiry reason
+# A value written already Expired is logged as expired, with after-the-fact diagnostics
 
 Produced under [`guides/autonomous_bulk_design.md`](../../guides/autonomous_bulk_design.md):
 the first four phases, reviewed without phase approval. Not an approval and not an implementation.

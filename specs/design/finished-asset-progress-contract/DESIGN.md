@@ -4,7 +4,7 @@ kind: design
 title: A deterministic progress contract for a finished asset
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
 area: [core/assets]
 issues: [ASSET-FINISHED-PROGRESS-CONTRACT-UNDEFINED]
 created: 2026-10-06

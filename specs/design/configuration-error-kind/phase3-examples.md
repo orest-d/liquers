@@ -1,5 +1,16 @@
 # Phase 3: Examples and tests
 
-Add focused inline tests in `error.rs` for `Error::configuration_error` and its type. In `store_config.rs`, test a missing required string and an unset `${LIQUERS_TEST_MISSING_CONFIG}` independently, asserting `ConfigurationError` and preserving useful messages. Keep malformed YAML/JSON/TOML tests asserting `ParseError`; keep unknown/unavailable factory type tests in `store_factory.rs` asserting `NotSupported`.
+| # | Test | Location | Asserts |
+|---|---|---|---|
+| T1 | `configuration_error_has_its_type` | `error.rs` | constructor sets `ErrorType::ConfigurationError` |
+| T2 | `missing_required_config_is_configuration_error` | `store_config.rs` | `require_config_string("bucket")` on an empty config |
+| T3 | `unset_env_var_is_configuration_error` | `store_config.rs` | `expand_env_vars("${LIQUERS_TEST_MISSING_CONFIG}")` |
+| T4 | `unclosed_env_var_is_parse_error` | `store_config.rs` | `expand_env_vars("${X")` stays `ParseError` |
+| T5 | `malformed_environment_document_is_parse_error` | `environment_config.rs` | `from_yaml(":::")`, `from_json("{")`, `from_toml("=")` |
+| T6 | existing unknown-store-type tests | `store_factory.rs` | still `NotSupported` |
+| T7 | `configuration_error_is_not_persisted` | `assets.rs` | classification → `NotPersisted` |
+| T8 | OBJECT06 | `liquers-web/tests/objects_OBJECT.rs` | `configuration_error` round-trips by name |
+| T9 | axum error mapping test | `liquers-axum` | `ConfigurationError` → 500 |
 
-Add or extend the `assets.rs` persistence classification test so `ConfigurationError` becomes `NotPersisted`, never `NonSerializable`. Tests may return `Result` where setup is fallible; production changes use no `unwrap`/`expect`. Run `cargo test -p liquers-core error`, `store_config`, `store_factory`, and then `cargo test -p liquers-core --lib`.
+Run `cargo test -p liquers-core --lib`, `cargo test -p liquers-axum`, `cargo check -p liquers-py`,
+and the web Node loop after `cargo clean`.

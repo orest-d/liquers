@@ -1192,7 +1192,22 @@ impl<E: Environment> AssetData<E> {
             if store.contains(&key).await? {
                 eprintln!("Asset {} exists in the store, loading", self.id());
                 // Asset exists in the store, load binary and metadata
-                let (binary, metadata) = store.get(&key).await?;
+                let (binary, metadata) = match store.get(&key).await {
+                    Ok(entry) => entry,
+                    // Metadata without a data object (STORE_SEMANTICS §2): a value with no byte
+                    // form, stored metadata-only by `set_state`. There is nothing to load, so the
+                    // recipe re-derives it — not an error, and not corruption.
+                    Err(e) if e.error_type == ErrorType::KeyNotFound => {
+                        eprintln!(
+                            "Asset {} at {} is stored without bytes; recomputing",
+                            self.id(),
+                            key
+                        );
+                        self.clear_fast_track_payload();
+                        return Ok(false);
+                    }
+                    Err(e) => return Err(e),
+                };
                 let stored_status = metadata.status();
                 if !matches!(
                     stored_status,

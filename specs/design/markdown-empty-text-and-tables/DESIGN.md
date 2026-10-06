@@ -4,7 +4,7 @@ kind: design
 title: Markdown tables round-trip empty text and state the one-table rule
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
 area: [records]
 issues: [MARKDOWN-TABLE-CANNOT-DISTINGUISH-NULL-FROM-EMPTY-TEXT]
 created: 2026-10-06

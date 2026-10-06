@@ -2,61 +2,67 @@
 
 ## Design Readiness
 
-- **Readiness:** needs-decision
-- **Leading issue:** **Open design question — refuse short rows without a lenient option.**
-  Refusing changes what files read successfully (observable data behaviour). Today a row with
-  fewer cells than the header reads its missing cells as null.
-- **Explanation:** Line tracking is an implementation detail. The short-row policy is a
-  behaviour choice, specified here around the recommendation.
-- **Open questions:**
-  1. **Proposed resolution — refuse, no option for now.** A short row is refused like a wide
-     one, naming the physical line. A wide row is already refused, so the reader becomes
-     symmetric. A `ReadOptions` flag for leniency can be added when a real file needs it (YAGNI).
-     Alternative: add `ReadOptions::allow_short_rows: bool` (default `false`) now.
+- **Readiness:** ready
+- **Leading issue:** None
+- **Explanation:** Decided (Maintainer decision, 2026-10-06): rows shorter than the header "may be padded with nulls or
+  empty strings. They should not be silently ignored. A warning should be written to log that a row
+  has been padded … in an aggregate way for the whole CSV". The design adds a read report that
+  carries the aggregate warning to the asset log.
+- **Open questions:** None
 
 ## Problem
 
 `liquers-records/src/formats/csv.rs`:
 
-- Errors say "CSV row N", where N counts records (`row_index + line_base`). A quoted cell spanning
-  lines makes N disagree with the editor's line.
-- `check_row_width` refuses `row.len() > width` but accepts shorter rows. Missing cells become null
-  (in `cell_value` via `row.get(col) == None`), and a truncated line in a non-nullable column fails
-  later with an error about nulls rather than about the line.
+- Errors say "CSV row N", where N counts records. A quoted cell spanning lines makes N disagree with
+  the editor's line.
+- A row with fewer cells than the header is accepted, and its missing cells silently become null.
+  A truncated line in a non-nullable column then fails later with an error about nulls rather
+  than about the line.
 
 Filed during `record-streams` (complete, frozen). The issue's `design:` field pointed at that folder; it now points here, because a frozen design cannot own new work.
 
 ## Expected behaviour and acceptance
 
-1. Every per-row error names the physical line where the record starts. When it differs from the
-   record number, it also names the record: "CSV line 7 (record 5)".
-2. A row with fewer fields than the table width is an error naming the line and both counts
-   ("has 2 fields, but the table has 3 columns").
-3. Both the schema-aware reader (`read_declared`) and the inferring reader (`read_inferred`) apply
-   2.
-4. A trailing empty line at end of file is not a short row (it is not a record). Phase 4 verifies
-   `parse_rows`' handling.
+1. Every per-row **error** names the physical line where the record starts, and the record number
+   when they differ: "CSV line 7 (record 5)".
+2. A **short row is padded**: a missing cell is null when the field is nullable, and `""` when the
+   field is a non-nullable `Text`. A missing cell in any other non-nullable field is an error
+   naming the line (there is nothing honest to pad with).
+3. Padding is **reported once per read**, aggregated, with the decided wording:
+   "There has been A rows with number of cells between B and C, which is less than number of
+   columns in the header (D)." A = number of padded rows, B/C = min/max cell count among them,
+   D = table width.
+4. The warning reaches the asset log when the read happens inside a command (`ns-rec/to_record`
+   and every command going through `records::convert::to_record`), via `Context::warning`.
+5. A row wider than the header is still refused (unchanged), with the line-based message.
+6. A trailing newline at the end of the file is not a row.
 
 ## Scope
 
-The CSV reader only. TSV shares it via the separator, so it is covered too.
+The CSV/TSV reader, the read API's report, and the one conversion entry point that has a context.
+
+**Out of scope, documented:** a CSV read during deserialization of a stored `RecordView`
+(`ExtValue` type registry, `liquers-lib/src/value/mod.rs`) has no log to write to. Its report goes
+to stderr (`eprintln!`). Those files are written by Liquers and are never short, so this path
+should not occur in practice.
 
 ## Design Dependencies
 
-- `markdown-empty-text-and-tables` — **overlaps** (Markdown already refuses rows of the wrong
-  width and names lines; the two readers become consistent).
+- `markdown-empty-text-and-tables` — **overlaps** (reader consistency).
+- `rec-id-iso-date-parsing` — **overlaps**. It moves `parse_date`/`parse_timestamp` out of
+  `csv.rs`. The two touch the same file, so order them (rec-id first).
 
 ## Documentation assessment
 
-- Reference: `specs/reference/RECORD_STREAMS.md`, CSV format notes: strict width and line
-  numbering.
+- Reference: `specs/reference/RECORD_STREAMS.md`, CSV notes: padding rule, the aggregate warning,
+  and line numbering.
 
 ## Consolidated Findings
 
-- `parse_rows` is a hand-written parser. It is the only place that knows where a record starts,
-  so it must return the start line with each row. Make the parser yield `ParsedRow { line: usize,
-  fields: Vec<RawField> }`.
-- The doc comment of `check_row_width` explicitly documents the short-row leniency. That comment
-  changes with the behaviour.
-- Existing tests that rely on short rows reading as null must be found (`rg "short" liquers-records`)
-  and updated deliberately. They are evidence of who relied on the behaviour.
+- `parse_rows` is hand-written and is the only place that knows where a record starts, so it
+  returns the start line with each row.
+- `read_table` has no channel for warnings. Adding `read_table_with_report` (returning a
+  `ReadReport`) keeps `read_table`'s signature for its many callers. `read_table` becomes a wrapper
+  that sends report lines to stderr.
+- The doc comment of `check_row_width` documents the old silent leniency, and changes with this.

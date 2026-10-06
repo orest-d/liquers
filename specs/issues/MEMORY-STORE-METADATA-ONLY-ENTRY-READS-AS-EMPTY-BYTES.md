@@ -3,7 +3,7 @@ id: MEMORY-STORE-METADATA-ONLY-ENTRY-READS-AS-EMPTY-BYTES
 kind: issue
 title: AsyncMemoryStore answers a metadata-only entry with empty bytes, indistinguishable from empty content
 status: draft
-priority: P3
+priority: P2
 complexity: S
 area: [core/store]
 design: memory-store-metadata-only-entry
@@ -44,3 +44,15 @@ Found 2026-10-02 while implementing Step 9 (`verify_stored_versions`, the `missi
 and `empty_data_object_is_checked_not_skipped` tests), when a metadata-only memory entry with a
 `new_unique` version would have been reported as changed outside Liquers and converted to
 `Override`.
+
+## Update 2026-10-06 — it serves a wrong value, not only a misleading log
+
+Reproduced while fixing `FAST-TRACK-FAILS-ON-METADATA-ONLY-FILE-STORE-ENTRY`: on a memory store, a
+metadata-only `Text` entry stored as `txt` (status `Ready`) is **served as the empty string**. The
+fast track reads the empty data object, `deserialize_stored_value` accepts empty `txt` bytes as
+`""`, and the recipe never runs. The corruption log described in
+`METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED` appears only for formats that reject empty input. Priority
+raised from P3 to P2 because this is a wrong value. The fast-track fix that makes a `KeyNotFound`
+answer safe has landed, so this store change can now be made on its own (design
+`memory-store-metadata-only-entry`).
+

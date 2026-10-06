@@ -30,3 +30,10 @@ post-Phase-4 review found too thin to implement from.
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
 - [Phase 5](./phase5-documentation.md)
+
+## Review 2026-10-06
+
+Re-verified against HEAD after the latest merges. **Still valid; no change.** `Cargo.lock` still locks
+OpenDAL 0.55.0, `OpendalStoreFactory::common_arguments` (`liquers-store/src/store_factory.rs`
+≈103) and `StoreArgumentInfo::derived` (`liquers-core/src/store_factory.rs` ≈114) are as the
+design describes, and the `s3_01`/`s3_02` tests still do not exist. Readiness stays `ready`.

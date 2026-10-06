@@ -2,46 +2,45 @@
 
 ## Design Readiness
 
-- **Readiness:** needs-decision
-- **Leading issue:** **Open design question — workspace-wide `serde_json/preserve_order`, or an
-  order-capturing parse local to `liquers-records`.** The first is a one-line change with
-  workspace-wide effects. The second is contained.
-- **Explanation:** A risk found while designing makes the choice consequential:
-  `CommandMetadataRegistry::calculate_metadata_version` hashes `serde_json::to_vec` of command
-  metadata, which contains `serde_json::Map` fields (`ArgumentInfo::hints`). With
-  `preserve_order`, those maps serialize in insertion order instead of sorted order. Any command
-  with two or more hints could change its `metadata_version`, and other hashed or compared JSON
-  could change too. The design specifies the local alternative.
-- **Open questions:**
-  1. **Proposed resolution — local ordered parse.** `liquers-records` parses JSON tables through a
-     small `Deserialize` impl that records object key order (`OrderedObject(Vec<(String,
-     serde_json::Value)>)`) for the levels that carry column names, and leaves `serde_json` as is
-     for the rest of the workspace.
+- **Readiness:** ready
+- **Leading issue:** None
+- **Explanation:** Decided (Maintainer decision, 2026-10-06): "If the column order is not specified […], it is irrelevant —
+  collect column names and sort them to have a stable column order." JSON objects have no
+  specified key order, so a schema-less read sorts its column names. This replaces the issue's
+  premise (that file order should be kept). Today the order is *not* fully sorted either, so code
+  changes too.
+- **Open questions:** None. `serde_json/preserve_order` is not needed. The maintainer noted that
+  the `metadata_version` change it would cause is acceptable, but sorting makes the order
+  independent of that feature, so it stays off.
 
-## Problem
+## Problem (re-evaluated at HEAD)
 
-`liquers-records`' JSON readers take a `serde_json::Value`, whose `Map` is a `BTreeMap` without
-`preserve_order`. A table read from NDJSON, `json`, `records`, `columns` or `index` shapes without
-a declared schema gets alphabetical columns (`{"name", "age"}` → `age, name`). Row order is
-unaffected. A declared schema already fixes the order.
+The issue says columns come out alphabetical. That holds only per object. The schema-less readers
+collect names as the *union in first-appearance order* across rows, where each row's keys arrive
+sorted (`serde_json::Map` is a `BTreeMap`). In `read_inferred_objects`
+(`liquers-records/src/formats/ndjson.rs`) and in the `columns`/`index` shape readers
+(`formats/shapes.rs`), `[{"b":1},{"a":2}]` therefore reads as `b, a`, while
+`[{"a":2},{"b":1}]` reads as `a, b`. The same columns get different orders depending on row
+order. That is neither file order nor a stable order.
 
 Filed during `record-streams` (complete, frozen). The issue's `design:` field pointed at that folder; it now points here, because a frozen design cannot own new work.
 
 ## Expected behaviour and acceptance
 
-1. NDJSON `{"name":"a","age":1}` read without a schema has columns `name, age`.
-2. `records` shape: column order is the order of first appearance across rows (keys only in a
-   later row are appended).
-3. `columns` shape (`{"name": {…}, "age": {…}}`): top-level key order.
-4. `index` shape: inner key order of the first row, then first-appearance.
-5. With a declared schema: unchanged (schema order).
-6. `serde_json` features unchanged: `Cargo.lock` shows no new `indexmap` feature for
-   `serde_json`, and `metadata_version`s are unchanged (registry export test passes).
+1. Every schema-less JSON read (NDJSON, `json`, `records`, `columns`, `index` shapes) yields columns
+   sorted by name (byte order of the UTF-8 name, i.e. `str` `Ord`), whatever the row order.
+2. An index/id column produced by the `columns`/`index` shapes keeps its position first (it is
+   structural, not a data key). Phase 4 verifies how `index_field_name` places it today, and keeps
+   that.
+3. With a declared schema, the order is the schema's (unchanged).
+4. The order is the same with and without `serde_json/preserve_order` (it no longer depends on
+   map order).
+5. The reference states the rule.
 
 ## Scope
 
-JSON table readers in `liquers-records/src/formats/` (`ndjson.rs`, `shapes.rs`, the `json`
-reader). Writers already emit schema order.
+Schema-less JSON readers. CSV/Markdown have a header, which is a specified order, so they are
+unchanged.
 
 ## Design Dependencies
 
@@ -49,14 +48,13 @@ None.
 
 ## Documentation assessment
 
-- Reference: `specs/reference/RECORD_STREAMS.md`, JSON shapes: "without a schema, columns follow
-  the file's key order (first appearance)".
+- Reference: `specs/reference/RECORD_STREAMS.md`, JSON shapes: "without a schema, columns are
+  sorted by name".
 
 ## Consolidated Findings
 
-- The readers' public signatures take bytes at the format boundary (`read_table`). Only internal
-  helpers take `serde_json::Value`. Changing those helpers to the ordered representation is
-  internal. Phase 4 step 1 confirms no public `fn(…: serde_json::Value)` in `liquers-records`
-  (else keep it and add a bytes variant).
-- An ordered object only needs the key order. Cell values can stay `serde_json::Value`, because
-  nested objects in cells are not columns.
+- The fix is a `sort()` of the collected name vector in each schema-less path (three collection
+  sites: `read_inferred_objects`, and the columns-name collection of the `columns` and `index`
+  shapes). Row-key ordering (`ordered_row_keys`) is unrelated and stays.
+- The existing test `inferred_bool_and_text_columns` (ndjson.rs) has a comment about keys coming
+  back sorted. Update it to state the rule.

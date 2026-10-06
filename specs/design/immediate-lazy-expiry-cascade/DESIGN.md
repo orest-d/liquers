@@ -4,7 +4,7 @@ kind: design
 title: Lazy deadline expiry on the immediate manager cascades to dependents
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
 area: [core/assets]
 issues: [IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE]
 created: 2026-10-06

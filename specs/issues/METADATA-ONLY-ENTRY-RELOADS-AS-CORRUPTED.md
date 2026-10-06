@@ -2,7 +2,7 @@
 id: METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED
 kind: issue
 title: A value stored as metadata only is reloaded through the corrupted-data path
-status: draft
+status: in_progress
 priority: P3
 complexity: S
 area: [core/assets]
@@ -61,3 +61,13 @@ skips the store write entirely, so an asset can avoid this path by declaring it.
 the path itself. A value that fails `as_bytes` without such a declaration is still written as
 metadata only (`set_state` step 8), and on reload it is still reported through the corrupted-data
 branch (`assets.rs`, "treated as corrupted"). A non-manifest `RecordSource` is one such value.
+
+## Update 2026-10-06 — fixed for stores that report "no data object"
+
+`try_fast_track` now treats a `KeyNotFound` from `store.get` as a metadata-only entry and
+re-derives the value without a corruption report (`liquers-core/tests/metadata_only_entry_reload.rs`;
+it also fixed `FAST-TRACK-FAILS-ON-METADATA-ONLY-FILE-STORE-ENTRY`). File stores and every store that
+follows `STORE_SEMANTICS.md` §2 are done. The memory store still answers empty bytes
+(`MEMORY-STORE-METADATA-ONLY-ENTRY-READS-AS-EMPTY-BYTES`), so on it this issue remains open until
+that design is implemented.
+

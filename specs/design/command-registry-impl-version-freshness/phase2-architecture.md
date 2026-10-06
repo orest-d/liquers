@@ -1,22 +1,43 @@
 # Phase 2: Solution and Architecture
 
-## Chosen Solution
+## Test (`liquers-lib/tests/registry_export.rs`)
 
-Compare implementation versions as well as signatures and regenerate the checked-in registry, because impl_version is exported semantic data.
+```rust
+/// The committed registry's implementation versions match the code.
+///
+/// Separate from `committed_registry_is_fresh` (signatures) so the message says which kind of
+/// change needs a regeneration: an edited command body changes `impl_version` only.
+#[cfg(all(feature = "egui", feature = "image-support", feature = "polars", feature = "records"))]
+#[tokio::test]
+async fn committed_registry_impl_versions_are_fresh() -> Result<(), Error>
+```
 
-## Integration Boundary
+Body:
 
-**Files and symbols:** liquers-lib/tests/registry_export.rs, liquers-lib/src/bin/export_command_registry.rs, specs/command_registry.yaml. Reuse existing typed Error constructors and existing async traits; avoid new ownership or dispatch abstractions unless the named boundary requires them. Serialized additions are optional and additive; public Rust renames retain explicit compatibility handling where stated.
+1. Load the committed registry (reuse `committed_registry_path` and `from_json_or_yaml`).
+2. Build `current = full_registry()?` twice. Any command whose `impl_version` differs between the
+   two builds is time-based (`version: now`), and the test fails with
+   "`<cmd>` uses `version: now`, which cannot be committed; use `auto` or a fixed version".
+3. For each command present in both registries (key sets are already checked by the existing
+   test), collect those with differing `impl_version` and fail with the list and the regenerate
+   command (the same text as the existing test's `regenerate`).
 
-## Alternatives and Errors
+## CLAUDE.md
 
-Reject pre-checks that race or duplicate I/O, broad catch-all error mapping, and unrelated refactors. Fallible paths return existing `Result<_, Error>` types and retain typed error kinds.
+"Regenerate whenever a `register_command!` signature changes, a command is added or removed, **or
+the body of a command with `version: auto` changes** (its implementation version is a hash of the
+function)."
+
+## Rejected alternatives
+
+- Fold `impl_version` into `signature_of`. That loses the distinction in the message.
+- Byte-compare the files. That fails on YAML formatting.
 
 ## Risk Review
 
 | Risk | Validation and recovery |
 |---|---|
-| Contract or compatibility drift | Pin the source acceptance cases and preserve documented wire/error behaviour. Revert the isolated change if the contract cannot be met. |
-| Async or ownership regression | Keep existing AsyncStore/wasm Send bounds and borrow inputs; run focused crate tests. |
-| Documentation or generated-data drift | Update named current documents and regenerate/check required indexes. |
-
+| Contributor friction (comment edits) | The decided cost. The message gives the exact command. |
+| False positive from `now` | Detected and explained (step 2) |
+| Feature gating | Same `cfg` as the existing test |
+| Recovery | Remove the test |

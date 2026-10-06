@@ -2,12 +2,12 @@
 
 | # | Kind | Checks |
 |---|---|---|
-| T1 | unit | NDJSON `{"name":"a","age":1}\n{"name":"b","age":2}` → columns `["name","age"]` |
-| T2 | unit | `records` shape `[{"b":1},{"b":2,"a":3}]` → `["b","a"]` |
-| T3 | unit | `columns` shape `{"z":{"0":1},"a":{"0":2}}` → `["z","a"]` |
-| T4 | unit | `index` shape `{"0":{"z":1,"a":2}}` → `["z","a"]` |
-| T5 | unit | Declared schema `[a, z]` on T3 input → `["a","z"]` |
-| T6 | regression | `cargo test -p liquers-lib --test registry_export` passes and `cargo tree -e features -i serde_json` shows no `preserve_order` |
+| T1 | unit | NDJSON `{"b":1}\n{"a":2}` → columns `["a","b"]` |
+| T2 | unit | Same rows in the other order → `["a","b"]` |
+| T3 | unit | `records` shape `[{"z":1,"a":2},{"m":3}]` → `["a","m","z"]` |
+| T4 | unit | `columns` shape `{"z":{"0":1},"a":{"0":2}}` → data columns `["a","z"]`, index column where it is today |
+| T5 | unit | `index` shape `{"0":{"z":1},"1":{"a":2}}` → data columns `["a","z"]` |
+| T6 | unit | Declared schema `[z, a]` → `["z","a"]` |
 
-Names: `ndjson_schema_less_keeps_key_order`, `records_shape_orders_by_first_appearance`,
-`columns_shape_keeps_top_level_order`, `index_shape_keeps_inner_order`.
+Names: `schema_less_json_columns_are_sorted`, `schema_less_json_column_order_ignores_row_order`,
+`columns_shape_sorts_columns`, `index_shape_sorts_columns`.

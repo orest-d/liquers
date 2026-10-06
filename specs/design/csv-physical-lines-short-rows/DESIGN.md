@@ -1,15 +1,15 @@
 ---
 id: CSV-PHYSICAL-LINES-SHORT-ROWS
 kind: design
-title: CSV errors name physical lines, and short rows are refused
+title: CSV errors name physical lines; short rows are padded with an aggregate warning
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
 area: [records]
 issues: [CSV-ROW-NUMBERS-COUNT-RECORDS-AND-SHORT-ROWS-READ-AS-NULL]
 created: 2026-10-06
 ---
-# CSV errors name physical lines, and short rows are refused
+# CSV errors name physical lines; short rows are padded with an aggregate warning
 
 Produced under [`guides/autonomous_bulk_design.md`](../../guides/autonomous_bulk_design.md):
 the first four phases, reviewed without phase approval. Not an approval and not an implementation.

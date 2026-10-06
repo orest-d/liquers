@@ -1,15 +1,15 @@
 ---
 id: JSON-TABLE-COLUMN-ORDER
 kind: design
-title: Schema-less JSON table reads keep the file's column order
+title: Schema-less JSON reads use a stable, sorted column order
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
 area: [records]
 issues: [SCHEMA-LESS-JSON-READS-SORT-COLUMNS-ALPHABETICALLY]
 created: 2026-10-06
 ---
-# Schema-less JSON table reads keep the file's column order
+# Schema-less JSON reads use a stable, sorted column order
 
 Produced under [`guides/autonomous_bulk_design.md`](../../guides/autonomous_bulk_design.md):
 the first four phases, reviewed without phase approval. Not an approval and not an implementation.

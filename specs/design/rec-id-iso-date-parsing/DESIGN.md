@@ -1,7 +1,7 @@
 ---
 id: REC-ID-ISO-DATE-PARSING
 kind: design
-title: ns-rec/rec_id accepts ISO 8601 Date and Timestamp ids
+title: ns-rec/rec_id accepts YYYYMMDD and YYYY-MM-DD ids
 status: in_review
 phase: implementation
 readiness: ready
@@ -9,7 +9,7 @@ area: [records, lib/commands]
 issues: [REC-ID-PARSES-DATE-AND-TIMESTAMP-IDS-AS-RAW-NUMBERS]
 created: 2026-10-06
 ---
-# ns-rec/rec_id accepts ISO 8601 Date and Timestamp ids
+# ns-rec/rec_id accepts YYYYMMDD and YYYY-MM-DD ids
 
 Produced under [`guides/autonomous_bulk_design.md`](../../guides/autonomous_bulk_design.md):
 the first four phases, reviewed without phase approval. Not an approval and not an implementation.

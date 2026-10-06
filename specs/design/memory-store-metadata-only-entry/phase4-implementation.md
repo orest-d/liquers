@@ -1,7 +1,7 @@
 # Phase 4: Implementation Plan
 
-Implement in the same PR as `metadata-only-entry-reload` (its steps 1–2 must land before or with
-step 2 here).
+`metadata-only-entry-reload` steps 1–2 are implemented (2026-10-06), so this design can be
+implemented alone. Add T7 first, and confirm it returns `""` before step 2.
 
 1. **Rule first.** Add `sidecar05` and run the suite before changing the store. Record which
    stores fail (expected: memory, possibly JS stub/OpenDAL). Proof: the failing list. Agent:

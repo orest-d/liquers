@@ -1,43 +1,44 @@
 # Phase 2: Solution and Architecture
 
-## Change
-
-At each of the four write sites (after `final_status` is decided and the metadata clone exists,
-before validation and the store write):
+## Helper (`liquers-core/src/assets.rs`)
 
 ```rust
-if final_status == Status::Expired && metadata.expiry_reason().is_none() {
-    self.record_expiry(
-        &mut metadata,
-        &key.to_string(),
-        &ExpiryReason::Direct { cause: ExpiryCause::Explicit },
-    );
+/// A value written already `Expired`: log the expiry now (the moment Liquers learns of it) and
+/// say that the diagnostics come after the fact. The structured reason is left as supplied.
+fn log_supplied_expiry(metadata: &mut Metadata, key: &Key, route: &str) {
+    if let Metadata::MetadataRecord(_) = metadata {
+        let _ = metadata.add_log_entry(LogEntry::warning("Asset expired".to_string()));
+        let detail = match metadata.expiry_reason() {
+            Some(reason) => format!(
+                "Expiry recorded after the fact: {key} was written already expired ({route}); \
+                 supplied reason: {}", reason.log_entry(&key.to_string()).message),
+            None => format!(
+                "Expiry recorded after the fact: {key} was written already expired ({route}); \
+                 its original cause is unknown"),
+        };
+        let _ = metadata.add_log_entry(LogEntry::info(detail));
+    }
 }
 ```
 
-For `set_binary` the metadata is a `MetadataRecord` local. Wrap it as
-`Metadata::MetadataRecord`, or call the record's setter directly, mirroring what the default
-`record_expiry` does. To keep one code path, convert to `Metadata` at that site. Check the
-`expiry_reason` accessor name on `MetadataRecord` vs `Metadata` in `metadata.rs` before writing
-the step.
+The `match metadata` in the guard lists both variants explicitly in the implementation (no `if
+let` shortcut), per CLAUDE.md. Check the exact `LogEntry` constructors (`LogEntry::warning` exists,
+used in `note_expired_dependency`) and `expiry_reason()` (exists on `Metadata`, ~2378).
 
-A helper avoids repeating this four times:
+`set_binary` works on a `MetadataRecord`. Call the record-level `add_log_entry`, or wrap the record
+once. Pick whichever the site already does for its other log entries.
 
-```rust
-fn ensure_supplied_expiry_reason<M: AssetManager<E> + ?Sized, E: Environment>(
-    manager: &M, key: &Key, metadata: &mut Metadata)
-```
+## Call sites
 
-## Errors
-
-None new. `record_expiry` is infallible (best effort).
+Right after `final_status` is decided (four sites: both managers' `set_binary` and `set_state`):
+`if final_status == Status::Expired { log_supplied_expiry(&mut metadata, key, "set_state") }`.
 
 ## Known-issue preflight
 
 | Issue | Relation | Blocks? |
 |---|---|---|
-| `IMMEDIATE-SET-STATE-STATUS-MATCH-HAS-DEFAULT-ARM` | Same four sites | No (order before) |
-| `EXTERNAL-MANAGER-CANNOT-NOTIFY-REPLACED-ASSET` | `new_installed` with `Expired` leaves the reason to its caller | No |
+| `IMMEDIATE-SET-STATE-STATUS-MATCH-HAS-DEFAULT-ARM` | Same sites | Order first or merge |
+| `EXTERNAL-MANAGER-CANNOT-NOTIFY-REPLACED-ASSET` | A future `new_installed` with `Expired` should call the same helper | No |
 
 ## Relevant commands
 
@@ -45,14 +46,14 @@ None.
 
 ## Documentation architecture
 
-One sentence in the reference that states the reason invariant, with History and `reviewed:`.
+`DEPENDENCIES_STATUS.md` sentence, with History and `reviewed:`.
 
 ## Risk table
 
 | Area | Assessment |
 |---|---|
 | Likely files | `liquers-core/src/assets.rs` |
-| Existing tests | Tests that write `Expired` and compare the whole metadata may see an added log entry and reason. Search for `Status::Expired` in `set_state`/`set_binary` tests. |
-| Data | Stored records gain a reason field (an optional serde field already exists) |
+| Existing tests | Tests writing `Expired` and comparing whole metadata may see two extra log entries |
+| Data | Additive log entries only |
 | Recovery | Revert |
-| Certainty | High once decided |
+| Certainty | High |

@@ -57,7 +57,15 @@ legacy version.
 - The existing memory-store test asserts the old behaviour
   (`assert_eq!(store.get_bytes(&metadata_only_key).await?, Vec::<u8>::new())`, `store.rs` tests).
   It must change to expect `KeyNotFound`.
-- **Latent defect found:** `AssetData::try_fast_track` calls `store.get(&key).await?`. On a file
+- **Update 2026-10-06 — wrong value, and the companion fix has landed.** A metadata-only `Text`
+  entry stored as `txt` is *served as `""`* by the memory store (empty bytes deserialize as empty
+  text), so the issue is a correctness bug, not just a log message (priority raised to P2). The
+  `try_fast_track` change of `metadata-only-entry-reload` is implemented, so this design no longer
+  has to land together with it. Add the reproduction as test T7: a memory-store
+  `metadata_only_entry_on_memory_store_is_recomputed` in `liquers-core/tests/metadata_only_entry_reload.rs`,
+  which returns `""` today.
+- **Latent defect found (fixed 2026-10-06, `FAST-TRACK-FAILS-ON-METADATA-ONLY-FILE-STORE-ENTRY`):**
+  `AssetData::try_fast_track` called `store.get(&key).await?`. On a file
   store a metadata-only `Ready` entry makes `get` return `KeyNotFound`, which propagates out of the
   fast track and fails the asset's `get` instead of recomputing. After this design the memory
   store behaves the same, so `metadata-only-entry-reload` **must be implemented together** or the

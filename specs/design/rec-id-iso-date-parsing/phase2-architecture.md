@@ -2,37 +2,42 @@
 
 ## liquers-records
 
-- Move `parse_date(text) -> Result<i32, Error>` and `parse_timestamp(text) -> Result<i64, Error>`
-  from `formats/csv.rs` into `formats/mod.rs`, or a new `formats/text.rs`, as `pub(crate)`.
+- Move `parse_date(&str) -> Result<i32, Error>` and `parse_timestamp(&str) -> Result<i64, Error>`
+  from `formats/csv.rs` to `formats/mod.rs` (or a new `formats/text.rs`), `pub(crate)`.
   `csv.rs` imports them.
-- Add in `column.rs`:
+- `column.rs`:
 
   ```rust
   impl FieldValue {
-      /// Parse the text form a table shows for `data_type` (ISO 8601 for Date, RFC 3339 for
-      /// Timestamp). `Binary` and `Vector` are refused.
+      /// Parse the text a table shows for `data_type` (ISO 8601 extended date, RFC 3339 timestamp).
+      /// `Binary` and `Vector` are refused.
       pub fn parse_text(data_type: FieldType, text: &str) -> Result<FieldValue, Error>
   }
   ```
+  with an explicit match over every `FieldType`.
 
-  It uses an explicit match over every `FieldType` variant. Text, Int, UInt, Float and Bool use
-  the same parsing as today's `parse_id_value` arms.
-
-## liquers-lib
-
-`parse_id_value(data_type, id)` becomes:
+## liquers-lib (`records/commands.rs`)
 
 ```rust
-match data_type {
-    FieldType::Date => FieldValue::parse_text(data_type, id).or_else(|iso| id.parse::<i32>()
-        .map(FieldValue::Date).map_err(|_| Error::conversion_error_with_message(id, "Date",
-        &format!("expected YYYY-MM-DD (write '-' as '~' in a query) or days since 1970-01-01: {}", iso.message)))),
-    FieldType::Timestamp => /* same with i64 microseconds */,
-    other => FieldValue::parse_text(other, id),
+/// `YYYYMMDD` → `YYYY-MM-DD`; anything else unchanged.
+fn expand_basic_date(id: &str) -> Cow<'_, str>
+/// `YYYYMMDDTHHMMSS[.ffffff]Z` → `YYYY-MM-DDTHH:MM:SS[.ffffff]Z`; anything else unchanged.
+fn expand_basic_timestamp(id: &str) -> Cow<'_, str>
+
+fn parse_id_value(data_type: FieldType, id: &str) -> Result<FieldValue, Error> {
+    match data_type {
+        FieldType::Date => FieldValue::parse_text(data_type, &expand_basic_date(id))
+            .map_err(|_| Error::conversion_error_with_message(id, "Date",
+                "expected YYYYMMDD or YYYY-MM-DD (written YYYY~MM~DD in a query)")),
+        FieldType::Timestamp => /* same with expand_basic_timestamp and the two timestamp spellings */,
+        FieldType::Text | FieldType::Int | FieldType::UInt | FieldType::Float | FieldType::Bool
+        | FieldType::Binary | FieldType::Vector /* list every variant */ =>
+            FieldValue::parse_text(data_type, id),
+    }
 }
 ```
 
-The outer match lists every variant explicitly, with no default arm. `Text`/`Int`/… delegate.
+Check the actual `FieldType` variant list and list them all (no default arm).
 
 ## Known-issue preflight
 
@@ -40,18 +45,18 @@ None.
 
 ## Relevant commands
 
-`ns-rec/rec_id` (signature unchanged: `id: String`). No registry regeneration.
+`ns-rec/rec_id` (signature unchanged: `id: String`; no registry change).
 
 ## Documentation architecture
 
-RECORD_STREAMS.md `rec_id` row and spellings table, with History and `reviewed:`.
+RECORD_STREAMS.md `rec_id` row and table. QUERY_ESCAPING_GUIDE example row. History rows and
+`reviewed:` on both.
 
 ## Risk table
 
 | Area | Assessment |
 |---|---|
 | Likely files | `liquers-records/src/{column.rs, formats/csv.rs, formats/mod.rs}`; `liquers-lib/src/records/commands.rs` |
-| Existing tests | CSV date tests unchanged (moved parser, same behaviour) |
-| Compatibility | Additive: raw numbers still accepted |
+| Compatibility | Raw epoch ids stop working, which is decided |
 | Recovery | Revert |
 | Certainty | High |
