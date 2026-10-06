@@ -152,6 +152,73 @@ REPO = Path(__file__).resolve().parent.parent
 SPECS = REPO / "specs"
 
 RELATIVE_LINK_RE = re.compile(r"\]\((?!https?://)([^)]+)\)")
+FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+BACKTICK_RUN_RE = re.compile(r"`+")
+
+
+def _blank(text: str) -> str:
+    """Replace every character except newlines with a space."""
+    return re.sub(r"[^\n]", " ", text)
+
+
+def _blank_inline_code(line: str) -> str:
+    """Blank inline code spans: a run of n backticks closes at the next run of exactly n.
+
+    An unclosed run is literal text, so an unbalanced backtick cannot swallow a real link.
+    """
+    out = []
+    pos = 0
+    runs = list(BACKTICK_RUN_RE.finditer(line))
+    i = 0
+    while i < len(runs):
+        opener = runs[i]
+        closer_index = next(
+            (j for j in range(i + 1, len(runs)) if len(runs[j].group()) == len(opener.group())),
+            None,
+        )
+        if closer_index is None:
+            i += 1
+            continue
+        closer = runs[closer_index]
+        out.append(line[pos : opener.start()])
+        out.append(_blank(line[opener.start() : closer.end()]))
+        pos = closer.end()
+        i = closer_index + 1
+    out.append(line[pos:])
+    return "".join(out)
+
+
+def blank_code(text: str) -> str:
+    """Return text with fenced blocks and inline code spans replaced by spaces (newlines kept),
+    so link-shaped text inside code is not mistaken for a link. Offsets and line numbers are
+    unchanged.
+
+    Indented code blocks are not recognized: without a full parser they are indistinguishable
+    from list continuations.
+    """
+    lines = text.split("\n")
+    out = []
+    fence = None  # (character, length) of the open fence
+    for line in lines:
+        if fence is not None:
+            match = FENCE_RE.match(line)
+            if (
+                match
+                and match.group(1)[0] == fence[0]
+                and len(match.group(1)) >= fence[1]
+                and not line[match.end() :].strip()
+            ):
+                fence = None
+            out.append(_blank(line))
+            continue
+        match = FENCE_RE.match(line)
+        # A backtick fence's info string may not contain a backtick (CommonMark §4.5).
+        if match and not (match.group(1)[0] == "`" and "`" in line[match.end() :]):
+            fence = (match.group(1)[0], len(match.group(1)))
+            out.append(_blank(line))
+            continue
+        out.append(_blank_inline_code(line))
+    return "\n".join(out)
 
 
 def stable_paths(paths) -> list[Path]:
@@ -172,7 +239,7 @@ def relative_link_errors(specs: Path) -> list[str]:
     errors = []
     for path in tracked_markdown_paths(specs):
         text = path.read_text(encoding="utf-8")
-        for match in RELATIVE_LINK_RE.finditer(text):
+        for match in RELATIVE_LINK_RE.finditer(blank_code(text)):
             raw_target = match.group(1)
             target_text = raw_target.split("#", 1)[0]
             if not target_text or target_text.startswith("/"):
