@@ -5233,7 +5233,7 @@ pub trait AssetManager<E: Environment>:
                 store.get_asset_info(key).await
             } else {
                 let rp = self.get_recipe_provider();
-                if rp.contains(key, self.get_envref()).await? {
+                if rp.can_make(key, self.get_envref()).await? {
                     rp.get_asset_info(key, self.get_envref()).await
                 } else {
                     Err(Error::key_not_found(key))
@@ -5242,7 +5242,8 @@ pub trait AssetManager<E: Environment>:
         }
     }
 
-    /// Returns true if store contains the key.
+    /// Whether `key` is stored, or listed by the recipe provider (shown in its directory).
+    /// See [`Self::can_make`] for keys that can be produced without being listed.
     async fn contains(&self, key: &Key) -> Result<bool, Error> {
         let store = self.get_envref().get_async_store();
         if store.contains(key).await? {
@@ -5250,6 +5251,17 @@ pub trait AssetManager<E: Environment>:
         }
         self.get_recipe_provider()
             .contains(key, self.get_envref())
+            .await
+    }
+
+    /// Whether `key` can be got: stored, or producible by the recipe provider (listed or not).
+    async fn can_make(&self, key: &Key) -> Result<bool, Error> {
+        let store = self.get_envref().get_async_store();
+        if store.contains(key).await? {
+            return Ok(true);
+        }
+        self.get_recipe_provider()
+            .can_make(key, self.get_envref())
             .await
     }
 
@@ -5323,32 +5335,20 @@ pub trait AssetManager<E: Environment>:
         Ok(asset_info)
     }
 
-    /// Return asset info of assets inside a directory specified by key.
-    /// Return keys inside a directory specified by key.
-    /// Keys directly in the directory are returned,
-    /// as well as in all the subdirectories.
+    /// Every key under `key`: for each store directory `d` in the subtree, everything
+    /// [`Self::listdir_keys`] reports for `d`, recipe-declared keys included. Never `key` itself.
+    /// Only store directories are descended; the result is sorted and duplicate-free.
     async fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
         let store = self.get_envref().get_async_store();
-        let mut keys = store
-            .listdir_keys_deep(key)
-            .await?
-            .into_iter()
-            .collect::<BTreeSet<Key>>();
-        let mut folders = vec![];
-        for k in keys.iter() {
-            if store.is_dir(k).await? {
-                folders.push(k.clone());
-            }
-        }
-        for subkey in folders {
-            if store.is_dir(&subkey).await? {
-                let recipes = self
-                    .get_recipe_provider()
-                    .assets_with_recipes(&subkey, self.get_envref())
-                    .await?;
-                for resourcename in recipes {
-                    keys.insert(subkey.join(resourcename.name));
+        let mut keys = BTreeSet::new();
+        let mut pending = vec![key.clone()];
+        while let Some(dir) = pending.pop() {
+            for name in self.listdir(&dir).await? {
+                let child = dir.join(&name);
+                if store.is_dir(&child).await? {
+                    pending.push(child.clone());
                 }
+                keys.insert(child);
             }
         }
         Ok(keys.into_iter().collect())
@@ -5575,11 +5575,14 @@ pub trait AssetManager<E: Environment>:
     /// `ExpiryCause::Updated` when it moved.
     ///
     /// Called after every manager-mediated write or removal, with the written key's parent. It
-    /// costs one version-map read when nobody depends on the listing. It never takes
+    /// first tells the recipe provider that `dir` changed
+    /// ([`AsyncRecipeProvider::directory_changed`]), so a provider caching directory-derived
+    /// state drops it. It then costs one version-map read when nobody depends on the listing. It never takes
     /// `key_mutation_lock`, so it is safe to call with that lock held. A `listdir` error is
     /// reported with `eprintln!`: the write it follows stands, and a failed refresh must not
     /// undo it.
     async fn refresh_listing_version(&self, dir: &Key) {
+        self.get_recipe_provider().directory_changed(dir).await;
         let dep_key = crate::metadata::DependencyKey::from_dir_key(dir);
         if self.dependency_manager().get_version(&dep_key).await.is_none() {
             return;
@@ -7492,86 +7495,6 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             self.refresh_listing_version(&key.parent()).await;
         }
         result
-    }
-
-    /// Check if the resource asset exists.
-    /// If asset has a recipe, it is considered to exist even if it is not currently cached or persisted, because it can be created by evaluating the recipe.
-    ///
-    /// Arguments:
-    /// - `key`: Store key identifying the target asset/resource.
-    async fn contains(&self, key: &Key) -> Result<bool, Error> {
-        let store = self.get_envref().get_async_store();
-        if store.contains(key).await? {
-            return Ok(true);
-        }
-        self.get_recipe_provider()
-            .contains(key, self.get_envref())
-            .await
-    }
-
-    async fn keys(&self) -> Result<Vec<Key>, Error> {
-        self.listdir_keys_deep(&Key::new()).await
-    }
-
-    /// List the directory
-    /// Equivalent of store listdir method, but considering the both the store and recipes.
-    /// Used by: `listdir_keys` in this module.
-    ///
-    /// Arguments:
-    /// - `key`: Store key identifying the directory asset
-    async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
-        let store = self.get_envref().get_async_store();
-        let mut names = self
-            .get_recipe_provider()
-            .assets_with_recipes(key, self.get_envref())
-            .await?
-            .into_iter()
-            .map(|resourcename| resourcename.name)
-            .collect::<BTreeSet<String>>();
-        store.listdir(key).await?.into_iter().for_each(|name| {
-            names.insert(name);
-        });
-
-        Ok(names.into_iter().collect())
-    }
-
-    async fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
-        Ok(self
-            .listdir(key)
-            .await?
-            .into_iter()
-            .map(|name| key.join(name))
-            .collect::<Vec<Key>>())
-    }
-
-    async fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
-        let store = self.get_envref().get_async_store();
-
-        let mut keys = store
-            .listdir_keys_deep(key)
-            .await?
-            .into_iter()
-            .collect::<BTreeSet<Key>>();
-        let mut folders = vec![];
-        for k in keys.iter() {
-            if store.is_dir(k).await? {
-                folders.push(k.clone());
-            }
-        }
-
-        for subkey in folders {
-            if store.is_dir(&subkey).await? {
-                let recipes = self
-                    .get_recipe_provider()
-                    .assets_with_recipes(&subkey, self.get_envref())
-                    .await?;
-                for resourcename in recipes {
-                    keys.insert(subkey.join(resourcename.name));
-                }
-            }
-        }
-
-        Ok(keys.into_iter().collect())
     }
 
     // --- manager-primitive methods (delegate to inherent bodies / provide new ones) ---
@@ -13296,5 +13219,125 @@ recipes:
             );
         }
         Ok(())
+    }
+
+    // --- recipe-provider listing contract: deep listing, can_make, removedir ---
+
+    async fn listing_fixture_store() -> AsyncMemoryStore {
+        let store = AsyncMemoryStore::new(&Key::new());
+        let files: [(&str, &[u8]); 5] = [
+            ("data/a.txt", b"a"),
+            ("data/sub/b.txt", b"b"),
+            ("recipes.yaml", b"recipes:\n  - query: mk/root.txt\n"),
+            ("data/recipes.yaml", b"recipes:\n  - query: mk/top.txt\n"),
+            ("data/sub/recipes.yaml", b"recipes:\n  - query: mk/deep.txt\n"),
+        ];
+        for (k, v) in files {
+            store
+                .set(&parse_key(k).expect("key"), v, &Metadata::new())
+                .await
+                .expect("set");
+        }
+        store
+    }
+
+    async fn deep_listing_checks<E: Environment<Value = Value>>(envref: EnvRef<E>) {
+        let manager = envref.get_asset_manager();
+        let data = parse_key("data").expect("key");
+        let deep = manager.listdir_keys_deep(&data).await.expect("deep");
+        for d in ["data", "data/sub"] {
+            let d = parse_key(d).expect("key");
+            for k in manager.listdir_keys(&d).await.expect("shallow") {
+                assert!(deep.contains(&k), "{k} missing from deep listing");
+            }
+        }
+        assert!(!deep.contains(&data));
+        assert!(deep.iter().all(|k| k.has_key_prefix(&data)));
+        let mut sorted = deep.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(deep, sorted);
+        for name in ["data/top.txt", "data/sub/deep.txt"] {
+            assert!(deep.contains(&parse_key(name).expect("key")));
+        }
+        // C3
+        let all = manager.keys().await.expect("keys");
+        assert!(all.contains(&parse_key("root.txt").expect("key")));
+        // C4
+        for k in &all {
+            assert!(manager.contains(k).await.expect("contains"), "{k}");
+        }
+    }
+
+    #[tokio::test]
+    async fn listdir_keys_deep_is_complete_default_manager() {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(listing_fixture_store().await));
+        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider));
+        deep_listing_checks(env.to_ref()).await;
+    }
+
+    #[tokio::test]
+    async fn listdir_keys_deep_is_complete_immediate_manager() {
+        let mut env: ImmediateEnvironment<Value> = ImmediateEnvironment::new();
+        env.with_async_store(Box::new(listing_fixture_store().await));
+        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider));
+        deep_listing_checks(env.to_ref()).await;
+    }
+
+    #[tokio::test]
+    async fn removedir_unmaps_a_live_asset_of_the_directorys_own_recipe() {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(listing_fixture_store().await));
+        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider));
+        env.command_registry
+            .register_command(CommandKey::new_name("mk"), |_, _, _| Ok(Value::from("x")))
+            .expect("register mk");
+        let envref = env.to_ref();
+        let manager = envref.get_asset_manager();
+        let top = parse_key("data/top.txt").expect("key");
+        manager.get(&top).await.expect("get").get().await.expect("value");
+        assert!(manager.lookup_key_asset(&top).is_some());
+        manager.removedir(&parse_key("data").expect("key")).await.expect("removedir");
+        assert!(manager.lookup_key_asset(&top).is_none());
+    }
+
+    #[tokio::test]
+    async fn manager_can_make_covers_unlisted_producible_keys() {
+        struct Gen;
+        #[async_trait]
+        impl AsyncRecipeProvider<SimpleEnvironment<Value>> for Gen {
+            async fn has_recipes(&self, _k: &Key, _e: EnvRef<SimpleEnvironment<Value>>) -> Result<bool, Error> {
+                Ok(false)
+            }
+            async fn assets_with_recipes(
+                &self,
+                _k: &Key,
+                _e: EnvRef<SimpleEnvironment<Value>>,
+            ) -> Result<Vec<crate::query::ResourceName>, Error> {
+                Ok(vec![])
+            }
+            async fn recipe_plan(&self, k: &Key, _e: EnvRef<SimpleEnvironment<Value>>) -> Result<crate::plan::Plan, Error> {
+                Err(Error::key_not_found(k))
+            }
+            async fn recipe(&self, k: &Key, e: EnvRef<SimpleEnvironment<Value>>) -> Result<Recipe, Error> {
+                self.recipe_opt(k, e).await?.ok_or_else(|| Error::key_not_found(k))
+            }
+            async fn recipe_opt(&self, k: &Key, _e: EnvRef<SimpleEnvironment<Value>>) -> Result<Option<Recipe>, Error> {
+                Ok(k.filename()
+                    .filter(|n| n.name.ends_with(".gen"))
+                    .map(|_| Recipe::default()))
+            }
+        }
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+        env.with_recipe_provider(Box::new(Gen));
+        let envref = env.to_ref();
+        let manager = envref.get_asset_manager();
+        let key = parse_key("a/x.gen").expect("key");
+        assert!(!manager.contains(&key).await.expect("contains"));
+        assert!(manager.can_make(&key).await.expect("can_make"));
+        assert!(!manager.can_make(&parse_key("a/x.txt").expect("key")).await.expect("can_make"));
+        assert!(manager.get_asset_info(&key).await.is_ok());
     }
 }

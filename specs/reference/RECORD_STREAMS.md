@@ -3,7 +3,7 @@ title: Record Streams
 kind: reference
 audience: internal
 area: [records, lib/value, lib/commands, web]
-reviewed: 2026-09-27
+reviewed: 2026-10-06
 ---
 
 # Record Streams
@@ -362,9 +362,15 @@ anywhere a `recipes.yaml` entry would be, not only through the source.
 | explicit | the chunk's own recipe, `cwd` = the folder, the manifest's `arguments` / `links` merged **under** the chunk's (the chunk wins), and `volatile`, `expires`, `stored`, `cached` **replaced** by the manifest's |
 
 Caches: parsed manifests by key, re-validated against the store's metadata version on each hit (a
-store that reports no version re-reads every time); and each folder's list of manifest names, **for
-the provider's lifetime**
-([`MANIFEST-PROVIDER-FOLDER-LISTING-NEVER-REFRESHES`](../issues/MANIFEST-PROVIDER-FOLDER-LISTING-NEVER-REFRESHES.md)).
+store that reports no version re-reads every time); and each folder's list of manifest names, which is
+**event-driven**: the asset manager (and the HTTP Store API, through it) calls
+`directory_changed` after every write or removal, dropping the folder listings of that directory
+and its subtree, so a manifest uploaded to a running server is seen at once. Parsed manifests stay
+cached (the per-hit version check evicts a removed one). A fill racing an invalidation is never
+kept. A change made directly on disk is not seen until `ManifestRecipeProvider::clear_cache()` is
+called. A template chunk is *producible* (`can_make`) but never *listed* (`contains`); a template
+chunk's key is resolved without the folder listing (it names its manifest by prefix), so only
+explicit chunks and non-canonical names depend on it.
 A store's `KeyNotFound` or `KeyNotSupported` for a manifest or folder means "no manifest here".
 
 **Provider chain.** With `records`, `LibKind::default_recipe_provider()` is
@@ -782,5 +788,6 @@ materializes to an empty batch; without one it is an error.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-06 | §Caches: the folder listing is event-driven (`directory_changed`, Store API included), `clear_cache()` for out-of-band edits; template chunks are producible, not listed. | phase-5 |
 | 2026-09-27 | PR #72 review: a directory is listed through `-R-sdir/…` (the key now carries across that header's boundary); `concat` refuses a differing key role; `Binary` base64 is read strictly. | PR #72 review |
 | 2026-09-27 | Created from the implementation at HEAD, following `design/record-streams/` Phase 2's documentation contract; checked against `liquers-records`, `liquers-lib/src/records/`, `liquers-lib/src/value/mod.rs` and `liquers-web/src/records.rs`. | phase-5 |

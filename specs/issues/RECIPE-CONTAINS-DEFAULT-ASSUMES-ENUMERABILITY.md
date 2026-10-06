@@ -2,7 +2,7 @@
 id: RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY
 kind: issue
 title: AsyncRecipeProvider::contains has a default that silently assumes recipes are enumerable
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/assets]
@@ -114,3 +114,7 @@ Owned by [`design/recipe-provider-listing-contract/`](../design/recipe-provider-
 design `recipe-contains-addressability` (now `superseded`) with the designs of `RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY`,
 `MANIFEST-PROVIDER-FOLDER-LISTING-NEVER-REFRESHES` and `ASSET-MANAGER-LISTDIR-KEYS-DEEP-OMITS-TOP-LEVEL-RECIPES`,
 because their implementations depend on each other. The three issues are resolved by one implementation.
+
+## Resolution
+
+`AsyncRecipeProvider` now has `contains` (listed, enumerating default kept) and `can_make` (producible, default `recipe_opt(key).is_some()`), mirrored by `AssetManager::can_make`; describe/submit/subscribe guards use `can_make`. Decisions: Phase 1 of `design/recipe-provider-listing-contract/`. Evidence: `recipes.rs` tests `on_demand_provider_splits_contains_and_can_make`, `chain_forwards_contains_and_can_make`, `can_make_propagates_recipe_errors`; `assets.rs` `manager_can_make_covers_unlisted_producible_keys`; axum `rplc01`, `rplc02`.

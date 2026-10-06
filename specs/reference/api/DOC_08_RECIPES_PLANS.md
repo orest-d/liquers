@@ -3,7 +3,7 @@ title: Recipes and Plans Reference
 kind: reference
 audience: internal
 area: [core/plan, core/assets, core/context]
-reviewed: 2026-09-27
+reviewed: 2026-10-06
 ---
 # DOC-08: Recipes and Plans
 
@@ -132,8 +132,19 @@ lookup, and plan convenience operations.
 | `recipe` | `Err` |
 | `recipe_opt` | `Ok(None)` |
 | `contains` | `Ok(false)` |
+| `can_make` | `Ok(false)` |
 | `recipe_plan` | `Err` |
 | `assets_with_recipes` | Empty list when the directory has none |
+
+**Listed vs producible.** A provider answers two questions. `contains(key)` asks whether `key` is
+among what its folder **shows** (what `assets_with_recipes` lists for `key.parent()`).
+`can_make(key)` asks whether the provider can **produce** `key`, listed or not: it defaults to
+`recipe_opt(key).is_some()`, errors from `recipe_opt` propagate, and `can_make ⊇ contains` must hold.
+A provider that makes keys on demand (template-generated names) therefore needs no override to
+answer correctly: it lists nothing, `contains` is `false`, `can_make` is `true`.
+`directory_changed(dir)` (default: nothing) is called by the asset manager after every write or
+removal it mediates, with the written key's parent; a provider that caches directory-derived state
+drops it for `dir` and its subtree.
 
 Provider and parsing failures can otherwise remain errors. `get_asset_info`
 describes a recipe-backed asset and planning diagnostics; it does not prove that
@@ -163,7 +174,9 @@ under such a folder resolve without a recipe instead of failing.
 | Method | Chain behaviour |
 |---|---|
 | `recipe_opt` | The first provider answering `Some`; an `Err` from an earlier provider propagates without consulting the rest |
-| `contains` | `true` if any provider's **`recipe_opt`** answers `Some` — not any provider's `contains`, which may rest on the enumerating default |
+| `contains` | `true` if any provider's `contains` is |
+| `can_make` | `true` if any provider's **`recipe_opt`** answers `Some` |
+| `directory_changed` | forwarded to every provider, in order |
 | `has_recipes` | `true` if any provider's does |
 | `assets_with_recipes` | The union, in provider order, without duplicates |
 | `recipe`, `recipe_plan`, `get_asset_info` | Delegated whole to the provider that has the key; otherwise the same not-found error `DefaultRecipeProvider` returns |
@@ -174,7 +187,8 @@ A chain is built in code: `EnvironmentBuilder::with_appended_recipe_provider`
 `liquers-lib` with its `records` feature defaults to
 `[DefaultRecipeProvider, ManifestRecipeProvider]`; the second is a generative
 provider synthesizing recipes for keyed record chunks named by a
-`*.manifest.yaml`, so it overrides `contains` to match rather than enumerate. See
+`*.manifest.yaml`; it lists only explicit chunks (`contains`) and produces template chunks
+(`can_make`, through the default). See
 [`ENVIRONMENT_CONFIG.md`](../ENVIRONMENT_CONFIG.md) §The recipe provider chain.
 
 ### Selecting a provider by name
@@ -632,6 +646,7 @@ runtime behavior is unchanged.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-06 | §Provider contract: `contains` (listed) vs `can_make` (producible), `directory_changed`; chain table; manifest provider lists explicit chunks only. | phase-5 |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. Recipe contract gains `stored` and `cached`; added §Composing providers: `RecipeProviderChain` (delegation table, `contains` through `recipe_opt`), `with_appended_recipe_provider`, and `liquers-lib`'s `[DefaultRecipeProvider, ManifestRecipeProvider]` default; `has_recipes` answers `false` for a store's `KeyNotSupported`; plan execution records that the next step's state carries the fetched key as metadata `key`. | phase-5 |
 | 2026-08-29 | Documented `RecipeProviderChoice`: the named selection of the two built-in providers, the `trivial` aliases `none` and `no_recipes`, the document default, and why the set is closed. | RECIPE-PROVIDER-BY-NAME |
 | 2026-08-26 | Cutting at the outermost cacheable predecessor is now the **default**. Added "Where a boundary goes" — the three conditions (volatility, payload, input state), which are per candidate and which per application, and how to obtain a fully expanded plan. Superseded the paragraph deferring that decision; five new pitfall rows; `frozen_cwd`, `predecessor`, `prologue_steps` and `volatility_source` in the plan fields; a paragraph on `v`'s whole-plan scope. | PREDECESSOR-CUT-EQUIVALENCE |

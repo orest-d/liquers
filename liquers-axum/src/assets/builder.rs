@@ -178,6 +178,7 @@ impl<E: Environment> AssetsApiBuilder<E> {
             )
             .route(&format!("{b}/key/version/{{*key}}"), get(kh::key_version_handler::<E>))
             .route(&format!("{b}/key/contains/{{*key}}"), get(kh::key_contains_handler::<E>))
+            .route(&format!("{b}/key/can_make/{{*key}}"), get(kh::key_can_make_handler::<E>))
             .route(&format!("{b}/key/recover/{{*key}}"), get(kh::key_recover_handler::<E>))
             .route(&format!("{b}/key/listdir"), get(kh::key_listdir_root_handler::<E>))
             .route(&format!("{b}/key/listdir/{{*key}}"), get(kh::key_listdir_handler::<E>));
