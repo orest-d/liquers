@@ -17,6 +17,32 @@
      `Expired`, `Error`). Recommended: neither primitive writes a raw status into a live asset,
      which was the reason given for keeping the list closed.
 
+## Plain-language explanation (for the decision)
+
+An `AssetManager` is the component that keeps the live assets (in-memory values, running
+evaluations) for each key. Liquers ships two: the queued one (native) and the immediate one
+(browser). Part F of `dependency-audit-and-expiry-provenance` made it possible to write a **third
+manager outside `liquers-core`**, for example a manager that shares assets across a cluster or
+proxies a remote server. It did that by making the lifecycle building blocks public. None ships
+today. The only one is the test fixture `liquers-core/tests/common/minimal_manager.rs`.
+
+Two things such a manager still cannot do, because the building blocks are private:
+
+1. **Say goodbye to a replaced asset.** When someone writes a new value for a key
+   (`set_state`/`set_binary`), the old live asset is replaced. A UI or websocket client watching
+   the old asset should then receive a final "Removed" message, so it re-subscribes to the new
+   one. The built-in managers send it. An external one can only cancel the old asset, so the
+   watcher sees "Cancelled" and may show an error instead of switching to the new value.
+2. **Hold a value that cannot be written to bytes.** The built-in managers can keep, say, a UI
+   widget in memory under a key. An external manager can only store things that serialize, so it
+   refuses such values.
+
+The decision: open these two doors (two small public functions, guarded so they cannot set an
+arbitrary status), or declare that external managers have this narrower contract and document it.
+There is no user-visible effect either way until someone writes an external manager. Opening them
+is cheap now and avoids a breaking change later. Keeping them closed keeps the public surface
+smaller.
+
 ## Problem
 
 Part F of `dependency-audit-and-expiry-provenance` made the lifecycle primitives an external

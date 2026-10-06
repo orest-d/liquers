@@ -318,6 +318,7 @@ deliberately folded behind a broader line.
 - design `command-registry-issue-fields`
 - design `configuration-error-kind`
 - design `context-title-description`
+- design `context-title-predecessor-inheritance`
 - design `core-dead-code-hygiene`
 - design `core-error-payload-size`
 - design `core-no-default-features-compatibility`
@@ -325,6 +326,8 @@ deliberately folded behind a broader line.
 - design `csv-physical-lines-short-rows`
 - design `delegated-value-persistence`
 - design `delegated-value-repersisted`
+- design `dependency-chain-analysis-cost`
+- design `dependency-edge-superseded-version`
 - design `dependency-failure-error-subject`
 - design `designer-init-argument-parsing`
 - design `docs-current-link-validation`
