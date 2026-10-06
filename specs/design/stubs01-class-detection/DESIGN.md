@@ -29,4 +29,6 @@ the first four phases, reviewed without phase approval. Not an approval and not 
 
 ## Implementation (2026-10-06)
 
-Implemented as planned (Wave 0 of `archive/2026-10-06-p2-p3-s-implementation-order-revised.md`): the awk pass in `liquers-web/scripts/check-stubs.sh`, with one addition to Phase 2: `FNR == 1 { pending = "" }`, so a name pending at the end of one file cannot attach to a struct in the next. The fallback list is replaced by a STUBS01 failure. T3 output matches exactly.
+Implemented as planned (Wave 0 of `archive/2026-10-06-p2-p3-s-implementation-order-revised.md`): the awk pass in `liquers-web/scripts/check-stubs.sh`, with one addition to Phase 2: `FNR == 1 { pending = "" }`, so a name pending at the end of one file cannot attach to a struct in the next. The fallback list is replaced by a STUBS01 failure. T3 output matches exactly. T1 passes after `build.sh` and lists `Key` and `Query`. T2 found that the declaration match
+was a prefix match (`KeyX` satisfied `Key`); it is now anchored at the end of the name, and T2 fails
+as intended.

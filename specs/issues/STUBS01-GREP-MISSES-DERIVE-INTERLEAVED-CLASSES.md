@@ -77,5 +77,9 @@ blank lines, emits it at the next `pub struct` / `pub enum`, and clears it on an
 gone; an empty detection is a STUBS01 failure.
 
 Evidence: the awk pass alone over `liquers-web/src` yields Asset, Environment, Key, LiquersError,
-Query, RecordBatch, State, Store, Value (the old grep missed Key and Query). See the design's
-implementation note for the full `check-stubs.sh` run.
+Query, RecordBatch, State, Store, Value (the old grep missed Key and Query). After `build.sh`,
+`check-stubs.sh` passes and lists `class Key` and `class Query` (T1).
+
+T2 (renaming `export class Key` to `KeyX` in the generated `.d.ts`) found a second gap: the
+declaration match `^export class $class` was a prefix match, so `KeyX` satisfied `Key`. It now
+requires the name to end there (`^export class $class( |\{|$)`), and T2 fails on `Key` as intended.

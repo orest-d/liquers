@@ -77,7 +77,7 @@ if [[ -z "$expected_classes" ]]; then
 fi
 while read -r class; do
     [[ -z "$class" ]] && continue
-    if grep -q "^export class $class" "$decl"; then
+    if grep -qE "^export class $class( |\\{|$)" "$decl"; then
         pass "class $class"
     else
         fail "class $class is not declared"
