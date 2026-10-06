@@ -3,7 +3,7 @@ title: Liquers Project Overview
 kind: reference
 audience: internal
 area: [core/query, core/plan, core/assets, core/store, core/value]
-reviewed: 2026-09-27
+reviewed: 2026-10-06
 ---
 # Liquers Project Overview
 
@@ -100,7 +100,7 @@ adapter trait.
 | `state.rs` | ~150 | State = Value + Metadata |
 | `plan.rs` | ~200 | Execution plan representation |
 | `recipes.rs` | ~200 | Recipe definitions (queries + metadata + overrides) |
-| `cache.rs` | ~150 | Query result caching |
+| `cache.rs` | ~350 | Legacy synchronous cache; obsolete (assets cache results), removal tracked in `CORE-SYNC-STORE-TRAIT-OBSOLETE` |
 | `parse.rs` | ~400 | nom-based query parser |
 | `error.rs` | ~300 | Error types and handling |
 | `dependencies.rs` | ~150 | Version tracking for cache invalidation |
@@ -520,6 +520,7 @@ Session (user session - currently minimal)
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-06 | Module table: `cache.rs` is a legacy synchronous cache, obsolete since assets cache results; its removal is tracked in `CORE-SYNC-STORE-TRAIT-OBSOLETE`. | `REPO-DEAD-CODE-HYGIENE`, `design/core-dead-code-hygiene/` |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. Added `liquers-records` to the crate structure with the dependency flow `liquers-core ← liquers-records ← liquers-lib` (feature `records`); records as a `liquers-lib` value family; the `Recipe` struct's `expires`, `stored` and `cached`; recipe providers as a chain with keyed record chunks served by the generative `ManifestRecipeProvider`; and §6: the state handed to the next step carries the fetched key as its metadata `key`. | phase-5 |
 | 2026-08-18 | Value typing became an explicit model with a registry; `specs/reference/VALUE_TYPE_SYSTEM.md` now owns it, and type identifiers changed from the previous scheme in which five variants shared `"generic"`. | `design/value-type-system/` |
 | 2026-08-17 | Corrected §5 Storage: it claimed "safe encoding prevents arbitrary file access", which was not true — a key containing `..` escaped the file store root. States the absolute-key precondition, its error and where relative navigation actually belongs. | `design/store-key-guard/` |

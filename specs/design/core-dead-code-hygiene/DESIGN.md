@@ -4,7 +4,7 @@ kind: design
 title: Account for the entities and cache modules of liquers-core
 workflow: liquers-project
 status: in_review
-phase: implementation
+phase: documentation
 readiness: ready
 area: [build]
 issues: [REPO-DEAD-CODE-HYGIENE]
@@ -18,7 +18,7 @@ created: 2026-09-03
 - [x] Phase 2: Architecture
 - [x] Phase 3: Examples and Tests
 - [x] Phase 4: Implementation Plan
-- [ ] Phase 5: Documentation (plan written; executed after implementation)
+- [ ] Phase 5: Documentation (executed 2026-10-06; awaiting approval)
 
 Phases 1-4 were rewritten on 2026-10-05: the first version was generic template text, which the
 post-Phase-4 review found too thin to implement from.

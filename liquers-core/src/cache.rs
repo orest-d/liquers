@@ -1,7 +1,11 @@
+//! Legacy synchronous query cache (`BinCache`, `Cache`). **Obsolete: do not use in new code.**
+//!
+//! Assets provide caching (`crate::assets`); nothing in `liquers-core` uses this module. Its one
+//! remaining consumer is `liquers-py`'s legacy `Environment` (`cache` field, `with_cache`), and it
+//! is removed together with the synchronous `Store` trait and that environment's fields
+//! (`CORE-SYNC-STORE-TRAIT-OBSOLETE`).
 #![allow(unused_imports)]
 #![allow(dead_code)]
-
-use chrono::format;
 
 use crate::error::Error;
 use crate::state::State;
