@@ -127,7 +127,13 @@ await env.configureStore({
 const store = env.store();
 await store.set('local/out.txt', new TextEncoder().encode('hello'));
 const bytes = await store.get('data/input.csv');
+const info = await store.getAssetInfo('data/input.csv');  // info.media_type === 'text/csv'
 ```
+
+`getMetadata` returns the raw stored record, whose `media_type` holds only a declared override and
+is usually `null`. `getAssetInfo` returns what the system derives from it — the effective
+`media_type`, `data_format`, `filename` and `is_dir` — and is what a page should read to decide how
+to show a key.
 
 | `type` | Backend | Writes |
 |---|---|---|
