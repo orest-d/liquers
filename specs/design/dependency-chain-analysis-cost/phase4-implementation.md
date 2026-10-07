@@ -61,9 +61,14 @@ Phase 3 I6, CLAUDE.md "Diagnostic Output". Rationale: a mechanical port.
 - **`walk_plan`.** The step match of today's `find_dependencies`, with every `Step` variant matched
   explicitly and no `_ =>`. In the `GetAsset*` arm:
   - resolve the key exactly as today;
-  - push the `StateArgument` dependency, and the `Recipe` dependency when `recipe_opt` finds a
-    recipe;
-  - call `summarize_key`, and merge its summary instead of extending the dependency list.
+  - push the `StateArgument` dependency;
+  - call `summarize_key`, which makes the **only** `recipe_opt` call for this key (a second lookup
+    in the arm would make U6 count 62 and R3 count 2). On `Some(summary)` push the `Recipe`
+    dependency and merge the summary instead of extending the dependency list; on `None` (no
+    recipe) push nothing more.
+  - Also summarize link parameter keys and `GetAssetRecipe` keys, per Phase 2 "Which keys are
+    summarized" (links: `expires` plus the link's *own* `volatile` flag; `GetAssetRecipe`:
+    `expires` only). Without this, U8d and U8e fail and the "preserved exactly" claim is false.
 
   `Evaluate`, `Step::Plan`, `Action`, `GetAssetDirectory` and `GetAssetRecipe` keep today's bodies:
   the walk recurses through anonymous steps, their dependencies pass through, and `Evaluate`
@@ -95,7 +100,7 @@ Phase 3 I6, CLAUDE.md "Diagnostic Output". Rationale: a mechanical port.
 - **Tests.**
   - Changed tests: R1–R4 and R6. The ten `find_dependencies` call sites: four in `src`, which
     become walk internals, and six in tests.
-  - New unit tests U1–U11, U8b and U8c. U5, U6, U11 use `CountingRecipeProvider`, extended with
+  - New unit tests U1–U11, U8b–U8e. U5, U6, U11 use `CountingRecipeProvider`, extended with
     a recipe without `cwd` for U11.
 
 **Code changes (signatures, as Phase 2):**
@@ -164,8 +169,12 @@ need care.
   `sed` breaks the definitions and imports, so:
   1. Hand-edit `recipes.rs:684-712` (the struct and its `impl`s) and `recipes.rs:1699`.
   2. Run a `perl -pi` pass over the files from `rg -l '\bDefaultRecipeProvider\b' --type rust`.
-     It **skips** lines matching `^\s*(//|use\b|pub struct|impl\b)` and lines containing `{` as
-     part of a `use …::{…}` list, and rewrites `\bDefaultRecipeProvider\b(?=\s*($|[),;.]))` to
+     It **skips** lines matching `^\s*(//|use\b|pub struct|impl\b)`, lines containing `{` as
+     part of a `use …::{…}` list, and lines that are only a path inside a multi-line `use` list
+     (`^\s*[\w:]*\bDefaultRecipeProvider\s*,?\s*$`: `recipes::DefaultRecipeProvider,` in six
+     `liquers-core/tests` files — `external_change_integration`, `expiry_provenance_integration`,
+     `dependency_scheduling`, `external_asset_manager`, `context_title_description`,
+     `manager_parametric` — which the rewrite would otherwise turn into `::new(),`), and rewrites `\bDefaultRecipeProvider\b(?=\s*($|[),;.]))` to
      `DefaultRecipeProvider::new()`. The `$` alternative catches end-of-line uses such as
      `liquers-records/src/provider.rs:205`.
   3. Review `git diff` by hand: doc links such as `recipes.rs:880, 961` must stay unchanged, and
@@ -217,11 +226,14 @@ mechanical.
   `crate::maybe_send::BoxFuture<'a, StoredDependencyState>` and carries a `HashSet` of on-path keys
   and a `HashMap` memo for the call. Per key:
   1. If `dependency_manager().get_version(key)` has a version, return `Known(v)`.
-     - **Why `Known` needs no recursion.** A key holds a version in the manager only if it was
-       computed in this process, or loaded through `try_fast_track` under the same policy, whose
-       checks passed (under `OnLoad`, via this walk). Every later upstream change cascades
-       through the edges registered then, and the cascade removes its version. A `Known` key is
-       therefore as fresh as the policy guarantees.
+     - **Why `Known` needs no recursion.** A key holds a version in the manager if it was
+       computed or written in this process, loaded through `try_fast_track` (under `Explicit`
+       after a one-level check only; under `OnLoad`, via this walk), or registered by an audit
+       (`audit_version`). Decision 1 says the manager uses what it knows, so the walk stops
+       there. Deep staleness behind a `Known` key loaded under `Explicit` is not found by this
+       walk: the loaded key's own records left gaps in the manager, and
+       `trigger_dependency_audit_all_registered` walks those. (The per-key audit does not; see
+       the final review.)
   2. If the key is not store-resolvable, return `Unresolvable`. Callers treat a non-resolvable
      record as compatible, as today.
   3. If the key is on the current path, return `Unresolvable`.
@@ -238,8 +250,14 @@ mechanical.
      - Against `Confirmed(v)`, use equality, with a recorded `unknown()` compatible.
      - A child `Stale { dependency, .. }` makes this key `Stale { version: own, dependency }`, and
        nothing is registered for this key.
-     - `Unresolvable` refuses only when the record is store-resolvable and its version is not
-       unknown, which is today's `OnLoad` rule.
+     - A record whose version is `unknown()` is compatible and is **not** recursed into. That is
+       today's rule; it keeps the walk from reaching into keys whose version was never known.
+     - A child that answers `Unresolvable` (absent, unversioned, unreadable, or on a record cycle)
+       for a store-resolvable record with a known version makes this key
+       `Stale { version: own, dependency: child }`. A missing intermediate is a stale upstream,
+       which is Phase 1 Decision 2's "`OnLoad` refuses". So **`Unresolvable` is only ever returned
+       for the asked key itself**, never inherited, and an audit cannot register an unconfirmed
+       intermediate as `Known` (it takes the `Stale` path).
   7. If everything holds: `observe_version(key, v)`, then
      `load_from_records(key, records)`. Pass its `ExpiredDependents` to
      `expire_dependencies_result(…, ExpiryCause::Updated { version: v })`, as `assets.rs:1407-1416`
@@ -389,7 +407,7 @@ scope. File any unrelated failure as an issue (CLAUDE.md).
 ## Testing Plan
 
 ### Unit Tests
-- **After Step 2:** `cargo test -p liquers-core --lib plan::` (U1–U11, U8b, U8c, R1–R4, R6).
+- **After Step 2:** `cargo test -p liquers-core --lib plan::` (U1–U11, U8b–U8e, R1–R4, R6).
 - **After Step 3:** `cargo test -p liquers-core --lib recipes::` (U12–U14, U12b, U12c).
 - **After Step 4:** `cargo test -p liquers-core --lib assets::` (U15–U25).
 - **After every step:** `cargo test -p liquers-core --lib --tests`. Only the design-changed tests
@@ -418,9 +436,9 @@ cargo run -p liquers-core --features cli --bin liquers-validate -- --command mak
 | Step | Model | Skills | Parallel with |
 |---|---|---|---|
 | 1 Benchmark | haiku | liquers-unittest | — |
-| 2 Planner walk | sonnet | rust-best-practices, liquers-unittest | 3 (different files except `recipes.rs:632`, which is a one-line conflict; do 2 first) |
-| 3 Recipe cache | sonnet + haiku sweep | rust-best-practices | after 2 |
-| 4 Stored walk | sonnet | rust-best-practices, liquers-unittest | 2, 3 (separate file) |
+| 2 Planner walk | sonnet | rust-best-practices, liquers-unittest | 4 |
+| 3 Recipe cache | sonnet + haiku sweep | rust-best-practices | after 2 and 4 (the sweep edits `assets.rs` and `interpreter.rs` test code, and `recipes.rs` near 632) |
+| 4 Stored walk | sonnet | rust-best-practices, liquers-unittest | 2 (separate file) |
 | 5 Wiring | sonnet | rust-best-practices, liquers-unittest | after 4 |
 | 6 Tests and bound | haiku | liquers-unittest | after 3, 5 |
 | 7 Validation | sonnet | rust-best-practices | last |
@@ -473,6 +491,39 @@ Steps 1–7 merged into the PR branch, all validation green, and review comments
 ## Execution Options
 After approval: execute now (Steps 1–7 in order, one commit each), create a task list, revise, or
 exit.
+
+## Open Decision Before Execution (from the final review)
+
+**B1. The per-key audit loses depth.** `trigger_dependency_audit(query)`, which backs the axum
+`admin/audit/{key}` endpoint, audits the gaps on the key's direct edges
+(`missing_versions_for`, `dependencies.rs:1016`). Under `Explicit`, after a restart where `l2` and
+`l1` were fast-tracked, `l1` is `Known`, though checked only one level deep, so auditing `l2`
+finds nothing. Today it is caught, because `l2` records `make_text` directly.
+`trigger_dependency_audit_all_registered` still catches it.
+
+- **Recommendation.** An audit is an explicit request to check against storage, so it should
+  verify rather than trust. Give the walk a `trust_known: bool`:
+  - `OnLoad` passes `true`. Under `OnLoad` every `Known` key was itself loaded deep.
+  - Both audits pass `false`: they re-read the stored records of store-resolvable keys recursively
+    even when the manager knows a version. They still compare with the known version, and still
+    memoize per call.
+  - The per-key audit then calls the walk on each recorded dependency of the key.
+  - Cost: O(upstream) store metadata reads per audit, which is acceptable for an explicit
+    operation.
+- **Alternative.** Document the per-key audit as direct-only, and point users to the
+  all-registered audit.
+- **Test either way.** I4d `per_key_audit_catches_deep_upstream_change`.
+
+## Accepted Deviations Noted in Review
+
+- **CWD for recipes without their own `cwd`.** Today's expiry pass analyses upstream recipe plans
+  with CWD `None` (`plan.rs:2860`), while `find_dependencies` uses the caller's cursor. The walk
+  uses the caller's cursor for both, consistent with how dependencies are resolved. It matters
+  only for providers that leave `cwd` unset; `DefaultRecipeProvider` always sets it.
+- **"Expiration combined with asset dependency …" info lines** now name the direct keys whose
+  summaries changed the expiry, not every transitive key. No test asserts them.
+- **In-process freshness under `Explicit`** without a touch or an audit can stay stale
+  indefinitely. This is Phase 1 Decision 1, documented as a pitfall in Phase 3.
 
 ## Critical Review Checklist
 - [x] Every step has files, signatures, validation, rollback and an agent specification

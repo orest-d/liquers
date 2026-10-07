@@ -42,6 +42,8 @@ Every assertion on a dependency list describes the state **after** the change.
 | U8 | unit, `plan.rs` | `declared_volatile_upstream_marks_plan_volatile` | A volatile recipe two levels up: plan volatile; message names the same key as today |
 | U8b | unit, `plan.rs` | `declared_volatile_names_sorted_first_key` | Two volatile upstream keys reached in the opposite order to their sort order: the message names the `DependencyKey`-sorted-first one |
 | U8c | unit, `plan.rs` | `upstream_volatile_command_does_not_mark_plan_volatile` | Pins the preserved scope: an upstream recipe using a volatile *command* (not `volatile: true`) leaves the plan non-volatile at plan time, as today |
+| U8d | unit, `plan.rs` | `link_parameter_contributes_expiry_and_own_volatility` | A link parameter (`~X~-R/…~E`) to a keyed recipe: its upstream expiry is combined and its own `volatile: true` marks the plan volatile, as today; a volatile recipe *upstream of* the link does not (Phase 2 "Which keys are summarized") |
+| U8e | unit, `plan.rs` | `get_asset_recipe_step_contributes_expiry` | A `GetAssetRecipe` step combines the read key's expiry, as today's `recipe_key()` branch does |
 | U9 | unit, `plan.rs` | `immediate_expiry_upstream_marks_plan_volatile` | The `changed && is_volatile()` gate |
 | U10 | unit, `plan.rs` | `walk_error_applies_nothing` | On a cycle, `plan.error` is set; dependencies, volatility and expiry are untouched |
 | U11 | unit, `plan.rs` | `memo_respects_caller_cwd_for_recipe_without_cwd` | Same key, two caller cursors, recipe without `cwd`: two results |
@@ -160,6 +162,14 @@ assert_eq!(l2, "NEW");
   - *Cause:* the default policy uses only what the manager knows.
   - *Fix:* run `OnLoad` for a strict service, or call an audit at startup. This is a documented
     behaviour change.
+- **An in-process upstream change behind an unloaded intermediate, under `Explicit`.**
+  - *Symptom:* after a restart `l2` is fast-tracked (registering only the edge `l1 → l2`) and `l1`
+    is never loaded; `l0` is then recomputed in this process, yet `l2` (and any query asset over
+    it) is not expired.
+  - *Cause:* the manager holds no `l0 → l1` edge, so the cascade cannot reach `l2`. Today `l2`
+    records `l0` directly and is expired at once. This is Decision 1's "served until `l1` is
+    touched", in-process as well as across the restart.
+  - *Fix:* `trigger_dependency_audit_all_registered` (the gap `l1` is walked), or `OnLoad`.
 - **A recipe provider that leaves `cwd` unset.** Its recipe's relative operands resolve against the
   caller's cursor, so the memo key includes that cursor (U11). Analyses stay correct, with fewer
   memo hits.
@@ -225,7 +235,7 @@ None.
 ## Test Plan
 
 ### Unit Tests
-U1–U20 in the files named, plus the changed R1–R4. Planner tests use `ImmediateEnvironment` with
+U1–U25 (with U8b–U8e, U12b, U12c) in the files named, plus the changed R1–R4 and R6. Planner tests use `ImmediateEnvironment` with
 `CountingRecipeProvider` (already in `plan.rs` tests). Recipe-cache tests use
 `SimpleEnvironment<Value>` over `AsyncMemoryStore`. Asset-manager tests use the existing
 `expiry_test_envref()` pattern with hand-written stored metadata.

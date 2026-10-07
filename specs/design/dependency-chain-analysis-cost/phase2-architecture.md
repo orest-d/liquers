@@ -30,7 +30,7 @@ blocks `l2` even when `l1` is still stored `Ready`. That happens when `l0` expir
 that never loaded `l1`. With direct records `l2` sees only `l1`, which is `Ready`, so under
 `Explicit` it is served. This is the same consequence as Decision 1's version case: no extra
 metadata scan under `Explicit`. Under `OnLoad` the walk checks status recursively, and an audit
-catches it. Recorded as accepted under Decision 1, for the maintainer to confirm.
+catches it. Accepted by the maintainer as part of Decision 1 (Phase 2 Decision 3).
 
 **3. The recipe cache checks bytes, not `directory_changed`.** Phase 1 Core Interactions said the
 cache is invalidated by `directory_changed`. A hook misses `recipes.yaml` edits made behind Liquers'
@@ -217,6 +217,16 @@ evaluation of link *i* costs about 3·i lookups instead of 3·(i+1)².
   `recipe.volatile` over the transitive list, which never looked at a dependency's commands.
   Extending volatility to upstream volatile *commands* would be a behaviour change and is out of
   scope.
+- **Which keys are summarized** (amended in the final review). Today's passes look up recipes for
+  every key in the transitive list, not only `GetAsset*` operands: `has_volatile_dependencies`
+  checks every `-R/` key, which includes **link parameters** (`OverrideLink` / `EnumLink`, from
+  `collect_parameter_dependencies`), and `has_expirable_dependencies_impl` takes
+  `key()` **or** `recipe_key()`, which also includes `GetAssetRecipe` steps. To preserve that, the
+  walk also calls `summarize_key` for a link whose dependency key is a plain `-R/` key (merging its
+  `expires`, and its *own* recipe's `volatile` flag only, since today's list never reached a
+  link's upstream; `DependencySummary` therefore also carries whether `K`'s own recipe is
+  volatile) and for a `GetAssetRecipe` key (merging `expires` only). A link whose `key()` is not
+  `Ok(Some(_))` is skipped.
 - **Combined expiry.** `expires(K) = recipe(K).expires | plan(recipe(K)).expires | (| over the
   summaries read)`. `to_plan` already folds the recipe's own `expires` into the plan, so this
   equals today's recursion.
@@ -285,8 +295,8 @@ method call). `liquers-lib` mentions it only in a comment. Mirror `ManifestRecip
 (`liquers-records/src/provider.rs:76-100`): `new()`, `#[derive(Default)]`, and an `scc` map. The
 call sites change mechanically from `DefaultRecipeProvider` to `DefaultRecipeProvider::new()`; no
 behaviour depends on the form. This is a **scope amendment** to Phase 1's "liquers-core only":
-public API churn, not new behaviour. **Decision needed (see
-Questions):** this churn, or a crate-global content-addressed cache that keeps the unit struct.
+public API churn, not new behaviour. **Decided** (Decision 1 below): this churn, rather than a
+crate-global content-addressed cache that keeps the unit struct.
 
 ## Trait Implementations
 
@@ -327,7 +337,7 @@ namespace involved. `specs/command_registry.yaml` is unchanged.
 ## Integration Points
 
 - **`liquers-core` only** for behaviour. Other crates change only `DefaultRecipeProvider` → `::new()`
-  (if chosen).
+  (Decision 1).
 - **Behaviour visible through `liquers-axum`.** The admin audit endpoints
   (`liquers-axum/src/assets/key_handlers.rs:484-496`) call `trigger_dependency_audit*`. With the
   walk, their reports can now list a stale gap's dependents as expired, with
@@ -382,9 +392,8 @@ about (i+1) visits, and keeps three analyses per evaluation:
 - **Prediction.** 200 links ≈ 61 000 × ~70 µs + ~1 s floor ≈ **4.5–5.5 s**, against a 5 s bound.
   40 links ≈ 2 500 × 70 µs + ~0.2 s ≈ **0.4 s**, against a 1 s bound.
 
-The 40-link bound holds comfortably. The 200-link bound is marginal and is a **question for the
-maintainer** (below): measure in Phase 4 and relax it if it is missed, or share one walk across the
-three analyses of an evaluation.
+The 40-link bound holds comfortably. The 200-link bound is marginal. Decided (Decision 2 below): measure in Phase 4 and relax it to
+8 s if it is missed; sharing one walk across the three analyses is not added now.
 
 ## Risk
 

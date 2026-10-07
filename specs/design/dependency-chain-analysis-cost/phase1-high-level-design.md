@@ -2,8 +2,8 @@
 
 ## Design Readiness
 
-- **Readiness:** not assessed. Phase 1 questions answered 2026-10-07, see Decisions. Phases 2–4 are being rewritten after this revision. The previous
-  autonomous draft is in git history.
+- **Readiness:** not assessed. Phase 1 questions answered 2026-10-07, see Decisions. Phases 2–4 were
+  rewritten on 2026-10-07; the earlier autonomous drafts are in git history.
 - **Leading issue:** `EVALUATING-A-LONG-DEPENDENCY-CHAIN-GETS-SUPER-LINEARLY-SLOW`.
 - **Decision taken by the maintainer (2026-10-07):** dependency records hold **direct** dependencies
   only. Transitive structure belongs to the dependency manager, which already cascades through the

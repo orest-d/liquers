@@ -13,8 +13,8 @@ created: 2026-10-06
 
 First drafted under [`guides/autonomous_bulk_design.md`](../../guides/autonomous_bulk_design.md)
 (2026-10-06). Adopted into the `liquers-project` workflow on 2026-10-07 and revised from Phase 1, after
-the maintainer decided that dependency records hold direct dependencies only. Phases 2–4 are being
-rewritten; the earlier autonomous drafts are in git history.
+the maintainer decided that dependency records hold direct dependencies only. Phases 2–4 were
+rewritten the same day; the earlier autonomous drafts are in git history.
 
 ## Phase Status
 
