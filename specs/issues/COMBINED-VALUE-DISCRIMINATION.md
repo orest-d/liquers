@@ -33,3 +33,17 @@ Current combined value deserialization does not consistently use type discrimina
 1. Extended values deserialize through intended branch when identifier is known.
 2. Base values remain decodable with stable behavior.
 3. Roundtrip tests validate discriminator-driven behavior.
+
+## Evidence (2026-10-07)
+
+Measured through `liquers_lib::value::Value` (`CombinedValue`), whose `deserialize_from_bytes`
+asks `SimpleValue` first and the extension only when the base refuses: `SimpleValue` reads
+`txt` / `html` / `toml` as `Text`, `json` as plain JSON and `yaml` as a tree **whatever the type
+identifier**. So a `RecordView` written as `json` reads back as an `Array`, one written as `html`
+as `Text`, and a `RecordSource` manifest (`yaml`) as an `Object`. Every other `RecordView` format
+reads back correctly, because the base refuses it.
+
+Found while adding `md` to `Text` (`specs/design/text-value-markdown-format/`), which hit the same
+trap and avoided it by refusing every identifier but `Text` in `SimpleValue`'s `md` arm. The
+general fix is that rule for every arm: the base reads an identifier it owns, or an empty one,
+and refuses the rest.

@@ -4,7 +4,7 @@ kind: design
 title: Markdown as a data format of the Text value
 workflow: liquers-project
 status: in_review
-phase: implementation
+phase: documentation
 readiness: ready
 area: [core/value]
 issues: [TEXT-VALUE-CANNOT-BE-STORED-AS-MARKDOWN]
@@ -22,7 +22,7 @@ Autonomous bulk design (`guides/autonomous_bulk_design.md`) for
 - [x] Phase 2: Solution & Architecture
 - [x] Phase 3: Examples and Tests
 - [x] Phase 4: Implementation Plan
-- [ ] Phase 5: Documentation (plan written; executed after implementation)
+- [ ] Phase 5: Documentation (executed 2026-10-07; awaiting approval)
 
 ## Links
 

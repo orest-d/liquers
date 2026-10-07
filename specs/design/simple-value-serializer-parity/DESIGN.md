@@ -1,9 +1,10 @@
 ---
 id: SIMPLE-VALUE-SERIALIZER-PARITY
 kind: design
+workflow: liquers-project
 title: SimpleValue serializes every format its shared TypeInfo declares
 status: in_review
-phase: implementation
+phase: documentation
 readiness: ready
 area: [lib/value]
 issues: [SIMPLE-VALUE-WRITES-FEWER-FORMATS-THAN-DECLARED]
@@ -20,6 +21,7 @@ the first four phases, reviewed without phase approval. Not an approval and not 
 - [x] Phase 2: Solution and Architecture
 - [x] Phase 3: Examples and Tests
 - [x] Phase 4: Implementation Plan
+- [ ] Phase 5: Documentation (executed 2026-10-07; awaiting approval)
 
 ## Links
 
@@ -27,3 +29,4 @@ the first four phases, reviewed without phase approval. Not an approval and not 
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
+- [Phase 5](./phase5-documentation.md)

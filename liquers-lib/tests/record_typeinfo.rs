@@ -104,3 +104,32 @@ fn every_declared_record_view_format_round_trips_or_is_recorded_as_write_only(
     assert_eq!(write_only, recorded, "write-only RecordView formats changed");
     Ok(())
 }
+
+/// `md` is declared on both `Text` and `RecordView`. Through the combined `Value`, whose base
+/// serializer is asked first, a `RecordView` written as markdown must still read back as a table,
+/// not as the markdown text (`specs/design/text-value-markdown-format/`).
+#[test]
+fn record_view_markdown_reads_back_as_a_table_through_the_combined_value(
+) -> Result<(), Box<dyn std::error::Error>> {
+    use liquers_core::value::{DefaultValueSerializer, ValueInterface};
+    use liquers_lib::value::{ExtValueInterface, Value};
+    use liquers_records::{Buffer, Column, FieldSchema, FieldType, RecordBatch, RecordSchema};
+    use std::sync::Arc;
+
+    let schema = Arc::new(RecordSchema::new(vec![FieldSchema::new("n", FieldType::Int)])?);
+    let column = Column::Int {
+        validity: None,
+        values: Buffer::from_slice(&[1i64, 2, 3]),
+    };
+    let batch = RecordBatch::new(schema, vec![column], None, None, vec![])?;
+    let value = Value::from_record_view(Arc::new(batch));
+    for format in ["md", "markdown"] {
+        let bytes = value.as_bytes(format)?;
+        let back = Value::deserialize_from_bytes(&bytes, "RecordView", format)?;
+        assert_eq!(back.identifier(), "RecordView", "RecordView as {format}");
+        assert_eq!(back.as_record_view()?.len(), 3, "RecordView as {format}");
+    }
+    let text = Value::deserialize_from_bytes(b"# x", "Text", "md")?;
+    assert_eq!(text.try_into_string()?, "# x");
+    Ok(())
+}

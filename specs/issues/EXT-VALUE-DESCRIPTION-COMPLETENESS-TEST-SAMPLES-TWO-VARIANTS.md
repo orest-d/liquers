@@ -2,7 +2,7 @@
 id: EXT-VALUE-DESCRIPTION-COMPLETENESS-TEST-SAMPLES-TWO-VARIANTS
 kind: issue
 title: The ExtValue description-completeness test samples only two of the variants
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [lib/value]
@@ -40,3 +40,17 @@ and `type_descriptions()`, which would also catch a stale description.
 Found on 2026-09-27 while updating `TYPE_SYSTEM_GUIDE.md` for the `record-streams` Phase 5
 documentation review: the guide's worked example for the gated record variants needed to name the
 test that pins their descriptions, and it was not this one.
+
+## Resolution (2026-10-07)
+
+Fixed by design `ext-value-description-completeness`. `liquers-lib/tests/value_type_system.rs`
+samples every `ExtValue` variant compiled into the build except `Foreign` (integration-owned,
+deliberately absent from the static list): `Image`, `UIElement`, `polars.DataFrame`,
+`egui.Command`, `egui.Widget`, `RecordView`, `RecordSource`. A helper, `statically_described`,
+matches every variant with no default arm and is called on each sample, so a new variant fails to
+compile until it is sampled. The new `ext_value_type_descriptions_have_no_stale_entries` checks
+the reverse direction.
+
+Evidence: renaming `RecordView`'s `TypeInfo` identifier made both tests fail (checked by hand and
+reverted); both pass in every feature configuration of `scripts/check-build-matrix.sh` and the
+per-feature `cargo test` runs in `CLAUDE.md`.

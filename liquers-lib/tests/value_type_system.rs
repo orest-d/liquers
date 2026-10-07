@@ -52,31 +52,121 @@ fn combined_value_defaults_are_mutually_consistent() {
     );
 }
 
-/// `vts10.1` — every `ExtValue` variant has a description, in every feature configuration.
-///
-/// This is the check for step 4 of the guide: a variant with no `TypeInfo` cannot be stored,
-/// because the write path refuses an identifier the registry does not contain.
-#[test]
-fn ext_value_type_descriptions_complete() {
-    let descriptions = <ExtValue as ValueExtension>::type_descriptions();
-    let described: Vec<String> = descriptions
-        .iter()
-        .map(|info| info.type_identifier.to_string())
-        .collect();
+/// A widget with no behaviour, so the `egui.Widget` variant can be sampled.
+#[cfg(feature = "egui")]
+#[derive(Debug)]
+struct SampleWidget;
 
-    let mut samples: Vec<ExtValue> = vec![ExtValue::from_image(Arc::new(
-        image::DynamicImage::new_rgb8(1, 1),
-    ))];
+#[cfg(feature = "egui")]
+impl liquers_lib::egui::widgets::WidgetValue for SampleWidget {
+    fn show(&mut self, ui: &mut egui::Ui) -> egui::Response {
+        ui.label("")
+    }
+}
+
+/// Whether `value`'s identifier must be in `ExtValue::type_descriptions()`.
+///
+/// Every `ExtValue` variant is named here, with no default arm: adding a variant fails to
+/// compile until this match, and so `samples()`, is extended.
+fn statically_described(value: &ExtValue) -> bool {
+    match value {
+        ExtValue::Image { .. } => true,
+        #[cfg(feature = "polars")]
+        ExtValue::PolarsDataFrame { .. } => true,
+        #[cfg(feature = "egui")]
+        ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => true,
+        ExtValue::UIElement { .. } => true,
+        // The identifier belongs to the integrating crate, which registers it itself with
+        // `EnvironmentBuilder::with_type_registry`; it is deliberately absent from the static list.
+        ExtValue::Foreign { .. } => false,
+        #[cfg(feature = "records")]
+        ExtValue::RecordView { .. } | ExtValue::RecordSource { .. } => true,
+    }
+}
+
+/// One value per statically described `ExtValue` variant compiled into this build.
+fn samples() -> Vec<ExtValue> {
+    #[allow(unused_mut)] // extended only with optional features
+    let mut samples: Vec<ExtValue> = vec![
+        ExtValue::from_image(Arc::new(image::DynamicImage::new_rgb8(1, 1))),
+        ExtValue::from_ui_element(Arc::new(liquers_lib::ui::element::Placeholder::new())),
+    ];
     #[cfg(feature = "polars")]
     samples.push(ExtValue::from_polars_dataframe(
         polars::frame::DataFrame::empty(),
     ));
+    #[cfg(feature = "egui")]
+    {
+        samples.push(ExtValue::UiCommand {
+            value: liquers_lib::egui::UiCommand::new(|_ui| Ok(())),
+        });
+        samples.push(ExtValue::Widget {
+            value: Arc::new(std::sync::Mutex::new(SampleWidget)),
+        });
+    }
+    #[cfg(feature = "records")]
+    {
+        use liquers_records::{
+            Buffer, Column, FieldSchema, FieldType, InMemorySource, RecordBatch, RecordSchema,
+            RecordView,
+        };
+        let schema = RecordSchema::new(vec![FieldSchema::new("n", FieldType::Int)])
+            .expect("a one-field schema");
+        let column = Column::Int {
+            validity: None,
+            values: Buffer::from_slice(&[] as &[i64]),
+        };
+        let batch = RecordBatch::new(Arc::new(schema), vec![column], None, None, vec![])
+            .expect("an empty batch");
+        let view: Arc<dyn RecordView> = Arc::new(batch);
+        samples.push(ExtValue::from_record_view(view.clone()));
+        samples.push(ExtValue::from_record_source(Arc::new(InMemorySource::new(
+            vec![view],
+        ))));
+    }
+    samples
+}
 
-    for value in &samples {
+fn described_identifiers() -> Vec<String> {
+    <ExtValue as ValueExtension>::type_descriptions()
+        .iter()
+        .map(|info| info.type_identifier.to_string())
+        .collect()
+}
+
+/// `vts10.1` — every `ExtValue` variant has a description, in every feature configuration.
+///
+/// This is the check for step 4 of the guide: a variant with no `TypeInfo` cannot be stored,
+/// because the write path refuses an identifier the registry does not contain. Every variant is
+/// sampled except `Foreign` (see `statically_described`).
+#[test]
+fn ext_value_type_descriptions_complete() {
+    let described = described_identifiers();
+    for value in &samples() {
         let identifier = ValueExtension::identifier(value).to_string();
+        assert!(
+            statically_described(value),
+            "{identifier:?} is sampled but not expected to be described"
+        );
         assert!(
             described.contains(&identifier),
             "variant {identifier:?} has no TypeInfo; it cannot be stored. Described: {described:?}"
+        );
+    }
+}
+
+/// Every description belongs to a sampled variant, so a `TypeInfo` left behind after its variant
+/// is removed (or put under the wrong feature) fails here.
+#[test]
+fn ext_value_type_descriptions_have_no_stale_entries() {
+    let sampled: Vec<String> = samples()
+        .iter()
+        .map(|value| ValueExtension::identifier(value).to_string())
+        .collect();
+    for identifier in described_identifiers() {
+        assert!(
+            sampled.contains(&identifier),
+            "{identifier:?} is described but no sampled variant has it. Sampled: {sampled:?}"
         );
     }
 }
