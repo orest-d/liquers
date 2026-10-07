@@ -2,7 +2,7 @@
 id: REGISTER-COMMAND-EXPIRES-AND-VERSION-STATEMENTS-UNDOCUMENTED
 kind: issue
 title: The `expires:` and `version:` metadata statements of register_command! are undocumented
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [docs, macro, core/commands]
@@ -48,3 +48,13 @@ Merged into [`design/register-command-payload-docs/`](../design/register-command
 by maintainer decision after the post-Phase-4 review: the same FSD table, `CLAUDE.md` line and guide
 bullet. That design also documents `#[liquers_macro::command_version]`, which `version: auto`
 requires.
+
+## Resolution (2026-10-07)
+
+Fixed by design `register-command-payload-docs` (documentation only). `REGISTER_COMMAND_FSD.md`
+§Metadata Statements has rows for `expires:` (a string checked at registration, linking the
+grammar in `DOC_08_RECIPES_PLANS.md`) and `version:` (`auto` / `now` / string / integer, with the
+`version: now` restart caution) and a new §Implementation versions for
+`#[liquers_macro::command_version]`. `COMMAND_REGISTRATION_GUIDE.md` has a "Versioning a command"
+recipe and `CLAUDE.md`'s DSL list names both statements. The forms were checked against
+`liquers-macro/src/registration.rs` and the macro, volatility and expiration tests.
