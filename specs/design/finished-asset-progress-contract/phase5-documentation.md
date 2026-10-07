@@ -41,3 +41,8 @@ sentence on in-run progress in §Post-finish messages.
 
 None. Downstream clients (`liquers-lib` egui `display_progress`) already render a done entry as
 "Done".
+
+## Review follow-up (PR #83)
+
+`AssetData::reset` now clears `progress_finalized`, so a reused asset's in-run progress is applied
+again on its next run. Test: `reset_clears_progress_finalized`.

@@ -24,3 +24,9 @@ already stated the rule.
 ## New issues
 
 None.
+
+## Review follow-up (PR #83)
+
+`AsyncStoreRouter::listdir` listed a child once per member mounted below it (`a/b` and `a/c` both
+contributed `a`), which the synthesized directory metadata then repeated. It now keeps the first
+occurrence of each name, as STORE_SEMANTICS §2 requires. Test: `router_lists_a_shared_child_once`.

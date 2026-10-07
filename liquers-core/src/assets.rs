@@ -1609,6 +1609,8 @@ impl<E: Environment> AssetData<E> {
         self.last_persistence_error = None;
         self.recipe_sets_title = false;
         self.recipe_sets_description = false;
+        // Per-run: a reused asset's next run must apply its in-run progress again.
+        self.progress_finalized = false;
         self.notification_tx
             .send(AssetNotificationMessage::Initial)
             .ok();
@@ -3745,14 +3747,16 @@ impl<E: Environment> AssetRef<E> {
     /// [`Self::expire`] with the reason to record. The cascade to dependents carries
     /// `reason.cause()`.
     pub(crate) async fn expire_with_reason(&self, reason: ExpiryReason) -> Result<(), Error> {
-        let key_opt = self.key().await;
+        // Key, else query: a keyed asset may record an edge on a pure query asset (by its query
+        // `DependencyKey`, as `record_dependency_on_asset` does), so a query asset's dependents
+        // must be reached too.
+        let dep_key_opt = self.data.read().await.provenance_key();
         let cause = reason.cause().clone();
 
         let transitioned_to_expired = self.mark_expired_status(reason).await?;
 
         if transitioned_to_expired {
-            if let Some(key) = key_opt {
-                let dep_key = DependencyKey::from(&key);
+            if let Some(dep_key) = dep_key_opt {
                 let envref = self.get_envref().await;
                 let manager = envref.get_asset_manager();
                 manager.cascade_expire_dependents(&dep_key, cause).await;
@@ -13347,6 +13351,66 @@ recipes:
             })
         );
         Ok(())
+    }
+
+    /// A pure query asset's expiry cascades to dependents that recorded an edge on its query.
+    #[tokio::test]
+    async fn query_asset_expiry_cascades_by_query_identity(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let envref = expiry_test_envref();
+        let query = parse_query("make_q")?;
+        let b = parse_key("prov/from_query.txt")?;
+        store_ready_copy(&envref, &b).await?;
+        let (kq, kb) = (DependencyKey::from(&query), DependencyKey::from(&b));
+        let manager = envref.get_asset_manager();
+        let dm = manager.dependency_manager();
+        let _ = dm.register_version(&kq, Version::new(1)).await;
+        let _ = dm.add_dependency(&kb, &kq, Version::new(1)).await?;
+
+        let query_asset = AssetData::<SimpleEnvironment<Value>>::new(
+            manager.next_id_for_asset(),
+            query.clone().into(),
+            None,
+            envref.clone(),
+        )
+        .to_ref();
+        {
+            let mut lock = query_asset.data.write().await;
+            lock.data = Some(Arc::new(Value::from("q")));
+            lock.set_status(Status::Ready)?;
+        }
+        query_asset
+            .expire_with_reason(ExpiryReason::Direct {
+                cause: ExpiryCause::Explicit,
+            })
+            .await?;
+
+        let stored = envref.get_async_store().get_metadata(&b).await?;
+        assert_eq!(stored.status(), Status::Expired);
+        assert_eq!(
+            stored.expiry_reason(),
+            Some(ExpiryReason::Cascaded {
+                cause: ExpiryCause::Explicit,
+                root: kq.clone(),
+                via: kq,
+            })
+        );
+        Ok(())
+    }
+
+    /// `reset` clears the per-run progress flag, so a reused asset's in-run progress is applied.
+    #[tokio::test]
+    async fn reset_clears_progress_finalized() {
+        let envref = SimpleEnvironment::<Value>::new().to_ref();
+        let mut d = AssetData::<SimpleEnvironment<Value>>::new(
+            40,
+            parse_query("reset_me").unwrap().into(),
+            None,
+            envref,
+        );
+        d.progress_finalized = true;
+        d.reset();
+        assert!(!d.progress_finalized);
     }
 
     #[tokio::test]

@@ -40,3 +40,10 @@ Implemented 2026-10-07 as Wave 1 step 10 of
 ## New issues
 
 None.
+
+## Review follow-up (PR #83)
+
+`AssetRef::expire_with_reason` cascaded only for a keyed asset, so the lazy check in
+`get_asset`'s query branch (and the queued monitor, for a query asset) reached no dependents,
+although a keyed asset can record an edge on a pure query's `DependencyKey`. It now cascades by
+`provenance_key()` (key, else query). Test: `query_asset_expiry_cascades_by_query_identity`.

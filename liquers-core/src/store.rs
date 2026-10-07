@@ -2252,6 +2252,11 @@ impl AsyncStore for AsyncStoreRouter {
             }
         }
 
+        // One entry per direct child (STORE_SEMANTICS §2): two members mounted below the same
+        // child (`a/b`, `a/c`) each contribute `a`, and a member may list a name another member
+        // contributes as its mount point. First occurrence wins, so the order is stable.
+        let mut seen = BTreeSet::new();
+        list.retain(|name| seen.insert(name.clone()));
         Ok(list)
     }
 
@@ -2636,6 +2641,23 @@ mod tests {
         assert_eq!(
             child_names(&router.get_metadata(&Key::new()).await?),
             vec!["a".to_string()]
+        );
+        Ok(())
+    }
+
+    /// Two members below the same child: the child is listed once, in `listdir` and in the
+    /// synthesized directory metadata.
+    #[tokio::test]
+    async fn router_lists_a_shared_child_once() -> Result<(), Error> {
+        let router = router_over(&["a/b", "a/c"]).await?;
+        assert_eq!(router.listdir(&Key::new()).await?, vec!["a".to_string()]);
+        assert_eq!(
+            child_names(&router.get_metadata(&Key::new()).await?),
+            vec!["a".to_string()]
+        );
+        assert_eq!(
+            child_names(&router.get_metadata(&parse_key("a")?).await?),
+            vec!["b".to_string(), "c".to_string()]
         );
         Ok(())
     }
