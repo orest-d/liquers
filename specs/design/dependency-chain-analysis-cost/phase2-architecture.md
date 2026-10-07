@@ -402,14 +402,10 @@ three analyses of an evaluation.
 - **A diamond-expiry test** (`COMBINED-EXPIRES`).
 - **The chain benchmark** (10/20/40/200 links), and a 20-link smoke test with a bound.
 
-## Questions
+## Decisions (maintainer, 2026-10-07)
 
-1. **`DefaultRecipeProvider` field.** I recommend the per-instance field with `::new()` and the
-   mechanical change at 122 call sites: explicit ownership and no global state. The alternative is
-   a crate-global cache keyed by (directory, bytes) that keeps the unit struct. It is correct by
-   construction, being content-addressed, but it is hidden global state that grows unbounded.
-2. **The 200-link bound.** The prediction is 4.5–5.5 s against 5 s. I recommend measuring in
-   Phase 4 and relaxing the bound to 8 s if it is missed, rather than adding code now to share one
-   walk across the three analyses (Decision 4).
-3. **The status case under `Explicit`** (correction 2). I recommend accepting it as part of
-   Decision 1.
+1. **`DefaultRecipeProvider` gets a field**, with `new()` and `Default`. The construction sites
+   change mechanically.
+2. **200-link bound:** measure in Phase 4, and relax to 8 s if 5 s is missed. Sharing one walk
+   across the three analyses is not added now.
+3. **The status case under `Explicit`** (correction 2) is accepted as part of Phase 1 Decision 1.
