@@ -1,7 +1,7 @@
 # Phase 5: Documentation - Skipped Store Writes Are Not Persists
 
 **Status: executed 2026-10-07** after implementation (Wave 1 of
-`archive/2026-10-06-p2-p3-s-implementation-order-revised.md`). Awaiting approval.
+`archive/2026-10-06-p2-p3-s-implementation-order-revised.md`). Approved 2026-10-07.
 
 ## Completion Preconditions
 

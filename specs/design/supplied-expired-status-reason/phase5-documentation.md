@@ -1,5 +1,7 @@
 # Phase 5: Documentation
 
+**Status: executed and approved 2026-10-07.**
+
 ## Summary
 
 Implemented 2026-10-07 together with `immediate-set-state-status-match` (merge M2 of

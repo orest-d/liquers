@@ -3,8 +3,7 @@ id: DEPENDENCY-EDGE-SUPERSEDED-VERSION
 kind: design
 workflow: liquers-project
 title: A dependent whose edge is recorded against a superseded version is stale at birth
-status: in_review
-phase: documentation
+status: complete
 readiness: ready
 area: [core/assets]
 issues: [DEPENDENCY-EDGE-RECORDED-AGAINST-SUPERSEDED-VERSION-IS-NOT-EXPIRED]
@@ -21,7 +20,7 @@ the first four phases, reviewed without phase approval. Not an approval and not 
 - [x] Phase 2: Solution and Architecture
 - [x] Phase 3: Examples and Tests
 - [x] Phase 4: Implementation Plan
-- [ ] Phase 5: Documentation (implemented 2026-10-07; awaiting approval)
+- [x] Phase 5: Documentation (executed 2026-10-07; approved 2026-10-07)
 
 ## Links
 

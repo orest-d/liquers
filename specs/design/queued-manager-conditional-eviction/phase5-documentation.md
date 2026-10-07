@@ -1,7 +1,7 @@
 # Phase 5: Documentation - Conditional Queued-Manager Cache Eviction
 
 **Status: executed 2026-10-07**, after implementation (Wave 1 step 5 of
-`archive/2026-10-06-p2-p3-s-implementation-order-revised.md`). Awaiting approval.
+`archive/2026-10-06-p2-p3-s-implementation-order-revised.md`). Approved 2026-10-07.
 
 ## Completion Preconditions
 

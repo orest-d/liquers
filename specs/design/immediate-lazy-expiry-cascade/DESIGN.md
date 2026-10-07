@@ -3,8 +3,7 @@ id: IMMEDIATE-LAZY-EXPIRY-CASCADE
 kind: design
 workflow: liquers-project
 title: Lazy deadline expiry on the immediate manager cascades to dependents
-status: in_review
-phase: documentation
+status: complete
 readiness: ready
 area: [core/assets]
 issues: [IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE]
@@ -21,7 +20,7 @@ the first four phases, reviewed without phase approval. Not an approval and not 
 - [x] Phase 2: Solution and Architecture
 - [x] Phase 3: Examples and Tests
 - [x] Phase 4: Implementation Plan
-- [ ] Phase 5: Documentation (implemented 2026-10-07; awaiting approval)
+- [x] Phase 5: Documentation (executed 2026-10-07; approved 2026-10-07)
 
 ## Links
 

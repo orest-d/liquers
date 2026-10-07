@@ -3,8 +3,7 @@ id: SAVE-TO-STORE-SKIP-OUTCOME
 kind: design
 title: Record a skipped store write as no persistence attempt
 workflow: liquers-project
-status: in_review
-phase: documentation
+status: complete
 readiness: ready
 area: [core/assets]
 issues: [SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED]
@@ -22,7 +21,7 @@ Autonomous bulk design (`guides/autonomous_bulk_design.md`) for
 - [x] Phase 2: Solution & Architecture
 - [x] Phase 3: Examples and Tests
 - [x] Phase 4: Implementation Plan
-- [ ] Phase 5: Documentation (plan written; executed after implementation)
+- [x] Phase 5: Documentation (executed 2026-10-07; approved 2026-10-07)
 
 ## Links
 

@@ -3,8 +3,7 @@ id: SUBMIT-EAGERNESS-DOCUMENTATION
 kind: design
 workflow: liquers-project
 title: Document Context::submit's actual scheduling on both managers
-status: in_review
-phase: documentation
+status: complete
 readiness: ready
 area: [core/assets]
 issues: [SUBMIT-IS-NOT-LAZY-ON-ANY-MANAGER]
@@ -21,7 +20,7 @@ the first four phases, reviewed without phase approval. Not an approval and not 
 - [x] Phase 2: Solution and Architecture
 - [x] Phase 3: Examples and Tests
 - [x] Phase 4: Implementation Plan
-- [ ] Phase 5: Documentation (implemented 2026-10-07; awaiting approval)
+- [x] Phase 5: Documentation (executed 2026-10-07; approved 2026-10-07)
 
 ## Links
 

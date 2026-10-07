@@ -3,8 +3,7 @@ id: QUEUED-MANAGER-CONDITIONAL-EVICTION
 kind: design
 title: Conditional queued-manager cache eviction
 workflow: liquers-project
-status: in_review
-phase: documentation
+status: complete
 readiness: ready
 area: [core/assets]
 issues: [QUEUED-MANAGER-EVICTION-RACE]
@@ -23,8 +22,7 @@ Simplified autonomous issue design for `QUEUED-MANAGER-EVICTION-RACE`.
 - [x] Phase 2: Solution & Architecture
 - [x] Phase 3: Examples and Tests
 - [x] Phase 4: Implementation
-- [ ] Phase 5: Documentation (plan written; executed after implementation)
-- [ ] Phase 5: Documentation
+- [x] Phase 5: Documentation (executed 2026-10-07; approved 2026-10-07)
 
 ## Links
 
