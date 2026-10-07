@@ -1008,6 +1008,28 @@ mod tests {
         assert!(from_json(&json, JsonOrient::Values, ReadSchema::Declared(&orders_schema())).is_err());
     }
 
+    fn column_names(batch: &RecordBatch) -> Vec<&str> {
+        batch.schema.fields.iter().map(|field| field.name.as_str()).collect()
+    }
+
+    /// The `index` column is a data key like any other in a schema-less read: it sorts among the
+    /// names, as it always has.
+    #[test]
+    fn columns_shape_sorts_columns() -> Result<(), Error> {
+        let json: Value = parse_json(r#"{"z":{"0":1},"a":{"0":2}}"#)?;
+        let batch = from_json(&json, JsonOrient::Columns, ReadSchema::Infer)?;
+        assert_eq!(column_names(&batch), vec!["a", "index", "z"]);
+        Ok(())
+    }
+
+    #[test]
+    fn index_shape_sorts_columns() -> Result<(), Error> {
+        let json: Value = parse_json(r#"{"0":{"z":1},"1":{"a":2}}"#)?;
+        let batch = from_json(&json, JsonOrient::Index, ReadSchema::Infer)?;
+        assert_eq!(column_names(&batch), vec!["a", "index", "z"]);
+        Ok(())
+    }
+
     #[test]
     fn orient_index_without_a_schema_keys_stay_text() -> Result<(), Error> {
         let json: Value = parse_json(r#"{"1":{"total":9.5}}"#)?;

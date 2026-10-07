@@ -604,7 +604,12 @@ JSON reader refuses a key the schema does not declare and coerces losslessly: a 
 | `auto` | read-only | array of objects → `records`; array of arrays → `values`; object with `schema` + `data` → `table`; with `columns` + `data` → `split`; object of equal-length arrays → `list`; an object of objects is refused as ambiguous. `to_json` refuses `auto` |
 
 Without a declared `Id`, the index of `split` / `columns` / `index` reads back as a plain column
-named `index`. The **`table`** orient writes each field's `name`, Table-Schema `type` (`UInt` is
+named `index`. **Without a schema, the columns of a JSON read (NDJSON, `json`, and every orient but `table`) are
+sorted by name**: JSON objects have no key order, so the same columns read the same way whatever the
+row order (`[{"b":1},{"a":2}]` is `a, b`), and the `index` column sorts among them. With a declared
+schema the order is the schema's, and `table` reads its own. The sort also applies to `split` and
+`values`, whose documents do carry an order
+([`SCHEMA-LESS-ORDERED-JSON-ORIENTS-LOSE-COLUMN-ORDER`](../issues/SCHEMA-LESS-ORDERED-JSON-ORIENTS-LOSE-COLUMN-ORDER.md)). The **`table`** orient writes each field's `name`, Table-Schema `type` (`UInt` is
 `integer`, `Binary` is `string` with `format: binary`, `Vector` is `array`), `title` (= label),
 `description`, `constraints.required` for a non-nullable field, **`tz: "UTC"` on a `Timestamp`**, and
 a **`liquers`** property `{type, key, role}` carrying what Table Schema cannot say; `primaryKey` names
@@ -796,6 +801,7 @@ materializes to an empty batch; without one it is an error.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-07 | JSON: a schema-less read sorts its columns by name. | phase-5, `design/json-table-column-order/` |
 | 2026-10-07 | CSV: errors name the physical line (and record when they differ); short rows are padded and reported once per read (`ReadReport`, asset log). | phase-5, `design/csv-physical-lines-short-rows/` |
 | 2026-10-07 | `rec_id`: a `Date` / `Timestamp` id is ISO 8601, basic or extended, not a raw day or µs count. | phase-5, `design/rec-id-iso-date-parsing/` |
 | 2026-10-07 | Scalar reading: `try_into_string_option` also gives `None` for a `Null` cell (it gave `Some("None")`). | phase-5, `design/null-cell-string-option/` |

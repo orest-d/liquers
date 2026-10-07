@@ -331,6 +331,10 @@ fn read_inferred_objects(objects: &[&Map<String, Value>]) -> Result<RecordBatch,
             }
         }
     }
+    // JSON has no key order, so columns are sorted by name for a stable order: the same columns
+    // read the same way whatever the row order, and whether or not `serde_json/preserve_order` is
+    // on (`specs/reference/RECORD_STREAMS.md`, maintainer decision 2026-10-06).
+    names.sort();
 
     let mut fields = Vec::with_capacity(names.len());
     let mut field_types = Vec::with_capacity(names.len());
@@ -577,11 +581,42 @@ mod tests {
         Ok(())
     }
 
+    fn column_names(batch: &RecordBatch) -> Vec<&str> {
+        batch.schema.fields.iter().map(|field| field.name.as_str()).collect()
+    }
+
+    #[test]
+    fn schema_less_json_columns_are_sorted() -> Result<(), Error> {
+        let batch = read_table(b"{\"b\":1}\n{\"a\":2}\n", TableFormat::NdJson, ReadSchema::Infer, &ReadOptions::default())?;
+        assert_eq!(column_names(&batch), vec!["a", "b"]);
+        let batch = read_table(br#"[{"z":1,"a":2},{"m":3}]"#, TableFormat::Json, ReadSchema::Infer, &ReadOptions::default())?;
+        assert_eq!(column_names(&batch), vec!["a", "m", "z"]);
+        Ok(())
+    }
+
+    #[test]
+    fn schema_less_json_column_order_ignores_row_order() -> Result<(), Error> {
+        let one = read_table(b"{\"b\":1}\n{\"a\":2}\n", TableFormat::NdJson, ReadSchema::Infer, &ReadOptions::default())?;
+        let other = read_table(b"{\"a\":2}\n{\"b\":1}\n", TableFormat::NdJson, ReadSchema::Infer, &ReadOptions::default())?;
+        assert_eq!(column_names(&one), column_names(&other));
+        Ok(())
+    }
+
+    #[test]
+    fn declared_json_columns_keep_the_schema_order() -> Result<(), Error> {
+        let schema = RecordSchema::new(vec![
+            FieldSchema::new("z", FieldType::Int),
+            FieldSchema::new("a", FieldType::Int),
+        ])?;
+        let batch = read_table(b"{\"a\":1,\"z\":2}\n", TableFormat::NdJson, ReadSchema::Declared(&schema), &ReadOptions::default())?;
+        assert_eq!(column_names(&batch), vec!["z", "a"]);
+        Ok(())
+    }
+
     #[test]
     fn inferred_bool_and_text_columns() -> Result<(), Error> {
-        // `serde_json::Map` is a `BTreeMap` here (no `preserve_order` feature), so the union of
-        // keys comes back sorted rather than in first-seen order — fields are looked up by name
-        // rather than by position.
+        // A schema-less JSON read sorts its columns by name, so `note` comes before `ok`;
+        // fields are still looked up by name rather than by position.
         let ndjson = b"{\"ok\":true,\"note\":\"hello\"}\n{\"ok\":false,\"note\":\"world\"}\n";
         let batch = read_table(ndjson, TableFormat::NdJson, ReadSchema::Infer, &ReadOptions::default())?;
         let ok = batch.schema.index_of("ok").expect("ok field");
