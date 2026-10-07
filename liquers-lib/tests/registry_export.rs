@@ -37,8 +37,9 @@ type CommandEnvironment = DefaultEnvironment<Value, SimpleUIPayload>;
 
 /// Build the registry the exporter would produce with every compiled-in group.
 ///
-/// Mirrors the binary rather than calling `register_all_commands!`, which does not compile when
-/// a feature is off because the macros it expands to do not exist then.
+/// Mirrors the binary group by group, so the test builds exactly what the exporter builds.
+/// `register_all_commands!` registers the same union of enabled groups and is checked on its own
+/// in `tests/register_all_commands.rs`.
 fn full_registry() -> Result<CommandMetadataRegistry, Error> {
     let mut env = CommandEnvironment::new();
     {

@@ -316,6 +316,10 @@ pub fn register_commands(
 
 /// Master registration macro including all command domains and lui commands.
 ///
+/// Registers the command domains whose features are enabled in `liquers-lib`: `egui`,
+/// `image-support`, `polars` and `records` each contribute their commands only when on, so the
+/// macro compiles in every feature configuration.
+///
 /// The caller must define `type CommandEnvironment = ...` in scope before invoking.
 /// Since this includes `register_lui_commands!`, the environment's `Payload` must
 /// implement `UIPayload`.
@@ -328,6 +332,51 @@ macro_rules! register_all_commands {
         $crate::register_polars_commands!($cr)?;
         $crate::register_records_commands!($cr)?;
         $crate::register_lui_commands!($cr)?;
+        Ok::<(), liquers_core::error::Error>(())
+    }};
+}
+
+// No-op stand-ins for the domain macros of disabled features, so `register_all_commands!`
+// compiles in every configuration. A `cfg` inside a `macro_rules!` body would be evaluated in the
+// caller's crate, so the gate has to be here, where the macro is defined. They live in this
+// ungated module because `#[macro_export]` macros defined inside a gated module vanish with it.
+
+/// No-op stand-in for `register_egui_commands!` when the `egui` feature is off.
+#[cfg(not(feature = "egui"))]
+#[macro_export]
+macro_rules! register_egui_commands {
+    ($cr:expr) => {{
+        let _ = &$cr;
+        Ok::<(), liquers_core::error::Error>(())
+    }};
+}
+
+/// No-op stand-in for `register_image_commands!` when the `image-support` feature is off.
+#[cfg(not(feature = "image-support"))]
+#[macro_export]
+macro_rules! register_image_commands {
+    ($cr:expr) => {{
+        let _ = &$cr;
+        Ok::<(), liquers_core::error::Error>(())
+    }};
+}
+
+/// No-op stand-in for `register_polars_commands!` when the `polars` feature is off.
+#[cfg(not(feature = "polars"))]
+#[macro_export]
+macro_rules! register_polars_commands {
+    ($cr:expr) => {{
+        let _ = &$cr;
+        Ok::<(), liquers_core::error::Error>(())
+    }};
+}
+
+/// No-op stand-in for `register_records_commands!` when the `records` feature is off.
+#[cfg(not(feature = "records"))]
+#[macro_export]
+macro_rules! register_records_commands {
+    ($cr:expr) => {{
+        let _ = &$cr;
         Ok::<(), liquers_core::error::Error>(())
     }};
 }
