@@ -4,8 +4,9 @@
 //! spaces with `_`, the inverse of the default label, so a label left at its default round-trips.
 //!
 //! **The reader is the exact inverse of the writer's escaping**, so `read(write(x)) == x` for every
-//! cell but one: Markdown has no null, so a null and an empty `Text` are both an empty cell and
-//! both read back as null. The escapes (one pass each way):
+//! cell. Markdown has no null and no empty-string literal: a null is an empty cell, and an empty
+//! `Text` is written as an empty HTML comment, which renders as nothing. The escapes (one pass each
+//! way):
 //!
 //! | Character | Written as | Why |
 //! |---|---|---|
@@ -13,10 +14,14 @@
 //! | line feed | `<br>` | a GFM cell cannot span lines |
 //! | carriage return | `&#13;` | the same, without merging into the `<br>` of a line feed |
 //! | a leading or trailing space or tab | `&#32;` / `&#9;` | GFM trims cell whitespace |
+//! | empty text (the whole cell) | `<!---->` | an empty HTML comment renders as nothing (CommonMark 0.30 and 0.31.2 §6.6) |
 //!
 //! Reading also accepts what a person writes by hand: a backslash before any ASCII punctuation,
 //! `<br/>` and `<br />`, the entities `&amp;` `&lt;` `&gt;` `&quot;` and numeric `&#…;` / `&#x…;`.
-//! A row that is not the header's width is an error naming its line — never silently dropped.
+//! A row that is not the header's width is an error naming its line — never silently dropped. A
+//! hand-written empty cell is null; a cell that is exactly `<!---->` is `""` in a `Text` column and
+//! null in any other. Only the first table of a document is read: text around it and any later
+//! table are ignored, so a table can be read out of a larger document.
 //!
 //! See `specs/design/record-streams/phase2-architecture.md` §"Markdown and HTML".
 
@@ -33,6 +38,17 @@ use crate::schema::{FieldSchema, FieldType, RecordSchema};
 // ---------------------------------------------------------------------------------------------
 // Escaping
 // ---------------------------------------------------------------------------------------------
+
+/// An empty `Text` cell. GFM has no empty-string literal; an empty HTML comment is valid
+/// CommonMark (0.30, 0.31.2 §6.6) and renders as nothing. The writer escapes `<`, so no escaped
+/// text can produce it.
+const EMPTY_TEXT_MARKER: &str = "<!---->";
+
+/// One read cell: its unescaped text, or `None` for [`EMPTY_TEXT_MARKER`].
+fn read_cell(raw: &str) -> Option<String> {
+    let trimmed = raw.trim_matches(is_cell_space);
+    (trimmed != EMPTY_TEXT_MARKER).then(|| unescape_markdown_cell(trimmed))
+}
 
 fn is_cell_space(c: char) -> bool {
     c == ' ' || c == '\t'
@@ -201,8 +217,8 @@ fn declared_index(schema: &RecordSchema, header: &str) -> Option<usize> {
         .or_else(|| schema.fields.iter().position(|field| field.name == header || field.label == header))
 }
 
-/// Parse a markdown table and return a RecordBatch. The table is the first run of consecutive
-/// lines containing a `|`; anything before or after it (prose around a table) is ignored.
+/// Parse a markdown table and return a RecordBatch. The table read is the first run of consecutive
+/// lines containing `|`; later tables and surrounding text are ignored.
 pub(crate) fn read_markdown(
     bytes: &[u8],
     schema: ReadSchema<'_>,
@@ -210,8 +226,9 @@ pub(crate) fn read_markdown(
 ) -> Result<RecordBatch, Error> {
     let text = std::str::from_utf8(bytes).map_err(|e| Error::from_error(ErrorType::ConversionError, e))?;
 
-    // (1-based line number, cells) for every line of the table.
-    let mut rows: Vec<(usize, Vec<String>)> = Vec::new();
+    // (1-based line number, cells) for every line of the table; a `None` cell is the empty-text
+    // marker.
+    let mut rows: Vec<(usize, Vec<Option<String>>)> = Vec::new();
     let mut raw_rows: Vec<(usize, Vec<&str>)> = Vec::new();
     for (index, line) in text.lines().enumerate() {
         if is_table_line(line) {
@@ -243,10 +260,7 @@ pub(crate) fn read_markdown(
         }
     }
     for (line, cells) in raw_iter {
-        rows.push((
-            line,
-            cells.iter().map(|cell| unescape_markdown_cell(cell.trim_matches(is_cell_space))).collect(),
-        ));
+        rows.push((line, cells.iter().map(|cell| read_cell(cell)).collect()));
     }
 
     let width = match (&header, rows.first(), schema) {
@@ -307,9 +321,14 @@ pub(crate) fn read_markdown(
         ReadSchema::Infer => {
             let mut fields = Vec::with_capacity(width);
             for (col, name) in names.iter().enumerate() {
+                // The marker is an empty string, not a null, exactly as a quoted `""` is in CSV.
                 let cells: Vec<Option<&str>> = rows
                     .iter()
-                    .map(|(_, row)| row.get(col).map(String::as_str).filter(|text| !text.is_empty()))
+                    .map(|(_, row)| match row.get(col) {
+                        Some(Some(text)) => Some(text.as_str()).filter(|text| !text.is_empty()),
+                        Some(None) => Some(""),
+                        None => None,
+                    })
                     .collect();
                 let (data_type, nullable) = super::infer::infer_column(&cells);
                 let mut field = FieldSchema::new(name.clone(), data_type);
@@ -326,7 +345,15 @@ pub(crate) fn read_markdown(
     for (line, cells) in &rows {
         let mut values = Vec::with_capacity(record_schema.fields.len());
         for (field, column) in record_schema.fields.iter().zip(columns.iter()) {
-            let cell_text = column.and_then(|col| cells.get(col)).map(String::as_str).unwrap_or("");
+            let cell = column.and_then(|col| cells.get(col));
+            if let (Some(None), FieldType::Text) = (cell, field.data_type) {
+                values.push(FieldValue::Text(Arc::from("")));
+                continue;
+            }
+            let cell_text = match cell {
+                Some(Some(text)) => text.as_str(),
+                Some(None) | None => "",
+            };
             let value = if cell_text.is_empty() {
                 if field.nullable {
                     FieldValue::Null
@@ -396,8 +423,24 @@ pub(crate) fn write_markdown(
         let mut cells = Vec::with_capacity(schema.fields.len());
         for col in 0..schema.fields.len() {
             let value = view.value(row, col)?;
-            let cell_text = super::csv::format_value(&value)?.unwrap_or_default();
-            cells.push(escape_markdown_cell(&cell_text));
+            match &value {
+                FieldValue::Text(text) if text.is_empty() => {
+                    cells.push(EMPTY_TEXT_MARKER.to_string());
+                }
+                FieldValue::Null
+                | FieldValue::Bool(_)
+                | FieldValue::Int(_)
+                | FieldValue::UInt(_)
+                | FieldValue::Float(_)
+                | FieldValue::Text(_)
+                | FieldValue::Bytes(_)
+                | FieldValue::Date(_)
+                | FieldValue::Timestamp(_)
+                | FieldValue::Vector(_) => {
+                    let cell_text = super::csv::format_value(&value)?.unwrap_or_default();
+                    cells.push(escape_markdown_cell(&cell_text));
+                }
+            }
         }
         out.push('|');
         out.push(' ');
@@ -457,6 +500,52 @@ mod tests {
 
     fn read(text: &str, schema: ReadSchema<'_>, header: bool) -> Result<crate::batch::RecordBatch, Error> {
         read_markdown(text.as_bytes(), schema, &ReadOptions { header })
+    }
+
+    #[test]
+    fn markdown_empty_text_round_trips() -> Result<(), Error> {
+        let schema = Arc::new(RecordSchema::new(vec![FieldSchema::new("cell", FieldType::Text)])?);
+        let cells = [FieldValue::Null, FieldValue::Text(Arc::from("")), FieldValue::Text(Arc::from(" ")), FieldValue::Text(Arc::from("a"))];
+        let mut batch = RecordBatchMut::with_capacity(schema.clone(), cells.len());
+        for cell in &cells {
+            batch.append_row(std::slice::from_ref(cell))?;
+        }
+        let bytes = write_markdown(&batch.freeze()?, &WriteOptions::default())?;
+        let text = utf8(bytes.clone())?;
+        assert_eq!(text, "| cell |\n| --- |\n|  |\n| <!----> |\n| &#32; |\n| a |\n");
+        for read_schema in [ReadSchema::Infer, ReadSchema::Declared(&schema)] {
+            let back = read_markdown(&bytes, read_schema, &ReadOptions::default())?;
+            for (row, cell) in cells.iter().enumerate() {
+                assert_eq!(&back.value(row, 0)?, cell, "row {row}");
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn markdown_empty_cell_is_null() -> Result<(), Error> {
+        let batch = read("| a | b |\n|---|---|\n| x |  |\n", ReadSchema::Infer, true)?;
+        assert_eq!(batch.value(0, 1)?, FieldValue::Null);
+        Ok(())
+    }
+
+    #[test]
+    fn markdown_empty_text_marker_in_int_column_is_null() -> Result<(), Error> {
+        let schema = RecordSchema::new(vec![FieldSchema::new("n", FieldType::Int)])?;
+        let batch = read("| n |\n|---|\n| <!----> |\n| 2 |\n", ReadSchema::Declared(&schema), true)?;
+        assert_eq!(batch.value(0, 0)?, FieldValue::Null);
+        assert_eq!(batch.value(1, 0)?, FieldValue::Int(2));
+        Ok(())
+    }
+
+    #[test]
+    fn markdown_reads_only_first_table() -> Result<(), Error> {
+        let document = "Intro text.\n\n| a |\n|---|\n| 1 |\n\nBetween.\n\n| b | c |\n|---|---|\n| 2 | 3 |\n";
+        let batch = read(document, ReadSchema::Infer, true)?;
+        assert_eq!(batch.schema.fields.len(), 1);
+        assert_eq!(batch.schema.fields[0].name, "a");
+        assert_eq!(batch.len, 1);
+        Ok(())
     }
 
     #[test]

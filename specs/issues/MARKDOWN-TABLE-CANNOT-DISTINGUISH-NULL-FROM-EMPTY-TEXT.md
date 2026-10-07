@@ -2,7 +2,7 @@
 id: MARKDOWN-TABLE-CANNOT-DISTINGUISH-NULL-FROM-EMPTY-TEXT
 kind: issue
 title: A Markdown table reads an empty Text cell back as null, and reads only the first table
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [records]
@@ -32,3 +32,20 @@ that holds more than one table.
 
 Found 2026-09-27 while fixing the implementation review's Markdown findings
 (`phase5-evidence.md`, review row).
+
+## Resolution (2026-10-07)
+
+Implemented by [`design/markdown-empty-text-and-tables/`](../design/markdown-empty-text-and-tables/).
+The maintainer decision of 2026-10-06 was to follow the recommendation after checking CommonMark.
+
+An empty `Text` value is now written as `<!---->`. That is an empty HTML comment, valid in
+CommonMark 0.30 and 0.31.2 (§6.6), and it renders as nothing. It reads back as `""`, so every
+value round-trips. A hand-written empty cell still reads as null.
+
+The rule that only the first table is read is now stated in the module doc and in the reference.
+
+Tests:
+- `markdown_empty_text_round_trips`
+- `markdown_empty_cell_is_null`
+- `markdown_empty_text_marker_in_int_column_is_null`
+- `markdown_reads_only_first_table`

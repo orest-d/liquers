@@ -520,7 +520,7 @@ selects the schema-aware reader (strict, nothing guessed); `ReadSchema::Infer` t
 | TSV | `tsv`, `csv:tab` | yes | yes | as CSV | — |
 | NDJSON | `ndjson`, `jsonl` | yes | yes | values and JSON types; roles lost | — |
 | JSON | `json` — one shape: an array of row objects | yes | yes | as NDJSON | — |
-| Markdown | `md`, `markdown` — GFM pipe table | yes | yes | presentation: headers are labels; types inferred; null = empty text | — |
+| Markdown | `md`, `markdown` — GFM pipe table | yes | yes | presentation: headers are labels; types inferred; null is an empty cell, `""` is `<!---->` | — |
 | HTML | `html` | yes | **no** (`not_supported`) | presentation only | — |
 | Arrow IPC file | `feather`, `ipc`, `arrow_ipc`, `arrow` | yes | yes | **lossless**: types, nulls, schema with roles, `chunk_id` | `ipc` |
 | Parquet | `parquet` | yes | **not here** — `liquers-lib` reads it through polars | values and types; roles lost when read back | `parquet` (write) |
@@ -623,9 +623,11 @@ in the delimiter row. Escaping, exactly inverted by the reader: `\` `|` `<` `&` 
 LF → `<br>`, CR → `&#13;`, a leading / trailing space or tab → `&#32;` / `&#9;`. The reader also
 accepts hand-written escapes and entities; turns a header into a field name by lowercasing and
 replacing spaces with `_` (a default label round-trips); refuses a row of the wrong width; and reads
-the **first** table in the document. Markdown has no null: a null and an empty `Text` both write an
-empty cell and both read back as null
-([`MARKDOWN-TABLE-CANNOT-DISTINGUISH-NULL-FROM-EMPTY-TEXT`](../issues/MARKDOWN-TABLE-CANNOT-DISTINGUISH-NULL-FROM-EMPTY-TEXT.md)).
+only the **first** table in the document; surrounding text and later tables are ignored, so a table
+can be read out of a larger document. Markdown has no null and no empty-string literal: a null writes
+an empty cell, and an empty `Text` writes `<!---->`, an empty HTML comment (valid CommonMark, 0.30 and
+0.31.2 §6.6), which renders as nothing. A hand-written empty cell reads as null; `<!---->` reads as
+`""` in a `Text` column and as null in any other. Every value round-trips.
 
 **HTML** (write-only): `<table class="liquers-records">` with `<thead>` / `<tbody>`, headers are
 labels with the description as `title`, numeric cells `class="num"`, nulls `class="null"`; every
@@ -801,6 +803,7 @@ materializes to an empty batch; without one it is an error.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-07 | Markdown: an empty `Text` writes `<!---->` and round-trips; only the first table is read. | phase-5, `design/markdown-empty-text-and-tables/` |
 | 2026-10-07 | JSON: a schema-less read sorts its columns by name. | phase-5, `design/json-table-column-order/` |
 | 2026-10-07 | CSV: errors name the physical line (and record when they differ); short rows are padded and reported once per read (`ReadReport`, asset log). | phase-5, `design/csv-physical-lines-short-rows/` |
 | 2026-10-07 | `rec_id`: a `Date` / `Timestamp` id is ISO 8601, basic or extended, not a raw day or µs count. | phase-5, `design/rec-id-iso-date-parsing/` |
