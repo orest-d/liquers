@@ -1,11 +1,11 @@
 # Phase 5: Documentation - Account for `entities.rs` and `cache.rs`
 
-**Status: plan.** Written on 2026-10-05; executed after implementation.
+**Status: approved** on 2026-10-07 (executed 2026-10-06, plan written 2026-10-05).
 
 ## Completion Preconditions
 
-- [ ] Phase 4 steps 1-3 complete and the Phase 3 checks pass
-- [ ] User and review comments answered or incorporated
+- [x] Phase 4 steps 1-3 complete and the Phase 3 checks pass
+- [x] User and review comments answered or incorporated (none outstanding)
 
 ## Documentation Plan
 
@@ -41,24 +41,44 @@ naming `CORE-SYNC-STORE-TRAIT-OBSOLETE` as the owner of the deletion.
 
 ## Implementation Summary
 
-*Pending.*
+As planned. `liquers-core/src/cache.rs` begins with the Phase 2 module doc (legacy, obsolete, do
+not use, removal owned by `CORE-SYNC-STORE-TRAIT-OBSOLETE`) and no longer imports
+`chrono::format`. No other code change; `entities.rs` is untouched.
+
+The Phase 3 audit re-ran at HEAD on 2026-10-06 with the recorded result: `entities::` is used by
+`escape.rs` and `bin/generate_entities.rs`; `cache` has no caller in `liquers-core` beyond
+`lib.rs`'s `pub mod cache;`; its consumers are `liquers-py/src/context.rs` (compiled) and the
+orphan `liquers-py/src/cache.rs`.
 
 ## Documentation Delivered
 
-*Pending.*
+- `reference/PROJECT_OVERVIEW.md`: the `cache.rs` row now reads "Legacy synchronous cache;
+  obsolete (assets cache results), removal tracked in `CORE-SYNC-STORE-TRAIT-OBSOLETE`" (and the
+  size estimate ~350, matching the file); History row and `reviewed: 2026-10-06`.
+- `issues/CORE-SYNC-STORE-TRAIT-OBSOLETE.md`: the scope note added on 2026-10-05 still stands;
+  unchanged.
+- `issues/REPO-DEAD-CODE-HYGIENE.md`: `status: closed`, resolution with the evidence table.
 
 ## Issues Filed
 
-*Pending.* None expected (the follow-up is recorded in the existing `CORE-SYNC-STORE-TRAIT-OBSOLETE`).
+`PY-PYO3-REJECTS-PYTHON-3-13`: `cargo check -p liquers-py --lib` fails on a Python 3.13 host
+(`pyo3` 0.21 predates 3.13) unless `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1` is set. Found while
+running this design's validation; unrelated to the change.
 
 ## Important Learning
 
-*Pending.*
+`liquers-py` is outside every routine build loop, so its build environment can rot unseen: the
+py check needed an undocumented override.
 
 ## Conformance and Remaining Work
 
-*Pending.*
+Conforms to Phases 1-4. Remaining work is owned elsewhere: deletion of `cache.rs` by
+`CORE-SYNC-STORE-TRAIT-OBSOLETE`, the orphan `liquers-py/src/cache.rs` by
+`PY-MODULES-NOT-DECLARED-IN-LIB`.
 
 ## Validation
 
-*Pending.* Planned: `python3 scripts/docs_index.py --check`.
+- `cargo check -p liquers-core` and `cargo check -p liquers-core --target wasm32-unknown-unknown`:
+  build, no warning from `cache.rs`.
+- `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 cargo check -p liquers-py --lib`: builds.
+- `python3 scripts/docs_index.py --check`: 0 errors.

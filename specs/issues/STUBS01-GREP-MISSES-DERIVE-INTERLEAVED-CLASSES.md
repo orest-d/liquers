@@ -2,7 +2,7 @@
 id: STUBS01-GREP-MISSES-DERIVE-INTERLEAVED-CLASSES
 kind: issue
 title: check-stubs.sh's STUBS01 grep misses classes with an interleaved derive attribute
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [web]
@@ -66,3 +66,20 @@ Noticed while validating `specs/design/record-streams/phase4-implementation.md` 
 matched classes but never listed `Key`/`Query`, even though both are real exported classes with
 their own usage lines in `valid_usage.ts`. Confirmed by hand that `objects.rs`'s `#[derive(Clone)]`
 line is what breaks the grep's `\n`-adjacency requirement.
+
+## Resolution (2026-10-06)
+
+Fixed by `design/stubs01-class-detection/`. `liquers-web/scripts/check-stubs.sh` now derives the
+expected classes with a POSIX `awk` pass instead of `grep -P -z`: it remembers the name from the
+last `#[wasm_bindgen(js_name = X)]` line, keeps it across further attributes, doc comments and
+blank lines, emits it at the next `pub struct` / `pub enum`, and clears it on any other line (so
+`js_name` on methods and on the extern `RecordColumn` type is ignored). The dead fallback list is
+gone; an empty detection is a STUBS01 failure.
+
+Evidence: the awk pass alone over `liquers-web/src` yields Asset, Environment, Key, LiquersError,
+Query, RecordBatch, State, Store, Value (the old grep missed Key and Query). After `build.sh`,
+`check-stubs.sh` passes and lists `class Key` and `class Query` (T1).
+
+T2 (renaming `export class Key` to `KeyX` in the generated `.d.ts`) found a second gap: the
+declaration match `^export class $class` was a prefix match, so `KeyX` satisfied `Key`. It now
+requires the name to end there (`^export class $class( |\{|$)`), and T2 fails on `Key` as intended.

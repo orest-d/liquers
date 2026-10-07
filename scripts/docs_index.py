@@ -152,6 +152,110 @@ REPO = Path(__file__).resolve().parent.parent
 SPECS = REPO / "specs"
 
 RELATIVE_LINK_RE = re.compile(r"\]\((?!https?://)([^)]+)\)")
+FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+BACKTICK_RUN_RE = re.compile(r"`+")
+
+
+def _blank(text: str) -> str:
+    """Replace every character except newlines with a space."""
+    return re.sub(r"[^\n]", " ", text)
+
+
+def _escaped(text: str, index: int) -> bool:
+    """True when the character at index is preceded by an odd number of backslashes."""
+    count = 0
+    while index - count - 1 >= 0 and text[index - count - 1] == "\\":
+        count += 1
+    return count % 2 == 1
+
+
+def _blank_inline_code(block: str) -> str:
+    """Blank inline code spans in one block (a paragraph, list item, heading or table row).
+
+    A run of n backticks closes at the next run of exactly n, which may be on a later line of the
+    same block (CommonMark §6.1). A backslash-escaped backtick cannot open a span, but a backslash
+    inside a span is literal, so it does not stop a closer. An unclosed run is literal text, so an
+    unbalanced backtick cannot swallow a real link.
+    """
+    out = []
+    pos = 0
+    runs = [(m.start(), m.end()) for m in BACKTICK_RUN_RE.finditer(block)]
+    i = 0
+    while i < len(runs):
+        start, end = runs[i]
+        if _escaped(block, start):
+            start += 1
+        if start == end:
+            i += 1
+            continue
+        length = end - start
+        closer_index = next(
+            (j for j in range(i + 1, len(runs)) if runs[j][1] - runs[j][0] == length),
+            None,
+        )
+        if closer_index is None:
+            i += 1
+            continue
+        closer_end = runs[closer_index][1]
+        out.append(block[pos:start])
+        out.append(_blank(block[start:closer_end]))
+        pos = closer_end
+        i = closer_index + 1
+    out.append(block[pos:])
+    return "".join(out)
+
+
+# A line that starts a new block, so a code span cannot continue into it from the line above.
+BLOCK_START_RE = re.compile(r"^\s*(#{1,6}(\s|$)|\||>|[-*+]\s|\d{1,9}[.)]\s)")
+
+
+def blank_code(text: str) -> str:
+    """Return text with fenced blocks and inline code spans replaced by spaces (newlines kept),
+    so link-shaped text inside code is not mistaken for a link. Offsets and line numbers are
+    unchanged.
+
+    Inline spans are paired within a block: consecutive lines up to a blank line, a fence, or a
+    line that starts a heading, table row, block quote or list item. Indented code blocks are not
+    recognized: without a full parser they are indistinguishable from list continuations.
+    """
+    lines = text.split("\n")
+    out = []
+    block: list[str] = []
+    fence = None  # (character, length) of the open fence
+
+    def flush():
+        if block:
+            out.extend(_blank_inline_code("\n".join(block)).split("\n"))
+            block.clear()
+
+    for line in lines:
+        if fence is not None:
+            match = FENCE_RE.match(line)
+            if (
+                match
+                and match.group(1)[0] == fence[0]
+                and len(match.group(1)) >= fence[1]
+                and not line[match.end() :].strip()
+            ):
+                fence = None
+            out.append(_blank(line))
+            continue
+        match = FENCE_RE.match(line)
+        # A backtick fence's info string may not contain a backtick (CommonMark §4.5).
+        if match and not (match.group(1)[0] == "`" and "`" in line[match.end() :]):
+            flush()
+            fence = (match.group(1)[0], len(match.group(1)))
+            out.append(_blank(line))
+            continue
+        if not line.strip():
+            flush()
+            out.append(line)
+            continue
+        if BLOCK_START_RE.match(line):
+            flush()
+        block.append(line)
+    flush()
+    return "\n".join(out)
 
 
 def stable_paths(paths) -> list[Path]:
@@ -172,7 +276,7 @@ def relative_link_errors(specs: Path) -> list[str]:
     errors = []
     for path in tracked_markdown_paths(specs):
         text = path.read_text(encoding="utf-8")
-        for match in RELATIVE_LINK_RE.finditer(text):
+        for match in RELATIVE_LINK_RE.finditer(blank_code(text)):
             raw_target = match.group(1)
             target_text = raw_target.split("#", 1)[0]
             if not target_text or target_text.startswith("/"):

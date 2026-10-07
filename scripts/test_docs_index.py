@@ -241,5 +241,81 @@ class MergedDesignTests(unittest.TestCase):
         )
 
 
+class BlankCodeTests(unittest.TestCase):
+    """Link syntax inside code is text, not a link (DOCS-LINK-CHECK-READS-CODE-SPANS)."""
+
+    LINK = "[" + "x](missing.md)"
+    TICKS = "`" * 3
+
+    def links(self, text):
+        return [m.group(1) for m in docs_index.RELATIVE_LINK_RE.finditer(docs_index.blank_code(text))]
+
+    def test_fenced_block_is_blanked(self):
+        text = self.TICKS + "python\nlink = '[' + 'label](' + name + ')'\n" + self.LINK + "\n" + self.TICKS + "\n"
+        self.assertEqual(self.links(text), [])
+
+    def test_inline_code_span_is_blanked(self):
+        self.assertEqual(self.links("see `" + self.LINK + "` here"), [])
+
+    def test_double_backtick_span_with_inner_backtick(self):
+        text = "a ``code ` " + self.LINK + "`` b " + self.LINK
+        self.assertEqual(self.links(text), ["missing.md"])
+        self.assertEqual(len(docs_index.blank_code(text)), len(text))
+
+    def test_link_outside_code_is_kept(self):
+        self.assertEqual(self.links("text " + self.LINK), ["missing.md"])
+
+    def test_unclosed_backtick_is_literal(self):
+        self.assertEqual(self.links("a ` stray " + self.LINK), ["missing.md"])
+
+    def test_tilde_fence_is_blanked(self):
+        text = "~~~\n" + self.LINK + "\n~~~\n" + self.LINK
+        self.assertEqual(self.links(text), ["missing.md"])
+
+    def test_shorter_fence_does_not_close(self):
+        text = "````\n" + self.TICKS + "\n" + self.LINK + "\n````\nafter " + self.LINK
+        self.assertEqual(self.links(text), ["missing.md"])
+
+    def test_newlines_and_length_preserved(self):
+        text = self.TICKS + "\na\nb\n" + self.TICKS + "\n`c`\n"
+        blanked = docs_index.blank_code(text)
+        self.assertEqual(len(blanked), len(text))
+        self.assertEqual(blanked.count("\n"), text.count("\n"))
+
+    def test_code_span_continues_across_lines(self):
+        text = "a `span\n" + self.LINK + "\nends` b " + self.LINK
+        self.assertEqual(self.links(text), ["missing.md"])
+
+    def test_code_span_does_not_cross_a_blank_line(self):
+        text = "a ` stray\n\n" + self.LINK + " `x`"
+        self.assertEqual(self.links(text), ["missing.md"])
+
+    def test_code_span_does_not_cross_into_a_list_item(self):
+        text = "- a ` stray\n- " + self.LINK + " `x`"
+        self.assertEqual(self.links(text), ["missing.md"])
+
+    def test_escaped_backticks_do_not_open_a_span(self):
+        text = "\\` " + self.LINK + " \\`"
+        self.assertEqual(self.links(text), ["missing.md"])
+
+    def test_escaped_backslash_leaves_backtick_active(self):
+        text = "\\\\`" + self.LINK + "`"
+        self.assertEqual(self.links(text), [])
+
+    def test_backslash_inside_span_is_literal(self):
+        text = "`a\\` " + self.LINK
+        self.assertEqual(self.links(text), ["missing.md"])
+
+    def test_relative_link_errors_ignores_code(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            specs = Path(temporary) / "specs"
+            (specs / "issues").mkdir(parents=True)
+            (specs / "issues" / "CODE.md").write_text(
+                "`" + self.LINK + "`\n" + self.TICKS + "\n" + self.LINK + "\n" + self.TICKS + "\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(docs_index.relative_link_errors(specs), [])
+
+
 if __name__ == "__main__":
     unittest.main()
