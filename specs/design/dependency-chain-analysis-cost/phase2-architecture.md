@@ -2,8 +2,8 @@
 
 ## Overview
 
-There are three changes, all in `liquers-core`, and none crosses a crate boundary or changes a
-public trait signature:
+There are three changes. All the behaviour is in `liquers-core`; outside it, only call sites change
+(see "`DefaultRecipeProvider` construction", a scope amendment to Phase 1's "liquers-core only"):
 
 - **Planner.** Plan-time dependency analysis becomes one memoized depth-first walk that produces two
   separate things: the **direct** dependency list, which is recorded, and the **transitive
@@ -14,14 +14,28 @@ public trait signature:
 - **Recipe provider.** `DefaultRecipeProvider` caches each directory's parsed recipes, checked
   against the stored bytes, so a recipe lookup no longer costs a full YAML parse.
 
-## Correction to Phase 1 found while specifying
+## Corrections to Phase 1 found while specifying
 
-Phase 1 Decision 1 says an explicit audit (`trigger_dependency_audit_all_registered`) catches the
+**1. Audits need the walk.** Phase 1 Decision 1 says an explicit audit (`trigger_dependency_audit_all_registered`) catches the
 restart case under `Explicit`. With direct records, that is only true if the audit uses the walk
-below. `audit_gaps` (`assets.rs:5672`) resolves a gap's **stored version** (`dependency_version`),
+below. `audit_gaps` (`assets.rs:5681`) resolves a gap's **stored version** (`dependency_version`),
 and `l1`'s stored version is unchanged: `l1` is stale, not rewritten. So the walk serves the audit
 too. That is what Decision 1 intends ("the dependency manager uses all information available"),
 and Phase 1 is amended to say so.
+
+**2. The status case under `Explicit`.** `try_fast_track` also refuses a load when a recorded
+dependency's stored *status* does not permit reuse (`dependency_blocks_fast_track`,
+`assets.rs:1375`), under every policy. Today `l2` records `l0` directly, so a stored `Expired` `l0`
+blocks `l2` even when `l1` is still stored `Ready`. That happens when `l0` expired in a process
+that never loaded `l1`. With direct records `l2` sees only `l1`, which is `Ready`, so under
+`Explicit` it is served. This is the same consequence as Decision 1's version case: no extra
+metadata scan under `Explicit`. Under `OnLoad` the walk checks status recursively, and an audit
+catches it. Recorded as accepted under Decision 1, for the maintainer to confirm.
+
+**3. The recipe cache checks bytes, not `directory_changed`.** Phase 1 Core Interactions said the
+cache is invalidated by `directory_changed`. A hook misses `recipes.yaml` edits made behind Liquers'
+back, which today's re-read catches. Comparing the stored bytes keeps today's freshness exactly and
+needs no hook.
 
 ## Known-Issue Preflight
 
@@ -37,8 +51,14 @@ volatility, expiry or cycle.
 | `ASSETS-FIX1` | accepted | P2 | General TODO cleanup in the asset lifecycle. No overlap with the edited code. | no | no | None. |
 | `DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK` | draft | P2 | A `recipe_opt` override in `DefaultAssetManager`; the walk calls the provider's `recipe_opt` as today. | no | no | None. |
 
-`dependency-edge-superseded-version`, listed under Phase 1's Design Dependencies, is now
-`complete`. Nothing blocks this design.
+Phase 1's Design Dependencies:
+- `dependency-edge-superseded-version` is now `complete`.
+- `dependency-audit-and-expiry-provenance` (complete) decided "direct dependencies only;
+  transitivity comes from the cascade" (`phase2-architecture.md:144`). This design brings the
+  records in line with it and reuses its audit machinery (`audit_gaps`, `audit_version`,
+  `ExpiryCause::StaleDependency`, `metadata.rs:423`).
+
+Nothing blocks this design.
 
 ## Data Structures
 
@@ -50,8 +70,10 @@ All new types are `pub(crate)` in `liquers-core`. None is serialized.
 /// What a keyed recipe contributes to the plans that read it, transitively.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct DependencySummary {
-    /// The first key (in walk order) whose recipe declares `volatile: true`, at or upstream of
-    /// this key. Its presence is exactly today's "Volatile due to dependency on volatile key".
+    /// The volatile-declaring key at or upstream of this key that sorts first by its
+    /// `DependencyKey` string; merging keeps the minimum. Today's message names the first such key
+    /// in the dependency list, which is sorted by that string (`plan.rs:2668`), so the named key
+    /// is unchanged.
     declared_volatile: Option<Key>,
     /// Combined expiry of this key's recipe and everything upstream of it: today's
     /// `dependency_expires` after the recursive `has_expirable_dependencies_impl`.
@@ -84,7 +106,8 @@ cloned out of the memo. The walk borrows each plan only while it is walking that
 /// What the dependency manager concludes about a dependency, from everything it knows plus the
 /// stored dependency records reachable from it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum StoredDependencyState {
+#[non_exhaustive]
+pub enum StoredDependencyState {
     /// The dependency manager already holds a version: authoritative, nothing read.
     Known(Version),
     /// Stored with a durable version, and every recorded dependency, recursively, still holds.
@@ -114,7 +137,8 @@ pub struct DefaultRecipeProvider {
 struct CachedRecipes {
     bytes: Vec<u8>,
     list: RecipeList,                 // cwd already set
-    by_name: HashMap<String, usize>,  // filename -> index into list.recipes
+    by_name: HashMap<String, usize>,  // filename -> index into list.recipes; first occurrence
+                                      // wins (`entry().or_insert`), as `RecipeList::get` does
 }
 ```
 
@@ -163,10 +187,22 @@ impl<E: Environment> DependencyWalk<E> {
 }
 ```
 
-`find_dependencies` stays as a thin `pub(crate)` wrapper:
-`DependencyWalk::new(envref).walk_plan(plan, cursor)`, returning the direct list. Its plan.rs unit
-tests keep their call sites. `has_volatile_dependencies` and `has_expirable_dependencies` are
+`find_dependencies` stays as a thin `pub(crate)` wrapper,
+`find_dependencies(envref, plan, cursor)`, which runs `DependencyWalk::new(envref).walk_plan(plan,
+cursor)` and returns the direct list. It loses the `stack` parameter, since the walk owns its path
+set. Its six unit-test call sites change (`plan.rs:4156, 4235, 4306, 4342, 4377, 4504`). Two of them
+assert a nested recipe's link in the outer list and change expectation:
+`find_dependencies_respects_nested_recipe_cwd` (`plan.rs:4356`) and
+`expiration_nested_recipe_uses_keyed_recipe_plan` (`plan.rs:4455`). They are rewritten to assert the
+link on the *recipe's* own analysis, and the expiry result is unchanged. `has_volatile_dependencies` and `has_expirable_dependencies` are
 removed. Their tests call `analyze_plan_dependencies` instead (Phase 3 lists them).
+
+**Errors.** If the walk fails (a cycle, a recipe whose plan cannot be built), the error is written
+to the plan with `dependency_check_error` and returned, and **nothing** is applied: no dependency
+list, no volatility, no expiry. That matches today, where `has_volatile_dependencies` returns before
+`has_expirable_dependencies` runs, and `create_plan_with_init_metadata` skips the expiry pass when
+`plan.error` is set. The callers keep their handling: `?` in `interpreter.rs`, `let _ =` in
+`recipes.rs`.
 
 **Cycle detection and complexity.** `summarize_key` checks `on_path` before `done`, inserts on
 entry and removes on exit. The cycle error message and the `with_key` are today's. Every keyed
@@ -185,8 +221,9 @@ evaluation of link *i* costs about 3·i lookups instead of 3·(i+1)².
   summaries read)`. `to_plan` already folds the recipe's own `expires` into the plan, so this
   equals today's recursion.
 - **Applying the summary to the plan.** Each merge that changes `plan.expires` emits today's
-  "Expiration combined with asset dependency …" info. If the combined expiry is volatile, the plan
-  is marked volatile with today's message. A `declared_volatile` key gives "Volatile due to
+  "Expiration combined with asset dependency …" info. If at least one merge changed it **and** the
+  combined expiry is volatile, the plan is marked volatile with today's message. That is today's
+  `changed && plan.expires.is_volatile()` gate (`plan.rs:2886`). A `declared_volatile` key gives "Volatile due to
   dependency on volatile key: …". The "Dependency detected: …" info lines now list direct
   dependencies only.
 
@@ -206,18 +243,21 @@ async fn stored_dependency_state(
 
 It is a default method, beside `audit_gaps` and `dependency_version`, so the external asset
 manager inherits it. The recursion is a private boxed helper carrying the memo and the on-path set.
-For each record it applies today's per-record rules (`assets.rs:1325–1366`):
-- **Version.** It compares with `Version::matches` against a known version, and with equality
-  against a stored one.
+For each record it applies today's per-record rules (`assets.rs:1325–1366`), reusing
+`dependency_version` for a store-resolvable key's version and `dependency_blocks_fast_track`'s
+status predicate (`status_permits_reuse`) for status:
+- **Version.** A record is compared with `Version::matches` against a `Known` version (today's
+  manager branch, `assets.rs:1326`), and with equality against a `Confirmed` (stored) version
+  (today's `OnLoad` branch, `assets.rs:1343`, which deliberately does not let a current 0 match).
+  `try_fast_track` uses the same two rules when it compares its own records with the walk's
+  answer.
 - **Unknown versions.** A recorded `Version::unknown()` is compatible. A non-store-resolvable key
   (command, recipe) with no known version is compatible.
 - **Status.** A stored status that does not permit reuse makes the record not hold
   (`dependency_blocks_fast_track`).
 
-The method is `pub(crate)` in effect: the trait is public, but the return type is crate-private,
-so it is declared `#[doc(hidden)]` and documented as internal. Phase 4 checks that this compiles
-under the `private_interfaces` lint. If it does not, `StoredDependencyState` becomes `pub` with
-`#[non_exhaustive]`.
+`StoredDependencyState` is `pub` and `#[non_exhaustive]`, because it appears in a public trait
+method. Keeping it crate-private would only trade a `private_interfaces` warning for nothing.
 
 ### Call-site changes
 
@@ -227,20 +267,34 @@ under the `private_interfaces` lint. If it does not, `StoredDependencyState` bec
 | `interpreter.rs:176-179` `make_plan_with_cwd` | the two passes | the same |
 | `recipes.rs:632-634` `create_plan_with_init_metadata` | the two passes, `let _ =` | `let _ = analyze_plan_dependencies(envref, &mut plan, None)` (behaviour kept, see preflight) |
 | `assets.rs:1334` `try_fast_track`, `OnLoad` branch | `dependency_version` + equality + `observe_version` | `stored_dependency_state(&dep_record.key)`: `Known`/`Confirmed(v)` compared with the record; `Stale` and `Unresolvable` refuse |
-| `assets.rs:5672` `audit_gaps` | `found = dependency_version(gap)` | first `stored_dependency_state(gap)`. `Stale { dependency, .. }`: expire the gap's dependents with `ExpiryCause::StaleDependency { dependency }` and add a finding. Otherwise `audit_version` on the version, as today |
+| `assets.rs:5681` `audit_gaps` | `found = dependency_version(gap)` | first `stored_dependency_state(gap)`. `Stale { dependency, .. }`: expire the gap's dependents with `ExpiryCause::StaleDependency { dependency }` and add a finding. Otherwise `audit_version` on the version, as today |
 | `recipes.rs` `get_recipes` / `recipe_opt` / `recipe` | parse per call | through `cache`; `recipe_opt` indexes `by_name` |
 
 The fast-track minimum rule from Decision 1 needs **no change**: `try_fast_track` already calls
-`load_from_records` for a consistent load (`assets.rs:1404`), and `add_dependency` keeps an edge
+`load_from_records` for a consistent load (`assets.rs:1407`), and `add_dependency` keeps an edge
 whose dependency has no version yet.
 
 ### `DefaultRecipeProvider` construction
 
-A field ends the unit struct, which has 122 construction sites across `liquers-core`, `liquers-lib`,
-`liquers-records` and `liquers-axum` (tests included). Add `DefaultRecipeProvider::new()` and
-`impl Default`. The call sites change mechanically from `DefaultRecipeProvider` to
-`DefaultRecipeProvider::new()`; no behaviour depends on the form. **Decision needed (see
+A field ends the unit struct. It is used as a value at 115 sites: 108 in `liquers-core`, 6 in
+`liquers-axum` tests, and 1 in `liquers-records` (`provider.rs:205`, where it is the receiver of a
+method call). `liquers-lib` mentions it only in a comment. Mirror `ManifestRecipeProvider`
+(`liquers-records/src/provider.rs:76-100`): `new()`, `#[derive(Default)]`, and an `scc` map. The
+call sites change mechanically from `DefaultRecipeProvider` to `DefaultRecipeProvider::new()`; no
+behaviour depends on the form. This is a **scope amendment** to Phase 1's "liquers-core only":
+public API churn, not new behaviour. **Decision needed (see
 Questions):** this churn, or a crate-global content-addressed cache that keeps the unit struct.
+
+## Trait Implementations
+
+- **`AsyncRecipeProvider<E>` for `DefaultRecipeProvider`.** Same methods and signatures.
+  `get_recipes`, `recipe` and `recipe_opt` read through the cache. No new trait methods.
+- **`AssetManager<E>`.** One new default method, `stored_dependency_state`. It is additive, so
+  every implementor (the in-tree managers and the external manager in the tests) inherits it.
+  Existing methods keep their signatures. `audit_gaps` and `try_fast_track` change their bodies
+  only.
+- **No trait bounds added.** `DependencyWalk<E: Environment>` uses only the bounds `Environment`
+  already carries (`MaybeSend + MaybeSync`).
 
 ## Sync vs Async
 
@@ -271,6 +325,11 @@ namespace involved. `specs/command_registry.yaml` is unchanged.
 
 - **`liquers-core` only** for behaviour. Other crates change only `DefaultRecipeProvider` → `::new()`
   (if chosen).
+- **Behaviour visible through `liquers-axum`.** The admin audit endpoints
+  (`liquers-axum/src/assets/key_handlers.rs:484-496`) call `trigger_dependency_audit*`. With the
+  walk, their reports can now list a stale gap's dependents as expired, with
+  `ExpiryCause::StaleDependency`. That is the intended change, and the axum tests are checked in
+  Phase 4.
 - `liquers-py`: no use of these items (checked: no `find_dependencies`, `has_volatile_*`, or
   `DefaultRecipeProvider` in `liquers-py/src`). `liquers-validate` prints no dependency lists, so
   its output is unchanged.
@@ -306,6 +365,24 @@ namespace involved. `specs/command_registry.yaml` is unchanged.
 - **Evidence to collect during implementation:** before and after numbers from the benchmark
   (10/20/40/200 links), and the lookup count per link.
 
+## Acceptance Prediction (Phase 1, Decision 5)
+
+The prototype measured 181 501 lookups and 12.2 s for 200 links, about 67 µs per lookup with
+everything else included. It ran three walks per analysis: the outer `find_dependencies`, the
+expiry walk, and an inner one-level analysis per key. This design runs **one** walk per analysis,
+about (i+1) visits, and keeps three analyses per evaluation:
+
+- **Lookups.** 3·Σ(i+1) ≈ 61 000 for 200 links, about a third of the prototype's count.
+- **Per visit.** Each visit also costs a `get_bytes` and a byte comparison of a ~16 KB
+  `recipes.yaml`, which the prototype's index skipped. Estimated at a few µs, on top of the
+  67 µs.
+- **Prediction.** 200 links ≈ 61 000 × ~70 µs + ~1 s floor ≈ **4.5–5.5 s**, against a 5 s bound.
+  40 links ≈ 2 500 × 70 µs + ~0.2 s ≈ **0.4 s**, against a 1 s bound.
+
+The 40-link bound holds comfortably. The 200-link bound is marginal and is a **question for the
+maintainer** (below): measure in Phase 4 and relax it if it is missed, or share one walk across the
+three analyses of an evaluation.
+
 ## Risk
 
 | Area | Assessment |
@@ -316,9 +393,23 @@ namespace involved. `specs/command_registry.yaml` is unchanged.
 | Memory | One `recipes.yaml` copy per directory, per provider. |
 | Certainty | High for the planner and the cache (prototype measured). Medium-high for the stored-records walk (new code, but built from existing per-record rules). |
 
+## Carried to Phase 3
+
+- **Restart probe as two tests.** Under `Explicit`: the stale `l2` is served, then expired once
+  `l1` is touched. Under `OnLoad`: `l2` is refused immediately. Also the status variant
+  (correction 2) under `OnLoad`, and an explicit audit catching the deep change.
+- **The two changed unit tests**, listed above.
+- **A diamond-expiry test** (`COMBINED-EXPIRES`).
+- **The chain benchmark** (10/20/40/200 links), and a 20-link smoke test with a bound.
+
 ## Questions
 
 1. **`DefaultRecipeProvider` field.** I recommend the per-instance field with `::new()` and the
    mechanical change at 122 call sites: explicit ownership and no global state. The alternative is
    a crate-global cache keyed by (directory, bytes) that keeps the unit struct. It is correct by
    construction, being content-addressed, but it is hidden global state that grows unbounded.
+2. **The 200-link bound.** The prediction is 4.5–5.5 s against 5 s. I recommend measuring in
+   Phase 4 and relaxing the bound to 8 s if it is missed, rather than adding code now to share one
+   walk across the three analyses (Decision 4).
+3. **The status case under `Explicit`** (correction 2). I recommend accepting it as part of
+   Decision 1.
