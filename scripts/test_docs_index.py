@@ -282,6 +282,30 @@ class BlankCodeTests(unittest.TestCase):
         self.assertEqual(len(blanked), len(text))
         self.assertEqual(blanked.count("\n"), text.count("\n"))
 
+    def test_code_span_continues_across_lines(self):
+        text = "a `span\n" + self.LINK + "\nends` b " + self.LINK
+        self.assertEqual(self.links(text), ["missing.md"])
+
+    def test_code_span_does_not_cross_a_blank_line(self):
+        text = "a ` stray\n\n" + self.LINK + " `x`"
+        self.assertEqual(self.links(text), ["missing.md"])
+
+    def test_code_span_does_not_cross_into_a_list_item(self):
+        text = "- a ` stray\n- " + self.LINK + " `x`"
+        self.assertEqual(self.links(text), ["missing.md"])
+
+    def test_escaped_backticks_do_not_open_a_span(self):
+        text = "\\` " + self.LINK + " \\`"
+        self.assertEqual(self.links(text), ["missing.md"])
+
+    def test_escaped_backslash_leaves_backtick_active(self):
+        text = "\\\\`" + self.LINK + "`"
+        self.assertEqual(self.links(text), [])
+
+    def test_backslash_inside_span_is_literal(self):
+        text = "`a\\` " + self.LINK
+        self.assertEqual(self.links(text), ["missing.md"])
+
     def test_relative_link_errors_ignores_code(self):
         with tempfile.TemporaryDirectory() as temporary:
             specs = Path(temporary) / "specs"

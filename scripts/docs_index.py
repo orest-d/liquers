@@ -161,31 +161,52 @@ def _blank(text: str) -> str:
     return re.sub(r"[^\n]", " ", text)
 
 
-def _blank_inline_code(line: str) -> str:
-    """Blank inline code spans: a run of n backticks closes at the next run of exactly n.
+def _escaped(text: str, index: int) -> bool:
+    """True when the character at index is preceded by an odd number of backslashes."""
+    count = 0
+    while index - count - 1 >= 0 and text[index - count - 1] == "\\":
+        count += 1
+    return count % 2 == 1
 
-    An unclosed run is literal text, so an unbalanced backtick cannot swallow a real link.
+
+def _blank_inline_code(block: str) -> str:
+    """Blank inline code spans in one block (a paragraph, list item, heading or table row).
+
+    A run of n backticks closes at the next run of exactly n, which may be on a later line of the
+    same block (CommonMark §6.1). A backslash-escaped backtick cannot open a span, but a backslash
+    inside a span is literal, so it does not stop a closer. An unclosed run is literal text, so an
+    unbalanced backtick cannot swallow a real link.
     """
     out = []
     pos = 0
-    runs = list(BACKTICK_RUN_RE.finditer(line))
+    runs = [(m.start(), m.end()) for m in BACKTICK_RUN_RE.finditer(block)]
     i = 0
     while i < len(runs):
-        opener = runs[i]
+        start, end = runs[i]
+        if _escaped(block, start):
+            start += 1
+        if start == end:
+            i += 1
+            continue
+        length = end - start
         closer_index = next(
-            (j for j in range(i + 1, len(runs)) if len(runs[j].group()) == len(opener.group())),
+            (j for j in range(i + 1, len(runs)) if runs[j][1] - runs[j][0] == length),
             None,
         )
         if closer_index is None:
             i += 1
             continue
-        closer = runs[closer_index]
-        out.append(line[pos : opener.start()])
-        out.append(_blank(line[opener.start() : closer.end()]))
-        pos = closer.end()
+        closer_end = runs[closer_index][1]
+        out.append(block[pos:start])
+        out.append(_blank(block[start:closer_end]))
+        pos = closer_end
         i = closer_index + 1
-    out.append(line[pos:])
+    out.append(block[pos:])
     return "".join(out)
+
+
+# A line that starts a new block, so a code span cannot continue into it from the line above.
+BLOCK_START_RE = re.compile(r"^\s*(#{1,6}(\s|$)|\||>|[-*+]\s|\d{1,9}[.)]\s)")
 
 
 def blank_code(text: str) -> str:
@@ -193,12 +214,20 @@ def blank_code(text: str) -> str:
     so link-shaped text inside code is not mistaken for a link. Offsets and line numbers are
     unchanged.
 
-    Indented code blocks are not recognized: without a full parser they are indistinguishable
-    from list continuations.
+    Inline spans are paired within a block: consecutive lines up to a blank line, a fence, or a
+    line that starts a heading, table row, block quote or list item. Indented code blocks are not
+    recognized: without a full parser they are indistinguishable from list continuations.
     """
     lines = text.split("\n")
     out = []
+    block: list[str] = []
     fence = None  # (character, length) of the open fence
+
+    def flush():
+        if block:
+            out.extend(_blank_inline_code("\n".join(block)).split("\n"))
+            block.clear()
+
     for line in lines:
         if fence is not None:
             match = FENCE_RE.match(line)
@@ -214,10 +243,18 @@ def blank_code(text: str) -> str:
         match = FENCE_RE.match(line)
         # A backtick fence's info string may not contain a backtick (CommonMark §4.5).
         if match and not (match.group(1)[0] == "`" and "`" in line[match.end() :]):
+            flush()
             fence = (match.group(1)[0], len(match.group(1)))
             out.append(_blank(line))
             continue
-        out.append(_blank_inline_code(line))
+        if not line.strip():
+            flush()
+            out.append(line)
+            continue
+        if BLOCK_START_RE.match(line):
+            flush()
+        block.append(line)
+    flush()
     return "\n".join(out)
 
 
