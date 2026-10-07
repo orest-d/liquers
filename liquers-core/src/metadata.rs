@@ -1816,7 +1816,9 @@ fn legacy_string_field(
     })
 }
 
-#[derive(Debug, Clone)]
+/// Equality is structural: the same variant with equal payloads. A `LegacyMetadata` never equals a
+/// `MetadataRecord`, even when its JSON is that record's serialization.
+#[derive(Debug, Clone, PartialEq)]
 pub enum Metadata {
     LegacyMetadata(serde_json::Value),
     MetadataRecord(MetadataRecord),
@@ -1825,6 +1827,30 @@ pub enum Metadata {
 impl Default for Metadata {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Untagged: the same document [`Metadata::to_json`] writes — the inner record or the legacy JSON
+/// value, with no variant tag. This is the form every store already holds, so a derived
+/// (externally tagged) form would be a second, incompatible representation.
+impl serde::Serialize for Metadata {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Metadata::LegacyMetadata(value) => value.serialize(serializer),
+            Metadata::MetadataRecord(record) => record.serialize(serializer),
+        }
+    }
+}
+
+/// Record first, legacy fallback: the same choice [`Metadata::from_json_value`] makes. A document
+/// `MetadataRecord` accepts becomes a record, so the round trip preserves the *JSON*, not
+/// necessarily the variant of a hand-built `LegacyMetadata`.
+///
+/// Buffers through `serde_json::Value`, so it needs a self-describing format (JSON, YAML, TOML).
+impl<'de> serde::Deserialize<'de> for Metadata {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        Metadata::from_json_value(value).map_err(serde::de::Error::custom)
     }
 }
 
@@ -2896,6 +2922,116 @@ impl From<MetadataRecord> for Metadata {
 
 #[cfg(test)]
 mod tests {
+    /// Serde and equality for `Metadata` (`design/metadata-serde-partialeq/`).
+    mod metadata_serde {
+        use crate::metadata::{LogEntry, Metadata, MetadataRecord, Status};
+        use crate::parse::parse_key;
+
+        type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+        fn sample_record() -> Result<MetadataRecord, Box<dyn std::error::Error>> {
+            let mut record = MetadataRecord::new();
+            record
+                .with_title("Sales".to_string())
+                .with_key(parse_key("data/sales.csv")?)
+                .with_status(Status::Ready);
+            record.log.push(LogEntry::warning("a log line".to_string()));
+            Ok(record)
+        }
+
+        fn legacy_json() -> serde_json::Value {
+            serde_json::json!({"media_type": "text/plain", "custom": {"a": 1}})
+        }
+
+        #[test]
+        fn metadata_serialize_matches_to_json() -> TestResult {
+            for m in [
+                Metadata::MetadataRecord(sample_record()?),
+                Metadata::LegacyMetadata(legacy_json()),
+            ] {
+                assert_eq!(
+                    serde_json::to_value(&m)?,
+                    serde_json::from_str::<serde_json::Value>(&m.to_json()?)?
+                );
+            }
+            Ok(())
+        }
+
+        #[test]
+        fn metadata_deserialize_chooses_the_same_variant_as_from_json() -> TestResult {
+            let full = Metadata::MetadataRecord(sample_record()?).to_json()?;
+            let documents = [
+                full.as_str(),
+                r#"{"media_type":"text/plain"}"#,
+                r#"{"media_type":"text/plain","custom":{"a":1}}"#,
+                "null",
+                "[1,2]",
+            ];
+            for document in documents {
+                assert_eq!(
+                    serde_json::from_str::<Metadata>(document)?,
+                    Metadata::from_json(document)?,
+                    "{document}"
+                );
+            }
+            assert!(matches!(
+                serde_json::from_str::<Metadata>(r#"{"media_type":"text/plain"}"#)?,
+                Metadata::MetadataRecord(_)
+            ));
+            match serde_json::from_str::<Metadata>(documents[2])? {
+                Metadata::LegacyMetadata(value) => assert_eq!(value, legacy_json()),
+                other => panic!("an unknown field must keep the document legacy, got {other:?}"),
+            }
+            assert_eq!(
+                serde_json::from_str::<Metadata>("null")?,
+                Metadata::LegacyMetadata(serde_json::Value::Null)
+            );
+            Ok(())
+        }
+
+        #[test]
+        fn metadata_record_round_trips_through_serde() -> TestResult {
+            let m = Metadata::MetadataRecord(sample_record()?);
+            assert_eq!(serde_json::from_str::<Metadata>(&serde_json::to_string(&m)?)?, m);
+            assert_eq!(serde_yaml::from_str::<Metadata>(&serde_yaml::to_string(&m)?)?, m);
+            Ok(())
+        }
+
+        #[test]
+        fn metadata_partial_eq_is_structural() -> TestResult {
+            let record = sample_record()?;
+            let mut other = record.clone();
+            other.with_title("Costs".to_string());
+            assert_eq!(
+                Metadata::MetadataRecord(record.clone()),
+                Metadata::MetadataRecord(record.clone())
+            );
+            assert_ne!(
+                Metadata::MetadataRecord(record.clone()),
+                Metadata::MetadataRecord(other)
+            );
+            assert_ne!(
+                Metadata::LegacyMetadata(serde_json::to_value(&record)?),
+                Metadata::MetadataRecord(record)
+            );
+            Ok(())
+        }
+
+        #[test]
+        fn struct_embedding_metadata_derives_the_traits() -> TestResult {
+            #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+            struct Holder {
+                metadata: Metadata,
+            }
+            let holder = Holder {
+                metadata: Metadata::MetadataRecord(sample_record()?),
+            };
+            let json = serde_json::to_string(&holder)?;
+            assert_eq!(serde_json::from_str::<Holder>(&json)?, holder);
+            Ok(())
+        }
+    }
+
     use super::*;
 
     /// U1 — every one of the fifteen statuses, asserted individually rather than in a loop,

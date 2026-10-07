@@ -2,7 +2,7 @@
 id: METADATA-LACKS-SERIALIZE-DESERIALIZE-AND-PARTIALEQ
 kind: issue
 title: Metadata lacks Serialize, Deserialize and PartialEq
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/value]
@@ -56,3 +56,12 @@ Found while implementing Step 2.3 of the record-streams Phase 4 plan (`liquers-r
 `ChunkDescriptor`): the type as specified in Phase 2 failed to compile because `Metadata` lacks
 these derives, confirmed by grepping `liquers-core/src/metadata.rs` for `impl Serialize for
 Metadata` / `impl PartialEq for Metadata` (none found) and reading its derive line directly.
+
+## Resolution (2026-10-07)
+
+Fixed by design `metadata-serde-partialeq`. `Metadata` now derives `PartialEq` and implements
+`Serialize` / `Deserialize` by hand, in the untagged form `to_json` / `from_json_value` already
+use, so a struct embedding `Metadata` can derive all three. `ChunkDescriptor` keeps
+`Debug + Clone` because of `Query`'s serialized form, as its doc comment now says.
+
+Evidence: the five tests in `liquers-core/src/metadata.rs` `tests::metadata_serde`.

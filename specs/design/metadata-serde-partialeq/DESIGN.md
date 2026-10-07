@@ -4,7 +4,7 @@ kind: design
 title: Serialize, Deserialize and PartialEq for the Metadata enum
 workflow: liquers-project
 status: in_review
-phase: implementation
+phase: documentation
 readiness: ready
 area: [core/value]
 issues: [METADATA-LACKS-SERIALIZE-DESERIALIZE-AND-PARTIALEQ]
