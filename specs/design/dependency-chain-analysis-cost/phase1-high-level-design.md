@@ -74,7 +74,8 @@ matter of the audit policy.
   (`assets.rs:1386` → `load_from_records`; `add_dependency` keeps an edge whose dependency version
   is still unknown). The cascade provides transitivity, and `via` names the true predecessor.
 - **Recipes.** `DefaultRecipeProvider` keeps a per-directory parsed and indexed recipe cache,
-  invalidated by the existing `directory_changed` hook.
+  checked against the stored `recipes.yaml` bytes on each lookup. Amended in Phase 2 (correction 3):
+  a `directory_changed` hook would miss edits made behind Liquers' back.
 - **Store, commands, value types, web/UI:** no change. The stored record format is unchanged; only
   its contents shrink.
 
@@ -114,7 +115,9 @@ into a follow-up issue in Phase 5 rather than into this scope.
 ## Decisions (maintainer, 2026-10-07)
 
 1. **Transitive freshness is the dependency manager's job, and depends on policy.** No recursive
-   check in `try_fast_track`. Consequence for the restart probe:
+   check in `try_fast_track`: it makes one call into the dependency-management layer, which does
+   the recursion. In Phase 2 this layer is `AssetManager::stored_dependency_state`, because the
+   `DependencyManager` struct has no store access. Consequence for the restart probe:
    - **Default policy (`Explicit`).** The stale `l2` is served until `l1` is touched. Then `l1` is
      refused (its recorded `make_text` version differs), recomputed, and registers a new version.
      The cascade then expires `l2` through the edge recorded when `l2` loaded. A changed upstream
@@ -130,7 +133,8 @@ into a follow-up issue in Phase 5 rather than into this scope.
 3. **No migration.** Records already stored with transitive entries are left as they are.
 4. **Simpler correct code over optimization.** Each analysis is made linear in place. The three
    analyses per evaluation are not merged unless that is the simpler code.
-5. **Acceptance bound.** Debug, cold: 40 links under 1 s, 200 links under 5 s.
+5. **Acceptance bound.** Debug, cold: 40 links under 1 s, 200 links under 5 s. If 200 links misses
+   5 s, the bound is relaxed to 8 s (Phase 2, Decision 2).
 
 ## Design Dependencies
 

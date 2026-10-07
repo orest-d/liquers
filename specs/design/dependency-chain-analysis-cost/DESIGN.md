@@ -3,7 +3,7 @@ id: DEPENDENCY-CHAIN-ANALYSIS-COST
 kind: design
 title: Direct dependency records and linear dependency analysis
 status: in_review
-phase: architecture
+phase: implementation
 workflow: liquers-project
 area: [core/assets, core/plan]
 issues: [EVALUATING-A-LONG-DEPENDENCY-CHAIN-GETS-SUPER-LINEARLY-SLOW]
@@ -19,9 +19,9 @@ rewritten; the earlier autonomous drafts are in git history.
 ## Phase Status
 
 - [x] Phase 1: High-Level Design (revised and approved 2026-10-07)
-- [x] Phase 2: Solution and Architecture (in review)
-- [ ] Phase 3: Examples and Tests (to be rewritten)
-- [ ] Phase 4: Implementation Plan (to be rewritten)
+- [x] Phase 2: Solution and Architecture (approved 2026-10-07)
+- [x] Phase 3: Examples and Tests (pre-approved 2026-10-07)
+- [x] Phase 4: Implementation Plan (in review)
 - [ ] Phase 5: Documentation
 
 ## Links

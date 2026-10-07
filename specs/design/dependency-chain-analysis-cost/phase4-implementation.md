@@ -89,9 +89,10 @@ Phase 3 I6, CLAUDE.md "Diagnostic Output". Rationale: a mechanical port.
   - `recipes.rs:632-634` → `let _ = analyze_plan_dependencies(envref, &mut plan, None).await;`;
   - update the `use` list at `interpreter.rs:15`.
 - **Tests.**
-  - Changed tests: R1–R4.
-  - New unit tests U1–U11. U5, U6, U11 use `CountingRecipeProvider`, extended with a recipe
-    without `cwd` for U11.
+  - Changed tests: R1–R4 and R6. The ten `find_dependencies` call sites: four in `src`, which
+    become walk internals, and six in tests.
+  - New unit tests U1–U11, U8b and U8c. U5, U6, U11 use `CountingRecipeProvider`, extended with
+    a recipe without `cwd` for U11.
 
 **Code changes (signatures):**
 ```rust
@@ -130,6 +131,8 @@ need care.
 `liquers-core`, 6 in `liquers-axum/tests`, `liquers-records/src/provider.rs:205`).
 
 **Action:**
+- **Test hook.** A `#[cfg(test)] parses: AtomicUsize` field, incremented on each YAML parse, for
+  U12 and U12b. Keep it next to `cache`.
 - **The struct.** `pub struct DefaultRecipeProvider { cache: scc::HashMap<Key, Arc<CachedRecipes>> }`,
   with `#[derive(Default)]` (and `Debug` if `scc::HashMap` allows), plus `pub fn new() -> Self`.
   Mirror `ManifestRecipeProvider::new`.
@@ -147,7 +150,7 @@ need care.
   `rg -l '\bDefaultRecipeProvider\b' --type rust | xargs sed -i -E 's/\bDefaultRecipeProvider\b([^:{A-Za-z_])/DefaultRecipeProvider::new()\1/g'`,
   then fix by hand what this over-matches: `use` lines, `impl … for DefaultRecipeProvider`, type
   positions such as `Box<DefaultRecipeProvider>`, and doc comments. Check with `cargo check`.
-- **Tests:** U12–U14.
+- **Tests:** U12, U12b, U12c, U13, U14.
 
 **Validation:**
 ```bash
@@ -198,7 +201,8 @@ mechanical.
      `Confirmed(v)`.
 - **The predicate.** Make `AssetData::status_permits_reuse` callable from the trait, by moving it
   to a free `pub(crate) fn` in `assets.rs`.
-- **Tests:** U15–U20.
+- **Tests:** U15–U25. U16 and U24 need a store wrapper that counts or fails `get_metadata`;
+  write it as a small test-only `AsyncStore` delegating to `AsyncMemoryStore`.
 
 **Validation:**
 ```bash
@@ -240,9 +244,16 @@ Rationale: new logic built from existing rules. The comparison rules must not dr
     anything wrong for a gap with no loaded asset.
   - `Known`, `Confirmed` or `Unresolvable`: today's path, `dependency_version` then
     `audit_version` or `stale_edges`.
-- **Tests:** integration I1–I4 in `tests/dependency_audit_integration.rs`. Extend
-  `register_counting_commands_in` with optional `make_text` text and `impl_version` parameters,
-  with an overload or a new helper so the existing callers are unchanged.
+- **Tests:** integration I1–I4, I3b, I4b and I4c in `tests/dependency_audit_integration.rs`.
+  - Add `struct MakeText { text: &'static str, impl_version: u128 }`.
+  - Add `register_counting_commands_with(cr, calls, make_text)`, which sets
+    `.impl_version = Version::new(impl_version)` on the `make_text` registration (the return value
+    of `register_command`). `register_counting_commands_in` delegates to it with today's
+    `"generated"` and no version.
+  - Add `second_process_with_commands(snapshot, changed, calls, policy, make_text)`, to which
+    `second_process_with` delegates.
+  - The existing callers are unchanged.
+  - A failing-store wrapper for I4c, shared with U24 if practical.
 
 **Validation:**
 ```bash
@@ -270,8 +281,9 @@ Rationale: behaviour on the restart path; it has to match Phase 1 Decision 1 exa
 - **I5.** An evaluated 10-link chain; expire `l0` through the manager; the last link's `via` is
   `l8`.
 - **I7.** A 20-link chain in under 3 s, not ignored.
-- **I6.** Add the assertions 40 < 1 s and 200 < 5 s. If 200 links measures above 5 s, set the bound
-  to 8 s per Phase 2 Decision 2 and record the measurement.
+- **I6.** Add the assertions 40 < 1 s and 200 < 5 s, then run it. If 200 links measures above
+  5 s, set the bound to 8 s per Phase 2 Decision 2 and record the measurement in the PR. This run
+  is the acceptance check: I6 is `#[ignore]`, so default runs do not check it.
 - **Optional (R5).** Leave `cascade_over_100_link_chain` as it is: its hand-written chain still
   tests what it was written for.
 
@@ -296,14 +308,15 @@ scope. File any unrelated failure as an issue (CLAUDE.md).
 ## Testing Plan
 
 ### Unit Tests
-- **After Step 2:** `cargo test -p liquers-core --lib plan::` (U1–U11, R1–R4).
-- **After Step 3:** `cargo test -p liquers-core --lib recipes::` (U12–U14).
-- **After Step 4:** `cargo test -p liquers-core --lib assets::` (U15–U20).
+- **After Step 2:** `cargo test -p liquers-core --lib plan::` (U1–U11, U8b, U8c, R1–R4, R6).
+- **After Step 3:** `cargo test -p liquers-core --lib recipes::` (U12–U14, U12b, U12c).
+- **After Step 4:** `cargo test -p liquers-core --lib assets::` (U15–U25).
 - **After every step:** `cargo test -p liquers-core --lib --tests`. Only the design-changed tests
   may change.
 
 ### Integration Tests
-- **After Step 5:** `cargo test -p liquers-core --test dependency_audit_integration` (I1–I4).
+- **After Step 5:** `cargo test -p liquers-core --test dependency_audit_integration` (I1–I4, I3b,
+  I4b, I4c).
 - **After Step 6:** I5 and I7, plus the ignored I6 with `--ignored --nocapture`.
 
 ### Manual Validation
