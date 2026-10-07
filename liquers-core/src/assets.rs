@@ -6185,7 +6185,11 @@ pub trait AssetManager<E: Environment>:
     /// cache. `Ok(None)` if the key has no data-bearing state (in memory or in the store).
     async fn get_any_status(&self, key: &Key) -> Result<Option<State<E::Value>>, Error> {
         if let Some(asset_ref) = self.lookup_key_asset(key) {
-            return Ok(asset_ref.get_any_status().await);
+            if !live_status_defers_to_store(asset_ref.status().await) {
+                return Ok(asset_ref.get_any_status().await);
+            }
+            // A placeholder that has produced nothing yet (a concurrent `get` mapped it before
+            // fast-tracking the stored value): the store decides, as in `remove`.
         }
         let store = self.get_envref().get_async_store();
         if !store.contains(key).await? {
@@ -6241,9 +6245,12 @@ pub trait AssetManager<E: Environment>:
         key: &Key,
     ) -> Result<Option<(Arc<Vec<u8>>, Arc<Metadata>)>, Error> {
         if let Some(asset_ref) = self.lookup_key_asset(key) {
-            // Serializes on demand, so an in-memory expired asset holding a value but no cached
-            // bytes is recoverable rather than reported absent.
-            return asset_ref.get_binary_any_status().await;
+            if !live_status_defers_to_store(asset_ref.status().await) {
+                // Serializes on demand, so an in-memory expired asset holding a value but no
+                // cached bytes is recoverable rather than reported absent.
+                return asset_ref.get_binary_any_status().await;
+            }
+            // A placeholder that has produced nothing yet: the store decides, as in `remove`.
         }
         let store = self.get_envref().get_async_store();
         if !store.contains(key).await? {
@@ -10918,6 +10925,90 @@ recipes:
             assert!(progress.is_done(), "{progress:?}");
             assert_eq!(progress.message, "Loaded 3 rows");
         }
+    }
+
+    // ==================================================================================
+    // Recovery reads defer a placeholder to the store — `design/recovery-read-defers-placeholder/`
+    // ==================================================================================
+
+    /// A memory store holding `data/a.txt` as a `Ready` text value when `stored`.
+    async fn placeholder_store(stored: bool) -> Result<AsyncMemoryStore, Box<dyn std::error::Error>> {
+        let store = AsyncMemoryStore::new(&Key::new());
+        if stored {
+            let mut record = MetadataRecord::new();
+            record.with_type_identifier("Text".to_owned());
+            record.with_type_name("text".to_owned());
+            record.data_format = Some("txt".to_owned());
+            record.with_status(Status::Ready);
+            store
+                .set(&parse_key("data/a.txt")?, b"hello", &Metadata::MetadataRecord(record))
+                .await?;
+        }
+        Ok(store)
+    }
+
+    /// An unrun placeholder for `key` — what a concurrent `get` maps before it fast-tracks.
+    fn placeholder<E: Environment>(envref: &EnvRef<E>, key: &Key) -> AssetRef<E> {
+        AssetRef::new_from_recipe(
+            envref.get_asset_manager().next_id_for_asset(),
+            key.clone().into(),
+            Some(key.clone()),
+            envref.clone(),
+        )
+    }
+
+    /// Both recovery reads, with the placeholder mapped: the stored value when `stored`, else
+    /// `None`.
+    async fn assert_recovery_reads<E: Environment<Value = Value>>(
+        envref: &EnvRef<E>,
+        key: &Key,
+        stored: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let manager = envref.get_asset_manager();
+        let live = manager.lookup_key_asset(key).expect("the placeholder is mapped");
+        assert!(super::live_status_defers_to_store(live.status().await));
+        let binary = manager.get_binary_any_status(key).await?;
+        let state = manager.get_any_status(key).await?;
+        if stored {
+            let (bytes, metadata) = binary.expect("the stored bytes, not None");
+            assert_eq!(bytes.as_slice(), b"hello");
+            assert_eq!(metadata.status(), Status::Ready);
+            assert_eq!(state.expect("the stored value").try_into_string()?, "hello");
+        } else {
+            assert!(binary.is_none());
+            assert!(state.is_none());
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn recovery_reads_defer_placeholder_to_store_default() -> Result<(), Box<dyn std::error::Error>>
+    {
+        for stored in [true, false] {
+            let mut env = SimpleEnvironment::<Value>::new();
+            env.with_async_store(Box::new(placeholder_store(stored).await?));
+            let envref = env.to_ref();
+            let key = parse_key("data/a.txt")?;
+            let asset = placeholder(&envref, &key);
+            assert!(envref.get_asset_manager().try_insert_key_asset(&key, asset).await);
+            assert_recovery_reads(&envref, &key, stored).await?;
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn recovery_reads_defer_placeholder_to_store_immediate(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        for stored in [true, false] {
+            let mut env = ImmediateEnvironment::<Value>::new();
+            env.with_async_store(Box::new(placeholder_store(stored).await?));
+            let envref = env.to_ref();
+            let key = parse_key("data/a.txt")?;
+            let asset = placeholder(&envref, &key);
+            assert!(envref.get_asset_manager().try_insert_key_asset(&key, asset).await);
+            assert_recovery_reads(&envref, &key, stored).await?;
+        }
+        Ok(())
     }
 
     /// Iterates the module's `ALL_STATUSES`; a new variant must be added there. The exhaustive

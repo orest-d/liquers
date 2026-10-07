@@ -8,9 +8,9 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 134
+Total rows: 133
 - P2: 64
-- P3: 70
+- P3: 69
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
@@ -78,7 +78,6 @@ Total rows: 134
 | [`NO-RELATIONAL-DATABASE-ACCESS-LAYER`](issues/NO-RELATIONAL-DATABASE-ACCESS-LAYER.md) | feature | No access layer from Liquers into relational databases | draft |  | P2 | XL | lib/value;lib/commands;store/backends |  | 2026-09-20 |
 | [`NO-REMOTE-STORE-OR-ASSET-MANAGER`](issues/NO-REMOTE-STORE-OR-ASSET-MANAGER.md) | feature | A client environment cannot use a server's store or asset manager as its own | draft |  | P2 | XL | axum;web;core/assets;core/store |  | 2026-09-27 |
 | [`VALUE-TYPE-DEFINITION-MACRO`](issues/VALUE-TYPE-DEFINITION-MACRO.md) | feature | Value types and their registry entries are hand-written instead of generated | draft |  | P2 | XL | macro;lib/value;core/value |  | 2026-08-18 |
-| [`ANY-STATUS-READ-MISSES-STORED-VALUE-OF-UNLOADED-LIVE-ASSET`](issues/ANY-STATUS-READ-MISSES-STORED-VALUE-OF-UNLOADED-LIVE-ASSET.md) | issue | Recovery reads return None while a concurrent get has mapped the key but not loaded it | draft | ready | P3 | S | core/assets | [phase1](design/recovery-read-defers-placeholder/phase1-high-level-design.md)  [phase2](design/recovery-read-defers-placeholder/phase2-architecture.md)  [phase3](design/recovery-read-defers-placeholder/phase3-examples.md)  [phase4](design/recovery-read-defers-placeholder/phase4-implementation.md)  | 2026-10-02 |
 | [`AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS`](issues/AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS.md) | issue | The Recipes API's metadata and entry endpoints return placeholder metadata and ignore the format | draft | ready | P3 | S | axum | [phase1](design/axum-recipes-metadata-entry/phase1-high-level-design.md)  [phase2](design/axum-recipes-metadata-entry/phase2-architecture.md)  [phase3](design/axum-recipes-metadata-entry/phase3-examples.md)  [phase4](design/axum-recipes-metadata-entry/phase4-implementation.md)  | 2026-09-28 |
 | [`COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ`](issues/COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ.md) | issue | CommandMetadata.cache is declared, documented and exported, but nothing reads it | draft | ready | P3 | S | core/commands;macro | [phase1](design/command-cache-flag/phase1-high-level-design.md)  [phase2](design/command-cache-flag/phase2-architecture.md)  [phase3](design/command-cache-flag/phase3-examples.md)  [phase4](design/command-cache-flag/phase4-implementation.md)  | 2026-09-19 |
 | [`CORE-STORE-ROUTER-DIRECTORY-ABOVE-MEMBERS-HAS-NO-METADATA`](issues/CORE-STORE-ROUTER-DIRECTORY-ABOVE-MEMBERS-HAS-NO-METADATA.md) | issue | AsyncStoreRouter reports KeyNotFound for the metadata of a directory above its members' prefixes | draft | ready | P3 | S | core/store | [phase1](design/store-router-directory-above-members/phase1-high-level-design.md)  [phase2](design/store-router-directory-above-members/phase2-architecture.md)  [phase3](design/store-router-directory-above-members/phase3-examples.md)  [phase4](design/store-router-directory-above-members/phase4-implementation.md)  | 2026-09-30 |

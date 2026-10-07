@@ -409,6 +409,14 @@ one for `poll_state_any_status`. A retained value needs no materialising; bytes 
 is populated at two sites and cleared at roughly ten, so an expired asset commonly retains its value
 and no bytes — precisely when recovery is wanted — so the `get_` form serializes on demand.
 
+**The manager-level recovery reads defer a placeholder to the store.**
+`AssetManager::get_any_status(key)` and `get_binary_any_status(key)` answer from the live asset
+mapped under the key, except when its status is `None` or `Recipe`: such an asset has produced or
+loaded nothing yet — typically a concurrent `get` has mapped it and not yet fast-tracked the stored
+value — so the store decides, exactly as for `remove` (`live_status_defers_to_store`). Every other
+live status, in-flight ones included, answers from memory as the table above says. A contained key
+whose store entry has no data object (metadata only) answers `Ok(None)`.
+
 **Expiry is uniform, and opting out of it is explicit.** `Expired` is a cache miss for every normal
 read of either family, even when serialized bytes are still cached. This includes an asset that is
 **born** `Expired` — decided so in `finalize_status_with_version`, before it is persisted — because
@@ -1159,7 +1167,7 @@ each with an `ExpiryReason` (§Why an asset is `Expired`). The rules are in
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-07 | §Why an asset is `Expired`: a value supplied already `Expired` keeps its supplied reason and logs the warning `Asset expired` plus an after-the-fact info entry; one written-status rule for every manager. New §Progress after completion: started progress of a finished asset is done, unstarted progress stays absent, finalized after the service loop drains. The `Deadline` row: the immediate manager's lazy check cascades too. | phase-5 (`design/supplied-expired-status-reason/`, `design/immediate-set-state-status-match/`, `design/finished-asset-progress-contract/`, `design/immediate-lazy-expiry-cascade/`) |
+| 2026-10-07 | §Why an asset is `Expired`: a value supplied already `Expired` keeps its supplied reason and logs the warning `Asset expired` plus an after-the-fact info entry; one written-status rule for every manager. New §Progress after completion: started progress of a finished asset is done, unstarted progress stays absent, finalized after the service loop drains. The `Deadline` row: the immediate manager's lazy check cascades too. The manager-level recovery reads defer a `None`/`Recipe` placeholder to the store, and answer `Ok(None)` for a metadata-only entry. | phase-5 (`design/supplied-expired-status-reason/`, `design/immediate-set-state-status-match/`, `design/finished-asset-progress-contract/`, `design/immediate-lazy-expiry-cascade/`, `design/recovery-read-defers-placeholder/`, `design/memory-store-metadata-only-entry/`) |
 | 2026-10-06 | §Remove Semantics: `set_description` points to `Context::set_title` / `set_description` and its recipe-wins rule. | phase-5 |
 | 2026-10-06 | §Related keyed operations: `contains` vs `can_make`; `listdir_keys_deep` is complete (recipe keys at every store directory, `keys()` includes root recipes); `removedir` unmaps the directory's own recipe assets. `refresh_listing_version` also notifies the recipe provider. | phase-5 |
 | 2026-10-04 | §Related keyed operations: `makedir` and `removedir` refresh the parent's listing version (review fix on orest-d/liquers#75). | phase-5 |
