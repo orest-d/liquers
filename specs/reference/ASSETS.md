@@ -3,7 +3,7 @@ title: Assets Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-06
+reviewed: 2026-10-07
 ---
 # Assets Specification
 
@@ -295,10 +295,10 @@ the cascade reached it (equal to `root` for a direct dependent). The seven cause
 
 | `ExpiryCause` | Route | Root gets | Dependents get | Level |
 |---|---|---|---|---|
-| `Deadline { expiration_time }` | queued manager's expiration monitor; immediate manager's lazy check on `get` / `get_asset` | `Direct` | `Cascaded` (queued only; lazy expiry does not cascade, `IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE`) | Info |
+| `Deadline { expiration_time }` | queued manager's expiration monitor; immediate manager's lazy check on `get` / `get_asset` | `Direct` | `Cascaded` (both managers: once the lazy check finds the deadline passed, it cascades as the monitor does) | Info |
 | `Explicit` | `AssetRef::expire`, `AssetManager::expire(key)` (live or stored-only) | `Direct` | `Cascaded` | Info |
 | `Audit { found }` | `trigger_dependency_audit*` in `AuditMode::Expire`; `found` is the current version, 0 when none | not expired | `Cascaded` | Warning |
-| `StaleDependency { dependency }` | an evaluation that waited (through `wait_for_dependency`) on a dependency that expired meanwhile | `Direct`, born `Expired` | `Cascaded`, root = the asset, cause still naming the stale input | Warning |
+| `StaleDependency { dependency }` | an evaluation that waited (through `wait_for_dependency`) on a dependency that expired meanwhile, or that recorded its edge against a dependency version the map had already replaced | `Direct`, born `Expired` | `Cascaded`, root = the asset, cause still naming the stale input | Warning |
 | `UpdatedInStore { actual }` | stored bytes no longer match the recorded version (§Content changed outside Liquers) | not expired: becomes input, or is deleted | `Cascaded` | Warning |
 | `Updated { version }` | new content through Liquers: a recomputation with a new version, `set_state`, `set_binary`, `publish_version`, a fast-track load registering a different version, a changed command version, a changed folder listing | not expired | `Cascaded` | Info |
 | `Removed` | `AssetManager::remove` deleting a value (a `Source`/`Override`, or a key with no recipe) | removed | `Cascaded` | Info |
@@ -312,8 +312,17 @@ same metadata write as the `Expired` status. The default sets the field and appe
 `ExpiryReason::log_entry(subject)` to the asset's log; legacy metadata is left untouched. Override
 it to change wording or levels, add fields, or forward the event. It runs under the asset's `data`
 write lock, so it must not block or reach any asset or lock. Only a real transition records: an
-asset already `Expired` keeps the reason it has. A status supplied as `Expired` through `set_state`
-records none (`SUPPLIED-EXPIRED-STATUS-STORED-WITHOUT-REASON`).
+asset already `Expired` keeps the reason it has.
+
+**A value supplied already `Expired`** through `set_state` or `set_binary` (either manager) does
+not go through `record_expiry`: its cause is unknown to Liquers, so the structured `expiry_reason`
+stays as supplied, usually `None`. The write logs the expiry instead, at the moment Liquers learns
+of it: a warning `Asset expired`, then an info entry `Expiry recorded after the fact: {key} was
+written already expired ({set_state|set_binary}); its original cause is unknown` — or, when the
+supplied metadata carries a reason, `…; supplied reason: {that reason's log line}`. The supplied
+log entries are kept. Every manager decides the written status with the same rule: `Expired` and
+`Error` are kept, any other status becomes `Override` when the key has a recipe and `Source`
+otherwise.
 
 **Log lines.** `subject` is the asset's key, else its query, never its runtime id; `root` and `via`
 print as dependency keys (`-R/…`). No version number appears. A direct reason reads
@@ -399,6 +408,14 @@ recorded failure for `Error`, and is constructed for `Cancelled` and `Directory`
 one for `poll_state_any_status`. A retained value needs no materialising; bytes do. `AssetData::binary`
 is populated at two sites and cleared at roughly ten, so an expired asset commonly retains its value
 and no bytes — precisely when recovery is wanted — so the `get_` form serializes on demand.
+
+**The manager-level recovery reads defer a placeholder to the store.**
+`AssetManager::get_any_status(key)` and `get_binary_any_status(key)` answer from the live asset
+mapped under the key, except when its status is `None` or `Recipe`: such an asset has produced or
+loaded nothing yet — typically a concurrent `get` has mapped it and not yet fast-tracked the stored
+value — so the store decides, exactly as for `remove` (`live_status_defers_to_store`). Every other
+live status, in-flight ones included, answers from memory as the table above says. A contained key
+whose store entry has no data object (metadata only) answers `Ok(None)`.
 
 **Expiry is uniform, and opting out of it is explicit.** `Expired` is a cache miss for every normal
 read of either family, even when serialized bytes are still cached. This includes an asset that is
@@ -1095,7 +1112,29 @@ fresh or mid-flight cancellation cascade-cancels the parent.
 **Post-finish messages.** Once finalized, display-mutating/control service messages
 (`UpdatePrimaryProgress`, `UpdateSecondaryProgress`, `JobSubmitted`, `JobStarted`, `Cancel`,
 `ErrorOccurred`) are dropped (debug-logged); a late `LogMessage` is tolerated (at most one extra
-log entry).
+log entry). The progress a command sent during its own run is the exception: it is applied even
+when the status flipped to finished first, because the progress is finalized only after the
+service loop has drained (below).
+
+### Progress after completion
+
+Progress exists to draw a progress bar, and a bar that will never move again is confusing. So when
+a run ends — any terminal status: `Ready`, `Error`, `Cancelled`, … — the harness
+(`AssetRef::finalize_primary_progress`, called by `run` and `run_inline` after the service loop has
+drained) leaves the primary progress as follows:
+
+| At finish | Primary progress afterwards |
+|---|---|
+| The command reported progress, and the last entry is already done | that entry, unchanged (its final message is kept) |
+| The command reported progress, and the last entry is not done (a tick, 3/10, …) | a done entry carrying the last entry's message |
+| The command never reported progress | none (`ProgressEntry::off()`), so no bar is drawn |
+| Cancelled | `done("Cancelled")`, written by the cancel handler |
+
+Secondary progress is cleared. A finished asset's `primary_progress()` is therefore always
+`is_done()` or `is_off()`, and the same evaluation always leaves the same progress, on both the
+spawning and the inline harness. The finalized progress is written to the store with the rest of
+the metadata. **The status, not the progress, is the authoritative "is it finished" signal**: a
+done bar says only that started progress has ended.
 
 ## Open Issues
 
@@ -1128,6 +1167,7 @@ each with an `ExpiryReason` (§Why an asset is `Expired`). The rules are in
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-07 | §Why an asset is `Expired`: a value supplied already `Expired` keeps its supplied reason and logs the warning `Asset expired` plus an after-the-fact info entry; one written-status rule for every manager. New §Progress after completion: started progress of a finished asset is done, unstarted progress stays absent, finalized after the service loop drains. The `Deadline` row: the immediate manager's lazy check cascades too. The manager-level recovery reads defer a `None`/`Recipe` placeholder to the store, and answer `Ok(None)` for a metadata-only entry. The `StaleDependency` row also covers an edge recorded against a superseded version. | phase-5 (`design/supplied-expired-status-reason/`, `design/immediate-set-state-status-match/`, `design/finished-asset-progress-contract/`, `design/immediate-lazy-expiry-cascade/`, `design/recovery-read-defers-placeholder/`, `design/memory-store-metadata-only-entry/`, `design/dependency-edge-superseded-version/`) |
 | 2026-10-06 | §Remove Semantics: `set_description` points to `Context::set_title` / `set_description` and its recipe-wins rule. | phase-5 |
 | 2026-10-06 | §Related keyed operations: `contains` vs `can_make`; `listdir_keys_deep` is complete (recipe keys at every store directory, `keys()` includes root recipes); `removedir` unmaps the directory's own recipe assets. `refresh_listing_version` also notifies the recipe provider. | phase-5 |
 | 2026-10-04 | §Related keyed operations: `makedir` and `removedir` refresh the parent's listing version (review fix on orest-d/liquers#75). | phase-5 |

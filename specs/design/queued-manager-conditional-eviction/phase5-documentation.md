@@ -1,17 +1,15 @@
 # Phase 5: Documentation - Conditional Queued-Manager Cache Eviction
 
-**Status: plan.** Written on 2026-10-05, when the design adopted the five-phase `liquers-project`
-contract; executed after implementation, following
-`.claude/skills/liquers-project/references/phase5-documentation.md`. The sections the skill requires
-after implementation are present and marked *pending*.
+**Status: executed 2026-10-07**, after implementation (Wave 1 step 5 of
+`archive/2026-10-06-p2-p3-s-implementation-order-revised.md`). Approved 2026-10-07.
 
 ## Completion Preconditions
 
-- [ ] Implementation is finished and validated (Phase 4)
-- [ ] All user comments are answered or incorporated
-- [ ] All review comments are answered or incorporated
-- [ ] Documentation is consistent with the implemented and tested behavior
-- [ ] Documentation is included in the implementation PR
+- [x] Implementation is finished and validated (Phase 4)
+- [x] All user comments are answered or incorporated
+- [x] All review comments are answered or incorporated (none yet)
+- [x] Documentation is consistent with the implemented and tested behavior
+- [x] Documentation is included in the implementation PR
 
 ## Documentation Plan
 
@@ -46,24 +44,34 @@ None needed in `specs/README.md`: the capability is reached through the document
 
 ## Implementation Summary
 
-*Pending — written after implementation.*
+`DefaultAssetManager` gained a private `remove_query_asset_if` (one `remove_if_async` call). The
+query and key branches of `remove_expired_from_maps` and the stale-terminal branches of
+`get_asset` (query map) and `get` (key map) now call `remove_query_asset_if` /
+`remove_key_asset_if` instead of `get_async` / compare / `drop` / `remove_async`. The key paths keep
+`key_mutation_lock`. Tests: `remove_query_asset_if_respects_id` and
+`remove_expired_from_maps_respects_replacements` (stale id, query first, key fallback, ad-hoc).
+
+Structural proof: the only `assets.remove_async` calls left in `assets.rs` are the replacement in
+`set` / `set_state` (under `key_mutation_lock`) and `remove_key_asset` (explicit removal). No
+`query_assets.remove_async` remains.
 
 ## Documentation Delivered
 
-*Pending.*
+`guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md`: the `remove_expired_from_maps` row says the
+compare and the removal are one atomic map operation; History row added and `reviewed:` bumped.
 
 ## Issues Filed
 
-*Pending.*
+None.
 
 ## Important Learning
 
-*Pending.* Seed: the key map was already serialized by `key_mutation_lock`; only the query map was racy.
+the key map was already serialized by `key_mutation_lock`; only the query map was racy.
 
 ## Conformance and Remaining Work
 
-*Pending.*
+Conforms to Phases 1–4. No remaining work.
 
 ## Validation
 
-*Pending.* Planned: `python3 scripts/docs_index.py --check`.
+`cargo test -p liquers-core --lib --tests`; `python3 scripts/docs_index.py --check`.

@@ -946,13 +946,13 @@ async fn missing_bytes_are_skipped() -> TestResult {
     let _ = tokio::fs::remove_dir_all(&root).await;
     outcome?;
 
-    // A memory store answers a metadata-only entry with empty bytes. Liquers records a timestamp
-    // version only when it stored no bytes (a value that could not be serialized), so such an
-    // entry is skipped too, not taken for content emptied by hand.
+    // A metadata-only memory entry has no data object either (`sidecar05`), so it is skipped
+    // whatever version it records — here a content hash, which the former empty-bytes heuristic
+    // would have reported as changed outside Liquers.
     let store = AsyncMemoryStore::new(&Key::new());
     let mut record = provenance_text_metadata();
     record.status = Status::Ready;
-    record.version = Some(Version::new_unique());
+    record.version = Some(Version::from_content(b"never stored"));
     store
         .set_metadata(
             &key("data/unserializable.txt"),
@@ -978,8 +978,8 @@ async fn missing_bytes_are_skipped() -> TestResult {
                 .get_binary_any_status(&key("data/unserializable.txt"))
         )
         .await?
-        .is_some(),
-        "the recovery read returns it unchanged"
+        .is_none(),
+        "there are no bytes to recover, and the read says so rather than failing"
     );
     assert_eq!(
         stored(&envref, "data/unserializable.txt").await?.status(),
@@ -1022,6 +1022,23 @@ async fn empty_data_object_is_checked_not_skipped() -> TestResult {
             }
         )]
     );
+    assert!(report.skipped.is_empty(), "{report:?}");
+
+    // An empty data object under a timestamp version is content too. The former heuristic took
+    // it for a metadata-only entry and skipped it; now only a missing data object is skipped.
+    let mut record = provenance_text_metadata();
+    record.status = Status::Ready;
+    record.version = Some(Version::new_unique());
+    envref
+        .get_async_store()
+        .set(&key("data/stamped.txt"), b"", &Metadata::MetadataRecord(record))
+        .await?;
+    let report = within(am.verify_stored_versions(
+        &key("data/stamped.txt"),
+        false,
+        AuditMode::ReportOnly,
+    ))
+    .await?;
     assert!(report.skipped.is_empty(), "{report:?}");
     Ok(())
 }

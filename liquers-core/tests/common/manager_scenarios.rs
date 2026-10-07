@@ -1058,3 +1058,129 @@ where
     );
     Ok(())
 }
+
+// ---------------------------------------------------------------------------------------------
+// Lazy deadline expiry cascades (`design/immediate-lazy-expiry-cascade/`)
+// ---------------------------------------------------------------------------------------------
+
+/// A store whose root `recipes.yaml` declares `a.txt = make_a` and `b.txt = a.txt + "b"`.
+pub async fn lazy_expiry_chain_store() -> Result<AsyncMemoryStore, Error> {
+    use liquers_core::recipes::{Recipe, RecipeList};
+    let mut recipes = RecipeList::new();
+    recipes.add_recipe(Recipe::new("make_a/a.txt".to_string(), "A".into(), "root".into())?);
+    recipes.add_recipe(Recipe::new(
+        "-R/a.txt/-/append_b/b.txt".to_string(),
+        "B".into(),
+        "depends on a.txt".into(),
+    )?);
+    let yaml = serde_yaml::to_string(&recipes)
+        .map_err(|e| Error::general_error(format!("recipes.yaml: {e}")))?;
+    let store = AsyncMemoryStore::new(&Key::new());
+    store
+        .set(&parse_key("recipes.yaml")?, yaml.as_bytes(), &Metadata::new())
+        .await?;
+    Ok(store)
+}
+
+/// Registers `make_a` (expires in 300 ms) and `append_b`, and returns `append_b`'s call counter.
+pub fn register_lazy_expiry_chain<E>(
+    cr: &mut liquers_core::commands::CommandRegistry<E>,
+) -> Result<Arc<AtomicUsize>, Error>
+where
+    E: Environment<Value = Value>,
+{
+    let expires: liquers_core::expiration::Expires = "in 300 ms".parse()?;
+    cr.register_command(CommandKey::new_name("make_a"), |_, _, _| Ok(Value::from("a")))?
+        .expires = expires;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counter = calls.clone();
+    cr.register_command(CommandKey::new_name("append_b"), move |state, _, _| {
+        counter.fetch_add(1, Ordering::SeqCst);
+        Ok(Value::from(format!("{}b", state.try_into_string()?)))
+    })?;
+    Ok(calls)
+}
+
+async fn lazy_chain_text<E>(envref: &EnvRef<E>, key: &str) -> Result<String, Error>
+where
+    E: Environment<Value = Value>,
+{
+    let asset = envref.get_asset_manager().get(&parse_key(key)?).await?;
+    asset.get().await?.try_into_string()
+}
+
+/// After the deadline, once `a.txt` is known to be expired — the queued monitor, or a lazy check
+/// on a request for it — `b.txt` is `Expired` with `Cascaded { Deadline, root a, via a }`, and the
+/// next request recomputes it. Maintainer decision (2026-10-06): "Laziness is the method of
+/// finding out that expiry needs to be done — but once it is known that an asset expired, all the
+/// consequences should follow, i.e. cascade expiry."
+pub async fn scenario_lazy_deadline_expiry_cascade<E>(
+    envref: EnvRef<E>,
+    calls: Arc<AtomicUsize>,
+) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    use liquers_core::metadata::{DependencyKey, ExpiryCause, ExpiryReason};
+    assert_eq!(lazy_chain_text(&envref, "b.txt").await?, "ab");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+    // Past the deadline with margin: the deadline is computed from the end of evaluation.
+    tokio::time::sleep(std::time::Duration::from_millis(900)).await;
+    // The queued monitor has already expired `a.txt`; on a lazy manager this request is how the
+    // expiry is discovered.
+    assert_eq!(lazy_chain_text(&envref, "a.txt").await?, "a");
+
+    let b = parse_key("b.txt")?;
+    let store = envref.get_async_store();
+    let mut metadata = store.get_metadata(&b).await?;
+    for _ in 0..200 {
+        if metadata.status() == Status::Expired {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        metadata = store.get_metadata(&b).await?;
+    }
+    assert_eq!(metadata.status(), Status::Expired, "the dependent is expired in the store");
+    let root = DependencyKey::from(&parse_key("a.txt")?);
+    match metadata.expiry_reason() {
+        Some(ExpiryReason::Cascaded {
+            cause: ExpiryCause::Deadline { .. },
+            root: r,
+            via,
+        }) => {
+            assert_eq!(r, root);
+            assert_eq!(via, root);
+        }
+        other => panic!("expected Cascaded {{ Deadline, root a.txt, via a.txt }}, got {other:?}"),
+    }
+
+    assert_eq!(lazy_chain_text(&envref, "b.txt").await?, "ab");
+    assert_eq!(calls.load(Ordering::SeqCst), 2, "the expired dependent is recomputed");
+    Ok(())
+}
+
+/// A lazy manager, dependent read before its expired root: the dependent inherited its
+/// dependency's deadline, so it reaches its own deadline and is recomputed rather than served
+/// stale. Asserted as current behaviour, so a change to deadline inheritance flips it on purpose.
+pub async fn scenario_lazy_dependent_read_first<E>(
+    envref: EnvRef<E>,
+    calls: Arc<AtomicUsize>,
+) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    assert_eq!(lazy_chain_text(&envref, "b.txt").await?, "ab");
+    let b = envref
+        .get_asset_manager()
+        .lookup_key_asset(&parse_key("b.txt")?)
+        .ok_or_else(|| Error::general_error("b.txt is not registered".to_string()))?;
+    assert!(
+        !b.expiration_time().await.is_never(),
+        "the dependent inherits a finite deadline"
+    );
+    tokio::time::sleep(std::time::Duration::from_millis(900)).await;
+    assert_eq!(lazy_chain_text(&envref, "b.txt").await?, "ab");
+    assert_eq!(calls.load(Ordering::SeqCst), 2, "recomputed, not served stale");
+    Ok(())
+}

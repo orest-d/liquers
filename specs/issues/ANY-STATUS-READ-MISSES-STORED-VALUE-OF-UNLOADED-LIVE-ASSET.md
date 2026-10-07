@@ -2,7 +2,7 @@
 id: ANY-STATUS-READ-MISSES-STORED-VALUE-OF-UNLOADED-LIVE-ASSET
 kind: issue
 title: Recovery reads return None while a concurrent get has mapped the key but not loaded it
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/assets]
@@ -35,3 +35,14 @@ Observed 2026-10-02 in a first draft of
 `external_change_integration::concurrent_reads_apply_external_change_once`, which mixed `get` with
 `get_binary_any_status` on one key: a recovery read returned `None` for a key whose value was in the
 store. The final test uses only the recovery reads.
+
+## Resolution (2026-10-07)
+
+Fixed by design `recovery-read-defers-placeholder`. The manager-level recovery reads
+`get_any_status` / `get_binary_any_status` now defer a live asset whose status is `None` or
+`Recipe` (a placeholder that has produced nothing yet) to the store, using the existing
+`live_status_defers_to_store` rule that `remove` already applies. Other live statuses answer as
+before.
+
+Evidence: `recovery_reads_defer_placeholder_to_store_default`,
+`recovery_reads_defer_placeholder_to_store_immediate` (`liquers-core/src/assets.rs`).

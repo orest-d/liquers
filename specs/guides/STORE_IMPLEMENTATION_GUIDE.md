@@ -3,7 +3,7 @@ title: Store Implementation Guide
 kind: guide
 audience: internal
 area: [core/store, store/backends, web]
-reviewed: 2026-10-02
+reviewed: 2026-10-07
 ---
 # Store Implementation Guide
 
@@ -388,26 +388,26 @@ the two sets agree, so a rule cannot be added without the contract naming it.
 | §5 removal | `remove01` `remove02` `remove03` `data02` |
 | §6 prefixes | `prefix01` `prefix02` `prefix03` `prefix04` |
 | §7 key shape | `keyshape01` `keyshape02` |
-| §8 sidecars and reserved names | `sidecar01` `sidecar02` `sidecar03` `sidecar04`, plus `prefix03` and `sibling05` when the fixture declares an unsupported shape |
+| §8 sidecars and reserved names | `sidecar01` `sidecar02` `sidecar03` `sidecar04` `sidecar05`, plus `prefix03` and `sibling05` when the fixture declares an unsupported shape |
 | §9 enumeration | `keys01` `keys02` |
 | refuting rules | `nowrite01` `noremove01` `nodir01` `nomakedir01` `noremovedir01` `nokeys01` |
 
 ## 9. Status of the in-tree stores
 
-As of 2026-09-30, from the suites above: 43 rules are registered.
+As of 2026-10-07, from the suites above: 44 rules are registered.
 
 | Store | Rules run | Status | Notes |
 |---|---|---|---|
-| `AsyncMemoryStore` | 31 | `CONFORMANT` | |
-| `AsyncFileStore` | 33 | `CONFORMANT` | `derived_directories: false` — real directories persist |
-| `AsyncStoreRouter` | 30 | `CONFORMANT` | needs each member's prefix to exist (`CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER`); a directory above its members has no metadata (`CORE-STORE-ROUTER-DIRECTORY-ABOVE-MEMBERS-HAS-NO-METADATA`), which no fixture requests |
-| `AsyncOpenDALStore` (memory) | 34 | `CONFORMANT` | the widest coverage in tree |
-| `AsyncOpenDALStore` (fs) | 33 | `CONFORMANT` | `derived_directories: false` |
-| Trait defaults | 14 | `CONFORMANT` | no directory support, no enumeration |
+| `AsyncMemoryStore` | 32 | `CONFORMANT` | |
+| `AsyncFileStore` | 34 | `CONFORMANT` | `derived_directories: false` — real directories persist |
+| `AsyncStoreRouter` | 31 | `CONFORMANT` | needs each member's prefix to exist (`CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER`); a directory above its members answers directory metadata, checked by router unit tests because no generic fixture requests such a key |
+| `AsyncOpenDALStore` (memory) | 35 | `CONFORMANT` | the widest coverage in tree |
+| `AsyncOpenDALStore` (fs) | 34 | `CONFORMANT` | `derived_directories: false` |
+| Trait defaults | 15 | `CONFORMANT` | no directory support, no enumeration |
 | `NoAsyncStore` | 6 | `CONFORMANT` | accepts no key, and says so correctly |
 | `FetchStore` | 9 | `CONFORMANT` | read-only; its configured key set is the subject source |
-| `JsStore` | 30 | `CONFORMANT` | over a stub delegate that uses the `null` sentinel for absence |
-| `LocalStorageStore` | 30 | `CONFORMANT` | in a real browser (`store_conformance_browser_CONF.rs`, behind `browser-tests`) |
+| `JsStore` | 31 | `CONFORMANT` | over a stub delegate that uses the `null` sentinel for absence |
+| `LocalStorageStore` | 31 | `CONFORMANT` | in a real browser (`store_conformance_browser_CONF.rs`, behind `browser-tests`) |
 
 This table is **maintained by hand** from the printed reports — no generator exists yet, although
 `ConformanceReport` derives serde so that one could (`STORE-GUIDE-STATUS-TABLE-HAS-NO-GENERATOR`).
@@ -417,6 +417,7 @@ Update it when a rule is added or a store's result changes.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-07 | §8: added `sidecar05` — a key holding only metadata has no data object. §9: 44 rules; each store that accepts writes with stored metadata runs one more rule. §9 router row: a directory above the members now has metadata. | `design/memory-store-metadata-only-entry/`, `design/store-router-directory-above-members/` |
 | 2026-10-02 | Added a "see also" link to the new `ASSET_MANAGER_IMPLEMENTATION_GUIDE.md`, which follows this guide's pattern. Link-only change, recorded because §9.2 has no link-only exemption; the store content was not re-verified in this pass. | phase-5 (`design/dependency-audit-and-expiry-provenance/`) |
 | 2026-09-30 | §2: delegated stores must be able to say "absent". §5: "Naming your tests" — rule families are owned by the rules, unit tests are named by subject, refutation tests are `refute_<rule id>_…`, and D1 enforces it; noted that no suite carries an allowed failure. §9 rewritten from the final reports: 43 rules, every in-tree store conformant, `JsStore` and `LocalStorageStore` included; the table is said to be maintained by hand, which it always was. | phase-5 (`design/store-conformance-backlog/`) |
 | 2026-09-29 | §8: added `sidecar04` — a key holding only metadata is listed by its parent. | `design/store-conformance-backlog/` step 6 |

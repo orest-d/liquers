@@ -1,17 +1,15 @@
 # Phase 5: Documentation - Serde and Equality for `Metadata`
 
-**Status: plan.** Written on 2026-10-05, when the design adopted the five-phase `liquers-project`
-contract; executed after implementation, following
-`.claude/skills/liquers-project/references/phase5-documentation.md`. The sections the skill requires
-after implementation are present and marked *pending*.
+**Status: executed 2026-10-07** after implementation (Wave 1 of
+`archive/2026-10-06-p2-p3-s-implementation-order-revised.md`). Approved 2026-10-07.
 
 ## Completion Preconditions
 
-- [ ] Implementation is finished and validated (Phase 4)
-- [ ] All user comments are answered or incorporated
-- [ ] All review comments are answered or incorporated
-- [ ] Documentation is consistent with the implemented and tested behavior
-- [ ] Documentation is included in the implementation PR
+- [x] Implementation is finished and validated (Phase 4)
+- [x] All user comments are answered or incorporated
+- [x] All review comments are answered or incorporated (none yet)
+- [x] Documentation is consistent with the implemented and tested behavior
+- [x] Documentation is included in the implementation PR
 
 ## Documentation Plan
 
@@ -41,24 +39,34 @@ None needed in `specs/README.md`: the capability is reached through the document
 
 ## Implementation Summary
 
-*Pending — written after implementation.*
+`liquers_core::metadata::Metadata` derives `PartialEq` (structural) and has hand-written untagged
+`Serialize` / `Deserialize` impls that mirror `to_json` and `from_json_value` (record first, legacy
+fallback, buffered through `serde_json::Value`). The `ChunkDescriptor` doc comment in
+`liquers-records/src/batch.rs` now names the remaining reason it is `Debug + Clone` only (`Query`'s
+serialized form); its derives are unchanged. Tests in `metadata.rs` (`tests::metadata_serde`):
+`metadata_serialize_matches_to_json`,
+`metadata_deserialize_chooses_the_same_variant_as_from_json`,
+`metadata_record_round_trips_through_serde` (JSON and YAML), `metadata_partial_eq_is_structural`,
+`struct_embedding_metadata_derives_the_traits`.
 
 ## Documentation Delivered
 
-*Pending.*
+None, as planned: no current document makes a claim about `Metadata`'s Rust traits, and the stored
+JSON form is unchanged. The trait impls carry their own doc comments.
 
 ## Issues Filed
 
-*Pending.* Candidate: `ChunkDescriptor` serialization (needs a `Query` wire-form decision) — file only when a consumer needs it.
+None.
 
 ## Important Learning
 
-*Pending.*
+None beyond the design.
 
 ## Conformance and Remaining Work
 
-*Pending.*
+Conforms to Phases 1–4.
 
 ## Validation
 
-*Pending.* Planned: `python3 scripts/docs_index.py --check`.
+`cargo test -p liquers-core --lib --tests`; `cargo test -p liquers-records --all-features --lib
+--tests`; `python3 scripts/docs_index.py --check`.

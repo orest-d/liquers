@@ -2,7 +2,7 @@
 id: SUBMIT-IS-NOT-LAZY-ON-ANY-MANAGER
 kind: issue
 title: Context::submit starts the dependency at once on both managers, contrary to the Phase 2 design text
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/assets]
@@ -43,3 +43,16 @@ cheaper; the second changes inline evaluation order for every dependency.
 
 Found while writing the Step 10 unit test `submit_does_not_run_on_inline_manager_until_waited`, which
 failed on the first run.
+
+## Resolution (2026-10-07)
+
+Resolved by design `submit-eagerness-documentation`, which keeps the current eager behaviour and
+documents it. `Context::submit`'s doc comment and `DEPENDENCIES_STATUS.md` Flow B now state all
+three cases: on the inline manager the dependency is finished when `submit` returns; on a queued
+manager with capacity it has started; on a saturated queued manager it is queued on the asset's
+local queue and starts at the first `wait_for_dependency` / `evaluate`. Making the inline manager
+lazy was not pursued. The frozen `dependency-audit-and-expiry-provenance` Part E text is not edited.
+
+Evidence: `submit_queues_locally_when_queued_manager_is_saturated` (new),
+`submit_returns_before_the_dependency_finishes_on_queued_manager` and
+`submit_runs_dependency_at_once_on_inline_manager` (`liquers-core/src/context.rs`).

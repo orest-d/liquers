@@ -2,7 +2,7 @@
 id: ASSET-FINISHED-PROGRESS-CONTRACT-UNDEFINED
 kind: issue
 title: What progress a finished asset reports is undefined, and was asserted by a race
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/assets]
@@ -67,3 +67,18 @@ Found on 2026-09-03 while implementing Step 4 of `evaluate-path-consolidation`. 
 evaluation body does more work before returning to the harness (status finalization, notification,
 dependency-manager registration), which changed the scheduling enough to flip the outcome. The
 assertion had been passing for reasons no document states.
+
+## Resolution (2026-10-07)
+
+Fixed by design `finished-asset-progress-contract`, applying the maintainer decision of
+2026-10-06: "Final done should only be reported if progress reporting has been started. If an
+asset is finished (ready, error, cancel…) then progress can be considered done." Progress is
+finalized after the service loop has drained, on both harnesses: started progress of a finished
+asset is done (the command's own done entry is kept), progress that never started stays absent,
+and secondary progress is cleared. In-run progress is no longer dropped by the post-finish policy
+before finalization, so the result does not depend on scheduling.
+
+Evidence: `finished_progress_follows_the_contract`, `finished_run_progress_contract_native`,
+`finished_run_progress_contract_inline`, `finished_progress_is_deterministic_native`,
+`finished_progress_is_deterministic_inline` (`liquers-core/src/assets.rs`), and
+`interpreter::tests::test_evaluate_immediately` asserting `is_done()` again.

@@ -172,12 +172,15 @@ async fn a_registered_foreign_value_persists_as_metadata_only(
         "the stored metadata names the type, so a reader can say what it cannot materialize"
     );
 
-    let (data, _) = store.get(&key).await?;
-    assert!(
-        data.is_empty(),
-        "a value whose as_bytes refuses stores no bytes, got {} of them",
-        data.len()
-    );
+    // A metadata-only entry has no data object, so the store answers `KeyNotFound` rather than
+    // empty bytes (`STORE_SEMANTICS.md` §8, `sidecar05`).
+    match store.get(&key).await {
+        Err(e) => assert_eq!(e.error_type, liquers_core::error::ErrorType::KeyNotFound),
+        Ok((data, _)) => panic!(
+            "a value whose as_bytes refuses stores no data object, got {} bytes",
+            data.len()
+        ),
+    }
     Ok(())
 }
 

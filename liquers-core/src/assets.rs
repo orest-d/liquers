@@ -390,7 +390,8 @@ pub enum AssetNotificationMessage {
 /// This is separate from [`Status`]: evaluation can succeed and expose a value
 /// while persistence is `NonSerializable` or `NotPersisted`.
 pub enum PersistenceStatus {
-    /// No persistence attempt has been made yet.
+    /// No persistence attempt has been made yet, or the most recent attempt was skipped (the
+    /// asset was cancelled, or its metadata says `stored: false`). Never "written".
     None,
     /// Value and metadata have been persisted.
     Persisted,
@@ -398,6 +399,16 @@ pub enum PersistenceStatus {
     NonSerializable,
     /// Persistence was attempted but failed.
     NotPersisted,
+}
+
+/// What `AssetRef::save_to_store` did, when it did not fail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SaveOutcome {
+    /// `store.set` completed.
+    Written,
+    /// Nothing was written: the asset was cancelled (before or after serialization), or its
+    /// metadata says `stored: false`. Recorded as `PersistenceStatus::None`, never `Persisted`.
+    Skipped,
 }
 
 /// Internal-style coalescing helper for persisting asset metadata updates.
@@ -558,6 +569,12 @@ pub struct AssetData<E: Environment> {
     /// This may not be ideal for some use cases, e.g. when the binary representation needs
     /// to be created in python
     pub(crate) save_in_background: bool,
+
+    /// True once the run's progress has been finalized ([`AssetRef::finalize_primary_progress`]).
+    /// Until then the service loop applies progress updates even after the status became
+    /// finished, because finalization runs after the loop has drained and normalizes them; after
+    /// it, late progress updates are dropped (post-finish message policy).
+    progress_finalized: bool,
 
     /// If true, this asset has been cancelled and should not write results.
     /// Any ValueProduced or store write attempts should be silently dropped.
@@ -978,6 +995,7 @@ impl<E: Environment> AssetData<E> {
             metadata: assetinfo.into(),
             metadata_saver: Arc::new(MetadataSaver::new(std::time::Duration::from_millis(100))),
             save_in_background: true,
+            progress_finalized: false,
             cancelled: false,
             is_volatile: false,
             key,
@@ -1591,6 +1609,8 @@ impl<E: Environment> AssetData<E> {
         self.last_persistence_error = None;
         self.recipe_sets_title = false;
         self.recipe_sets_description = false;
+        // Per-run: a reused asset's next run must apply its in-run progress again.
+        self.progress_finalized = false;
         self.notification_tx
             .send(AssetNotificationMessage::Initial)
             .ok();
@@ -1844,6 +1864,12 @@ impl<E: Environment> AssetRef<E> {
         Ok(())
     }
 
+    /// This asset's subject in messages: its key, else its query — never the runtime id.
+    /// Takes and releases this asset's read lock; hold no other asset's lock across it.
+    pub(crate) async fn expiry_subject(&self) -> String {
+        self.data.read().await.expiry_subject()
+    }
+
     /// Record that this asset consumed a dependency whose value had expired *mid-execution*.
     ///
     /// Execution-time expiry policy (see `AssetManager::wait_for_dependency`): the dependency
@@ -1989,6 +2015,16 @@ impl<E: Environment> AssetRef<E> {
                     )
                     .await;
             }
+            // Stale at birth: the dependency changed after this asset read it and before the
+            // edge existed, so the cascade of that change could not reach this asset. It is
+            // still evaluating, so it is not expired from under itself: it takes the
+            // stale-dependency route and finishes `Expired` with `StaleDependency`, to be
+            // recomputed on next access. An unknown version on either side is no evidence.
+            if let Some(current) = manager.dependency_manager().get_version(&dep_key).await {
+                if !version.is_unknown() && !current.is_unknown() && current != version {
+                    self.note_expired_dependency(dependency).await?;
+                }
+            }
         }
         Ok(())
     }
@@ -2000,12 +2036,39 @@ impl<E: Environment> AssetRef<E> {
         lock.status.is_finished()
     }
 
-    /// Helper to finalize primary progress
-    /// This is used once the asset is finished so that the metadata does not indicate a progress.
-    /// Used by: `run_with_future`.
+    /// Leaves a finished run's progress drawable: started progress becomes done, progress that
+    /// never started stays absent, secondary progress is cleared. See `ASSETS.md` §Progress after
+    /// completion.
+    ///
+    /// Called by `run_with_future` / `run_with_future_inline` **after** the service loop has
+    /// drained, so every progress update the command sent has been applied first and the result
+    /// does not depend on scheduling. Persisted like the loop's own progress updates, so a stored
+    /// keyed asset does not keep an unfinished entry.
     async fn finalize_primary_progress(&self) {
-        let mut lock = self.data.write().await;
-        lock.metadata.remove_progress();
+        let started = {
+            let mut lock = self.data.write().await;
+            let last = lock.metadata.primary_progress();
+            let started = !(last.is_off() && lock.metadata.secondary_progress().is_off());
+            lock.metadata.remove_progress();
+            if let Some(entry) = finished_progress(&last) {
+                lock.metadata.set_primary_progress(&entry);
+            }
+            lock.progress_finalized = true;
+            started
+        };
+        // Progress that never started changes nothing, so nothing is written: a keyed value that
+        // was never persisted (non-serializable, `stored: false`) must not gain a metadata-only
+        // entry here. Started progress was already written by the service loop.
+        if !started {
+            return;
+        }
+        if let Err(e) = self.save_metadata_to_store().await {
+            eprintln!(
+                "Could not persist finalized progress of asset {}: {}",
+                self.id(),
+                e
+            );
+        }
     }
 
     /// Create a new asset reference from asset data.
@@ -2557,10 +2620,15 @@ impl<E: Environment> AssetRef<E> {
         }
     }
 
-    async fn record_persistence_result(&self, result: Result<(), Error>) {
+    async fn record_persistence_result(&self, result: Result<SaveOutcome, Error>) {
         match result {
-            Ok(()) => {
+            Ok(SaveOutcome::Written) => {
                 self.set_persistence_status(PersistenceStatus::Persisted, None)
+                    .await;
+            }
+            // A skip is not a failure (no error is recorded) and not a write either.
+            Ok(SaveOutcome::Skipped) => {
+                self.set_persistence_status(PersistenceStatus::None, None)
                     .await;
             }
             Err(error) => {
@@ -2647,6 +2715,15 @@ impl<E: Environment> AssetRef<E> {
         while let Some(msg) = rx.recv().await {
             eprintln!("Received message: {:?} by asset {}", msg, self.id());
             if self.is_finished().await {
+                // Progress the command sent during its own run is applied even when the status
+                // flipped to finished first: `finalize_primary_progress` runs after this loop has
+                // drained and normalizes it, so applying it here is what makes the result
+                // independent of scheduling. Once finalized, late progress is dropped below.
+                let in_run_progress = matches!(
+                    msg,
+                    AssetServiceMessage::UpdatePrimaryProgress(_)
+                        | AssetServiceMessage::UpdateSecondaryProgress(_)
+                ) && !self.data.read().await.progress_finalized;
                 // Post-finish message policy: once the asset is finalized, DISPLAY-mutating and
                 // control messages are dropped so a late producer cannot corrupt the terminal
                 // state (status, progress) or resurrect processing. A late `LogMessage` is NOT
@@ -2661,7 +2738,7 @@ impl<E: Environment> AssetRef<E> {
                         | AssetServiceMessage::JobStarted
                         | AssetServiceMessage::Cancel
                         | AssetServiceMessage::ErrorOccurred(_)
-                );
+                ) && !in_run_progress;
                 if should_ignore {
                     // Interim debug logging (WP-6 will migrate to `tracing::debug!`).
                     if cfg!(debug_assertions) {
@@ -2890,12 +2967,14 @@ impl<E: Environment> AssetRef<E> {
             res = self.wait_to_finish() => res,
             res = evaluate_future => res
         };
-        self.finalize_primary_progress().await;
         self.service_sender()
             .await
             .send(AssetServiceMessage::JobFinishing)
             .ok(); // Notify the service loop that the job is finishing, so it should smoothly end.
-        self.finish_run_with_result(result, psm.await).await
+        let psm_result = psm.await;
+        // After the loop has drained, so the outcome does not depend on scheduling.
+        self.finalize_primary_progress().await;
+        self.finish_run_with_result(result, psm_result).await
     }
 
     /// Runs this asset's evaluation under the spawning harness.
@@ -2951,7 +3030,6 @@ impl<E: Environment> AssetRef<E> {
                 res = wait => res,
                 res = ev => res,
             };
-            self.finalize_primary_progress().await;
             self.service_sender()
                 .await
                 .send(AssetServiceMessage::JobFinishing)
@@ -2960,6 +3038,8 @@ impl<E: Environment> AssetRef<E> {
         };
         let psm_side = self.process_service_messages();
         let (result, psm_result) = futures::join!(eval_side, psm_side);
+        // After the loop has drained, so the outcome does not depend on scheduling.
+        self.finalize_primary_progress().await;
         // The run reached its end, so the status it leaves behind is the real one; the guard must
         // not rewind it. A panic or early return skips this and the `Drop` repair applies instead.
         claim.complete();
@@ -3285,7 +3365,7 @@ impl<E: Environment> AssetRef<E> {
 
     /// Persists metadata updates to the configured async store.
     /// Used by: `persist_with_status_tracking`
-    async fn save_to_store(&self) -> Result<(), Error> {
+    async fn save_to_store(&self) -> Result<SaveOutcome, Error> {
         // Check cancelled flag before writing to store (cancel-safety)
         // This prevents orphaned tasks from overwriting data after cancellation
         if self.is_cancelled().await {
@@ -3293,7 +3373,7 @@ impl<E: Environment> AssetRef<E> {
                 "Asset {} cancelled, skipping store write in save_to_store",
                 self.id()
             );
-            return Ok(());
+            return Ok(SaveOutcome::Skipped);
         }
 
         // `binary_unchecked`, not `poll_binary`: persisting is not a read of the asset's exposed
@@ -3317,7 +3397,7 @@ impl<E: Environment> AssetRef<E> {
                     "Asset {} cancelled after serialization, skipping store write",
                     self.id()
                 );
-                return Ok(());
+                return Ok(SaveOutcome::Skipped);
             }
 
             let envref = lock.get_envref();
@@ -3339,7 +3419,7 @@ impl<E: Environment> AssetRef<E> {
                         self.id(),
                         key
                     );
-                    return Ok(());
+                    return Ok(SaveOutcome::Skipped);
                 }
                 // Ownership is approximated by keyedness. Registration is the manager's own
                 // caching decision, and a volatile keyed asset is deliberately never registered,
@@ -3374,7 +3454,7 @@ impl<E: Environment> AssetRef<E> {
                         .refresh_listing_version(&key.parent())
                         .await;
                 }
-                written
+                written.map(|()| SaveOutcome::Written)
             } else {
                 Err(Error::general_error(format!(
                     "Cannot determine key to store asset - {}",
@@ -3667,14 +3747,16 @@ impl<E: Environment> AssetRef<E> {
     /// [`Self::expire`] with the reason to record. The cascade to dependents carries
     /// `reason.cause()`.
     pub(crate) async fn expire_with_reason(&self, reason: ExpiryReason) -> Result<(), Error> {
-        let key_opt = self.key().await;
+        // Key, else query: a keyed asset may record an edge on a pure query asset (by its query
+        // `DependencyKey`, as `record_dependency_on_asset` does), so a query asset's dependents
+        // must be reached too.
+        let dep_key_opt = self.data.read().await.provenance_key();
         let cause = reason.cause().clone();
 
         let transitioned_to_expired = self.mark_expired_status(reason).await?;
 
         if transitioned_to_expired {
-            if let Some(key) = key_opt {
-                let dep_key = DependencyKey::from(&key);
+            if let Some(dep_key) = dep_key_opt {
                 let envref = self.get_envref().await;
                 let manager = envref.get_asset_manager();
                 manager.cascade_expire_dependents(&dep_key, cause).await;
@@ -3749,7 +3831,7 @@ impl<E: Environment> AssetRef<E> {
             // Only rewrite metadata for a key the store already has. A value that was never
             // persisted (e.g. `PersistenceStatus::NonSerializable`) has no store entry to
             // invalidate, and `set_metadata` on a missing key would otherwise create a phantom
-            // entry with empty bytes — breaking "nothing is written to the store" for that case.
+            // metadata-only entry — breaking "nothing is written to the store" for that case.
             let already_persisted = store.contains(&key).await.unwrap_or(false);
             if already_persisted {
                 if let Err(e) = store.set_metadata(&key, &metadata).await {
@@ -4343,6 +4425,84 @@ fn set_metadata_description(
     }
 }
 
+/// The primary progress a finished run leaves (`ASSETS.md` §Progress after completion): `None`
+/// when progress never started, the command's own entry when it is already done, otherwise a
+/// done entry carrying the last message. Independent of the final status: any finish counts.
+fn finished_progress(last: &ProgressEntry) -> Option<ProgressEntry> {
+    if last.is_off() {
+        None
+    } else if last.is_done() {
+        Some(last.clone())
+    } else {
+        Some(ProgressEntry::done(last.message.clone()))
+    }
+}
+
+/// The status a supplied value is written with (`set_binary`, `set_state`, both managers).
+///
+/// `Some` when the supplied status decides it — `Expired` and `Error` are kept. `None` when it
+/// depends on whether the key has a recipe; then [`written_status_with_recipe`] decides. Split in
+/// two so the caller looks the recipe up only when it is needed, without a default match arm.
+fn written_status(supplied: Status) -> Option<Status> {
+    match supplied {
+        Status::Expired => Some(Status::Expired),
+        Status::Error => Some(Status::Error),
+        Status::None
+        | Status::Directory
+        | Status::Recipe
+        | Status::Submitted
+        | Status::Dependencies
+        | Status::Processing
+        | Status::Partial
+        | Status::Storing
+        | Status::Ready
+        | Status::Cancelled
+        | Status::Source
+        | Status::Override
+        | Status::Volatile => None,
+    }
+}
+
+/// The written status of a supplied value [`written_status`] leaves to the recipe: `Override`
+/// when the key has a recipe (the value overrides what the recipe would produce), `Source`
+/// otherwise.
+fn written_status_with_recipe(has_recipe: bool) -> Status {
+    if has_recipe {
+        Status::Override
+    } else {
+        Status::Source
+    }
+}
+
+/// A value written already `Expired`: log the expiry now, the moment Liquers learns of it, then
+/// say that the diagnostics come after the fact. The structured `expiry_reason` is left as
+/// supplied — for this route its cause is usually unknown to Liquers, and inventing one would
+/// assert a cause nobody observed.
+fn log_supplied_expiry_record(record: &mut MetadataRecord, key: &Key, route: &str) {
+    record.add_log_entry(LogEntry::warning("Asset expired".to_string()));
+    let detail = match &record.expiry_reason {
+        Some(reason) => format!(
+            "Expiry recorded after the fact: {key} was written already expired ({route}); \
+             supplied reason: {}",
+            reason.log_entry(&key.to_string()).message
+        ),
+        None => format!(
+            "Expiry recorded after the fact: {key} was written already expired ({route}); \
+             its original cause is unknown"
+        ),
+    };
+    record.add_log_entry(LogEntry::info(detail));
+}
+
+/// [`log_supplied_expiry_record`] for a `Metadata`. Legacy metadata is left untouched, as
+/// `record_expiry` leaves it.
+fn log_supplied_expiry(metadata: &mut Metadata, key: &Key, route: &str) {
+    match metadata {
+        Metadata::MetadataRecord(record) => log_supplied_expiry_record(record, key, route),
+        Metadata::LegacyMetadata(_) => {}
+    }
+}
+
 /// Whether a live asset's status says nothing about the key yet, so the stored status decides
 /// (see [`AssetManager::remove`]): an asset just created by a `get` is `None` or `Recipe`.
 fn live_status_defers_to_store(status: Status) -> bool {
@@ -4548,23 +4708,6 @@ fn external_change_checked(stored_status: Status, recorded: Version) -> bool {
     .is_some()
 }
 
-/// Whether an empty data object stands for "no bytes" — a metadata-only entry — rather than for
-/// empty content.
-///
-/// A store that keeps metadata without a data object usually says so (`get_bytes` reports
-/// `KeyNotFound`), but `AsyncMemoryStore` answers with empty bytes. Liquers records a timestamp
-/// version only when it stored no bytes (serialization failed, or the fallback of
-/// `version_for_tracking`), and a content hash whenever it stored some; so empty bytes under a
-/// timestamp version are such an entry, and are not checked. Empty bytes under a content hash, or
-/// with no recorded version, are content and are checked.
-fn no_bytes_by_design(bytes: &[u8], recorded: Version) -> bool {
-    bytes.is_empty()
-        && match recorded.kind() {
-            VersionKind::Timestamp => true,
-            VersionKind::ContentHash | VersionKind::Unknown => false,
-        }
-}
-
 /// Whether applying `action` writes the sidecar. Everything is written except an
 /// `AcceptAsInput` whose recorded version was 0: a file with no metadata and no recipe is adopted
 /// in memory only (owner decision, 2026-10-02), because nothing about the value changes and the
@@ -4646,8 +4789,7 @@ where
         VersionVerification::OnRead => {}
     }
     let recorded = metadata.version().unwrap_or_else(Version::unknown);
-    if !external_change_checked(metadata.status(), recorded) || no_bytes_by_design(bytes, recorded)
-    {
+    if !external_change_checked(metadata.status(), recorded) {
         return Ok(None);
     }
     let actual = match recorded.verify(bytes) {
@@ -5944,10 +6086,8 @@ pub trait AssetManager<E: Environment>:
     /// This is how an edit nobody has read yet is found; the Part B audit compares recorded
     /// versions only and cannot see it. A key whose store entry has metadata but no data object
     /// is `skipped`, not changed: deleting large intermediates while keeping their metadata is a
-    /// supported workflow. An *empty* data object is bytes, and is checked — except under a
-    /// timestamp version, which Liquers records only when it stored no bytes: a store that
-    /// answers a metadata-only entry with empty bytes (`AsyncMemoryStore`) is not mistaken for
-    /// one whose content was emptied.
+    /// supported workflow; every store reports it as `KeyNotFound` on `get_bytes`
+    /// (`STORE_SEMANTICS.md` §8, `sidecar05`). An *empty* data object is bytes, and is checked.
     ///
     /// A live asset loaded before the edit still holds the old content; when a change is applied
     /// it is unmapped, so the next request reads the store. Under [`VersionVerification::Off`]
@@ -5987,11 +6127,10 @@ pub trait AssetManager<E: Environment>:
                 report.skipped.push(key);
                 continue;
             }
+            // A metadata-only entry has no data object, and every store says so with
+            // `KeyNotFound` (`STORE_SEMANTICS.md` §8, `sidecar05`): nothing to hash, so skip it.
+            // Empty bytes are content and are checked.
             let bytes = match store.get_bytes(&key).await {
-                Ok(bytes) if no_bytes_by_design(&bytes, recorded) => {
-                    report.skipped.push(key);
-                    continue;
-                }
                 Ok(bytes) => bytes,
                 Err(e) if e.error_type == ErrorType::KeyNotFound => {
                     report.skipped.push(key);
@@ -6066,13 +6205,23 @@ pub trait AssetManager<E: Environment>:
     /// cache. `Ok(None)` if the key has no data-bearing state (in memory or in the store).
     async fn get_any_status(&self, key: &Key) -> Result<Option<State<E::Value>>, Error> {
         if let Some(asset_ref) = self.lookup_key_asset(key) {
-            return Ok(asset_ref.get_any_status().await);
+            if !live_status_defers_to_store(asset_ref.status().await) {
+                return Ok(asset_ref.get_any_status().await);
+            }
+            // A placeholder that has produced nothing yet (a concurrent `get` mapped it before
+            // fast-tracking the stored value): the store decides, as in `remove`.
         }
         let store = self.get_envref().get_async_store();
         if !store.contains(key).await? {
             return Ok(None);
         }
-        let (binary, mut metadata) = store.get(key).await?;
+        // A contained key with no data object is a metadata-only entry (`sidecar05`): there is
+        // no stored value to recover.
+        let (binary, mut metadata) = match store.get(key).await {
+            Ok(entry) => entry,
+            Err(e) if e.error_type == ErrorType::KeyNotFound => return Ok(None),
+            Err(e) => return Err(e),
+        };
         if !metadata.status().has_data() {
             return Ok(None);
         }
@@ -6116,15 +6265,23 @@ pub trait AssetManager<E: Environment>:
         key: &Key,
     ) -> Result<Option<(Arc<Vec<u8>>, Arc<Metadata>)>, Error> {
         if let Some(asset_ref) = self.lookup_key_asset(key) {
-            // Serializes on demand, so an in-memory expired asset holding a value but no cached
-            // bytes is recoverable rather than reported absent.
-            return asset_ref.get_binary_any_status().await;
+            if !live_status_defers_to_store(asset_ref.status().await) {
+                // Serializes on demand, so an in-memory expired asset holding a value but no
+                // cached bytes is recoverable rather than reported absent.
+                return asset_ref.get_binary_any_status().await;
+            }
+            // A placeholder that has produced nothing yet: the store decides, as in `remove`.
         }
         let store = self.get_envref().get_async_store();
         if !store.contains(key).await? {
             return Ok(None);
         }
-        let (binary, mut metadata) = store.get(key).await?;
+        // A contained key with no data object is a metadata-only entry (`sidecar05`): no bytes.
+        let (binary, mut metadata) = match store.get(key).await {
+            Ok(entry) => entry,
+            Err(e) if e.error_type == ErrorType::KeyNotFound => return Ok(None),
+            Err(e) => return Err(e),
+        };
         // `has_data()` is the right question here — this asks whether the store entry holds a
         // value at all, not whether a reader may see it. That is the distinction from
         // `ReadExposure`, which gates reads.
@@ -6540,34 +6697,33 @@ impl<E: Environment> DefaultAssetManager<E> {
         query: Option<&Query>,
         key: Option<&Key>,
     ) -> bool {
-        let mut removed = false;
         if let Some(query) = query {
-            if let Some(entry) = self.query_assets.get_async(query).await {
-                if entry.get().id() == asset_id {
-                    drop(entry);
-                    let _ = self.query_assets.remove_async(query).await;
-                    removed = true;
-                }
+            if self.remove_query_asset_if(query, asset_id).await {
+                return true;
             }
         }
-        if !removed {
-            if let Some(key) = key {
-                let _mutation = self.key_mutation_lock.lock().await;
-                if let Some(entry) = self.assets.get_async(key).await {
-                    if entry.get().id() == asset_id {
-                        drop(entry);
-                        let _ = self.assets.remove_async(key).await;
-                        removed = true;
-                    }
-                }
+        if let Some(key) = key {
+            let _mutation = self.key_mutation_lock.lock().await;
+            if AssetManager::remove_key_asset_if(self, key, asset_id).await {
+                return true;
             }
         }
-        if removed {
-            return true;
-        }
-
         // Ad-hoc assets (neither query nor key): no map entry to remove.
         false
+    }
+
+    /// Remove `query`'s entry only if it is still the asset `asset_id`.
+    ///
+    /// The query-map counterpart of [`AssetManager::remove_key_asset_if`]: `remove_if_async`
+    /// evaluates the predicate and removes under one bucket lock, so a replacement inserted after
+    /// the stale asset was observed is never the entry removed. A `get_async` / compare /
+    /// `remove_async` sequence releases the guard in between, and query-slot insertion
+    /// (`get_query_asset`) takes no other lock that would close that gap.
+    async fn remove_query_asset_if(&self, query: &Query, asset_id: u64) -> bool {
+        self.query_assets
+            .remove_if_async(query, |asset| asset.id() == asset_id)
+            .await
+            .is_some()
     }
 
     /// Track an asset for expiration via the monitor task.
@@ -6899,13 +7055,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                     status,
                     Status::Expired | Status::Error | Status::Cancelled | Status::Volatile
                 ) {
-                    let asset_id = assetref.id();
-                    if let Some(entry) = self.query_assets.get_async(query).await {
-                        if entry.get().id() == asset_id {
-                            drop(entry);
-                            let _ = self.query_assets.remove_async(query).await;
-                        }
-                    }
+                    self.remove_query_asset_if(query, assetref.id()).await;
                     continue;
                 }
                 if status.is_finished() {
@@ -7061,9 +7211,11 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                         // name and position — and then re-attach both, so the message would read
                         // "Command 'x' failed: Command 'x' failed: ... at .. at ..".
                         Some(cause) => cause,
+                        // Named by key or query, which mean something once persisted in the
+                        // dependent's metadata; the runtime id does not.
                         None => Error::general_error(format!(
-                            "Dependency asset {} did not produce a value (status {:?})",
-                            dependency.id(),
+                            "Dependency {} did not produce a value (status {:?})",
+                            dependency.expiry_subject().await,
                             status
                         )),
                     };
@@ -7097,9 +7249,9 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                         // here — fail the dependent's evaluation.
                         None => {
                             let e = Error::general_error(format!(
-                                "Dependency asset {} expired and was evicted before its value \
-                                 could be used",
-                                dependency.id()
+                                "Dependency {} expired and was evicted before its value could \
+                                 be used",
+                                dependency.expiry_subject().await
                             ));
                             let _ = parent.fail_due_to_dependency(e.clone()).await;
                             return Err(e);
@@ -7188,14 +7340,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 status,
                 Status::Expired | Status::Error | Status::Cancelled | Status::Volatile
             ) {
-                let asset_id = asset_ref.id();
                 let _mutation = self.key_mutation_lock.lock().await;
-                if let Some(entry) = self.assets.get_async(key).await {
-                    if entry.get().id() == asset_id {
-                        drop(entry);
-                        let _ = self.assets.remove_async(key).await;
-                    }
-                }
+                AssetManager::remove_key_asset_if(self, key, asset_ref.id()).await;
                 continue;
             }
             if status.is_finished() {
@@ -7272,29 +7418,9 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         let result = async {
             // 2. Determine status based on input status and recipe existence
             let input_status = metadata.status;
-            let final_status = match input_status {
-                Status::Expired => Status::Expired,
-                Status::Error => Status::Error,
-                Status::None
-                | Status::Directory
-                | Status::Recipe
-                | Status::Submitted
-                | Status::Dependencies
-                | Status::Processing
-                | Status::Partial
-                | Status::Storing
-                | Status::Ready
-                | Status::Cancelled
-                | Status::Source
-                | Status::Override
-                | Status::Volatile => {
-                    // Check if recipe exists
-                    if self.recipe_opt(key).await?.is_some() {
-                        Status::Override
-                    } else {
-                        Status::Source
-                    }
-                }
+            let final_status = match written_status(input_status) {
+                Some(status) => status,
+                None => written_status_with_recipe(self.recipe_opt(key).await?.is_some()),
             };
             metadata.status = final_status;
             validate_required_metadata_fields(key, &metadata, self.get_envref().get_type_registry())?;
@@ -7303,6 +7429,9 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             // 3. Update timestamp and add log entry
             metadata.set_updated_now();
             metadata.add_log_entry(LogEntry::info("Data set externally".to_string()));
+            if final_status == Status::Expired {
+                log_supplied_expiry_record(&mut metadata, key, "set_binary");
+            }
 
             // 4. Compute version from binary content and store in metadata
             let dep_key = crate::metadata::DependencyKey::from(key);
@@ -7391,29 +7520,9 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         let result = async {
             // 2. Determine status based on input status and recipe existence
             let input_status = state.metadata.status();
-            let final_status = match input_status {
-                Status::Expired => Status::Expired,
-                Status::Error => Status::Error,
-                Status::None
-                | Status::Directory
-                | Status::Recipe
-                | Status::Submitted
-                | Status::Dependencies
-                | Status::Processing
-                | Status::Partial
-                | Status::Storing
-                | Status::Ready
-                | Status::Cancelled
-                | Status::Source
-                | Status::Override
-                | Status::Volatile => {
-                    // Check if recipe exists
-                    if self.recipe_opt(key).await?.is_some() {
-                        Status::Override
-                    } else {
-                        Status::Source
-                    }
-                }
+            let final_status = match written_status(input_status) {
+                Some(status) => status,
+                None => written_status_with_recipe(self.recipe_opt(key).await?.is_some()),
             };
 
             // 3. Create metadata record with updated status, timestamp, and log entry
@@ -7427,6 +7536,9 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             add_soft_consistency_warnings_enum(&mut metadata)?;
             metadata.set_updated_now()?;
             metadata.add_log_entry(LogEntry::info("State set externally".to_string()))?;
+            if final_status == Status::Expired {
+                log_supplied_expiry(&mut metadata, key, "set_state");
+            }
 
             // 4. Compute version for non-volatile states
             let dep_key = crate::metadata::DependencyKey::from(key);
@@ -8363,12 +8475,14 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 if status == Status::Ready && assetref.expiration_time().await.is_expired() {
                     // Lazy expiration-on-access: the deadline, not the status, decides
                     // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`; this used to test
-                    // `is_expired()`, i.e. the status, which can never be `Expired` here). Unlike
-                    // the queued monitor, lazy expiry does not cascade to dependents; whether it
-                    // should is open (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE`).
+                    // `is_expired()`, i.e. the status, which can never be `Expired` here).
+                    // Laziness is how the expiry is discovered; once it is known, the consequences
+                    // follow, so it cascades to dependents as the queued monitor does
+                    // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE`, fixed). The
+                    // cascade takes no `key_mutation_lock`, so it runs before the lock below.
                     let expiration_time = assetref.expiration_time().await;
                     let _ = assetref
-                        .expire_without_cascade(ExpiryReason::Direct {
+                        .expire_with_reason(ExpiryReason::Direct {
                             cause: ExpiryCause::Deadline { expiration_time },
                         })
                         .await;
@@ -8461,12 +8575,14 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 if status == Status::Ready && asset_ref.expiration_time().await.is_expired() {
                     // Lazy expiration-on-access: the deadline, not the status, decides
                     // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`; this used to test
-                    // `is_expired()`, i.e. the status, which can never be `Expired` here). Unlike
-                    // the queued monitor, lazy expiry does not cascade to dependents; whether it
-                    // should is open (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE`).
+                    // `is_expired()`, i.e. the status, which can never be `Expired` here).
+                    // Laziness is how the expiry is discovered; once it is known, the consequences
+                    // follow, so it cascades to dependents as the queued monitor does
+                    // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE`, fixed). The
+                    // cascade takes no `key_mutation_lock`, so it runs before the lock below.
                     let expiration_time = asset_ref.expiration_time().await;
                     let _ = asset_ref
-                        .expire_without_cascade(ExpiryReason::Direct {
+                        .expire_with_reason(ExpiryReason::Direct {
                             cause: ExpiryCause::Deadline { expiration_time },
                         })
                         .await;
@@ -8507,17 +8623,18 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             replaced = Some(asset);
         }
         let result = async {
-            let final_status = match metadata.status {
-                Status::Expired => Status::Expired,
-                Status::Error => Status::Error,
-                _ if self.recipe_opt(key).await?.is_some() => Status::Override,
-                _ => Status::Source,
+            let final_status = match written_status(metadata.status) {
+                Some(status) => status,
+                None => written_status_with_recipe(self.recipe_opt(key).await?.is_some()),
             };
             metadata.status = final_status;
             validate_required_metadata_fields(key, &metadata, self.envref().get_type_registry())?;
             add_soft_consistency_warnings(&mut metadata);
             metadata.set_updated_now();
             metadata.add_log_entry(LogEntry::info("Data set externally".to_string()));
+            if final_status == Status::Expired {
+                log_supplied_expiry_record(&mut metadata, key, "set_binary");
+            }
             let dep_key = crate::metadata::DependencyKey::from(key);
             if final_status != Status::Volatile && final_status != Status::Error {
                 metadata.version = Some(crate::metadata::Version::from_content(binary));
@@ -8566,11 +8683,9 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             replaced = Some(asset);
         }
         let result = async {
-            let final_status = match state.metadata.status() {
-                Status::Expired => Status::Expired,
-                Status::Error => Status::Error,
-                _ if self.recipe_opt(key).await?.is_some() => Status::Override,
-                _ => Status::Source,
+            let final_status = match written_status(state.metadata.status()) {
+                Some(status) => status,
+                None => written_status_with_recipe(self.recipe_opt(key).await?.is_some()),
             };
             let mut metadata = state.metadata.as_ref().clone();
             metadata.set_status(final_status)?;
@@ -8578,6 +8693,9 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             add_soft_consistency_warnings_enum(&mut metadata)?;
             metadata.set_updated_now()?;
             metadata.add_log_entry(LogEntry::info("State set externally".to_string()))?;
+            if final_status == Status::Expired {
+                log_supplied_expiry(&mut metadata, key, "set_state");
+            }
             let dep_key = crate::metadata::DependencyKey::from(key);
             if final_status != Status::Volatile && final_status != Status::Error {
                 let version = match state.as_bytes() {
@@ -10017,6 +10135,76 @@ recipes:
         assert_eq!(parent.status().await, Status::Error);
     }
 
+    /// `true` when `message` contains "asset " followed by a digit — a runtime id.
+    fn names_an_asset_id(message: &str) -> bool {
+        message
+            .match_indices("asset ")
+            .any(|(i, _)| message[i + 6..].starts_with(|c: char| c.is_ascii_digit()))
+    }
+
+    /// A keyed dependency that ended `Cancelled` with no stored error is named by its key.
+    #[tokio::test]
+    async fn dependency_failure_error_names_key() {
+        let envref = SimpleEnvironment::<Value>::new().to_ref();
+        let parent = AssetData::<SimpleEnvironment<Value>>::new(
+            36,
+            parse_query("parent").unwrap().into(),
+            None,
+            envref.clone(),
+        )
+        .to_ref();
+        let key = parse_key("data/b.txt").unwrap();
+        let dependency = AssetData::<SimpleEnvironment<Value>>::new(
+            37,
+            key.clone().into(),
+            Some(key),
+            envref.clone(),
+        )
+        .to_ref();
+        dependency.set_status(Status::Cancelled).await.unwrap();
+
+        let error = envref
+            .get_asset_manager()
+            .wait_for_dependency(&parent, &dependency)
+            .await
+            .expect_err("a cancelled dependency fails the dependent");
+        assert!(error.message.contains("data/b.txt"), "{}", error.message);
+        assert!(!names_an_asset_id(&error.message), "{}", error.message);
+    }
+
+    /// An expired-and-evicted keyed dependency is named by its key.
+    #[tokio::test]
+    async fn evicted_dependency_error_names_key() {
+        let envref = SimpleEnvironment::<Value>::new().to_ref();
+        let parent = AssetData::<SimpleEnvironment<Value>>::new(
+            38,
+            parse_query("parent").unwrap().into(),
+            None,
+            envref.clone(),
+        )
+        .to_ref();
+        let key = parse_key("data/evicted.txt").unwrap();
+        let dependency = AssetData::<SimpleEnvironment<Value>>::new(
+            39,
+            key.clone().into(),
+            Some(key),
+            envref.clone(),
+        )
+        .to_ref();
+        dependency.set_status(Status::Expired).await.unwrap();
+
+        let error = envref
+            .get_asset_manager()
+            .wait_for_dependency(&parent, &dependency)
+            .await
+            .expect_err("an evicted expired dependency has no stale value to use");
+        assert!(error.message.contains("data/evicted.txt"), "{}", error.message);
+        assert!(error
+            .message
+            .contains("expired and was evicted before its value could be used"));
+        assert!(!names_an_asset_id(&error.message), "{}", error.message);
+    }
+
     #[tokio::test]
     async fn test_try_to_start_immediately_false_at_capacity() {
         let query = parse_query("test").unwrap();
@@ -10694,6 +10882,396 @@ recipes:
         let fresh = manager.get_asset(&query).await.unwrap();
         assert_ne!(fresh.id(), stale.id());
         assert_ne!(fresh.status().await, Status::Expired);
+    }
+
+    // ==================================================================================
+    // Progress after completion — `design/finished-asset-progress-contract/`
+    // ==================================================================================
+
+    #[test]
+    fn finished_progress_follows_the_contract() {
+        assert_eq!(super::finished_progress(&ProgressEntry::off()), None);
+        let done = ProgressEntry::done("Loaded 3 rows".to_string());
+        assert_eq!(super::finished_progress(&done), Some(done.clone()));
+        for unfinished in [
+            ProgressEntry::tick("Working".to_string()),
+            ProgressEntry::new("Loading".to_string(), 3, 10),
+        ] {
+            let finished = super::finished_progress(&unfinished).expect("started progress");
+            assert!(finished.is_done(), "{finished:?}");
+            assert_eq!(finished.message, unfinished.message);
+        }
+    }
+
+    /// Registers `report_done`, `report_partial`, `silent` and `tick_then_fail`.
+    fn register_progress_commands<E: Environment<Value = Value>>(
+        registry: &mut crate::commands::CommandRegistry<E>,
+    ) {
+        registry
+            .register_command(CommandKey::new_name("report_done"), |_, _, context| {
+                context.progress(ProgressEntry::done("Loaded 3 rows".to_string()))?;
+                Ok(Value::from("done"))
+            })
+            .expect("register report_done");
+        registry
+            .register_command(CommandKey::new_name("report_partial"), |_, _, context| {
+                context.progress(ProgressEntry::new("Loading".to_string(), 3, 10))?;
+                Ok(Value::from("partial"))
+            })
+            .expect("register report_partial");
+        registry
+            .register_command(CommandKey::new_name("silent"), |_, _, _| {
+                Ok(Value::from("silent"))
+            })
+            .expect("register silent");
+        registry
+            .register_command(CommandKey::new_name("tick_then_fail"), |_, _, context| {
+                context.progress(ProgressEntry::tick("Working".to_string()))?;
+                Err(Error::general_error("deliberate failure".to_string()))
+            })
+            .expect("register tick_then_fail");
+    }
+
+    /// Run `query` under the spawning (`inline == false`) or the inline harness and return the
+    /// finished asset's primary progress. The asset is built directly, so a failing evaluation
+    /// still leaves an asset to inspect.
+    async fn finished_primary_progress<E: Environment<Value = Value>>(
+        envref: &EnvRef<E>,
+        query: &str,
+        inline: bool,
+    ) -> ProgressEntry {
+        let asset = AssetData::<E>::new(
+            envref.get_asset_manager().next_id_for_asset(),
+            parse_query(query).expect("query").into(),
+            None,
+            envref.clone(),
+        )
+        .to_ref();
+        let _ = if inline {
+            asset.run_inline(None).await
+        } else {
+            asset.run(None).await
+        };
+        assert!(asset.status().await.is_finished(), "{query}");
+        asset.get_metadata().await.expect("metadata").primary_progress()
+    }
+
+    fn progress_env_native() -> EnvRef<SimpleEnvironment<Value>> {
+        let mut env = SimpleEnvironment::<Value>::new();
+        register_progress_commands(&mut env.command_registry);
+        env.to_ref()
+    }
+
+    fn progress_env_inline() -> EnvRef<ImmediateEnvironment<Value>> {
+        let mut env = ImmediateEnvironment::<Value>::new();
+        register_progress_commands(&mut env.command_registry);
+        env.to_ref()
+    }
+
+    async fn scenario_finished_progress<E: Environment<Value = Value>>(
+        envref: EnvRef<E>,
+        inline: bool,
+    ) {
+        let done = finished_primary_progress(&envref, "report_done", inline).await;
+        assert!(done.is_done(), "{done:?}");
+        assert_eq!(done.message, "Loaded 3 rows", "the command's own final message is kept");
+
+        let partial = finished_primary_progress(&envref, "report_partial", inline).await;
+        assert!(partial.is_done(), "{partial:?}");
+        assert_eq!(partial.message, "Loading");
+
+        let silent = finished_primary_progress(&envref, "silent", inline).await;
+        assert!(silent.is_off(), "no progress started, so no bar: {silent:?}");
+
+        let failed = finished_primary_progress(&envref, "tick_then_fail", inline).await;
+        assert!(failed.is_done(), "a finished asset never shows an unfinished bar: {failed:?}");
+        assert_eq!(failed.message, "Working");
+    }
+
+    #[tokio::test]
+    async fn finished_run_progress_contract_native() {
+        scenario_finished_progress(progress_env_native(), false).await;
+    }
+
+    #[tokio::test]
+    async fn finished_run_progress_contract_inline() {
+        scenario_finished_progress(progress_env_inline(), true).await;
+    }
+
+    /// The same evaluation, repeated on fresh environments, always leaves the same progress.
+    #[tokio::test]
+    async fn finished_progress_is_deterministic_native() {
+        for _ in 0..100 {
+            let progress =
+                finished_primary_progress(&progress_env_native(), "report_done", false).await;
+            assert!(progress.is_done(), "{progress:?}");
+            assert_eq!(progress.message, "Loaded 3 rows");
+        }
+    }
+
+    #[tokio::test]
+    async fn finished_progress_is_deterministic_inline() {
+        for _ in 0..100 {
+            let progress =
+                finished_primary_progress(&progress_env_inline(), "report_done", true).await;
+            assert!(progress.is_done(), "{progress:?}");
+            assert_eq!(progress.message, "Loaded 3 rows");
+        }
+    }
+
+    // ==================================================================================
+    // Recovery reads defer a placeholder to the store — `design/recovery-read-defers-placeholder/`
+    // ==================================================================================
+
+    /// A memory store holding `data/a.txt` as a `Ready` text value when `stored`.
+    async fn placeholder_store(stored: bool) -> Result<AsyncMemoryStore, Box<dyn std::error::Error>> {
+        let store = AsyncMemoryStore::new(&Key::new());
+        if stored {
+            let mut record = MetadataRecord::new();
+            record.with_type_identifier("Text".to_owned());
+            record.with_type_name("text".to_owned());
+            record.data_format = Some("txt".to_owned());
+            record.with_status(Status::Ready);
+            store
+                .set(&parse_key("data/a.txt")?, b"hello", &Metadata::MetadataRecord(record))
+                .await?;
+        }
+        Ok(store)
+    }
+
+    /// An unrun placeholder for `key` — what a concurrent `get` maps before it fast-tracks.
+    fn placeholder<E: Environment>(envref: &EnvRef<E>, key: &Key) -> AssetRef<E> {
+        AssetRef::new_from_recipe(
+            envref.get_asset_manager().next_id_for_asset(),
+            key.clone().into(),
+            Some(key.clone()),
+            envref.clone(),
+        )
+    }
+
+    /// Both recovery reads, with the placeholder mapped: the stored value when `stored`, else
+    /// `None`.
+    async fn assert_recovery_reads<E: Environment<Value = Value>>(
+        envref: &EnvRef<E>,
+        key: &Key,
+        stored: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let manager = envref.get_asset_manager();
+        let live = manager.lookup_key_asset(key).expect("the placeholder is mapped");
+        assert!(super::live_status_defers_to_store(live.status().await));
+        let binary = manager.get_binary_any_status(key).await?;
+        let state = manager.get_any_status(key).await?;
+        if stored {
+            let (bytes, metadata) = binary.expect("the stored bytes, not None");
+            assert_eq!(bytes.as_slice(), b"hello");
+            assert_eq!(metadata.status(), Status::Ready);
+            assert_eq!(state.expect("the stored value").try_into_string()?, "hello");
+        } else {
+            assert!(binary.is_none());
+            assert!(state.is_none());
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn recovery_reads_defer_placeholder_to_store_default() -> Result<(), Box<dyn std::error::Error>>
+    {
+        for stored in [true, false] {
+            let mut env = SimpleEnvironment::<Value>::new();
+            env.with_async_store(Box::new(placeholder_store(stored).await?));
+            let envref = env.to_ref();
+            let key = parse_key("data/a.txt")?;
+            let asset = placeholder(&envref, &key);
+            assert!(envref.get_asset_manager().try_insert_key_asset(&key, asset).await);
+            assert_recovery_reads(&envref, &key, stored).await?;
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn recovery_reads_defer_placeholder_to_store_immediate(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        for stored in [true, false] {
+            let mut env = ImmediateEnvironment::<Value>::new();
+            env.with_async_store(Box::new(placeholder_store(stored).await?));
+            let envref = env.to_ref();
+            let key = parse_key("data/a.txt")?;
+            let asset = placeholder(&envref, &key);
+            assert!(envref.get_asset_manager().try_insert_key_asset(&key, asset).await);
+            assert_recovery_reads(&envref, &key, stored).await?;
+        }
+        Ok(())
+    }
+
+    // ==================================================================================
+    // An edge recorded against a superseded version — `design/dependency-edge-superseded-version/`
+    // ==================================================================================
+
+    /// A keyed dependent `idx.txt` in `Processing`, and a `Ready` keyed dependency `a.txt` whose
+    /// value carries `observed`; the map holds `current` for `a.txt` when given. Returns whether
+    /// recording the edge put the dependent on the stale-dependency route.
+    async fn edge_marks_stale(observed: Option<Version>, current: Option<Version>) -> bool {
+        let envref = expiry_test_envref();
+        let manager = envref.get_asset_manager();
+        let a = parse_key("a.txt").unwrap();
+        let idx = parse_key("idx.txt").unwrap();
+        let dependent = AssetRef::new_from_recipe(
+            manager.next_id_for_asset(),
+            idx.clone().into(),
+            Some(idx),
+            envref.clone(),
+        );
+        dependent.set_status(Status::Processing).await.unwrap();
+        let mut d = AssetData::<SimpleEnvironment<Value>>::new(
+            manager.next_id_for_asset(),
+            a.clone().into(),
+            Some(a.clone()),
+            envref.clone(),
+        );
+        d.status = Status::Ready;
+        d.data = Some(Arc::new(Value::from("a")));
+        let _ = d.metadata.set_version(observed);
+        let dependency = d.to_ref();
+        if let Some(current) = current {
+            let _ = manager
+                .dependency_manager()
+                .register_version(&DependencyKey::from(&a), current)
+                .await;
+        }
+        dependent
+            .record_dependency_on_asset(&dependency)
+            .await
+            .unwrap();
+        let stale = dependent.data.read().await.stale_dependency.clone();
+        if let Some(key) = &stale {
+            assert_eq!(key, &DependencyKey::from(&a));
+        }
+        stale.is_some()
+    }
+
+    /// The map already holds a different concrete version: the dependent is stale at birth.
+    #[tokio::test]
+    async fn edge_against_superseded_version_marks_dependent_stale() {
+        assert!(edge_marks_stale(Some(Version::new(1)), Some(Version::new(2))).await);
+    }
+
+    #[tokio::test]
+    async fn edge_with_unknown_version_marks_nothing() {
+        assert!(!edge_marks_stale(Some(Version::unknown()), Some(Version::new(2))).await);
+        assert!(!edge_marks_stale(Some(Version::new(1)), Some(Version::unknown())).await);
+        assert!(!edge_marks_stale(Some(Version::new(1)), None).await);
+    }
+
+    #[tokio::test]
+    async fn edge_with_current_version_marks_nothing() {
+        assert!(!edge_marks_stale(Some(Version::new(2)), Some(Version::new(2))).await);
+    }
+
+    /// Iterates the module's `ALL_STATUSES`; a new variant must be added there. The exhaustive
+    /// match in `written_status` already makes the compiler flag that function.
+    #[test]
+    fn written_status_keeps_expired_and_error() {
+        for status in ALL_STATUSES {
+            let expected = match status {
+                Status::Expired | Status::Error => Some(status),
+                Status::None
+                | Status::Directory
+                | Status::Recipe
+                | Status::Submitted
+                | Status::Dependencies
+                | Status::Processing
+                | Status::Partial
+                | Status::Storing
+                | Status::Ready
+                | Status::Cancelled
+                | Status::Source
+                | Status::Override
+                | Status::Volatile => None,
+            };
+            assert_eq!(super::written_status(status), expected, "{status:?}");
+        }
+    }
+
+    #[test]
+    fn written_status_defers_others_to_recipe() {
+        assert_eq!(super::written_status_with_recipe(true), Status::Override);
+        assert_eq!(super::written_status_with_recipe(false), Status::Source);
+    }
+
+    /// `remove_query_asset_if` decides by id: a stale id leaves the replacement in place, the
+    /// current id removes it. Atomicity is structural (one `remove_if_async` call), as for
+    /// `remove_key_asset_if_respects_id`.
+    #[tokio::test]
+    async fn remove_query_asset_if_respects_id() {
+        let envref = SimpleEnvironment::<Value>::new().to_ref();
+        let manager = envref.get_asset_manager();
+        let query = parse_query("conditional_query_cmd").unwrap();
+        let stale = manager.create_asset(query.clone().into());
+        let replacement = manager.create_asset(query.clone().into());
+        let _ = manager
+            .query_assets
+            .insert_async(query.clone(), replacement.clone())
+            .await;
+
+        assert!(!manager.remove_query_asset_if(&query, stale.id()).await);
+        assert_eq!(
+            manager.lookup_query_asset(&query).map(|a| a.id()),
+            Some(replacement.id()),
+            "the replacement survives the stale asset's cleanup"
+        );
+        assert!(manager.remove_query_asset_if(&query, replacement.id()).await);
+        assert!(manager.lookup_query_asset(&query).is_none());
+    }
+
+    /// `remove_expired_from_maps`: query first, key as fallback, a replacement in either slot
+    /// survives, and an ad-hoc asset (neither) removes nothing.
+    #[tokio::test]
+    async fn remove_expired_from_maps_respects_replacements() {
+        let envref = SimpleEnvironment::<Value>::new().to_ref();
+        let manager = envref.get_asset_manager();
+        let query = parse_query("conditional_maps_cmd").unwrap();
+        let key = parse_key("conditional/maps.txt").unwrap();
+
+        let stale = manager.create_asset(query.clone().into());
+        let replacement = manager.create_asset(query.clone().into());
+        let _ = manager
+            .query_assets
+            .insert_async(query.clone(), replacement.clone())
+            .await;
+        assert!(manager.try_insert_key_asset(&key, replacement.clone()).await);
+
+        // Stale id: neither slot is touched.
+        assert!(
+            !manager
+                .remove_expired_from_maps(stale.id(), Some(&query), Some(&key))
+                .await
+        );
+        assert!(manager.lookup_query_asset(&query).is_some());
+        assert!(manager.lookup_key_asset(&key).is_some());
+
+        // Matching id: the query slot is removed first and the key slot is left alone.
+        assert!(
+            manager
+                .remove_expired_from_maps(replacement.id(), Some(&query), Some(&key))
+                .await
+        );
+        assert!(manager.lookup_query_asset(&query).is_none());
+        assert!(manager.lookup_key_asset(&key).is_some());
+
+        // No query entry any more: the key slot is the fallback.
+        assert!(
+            manager
+                .remove_expired_from_maps(replacement.id(), Some(&query), Some(&key))
+                .await
+        );
+        assert!(manager.lookup_key_asset(&key).is_none());
+
+        // Ad-hoc: nothing to remove.
+        assert!(
+            !manager
+                .remove_expired_from_maps(replacement.id(), None, None)
+                .await
+        );
     }
 
     /// A dependency resolved at scheduling time that is a stale terminal Error is evicted and
@@ -11752,11 +12330,111 @@ recipes:
             "precondition: the read gate hides these bytes"
         );
 
-        assetref.save_to_store().await?;
+        assert_eq!(assetref.save_to_store().await?, SaveOutcome::Written);
 
         assert!(store.contains(&key).await?);
         let (stored, _) = store.get(&key).await?;
         assert_eq!(stored, b"persist me anyway");
+        Ok(())
+    }
+
+    /// A keyed asset holding bytes, cancelled, in a memory-store environment.
+    fn cancelled_keyed_asset(
+        id: u64,
+        key: &Key,
+    ) -> (EnvRef<SimpleEnvironment<Value>>, AssetRef<SimpleEnvironment<Value>>) {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+        let envref = env.to_ref();
+        let mut d = AssetData::<SimpleEnvironment<Value>>::new(
+            id,
+            key.clone().into(),
+            Some(key.clone()),
+            envref.clone(),
+        );
+        d.binary = Some(Arc::new(b"never written".to_vec()));
+        d.data = Some(Arc::new(Value::from("never written")));
+        d.status = Status::Ready;
+        d.save_in_background = false;
+        d.set_cancelled(true);
+        (envref, d.to_ref())
+    }
+
+    /// A write skipped because the asset was cancelled is recorded as no attempt (`None`), not
+    /// `Persisted`, and no error is recorded. `cancelled = false` is passed so the check *inside*
+    /// `save_to_store` is the one that fires.
+    #[tokio::test]
+    async fn cancelled_asset_save_is_recorded_as_no_attempt() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let key = parse_key("gate/cancelled.txt")?;
+        let (envref, assetref) = cancelled_keyed_asset(9331, &key);
+        assetref.persist_with_status_tracking(false, false).await;
+        assert_eq!(assetref.persistence_status().await, PersistenceStatus::None);
+        assert!(assetref.data.read().await.last_persistence_error.is_none());
+        assert!(!envref.get_async_store().contains(&key).await?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn save_to_store_reports_skipped_when_cancelled() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let key = parse_key("gate/cancelled_direct.txt")?;
+        let (envref, assetref) = cancelled_keyed_asset(9332, &key);
+        assert_eq!(assetref.save_to_store().await?, SaveOutcome::Skipped);
+        assert!(!envref.get_async_store().contains(&key).await?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn save_to_store_reports_written_on_success() -> Result<(), Box<dyn std::error::Error>> {
+        let key = parse_key("gate/written.txt")?;
+        let (envref, assetref) = cancelled_keyed_asset(9333, &key);
+        assetref.data.write().await.set_cancelled(false);
+        assetref.persist_with_status_tracking(false, false).await;
+        assert_eq!(
+            assetref.persistence_status().await,
+            PersistenceStatus::Persisted
+        );
+        assert_eq!(
+            envref.get_async_store().get_bytes(&key).await?,
+            b"never written".to_vec()
+        );
+        Ok(())
+    }
+
+    /// `stored: false` in the metadata snapshot is a skip too, even when the caller did not
+    /// check it first.
+    #[tokio::test]
+    async fn stored_false_metadata_snapshot_is_skipped() -> Result<(), Box<dyn std::error::Error>> {
+        let key = parse_key("gate/not_stored.txt")?;
+        let (envref, assetref) = cancelled_keyed_asset(9334, &key);
+        {
+            let mut lock = assetref.data.write().await;
+            lock.set_cancelled(false);
+            if let Metadata::MetadataRecord(record) = &mut lock.metadata {
+                record.stored = Some(false);
+            }
+        }
+        assert_eq!(assetref.save_to_store().await?, SaveOutcome::Skipped);
+        assert!(!envref.get_async_store().contains(&key).await?);
+        Ok(())
+    }
+
+    /// After a cancelled save, `to_override` takes the non-`Persisted` branch, which skips the
+    /// write again, so no metadata-only entry is left in the store.
+    #[tokio::test]
+    async fn to_override_after_cancelled_save_writes_no_metadata_only_entry(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let key = parse_key("gate/override_cancelled.txt")?;
+        let (envref, assetref) = cancelled_keyed_asset(9335, &key);
+        assetref.persist_with_status_tracking(false, false).await;
+        let manager = envref.get_asset_manager();
+        assert!(manager.try_insert_key_asset(&key, assetref.clone()).await);
+        let _ = manager.to_override(&key).await;
+        assert!(
+            !envref.get_async_store().contains(&key).await?,
+            "a skipped write must not leave a metadata-only entry"
+        );
         Ok(())
     }
 
@@ -12673,6 +13351,66 @@ recipes:
             })
         );
         Ok(())
+    }
+
+    /// A pure query asset's expiry cascades to dependents that recorded an edge on its query.
+    #[tokio::test]
+    async fn query_asset_expiry_cascades_by_query_identity(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let envref = expiry_test_envref();
+        let query = parse_query("make_q")?;
+        let b = parse_key("prov/from_query.txt")?;
+        store_ready_copy(&envref, &b).await?;
+        let (kq, kb) = (DependencyKey::from(&query), DependencyKey::from(&b));
+        let manager = envref.get_asset_manager();
+        let dm = manager.dependency_manager();
+        let _ = dm.register_version(&kq, Version::new(1)).await;
+        let _ = dm.add_dependency(&kb, &kq, Version::new(1)).await?;
+
+        let query_asset = AssetData::<SimpleEnvironment<Value>>::new(
+            manager.next_id_for_asset(),
+            query.clone().into(),
+            None,
+            envref.clone(),
+        )
+        .to_ref();
+        {
+            let mut lock = query_asset.data.write().await;
+            lock.data = Some(Arc::new(Value::from("q")));
+            lock.set_status(Status::Ready)?;
+        }
+        query_asset
+            .expire_with_reason(ExpiryReason::Direct {
+                cause: ExpiryCause::Explicit,
+            })
+            .await?;
+
+        let stored = envref.get_async_store().get_metadata(&b).await?;
+        assert_eq!(stored.status(), Status::Expired);
+        assert_eq!(
+            stored.expiry_reason(),
+            Some(ExpiryReason::Cascaded {
+                cause: ExpiryCause::Explicit,
+                root: kq.clone(),
+                via: kq,
+            })
+        );
+        Ok(())
+    }
+
+    /// `reset` clears the per-run progress flag, so a reused asset's in-run progress is applied.
+    #[tokio::test]
+    async fn reset_clears_progress_finalized() {
+        let envref = SimpleEnvironment::<Value>::new().to_ref();
+        let mut d = AssetData::<SimpleEnvironment<Value>>::new(
+            40,
+            parse_query("reset_me").unwrap().into(),
+            None,
+            envref,
+        );
+        d.progress_finalized = true;
+        d.reset();
+        assert!(!d.progress_finalized);
     }
 
     #[tokio::test]

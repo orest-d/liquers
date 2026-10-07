@@ -6,9 +6,11 @@
 //! (`FAST-TRACK-FAILS-ON-METADATA-ONLY-FILE-STORE-ENTRY`). Design:
 //! `specs/design/metadata-only-entry-reload/`.
 //!
-//! The memory store is not covered here: it answers such an entry with empty bytes, which a text
-//! format deserializes as an empty string (`MEMORY-STORE-METADATA-ONLY-ENTRY-READS-AS-EMPTY-BYTES`,
-//! design `memory-store-metadata-only-entry`).
+//! The memory store used to answer such an entry with empty bytes, which a text format
+//! deserializes as an empty string, so the recipe never ran
+//! (`MEMORY-STORE-METADATA-ONLY-ENTRY-READS-AS-EMPTY-BYTES`, design
+//! `memory-store-metadata-only-entry`). It now reports `KeyNotFound` like the file store, and
+//! `metadata_only_entry_on_memory_store_is_recomputed` pins it.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -23,7 +25,7 @@ use liquers_core::{
     parse::parse_key,
     query::Key,
     recipes::{DefaultRecipeProvider, Recipe, RecipeList},
-    store::{AsyncFileStore, AsyncStore},
+    store::{AsyncFileStore, AsyncMemoryStore, AsyncStore},
     value::{Value, ValueInterface},
 };
 
@@ -105,6 +107,21 @@ async fn metadata_only_entry_on_file_store_is_recomputed() {
     assert_eq!(calls.load(Ordering::SeqCst), 1, "the recipe ran once");
 
     let _ = tokio::fs::remove_dir_all(&root).await;
+}
+
+#[tokio::test]
+async fn metadata_only_entry_on_memory_store_is_recomputed() {
+    let store = AsyncMemoryStore::new(&Key::new());
+    let key = parse_key("x.txt").unwrap();
+    store
+        .set_metadata(&key, &metadata_only_ready_text(&key))
+        .await
+        .unwrap();
+    assert!(store.contains(&key).await.unwrap(), "a metadata-only key is contained");
+
+    let (envref, calls) = env_over(Box::new(store)).await;
+    assert_eq!(request_x(&envref).await.unwrap(), "generated");
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "the recipe ran once");
 }
 
 /// Without a recipe there is nothing to re-derive the value from, so the key answers exactly as a

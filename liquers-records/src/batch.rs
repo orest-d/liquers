@@ -123,12 +123,11 @@ pub enum ChunkList<'a> {
 /// rows came from. See phase2-architecture.md §"Provenance and validity: the chunk carries a
 /// `Metadata`".
 ///
-/// `liquers_core::metadata::Metadata` derives only `Debug` and `Clone` — not `PartialEq`,
-/// `Serialize` or `Deserialize` — so `ChunkDescriptor` cannot carry the full derive list Phase 2's
-/// code block shows. Filed as `METADATA-LACKS-SERIALIZE-DESERIALIZE-AND-PARTIALEQ`; until it is
-/// fixed (or this type gets a hand-written serialization that skips `metadata` or re-derives it from
-/// `MetadataRecord`), `ChunkDescriptor` is `Debug + Clone` only. It is not part of any wire format:
-/// `RecordSource::describe_chunk` returns it for in-process use.
+/// `liquers_core::metadata::Metadata` now implements `PartialEq`, `Serialize` and `Deserialize`
+/// (untagged, the store's form). `ChunkDescriptor` is still `Debug + Clone` only because it is not
+/// part of any wire format — `RecordSource::describe_chunk` returns it for in-process use — and
+/// putting it on one would first need a choice of serialized form for `query: Query`, whose serde
+/// form is a struct rather than the query string `MetadataRecord` uses.
 #[derive(Debug, Clone)]
 pub struct ChunkDescriptor {
     pub id: ChunkId,

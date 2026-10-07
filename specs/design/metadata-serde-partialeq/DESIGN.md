@@ -3,8 +3,7 @@ id: METADATA-SERDE-PARTIALEQ
 kind: design
 title: Serialize, Deserialize and PartialEq for the Metadata enum
 workflow: liquers-project
-status: in_review
-phase: implementation
+status: complete
 readiness: ready
 area: [core/value]
 issues: [METADATA-LACKS-SERIALIZE-DESERIALIZE-AND-PARTIALEQ]
@@ -22,7 +21,7 @@ Autonomous bulk design (`guides/autonomous_bulk_design.md`) for
 - [x] Phase 2: Solution & Architecture
 - [x] Phase 3: Examples and Tests
 - [x] Phase 4: Implementation Plan
-- [ ] Phase 5: Documentation (plan written; executed after implementation)
+- [x] Phase 5: Documentation (executed 2026-10-07; approved 2026-10-07)
 
 ## Links
 

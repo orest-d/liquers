@@ -1240,15 +1240,13 @@ mod tests {
             match self.mode {
                 MetadataOnly::Refuse => Ok(names),
                 MetadataOnly::Hide => {
-                    // The memory store keeps an empty body for a metadata-only key.
+                    // A metadata-only key is contained but has no data object (`sidecar05`).
                     let mut kept = Vec::new();
                     for name in names {
                         let child = key.join(&name);
-                        let empty_data = match self.inner.get(&child).await {
-                            Ok((data, _)) => data.is_empty(),
-                            Err(_) => false,
-                        };
-                        if !empty_data {
+                        let metadata_only = self.inner.get(&child).await.is_err()
+                            && !self.inner.is_dir(&child).await?;
+                        if !metadata_only {
                             kept.push(name);
                         }
                     }
@@ -1297,6 +1295,83 @@ mod tests {
         match run_rule_on("sidecar04", Box::new(store)).await {
             RuleOutcome::Failed { .. } => {}
             other => panic!("sidecar04 must fail a store that hides the key, got {other:?}"),
+        }
+    }
+
+    /// An `AsyncMemoryStore` that answers a metadata-only key with empty bytes — what the memory
+    /// store itself did before `sidecar05`.
+    struct EmptyBytesStore {
+        inner: crate::store::AsyncMemoryStore,
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl AsyncStore for EmptyBytesStore {
+        async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+            let result = self.inner.get(key).await;
+            if result.is_err() && self.inner.contains(key).await? && !self.inner.is_dir(key).await? {
+                return Ok((Vec::new(), self.inner.get_metadata(key).await?));
+            }
+            result
+        }
+        async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+            self.inner.set(key, data, metadata).await
+        }
+        async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+            self.inner.set_metadata(key, metadata).await
+        }
+        async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+            self.inner.get_metadata(key).await
+        }
+        async fn contains(&self, key: &Key) -> Result<bool, Error> {
+            self.inner.contains(key).await
+        }
+        async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+            self.inner.is_dir(key).await
+        }
+        async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+            self.inner.listdir(key).await
+        }
+        async fn remove(&self, key: &Key) -> Result<(), Error> {
+            self.inner.remove(key).await
+        }
+        async fn removedir(&self, key: &Key) -> Result<(), Error> {
+            self.inner.removedir(key).await
+        }
+        fn is_supported(&self, key: &Key) -> bool {
+            self.inner.is_supported(key)
+        }
+    }
+
+    #[tokio::test]
+    async fn refute_sidecar05_passes_a_store_without_a_data_object() {
+        let store = crate::store::AsyncMemoryStore::new(&Key::new());
+        match run_rule_on("sidecar05", Box::new(store)).await {
+            RuleOutcome::Passed => {}
+            other => panic!("sidecar05 must pass AsyncMemoryStore, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn refute_sidecar05_accepts_a_refusal() {
+        let store = MetadataOnlyStore {
+            inner: crate::store::AsyncMemoryStore::new(&Key::new()),
+            mode: MetadataOnly::Refuse,
+        };
+        match run_rule_on("sidecar05", Box::new(store)).await {
+            RuleOutcome::Passed => {}
+            other => panic!("refusing a metadata-only key is permitted, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn refute_sidecar05_fails_a_store_serving_empty_bytes() {
+        let store = EmptyBytesStore {
+            inner: crate::store::AsyncMemoryStore::new(&Key::new()),
+        };
+        match run_rule_on("sidecar05", Box::new(store)).await {
+            RuleOutcome::Failed { .. } => {}
+            other => panic!("sidecar05 must fail a store serving empty bytes, got {other:?}"),
         }
     }
 

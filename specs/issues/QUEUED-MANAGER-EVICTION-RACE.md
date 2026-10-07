@@ -2,7 +2,7 @@
 id: QUEUED-MANAGER-EVICTION-RACE
 kind: issue
 title: The queued manager's cache evictions can delete a replacement asset
-status: accepted
+status: closed
 priority: P2
 complexity: S
 area: [core/assets]
@@ -62,3 +62,15 @@ added `remove_key_asset_if`. That one was fixed in the PR by switching to `remov
 four pre-existing instances it was modelled on were left alone, because widening a
 keyed-recursion fix into the queued manager's hot path is a separate change. Filed so they are not
 forgotten now that the correct primitive exists.
+
+## Resolution (2026-10-07)
+
+Fixed by design `queued-manager-conditional-eviction`. Every stale eviction in
+`DefaultAssetManager` is now one conditional map operation: `remove_query_asset_if` (new) or
+`remove_key_asset_if`, both over `scc::HashMap::remove_if_async`, so a replacement inserted after
+the stale asset was observed is never removed. The key paths keep `key_mutation_lock`. No
+`query_assets.remove_async` remains in `assets.rs`; the remaining `assets.remove_async` calls are
+the intentional replacements in `set` / `set_state` and `remove_key_asset`.
+
+Evidence: `remove_query_asset_if_respects_id`, `remove_expired_from_maps_respects_replacements`
+(`liquers-core/src/assets.rs` tests).

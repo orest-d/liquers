@@ -2,7 +2,7 @@
 id: DEPENDENCY-EDGE-RECORDED-AGAINST-SUPERSEDED-VERSION-IS-NOT-EXPIRED
 kind: issue
 title: A dependent that records an edge against a version the map has already replaced stays Ready
-status: draft
+status: closed
 priority: P3
 complexity: M
 area: [core/assets]
@@ -55,3 +55,15 @@ expired from under itself (see `design/stale-dependency-status-finalization/`).
 Found 2026-10-04 while fixing a Codex review finding on orest-d/liquers#75 (the directory step
 versioned a different `listdir` call than the one that produced its value). Re-reading the listing
 after registration closed the window before registration. This window remains after it.
+
+## Resolution (2026-10-07)
+
+Fixed by design `dependency-edge-superseded-version`. When an evaluating asset records its edge
+(`AssetRef::record_dependency_on_asset`), it now compares the version it observed with the map's
+current version for the dependency. If both are concrete and differ, the dependent takes the
+stale-dependency route and finishes `Expired` with `Direct { StaleDependency }`, to be recomputed on
+next access. `DependencyManager::add_dependency` stays a pure recorder.
+
+Evidence: `edge_against_superseded_version_marks_dependent_stale`,
+`edge_with_unknown_version_marks_nothing`, `edge_with_current_version_marks_nothing`
+(`liquers-core/src/assets.rs`).
