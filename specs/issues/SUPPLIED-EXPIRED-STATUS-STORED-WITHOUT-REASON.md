@@ -2,7 +2,7 @@
 id: SUPPLIED-EXPIRED-STATUS-STORED-WITHOUT-REASON
 kind: issue
 title: set_binary and set_state accept a supplied Expired status and store it without an expiry reason
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/assets]
@@ -36,3 +36,14 @@ or a new cause naming an externally supplied status), or `set_binary` / `set_sta
 
 Found 2026-10-02 while enumerating the routes into `Expired` for Phase 4 Step 4 of
 `dependency-audit-and-expiry-provenance`; the step's call-site table does not list these two.
+
+## Resolution (2026-10-07)
+
+Fixed by design `supplied-expired-status-reason`, applying the maintainer decision of 2026-10-06:
+a value written already expired logs a warning "Asset expired", then after-the-fact diagnostics.
+Both managers' `set_state` and `set_binary` now append the warning and an info entry stating that
+the expiry is recorded after the fact, naming the route and either "its original cause is unknown"
+or the supplied reason. Interpretation, as stated in the design for review: the structured
+`expiry_reason` is kept as supplied (usually `None`), because Liquers did not observe the cause.
+
+Evidence: `liquers-core/tests/supplied_expired_status.rs` (four tests, each over both managers).

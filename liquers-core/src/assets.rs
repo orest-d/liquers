@@ -4359,6 +4359,71 @@ fn set_metadata_description(
     }
 }
 
+/// The status a supplied value is written with (`set_binary`, `set_state`, both managers).
+///
+/// `Some` when the supplied status decides it — `Expired` and `Error` are kept. `None` when it
+/// depends on whether the key has a recipe; then [`written_status_with_recipe`] decides. Split in
+/// two so the caller looks the recipe up only when it is needed, without a default match arm.
+fn written_status(supplied: Status) -> Option<Status> {
+    match supplied {
+        Status::Expired => Some(Status::Expired),
+        Status::Error => Some(Status::Error),
+        Status::None
+        | Status::Directory
+        | Status::Recipe
+        | Status::Submitted
+        | Status::Dependencies
+        | Status::Processing
+        | Status::Partial
+        | Status::Storing
+        | Status::Ready
+        | Status::Cancelled
+        | Status::Source
+        | Status::Override
+        | Status::Volatile => None,
+    }
+}
+
+/// The written status of a supplied value [`written_status`] leaves to the recipe: `Override`
+/// when the key has a recipe (the value overrides what the recipe would produce), `Source`
+/// otherwise.
+fn written_status_with_recipe(has_recipe: bool) -> Status {
+    if has_recipe {
+        Status::Override
+    } else {
+        Status::Source
+    }
+}
+
+/// A value written already `Expired`: log the expiry now, the moment Liquers learns of it, then
+/// say that the diagnostics come after the fact. The structured `expiry_reason` is left as
+/// supplied — for this route its cause is usually unknown to Liquers, and inventing one would
+/// assert a cause nobody observed.
+fn log_supplied_expiry_record(record: &mut MetadataRecord, key: &Key, route: &str) {
+    record.add_log_entry(LogEntry::warning("Asset expired".to_string()));
+    let detail = match &record.expiry_reason {
+        Some(reason) => format!(
+            "Expiry recorded after the fact: {key} was written already expired ({route}); \
+             supplied reason: {}",
+            reason.log_entry(&key.to_string()).message
+        ),
+        None => format!(
+            "Expiry recorded after the fact: {key} was written already expired ({route}); \
+             its original cause is unknown"
+        ),
+    };
+    record.add_log_entry(LogEntry::info(detail));
+}
+
+/// [`log_supplied_expiry_record`] for a `Metadata`. Legacy metadata is left untouched, as
+/// `record_expiry` leaves it.
+fn log_supplied_expiry(metadata: &mut Metadata, key: &Key, route: &str) {
+    match metadata {
+        Metadata::MetadataRecord(record) => log_supplied_expiry_record(record, key, route),
+        Metadata::LegacyMetadata(_) => {}
+    }
+}
+
 /// Whether a live asset's status says nothing about the key yet, so the stored status decides
 /// (see [`AssetManager::remove`]): an asset just created by a `get` is `None` or `Recipe`.
 fn live_status_defers_to_store(status: Status) -> bool {
@@ -7265,29 +7330,9 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         let result = async {
             // 2. Determine status based on input status and recipe existence
             let input_status = metadata.status;
-            let final_status = match input_status {
-                Status::Expired => Status::Expired,
-                Status::Error => Status::Error,
-                Status::None
-                | Status::Directory
-                | Status::Recipe
-                | Status::Submitted
-                | Status::Dependencies
-                | Status::Processing
-                | Status::Partial
-                | Status::Storing
-                | Status::Ready
-                | Status::Cancelled
-                | Status::Source
-                | Status::Override
-                | Status::Volatile => {
-                    // Check if recipe exists
-                    if self.recipe_opt(key).await?.is_some() {
-                        Status::Override
-                    } else {
-                        Status::Source
-                    }
-                }
+            let final_status = match written_status(input_status) {
+                Some(status) => status,
+                None => written_status_with_recipe(self.recipe_opt(key).await?.is_some()),
             };
             metadata.status = final_status;
             validate_required_metadata_fields(key, &metadata, self.get_envref().get_type_registry())?;
@@ -7296,6 +7341,9 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             // 3. Update timestamp and add log entry
             metadata.set_updated_now();
             metadata.add_log_entry(LogEntry::info("Data set externally".to_string()));
+            if final_status == Status::Expired {
+                log_supplied_expiry_record(&mut metadata, key, "set_binary");
+            }
 
             // 4. Compute version from binary content and store in metadata
             let dep_key = crate::metadata::DependencyKey::from(key);
@@ -7384,29 +7432,9 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         let result = async {
             // 2. Determine status based on input status and recipe existence
             let input_status = state.metadata.status();
-            let final_status = match input_status {
-                Status::Expired => Status::Expired,
-                Status::Error => Status::Error,
-                Status::None
-                | Status::Directory
-                | Status::Recipe
-                | Status::Submitted
-                | Status::Dependencies
-                | Status::Processing
-                | Status::Partial
-                | Status::Storing
-                | Status::Ready
-                | Status::Cancelled
-                | Status::Source
-                | Status::Override
-                | Status::Volatile => {
-                    // Check if recipe exists
-                    if self.recipe_opt(key).await?.is_some() {
-                        Status::Override
-                    } else {
-                        Status::Source
-                    }
-                }
+            let final_status = match written_status(input_status) {
+                Some(status) => status,
+                None => written_status_with_recipe(self.recipe_opt(key).await?.is_some()),
             };
 
             // 3. Create metadata record with updated status, timestamp, and log entry
@@ -7420,6 +7448,9 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             add_soft_consistency_warnings_enum(&mut metadata)?;
             metadata.set_updated_now()?;
             metadata.add_log_entry(LogEntry::info("State set externally".to_string()))?;
+            if final_status == Status::Expired {
+                log_supplied_expiry(&mut metadata, key, "set_state");
+            }
 
             // 4. Compute version for non-volatile states
             let dep_key = crate::metadata::DependencyKey::from(key);
@@ -8500,17 +8531,18 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             replaced = Some(asset);
         }
         let result = async {
-            let final_status = match metadata.status {
-                Status::Expired => Status::Expired,
-                Status::Error => Status::Error,
-                _ if self.recipe_opt(key).await?.is_some() => Status::Override,
-                _ => Status::Source,
+            let final_status = match written_status(metadata.status) {
+                Some(status) => status,
+                None => written_status_with_recipe(self.recipe_opt(key).await?.is_some()),
             };
             metadata.status = final_status;
             validate_required_metadata_fields(key, &metadata, self.envref().get_type_registry())?;
             add_soft_consistency_warnings(&mut metadata);
             metadata.set_updated_now();
             metadata.add_log_entry(LogEntry::info("Data set externally".to_string()));
+            if final_status == Status::Expired {
+                log_supplied_expiry_record(&mut metadata, key, "set_binary");
+            }
             let dep_key = crate::metadata::DependencyKey::from(key);
             if final_status != Status::Volatile && final_status != Status::Error {
                 metadata.version = Some(crate::metadata::Version::from_content(binary));
@@ -8559,11 +8591,9 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             replaced = Some(asset);
         }
         let result = async {
-            let final_status = match state.metadata.status() {
-                Status::Expired => Status::Expired,
-                Status::Error => Status::Error,
-                _ if self.recipe_opt(key).await?.is_some() => Status::Override,
-                _ => Status::Source,
+            let final_status = match written_status(state.metadata.status()) {
+                Some(status) => status,
+                None => written_status_with_recipe(self.recipe_opt(key).await?.is_some()),
             };
             let mut metadata = state.metadata.as_ref().clone();
             metadata.set_status(final_status)?;
@@ -8571,6 +8601,9 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             add_soft_consistency_warnings_enum(&mut metadata)?;
             metadata.set_updated_now()?;
             metadata.add_log_entry(LogEntry::info("State set externally".to_string()))?;
+            if final_status == Status::Expired {
+                log_supplied_expiry(&mut metadata, key, "set_state");
+            }
             let dep_key = crate::metadata::DependencyKey::from(key);
             if final_status != Status::Volatile && final_status != Status::Error {
                 let version = match state.as_bytes() {
@@ -10687,6 +10720,37 @@ recipes:
         let fresh = manager.get_asset(&query).await.unwrap();
         assert_ne!(fresh.id(), stale.id());
         assert_ne!(fresh.status().await, Status::Expired);
+    }
+
+    /// Iterates the module's `ALL_STATUSES`; a new variant must be added there. The exhaustive
+    /// match in `written_status` already makes the compiler flag that function.
+    #[test]
+    fn written_status_keeps_expired_and_error() {
+        for status in ALL_STATUSES {
+            let expected = match status {
+                Status::Expired | Status::Error => Some(status),
+                Status::None
+                | Status::Directory
+                | Status::Recipe
+                | Status::Submitted
+                | Status::Dependencies
+                | Status::Processing
+                | Status::Partial
+                | Status::Storing
+                | Status::Ready
+                | Status::Cancelled
+                | Status::Source
+                | Status::Override
+                | Status::Volatile => None,
+            };
+            assert_eq!(super::written_status(status), expected, "{status:?}");
+        }
+    }
+
+    #[test]
+    fn written_status_defers_others_to_recipe() {
+        assert_eq!(super::written_status_with_recipe(true), Status::Override);
+        assert_eq!(super::written_status_with_recipe(false), Status::Source);
     }
 
     /// `remove_query_asset_if` decides by id: a stale id leaves the replacement in place, the

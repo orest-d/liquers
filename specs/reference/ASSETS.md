@@ -3,7 +3,7 @@ title: Assets Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-06
+reviewed: 2026-10-07
 ---
 # Assets Specification
 
@@ -312,8 +312,17 @@ same metadata write as the `Expired` status. The default sets the field and appe
 `ExpiryReason::log_entry(subject)` to the asset's log; legacy metadata is left untouched. Override
 it to change wording or levels, add fields, or forward the event. It runs under the asset's `data`
 write lock, so it must not block or reach any asset or lock. Only a real transition records: an
-asset already `Expired` keeps the reason it has. A status supplied as `Expired` through `set_state`
-records none (`SUPPLIED-EXPIRED-STATUS-STORED-WITHOUT-REASON`).
+asset already `Expired` keeps the reason it has.
+
+**A value supplied already `Expired`** through `set_state` or `set_binary` (either manager) does
+not go through `record_expiry`: its cause is unknown to Liquers, so the structured `expiry_reason`
+stays as supplied, usually `None`. The write logs the expiry instead, at the moment Liquers learns
+of it: a warning `Asset expired`, then an info entry `Expiry recorded after the fact: {key} was
+written already expired ({set_state|set_binary}); its original cause is unknown` — or, when the
+supplied metadata carries a reason, `…; supplied reason: {that reason's log line}`. The supplied
+log entries are kept. Every manager decides the written status with the same rule: `Expired` and
+`Error` are kept, any other status becomes `Override` when the key has a recipe and `Source`
+otherwise.
 
 **Log lines.** `subject` is the asset's key, else its query, never its runtime id; `root` and `via`
 print as dependency keys (`-R/…`). No version number appears. A direct reason reads
@@ -1128,6 +1137,7 @@ each with an `ExpiryReason` (§Why an asset is `Expired`). The rules are in
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-07 | §Why an asset is `Expired`: a value supplied already `Expired` keeps its supplied reason and logs the warning `Asset expired` plus an after-the-fact info entry; one written-status rule for every manager. | phase-5 (`design/supplied-expired-status-reason/`, `design/immediate-set-state-status-match/`) |
 | 2026-10-06 | §Remove Semantics: `set_description` points to `Context::set_title` / `set_description` and its recipe-wins rule. | phase-5 |
 | 2026-10-06 | §Related keyed operations: `contains` vs `can_make`; `listdir_keys_deep` is complete (recipe keys at every store directory, `keys()` includes root recipes); `removedir` unmaps the directory's own recipe assets. `refresh_listing_version` also notifies the recipe provider. | phase-5 |
 | 2026-10-04 | §Related keyed operations: `makedir` and `removedir` refresh the parent's listing version (review fix on orest-d/liquers#75). | phase-5 |
