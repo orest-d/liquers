@@ -1,4 +1,324 @@
-# Phase 2: Solution and Architecture
+# Phase 2: Solution & Architecture - Direct dependency records and linear dependency analysis
 
-**To be rewritten.** Phase 1 was revised on 2026-10-07 (direct-only dependency records), which
-invalidates this phase's earlier autonomous draft. That draft is in git history.
+## Overview
+
+There are three changes, all in `liquers-core`, and none crosses a crate boundary or changes a
+public trait signature:
+
+- **Planner.** Plan-time dependency analysis becomes one memoized depth-first walk that produces two
+  separate things: the **direct** dependency list, which is recorded, and the **transitive
+  summary** (declared volatility, combined expiry), which is applied to the plan.
+- **Asset manager.** It gains the dependency-manager walk over *stored* dependency records. The
+  `OnLoad` fast-track check and the explicit audits use this walk, so transitive freshness after a
+  restart is decided in one place.
+- **Recipe provider.** `DefaultRecipeProvider` caches each directory's parsed recipes, checked
+  against the stored bytes, so a recipe lookup no longer costs a full YAML parse.
+
+## Correction to Phase 1 found while specifying
+
+Phase 1 Decision 1 says an explicit audit (`trigger_dependency_audit_all_registered`) catches the
+restart case under `Explicit`. With direct records, that is only true if the audit uses the walk
+below. `audit_gaps` (`assets.rs:5672`) resolves a gap's **stored version** (`dependency_version`),
+and `l1`'s stored version is unchanged: `l1` is stale, not rewritten. So the walk serves the audit
+too. That is what Decision 1 intends ("the dependency manager uses all information available"),
+and Phase 1 is amended to say so.
+
+## Known-Issue Preflight
+
+The issues searched were the `index.csv` rows in `draft`, `accepted` or `in_progress` with area
+`core/assets` or `core/plan`, plus every title mentioning dependency, recipe, fast track, audit,
+volatility, expiry or cycle.
+
+| Issue | Status | Priority | Relevance and solution impact | First? | Blocking? | Action |
+|---|---|---|---|---|---|---|
+| `RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING` | draft | P3 | `create_plan_with_init_metadata` (`recipes.rs:632`) runs the two analysis passes with `let _ =` and CWD `None`. Our merged pass replaces both calls there, so the function shrinks, but its discarded result and its CWD are that issue's subject. | no | no | Keep its behaviour (`let _ =`, CWD `None`) and leave the issue open. Do not fix it here. |
+| `COMBINED-EXPIRES` | accepted | P2 | The summary combines expiries with the existing `Expires` `|` / `combine`. We rely on it being associative and idempotent (the memo merges per key, not per path). | no | no | Phase 3 adds one test that a diamond (two paths to one key) gives the same expiry as today. |
+| `EXTENDED-FAST-TRACK` | accepted | P2 | Touches `try_fast_track`, which we edit only in its `OnLoad` branch. | no | no | Monitor. |
+| `ASSETS-FIX1` | accepted | P2 | General TODO cleanup in the asset lifecycle. No overlap with the edited code. | no | no | None. |
+| `DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK` | draft | P2 | A `recipe_opt` override in `DefaultAssetManager`; the walk calls the provider's `recipe_opt` as today. | no | no | None. |
+
+`dependency-edge-superseded-version`, listed under Phase 1's Design Dependencies, is now
+`complete`. Nothing blocks this design.
+
+## Data Structures
+
+All new types are `pub(crate)` in `liquers-core`. None is serialized.
+
+### `plan.rs`: the analysis result
+
+```rust
+/// What a keyed recipe contributes to the plans that read it, transitively.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct DependencySummary {
+    /// The first key (in walk order) whose recipe declares `volatile: true`, at or upstream of
+    /// this key. Its presence is exactly today's "Volatile due to dependency on volatile key".
+    declared_volatile: Option<Key>,
+    /// Combined expiry of this key's recipe and everything upstream of it: today's
+    /// `dependency_expires` after the recursive `has_expirable_dependencies_impl`.
+    expires: Expires,
+}
+
+/// One analysis of one plan. Lives for one call of `analyze_plan_dependencies`, so the memo
+/// cannot go stale: recipes do not change in the middle of an analysis.
+struct DependencyWalk<E: Environment> {
+    envref: EnvRef<E>,
+    /// Keys on the current DFS path ("grey"). O(1) cycle check; replaces `Vec::contains`.
+    on_path: HashSet<Key>,
+    /// Finished keys ("black"), memoized per (resolved key, CWD the recipe plan was resolved
+    /// against). The CWD is part of the memo key because a recipe without its own `cwd` resolves
+    /// its relative operands against the caller's cursor (`find_dependencies_respects_nested_recipe_cwd`).
+    /// A recipe from `DefaultRecipeProvider` always carries its `cwd`, so in practice every key hits.
+    done: HashMap<(Key, Option<Key>), Option<DependencySummary>>,
+}
+```
+
+`done` stores `None` for a key that has no recipe (a plain stored resource), so that is memoized
+too.
+
+**Ownership.** The walk owns its maps. The summaries are small (`Option<Key>`, `Expires`) and are
+cloned out of the memo. The walk borrows each plan only while it is walking that plan.
+
+### `assets.rs`: the stored-records walk
+
+```rust
+/// What the dependency manager concludes about a dependency, from everything it knows plus the
+/// stored dependency records reachable from it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum StoredDependencyState {
+    /// The dependency manager already holds a version: authoritative, nothing read.
+    Known(Version),
+    /// Stored with a durable version, and every recorded dependency, recursively, still holds.
+    /// The walk has registered this version and the dependency's edges in the manager.
+    Confirmed(Version),
+    /// Stored, but `dependency` (this key or one upstream of it) no longer holds what was
+    /// recorded. Nothing is registered for it.
+    Stale { version: Version, dependency: DependencyKey },
+    /// No durable version: absent from the store, not store-resolvable, a stored record cycle, or a
+    /// store error that today's `OnLoad` branch already treats as "cannot confirm".
+    Unresolvable,
+}
+```
+
+Every `match` on it is explicit, with no `_ =>`.
+
+### `recipes.rs`: the recipe cache
+
+```rust
+pub struct DefaultRecipeProvider {
+    /// Per directory: the stored `recipes.yaml` bytes the entry was parsed from, and its recipes by
+    /// filename. A hit costs the `get_bytes` it costs today plus one byte comparison, instead of a
+    /// YAML parse, a `RecipeList` clone and `set_cwd`.
+    cache: scc::HashMap<Key, Arc<CachedRecipes>>,
+}
+
+struct CachedRecipes {
+    bytes: Vec<u8>,
+    list: RecipeList,                 // cwd already set
+    by_name: HashMap<String, usize>,  // filename -> index into list.recipes
+}
+```
+
+The check compares the stored **bytes** themselves, with no version and no hash, so it is exactly
+as fresh as today: any change, including an edit made behind Liquers' back, is a miss. It needs no
+invalidation hook. The stored bytes are the source of truth. This deliberately differs from
+`ManifestRecipeProvider`, which checks a store version; `recipes.yaml` written with
+`Metadata::new()` carries no version, and that is the common case in the tests and the benchmark.
+Memory is one copy of each directory's `recipes.yaml`, held while the provider lives.
+
+## Function Signatures
+
+### `liquers-core/src/plan.rs`
+
+```rust
+/// Analyse `plan`'s dependencies once: set `plan.dependencies` to the DIRECT dependencies, apply
+/// the transitive summary (volatility, expiry, info messages), warn on a root fallback.
+/// Replaces the pair `has_volatile_dependencies` + `has_expirable_dependencies`, which every
+/// caller ran back to back (`interpreter.rs:65-66`, `:176-179`, `recipes.rs:632-634`).
+pub(crate) async fn analyze_plan_dependencies<E: Environment>(
+    envref: EnvRef<E>,
+    plan: &mut Plan,
+    initial_cwd: Option<Key>,
+) -> Result<(), Error>;
+
+impl<E: Environment> DependencyWalk<E> {
+    fn new(envref: EnvRef<E>) -> Self;
+
+    /// Direct dependencies of `plan`, and the merged summary of the keyed recipes it reads.
+    /// Keyed `GetAsset*` operands stop the direct list; `Evaluate` and nested `Step::Plan`
+    /// pass their direct dependencies through to the enclosing plan (today's relabelling of
+    /// `Evaluate` children to `StateArgument` is kept).
+    fn walk_plan<'a>(
+        &'a mut self,
+        plan: &'a Plan,
+        cursor: &'a mut CwdCursor,
+    ) -> BoxFuture<'a, Result<(Vec<PlanDependency>, DependencySummary), Error>>;
+
+    /// Summary of the keyed recipe at `key`, memoized. `Err` "Circular dependency detected"
+    /// when `key` is on the current path. `Ok(None)` when no recipe serves `key`.
+    fn summarize_key<'a>(
+        &'a mut self,
+        key: &'a Key,
+        cursor: &'a CwdCursor,
+    ) -> BoxFuture<'a, Result<Option<DependencySummary>, Error>>;
+}
+```
+
+`find_dependencies` stays as a thin `pub(crate)` wrapper:
+`DependencyWalk::new(envref).walk_plan(plan, cursor)`, returning the direct list. Its plan.rs unit
+tests keep their call sites. `has_volatile_dependencies` and `has_expirable_dependencies` are
+removed. Their tests call `analyze_plan_dependencies` instead (Phase 3 lists them).
+
+**Cycle detection and complexity.** `summarize_key` checks `on_path` before `done`, inserts on
+entry and removes on exit. The cycle error message and the `with_key` are today's. Every keyed
+recipe reachable from the plan is visited once per analysis, and every edge once, so the walk is
+O(V+E). Each visit does one `recipe_opt`, which is O(1) on a cache hit, plus one
+`to_plan_for_key`. The three analyses per evaluation stay at their call sites (Decision 4), so an
+evaluation of link *i* costs about 3·i lookups instead of 3·(i+1)².
+
+**Semantics preserved exactly**, with the summary rules:
+- **Declared volatility.** `declared_volatile(K) = K` if `recipe(K).volatile`, otherwise the first
+  `Some` among the summaries of the keys `recipe(K)`'s plan reads. This is today's check of
+  `recipe.volatile` over the transitive list, which never looked at a dependency's commands.
+  Extending volatility to upstream volatile *commands* would be a behaviour change and is out of
+  scope.
+- **Combined expiry.** `expires(K) = recipe(K).expires | plan(recipe(K)).expires | (| over the
+  summaries read)`. `to_plan` already folds the recipe's own `expires` into the plan, so this
+  equals today's recursion.
+- **Applying the summary to the plan.** Each merge that changes `plan.expires` emits today's
+  "Expiration combined with asset dependency …" info. If the combined expiry is volatile, the plan
+  is marked volatile with today's message. A `declared_volatile` key gives "Volatile due to
+  dependency on volatile key: …". The "Dependency detected: …" info lines now list direct
+  dependencies only.
+
+### `liquers-core/src/assets.rs`: `AssetManager` trait, new default method
+
+```rust
+/// The dependency manager's view of `dep_key`, completed from stored dependency records where
+/// it has none. Recursive, with an on-path set guarding against a cycle in stored records and a
+/// per-call memo. A dependency it confirms is registered (`observe_version` + `load_from_records`),
+/// so each key is read from the store at most once per process while it stays confirmed.
+/// Never evaluates, never reads a value's bytes: metadata only.
+async fn stored_dependency_state(
+    &self,
+    dep_key: &crate::metadata::DependencyKey,
+) -> Result<StoredDependencyState, Error>;
+```
+
+It is a default method, beside `audit_gaps` and `dependency_version`, so the external asset
+manager inherits it. The recursion is a private boxed helper carrying the memo and the on-path set.
+For each record it applies today's per-record rules (`assets.rs:1325–1366`):
+- **Version.** It compares with `Version::matches` against a known version, and with equality
+  against a stored one.
+- **Unknown versions.** A recorded `Version::unknown()` is compatible. A non-store-resolvable key
+  (command, recipe) with no known version is compatible.
+- **Status.** A stored status that does not permit reuse makes the record not hold
+  (`dependency_blocks_fast_track`).
+
+The method is `pub(crate)` in effect: the trait is public, but the return type is crate-private,
+so it is declared `#[doc(hidden)]` and documented as internal. Phase 4 checks that this compiles
+under the `private_interfaces` lint. If it does not, `StoredDependencyState` becomes `pub` with
+`#[non_exhaustive]`.
+
+### Call-site changes
+
+| Site | Today | After |
+|---|---|---|
+| `interpreter.rs:65-66` `finalize_plan_expanded` | the two passes | `analyze_plan_dependencies(envref, plan, initial_cwd)` |
+| `interpreter.rs:176-179` `make_plan_with_cwd` | the two passes | the same |
+| `recipes.rs:632-634` `create_plan_with_init_metadata` | the two passes, `let _ =` | `let _ = analyze_plan_dependencies(envref, &mut plan, None)` (behaviour kept, see preflight) |
+| `assets.rs:1334` `try_fast_track`, `OnLoad` branch | `dependency_version` + equality + `observe_version` | `stored_dependency_state(&dep_record.key)`: `Known`/`Confirmed(v)` compared with the record; `Stale` and `Unresolvable` refuse |
+| `assets.rs:5672` `audit_gaps` | `found = dependency_version(gap)` | first `stored_dependency_state(gap)`. `Stale { dependency, .. }`: expire the gap's dependents with `ExpiryCause::StaleDependency { dependency }` and add a finding. Otherwise `audit_version` on the version, as today |
+| `recipes.rs` `get_recipes` / `recipe_opt` / `recipe` | parse per call | through `cache`; `recipe_opt` indexes `by_name` |
+
+The fast-track minimum rule from Decision 1 needs **no change**: `try_fast_track` already calls
+`load_from_records` for a consistent load (`assets.rs:1404`), and `add_dependency` keeps an edge
+whose dependency has no version yet.
+
+### `DefaultRecipeProvider` construction
+
+A field ends the unit struct, which has 122 construction sites across `liquers-core`, `liquers-lib`,
+`liquers-records` and `liquers-axum` (tests included). Add `DefaultRecipeProvider::new()` and
+`impl Default`. The call sites change mechanically from `DefaultRecipeProvider` to
+`DefaultRecipeProvider::new()`; no behaviour depends on the form. **Decision needed (see
+Questions):** this churn, or a crate-global content-addressed cache that keeps the unit struct.
+
+## Sync vs Async
+
+Everything stays `async`, because the walks call `recipe_opt`, `get_metadata` and `get_bytes`. The
+recursive pieces return `crate::maybe_send::BoxFuture`, as `find_dependencies` does today, so wasm
+(`?Send`) keeps compiling. The cache uses `scc::HashMap`, as `ManifestRecipeProvider` does, and no
+lock is held across an `.await`.
+
+## Error Handling
+
+No new error types. The cycle error stays
+`Error::general_error("Circular dependency detected: …").with_key(&key)`. `recipe_opt` failures are
+swallowed exactly where they are today (`if let Ok(Some(recipe))`). The stored-records walk maps a
+store error to `Unresolvable`, as the `OnLoad` branch does today (`Err(e) => refuse`). In
+`audit_gaps` the error still propagates (`?`), as today.
+
+## Serialization
+
+Nothing new is serialized. Stored `DependencyRecord` lists keep their format and get shorter. Old
+stored transitive records are read as they are (Decision 3).
+
+## Relevant Commands
+
+None. This is planner and asset-manager machinery, with no new or changed commands and no command
+namespace involved. `specs/command_registry.yaml` is unchanged.
+
+## Integration Points
+
+- **`liquers-core` only** for behaviour. Other crates change only `DefaultRecipeProvider` → `::new()`
+  (if chosen).
+- `liquers-py`: no use of these items (checked: no `find_dependencies`, `has_volatile_*`, or
+  `DefaultRecipeProvider` in `liquers-py/src`). `liquers-validate` prints no dependency lists, so
+  its output is unchanged.
+
+## Rejected Alternatives
+
+- **Keep transitive records and make them cheap** (the previous draft). Rejected by Phase 1's
+  decision.
+- **Recursive validation inside `try_fast_track`.** The recursion belongs to the dependency
+  manager (Decision 1).
+- **Merging the three analyses per evaluation.** Not simpler (Decision 4). Revisit with the
+  optional summary cache.
+- **Event-driven (`directory_changed`) recipe cache.** It misses edits made behind Liquers' back,
+  which today's re-read catches. Comparing bytes is as fresh as today and needs no hook.
+
+## Documentation Architecture
+
+- **Reference, extend `specs/reference/DEPENDENCIES_STATUS.md`** (audience: core developers and
+  agents). A section "What a dependency record holds" covering: direct only; what "direct" means
+  (nearest keyed operand, pass-through of `Evaluate` / nested plans, the read key's recipe key);
+  analysis summary versus record; the fast-track minimum rule; the stored-records walk and how
+  `Explicit` / `OnLoad` / audits use it, with the restart example. History row, `reviewed:`.
+- **Reference, review `specs/reference/ASSETS.md`** (the fast-track and audit-policy passages near
+  line 1153). Update what `OnLoad` guarantees. History row, `reviewed:` if changed.
+- **Reference, review `specs/reference/PROJECT_OVERVIEW.md`** if it describes dependency records.
+  Expected: no change.
+- **Guide:** none, as decided in Phase 1.
+- **Other:** a Phase 5 follow-up issue `DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION`
+  (the optional summary cache, P3).
+- **Updates:** the issue file's resolution, `specs/README.md` (design status), and the index via
+  `scripts/docs_index.py`.
+- **`affects_docs`:** `DEPENDENCIES_STATUS.md`, `ASSETS.md`.
+- **Evidence to collect during implementation:** before and after numbers from the benchmark
+  (10/20/40/200 links), and the lookup count per link.
+
+## Risk
+
+| Area | Assessment |
+|---|---|
+| Semantics | Records shrink by design. Volatility and expiry are preserved by construction (rules above) and pinned by tests. The behaviour change under `Explicit` is accepted (Phase 1, Decision 1). |
+| Cycles | Static detection is kept and becomes O(1) per check. The dependency manager's `would_create_cycle` is unchanged. |
+| Concurrency | The walk memo is local. The recipe cache is `scc` and correct under races, because a stale fill is re-validated against the bytes on the next read. |
+| Memory | One `recipes.yaml` copy per directory, per provider. |
+| Certainty | High for the planner and the cache (prototype measured). Medium-high for the stored-records walk (new code, but built from existing per-record rules). |
+
+## Questions
+
+1. **`DefaultRecipeProvider` field.** I recommend the per-instance field with `::new()` and the
+   mechanical change at 122 call sites: explicit ownership and no global state. The alternative is
+   a crate-global cache keyed by (directory, bytes) that keeps the unit struct. It is correct by
+   construction, being content-addressed, but it is hidden global state that grows unbounded.

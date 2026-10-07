@@ -119,7 +119,9 @@ into a follow-up issue in Phase 5 rather than into this scope.
      refused (its recorded `make_text` version differs), recomputed, and registers a new version.
      The cascade then expires `l2` through the edge recorded when `l2` loaded. A changed upstream
      command is treated like a changed upstream data file is today: it is caught when the manager
-     learns of it, or by an explicit audit (`trigger_dependency_audit_all_registered`).
+     learns of it, or by an explicit audit (`trigger_dependency_audit_all_registered`). The audit catches it
+     only because it uses the dependency manager's walk over stored records (amended in
+     Phase 2: today's audit compares only stored versions).
    - **`OnLoad` policy.** The manager resolves the unknown dependencies of the asset being loaded
      by walking the stored dependency records recursively, and remembers what it confirms. That
      gives the same guarantee HEAD gets today from the transitive records. Phase 2 specifies this
