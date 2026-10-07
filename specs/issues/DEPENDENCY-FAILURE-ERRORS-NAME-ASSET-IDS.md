@@ -2,7 +2,7 @@
 id: DEPENDENCY-FAILURE-ERRORS-NAME-ASSET-IDS
 kind: issue
 title: Dependency failure errors name the dependency by runtime asset id
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/assets]
@@ -36,3 +36,13 @@ Name the dependency by key, or by query when it has none (the `AssetData::proven
 
 Found 2026-10-02 while writing `log_line_names_keys_not_asset_ids` for Step 4 of
 `dependency-audit-and-expiry-provenance`.
+
+## Resolution (2026-10-07)
+
+Fixed by design `dependency-failure-error-subject`. Both messages built by
+`DefaultAssetManager::wait_for_dependency` name the dependency by `expiry_subject()` — its key,
+else its encoded query — instead of the runtime asset id, through a new crate-private
+`AssetRef::expiry_subject`.
+
+Evidence: `dependency_failure_error_names_key`, `evicted_dependency_error_names_key`
+(`liquers-core/src/assets.rs`).

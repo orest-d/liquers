@@ -1862,6 +1862,12 @@ impl<E: Environment> AssetRef<E> {
         Ok(())
     }
 
+    /// This asset's subject in messages: its key, else its query — never the runtime id.
+    /// Takes and releases this asset's read lock; hold no other asset's lock across it.
+    pub(crate) async fn expiry_subject(&self) -> String {
+        self.data.read().await.expiry_subject()
+    }
+
     /// Record that this asset consumed a dependency whose value had expired *mid-execution*.
     ///
     /// Execution-time expiry policy (see `AssetManager::wait_for_dependency`): the dependency
@@ -7191,9 +7197,11 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                         // name and position — and then re-attach both, so the message would read
                         // "Command 'x' failed: Command 'x' failed: ... at .. at ..".
                         Some(cause) => cause,
+                        // Named by key or query, which mean something once persisted in the
+                        // dependent's metadata; the runtime id does not.
                         None => Error::general_error(format!(
-                            "Dependency asset {} did not produce a value (status {:?})",
-                            dependency.id(),
+                            "Dependency {} did not produce a value (status {:?})",
+                            dependency.expiry_subject().await,
                             status
                         )),
                     };
@@ -7227,9 +7235,9 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                         // here — fail the dependent's evaluation.
                         None => {
                             let e = Error::general_error(format!(
-                                "Dependency asset {} expired and was evicted before its value \
-                                 could be used",
-                                dependency.id()
+                                "Dependency {} expired and was evicted before its value could \
+                                 be used",
+                                dependency.expiry_subject().await
                             ));
                             let _ = parent.fail_due_to_dependency(e.clone()).await;
                             return Err(e);
@@ -10111,6 +10119,76 @@ recipes:
             .to_string()
             .contains("expired and was evicted before its value could be used"));
         assert_eq!(parent.status().await, Status::Error);
+    }
+
+    /// `true` when `message` contains "asset " followed by a digit — a runtime id.
+    fn names_an_asset_id(message: &str) -> bool {
+        message
+            .match_indices("asset ")
+            .any(|(i, _)| message[i + 6..].starts_with(|c: char| c.is_ascii_digit()))
+    }
+
+    /// A keyed dependency that ended `Cancelled` with no stored error is named by its key.
+    #[tokio::test]
+    async fn dependency_failure_error_names_key() {
+        let envref = SimpleEnvironment::<Value>::new().to_ref();
+        let parent = AssetData::<SimpleEnvironment<Value>>::new(
+            36,
+            parse_query("parent").unwrap().into(),
+            None,
+            envref.clone(),
+        )
+        .to_ref();
+        let key = parse_key("data/b.txt").unwrap();
+        let dependency = AssetData::<SimpleEnvironment<Value>>::new(
+            37,
+            key.clone().into(),
+            Some(key),
+            envref.clone(),
+        )
+        .to_ref();
+        dependency.set_status(Status::Cancelled).await.unwrap();
+
+        let error = envref
+            .get_asset_manager()
+            .wait_for_dependency(&parent, &dependency)
+            .await
+            .expect_err("a cancelled dependency fails the dependent");
+        assert!(error.message.contains("data/b.txt"), "{}", error.message);
+        assert!(!names_an_asset_id(&error.message), "{}", error.message);
+    }
+
+    /// An expired-and-evicted keyed dependency is named by its key.
+    #[tokio::test]
+    async fn evicted_dependency_error_names_key() {
+        let envref = SimpleEnvironment::<Value>::new().to_ref();
+        let parent = AssetData::<SimpleEnvironment<Value>>::new(
+            38,
+            parse_query("parent").unwrap().into(),
+            None,
+            envref.clone(),
+        )
+        .to_ref();
+        let key = parse_key("data/evicted.txt").unwrap();
+        let dependency = AssetData::<SimpleEnvironment<Value>>::new(
+            39,
+            key.clone().into(),
+            Some(key),
+            envref.clone(),
+        )
+        .to_ref();
+        dependency.set_status(Status::Expired).await.unwrap();
+
+        let error = envref
+            .get_asset_manager()
+            .wait_for_dependency(&parent, &dependency)
+            .await
+            .expect_err("an evicted expired dependency has no stale value to use");
+        assert!(error.message.contains("data/evicted.txt"), "{}", error.message);
+        assert!(error
+            .message
+            .contains("expired and was evicted before its value could be used"));
+        assert!(!names_an_asset_id(&error.message), "{}", error.message);
     }
 
     #[tokio::test]
