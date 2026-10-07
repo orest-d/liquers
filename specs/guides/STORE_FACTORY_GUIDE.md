@@ -3,7 +3,7 @@ title: Store Factory Guide
 kind: guide
 audience: internal
 area: [core/store, store/config]
-reviewed: 2026-09-02
+reviewed: 2026-10-07
 ---
 # Store Factory Guide
 
@@ -153,6 +153,16 @@ and the authority names where the truth lives. **An incomplete list is only a li
 was claimed** — under `Partial`, an upstream release adding a field makes your description less
 complete, never wrong, and nobody has to notice for it to stay honest.
 
+When the backend exposes its configuration as a `Default + Serialize` struct, **derive the list
+from it** rather than writing it out: serialize `Config::default()` and turn each field into
+`StoreArgumentInfo::derived(name, default)`, which infers the type from the default. Then lay your
+hand-written arguments over the derived ones *by name* — keep their doc, label and `required`, take
+the name and default from the config, and drop a hand-written name the config does not have. The
+derivation tracks upstream releases for free; the hand-written part is only the guidance a default
+cannot express. Gate each config type on the feature that compiles it in, and fall back to the
+hand-written list when it is absent. `OpendalStoreFactory::arguments` in
+`liquers-store/src/store_factory.rs` is the worked example; it stays `Partial`.
+
 Leave the default `Complete` for a type you own: there the list *is* the specification.
 
 ## Rules for a `create` implementation
@@ -207,6 +217,7 @@ feature that has not been designed. Document exclusivity in an argument's `doc` 
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-07 | §"Describing arguments you do not own": derive the list from a `Default + Serialize` backend config and merge hand docs by name, with the OpenDAL factory as the worked example. | `design/opendal-derived-store-arguments/` |
 | 2026-09-02 | Cross-linked `STORE_IMPLEMENTATION_GUIDE.md`, which covers implementing the store a factory builds, so the two halves of the job point at each other. | `design/store-conformance-suite/` Phase 4 step 14 |
 | 2026-08-29 | Added "ask, do not infer" to §"Say a type exists but cannot be built here", after a review found `OpendalStoreFactory` conflating its own `opendal` feature with OpenDAL's per-service ones. | `design/store-factories-in-core/` PR review |
 | 2026-08-29 | Created with the factory model: choosing a chain, adding a type by map or by trait, overriding by chaining earlier, declaring unavailability, `ArgumentCoverage` for externally-owned arguments, the `create` contract, and the inference rules. | `design/store-factories-in-core/` |

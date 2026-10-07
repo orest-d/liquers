@@ -3,7 +3,7 @@ title: Store Configuration Functional Specification
 kind: reference
 audience: internal
 area: [store/config]
-reviewed: 2026-09-04
+reviewed: 2026-10-07
 ---
 # Functional Specification Document (FSD): Store Configuration
 
@@ -655,6 +655,15 @@ else's release schedule. `Partial` makes that a stated fact rather than an omiss
 release adding a field makes the description *less complete*, never *wrong*, and nobody has to
 notice for it to stay honest.
 
+For an OpenDAL type whose service is compiled into the build, the list is **derived from the linked
+OpenDAL release**: every field of the service's config (`S3Config`, `FsConfig`, …) with its default,
+read by serializing `Config::default()`. Liquers' own documentation is laid over it by name — the
+handful of fields a reader needs (`bucket`, `root`, `region`, `endpoint`, …) come first with their
+doc, label and `required` flag, and the remaining fields follow alphabetically. A hand-written name
+the config does not have is dropped (`fs` has no `access_key_id`). The coverage stays `Partial`:
+a default cannot say which fields are required, nor what they mean. A service **not** compiled in
+has no config to derive from, so it reports the hand-written list alone.
+
 Argument types are JSON's — `string`, `number`, `boolean`, `array`, `object`, `any` — because a
 configuration document is JSON or YAML. Scalars are strongly preferred; see the string-boundary
 rules above for why a list-valued OpenDAL option is written as a comma-separated string.
@@ -759,6 +768,7 @@ its store together. Everything on this page applies unchanged to that document's
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-07 | Recorded that OpenDAL argument lists are derived from the linked service config, with Liquers' hand-written docs merged by name; still `Partial`; a compiled-out service reports the hand-written list. | `design/opendal-derived-store-arguments/` |
 | 2026-09-04 | Corrected the filesystem-store description: `AsyncFileStore` is the built-in implementation, not future work. | `DOCS-STORE-CONFIG-DESCRIBES-ASYNC-FILESTORE-AS-FUTURE-WORK` |
 | 2026-09-04 | Corrected the memory-store description: the built-in `AsyncMemoryStore` is already a native `AsyncStore`, without `AsyncStoreWrapper`. | `DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS` |
 | 2026-09-02 | Cross-linked `guides/STORE_IMPLEMENTATION_GUIDE.md` and `STORE_SEMANTICS.md`, separating the configuration format from the store behaviour it names. | `design/store-conformance-suite/` Phase 4 step 14 |

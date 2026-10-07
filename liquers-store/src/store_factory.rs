@@ -84,23 +84,17 @@ const OPENDAL_DOCS: &str = "https://opendal.apache.org/docs/rust/opendal/service
 pub struct OpendalStoreFactory;
 
 impl OpendalStoreFactory {
-    /// Arguments common to every OpenDAL service, described by hand because they are the ones a
-    /// reader actually needs. Everything else is OpenDAL's to document — the list is
-    /// `ArgumentCoverage::Partial` against [`OPENDAL_DOCS`] precisely so it need not be complete.
+    /// The arguments documented by hand: the ones a reader actually needs, with a doc, a type and
+    /// whether they are required — which a config's default value cannot say.
     ///
-    /// # Why these are hand-written, for now
+    /// Not the argument list itself. [`Self::arguments`] merges these over the fields derived from
+    /// the linked OpenDAL service config: a hand-written name the config has keeps its doc,
+    /// label and `required` flag; one it does not have is dropped, because naming an option the
+    /// backend ignores is worse than not naming it. When the service is not compiled into this
+    /// build there is no config to derive from, and this list is reported as it stands.
     ///
-    /// The full argument list should be *derived* from the linked OpenDAL rather than written
-    /// here: `Configurator` bounds `Serialize`, every service config derives `Default`, and none
-    /// carries `skip_serializing_if`, so `serde_json::to_value(C::default())` yields every field
-    /// name and default. What used to block it was that naming `opendal::services::S3Config`
-    /// requires the `services-s3` feature and this crate enabled **no** service features. That is
-    /// fixed — `services-default` names the config types of every service it enables — so the
-    /// remaining work is the derivation itself, tracked as `STORE-OPENDAL-ARGUMENTS-NOT-DERIVED`.
-    /// It must stay `#[cfg]`-aware: a service left out of this build has no nameable config.
-    ///
-    /// See `specs/design/store-factories-in-core/` Phase 4 Step 9.
-    fn common_arguments(store_type: &str) -> Vec<StoreArgumentInfo> {
+    /// Design: `specs/design/opendal-derived-store-arguments/`.
+    fn hand_written_arguments(store_type: &str) -> Vec<StoreArgumentInfo> {
         let mut arguments = vec![StoreArgumentInfo::new("root", StoreArgumentType::String)
             .with_doc("Path within the backend treated as the store root.")];
         match store_type {
@@ -138,14 +132,39 @@ impl OpendalStoreFactory {
         arguments
     }
 
+    /// The reported arguments of `store_type`: the hand-written ones the linked service config
+    /// has, in their order and with their documentation, then every other config field
+    /// alphabetically. The hand-written list unchanged when the service is not compiled in.
+    fn arguments(store_type: &str) -> Vec<StoreArgumentInfo> {
+        let hand = Self::hand_written_arguments(store_type);
+        let Some(derived) = service_arguments(store_type) else {
+            return hand;
+        };
+        let mut result: Vec<StoreArgumentInfo> = hand
+            .iter()
+            .filter_map(|h| {
+                derived
+                    .iter()
+                    .find(|d| d.name == h.name)
+                    .map(|d| merge_argument(d, h))
+            })
+            .collect();
+        result.extend(
+            derived
+                .into_iter()
+                .filter(|d| !hand.iter().any(|h| h.name == d.name)),
+        );
+        result
+    }
+
     fn type_info(store_type: &str) -> StoreTypeInfo {
         let info = StoreTypeInfo::new(store_type)
             .with_doc(&format!(
                 "OpenDAL '{}' service. Its full option set is documented by OpenDAL; the arguments \
-                 listed here are the common ones.",
+                 listed here are derived from the linked OpenDAL release.",
                 get_opendal_scheme(store_type)
             ))
-            .with_arguments(Self::common_arguments(store_type))
+            .with_arguments(Self::arguments(store_type))
             .partial(OPENDAL_DOCS);
 
         match constructibility_reason(store_type) {
@@ -206,6 +225,103 @@ impl StoreFactory for OpendalStoreFactory {
                 )),
             }
         }
+    }
+}
+
+/// One derived argument with the hand-written documentation of the same name laid over it.
+///
+/// Name and default come from the config, which is what the backend actually reads. Doc, label
+/// and `required` come from the hand: a default cannot say what a field means or that it must be
+/// set. The type comes from the hand only when the default carries none — an `Option` field
+/// defaults to `null`, which derives as [`StoreArgumentType::Any`].
+fn merge_argument(derived: &StoreArgumentInfo, hand: &StoreArgumentInfo) -> StoreArgumentInfo {
+    let argument_type = match derived.argument_type {
+        StoreArgumentType::Any => hand.argument_type.clone(),
+        StoreArgumentType::String
+        | StoreArgumentType::Number
+        | StoreArgumentType::Boolean
+        | StoreArgumentType::Array
+        | StoreArgumentType::Object => derived.argument_type.clone(),
+    };
+    StoreArgumentInfo {
+        name: derived.name.clone(),
+        label: hand.label.clone(),
+        doc: hand.doc.clone(),
+        argument_type,
+        required: hand.required,
+        default: derived.default.clone(),
+    }
+}
+
+/// Every field of an OpenDAL service config, with its default, as [`StoreArgumentInfo::derived`].
+///
+/// Sorted by name, which is `serde_json`'s map order. `Configurator` bounds `Serialize`, every
+/// service config derives `Default`, and none skips a field when serializing, so the default
+/// names every field. Empty if the default does not serialize to an object, which no OpenDAL
+/// config does; the caller then reports nothing beyond the hand-written names it can match.
+#[cfg(feature = "opendal")]
+fn derived_arguments<C: opendal::Configurator + Default>() -> Vec<StoreArgumentInfo> {
+    match serde_json::to_value(C::default()) {
+        Ok(serde_json::Value::Object(fields)) => fields
+            .into_iter()
+            .map(|(name, default)| StoreArgumentInfo::derived(&name, default))
+            .collect(),
+        Ok(_) | Err(_) => Vec::new(),
+    }
+}
+
+/// The derived arguments of `store_type`'s OpenDAL config, or `None` when its service is not
+/// compiled into this build — its config type does not exist then, so every arm is gated.
+///
+/// The only hand-maintained part of the derivation: one arm per [`OPENDAL_STORE_TYPES`] entry.
+/// The `_ => None` arm is a match over strings, where a compiled-out service must fall through;
+/// it is not a default arm over an enum.
+fn service_arguments(store_type: &str) -> Option<Vec<StoreArgumentInfo>> {
+    match store_type {
+        #[cfg(feature = "services-fs")]
+        "fs" => Some(derived_arguments::<opendal::services::FsConfig>()),
+        #[cfg(feature = "services-s3")]
+        "s3" => Some(derived_arguments::<opendal::services::S3Config>()),
+        #[cfg(feature = "services-gcs")]
+        "gcs" => Some(derived_arguments::<opendal::services::GcsConfig>()),
+        #[cfg(feature = "services-azblob")]
+        "azblob" => Some(derived_arguments::<opendal::services::AzblobConfig>()),
+        // One OpenDAL service, `Scheme::Http`, behind both type names.
+        #[cfg(feature = "services-http")]
+        "http" | "https" => Some(derived_arguments::<opendal::services::HttpConfig>()),
+        #[cfg(feature = "services-webdav")]
+        "webdav" => Some(derived_arguments::<opendal::services::WebdavConfig>()),
+        #[cfg(feature = "services-ftp")]
+        "ftp" => Some(derived_arguments::<opendal::services::FtpConfig>()),
+        #[cfg(feature = "services-github")]
+        "github" => Some(derived_arguments::<opendal::services::GithubConfig>()),
+        #[cfg(feature = "services-webhdfs")]
+        "webhdfs" => Some(derived_arguments::<opendal::services::WebhdfsConfig>()),
+        #[cfg(feature = "services-dropbox")]
+        "dropbox" => Some(derived_arguments::<opendal::services::DropboxConfig>()),
+        #[cfg(feature = "services-onedrive")]
+        "onedrive" => Some(derived_arguments::<opendal::services::OnedriveConfig>()),
+        #[cfg(feature = "services-gdrive")]
+        "gdrive" => Some(derived_arguments::<opendal::services::GdriveConfig>()),
+        #[cfg(feature = "services-ipfs")]
+        "ipfs" => Some(derived_arguments::<opendal::services::IpfsConfig>()),
+        // On Unix the `opendal` dependency enables `services-sftp` itself (the target row in
+        // `Cargo.toml`), without this crate's feature.
+        #[cfg(all(feature = "opendal", any(unix, feature = "services-sftp")))]
+        "sftp" => Some(derived_arguments::<opendal::services::SftpConfig>()),
+        #[cfg(feature = "services-hdfs")]
+        "hdfs" => Some(derived_arguments::<opendal::services::HdfsConfig>()),
+        #[cfg(feature = "services-redis")]
+        "redis" => Some(derived_arguments::<opendal::services::RedisConfig>()),
+        #[cfg(feature = "services-mongodb")]
+        "mongodb" => Some(derived_arguments::<opendal::services::MongodbConfig>()),
+        #[cfg(feature = "services-postgresql")]
+        "postgresql" => Some(derived_arguments::<opendal::services::PostgresqlConfig>()),
+        #[cfg(feature = "services-mysql")]
+        "mysql" => Some(derived_arguments::<opendal::services::MysqlConfig>()),
+        #[cfg(feature = "services-sqlite")]
+        "sqlite" => Some(derived_arguments::<opendal::services::SqliteConfig>()),
+        _ => None,
     }
 }
 
@@ -688,8 +804,9 @@ mod tests {
         }
     }
 
-    /// The behavioural half of `Partial`: a key the factory does not describe must still reach the
-    /// backend. `atomic_write_dir` is a real `fs` option this factory says nothing about.
+    /// The behavioural half of `Partial`: a key the factory does not document by hand must still
+    /// reach the backend. `atomic_write_dir` is a real `fs` option with no hand-written doc; it is
+    /// listed only because it is derived from `FsConfig`.
     /// Gated on `services-fs` and `async_store` for the same reason as `opendal03`.
     #[cfg(all(feature = "services-fs", feature = "async_store"))]
     #[test]
@@ -700,6 +817,127 @@ mod tests {
             .with_config("atomic_write_dir", "/tmp/liquers-coverage02-tmp");
         default_store_factory().create(&config)?;
         Ok(())
+    }
+
+    // --- derived arguments (`specs/design/opendal-derived-store-arguments/`) ---
+
+    fn argument<'a>(info: &'a StoreTypeInfo, name: &str) -> Option<&'a StoreArgumentInfo> {
+        info.arguments.iter().find(|a| a.name == name)
+    }
+
+    /// Presence assertions only: a test fixing the full list would fail on every OpenDAL release
+    /// that adds a field, which is the maintenance the derivation removes.
+    #[cfg(feature = "services-s3")]
+    #[test]
+    fn derive01_s3_reports_stable_fields_with_hand_docs() {
+        let info = OpendalStoreFactory::type_info("s3");
+        for name in ["bucket", "region", "root", "endpoint"] {
+            assert!(argument(&info, name).is_some(), "s3 must report `{name}`");
+        }
+        let bucket = argument(&info, "bucket").expect("checked above");
+        assert!(
+            bucket.required,
+            "`bucket` keeps its hand-written required flag"
+        );
+        assert_eq!(bucket.doc, "Bucket or container name.");
+        assert_eq!(
+            bucket.argument_type,
+            StoreArgumentType::String,
+            "an `Option<String>` field derives as Any; the hand-written type fills it in"
+        );
+        let anonymous = argument(&info, "allow_anonymous").expect("derived from S3Config");
+        assert_eq!(anonymous.argument_type, StoreArgumentType::Boolean);
+        assert_eq!(anonymous.default, Some(serde_json::Value::Bool(false)));
+        assert_eq!(
+            info.arguments.first().map(|a| a.name.as_str()),
+            Some("bucket"),
+            "hand-written names come first, in their order"
+        );
+    }
+
+    #[cfg(feature = "services-fs")]
+    #[test]
+    fn derive02_hand_written_names_absent_from_the_config_are_dropped() {
+        let info = OpendalStoreFactory::type_info("fs");
+        assert!(argument(&info, "root").is_some());
+        assert!(argument(&info, "atomic_write_dir").is_some());
+        assert!(
+            argument(&info, "access_key_id").is_none(),
+            "`FsConfig` has no `access_key_id`; reporting it would name an ignored option"
+        );
+    }
+
+    #[cfg(not(feature = "services-redis"))]
+    #[test]
+    fn derive03_an_uncompiled_service_keeps_the_hand_written_list() {
+        assert_eq!(
+            OpendalStoreFactory::type_info("redis").arguments,
+            OpendalStoreFactory::hand_written_arguments("redis")
+        );
+    }
+
+    #[cfg(feature = "opendal")]
+    #[test]
+    fn derive04_coverage_stays_partial() {
+        for info in OpendalStoreFactory.store_types() {
+            match &info.coverage {
+                ArgumentCoverage::Partial { authority } => assert_eq!(
+                    authority, OPENDAL_DOCS,
+                    "{}: a default cannot say what is required, so the list stays Partial",
+                    info.store_type
+                ),
+                ArgumentCoverage::Complete => {
+                    panic!(
+                        "{} must not claim a complete argument list",
+                        info.store_type
+                    )
+                }
+            }
+        }
+    }
+
+    /// s3_01 — an S3 store is constructible offline, from arguments and from a URI, identically.
+    ///
+    /// No credentials, no network: OpenDAL builders are lazy, so a bucket that does not exist
+    /// still yields an Operator.
+    #[cfg(all(feature = "services-s3", feature = "async_store"))]
+    #[test]
+    fn s3_01_arguments_and_uri_agree() -> Result<(), Box<dyn std::error::Error>> {
+        let from_args = entry("s3", "remote")
+            .with_config("bucket", "probe-bucket")
+            .with_config("root", "data")
+            .with_config("region", "eu-central-1")
+            .with_config("allow_anonymous", true)
+            .with_config("disable_config_load", true);
+        let store = default_store_factory().create(&from_args)?;
+        assert_eq!(store.key_prefix(), parse_key("remote")?);
+
+        let via_uri = Operator::from_uri(
+            "s3://probe-bucket/data?region=eu-central-1&allow_anonymous=true&disable_config_load=true",
+        )?;
+        let via_args = Operator::via_iter(
+            opendal::Scheme::S3.into_static(),
+            from_args.config_as_string_map()?,
+        )?;
+        assert_eq!(via_uri.info().name(), via_args.info().name());
+        assert_eq!(via_uri.info().root(), via_args.info().root());
+        Ok(())
+    }
+
+    /// s3_02 — a missing region fails at construction, not at first use.
+    ///
+    /// `disable_config_load` is what makes this deterministic: without it OpenDAL's S3 builder
+    /// reads `AWS_REGION` and the AWS profile, so the result would depend on the machine.
+    #[cfg(all(feature = "services-s3", feature = "async_store"))]
+    #[test]
+    fn s3_02_missing_region_fails_at_construction() {
+        let config = entry("s3", "remote")
+            .with_config("bucket", "probe-bucket")
+            .with_config("disable_config_load", true);
+        match default_store_factory().create(&config) {
+            Ok(_) => panic!("S3 must not build without a region"),
+            Err(e) => assert!(e.message.contains("region"), "got: {}", e.message),
+        }
     }
 
     // --- router convenience (moved from store_builder.rs) ---

@@ -226,7 +226,7 @@ STORE-KEY-REFUSAL-ORDER-DIVERGES-BETWEEN-STORES,issue,A key that is both relativ
 STORE-METADATA-LAYOUT-HARDCODED-PER-STORE,issue,Every writable store hard-codes its own metadata layout,draft,local,,,P2,L,core/store;store/backends;web;docs,,,,,,2026-09-03,specs/issues/STORE-METADATA-LAYOUT-HARDCODED-PER-STORE.md
 STORE-NO-CONTENT-OR-METADATA-SEARCH,feature,A store cannot be asked which keys match content or metadata,draft,local,,,P2,L,core/store,,,,store-and-asset-search,,2026-09-15,specs/issues/STORE-NO-CONTENT-OR-METADATA-SEARCH.md
 STORE-NO-READ-ONLY-ADAPTER,feature,"No read-only store adapter, so reading a file store writes to it",draft,local,,,P2,M,core/store,,,,,,2026-09-16,specs/issues/STORE-NO-READ-ONLY-ADAPTER.md
-STORE-OPENDAL-ARGUMENTS-NOT-DERIVED,feature,OpenDAL store types have no derived argument descriptions and no offline construction test,draft,local,,ready,P3,S,store/backends;store/config,,,,opendal-derived-store-arguments,,2026-08-29,specs/issues/STORE-OPENDAL-ARGUMENTS-NOT-DERIVED.md
+STORE-OPENDAL-ARGUMENTS-NOT-DERIVED,feature,OpenDAL store types have no derived argument descriptions and no offline construction test,closed,local,,ready,P3,S,store/backends;store/config,,,,opendal-derived-store-arguments,,2026-08-29,specs/issues/STORE-OPENDAL-ARGUMENTS-NOT-DERIVED.md
 STORE-OPENDAL-LIST-OPTION-MISPARSED,issue,A list-valued store config option is mis-parsed by the OpenDAL path,closed,local,,ready,P2,S,store/backends,,,,opendal-list-option-config,,2026-08-29,specs/issues/STORE-OPENDAL-LIST-OPTION-MISPARSED.md
 STORE-OPENDAL-SERVICES-NOT-ENABLED,issue,"No OpenDAL service features are enabled, so every advertised OpenDAL store type fails to build",closed,local,,,P0,S,store/backends,,,,,,2026-08-29,specs/issues/STORE-OPENDAL-SERVICES-NOT-ENABLED.md
 STORE-OPENDAL-SLASH-HANDLING,issue,OpenDAL store mishandles keys containing slashes,closed,local,,,P0,M,store/backends,,,,opendal-path-mapping,,2026-08-08,specs/issues/STORE-OPENDAL-SLASH-HANDLING.md
@@ -353,7 +353,7 @@ METADATA-ERROR-TRACEBACK,design,Error traceback in metadata log entries,in_revie
 METADATA-ONLY-ENTRY-RELOAD,design,Fast track recognizes a metadata-only entry and recomputes without a corruption report,in_review,local,implementation,ready,P3,S,core/assets,,,,metadata-only-entry-reload,,2026-10-06,specs/design/metadata-only-entry-reload/DESIGN.md
 METADATA-SERDE-PARTIALEQ,design,"Serialize, Deserialize and PartialEq for the Metadata enum",complete,local,,ready,P2,S,core/value,,,,metadata-serde-partialeq,,2026-10-04,specs/design/metadata-serde-partialeq/DESIGN.md
 NULL-CELL-STRING-OPTION,design,A null record cell reads as None through try_into_string_option,in_review,local,documentation,ready,P3,S,lib/value;records,,,,null-cell-string-option,,2026-10-06,specs/design/null-cell-string-option/DESIGN.md
-ACTIVE-11,design,Derived OpenDAL store arguments and offline S3 construction tests,in_review,local,implementation,ready,P3,S,store/backends;store/config,,,,opendal-derived-store-arguments,,2026-09-03,specs/design/opendal-derived-store-arguments/DESIGN.md
+ACTIVE-11,design,Derived OpenDAL store arguments and offline S3 construction tests,in_review,local,documentation,ready,P3,S,store/backends;store/config,,,,opendal-derived-store-arguments,,2026-09-03,specs/design/opendal-derived-store-arguments/DESIGN.md
 COVERED-13,design,Coverage record for STORE-OPENDAL-WITHOUT-ASYNC-STORE-BROKEN,in_review,local,architecture,covered,P3,S,docs,,,,opendal-feature-without-async-store,,2026-09-03,specs/design/opendal-feature-without-async-store/DESIGN.md
 OPENDAL-LIST-OPTION-CONFIG,design,OpenDAL list option configuration encoding,complete,local,,ready,P2,S,store/backends,,,,opendal-list-option-config,,2026-08-29,specs/design/opendal-list-option-config/DESIGN.md
 COVERED-12,design,Coverage record for OPENDAL-LOCALFS-TEST-SILENT-ON-WRONG-VALUE-TYPE,in_review,local,architecture,covered,P3,S,docs,,,,opendal-localfs-assetinfo-test,,2026-09-03,specs/design/opendal-localfs-assetinfo-test/DESIGN.md
@@ -441,7 +441,7 @@ POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,lo
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-10-06,,specs/reference/PROJECT_OVERVIEW.md
 RECORD_STREAMS,reference,Record Streams,current,local,,,,,records;lib/value;lib/commands;web,,,,,2026-10-07,,specs/reference/RECORD_STREAMS.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,macro;core/commands,,,,,2026-10-07,,specs/reference/REGISTER_COMMAND_FSD.md
-STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,store/config,,,,,2026-09-04,,specs/reference/STORE_CONFIG_FSD.md
+STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,store/config,,,,,2026-10-07,,specs/reference/STORE_CONFIG_FSD.md
 STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,core/store;store/backends;web,,,,,2026-10-07,,specs/reference/STORE_SEMANTICS.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,core/value;lib/value,,,,,2026-09-27,,specs/reference/VALUE_TYPE_SYSTEM.md
@@ -454,7 +454,7 @@ ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,cur
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-09-30,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,core/query,,,,,2026-08-14,,specs/guides/QUERY_ESCAPING_GUIDE.md
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,records;lib/value,,,,,2026-10-06,,specs/guides/RECORD_STREAM_GUIDE.md
-STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,core/store;store/config,,,,,2026-09-02,,specs/guides/STORE_FACTORY_GUIDE.md
+STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,core/store;store/config,,,,,2026-10-07,,specs/guides/STORE_FACTORY_GUIDE.md
 STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,core/store;store/backends;web,,,,,2026-10-07,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,core/value;lib/value,,,,,2026-10-07,,specs/guides/TYPE_SYSTEM_GUIDE.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,build;core/assets,,,,,2026-10-02,,specs/guides/UNITTEST_GUIDE.md
