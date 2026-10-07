@@ -207,3 +207,92 @@ pub async fn sidecar04(f: &dyn Fixture) -> RuleOutcome {
         Err(e) => e.into(),
     }
 }
+
+/// `sidecar05` — a key holding only metadata has no data object.
+///
+/// `set_metadata` on a key with no data must not invent one: `get` and `get_bytes` answer
+/// `KeyNotFound`, while a key written with `set(k, b"", m)` holds an *empty* data object that
+/// reads back as `[]`. The memory store used to answer a metadata-only key with empty bytes, which
+/// made "no data object" indistinguishable from "the value is the empty byte string" and served a
+/// metadata-only `Text` entry as `""`.
+///
+/// A store that refuses metadata for a key with no data (`KeyNotFound`) still runs the empty-object
+/// half, since that half does not depend on the refusal.
+pub async fn sidecar05(f: &dyn Fixture) -> RuleOutcome {
+    let request = KeyRequest::FreshSiblings { count: 2 };
+    let keys = match keys_for(f, request.clone()).await {
+        Ok(k) => k,
+        Err(outcome) => return outcome,
+    };
+    let (Some(metadata_only), Some(empty)) = (keys.first().cloned(), keys.get(1).cloned()) else {
+        return failed("the fixture returned fewer than two keys for FreshSiblings { count: 2 }");
+    };
+    for key in [&metadata_only, &empty] {
+        if let Err(outcome) = require_absent(f, key, request.clone()).await {
+            return outcome;
+        }
+    }
+
+    let mut record = MetadataRecord::new();
+    record.with_key(metadata_only.clone()).with_title("conformance sidecar05".to_owned());
+    let accepted = match f
+        .store()
+        .set_metadata(&metadata_only, &Metadata::MetadataRecord(record))
+        .await
+    {
+        Ok(()) => {
+            f.record_created(&metadata_only);
+            true
+        }
+        Err(e) if e.error_type == crate::error::ErrorType::KeyNotFound => false,
+        Err(e) => return e.into(),
+    };
+    if accepted {
+        match f.store().get_bytes(&metadata_only).await {
+            Err(e) if e.error_type == crate::error::ErrorType::KeyNotFound => {}
+            Err(e) => return e.into(),
+            Ok(bytes) => {
+                return failed_at(
+                    format!(
+                        "get_bytes({}) on a metadata-only key returned {} byte(s) instead of \
+                         KeyNotFound",
+                        metadata_only.encode(),
+                        bytes.len()
+                    ),
+                    vec![metadata_only],
+                )
+            }
+        }
+        match f.store().get(&metadata_only).await {
+            Err(e) if e.error_type == crate::error::ErrorType::KeyNotFound => {}
+            Err(e) => return e.into(),
+            Ok((bytes, _)) => {
+                return failed_at(
+                    format!(
+                        "get({}) on a metadata-only key returned {} byte(s) instead of KeyNotFound",
+                        metadata_only.encode(),
+                        bytes.len()
+                    ),
+                    vec![metadata_only],
+                )
+            }
+        }
+    }
+
+    if let Err(e) = f.store().set(&empty, b"", &blank_metadata()).await {
+        return e.into();
+    }
+    f.record_created(&empty);
+    match f.store().get_bytes(&empty).await {
+        Ok(bytes) if bytes.is_empty() => RuleOutcome::Passed,
+        Ok(bytes) => failed_at(
+            format!(
+                "set({}, b\"\") stored an empty data object but get_bytes returned {} byte(s)",
+                empty.encode(),
+                bytes.len()
+            ),
+            vec![empty],
+        ),
+        Err(e) => e.into(),
+    }
+}

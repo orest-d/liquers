@@ -3,7 +3,7 @@ title: Store Behavioural Semantics
 kind: reference
 audience: internal
 area: [core/store, store/backends, web]
-reviewed: 2026-09-30
+reviewed: 2026-10-07
 ---
 # Store Behavioural Semantics
 
@@ -289,13 +289,20 @@ whose sidecar cannot be parsed now reaches `listdir_asset_info`, where it fails 
 directory's `get_metadata`: `get` repairs unparseable metadata only when there is data to repair it
 from. Before 2026-09-29 the file stores dropped such keys from listings instead.
 
+**A key with metadata and no data has no data object.** `get` and `get_bytes` on it report
+`KeyNotFound`, on every store; they do not return empty bytes. A key written with `set(k, b"", m)`
+holds an *empty* data object, and `get_bytes` returns `[]`. The two must stay distinguishable: a
+metadata-only `Text` entry read as empty bytes deserializes as `""`, a wrong value, and a re-hash
+of stored bytes must skip the first and check the second. `AsyncMemoryStore` answered a
+metadata-only key with empty bytes until 2026-10-07.
+
 One behaviour worth knowing, because recovery from a store corrupted before this rule was enforced
 depends on it: **`get` repairs metadata it cannot parse**, synthesizing a fresh record with warnings
 and writing it back. So a colliding write that already happened is recoverable — by `get`, by
 `set_metadata`, or by `remove`, which unlinks the data path and the metadata path together — even
 though the orphan can no longer be addressed as a key.
 
-*Enforced by:* `sidecar01`, `sidecar02`, `sidecar03`, `sidecar04`, and `prefix03` and `sibling05` for stores whose
+*Enforced by:* `sidecar01`, `sidecar02`, `sidecar03`, `sidecar04`, `sidecar05`, and `prefix03` and `sibling05` for stores whose
 fixture declares an unsupported shape. `is_supported` is a routing hint, so `sidecar01` checking it
 alone would pass a store that refuses to route the key and then accepts it in `set`, overwriting the
 very metadata the refusal exists to protect; `sidecar03` checks the operations themselves. The file
@@ -326,6 +333,7 @@ and `AsyncOpenDALStore` already behave as specified here.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-07 | §8: a key with metadata and no data has no data object — `get` and `get_bytes` report `KeyNotFound`, while `set(k, b"", m)` stores an empty one. `AsyncMemoryStore` now behaves so. Enforced by the new rule `sidecar05`. | `design/memory-store-metadata-only-entry/` |
 | 2026-09-30 | §4: a delegating store must let the delegate express absence, with `JsStore`'s `null` sentinel as the example. Reviewed §2, §8 and §9 against the implementation and the final conformance reports: every in-tree store passes `dir07` and `sidecar04`. | phase-5 (`design/store-conformance-backlog/`) |
 | 2026-09-29 | §8: a key with metadata and no data is enumerable — listed by its parent and answered by `contains` — unless the store refuses the write with `KeyNotFound`. The file stores now list the implied key of a sidecar instead of dropping it. Recorded the two consequences for callers. Enforced by the new rule `sidecar04`. | `design/store-conformance-backlog/` step 6 |
 | 2026-09-29 | §2 settled: directory metadata populates `children` with the direct children, one level deep, and the `AsyncStore` default `get_asset_info` answers a directory without reading its metadata, which is what bounds the depth. `dir07` now checks this instead of reporting `Blocked`; `AsyncOpenDALStore` fills `children` like every other store. One ⚠ row remains. | `design/store-conformance-backlog/` step 4 |

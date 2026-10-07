@@ -620,7 +620,10 @@ impl AsyncStore for NoAsyncStore {
 
 /// Async-native in-memory store implementation.
 pub struct AsyncMemoryStore {
-    data: scc::HashMap<Key, (Arc<[u8]>, Metadata)>,
+    /// Stored entries. `None` data is a metadata-only entry (written by `set_metadata` on a new
+    /// key): it is contained and listed, but `get` / `get_bytes` answer `KeyNotFound`, as the file
+    /// store does for a sidecar without a data file (`STORE_SEMANTICS.md` §2, rule `sidecar05`).
+    data: scc::HashMap<Key, (Option<Arc<[u8]>>, Metadata)>,
     /// Directory structure derived from the stored keys.
     ///
     /// The mechanism used to live here as a private field and a handful of private methods; it is
@@ -667,7 +670,7 @@ impl AsyncStore for AsyncMemoryStore {
 
     async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
         let key = key.as_absolute()?;
-        if let Some((data, metadata)) = self
+        if let Some((Some(data), metadata)) = self
             .data
             .read_async(key, |_key, (data, metadata)| {
                 (data.clone(), metadata.clone())
@@ -681,7 +684,7 @@ impl AsyncStore for AsyncMemoryStore {
 
     async fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
         let key = key.as_absolute()?;
-        if let Some(data) = self
+        if let Some(Some(data)) = self
             .data
             .read_async(key, |_key, (data, _metadata)| data.clone())
             .await
@@ -714,7 +717,7 @@ impl AsyncStore for AsyncMemoryStore {
             .data
             .upsert_async(
                 key.to_owned(),
-                (Arc::<[u8]>::from(data.to_vec()), metadata.clone()),
+                (Some(Arc::<[u8]>::from(data.to_vec())), metadata.clone()),
             )
             .await
             .is_none();
@@ -739,10 +742,7 @@ impl AsyncStore for AsyncMemoryStore {
 
         let inserted = self
             .data
-            .insert_async(
-                key.to_owned(),
-                (Arc::<[u8]>::from(Vec::<u8>::new()), metadata.clone()),
-            )
+            .insert_async(key.to_owned(), (None, metadata.clone()))
             .await
             .is_ok();
         if inserted {
@@ -2558,7 +2558,47 @@ mod tests {
             store.get_metadata(&metadata_only_key).await?.filename(),
             Some("only.json".to_string())
         );
-        assert_eq!(store.get_bytes(&metadata_only_key).await?, Vec::<u8>::new());
+        // A metadata-only entry has no data object (`STORE_SEMANTICS.md` §2, `sidecar05`).
+        assert_eq!(
+            store.get_bytes(&metadata_only_key).await.unwrap_err().error_type,
+            crate::error::ErrorType::KeyNotFound
+        );
+        assert_eq!(
+            store.get(&metadata_only_key).await.unwrap_err().error_type,
+            crate::error::ErrorType::KeyNotFound
+        );
+        assert!(store
+            .listdir(&parse_key("meta")?)
+            .await?
+            .contains(&"only.json".to_string()));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn memory_store_empty_data_object_is_content() -> Result<(), Error> {
+        let store = AsyncMemoryStore::new(&Key::new());
+        let key = parse_key("empty.bin")?;
+        let metadata = Metadata::MetadataRecord(MetadataRecord::new());
+        store.set(&key, b"", &metadata).await?;
+        assert_eq!(store.get_bytes(&key).await?, Vec::<u8>::new());
+        assert_eq!(store.get(&key).await?.0, Vec::<u8>::new());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn memory_store_set_metadata_keeps_existing_data() -> Result<(), Error> {
+        let store = AsyncMemoryStore::new(&Key::new());
+        let key = parse_key("kept.bin")?;
+        let metadata = Metadata::MetadataRecord(MetadataRecord::new());
+        store.set(&key, b"payload", &metadata).await?;
+        let mut updated = metadata.clone();
+        updated.set_filename("kept.bin")?;
+        store.set_metadata(&key, &updated).await?;
+        assert_eq!(store.get_bytes(&key).await?, b"payload".to_vec());
+        assert_eq!(
+            store.get_metadata(&key).await?.filename(),
+            Some("kept.bin".to_string())
+        );
         Ok(())
     }
 

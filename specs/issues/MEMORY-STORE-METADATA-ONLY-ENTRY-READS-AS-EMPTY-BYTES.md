@@ -2,7 +2,7 @@
 id: MEMORY-STORE-METADATA-ONLY-ENTRY-READS-AS-EMPTY-BYTES
 kind: issue
 title: AsyncMemoryStore answers a metadata-only entry with empty bytes, indistinguishable from empty content
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/store]
@@ -56,3 +56,14 @@ raised from P3 to P2 because this is a wrong value. The fast-track fix that make
 answer safe has landed, so this store change can now be made on its own (design
 `memory-store-metadata-only-entry`).
 
+## Resolution (2026-10-07)
+
+Fixed by design `memory-store-metadata-only-entry`. `AsyncMemoryStore` now stores no data object
+for a metadata-only key, so `get` / `get_bytes` report `KeyNotFound` as the file store does. The
+new conformance rule `sidecar05` pins this on every store, and every in-tree suite passes it. The
+`no_bytes_by_design` heuristic in `assets.rs` is removed.
+
+Evidence: `metadata_only_entry_on_memory_store_is_recomputed`
+(`liquers-core/tests/metadata_only_entry_reload.rs`), `refute_sidecar05_*`
+(`liquers-core/src/store_conformance/mod.rs`), and `empty_data_object_is_checked_not_skipped`
+(`liquers-core/tests/external_change_integration.rs`).

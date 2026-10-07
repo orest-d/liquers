@@ -137,12 +137,17 @@ fn stub_js_object() -> js_sys::Object {
             get(key) {
                 const entry = data.get(key);
                 // `null` is the protocol's "absent"; throwing would say the read failed.
-                if (!entry) { return null; }
+                // A metadata-only entry has no data object, so it is absent here too (`sidecar05`).
+                if (!entry || entry.data === null) { return null; }
                 return { data: entry.data, metadata: entry.metadata };
+            },
+            getMetadata(key) {
+                const entry = data.get(key);
+                return entry ? entry.metadata : null;
             },
             set(key, value, metadata) { data.set(key, { data: value, metadata: metadata }); },
             setMetadata(key, metadata) {
-                const entry = data.get(key) || { data: new Uint8Array(), metadata: {} };
+                const entry = data.get(key) || { data: null, metadata: {} };
                 entry.metadata = metadata;
                 data.set(key, entry);
             },

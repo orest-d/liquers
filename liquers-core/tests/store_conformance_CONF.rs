@@ -195,7 +195,8 @@ async fn c3_async_store_router() {
 /// the issue enumerated live in them.
 #[derive(Default)]
 struct DefaultsStore {
-    data: std::sync::Mutex<Vec<(Key, Vec<u8>, Metadata)>>,
+    /// `None` bytes is a metadata-only entry, which has no data object (`sidecar05`).
+    data: std::sync::Mutex<Vec<(Key, Option<Vec<u8>>, Metadata)>>,
 }
 
 #[async_trait::async_trait]
@@ -207,8 +208,10 @@ impl AsyncStore for DefaultsStore {
             .lock()
             .map_err(|_| Error::general_error("poisoned".to_owned()))?;
         data.iter()
-            .find(|(k, _, _)| k == key)
-            .map(|(_, bytes, metadata)| (bytes.clone(), metadata.clone()))
+            .find_map(|(k, bytes, metadata)| match bytes {
+                Some(bytes) if k == key => Some((bytes.clone(), metadata.clone())),
+                Some(_) | None => None,
+            })
             .ok_or_else(|| Error::key_not_found(key))
     }
 
@@ -219,7 +222,7 @@ impl AsyncStore for DefaultsStore {
             .lock()
             .map_err(|_| Error::general_error("poisoned".to_owned()))?;
         data.retain(|(k, _, _)| k != key);
-        data.push((key.clone(), bytes.to_vec(), metadata.clone()));
+        data.push((key.clone(), Some(bytes.to_vec()), metadata.clone()));
         Ok(())
     }
 
@@ -235,7 +238,7 @@ impl AsyncStore for DefaultsStore {
                 Ok(())
             }
             None => {
-                data.push((key.clone(), Vec::new(), metadata.clone()));
+                data.push((key.clone(), None, metadata.clone()));
                 Ok(())
             }
         }

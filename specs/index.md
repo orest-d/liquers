@@ -8,13 +8,12 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 142
-- P2: 68
+Total rows: 141
+- P2: 67
 - P3: 74
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
-| [`MEMORY-STORE-METADATA-ONLY-ENTRY-READS-AS-EMPTY-BYTES`](issues/MEMORY-STORE-METADATA-ONLY-ENTRY-READS-AS-EMPTY-BYTES.md) | issue | AsyncMemoryStore answers a metadata-only entry with empty bytes, indistinguishable from empty content | draft | ready | P2 | S | core/store | [phase1](design/memory-store-metadata-only-entry/phase1-high-level-design.md)  [phase2](design/memory-store-metadata-only-entry/phase2-architecture.md)  [phase3](design/memory-store-metadata-only-entry/phase3-examples.md)  [phase4](design/memory-store-metadata-only-entry/phase4-implementation.md)  | 2026-10-02 |
 | [`METADATA-LACKS-SERIALIZE-DESERIALIZE-AND-PARTIALEQ`](issues/METADATA-LACKS-SERIALIZE-DESERIALIZE-AND-PARTIALEQ.md) | issue | Metadata lacks Serialize, Deserialize and PartialEq | draft | ready | P2 | S | core/value | [phase1](design/metadata-serde-partialeq/phase1-high-level-design.md)  [phase2](design/metadata-serde-partialeq/phase2-architecture.md)  [phase3](design/metadata-serde-partialeq/phase3-examples.md)  [phase4](design/metadata-serde-partialeq/phase4-implementation.md)  [phase5](design/metadata-serde-partialeq/phase5-documentation.md)  | 2026-09-26 |
 | [`QUEUED-MANAGER-EVICTION-RACE`](issues/QUEUED-MANAGER-EVICTION-RACE.md) | issue | The queued manager's cache evictions can delete a replacement asset | accepted | ready | P2 | S | core/assets | [phase1](design/queued-manager-conditional-eviction/phase1-high-level-design.md)  [phase2](design/queued-manager-conditional-eviction/phase2-architecture.md)  [phase3](design/queued-manager-conditional-eviction/phase3-examples.md)  [phase4](design/queued-manager-conditional-eviction/phase4-implementation.md)  [phase5](design/queued-manager-conditional-eviction/phase5-documentation.md)  | 2026-08-09 |
 | [`REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED`](issues/REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED.md) | issue | The `payload: required` metadata statement is implemented but documented nowhere | draft | ready | P2 | S | docs;core/commands;macro | [phase1](design/register-command-payload-docs/phase1-high-level-design.md)  [phase2](design/register-command-payload-docs/phase2-architecture.md)  [phase3](design/register-command-payload-docs/phase3-examples.md)  [phase4](design/register-command-payload-docs/phase4-implementation.md)  [phase5](design/register-command-payload-docs/phase5-documentation.md)  | 2026-09-03 |

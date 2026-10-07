@@ -3749,7 +3749,7 @@ impl<E: Environment> AssetRef<E> {
             // Only rewrite metadata for a key the store already has. A value that was never
             // persisted (e.g. `PersistenceStatus::NonSerializable`) has no store entry to
             // invalidate, and `set_metadata` on a missing key would otherwise create a phantom
-            // entry with empty bytes — breaking "nothing is written to the store" for that case.
+            // metadata-only entry — breaking "nothing is written to the store" for that case.
             let already_persisted = store.contains(&key).await.unwrap_or(false);
             if already_persisted {
                 if let Err(e) = store.set_metadata(&key, &metadata).await {
@@ -4548,23 +4548,6 @@ fn external_change_checked(stored_status: Status, recorded: Version) -> bool {
     .is_some()
 }
 
-/// Whether an empty data object stands for "no bytes" — a metadata-only entry — rather than for
-/// empty content.
-///
-/// A store that keeps metadata without a data object usually says so (`get_bytes` reports
-/// `KeyNotFound`), but `AsyncMemoryStore` answers with empty bytes. Liquers records a timestamp
-/// version only when it stored no bytes (serialization failed, or the fallback of
-/// `version_for_tracking`), and a content hash whenever it stored some; so empty bytes under a
-/// timestamp version are such an entry, and are not checked. Empty bytes under a content hash, or
-/// with no recorded version, are content and are checked.
-fn no_bytes_by_design(bytes: &[u8], recorded: Version) -> bool {
-    bytes.is_empty()
-        && match recorded.kind() {
-            VersionKind::Timestamp => true,
-            VersionKind::ContentHash | VersionKind::Unknown => false,
-        }
-}
-
 /// Whether applying `action` writes the sidecar. Everything is written except an
 /// `AcceptAsInput` whose recorded version was 0: a file with no metadata and no recipe is adopted
 /// in memory only (owner decision, 2026-10-02), because nothing about the value changes and the
@@ -4646,8 +4629,7 @@ where
         VersionVerification::OnRead => {}
     }
     let recorded = metadata.version().unwrap_or_else(Version::unknown);
-    if !external_change_checked(metadata.status(), recorded) || no_bytes_by_design(bytes, recorded)
-    {
+    if !external_change_checked(metadata.status(), recorded) {
         return Ok(None);
     }
     let actual = match recorded.verify(bytes) {
@@ -5944,10 +5926,8 @@ pub trait AssetManager<E: Environment>:
     /// This is how an edit nobody has read yet is found; the Part B audit compares recorded
     /// versions only and cannot see it. A key whose store entry has metadata but no data object
     /// is `skipped`, not changed: deleting large intermediates while keeping their metadata is a
-    /// supported workflow. An *empty* data object is bytes, and is checked — except under a
-    /// timestamp version, which Liquers records only when it stored no bytes: a store that
-    /// answers a metadata-only entry with empty bytes (`AsyncMemoryStore`) is not mistaken for
-    /// one whose content was emptied.
+    /// supported workflow; every store reports it as `KeyNotFound` on `get_bytes`
+    /// (`STORE_SEMANTICS.md` §8, `sidecar05`). An *empty* data object is bytes, and is checked.
     ///
     /// A live asset loaded before the edit still holds the old content; when a change is applied
     /// it is unmapped, so the next request reads the store. Under [`VersionVerification::Off`]
@@ -5987,11 +5967,10 @@ pub trait AssetManager<E: Environment>:
                 report.skipped.push(key);
                 continue;
             }
+            // A metadata-only entry has no data object, and every store says so with
+            // `KeyNotFound` (`STORE_SEMANTICS.md` §8, `sidecar05`): nothing to hash, so skip it.
+            // Empty bytes are content and are checked.
             let bytes = match store.get_bytes(&key).await {
-                Ok(bytes) if no_bytes_by_design(&bytes, recorded) => {
-                    report.skipped.push(key);
-                    continue;
-                }
                 Ok(bytes) => bytes,
                 Err(e) if e.error_type == ErrorType::KeyNotFound => {
                     report.skipped.push(key);
@@ -6072,7 +6051,13 @@ pub trait AssetManager<E: Environment>:
         if !store.contains(key).await? {
             return Ok(None);
         }
-        let (binary, mut metadata) = store.get(key).await?;
+        // A contained key with no data object is a metadata-only entry (`sidecar05`): there is
+        // no stored value to recover.
+        let (binary, mut metadata) = match store.get(key).await {
+            Ok(entry) => entry,
+            Err(e) if e.error_type == ErrorType::KeyNotFound => return Ok(None),
+            Err(e) => return Err(e),
+        };
         if !metadata.status().has_data() {
             return Ok(None);
         }
@@ -6124,7 +6109,12 @@ pub trait AssetManager<E: Environment>:
         if !store.contains(key).await? {
             return Ok(None);
         }
-        let (binary, mut metadata) = store.get(key).await?;
+        // A contained key with no data object is a metadata-only entry (`sidecar05`): no bytes.
+        let (binary, mut metadata) = match store.get(key).await {
+            Ok(entry) => entry,
+            Err(e) if e.error_type == ErrorType::KeyNotFound => return Ok(None),
+            Err(e) => return Err(e),
+        };
         // `has_data()` is the right question here — this asks whether the store entry holds a
         // value at all, not whether a reader may see it. That is the distinction from
         // `ReadExposure`, which gates reads.

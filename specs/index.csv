@@ -153,7 +153,7 @@ MACRO-QUERY-VALIDATION-AND-HINTS,issue,`register_command!` does not validate que
 MANIFEST-PROVIDER-FOLDER-LISTING-NEVER-REFRESHES,issue,ManifestRecipeProvider's per-folder manifest listing cache never refreshes,closed,local,,ready,P2,S,records,,,,recipe-provider-listing-contract,,2026-09-26,specs/issues/MANIFEST-PROVIDER-FOLDER-LISTING-NEVER-REFRESHES.md
 MARKDOWN-TABLE-CANNOT-DISTINGUISH-NULL-FROM-EMPTY-TEXT,issue,"A Markdown table reads an empty Text cell back as null, and reads only the first table",draft,local,,ready,P3,S,records,,,,markdown-empty-text-and-tables,,2026-09-27,specs/issues/MARKDOWN-TABLE-CANNOT-DISTINGUISH-NULL-FROM-EMPTY-TEXT.md
 MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS,issue,The extension-to-media-type table lacks or mislabels the common tabular formats,closed,local,,,P3,S,core/value;axum,,,,axum-assets-endpoints,,2026-09-24,specs/issues/MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS.md
-MEMORY-STORE-METADATA-ONLY-ENTRY-READS-AS-EMPTY-BYTES,issue,"AsyncMemoryStore answers a metadata-only entry with empty bytes, indistinguishable from empty content",draft,local,,ready,P2,S,core/store,,,,memory-store-metadata-only-entry,,2026-10-02,specs/issues/MEMORY-STORE-METADATA-ONLY-ENTRY-READS-AS-EMPTY-BYTES.md
+MEMORY-STORE-METADATA-ONLY-ENTRY-READS-AS-EMPTY-BYTES,issue,"AsyncMemoryStore answers a metadata-only entry with empty bytes, indistinguishable from empty content",closed,local,,ready,P2,S,core/store,,,,memory-store-metadata-only-entry,,2026-10-02,specs/issues/MEMORY-STORE-METADATA-ONLY-ENTRY-READS-AS-EMPTY-BYTES.md
 MEMORYSTORE-MAKEDIR-SUCCEEDS-WITHOUT-CREATING-A-DIRECTORY,issue,MemoryStore::makedir succeeds without creating a directory,rejected,local,,,P0,S,core/store,,,,,,2026-09-02,specs/issues/MEMORYSTORE-MAKEDIR-SUCCEEDS-WITHOUT-CREATING-A-DIRECTORY.md
 METADATA-LACKS-SERIALIZE-DESERIALIZE-AND-PARTIALEQ,issue,"Metadata lacks Serialize, Deserialize and PartialEq",draft,local,,ready,P2,S,core/value,,,,metadata-serde-partialeq,,2026-09-26,specs/issues/METADATA-LACKS-SERIALIZE-DESERIALIZE-AND-PARTIALEQ.md
 METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED,issue,A value stored as metadata only is reloaded through the corrupted-data path,in_progress,local,,ready,P3,S,core/assets,,,,metadata-only-entry-reload,,2026-09-24,specs/issues/METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED.md
@@ -345,7 +345,7 @@ LISTDIR-KEYS-DEEP-RECIPE-UNION,design,Deep asset listing that includes recipe ke
 MANIFEST-FOLDER-LISTING-INVALIDATION,design,Invalidating ManifestRecipeProvider's folder cache when a directory changes,superseded,local,,,P2,S,records,,,,manifest-folder-listing-invalidation,,2026-10-04,specs/design/manifest-folder-listing-invalidation/DESIGN.md
 MANIFEST-OVER-STORED-CSV-TEST,design,End-to-end test of a manifest over stored CSV files,in_review,local,implementation,ready,P3,S,records,,,,manifest-over-stored-csv-test,,2026-10-06,specs/design/manifest-over-stored-csv-test/DESIGN.md
 MARKDOWN-EMPTY-TEXT-AND-TABLES,design,Markdown tables round-trip empty text and state the one-table rule,in_review,local,implementation,ready,P3,S,records,,,,markdown-empty-text-and-tables,,2026-10-06,specs/design/markdown-empty-text-and-tables/DESIGN.md
-MEMORY-STORE-METADATA-ONLY-ENTRY,design,A metadata-only entry has no data object on every store,in_review,local,implementation,ready,P2,S,core/store,,,,memory-store-metadata-only-entry,,2026-10-06,specs/design/memory-store-metadata-only-entry/DESIGN.md
+MEMORY-STORE-METADATA-ONLY-ENTRY,design,A metadata-only entry has no data object on every store,in_review,local,documentation,ready,P2,S,core/store,,,,memory-store-metadata-only-entry,,2026-10-06,specs/design/memory-store-metadata-only-entry/DESIGN.md
 MENU-PANE-LAYOUT,design,Menu bar and configurable pane layout,complete,local,,,,,lib/ui,,,,menu-pane-layout,,2026-03-02,specs/design/menu-pane-layout/DESIGN.md
 METADATA-CONSISTENCY,design,Metadata format and type consistency,superseded,local,,,,,core/value,,,,metadata-consistency,,2026-03-02,specs/design/metadata-consistency/DESIGN.md
 METADATA-ERROR-TRACEBACK,design,Error traceback in metadata log entries,in_review,local,implementation,needs-decision,P2,S,core/value;core/error,,,,metadata-error-traceback,,2026-08-29,specs/design/metadata-error-traceback/DESIGN.md
@@ -441,7 +441,7 @@ PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,core/query
 RECORD_STREAMS,reference,Record Streams,current,local,,,,,records;lib/value;lib/commands;web,,,,,2026-10-06,,specs/reference/RECORD_STREAMS.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,macro;core/commands,,,,,2026-09-27,,specs/reference/REGISTER_COMMAND_FSD.md
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,store/config,,,,,2026-09-04,,specs/reference/STORE_CONFIG_FSD.md
-STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,core/store;store/backends;web,,,,,2026-09-30,,specs/reference/STORE_SEMANTICS.md
+STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,core/store;store/backends;web,,,,,2026-10-07,,specs/reference/STORE_SEMANTICS.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,core/value;lib/value,,,,,2026-09-27,,specs/reference/VALUE_TYPE_SYSTEM.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,axum;web,,,,,2026-10-06,,specs/reference/WEB_API_SPECIFICATION.md
@@ -454,7 +454,7 @@ LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,we
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,core/query,,,,,2026-08-14,,specs/guides/QUERY_ESCAPING_GUIDE.md
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,records;lib/value,,,,,2026-10-06,,specs/guides/RECORD_STREAM_GUIDE.md
 STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,core/store;store/config,,,,,2026-09-02,,specs/guides/STORE_FACTORY_GUIDE.md
-STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,core/store;store/backends;web,,,,,2026-10-02,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
+STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,core/store;store/backends;web,,,,,2026-10-07,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,core/value;lib/value,,,,,2026-09-27,,specs/guides/TYPE_SYSTEM_GUIDE.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,build;core/assets,,,,,2026-10-02,,specs/guides/UNITTEST_GUIDE.md
 WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,axum;web,,,,,2026-10-06,,specs/guides/WEB_API_GUIDE.md
