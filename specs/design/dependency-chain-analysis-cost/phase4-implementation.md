@@ -86,16 +86,27 @@ Phase 3 I6, CLAUDE.md "Diagnostic Output". Rationale: a mechanical port.
   `has_expirable_dependencies_impl`.
 - **Call sites:**
   - `interpreter.rs:65-66` and `:176-179` → `analyze_plan_dependencies(…, initial_cwd).await?`;
-  - `recipes.rs:632-634` → `let _ = analyze_plan_dependencies(envref, &mut plan, None).await;`;
-  - update the `use` list at `interpreter.rs:15`.
+  - `recipes.rs:632-635` → `let _ = analyze_plan_dependencies(envref, &mut plan, None).await;`.
+    The `if plan.error.is_none()` gate goes away, because on error the merged pass applies
+    nothing.
+  - Update the `use` lists at `interpreter.rs:15` **and** `recipes.rs:43-44`.
+- **`declared_volatile`.** `K` itself when `recipe(K).volatile`; otherwise the minimum, by
+  `DependencyKey` string, over the summaries read.
 - **Tests.**
   - Changed tests: R1–R4 and R6. The ten `find_dependencies` call sites: four in `src`, which
     become walk internals, and six in tests.
   - New unit tests U1–U11, U8b and U8c. U5, U6, U11 use `CountingRecipeProvider`, extended with
     a recipe without `cwd` for U11.
 
-**Code changes (signatures):**
+**Code changes (signatures, as Phase 2):**
 ```rust
+impl<E: Environment> DependencyWalk<E> {
+    fn new(envref: EnvRef<E>) -> Self;
+    fn walk_plan<'a>(&'a mut self, plan: &'a Plan, cursor: &'a mut CwdCursor)
+        -> crate::maybe_send::BoxFuture<'a, Result<(Vec<PlanDependency>, DependencySummary), Error>>;
+    fn summarize_key<'a>(&'a mut self, key: &'a Key, cursor: &'a CwdCursor)
+        -> crate::maybe_send::BoxFuture<'a, Result<Option<DependencySummary>, Error>>;
+}
 pub(crate) async fn analyze_plan_dependencies<E: Environment>(
     envref: EnvRef<E>, plan: &mut Plan, initial_cwd: Option<Key>) -> Result<(), Error>;
 pub(crate) fn find_dependencies<'a, E: Environment>(
@@ -110,7 +121,8 @@ cargo test -p liquers-core --lib --tests
 CHAIN_SIZES=10,20,40 cargo test -p liquers-core --test dependency_chain_scaling -- --ignored --nocapture
 # Expected: lookups (i+1)-ish per analysis (3·(i+1) per link); 40 links in a few s (still re-parsing recipes.yaml)
 ```
-Every existing test passes except the ones the design changes (R1–R3). The prototype showed that
+Every existing test passes except the ones the design changes (R1–R4 and R6). The R6 call sites
+are at `plan.rs:4399, 4421, 4430, 4473, 4474`. The prototype showed that
 records-only changes break nothing else.
 
 **Rollback:** `git revert` this step's commit.
@@ -132,7 +144,9 @@ need care.
 
 **Action:**
 - **Test hook.** A `#[cfg(test)] parses: AtomicUsize` field, incremented on each YAML parse, for
-  U12 and U12b. Keep it next to `cache`.
+  U12 and U12b. Keep it next to `cache`. This is a test-only amendment to Phase 2's struct.
+  `CachedRecipes` derives `Debug`. `scc::HashMap` 3.8.8 implements `Debug` and `Default`, as in
+  `ManifestRecipeProvider`.
 - **The struct.** `pub struct DefaultRecipeProvider { cache: scc::HashMap<Key, Arc<CachedRecipes>> }`,
   with `#[derive(Default)]` (and `Debug` if `scc::HashMap` allows), plus `pub fn new() -> Self`.
   Mirror `ManifestRecipeProvider::new`.
@@ -146,15 +160,25 @@ need care.
 - **The trait methods.** `get_recipes` returns `(*cached).list.clone()`, because its public
   signature returns an owned `RecipeList`. `recipe` and `recipe_opt` index `by_name`.
   `has_recipes` is unchanged.
-- **The construction sites.**
-  `rg -l '\bDefaultRecipeProvider\b' --type rust | xargs sed -i -E 's/\bDefaultRecipeProvider\b([^:{A-Za-z_])/DefaultRecipeProvider::new()\1/g'`,
-  then fix by hand what this over-matches: `use` lines, `impl … for DefaultRecipeProvider`, type
-  positions such as `Box<DefaultRecipeProvider>`, and doc comments. Check with `cargo check`.
+- **The construction sites.** 115 value uses, among 137 lines that mention the name. A blind
+  `sed` breaks the definitions and imports, so:
+  1. Hand-edit `recipes.rs:684-712` (the struct and its `impl`s) and `recipes.rs:1699`.
+  2. Run a `perl -pi` pass over the files from `rg -l '\bDefaultRecipeProvider\b' --type rust`.
+     It **skips** lines matching `^\s*(//|use\b|pub struct|impl\b)` and lines containing `{` as
+     part of a `use …::{…}` list, and rewrites `\bDefaultRecipeProvider\b(?=\s*($|[),;.]))` to
+     `DefaultRecipeProvider::new()`. The `$` alternative catches end-of-line uses such as
+     `liquers-records/src/provider.rs:205`.
+  3. Review `git diff` by hand: doc links such as `recipes.rs:880, 961` must stay unchanged, and
+     the braced `use` lists in `liquers-records/src/provider.rs:21` and the three axum test files
+     must not change.
+  4. Check every affected crate (validation below).
 - **Tests:** U12, U12b, U12c, U13, U14.
 
 **Validation:**
 ```bash
 cargo check -p liquers-core --all-targets
+cargo check -p liquers-records --all-features --all-targets
+cargo check -p liquers-axum --tests
 cargo test -p liquers-core --lib recipes::
 cargo test -p liquers-core --lib --tests
 CHAIN_SIZES=10,20,40,200 cargo test -p liquers-core --test dependency_chain_scaling -- --ignored --nocapture
@@ -183,31 +207,57 @@ mechanical.
 - **The enum.** `#[non_exhaustive] pub enum StoredDependencyState { Known(Version),
   Confirmed(Version), Stale { version: Version, dependency: DependencyKey }, Unresolvable }`, with
   `Debug, Clone, PartialEq, Eq`.
-- **The default trait method**, `stored_dependency_state(&self, dep_key)`. It delegates to a
-  private boxed recursive helper that carries a `HashSet` of on-path keys and a `HashMap` memo for
-  the call. Per key:
+- **The default trait method.**
+  ```rust
+  async fn stored_dependency_state(&self, dep_key: &DependencyKey) -> StoredDependencyState;
+  ```
+  It is **infallible**, an amendment to Phase 2's `Result`: every store error already maps to
+  `Unresolvable`, and `audit_gaps` keeps propagating `dependency_version` errors on today's path.
+  It delegates to a private recursive helper that returns
+  `crate::maybe_send::BoxFuture<'a, StoredDependencyState>` and carries a `HashSet` of on-path keys
+  and a `HashMap` memo for the call. Per key:
   1. If `dependency_manager().get_version(key)` has a version, return `Known(v)`.
+     - **Why `Known` needs no recursion.** A key holds a version in the manager only if it was
+       computed in this process, or loaded through `try_fast_track` under the same policy, whose
+       checks passed (under `OnLoad`, via this walk). Every later upstream change cascades
+       through the edges registered then, and the cascade removes its version. A `Known` key is
+       therefore as fresh as the policy guarantees.
   2. If the key is not store-resolvable, return `Unresolvable`. Callers treat a non-resolvable
      record as compatible, as today.
   3. If the key is on the current path, return `Unresolvable`.
-  4. `store.get_metadata(key)`. Absent or an error gives `Unresolvable`. No `version()` gives
-     `Unresolvable`. A status that `status_permits_reuse` rejects gives
+  4. If it is a **directory key** (`-R-dir/`), its version comes from `dependency_version` (the
+     listing version). It has no records and no status. Return `Confirmed(v)` after
+     `observe_version`, as today's `OnLoad` does; an error gives `Unresolvable`.
+  5. For a **pure key**, `store.get_metadata(key)`. Absent or an error gives `Unresolvable`. No
+     `version()` gives `Unresolvable`. Status is tested as `dependency_blocks_fast_track` does: a
+     stored `Status::Recipe` does **not** block (the version was kept on remove,
+     `assets.rs:1182`); otherwise a status that `status_permits_reuse` rejects gives
      `Stale { version, dependency: key }`.
-  5. For each record, compare per Phase 2. Against `Known(v)`, use `v.matches(&record.version)`.
-     Against `Confirmed(v)`, use equality, with a recorded `unknown()` compatible. `Stale` passes
-     through. `Unresolvable` refuses only when the record is store-resolvable and its version is
-     not unknown, which is today's `OnLoad` rule.
-  6. If everything holds: `observe_version(key, v)`, `load_from_records(key, records)`, and return
-     `Confirmed(v)`.
+  6. For each record, compare per Phase 2:
+     - Against `Known(v)`, use `v.matches(&record.version)`.
+     - Against `Confirmed(v)`, use equality, with a recorded `unknown()` compatible.
+     - A child `Stale { dependency, .. }` makes this key `Stale { version: own, dependency }`, and
+       nothing is registered for this key.
+     - `Unresolvable` refuses only when the record is store-resolvable and its version is not
+       unknown, which is today's `OnLoad` rule.
+  7. If everything holds: `observe_version(key, v)`, then
+     `load_from_records(key, records)`. Pass its `ExpiredDependents` to
+     `expire_dependencies_result(…, ExpiryCause::Updated { version: v })`, as `assets.rs:1407-1416`
+     does. Return `Confirmed(v)`.
 - **The predicate.** Make `AssetData::status_permits_reuse` callable from the trait, by moving it
-  to a free `pub(crate) fn` in `assets.rs`.
-- **Tests:** U15–U25. U16 and U24 need a store wrapper that counts or fails `get_metadata`;
-  write it as a small test-only `AsyncStore` delegating to `AsyncMemoryStore`.
+  to a free `pub(crate) fn` in `assets.rs` (it uses neither `self` nor `E`) and updating its
+  callers at `assets.rs:1176, 1183`. The trait reaches the store through
+  `self.get_envref().get_async_store()`, and the manager through `self.dependency_manager()`.
+- **Export.** `StoredDependencyState` is public through `pub mod assets`, like `AuditReport`. No
+  re-export.
+- **Tests:** U15–U25. Two test-only `AsyncStore` wrappers delegating to `AsyncMemoryStore` go in
+  `assets.rs` `mod tests`: `CountingMetadataStore` (U16) and `FailingMetadataStore` (U24).
 
 **Validation:**
 ```bash
 cargo test -p liquers-core --lib assets::
-cargo check -p liquers-core --target wasm32-unknown-unknown --no-default-features   # ?Send BoxFuture; skip if the target is absent, note it in the PR
+rustup target add wasm32-unknown-unknown   # not installed in the cloud session by default
+cargo check -p liquers-core --target wasm32-unknown-unknown   # ?Send BoxFuture (as check-build-matrix.sh runs it)
 ```
 
 **Rollback:** `git revert`. Nothing calls the method yet.
@@ -228,20 +278,33 @@ Rationale: new logic built from existing rules. The comparison rules must not dr
 
 **Action:**
 - **`try_fast_track`.** Replace the body of the `else if … OnLoad …` branch (`assets.rs:1334-1366`)
-  with `manager.stored_dependency_state(&dep_record.key)`. Match it explicitly:
-  - `Known(v)` or `Confirmed(v)`, with the record holding (equality for `Confirmed`): continue.
+  with `manager.stored_dependency_state(&dep_record.key)`. **Keep the branch's guard**
+  (`OnLoad && dep_record.key.is_store_resolvable() && !dep_record.version.is_unknown()`), so
+  command records are never refused. The branch is reached only when the manager has no version,
+  so `Known` arrives only if a concurrent registration happened in between. It is compared with
+  `matches`. Match explicitly:
+  - `Known(v)` with `v.matches(&record.version)`, or `Confirmed(v)` with `v == record.version`:
+    continue.
   - Otherwise: log today's "stale (on_load)" line, `clear_fast_track_payload()`, `return
     Ok(false)`.
   - Remove the now-redundant `observe_version` call.
 
   The manager-known branch, the unconditional `dependency_blocks_fast_track` check and the
-  `load_from_records` registration are **unchanged**; the last one is the minimum rule.
+  `load_from_records` registration are **unchanged**; the last one is the minimum rule. The order
+  of the `OnLoad` refusal and the status check does not matter: both refuse.
 - **`audit_gaps`.** For a store-resolvable gap, first call `stored_dependency_state(gap)`:
   - `Stale { dependency, .. }`: `dependency_manager().expire(gap)`, then
     `expire_dependencies_result(expired, ExpiryCause::StaleDependency { dependency })`, and push
     the expired keys into `report.expired` (`Expire` mode). In `ReportOnly` mode, push a finding
-    for each dependent edge, as `stale_edges` would. **Verify** that `expire(gap)` does not expire
-    anything wrong for a gap with no loaded asset.
+    for each dependent edge, as `stale_edges` would.
+    - **What `expire(gap)` does here** (verified at `dependencies.rs:800-955`). For a gap with no
+      registered version, the skip-cascade check fires only for a `Version(0)` entry, so the
+      cascade runs. The gap itself appears in `keys` with `via = gap`; filter it out of
+      `report.expired`, since it has no loaded asset. Its dependents expire.
+    - If implementation finds otherwise, stop, record the difference in the PR, and ask before
+      changing the approach.
+    - This is new behaviour: today a gap whose stored version matches never cascades. I4 is its
+      test.
   - `Known`, `Confirmed` or `Unresolvable`: today's path, `dependency_version` then
     `audit_version` or `stale_edges`.
 - **Tests:** integration I1–I4, I3b, I4b and I4c in `tests/dependency_audit_integration.rs`.
@@ -253,7 +316,13 @@ Rationale: new logic built from existing rules. The comparison rules must not dr
   - Add `second_process_with_commands(snapshot, changed, calls, policy, make_text)`, to which
     `second_process_with` delegates.
   - The existing callers are unchanged.
-  - A failing-store wrapper for I4c, shared with U24 if practical.
+  - A failing-store wrapper for I4c goes in `liquers-core/tests/fixtures/mod.rs`. It cannot be
+    shared with U24's, because `cfg(test)` code in `src/` is invisible to `tests/`.
+  - I3 and I3b build their store with `l0` stored `Expired` and `l1` `Ready` by replaying the
+    first process's snapshot and rewriting `l0`'s metadata status (as `second_process_with`
+    rewrites versions). Add a `changed_status` argument to `second_process_with_commands`.
+  - `register_counting_commands_with` is the "extension" of `register_counting_commands_in` that
+    Phase 3 describes: a new function, with the old one delegating to it.
 
 **Validation:**
 ```bash
@@ -275,22 +344,34 @@ Rationale: behaviour on the restart path; it has to match Phase 1 Decision 1 exa
 ### Step 6: Provenance, smoke, and the bound
 
 **Files:** `tests/dependency_audit_integration.rs` (I5), `tests/dependency_chain_scaling.rs`
-(I7 and the bounds in I6).
+(I7 and the bounds in I6), and a `liquers-axum` test for the audit endpoint (I8).
 
 **Action:**
 - **I5.** An evaluated 10-link chain; expire `l0` through the manager; the last link's `via` is
   `l8`.
 - **I7.** A 20-link chain in under 3 s, not ignored.
-- **I6.** Add the assertions 40 < 1 s and 200 < 5 s, then run it. If 200 links measures above
+- **I6.** Add the assertions 40 < 1 s and 200 < 5 s. I6 **fails** unless both 40 and 200 are in
+  `CHAIN_SIZES`, and its default becomes `10,20,40,200`. Each size gets a fresh environment and
+  provider, so sizes share no warm state. Then run it. If 200 links measures above
   5 s, set the bound to 8 s per Phase 2 Decision 2 and record the measurement in the PR. This run
   is the acceptance check: I6 is `#[ignore]`, so default runs do not check it.
+- **I8 (new, carried from Phase 2 Integration Points).** In `liquers-axum/tests` (the file that
+  exercises `key_handlers.rs:484-496`; find it with `rg trigger_dependency_audit liquers-axum`),
+  set up a stale gap like I4, call the audit endpoint, and assert that the response lists the
+  dependent as expired with `StaleDependency`.
+- **`chain_env(n)`.** A local helper in `dependency_chain_scaling.rs`, unrelated to the `chain_env`
+  in `keyed_version_cascade.rs`: a `SimpleEnvironment<Value>` over `AsyncMemoryStore` with
+  `make_text`, `upper` and `DefaultRecipeProvider::new()`. I5 uses its own copy in
+  `dependency_audit_integration.rs`.
 - **Optional (R5).** Leave `cascade_over_100_link_chain` as it is: its hand-written chain still
   tests what it was written for.
 
 **Validation:**
 ```bash
+cargo test -p liquers-core --test dependency_audit_integration
 cargo test -p liquers-core --test dependency_chain_scaling
-CHAIN_SIZES=10,20,40,200 cargo test -p liquers-core --test dependency_chain_scaling -- --ignored --nocapture
+cargo test -p liquers-core --test dependency_chain_scaling -- --ignored --nocapture   # acceptance (I6)
+cargo test -p liquers-axum --tests
 ```
 
 **Agent Specification:** Model haiku. Skills: liquers-unittest. Knowledge: Phase 3 I5–I7 and the
@@ -325,7 +406,8 @@ CARGO_INCREMENTAL=0 cargo test -p liquers-core --lib --tests
 cargo test -p liquers-records --all-features --lib --tests
 cargo test -p liquers-axum --tests
 cargo test -p liquers-lib --lib --tests
-cargo check -p liquers-core --target wasm32-unknown-unknown --no-default-features   # if the target is installed
+cargo test -p liquers-core --test dependency_chain_scaling -- --ignored --nocapture   # acceptance (I6), last
+rustup target add wasm32-unknown-unknown && cargo check -p liquers-core --target wasm32-unknown-unknown
 cargo run -p liquers-core --features cli --bin liquers-validate -- --command make_text --command upper -- '-R/data/l0.txt/-/upper/l1.txt'
 ```
 `scripts/check-build-matrix.sh` is **not** required: no `#[cfg(feature)]`, optional dependency or

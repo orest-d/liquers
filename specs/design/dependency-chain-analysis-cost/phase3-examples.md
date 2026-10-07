@@ -70,7 +70,8 @@ Every assertion on a dependency list describes the state **after** the change.
 | I4c | integration, same | `on_load_refuses_on_store_error` | `OnLoad`, store failing `get_metadata` for `l1`: `l2` is refused (the `Unresolvable` path) |
 | I5 | integration, same | `cascade_names_true_predecessor` | Evaluated (not hand-written) chain `l0..l9`; expire `l0`; `l9`'s expiry reason has `via` = `l8` |
 | I6 | integration, `dependency_chain_scaling.rs` (new) | `chain_evaluation_scales` (`#[ignore]`) | The acceptance check, Phase 1 Decision 5. 10/20/40/200 links, times with `eprintln!`; asserts 40 < 1 s and 200 < 5 s. If 200 links misses, the assertion becomes 8 s (Phase 2 Decision 2) and the measurement is recorded in the PR and in Phase 5. Run in Phase 4 Step 6 |
-| I7 | integration, same | `chain_20_links_smoke` | **Smoke only, not acceptance.** 20 links under 3 s debug. Predicted ≈ 3·Σ(i+1) = 693 lookups × ~70 µs + floor ≈ 0.2 s, so 3 s is a generous ceiling against machine noise. Not ignored |
+| I8 | integration, `liquers-axum/tests` | `audit_endpoint_reports_stale_gap_dependents` | The admin audit endpoint (`key_handlers.rs:484-496`) lists the dependents of a stale gap as expired, with `StaleDependency` |
+| I7 | integration, same as I6 | `chain_20_links_smoke` | **Smoke only, not acceptance.** 20 links under 3 s debug. Predicted ≈ 3·Σ(i+1) = 693 lookups × ~70 µs + floor ≈ 0.2 s, so 3 s is a generous ceiling against machine noise. Not ignored |
 | R1 | changed | `find_dependencies_respects_nested_recipe_cwd` | Assert the link on the recipe's own analysis; outer list has no nested key |
 | R2 | changed | `expiration_nested_recipe_uses_keyed_recipe_plan` | Same; the 45 s expiry is unchanged |
 | R3 | changed | `volatility_populates_dependencies_once_and_expiration_reuses_them` | Now one call `analyze_plan_dependencies`; `recipe_opt` calls 3 → 1 |

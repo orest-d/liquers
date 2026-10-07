@@ -58,7 +58,7 @@ matter of the audit policy.
 ## Core Interactions
 
 - **Plan / query.** Dependency analysis becomes one memoized walk per analysis. Each reachable
-  recipe key is visited once. Cycle detection is depth-first search: an on-path set gives O(1)
+  recipe key is visited once per (key, caller CWD); Phase 2 explains the CWD. Cycle detection is depth-first search: an on-path set gives O(1)
   "is this key already on the current path?" checks (`Vec::contains` today is O(depth)), and a
   done set skips keys already analysed. The walk is O(V+E) over the reachable recipe graph. The
   same pass produces the transitive *summaries* (volatility, combined expiry). Those summaries go
@@ -82,6 +82,9 @@ matter of the audit policy.
 ## Crate Placement
 
 `liquers-core` only (`plan.rs`, `interpreter.rs`, `assets.rs`, `recipes.rs`, `dependencies.rs`).
+Amended in Phase 2 (Decision 1): `DefaultRecipeProvider` gains a field, so its construction sites
+in `liquers-axum` tests and `liquers-records` change mechanically. No behaviour changes outside
+core.
 
 ## Optional optimization, not part of this design: caching transitive summaries across evaluations
 
@@ -111,6 +114,11 @@ into a follow-up issue in Phase 5 rather than into this scope.
   configuration.
 - **Other:** a follow-up issue for the optional summary cache, filed in Phase 5.
 - **Updates:** the issue file's resolution, `specs/README.md` and the index.
+
+## Open Questions
+
+None open. The questions raised in this phase were answered by the maintainer and are recorded
+below.
 
 ## Decisions (maintainer, 2026-10-07)
 

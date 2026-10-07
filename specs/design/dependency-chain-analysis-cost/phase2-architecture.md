@@ -238,8 +238,11 @@ evaluation of link *i* costs about 3·i lookups instead of 3·(i+1)².
 async fn stored_dependency_state(
     &self,
     dep_key: &crate::metadata::DependencyKey,
-) -> Result<StoredDependencyState, Error>;
+) -> StoredDependencyState;
 ```
+
+*Amended in the Phase 4 review: originally `Result<…>`. It is infallible because every store
+error maps to `Unresolvable`.*
 
 It is a default method, beside `audit_gaps` and `dependency_version`, so the external asset
 manager inherits it. The recursion is a private boxed helper carrying the memo and the on-path set.
