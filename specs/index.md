@@ -8,9 +8,9 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 119
+Total rows: 118
 - P2: 63
-- P3: 56
+- P3: 55
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
@@ -77,7 +77,6 @@ Total rows: 119
 | [`NO-RELATIONAL-DATABASE-ACCESS-LAYER`](issues/NO-RELATIONAL-DATABASE-ACCESS-LAYER.md) | feature | No access layer from Liquers into relational databases | draft |  | P2 | XL | lib/value;lib/commands;store/backends |  | 2026-09-20 |
 | [`NO-REMOTE-STORE-OR-ASSET-MANAGER`](issues/NO-REMOTE-STORE-OR-ASSET-MANAGER.md) | feature | A client environment cannot use a server's store or asset manager as its own | draft |  | P2 | XL | axum;web;core/assets;core/store |  | 2026-09-27 |
 | [`VALUE-TYPE-DEFINITION-MACRO`](issues/VALUE-TYPE-DEFINITION-MACRO.md) | feature | Value types and their registry entries are hand-written instead of generated | draft |  | P2 | XL | macro;lib/value;core/value |  | 2026-08-18 |
-| [`AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS`](issues/AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS.md) | issue | The Recipes API's metadata and entry endpoints return placeholder metadata and ignore the format | draft | ready | P3 | S | axum | [phase1](design/axum-recipes-metadata-entry/phase1-high-level-design.md)  [phase2](design/axum-recipes-metadata-entry/phase2-architecture.md)  [phase3](design/axum-recipes-metadata-entry/phase3-examples.md)  [phase4](design/axum-recipes-metadata-entry/phase4-implementation.md)  | 2026-09-28 |
 | [`JS-STORE-WRAPPER-HAS-NO-EFFECTIVE-MEDIA-TYPE`](issues/JS-STORE-WRAPPER-HAS-NO-EFFECTIVE-MEDIA-TYPE.md) | issue | A page can read a key's declared metadata but not its effective media type | draft | ready | P3 | S | web | [phase1](design/js-store-effective-media-type/phase1-high-level-design.md)  [phase2](design/js-store-effective-media-type/phase2-architecture.md)  [phase3](design/js-store-effective-media-type/phase3-examples.md)  [phase4](design/js-store-effective-media-type/phase4-implementation.md)  | 2026-09-30 |
 | [`METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED`](issues/METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED.md) | issue | A value stored as metadata only is reloaded through the corrupted-data path | in_progress | ready | P3 | S | core/assets | [phase1](design/metadata-only-entry-reload/phase1-high-level-design.md)  [phase2](design/metadata-only-entry-reload/phase2-architecture.md)  [phase3](design/metadata-only-entry-reload/phase3-examples.md)  [phase4](design/metadata-only-entry-reload/phase4-implementation.md)  | 2026-09-24 |
 | [`ARGUMENT-INFO-HAS-NO-DESCRIPTION`](issues/ARGUMENT-INFO-HAS-NO-DESCRIPTION.md) | issue | ArgumentInfo has no per-argument description | draft | needs-decision | P3 | S | core/commands;macro | [phase1](design/argument-info-description/phase1-high-level-design.md)  [phase2](design/argument-info-description/phase2-architecture.md)  [phase3](design/argument-info-description/phase3-examples.md)  [phase4](design/argument-info-description/phase4-implementation.md)  | 2026-09-24 |

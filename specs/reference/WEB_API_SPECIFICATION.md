@@ -3,7 +3,7 @@ title: Liquers Web API Specification
 kind: reference
 audience: internal
 area: [axum, web]
-reviewed: 2026-10-06
+reviewed: 2026-10-07
 ---
 # Liquers Web API Specification
 
@@ -465,8 +465,8 @@ Keys are parsed with `parse_key`.
 |---|---|
 | `GET listdir` | array of the resource names that have a recipe **in the root directory** (`AsyncRecipeProvider::assets_with_recipes`) |
 | `GET data/{*key}` | the recipe as text (`text/plain`), not enveloped |
-| `GET metadata/{*key}` | `{}` once the recipe is found — a placeholder (`AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS`) |
-| `GET entry/{*key}` | a CBOR `DataEntry` with the recipe text as `data` and `metadata: {}`; `?format=` and `Accept` are ignored (same issue) |
+| `GET metadata/{*key}` | the recipe's metadata: `AsyncRecipeProvider::get_asset_info` as a `MetadataRecord` (title, description, filename, planning diagnostics) — what the Assets API's `key/metadata` returns for a recipe key |
+| `GET entry/{*key}` | a `DataEntry` with the recipe text as `data` and the same metadata, negotiated like the Assets API's: `?format=` (`cbor`, `json`, `bincode`), then `Accept`, then CBOR; `data` is base64 in JSON |
 | `GET resolve/{*key}` | `{"key": …, "query": …, "plan": {…}}`, the recipe's execution plan (`AsyncRecipeProvider::recipe_plan`); a recipe whose commands are not registered is 400 `ActionNotRegistered` |
 
 A key with no recipe answers the recipe provider's error; its type, and so the HTTP status,
@@ -587,6 +587,7 @@ Not available at HEAD; listed so that no reader mistakes them for features:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-07 | §6: Recipes API `metadata` and `entry` return the recipe's asset info as metadata, and `entry` is negotiated by `?format=` / `Accept`. | phase-5, `design/axum-recipes-metadata-entry/` |
 | 2026-10-06 | Added `key/can_make`; `key/contains` is stored-or-listed; deep listing is complete; Store API writes notify the provider. | phase-5 |
 | 2026-09-29 | Review fixes of PR #73: §5.8 — each subscription requests its asset in its own task, so the connection stays responsive; with an inline manager `Initial` arrives after the evaluation. §7 — the timeout bounds the whole wait, evaluation included. Linked the new `WEB_API_GUIDE.md`. | `design/axum-assets-endpoints/` |
 | 2026-09-28 | Rewritten against the implementation (full audit): the Store API's writes are `PUT` and its results are as served; §3 lists the real `ErrorType` → HTTP mapping, with `StatusConflict` → 409; §5 is the new Assets API — `q/`, `key/` and `admin/` families, access modes, status-aware removal, `removedir`, `expire`, `override`, `description`, the metadata allow-list, GET alternatives and builder switches, and the `ws/q` / `ws/key` WebSocket protocol with its lifecycle and limits; §7 documents `with_timeout` and the `get_binary` read; the nonexistent `FullApiBuilder`, `liquers_web` crate, `Router` trait, `SessionInterface` and `ApiError` are replaced by the `Router::merge` assembly and the real handler pattern; the old version/status header and "Revision History" table are folded into this table. | `design/axum-assets-endpoints/` |

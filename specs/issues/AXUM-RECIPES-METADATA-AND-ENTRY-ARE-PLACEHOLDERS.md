@@ -2,7 +2,7 @@
 id: AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS
 kind: issue
 title: The Recipes API's metadata and entry endpoints return placeholder metadata and ignore the format
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [axum]
@@ -31,3 +31,17 @@ routes and carries the same metadata.
 
 Found 2026-09-28 during the `WEB_API_SPECIFICATION.md` audit of `specs/design/axum-assets-endpoints/`
 (Step 13); the specification now documents the current behaviour.
+
+## Resolution (2026-10-07)
+
+Implemented by [`design/axum-recipes-metadata-entry/`](../design/axum-recipes-metadata-entry/).
+`GET {recipes}/metadata/{key}` now returns the recipe provider's asset info as a `MetadataRecord`,
+the same as the Assets API returns for a recipe key. `GET {recipes}/entry/{key}` sends that
+metadata with the recipe YAML and is negotiated by `?format=`, then `Accept`, then CBOR, through
+the Assets API's `entry_response`.
+
+Tests:
+- `recipe_metadata_returns_recipe_asset_info`
+- `recipe_entry_honours_format_parameter`
+- `recipe_entry_honours_accept_header`
+- `recipe_metadata_and_entry_of_an_unknown_key_fail`

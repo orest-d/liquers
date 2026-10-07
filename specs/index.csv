@@ -29,7 +29,7 @@ AXUM-ASSETS-CANCEL-STARTS-EVALUATION,issue,POST /api/assets/cancel starts an eva
 AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS,issue,AssetsApiBuilder::build panics whenever the WebSocket route is enabled,closed,local,,,P1,S,axum,,,,axum-assets-endpoints,,2026-09-27,specs/issues/AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS.md
 AXUM-HANDLER-TEST-COVERAGE,issue,"liquers-axum has no handler test scaffolding, so handler behaviour is verified only by review",closed,local,,,P2,M,axum,,,,axum-assets-endpoints,,2026-08-08,specs/issues/AXUM-HANDLER-TEST-COVERAGE.md
 AXUM-QUERY-TIMEOUT-HARDCODED,issue,The query handler's 30-second timeout is hardcoded,closed,local,,,P2,S,axum,,,,axum-assets-endpoints,,2026-09-16,specs/issues/AXUM-QUERY-TIMEOUT-HARDCODED.md
-AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS,issue,The Recipes API's metadata and entry endpoints return placeholder metadata and ignore the format,draft,local,,ready,P3,S,axum,,,,axum-recipes-metadata-entry,,2026-09-28,specs/issues/AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS.md
+AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS,issue,The Recipes API's metadata and entry endpoints return placeholder metadata and ignore the format,closed,local,,ready,P3,S,axum,,,,axum-recipes-metadata-entry,,2026-09-28,specs/issues/AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS.md
 AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN,issue,"GET /api/store/keys lists only the direct children of the prefix, not all keys",draft,local,,needs-decision,P3,S,axum,,,,axum-store-keys-deep,,2026-09-28,specs/issues/AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN.md
 AXUM-STORE-UPLOAD-AND-METADATA-DROP-INFORMATION,issue,"Store API uploads carry no media type, and legacy metadata is served as an empty object",draft,local,,needs-decision,P3,S,axum,,,,axum-store-upload-metadata,,2026-09-28,specs/issues/AXUM-STORE-UPLOAD-AND-METADATA-DROP-INFORMATION.md
 AXUM-WEBSOCKET-HARDENING,issue,WebSocket endpoint is not hardened,accepted,local,,,P3,M,axum,,,,axum-assets-endpoints,,2026-08-08,specs/issues/AXUM-WEBSOCKET-HARDENING.md
@@ -281,7 +281,7 @@ ACTIVE-04,design,Design for DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS,complete,l
 ASYNC-WASM-REFACTOR,design,Async evaluation on wasm,complete,local,,,,,core/assets;web,,,,async-wasm-refactor,,2026-03-02,specs/design/async-wasm-refactor/DESIGN.md
 AXUM-ASSETS-ENDPOINTS,design,A working web and WebSocket interface for the asset manager,,github,implementation,,,,axum;core/assets;core/error;docs,,73,,axum-assets-endpoints,,2026-09-27,specs/design/axum-assets-endpoints/DESIGN.md
 AXUM-ASSETS-RECIPES-API,design,Assets and recipes HTTP API,complete,local,,,,,axum,,,,axum-assets-recipes-api,,2026-03-02,specs/design/axum-assets-recipes-api/DESIGN.md
-AXUM-RECIPES-METADATA-ENTRY,design,Recipes API metadata and entry return real recipe metadata and negotiate format,in_review,local,implementation,ready,P3,S,axum,,,,axum-recipes-metadata-entry,,2026-10-06,specs/design/axum-recipes-metadata-entry/DESIGN.md
+AXUM-RECIPES-METADATA-ENTRY,design,Recipes API metadata and entry return real recipe metadata and negotiate format,in_review,local,documentation,ready,P3,S,axum,,,,axum-recipes-metadata-entry,,2026-10-06,specs/design/axum-recipes-metadata-entry/DESIGN.md
 AXUM-STORE-KEYS-DEEP,design,Store API keys route enumerates every key under the prefix,in_review,local,implementation,needs-decision,P3,S,axum,,,,axum-store-keys-deep,,2026-10-06,specs/design/axum-store-keys-deep/DESIGN.md
 AXUM-STORE-UPLOAD-METADATA,design,Store API keeps upload media types and serves legacy metadata as stored,in_review,local,implementation,needs-decision,P3,S,axum,,,,axum-store-upload-metadata,,2026-10-06,specs/design/axum-store-upload-metadata/DESIGN.md
 BUILD-MATRIX-CI,design,Run the feature and target build matrix in CI,complete,local,,ready,P2,S,build;docs,,,,build-matrix-ci,,2026-09-01,specs/design/build-matrix-ci/DESIGN.md
@@ -448,7 +448,7 @@ STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,
 STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,core/store;store/backends;web,,,,,2026-10-07,,specs/reference/STORE_SEMANTICS.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,core/value;lib/value,,,,,2026-09-27,,specs/reference/VALUE_TYPE_SYSTEM.md
-WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,axum;web,,,,,2026-10-06,,specs/reference/WEB_API_SPECIFICATION.md
+WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,axum;web,,,,,2026-10-07,,specs/reference/WEB_API_SPECIFICATION.md
 ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,core/assets,,,,,2026-10-07,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
 autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,docs;build,,,,,2026-10-05,,specs/guides/autonomous_bulk_design.md
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,,docs;build,,,,,2026-08-11,,specs/guides/autonomous_issue_fixing.md
