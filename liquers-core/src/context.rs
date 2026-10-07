@@ -765,8 +765,10 @@ impl<E: Environment> Context<E> {
     /// The dependency is recorded and cycle-checked exactly as [`Self::get_dependency_state`]
     /// does. The command can do other work, or submit further dependencies, and then wait with
     /// [`Self::wait_for_dependency`]. `submit` is not lazy: the queued manager starts the job at
-    /// once, and the inline manager runs it to completion inside `submit`
-    /// (`SUBMIT-IS-NOT-LAZY-ON-ANY-MANAGER`). It does not drain the local queue. An asset that is
+    /// once when it has capacity, and otherwise queues it on this asset's local queue, where it
+    /// starts at the first `wait_for_dependency` or `evaluate`; the inline manager runs it to
+    /// completion inside `submit` (`SUBMIT-IS-NOT-LAZY-ON-ANY-MANAGER`). It does not drain the
+    /// local queue. An asset that is
     /// submitted and never waited for simply completes; no parent is left in
     /// `Status::Dependencies`.
     #[must_use = "a submitted dependency is only used when it is waited for with `wait_for_dependency`"]
@@ -2071,6 +2073,56 @@ mod tests {
         .expect("wait finishes")
         .expect("wait");
         assert_eq!(state.try_into_string().expect("text"), "gated");
+    }
+
+    /// A saturated queued manager does not start a submitted dependency: with a job capacity of
+    /// one, the parent occupies the only slot, so `submit` parks the dependency on the parent's
+    /// local queue (`Submitted`), and it runs when the parent waits for it.
+    #[tokio::test]
+    async fn submit_queues_locally_when_queued_manager_is_saturated() {
+        use crate::environment_builder::{AssetManagerOptions, EnvironmentBuilder};
+        use crate::metadata::Status;
+        let seen = Arc::new(std::sync::Mutex::new(Vec::<Status>::new()));
+        let seen_by_command = seen.clone();
+        let mut builder = EnvironmentBuilder::<Value>::new()
+            .with_asset_manager_options(AssetManagerOptions::default().with_job_capacity(1));
+        builder
+            .command_registry
+            .register_command(CommandKey::new_name("dep_cmd"), |_state, _args, _ctx| {
+                Ok(Value::from("d"))
+            })
+            .expect("register dep_cmd");
+        builder
+            .command_registry
+            .register_async_command(CommandKey::new_name("parent_cmd"), move |_state, _args, ctx| {
+                let seen = seen_by_command.clone();
+                Box::pin(async move {
+                    let dep = ctx.submit(&parse_query("dep_cmd")?).await?;
+                    let status = dep.status().await;
+                    seen.lock().map_err(|_| Error::general_error("poisoned".to_string()))?
+                        .push(status);
+                    let state = ctx.wait_for_dependency(&dep).await?;
+                    Ok(Value::from(format!("parent of {}", state.try_into_string()?)))
+                })
+            })
+            .expect("register parent_cmd");
+        let envref = builder.build().expect("build");
+
+        let asset = envref
+            .get_asset_manager()
+            .get_asset(&parse_query("parent_cmd").expect("query"))
+            .await
+            .expect("asset");
+        let state = tokio::time::timeout(std::time::Duration::from_secs(10), asset.get())
+            .await
+            .expect("the parent finishes: waiting drains the local queue")
+            .expect("parent state");
+        assert_eq!(state.try_into_string().expect("text"), "parent of d");
+        assert_eq!(
+            seen.lock().expect("lock").as_slice(),
+            &[Status::Submitted],
+            "parked on the local queue, not started"
+        );
     }
 
     /// The inline manager resolves a dependency through `get_asset`, which evaluates it there and

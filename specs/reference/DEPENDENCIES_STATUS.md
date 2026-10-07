@@ -296,8 +296,10 @@ This is the runtime dependency path for commands that discover dependencies whil
 2. **Command requests dependency**
    - The command calls `context.submit(query)` (start, return the asset), `context.evaluate(query)`
      (`submit`, then drain the local queue) or `context.get_dependency_state(query)` (`submit`,
-     then `wait_for_dependency`). `submit` is not lazy: the dependency has started, and on the
-     inline manager finished, before it returns (`SUBMIT-IS-NOT-LAZY-ON-ANY-MANAGER`).
+     then `wait_for_dependency`). `submit` is not lazy. When it returns, the dependency has
+     finished on the inline manager; has started on a queued manager with capacity; and, on a
+     saturated queued manager, is queued on this asset's local queue (`Submitted`), to start at
+     the first `wait_for_dependency` or `evaluate` drain (`SUBMIT-IS-NOT-LAZY-ON-ANY-MANAGER`).
    - `Context::evaluate()` gets the current asset key when available.
    - If current and dependency keys are known, it calls
      `DependencyManager::would_create_cycle(current, dependency)` before recording the edge.
@@ -436,7 +438,7 @@ Dependency evaluation is now non-blocking and deadlock-free (see
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-07 | §Current contract: an edge recorded against a version the map has already replaced marks the dependent stale (the stale-dependency route); the folder-listing bullet no longer names the window as uncaught. | phase-5 (`design/dependency-edge-superseded-version/`) |
+| 2026-10-07 | §Current contract: an edge recorded against a version the map has already replaced marks the dependent stale (the stale-dependency route); the folder-listing bullet no longer names the window as uncaught. Flow B step 2: what `submit` leaves behind on each manager, including the saturated queued manager, which parks the dependency on the local queue. | phase-5 (`design/dependency-edge-superseded-version/`, `design/submit-eagerness-documentation/`) |
 | 2026-10-04 | Review fixes on orest-d/liquers#75: writes register through `register_written_version` (a first registration is a change); `on_load` records a version it confirmed; `makedir` / `removedir` refresh the parent listing; the directory step versions the read that built its value and re-reads once registered. | phase-5 |
 | 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. Current contract: versions are `from_content`; the "never / policy not expressible" bullet replaced by audits on first observation (`audit_version`), `AuditMode::ReportOnly` / `AuditFinding`, `DependencyAuditPolicy` (`explicit` / `on_load`) and folder-listing (`-R-dir/`) versions with their refresh. Flow B uses `submit` / `wait_for_dependency`; Flow C records an unknown edge for an unversioned plan dependency; glossary gains `submit`, `wait_for_dependency`, `audit_version`, `stale_edges`, `dependency_version`, `refresh_listing_version`. | phase-5 |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. Current contract gains two bullets from its review fix: a `cached: false` keyed asset stays its key's graph node through `bound_owner_key` when no other asset is registered, and `expire_dependencies_result` marks the stored copy of an expired key no registered asset holds `Expired` (from `Ready`/`Override` only). The rest of the contract was not re-verified beyond what these touch. | phase-5 |
