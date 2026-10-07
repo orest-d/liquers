@@ -32,6 +32,7 @@ use liquers_lib::records::{
     RecordViewMut,
 };
 use liquers_lib::register_records_commands;
+use liquers_core::value::ValueInterface;
 use liquers_lib::value::{ExtValueInterface, Value};
 
 // -------------------------------------------------------------------------------------------
@@ -113,6 +114,10 @@ fn build_env(store: AsyncMemoryStore) -> Result<EnvRef<DefaultEnvironment<Value>
         )?;
         register_command!(cr,
             fn dated_rows() -> result
+            namespace: "fixture"
+        )?;
+        register_command!(cr,
+            fn short_csv() -> result
             namespace: "fixture"
         )?;
     }
@@ -401,5 +406,51 @@ async fn rec_id_selects_by_date_query() -> Result<(), Box<dyn std::error::Error>
             "{query}"
         );
     }
+    Ok(())
+}
+
+// -------------------------------------------------------------------------------------------
+// to_record_logs_padded_csv_rows
+// -------------------------------------------------------------------------------------------
+
+/// The bytes of a CSV with two short rows, as a command returns them.
+fn short_csv() -> Result<Value, Error> {
+    Ok(Value::from_bytes(
+        b"a,b,c,d\n1,2,3,4\n5,6\n7,8,9\n10,11,12,13\n".to_vec(),
+    ))
+}
+
+/// A CSV with short rows reads, padded, and says so once in the asset's log — the aggregate
+/// warning decided for `specs/design/csv-physical-lines-short-rows/`.
+///
+/// The CSV comes from a command rather than from a stored `data/short.csv`, as Phase 3 planned:
+/// a stored CSV without a `RecordView` type identifier cannot be loaded at all
+/// (`STORED-UNTYPED-FILE-OF-UNLISTED-FORMAT-CANNOT-BE-READ`), and one with it is deserialized
+/// before any command runs, where there is no log.
+#[tokio::test]
+async fn to_record_logs_padded_csv_rows() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = build_env(AsyncMemoryStore::new(&Key::new()))?;
+
+    let state = eval(envref, "ns-fixture/short_csv/ns-rec/to_record-csv").await?;
+    let view = state.value()?.as_record_view()?;
+    assert_eq!(view.len(), 4);
+    let record = state
+        .metadata
+        .metadata_record()
+        .ok_or("the evaluated asset has a metadata record")?;
+    let padded: Vec<&str> = record
+        .log
+        .iter()
+        .map(|entry| entry.message.as_str())
+        .filter(|message| message.contains("less than number of columns in the header"))
+        .collect();
+    assert_eq!(
+        padded,
+        vec![
+            "There has been 2 rows with number of cells between 2 and 3, which is less than \
+             number of columns in the header (4)."
+        ],
+        "one aggregate warning per read"
+    );
     Ok(())
 }

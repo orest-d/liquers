@@ -546,8 +546,15 @@ Parquet writers materialize the view first.
 field is null, a quoted `""` is the empty string. The writer quotes exactly when needed — separator,
 quote, CR, LF, or an empty string — and ends rows with `\n`; the reader accepts `\n` and `\r\n`,
 quoted newlines and doubled quotes, and **strips a leading UTF-8 BOM**. Headers are field **names**.
-A row wider than the header is refused naming its line; a shorter row reads its missing cells as
-null ([`CSV-ROW-NUMBERS-COUNT-RECORDS-AND-SHORT-ROWS-READ-AS-NULL`](../issues/CSV-ROW-NUMBERS-COUNT-RECORDS-AND-SHORT-ROWS-READ-AS-NULL.md)).
+Every per-row error names the **physical line** the record starts on, adding the record number when a
+quoted cell spanning lines has made them differ: `CSV line 4 (record 2)`. A row wider than the header
+is refused. A **shorter row is padded**: a missing cell is null in a nullable field, `""` in a
+non-nullable `Text`, and an error naming the line in any other non-nullable field. Padding is
+reported **once per read**, aggregated: "There has been 2 rows with number of cells between 2 and 3,
+which is less than number of columns in the header (4)." `read_table_with_report` returns it in a
+`ReadReport`; `ns-rec/to_record` and every command reading through `records::convert` write it to the
+asset log with `Context::warning`; `read_table`, and the deserialization of a stored `RecordView`,
+which have no log, write it to stderr. A trailing newline is not a row.
 With `header: false` the schema-less reader names columns `col0`, `col1`, …. The schema-aware reader
 matches columns to fields by header name (by position without a header), refuses an undeclared
 column and a missing non-nullable field, and reads a missing nullable field as nulls. Formula
@@ -789,6 +796,7 @@ materializes to an empty batch; without one it is an error.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-07 | CSV: errors name the physical line (and record when they differ); short rows are padded and reported once per read (`ReadReport`, asset log). | phase-5, `design/csv-physical-lines-short-rows/` |
 | 2026-10-07 | `rec_id`: a `Date` / `Timestamp` id is ISO 8601, basic or extended, not a raw day or µs count. | phase-5, `design/rec-id-iso-date-parsing/` |
 | 2026-10-07 | Scalar reading: `try_into_string_option` also gives `None` for a `Null` cell (it gave `Some("None")`). | phase-5, `design/null-cell-string-option/` |
 | 2026-10-06 | §Caches: the folder listing is event-driven (`directory_changed`, Store API included), `clear_cache()` for out-of-band edits; template chunks are producible, not listed. | phase-5 |

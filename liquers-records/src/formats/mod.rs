@@ -123,22 +123,47 @@ fn feature_disabled(format: &str, direction: &str) -> Error {
 /// Parses `bytes` as `format` into a [`RecordBatch`]. Which reader runs — schema-aware and strict,
 /// or schema-less and inferring — depends only on `schema`. See phase2-architecture.md §"Two
 /// readers: schema-aware and schema-less".
+///
+/// Warnings the reader collects (padded short CSV rows) go to stderr, since there is no log here;
+/// [`read_table_with_report`] returns them instead.
 pub fn read_table(
     bytes: &[u8],
     format: TableFormat,
     schema: ReadSchema<'_>,
     options: &ReadOptions,
 ) -> Result<RecordBatch, Error> {
+    let (batch, report) = read_table_with_report(bytes, format, schema, options)?;
+    for warning in &report.warnings {
+        eprintln!("read_table: {warning}");
+    }
+    Ok(batch)
+}
+
+/// What a read noticed but did not refuse — padded short CSV rows, so far. Empty for a clean read.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ReadReport {
+    pub warnings: Vec<String>,
+}
+
+/// [`read_table`], also returning the warnings the reader collected instead of writing them to
+/// stderr. Use it where there is a log to put them in — a command's `Context::warning`.
+pub fn read_table_with_report(
+    bytes: &[u8],
+    format: TableFormat,
+    schema: ReadSchema<'_>,
+    options: &ReadOptions,
+) -> Result<(RecordBatch, ReadReport), Error> {
+    let clean = |batch: RecordBatch| (batch, ReadReport::default());
     match format {
         TableFormat::Csv { separator } => csv::read_csv(bytes, separator, schema, options),
-        TableFormat::NdJson => ndjson::read_ndjson(bytes, schema, options),
-        TableFormat::Json => ndjson::read_json(bytes, schema, options),
-        TableFormat::Markdown => markdown::read_markdown(bytes, schema, options),
+        TableFormat::NdJson => ndjson::read_ndjson(bytes, schema, options).map(clean),
+        TableFormat::Json => ndjson::read_json(bytes, schema, options).map(clean),
+        TableFormat::Markdown => markdown::read_markdown(bytes, schema, options).map(clean),
         TableFormat::Html => Err(Error::not_supported(
             "TableFormat::Html: reading is not supported (write-only format)".to_string()
         )),
         #[cfg(feature = "ipc")]
-        TableFormat::Ipc => ipc::read_ipc(bytes, schema),
+        TableFormat::Ipc => ipc::read_ipc(bytes, schema).map(clean),
         #[cfg(not(feature = "ipc"))]
         TableFormat::Ipc => Err(feature_disabled("Ipc", "reading")),
         // Unlike `Ipc` without its feature, this is not a disabled feature — `liquers-records`
