@@ -107,7 +107,7 @@ fn int04b_the_document_fixture_builds_what_it_says() {
     assert_eq!(to_upper.label, "To upper", "derived from the name");
     assert_eq!(to_upper.filename, "upper.txt");
     assert!(to_upper.state_argument.is_some());
-    assert!(to_upper.cache, "the default");
+    assert!(!to_upper.volatile, "the default");
 
     let repeat = &commands[1];
     assert_eq!(repeat.label, "Repeat text", "declared, so not derived");

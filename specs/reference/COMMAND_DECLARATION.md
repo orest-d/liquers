@@ -3,7 +3,7 @@ title: Command Declaration Format
 kind: reference
 audience: internal
 area: [core/commands, web, py]
-reviewed: 2026-09-05
+reviewed: 2026-10-07
 ---
 # Command Declaration Format
 
@@ -63,8 +63,8 @@ convention that every other language would then have to re-implement identically
 ### 2.1 Merge rules
 
 Merging is defined on the serialized form, so that *absent* and *present-but-default* are
-distinguishable — a declaration that says nothing about `cache` must not overwrite a discovered
-`cache`.
+distinguishable — a declaration that says nothing about `volatile` must not overwrite a discovered
+`volatile`.
 
 | Shape | Rule |
 |---|---|
@@ -250,7 +250,6 @@ of its own, so a field added to `CommandMetadata` is declarable immediately with
 | `doc` | `doc` | Free text; hosts usually discover this from a docstring |
 | `module` | `module` | Informational. Integrations set it to the language name |
 | `filename` | `filename` | Suggested filename for the result |
-| `cache` | `cache` | Defaults to `true` |
 | `volatile` | `volatile` | Defaults to `false`; forces re-execution |
 | `expires` | `expires` | Expiration specification; defaults to `never` |
 | `payload_required` | `payload_required` | `none` or `required` |
@@ -334,7 +333,6 @@ The same rule derives an argument's label from its name.
 
 | Field | Default |
 |---|---|
-| `cache` | `true` |
 | `volatile` | `false` |
 | `expires` | `never` |
 | `payload_required` | `none` |
@@ -489,7 +487,7 @@ registration:
   context: 2            # the parameter position to pass the context at
 ```
 
-**Stage 4** — derived defaults: `count`'s label becomes `Count`, `cache` becomes `true`, `expires`
+**Stage 4** — derived defaults: `count`'s label becomes `Count`, `expires`
 becomes `never`, `definition` becomes `Registered`. The command's label was declared, so derivation
 leaves it.
 
@@ -512,6 +510,7 @@ so no query parameter is consumed by either — that is conventions.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-07 | `cache` removed from the declarable keys and the defaults table: `CommandMetadata.cache` no longer exists (it was never read). A declaration that still carries it loads, and the key is ignored. §2.1's example uses `volatile`. | phase-5, `design/command-cache-flag/` |
 | 2026-09-05 | Defined the query-consuming variadic-tail rule, the injected exception, and rejection of `multiple` combined with `injected`. | `design/variadic-metadata-tail-check` |
 | 2026-08-31 | Reviewed command-version behavior against `CommandMetadataRegistry::refresh_metadata_versions` and the `Environment::to_ref` refresh boundary. | `design/refresh-command-metadata-versions/phase-5` |
 | 2026-08-30 | §3.2.3 restated: a document declares its state with `state_argument` **or** `registration.state`, and an authored delivery mode is honoured rather than skipped. Corrects a case the first implementation did not cover, found by review on PR #50. | `design/command-declaration/` |

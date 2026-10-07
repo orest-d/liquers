@@ -2,7 +2,7 @@
 id: COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ
 kind: issue
 title: CommandMetadata.cache is declared, documented and exported, but nothing reads it
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/commands, macro]
@@ -60,3 +60,15 @@ to say whether "cacheable" and "volatile" were ever meant to be independent axes
 - `liquers-core/src/command_metadata.rs:1705` — `"cache":true` in the serialized form
 - `liquers-core/src/command_declaration.rs:987` — the only read, in a test
 - `liquers-macro/src/registration.rs:835-886` — the macro statements, with no `cache`
+
+## Resolution (2026-10-07)
+
+Fixed by design `command-cache-flag`, per the maintainer decision of 2026-10-06 (remove the field;
+the one-time `metadata_version` change is acceptable). `CommandMetadata.cache` and its
+`true_default` helper are gone; the egui command-info line shows `volatile` and `async`; the
+Python `cache` getter is removed. Metadata and declarations that still carry `cache` load, and the
+key is ignored. `specs/command_registry.yaml` is regenerated without `cache:` lines, with a
+CHANGELOG entry, and `COMMAND_DECLARATION.md` no longer lists the key.
+
+Evidence: `command_metadata_ignores_legacy_cache_field` (`liquers-core/src/command_metadata.rs`),
+`registry_export`, the build matrix, and `cargo check -p liquers-py`.

@@ -489,9 +489,6 @@ fn is_false(b: &bool) -> bool {
 fn is_true(b: &bool) -> bool {
     *b == true
 }
-fn true_default() -> bool {
-    true
-}
 fn false_default() -> bool {
     false
 }
@@ -1005,11 +1002,6 @@ pub struct CommandMetadata {
     #[serde(default)]
     pub arguments: Vec<ArgumentInfo>,
 
-    /// If true, then the result of the command can be cached.
-    /// Default is true.
-    #[serde(default = "true_default")]
-    pub cache: bool,
-
     /// If true, then the command is volatile.
     /// Volatile commands need to be re-executed every time, they cannot be cached.
     /// If a volatile command appears in a plan or query, all the steps after the volatile command
@@ -1073,7 +1065,6 @@ impl CommandMetadata {
             presets: Vec::new(),
             state_argument: Some(ArgumentInfo::any_argument("state")),
             arguments: Vec::new(),
-            cache: true,
             volatile: false,
             payload_required: PayloadRequirement::None,
             expires: Expires::Never,
@@ -1105,7 +1096,6 @@ impl CommandMetadata {
             presets: Vec::new(),
             state_argument: Some(ArgumentInfo::any_argument("state")),
             arguments: Vec::new(),
-            cache: true,
             volatile: false,
             payload_required: PayloadRequirement::None,
             expires: Expires::Never,
@@ -1706,6 +1696,20 @@ mod tests {
             "definition":"Registered","filename":""}"#;
         let cm: CommandMetadata = serde_json::from_str(json)?;
         assert_eq!(cm.payload_required, PayloadRequirement::None);
+        Ok(())
+    }
+
+    /// `cache` was removed (`COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ`): it is no longer
+    /// serialized, and metadata written before the removal still loads.
+    #[test]
+    fn command_metadata_ignores_legacy_cache_field() -> Result<(), Box<dyn std::error::Error>> {
+        let json = serde_json::to_string(&CommandMetadata::new("test"))?;
+        assert!(!json.contains("\"cache\""), "cache must not be serialized: {json}");
+        let legacy = r#"{"realm":"","namespace":"root","name":"test","label":"test",
+            "module":"","doc":"","state_argument":null,"cache":false,"volatile":false,
+            "definition":"Registered","filename":""}"#;
+        let cm: CommandMetadata = serde_json::from_str(legacy)?;
+        assert_eq!(cm.name, "test");
         Ok(())
     }
 

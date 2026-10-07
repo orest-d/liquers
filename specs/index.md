@@ -8,9 +8,9 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 124
+Total rows: 123
 - P2: 62
-- P3: 62
+- P3: 61
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
@@ -77,7 +77,6 @@ Total rows: 124
 | [`NO-REMOTE-STORE-OR-ASSET-MANAGER`](issues/NO-REMOTE-STORE-OR-ASSET-MANAGER.md) | feature | A client environment cannot use a server's store or asset manager as its own | draft |  | P2 | XL | axum;web;core/assets;core/store |  | 2026-09-27 |
 | [`VALUE-TYPE-DEFINITION-MACRO`](issues/VALUE-TYPE-DEFINITION-MACRO.md) | feature | Value types and their registry entries are hand-written instead of generated | draft |  | P2 | XL | macro;lib/value;core/value |  | 2026-08-18 |
 | [`AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS`](issues/AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS.md) | issue | The Recipes API's metadata and entry endpoints return placeholder metadata and ignore the format | draft | ready | P3 | S | axum | [phase1](design/axum-recipes-metadata-entry/phase1-high-level-design.md)  [phase2](design/axum-recipes-metadata-entry/phase2-architecture.md)  [phase3](design/axum-recipes-metadata-entry/phase3-examples.md)  [phase4](design/axum-recipes-metadata-entry/phase4-implementation.md)  | 2026-09-28 |
-| [`COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ`](issues/COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ.md) | issue | CommandMetadata.cache is declared, documented and exported, but nothing reads it | draft | ready | P3 | S | core/commands;macro | [phase1](design/command-cache-flag/phase1-high-level-design.md)  [phase2](design/command-cache-flag/phase2-architecture.md)  [phase3](design/command-cache-flag/phase3-examples.md)  [phase4](design/command-cache-flag/phase4-implementation.md)  | 2026-09-19 |
 | [`CSV-ROW-NUMBERS-COUNT-RECORDS-AND-SHORT-ROWS-READ-AS-NULL`](issues/CSV-ROW-NUMBERS-COUNT-RECORDS-AND-SHORT-ROWS-READ-AS-NULL.md) | issue | CSV errors number records rather than file lines, and a row shorter than the header reads its missing cells as null | draft | ready | P3 | S | records | [phase1](design/csv-physical-lines-short-rows/phase1-high-level-design.md)  [phase2](design/csv-physical-lines-short-rows/phase2-architecture.md)  [phase3](design/csv-physical-lines-short-rows/phase3-examples.md)  [phase4](design/csv-physical-lines-short-rows/phase4-implementation.md)  | 2026-09-27 |
 | [`JS-STORE-WRAPPER-HAS-NO-EFFECTIVE-MEDIA-TYPE`](issues/JS-STORE-WRAPPER-HAS-NO-EFFECTIVE-MEDIA-TYPE.md) | issue | A page can read a key's declared metadata but not its effective media type | draft | ready | P3 | S | web | [phase1](design/js-store-effective-media-type/phase1-high-level-design.md)  [phase2](design/js-store-effective-media-type/phase2-architecture.md)  [phase3](design/js-store-effective-media-type/phase3-examples.md)  [phase4](design/js-store-effective-media-type/phase4-implementation.md)  | 2026-09-30 |
 | [`MARKDOWN-TABLE-CANNOT-DISTINGUISH-NULL-FROM-EMPTY-TEXT`](issues/MARKDOWN-TABLE-CANNOT-DISTINGUISH-NULL-FROM-EMPTY-TEXT.md) | issue | A Markdown table reads an empty Text cell back as null, and reads only the first table | draft | ready | P3 | S | records | [phase1](design/markdown-empty-text-and-tables/phase1-high-level-design.md)  [phase2](design/markdown-empty-text-and-tables/phase2-architecture.md)  [phase3](design/markdown-empty-text-and-tables/phase3-examples.md)  [phase4](design/markdown-empty-text-and-tables/phase4-implementation.md)  | 2026-09-27 |

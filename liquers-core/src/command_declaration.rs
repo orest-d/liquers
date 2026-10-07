@@ -984,7 +984,6 @@ mod tests {
     fn def05_scalar_defaults_match_from_key() {
         let m = build(json!({ "name": "greet" }));
         let k = CommandMetadata::from_key(CommandKey::new("", "", "greet"));
-        assert_eq!(m.cache, k.cache);
         assert_eq!(m.volatile, k.volatile);
         assert_eq!(m.expires, k.expires);
         assert_eq!(m.definition, k.definition);
