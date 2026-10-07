@@ -2,7 +2,7 @@
 
 ## Design Readiness
 
-- **Readiness:** not assessed. Phases 2–4 are being rewritten after this revision. The previous
+- **Readiness:** not assessed. Phase 1 questions answered 2026-10-07, see Decisions. Phases 2–4 are being rewritten after this revision. The previous
   autonomous draft is in git history.
 - **Leading issue:** `EVALUATING-A-LONG-DEPENDENCY-CHAIN-GETS-SUPER-LINEARLY-SLOW`.
 - **Decision taken by the maintainer (2026-10-07):** dependency records hold **direct** dependencies
@@ -16,9 +16,9 @@ Direct dependency records and linear dependency analysis.
 ## Purpose
 
 Evaluating a chain of *n* keyed recipes costs O(n⁴) today: 40 links take ~90 s in a debug build.
-This design records only direct dependencies, analyses each reachable recipe once per analysis, and
-validates freshness recursively on load. Together these make chain evaluation roughly quadratic
-with a small constant, keep restart-time staleness detection, and preserve which dependencies are
+This design records only direct dependencies and analyses each reachable recipe once per analysis.
+Transitive freshness is the dependency manager's job, over the direct graph it holds. Together these
+make chain evaluation roughly quadratic with a small constant, and preserve which dependencies are
 direct, so dependency chains can be debugged.
 
 ## Evidence (measured 2026-10-07, cold debug build, one link at a time)
@@ -52,8 +52,8 @@ transitive records by design.
 version was changed and the process restarted. HEAD recomputes `l2` (it recorded
 `command_impl---make_text`). Direct records alone serve the stale `l2`, because `try_fast_track`
 (`assets.rs:1321`) checks each record but never recurses, and an unloaded `l1` has no version in
-the dependency manager. No existing test covers this, so recursive validation on load is required,
-not optional.
+the dependency manager. No existing test covers this. The decisions below make the outcome a
+matter of the audit policy.
 
 ## Core Interactions
 
@@ -65,10 +65,14 @@ not optional.
   into the plan as analysis results, never as dependency records. "Direct" means the nearest
   addressable dependency: a keyed `GetAsset` stops the record set; anonymous `Evaluate` steps and
   nested plans pass their dependencies through to the enclosing asset.
-- **Assets / dependency manager.** Only direct edges are registered and stored. The cascade
-  provides transitivity, and `via` names the true predecessor. `try_fast_track` validates a
-  recorded key dependency that the manager does not know yet by validating that dependency first,
-  recursively, and records the confirmed version so each key is checked once per process.
+- **Assets / dependency manager.** Only direct edges are registered and stored. **Any recursive
+  walk over dependencies belongs to the dependency manager**, never to the asset or the planner.
+  The manager always uses everything it knows at that moment. How complete and how current that
+  knowledge is depends on the audit policy. The minimum, required under every policy: when an
+  asset is loaded on the fast track with a consistent version, its recorded dependencies are added
+  to the manager. That needs no extra metadata scan, and the code already does it
+  (`assets.rs:1386` → `load_from_records`; `add_dependency` keeps an edge whose dependency version
+  is still unknown). The cascade provides transitivity, and `via` names the true predecessor.
 - **Recipes.** `DefaultRecipeProvider` keeps a per-directory parsed and indexed recipe cache,
   invalidated by the existing `directory_changed` hook.
 - **Store, commands, value types, web/UI:** no change. The stored record format is unchanged; only
@@ -99,29 +103,32 @@ into a follow-up issue in Phase 5 rather than into this scope.
 ## Documentation Intent
 
 - **Reference:** extend `specs/reference/DEPENDENCIES_STATUS.md`. Records are direct only; how
-  transitivity is obtained (cascade, recursive validation on load); analysis summaries versus
-  records. Check `specs/reference/ASSETS.md`'s fast-track section for the recursive check.
-- **Guide:** neither. No new repeatable task. Reconsider if the recursive validation gains
+  transitivity is obtained (cascade; the dependency manager's walk under `OnLoad`); what the
+  manager learns on a fast-track load; analysis summaries versus records. Check
+  `specs/reference/ASSETS.md`'s fast-track section for what each audit policy guarantees.
+- **Guide:** neither. No new repeatable task. Reconsider if the audit policies gain
   configuration.
 - **Other:** a follow-up issue for the optional summary cache, filed in Phase 5.
 - **Updates:** the issue file's resolution, `specs/README.md` and the index.
 
-## Open Questions
+## Decisions (maintainer, 2026-10-07)
 
-1. **Recursive validation on load: metadata-only or fast-track the dependency?** Recommended:
-   metadata-only recursion (read the dependency's stored metadata and apply the same checks), then
-   `observe_version` to record the result. It loads no values and costs O(reachable) once per
-   process.
-2. **An intermediate missing from the store** (removed, or never persisted). With direct records it
-   cannot vouch for anything upstream of it. Recommended: keep today's policy semantics
-   (`explicit_policy_serves_when_intermediate_deleted`: serve under `Explicit`; refuse under
-   `OnLoad`). Confirm in Phase 2.
-3. **Assets already stored with transitive records.** Recommended: no migration. Extra edges only
-   expire more eagerly, and they disappear on the next recomputation.
-4. **How many analyses per evaluation.** Can the three analyses become one (carry the analysed plan
-   through), or should they share one memo? Decide in Phase 2.
-5. **Acceptance bound.** Proposed (debug, cold): 40 links under 1 s, and 200 links under 5 s once
-   the memoized walk replaces the prototype's repeated walks.
+1. **Transitive freshness is the dependency manager's job, and depends on policy.** No recursive
+   check in `try_fast_track`. Consequence for the restart probe:
+   - **Default policy (`Explicit`).** The stale `l2` is served until `l1` is touched. Then `l1` is
+     refused (its recorded `make_text` version differs), recomputed, and registers a new version.
+     The cascade then expires `l2` through the edge recorded when `l2` loaded. A changed upstream
+     command is treated like a changed upstream data file is today: it is caught when the manager
+     learns of it, or by an explicit audit (`trigger_dependency_audit_all_registered`).
+   - **`OnLoad` policy.** The manager resolves the unknown dependencies of the asset being loaded
+     by walking the stored dependency records recursively, and remembers what it confirms. That
+     gives the same guarantee HEAD gets today from the transitive records. Phase 2 specifies this
+     walk as a dependency-manager operation.
+2. **A missing intermediate.** Keep today's policy semantics (`Explicit` serves, `OnLoad` refuses).
+3. **No migration.** Records already stored with transitive entries are left as they are.
+4. **Simpler correct code over optimization.** Each analysis is made linear in place. The three
+   analyses per evaluation are not merged unless that is the simpler code.
+5. **Acceptance bound.** Debug, cold: 40 links under 1 s, 200 links under 5 s.
 
 ## Design Dependencies
 
