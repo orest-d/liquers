@@ -1,25 +1,28 @@
 ---
 id: DEPENDENCY-CHAIN-ANALYSIS-COST
 kind: design
-title: Dependency analysis of long recipe chains without super-linear cost
+title: Direct dependency records and linear dependency analysis
 status: in_review
-phase: implementation
-readiness: needs-decision
+phase: high-level
+workflow: liquers-project
 area: [core/assets, core/plan]
 issues: [EVALUATING-A-LONG-DEPENDENCY-CHAIN-GETS-SUPER-LINEARLY-SLOW]
 created: 2026-10-06
 ---
-# Dependency analysis of long recipe chains without super-linear cost
+# Direct dependency records and linear dependency analysis
 
-Produced under [`guides/autonomous_bulk_design.md`](../../guides/autonomous_bulk_design.md):
-the first four phases, reviewed without phase approval. Not an approval and not an implementation.
+First drafted under [`guides/autonomous_bulk_design.md`](../../guides/autonomous_bulk_design.md)
+(2026-10-06). Adopted into the `liquers-project` workflow on 2026-10-07 and revised from Phase 1, after
+the maintainer decided that dependency records hold direct dependencies only. Phases 2–4 are being
+rewritten; the earlier autonomous drafts are in git history.
 
 ## Phase Status
 
-- [x] Phase 1: High-Level Design
-- [x] Phase 2: Solution and Architecture
-- [x] Phase 3: Examples and Tests
-- [x] Phase 4: Implementation Plan
+- [x] Phase 1: High-Level Design (revised 2026-10-07, in review)
+- [ ] Phase 2: Solution and Architecture (to be rewritten)
+- [ ] Phase 3: Examples and Tests (to be rewritten)
+- [ ] Phase 4: Implementation Plan (to be rewritten)
+- [ ] Phase 5: Documentation
 
 ## Links
 

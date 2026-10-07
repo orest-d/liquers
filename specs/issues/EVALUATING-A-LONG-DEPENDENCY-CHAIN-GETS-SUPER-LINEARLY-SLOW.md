@@ -40,3 +40,14 @@ transitive records.
 Found while writing `cascade_over_100_link_chain` in
 `liquers-core/tests/dependency_audit_integration.rs` (dependency-audit-and-expiry-provenance,
 Step 6). The test now writes the persisted chain by hand to avoid the cost.
+
+## Findings (2026-10-07)
+
+The cost attribution is now measured, and it confirms the issue's numbers: 40 links take ~90 s, with
+exactly 3·(i+1)² recipe lookups for link *i*. The edge growth is one factor of four. The dominant
+one is `has_expirable_dependencies_impl` re-running a full recursive analysis for every transitive
+dependency. On top of that, each evaluation analyses three times, and every lookup re-parses the
+whole `recipes.yaml`. A restart probe also showed that the transitive records are currently what
+detects a changed upstream command after a restart. The fix is designed in
+[`dependency-chain-analysis-cost`](../design/dependency-chain-analysis-cost/phase1-high-level-design.md):
+direct-only records, one memoized analysis walk, and recursive validation on load.
