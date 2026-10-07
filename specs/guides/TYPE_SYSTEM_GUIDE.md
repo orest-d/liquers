@@ -3,7 +3,7 @@ title: Adding and Typing Value Types
 kind: guide
 audience: both
 area: [core/value, lib/value]
-reviewed: 2026-09-27
+reviewed: 2026-10-07
 ---
 
 # Adding and Typing Value Types
@@ -214,6 +214,9 @@ record.data_format = Some("csv:comma".to_owned());
 Leaving `data_format` as `None` is meaningful and usually right: it says nobody chose, so the
 value's default applies, and that remains visible to anyone reasoning about the result later.
 
+The same extension can be valid on several types, each with its own meaning: `md` on a `Text`
+writes the text as is (plain markdown), while `md` on a `RecordView` renders a markdown table.
+
 ## Naming a type in Rust code
 
 Use Rust types in Rust code; identifiers belong in the registries, which exist for other languages
@@ -230,6 +233,7 @@ This resolves at compile time and cannot drift from the registration.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-07 | §Choosing a data format: `md` is declared on `Text` (plain markdown) as well as on `RecordView` (a markdown table). | phase-5, `design/text-value-markdown-format/` |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. Added §A gated variant, worked: `RecordView` and `RecordSource` — trait-object payloads, a `#[cfg(feature = "records")]` arm in every `ExtValue` match including `liquers-web`'s, `TypeInfo`s declared under the features that enable their writers, and the build-matrix rows. §Verifying it no longer claims `ext_value_type_descriptions_complete` covers every variant. | phase-5 |
 | 2026-08-18 | Created with the `value-type-system` design. | `design/value-type-system/` |
 | 2026-08-26 | §2 states the one-identifier-per-variant rule and that there is no `error` identifier; §4 records where step 4 moves for a type whose identifier belongs to an integration crate. | `design/foreign-value-type-registration/` |

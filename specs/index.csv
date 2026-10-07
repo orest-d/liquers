@@ -238,7 +238,7 @@ STORE-WRITE-HAS-NO-PRECONDITION,issue,"A store write has no precondition, so con
 STUBS01-GREP-MISSES-DERIVE-INTERLEAVED-CLASSES,issue,check-stubs.sh's STUBS01 grep misses classes with an interleaved derive attribute,closed,local,,ready,P3,S,web,,,,stubs01-class-detection,,2026-09-27,specs/issues/STUBS01-GREP-MISSES-DERIVE-INTERLEAVED-CLASSES.md
 SUBMIT-IS-NOT-LAZY-ON-ANY-MANAGER,issue,"Context::submit starts the dependency at once on both managers, contrary to the Phase 2 design text",closed,local,,ready,P3,S,core/assets,,,,submit-eagerness-documentation,,2026-10-02,specs/issues/SUBMIT-IS-NOT-LAZY-ON-ANY-MANAGER.md
 SUPPLIED-EXPIRED-STATUS-STORED-WITHOUT-REASON,issue,set_binary and set_state accept a supplied Expired status and store it without an expiry reason,closed,local,,ready,P3,S,core/assets,,,,supplied-expired-status-reason,,2026-10-02,specs/issues/SUPPLIED-EXPIRED-STATUS-STORED-WITHOUT-REASON.md
-TEXT-VALUE-CANNOT-BE-STORED-AS-MARKDOWN,issue,A Text value cannot be stored with data format md,draft,local,,ready,P2,S,core/value,,,,text-value-markdown-format,,2026-09-27,specs/issues/TEXT-VALUE-CANNOT-BE-STORED-AS-MARKDOWN.md
+TEXT-VALUE-CANNOT-BE-STORED-AS-MARKDOWN,issue,A Text value cannot be stored with data format md,closed,local,,ready,P2,S,core/value,,,,text-value-markdown-format,,2026-09-27,specs/issues/TEXT-VALUE-CANNOT-BE-STORED-AS-MARKDOWN.md
 TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS,issue,TypeInfo cannot declare a format a type writes but cannot read back,draft,local,,needs-decision,P3,S,core/value,,,,type-info-write-only-formats,,2026-09-24,specs/issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md
 TYPE-REGISTRY-NOT-REALM-AWARE,feature,A query spanning two realms cannot know which types the other realm supports,draft,local,,,P2,L,core/value;core/commands;core/plan;web;axum,,,,,,2026-08-18,specs/issues/TYPE-REGISTRY-NOT-REALM-AWARE.md
 UI-QUERY-CONSOLE-NO-ERROR-HIGHLIGHT,issue,Query console never highlights the erroring token despite complete plumbing,closed,local,,ready,P2,S,lib/ui;core/query,,,,ui-query-console-error-highlight,,2026-08-12,specs/issues/UI-QUERY-CONSOLE-NO-ERROR-HIGHLIGHT.md
@@ -404,7 +404,7 @@ COVERED-14,design,Coverage record for STORE-TESTS-PRINT-TO-STDOUT,in_review,loca
 STUBS01-CLASS-DETECTION,design,STUBS01 detects every exported wasm class,complete,local,,ready,P3,S,web,,,,stubs01-class-detection,,2026-10-06,specs/design/stubs01-class-detection/DESIGN.md
 SUBMIT-EAGERNESS-DOCUMENTATION,design,Document Context::submit's actual scheduling on both managers,complete,local,,ready,P3,S,core/assets,,,,submit-eagerness-documentation,,2026-10-06,specs/design/submit-eagerness-documentation/DESIGN.md
 SUPPLIED-EXPIRED-STATUS-REASON,design,"A value written already Expired is logged as expired, with after-the-fact diagnostics",complete,local,,ready,P3,S,core/assets,,,,supplied-expired-status-reason,,2026-10-06,specs/design/supplied-expired-status-reason/DESIGN.md
-TEXT-VALUE-MARKDOWN-FORMAT,design,Markdown as a data format of the Text value,in_review,local,implementation,ready,P2,S,core/value,,,,text-value-markdown-format,,2026-10-04,specs/design/text-value-markdown-format/DESIGN.md
+TEXT-VALUE-MARKDOWN-FORMAT,design,Markdown as a data format of the Text value,in_review,local,documentation,ready,P2,S,core/value,,,,text-value-markdown-format,,2026-10-04,specs/design/text-value-markdown-format/DESIGN.md
 TYPE-INFO-WRITE-ONLY-FORMATS,design,TypeInfo declares write-only data formats,in_review,local,implementation,needs-decision,P3,S,core/value,,,,type-info-write-only-formats,,2026-10-06,specs/design/type-info-write-only-formats/DESIGN.md
 UI-EVENTS,design,UI event delivery to widgets,in_review,local,high-level,,,,lib/ui,,,,ui-events,,2026-03-02,specs/design/ui-events/DESIGN.md
 UI-QUERY-CONSOLE-ERROR-HIGHLIGHT,design,Query console highlights positioned errors,complete,local,,ready,P2,S,lib/ui;core/query,,,,ui-query-console-error-highlight,,2026-08-29,specs/design/ui-query-console-error-highlight/DESIGN.md
@@ -455,6 +455,6 @@ QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,core/query,,,,
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,records;lib/value,,,,,2026-10-06,,specs/guides/RECORD_STREAM_GUIDE.md
 STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,core/store;store/config,,,,,2026-09-02,,specs/guides/STORE_FACTORY_GUIDE.md
 STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,core/store;store/backends;web,,,,,2026-10-07,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
-TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,core/value;lib/value,,,,,2026-09-27,,specs/guides/TYPE_SYSTEM_GUIDE.md
+TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,core/value;lib/value,,,,,2026-10-07,,specs/guides/TYPE_SYSTEM_GUIDE.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,build;core/assets,,,,,2026-10-02,,specs/guides/UNITTEST_GUIDE.md
 WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,axum;web,,,,,2026-10-06,,specs/guides/WEB_API_GUIDE.md

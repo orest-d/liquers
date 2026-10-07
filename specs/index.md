@@ -8,14 +8,13 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 129
-- P2: 64
+Total rows: 128
+- P2: 63
 - P3: 65
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
 | [`REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED`](issues/REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED.md) | issue | The `payload: required` metadata statement is implemented but documented nowhere | draft | ready | P2 | S | docs;core/commands;macro | [phase1](design/register-command-payload-docs/phase1-high-level-design.md)  [phase2](design/register-command-payload-docs/phase2-architecture.md)  [phase3](design/register-command-payload-docs/phase3-examples.md)  [phase4](design/register-command-payload-docs/phase4-implementation.md)  [phase5](design/register-command-payload-docs/phase5-documentation.md)  | 2026-09-03 |
-| [`TEXT-VALUE-CANNOT-BE-STORED-AS-MARKDOWN`](issues/TEXT-VALUE-CANNOT-BE-STORED-AS-MARKDOWN.md) | issue | A Text value cannot be stored with data format md | draft | ready | P2 | S | core/value | [phase1](design/text-value-markdown-format/phase1-high-level-design.md)  [phase2](design/text-value-markdown-format/phase2-architecture.md)  [phase3](design/text-value-markdown-format/phase3-examples.md)  [phase4](design/text-value-markdown-format/phase4-implementation.md)  [phase5](design/text-value-markdown-format/phase5-documentation.md)  | 2026-09-27 |
 | [`WEB-OBJECT06-EXPECTS-A-STALE-ERROR-TYPE-COUNT`](issues/WEB-OBJECT06-EXPECTS-A-STALE-ERROR-TYPE-COUNT.md) | issue | OBJECT06 asserts 22 ErrorType variants, and its own list now has 23 | draft | ready | P2 | S | web | [phase1](design/web-object06-error-type-exhaustiveness/phase1-high-level-design.md)  [phase2](design/web-object06-error-type-exhaustiveness/phase2-architecture.md)  [phase3](design/web-object06-error-type-exhaustiveness/phase3-examples.md)  [phase4](design/web-object06-error-type-exhaustiveness/phase4-implementation.md)  [phase5](design/web-object06-error-type-exhaustiveness/phase5-documentation.md)  | 2026-09-30 |
 | [`BUILD-SYSINFO-REQUIRES-NEWER-RUSTC`](issues/BUILD-SYSINFO-REQUIRES-NEWER-RUSTC.md) | issue | liquers-lib test builds fail on rustc 1.94 because a transitive sysinfo requires 1.95 | draft | needs-decision | P2 | S | build | [phase1](design/build-sysinfo-rustc-compatibility/phase1-high-level-design.md)  [phase2](design/build-sysinfo-rustc-compatibility/phase2-architecture.md)  [phase3](design/build-sysinfo-rustc-compatibility/phase3-examples.md)  [phase4](design/build-sysinfo-rustc-compatibility/phase4-implementation.md)  | 2026-09-02 |
 | [`CORE-METADATA-TRACEBACK-SUPPORT`](issues/CORE-METADATA-TRACEBACK-SUPPORT.md) | issue | Metadata has no place for an error traceback | accepted | needs-decision | P2 | S | core/value;core/error | [phase1](design/metadata-error-traceback/phase1-high-level-design.md)  [phase2](design/metadata-error-traceback/phase2-architecture.md)  [phase3](design/metadata-error-traceback/phase3-examples.md)  [phase4](design/metadata-error-traceback/phase4-implementation.md)  | 2026-08-08 |

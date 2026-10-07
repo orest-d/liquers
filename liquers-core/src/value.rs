@@ -414,6 +414,8 @@ impl ValueInterface for Value {
         // Bare literals, repeated, with no shared vocabulary — tracked as
         // `specs/issues/DATA-FORMAT-CONSTANTS-AND-TOOLING.md`, which also covers recognising an
         // unknown format and giving serde-capable types their formats generically.
+        // `md` is not in `TEXTUAL`: markdown is a reading of `Text` only, so it is declared on
+        // `Text` alone rather than on every scalar that can be written as plain text.
         const TEXTUAL: [&str; 7] = ["txt", "html", "css", "js", "py", "rs", "json"];
         vec![
             TypeInfo::new("None")
@@ -440,6 +442,7 @@ impl ValueInterface for Value {
                 .with_type_name("text")
                 .with_defaults("txt", "txt", "text/plain", "text.txt")
                 .with_data_formats(TEXTUAL)
+                .with_data_formats(["md"])
                 .with_data_formats(["b", "bin", "bytes"]),
             TypeInfo::new("Array")
                 .with_type_name("array")
@@ -962,6 +965,15 @@ impl DefaultValueSerializer for Value {
                     ),
                 )),
             },
+            // A separate arm: the text arm above also writes scalars, queries, keys and bytes,
+            // none of which is markdown.
+            "md" => match self {
+                Value::Text(x) => Ok(x.as_bytes().to_vec()),
+                _ => Err(Error::from_error(
+                    ErrorType::SerializationError,
+                    format!("Serialization to md not supported by {}", self.type_name()),
+                )),
+            },
             "bytes" | "b" | "bin" => match self {
                 Value::Bytes(x) => Ok(x.clone()),
                 Value::Text(x) => Ok(x.as_bytes().to_vec()),
@@ -1007,7 +1019,7 @@ impl DefaultValueSerializer for Value {
                     )
                 }),
             },
-            "txt" | "html" | "rs" | "py" | "css" | "js" => {
+            "txt" | "html" | "md" | "rs" | "py" | "css" | "js" => {
                 let s = String::from_utf8_lossy(b);
                 match type_identifier {
                     // An empty identifier means "not known"; text is the only safe assumption.
@@ -1180,7 +1192,10 @@ mod tests {
             (Value::I32(7), &["json", "txt"]),
             (Value::I64(-9_000_000_000), &["json", "txt"]),
             (Value::F64(2.5), &["json", "txt"]),
-            (Value::Text("hello".to_string()), &["json", "txt", "html"]),
+            (
+                Value::Text("hello".to_string()),
+                &["json", "txt", "html", "md"],
+            ),
             (Value::Bytes(vec![1, 2, 3]), &["json", "b"]),
         ];
         for (value, formats) in cases {
@@ -1222,7 +1237,7 @@ mod tests {
     fn supports_data_format_agrees_with_the_registry() -> Result<(), Box<dyn std::error::Error>> {
         let registry = crate::type_system::TypeRegistry::from_value_type::<Value>();
         for value in sample_values() {
-            for format in ["json", "txt", "b", "parquet"] {
+            for format in ["json", "txt", "md", "b", "parquet"] {
                 assert_eq!(
                     value.supports_data_format(format),
                     registry.supports_data_format(&value.identifier(), format),
@@ -1231,6 +1246,30 @@ mod tests {
                 );
             }
         }
+        Ok(())
+    }
+
+    /// `md` is declared and written for `Text` only, and an untyped `md` entry reads as `Text`.
+    #[test]
+    fn markdown_is_text_only() -> Result<(), Box<dyn std::error::Error>> {
+        assert!(Value::Text("# x".to_string()).supports_data_format("md"));
+        for value in sample_values() {
+            if matches!(value, Value::Text(_)) {
+                continue;
+            }
+            assert!(
+                !value.supports_data_format("md"),
+                "{} must not declare md",
+                value.identifier()
+            );
+            let err = match value.as_bytes("md") {
+                Ok(_) => panic!("{} must not be written as md", value.identifier()),
+                Err(e) => e,
+            };
+            assert_eq!(err.error_type, ErrorType::SerializationError);
+        }
+        let back: Value = DefaultValueSerializer::deserialize_from_bytes(b"# x", "", "md")?;
+        assert_eq!(back, Value::Text("# x".to_string()));
         Ok(())
     }
 

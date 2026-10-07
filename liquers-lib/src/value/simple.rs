@@ -570,6 +570,14 @@ impl DefaultValueSerializer for SimpleValue {
                     ),
                 )),
             },
+            // A separate arm: only `Text` is markdown, as in `liquers_core::value::Value`.
+            "md" => match self {
+                SimpleValue::Text { value: x } => Ok(x.as_bytes().to_vec()),
+                _ => Err(Error::from_error(
+                    ErrorType::SerializationError,
+                    format!("Serialization to md not supported by {}", self.type_name()),
+                )),
+            },
             "json" => match self {
                 SimpleValue::None {} => serde_json::to_vec(&serde_json::Value::Null).map_err(|e| {
                     Error::new(
@@ -650,6 +658,17 @@ impl DefaultValueSerializer for SimpleValue {
                 let s = String::from_utf8_lossy(b).to_string();
                 Ok(SimpleValue::Text { value: s })
             }
+            // Only `Text` is markdown among the base types. Any other identifier is refused, so
+            // `CombinedValue` asks the extension: a `RecordView` written as `md` is a table.
+            "md" => match type_identifier {
+                "" | "Text" => Ok(SimpleValue::Text {
+                    value: String::from_utf8_lossy(b).to_string(),
+                }),
+                other => Err(Error::from_error(
+                    ErrorType::SerializationError,
+                    format!("Type identifier {} is not read as md by the base value", other),
+                )),
+            },
             // JSON alone does not say which variant it came from, so the declared type identifier
             // is consulted first, as `liquers_core::value::Value` does. The structured variants
             // are read as their own types; the variants `as_bytes` writes in serde's tagged form
@@ -1034,7 +1053,7 @@ mod tests {
                 };
                 let back = SimpleValue::deserialize_from_bytes(&bytes, &id, format)?;
                 let expected = match format.as_ref() {
-                    "txt" | "html" => SimpleValue::Text { value: String::from_utf8(bytes.clone())? },
+                    "txt" | "html" | "md" => SimpleValue::Text { value: String::from_utf8(bytes.clone())? },
                     "json" => match &value {
                         SimpleValue::I32 { value } => SimpleValue::I64 { value: i64::from(*value) },
                         other => other.clone(),
@@ -1047,6 +1066,17 @@ mod tests {
         unwritable.sort();
         let recorded: Vec<String> = UNWRITABLE.iter().map(|s| s.to_string()).collect();
         assert_eq!(unwritable, recorded, "declared but unwritable (type:format) pairs changed");
+        Ok(())
+    }
+
+    /// `md` is written for `Text` only and reads back as the same `Text`.
+    #[test]
+    fn simple_value_text_round_trips_as_markdown() -> Result<(), Box<dyn std::error::Error>> {
+        let text = SimpleValue::Text { value: "# Notes\n- one\n".to_string() };
+        let bytes = text.as_bytes("md")?;
+        assert_eq!(bytes, b"# Notes\n- one\n");
+        assert_eq!(SimpleValue::deserialize_from_bytes(&bytes, "Text", "md")?, text);
+        assert!(SimpleValue::I32 { value: 7 }.as_bytes("md").is_err());
         Ok(())
     }
 
