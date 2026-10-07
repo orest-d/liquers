@@ -2,7 +2,7 @@
 id: JS-STORE-WRAPPER-HAS-NO-EFFECTIVE-MEDIA-TYPE
 kind: issue
 title: A page can read a key's declared metadata but not its effective media type
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [web]
@@ -35,3 +35,16 @@ the derived value into the raw record: that would make every filename look like 
 Found 2026-09-29 while resolving `HTTP-STORE-METADATA-DROPS-THE-EXTENSION-MEDIA-TYPE` in
 `design/store-conformance-backlog/` (Phase 2 area F): the store was right and the e2e test was
 stale, but the test showed what a page cannot ask for.
+
+## Resolution (2026-10-07)
+
+Fixed by `design/js-store-effective-media-type/`. `LiquersStore.getAssetInfo(key)`
+(`liquers-web/src/store/wrapper.rs`) resolves to the key's `AssetInfo` as a plain object, whose
+`media_type` is the effective one (`text/csv` for `input.csv`), plus `is_dir` and the other asset
+info fields. `getMetadata` is unchanged and still returns the raw record. Tested in
+`liquers-web/tests/store_wrapper_STORE.rs`, declared through the generated stubs (checked by
+`check-stubs.sh` STUBS02), and documented in `liquers-web/README.md`.
+
+The effective type derives from the data format, and a memory store does not seed that from the key
+when the written metadata has no filename. That is filed as
+`STORES-DISAGREE-ON-SEEDING-THE-DATA-FORMAT-FROM-THE-KEY`.

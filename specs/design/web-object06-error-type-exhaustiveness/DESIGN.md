@@ -4,7 +4,7 @@ kind: design
 title: A compiler-checked ErrorType list for the OBJECT06 round-trip test
 workflow: liquers-project
 status: in_review
-phase: implementation
+phase: documentation
 readiness: ready
 area: [web]
 issues: [WEB-OBJECT06-EXPECTS-A-STALE-ERROR-TYPE-COUNT]
@@ -22,7 +22,7 @@ Autonomous bulk design (`guides/autonomous_bulk_design.md`) for
 - [x] Phase 2: Solution & Architecture
 - [x] Phase 3: Examples and Tests
 - [x] Phase 4: Implementation Plan
-- [ ] Phase 5: Documentation (plan written; executed after implementation)
+- [ ] Phase 5: Documentation (executed 2026-10-07; awaiting approval)
 
 ## Links
 

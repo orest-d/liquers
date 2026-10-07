@@ -25,14 +25,19 @@ fn get(object: &JsValue, property: &str) -> JsValue {
     js_sys::Reflect::get(object, &JsValue::from_str(property)).expect("property read")
 }
 
-/// A wrapper over a memory store holding `data/input.csv`, written with empty metadata.
+/// A wrapper over a memory store holding `data/input.csv`, written with only its filename, as a
+/// page does with `{filename: "input.csv"}`: the extension seeds the data format, and the media
+/// type is left to derive from it. (A memory store does not seed the format from the key itself;
+/// see `STORES-DISAGREE-ON-SEEDING-THE-DATA-FORMAT-FROM-THE-KEY`.)
 async fn wrapper() -> LiquersStore {
     let store = AsyncMemoryStore::new(&Key::new());
+    let mut metadata = Metadata::new();
+    metadata.set_filename("input.csv").expect("filename");
     store
         .set(
             &parse_key("data/input.csv").expect("key"),
             b"a,b\n1,2\n",
-            &Metadata::new(),
+            &metadata,
         )
         .await
         .expect("set");
