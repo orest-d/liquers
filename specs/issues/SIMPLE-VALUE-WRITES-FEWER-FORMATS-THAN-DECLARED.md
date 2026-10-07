@@ -2,7 +2,7 @@
 id: SIMPLE-VALUE-WRITES-FEWER-FORMATS-THAN-DECLARED
 kind: issue
 title: liquers-lib's base value declares formats its serializer refuses
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [lib/value]
@@ -46,3 +46,18 @@ Found 2026-09-25, record-streams Phase 4 Step 0.2, by the TypeInfo-driven round-
 asked for. The test replaced per-format tests that built their own bytes and so could not see
 this. `DATA-FORMAT-CONSTANTS-AND-TOOLING` covers the missing shared vocabulary that lets such drift
 happen, but not this instance.
+
+## Resolution (2026-10-07)
+
+Fixed by design `simple-value-serializer-parity`. `SimpleValue::as_bytes` mirrors core
+`Value::as_bytes` arm for arm: the textual arm covers `txt`, `html`, `rs`, `py`, `css`, `js` and
+writes `Bytes` raw and `Query` / `Key` as their encoded strings, and a new `bytes` / `b` / `bin`
+arm writes `Bytes` and `Text`. `deserialize_from_bytes` reads them back: `Query` and `Key` are
+parsed, `Bytes` stays raw, and the other base identifiers read as `Text` as before. The new
+textual and binary formats refuse an identifier the base value does not own, so `CombinedValue`
+asks the extension. `UNWRITABLE` is gone.
+
+Evidence: `every_declared_format_round_trips` (strict, no exceptions),
+`writes_the_same_bytes_as_core_value`, `bytes_are_written_raw_as_bin`, `query_as_txt_matches_core`
+(all in `liquers-lib/src/value/simple.rs`). Read-side parity for scalars is left as
+`SIMPLE-VALUE-READS-TEXT-SCALARS-AS-TEXT`.

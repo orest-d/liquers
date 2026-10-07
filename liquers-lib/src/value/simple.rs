@@ -553,7 +553,9 @@ impl SimpleValue {
 impl DefaultValueSerializer for SimpleValue {
     fn as_bytes(&self, format: &str) -> Result<Vec<u8>, Error> {
         match format {
-            "txt" | "html" => match self {
+            // Mirrors `liquers_core::value::Value::as_bytes` arm for arm, because the two share
+            // their `TypeInfo`s: every pair declared there is written here, with the same bytes.
+            "txt" | "html" | "rs" | "py" | "css" | "js" => match self {
                 SimpleValue::None {} => Ok("none".as_bytes().to_vec()),
                 SimpleValue::Bool { value: true } => Ok("true".as_bytes().to_vec()),
                 SimpleValue::Bool { value: false } => Ok("false".as_bytes().to_vec()),
@@ -561,13 +563,26 @@ impl DefaultValueSerializer for SimpleValue {
                 SimpleValue::I64 { value: x } => Ok(format!("{x}").into_bytes()),
                 SimpleValue::F64 { value: x } => Ok(format!("{x}").into_bytes()),
                 SimpleValue::Text { value: x } => Ok(x.as_bytes().to_vec()),
-                _ => Err(Error::new(
+                SimpleValue::Bytes { value: x } => Ok(x.clone()),
+                SimpleValue::Query { value: x } => Ok(x.encode().into_bytes()),
+                SimpleValue::Key { value: x } => Ok(x.encode().into_bytes()),
+                // The final refusal is kept where core has one, so the two matches stay
+                // structurally identical: the structured variants have no text form.
+                _ => Err(Error::from_error(
                     ErrorType::SerializationError,
                     format!(
                         "Serialization to {} not supported by {}",
                         format,
                         self.type_name()
                     ),
+                )),
+            },
+            "bytes" | "b" | "bin" => match self {
+                SimpleValue::Bytes { value: x } => Ok(x.clone()),
+                SimpleValue::Text { value: x } => Ok(x.as_bytes().to_vec()),
+                _ => Err(Error::from_error(
+                    ErrorType::SerializationError,
+                    format!("Serialization to bytes not supported by {}", self.type_name()),
                 )),
             },
             // A separate arm: only `Text` is markdown, as in `liquers_core::value::Value`.
@@ -654,10 +669,38 @@ impl DefaultValueSerializer for SimpleValue {
     }
     fn deserialize_from_bytes(b: &[u8], type_identifier: &str, fmt: &str) -> Result<Self, Error> {
         match fmt {
-            "txt" | "html" | "toml" => {
+            "txt" | "html" | "toml" | "rs" | "py" | "css" | "js" => {
                 let s = String::from_utf8_lossy(b).to_string();
-                Ok(SimpleValue::Text { value: s })
+                match type_identifier {
+                    // Written as their encoded form, read back as themselves, as core does.
+                    "Query" => liquers_core::parse::parse_query(&s)
+                        .map(|value| SimpleValue::Query { value }),
+                    "Key" => liquers_core::parse::parse_key(&s).map(|value| SimpleValue::Key { value }),
+                    // Written raw; reading it as text would lose every byte that is not UTF-8.
+                    "Bytes" => Ok(SimpleValue::Bytes { value: b.to_vec() }),
+                    "" | "None" | "Bool" | "I32" | "I64" | "F64" | "Text" => {
+                        Ok(SimpleValue::Text { value: s })
+                    }
+                    // Not a base identifier. `txt`, `html` and `toml` have always read as text
+                    // whatever the identifier (`COMBINED-VALUE-DISCRIMINATION`); the formats added
+                    // with them refuse, so `CombinedValue` asks the extension.
+                    _ if matches!(fmt, "txt" | "html" | "toml") => Ok(SimpleValue::Text { value: s }),
+                    other => Err(Error::from_error(
+                        ErrorType::SerializationError,
+                        format!("Type identifier {} is not read as {} by the base value", other, fmt),
+                    )),
+                }
             }
+            "bytes" | "b" | "bin" => match type_identifier {
+                "" | "Bytes" => Ok(SimpleValue::Bytes { value: b.to_vec() }),
+                "Text" => Ok(SimpleValue::Text {
+                    value: String::from_utf8_lossy(b).to_string(),
+                }),
+                other => Err(Error::from_error(
+                    ErrorType::SerializationError,
+                    format!("Type identifier {} is not read as {} by the base value", other, fmt),
+                )),
+            },
             // Only `Text` is markdown among the base types. Any other identifier is refused, so
             // `CombinedValue` asks the extension: a `RecordView` written as `md` is a table.
             "md" => match type_identifier {
@@ -1032,40 +1075,96 @@ mod tests {
         Some(value)
     }
 
-    /// Every (type, format) pair `SimpleValue`'s `TypeInfo` declares is written and read back.
-    /// A text format carries no type, so it reads back as `Text`; JSON numbers read back as `I64`.
-    /// Pairs the writer refuses are collected and compared with a recorded list, so a new gap
-    /// fails here instead of passing silently.
+    /// Every (type, format) pair `SimpleValue`'s `TypeInfo` declares is written and read back,
+    /// with no exceptions. A text format carries no type, so a scalar reads back as `Text`, while
+    /// `Bytes`, `Query` and `Key` read back as themselves; JSON numbers read back as `I64`.
     #[test]
-    fn every_declared_format_round_trips_or_is_recorded_as_unwritable(
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut unwritable: Vec<String> = Vec::new();
+    fn every_declared_format_round_trips() -> Result<(), Box<dyn std::error::Error>> {
         for info in SimpleValue::type_descriptions() {
             let id = info.type_identifier.to_string();
             let value = sample(&id).ok_or(format!("no sample for type identifier {id}"))?;
             for format in &info.supported_data_formats {
-                let bytes = match value.as_bytes(format) {
-                    Ok(bytes) => bytes,
-                    Err(_) => {
-                        unwritable.push(format!("{id}:{format}"));
-                        continue;
-                    }
-                };
+                let bytes = value
+                    .as_bytes(format)
+                    .map_err(|e| format!("{id} declares {format} but does not write it: {e}"))?;
                 let back = SimpleValue::deserialize_from_bytes(&bytes, &id, format)?;
-                let expected = match format.as_ref() {
-                    "txt" | "html" | "md" => SimpleValue::Text { value: String::from_utf8(bytes.clone())? },
-                    "json" => match &value {
-                        SimpleValue::I32 { value } => SimpleValue::I64 { value: i64::from(*value) },
-                        other => other.clone(),
-                    },
+                let expected = match (format.as_ref(), &value) {
+                    (
+                        "txt" | "html" | "md" | "rs" | "py" | "css" | "js",
+                        SimpleValue::Bytes { .. } | SimpleValue::Query { .. } | SimpleValue::Key { .. },
+                    ) => value.clone(),
+                    ("txt" | "html" | "md" | "rs" | "py" | "css" | "js", _) => {
+                        SimpleValue::Text { value: String::from_utf8(bytes.clone())? }
+                    }
+                    ("json", SimpleValue::I32 { value }) => SimpleValue::I64 { value: i64::from(*value) },
                     _ => value.clone(),
                 };
                 assert_eq!(back, expected, "round trip of {id} as {format}");
             }
         }
-        unwritable.sort();
-        let recorded: Vec<String> = UNWRITABLE.iter().map(|s| s.to_string()).collect();
-        assert_eq!(unwritable, recorded, "declared but unwritable (type:format) pairs changed");
+        Ok(())
+    }
+
+    /// The core `Value` sample with the same identifier as `sample(id)`, for the base types that
+    /// have a text or bytes form.
+    fn core_sample(id: &str) -> Option<liquers_core::value::Value> {
+        use liquers_core::value::Value as CoreValue;
+        let value = match id {
+            "None" => CoreValue::None,
+            "Bool" => CoreValue::Bool(true),
+            "I32" => CoreValue::I32(7),
+            "I64" => CoreValue::I64(1 << 40),
+            "F64" => CoreValue::F64(1.5),
+            "Text" => CoreValue::Text("hello".to_string()),
+            "Bytes" => CoreValue::Bytes(vec![0, 1, 254]),
+            "Query" => CoreValue::Query(liquers_core::parse::parse_query("a/b").ok()?),
+            "Key" => CoreValue::Key(liquers_core::parse::parse_key("a/b").ok()?),
+            _ => return None,
+        };
+        Some(value)
+    }
+
+    /// `SimpleValue` and core `Value` write the same bytes for every declared non-JSON pair.
+    /// (JSON differs by design: `SimpleValue` is tagged where core is untagged.)
+    #[test]
+    fn writes_the_same_bytes_as_core_value() -> Result<(), Box<dyn std::error::Error>> {
+        let mut compared = 0;
+        for info in SimpleValue::type_descriptions() {
+            let id = info.type_identifier.to_string();
+            let (Some(simple), Some(core)) = (sample(&id), core_sample(&id)) else {
+                continue;
+            };
+            for format in info.supported_data_formats.iter().filter(|f| f.as_ref() != "json") {
+                assert_eq!(
+                    simple.as_bytes(format)?,
+                    core.as_bytes(format)?,
+                    "{id} as {format}"
+                );
+                compared += 1;
+            }
+        }
+        assert!(compared > 40, "only {compared} pairs compared");
+        Ok(())
+    }
+
+    #[test]
+    fn bytes_are_written_raw_as_bin() -> Result<(), Box<dyn std::error::Error>> {
+        let bytes = SimpleValue::Bytes { value: vec![0, 159] };
+        assert_eq!(bytes.as_bytes("bin")?, vec![0, 159]);
+        assert_eq!(SimpleValue::deserialize_from_bytes(&[0, 159], "Bytes", "bin")?, bytes);
+        Ok(())
+    }
+
+    #[test]
+    fn query_as_txt_matches_core() -> Result<(), Box<dyn std::error::Error>> {
+        let query = liquers_core::parse::parse_query("-R/a/b.txt")?;
+        let simple = SimpleValue::Query { value: query.clone() };
+        let core = liquers_core::value::Value::Query(query);
+        assert_eq!(simple.as_bytes("txt")?, core.as_bytes("txt")?);
+        assert_eq!(
+            SimpleValue::deserialize_from_bytes(&simple.as_bytes("txt")?, "Query", "txt")?,
+            simple
+        );
         Ok(())
     }
 
@@ -1079,51 +1178,4 @@ mod tests {
         assert!(SimpleValue::I32 { value: 7 }.as_bytes("md").is_err());
         Ok(())
     }
-
-    /// Declared in `liquers_core::value::Value`'s `TypeInfo`, which `SimpleValue` shares, but
-    /// refused by `SimpleValue::as_bytes` — `SIMPLE-VALUE-WRITES-FEWER-FORMATS-THAN-DECLARED`.
-    const UNWRITABLE: &[&str] = &[
-        "Bool:css",
-        "Bool:js",
-        "Bool:py",
-        "Bool:rs",
-        "Bytes:b",
-        "Bytes:bin",
-        "Bytes:bytes",
-        "F64:css",
-        "F64:js",
-        "F64:py",
-        "F64:rs",
-        "I32:css",
-        "I32:js",
-        "I32:py",
-        "I32:rs",
-        "I64:css",
-        "I64:js",
-        "I64:py",
-        "I64:rs",
-        "Key:css",
-        "Key:html",
-        "Key:js",
-        "Key:py",
-        "Key:rs",
-        "Key:txt",
-        "None:css",
-        "None:js",
-        "None:py",
-        "None:rs",
-        "Query:css",
-        "Query:html",
-        "Query:js",
-        "Query:py",
-        "Query:rs",
-        "Query:txt",
-        "Text:b",
-        "Text:bin",
-        "Text:bytes",
-        "Text:css",
-        "Text:js",
-        "Text:py",
-        "Text:rs",
-    ];
 }
