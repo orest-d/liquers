@@ -183,7 +183,7 @@ PY-VALUE-TYPE-DESCRIPTIONS-MISSING,issue,"liquers-py's Value describes no types,
 QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS,issue,"Query::absolute names a leading slash, colliding with two other meanings of absolute",draft,local,,needs-decision,P3,S,core/query,,,,query-leading-slash-field,,2026-08-17,specs/issues/QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS.md
 QUERY-AST-DISCARDS-ENTITIES,issue,"Parsed entities are decoded away, so the AST cannot show them",draft,local,,,P3,L,core/query,,,,,,2026-08-14,specs/issues/QUERY-AST-DISCARDS-ENTITIES.md
 QUERY-BUILDER-TOOLING,issue,No programmatic builder for constructing queries,accepted,local,,,P2,L,core/query;core/validate,,,,,,2026-08-08,specs/issues/QUERY-BUILDER-TOOLING.md
-QUEUED-MANAGER-EVICTION-RACE,issue,The queued manager's cache evictions can delete a replacement asset,accepted,local,,ready,P2,S,core/assets,,,,queued-manager-conditional-eviction,,2026-08-09,specs/issues/QUEUED-MANAGER-EVICTION-RACE.md
+QUEUED-MANAGER-EVICTION-RACE,issue,The queued manager's cache evictions can delete a replacement asset,closed,local,,ready,P2,S,core/assets,,,,queued-manager-conditional-eviction,,2026-08-09,specs/issues/QUEUED-MANAGER-EVICTION-RACE.md
 QUEUED-MANAGER-STARTUP-READINESS,issue,Queued asset manager accepts work before it is ready to run it,closed,local,,,P1,L,core/assets,,,,environment-builder,,2026-08-08,specs/issues/QUEUED-MANAGER-STARTUP-READINESS.md
 REC-ID-PARSES-DATE-AND-TIMESTAMP-IDS-AS-RAW-NUMBERS,issue,"ns-rec/rec_id reads a Date or Timestamp id as a raw day or microsecond count, not as ISO text",draft,local,,ready,P3,S,records;lib/commands,,,,rec-id-iso-date-parsing,,2026-09-27,specs/issues/REC-ID-PARSES-DATE-AND-TIMESTAMP-IDS-AS-RAW-NUMBERS.md
 RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY,issue,AsyncRecipeProvider::contains has a default that silently assumes recipes are enumerable,closed,local,,ready,P2,S,core/assets,,,,recipe-provider-listing-contract,,2026-09-20,specs/issues/RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY.md
@@ -370,7 +370,7 @@ QUERY-CONSOLE-ELEMENT,design,Query console UI element,complete,local,,,,,lib/ui,
 ACTIVE-08,design,Design for QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS,in_review,local,implementation,needs-decision,P3,S,core/query,,,,query-leading-slash-field,,2026-09-03,specs/design/query-leading-slash-field/DESIGN.md
 QUERY-LINK-PARSER,design,Action-parameter link parsing (~X~~E),complete,local,,,,,core/query,,17,,query-link-parser,,2026-03-02,specs/design/query-link-parser/DESIGN.md
 QUERY-VALIDATION,design,Offline query and recipe validation,complete,local,,,,,core/validate,,15,,query-validation,,2026-03-02,specs/design/query-validation/DESIGN.md
-QUEUED-MANAGER-CONDITIONAL-EVICTION,design,Conditional queued-manager cache eviction,in_review,local,implementation,ready,P2,S,core/assets,,,,queued-manager-conditional-eviction,,2026-08-29,specs/design/queued-manager-conditional-eviction/DESIGN.md
+QUEUED-MANAGER-CONDITIONAL-EVICTION,design,Conditional queued-manager cache eviction,in_review,local,documentation,ready,P2,S,core/assets,,,,queued-manager-conditional-eviction,,2026-08-29,specs/design/queued-manager-conditional-eviction/DESIGN.md
 REC-ID-ISO-DATE-PARSING,design,ns-rec/rec_id accepts YYYYMMDD and YYYY-MM-DD ids,in_review,local,implementation,ready,P3,S,records;lib/commands,,,,rec-id-iso-date-parsing,,2026-10-06,specs/design/rec-id-iso-date-parsing/DESIGN.md
 RECIPE-CONTAINS-ADDRESSABILITY,design,Separate listed (contains) and producible (can_make) questions on recipe providers,superseded,local,,,P2,S,core/assets,,,,recipe-contains-addressability,,2026-10-04,specs/design/recipe-contains-addressability/DESIGN.md
 COVERED-07,design,Coverage record for RECIPE-TO-PLAN-IGNORES-RECIPE-LEVEL-VOLATILE-AND-EXPIRES,in_review,local,architecture,covered,P2,S,docs,,,,recipe-plan-declarations,,2026-09-03,specs/design/recipe-plan-declarations/DESIGN.md
@@ -445,7 +445,7 @@ STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,core/sto
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,core/value;lib/value,,,,,2026-09-27,,specs/reference/VALUE_TYPE_SYSTEM.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,axum;web,,,,,2026-10-06,,specs/reference/WEB_API_SPECIFICATION.md
-ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,core/assets,,,,,2026-10-06,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
+ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,core/assets,,,,,2026-10-07,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
 autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,docs;build,,,,,2026-10-05,,specs/guides/autonomous_bulk_design.md
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,,docs;build,,,,,2026-08-11,,specs/guides/autonomous_issue_fixing.md
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,core/commands;macro,,,,,2026-10-06,,specs/guides/COMMAND_REGISTRATION_GUIDE.md

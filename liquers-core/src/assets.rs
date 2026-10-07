@@ -6530,34 +6530,33 @@ impl<E: Environment> DefaultAssetManager<E> {
         query: Option<&Query>,
         key: Option<&Key>,
     ) -> bool {
-        let mut removed = false;
         if let Some(query) = query {
-            if let Some(entry) = self.query_assets.get_async(query).await {
-                if entry.get().id() == asset_id {
-                    drop(entry);
-                    let _ = self.query_assets.remove_async(query).await;
-                    removed = true;
-                }
+            if self.remove_query_asset_if(query, asset_id).await {
+                return true;
             }
         }
-        if !removed {
-            if let Some(key) = key {
-                let _mutation = self.key_mutation_lock.lock().await;
-                if let Some(entry) = self.assets.get_async(key).await {
-                    if entry.get().id() == asset_id {
-                        drop(entry);
-                        let _ = self.assets.remove_async(key).await;
-                        removed = true;
-                    }
-                }
+        if let Some(key) = key {
+            let _mutation = self.key_mutation_lock.lock().await;
+            if AssetManager::remove_key_asset_if(self, key, asset_id).await {
+                return true;
             }
         }
-        if removed {
-            return true;
-        }
-
         // Ad-hoc assets (neither query nor key): no map entry to remove.
         false
+    }
+
+    /// Remove `query`'s entry only if it is still the asset `asset_id`.
+    ///
+    /// The query-map counterpart of [`AssetManager::remove_key_asset_if`]: `remove_if_async`
+    /// evaluates the predicate and removes under one bucket lock, so a replacement inserted after
+    /// the stale asset was observed is never the entry removed. A `get_async` / compare /
+    /// `remove_async` sequence releases the guard in between, and query-slot insertion
+    /// (`get_query_asset`) takes no other lock that would close that gap.
+    async fn remove_query_asset_if(&self, query: &Query, asset_id: u64) -> bool {
+        self.query_assets
+            .remove_if_async(query, |asset| asset.id() == asset_id)
+            .await
+            .is_some()
     }
 
     /// Track an asset for expiration via the monitor task.
@@ -6889,13 +6888,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                     status,
                     Status::Expired | Status::Error | Status::Cancelled | Status::Volatile
                 ) {
-                    let asset_id = assetref.id();
-                    if let Some(entry) = self.query_assets.get_async(query).await {
-                        if entry.get().id() == asset_id {
-                            drop(entry);
-                            let _ = self.query_assets.remove_async(query).await;
-                        }
-                    }
+                    self.remove_query_asset_if(query, assetref.id()).await;
                     continue;
                 }
                 if status.is_finished() {
@@ -7178,14 +7171,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 status,
                 Status::Expired | Status::Error | Status::Cancelled | Status::Volatile
             ) {
-                let asset_id = asset_ref.id();
                 let _mutation = self.key_mutation_lock.lock().await;
-                if let Some(entry) = self.assets.get_async(key).await {
-                    if entry.get().id() == asset_id {
-                        drop(entry);
-                        let _ = self.assets.remove_async(key).await;
-                    }
-                }
+                AssetManager::remove_key_asset_if(self, key, asset_ref.id()).await;
                 continue;
             }
             if status.is_finished() {
@@ -10684,6 +10671,82 @@ recipes:
         let fresh = manager.get_asset(&query).await.unwrap();
         assert_ne!(fresh.id(), stale.id());
         assert_ne!(fresh.status().await, Status::Expired);
+    }
+
+    /// `remove_query_asset_if` decides by id: a stale id leaves the replacement in place, the
+    /// current id removes it. Atomicity is structural (one `remove_if_async` call), as for
+    /// `remove_key_asset_if_respects_id`.
+    #[tokio::test]
+    async fn remove_query_asset_if_respects_id() {
+        let envref = SimpleEnvironment::<Value>::new().to_ref();
+        let manager = envref.get_asset_manager();
+        let query = parse_query("conditional_query_cmd").unwrap();
+        let stale = manager.create_asset(query.clone().into());
+        let replacement = manager.create_asset(query.clone().into());
+        let _ = manager
+            .query_assets
+            .insert_async(query.clone(), replacement.clone())
+            .await;
+
+        assert!(!manager.remove_query_asset_if(&query, stale.id()).await);
+        assert_eq!(
+            manager.lookup_query_asset(&query).map(|a| a.id()),
+            Some(replacement.id()),
+            "the replacement survives the stale asset's cleanup"
+        );
+        assert!(manager.remove_query_asset_if(&query, replacement.id()).await);
+        assert!(manager.lookup_query_asset(&query).is_none());
+    }
+
+    /// `remove_expired_from_maps`: query first, key as fallback, a replacement in either slot
+    /// survives, and an ad-hoc asset (neither) removes nothing.
+    #[tokio::test]
+    async fn remove_expired_from_maps_respects_replacements() {
+        let envref = SimpleEnvironment::<Value>::new().to_ref();
+        let manager = envref.get_asset_manager();
+        let query = parse_query("conditional_maps_cmd").unwrap();
+        let key = parse_key("conditional/maps.txt").unwrap();
+
+        let stale = manager.create_asset(query.clone().into());
+        let replacement = manager.create_asset(query.clone().into());
+        let _ = manager
+            .query_assets
+            .insert_async(query.clone(), replacement.clone())
+            .await;
+        assert!(manager.try_insert_key_asset(&key, replacement.clone()).await);
+
+        // Stale id: neither slot is touched.
+        assert!(
+            !manager
+                .remove_expired_from_maps(stale.id(), Some(&query), Some(&key))
+                .await
+        );
+        assert!(manager.lookup_query_asset(&query).is_some());
+        assert!(manager.lookup_key_asset(&key).is_some());
+
+        // Matching id: the query slot is removed first and the key slot is left alone.
+        assert!(
+            manager
+                .remove_expired_from_maps(replacement.id(), Some(&query), Some(&key))
+                .await
+        );
+        assert!(manager.lookup_query_asset(&query).is_none());
+        assert!(manager.lookup_key_asset(&key).is_some());
+
+        // No query entry any more: the key slot is the fallback.
+        assert!(
+            manager
+                .remove_expired_from_maps(replacement.id(), Some(&query), Some(&key))
+                .await
+        );
+        assert!(manager.lookup_key_asset(&key).is_none());
+
+        // Ad-hoc: nothing to remove.
+        assert!(
+            !manager
+                .remove_expired_from_maps(replacement.id(), None, None)
+                .await
+        );
     }
 
     /// A dependency resolved at scheduling time that is a stale terminal Error is evicted and

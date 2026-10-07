@@ -4,7 +4,7 @@ title: Asset Manager Implementation Guide
 kind: guide
 audience: both
 area: [core/assets]
-reviewed: 2026-10-06
+reviewed: 2026-10-07
 ---
 # Asset Manager Implementation Guide
 
@@ -140,7 +140,7 @@ impl<E: Environment> AssetManager<E> for MinimalInlineAssetManager<E> {
 | `start` | Call `self.refresh_command_versions()?`, then record that you started. Idempotent, synchronous. |
 | `is_started` | The flag `start` set. |
 | `track_expiration` | Schedule a deadline, or do nothing if you check lazily. |
-| `remove_expired_from_maps(id, query, key)` | Drop the entry only if it is still the asset with that id. |
+| `remove_expired_from_maps(id, query, key)` | Drop the entry only if it is still the asset with that id, **atomically**: compare and remove in one map operation (`remove_if_async` on `scc`, or under one mutex guard). A lookup, compare, then separate remove lets a replacement inserted in between be the entry removed. |
 
 **Provided — override these:**
 
@@ -470,5 +470,6 @@ store conformance suite: shared scenarios, no rule numbers and no capability mod
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-07 | `remove_expired_from_maps`: the id comparison and the removal must be one atomic map operation. | phase-5 (`design/queued-manager-conditional-eviction/`) |
 | 2026-10-06 | `refresh_listing_version` also notifies the recipe provider; every write path must call it. | phase-5 |
 | 2026-10-02 | Created: decisions before writing code, what to hold, required and provided methods, the lifecycle primitives and their contracts, the key-mutation lock, registration invariants, overriding `record_expiry`, providing an `AssetManagerKind`, running the shared scenarios, known limits. Snippets from `tests/common/minimal_manager.rs` and `tests/external_asset_manager.rs`. | phase-5 (`design/dependency-audit-and-expiry-provenance/`) |

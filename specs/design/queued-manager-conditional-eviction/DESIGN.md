@@ -4,7 +4,7 @@ kind: design
 title: Conditional queued-manager cache eviction
 workflow: liquers-project
 status: in_review
-phase: implementation
+phase: documentation
 readiness: ready
 area: [core/assets]
 issues: [QUEUED-MANAGER-EVICTION-RACE]
