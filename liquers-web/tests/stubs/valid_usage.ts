@@ -113,6 +113,13 @@ async function main(): Promise<void> {
   void view;
   void copy;
 
+  // The store: raw metadata, and the effective asset info derived from it.
+  const store: liquers.Store = liquers.Environment.global().store();
+  const assetInfo: unknown = await store.getAssetInfo('data/input.csv');
+  const metadata: unknown = await store.getMetadata('data/input.csv');
+  void assetInfo;
+  void metadata;
+
   // Parameter encoding, and the module-level odds and ends.
   const param: string = liquers.encodeParam('two words');
   const ready: boolean = liquers.isInitialized();

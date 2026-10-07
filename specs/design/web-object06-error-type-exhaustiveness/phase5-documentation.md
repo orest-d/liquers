@@ -1,17 +1,15 @@
 # Phase 5: Documentation - Compiler-Checked `ErrorType` List for OBJECT06
 
-**Status: plan.** Written on 2026-10-05, when the design adopted the five-phase `liquers-project`
-contract; executed after implementation, following
-`.claude/skills/liquers-project/references/phase5-documentation.md`. The sections the skill requires
-after implementation are present and marked *pending*.
+**Status: executed 2026-10-07**, after implementation (Wave 5 step 29 of
+`archive/2026-10-06-p2-p3-s-implementation-order-revised.md`). Awaiting approval.
 
 ## Completion Preconditions
 
-- [ ] Implementation is finished and validated (Phase 4)
-- [ ] All user comments are answered or incorporated
-- [ ] All review comments are answered or incorporated
-- [ ] Documentation is consistent with the implemented and tested behavior
-- [ ] Documentation is included in the implementation PR
+- [x] Implementation is finished and validated (Phase 4)
+- [x] All user comments are answered or incorporated
+- [x] All review comments are answered or incorporated
+- [x] Documentation is consistent with the implemented and tested behavior
+- [x] Documentation is included in the implementation PR
 
 ## Documentation Plan
 
@@ -41,24 +39,31 @@ None needed in `specs/README.md`: the capability is reached through the document
 
 ## Implementation Summary
 
-*Pending — written after implementation.*
+`liquers-web/tests/objects_OBJECT.rs`: an `error_types!` macro takes the variant list once and
+generates both `ALL_ERROR_TYPES` and a `listed` function whose `match` over `ErrorType` names every
+variant with no default arm. The `len() == 22` assertion is gone. The list now has 24 entries: it
+was missing `KeyNotAbsolute`, which the stale count had hidden.
 
 ## Documentation Delivered
 
-*Pending.*
+None, as planned (`affects_docs: []`).
 
 ## Issues Filed
 
-*Pending.*
+None.
 
 ## Important Learning
 
-*Pending.*
+A count assertion over an enum is a weaker check than an exhaustive `match`: the count was stale
+and also wrong about which variant was absent. The `match` names the missing variant at compile time.
 
 ## Conformance and Remaining Work
 
-*Pending.*
+None.
 
 ## Validation
 
-*Pending.* Planned: `python3 scripts/docs_index.py --check`; the wasm Node loop result (or a statement that the toolchain was unavailable).
+- `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles --test objects_OBJECT`: 14 passed.
+- Manual compile check (T2): deleting `KeyNotAbsolute` from the list fails with
+  `E0004: non-exhaustive patterns: ErrorType::KeyNotAbsolute not covered`; restored afterwards.
+- `python3 scripts/docs_index.py --check`: 0 errors.

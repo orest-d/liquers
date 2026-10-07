@@ -2,7 +2,7 @@
 id: SCHEMA-LESS-JSON-READS-SORT-COLUMNS-ALPHABETICALLY
 kind: issue
 title: A JSON table read without a schema gets its columns in alphabetical order
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [records]
@@ -42,3 +42,23 @@ comes back reordered.
 ## Discovery
 
 Found 2026-09-26, `record-streams` Phase 4 Step 3.2, while implementing the JSON shapes.
+
+## Resolution (2026-10-07)
+
+Implemented by [`design/json-table-column-order/`](../design/json-table-column-order/), under the
+maintainer decision of 2026-10-06: "If the column order is not specified […], it is irrelevant —
+collect column names and sort them to have a stable column order". The issue's premise, that file
+order should be kept, is replaced by that rule.
+
+A schema-less JSON read now sorts its columns by name, whatever the row order. A declared schema
+keeps its own order.
+
+Tests:
+- `schema_less_json_columns_are_sorted`
+- `schema_less_json_column_order_ignores_row_order`
+- `declared_json_columns_keep_the_schema_order`
+- `columns_shape_sorts_columns`
+- `index_shape_sorts_columns`
+
+The `split` and `values` orients do specify an order, and a schema-less read loses it. That is
+tracked separately as `SCHEMA-LESS-ORDERED-JSON-ORIENTS-LOSE-COLUMN-ORDER`.

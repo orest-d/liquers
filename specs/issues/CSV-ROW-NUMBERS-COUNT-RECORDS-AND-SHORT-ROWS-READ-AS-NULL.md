@@ -2,7 +2,7 @@
 id: CSV-ROW-NUMBERS-COUNT-RECORDS-AND-SHORT-ROWS-READ-AS-NULL
 kind: issue
 title: CSV errors number records rather than file lines, and a row shorter than the header reads its missing cells as null
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [records]
@@ -32,3 +32,26 @@ wanted.
 ## Discovery
 
 Found 2026-09-27 while fixing the implementation review's CSV findings.
+
+## Resolution (2026-10-07)
+
+Implemented by [`design/csv-physical-lines-short-rows/`](../design/csv-physical-lines-short-rows/),
+following the maintainer decision of 2026-10-06. Short rows "may be padded with nulls or empty
+strings. They should not be silently ignored. A warning should be written to log … in an
+aggregate way for the whole CSV".
+
+- CSV errors now name the physical line the record starts on, and the record number when the two
+  differ.
+- A short row is padded: null in a nullable field, `""` in a non-nullable `Text`, and an error
+  naming the line in any other non-nullable field.
+- Padding is reported once per read, through `ReadReport`. Commands write the report to the asset
+  log; `read_table` writes it to stderr.
+
+Tests:
+- `csv_error_names_physical_line_and_record`
+- `csv_short_rows_are_padded_and_reported_once`
+- `csv_inferred_short_rows_are_padded_and_reported_once`
+- `csv_short_non_nullable_text_pads_empty`
+- `csv_short_non_nullable_int_is_an_error`
+- `csv_trailing_newline_is_not_a_row`
+- `to_record_logs_padded_csv_rows`

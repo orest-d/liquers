@@ -25,7 +25,10 @@ pub use batch::{
 };
 pub use buffer::{AlignedBuffer, Bitmap, Buffer};
 pub use column::{Column, CompareOp, FieldValue};
-pub use formats::{read_table, write_table, ReadOptions, ReadSchema, TableFormat, WriteOptions};
+pub use formats::{
+    read_table, read_table_with_report, write_table, ReadOptions, ReadReport, ReadSchema,
+    TableFormat, WriteOptions,
+};
 pub use formats::shapes::{from_json, to_json, JsonOrient};
 pub use manifest::{ChunkNaming, ChunkTemplate, ManifestKind, ManifestSpec};
 pub use mutable::{ColumnMut, RecordBatchMut, RecordViewMut};

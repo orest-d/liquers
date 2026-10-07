@@ -4,7 +4,7 @@ kind: design
 title: Documenting the payload, expires and version metadata statements of register_command!
 workflow: liquers-project
 status: in_review
-phase: implementation
+phase: documentation
 readiness: ready
 area: [docs, core/commands, macro]
 issues: [REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED, REGISTER-COMMAND-EXPIRES-AND-VERSION-STATEMENTS-UNDOCUMENTED]
@@ -23,6 +23,7 @@ Autonomous bulk design (`guides/autonomous_bulk_design.md`) for
 - [x] Phase 2: Solution & Architecture
 - [x] Phase 3: Examples and Tests
 - [x] Phase 4: Implementation Plan
+- [ ] Phase 5: Documentation (executed 2026-10-07; awaiting approval)
 
 ## Links
 
@@ -39,7 +40,7 @@ the same `CLAUDE.md` line and the same guide bullet, so one coherent edit instea
 per document. The payload issue stays the leading source. The design now follows the five-phase
 `liquers-project` contract; Phase 5 holds the documentation plan.
 
-- [Phase 5](./phase5-documentation.md) (plan; executed after implementation)
+- [Phase 5](./phase5-documentation.md) (executed 2026-10-07)
 
 ## Review 2026-10-06
 

@@ -3,7 +3,7 @@ title: Command Registration Guide
 kind: guide
 audience: internal
 area: [core/commands, macro]
-reviewed: 2026-10-06
+reviewed: 2026-10-07
 ---
 # Command Registration Guide
 
@@ -77,7 +77,51 @@ See `specs/reference/REGISTER_COMMAND_FSD.md` for the complete DSL specification
 - State parameter variations (state, value, text)
 - Parameter types and defaults
 - Injected parameters
-- Metadata statements (label, doc, namespace, realm, etc.)
+- Metadata statements (label, doc, namespace, realm, filename, volatile, payload, expires,
+  version, preset, next)
+
+### Commands that need the payload
+
+A command that reads the evaluation payload (directly or through an `injected` parameter built
+from it) declares `payload: required`. The statement takes a bare identifier and also makes the
+command volatile. Without it, the command gets no payload when it runs as a nested dependency. See
+`reference/PAYLOAD_GUIDE.md` for the injected type (`InjectedFromContext<E>`) and the inheritance
+rules.
+
+```rust
+fn whoami(_state: &State<Value>, user: UserId) -> Result<Value, Error> {
+    Ok(Value::from(user.0))
+}
+
+register_command!(cr,
+    fn whoami(state, user: UserId injected) -> result
+    payload: required
+)?;
+```
+
+### Versioning a command so its results expire when its code changes
+
+`version: auto` registers a hash of the function's source as its implementation version, so
+editing the function makes results computed by the old code stale. It needs
+`#[liquers_macro::command_version]` on the function. `expires:` sets a default expiration for the
+command's results; it is a string checked when the command is registered, so a bad spec is an `Err`
+from `register_command!`.
+
+```rust
+#[liquers_macro::command_version]
+fn shout(state: &State<Value>) -> Result<Value, Error> {
+    Ok(Value::from(state.try_into_string()?.to_uppercase()))
+}
+
+register_command!(cr,
+    fn shout(state) -> result
+    expires: "in 5 min"
+    version: auto
+)?;
+```
+
+The other `version:` forms (`now`, a string, an integer) and the expiration grammar are in
+`reference/REGISTER_COMMAND_FSD.md` §Metadata Statements.
 
 ### Passing the working directory (or any relative query) into a command
 
@@ -867,6 +911,7 @@ fn apply(...) -> Result<...> { ... }
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-07 | §Macro DSL Syntax lists every metadata statement; new sections "Commands that need the payload" (`payload: required`) and "Versioning a command…" (`#[command_version]`, `version: auto`, `expires:`). | phase-5, `design/register-command-payload-docs/` |
 | 2026-10-06 | New section "Describing the result: title and description" (`context.set_title` / `set_description`, recipe title takes precedence per field). | phase-5 |
 | 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. New section "Waiting for dependencies from inside a command": `context.submit` + `context.wait_for_dependency`, why not `asset.get()`, and that `submit` is not lazy. The `read_sibling` example now waits through `context.wait_for_dependency(&asset)`; `submit` added to the methods that refuse relative queries. | phase-5 |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. §6 points to the record-producing command walkthrough in `RECORD_STREAM_GUIDE.md` rather than duplicating it, and lists `liquers-lib/src/records/commands.rs` as an example. | phase-5 |

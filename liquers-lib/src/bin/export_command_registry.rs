@@ -216,9 +216,8 @@ fn resolve_groups(cli: &Cli) -> Result<Vec<Group>, Error> {
 
 /// Build the registry by invoking each group's macro under its own `cfg`.
 ///
-/// Deliberately not `register_all_commands!`: that macro expands to the egui and polars macros
-/// unconditionally, and those macros do not *exist* when their features are off, so it only
-/// compiles with every feature enabled.
+/// Not `register_all_commands!`, which always registers every enabled group: the exporter lets
+/// the caller select groups, so each group's macro is invoked under its own `cfg`.
 fn build_registry(groups: &[Group]) -> Result<CommandMetadataRegistry, Error> {
     #[allow(unused_mut)]
     let mut env = DefaultEnvironment::<Value, SimpleUIPayload>::new();

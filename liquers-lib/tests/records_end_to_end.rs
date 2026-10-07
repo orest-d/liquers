@@ -28,9 +28,11 @@ use liquers_macro::register_command;
 
 use liquers_lib::environment::{CommandRegistryAccess, DefaultEnvironment};
 use liquers_lib::records::{
-    FieldSchema, FieldType, FieldValue, RecordBatchMut, RecordSchema, RecordView, RecordViewMut,
+    FieldSchema, FieldType, FieldValue, KeyRole, RecordBatchMut, RecordSchema, RecordView,
+    RecordViewMut,
 };
 use liquers_lib::register_records_commands;
+use liquers_core::value::ValueInterface;
 use liquers_lib::value::{ExtValueInterface, Value};
 
 // -------------------------------------------------------------------------------------------
@@ -72,6 +74,25 @@ fn fixture_rows(tag: String, offset: i64, batch: i64) -> Result<Value, Error> {
     Ok(Value::from_record_view(view))
 }
 
+/// Two rows keyed by a `Date` `Id`: 2026-09-26 (`"before"`) and 2026-09-27 (`"target"`).
+fn dated_rows() -> Result<Value, Error> {
+    let schema = Arc::new(RecordSchema::new(vec![
+        FieldSchema::new("day", FieldType::Date).with_key(KeyRole::Id),
+        FieldSchema::new("name", FieldType::Text),
+    ])?);
+    let mut builder = RecordBatchMut::with_capacity(schema, 2);
+    builder.append_row(&[
+        FieldValue::Date(20722),
+        FieldValue::Text(Arc::from("before")),
+    ])?;
+    builder.append_row(&[
+        FieldValue::Date(20723),
+        FieldValue::Text(Arc::from("target")),
+    ])?;
+    let view: Arc<dyn RecordView> = Arc::new(builder.freeze()?);
+    Ok(Value::from_record_view(view))
+}
+
 // -------------------------------------------------------------------------------------------
 // Environment construction
 // -------------------------------------------------------------------------------------------
@@ -89,6 +110,14 @@ fn build_env(store: AsyncMemoryStore) -> Result<EnvRef<DefaultEnvironment<Value>
         register_records_commands!(cr)?;
         register_command!(cr,
             fn fixture_rows(tag: String, offset: i64, batch: i64) -> result
+            namespace: "fixture"
+        )?;
+        register_command!(cr,
+            fn dated_rows() -> result
+            namespace: "fixture"
+        )?;
+        register_command!(cr,
+            fn short_csv() -> result
             namespace: "fixture"
         )?;
     }
@@ -351,5 +380,77 @@ async fn file_records_lists_a_store_directory_through_a_query(
         Ok(state) => state.is_error()?,
     };
     assert!(failed, "a plain -R/<dir> holds no value to list");
+    Ok(())
+}
+
+// -------------------------------------------------------------------------------------------
+// rec_id_selects_by_date_query
+// -------------------------------------------------------------------------------------------
+
+/// A `Date` `Id` is addressed by its ISO spelling, basic or extended — the extended one written
+/// with `~` for its hyphens, since `-` separates action parameters
+/// (`specs/design/rec-id-iso-date-parsing/`).
+#[tokio::test]
+async fn rec_id_selects_by_date_query() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = build_env(AsyncMemoryStore::new(&Key::new()))?;
+    for query in [
+        "ns-fixture/dated_rows/ns-rec/rec_id-20260927",
+        "ns-fixture/dated_rows/ns-rec/rec_id-2026~09~27",
+    ] {
+        let state = eval(envref.clone(), query).await?;
+        let view = state.value()?.as_record_view()?;
+        assert_eq!(view.len(), 1, "{query}");
+        assert_eq!(
+            view.value(0, 1)?,
+            FieldValue::Text(Arc::from("target")),
+            "{query}"
+        );
+    }
+    Ok(())
+}
+
+// -------------------------------------------------------------------------------------------
+// to_record_logs_padded_csv_rows
+// -------------------------------------------------------------------------------------------
+
+/// The bytes of a CSV with two short rows, as a command returns them.
+fn short_csv() -> Result<Value, Error> {
+    Ok(Value::from_bytes(
+        b"a,b,c,d\n1,2,3,4\n5,6\n7,8,9\n10,11,12,13\n".to_vec(),
+    ))
+}
+
+/// A CSV with short rows reads, padded, and says so once in the asset's log — the aggregate
+/// warning decided for `specs/design/csv-physical-lines-short-rows/`.
+///
+/// The CSV comes from a command rather than from a stored `data/short.csv`, as Phase 3 planned:
+/// a stored CSV without a `RecordView` type identifier cannot be loaded at all
+/// (`STORED-UNTYPED-FILE-OF-UNLISTED-FORMAT-CANNOT-BE-READ`), and one with it is deserialized
+/// before any command runs, where there is no log.
+#[tokio::test]
+async fn to_record_logs_padded_csv_rows() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = build_env(AsyncMemoryStore::new(&Key::new()))?;
+
+    let state = eval(envref, "ns-fixture/short_csv/ns-rec/to_record-csv").await?;
+    let view = state.value()?.as_record_view()?;
+    assert_eq!(view.len(), 4);
+    let record = state
+        .metadata
+        .metadata_record()
+        .ok_or("the evaluated asset has a metadata record")?;
+    let padded: Vec<&str> = record
+        .log
+        .iter()
+        .map(|entry| entry.message.as_str())
+        .filter(|message| message.contains("less than number of columns in the header"))
+        .collect();
+    assert_eq!(
+        padded,
+        vec![
+            "There has been 2 rows with number of cells between 2 and 3, which is less than \
+             number of columns in the header (4)."
+        ],
+        "one aggregate warning per read"
+    );
     Ok(())
 }

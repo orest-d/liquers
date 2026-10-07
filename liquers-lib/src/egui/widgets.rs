@@ -732,8 +732,8 @@ pub fn display_command_metadata(
         ui.horizontal(|ui| {
             ui.colored_label(Color32::LIGHT_GRAY, "Flags:");
             ui.label(format!(
-                "cache={}, volatile={}, async={}",
-                command_metadata.cache, command_metadata.volatile, command_metadata.is_async
+                "volatile={}, async={}",
+                command_metadata.volatile, command_metadata.is_async
             ));
         });
 

@@ -113,3 +113,76 @@ async fn rar08_resolve_missing_key() {
 async fn rar09_builder_build_smoke_test() {
     let _app = build_app(env_with(&[]).await); // must not panic
 }
+
+// --- recipe metadata and entry (`specs/design/axum-recipes-metadata-entry/`) ---
+
+/// Sends a GET, optionally with an `Accept` header, and returns the status, `Content-Type` and
+/// raw body.
+async fn get_raw(app: axum::Router, uri: &str, accept: Option<&str>) -> (StatusCode, String, Vec<u8>) {
+    let mut request = Request::builder().method("GET").uri(uri);
+    if let Some(accept) = accept {
+        request = request.header("accept", accept);
+    }
+    let resp = app.oneshot(request.body(Body::empty()).unwrap()).await.unwrap();
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    (status, content_type, bytes.to_vec())
+}
+
+const REPORT: (&str, &str, &str) = ("make_text/report.txt", "Report", "The daily report");
+
+/// The metadata is the recipe provider's asset info for the key, not a placeholder `{}`.
+#[tokio::test]
+async fn recipe_metadata_returns_recipe_asset_info() {
+    let app = build_app(env_with(&[REPORT]).await);
+    let (status, json) = send(app, "GET", "/api/recipes/metadata/report.txt").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["result"]["title"], "Report");
+    assert_eq!(json["result"]["description"], "The daily report");
+    assert_eq!(json["result"]["filename"], "report.txt");
+}
+
+#[tokio::test]
+async fn recipe_entry_honours_format_parameter() {
+    let app = build_app(env_with(&[REPORT]).await);
+    let (status, content_type, body) =
+        get_raw(app, "/api/recipes/entry/report.txt?format=json", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(content_type, "application/json");
+    // `data` is base64 in JSON; `DataEntry`'s own deserializer decodes it.
+    let entry: liquers_axum::api_core::response::DataEntry = serde_json::from_slice(&body).unwrap();
+    assert!(String::from_utf8(entry.data).unwrap().contains("make_text/report.txt"));
+    assert_eq!(entry.metadata["title"], "Report");
+}
+
+#[tokio::test]
+async fn recipe_entry_honours_accept_header() {
+    let app = build_app(env_with(&[REPORT]).await);
+    let (status, content_type, _) = get_raw(
+        app.clone(),
+        "/api/recipes/entry/report.txt",
+        Some("application/json"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(content_type, "application/json");
+
+    let (status, content_type, _) = get_raw(app, "/api/recipes/entry/report.txt", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(content_type, "application/cbor", "CBOR stays the default");
+}
+
+#[tokio::test]
+async fn recipe_metadata_and_entry_of_an_unknown_key_fail() {
+    let app = build_app(env_with(&[REPORT]).await);
+    let (status, _) = send(app.clone(), "GET", "/api/recipes/metadata/nonexistent.txt").await;
+    assert_ne!(status, StatusCode::OK);
+    let (status, _, _) = get_raw(app, "/api/recipes/entry/nonexistent.txt", None).await;
+    assert_ne!(status, StatusCode::OK);
+}

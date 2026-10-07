@@ -363,7 +363,11 @@ register_command!(cr,
   `context` may follow)
 - Default value types: string `"foo"`, bool `true`, int `42`, float `3.14`, query `query "path/to/query"`
 - Return: `-> result` (returns `Result<V, Error>`) or `-> value` (returns `V`)
-- Metadata: `label:`, `doc:`, `namespace:`, `realm:`, `preset:`, `next:`, `filename:`, `volatile:`
+- Metadata: `label:`, `doc:`, `namespace:`, `realm:`, `preset:`, `next:`, `filename:`, `volatile:`,
+  `payload:` (bare `required` / `none`; `required` also makes the command volatile), `expires:`
+  (a string, checked when the command is registered), `version:` (`auto`, which needs
+  `#[liquers_macro::command_version]` on the function; `now`, which changes on every start; a string;
+  or an integer)
 
 See examples in `liquers-lib/src/commands.rs` and `liquers-core/tests/async_hellow_world.rs`.
 

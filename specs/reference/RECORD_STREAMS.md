@@ -520,7 +520,7 @@ selects the schema-aware reader (strict, nothing guessed); `ReadSchema::Infer` t
 | TSV | `tsv`, `csv:tab` | yes | yes | as CSV | — |
 | NDJSON | `ndjson`, `jsonl` | yes | yes | values and JSON types; roles lost | — |
 | JSON | `json` — one shape: an array of row objects | yes | yes | as NDJSON | — |
-| Markdown | `md`, `markdown` — GFM pipe table | yes | yes | presentation: headers are labels; types inferred; null = empty text | — |
+| Markdown | `md`, `markdown` — GFM pipe table | yes | yes | presentation: headers are labels; types inferred; null is an empty cell, `""` is `<!---->` | — |
 | HTML | `html` | yes | **no** (`not_supported`) | presentation only | — |
 | Arrow IPC file | `feather`, `ipc`, `arrow_ipc`, `arrow` | yes | yes | **lossless**: types, nulls, schema with roles, `chunk_id` | `ipc` |
 | Parquet | `parquet` | yes | **not here** — `liquers-lib` reads it through polars | values and types; roles lost when read back | `parquet` (write) |
@@ -546,8 +546,15 @@ Parquet writers materialize the view first.
 field is null, a quoted `""` is the empty string. The writer quotes exactly when needed — separator,
 quote, CR, LF, or an empty string — and ends rows with `\n`; the reader accepts `\n` and `\r\n`,
 quoted newlines and doubled quotes, and **strips a leading UTF-8 BOM**. Headers are field **names**.
-A row wider than the header is refused naming its line; a shorter row reads its missing cells as
-null ([`CSV-ROW-NUMBERS-COUNT-RECORDS-AND-SHORT-ROWS-READ-AS-NULL`](../issues/CSV-ROW-NUMBERS-COUNT-RECORDS-AND-SHORT-ROWS-READ-AS-NULL.md)).
+Every per-row error names the **physical line** the record starts on, adding the record number when a
+quoted cell spanning lines has made them differ: `CSV line 4 (record 2)`. A row wider than the header
+is refused. A **shorter row is padded**: a missing cell is null in a nullable field, `""` in a
+non-nullable `Text`, and an error naming the line in any other non-nullable field. Padding is
+reported **once per read**, aggregated: "There has been 2 rows with number of cells between 2 and 3,
+which is less than number of columns in the header (4)." `read_table_with_report` returns it in a
+`ReadReport`; `ns-rec/to_record` and every command reading through `records::convert` write it to the
+asset log with `Context::warning`; `read_table`, and the deserialization of a stored `RecordView`,
+which have no log, write it to stderr. A trailing newline is not a row.
 With `header: false` the schema-less reader names columns `col0`, `col1`, …. The schema-aware reader
 matches columns to fields by header name (by position without a header), refuses an undeclared
 column and a missing non-nullable field, and reads a missing nullable field as nulls. Formula
@@ -597,7 +604,12 @@ JSON reader refuses a key the schema does not declare and coerces losslessly: a 
 | `auto` | read-only | array of objects → `records`; array of arrays → `values`; object with `schema` + `data` → `table`; with `columns` + `data` → `split`; object of equal-length arrays → `list`; an object of objects is refused as ambiguous. `to_json` refuses `auto` |
 
 Without a declared `Id`, the index of `split` / `columns` / `index` reads back as a plain column
-named `index`. The **`table`** orient writes each field's `name`, Table-Schema `type` (`UInt` is
+named `index`. **Without a schema, the columns of a JSON read (NDJSON, `json`, and every orient but `table`) are
+sorted by name**: JSON objects have no key order, so the same columns read the same way whatever the
+row order (`[{"b":1},{"a":2}]` is `a, b`), and the `index` column sorts among them. With a declared
+schema the order is the schema's, and `table` reads its own. The sort also applies to `split` and
+`values`, whose documents do carry an order
+([`SCHEMA-LESS-ORDERED-JSON-ORIENTS-LOSE-COLUMN-ORDER`](../issues/SCHEMA-LESS-ORDERED-JSON-ORIENTS-LOSE-COLUMN-ORDER.md)). The **`table`** orient writes each field's `name`, Table-Schema `type` (`UInt` is
 `integer`, `Binary` is `string` with `format: binary`, `Vector` is `array`), `title` (= label),
 `description`, `constraints.required` for a non-nullable field, **`tz: "UTC"` on a `Timestamp`**, and
 a **`liquers`** property `{type, key, role}` carrying what Table Schema cannot say; `primaryKey` names
@@ -611,9 +623,11 @@ in the delimiter row. Escaping, exactly inverted by the reader: `\` `|` `<` `&` 
 LF → `<br>`, CR → `&#13;`, a leading / trailing space or tab → `&#32;` / `&#9;`. The reader also
 accepts hand-written escapes and entities; turns a header into a field name by lowercasing and
 replacing spaces with `_` (a default label round-trips); refuses a row of the wrong width; and reads
-the **first** table in the document. Markdown has no null: a null and an empty `Text` both write an
-empty cell and both read back as null
-([`MARKDOWN-TABLE-CANNOT-DISTINGUISH-NULL-FROM-EMPTY-TEXT`](../issues/MARKDOWN-TABLE-CANNOT-DISTINGUISH-NULL-FROM-EMPTY-TEXT.md)).
+only the **first** table in the document; surrounding text and later tables are ignored, so a table
+can be read out of a larger document. Markdown has no null and no empty-string literal: a null writes
+an empty cell, and an empty `Text` writes `<!---->`, an empty HTML comment (valid CommonMark, 0.30 and
+0.31.2 §6.6), which renders as nothing. A hand-written empty cell reads as null; `<!---->` reads as
+`""` in a `Text` column and as null in any other. Every value round-trips.
 
 **HTML** (write-only): `<table class="liquers-records">` with `<thead>` / `<tbody>`, headers are
 labels with the description as `title`, numeric cells `class="num"`, nulls `class="null"`; every
@@ -691,7 +705,7 @@ is `async … context`**, because the conversion helpers are async.
 
 | Command | Signature | Returns |
 |---|---|---|
-| `rec_id` | `(state, id: String)` | the first row, walking chunks in order, whose declared `Id` equals `id` — a **materialized** one-row batch. Needs the source's declared schema (`uniform_schema` for a manifest) and an `Id` field, else refuses naming `rowid`. `id` is parsed as the `Id` field's type; a `Date` or `Timestamp` id is its raw integer (days / µs); a `Binary` or `Vector` id is refused |
+| `rec_id` | `(state, id: String)` | the first row, walking chunks in order, whose declared `Id` equals `id` — a **materialized** one-row batch. Needs the source's declared schema (`uniform_schema` for a manifest) and an `Id` field, else refuses naming `rowid`. `id` is parsed as the `Id` field's type; a `Date` id is ISO 8601, `20260927` or `2026-09-27` (written `2026~09~27` in a query); a `Timestamp` id is `20260927T100000Z` or RFC 3339 `2026-09-27T10:00:00Z` (written `2026~09~27T10~ncolon~00~ncolon~00Z`); raw day or µs counts are refused; a `Binary` or `Vector` id is refused |
 | `row` | `(state, n: i64)` | row `n` of a view, materialized. A source is refused |
 | `select_columns` | `(state, columns: Vec<String> multiple)` | a `ColumnsView` (not materialized); keeps `Id` / `Source`; refuses an empty list |
 | `head` | `(state, n: i64 = 5)` | the first `min(n, len)` rows, materialized |
@@ -717,6 +731,7 @@ Queries (all validated with `liquers-validate`):
 -R/data/sales/daily_0042.csv                                      one template chunk, by its key
 -R/data/sales/daily.manifest.yaml/-/ns-rec/rowid-3-17             row 17 of chunk 3, opening chunk 3 only
 -R/data/orders.feather/-/ns-rec/rec_id-42/select_columns-price    one cell, by Id (IPC keeps the Id)
+-R/data/daily.feather/-/ns-rec/rec_id-2026~09~27                   one record, by a Date Id (also rec_id-20260927)
 -R/data/orders.csv/-/ns-rec/head-10                               first ten rows, schema inferred
 -R/data/orders.csv/-/ns-rec/select_columns-price-qty/orders.feather   a projection, written as IPC
 -R/data/orders.csv/-/ns-rec/to_json-split                         a JSON shape
@@ -788,6 +803,10 @@ materializes to an empty batch; without one it is an error.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-07 | Markdown: an empty `Text` writes `<!---->` and round-trips; only the first table is read. | phase-5, `design/markdown-empty-text-and-tables/` |
+| 2026-10-07 | JSON: a schema-less read sorts its columns by name. | phase-5, `design/json-table-column-order/` |
+| 2026-10-07 | CSV: errors name the physical line (and record when they differ); short rows are padded and reported once per read (`ReadReport`, asset log). | phase-5, `design/csv-physical-lines-short-rows/` |
+| 2026-10-07 | `rec_id`: a `Date` / `Timestamp` id is ISO 8601, basic or extended, not a raw day or µs count. | phase-5, `design/rec-id-iso-date-parsing/` |
 | 2026-10-07 | Scalar reading: `try_into_string_option` also gives `None` for a `Null` cell (it gave `Some("None")`). | phase-5, `design/null-cell-string-option/` |
 | 2026-10-06 | §Caches: the folder listing is event-driven (`directory_changed`, Store API included), `clear_cache()` for out-of-band edits; template chunks are producible, not listed. | phase-5 |
 | 2026-09-27 | PR #72 review: a directory is listed through `-R-sdir/…` (the key now carries across that header's boundary); `concat` refuses a differing key role; `Binary` base64 is read strictly. | PR #72 review |

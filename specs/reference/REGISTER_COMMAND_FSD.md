@@ -3,7 +3,7 @@ title: register_command! Macro Functional Specification
 kind: reference
 audience: internal
 area: [macro, core/commands]
-reviewed: 2026-09-27
+reviewed: 2026-10-07
 ---
 # register_command! Macro Functional Specification
 
@@ -165,7 +165,10 @@ fn cmd(state: &State<Value>, payload: MyPayload) -> Result<Value, Error> { ... }
 register_command!(cr, fn cmd(state, payload: MyPayload injected) -> result)?;
 ```
 
-Built-in injectable: `E::Payload` (the environment's payload type).
+Built-in injectable: `E::Payload` (the environment's payload type). A command that injects the
+payload, or anything extracted from it, should also declare `payload: required` (§Metadata
+Statements); otherwise it receives no payload when evaluated as a nested dependency
+([`PAYLOAD_GUIDE.md`](PAYLOAD_GUIDE.md), "Declare it, or lose it").
 
 ### Variadic Parameters
 
@@ -341,6 +344,9 @@ register_command!(cr, fn cmd(state) -> value)?;
 Metadata statements follow the function signature, one per line (no separators):
 
 ```rust
+#[liquers_macro::command_version] // needed by `version: auto` below
+fn my_cmd(state: &State<Value>, arg: String) -> Result<Value, Error> { /* … */ }
+
 register_command!(cr,
     fn my_cmd(state, arg: String) -> result
     label: "My Command"
@@ -349,10 +355,16 @@ register_command!(cr,
     realm: "backend"
     filename: "output.txt"
     volatile: true
+    payload: required
+    expires: "in 5 min"
+    version: auto
     preset: "my_cmd-default" (label: "Default", description: "Run with defaults")
     next: "another_cmd"
 )?;
 ```
+
+Most statements take a literal. Three do not: `payload:` takes a bare identifier, `expires:` a
+string that is checked only when the command is registered, and `version:` one of four forms.
 
 | Statement | Type | Description |
 |-----------|------|-------------|
@@ -362,8 +374,20 @@ register_command!(cr,
 | `realm: "..."` | String | Command realm |
 | `filename: "..."` | String | Default output filename |
 | `volatile: true/false` | Bool | Mark command as volatile |
+| `payload: required` / `payload: none` | Identifier | `required` marks the command as needing the evaluation payload (`PayloadRequirement::Required`) and **also sets `volatile`**. The requirement propagates to the plan, so nested evaluation forwards the payload. `none` is the default and emits nothing. A string or bool (`payload: "required"`, `payload: true`) is a compile error. See [`PAYLOAD_GUIDE.md`](PAYLOAD_GUIDE.md). |
+| `expires: "..."` | String | Default expiration of the command's results, e.g. `"in 5 min"`, `"immediately"`, `"never"`. Parsed when the command is **registered**, not at compile time: an invalid spec makes `register_command!` return `Err`. Grammar: [`DOC_08_RECIPES_PLANS.md`](api/DOC_08_RECIPES_PLANS.md) §Finalization and expiration. |
+| `version: auto` / `now` / `"..."` / integer | Identifier, String or Integer | The command's implementation version (`impl_version`), which feeds dependency freshness. `auto`: a hash of the function's source; requires `#[liquers_macro::command_version]` on the function (see §Implementation versions). `now`: the registration time, so it **changes on every start** and every dependent re-evaluates after a restart. A string: its BLAKE3 hash, computed at compile time. An integer: used as is; bump it by hand. Omitted: the command is unversioned. Any other identifier is a compile error. |
 | `preset: "action" (...)` | Preset | Predefined action configuration |
 | `next: "action" (...)` | Preset | Suggested follow-up action |
+
+### Implementation versions
+
+`#[liquers_macro::command_version]` on a function definition generates a companion
+`<fn>__VERSION_() -> u128`, a hash of the item's tokens, so any edit to the function changes it.
+`version: auto` registers that hash as the command's `impl_version`. Without the attribute,
+`version: auto` fails to compile with ``cannot find function `<fn>__VERSION_` ``. The version
+feeds dependency freshness (`COMMAND_DECLARATION.md`, `impl_version`), so editing the function makes
+results computed by the old code stale.
 
 ### Presets and Next
 
@@ -616,6 +640,7 @@ pub fn register_commands(mut env: DefaultEnvironment<Value>) -> Result<DefaultEn
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-07 | §Metadata Statements: rows for `payload:`, `expires:` and `version:`, the example block shows them, new §Implementation versions (`#[command_version]`); §Injected Parameters links `payload: required`. | phase-5, `design/register-command-payload-docs/` |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5 (its Phase 4 plan added this document to the set): §Async Commands states that an async command taking `context` needs the `CommandEnvironment` alias in scope for its own signature. | phase-5 |
 | 2026-09-04 | Made omitted argument `gui_info` use the shared `command_metadata::DEFAULT_GUI` (`TextField(40)`) in macro, declaration, and serde paths. | `ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS` |
 | 2026-08-30 | Added §The runtime counterpart, pointing at the new `COMMAND_DECLARATION.md` and naming the one deliberate divergence (the default label rule) and the test that holds the rest in agreement. | `design/command-declaration/` |

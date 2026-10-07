@@ -11,34 +11,49 @@ use liquers_web::{LiquersKey, LiquersQuery};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::*;
 
-/// Every `ErrorType` variant. Listed explicitly rather than iterated, because the enum has no
-/// iterator — if a variant is added, `error_type_name`'s exhaustive match fails to compile, and
-/// this list is then updated to match.
-const ALL_ERROR_TYPES: &[ErrorType] = &[
-    ErrorType::ArgumentMissing,
-    ErrorType::ActionNotRegistered,
-    ErrorType::CommandAlreadyRegistered,
-    ErrorType::ParseError,
-    ErrorType::ParameterError,
-    ErrorType::TooManyParameters,
-    ErrorType::ConversionError,
-    ErrorType::SerializationError,
-    ErrorType::General,
-    ErrorType::CacheNotSupported,
-    ErrorType::UnknownCommand,
-    ErrorType::NotSupported,
-    ErrorType::NotAvailable,
-    ErrorType::KeyNotFound,
-    ErrorType::KeyNotSupported,
-    ErrorType::KeyReadError,
-    ErrorType::KeyWriteError,
-    ErrorType::UnexpectedError,
-    ErrorType::ExecutionError,
-    ErrorType::DependencyVersionMismatch,
-    ErrorType::DependencyCycle,
-    ErrorType::StatusConflict,
-    ErrorType::Cancelled,
-];
+/// Expands one list of variants into `ALL_ERROR_TYPES` and an exhaustive `match` over the same
+/// list. A variant added to `ErrorType` and not here makes `listed` non-exhaustive — a compile
+/// error — so the list cannot drift silently (`WEB-OBJECT06-EXPECTS-A-STALE-ERROR-TYPE-COUNT`).
+macro_rules! error_types {
+    ($($variant:ident),+ $(,)?) => {
+        /// Every `ErrorType` variant, in enum order.
+        const ALL_ERROR_TYPES: &[ErrorType] = &[$(ErrorType::$variant),+];
+
+        #[allow(dead_code)]
+        fn listed(t: ErrorType) {
+            match t {
+                $(ErrorType::$variant => {})+
+            }
+        }
+    };
+}
+
+error_types!(
+    ArgumentMissing,
+    ActionNotRegistered,
+    CommandAlreadyRegistered,
+    ParseError,
+    ParameterError,
+    TooManyParameters,
+    ConversionError,
+    SerializationError,
+    General,
+    CacheNotSupported,
+    UnknownCommand,
+    NotSupported,
+    NotAvailable,
+    KeyNotFound,
+    KeyNotSupported,
+    KeyNotAbsolute,
+    KeyReadError,
+    KeyWriteError,
+    UnexpectedError,
+    ExecutionError,
+    DependencyVersionMismatch,
+    DependencyCycle,
+    StatusConflict,
+    Cancelled,
+);
 
 /// OBJECT01 — query parse/encode round-trips.
 #[wasm_bindgen_test]
@@ -130,7 +145,6 @@ fn object05_wrapper_valid_for_documented_lifetime() {
 /// OBJECT06 — every enum variant round-trips by name.
 #[wasm_bindgen_test]
 fn object06_every_enum_variant_roundtrips() {
-    assert_eq!(ALL_ERROR_TYPES.len(), 22, "ErrorType variant count changed");
     for t in ALL_ERROR_TYPES {
         let name = error_type_name(*t);
         assert!(!name.is_empty());

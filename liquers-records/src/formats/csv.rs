@@ -19,7 +19,7 @@ use liquers_core::error::{Error, ErrorType};
 use crate::batch::{RecordBatch, RecordView};
 use crate::column::FieldValue;
 use crate::formats::infer;
-use crate::formats::{ReadOptions, ReadSchema, WriteOptions};
+use crate::formats::{ReadOptions, ReadReport, ReadSchema, WriteOptions};
 use crate::mutable::{RecordBatchMut, RecordViewMut};
 use crate::schema::{FieldSchema, FieldType, RecordSchema};
 
@@ -48,9 +48,18 @@ fn is_null_cell(field: &RawField) -> bool {
     !field.quoted && field.text.is_empty()
 }
 
+/// One CSV/TSV record and the physical line it starts on (1-based, counting the header and every
+/// line break, including those inside a quoted cell) — what an editor shows, and what an error
+/// names.
+#[derive(Debug, Clone)]
+struct ParsedRow {
+    line: usize,
+    fields: Vec<RawField>,
+}
+
 /// RFC 4180 tokenizer: a quoted field may embed the separator, quotes (written doubled), CR and
 /// LF; both `\n` and `\r\n` end a row unquoted. Not part of the public API — [`read_csv`] is.
-fn parse_rows(bytes: &[u8], separator: u8) -> Result<Vec<Vec<RawField>>, Error> {
+fn parse_rows(bytes: &[u8], separator: u8) -> Result<Vec<ParsedRow>, Error> {
     fn make_field(bytes: &[u8], quoted: bool) -> Result<RawField, Error> {
         let text = String::from_utf8(bytes.to_vec())
             .map_err(|e| Error::from_error(ErrorType::ConversionError, e))?;
@@ -65,6 +74,9 @@ fn parse_rows(bytes: &[u8], separator: u8) -> Result<Vec<Vec<RawField>>, Error> 
     let mut in_quotes = false;
     let mut i = 0usize;
     let n = bytes.len();
+    // The line `i` is on, and the line the current record started on.
+    let mut line = 1usize;
+    let mut row_start = 1usize;
 
     while i < n {
         let b = bytes[i];
@@ -78,6 +90,10 @@ fn parse_rows(bytes: &[u8], separator: u8) -> Result<Vec<Vec<RawField>>, Error> 
                     i += 1;
                 }
             } else {
+                // A line break inside a quoted cell: `\r\n` counts once, at its `\n`.
+                if b == b'\n' || (b == b'\r' && bytes.get(i + 1) != Some(&b'\n')) {
+                    line += 1;
+                }
                 field.push(b);
                 i += 1;
             }
@@ -94,17 +110,27 @@ fn parse_rows(bytes: &[u8], separator: u8) -> Result<Vec<Vec<RawField>>, Error> 
             row.push(make_field(&field, quoted)?);
             field.clear();
             quoted = false;
-            rows.push(std::mem::take(&mut row));
+            rows.push(ParsedRow {
+                line: row_start,
+                fields: std::mem::take(&mut row),
+            });
             i += 1;
+            line += 1;
+            row_start = line;
         } else if b == b'\r' {
             row.push(make_field(&field, quoted)?);
             field.clear();
             quoted = false;
-            rows.push(std::mem::take(&mut row));
+            rows.push(ParsedRow {
+                line: row_start,
+                fields: std::mem::take(&mut row),
+            });
             i += 1;
             if i < n && bytes[i] == b'\n' {
                 i += 1;
             }
+            line += 1;
+            row_start = line;
         } else {
             field.push(b);
             i += 1;
@@ -118,7 +144,10 @@ fn parse_rows(bytes: &[u8], separator: u8) -> Result<Vec<Vec<RawField>>, Error> 
     // A final field/row with no trailing line break.
     if !field.is_empty() || quoted || !row.is_empty() {
         row.push(make_field(&field, quoted)?);
-        rows.push(row);
+        rows.push(ParsedRow {
+            line: row_start,
+            fields: row,
+        });
     }
     Ok(rows)
 }
@@ -198,9 +227,10 @@ pub(super) fn base64_decode(text: &str) -> Result<Vec<u8>, Error> {
     Ok(out)
 }
 
-/// `pub(super)`: [`super::ndjson`] and [`super::shapes`] render/parse dates the same way (an ISO
-/// string), so the day-count conversion is not duplicated per format.
-pub(super) fn parse_date(text: &str) -> Result<i32, Error> {
+/// `pub(crate)`: [`super::ndjson`] and [`super::shapes`] render/parse dates the same way (an ISO
+/// string), so the day-count conversion is not duplicated per format, and
+/// [`crate::column::FieldValue::parse_text`] exposes it outside the crate.
+pub(crate) fn parse_date(text: &str) -> Result<i32, Error> {
     let date = NaiveDate::parse_from_str(text, "%Y-%m-%d")
         .map_err(|e| Error::conversion_error(text, format!("Date (YYYY-MM-DD): {e}")))?;
     date.num_days_from_ce()
@@ -218,7 +248,7 @@ pub(super) fn format_date(days: i32) -> Result<String, Error> {
     Ok(date.format("%Y-%m-%d").to_string())
 }
 
-pub(super) fn parse_timestamp(text: &str) -> Result<i64, Error> {
+pub(crate) fn parse_timestamp(text: &str) -> Result<i64, Error> {
     let parsed = DateTime::parse_from_rfc3339(text)
         .map_err(|e| Error::conversion_error(text, format!("Timestamp (RFC 3339): {e}")))?;
     Ok(parsed.with_timezone(&Utc).timestamp_micros())
@@ -251,12 +281,13 @@ fn parse_vector(text: &str) -> Result<FieldValue, Error> {
 /// (so a leading zero is safe), every other type must parse or the cell is refused. Used both by
 /// the declared reader (the schema's own type) and by the post-inference reader (the type
 /// `infer::infer_column` already chose) — one conversion either way.
-/// `pub(super)`: [`super::shapes`] reuses this for the `columns`/`index` JSON orients, whose keys
+/// `pub(crate)`: [`crate::column::FieldValue::parse_text`] exposes it, and [`super::shapes`]
+/// reuses it for the `columns`/`index` JSON orients, whose keys
 /// are always JSON strings (object keys cannot be numbers) and must be coerced through a schema's
 /// declared type the same way a CSV cell is — see phase2-architecture.md §"JSON shapes are
 /// conversions": "an `Id` read from `columns` or `index` keys is text unless a schema says
 /// otherwise".
-pub(super) fn parse_scalar(text: &str, field_type: FieldType) -> Result<FieldValue, Error> {
+pub(crate) fn parse_scalar(text: &str, field_type: FieldType) -> Result<FieldValue, Error> {
     match field_type {
         FieldType::Bool => {
             if text.eq_ignore_ascii_case("true") {
@@ -317,23 +348,50 @@ pub(crate) fn format_value(value: &FieldValue) -> Result<Option<String>, Error> 
 // Reading
 // ---------------------------------------------------------------------------------------------
 
-/// One field's value at `line` (1-based, counting the header row when there is one). Null
-/// handling — a missing column, or a null cell, against the field's `nullable` — is checked once
-/// here, so both readers below share it.
+/// Where a data record is, for an error message: the physical line it starts on, plus its record
+/// number when a quoted cell spanning lines has made the two disagree — "CSV line 7 (record 5)".
+#[derive(Debug, Clone, Copy)]
+struct RowPosition {
+    line: usize,
+    /// 1-based, counting data records only.
+    record: usize,
+    /// The line record 1 starts on: 2 with a header, 1 without.
+    first_line: usize,
+}
+
+impl std::fmt::Display for RowPosition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.line == self.record + self.first_line - 1 {
+            write!(f, "CSV line {}", self.line)
+        } else {
+            write!(f, "CSV line {} (record {})", self.line, self.record)
+        }
+    }
+}
+
+/// One field's value. Null handling — a cell missing from a short row, or a null cell, against
+/// the field's `nullable` — is checked once here, so both readers below share it.
+///
+/// A cell missing from a short row is padded: null when the field is nullable, `""` when it is a
+/// non-nullable `Text`, and an error for any other non-nullable type, which has no honest padding
+/// value. Maintainer decision 2026-10-06, `specs/design/csv-physical-lines-short-rows/`.
 fn cell_value(
     raw: Option<&RawField>,
     field_name: &str,
     field_type: FieldType,
     nullable: bool,
-    line: usize,
+    position: RowPosition,
 ) -> Result<FieldValue, Error> {
     match raw {
         None => {
             if nullable {
                 Ok(FieldValue::Null)
+            } else if field_type == FieldType::Text {
+                Ok(FieldValue::Text(Arc::from("")))
             } else {
                 Err(Error::general_error(format!(
-                    "read_table: CSV row {line}: column '{field_name}' is missing and not nullable"
+                    "read_table: {position}: column '{field_name}' is missing from a short row \
+                     and not nullable"
                 )))
             }
         }
@@ -342,29 +400,68 @@ fn cell_value(
                 Ok(FieldValue::Null)
             } else {
                 Err(Error::general_error(format!(
-                    "read_table: CSV row {line}, column '{field_name}': null is not allowed \
+                    "read_table: {position}, column '{field_name}': null is not allowed \
                      (not nullable)"
                 )))
             }
         }
         Some(raw) => parse_scalar(&raw.text, field_type).map_err(|e| {
             Error::general_error(format!(
-                "read_table: CSV row {line}, column '{field_name}': {e}"
+                "read_table: {position}, column '{field_name}': {e}"
             ))
         }),
     }
 }
 
+/// The rows of one read that were shorter than the table, for the read's one aggregate warning.
+#[derive(Debug, Default)]
+struct ShortRows {
+    count: usize,
+    min_cells: usize,
+    max_cells: usize,
+}
+
+impl ShortRows {
+    fn note(&mut self, cells: usize) {
+        if self.count == 0 {
+            self.min_cells = cells;
+            self.max_cells = cells;
+        } else {
+            self.min_cells = self.min_cells.min(cells);
+            self.max_cells = self.max_cells.max(cells);
+        }
+        self.count += 1;
+    }
+
+    /// The decided wording; `None` when nothing was padded.
+    fn warning(&self, width: usize) -> Option<String> {
+        (self.count > 0).then(|| {
+            format!(
+                "There has been {} rows with number of cells between {} and {}, which is less \
+                 than number of columns in the header ({width}).",
+                self.count, self.min_cells, self.max_cells
+            )
+        })
+    }
+}
+
 /// A row with more fields than the table has columns is refused, naming its line: the extra cell
-/// has no column to go to, and dropping it would lose data silently. (A shorter row reads its
-/// missing cells as null, subject to each field's nullability.) `line` counts records, which is
-/// the file's line number unless a quoted cell spans lines.
-fn check_row_width(row: &[RawField], width: usize, line: usize) -> Result<(), Error> {
+/// has no column to go to, and dropping it would lose data silently. A shorter row is noted in
+/// `short_rows` and padded by [`cell_value`]; the read reports it once, in aggregate.
+fn check_row_width(
+    row: &[RawField],
+    width: usize,
+    position: RowPosition,
+    short_rows: &mut ShortRows,
+) -> Result<(), Error> {
     if row.len() > width {
         return Err(Error::general_error(format!(
-            "read_table: CSV row {line} has {} fields, but the table has {width} columns",
+            "read_table: {position} has {} fields, but the table has {width} columns",
             row.len()
         )));
+    }
+    if row.len() < width {
+        short_rows.note(row.len());
     }
     Ok(())
 }
@@ -374,13 +471,13 @@ fn check_row_width(row: &[RawField], width: usize, line: usize) -> Result<(), Er
 /// not declare is an error naming it, and a non-nullable schema field missing from the file is
 /// an error naming it too.
 fn read_declared(
-    rows: &[Vec<RawField>],
+    rows: &[ParsedRow],
     header: bool,
     schema: &RecordSchema,
-) -> Result<RecordBatch, Error> {
-    let (header_row, data_rows): (Option<&[RawField]>, &[Vec<RawField>]) = if header {
+) -> Result<(RecordBatch, ReadReport), Error> {
+    let (header_row, data_rows): (Option<&[RawField]>, &[ParsedRow]) = if header {
         match rows.split_first() {
-            Some((h, rest)) => (Some(h.as_slice()), rest),
+            Some((h, rest)) => (Some(h.fields.as_slice()), rest),
             None => (Some(&[]), &[]),
         }
     } else {
@@ -420,18 +517,35 @@ fn read_declared(
         None => schema.fields.len(),
     };
     let mut builder = RecordBatchMut::with_capacity(Arc::new(schema.clone()), data_rows.len());
-    let line_base = if header { 2 } else { 1 };
+    let first_line = if header { 2 } else { 1 };
+    let mut short_rows = ShortRows::default();
     for (row_index, row) in data_rows.iter().enumerate() {
-        let line = row_index + line_base;
-        check_row_width(row, width, line)?;
+        let position = RowPosition {
+            line: row.line,
+            record: row_index + 1,
+            first_line,
+        };
+        check_row_width(&row.fields, width, position, &mut short_rows)?;
         let mut values = Vec::with_capacity(schema.fields.len());
         for (field_index, field) in schema.fields.iter().enumerate() {
-            let raw = field_to_col[field_index].and_then(|csv_col| row.get(csv_col));
-            values.push(cell_value(raw, &field.name, field.data_type, field.nullable, line)?);
+            let raw = field_to_col[field_index].and_then(|csv_col| row.fields.get(csv_col));
+            values.push(cell_value(
+                raw,
+                &field.name,
+                field.data_type,
+                field.nullable,
+                position,
+            )?);
         }
         builder.append_row(&values)?;
     }
-    builder.freeze()
+    Ok((builder.freeze()?, report(&short_rows, width)))
+}
+
+fn report(short_rows: &ShortRows, width: usize) -> ReadReport {
+    ReadReport {
+        warnings: short_rows.warning(width).into_iter().collect(),
+    }
 }
 
 fn cell_text(row: &[RawField], col: usize) -> Option<&str> {
@@ -444,21 +558,24 @@ fn cell_text(row: &[RawField], col: usize) -> Option<&str> {
 /// The schema-less reader: one column at a time, [`infer::infer_column`] guesses its type from
 /// every non-null cell, then every cell is parsed as that type. The `Id` is never guessed — the
 /// inferred schema declares no key role at all.
-fn read_inferred(rows: &[Vec<RawField>], header: bool) -> Result<RecordBatch, Error> {
-    let (names, data_rows): (Vec<String>, &[Vec<RawField>]) = if header {
+fn read_inferred(rows: &[ParsedRow], header: bool) -> Result<(RecordBatch, ReadReport), Error> {
+    let (names, data_rows): (Vec<String>, &[ParsedRow]) = if header {
         match rows.split_first() {
-            Some((h, rest)) => (h.iter().map(|field| field.text.clone()).collect(), rest),
+            Some((h, rest)) => (h.fields.iter().map(|field| field.text.clone()).collect(), rest),
             None => (Vec::new(), &[]),
         }
     } else {
-        let width = rows.first().map(Vec::len).unwrap_or(0);
+        let width = rows.first().map(|row| row.fields.len()).unwrap_or(0);
         ((0..width).map(|i| format!("col{i}")).collect(), rows)
     };
     let width = names.len();
 
     let mut fields = Vec::with_capacity(width);
     for (col, name) in names.iter().enumerate() {
-        let cells: Vec<Option<&str>> = data_rows.iter().map(|row| cell_text(row, col)).collect();
+        let cells: Vec<Option<&str>> = data_rows
+            .iter()
+            .map(|row| cell_text(&row.fields, col))
+            .collect();
         let (data_type, nullable) = infer::infer_column(&cells);
         let mut field = FieldSchema::new(name.clone(), data_type);
         if !nullable {
@@ -471,33 +588,39 @@ fn read_inferred(rows: &[Vec<RawField>], header: bool) -> Result<RecordBatch, Er
     let schema = RecordSchema::new(fields)?;
 
     let mut builder = RecordBatchMut::with_capacity(Arc::new(schema), data_rows.len());
-    let line_base = if header { 2 } else { 1 };
+    let first_line = if header { 2 } else { 1 };
+    let mut short_rows = ShortRows::default();
     for (row_index, row) in data_rows.iter().enumerate() {
-        let line = row_index + line_base;
-        check_row_width(row, width, line)?;
+        let position = RowPosition {
+            line: row.line,
+            record: row_index + 1,
+            first_line,
+        };
+        check_row_width(&row.fields, width, position, &mut short_rows)?;
         let mut values = Vec::with_capacity(width);
         for col in 0..width {
-            let raw = row.get(col);
+            let raw = row.fields.get(col);
             values.push(cell_value(
                 raw,
                 &names[col],
                 field_types[col],
                 field_nullable[col],
-                line,
+                position,
             )?);
         }
         builder.append_row(&values)?;
     }
-    builder.freeze()
+    Ok((builder.freeze()?, report(&short_rows, width)))
 }
 
-/// [`super::read_table`]'s CSV/TSV entry point.
+/// [`super::read_table_with_report`]'s CSV/TSV entry point. The report carries the one aggregate
+/// warning for padded short rows.
 pub(crate) fn read_csv(
     bytes: &[u8],
     separator: u8,
     schema: ReadSchema<'_>,
     options: &ReadOptions,
-) -> Result<RecordBatch, Error> {
+) -> Result<(RecordBatch, ReadReport), Error> {
     // A UTF-8 byte-order mark (Excel writes one) is an encoding marker, not part of the first cell.
     let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
     let rows = parse_rows(bytes, separator)?;
@@ -582,7 +705,7 @@ mod tests {
         }
         Ok(())
     }
-    use crate::formats::{read_table, write_table, TableFormat};
+    use crate::formats::{read_table, read_table_with_report, write_table, TableFormat};
     use liquers_records::{
         FieldSchema, FieldType, FieldValue, KeyRole, RecordBatchMut, RecordSchema, RecordViewMut,
     };
@@ -670,7 +793,7 @@ mod tests {
             .expect_err("thirty is not an Int");
         let message = format!("{err}");
         // The bad cell is on line 2 of the file (line 1 is the header).
-        assert!(message.contains("row 2,"), "error should name line 2: {message}");
+        assert!(message.contains("line 2,"), "error should name line 2: {message}");
         assert!(message.contains("'age'") && message.contains("thirty"), "error should name the cell: {message}");
     }
 
@@ -699,12 +822,87 @@ mod tests {
             let error = read_table(csv, TableFormat::Csv { separator: b',' }, read_schema, &ReadOptions::default())
                 .expect_err("a row with an extra cell");
             let message = format!("{error}");
-            assert!(message.contains("row 3") && message.contains("3 fields"), "unexpected error: {message}");
+            assert!(message.contains("line 3 ") && message.contains("3 fields"), "unexpected error: {message}");
         }
         // Without a header, the width is the first row's.
         let error = read_table(b"1,2\n3,4,5\n", TableFormat::Csv { separator: b',' }, ReadSchema::Infer, &ReadOptions { header: false })
             .expect_err("a row with an extra cell");
-        assert!(format!("{error}").contains("row 2"), "unexpected error: {error}");
+        assert!(format!("{error}").contains("line 2 "), "unexpected error: {error}");
+        Ok(())
+    }
+
+    fn csv() -> TableFormat {
+        TableFormat::Csv { separator: b',' }
+    }
+
+    const SHORT_ROWS: &[u8] = b"a,b,c,d\n1,2,3,4\n5,6\n7,8,9\n10,11,12,13\n";
+    const SHORT_ROWS_WARNING: &str = "There has been 2 rows with number of cells between 2 and 3, \
+         which is less than number of columns in the header (4).";
+
+    #[test]
+    fn csv_error_names_physical_line_and_record() {
+        let error = read_table_with_report(b"a,b\n1,\"x\ny\"\n2,z,extra\n", csv(), ReadSchema::Infer, &ReadOptions::default())
+            .expect_err("a row with an extra cell");
+        let message = format!("{error}");
+        assert!(message.contains("CSV line 4 (record 2)"), "unexpected error: {message}");
+    }
+
+    #[test]
+    fn csv_short_rows_are_padded_and_reported_once() -> Result<(), Error> {
+        let schema = RecordSchema::new(["a", "b", "c", "d"].iter().map(|name| FieldSchema::new(*name, FieldType::Int)).collect())?;
+        let (batch, report) = read_table_with_report(SHORT_ROWS, csv(), ReadSchema::Declared(&schema), &ReadOptions::default())?;
+        assert_eq!(batch.len(), 4);
+        assert_eq!(batch.value(1, 1)?, FieldValue::Int(6));
+        assert_eq!(batch.value(1, 2)?, FieldValue::Null);
+        assert_eq!(batch.value(1, 3)?, FieldValue::Null);
+        assert_eq!(batch.value(2, 3)?, FieldValue::Null);
+        assert_eq!(report.warnings, vec![SHORT_ROWS_WARNING.to_string()]);
+        Ok(())
+    }
+
+    #[test]
+    fn csv_inferred_short_rows_are_padded_and_reported_once() -> Result<(), Error> {
+        let (batch, report) = read_table_with_report(SHORT_ROWS, csv(), ReadSchema::Infer, &ReadOptions::default())?;
+        assert_eq!(batch.len(), 4);
+        assert_eq!(batch.value(1, 3)?, FieldValue::Null);
+        assert_eq!(batch.value(3, 3)?, FieldValue::Int(13));
+        assert_eq!(report.warnings, vec![SHORT_ROWS_WARNING.to_string()]);
+        Ok(())
+    }
+
+    #[test]
+    fn csv_short_non_nullable_text_pads_empty() -> Result<(), Error> {
+        let schema = RecordSchema::new(vec![
+            FieldSchema::new("a", FieldType::Int),
+            FieldSchema::new("b", FieldType::Text).not_null(),
+        ])?;
+        let (batch, report) = read_table_with_report(b"a,b\n1\n", csv(), ReadSchema::Declared(&schema), &ReadOptions::default())?;
+        assert_eq!(batch.value(0, 1)?, FieldValue::Text(Arc::from("")));
+        assert_eq!(report.warnings.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn csv_short_non_nullable_int_is_an_error() -> Result<(), Error> {
+        let schema = RecordSchema::new(vec![
+            FieldSchema::new("a", FieldType::Text),
+            FieldSchema::new("b", FieldType::Int).not_null(),
+        ])?;
+        let error = read_table_with_report(b"a,b\nx,1\ny\n", csv(), ReadSchema::Declared(&schema), &ReadOptions::default())
+            .expect_err("nothing honest to pad an Int with");
+        let message = format!("{error}");
+        assert!(message.contains("CSV line 3") && message.contains("'b'"), "unexpected error: {message}");
+        Ok(())
+    }
+
+    #[test]
+    fn csv_trailing_newline_is_not_a_row() -> Result<(), Error> {
+        let (batch, report) = read_table_with_report(b"a,b\n1,2\n", csv(), ReadSchema::Infer, &ReadOptions::default())?;
+        assert_eq!(batch.len(), 1);
+        assert!(report.warnings.is_empty());
+        let (batch, report) = read_table_with_report(b"a,b\r\n1,2\r\n", csv(), ReadSchema::Infer, &ReadOptions::default())?;
+        assert_eq!(batch.len(), 1);
+        assert!(report.warnings.is_empty());
         Ok(())
     }
 

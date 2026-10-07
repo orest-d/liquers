@@ -77,6 +77,21 @@ impl LiquersStore {
         })
     }
 
+    /// Resolves with the key's effective asset info as a plain object: what the system derives
+    /// from the metadata — the effective `media_type`, `data_format` and `filename`, and `is_dir`
+    /// — rather than the raw record `getMetadata` returns, whose `media_type` holds only a
+    /// declared override.
+    #[wasm_bindgen(js_name = getAssetInfo)]
+    pub fn get_asset_info(&self, key: &str) -> js_sys::Promise {
+        let inner = self.inner.clone();
+        let key = key.to_string();
+        promise(async move {
+            let key = key_of(&key)?;
+            let info = inner.get_asset_info(&key).await?;
+            crate::store::asset_info_to_js_value(&key, &info, "store")
+        })
+    }
+
     /// Stores bytes, with optional metadata.
     pub fn set(&self, key: &str, data: &[u8], metadata: JsValue) -> js_sys::Promise {
         let inner = self.inner.clone();

@@ -354,11 +354,6 @@ impl CommandMetadata {
     }
 
     #[getter]
-    fn cache(&self) -> bool {
-        self.0.cache
-    }
-
-    #[getter]
     fn volatile(&self) -> bool {
         self.0.volatile
     }

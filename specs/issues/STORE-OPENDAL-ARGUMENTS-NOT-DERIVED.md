@@ -2,7 +2,7 @@
 id: STORE-OPENDAL-ARGUMENTS-NOT-DERIVED
 kind: feature
 title: OpenDAL store types have no derived argument descriptions and no offline construction test
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [store/backends, store/config]
@@ -85,3 +85,16 @@ rather than wrong.
 Filed when `design/store-factories-in-core/` reached `complete` with two plan steps unexecuted.
 Recorded as an issue rather than left inside the design, because a `complete` design's folder is
 frozen (§5.1) and there is no partial design status (§5.6).
+
+## Resolution (2026-10-07)
+
+Implemented by [`design/opendal-derived-store-arguments/`](../design/opendal-derived-store-arguments/).
+`OpendalStoreFactory` now derives every OpenDAL type's arguments from the linked service config
+(`serde_json::to_value(Config::default())`), merging the hand-written docs by name and keeping
+`ArgumentCoverage::Partial`; a compiled-out service reports the hand-written list. The offline S3
+tests landed with `disable_config_load: true` so they do not depend on the machine's AWS
+environment. Tests: `derive01_s3_reports_stable_fields_with_hand_docs`,
+`derive02_hand_written_names_absent_from_the_config_are_dropped`,
+`derive03_an_uncompiled_service_keeps_the_hand_written_list`, `derive04_coverage_stays_partial`,
+`s3_01_arguments_and_uri_agree`, `s3_02_missing_region_fails_at_construction`
+(`liquers-store/src/store_factory.rs`).

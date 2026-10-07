@@ -18,8 +18,8 @@ use liquers_core::query::{Key, Query};
 use liquers_core::value::ValueInterface;
 
 use liquers_records::{
-    from_json, read_table, InMemorySource, JsonOrient, ManifestSource, ManifestSpec, ReadOptions,
-    ReadSchema, RecordSchema, RecordSource, RecordView, TableFormat,
+    from_json, read_table_with_report, InMemorySource, JsonOrient, ManifestSource, ManifestSpec,
+    ReadOptions, ReadReport, ReadSchema, RecordSchema, RecordSource, RecordView, TableFormat,
 };
 
 use crate::value::{ExtValueInterface, Value};
@@ -49,10 +49,14 @@ pub struct ToRecordOptions {
 /// `crate::records::read_parquet_record_batch` instead, matched explicitly alongside every other
 /// `TableFormat` variant so adding one is a compile error here too (CLAUDE.md's "Match
 /// Statements").
+///
+/// Warnings the reader reports (padded short CSV rows, one aggregate line per read) go to the
+/// asset log through `context`.
 fn read_table_from_bytes(
     bytes: &[u8],
     metadata: &Metadata,
     options: &ToRecordOptions,
+    context: &Context<impl Environment<Value = Value>>,
 ) -> Result<Arc<dyn RecordView>, Error> {
     let format_name = options
         .format
@@ -66,17 +70,21 @@ fn read_table_from_bytes(
         Some(schema) => ReadSchema::Declared(schema.as_ref()),
         None => ReadSchema::Infer,
     };
-    let batch = match format {
-        TableFormat::Parquet => crate::records::read_parquet_record_batch(bytes, read_schema)?,
-        TableFormat::Csv { separator } => {
-            read_table(bytes, TableFormat::Csv { separator }, read_schema, &read_options)?
-        }
-        TableFormat::NdJson => read_table(bytes, TableFormat::NdJson, read_schema, &read_options)?,
-        TableFormat::Json => read_table(bytes, TableFormat::Json, read_schema, &read_options)?,
-        TableFormat::Markdown => read_table(bytes, TableFormat::Markdown, read_schema, &read_options)?,
-        TableFormat::Html => read_table(bytes, TableFormat::Html, read_schema, &read_options)?,
-        TableFormat::Ipc => read_table(bytes, TableFormat::Ipc, read_schema, &read_options)?,
+    let (batch, report) = match format {
+        TableFormat::Parquet => (
+            crate::records::read_parquet_record_batch(bytes, read_schema)?,
+            ReadReport::default(),
+        ),
+        TableFormat::Csv { .. }
+        | TableFormat::NdJson
+        | TableFormat::Json
+        | TableFormat::Markdown
+        | TableFormat::Html
+        | TableFormat::Ipc => read_table_with_report(bytes, format, read_schema, &read_options)?,
     };
+    for warning in &report.warnings {
+        context.warning(warning)?;
+    }
     Ok(Arc::new(batch) as Arc<dyn RecordView>)
 }
 
@@ -131,11 +139,11 @@ pub async fn to_record(
         )),
         "Bytes" => {
             let bytes = value.try_into_bytes()?;
-            read_table_from_bytes(&bytes, metadata, options)
+            read_table_from_bytes(&bytes, metadata, options, context)
         }
         "Text" => {
             let text = value.try_into_string()?;
-            read_table_from_bytes(text.as_bytes(), metadata, options)
+            read_table_from_bytes(text.as_bytes(), metadata, options, context)
         }
         "Array" | "Object" => {
             let json = value.try_into_json_value()?;

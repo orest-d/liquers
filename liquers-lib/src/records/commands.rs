@@ -16,6 +16,7 @@
 //! (`super::convert::to_record` / `super::convert::to_record_source`), never through a glob import
 //! of `convert`, so the two never shadow each other.
 
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use liquers_core::context::{Context, Environment};
@@ -70,35 +71,34 @@ fn parse_schema_argument(schema: &str) -> Result<Option<RecordSchema>, Error> {
 /// CLAUDE.md's "Match Statements" convention; `Binary`/`Vector` Id fields are refused rather than
 /// guessed at (`RecordSchema::new` already requires the Id field to be Exact-indexed and stored,
 /// which in practice means a scalar, comparable type).
+///
+/// A `Date` id is ISO 8601, basic (`20260927`) or extended (`2026-09-27`, written `2026~09~27` in
+/// a query); a `Timestamp` id is basic (`20260927T100000Z`) or RFC 3339. Raw day or microsecond
+/// counts are refused: an eight-digit date would be ambiguous between the two. Maintainer
+/// decision 2026-10-06, `specs/design/rec-id-iso-date-parsing/`.
 fn parse_id_value(data_type: FieldType, id: &str) -> Result<FieldValue, Error> {
     match data_type {
-        FieldType::Text => Ok(FieldValue::Text(Arc::from(id))),
-        FieldType::Int => id
-            .parse::<i64>()
-            .map(FieldValue::Int)
-            .map_err(|error| Error::conversion_error_with_message(id, "Int", &error.to_string())),
-        FieldType::UInt => id
-            .parse::<u64>()
-            .map(FieldValue::UInt)
-            .map_err(|error| Error::conversion_error_with_message(id, "UInt", &error.to_string())),
-        FieldType::Float => id
-            .parse::<f64>()
-            .map(FieldValue::Float)
-            .map_err(|error| Error::conversion_error_with_message(id, "Float", &error.to_string())),
-        FieldType::Bool => id
-            .parse::<bool>()
-            .map(FieldValue::Bool)
-            .map_err(|error| Error::conversion_error_with_message(id, "Bool", &error.to_string())),
-        FieldType::Date => id
-            .parse::<i32>()
-            .map(FieldValue::Date)
-            .map_err(|error| Error::conversion_error_with_message(id, "Date", &error.to_string())),
-        FieldType::Timestamp => id
-            .parse::<i64>()
-            .map(FieldValue::Timestamp)
-            .map_err(|error| {
-                Error::conversion_error_with_message(id, "Timestamp", &error.to_string())
+        FieldType::Date => {
+            FieldValue::parse_text(data_type, &expand_basic_date(id)).map_err(|_| {
+                Error::conversion_error_with_message(
+                    id,
+                    "Date",
+                    "expected YYYYMMDD or YYYY-MM-DD (written YYYY~MM~DD in a query)",
+                )
+            })
+        }
+        FieldType::Timestamp => FieldValue::parse_text(data_type, &expand_basic_timestamp(id))
+            .map_err(|_| {
+                Error::conversion_error_with_message(
+                    id,
+                    "Timestamp",
+                    "expected YYYYMMDDTHHMMSSZ or RFC 3339 YYYY-MM-DDTHH:MM:SSZ \
+                     (written YYYY~MM~DDTHH~ncolon~MM~ncolon~SSZ in a query)",
+                )
             }),
+        FieldType::Text | FieldType::Int | FieldType::UInt | FieldType::Float | FieldType::Bool => {
+            FieldValue::parse_text(data_type, id)
+        }
         FieldType::Binary => Err(Error::conversion_error(
             id.to_string(),
             "a Binary Id field, which ns-rec/rec_id does not support",
@@ -107,6 +107,35 @@ fn parse_id_value(data_type: FieldType, id: &str) -> Result<FieldValue, Error> {
             id.to_string(),
             "a Vector Id field, which ns-rec/rec_id does not support",
         )),
+    }
+}
+
+/// `YYYYMMDD` → `YYYY-MM-DD`; anything else unchanged, for the parser to accept or refuse.
+fn expand_basic_date(id: &str) -> Cow<'_, str> {
+    if id.len() == 8 && id.bytes().all(|b| b.is_ascii_digit()) {
+        Cow::Owned(format!("{}-{}-{}", &id[0..4], &id[4..6], &id[6..8]))
+    } else {
+        Cow::Borrowed(id)
+    }
+}
+
+/// `YYYYMMDDTHHMMSS[.ffffff]Z` → `YYYY-MM-DDTHH:MM:SS[.ffffff]Z`; anything else unchanged.
+fn expand_basic_timestamp(id: &str) -> Cow<'_, str> {
+    let bytes = id.as_bytes();
+    let digits = |range: std::ops::Range<usize>| bytes[range].iter().all(u8::is_ascii_digit);
+    if bytes.len() >= 16 && digits(0..8) && bytes[8] == b'T' && digits(9..15) && id.ends_with('Z') {
+        Cow::Owned(format!(
+            "{}-{}-{}T{}:{}:{}{}",
+            &id[0..4],
+            &id[4..6],
+            &id[6..8],
+            &id[9..11],
+            &id[11..13],
+            &id[13..15],
+            &id[15..]
+        ))
+    } else {
+        Cow::Borrowed(id)
     }
 }
 
@@ -686,6 +715,44 @@ macro_rules! register_records_commands {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn rec_id_accepts_basic_and_extended_dates() -> Result<(), Error> {
+        assert_eq!(
+            parse_id_value(FieldType::Date, "20260927")?,
+            FieldValue::Date(20723)
+        );
+        assert_eq!(
+            parse_id_value(FieldType::Date, "2026-09-27")?,
+            FieldValue::Date(20723)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn rec_id_accepts_basic_and_extended_timestamps() -> Result<(), Error> {
+        let basic = parse_id_value(FieldType::Timestamp, "20260927T100000Z")?;
+        assert_eq!(
+            basic,
+            parse_id_value(FieldType::Timestamp, "2026-09-27T10:00:00Z")?
+        );
+        assert_eq!(basic, FieldValue::Timestamp(1_790_503_200_000_000));
+        assert_eq!(
+            parse_id_value(FieldType::Timestamp, "20260927T100000.5Z")?,
+            FieldValue::Timestamp(1_790_503_200_500_000)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn rec_id_rejects_epoch_day_numbers() {
+        match parse_id_value(FieldType::Date, "20723") {
+            Ok(value) => panic!("a raw day count must be refused, got {value:?}"),
+            Err(e) => assert!(e.message.contains("YYYY~MM~DD"), "got: {}", e.message),
+        }
+        assert!(parse_id_value(FieldType::Timestamp, "1790503200000000").is_err());
+    }
+
     use super::*;
     use liquers_core::interpreter::evaluate;
     use liquers_core::query::Key;

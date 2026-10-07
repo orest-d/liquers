@@ -40,7 +40,7 @@ pub mod wrapper;
 pub use encoding::{decode_envelope, encode_envelope, ByteEncoding};
 
 use liquers_core::error::Error;
-use liquers_core::metadata::{Metadata, MetadataRecord};
+use liquers_core::metadata::{AssetInfo, Metadata, MetadataRecord};
 use liquers_core::query::Key;
 use wasm_bindgen::prelude::JsValue;
 
@@ -104,6 +104,29 @@ pub(crate) fn metadata_from_js_value(
         record.type_identifier = type_identifier.to_string();
     }
     Ok(Metadata::MetadataRecord(record))
+}
+
+/// Converts an [`AssetInfo`] into the plain object JavaScript sees, through JSON like
+/// [`metadata_to_js_value`], so its fields keep their serde names and shapes.
+pub(crate) fn asset_info_to_js_value(
+    key: &Key,
+    info: &AssetInfo,
+    store_name: &str,
+) -> Result<JsValue, Error> {
+    let json = serde_json::to_string(info).map_err(|e| {
+        Error::key_read_error(
+            key,
+            store_name,
+            &format!("asset info is not serializable: {e}"),
+        )
+    })?;
+    js_sys::JSON::parse(&json).map_err(|e| {
+        Error::key_read_error(
+            key,
+            store_name,
+            &format!("asset info JSON did not parse back: {e:?}"),
+        )
+    })
 }
 
 /// Converts [`Metadata`] into the plain object JavaScript sees.

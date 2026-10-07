@@ -2,7 +2,7 @@
 id: REGISTER-ALL-COMMANDS-MACRO-REQUIRES-EVERY-FEATURE
 kind: issue
 title: register_all_commands! does not compile when an optional command feature is off
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [lib/commands]
@@ -40,3 +40,16 @@ expanding to `Ok(())`.
 
 Found during the record-streams Phase 4 final review (2026-09-25) while specifying how
 `register_records_commands!` joins the command set.
+
+## Resolution (2026-10-07)
+
+Fixed by design `register-all-commands-feature-gating`. `liquers-lib/src/commands.rs` defines a
+no-op `#[macro_export]` stand-in for `register_egui_commands!`, `register_image_commands!`,
+`register_polars_commands!` and `register_records_commands!` under `#[cfg(not(feature = …))]`,
+next to the master macro, so `register_all_commands!` compiles in every configuration and
+registers the domains that are compiled in. `image-support` needed one too: its `commands` module
+is gated.
+
+Evidence: `register_all_commands_registers_the_enabled_domains`
+(`liquers-lib/tests/register_all_commands.rs`, ungated) passes with no optional feature and with
+each of `polars`, `egui`, `image-support`, `records`, `webui` alone, and in the build matrix.

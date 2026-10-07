@@ -3,7 +3,7 @@ title: Record Stream Guide
 kind: guide
 audience: internal
 area: [records, lib/value]
-reviewed: 2026-10-06
+reviewed: 2026-10-07
 ---
 
 # Record Stream Guide
@@ -356,11 +356,33 @@ string constant; this is the same document.</sub>
   keeps them in the asset manager. Setting both to `false` means "not kept", which is different
   from volatile. `volatile` and `expires` are copied onto every chunk recipe.
 
-A **directory of CSV files** is the same shape: one explicit, unkeyed chunk per file, each chunk
-query reading the file and converting it, for example `-R/data/raw/jan.csv/-/ns-rec/to_record-csv`.
-The chunk has no filename, so it is identified by its query and served from the file itself. No
-test covers this shape end to end yet. The file read is covered by `to_record_reads_labelled_csv_bytes`
-and the unkeyed chunk by `manifest_source_reads_an_unkeyed_chunk_by_evaluating_its_query`.
+A **directory of CSV files** is the same shape: one explicit, unkeyed chunk per file. Each chunk
+query reads the file and converts it:
+
+```yaml
+manifest: record-stream
+uniform_schema:
+  fields:
+    - name: month
+      data_type: Text
+    - name: amount
+      data_type: Int
+      nullable: false
+chunks:
+  - query: -R/data/raw/jan.csv/-/ns-rec/to_record-csv
+  - query: -R/data/raw/feb.csv/-/ns-rec/to_record-csv
+```
+
+<sub>Source: `liquers-lib/tests/records_manifest_over_csv_files.rs`</sub>
+
+`-R/data/raw/all.manifest.yaml/-/ns-rec/materialize` returns jan's rows followed by feb's. The
+chunks have no filename, so each is identified by its query and served from its file. Nothing new
+is written to the store. A file with a null in `amount` is refused, naming the field (the error
+does not yet name the chunk:
+[`MANIFEST-CHUNK-SCHEMA-ERROR-DOES-NOT-NAME-THE-CHUNK`](../issues/MANIFEST-CHUNK-SCHEMA-ERROR-DOES-NOT-NAME-THE-CHUNK.md)).
+The files must carry the `RecordView` type identifier, as Liquers writes them. A hand-placed CSV
+without it cannot be loaded yet
+([`STORED-UNTYPED-FILE-OF-UNLISTED-FORMAT-CANNOT-BE-READ`](../issues/STORED-UNTYPED-FILE-OF-UNLISTED-FORMAT-CANNOT-BE-READ.md)).
 
 ### 3.3 Declare `uniform_schema` when you can
 
@@ -906,6 +928,7 @@ write-only. Parquet is written here and read back only through polars
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-07 | §3.2: the directory-of-CSV-files manifest, quoted from its end-to-end test, with the two limits the test found. | `design/manifest-over-stored-csv-test/` |
 | 2026-10-06 | §3: adding or changing a manifest on a running server (event-driven folder listing, `clear_cache`, template chunks are producible not listed). | phase-5 |
 | 2026-09-27 | §6.4: a generator command (`RowFnView`) and a template source over it, with a note on when a source is worth it over a lazy view; §6.4–6.5 renumbered to 6.5–6.6. | user request |
 | 2026-09-27 | PR #72 review: pitfall 7 now gives the working directory query, `-R-sdir/<dir>/-/ns-rec/file_records`, with its end-to-end test. | PR #72 review |

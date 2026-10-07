@@ -2,7 +2,7 @@
 id: REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED
 kind: issue
 title: The `payload: required` metadata statement is implemented but documented nowhere
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [docs, core/commands, macro]
@@ -58,3 +58,11 @@ declaration had to be recovered from the macro source because no document names 
 
 `design/register-command-payload-docs/` now also owns
 `REGISTER-COMMAND-EXPIRES-AND-VERSION-STATEMENTS-UNDOCUMENTED`; this issue remains its leading source.
+
+## Resolution (2026-10-07)
+
+Fixed by design `register-command-payload-docs` (documentation only). `REGISTER_COMMAND_FSD.md`
+§Metadata Statements has a `payload:` row (bare `required` / `none`; `required` also sets
+`volatile`) and §Injected Parameters links it; `COMMAND_REGISTRATION_GUIDE.md` has a "Commands that
+need the payload" recipe; `CLAUDE.md`'s DSL list names it. `PAYLOAD_GUIDE.md` already documented the
+statement, so this issue's "documented nowhere" was out of date; the other documents now point to it.

@@ -3,18 +3,25 @@
 //! Part of the Recipes API implementation.
 //! See specs/design/axum-assets-recipes-api/phase2-architecture.md for specifications.
 
+use std::collections::HashMap;
+
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query as AxumQuery, State},
+    http::HeaderMap,
     response::{IntoResponse, Response},
 };
 #[allow(unused_imports)]
 use liquers_core::recipes::AsyncRecipeProvider; // Needed for trait method resolution
 use liquers_core::{
     context::{EnvRef, Environment},
+    error::Error,
+    metadata::{Metadata, MetadataRecord},
     parse::parse_key,
+    query::Key,
 };
 
 use crate::api_core::{error::error_to_detail, ApiResponse};
+use crate::assets::common::{entry_response, metadata_json};
 
 /// GET /listdir - List all available recipes (at root directory)
 pub async fn listdir_handler<E: Environment>(State(env): State<EnvRef<E>>) -> Response {
@@ -22,7 +29,6 @@ pub async fn listdir_handler<E: Environment>(State(env): State<EnvRef<E>>) -> Re
     let recipe_provider = env.get_recipe_provider();
 
     // Use root key to list recipes
-    use liquers_core::query::Key;
     let root_key = Key::new();
 
     // Check if root has recipes
@@ -106,6 +112,17 @@ pub async fn get_data_handler<E: Environment>(
     (headers, recipe_yaml).into_response()
 }
 
+/// The recipe's metadata as the Assets API derives it for a recipe key: the recipe provider's
+/// `AssetInfo` (title, description, filename, planning diagnostics) as a `MetadataRecord`, so the
+/// two APIs answer the same for the same key.
+async fn recipe_metadata<E: Environment>(env: &EnvRef<E>, key: &Key) -> Result<Metadata, Error> {
+    let info = env
+        .get_recipe_provider()
+        .get_asset_info(key, env.clone())
+        .await?;
+    Ok(Metadata::MetadataRecord(MetadataRecord::from(info)))
+}
+
 /// GET /metadata/{*key} - Get recipe metadata
 pub async fn get_metadata_handler<E: Environment>(
     State(env): State<EnvRef<E>>,
@@ -121,30 +138,37 @@ pub async fn get_metadata_handler<E: Environment>(
         }
     };
 
-    // Get RecipeProvider
-    let recipe_provider = env.get_recipe_provider();
-
     // Verify recipe exists
-    match recipe_provider.recipe(&key, env.clone()).await {
-        Ok(_) => {
-            // Recipe exists, return empty metadata (placeholder)
+    if let Err(e) = env.get_recipe_provider().recipe(&key, env.clone()).await {
+        let error_detail = error_to_detail(&e);
+        let response: ApiResponse<()> = ApiResponse::error(error_detail, "Failed to get recipe");
+        return response.into_response();
+    }
+
+    match recipe_metadata(&env, &key).await {
+        Ok(metadata) => {
             let response: ApiResponse<serde_json::Value> =
-                ApiResponse::ok(serde_json::json!({}), "Recipe metadata retrieved");
+                ApiResponse::ok(metadata_json(&metadata), "Recipe metadata retrieved");
             response.into_response()
         }
         Err(e) => {
             let error_detail = error_to_detail(&e);
             let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Failed to get recipe");
+                ApiResponse::error(error_detail, "Failed to get recipe metadata");
             response.into_response()
         }
     }
 }
 
 /// GET /entry/{*key} - Get recipe entry (data + metadata)
+///
+/// The data is the recipe's YAML; the metadata is what [`get_metadata_handler`] returns. The
+/// entry is negotiated like the Assets API's: `?format=` first, then `Accept`, then CBOR.
 pub async fn get_entry_handler<E: Environment>(
     State(env): State<EnvRef<E>>,
     Path(key_path): Path<String>,
+    headers: HeaderMap,
+    AxumQuery(params): AxumQuery<HashMap<String, String>>,
 ) -> Response {
     // Parse key
     let key = match parse_key(&key_path) {
@@ -156,11 +180,8 @@ pub async fn get_entry_handler<E: Environment>(
         }
     };
 
-    // Get RecipeProvider
-    let recipe_provider = env.get_recipe_provider();
-
     // Get recipe definition
-    let recipe = match recipe_provider.recipe(&key, env.clone()).await {
+    let recipe = match env.get_recipe_provider().recipe(&key, env.clone()).await {
         Ok(r) => r,
         Err(e) => {
             let error_detail = error_to_detail(&e);
@@ -170,46 +191,17 @@ pub async fn get_entry_handler<E: Environment>(
         }
     };
 
-    // Serialize recipe to YAML and convert to bytes
-    let recipe_yaml = recipe.to_string();
-    let data = recipe_yaml.into_bytes();
-
-    // Create DataEntry with recipe data and empty metadata
-    use crate::api_core::response::DataEntry;
-    let entry = DataEntry {
-        data,
-        metadata: serde_json::json!({}),
+    let metadata = match recipe_metadata(&env, &key).await {
+        Ok(metadata) => metadata,
+        Err(e) => {
+            let error_detail = error_to_detail(&e);
+            let response: ApiResponse<()> =
+                ApiResponse::error(error_detail, "Failed to get recipe metadata");
+            return response.into_response();
+        }
     };
 
-    // Serialize entry to CBOR (default format)
-    use crate::api_core::format::serialize_data_entry;
-    let format = crate::SerializationFormat::Cbor;
-
-    match serialize_data_entry(&entry, format) {
-        Ok(bytes) => {
-            // Return with appropriate Content-Type
-            use axum::http::header::{HeaderMap, CONTENT_TYPE};
-            let mut headers = HeaderMap::new();
-            headers.insert(
-                CONTENT_TYPE,
-                axum::http::HeaderValue::from_static(format.mime_type()),
-            );
-            (headers, bytes).into_response()
-        }
-        Err(e) => {
-            let error_detail = crate::api_core::response::ErrorDetail {
-                error_type: "SerializationError".to_string(),
-                message: e,
-                query: None,
-                key: None,
-                traceback: None,
-                metadata: None,
-            };
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Failed to serialize entry");
-            response.into_response()
-        }
-    }
+    entry_response(recipe.to_string().as_bytes(), &metadata, &headers, &params)
 }
 
 /// GET /resolve/{*key} - Resolve recipe to execution plan

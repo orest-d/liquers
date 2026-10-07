@@ -1,13 +1,13 @@
 # Phase 5: Documentation - Documenting `payload:`, `expires:` and `version:`
 
-**Status: plan.** Written on 2026-10-05; executed after implementation. For a documentation-only
-design, implementation *is* most of Phase 5: this plan fixes what is reviewed and recorded.
+**Status: executed 2026-10-07**, after implementation (Wave 3 step 20 of
+`archive/2026-10-06-p2-p3-s-implementation-order-revised.md`). Awaiting approval.
 
 ## Completion Preconditions
 
-- [ ] Phase 4 steps 1-4 complete
-- [ ] User and review comments answered or incorporated
-- [ ] Documentation consistent with the macro as implemented
+- [x] Phase 4 steps 1-4 complete
+- [x] User and review comments answered or incorporated
+- [x] Documentation consistent with the macro as implemented
 
 ## Documentation Plan
 
@@ -45,24 +45,37 @@ and `REGISTER-COMMAND-EXPIRES-AND-VERSION-STATEMENTS-UNDOCUMENTED` → `status: 
 
 ## Implementation Summary
 
-*Pending.*
+Documentation only, as designed. The grammar was re-verified against
+`liquers-macro/src/registration.rs` (parse arms for `payload`, `expires`, `version`; emitters
+`payload_required_code`, `expires_code`, `impl_version_code`) and the claim that the version feeds
+freshness against `load_command_versions_sync` (`liquers-core/src/assets.rs`).
 
 ## Documentation Delivered
 
-*Pending.*
+- `reference/REGISTER_COMMAND_FSD.md`: example block with all three statements and
+  `#[command_version]`; a sentence naming the three non-literal value forms; table rows for
+  `payload:`, `expires:`, `version:`; new §Implementation versions; §Injected Parameters links
+  `payload: required`. History row, `reviewed:` bumped.
+- `guides/COMMAND_REGISTRATION_GUIDE.md`: the DSL bullet lists every statement; new sections
+  "Commands that need the payload" and "Versioning a command so its results expire when its code
+  changes", with the Phase 3 snippets. History row, `reviewed:` bumped.
+- `CLAUDE.md`: the DSL metadata list names `payload:`, `expires:` and `version:`.
 
 ## Issues Filed
 
-*Pending.* None expected.
+None.
 
 ## Important Learning
 
-*Pending.*
+A `version:` string is hashed at compile time (BLAKE3 in the macro), not at registration.
 
 ## Conformance and Remaining Work
 
-*Pending.*
+Conforms to Phases 1–4. The Phase 4 TODO in `design/dependency-management/` about documenting
+`command_version` is answered by §Implementation versions. No remaining work.
 
 ## Validation
 
-*Pending.* Planned: `python3 scripts/docs_index.py --check`.
+`cargo test -p liquers-macro version`; `cargo test -p liquers-core --test volatility_integration
+test_payload_required`; `cargo test -p liquers-core --test expiration_integration
+test_register_command_expires_in_plan`; `python3 scripts/docs_index.py --check`.

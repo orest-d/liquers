@@ -32,6 +32,31 @@ pub enum FieldValue {
     Vector(Arc<[f32]>),
 }
 
+impl FieldValue {
+    /// Parse the text a table shows for `data_type`: the extended ISO 8601 date (`2026-09-27`) for
+    /// `Date`, RFC 3339 (`2026-09-27T10:00:00Z`) for `Timestamp`, the plain literal for the
+    /// numeric types, `true`/`false` for `Bool`, the text itself for `Text`. The same conversion
+    /// the text readers apply to a cell, so a value written by a table reads back unchanged.
+    ///
+    /// `Binary` and `Vector` are refused: a table shows them as base64 and JSON, which are cell
+    /// encodings rather than text anyone types.
+    pub fn parse_text(data_type: FieldType, text: &str) -> Result<FieldValue, Error> {
+        match data_type {
+            FieldType::Bool
+            | FieldType::Int
+            | FieldType::UInt
+            | FieldType::Float
+            | FieldType::Text
+            | FieldType::Date
+            | FieldType::Timestamp => crate::formats::csv::parse_scalar(text, data_type),
+            FieldType::Binary | FieldType::Vector => Err(Error::conversion_error(
+                text,
+                format!("{data_type:?} (not parsed from text)"),
+            )),
+        }
+    }
+}
+
 /// What [`Column::compare`] takes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CompareOp {
@@ -1266,6 +1291,21 @@ impl Column {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn field_value_parses_iso_date() -> Result<(), Error> {
+        assert_eq!(
+            FieldValue::parse_text(FieldType::Date, "2026-09-27")?,
+            FieldValue::Date(20723)
+        );
+        assert_eq!(
+            FieldValue::parse_text(FieldType::Timestamp, "2026-09-27T10:00:00Z")?,
+            FieldValue::Timestamp(1_790_503_200_000_000)
+        );
+        assert!(FieldValue::parse_text(FieldType::Date, "20723").is_err());
+        assert!(FieldValue::parse_text(FieldType::Vector, "[1.0]").is_err());
+        Ok(())
+    }
+
     use super::*;
 
     // --- Phase 3 §2.3 (11 tests), copied verbatim except `field_value_date_variant_holds_days_
