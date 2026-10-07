@@ -342,6 +342,11 @@ fn record_view_cell_f64_option(cell: &FieldValue) -> Result<Option<f64>, Error> 
     record_view_cell_as_base(cell)?.try_into_f64_option()
 }
 
+#[cfg(feature = "records")]
+fn record_view_cell_string_option(cell: &FieldValue) -> Result<Option<String>, Error> {
+    record_view_cell_as_base(cell)?.try_into_string_option()
+}
+
 impl ValueExtension for ExtValue {
     /// Reads as its single cell would (`specs/design/record-streams/phase2-architecture.md`
     /// §"A view as a value"): the cell's base value's own string conversion.
@@ -361,6 +366,29 @@ impl ValueExtension for ExtValue {
             ExtValue::RecordSource { .. } => Err(ext_scalar_refusal(self, "string")),
             #[cfg(feature = "records")]
             ExtValue::RecordView { value } => record_view_cell_string(&value.single_cell()?),
+        }
+    }
+
+    /// A `Null` cell is `None`, as for [`Self::try_into_i64_option`]; any other cell reads as
+    /// [`Self::try_into_string`] does. Every other variant has no "no value" reading, so it
+    /// answers exactly as its `try_into_string` does, wrapped in `Some`.
+    fn try_into_string_option(&self) -> Result<Option<String>, Error> {
+        match self {
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => {
+                self.try_into_string().map(Some)
+            }
+            #[cfg(feature = "polars")]
+            ExtValue::PolarsDataFrame { .. } => self.try_into_string().map(Some),
+            #[cfg(feature = "egui")]
+            ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => {
+                self.try_into_string().map(Some)
+            }
+            #[cfg(feature = "records")]
+            ExtValue::RecordSource { .. } => self.try_into_string().map(Some),
+            #[cfg(feature = "records")]
+            ExtValue::RecordView { value } => {
+                record_view_cell_string_option(&value.single_cell()?)
+            }
         }
     }
 

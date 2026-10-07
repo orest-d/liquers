@@ -3,7 +3,7 @@ title: Record Streams
 kind: reference
 audience: internal
 area: [records, lib/value, lib/commands, web]
-reviewed: 2026-10-06
+reviewed: 2026-10-07
 ---
 
 # Record Streams
@@ -175,7 +175,7 @@ stands for (the `ExtValue` scalar hooks in `value/mod.rs`); the conversion rules
 
 | Cell | Read as base value |
 |---|---|
-| `Null` | `None` — `try_into_i64_option` / `try_into_f64_option` give `None` |
+| `Null` | `None` — `try_into_i64_option` / `try_into_f64_option` / `try_into_string_option` give `None` |
 | `Bool` / `Int` / `Float` / `Text` / `Bytes` | `Bool` / `I64` / `F64` / `Text` / `Bytes` |
 | `UInt` | `I64` when it fits, else a conversion error |
 | `Date` | `Text`, `YYYY-MM-DD` |
@@ -788,6 +788,7 @@ materializes to an empty batch; without one it is an error.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-07 | Scalar reading: `try_into_string_option` also gives `None` for a `Null` cell (it gave `Some("None")`). | phase-5, `design/null-cell-string-option/` |
 | 2026-10-06 | §Caches: the folder listing is event-driven (`directory_changed`, Store API included), `clear_cache()` for out-of-band edits; template chunks are producible, not listed. | phase-5 |
 | 2026-09-27 | PR #72 review: a directory is listed through `-R-sdir/…` (the key now carries across that header's boundary); `concat` refuses a differing key role; `Binary` base64 is read strictly. | PR #72 review |
 | 2026-09-27 | Created from the implementation at HEAD, following `design/record-streams/` Phase 2's documentation contract; checked against `liquers-records`, `liquers-lib/src/records/`, `liquers-lib/src/value/mod.rs` and `liquers-web/src/records.rs`. | phase-5 |

@@ -29,6 +29,12 @@ pub trait ValueExtension:
         Err(Error::conversion_error(self.identifier(), "string"))
     }
 
+    /// Try to get a `String`, allowing an extension to report "no value" instead of erroring.
+    /// See [`ValueExtension::try_into_i64_option`].
+    fn try_into_string_option(&self) -> Result<Option<String>, Error> {
+        self.try_into_string().map(Some)
+    }
+
     /// Try to get an `i32` out.
     ///
     /// Default-refuses, exactly as `CombinedValue`'s `ValueInterface::try_into_i32` refused every
@@ -186,6 +192,15 @@ impl<BaseValue: ValueInterface + Default, Ext: ValueExtension> ValueInterface
         match self {
             CombinedValue::Base(base) => base.try_into_string(),
             CombinedValue::Extended(ext) => ext.try_into_string(),
+        }
+    }
+
+    /// Delegated for the same reason as [`Self::try_into_i64_option`]: inherited, a `RecordView`'s
+    /// `Null` cell would read as the text `"None"`.
+    fn try_into_string_option(&self) -> Result<Option<String>, Error> {
+        match self {
+            CombinedValue::Base(base) => base.try_into_string_option(),
+            CombinedValue::Extended(ext) => ext.try_into_string_option(),
         }
     }
 
@@ -875,7 +890,12 @@ mod tests {
     fn option_hooks_default_to_wrapping_the_scalar_hook() {
         assert!(RefusingExtension.try_into_i64_option().is_err());
         assert!(RefusingExtension.try_into_f64_option().is_err());
+        assert!(RefusingExtension.try_into_string_option().is_err());
         assert_eq!(ScalarExtension(42).try_into_i64_option().unwrap(), Some(42));
+        assert_eq!(
+            ScalarExtension(42).try_into_string_option().unwrap(),
+            Some("42".to_string())
+        );
         assert_eq!(
             ScalarExtension(42).try_into_f64_option().unwrap(),
             Some(42.0)

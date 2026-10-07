@@ -289,6 +289,38 @@ fn null_cell_reads_as_none_through_the_option_hooks() -> Result<(), Box<dyn std:
     Ok(())
 }
 
+/// A one-row view with a single (nullable) `Text` field holding `cell`.
+fn one_text_cell_view(cell: FieldValue) -> Result<Value, Box<dyn std::error::Error>> {
+    use liquers_records::{RecordBatchMut, RecordViewMut};
+    let schema = Arc::new(RecordSchema::new(vec![FieldSchema::new("t", FieldType::Text)])?);
+    let mut batch = RecordBatchMut::new(schema);
+    batch.append_row(&[cell])?;
+    Ok(Value::from_record_view(Arc::new(batch.freeze()?)))
+}
+
+/// A `Null` cell is `None` through `try_into_string_option` too, not the text `"None"`
+/// (`NULL-CELL-READS-AS-THE-TEXT-NONE`).
+#[test]
+fn null_text_cell_string_option_is_none() -> Result<(), Box<dyn std::error::Error>> {
+    let null = one_text_cell_view(FieldValue::Null)?;
+    assert_eq!(null.try_into_string_option()?, None);
+
+    let null_int = Value::from_record_view(Arc::new(one_null_int_cell_batch()?));
+    assert_eq!(null_int.try_into_string_option()?, None);
+    Ok(())
+}
+
+#[test]
+fn text_cell_string_option_is_some() -> Result<(), Box<dyn std::error::Error>> {
+    let text = one_text_cell_view(FieldValue::Text(Arc::from("x")))?;
+    assert_eq!(text.try_into_string_option()?, Some("x".to_string()));
+
+    // A non-text cell reads as its own string conversion, wrapped in `Some`.
+    let int = Value::from_record_view(Arc::new(one_row_one_column_batch()?));
+    assert_eq!(int.try_into_string_option()?, Some(int.try_into_string()?));
+    Ok(())
+}
+
 fn sum_prices(prices: Vec<f64>) -> Result<Value, Error> {
     Ok(Value::from(prices.iter().sum::<f64>()))
 }
