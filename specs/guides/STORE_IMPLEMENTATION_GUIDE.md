@@ -400,7 +400,7 @@ As of 2026-10-07, from the suites above: 44 rules are registered.
 |---|---|---|---|
 | `AsyncMemoryStore` | 32 | `CONFORMANT` | |
 | `AsyncFileStore` | 34 | `CONFORMANT` | `derived_directories: false` — real directories persist |
-| `AsyncStoreRouter` | 31 | `CONFORMANT` | needs each member's prefix to exist (`CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER`); a directory above its members has no metadata (`CORE-STORE-ROUTER-DIRECTORY-ABOVE-MEMBERS-HAS-NO-METADATA`), which no fixture requests |
+| `AsyncStoreRouter` | 31 | `CONFORMANT` | needs each member's prefix to exist (`CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER`); a directory above its members answers directory metadata, checked by router unit tests because no generic fixture requests such a key |
 | `AsyncOpenDALStore` (memory) | 35 | `CONFORMANT` | the widest coverage in tree |
 | `AsyncOpenDALStore` (fs) | 34 | `CONFORMANT` | `derived_directories: false` |
 | Trait defaults | 15 | `CONFORMANT` | no directory support, no enumeration |
@@ -417,7 +417,7 @@ Update it when a rule is added or a store's result changes.
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-07 | §8: added `sidecar05` — a key holding only metadata has no data object. §9: 44 rules; each store that accepts writes with stored metadata runs one more rule. | `design/memory-store-metadata-only-entry/` |
+| 2026-10-07 | §8: added `sidecar05` — a key holding only metadata has no data object. §9: 44 rules; each store that accepts writes with stored metadata runs one more rule. §9 router row: a directory above the members now has metadata. | `design/memory-store-metadata-only-entry/`, `design/store-router-directory-above-members/` |
 | 2026-10-02 | Added a "see also" link to the new `ASSET_MANAGER_IMPLEMENTATION_GUIDE.md`, which follows this guide's pattern. Link-only change, recorded because §9.2 has no link-only exemption; the store content was not re-verified in this pass. | phase-5 (`design/dependency-audit-and-expiry-provenance/`) |
 | 2026-09-30 | §2: delegated stores must be able to say "absent". §5: "Naming your tests" — rule families are owned by the rules, unit tests are named by subject, refutation tests are `refute_<rule id>_…`, and D1 enforces it; noted that no suite carries an allowed failure. §9 rewritten from the final reports: 43 rules, every in-tree store conformant, `JsStore` and `LocalStorageStore` included; the table is said to be maintained by hand, which it always was. | phase-5 (`design/store-conformance-backlog/`) |
 | 2026-09-29 | §8: added `sidecar04` — a key holding only metadata is listed by its parent. | `design/store-conformance-backlog/` step 6 |

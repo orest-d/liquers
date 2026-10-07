@@ -2125,10 +2125,21 @@ impl AsyncStore for AsyncStoreRouter {
     async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
         let key = key.as_absolute()?;
         if let Some(store) = self.find_store(key) {
-            store.get_metadata(key).await
-        } else {
-            Err(Error::key_not_found(key))
+            return store.get_metadata(key).await;
         }
+        // Above the members: a directory that exists because a member is mounted below it.
+        // `is_dir` already says so, and STORE_SEMANTICS §2 requires directory metadata with its
+        // children for any key `is_dir` answers. A child above a deeper member recurses into
+        // this branch; one a member owns dispatches to it.
+        if self.is_dir(key).await? {
+            // Built here: `default_metadata` delegates to a member, and none owns this key.
+            let mut metadata = MetadataRecord::new();
+            metadata.with_key(key.to_owned());
+            metadata.is_dir = true;
+            metadata.children = self.listdir_asset_info(key).await?;
+            return Ok(Metadata::MetadataRecord(metadata));
+        }
+        Err(Error::key_not_found(key))
     }
 
     /// Store data and metadata.
@@ -2571,6 +2582,69 @@ mod tests {
             .listdir(&parse_key("meta")?)
             .await?
             .contains(&"only.json".to_string()));
+        Ok(())
+    }
+
+    /// A router over memory stores mounted at `mounts`, each holding one file so its listing works.
+    async fn router_over(mounts: &[&str]) -> Result<AsyncStoreRouter, Error> {
+        let mut router = AsyncStoreRouter::new();
+        for mount in mounts {
+            let prefix = parse_key(mount)?;
+            let store = AsyncMemoryStore::new(&prefix);
+            store
+                .set(
+                    &prefix.join("file.txt"),
+                    b"x",
+                    &Metadata::MetadataRecord(MetadataRecord::new()),
+                )
+                .await?;
+            router.add_store(Box::new(store));
+        }
+        Ok(router)
+    }
+
+    fn child_names(metadata: &Metadata) -> Vec<String> {
+        match metadata {
+            Metadata::MetadataRecord(record) => {
+                assert!(record.is_dir, "a directory record: {record:?}");
+                let mut names: Vec<String> = record
+                    .children
+                    .iter()
+                    .filter_map(|c| c.filename.clone())
+                    .collect();
+                names.sort();
+                names
+            }
+            Metadata::LegacyMetadata(_) => panic!("expected a metadata record"),
+        }
+    }
+
+    #[tokio::test]
+    async fn router_root_metadata_lists_members() -> Result<(), Error> {
+        let router = router_over(&["mem", "files"]).await?;
+        let metadata = router.get_metadata(&Key::new()).await?;
+        assert_eq!(child_names(&metadata), vec!["files".to_string(), "mem".to_string()]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn router_intermediate_directory_metadata() -> Result<(), Error> {
+        let router = router_over(&["a/b"]).await?;
+        let metadata = router.get_metadata(&parse_key("a")?).await?;
+        assert_eq!(child_names(&metadata), vec!["b".to_string()]);
+        // The root lists `a`, a directory above the member, through the same branch.
+        assert_eq!(
+            child_names(&router.get_metadata(&Key::new()).await?),
+            vec!["a".to_string()]
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn router_unowned_key_metadata_not_found() -> Result<(), Error> {
+        let router = router_over(&["mem"]).await?;
+        let error = router.get_metadata(&parse_key("zzz")?).await.unwrap_err();
+        assert_eq!(error.error_type, crate::error::ErrorType::KeyNotFound);
         Ok(())
     }
 

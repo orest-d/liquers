@@ -2,7 +2,7 @@
 id: CORE-STORE-ROUTER-DIRECTORY-ABOVE-MEMBERS-HAS-NO-METADATA
 kind: issue
 title: AsyncStoreRouter reports KeyNotFound for the metadata of a directory above its members' prefixes
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/store]
@@ -34,3 +34,13 @@ requests a key above the members so a rule can check it.
 
 Found 2026-09-29 by the final Phase 4 review of `design/store-conformance-backlog/`, which
 had claimed the router used the trait default for such keys.
+
+## Resolution (2026-10-07)
+
+Fixed by design `store-router-directory-above-members`. `AsyncStoreRouter::get_metadata` now
+answers a key above its members that `is_dir` reports as a directory with directory metadata whose
+`children` list what is mounted below it, as STORE_SEMANTICS §2 requires. A key no member owns and
+that is not a directory is still `KeyNotFound`.
+
+Evidence: `router_root_metadata_lists_members`, `router_intermediate_directory_metadata`,
+`router_unowned_key_metadata_not_found` (`liquers-core/src/store.rs`).
