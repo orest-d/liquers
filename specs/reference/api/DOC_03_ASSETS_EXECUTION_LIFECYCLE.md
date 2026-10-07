@@ -274,7 +274,7 @@ Every route into `Expired` records why, as `MetadataRecord.expiry_reason`, throu
 
 | Route | Expired asset | Its dependents |
 |---|---|---|
-| Queued expiration monitor; immediate lazy check | `Direct { Deadline { expiration_time } }` | `Cascaded { Deadline, root, via }` (queued only) |
+| Queued expiration monitor; immediate lazy check | `Direct { Deadline { expiration_time } }` | `Cascaded { Deadline, root, via }` (both; the lazy check cascades once it finds the deadline passed) |
 | `AssetRef::expire`, `AssetManager::expire(key)` | `Direct { Explicit }` | `Cascaded { Explicit, … }` |
 | Run that consumed a dependency expired meanwhile | `Direct { StaleDependency { dependency } }` | `Cascaded { StaleDependency, root: this asset, … }` |
 | Dependency audit (`trigger_dependency_audit*`) | — | `Cascaded { Audit { found }, … }` |
@@ -439,7 +439,7 @@ implements a manager outside the crate against the shared manager scenarios. See
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-07 | §Persistence contract step 6 and the `PersistenceStatus` row: a write skipped because the asset was cancelled records `None`, as a `stored: false` skip does; it had recorded `Persisted`. | phase-5 (`design/save-to-store-skip-outcome/`) |
+| 2026-10-07 | §Persistence contract step 6 and the `PersistenceStatus` row: a write skipped because the asset was cancelled records `None`, as a `stored: false` skip does; it had recorded `Persisted`. The route table: the immediate lazy check cascades as the monitor does. | phase-5 (`design/save-to-store-skip-outcome/`, `design/immediate-lazy-expiry-cascade/`) |
 | 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. §Expiration, recovery, and cancellation: the route/reason table for `expiry_reason`, the immediate manager's lazy check (fires on the deadline, does not cascade), and `remove` corrected to the status-aware behaviour. The P1 "public trait exposes a private dependency-manager type" row is removed: resolved, the trait is implementable outside core. | phase-5 |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. §Identity, caching, and fast track: a `cached: false` key gets a fresh unregistered, non-volatile asset that stays its key's graph node. §Persistence contract: `stored: false` skips every write including the metadata saver's, a skipped write records `None` (fixed in this phase; it had recorded `Persisted`), and `set_state`/`set_binary` follow the supplied metadata's flag. Step 5 corrected from "a key or `store_to` key" to "keyed", as the 2026-09-04 row already stated. | phase-5 |
 | 2026-09-15 | Execution-time expiry: the parent's `Expired` status reaches the store, its version is still registered, and `try_fast_track` declines a dependency it can see is stale while treating an undeterminable one as inconclusive. | `stale-dependency-status-finalization` |

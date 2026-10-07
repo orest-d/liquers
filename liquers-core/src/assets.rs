@@ -8446,12 +8446,14 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 if status == Status::Ready && assetref.expiration_time().await.is_expired() {
                     // Lazy expiration-on-access: the deadline, not the status, decides
                     // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`; this used to test
-                    // `is_expired()`, i.e. the status, which can never be `Expired` here). Unlike
-                    // the queued monitor, lazy expiry does not cascade to dependents; whether it
-                    // should is open (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE`).
+                    // `is_expired()`, i.e. the status, which can never be `Expired` here).
+                    // Laziness is how the expiry is discovered; once it is known, the consequences
+                    // follow, so it cascades to dependents as the queued monitor does
+                    // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE`, fixed). The
+                    // cascade takes no `key_mutation_lock`, so it runs before the lock below.
                     let expiration_time = assetref.expiration_time().await;
                     let _ = assetref
-                        .expire_without_cascade(ExpiryReason::Direct {
+                        .expire_with_reason(ExpiryReason::Direct {
                             cause: ExpiryCause::Deadline { expiration_time },
                         })
                         .await;
@@ -8544,12 +8546,14 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 if status == Status::Ready && asset_ref.expiration_time().await.is_expired() {
                     // Lazy expiration-on-access: the deadline, not the status, decides
                     // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`; this used to test
-                    // `is_expired()`, i.e. the status, which can never be `Expired` here). Unlike
-                    // the queued monitor, lazy expiry does not cascade to dependents; whether it
-                    // should is open (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE`).
+                    // `is_expired()`, i.e. the status, which can never be `Expired` here).
+                    // Laziness is how the expiry is discovered; once it is known, the consequences
+                    // follow, so it cascades to dependents as the queued monitor does
+                    // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE`, fixed). The
+                    // cascade takes no `key_mutation_lock`, so it runs before the lock below.
                     let expiration_time = asset_ref.expiration_time().await;
                     let _ = asset_ref
-                        .expire_without_cascade(ExpiryReason::Direct {
+                        .expire_with_reason(ExpiryReason::Direct {
                             cause: ExpiryCause::Deadline { expiration_time },
                         })
                         .await;

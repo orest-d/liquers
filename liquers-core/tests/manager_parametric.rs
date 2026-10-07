@@ -24,6 +24,8 @@ use liquers_core::{
 };
 
 use common::manager_scenarios::{
+    lazy_expiry_chain_store, register_lazy_expiry_chain, scenario_lazy_deadline_expiry_cascade,
+    scenario_lazy_dependent_read_first,
     listing_store, provenance_store, register_index_files, register_provenance_commands, scenario_listing_dependency, scenario_every_expired_asset_has_reason_and_log_line,
     scenario_audit_after_restart, scenario_expiry_reason_cascade,
     register_gate_command, scenario_stale_dependency, stale_dependency_store, StaleGate,
@@ -635,4 +637,31 @@ async fn stale_dependency_immediate() -> Result<(), Error> {
     env.with_async_store(Box::new(stale_dependency_store().await?));
     env.with_recipe_provider(Box::new(DefaultRecipeProvider));
     scenario_stale_dependency(env.to_ref(), gate).await
+}
+
+#[tokio::test]
+async fn lazy_deadline_expiry_cascades_default() -> Result<(), Error> {
+    let mut env = SimpleEnvironment::<Value>::new();
+    let calls = register_lazy_expiry_chain(&mut env.command_registry)?;
+    env.with_async_store(Box::new(lazy_expiry_chain_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_lazy_deadline_expiry_cascade(env.to_ref(), calls).await
+}
+
+#[tokio::test]
+async fn lazy_deadline_expiry_cascades_immediate() -> Result<(), Error> {
+    let mut env = ImmediateEnvironment::<Value>::new();
+    let calls = register_lazy_expiry_chain(&mut env.command_registry)?;
+    env.with_async_store(Box::new(lazy_expiry_chain_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_lazy_deadline_expiry_cascade(env.to_ref(), calls).await
+}
+
+#[tokio::test]
+async fn lazy_dependent_read_first_immediate() -> Result<(), Error> {
+    let mut env = ImmediateEnvironment::<Value>::new();
+    let calls = register_lazy_expiry_chain(&mut env.command_registry)?;
+    env.with_async_store(Box::new(lazy_expiry_chain_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_lazy_dependent_read_first(env.to_ref(), calls).await
 }

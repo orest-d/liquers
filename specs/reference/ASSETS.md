@@ -295,7 +295,7 @@ the cascade reached it (equal to `root` for a direct dependent). The seven cause
 
 | `ExpiryCause` | Route | Root gets | Dependents get | Level |
 |---|---|---|---|---|
-| `Deadline { expiration_time }` | queued manager's expiration monitor; immediate manager's lazy check on `get` / `get_asset` | `Direct` | `Cascaded` (queued only; lazy expiry does not cascade, `IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE`) | Info |
+| `Deadline { expiration_time }` | queued manager's expiration monitor; immediate manager's lazy check on `get` / `get_asset` | `Direct` | `Cascaded` (both managers: once the lazy check finds the deadline passed, it cascades as the monitor does) | Info |
 | `Explicit` | `AssetRef::expire`, `AssetManager::expire(key)` (live or stored-only) | `Direct` | `Cascaded` | Info |
 | `Audit { found }` | `trigger_dependency_audit*` in `AuditMode::Expire`; `found` is the current version, 0 when none | not expired | `Cascaded` | Warning |
 | `StaleDependency { dependency }` | an evaluation that waited (through `wait_for_dependency`) on a dependency that expired meanwhile | `Direct`, born `Expired` | `Cascaded`, root = the asset, cause still naming the stale input | Warning |
@@ -1159,7 +1159,7 @@ each with an `ExpiryReason` (§Why an asset is `Expired`). The rules are in
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-07 | §Why an asset is `Expired`: a value supplied already `Expired` keeps its supplied reason and logs the warning `Asset expired` plus an after-the-fact info entry; one written-status rule for every manager. New §Progress after completion: started progress of a finished asset is done, unstarted progress stays absent, finalized after the service loop drains. | phase-5 (`design/supplied-expired-status-reason/`, `design/immediate-set-state-status-match/`, `design/finished-asset-progress-contract/`) |
+| 2026-10-07 | §Why an asset is `Expired`: a value supplied already `Expired` keeps its supplied reason and logs the warning `Asset expired` plus an after-the-fact info entry; one written-status rule for every manager. New §Progress after completion: started progress of a finished asset is done, unstarted progress stays absent, finalized after the service loop drains. The `Deadline` row: the immediate manager's lazy check cascades too. | phase-5 (`design/supplied-expired-status-reason/`, `design/immediate-set-state-status-match/`, `design/finished-asset-progress-contract/`, `design/immediate-lazy-expiry-cascade/`) |
 | 2026-10-06 | §Remove Semantics: `set_description` points to `Context::set_title` / `set_description` and its recipe-wins rule. | phase-5 |
 | 2026-10-06 | §Related keyed operations: `contains` vs `can_make`; `listdir_keys_deep` is complete (recipe keys at every store directory, `keys()` includes root recipes); `removedir` unmaps the directory's own recipe assets. `refresh_listing_version` also notifies the recipe provider. | phase-5 |
 | 2026-10-04 | §Related keyed operations: `makedir` and `removedir` refresh the parent's listing version (review fix on orest-d/liquers#75). | phase-5 |

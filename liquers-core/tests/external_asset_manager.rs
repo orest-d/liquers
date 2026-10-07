@@ -41,7 +41,8 @@ use common::manager_scenarios::{
     scenario_persist_keyed_nonvolatile, scenario_persist_keyed_volatile,
     scenario_persist_query_writes_nothing, scenario_ready_on_return, scenario_stale_dependency,
     scenario_stored_value, scenario_volatile_keyed_eval, stale_dependency_store,
-    stored_text_store, volatile_recipe_store, StaleGate,
+    stored_text_store, volatile_recipe_store, StaleGate, lazy_expiry_chain_store,
+    register_lazy_expiry_chain, scenario_lazy_deadline_expiry_cascade,
 };
 use common::minimal_manager::{
     MinimalEnv, MinimalInlineAssetManager, MinimalKind, AUDIT_TRAIL_PREFIX,
@@ -416,4 +417,19 @@ async fn record_expiry_is_overridable_by_a_manager() -> TestResult {
         "record_expiry was called for data/b.txt: {calls:?}"
     );
     Ok(())
+}
+
+/// Lazy deadline expiry cascades on a manager written outside core, through public API only
+/// (`expire_without_cascade` then `cascade_expire_dependents`).
+#[tokio::test]
+async fn external_manager_lazy_deadline_expiry_cascades() -> TestResult {
+    let mut env = MinimalEnv::new();
+    let calls = register_lazy_expiry_chain(&mut env.command_registry)?;
+    env.with_async_store(Box::new(lazy_expiry_chain_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario(
+        "lazy_deadline_expiry_cascade",
+        scenario_lazy_deadline_expiry_cascade(env.to_ref(), calls),
+    )
+    .await
 }

@@ -10,7 +10,8 @@
 //! - honour the registration invariants: at most one registered asset per key, `lookup_key_asset`
 //!   returns exactly that asset, a volatile asset is never registered;
 //! - create assets with `AssetData::new(..).to_ref()` and evaluate with `AssetRef::run_inline`;
-//! - expire lazily with `AssetRef::expire_without_cascade`;
+//! - expire lazily with `AssetRef::expire_without_cascade`, then cascade to the dependents with
+//!   `AssetManager::cascade_expire_dependents`, as a monitor does;
 //! - publish new versions of written keys with `AssetManager::publish_version`;
 //! - override `record_expiry` and record every call.
 //!
@@ -183,8 +184,9 @@ impl<E: Environment> MinimalInlineAssetManager<E> {
         }
     }
 
-    /// Whether a finished, `Ready` asset has passed its deadline; if so expires it (lazily, with
-    /// no cascade) and says so.
+    /// Whether a finished, `Ready` asset has passed its deadline; if so expires it and its
+    /// dependents and says so. Laziness is only how the expiry is discovered: once it is known,
+    /// the cascade follows, as from a monitor.
     async fn expire_if_past_deadline(&self, asset: &AssetRef<E>) -> Result<bool, Error> {
         if asset.status().await != Status::Ready {
             return Ok(false);
@@ -193,11 +195,16 @@ impl<E: Environment> MinimalInlineAssetManager<E> {
         if !expiration_time.is_expired() {
             return Ok(false);
         }
+        let cause = ExpiryCause::Deadline { expiration_time };
         asset
             .expire_without_cascade(ExpiryReason::Direct {
-                cause: ExpiryCause::Deadline { expiration_time },
+                cause: cause.clone(),
             })
             .await?;
+        if let Some(key) = asset.key().await {
+            self.cascade_expire_dependents(&DependencyKey::from(&key), cause)
+                .await;
+        }
         Ok(true)
     }
 }

@@ -2,7 +2,7 @@
 id: IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE
 kind: issue
 title: On the immediate manager, an elapsed deadline expires the asset but not its dependents
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/assets]
@@ -49,3 +49,16 @@ may not be enough.
 
 Found 2026-10-02 in Phase 5 of `design/dependency-audit-and-expiry-provenance/`, while writing the
 resolution of `IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`.
+
+## Resolution (2026-10-07)
+
+Fixed by design `immediate-lazy-expiry-cascade`, applying the maintainer decision of 2026-10-06:
+"Laziness is the method of finding out that expiry needs to be done — but once it is known that an
+asset expired, all the consequences should follow, i.e. cascade expiry." Both lazy-expiry sites of
+`ImmediateAssetManager` now expire through `expire_with_reason`, which cascades to dependents with
+`Cascaded { Deadline, root, via }` as the queued monitor does. A dependent inherits its root's
+deadline, so reading it first also recomputes it.
+
+Evidence: `lazy_deadline_expiry_cascades_{default,immediate}` and
+`lazy_dependent_read_first_immediate` (`liquers-core/tests/manager_parametric.rs`),
+`external_manager_lazy_deadline_expiry_cascades` (`liquers-core/tests/external_asset_manager.rs`).

@@ -60,9 +60,11 @@ them. The exceptions are listed in §4.
 - **What is registered, and where?** A key map and a query map, at most one asset per entry, never a
   volatile asset, never a `cached: false` key (§7).
 - **How do deadlines fire?** A monitor (`track_expiration` schedules, `remove_expired_from_maps`
-  evicts), or lazily on access, as the minimal manager and `ImmediateAssetManager` do. Lazy expiry
-  through `expire_without_cascade` does not reach dependents
-  (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE`).
+  evicts), or lazily on access, as the minimal manager and `ImmediateAssetManager` do. Laziness is
+  only how the expiry is discovered: once a lazy check finds the deadline passed, the dependents
+  must follow, exactly as from a monitor. Expire the asset with `expire_without_cascade(Direct {
+  Deadline })` and then, for a keyed asset, call `cascade_expire_dependents(key, Deadline)` — the
+  minimal manager does exactly this.
 - **Which `AssetManagerOptions` can you honour?** Store the policies and return them from the policy
   getters. Refuse a field you cannot honour with an error from `build` rather than ignoring it
   (§9).
@@ -454,7 +456,6 @@ store conformance suite: shared scenarios, no rule numbers and no capability mod
 | Ownership is read from your map; what registration guarantees beyond §7 is open. | `ASSET-REGISTRATION-OWNERSHIP-CONTRACT` |
 | The manager and the environment hold each other strongly. | `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` |
 | `run` spawns on Tokio, so a queued manager is native-only. | `CORE-TOKIO-REMOVAL` |
-| Lazy deadline expiry with `expire_without_cascade` does not expire dependents, as a monitor calling `expire` does. | `IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE` |
 | A manager on another machine needs manager-owned metadata to travel between peers. | `NO-REMOTE-STORE-OR-ASSET-MANAGER` |
 
 ## Related
@@ -470,6 +471,6 @@ store conformance suite: shared scenarios, no rule numbers and no capability mod
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-07 | `remove_expired_from_maps`: the id comparison and the removal must be one atomic map operation. | phase-5 (`design/queued-manager-conditional-eviction/`) |
+| 2026-10-07 | `remove_expired_from_maps`: the id comparison and the removal must be one atomic map operation. Deadlines: a lazy check that finds the deadline passed must cascade (`expire_without_cascade` then `cascade_expire_dependents`); the known-limit row is removed. | phase-5 (`design/queued-manager-conditional-eviction/`, `design/immediate-lazy-expiry-cascade/`) |
 | 2026-10-06 | `refresh_listing_version` also notifies the recipe provider; every write path must call it. | phase-5 |
 | 2026-10-02 | Created: decisions before writing code, what to hold, required and provided methods, the lifecycle primitives and their contracts, the key-mutation lock, registration invariants, overriding `record_expiry`, providing an `AssetManagerKind`, running the shared scenarios, known limits. Snippets from `tests/common/minimal_manager.rs` and `tests/external_asset_manager.rs`. | phase-5 (`design/dependency-audit-and-expiry-provenance/`) |
