@@ -2,7 +2,7 @@
 id: REC-ID-PARSES-DATE-AND-TIMESTAMP-IDS-AS-RAW-NUMBERS
 kind: issue
 title: ns-rec/rec_id reads a Date or Timestamp id as a raw day or microsecond count, not as ISO text
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [records, lib/commands]
@@ -33,3 +33,18 @@ separators in a date need checking with `liquers-validate`.
 ## Discovery
 
 Found 2026-09-27 while writing `specs/reference/RECORD_STREAMS.md` in record-streams Phase 5.
+
+## Resolution (2026-10-07)
+
+Implemented by [`design/rec-id-iso-date-parsing/`](../design/rec-id-iso-date-parsing/), following
+the maintainer decision of 2026-10-06. A `Date` id is `YYYYMMDD` or `YYYY-MM-DD`, written
+`YYYY~MM~DD` in a query. A `Timestamp` id is `YYYYMMDDTHHMMSSZ` or RFC 3339. Raw day and
+microsecond counts are refused with a message naming the spellings. The ISO parsers are shared
+through the new `FieldValue::parse_text` in `liquers-records`.
+
+Tests:
+- `field_value_parses_iso_date`
+- `rec_id_accepts_basic_and_extended_dates`
+- `rec_id_accepts_basic_and_extended_timestamps`
+- `rec_id_rejects_epoch_day_numbers`
+- `rec_id_selects_by_date_query`

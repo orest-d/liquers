@@ -198,9 +198,10 @@ pub(super) fn base64_decode(text: &str) -> Result<Vec<u8>, Error> {
     Ok(out)
 }
 
-/// `pub(super)`: [`super::ndjson`] and [`super::shapes`] render/parse dates the same way (an ISO
-/// string), so the day-count conversion is not duplicated per format.
-pub(super) fn parse_date(text: &str) -> Result<i32, Error> {
+/// `pub(crate)`: [`super::ndjson`] and [`super::shapes`] render/parse dates the same way (an ISO
+/// string), so the day-count conversion is not duplicated per format, and
+/// [`crate::column::FieldValue::parse_text`] exposes it outside the crate.
+pub(crate) fn parse_date(text: &str) -> Result<i32, Error> {
     let date = NaiveDate::parse_from_str(text, "%Y-%m-%d")
         .map_err(|e| Error::conversion_error(text, format!("Date (YYYY-MM-DD): {e}")))?;
     date.num_days_from_ce()
@@ -218,7 +219,7 @@ pub(super) fn format_date(days: i32) -> Result<String, Error> {
     Ok(date.format("%Y-%m-%d").to_string())
 }
 
-pub(super) fn parse_timestamp(text: &str) -> Result<i64, Error> {
+pub(crate) fn parse_timestamp(text: &str) -> Result<i64, Error> {
     let parsed = DateTime::parse_from_rfc3339(text)
         .map_err(|e| Error::conversion_error(text, format!("Timestamp (RFC 3339): {e}")))?;
     Ok(parsed.with_timezone(&Utc).timestamp_micros())
@@ -251,12 +252,13 @@ fn parse_vector(text: &str) -> Result<FieldValue, Error> {
 /// (so a leading zero is safe), every other type must parse or the cell is refused. Used both by
 /// the declared reader (the schema's own type) and by the post-inference reader (the type
 /// `infer::infer_column` already chose) — one conversion either way.
-/// `pub(super)`: [`super::shapes`] reuses this for the `columns`/`index` JSON orients, whose keys
+/// `pub(crate)`: [`crate::column::FieldValue::parse_text`] exposes it, and [`super::shapes`]
+/// reuses it for the `columns`/`index` JSON orients, whose keys
 /// are always JSON strings (object keys cannot be numbers) and must be coerced through a schema's
 /// declared type the same way a CSV cell is — see phase2-architecture.md §"JSON shapes are
 /// conversions": "an `Id` read from `columns` or `index` keys is text unless a schema says
 /// otherwise".
-pub(super) fn parse_scalar(text: &str, field_type: FieldType) -> Result<FieldValue, Error> {
+pub(crate) fn parse_scalar(text: &str, field_type: FieldType) -> Result<FieldValue, Error> {
     match field_type {
         FieldType::Bool => {
             if text.eq_ignore_ascii_case("true") {

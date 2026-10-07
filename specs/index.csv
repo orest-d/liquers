@@ -185,7 +185,7 @@ QUERY-AST-DISCARDS-ENTITIES,issue,"Parsed entities are decoded away, so the AST 
 QUERY-BUILDER-TOOLING,issue,No programmatic builder for constructing queries,accepted,local,,,P2,L,core/query;core/validate,,,,,,2026-08-08,specs/issues/QUERY-BUILDER-TOOLING.md
 QUEUED-MANAGER-EVICTION-RACE,issue,The queued manager's cache evictions can delete a replacement asset,closed,local,,ready,P2,S,core/assets,,,,queued-manager-conditional-eviction,,2026-08-09,specs/issues/QUEUED-MANAGER-EVICTION-RACE.md
 QUEUED-MANAGER-STARTUP-READINESS,issue,Queued asset manager accepts work before it is ready to run it,closed,local,,,P1,L,core/assets,,,,environment-builder,,2026-08-08,specs/issues/QUEUED-MANAGER-STARTUP-READINESS.md
-REC-ID-PARSES-DATE-AND-TIMESTAMP-IDS-AS-RAW-NUMBERS,issue,"ns-rec/rec_id reads a Date or Timestamp id as a raw day or microsecond count, not as ISO text",draft,local,,ready,P3,S,records;lib/commands,,,,rec-id-iso-date-parsing,,2026-09-27,specs/issues/REC-ID-PARSES-DATE-AND-TIMESTAMP-IDS-AS-RAW-NUMBERS.md
+REC-ID-PARSES-DATE-AND-TIMESTAMP-IDS-AS-RAW-NUMBERS,issue,"ns-rec/rec_id reads a Date or Timestamp id as a raw day or microsecond count, not as ISO text",closed,local,,ready,P3,S,records;lib/commands,,,,rec-id-iso-date-parsing,,2026-09-27,specs/issues/REC-ID-PARSES-DATE-AND-TIMESTAMP-IDS-AS-RAW-NUMBERS.md
 RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY,issue,AsyncRecipeProvider::contains has a default that silently assumes recipes are enumerable,closed,local,,ready,P2,S,core/assets,,,,recipe-provider-listing-contract,,2026-09-20,specs/issues/RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY.md
 RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING,issue,Recipe plan analysis runs outside plan building,draft,local,,,P3,M,core/plan;core/assets,,,,,,2026-08-26,specs/issues/RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING.md
 RECIPE-PROVIDER-BY-NAME,feature,"Recipe providers cannot be selected by name, so a configuration document cannot choose one",closed,local,,,P0,S,core/assets;web,,,,recipe-provider-selection,,2026-08-27,specs/issues/RECIPE-PROVIDER-BY-NAME.md
@@ -372,7 +372,7 @@ ACTIVE-08,design,Design for QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS,in_review,local,
 QUERY-LINK-PARSER,design,Action-parameter link parsing (~X~~E),complete,local,,,,,core/query,,17,,query-link-parser,,2026-03-02,specs/design/query-link-parser/DESIGN.md
 QUERY-VALIDATION,design,Offline query and recipe validation,complete,local,,,,,core/validate,,15,,query-validation,,2026-03-02,specs/design/query-validation/DESIGN.md
 QUEUED-MANAGER-CONDITIONAL-EVICTION,design,Conditional queued-manager cache eviction,complete,local,,ready,P2,S,core/assets,,,,queued-manager-conditional-eviction,,2026-08-29,specs/design/queued-manager-conditional-eviction/DESIGN.md
-REC-ID-ISO-DATE-PARSING,design,ns-rec/rec_id accepts YYYYMMDD and YYYY-MM-DD ids,in_review,local,implementation,ready,P3,S,records;lib/commands,,,,rec-id-iso-date-parsing,,2026-10-06,specs/design/rec-id-iso-date-parsing/DESIGN.md
+REC-ID-ISO-DATE-PARSING,design,ns-rec/rec_id accepts YYYYMMDD and YYYY-MM-DD ids,in_review,local,documentation,ready,P3,S,records;lib/commands,,,,rec-id-iso-date-parsing,,2026-10-06,specs/design/rec-id-iso-date-parsing/DESIGN.md
 RECIPE-CONTAINS-ADDRESSABILITY,design,Separate listed (contains) and producible (can_make) questions on recipe providers,superseded,local,,,P2,S,core/assets,,,,recipe-contains-addressability,,2026-10-04,specs/design/recipe-contains-addressability/DESIGN.md
 COVERED-07,design,Coverage record for RECIPE-TO-PLAN-IGNORES-RECIPE-LEVEL-VOLATILE-AND-EXPIRES,in_review,local,architecture,covered,P2,S,docs,,,,recipe-plan-declarations,,2026-09-03,specs/design/recipe-plan-declarations/DESIGN.md
 RECIPE-PROVIDER-LISTING-CONTRACT,design,"Recipe-provider listing contract — listed vs producible keys, folder-cache invalidation, complete deep listings",complete,local,,ready,P2,S,core/assets;records;axum,,79,,recipe-provider-listing-contract,,2026-10-05,specs/design/recipe-provider-listing-contract/DESIGN.md
@@ -452,7 +452,7 @@ autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,core/commands;macro,,,,,2026-10-07,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,core/context;core/assets;core/store,,,,,2026-10-02,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-09-30,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
-QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,core/query,,,,,2026-08-14,,specs/guides/QUERY_ESCAPING_GUIDE.md
+QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,core/query,,,,,2026-10-07,,specs/guides/QUERY_ESCAPING_GUIDE.md
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,records;lib/value,,,,,2026-10-06,,specs/guides/RECORD_STREAM_GUIDE.md
 STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,core/store;store/config,,,,,2026-10-07,,specs/guides/STORE_FACTORY_GUIDE.md
 STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,core/store;store/backends;web,,,,,2026-10-07,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md

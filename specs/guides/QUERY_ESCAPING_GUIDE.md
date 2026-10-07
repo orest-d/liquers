@@ -3,7 +3,7 @@ title: Query Escaping Guide
 kind: guide
 audience: both
 area: [core/query]
-reviewed: 2026-08-14
+reviewed: 2026-10-07
 ---
 # Getting arbitrary text into a query
 
@@ -41,6 +41,7 @@ Every string works, including ones that used to be impossible:
 | `a,b` | `a~ncomma~b` |
 | `hello world` | `hello~.world` |
 | `-5` | `~5` |
+| `2026-09-27` | `2026~09~27` (how a date argument is written; `20260927` needs no escaping) |
 | `café` | `caf~UE9~` |
 | `日本` | `~U65E5~~U672C~` |
 | `😀` | `~U1F600~` |
@@ -191,4 +192,5 @@ and the property tests in [`escape/tests.rs`](../../liquers-core/src/escape/test
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-07 | Example row: an ISO date argument, `2026-09-27` → `2026~09~27`. | `design/rec-id-iso-date-parsing/` |
 | 2026-08-14 | Created alongside the numeric and named entity mechanism. | PARAMETER-ESCAPING-INCOMPLETE |

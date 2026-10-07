@@ -691,7 +691,7 @@ is `async … context`**, because the conversion helpers are async.
 
 | Command | Signature | Returns |
 |---|---|---|
-| `rec_id` | `(state, id: String)` | the first row, walking chunks in order, whose declared `Id` equals `id` — a **materialized** one-row batch. Needs the source's declared schema (`uniform_schema` for a manifest) and an `Id` field, else refuses naming `rowid`. `id` is parsed as the `Id` field's type; a `Date` or `Timestamp` id is its raw integer (days / µs); a `Binary` or `Vector` id is refused |
+| `rec_id` | `(state, id: String)` | the first row, walking chunks in order, whose declared `Id` equals `id` — a **materialized** one-row batch. Needs the source's declared schema (`uniform_schema` for a manifest) and an `Id` field, else refuses naming `rowid`. `id` is parsed as the `Id` field's type; a `Date` id is ISO 8601, `20260927` or `2026-09-27` (written `2026~09~27` in a query); a `Timestamp` id is `20260927T100000Z` or RFC 3339 `2026-09-27T10:00:00Z` (written `2026~09~27T10~ncolon~00~ncolon~00Z`); raw day or µs counts are refused; a `Binary` or `Vector` id is refused |
 | `row` | `(state, n: i64)` | row `n` of a view, materialized. A source is refused |
 | `select_columns` | `(state, columns: Vec<String> multiple)` | a `ColumnsView` (not materialized); keeps `Id` / `Source`; refuses an empty list |
 | `head` | `(state, n: i64 = 5)` | the first `min(n, len)` rows, materialized |
@@ -717,6 +717,7 @@ Queries (all validated with `liquers-validate`):
 -R/data/sales/daily_0042.csv                                      one template chunk, by its key
 -R/data/sales/daily.manifest.yaml/-/ns-rec/rowid-3-17             row 17 of chunk 3, opening chunk 3 only
 -R/data/orders.feather/-/ns-rec/rec_id-42/select_columns-price    one cell, by Id (IPC keeps the Id)
+-R/data/daily.feather/-/ns-rec/rec_id-2026~09~27                   one record, by a Date Id (also rec_id-20260927)
 -R/data/orders.csv/-/ns-rec/head-10                               first ten rows, schema inferred
 -R/data/orders.csv/-/ns-rec/select_columns-price-qty/orders.feather   a projection, written as IPC
 -R/data/orders.csv/-/ns-rec/to_json-split                         a JSON shape
@@ -788,6 +789,7 @@ materializes to an empty batch; without one it is an error.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-07 | `rec_id`: a `Date` / `Timestamp` id is ISO 8601, basic or extended, not a raw day or µs count. | phase-5, `design/rec-id-iso-date-parsing/` |
 | 2026-10-07 | Scalar reading: `try_into_string_option` also gives `None` for a `Null` cell (it gave `Some("None")`). | phase-5, `design/null-cell-string-option/` |
 | 2026-10-06 | §Caches: the folder listing is event-driven (`directory_changed`, Store API included), `clear_cache()` for out-of-band edits; template chunks are producible, not listed. | phase-5 |
 | 2026-09-27 | PR #72 review: a directory is listed through `-R-sdir/…` (the key now carries across that header's boundary); `concat` refuses a differing key role; `Binary` base64 is read strictly. | PR #72 review |
