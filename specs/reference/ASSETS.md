@@ -1104,7 +1104,29 @@ fresh or mid-flight cancellation cascade-cancels the parent.
 **Post-finish messages.** Once finalized, display-mutating/control service messages
 (`UpdatePrimaryProgress`, `UpdateSecondaryProgress`, `JobSubmitted`, `JobStarted`, `Cancel`,
 `ErrorOccurred`) are dropped (debug-logged); a late `LogMessage` is tolerated (at most one extra
-log entry).
+log entry). The progress a command sent during its own run is the exception: it is applied even
+when the status flipped to finished first, because the progress is finalized only after the
+service loop has drained (below).
+
+### Progress after completion
+
+Progress exists to draw a progress bar, and a bar that will never move again is confusing. So when
+a run ends — any terminal status: `Ready`, `Error`, `Cancelled`, … — the harness
+(`AssetRef::finalize_primary_progress`, called by `run` and `run_inline` after the service loop has
+drained) leaves the primary progress as follows:
+
+| At finish | Primary progress afterwards |
+|---|---|
+| The command reported progress, and the last entry is already done | that entry, unchanged (its final message is kept) |
+| The command reported progress, and the last entry is not done (a tick, 3/10, …) | a done entry carrying the last entry's message |
+| The command never reported progress | none (`ProgressEntry::off()`), so no bar is drawn |
+| Cancelled | `done("Cancelled")`, written by the cancel handler |
+
+Secondary progress is cleared. A finished asset's `primary_progress()` is therefore always
+`is_done()` or `is_off()`, and the same evaluation always leaves the same progress, on both the
+spawning and the inline harness. The finalized progress is written to the store with the rest of
+the metadata. **The status, not the progress, is the authoritative "is it finished" signal**: a
+done bar says only that started progress has ended.
 
 ## Open Issues
 
@@ -1137,7 +1159,7 @@ each with an `ExpiryReason` (§Why an asset is `Expired`). The rules are in
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-07 | §Why an asset is `Expired`: a value supplied already `Expired` keeps its supplied reason and logs the warning `Asset expired` plus an after-the-fact info entry; one written-status rule for every manager. | phase-5 (`design/supplied-expired-status-reason/`, `design/immediate-set-state-status-match/`) |
+| 2026-10-07 | §Why an asset is `Expired`: a value supplied already `Expired` keeps its supplied reason and logs the warning `Asset expired` plus an after-the-fact info entry; one written-status rule for every manager. New §Progress after completion: started progress of a finished asset is done, unstarted progress stays absent, finalized after the service loop drains. | phase-5 (`design/supplied-expired-status-reason/`, `design/immediate-set-state-status-match/`, `design/finished-asset-progress-contract/`) |
 | 2026-10-06 | §Remove Semantics: `set_description` points to `Context::set_title` / `set_description` and its recipe-wins rule. | phase-5 |
 | 2026-10-06 | §Related keyed operations: `contains` vs `can_make`; `listdir_keys_deep` is complete (recipe keys at every store directory, `keys()` includes root recipes); `removedir` unmaps the directory's own recipe assets. `refresh_listing_version` also notifies the recipe provider. | phase-5 |
 | 2026-10-04 | §Related keyed operations: `makedir` and `removedir` refresh the parent's listing version (review fix on orest-d/liquers#75). | phase-5 |

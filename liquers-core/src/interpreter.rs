@@ -2135,7 +2135,11 @@ mod tests {
 
         let value = state.try_into_string()?;
         assert_eq!(value, "Ciao, WORLD!");
-        assert!(state.metadata.primary_progress().is_off()); // Progress should be off (not done) at the end of execution
+        // The command reported `done("OK, done")`; a finished asset keeps its own done entry
+        // (`ASSETS.md` §Progress after completion).
+        let progress = state.metadata.primary_progress();
+        assert!(progress.is_done(), "{progress:?}");
+        assert_eq!(progress.message, "OK, done");
         Ok(())
     }
 
@@ -2192,13 +2196,9 @@ mod tests {
             state.metadata.status().is_finished(),
             "the payload evaluation must reach a terminal status"
         );
-        // The previous assertion here was `primary_progress().is_done()`, which passed only by a
-        // race: the command sends `UpdatePrimaryProgress`, and the harness's
-        // `finalize_primary_progress()` *clears* progress at the end of a run. Whether the entry
-        // survived depended on whether the service loop applied it before or after that clear.
-        // Consolidating the evaluation body changed the timing and exposed it. The harness's
-        // intent is that a finished run carries no in-flight progress, so completion is asserted
-        // through the status instead. See `ASSET-FINISHED-PROGRESS-CONTRACT-UNDEFINED`.
+        // Deterministic since `finished-asset-progress-contract`: progress is finalized after the
+        // service loop has drained, and started progress of a finished asset is done.
+        assert!(state.metadata.primary_progress().is_done());
         Ok(())
     }
     #[tokio::test]

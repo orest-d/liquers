@@ -570,6 +570,12 @@ pub struct AssetData<E: Environment> {
     /// to be created in python
     pub(crate) save_in_background: bool,
 
+    /// True once the run's progress has been finalized ([`AssetRef::finalize_primary_progress`]).
+    /// Until then the service loop applies progress updates even after the status became
+    /// finished, because finalization runs after the loop has drained and normalizes them; after
+    /// it, late progress updates are dropped (post-finish message policy).
+    progress_finalized: bool,
+
     /// If true, this asset has been cancelled and should not write results.
     /// Any ValueProduced or store write attempts should be silently dropped.
     /// This is used to prevent race conditions when cancelling long-running tasks.
@@ -989,6 +995,7 @@ impl<E: Environment> AssetData<E> {
             metadata: assetinfo.into(),
             metadata_saver: Arc::new(MetadataSaver::new(std::time::Duration::from_millis(100))),
             save_in_background: true,
+            progress_finalized: false,
             cancelled: false,
             is_volatile: false,
             key,
@@ -2011,12 +2018,39 @@ impl<E: Environment> AssetRef<E> {
         lock.status.is_finished()
     }
 
-    /// Helper to finalize primary progress
-    /// This is used once the asset is finished so that the metadata does not indicate a progress.
-    /// Used by: `run_with_future`.
+    /// Leaves a finished run's progress drawable: started progress becomes done, progress that
+    /// never started stays absent, secondary progress is cleared. See `ASSETS.md` §Progress after
+    /// completion.
+    ///
+    /// Called by `run_with_future` / `run_with_future_inline` **after** the service loop has
+    /// drained, so every progress update the command sent has been applied first and the result
+    /// does not depend on scheduling. Persisted like the loop's own progress updates, so a stored
+    /// keyed asset does not keep an unfinished entry.
     async fn finalize_primary_progress(&self) {
-        let mut lock = self.data.write().await;
-        lock.metadata.remove_progress();
+        let started = {
+            let mut lock = self.data.write().await;
+            let last = lock.metadata.primary_progress();
+            let started = !(last.is_off() && lock.metadata.secondary_progress().is_off());
+            lock.metadata.remove_progress();
+            if let Some(entry) = finished_progress(&last) {
+                lock.metadata.set_primary_progress(&entry);
+            }
+            lock.progress_finalized = true;
+            started
+        };
+        // Progress that never started changes nothing, so nothing is written: a keyed value that
+        // was never persisted (non-serializable, `stored: false`) must not gain a metadata-only
+        // entry here. Started progress was already written by the service loop.
+        if !started {
+            return;
+        }
+        if let Err(e) = self.save_metadata_to_store().await {
+            eprintln!(
+                "Could not persist finalized progress of asset {}: {}",
+                self.id(),
+                e
+            );
+        }
     }
 
     /// Create a new asset reference from asset data.
@@ -2663,6 +2697,15 @@ impl<E: Environment> AssetRef<E> {
         while let Some(msg) = rx.recv().await {
             eprintln!("Received message: {:?} by asset {}", msg, self.id());
             if self.is_finished().await {
+                // Progress the command sent during its own run is applied even when the status
+                // flipped to finished first: `finalize_primary_progress` runs after this loop has
+                // drained and normalizes it, so applying it here is what makes the result
+                // independent of scheduling. Once finalized, late progress is dropped below.
+                let in_run_progress = matches!(
+                    msg,
+                    AssetServiceMessage::UpdatePrimaryProgress(_)
+                        | AssetServiceMessage::UpdateSecondaryProgress(_)
+                ) && !self.data.read().await.progress_finalized;
                 // Post-finish message policy: once the asset is finalized, DISPLAY-mutating and
                 // control messages are dropped so a late producer cannot corrupt the terminal
                 // state (status, progress) or resurrect processing. A late `LogMessage` is NOT
@@ -2677,7 +2720,7 @@ impl<E: Environment> AssetRef<E> {
                         | AssetServiceMessage::JobStarted
                         | AssetServiceMessage::Cancel
                         | AssetServiceMessage::ErrorOccurred(_)
-                );
+                ) && !in_run_progress;
                 if should_ignore {
                     // Interim debug logging (WP-6 will migrate to `tracing::debug!`).
                     if cfg!(debug_assertions) {
@@ -2906,12 +2949,14 @@ impl<E: Environment> AssetRef<E> {
             res = self.wait_to_finish() => res,
             res = evaluate_future => res
         };
-        self.finalize_primary_progress().await;
         self.service_sender()
             .await
             .send(AssetServiceMessage::JobFinishing)
             .ok(); // Notify the service loop that the job is finishing, so it should smoothly end.
-        self.finish_run_with_result(result, psm.await).await
+        let psm_result = psm.await;
+        // After the loop has drained, so the outcome does not depend on scheduling.
+        self.finalize_primary_progress().await;
+        self.finish_run_with_result(result, psm_result).await
     }
 
     /// Runs this asset's evaluation under the spawning harness.
@@ -2967,7 +3012,6 @@ impl<E: Environment> AssetRef<E> {
                 res = wait => res,
                 res = ev => res,
             };
-            self.finalize_primary_progress().await;
             self.service_sender()
                 .await
                 .send(AssetServiceMessage::JobFinishing)
@@ -2976,6 +3020,8 @@ impl<E: Environment> AssetRef<E> {
         };
         let psm_side = self.process_service_messages();
         let (result, psm_result) = futures::join!(eval_side, psm_side);
+        // After the loop has drained, so the outcome does not depend on scheduling.
+        self.finalize_primary_progress().await;
         // The run reached its end, so the status it leaves behind is the real one; the guard must
         // not rewind it. A panic or early return skips this and the `Drop` repair applies instead.
         claim.complete();
@@ -4356,6 +4402,19 @@ fn set_metadata_description(
             ErrorType::NotSupported,
             "Cannot set the title or description of legacy metadata".to_string(),
         )),
+    }
+}
+
+/// The primary progress a finished run leaves (`ASSETS.md` §Progress after completion): `None`
+/// when progress never started, the command's own entry when it is already done, otherwise a
+/// done entry carrying the last message. Independent of the final status: any finish counts.
+fn finished_progress(last: &ProgressEntry) -> Option<ProgressEntry> {
+    if last.is_off() {
+        None
+    } else if last.is_done() {
+        Some(last.clone())
+    } else {
+        Some(ProgressEntry::done(last.message.clone()))
     }
 }
 
@@ -10720,6 +10779,141 @@ recipes:
         let fresh = manager.get_asset(&query).await.unwrap();
         assert_ne!(fresh.id(), stale.id());
         assert_ne!(fresh.status().await, Status::Expired);
+    }
+
+    // ==================================================================================
+    // Progress after completion — `design/finished-asset-progress-contract/`
+    // ==================================================================================
+
+    #[test]
+    fn finished_progress_follows_the_contract() {
+        assert_eq!(super::finished_progress(&ProgressEntry::off()), None);
+        let done = ProgressEntry::done("Loaded 3 rows".to_string());
+        assert_eq!(super::finished_progress(&done), Some(done.clone()));
+        for unfinished in [
+            ProgressEntry::tick("Working".to_string()),
+            ProgressEntry::new("Loading".to_string(), 3, 10),
+        ] {
+            let finished = super::finished_progress(&unfinished).expect("started progress");
+            assert!(finished.is_done(), "{finished:?}");
+            assert_eq!(finished.message, unfinished.message);
+        }
+    }
+
+    /// Registers `report_done`, `report_partial`, `silent` and `tick_then_fail`.
+    fn register_progress_commands<E: Environment<Value = Value>>(
+        registry: &mut crate::commands::CommandRegistry<E>,
+    ) {
+        registry
+            .register_command(CommandKey::new_name("report_done"), |_, _, context| {
+                context.progress(ProgressEntry::done("Loaded 3 rows".to_string()))?;
+                Ok(Value::from("done"))
+            })
+            .expect("register report_done");
+        registry
+            .register_command(CommandKey::new_name("report_partial"), |_, _, context| {
+                context.progress(ProgressEntry::new("Loading".to_string(), 3, 10))?;
+                Ok(Value::from("partial"))
+            })
+            .expect("register report_partial");
+        registry
+            .register_command(CommandKey::new_name("silent"), |_, _, _| {
+                Ok(Value::from("silent"))
+            })
+            .expect("register silent");
+        registry
+            .register_command(CommandKey::new_name("tick_then_fail"), |_, _, context| {
+                context.progress(ProgressEntry::tick("Working".to_string()))?;
+                Err(Error::general_error("deliberate failure".to_string()))
+            })
+            .expect("register tick_then_fail");
+    }
+
+    /// Run `query` under the spawning (`inline == false`) or the inline harness and return the
+    /// finished asset's primary progress. The asset is built directly, so a failing evaluation
+    /// still leaves an asset to inspect.
+    async fn finished_primary_progress<E: Environment<Value = Value>>(
+        envref: &EnvRef<E>,
+        query: &str,
+        inline: bool,
+    ) -> ProgressEntry {
+        let asset = AssetData::<E>::new(
+            envref.get_asset_manager().next_id_for_asset(),
+            parse_query(query).expect("query").into(),
+            None,
+            envref.clone(),
+        )
+        .to_ref();
+        let _ = if inline {
+            asset.run_inline(None).await
+        } else {
+            asset.run(None).await
+        };
+        assert!(asset.status().await.is_finished(), "{query}");
+        asset.get_metadata().await.expect("metadata").primary_progress()
+    }
+
+    fn progress_env_native() -> EnvRef<SimpleEnvironment<Value>> {
+        let mut env = SimpleEnvironment::<Value>::new();
+        register_progress_commands(&mut env.command_registry);
+        env.to_ref()
+    }
+
+    fn progress_env_inline() -> EnvRef<ImmediateEnvironment<Value>> {
+        let mut env = ImmediateEnvironment::<Value>::new();
+        register_progress_commands(&mut env.command_registry);
+        env.to_ref()
+    }
+
+    async fn scenario_finished_progress<E: Environment<Value = Value>>(
+        envref: EnvRef<E>,
+        inline: bool,
+    ) {
+        let done = finished_primary_progress(&envref, "report_done", inline).await;
+        assert!(done.is_done(), "{done:?}");
+        assert_eq!(done.message, "Loaded 3 rows", "the command's own final message is kept");
+
+        let partial = finished_primary_progress(&envref, "report_partial", inline).await;
+        assert!(partial.is_done(), "{partial:?}");
+        assert_eq!(partial.message, "Loading");
+
+        let silent = finished_primary_progress(&envref, "silent", inline).await;
+        assert!(silent.is_off(), "no progress started, so no bar: {silent:?}");
+
+        let failed = finished_primary_progress(&envref, "tick_then_fail", inline).await;
+        assert!(failed.is_done(), "a finished asset never shows an unfinished bar: {failed:?}");
+        assert_eq!(failed.message, "Working");
+    }
+
+    #[tokio::test]
+    async fn finished_run_progress_contract_native() {
+        scenario_finished_progress(progress_env_native(), false).await;
+    }
+
+    #[tokio::test]
+    async fn finished_run_progress_contract_inline() {
+        scenario_finished_progress(progress_env_inline(), true).await;
+    }
+
+    /// The same evaluation, repeated on fresh environments, always leaves the same progress.
+    #[tokio::test]
+    async fn finished_progress_is_deterministic_native() {
+        for _ in 0..100 {
+            let progress =
+                finished_primary_progress(&progress_env_native(), "report_done", false).await;
+            assert!(progress.is_done(), "{progress:?}");
+            assert_eq!(progress.message, "Loaded 3 rows");
+        }
+    }
+
+    #[tokio::test]
+    async fn finished_progress_is_deterministic_inline() {
+        for _ in 0..100 {
+            let progress =
+                finished_primary_progress(&progress_env_inline(), "report_done", true).await;
+            assert!(progress.is_done(), "{progress:?}");
+            assert_eq!(progress.message, "Loaded 3 rows");
+        }
     }
 
     /// Iterates the module's `ALL_STATUSES`; a new variant must be added there. The exhaustive
