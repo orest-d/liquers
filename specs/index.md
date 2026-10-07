@@ -8,9 +8,9 @@ then implementation readiness. `--check` verifies this file.
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 132
+Total rows: 131
 - P2: 64
-- P3: 68
+- P3: 67
 
 | Issue | Kind | Title | Status | Readiness | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|
@@ -109,7 +109,6 @@ Total rows: 132
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft | needs-decision | P3 | S | core/value | [phase1](design/type-info-write-only-formats/phase1-high-level-design.md)  [phase2](design/type-info-write-only-formats/phase2-architecture.md)  [phase3](design/type-info-write-only-formats/phase3-examples.md)  [phase4](design/type-info-write-only-formats/phase4-implementation.md)  | 2026-09-24 |
 | [`WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE`](issues/WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE.md) | issue | JavaScript cannot construct a LiquersError, so a page cannot raise a typed error | accepted | needs-decision | P3 | S | web;core/error | [phase1](design/web-liquers-error-constructor/phase1-high-level-design.md)  [phase2](design/web-liquers-error-constructor/phase2-architecture.md)  [phase3](design/web-liquers-error-constructor/phase3-examples.md)  [phase4](design/web-liquers-error-constructor/phase4-implementation.md)  | 2026-08-09 |
 | [`PY-PYO3-REJECTS-PYTHON-3-13`](issues/PY-PYO3-REJECTS-PYTHON-3-13.md) | issue | liquers-py does not build against Python 3.13 without an environment override | draft |  | P3 | S | py;build |  | 2026-10-06 |
-| [`DEPENDENCY-EDGE-RECORDED-AGAINST-SUPERSEDED-VERSION-IS-NOT-EXPIRED`](issues/DEPENDENCY-EDGE-RECORDED-AGAINST-SUPERSEDED-VERSION-IS-NOT-EXPIRED.md) | issue | A dependent that records an edge against a version the map has already replaced stays Ready | draft | ready | P3 | M | core/assets | [phase1](design/dependency-edge-superseded-version/phase1-high-level-design.md)  [phase2](design/dependency-edge-superseded-version/phase2-architecture.md)  [phase3](design/dependency-edge-superseded-version/phase3-examples.md)  [phase4](design/dependency-edge-superseded-version/phase4-implementation.md)  | 2026-10-04 |
 | [`CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY`](issues/CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY.md) | issue | A title or description set by a command in a cut predecessor does not reach the final asset | draft | needs-decision | P3 | M | core/context;core/plan | [phase1](design/context-title-predecessor-inheritance/phase1-high-level-design.md)  [phase2](design/context-title-predecessor-inheritance/phase2-architecture.md)  [phase3](design/context-title-predecessor-inheritance/phase3-examples.md)  [phase4](design/context-title-predecessor-inheritance/phase4-implementation.md)  | 2026-10-06 |
 | [`ASSETS-API-ADMIN-OPERATIONS`](issues/ASSETS-API-ADMIN-OPERATIONS.md) | feature | Manager status and a guarded remove have no assets API endpoint | draft |  | P3 | M | axum;core/assets |  | 2026-09-27 |
 | [`AXUM-WEBSOCKET-HARDENING`](issues/AXUM-WEBSOCKET-HARDENING.md) | issue | WebSocket endpoint is not hardened | accepted |  | P3 | M | axum | [phase1](design/axum-assets-endpoints/phase1-high-level-design.md)  [phase2](design/axum-assets-endpoints/phase2-architecture.md)  [phase3](design/axum-assets-endpoints/phase3-examples.md)  [phase4](design/axum-assets-endpoints/phase4-implementation.md)  | 2026-08-08 |

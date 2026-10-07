@@ -2013,6 +2013,16 @@ impl<E: Environment> AssetRef<E> {
                     )
                     .await;
             }
+            // Stale at birth: the dependency changed after this asset read it and before the
+            // edge existed, so the cascade of that change could not reach this asset. It is
+            // still evaluating, so it is not expired from under itself: it takes the
+            // stale-dependency route and finishes `Expired` with `StaleDependency`, to be
+            // recomputed on next access. An unknown version on either side is no evidence.
+            if let Some(current) = manager.dependency_manager().get_version(&dep_key).await {
+                if !version.is_unknown() && !current.is_unknown() && current != version {
+                    self.note_expired_dependency(dependency).await?;
+                }
+            }
         }
         Ok(())
     }
@@ -11087,6 +11097,70 @@ recipes:
             assert_recovery_reads(&envref, &key, stored).await?;
         }
         Ok(())
+    }
+
+    // ==================================================================================
+    // An edge recorded against a superseded version — `design/dependency-edge-superseded-version/`
+    // ==================================================================================
+
+    /// A keyed dependent `idx.txt` in `Processing`, and a `Ready` keyed dependency `a.txt` whose
+    /// value carries `observed`; the map holds `current` for `a.txt` when given. Returns whether
+    /// recording the edge put the dependent on the stale-dependency route.
+    async fn edge_marks_stale(observed: Option<Version>, current: Option<Version>) -> bool {
+        let envref = expiry_test_envref();
+        let manager = envref.get_asset_manager();
+        let a = parse_key("a.txt").unwrap();
+        let idx = parse_key("idx.txt").unwrap();
+        let dependent = AssetRef::new_from_recipe(
+            manager.next_id_for_asset(),
+            idx.clone().into(),
+            Some(idx),
+            envref.clone(),
+        );
+        dependent.set_status(Status::Processing).await.unwrap();
+        let mut d = AssetData::<SimpleEnvironment<Value>>::new(
+            manager.next_id_for_asset(),
+            a.clone().into(),
+            Some(a.clone()),
+            envref.clone(),
+        );
+        d.status = Status::Ready;
+        d.data = Some(Arc::new(Value::from("a")));
+        let _ = d.metadata.set_version(observed);
+        let dependency = d.to_ref();
+        if let Some(current) = current {
+            let _ = manager
+                .dependency_manager()
+                .register_version(&DependencyKey::from(&a), current)
+                .await;
+        }
+        dependent
+            .record_dependency_on_asset(&dependency)
+            .await
+            .unwrap();
+        let stale = dependent.data.read().await.stale_dependency.clone();
+        if let Some(key) = &stale {
+            assert_eq!(key, &DependencyKey::from(&a));
+        }
+        stale.is_some()
+    }
+
+    /// The map already holds a different concrete version: the dependent is stale at birth.
+    #[tokio::test]
+    async fn edge_against_superseded_version_marks_dependent_stale() {
+        assert!(edge_marks_stale(Some(Version::new(1)), Some(Version::new(2))).await);
+    }
+
+    #[tokio::test]
+    async fn edge_with_unknown_version_marks_nothing() {
+        assert!(!edge_marks_stale(Some(Version::unknown()), Some(Version::new(2))).await);
+        assert!(!edge_marks_stale(Some(Version::new(1)), Some(Version::unknown())).await);
+        assert!(!edge_marks_stale(Some(Version::new(1)), None).await);
+    }
+
+    #[tokio::test]
+    async fn edge_with_current_version_marks_nothing() {
+        assert!(!edge_marks_stale(Some(Version::new(2)), Some(Version::new(2))).await);
     }
 
     /// Iterates the module's `ALL_STATUSES`; a new variant must be added there. The exhaustive
