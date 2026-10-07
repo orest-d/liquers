@@ -390,7 +390,8 @@ pub enum AssetNotificationMessage {
 /// This is separate from [`Status`]: evaluation can succeed and expose a value
 /// while persistence is `NonSerializable` or `NotPersisted`.
 pub enum PersistenceStatus {
-    /// No persistence attempt has been made yet.
+    /// No persistence attempt has been made yet, or the most recent attempt was skipped (the
+    /// asset was cancelled, or its metadata says `stored: false`). Never "written".
     None,
     /// Value and metadata have been persisted.
     Persisted,
@@ -398,6 +399,16 @@ pub enum PersistenceStatus {
     NonSerializable,
     /// Persistence was attempted but failed.
     NotPersisted,
+}
+
+/// What `AssetRef::save_to_store` did, when it did not fail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SaveOutcome {
+    /// `store.set` completed.
+    Written,
+    /// Nothing was written: the asset was cancelled (before or after serialization), or its
+    /// metadata says `stored: false`. Recorded as `PersistenceStatus::None`, never `Persisted`.
+    Skipped,
 }
 
 /// Internal-style coalescing helper for persisting asset metadata updates.
@@ -2557,10 +2568,15 @@ impl<E: Environment> AssetRef<E> {
         }
     }
 
-    async fn record_persistence_result(&self, result: Result<(), Error>) {
+    async fn record_persistence_result(&self, result: Result<SaveOutcome, Error>) {
         match result {
-            Ok(()) => {
+            Ok(SaveOutcome::Written) => {
                 self.set_persistence_status(PersistenceStatus::Persisted, None)
+                    .await;
+            }
+            // A skip is not a failure (no error is recorded) and not a write either.
+            Ok(SaveOutcome::Skipped) => {
+                self.set_persistence_status(PersistenceStatus::None, None)
                     .await;
             }
             Err(error) => {
@@ -3285,7 +3301,7 @@ impl<E: Environment> AssetRef<E> {
 
     /// Persists metadata updates to the configured async store.
     /// Used by: `persist_with_status_tracking`
-    async fn save_to_store(&self) -> Result<(), Error> {
+    async fn save_to_store(&self) -> Result<SaveOutcome, Error> {
         // Check cancelled flag before writing to store (cancel-safety)
         // This prevents orphaned tasks from overwriting data after cancellation
         if self.is_cancelled().await {
@@ -3293,7 +3309,7 @@ impl<E: Environment> AssetRef<E> {
                 "Asset {} cancelled, skipping store write in save_to_store",
                 self.id()
             );
-            return Ok(());
+            return Ok(SaveOutcome::Skipped);
         }
 
         // `binary_unchecked`, not `poll_binary`: persisting is not a read of the asset's exposed
@@ -3317,7 +3333,7 @@ impl<E: Environment> AssetRef<E> {
                     "Asset {} cancelled after serialization, skipping store write",
                     self.id()
                 );
-                return Ok(());
+                return Ok(SaveOutcome::Skipped);
             }
 
             let envref = lock.get_envref();
@@ -3339,7 +3355,7 @@ impl<E: Environment> AssetRef<E> {
                         self.id(),
                         key
                     );
-                    return Ok(());
+                    return Ok(SaveOutcome::Skipped);
                 }
                 // Ownership is approximated by keyedness. Registration is the manager's own
                 // caching decision, and a volatile keyed asset is deliberately never registered,
@@ -3374,7 +3390,7 @@ impl<E: Environment> AssetRef<E> {
                         .refresh_listing_version(&key.parent())
                         .await;
                 }
-                written
+                written.map(|()| SaveOutcome::Written)
             } else {
                 Err(Error::general_error(format!(
                     "Cannot determine key to store asset - {}",
@@ -11805,11 +11821,111 @@ recipes:
             "precondition: the read gate hides these bytes"
         );
 
-        assetref.save_to_store().await?;
+        assert_eq!(assetref.save_to_store().await?, SaveOutcome::Written);
 
         assert!(store.contains(&key).await?);
         let (stored, _) = store.get(&key).await?;
         assert_eq!(stored, b"persist me anyway");
+        Ok(())
+    }
+
+    /// A keyed asset holding bytes, cancelled, in a memory-store environment.
+    fn cancelled_keyed_asset(
+        id: u64,
+        key: &Key,
+    ) -> (EnvRef<SimpleEnvironment<Value>>, AssetRef<SimpleEnvironment<Value>>) {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+        let envref = env.to_ref();
+        let mut d = AssetData::<SimpleEnvironment<Value>>::new(
+            id,
+            key.clone().into(),
+            Some(key.clone()),
+            envref.clone(),
+        );
+        d.binary = Some(Arc::new(b"never written".to_vec()));
+        d.data = Some(Arc::new(Value::from("never written")));
+        d.status = Status::Ready;
+        d.save_in_background = false;
+        d.set_cancelled(true);
+        (envref, d.to_ref())
+    }
+
+    /// A write skipped because the asset was cancelled is recorded as no attempt (`None`), not
+    /// `Persisted`, and no error is recorded. `cancelled = false` is passed so the check *inside*
+    /// `save_to_store` is the one that fires.
+    #[tokio::test]
+    async fn cancelled_asset_save_is_recorded_as_no_attempt() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let key = parse_key("gate/cancelled.txt")?;
+        let (envref, assetref) = cancelled_keyed_asset(9331, &key);
+        assetref.persist_with_status_tracking(false, false).await;
+        assert_eq!(assetref.persistence_status().await, PersistenceStatus::None);
+        assert!(assetref.data.read().await.last_persistence_error.is_none());
+        assert!(!envref.get_async_store().contains(&key).await?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn save_to_store_reports_skipped_when_cancelled() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let key = parse_key("gate/cancelled_direct.txt")?;
+        let (envref, assetref) = cancelled_keyed_asset(9332, &key);
+        assert_eq!(assetref.save_to_store().await?, SaveOutcome::Skipped);
+        assert!(!envref.get_async_store().contains(&key).await?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn save_to_store_reports_written_on_success() -> Result<(), Box<dyn std::error::Error>> {
+        let key = parse_key("gate/written.txt")?;
+        let (envref, assetref) = cancelled_keyed_asset(9333, &key);
+        assetref.data.write().await.set_cancelled(false);
+        assetref.persist_with_status_tracking(false, false).await;
+        assert_eq!(
+            assetref.persistence_status().await,
+            PersistenceStatus::Persisted
+        );
+        assert_eq!(
+            envref.get_async_store().get_bytes(&key).await?,
+            b"never written".to_vec()
+        );
+        Ok(())
+    }
+
+    /// `stored: false` in the metadata snapshot is a skip too, even when the caller did not
+    /// check it first.
+    #[tokio::test]
+    async fn stored_false_metadata_snapshot_is_skipped() -> Result<(), Box<dyn std::error::Error>> {
+        let key = parse_key("gate/not_stored.txt")?;
+        let (envref, assetref) = cancelled_keyed_asset(9334, &key);
+        {
+            let mut lock = assetref.data.write().await;
+            lock.set_cancelled(false);
+            if let Metadata::MetadataRecord(record) = &mut lock.metadata {
+                record.stored = Some(false);
+            }
+        }
+        assert_eq!(assetref.save_to_store().await?, SaveOutcome::Skipped);
+        assert!(!envref.get_async_store().contains(&key).await?);
+        Ok(())
+    }
+
+    /// After a cancelled save, `to_override` takes the non-`Persisted` branch, which skips the
+    /// write again, so no metadata-only entry is left in the store.
+    #[tokio::test]
+    async fn to_override_after_cancelled_save_writes_no_metadata_only_entry(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let key = parse_key("gate/override_cancelled.txt")?;
+        let (envref, assetref) = cancelled_keyed_asset(9335, &key);
+        assetref.persist_with_status_tracking(false, false).await;
+        let manager = envref.get_asset_manager();
+        assert!(manager.try_insert_key_asset(&key, assetref.clone()).await);
+        let _ = manager.to_override(&key).await;
+        assert!(
+            !envref.get_async_store().contains(&key).await?,
+            "a skipped write must not leave a metadata-only entry"
+        );
         Ok(())
     }
 

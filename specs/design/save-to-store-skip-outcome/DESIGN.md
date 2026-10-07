@@ -4,7 +4,7 @@ kind: design
 title: Record a skipped store write as no persistence attempt
 workflow: liquers-project
 status: in_review
-phase: implementation
+phase: documentation
 readiness: ready
 area: [core/assets]
 issues: [SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED]

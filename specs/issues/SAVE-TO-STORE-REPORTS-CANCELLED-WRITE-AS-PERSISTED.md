@@ -2,7 +2,7 @@
 id: SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED
 kind: issue
 title: A write skipped because the asset was cancelled is recorded as a successful persist
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/assets]
@@ -82,3 +82,16 @@ issue stays open for them.
 The expected behaviour is the same: a skipped write records `None`. Found during the
 `record-streams` Phase 5 review of `specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md`
 against the persistence path.
+
+## Resolution (2026-10-07)
+
+Fixed by design `save-to-store-skip-outcome`. `save_to_store` now returns a private `SaveOutcome`;
+a write skipped because the asset was cancelled (before or after serialization) or because its
+metadata says `stored: false` is `Skipped`, recorded as `PersistenceStatus::None` with no error,
+never `Persisted`. `to_override` therefore takes the persisting branch, which skips again, and
+leaves no metadata-only entry.
+
+Evidence: `cancelled_asset_save_is_recorded_as_no_attempt`,
+`save_to_store_reports_skipped_when_cancelled`, `save_to_store_reports_written_on_success`,
+`stored_false_metadata_snapshot_is_skipped`,
+`to_override_after_cancelled_save_writes_no_metadata_only_entry` (`liquers-core/src/assets.rs`).

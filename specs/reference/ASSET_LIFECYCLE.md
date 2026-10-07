@@ -3,7 +3,7 @@ title: Asset Evaluation — Flows and Public Surface
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-02
+reviewed: 2026-10-07
 ---
 # Asset Evaluation — Flows and Public Surface
 
@@ -153,6 +153,7 @@ Read the contrapositive: **not keyed means never stored and never loadable.**
 | Keyed, volatile | yes | yes, **not** loadable |
 | Keyed, recipe says `stored: false` | yes | no — not even metadata; an existing stored copy is still loaded |
 | Keyed, recipe says `cached: false` | yes | yes, loadable; the asset is simply not registered for reuse |
+| Keyed, cancelled before the write | yes | no; persistence status `None`, so `to_override` writes no metadata-only entry |
 | Keyed, delegating to the owner | yes | no — the owner writes |
 | Query asset | no | no |
 | `apply`, bare-key recipe | no | no |
@@ -288,6 +289,7 @@ arrives mid-evaluation and must join the first rather than be turned away.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-07 | §Persistence outcomes: a keyed asset cancelled before its write is not written and records persistence status `None`. | phase-5 (`design/save-to-store-skip-outcome/`) |
 | 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. §1: `Context::submit` / `wait_for_dependency`. §Reusing a stored asset: the content check under `verify_versions: on_read` comes first, and the version question resolves the store under `dependency_audit: on_load`. New §Routes into `Expired` naming the reason each route records, with the corrected immediate-manager lazy deadline check. | phase-5 |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. Steps 8 and 9, §4's axes, §5's persistence table and §6's metadata table now cover the `stored` and `cached` recipe flags: `stored: false` skips every write but still reads an existing copy, `cached: false` skips registration but keeps the asset the key's graph node, and neither is volatility. Details in `ASSETS.md` §`stored` and `cached`. | phase-5 |
 | 2026-09-15 | Step 6 now names the four outcomes the status authority decides between, including the stale-dependency one, and step 9 records the dependency-graph branch. Added §Reusing a stored asset: what the fast track verifies — the two dependency questions, manager-before-store, and "inconclusive is not expired" with the reason that rule has to be stated. | `stale-dependency-status-finalization` |

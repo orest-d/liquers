@@ -1,17 +1,15 @@
 # Phase 5: Documentation - Skipped Store Writes Are Not Persists
 
-**Status: plan.** Written on 2026-10-05, when the design adopted the five-phase `liquers-project`
-contract; executed after implementation, following
-`.claude/skills/liquers-project/references/phase5-documentation.md`. The sections the skill requires
-after implementation are present and marked *pending*.
+**Status: executed 2026-10-07** after implementation (Wave 1 of
+`archive/2026-10-06-p2-p3-s-implementation-order-revised.md`). Awaiting approval.
 
 ## Completion Preconditions
 
-- [ ] Implementation is finished and validated (Phase 4)
-- [ ] All user comments are answered or incorporated
-- [ ] All review comments are answered or incorporated
-- [ ] Documentation is consistent with the implemented and tested behavior
-- [ ] Documentation is included in the implementation PR
+- [x] Implementation is finished and validated (Phase 4)
+- [x] All user comments are answered or incorporated
+- [x] All review comments are answered or incorporated (none yet)
+- [x] Documentation is consistent with the implemented and tested behavior
+- [x] Documentation is included in the implementation PR
 
 ## Documentation Plan
 
@@ -47,24 +45,35 @@ None needed in `specs/README.md`: the capability is reached through the document
 
 ## Implementation Summary
 
-*Pending — written after implementation.*
+Private `enum SaveOutcome { Written, Skipped }` beside `PersistenceStatus`. `save_to_store` returns
+`Result<SaveOutcome, Error>`: both cancellation checks and the `stored: false` check return
+`Skipped`, and a completed `store.set` returns `Written` (`refresh_listing_version` still runs only
+then). `record_persistence_result` maps `Written → Persisted` and `Skipped → None` with no error.
+`PersistenceStatus::None`'s doc names the skip. Tests in `assets.rs`:
+`cancelled_asset_save_is_recorded_as_no_attempt`, `save_to_store_reports_skipped_when_cancelled`,
+`save_to_store_reports_written_on_success`, `stored_false_metadata_snapshot_is_skipped`,
+`to_override_after_cancelled_save_writes_no_metadata_only_entry`; the existing
+`test_persistence_works_at_non_value_status` asserts `Written`.
 
 ## Documentation Delivered
 
-*Pending.*
+`reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md` (step 6 and the `PersistenceStatus` row) and
+`reference/ASSET_LIFECYCLE.md` (§Persistence outcomes row), each with a History row and
+`reviewed:` bump.
 
 ## Issues Filed
 
-*Pending.*
+None.
 
 ## Important Learning
 
-*Pending.*
+None beyond the design.
 
 ## Conformance and Remaining Work
 
-*Pending.*
+Conforms to Phases 1–4. The post-serialization cancellation check is covered structurally, as
+planned.
 
 ## Validation
 
-*Pending.* Planned: `python3 scripts/docs_index.py --check`.
+`cargo test -p liquers-core --lib --tests`; `python3 scripts/docs_index.py --check`.

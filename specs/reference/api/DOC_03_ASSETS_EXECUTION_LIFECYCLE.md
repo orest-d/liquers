@@ -3,7 +3,7 @@ title: Assets and Execution Lifecycle Reference
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-02
+reviewed: 2026-10-07
 ---
 # DOC-03: Assets and Execution Lifecycle
 
@@ -59,7 +59,7 @@ entry points, and behavior that is not implemented.
 | Lifecycle status | `Status` | Data/finished/processing classification |
 | Notifications | `AssetNotificationMessage` | Best-effort watch-channel wake-ups |
 | Service messages | `AssetServiceMessage` | Internal reliable lifecycle/log/progress control |
-| Persistence outcome | `PersistenceStatus` | Persisted, non-serializable, or failed |
+| Persistence outcome | `PersistenceStatus` | Persisted, non-serializable, or failed; `None` when no write was attempted or it was skipped (cancelled, `stored: false`) |
 | Expiration | `ExpirationTime`, `AssetRef::expire` | Deadline and invalidation behavior |
 | Recovery | `get_any_status`, `to_override` | Explicit keyed stale-value recovery |
 
@@ -227,8 +227,10 @@ Queued and ordinary inline evaluation use `evaluate_and_store`:
 5. Attempt serialization and store persistence when the asset is keyed, unless its
    metadata says `stored: false` — then nothing is written, not even metadata, and
    the `MetadataSaver` skips its status and progress writes for the key as well.
-6. Record `PersistenceStatus`. A write skipped for `stored: false` records `None`,
-   so a later `to_override` does not write the metadata to the store either.
+6. Record `PersistenceStatus`. A skipped write records `None`, never `Persisted`:
+   skipped for `stored: false`, or because the asset was cancelled (checked before
+   and again after serialization). So a later `to_override` does not write the
+   metadata to the store either.
 
 The default asset data configuration requests background persistence. The queued
 manager can therefore expose a ready in-memory value before the store write
@@ -437,6 +439,7 @@ implements a manager outside the crate against the shared manager scenarios. See
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-07 | §Persistence contract step 6 and the `PersistenceStatus` row: a write skipped because the asset was cancelled records `None`, as a `stored: false` skip does; it had recorded `Persisted`. | phase-5 (`design/save-to-store-skip-outcome/`) |
 | 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. §Expiration, recovery, and cancellation: the route/reason table for `expiry_reason`, the immediate manager's lazy check (fires on the deadline, does not cascade), and `remove` corrected to the status-aware behaviour. The P1 "public trait exposes a private dependency-manager type" row is removed: resolved, the trait is implementable outside core. | phase-5 |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. §Identity, caching, and fast track: a `cached: false` key gets a fresh unregistered, non-volatile asset that stays its key's graph node. §Persistence contract: `stored: false` skips every write including the metadata saver's, a skipped write records `None` (fixed in this phase; it had recorded `Persisted`), and `set_state`/`set_binary` follow the supplied metadata's flag. Step 5 corrected from "a key or `store_to` key" to "keyed", as the 2026-09-04 row already stated. | phase-5 |
 | 2026-09-15 | Execution-time expiry: the parent's `Expired` status reaches the store, its version is still registered, and `try_fast_track` declines a dependency it can see is stale while treating an undeterminable one as inconclusive. | `stale-dependency-status-finalization` |
