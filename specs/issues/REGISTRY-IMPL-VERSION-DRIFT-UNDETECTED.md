@@ -2,7 +2,7 @@
 id: REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED
 kind: issue
 title: The committed command registry carries stale impl_versions and no test detects it
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [lib/commands, build, docs]
@@ -72,3 +72,19 @@ Found in `specs/design/variadic-arguments-declaration/` while regenerating the r
 converting `pl/select_columns` and `pl/drop_columns` to variadic arguments. The design predicted
 `impl_version` churn for those two commands; two *unrelated* commands also changed, and stashing
 the source changes and regenerating at HEAD showed the drift was already there.
+
+## Resolution
+
+Closed 2026-10-08 by `specs/design/command-registry-impl-version-freshness/`.
+
+- The original drift (the two stale `impl_version`s above) was already fixed by a later
+  regeneration; at the time of the fix the committed file matched a fresh export.
+- Detection now exists: `liquers-lib/tests/registry_export.rs` has
+  `committed_registry_impl_versions_are_fresh`, which compares each command's `impl_version`
+  exactly, names every stale command with committed and current versions plus the regenerate
+  command, and fails with a dedicated message for `version: now` in an exported group (detected
+  by the version changing between two registrations in one process).
+- Verified by hand: a code edit inside `command_metadata` fails the test, regenerating makes it
+  pass, and switching `to_text` to `version: now` fails with the `now` message.
+- Correction to "Cause" above: a plain `//` comment does **not** change the hash, because comments
+  are not tokens. Code and doc-comment (`///`) edits do.
