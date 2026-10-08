@@ -10,7 +10,7 @@ use liquers_core::{
     assets::AssetManager,
     command_metadata::CommandKey,
     context::{Environment, EnvRef, SimpleEnvironment},
-    metadata::{Metadata, MetadataRecord, Status},
+    metadata::{DependencyKey, DependencyRecord, Metadata, MetadataRecord, Status, Version},
     parse::parse_key,
     query::Key,
     recipes::{DefaultRecipeProvider, Recipe, RecipeList},
@@ -954,6 +954,60 @@ async fn aae18_post_admin_audit_key_returns_checked_and_expired() {
     assert_eq!(status, StatusCode::OK);
     assert!(json["result"]["checked"].is_array(), "AuditResult.checked is present");
     assert!(json["result"]["expired"].is_array(), "AuditResult.expired is present");
+}
+
+/// Store `name` as an earlier run would have left it: `Ready`, versioned by its content, with
+/// `records` as its recorded dependencies.
+async fn store_computed(envref: &EnvRef<SimpleEnvironment<Value>>, name: &str, bytes: &[u8], records: Vec<DependencyRecord>) {
+    let mut mr = metadata_text();
+    mr.status = Status::Ready;
+    mr.version = Some(Version::from_content(bytes));
+    mr.dependencies = records;
+    envref
+        .get_async_store()
+        .set(&parse_key(name).unwrap(), bytes, &Metadata::MetadataRecord(mr))
+        .await
+        .unwrap();
+}
+
+/// The per-key audit reports the dependents of a gap that is stale because of something
+/// upstream of it, though the gap's own stored version still matches
+/// (`specs/design/dependency-chain-analysis-cost/`, Phase 3 I8).
+#[tokio::test]
+async fn aae18b_admin_audit_key_expires_dependents_of_a_stale_gap() {
+    let envref = env_with(&[]).await;
+    // `a` was built from `gone.txt`, which no longer exists; `b` was built from `a`.
+    store_computed(
+        &envref,
+        "notes/a.txt",
+        b"a",
+        vec![DependencyRecord::new(DependencyKey::new("-R/notes/gone.txt"), Version::new(5))],
+    )
+    .await;
+    store_computed(
+        &envref,
+        "notes/b.txt",
+        b"b",
+        vec![DependencyRecord::new(
+            DependencyKey::new("-R/notes/a.txt"),
+            Version::from_content(b"a"),
+        )],
+    )
+    .await;
+    // Loaded under the trusting default: `a` is not known, so `b` is served and records its edge.
+    let b = envref.get_asset_manager().get(&parse_key("notes/b.txt").unwrap()).await.unwrap();
+    b.get().await.unwrap();
+
+    let app = build_app(envref.clone());
+    let (status, json) = send(app, "POST", "/api/assets/admin/audit/notes/b.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    let expired: Vec<String> = json["result"]["expired"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|key| key.as_str().unwrap().to_owned())
+        .collect();
+    assert!(expired.contains(&"-R/notes/b.txt".to_owned()), "{json}");
 }
 
 #[tokio::test]

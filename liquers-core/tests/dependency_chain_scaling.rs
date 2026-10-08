@@ -106,21 +106,45 @@ fn chain_sizes() -> Vec<usize> {
     std::env::var("CHAIN_SIZES")
         .ok()
         .map(|s| s.split(',').filter_map(|n| n.trim().parse().ok()).collect())
-        .unwrap_or_else(|| vec![10, 20, 40])
+        .unwrap_or_else(|| vec![10, 20, 40, 200])
 }
 
-/// I6: the scaling benchmark. Ignored by default: run with
+/// The acceptance bounds (debug build, cold, links evaluated one at a time): Phase 1 Decision 5 of
+/// `dependency-chain-analysis-cost`. Before the change: 40 links took ~80 s.
+const BOUNDS: [(usize, Duration); 2] = [(40, Duration::from_secs(1)), (200, Duration::from_secs(5))];
+
+/// I6: the scaling benchmark and acceptance check. Ignored by default (it takes several seconds
+/// and its bounds assume a debug build): run with
 /// `cargo test -p liquers-core --test dependency_chain_scaling -- --ignored --nocapture`.
 #[tokio::test]
 #[ignore]
 async fn chain_evaluation_scales() -> Result<(), Box<dyn std::error::Error>> {
-    for n in chain_sizes() {
+    let sizes = chain_sizes();
+    for (n, _) in BOUNDS {
+        assert!(sizes.contains(&n), "CHAIN_SIZES must include {n}: the acceptance check needs it");
+    }
+    for n in sizes {
         let (elapsed, lookups) = evaluate_chain(n).await?;
         eprintln!(
             "chain of {n:>4} links: {:>9.3} s, {lookups:>8} recipe lookups",
             elapsed.as_secs_f64()
         );
+        for (bound_n, bound) in BOUNDS {
+            if n == bound_n {
+                assert!(elapsed < bound, "{n} links took {elapsed:?}, bound {bound:?}");
+            }
+        }
     }
     Ok(())
 }
 
+/// I7: a smoke test, not the acceptance check: a 20-link chain evaluates well within a generous
+/// ceiling (about 0.1 s expected in a debug build), and its recipe lookups grow quadratically
+/// with a small constant, not with the fourth power (691 for 20 links; 9 931 before the change).
+#[tokio::test]
+async fn chain_20_links_smoke() -> Result<(), Box<dyn std::error::Error>> {
+    let (elapsed, lookups) = evaluate_chain(20).await?;
+    assert!(elapsed < Duration::from_secs(3), "20 links took {elapsed:?}");
+    assert!(lookups < 1000, "{lookups} recipe lookups for 20 links");
+    Ok(())
+}
