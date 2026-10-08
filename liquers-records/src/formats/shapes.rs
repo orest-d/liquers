@@ -1035,6 +1035,55 @@ mod tests {
         Ok(())
     }
 
+    /// `split` states its column order in `columns`; a schema-less read keeps it, with the index
+    /// column first.
+    #[test]
+    fn split_without_schema_keeps_columns_order() -> Result<(), Error> {
+        let json: Value = parse_json(r#"{"columns":["z","a"],"index":[0,1],"data":[[1,"x"],[2,"y"]]}"#)?;
+        let batch = from_json(&json, JsonOrient::Split, ReadSchema::Infer)?;
+        assert_eq!(column_names(&batch), vec!["index", "z", "a"]);
+        assert_eq!(batch.value(1, 2)?, FieldValue::Text(std::sync::Arc::from("y")));
+        Ok(())
+    }
+
+    /// `values` states its column order by position: `c10` follows `c9`, not `c1`.
+    #[test]
+    fn values_without_schema_keeps_positional_order() -> Result<(), Error> {
+        let json: Value = parse_json(r#"[[0,1,2,3,4,5,6,7,8,9,10],[10,11,12,13,14,15,16,17,18,19,20]]"#)?;
+        let batch = from_json(&json, JsonOrient::Values, ReadSchema::Infer)?;
+        let expected: Vec<String> = (0..11).map(|i| format!("c{i}")).collect();
+        assert_eq!(column_names(&batch), expected.iter().map(String::as_str).collect::<Vec<_>>());
+        assert_eq!(batch.value(1, 10)?, FieldValue::Int(20));
+        Ok(())
+    }
+
+    /// Shapes with no stated column order still sort, as the 2026-10-06 decision requires.
+    #[test]
+    fn records_and_list_without_schema_still_sort() -> Result<(), Error> {
+        let records: Value = parse_json(r#"[{"z":1,"a":2}]"#)?;
+        let batch = from_json(&records, JsonOrient::Records, ReadSchema::Infer)?;
+        assert_eq!(column_names(&batch), vec!["a", "z"]);
+        let list: Value = parse_json(r#"{"z":[1],"a":[2]}"#)?;
+        let batch = from_json(&list, JsonOrient::List, ReadSchema::Infer)?;
+        assert_eq!(column_names(&batch), vec!["a", "z"]);
+        Ok(())
+    }
+
+    /// A declared schema's field order wins over the order `split` states.
+    #[test]
+    fn split_with_declared_schema_uses_schema_order() -> Result<(), Error> {
+        let schema = RecordSchema::new(vec![
+            FieldSchema::new("b", FieldType::Text),
+            FieldSchema::new("order_id", FieldType::Int).with_key(KeyRole::Id),
+            FieldSchema::new("a", FieldType::Int),
+        ])?;
+        let json: Value = parse_json(r#"{"columns":["a","b"],"index":[7],"data":[[1,"x"]]}"#)?;
+        let batch = from_json(&json, JsonOrient::Split, ReadSchema::Declared(&schema))?;
+        assert_eq!(column_names(&batch), vec!["b", "order_id", "a"]);
+        assert_eq!(batch.value(0, 1)?, FieldValue::Int(7));
+        Ok(())
+    }
+
     #[test]
     fn orient_index_without_a_schema_keys_stay_text() -> Result<(), Error> {
         let json: Value = parse_json(r#"{"1":{"total":9.5}}"#)?;
