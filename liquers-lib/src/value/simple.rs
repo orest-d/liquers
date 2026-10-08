@@ -678,9 +678,20 @@ impl DefaultValueSerializer for SimpleValue {
                     "Key" => liquers_core::parse::parse_key(&s).map(|value| SimpleValue::Key { value }),
                     // Written raw; reading it as text would lose every byte that is not UTF-8.
                     "Bytes" => Ok(SimpleValue::Bytes { value: b.to_vec() }),
-                    "" | "None" | "Bool" | "I32" | "I64" | "F64" | "Text" => {
-                        Ok(SimpleValue::Text { value: s })
-                    }
+                    // Scalars are parsed as core `Value` parses them; text that does not parse
+                    // is a conversion error, as in core.
+                    "Bool" => SimpleValue::from_bool_str(&s),
+                    "I32" => s.parse::<i32>().map(|value| SimpleValue::I32 { value }).map_err(|e| {
+                        Error::conversion_error_with_message(&s, "i32", &e.to_string())
+                    }),
+                    "I64" => s.parse::<i64>().map(|value| SimpleValue::I64 { value }).map_err(|e| {
+                        Error::conversion_error_with_message(&s, "i64", &e.to_string())
+                    }),
+                    "F64" => s.parse::<f64>().map(|value| SimpleValue::F64 { value }).map_err(|e| {
+                        Error::conversion_error_with_message(&s, "f64", &e.to_string())
+                    }),
+                    // Core has no textual read rule for `None` either.
+                    "" | "None" | "Text" => Ok(SimpleValue::Text { value: s }),
                     // Not a base identifier. `txt`, `html` and `toml` have always read as text
                     // whatever the identifier (`COMBINED-VALUE-DISCRIMINATION`); the formats added
                     // with them refuse, so `CombinedValue` asks the extension.
@@ -1083,8 +1094,8 @@ mod tests {
     }
 
     /// Every (type, format) pair `SimpleValue`'s `TypeInfo` declares is written and read back,
-    /// with no exceptions. A text format carries no type, so a scalar reads back as `Text`, while
-    /// `Bytes`, `Query` and `Key` read back as themselves; JSON numbers read back as `I64`.
+    /// with no exceptions. Under a text format every type reads back as itself, as core `Value`
+    /// reads it, except `None`, which reads back as `Text`; JSON numbers read back as `I64`.
     #[test]
     fn every_declared_format_round_trips() -> Result<(), Box<dyn std::error::Error>> {
         for info in SimpleValue::type_descriptions() {
@@ -1096,11 +1107,7 @@ mod tests {
                     .map_err(|e| format!("{id} declares {format} but does not write it: {e}"))?;
                 let back = SimpleValue::deserialize_from_bytes(&bytes, &id, format)?;
                 let expected = match (format.as_ref(), &value) {
-                    (
-                        "txt" | "html" | "md" | "rs" | "py" | "css" | "js",
-                        SimpleValue::Bytes { .. } | SimpleValue::Query { .. } | SimpleValue::Key { .. },
-                    ) => value.clone(),
-                    ("txt" | "html" | "md" | "rs" | "py" | "css" | "js", _) => {
+                    ("txt" | "html" | "md" | "rs" | "py" | "css" | "js", SimpleValue::None {}) => {
                         SimpleValue::Text { value: String::from_utf8(bytes.clone())? }
                     }
                     ("json", SimpleValue::I32 { value }) => SimpleValue::I64 { value: i64::from(*value) },
