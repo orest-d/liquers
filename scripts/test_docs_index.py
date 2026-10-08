@@ -98,6 +98,7 @@ def _issue(issue_id: str, design: str, priority: str = "P2") -> dict:
         "complexity": "S",
         "gh_issue": "",
         "readiness": "",
+        "autofix": "",
         "status": "draft",
         "_path": Path(f"specs/issues/{issue_id}.md"),
         "_fm": {
@@ -113,7 +114,11 @@ def _issue(issue_id: str, design: str, priority: str = "P2") -> dict:
 
 
 def _design(
-    slug: str, issues: list[str], readiness: str = "ready", merged: str = "2026-10-05"
+    slug: str,
+    issues: list[str],
+    readiness: str = "ready",
+    merged: str = "2026-10-05",
+    autofix: str = "",
 ) -> dict:
     fm = {
         "id": slug.upper(),
@@ -125,6 +130,8 @@ def _design(
     }
     if readiness:
         fm["readiness"] = readiness
+    if autofix:
+        fm["autofix"] = autofix
     if merged and len(issues) > 1:
         fm["merged"] = merged
     return {
@@ -136,6 +143,7 @@ def _design(
         "complexity": "",
         "gh_issue": "",
         "readiness": "",
+        "autofix": "",
         "status": "in_review",
         "_path": Path(f"specs/design/{slug}/DESIGN.md"),
         "_fm": fm,
@@ -210,7 +218,7 @@ class MergedDesignTests(unittest.TestCase):
             errors,
             [
                 "specs/design/unmarked/DESIGN.md: a readiness-labeled design with several "
-                "sources must record the maintainer's merge as `merged: YYYY-MM-DD` (§5.1.1)"
+                "sources must record the merge as `merged: YYYY-MM-DD` (§5.1.1)"
             ],
         )
 
@@ -319,3 +327,275 @@ class BlankCodeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AutofixTests(unittest.TestCase):
+    def test_autofix_is_projected_onto_every_source(self):
+        rows = [
+            _issue("LEAD", "merged"),
+            _issue("OTHER", "merged"),
+            _design("merged", ["LEAD", "OTHER"], autofix="eligible"),
+        ]
+
+        docs_index.join_design_sources(rows)
+
+        self.assertEqual([r["autofix"] for r in rows], ["eligible"] * 3)
+        self.assertEqual(docs_index.autofix_errors(rows), [])
+
+    def test_unknown_autofix_value_is_rejected(self):
+        rows = [_issue("ONE", "one"), _design("one", ["ONE"], autofix="yes")]
+
+        self.assertEqual(
+            docs_index.autofix_errors(rows),
+            ["specs/design/one/DESIGN.md: autofix 'yes' not in §5.1.1"],
+        )
+
+    def test_autofix_requires_readiness(self):
+        rows = [_issue("ONE", "one"), _design("one", ["ONE"], readiness="", autofix="not-eligible")]
+
+        self.assertEqual(
+            docs_index.autofix_errors(rows),
+            ["specs/design/one/DESIGN.md: autofix requires a readiness value (§5.1.1)"],
+        )
+        docs_index.join_design_sources(rows)
+        self.assertEqual(rows[0]["autofix"], "")
+
+    def test_eligible_requires_ready(self):
+        rows = [
+            _issue("ONE", "one"),
+            _design("one", ["ONE"], readiness="needs-decision", autofix="eligible"),
+        ]
+
+        self.assertEqual(
+            docs_index.autofix_errors(rows),
+            [
+                "specs/design/one/DESIGN.md: autofix 'eligible' requires readiness 'ready', "
+                "not 'needs-decision' (§5.1.1)"
+            ],
+        )
+
+    def test_eligible_requires_small_leading_source(self):
+        issue = _issue("ONE", "one")
+        issue["complexity"] = "L"
+        rows = [issue, _design("one", ["ONE"], autofix="eligible")]
+
+        self.assertEqual(
+            docs_index.autofix_errors(rows),
+            [
+                "specs/design/one/DESIGN.md: autofix 'eligible' requires complexity S or M, "
+                "but leading source 'ONE' is 'L' (§5.1.1)"
+            ],
+        )
+
+    def test_not_eligible_needs_no_size_or_readiness_check(self):
+        issue = _issue("ONE", "one")
+        issue["complexity"] = "XL"
+        rows = [issue, _design("one", ["ONE"], readiness="blocked", autofix="not-eligible")]
+
+        self.assertEqual(docs_index.autofix_errors(rows), [])
+
+    def test_board_orders_eligible_before_other_ready_work(self):
+        rows = [
+            _issue("B-LATER", "later"),
+            _issue("A-FIRST", "first"),
+            _design("later", ["B-LATER"], autofix="not-eligible"),
+            _design("first", ["A-FIRST"], autofix="eligible"),
+        ]
+        rows[0]["id"], rows[1]["id"] = "A-NOT", "B-ELIGIBLE"
+        rows[2]["_fm"]["issues"], rows[3]["_fm"]["issues"] = ["A-NOT"], ["B-ELIGIBLE"]
+
+        docs_index.join_design_sources(rows)
+
+        self.assertEqual(
+            [r["id"] for r in docs_index.active_work_rows(rows)], ["B-ELIGIBLE", "A-NOT"]
+        )
+
+
+class DesignFormTests(unittest.TestCase):
+    def _compact(self, root: Path, body: str, form: str = "compact") -> dict:
+        path = root / "specs" / "design" / "small" / "DESIGN.md"
+        path.parent.mkdir(parents=True)
+        path.write_text(f"---\nform: {form}\n---\n{body}", encoding="utf-8")
+        row = _design("small", ["ONE"])
+        row["_fm"]["form"] = form
+        row["_path"] = path
+        return row
+
+    def test_compact_design_with_phase_sections_passes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            row = self._compact(Path(temporary), "# Small\n\n## Phase 1: High-Level Design\n")
+            self.assertEqual(docs_index.form_errors([row]), [])
+
+    def test_compact_design_without_phase_sections_is_refused(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            row = self._compact(Path(temporary), "# Small\n")
+            self.assertEqual(
+                docs_index.form_errors([row]),
+                [
+                    "specs/design/small/DESIGN.md: a compact design keeps its phases as "
+                    "`## Phase N` (§5)"
+                ],
+            )
+
+    def test_unknown_form_is_refused(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            row = self._compact(Path(temporary), "## Phase 1\n", form="tiny")
+            self.assertEqual(
+                docs_index.form_errors([row]),
+                ["specs/design/small/DESIGN.md: form 'tiny' not in §5"],
+            )
+
+    def test_board_links_design_md_of_a_compact_design(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            design = self._compact(root, "## Phase 1\n")
+            issue = _issue("ONE", "small")
+            issue["area"], issue["title"], issue["created"] = "docs", "t", "2026-10-08"
+            saved = docs_index.SPECS
+            docs_index.SPECS = root / "specs"
+            try:
+                board = docs_index.render_index_markdown([issue, design])
+            finally:
+                docs_index.SPECS = saved
+            self.assertIn("[design](design/small/DESIGN.md)", board)
+
+
+class ScenarioAndProgressTests(unittest.TestCase):
+    PHASE1 = (
+        "# Phase 1\n\n## Scope and Acceptance Criteria\n"
+        "- **AC-1** Empty frame\n  WHEN head runs on no rows\n  THEN it returns an empty frame\n"
+        "- **AC-2** Large frame\n  WHEN head runs on many rows\n  THEN it returns five\n\n"
+        "## Core Interactions\n"
+    )
+
+    def _design(self, root: Path, files: dict, phase: str = "implementation", status: str = "in_review"):
+        folder = root / "specs" / "design" / "d"
+        folder.mkdir(parents=True)
+        for name, text in files.items():
+            (folder / name).write_text(text, encoding="utf-8")
+        if "DESIGN.md" not in files:
+            (folder / "DESIGN.md").write_text("---\n---\n# d\n", encoding="utf-8")
+        row = _design("d", ["ONE"])
+        row["_path"] = folder / "DESIGN.md"
+        row["_fm"].update({"phase": phase, "status": status})
+        row["status"] = status
+        return row
+
+    def test_covered_scenarios_pass(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            row = self._design(
+                Path(temporary),
+                {"phase1-high-level-design.md": self.PHASE1,
+                 "phase3-examples.md": "| t1 | AC-1 |\n| t2 | AC-2 |\n"},
+            )
+            self.assertEqual(docs_index.scenario_errors([row]), [])
+
+    def test_uncovered_and_unknown_scenarios_are_errors(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            row = self._design(
+                Path(temporary),
+                {"phase1-high-level-design.md": self.PHASE1,
+                 "phase3-examples.md": "| t1 | AC-1 |\n| t3 | AC-3 |\n"},
+            )
+            self.assertEqual(
+                docs_index.scenario_errors([row]),
+                [
+                    "specs/design/d/DESIGN.md: scenario AC-2 has no Phase 3 test citing it (§5.2.1)",
+                    "specs/design/d/DESIGN.md: Phase 3 cites AC-3, which Phase 1 does not define (§5.2.1)",
+                ],
+            )
+
+    def test_coverage_waits_for_a_written_phase_3(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            row = self._design(
+                Path(temporary),
+                {"phase1-high-level-design.md": self.PHASE1, "phase3-examples.md": "draft\n"},
+                phase="examples",
+                status="draft",
+            )
+            self.assertEqual(docs_index.scenario_errors([row]), [])
+
+    def test_scenario_without_then_is_an_error(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            phase1 = "- **AC-1** Broken\n  WHEN something happens\n\n## Next\nTHEN elsewhere\n"
+            row = self._design(Path(temporary), {"phase1-high-level-design.md": phase1}, phase="high-level")
+            self.assertEqual(
+                docs_index.scenario_errors([row]),
+                ["specs/design/d/DESIGN.md: scenario AC-1 has no THEN (§5.2.1)"],
+            )
+
+    def test_design_without_scenarios_is_not_checked_but_counted(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            row = self._design(
+                Path(temporary),
+                {"phase1-high-level-design.md": "## Acceptance Criteria\n- works\n",
+                 "phase3-examples.md": "nothing cited\n"},
+            )
+            self.assertEqual(docs_index.scenario_errors([row]), [])
+            warnings = docs_index.scenario_and_progress_warnings([row])
+            self.assertEqual(len(warnings), 1)
+            self.assertTrue(warnings[0].startswith("1 open designs define no acceptance scenarios"))
+
+    def test_compact_design_scenarios_come_from_its_sections(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            text = (
+                "---\nform: compact\n---\n# d\n\n## Phase 1: High-Level Design\n"
+                "### Scope and Acceptance Criteria\n- **AC-1** x\n  WHEN a\n  THEN b\n\n"
+                "## Phase 3: Examples and Tests\n### Tests\n- `t` (AC-2)\n"
+            )
+            row = self._design(Path(temporary), {"DESIGN.md": text})
+            row["_fm"]["form"] = "compact"
+            self.assertEqual(
+                docs_index.scenario_errors([row]),
+                [
+                    "specs/design/d/DESIGN.md: scenario AC-1 has no Phase 3 test citing it (§5.2.1)",
+                    "specs/design/d/DESIGN.md: Phase 3 cites AC-2, which Phase 1 does not define (§5.2.1)",
+                ],
+            )
+
+    def test_stale_note_is_a_warning(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            row = self._design(
+                Path(temporary),
+                {"DESIGN.md": f"---\n---\n# d\n\n> {docs_index.NO_SCENARIOS_NOTE} …\n",
+                 "phase1-high-level-design.md": self.PHASE1},
+            )
+            self.assertEqual(
+                docs_index.scenario_and_progress_warnings([row]),
+                ["specs/design/d/DESIGN.md: scenarios are defined; remove the 'not defined' note (§5.2.1)"],
+            )
+
+    def test_progress_items_are_read_only_from_the_progress_section(self):
+        phase4 = (
+            "## Progress\n- [x] Step 1: a — abc1234\n- [ ] Step 2: b\n\n"
+            "## Phase 5 Entry Criteria\n- [ ] Steps 1-2 committed\n"
+        )
+        self.assertEqual(docs_index.progress_items(phase4), [(True, 1), (False, 2)])
+
+    def test_compact_steps_checklist_counts_as_progress(self):
+        self.assertEqual(
+            docs_index.progress_items("### Steps\n- [x] 1. a\n- [ ] 2. b\n### Validation\n"),
+            [(True, 1), (False, 2)],
+        )
+
+    def test_unticked_progress_at_documentation_is_a_warning(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            row = self._design(
+                Path(temporary),
+                {"phase1-high-level-design.md": self.PHASE1,
+                 "phase4-implementation.md": "## Progress\n- [x] Step 1: a\n- [ ] Step 2: b\n"},
+                phase="documentation",
+            )
+            self.assertEqual(
+                docs_index.scenario_and_progress_warnings([row]),
+                ["specs/design/d/DESIGN.md: Phase 4 progress has unticked steps 2 (§5.2.1)"],
+            )
+
+    def test_duplicate_scenario_id_is_an_error(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            phase1 = self.PHASE1.replace("**AC-2**", "**AC-1**")
+            row = self._design(Path(temporary), {"phase1-high-level-design.md": phase1}, phase="high-level")
+            self.assertEqual(
+                docs_index.scenario_errors([row]),
+                ["specs/design/d/DESIGN.md: scenario AC-1 is defined more than once (§5.2.1)"],
+            )

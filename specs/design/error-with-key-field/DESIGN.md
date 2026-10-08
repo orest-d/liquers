@@ -15,6 +15,11 @@ superseded_by:
 ---
 # Structured Error Context Design Tracking
 
+> **Acceptance scenarios not defined.** This design predates acceptance scenarios
+> (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance
+> criteria as `AC-<n>` WHEN/THEN scenarios and cite each from the Phase 3 test that proves it. Remove
+> this note when you do; until then `docs_index.py --check` counts this design in its warning.
+
 The original one-field repair has returned to Phase 2 because keyed recipes and nested query
 evaluation require multiple role-bearing contexts. Store access is also provenance: the Phase 2
 contract must decide how a store reference, such as a stable store name, travels with the resource

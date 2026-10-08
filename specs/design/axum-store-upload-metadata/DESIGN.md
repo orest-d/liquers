@@ -11,6 +11,11 @@ created: 2026-10-06
 ---
 # Store API keeps upload media types and serves legacy metadata as stored
 
+> **Acceptance scenarios not defined.** This design predates acceptance scenarios
+> (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance
+> criteria as `AC-<n>` WHEN/THEN scenarios and cite each from the Phase 3 test that proves it. Remove
+> this note when you do; until then `docs_index.py --check` counts this design in its warning.
+
 Produced under [`guides/autonomous_bulk_design.md`](../../guides/autonomous_bulk_design.md):
 the first four phases, reviewed without phase approval. Not an approval and not an implementation.
 

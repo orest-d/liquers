@@ -144,7 +144,7 @@ What to test for each Liquers component, including edge cases and error conditio
 - **MemoryStore**: get, set, remove, contains, listdir, makedir, is_dir
 - **FileStore**: same operations with filesystem persistence
 - **StoreRouter**: delegation to correct store based on key prefix
-- **AsyncStoreWrapper**: wraps sync store for async interface
+- **AsyncMemoryStore**: the in-memory `AsyncStore` used in tests (`AsyncMemoryStore::new(&Key::new())`); there is no sync-to-async wrapper
 - **NoStore/NoAsyncStore**: returns appropriate errors
 - Key prefix isolation between stores in router
 - Metadata finalization on set

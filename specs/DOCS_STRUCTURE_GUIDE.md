@@ -262,7 +262,9 @@ defects go unrecorded, which is worse than a backlog with some noise in it.
 
 1. **Search first.** `grep -i '<keyword>' specs/index.csv` against the symptom, the module, and the
    area. Duplicate filing is the one failure mode that makes cheap capture worthless. If you find a
-   match, add to that issue's body instead of creating a new file.
+   match, add to that issue's body instead of creating a new file. Under the `liquers-project`
+   skill this step is its overlap triage (`.claude/skills/liquers-project/references/issue-triage.md`),
+   which also decides which design, if any, the new issue joins.
 2. **Choose an ID** (§4.1): `[A-Z0-9-]+`, ≤ 60 characters, naming the *problem* rather than the fix.
    `ASSET-EXPIRED-CACHED-BINARY-READ`, not `FIX-ASSET-READ`. Confirm it is unused in `index.csv`.
 3. **Create `specs/issues/<ID>.md`** from the template below.
@@ -345,12 +347,21 @@ the status machine. Those are the parts that change.
 ## 5. Designs
 
 One folder per design effort: `specs/design/<slug>/`, containing `DESIGN.md` and whatever phase
-documents the work produced. The `liquers-project` skill generates the five-phase skeleton; the
-legacy `liquers-designer` skill generates its original four-phase skeleton. A short investigation
+documents the work produced. The `liquers-project` skill generates the five-phase skeleton. The
+former `liquers-designer` skill, now removed, generated a four-phase skeleton that existing designs
+keep. A short investigation
 does not need either skill, and `DESIGN.md` plus a findings document is a complete, conforming
 folder.
 
 **The only hard requirement is `DESIGN.md` with front-matter.**
+
+**Form.** A design is written in one of two forms. The default **full** form keeps each phase in
+its own file (§5.2). The **compact** form, `form: compact`, is for `S` and `M` work: everything is
+in `DESIGN.md`, and each phase is a `## Phase N` section with the same obligations as the
+corresponding phase file. Wherever this guide or a procedure refers to a phase document, a compact
+design means its `## Phase N` section. A compact design that grows to `L` is converted to the full
+form. `--check` rejects any other `form` value, and a compact design without a `## Phase 1`
+section.
 
 ```yaml
 ---
@@ -360,7 +371,9 @@ title: Timing and race safety in asset expiration
 workflow: liquers-project  # five phases, including mandatory documentation; see §5.2
 status: in_review           # OMITTED once `gh_pr` is set — see §5.5
 phase: architecture         # see §5.2
+form: compact               # optional; `full` (default) or `compact` for S/M work — see above
 readiness: phase2-blocked   # optional implementation-readiness assessment; see §5.1.1
+autofix: not-eligible       # optional, beside readiness: may an agent fix it unattended? §5.1.1
 area: [core/assets]
 issues: [ASSET-EXPIRED-CACHED-BINARY-READ]
 gh_pr: [11]                 # PRs implementing this design; set by hand once, then owned by GitHub
@@ -413,9 +426,19 @@ Designs that do not make this assessment omit the field and have an empty `readi
 | `phase2-blocked` | Phases 1 and 2 are complete, but uncertainty prevents a working Phase 3 example/test contract or Phase 4 implementation plan. Phases 3 and 4 are intentionally absent or remain explicitly incomplete. |
 | `covered` | The issue or feature has its own Phase 1 and 2 record, but no independent Phase 3 or 4 is needed because another named design covers the work or the source is a duplicate. |
 
+**Automatic fixing.** A readiness-labeled design may also carry `autofix`: `eligible` when an
+agent may implement it without a human approving the design first, `not-eligible` otherwise. The
+rule that decides it is the `liquers-project` skill's
+`.claude/skills/liquers-project/references/auto-fix.md` (size `S`/`M`; a bug fix, tests,
+documentation or tooling; no new trait or data structure; no public interface change). `autofix`
+is part of the readiness assessment, so it requires a `readiness` value, and `eligible` requires
+`readiness: ready` and a leading source of complexity `S` or `M`; `--check` enforces all three. An
+omitted `autofix` means "not assessed". The reason for the value is the **Automatic fixing** line
+in Phase 1's Design Readiness section.
+
 The Phase 1 document owns the explanation, leading issue, and tiered open-question list supporting
-this value. `DESIGN.md` carries only the enum; `index.csv` projects it onto both the linked source
-issue or feature row and the design row. The design row inherits source priority and complexity, so
+these values. `DESIGN.md` carries only the enums; `index.csv` projects them onto both the linked source
+issue or feature rows and the design row. The design row inherits source priority and complexity, so
 readiness remains filterable alongside the queue fields in either representation. The procedure in
 [`guides/autonomous_bulk_design.md`](guides/autonomous_bulk_design.md) defines how autonomous bulk
 design work assigns and maintains it.
@@ -425,14 +448,18 @@ its `issues:` list contains that one ID, the source document's `design:` field l
 design slug, and no second readiness-labeled design may claim the same source. Historical designs
 without readiness metadata retain their original many-issue relationships.
 
-**Merged designs.** When the maintainer decides that readiness-labeled designs depend on each other
-closely enough to be implemented as one, they are merged into a new design that owns every source.
-It records the decision as `merged: YYYY-MM-DD` (the date the maintainer decided), and only a
-design carrying that field may list more than one source, so an ordinary or autonomous design
-cannot pass as merged by accident. Its `issues:` list names all of them, **leading source first**: the design row in `index.csv`
+**Merged designs.** A readiness-labeled design comes to own several sources in two ways. The
+maintainer may decide that designs depend on each other closely enough to be implemented as one; they
+are then merged into a new design that owns every source. Or the `liquers-project` skill's triage
+attaches a new issue to a design, or designs several issues together, because they **strongly
+overlap** under its definition (`.claude/skills/liquers-project/references/overlap.md`). Either
+way the design records `merged: YYYY-MM-DD` (the date of the merge or of the latest attachment), and
+only a design carrying that field may list more than one source, so a design cannot pass as merged
+by accident. Merging two existing designs is always the maintainer's decision; triage only proposes
+it. Its `issues:` list names all of them, **leading source first**: the design row in `index.csv`
 inherits the leading source's priority, complexity and GitHub issue, and its readiness is projected
 onto every source. Every source's `design:` field links to the merged design, and no other
-readiness-labeled design may claim any of them. Each original design becomes `superseded`, names the
+readiness-labeled design may claim any of them. When designs are merged, each original design becomes `superseded`, names the
 merged design in `superseded_by`, drops its `readiness`, and carries a note saying what moved where.
 Its `issues:` list is kept as history. A related issue that is not merged is recorded in Phase 1's
 Design Dependencies with its relationship (`requires`, `required-by`, `covered-by`, `overlaps`).
@@ -476,11 +503,42 @@ If a rebase, merge conflict, or integration change creates inconsistency, review
 affected documentation after merge. Designs using the legacy four-phase skill or an approved
 simplified transitional flow may terminate after Phase 4.
 
-The `liquers-project` skill owns what its five phases *contain*; the legacy `liquers-designer` skill
-continues to own its four-phase artifact form. This table owns the shared phase names and order.
+The `liquers-project` skill owns what its five phases *contain*. Designs created by the removed
+`liquers-designer` skill keep the four-phase artifact form they were approved under. This table owns the shared phase names and order.
 
 A short investigation does not run phases at all: it may go straight to `status: complete` with no
 `phase`, carrying `DESIGN.md` plus whatever findings document it produced.
+
+#### 5.2.1 Acceptance scenarios and implementation progress
+
+**Scenarios.** Phase 1 states its acceptance criteria as scenarios, one list item each:
+
+```markdown
+- **AC-1** Empty frame
+  WHEN `head` runs on a DataFrame with no rows
+  THEN it returns an empty DataFrame with the same schema
+```
+
+The id `AC-<n>` is unique within the design and is never renumbered or reused; a dropped scenario
+is struck through with a reason. Phase 3 cites the id of every scenario a test or example proves.
+When Phase 1 defines at least one scenario, `--check` requires that every scenario has a WHEN and
+a THEN line. Once Phase 3 is written (at review, or the design has moved past it), every scenario
+must be cited in Phase 3 and Phase 3 may cite no undefined id. A design that defines no scenarios
+is not checked, so designs written before scenarios existed stay valid. `--check` instead counts
+the open ones in a single warning, and each carries a note in its `DESIGN.md` saying the
+scenarios are missing; whoever adds them removes the note. A note left after scenarios exist is
+a warning too.
+
+**Progress.** Phase 4 opens with a `## Progress` checklist, one item per `### Step N`
+(`- [ ] Step N: …`); a compact design writes its `### Steps` as that checklist. A step is ticked
+when its proof passes, with the commit appended (`- [x] Step 2: … — a1b2c3d`). Ticking records
+progress, not a design decision: it is allowed after Phase 4 is approved and does not reopen the
+phase. A resumed session or a spin-off starts at the first unticked step. A design at
+`documentation` or `complete` with unticked items is a `--check` warning: tick them, or turn the
+remainder into an issue (§5.6) and say so in the item.
+
+`liquers-project`'s `validate_phase.py` applies the same rules, and requires scenarios and the
+progress checklist in designs created on or after 2026-10-08.
 
 ### 5.3 Changing the phase set
 
@@ -601,7 +659,7 @@ match regeneration. `index.html` is an untracked local HTML rendering of that bo
 Columns, in this exact order:
 
 ```
-id,kind,title,status,status_source,phase,readiness,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
+id,kind,title,status,status_source,phase,readiness,autofix,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
 ```
 
 | Column | Notes |
@@ -611,6 +669,7 @@ id,kind,title,status,status_source,phase,readiness,priority,complexity,area,gh_i
 | `status_source` | `local` for issues and features, which always own their status locally. Designs may read `github` only while their PR-derived status is cached. |
 | `phase` | `kind: design` only, and only in a status that carries one (§5.1). Empty otherwise. |
 | `readiness` | Optional implementation-readiness assessment authored by a readiness-labeled design (§5.1.1), rendered on both its one linked `kind: issue` or `kind: feature` row and its design row. Empty when there is no readiness-labeled reciprocal pair. |
+| `autofix` | `eligible`, `not-eligible`, or empty (not assessed), from the same readiness-labeled design as `readiness` and projected the same way (§5.1.1). Empty whenever `readiness` is. |
 | `priority`, `complexity` | From an issue or feature. A design with exactly one known source inherits those values, as does a merged readiness-labeled design from its leading (first-listed) source (§5.1.1); other design rows are empty. |
 | `area` | `;`-separated. |
 | `gh_issue` | Number, or empty. Written by hand once, in the issue's front-matter (§4.3). |
@@ -637,7 +696,8 @@ canonical CSV.
 `closed`, `closed_not_planned`, `rejected`, or `duplicate` rows), has hyperlinks to each issue and
 its linked design, and omits CSV-only operational columns: `status_source`, `phase`, `gh_issue`,
 `gh_pr`, `branch`, `reviewed`, and `file`. Its rows sort by priority, complexity, then readiness:
-`ready`, `needs-decision`, `blocked`, `phase2-blocked`, `covered`, and finally no assessment.
+`ready`, `needs-decision`, `blocked`, `phase2-blocked`, `covered`, and finally no assessment; then
+by `autofix`: `eligible`, `not-eligible`, and finally no assessment.
 
 Because `index.md` is a generated table, it can still conflict when branches add work. Keep either
 generated version while resolving the merge, complete the merge, then run
@@ -760,6 +820,11 @@ tooling, no network and no Python can still record what it found.
 14. **Warning:** documents whose `reviewed:` is more than 92 days old (§9.4).
 15. *With network:* imported bodies still match `imported_body_sha`; every design whose linked PRs
     are all closed unmerged is reported for a human decision (§5.5).
+
+16. When Phase 1 defines `AC-<n>` scenarios, each has WHEN and THEN, and a written Phase 3 cites
+    every one and no other (§5.2.1). **Warnings:** open designs without scenarios (one summary
+    line); a "not defined" note left after scenarios exist; unticked Phase 4 progress at
+    `documentation` or `complete`.
 
 Checks 12, 13 and 15 are **not implemented yet** — 12 needs the git diff, 13 needs cross-document
 Phase 5 validation, and 15 needs the API. `--sync` is likewise unbuilt. Everything else runs
@@ -1065,6 +1130,10 @@ neither.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-08 | §5.2.1, §7.2 check 16: acceptance scenarios (`AC-<n>` WHEN/THEN) in Phase 1, cited by Phase 3 tests and checked only when defined; a Phase 4 progress checklist; open designs without scenarios carry a note and are counted in one warning. | maintainer decision |
+| 2026-10-08 | §5: a design's `form` — the default full form, or `compact` for `S`/`M` work, with every phase as a `## Phase N` section of `DESIGN.md`; `--check` validates the value and the sections; the `index.md` board links a compact design's `DESIGN.md`. | maintainer decision |
+| 2026-10-08 | §5.1.1, §6: optional `autofix` (`eligible` / `not-eligible`) beside `readiness`, projected into a new `index.csv` column and the `index.md` board; `--check` requires readiness with it, and `ready` plus an `S`/`M` leading source for `eligible`. | maintainer decision |
+| 2026-10-08 | §4.8.1 step 1 points to the `liquers-project` overlap triage. §5, §5.1.1, §5.2: `liquers-designer` removed in favour of `liquers-project`; a design may own several sources through triage of strongly overlapping issues as well as a maintainer merge, both recorded with `merged:`. | maintainer decision |
 | 2026-10-06 | §7.2 check 9: links inside fenced blocks and inline code spans are not checked. | `DOCS-LINK-CHECK-READS-CODE-SPANS`, `design/docs-link-check-code-spans/` |
 | 2026-10-06 | §7.2 check 9: the dead-link check also covers the generated `specs/index.md`. | `DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS`, `design/docs-index-phase-link-targets/` |
 | 2026-10-05 | §5.1.1: a readiness-labeled design may own several sources when designs that depend on each other are merged; the leading source is listed first; originals become `superseded`. a merged design records `merged: YYYY-MM-DD`, and `docs_index.py --check` enforces the marker, the link-back and single-ownership rules for every source, and the predecessors' `superseded` status. | maintainer decision, `design/recipe-provider-listing-contract/` |

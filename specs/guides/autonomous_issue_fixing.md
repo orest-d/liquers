@@ -3,7 +3,7 @@ title: Autonomous Issue Fixing Procedure
 kind: guide
 audience: internal
 area: [docs, build]
-reviewed: 2026-08-11
+reviewed: 2026-10-08
 ---
 
 # Autonomous Issue Fixing Procedure
@@ -45,7 +45,11 @@ has a `github:` number.
    cloud agent MUST create or select that branch automatically before its first edit and report its
    name. It MUST verify the base and preserve unrelated work already present in the worktree.
 2. **Do not broaden the issue silently.** Fix the stated problem and the minimum supporting code,
-   tests, and documentation. Unrelated defects become proposed issues under section 11.
+   tests, and documentation. An unrelated defect goes through the `liquers-project` triage and
+   spin-off rules ([`references/spin-off.md`](../../.claude/skills/liquers-project/references/spin-off.md)):
+   when it is eligible for automatic fixing it is fixed now in its own branch and pull request, never
+   in this one; otherwise it is filed with a design and readiness. Either way it is reported under
+   section 11.
 3. **Do not bypass uncertainty.** A guess that changes public behaviour, data semantics,
    compatibility, security, or architecture is an open question, not an implementation decision.
 4. **Keep phases ordered.** Complete and critically review Phases 1 and 2 before applying the only
@@ -271,8 +275,9 @@ Repository records MUST comply with `specs/DOCS_STRUCTURE_GUIDE.md`:
   `affects_docs` truthful. Do not create a design merely because this workflow has five phases, and
   do not add or replace its `workflow` marker merely to match this procedure.
 - For any permitted existing reference/guide edit, follow the guide's `reviewed:` and History rules.
-- If a distinct problem is discovered, search first and file it as `status: draft` using section
-  4.8 of the structure guide. Never create a GitHub issue unless the user separately asks.
+- If a distinct problem is discovered, triage it with the `liquers-project` skill (overlap first,
+  then file it as `status: draft` under section 4.8 of the structure guide, or extend the matching
+  design) and apply its spin-off rule. Never create a GitHub issue unless the user separately asks.
 - Regenerate `specs/index.csv` with `python scripts/docs_index.py` after tracked-document changes,
   and run `python scripts/docs_index.py --check` before completion.
 - Update `specs/README.md` only when the capability map or “When to use what” navigation changed.
@@ -306,8 +311,10 @@ MUST state:
 3. **Unresolved problems:** what remains, evidence, whether it blocked Phase 4, and whether partial
    changes are safe to keep.
 4. **Questions:** decisions or information needed; write “None” when there are none.
-5. **Proposed issues:** mark each discovery **required first** or **optional/independent**; state
-   “None” when no new issue is warranted.
+5. **Discoveries:** for each, its triage outcome (extended this design, attached to a design, new
+   design with readiness) and its spin-off outcome (fix PR or session link, or why it was only
+   filed); mark each **required first** or **optional/independent**; state “None” when there were
+   none.
 
 Do not describe implementation as successful when required tests did not run, required in-scope
 specs are stale, or an approval condition was bypassed. Distinguish a verified failure from a check
@@ -317,6 +324,7 @@ that could not be run.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-08 | Discovered problems go through the `liquers-project` triage and spin-off rules: an eligible one is fixed in its own branch and PR; the closing summary reports each outcome. | maintainer decision |
 | 2026-08-11 | Made Phase 5 close the authoritative local issue/feature status and treated GitHub data as optional metadata. | documentation |
 | 2026-08-10 | Clarified that the simplified workflow does not opt designs into the canonical artifact contract, made substantive documentation a non-blocking follow-up proposal, and ordered record maintenance before PR handoff. | review |
 | 2026-08-10 | Aligned the autonomous procedure with the five `liquers-project` phases, retained one post-Phase-2 gate, and constrained Phase 5 to a summary and small existing-document maintenance. | documentation |
