@@ -7,6 +7,7 @@ Phase 1 establishes **WHAT** the feature is and **WHY** it exists. This is the f
 **Goal:** Create a concise (maximum 30 lines) high-level design that answers:
 - What is the feature name?
 - What is its purpose (1-3 sentences)?
+- What does the problem look like on a concrete example?
 - How does it interact with existing Liquers systems?
 - Does the completed capability need a reference, a guide, both, or neither?
 - What open questions remain?
@@ -29,6 +30,12 @@ Use this template for your `phase1-high-level-design.md`:
 ## Purpose
 
 <1-3 sentences explaining why this feature exists and what problem it solves>
+
+## Problem Example
+
+<One concrete case: the input, query, call or scenario; what happens today; what should happen.
+Validate any Liquers query with liquers-validate. For a new capability, show what the user cannot
+do today and how it reads once it exists. Does not count towards the 30-line limit.>
 
 ## Core Interactions
 
@@ -95,6 +102,21 @@ accumulates. Follow `specs/DOCS_STRUCTURE_GUIDE.md` §2, §8, and §9.>
 
 - <Link to related specs, issues, or external documentation>
 - <Link to similar features in other systems for inspiration>
+
+<!-- Add when they apply: -->
+
+## Design Readiness
+
+<Required for designs that carry `readiness` (bulk design, triage, compaction) and used as the
+decision log under `proceed all`. Fields and question tiers: specs/guides/autonomous_bulk_design.md §3,
+plus the **Automatic fixing** line from references/auto-fix.md.>
+
+## Scope Changes
+
+<Added when the design is extended after it started (issue-triage.md case 1 or 2). One entry per
+change: date, what was added and why (the overlap test that held), its problem example, the effect on
+acceptance criteria, non-goals and size, the phases updated and re-reviewed, and the approval decision
+(return phase, or "no approval needed").>
 ```
 
 ## Example: Parquet File Support
@@ -111,6 +133,13 @@ Parquet File Format Support
 ## Purpose
 
 Enable reading and writing Parquet files in Liquers to support efficient columnar data storage and interoperability with data engineering tools (Spark, DuckDB, etc.). This allows users to persist and load Polars DataFrames in a widely-supported binary format.
+
+## Problem Example
+
+A user has `sales.parquet` in a store and asks for `-R/data/sales.parquet/-/head`. Today the
+value comes back as raw bytes, `head` fails because there is no DataFrame, and there is no way to
+write a DataFrame back as Parquet. Expected: the query returns the first rows as a DataFrame, and
+`.../to_parquet` produces a file that DuckDB and Spark can read.
 
 ## Core Interactions
 
@@ -175,6 +204,7 @@ No changes to liquers-core or liquers-store.
 Before requesting user approval, validate your Phase 1 design against these critical questions:
 
 ### Scope Clarity
+- [ ] **Does `## Problem Example` show one concrete case, with what happens today and what should happen?**
 - [ ] **Can you explain the feature in 1-3 sentences to a non-technical stakeholder?**
   - If no: Simplify the purpose statement
 - [ ] **Are the system interactions clearly identified?**

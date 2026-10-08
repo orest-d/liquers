@@ -262,7 +262,9 @@ defects go unrecorded, which is worse than a backlog with some noise in it.
 
 1. **Search first.** `grep -i '<keyword>' specs/index.csv` against the symptom, the module, and the
    area. Duplicate filing is the one failure mode that makes cheap capture worthless. If you find a
-   match, add to that issue's body instead of creating a new file.
+   match, add to that issue's body instead of creating a new file. Under the `liquers-project`
+   skill this step is its overlap triage (`.claude/skills/liquers-project/references/issue-triage.md`),
+   which also decides which design, if any, the new issue joins.
 2. **Choose an ID** (§4.1): `[A-Z0-9-]+`, ≤ 60 characters, naming the *problem* rather than the fix.
    `ASSET-EXPIRED-CACHED-BINARY-READ`, not `FIX-ASSET-READ`. Confirm it is unused in `index.csv`.
 3. **Create `specs/issues/<ID>.md`** from the template below.
@@ -345,8 +347,9 @@ the status machine. Those are the parts that change.
 ## 5. Designs
 
 One folder per design effort: `specs/design/<slug>/`, containing `DESIGN.md` and whatever phase
-documents the work produced. The `liquers-project` skill generates the five-phase skeleton; the
-legacy `liquers-designer` skill generates its original four-phase skeleton. A short investigation
+documents the work produced. The `liquers-project` skill generates the five-phase skeleton. The
+former `liquers-designer` skill, now removed, generated a four-phase skeleton that existing designs
+keep. A short investigation
 does not need either skill, and `DESIGN.md` plus a findings document is a complete, conforming
 folder.
 
@@ -425,14 +428,18 @@ its `issues:` list contains that one ID, the source document's `design:` field l
 design slug, and no second readiness-labeled design may claim the same source. Historical designs
 without readiness metadata retain their original many-issue relationships.
 
-**Merged designs.** When the maintainer decides that readiness-labeled designs depend on each other
-closely enough to be implemented as one, they are merged into a new design that owns every source.
-It records the decision as `merged: YYYY-MM-DD` (the date the maintainer decided), and only a
-design carrying that field may list more than one source, so an ordinary or autonomous design
-cannot pass as merged by accident. Its `issues:` list names all of them, **leading source first**: the design row in `index.csv`
+**Merged designs.** A readiness-labeled design comes to own several sources in two ways. The
+maintainer may decide that designs depend on each other closely enough to be implemented as one; they
+are then merged into a new design that owns every source. Or the `liquers-project` skill's triage
+attaches a new issue to a design, or designs several issues together, because they **strongly
+overlap** under its definition (`.claude/skills/liquers-project/references/overlap.md`). Either
+way the design records `merged: YYYY-MM-DD` (the date of the merge or of the latest attachment), and
+only a design carrying that field may list more than one source, so a design cannot pass as merged
+by accident. Merging two existing designs is always the maintainer's decision; triage only proposes
+it. Its `issues:` list names all of them, **leading source first**: the design row in `index.csv`
 inherits the leading source's priority, complexity and GitHub issue, and its readiness is projected
 onto every source. Every source's `design:` field links to the merged design, and no other
-readiness-labeled design may claim any of them. Each original design becomes `superseded`, names the
+readiness-labeled design may claim any of them. When designs are merged, each original design becomes `superseded`, names the
 merged design in `superseded_by`, drops its `readiness`, and carries a note saying what moved where.
 Its `issues:` list is kept as history. A related issue that is not merged is recorded in Phase 1's
 Design Dependencies with its relationship (`requires`, `required-by`, `covered-by`, `overlaps`).
@@ -476,8 +483,8 @@ If a rebase, merge conflict, or integration change creates inconsistency, review
 affected documentation after merge. Designs using the legacy four-phase skill or an approved
 simplified transitional flow may terminate after Phase 4.
 
-The `liquers-project` skill owns what its five phases *contain*; the legacy `liquers-designer` skill
-continues to own its four-phase artifact form. This table owns the shared phase names and order.
+The `liquers-project` skill owns what its five phases *contain*. Designs created by the removed
+`liquers-designer` skill keep the four-phase artifact form they were approved under. This table owns the shared phase names and order.
 
 A short investigation does not run phases at all: it may go straight to `status: complete` with no
 `phase`, carrying `DESIGN.md` plus whatever findings document it produced.
@@ -1065,6 +1072,7 @@ neither.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-08 | §4.8.1 step 1 points to the `liquers-project` overlap triage. §5, §5.1.1, §5.2: `liquers-designer` removed in favour of `liquers-project`; a design may own several sources through triage of strongly overlapping issues as well as a maintainer merge, both recorded with `merged:`. | maintainer decision |
 | 2026-10-06 | §7.2 check 9: links inside fenced blocks and inline code spans are not checked. | `DOCS-LINK-CHECK-READS-CODE-SPANS`, `design/docs-link-check-code-spans/` |
 | 2026-10-06 | §7.2 check 9: the dead-link check also covers the generated `specs/index.md`. | `DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS`, `design/docs-index-phase-link-targets/` |
 | 2026-10-05 | §5.1.1: a readiness-labeled design may own several sources when designs that depend on each other are merged; the leading source is listed first; originals become `superseded`. a merged design records `merged: YYYY-MM-DD`, and `docs_index.py --check` enforces the marker, the link-back and single-ownership rules for every source, and the predecessors' `superseded` status. | maintainer decision, `design/recipe-provider-listing-contract/` |

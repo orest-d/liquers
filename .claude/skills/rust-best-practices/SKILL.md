@@ -8,7 +8,7 @@ description: >-
   finalizing a design document, when checking function signatures and data
   structures, when adding traits or ExtValue variants, when feature-gating
   optional backends, or when someone asks "is this idiomatic / will this compile /
-  does this follow our conventions". The liquers-designer workflow auto-invokes
+  does this follow our conventions". The liquers-project workflow auto-invokes
   this skill at Phase 2 (architecture) and Phase 4 (implementation plan); apply it
   there without being asked. Not for non-Rust code or trivial one-line edits.
 ---
@@ -21,7 +21,7 @@ findings: what violates a convention, *why the convention exists*, and the
 minimal fix. Prefer a few high-confidence findings over an exhaustive dump.
 
 The Liquers rules below are the enforced ones — they come from `CLAUDE.md` and
-`.claude/skills/liquers-designer/references/liquers-patterns.md`. General Rust
+`.claude/skills/liquers-project/references/liquers-patterns.md`. General Rust
 idioms follow. When these two conflict, the Liquers rule wins (it encodes a
 deliberate project decision).
 

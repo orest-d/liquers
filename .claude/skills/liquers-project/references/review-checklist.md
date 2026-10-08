@@ -23,6 +23,13 @@ This document provides phase-specific checklists for conducting critical reviews
   - Can you explain what this feature does to a non-technical stakeholder?
   - If no: Simplify the purpose statement
 
+- [ ] **The problem is shown on a concrete example** (`## Problem Example`)
+  - Input, query, call or scenario; what happens today; what should happen
+  - Any Liquers query in it validated with `liquers-validate`
+
+- [ ] **Overlap triage done** (`references/issue-triage.md`, `references/overlap.md`)
+  - The work does not belong in an existing open design; weak overlaps are in Design Dependencies
+
 - [ ] **System interactions are identified**
   - Query system interaction documented?
   - Store system interaction documented?

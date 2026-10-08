@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets]
-reviewed: 2026-09-30
+reviewed: 2026-10-08
 ---
 # Liquers Language Integration Guide
 
@@ -1335,7 +1335,7 @@ Modernize `liquers-py` rather than treating its current behavior as normative. P
 
 ## 7. Design and Review Checklist
 
-This guide does not define the shape or location of a design document. An *integration* is a substantial feature, so its design follows the standard Liquers design workflow (the `liquers-designer` skill), which creates `specs/<integration-name>/` and the phase documents within it. `specs/design/async-wasm-refactor/` is an existing example of that layout.
+This guide does not define the shape or location of a design document. An *integration* is a substantial feature, so its design follows the standard Liquers design workflow (the `liquers-project` skill), which creates `specs/design/<integration-name>/` and the phase documents within it. `specs/design/async-wasm-refactor/` is an existing example of that layout.
 
 The checklist below is therefore not a document outline but the *integration*-specific content that must appear somewhere in those phase documents. It maps naturally onto them: scope and selection (items 1 and 9) belong in the high-level design; the architecture items (2 through 7) in the architecture phase; the test items (8 and 10) in the examples and test-plan phase; and milestone sequencing in the implementation plan.
 
@@ -2799,6 +2799,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-08 | §7: the design workflow is the `liquers-project` skill (the `liquers-designer` skill was removed), and design folders live under `specs/design/`. | skill consolidation |
 | 2026-09-30 | STORE: a *language*-defined store needs a way to express absence as distinct from failure, with `JsStore`'s sentinel as the example. | phase-5 (`design/store-conformance-backlog/`) |
 | 2026-09-27 | Reviewed against the implemented `record-streams` code (Phase 5). RECORDS: states that `liquers-web` crosses a batch as lent buffers, not Arrow — `LiquersRecordBatch` (JS `RecordBatch`) with column descriptors, `columnCopy` and `columnView`, a view materialized first, a source not yet mapped; inventory corrected (`ChunkKeys` does not exist and is removed; `RecordValue` and the manifest types added). RECIPE: provider composition is `RecipeProviderChain` via `with_appended_recipe_provider`, and a chain answers `contains` through each provider's `recipe_opt`. | phase-5 |
 | 2026-09-25 | RECORDS: the records live in their own crate, `liquers-records`, over `liquers-core`; an integration may depend on it alone through the `RecordValue` adapter, or reach it through `liquers-lib`. | `design/record-streams/` |

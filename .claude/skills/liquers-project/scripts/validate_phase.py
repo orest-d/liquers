@@ -26,6 +26,7 @@ REQUIRED_SECTIONS = {
     1: [
         "Feature Name",
         "Purpose",
+        "Problem Example",
         "Core Interactions",
         "Crate Placement",
         "Documentation Intent",

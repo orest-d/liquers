@@ -3,7 +3,7 @@ title: Autonomous Bulk Design Procedure
 kind: guide
 audience: internal
 area: [docs, build]
-reviewed: 2026-10-05
+reviewed: 2026-10-08
 ---
 
 # Autonomous Bulk Design Procedure
@@ -12,6 +12,10 @@ This is the binding procedure for a coding agent asked to create or finish desig
 one issue or feature, or for a potentially large group of them, without pausing for phase approval.
 The words **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative. This procedure produces
 the first four design phases; it does not authorize implementation.
+
+It is invoked through the `liquers-project` skill by the keywords **bulk-design** or **bulk
+design**; that skill's [`references/bulk-design.md`](../../.claude/skills/liquers-project/references/bulk-design.md)
+lists what it adds (overlap at intake, a problem example, the automatic-fix label).
 
 It adapts the design analysis in
 [`autonomous_issue_fixing.md`](autonomous_issue_fixing.md), but removes its implementation work and
@@ -52,13 +56,16 @@ merely to use this procedure.
 5. **Analyze feasibility continuously.** Reassess signatures, ownership, compatibility, data
    formats, error paths, dependencies, tests, and affected callers in every phase. Later evidence
    that invalidates an earlier phase requires revising that phase and all dependent artifacts.
-6. **One source, one design.** Every selected issue and feature gets its own design folder and
-   readiness value, and each design names exactly one source ID. Never merge several issues or
-   features into one design, even when the implementation overlaps. A duplicate or covered item
-   still gets its own design record, which points to the covering design. The one exception is a
-   merge the **maintainer** decides after review, for designs whose implementations depend on each
-   other (`DOCS_STRUCTURE_GUIDE.md` §5.1.1, "Merged designs"); an autonomous run never merges on its
-   own initiative.
+6. **One source, one design, unless they strongly overlap.** Every selected issue and feature gets
+   a design and readiness value. Sources share one design only when they **strongly overlap** as
+   defined in the `liquers-project` skill's
+   [`references/overlap.md`](../../.claude/skills/liquers-project/references/overlap.md) (same root
+   cause, shared contract, same change site, or subsumption) and none of its exclusions applies; the
+   design then lists every source, leading source first, and records `merged:`. Similar symptoms,
+   a shared area or a common dependency are weak overlap and never merge. A duplicate or covered item
+   still gets its own design record, which points to the covering design. Merging two *existing*
+   designs remains a maintainer decision (`DOCS_STRUCTURE_GUIDE.md` §5.1.1, "Merged designs"); an
+   autonomous run proposes it in the closing report.
 7. **Keep records truthful.** Shared findings and dependencies may be cross-linked, but one
    design's certainty MUST NOT conceal another's blocker or replace its separate analysis.
 
@@ -81,6 +88,8 @@ The agent MUST maintain a short `## Design Readiness` section near the start of
 `phase1-high-level-design.md` containing:
 
 - **Readiness:** the exact enum value;
+- **Automatic fixing:** `eligible` or `not eligible`, with the reason, under the `liquers-project`
+  skill's [`references/auto-fix.md`](../../.claude/skills/liquers-project/references/auto-fix.md);
 - **Leading issue:** the highest-severity unresolved question, or `None`;
 - **Explanation:** one or two sentences stating why later phases are safe or why they stopped; and
 - **Open questions:** a severity-ordered list using the tiers below, or `None`.
@@ -122,8 +131,9 @@ Before writing phases, the agent MUST:
    shared prerequisites before dependents;
 6. record for each eligible item its canonical source, unique design slug, existing phases,
    expected missing phases, and initial uncertainty; and
-7. assign every eligible issue or feature its own design, including duplicates and items covered by
-   another design; never group multiple source IDs into one design folder.
+7. apply the overlap tests across the selected items and open designs: strongly overlapping sources
+   share one design (or join an open design), every other item gets its own design, including
+   duplicates and items covered by another design.
 
 A Phase 4 filename, unchecked tracking row, or untouched template is not evidence of a finished
 Phase 4. Such a design remains eligible and its existing phases are reviewed under section 11.
@@ -135,10 +145,11 @@ count, and do not stop the whole run merely because one design is blocked.
 ## 5. Design folder and lifecycle metadata
 
 Create `specs/design/<slug>/DESIGN.md` using the contract in `DOCS_STRUCTURE_GUIDE.md`. Its
-`issues:` list MUST contain exactly one issue or feature ID (a maintainer-merged design excepted), and that source document's `design:`
-field MUST link back to this design slug. No other readiness-labeled design may claim the same
-source. Similarity, shared code, or a common dependency does not permit combining sources; only a
-maintainer-directed merge does (`DOCS_STRUCTURE_GUIDE.md` §5.1.1).
+`issues:` list MUST contain exactly one issue or feature ID, unless the sources strongly overlap
+(rule 6) or a maintainer merged the designs; a several-source design records `merged:`. Every
+source document's `design:` field MUST link back to this design slug, and no other readiness-labeled
+design may claim the same source. Similarity, shared code, or a common dependency does not permit
+combining sources (`DOCS_STRUCTURE_GUIDE.md` §5.1.1).
 
 When the source is a duplicate or its work is fully covered elsewhere, retain this separate design,
 set `readiness: covered`, and state the covering issue and design explicitly in Phase 1 and Phase 2.
@@ -168,6 +179,8 @@ Phase 1 defines **what** should change and **why**, without committing to code s
 include:
 
 - the problem and observed evidence;
+- a `## Problem Example`: one concrete input, query, call or scenario, what happens today, and what
+  should happen;
 - expected behaviour and testable acceptance criteria;
 - affected users, workflows, and Liquers systems;
 - scope, dependencies, and explicit non-goals;
@@ -327,5 +340,6 @@ as implementation-ready merely because four files exist.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-08 | Invoked by the `liquers-project` keywords "bulk-design" / "bulk design". Rule 6, §4 and §5: strongly overlapping sources (the skill's `references/overlap.md`) share one design with `merged:`; merging existing designs stays a maintainer decision. §3: an **Automatic fixing** line. §6: a `## Problem Example`. | maintainer decision |
 | 2026-10-05 | Rule 6 and §5: one exception to one-source-per-design, a maintainer-directed merge of designs whose implementations depend on each other (`DOCS_STRUCTURE_GUIDE.md` §5.1.1). | maintainer decision |
 | 2026-08-31 | Added the autonomous four-phase bulk-design procedure, one-source-per-design enforcement, finished-Phase-4 exclusion, dependency recording, continuous feasibility review, final Phase 1 synthesis, tiered questions, partial-design resumption, and indexed readiness states. | documentation |

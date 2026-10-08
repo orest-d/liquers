@@ -1,13 +1,42 @@
 ---
 name: liquers-project
-description: Structured five-phase workflow for substantial Liquers projects, from high-level intent through architecture, examples and tests, implementation planning and execution, to mandatory current-state documentation. Use for new value types, command libraries, storage backends, UI components, API endpoints, cross-crate changes, or explicit project-phase requests. Not for isolated commands, bug fixes, small refactors, documentation-only edits, or configuration changes.
+description: The Liquers design and backlog workflow. Five gated phases for substantial projects (high-level design, architecture, examples and tests, implementation plan and execution, documentation), plus issue triage and filing with design overlap, spin-off of problems found while fixing an issue, automatic-fix eligibility, bulk design and backlog compaction. Use for new value types, command libraries, storage backends, UI components, API endpoints, cross-crate changes, explicit project-phase requests ("design a new…", "start Phase 1…", "review Phase 2…"), filing or triaging an issue, a problem discovered while fixing another issue, "bulk-design" / "bulk design", and "compaction" / "backlog compaction" / the weekly backlog routine. Supersedes the removed liquers-designer skill. Not for an isolated command or a one-line fix with nothing to file.
 ---
 
 # Liquers Project
 
-A rigorous five-phase workflow for designing, implementing, and documenting substantial projects in the Liquers framework.
+A rigorous five-phase workflow for designing, implementing, and documenting substantial projects in
+the Liquers framework, and the procedures that keep the issue and design backlog small: triage and
+filing, spin-offs, automatic-fix eligibility, bulk design and compaction.
 
-## When to Use This Skill
+This skill supersedes `liquers-designer`, which has been removed. Never use or recreate it. Designs it
+created keep their recorded four-phase contract (`DOCS_STRUCTURE_GUIDE.md` §5.1.1, §5.2); continue
+them with this skill without adding `workflow: liquers-project` unless the user adopts the five-phase
+contract.
+
+## Modes
+
+| Mode | Triggers | Procedure |
+|---|---|---|
+| **Project** (five gated phases) | "design a new…", "plan implementation of…", "architect the…", "start/review Phase N" | This file, §Phase Workflows |
+| **Issue triage and filing** | Any new problem, gap or feature, whether reported or found in passing | [`references/issue-triage.md`](references/issue-triage.md) |
+| **Fixing an issue** | "fix <ISSUE-ID>", an autonomous fix | `specs/guides/autonomous_issue_fixing.md`, plus [`references/spin-off.md`](references/spin-off.md) for every problem found on the way |
+| **Bulk design** | "bulk-design", "bulk design" (any case, hyphen or space) | [`references/bulk-design.md`](references/bulk-design.md) |
+| **Compaction** | "compaction", "compact the backlog", "backlog compaction", the weekly backlog routine | [`references/compaction.md`](references/compaction.md) |
+
+All modes share three definitions, each owned by one reference:
+- **Overlap** between a new problem and an existing issue or design: [`references/overlap.md`](references/overlap.md)
+- **Automatic-fix eligibility**: [`references/auto-fix.md`](references/auto-fix.md)
+- **Readiness** (`ready`, `needs-decision`, `blocked`, `phase2-blocked`, `covered`):
+  `DOCS_STRUCTURE_GUIDE.md` §5.1.1 and `specs/guides/autonomous_bulk_design.md` §3
+
+**The backlog rule.** A problem found while working must not end as a filed-and-forgotten issue.
+Triage it (overlap first), then fix it now in a separate branch or session when it is eligible for
+automatic fixing, or give it a design with readiness and collected decisions when it is not. Filing
+alone is the last resort, reserved for when neither is possible in the current environment, and the
+closing summary must say why.
+
+## When to Use the Project Mode
 
 **Use liquers-project when:**
 - Adding new value types (e.g., DataFrame support, image handling)
@@ -24,9 +53,9 @@ A rigorous five-phase workflow for designing, implementing, and documenting subs
 - "start Phase 1 design for..."
 - "review Phase 2 for..."
 
-**Do NOT use liquers-project for:**
+**Do NOT use the project mode for** (other modes above may still apply):
 - Single command additions (use register_command! directly)
-- Bug fixes or small refactors
+- Bug fixes or small refactors (use the fixing mode)
 - Documentation updates
 - Configuration changes
 - Simple utility functions
@@ -41,6 +70,7 @@ Phase 1: High-Level Design (max 30 lines)
 Phase 2: Solution & Architecture (data structures, interfaces, signatures)
     ↓ [Auto-invoke: rust-best-practices → Identify Relevant Commands → Ask User]
     ↓ [Multi-Agent Review: 2 haiku reviewers ∥ → sonnet fixer → User Approval]
+    ↓ [User chooses: "proceed" (gate after every phase) or "proceed all" (pre-approval)]
 Phase 3: Examples & Use-cases (2-3 examples, corner cases, test plan)
     ↓ [Multi-Agent Drafting: up to 5 haiku drafters ∥ → sonnet synthesizer]
     ↓ [Auto-invoke: liquers-unittest]
@@ -55,7 +85,9 @@ Phase 5: Documentation (after implementation and review feedback are complete; n
 ```
 
 **Key principles:**
-- **MANDATORY APPROVAL GATE:** NEVER start the next phase until the user explicitly says "proceed" or "Proceed to next phase". No other response (including "looks good", "approved", "ok", "yes", "LGTM", or silence) counts as approval. If the user provides feedback or asks questions, address them and WAIT for the explicit "proceed" keyword before moving on. This is the MOST IMPORTANT rule of this workflow.
+- **MANDATORY APPROVAL GATE:** NEVER start the next phase until the user explicitly says "proceed" or "Proceed to next phase". No other response (including "looks good", "approved", "ok", "yes", "LGTM", or silence) counts as approval. If the user provides feedback or asks questions, address them and WAIT for the explicit "proceed" keyword before moving on. This is the MOST IMPORTANT rule of this workflow. The only exception is the pre-approval the user may give at the Phase 2 gate ("proceed all", §Pre-approval after Phase 2), and it is bounded by the decision stop before implementation.
+- **Explain the problem on an example.** Phase 1, and every issue filed, states the problem on a
+  concrete example: an input, query, call or scenario, what happens now, and what should happen
 - **Auto-invoke related skills** (rust-best-practices, liquers-unittest) as appropriate
 - **Validate completeness** using phase-specific checklists before approval
 - **Create design folder** in `specs/design/<feature-name>/` to organize all phase documents
@@ -123,10 +155,12 @@ Phase 2: Solution & Architecture
       Reviewer A: Phase 1 conformity check
       Reviewer B: Codebase alignment check
   → If issues: sonnet fixer agent resolves fixable issues, asks user for decisions
-  → Present to user with approval gate
-  → STOP AND WAIT for user to say "proceed" or "Proceed to next phase"
+  → Present to user with approval gate, offering both continuation modes
+  → STOP AND WAIT for user to say "proceed" or "proceed all"
   → If user provides feedback: address it, then WAIT again
-  → If user says "proceed": Phase 3
+  → If user says "proceed": Phase 3, gated after every later phase
+  → If user says "proceed all": Phases 3 and 4 without gates, collecting every problem and
+    decision; then the pre-implementation stop (§Pre-approval after Phase 2)
   ↓
 Phase 3: Examples & Use-cases
   → Ask user: runnable prototypes or conceptual examples?
@@ -187,14 +221,19 @@ Phase 4: Implementation Plan
 
 ### Phase 1: High-Level Design
 
-**Purpose:** Establish WHAT and WHY in maximum 30 lines.
+**Purpose:** Establish WHAT and WHY in maximum 30 lines, plus the problem example.
 
 **Process:**
+0. Run the overlap triage first ([`references/issue-triage.md`](references/issue-triage.md)): the
+   request may belong in an existing design rather than a new folder
 1. Run `<skill-root>/scripts/init_feature.py <feature-name>` to create folder structure
 2. Use `references/phase1-template.md` to guide the design
 3. Answer:
    - What is the feature name?
    - What is its purpose (1-3 sentences)?
+   - What does the problem look like on a concrete example — the input, query, call or scenario,
+     what happens today, and what should happen? (`## Problem Example`; it does not count towards
+     the 30 lines)
    - How does it interact with existing systems (Query, Store, Commands, Assets)?
    - Does it require a new reference, an extension to an existing reference, or neither? Why?
    - Does it require a new guide, an extension to an existing guide, or neither? Why?
@@ -252,9 +291,50 @@ Phase 4: Implementation Plan
 
 **Output:** `specs/design/<feature-name>/phase2-architecture.md`
 
-**Approval gate:** Present the Phase 2 document to the user. Then STOP and WAIT. Do NOT start Phase 3 until the user explicitly says "proceed" or "Proceed to next phase". If the user gives feedback (corrections, questions, design changes), incorporate them and WAIT again. Any response other than "proceed" means "not yet approved".
+**Approval gate:** Present the Phase 2 document to the user. Then STOP and WAIT. Offer the two
+continuation modes explicitly:
+
+> Reply **`proceed`** to continue with an approval gate after each remaining phase, or
+> **`proceed all`** to pre-approve the remaining phases. With pre-approval I work through Phases 3
+> and 4 without stopping, collect every problem and decision I meet, and stop before implementation
+> only if one of them needs your decision. Either way you see all open questions and decisions
+> before implementation starts.
+
+Do NOT start Phase 3 until the user says one of the two. If the user gives feedback (corrections,
+questions, design changes), incorporate them and WAIT again. Any other response means "not yet
+approved".
 
 **Detailed guidance:** See `references/phase2-template.md`
+
+### Pre-approval after Phase 2
+
+`proceed all` (case-insensitive; "pre-approve" and "approve all remaining phases" are equivalent)
+pre-approves Phases 3 and 4, the implementation, and Phase 5. It does not remove any review: every
+multi-agent review, checklist and `validate_phase.py` run still happens, and its findings are fixed
+exactly as in the gated mode. What changes is that the result goes into a running **decision log**
+instead of a stop.
+
+1. Keep the decision log in Phase 1's `## Design Readiness` section (tiered as in
+   `autonomous_bulk_design.md` §3) while you work. Record every problem met, every question a reviewer
+   or fixer would have put to the user, every assumption taken to continue, and every choice where you
+   took the recommended answer. Phase 3's "runnable or conceptual?" question and Phase 2's command
+   namespace question are answered by the recommended default and logged.
+2. When a question can only be answered by the user, take the recommended answer as an explicit
+   assumption, finish the phase around it, and mark it **needs decision**. Never bury it in a later
+   phase document.
+3. **Pre-implementation stop.** After the Phase 4 review, present the consolidated decision log:
+   blocking questions, open design questions with recommendations, proposed resolutions taken as
+   assumptions, and resolved implementation details (one line each).
+   - If any item is blocking or needs a decision, STOP and ask for approval (`proceed`) before
+     implementing. Pre-approval does not cover a decision the user has not seen.
+   - If none does, present the list (or "None") and continue to implementation in the same turn.
+4. A discovery during implementation that changes an approved contract voids the pre-approval:
+   stop, record it, and return to the gate of the earliest affected phase.
+5. Phase 5 runs without a gate under pre-approval, but its results (summary, documents touched,
+   issues closed or filed) are presented before `status: complete` is set.
+
+`DESIGN.md` records the choice in its body (`Pre-approved after Phase 2 on YYYY-MM-DD`), so a
+resumed session knows the remaining gates are waived.
 
 ### Phase 3: Examples & Use-cases
 
@@ -295,7 +375,7 @@ Phase 4: Implementation Plan
 
 **Output:** `specs/design/<feature-name>/phase3-examples.md`
 
-**Approval gate:** Present the Phase 3 document to the user. Then STOP and WAIT. Do NOT start Phase 4 until the user explicitly says "proceed" or "Proceed to next phase". If the user gives feedback, incorporate it and WAIT again. Any response other than "proceed" means "not yet approved".
+**Approval gate:** Present the Phase 3 document to the user. Then STOP and WAIT. Do NOT start Phase 4 until the user explicitly says "proceed" or "Proceed to next phase". If the user gives feedback, incorporate it and WAIT again. Any response other than "proceed" means "not yet approved". (Skipped under pre-approval; findings go to the decision log.)
 
 **Detailed guidance:** See `references/phase3-template.md`
 
@@ -326,7 +406,8 @@ Phase 4: Implementation Plan
 
 **Output:** `specs/design/<feature-name>/phase4-implementation.md`
 
-**Approval gate:** Present the Phase 4 document to the user. Then STOP and WAIT. Do NOT offer execution until the user explicitly says "proceed" or "Proceed to next phase". If the user gives feedback, incorporate it and WAIT again. Any response other than "proceed" means "not yet approved".
+**Approval gate:** Present the Phase 4 document to the user, together with all open questions and
+decisions collected so far. Then STOP and WAIT. Do NOT offer execution until the user explicitly says "proceed" or "Proceed to next phase". If the user gives feedback, incorporate it and WAIT again. Any response other than "proceed" means "not yet approved". Under pre-approval, this gate is replaced by the pre-implementation stop.
 
 **After approval:** Offer execution options:
 - Execute now (start implementing)
@@ -368,6 +449,9 @@ the design history.
 8. Update every issue or feature completed by this work to `status: closed` (or
    `closed_not_planned` for that outcome), with a concise resolution or decision note, following
    `DOCS_STRUCTURE_GUIDE.md` §4.3. This is required even when `github:` is present.
+   Every problem discovered during the work has gone through triage and the spin-off decision
+   ([`references/spin-off.md`](references/spin-off.md)); list each with its outcome (fixed in PR,
+   attached to design, designed with readiness, or filed only — with the reason).
 9. Run documentation validation, perform the Phase 5 critical review, and present the results at
    the approval gate
 10. If a later rebase or merge conflict changes code or documentation, review the affected material
@@ -557,6 +641,21 @@ If all reviewers report no issues, skip the fixer agent and proceed directly to 
 
 **Note:** Do NOT invoke other skills manually. The liquers-project workflow automatically calls them at the appropriate phases.
 
+## Problems Found During the Work
+
+Whatever the mode, a defect, gap or limitation noticed in passing goes through
+[`references/issue-triage.md`](references/issue-triage.md) immediately, and then through the
+spin-off decision in [`references/spin-off.md`](references/spin-off.md):
+
+- **Belongs to the design in hand** → extend this design (triage case 1); no new issue.
+- **Eligible for automatic fixing** → fix it now in its own branch and PR — a child session when the
+  host can create one, otherwise a second branch from this session — never in the current PR.
+- **Not eligible** → file it with a design and readiness (triage cases 2-3), so it reaches the
+  backlog already designed, with its decisions listed.
+
+The spin-off reference covers each host (Claude Code cloud and CLI, Codex, GitHub Copilot, Zed) and
+what to do when none of the mechanisms is available.
+
 ## Examples
 
 ### Example 1: Designing Parquet File Support
@@ -688,18 +787,23 @@ If all reviewers report no issues, skip the fixer agent and proceed directly to 
 
 ## Version
 
-This is **liquers-project v1.0**, derived from the legacy `liquers-designer` workflow and extended
-with a mandatory documentation phase.
+This is **liquers-project v2.0**.
 
 **Changelog:**
+- v2.0 (2026-10-08): Superseded and removed `liquers-designer`
+  - Modes for issue triage and filing, fixing with spin-offs, bulk design and compaction
+  - Overlap definition; extending the current or an open design instead of filing a duplicate
+  - Automatic-fix eligibility
+  - Problem example required in Phase 1 and in every filed issue
+  - `proceed all` pre-approval after Phase 2, with a decision log and a pre-implementation stop
 - v1.0 (2026-08-10): Introduced the distinct five-phase `liquers-project` workflow
   - Phase 1 briefly answers four documentation-needs questions
   - Phase 2 fully specifies new, extended, and updated documentation
   - Phase 3 selects guide-worthy examples, snippets, workflows, and executable evidence
   - Phase 5 normally completes in the implementation PR and verifies the implemented behavior
   - `workflow: liquers-project` makes the mandatory Phase 5 unambiguous
-- Heritage: retains the architecture, review, and artifact conventions of the four-phase
-  `liquers-designer` skill so both hosts and transitional projects remain compatible.
+- Heritage: retains the architecture, review, and artifact conventions of the former four-phase
+  `liquers-designer` skill, so designs it created can be continued here.
 
 
 ## After implementation
@@ -711,5 +815,7 @@ reference/guide work, History rows, and capability-map updates are approved.
 ## Filing issues from a design
 
 When a design ships in part, the remainder becomes an issue — there is no partial design status
-(§5.6). When an issue is `complexity: L` or `XL`, it requires a design folder (§4.5). Both
-directions use the procedure in `specs/DOCS_STRUCTURE_GUIDE.md` §4.8; do not restate it here.
+(§5.6). When an issue is `complexity: L` or `XL`, it requires a design folder (§4.5). The file
+itself is created with the procedure in `specs/DOCS_STRUCTURE_GUIDE.md` §4.8, which this skill does
+not restate; *whether* to create it, and which design it joins, is decided by
+[`references/issue-triage.md`](references/issue-triage.md) before that procedure starts.

@@ -1,4 +1,4 @@
 interface:
   display_name: "Liquers Project"
-  short_description: "Run Liquers projects through five gated phases"
+  short_description: "Liquers design phases, issue triage, bulk design, compaction"
   default_prompt: "Use $liquers-project to plan, implement, and document a substantial Liquers project through all five phases."
