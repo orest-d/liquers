@@ -35,6 +35,20 @@ REQUIRED_FULL = {
     5: ["Completion Preconditions", "Implementation Summary", "Documentation Delivered",
         "Issues Filed", "Important Learning", "Conformance and Remaining Work", "Validation"],
 }
+# The section list before the 2026-10-08 template rewrite. Designs created earlier are checked
+# against it, so an old-style design validates exactly as it did when it was written.
+TEMPLATE_REWRITE = "2026-10-08"
+REQUIRED_LEGACY = {
+    1: ["Feature Name", "Purpose", "Core Interactions", "Crate Placement", "Documentation Intent",
+        "Open Questions"],
+    2: ["Overview", "Known-Issue Preflight", "Data Structures", "Trait Implementations",
+        "Sync vs Async", "Function Signatures", "Integration Points", "Documentation Architecture",
+        "Relevant Commands", "Error Handling"],
+    3: ["Overview Table", "Example", "Corner Cases", "Documentation and Learning Log", "Test Plan"],
+    4: ["Overview", "Implementation Steps", "Testing Plan", "Agent Assignment", "Rollback Plan",
+        "Phase 5 Entry Criteria"],
+    5: REQUIRED_FULL[5],
+}
 REQUIRED_COMPACT = {
     1: ["Purpose", "Problem Example", ("Scope and Acceptance Criteria", "Acceptance Criteria"),
         ("Design Readiness", "Open Questions")],
@@ -47,10 +61,12 @@ REQUIRED_COMPACT = {
 MAX_CHARS_FULL = {1: 6000, 2: 9000, 3: 9000, 4: 9000, 5: 9000}
 MAX_CHARS_COMPACT_TOTAL = {"S": 9000, "M": 15000}
 
-# A template hint: `<` + capital letter + a phrase with a space, or a bare name hint. Inline code
-# is removed before matching, so `Result<Value, Error>` in backticks is never a placeholder.
-PLACEHOLDER = re.compile(r"<[A-Z][^<>\n]* [^<>\n]*>|<(name|title|slug)>")
+# A template hint: `<` + capital letter, containing two lowercase words in a row ("<Chosen
+# approach; …>"), or a bare name hint. Rust generics (`<E: Environment>`, `<Value, Error>`) never
+# have that shape; inline and fenced code are removed before matching anyway.
+PLACEHOLDER = re.compile(r"<[A-Z][^<>]{0,400}?\b[a-z]+\s+[a-z]+\b[^<>]{0,400}?>|<(name|title|slug)>")
 INLINE_CODE = re.compile(r"`[^`\n]*`")
+FENCED_CODE = re.compile(r"(?ms)^ *(```|~~~).*?^ *\1[^\n]*$")
 
 
 def find_specs_dir() -> Path | None:
@@ -82,10 +98,27 @@ def missing_sections(content: str, required: list, level: str) -> list[str]:
     for item in required:
         names = item if isinstance(item, tuple) else (item,)
         if not any(
-            re.search(rf"(?mi)^{level} +(\d+\.? +)?{re.escape(n)}", content) for n in names
+            # As before the rewrite: the name anywhere in a heading at this level or deeper.
+            re.search(rf"(?mi)^{level}#* .*{re.escape(n)}", content) for n in names
         ):
             missing.append(" / ".join(names))
     return missing
+
+
+def empty_sections(content: str, required: list, level: str) -> list[str]:
+    """Required sections that exist but contain no text besides headings."""
+    empty = []
+    for item in required:
+        for name in item if isinstance(item, tuple) else (item,):
+            match = re.search(
+                rf"(?mis)^{level}#* .*?{re.escape(name)}[^\n]*\n(.*?)(?=^#{{2,{len(level)}}} |\Z)",
+                content,
+            )
+            if match:
+                if not match.group(1).strip():
+                    empty.append(name)
+                break
+    return empty
 
 
 def validate_phase(slug: str, phase: int) -> bool:
@@ -121,7 +154,11 @@ def validate_phase(slug: str, phase: int) -> bool:
             return False
         content = files[0].read_text(encoding="utf-8")
         where = str(files[0])
-        required, level = REQUIRED_FULL[phase], "##"
+        legacy = fields.get("created", "") < TEMPLATE_REWRITE
+        required = (REQUIRED_LEGACY if legacy else REQUIRED_FULL)[phase]
+        level = "##"
+        if legacy:
+            print(f"[INFO] Created before {TEMPLATE_REWRITE}: checking the pre-rewrite sections")
 
     print(f"[VALIDATE] {where} ({'compact' if compact else 'full'} form)")
     ok = True
@@ -130,6 +167,8 @@ def validate_phase(slug: str, phase: int) -> bool:
         return False
 
     missing = missing_sections(content, required, level)
+    if compact:
+        missing += [f"{name} (empty)" for name in empty_sections(content, required, level)]
     if missing:
         ok = False
         print("[ERROR] Missing sections:")
@@ -138,10 +177,12 @@ def validate_phase(slug: str, phase: int) -> bool:
     else:
         print(f"[OK] Required sections present ({len(required)})")
 
+    # Blank fenced code (keeping line numbers): `<T>` in Rust code is not a template hint.
+    scanned = FENCED_CODE.sub(lambda m: "\n" * m.group(0).count("\n"), content)
+    scanned = "\n".join(INLINE_CODE.sub("", line) for line in scanned.splitlines())
     placeholders = [
-        (n, line.strip()[:80])
-        for n, line in enumerate(content.splitlines(), start=1)
-        if PLACEHOLDER.search(INLINE_CODE.sub("", line))
+        (scanned.count("\n", 0, m.start()) + 1, " ".join(m.group(0).split())[:80])
+        for m in PLACEHOLDER.finditer(scanned)
     ]
     if placeholders:
         ok = False
