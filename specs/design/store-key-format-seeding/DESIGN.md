@@ -77,9 +77,26 @@ filename, and the data format is seeded only from the filename.
 ### Solution
 
 In `liquers-core/src/store.rs` `AsyncStore::finalize_metadata` (default method, ≈line 356), after
-`with_key`, when the metadata's filename is unset and `key.filename()` is `Some`, call
-`with_filename(name.encode().to_string())`. Write the rule into `specs/reference/STORE_SEMANTICS.md`
-and add a conformance rule.
+`with_key`, seed the filename with an explicit match on the `Metadata` variant:
+
+```rust
+match metadata {
+    Metadata::MetadataRecord(record) => {
+        if record.filename.is_none() {
+            if let Some(name) = key.filename() {
+                record.with_filename(name.encode().to_string());
+            }
+        }
+    }
+    // Legacy metadata is an opaque document with no filename field; it is stored as written.
+    Metadata::LegacyMetadata(_) => {}
+}
+```
+
+`finalize_metadata` cannot return an error, so the fallible `Metadata::set_filename` (which refuses
+`LegacyMetadata`) is not used. The legacy exception is stated in the contract: the rule applies to
+metadata records. Write the rule into `specs/reference/STORE_SEMANTICS.md` and add a conformance
+rule.
 
 Rejected: seeding at read time in `get_asset_info` (stores would still persist different metadata);
 seeding in each backend (duplicates the default).
@@ -88,7 +105,11 @@ seeding in each backend (duplicates the default).
 
 - `liquers-core/src/store.rs` `finalize_metadata` (behaviour of a default method; no signature
   change).
-- `liquers-core/tests/store_conformance_CONF.rs`: a rule for AC-1/AC-2, run on every suite.
+- `liquers-core/src/store_conformance/rules/`: two rules in the shared inventory
+  (`rules/mod.rs`, beside `sidecar05`), so every harness that calls
+  `liquers_core::store_conformance::run_all` runs them: the core stores
+  (`liquers-core/tests/store_conformance_CONF.rs`), OpenDAL (`liquers-store/tests/`) and the web
+  stores (`liquers-web/tests/`).
 - `specs/reference/STORE_SEMANTICS.md`: the seeding rule; History row.
 - `liquers-web`: none expected beyond running its conformance suite.
 
@@ -110,8 +131,9 @@ The Problem Example. Secondary: `data/README` (no extension) keeps no filename-d
 - `conf_seeds_filename_from_key_extension` — AC-1, AC-3
 - `conf_keeps_declared_filename_and_format` — AC-2, AC-3
 
-Command: `cargo test -p liquers-core --test store_conformance_CONF`, then the liquers-web Node loop
-(`CLAUDE.md`, "liquers-web").
+Both are rules in the shared inventory, not tests in one harness. Command: `cargo test -p
+liquers-core --test store_conformance_CONF`, `cargo test -p liquers-store --test
+store_conformance_CONF`, then the liquers-web Node loop (`CLAUDE.md`, "liquers-web").
 
 ## Phase 4: Implementation Plan
 
