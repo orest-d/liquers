@@ -404,6 +404,7 @@ impl ManifestSource {
         let result = source
             .read_chunk(&id, &resolver)
             .await
+            .map_err(|error| name_chunk(error, chunk_index, &id))
             .map(|view| place_chunk(view, chunk_index, Some(id), Some(counted)));
         let next_state = source.next_walk_state(&state, &result);
         let counted = match &result {
@@ -441,6 +442,18 @@ impl ManifestSource {
             },
         }
     }
+}
+
+/// `error`, with its message prefixed by the chunk it came from: `chunk <global index> (<key>): `,
+/// or the encoded query for an unkeyed chunk. Only the message changes, so the error type and its
+/// key, query and position fields stay those of the original failure.
+fn name_chunk(mut error: Error, index: u64, id: &ChunkId) -> Error {
+    let identity = match id {
+        ChunkId::Key(key) => key.encode(),
+        ChunkId::Query(query) => query.encode(),
+    };
+    error.message = format!("chunk {index} ({identity}): {}", error.message);
+    error
 }
 
 /// One step of [`ManifestSource`]'s walk over its chunks: the explicit prefix in order, then the
