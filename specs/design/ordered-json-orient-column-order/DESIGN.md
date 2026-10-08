@@ -3,12 +3,12 @@ id: ORDERED-JSON-ORIENT-COLUMN-ORDER
 kind: design
 title: Schema-less split and values JSON reads keep the document's column order
 form: compact
-status: in_review
 phase: implementation
 readiness: ready
 autofix: eligible
 area: [records]
 issues: [SCHEMA-LESS-ORDERED-JSON-ORIENTS-LOSE-COLUMN-ORDER]
+gh_pr: [90]
 created: 2026-10-08
 ---
 # Schema-less split and values JSON reads keep the document's column order
@@ -125,8 +125,8 @@ Command: `cargo test -p liquers-records --all-features --lib shapes`.
   `cargo check -p liquers-records --all-features` — e563e89
 - [x] 3. Tests above; update any existing test that asserted the sorted order (none did) — `cargo
   test -p liquers-records --all-features --lib --tests` — b980786
-- [ ] 4. `RECORD_STREAMS.md` sentence, History row; issue resolution and `status: closed`;
-  `python3 scripts/docs_index.py --check`
+- [x] 4. `RECORD_STREAMS.md` sentence, History row; issue resolution and `status: closed`;
+  `python3 scripts/docs_index.py --check` — f57abf1
 
 ### Validation
 
