@@ -8,13 +8,12 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 119
-- P2: 62
+Total rows: 118
+- P2: 61
 - P3: 57
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
-| [`BUILD-SYSINFO-REQUIRES-NEWER-RUSTC`](issues/BUILD-SYSINFO-REQUIRES-NEWER-RUSTC.md) | issue | liquers-lib test builds fail on rustc 1.94 because a transitive sysinfo requires 1.95 | draft | ready | eligible | P2 | S | build | [phase1](design/build-sysinfo-rustc-compatibility/phase1-high-level-design.md)  [phase2](design/build-sysinfo-rustc-compatibility/phase2-architecture.md)  [phase3](design/build-sysinfo-rustc-compatibility/phase3-examples.md)  [phase4](design/build-sysinfo-rustc-compatibility/phase4-implementation.md)  | 2026-09-02 |
 | [`STORED-UNTYPED-FILE-OF-UNLISTED-FORMAT-CANNOT-BE-READ`](issues/STORED-UNTYPED-FILE-OF-UNLISTED-FORMAT-CANNOT-BE-READ.md) | issue | A stored file with no type identifier, in a format the base value does not list (csv, png, parquet), cannot be loaded as a resource | draft | ready | eligible | P2 | S | lib/value;core/assets | [design](design/simple-value-untyped-and-scalar-reads/DESIGN.md) | 2026-10-07 |
 | [`CORE-METADATA-TRACEBACK-SUPPORT`](issues/CORE-METADATA-TRACEBACK-SUPPORT.md) | issue | Metadata has no place for an error traceback | accepted | needs-decision | not-eligible | P2 | S | core/value;core/error | [phase1](design/metadata-error-traceback/phase1-high-level-design.md)  [phase2](design/metadata-error-traceback/phase2-architecture.md)  [phase3](design/metadata-error-traceback/phase3-examples.md)  [phase4](design/metadata-error-traceback/phase4-implementation.md)  | 2026-08-08 |
 | [`STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE`](issues/STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE.md) | issue | Constructing and deserializing the same CommandMetadata give different state arguments | draft | needs-decision | not-eligible | P2 | S | core/commands | [phase1](design/state-argument-serde-default/phase1-high-level-design.md)  [phase2](design/state-argument-serde-default/phase2-architecture.md)  [phase3](design/state-argument-serde-default/phase3-examples.md)  [phase4](design/state-argument-serde-default/phase4-implementation.md)  | 2026-08-29 |
