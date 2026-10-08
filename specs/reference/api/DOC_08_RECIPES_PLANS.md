@@ -3,7 +3,7 @@ title: Recipes and Plans Reference
 kind: reference
 audience: internal
 area: [core/plan, core/assets, core/context]
-reviewed: 2026-10-06
+reviewed: 2026-10-08
 ---
 # DOC-08: Recipes and Plans
 
@@ -165,6 +165,13 @@ not only a missing file; malformed YAML from successfully read bytes is an error
 `recipes.yaml` key as `KeyNotSupported` — a store router does so for any key no
 member covers, such as an `http` store serving a fixed key list — so `-R/` queries
 under such a folder resolve without a recipe instead of failing.
+
+`DefaultRecipeProvider` is constructed with `DefaultRecipeProvider::new()` (or
+`Default`): it caches each directory's parsed recipes. Every lookup still reads the
+stored `recipes.yaml` bytes and compares them with the cached copy, so a change —
+including one made outside Liquers — is seen at the next lookup; a hit saves the YAML
+parse, and a recipe is found by name in O(1). When two recipes in one file share a
+filename, the first wins, as in `RecipeList::get`. A malformed file is not cached.
 
 ### Composing providers: `RecipeProviderChain`
 
@@ -504,7 +511,7 @@ Every item below was observed, not anticipated.
 | `payload_required` | Whether execution requires an evaluation payload; derived during planning |
 | `expires` | Combined expiration estimate; authoritative after finalization |
 | `error` | Structured planning or analysis error |
-| `dependencies` | Static dependencies discovered during analysis |
+| `dependencies` | Static **direct** dependencies discovered during analysis: a keyed read ends the list, `Evaluate` and nested plans pass through (`DEPENDENCIES_STATUS.md` §What a dependency record holds) |
 | `frozen_cwd` | The working key this plan was frozen against, once frozen |
 | `predecessor`, `predecessor_steps` | The boundary the builder recorded and never cut |
 | `prologue_steps` | Leading steps not emitted by the builder for `query` — a recipe's CWD prefix |
@@ -544,10 +551,12 @@ copies and do not mutate the raw plan or prematurely advance the live context.
 Synchronous build results are incomplete for environment-backed dependencies.
 `interpreter::finalize_plan`:
 
-1. Discovers dependencies through volatility analysis.
-2. Incorporates dependency volatility.
-3. Incorporates dependency recipe expiration.
-4. Seeds the context's pending dependency records.
+1. Analyses dependencies once (`analyze_plan_dependencies`): one iterative, memoized walk over
+   the reachable recipe graph, each recipe once, with an O(1) cycle check. It records the
+   direct dependencies in `plan.dependencies`.
+2. Incorporates upstream declared volatility (a recipe with `volatile: true`, at any depth).
+3. Incorporates upstream recipe expiration, combined along every path.
+4. Seeds the context's pending dependency records with the direct dependencies.
 5. Registers plan dependency edges for keyed plans when the plan is nonvolatile.
 
 Built-in `Environment::apply_recipe` implementations then combine finalized
@@ -646,6 +655,7 @@ runtime behavior is unchanged.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-08 | §Plan fields: `dependencies` is the direct list. §Finalization: one analysis pass (`analyze_plan_dependencies`) replaces the volatility and expiration passes; `DefaultRecipeProvider` caches parsed `recipes.yaml` per directory, checked against the stored bytes. | phase-5 (`design/dependency-chain-analysis-cost/`) |
 | 2026-10-06 | §Provider contract: `contains` (listed) vs `can_make` (producible), `directory_changed`; chain table; manifest provider lists explicit chunks only. | phase-5 |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. Recipe contract gains `stored` and `cached`; added §Composing providers: `RecipeProviderChain` (delegation table, `contains` through `recipe_opt`), `with_appended_recipe_provider`, and `liquers-lib`'s `[DefaultRecipeProvider, ManifestRecipeProvider]` default; `has_recipes` answers `false` for a store's `KeyNotSupported`; plan execution records that the next step's state carries the fetched key as metadata `key`. | phase-5 |
 | 2026-08-29 | Documented `RecipeProviderChoice`: the named selection of the two built-in providers, the `trivial` aliases `none` and `no_recipes`, the document default, and why the set is closed. | RECIPE-PROVIDER-BY-NAME |

@@ -3,7 +3,7 @@ title: Status::Dependencies Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-07
+reviewed: 2026-10-08
 ---
 # Dependencies Status Specification
 
@@ -122,13 +122,20 @@ fails fast with `Error::dependency_cycle`. That is pinned by
   demand, so fusing them put verification on the hot path and left nowhere to express a policy.
   The dependency graph now performs **no I/O**.
 - **Verification is opt-in.** `AssetManager::trigger_dependency_audit(query)` and
-  `trigger_dependency_audit_all_registered()` ask the graph which versions it is missing, resolve
-  each store-resolvable one (`-R/`, `-R-dir/`) through `AssetManager::dependency_version` — which
-  never evaluates — and hand the answer to `DependencyManager::audit_version`. Nothing in
-  `liquers-core` calls them; the `_with(…, AuditMode)` variants take a mode.
+  `trigger_dependency_audit_all_registered()` ask the graph which versions it is missing. The
+  per-key audit asks over the key's **upstream closure** in the graph (`missing_versions_for`), not
+  only its direct edges. It trusts versions the manager knows and walks through them. Each
+  store-resolvable gap (`-R/`, `-R-dir/`) is first resolved through the stored-records walk
+  (`AssetManager::stored_dependency_state`, §Consistency policies). A gap that is stale upstream
+  expires its dependents with `StaleDependency`. Any other gap's current version comes from
+  `AssetManager::dependency_version`, which never evaluates, and is handed to
+  `DependencyManager::audit_version`. `trigger_dependency_audit_store(root, mode)` audits the
+  stored values themselves, typically on start. Nothing in `liquers-core` calls any of them; the
+  `_with(…, AuditMode)` variants take a mode.
 - **An audit compares current with recorded versions, also on first observation.**
-  `register_version` treats a first registration as "no change", which is right on the
-  evaluation path and wrong for an audit: after a restart the version map is empty, so the first
+  `register_version` treats a first registration as "no change" for every edge except one
+  recording a concrete, other version (next bullet but four), which is right on the evaluation
+  path and too little for an audit: after a restart the version map is empty, so the first
   thing an audit learns is the current version. `audit_version` records the version and expires
   every dependent whose edge does not record exactly that version — an edge recording
   `Version::unknown()` included, as for any change. A current version of 0 ("none") follows
@@ -147,12 +154,13 @@ fails fast with `Error::dependency_cycle`. That is pinned by
   - `Explicit` (default): only the audits above.
   - `OnLoad`: also when `try_fast_track` loads a stored keyed asset. For each recorded dependency
     the version map does not know, and only for a store-resolvable key with a concrete recorded
-    version, the current version is resolved through `dependency_version`. A different version, a
-    current 0, or a store error refuses the stored copy, so it is recomputed. A recorded unknown is
-    compatible and not asked. The comparison is equality, not `Version::matches`, which would
-    accept a current 0. A version that passes is recorded in the map (`observe_version`, which
-    fills only an empty entry and expires nothing), so a later recomputation of the dependency is
-    compared with it rather than taken as a first observation.
+    version, the dependency manager resolves it with the stored-records walk
+    (`stored_dependency_state`). The walk checks the dependency's stored version **and**,
+    recursively, everything that dependency recorded. A different stored version, a stale upstream,
+    or no durable version refuses the stored copy, so it is recomputed. A recorded unknown is
+    compatible and not asked. A stored version is compared by equality, not `Version::matches`,
+    which would accept a current 0. What the walk confirms is registered, so it is read once per
+    process. The two policies are compared in §Consistency policies.
 - **A write through Liquers is always a change.** `set_binary`, `set_state` and
   `AssetManager::publish_version` register the written version with `register_written_version`,
   not `register_version`. When the map holds no version for the key, as after a restart while
@@ -187,7 +195,12 @@ fails fast with `Error::dependency_cycle`. That is pinned by
   pure recorder. An unknown version on either side is no evidence and marks nothing.
 - **A change expires only what it provably affects.** Each edge records the version its dependent
   observed, and `register_version` spares a dependent only when that expectation is concrete and
-  equal to the new version. An edge recording `Version::unknown()` is expired: no evidence either
+  equal to the new version. A **first** registration is not a change, except for an edge
+  recording a concrete, *other* version: only a stored dependency record produces one (a plan
+  registers an edge to a key it has no version for as `Version::unknown()`), so its dependent,
+  loaded from the store, was built from content this process has just replaced. That dependent is
+  expired; an edge recording `Version::unknown()` is spared, as the evaluation path requires. This
+  is what lets the trusting policy's cascade reach values loaded after a restart. An edge recording `Version::unknown()` is expired: no evidence either
   way is not evidence of safety, and `propagate_attribution` records every attribution edge that
   way, so sparing them would drop every keyed dependent reached through a non-keyed expression out
   of the cascade. The invariant, which is stronger than the case list: **this expires a subset of
@@ -216,6 +229,112 @@ fails fast with `Error::dependency_cycle`. That is pinned by
   would stay `Ready` and a fresh process would fast-track data the graph knows is stale. The race
   with an evaluation already in flight is
   `UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION`.
+
+## What a dependency record holds
+
+A keyed value's `MetadataRecord.dependencies`, and the graph edges registered for it, hold its
+**direct** dependencies only: what its own plan reads. Transitive structure is the dependency
+manager's: the cascade follows the direct edges, and the stored-records walk follows the direct
+records (§Consistency policies). Before 2026-10-08 a record also listed everything upstream. That
+cost O(n²) records and O(n⁴) analysis over a chain of n links
+(`EVALUATING-A-LONG-DEPENDENCY-CHAIN-GETS-SUPER-LINEARLY-SLOW`), and lost which dependency was
+direct.
+
+"Direct" means the **nearest addressable** dependency:
+
+| A plan step | Records |
+|---|---|
+| `GetAsset*` of key `K` | `-R/K` and, when a recipe serves `K`, `-R-recipe/K`. Nothing `K`'s recipe reads |
+| `GetAssetDirectory` of `D` | `-R-dir/D` |
+| `GetAssetRecipe` of `K` | `-R-recipe/K` |
+| an action | its command's metadata and implementation keys, and each link parameter's query |
+| `Evaluate(query)`, nested `Step::Plan` | what *their* steps record (no key of their own; `Evaluate` children relabelled `StateArgument`) |
+
+Stored values written before 2026-10-08 keep their transitive records. They are read as they are:
+extra edges only make invalidation more eager, and they disappear at the next recomputation.
+
+**Analysis summary versus record.** The plan analysis (`analyze_plan_dependencies`) still walks
+the whole reachable recipe graph, because three things are transitive:
+- **volatility:** a recipe built on a recipe that declares `volatile: true` is volatile;
+- **expiry:** expiries combine along the chain;
+- **cycles:** a cycle anywhere upstream is an error.
+
+The walk produces two separate results: the direct list, recorded, and a per-key
+`DependencySummary` (declared volatility, combined expiry), applied to the plan and never
+recorded. Each reachable recipe is analysed once per analysis, keyed by key and caller CWD. An
+on-path set makes the cycle check O(1), so the walk is linear in the reachable recipe graph. It is
+iterative, with an explicit stack, so a chain's length does not bound it. A link parameter
+contributes its expiry and its own recipe's `volatile` flag only. A `GetAssetRecipe` contributes
+expiry only.
+
+**What a fast-track load contributes.** Whatever the policy, a stored value loaded with a
+consistent version registers that version and all its recorded edges in the dependency manager
+(`try_fast_track` → `load_from_records`; an edge to a dependency with no version yet is kept). So
+the manager always holds every edge it has seen, without any extra read.
+
+## Consistency policies
+
+While an asset manager runs, the asset and dependency managers are the source of truth for what
+the store holds, and nothing is meant to change the store behind their back. Between runs anything
+may have changed: a command upgraded (its implementation version), a file edited, a value
+recomputed elsewhere. What differs between the policies is **how much a restarted process checks
+before serving a stored value**, that is, how much inconsistency it tolerates. Set it with
+`DependencyAuditPolicy` (`AssetManagerOptions::with_dependency_audit`, or `assets.dependency_audit`
+in [`ENVIRONMENT_CONFIG.md`](ENVIRONMENT_CONFIG.md)).
+
+| | **`Explicit`** (default, trusting) | **`OnLoad`** (conservative) |
+|---|---|---|
+| Loading a stored value | Each recorded dependency is compared with what the dependency manager **already knows**: command versions (always known), and values already loaded or computed in this process. A dependency it does not know is **trusted**. | A recorded dependency the manager does not know is **resolved from the store** by the stored-records walk: its stored version and, recursively, what it recorded. A mismatch, a stale upstream or a missing intermediate refuses the load, and the value is recomputed. |
+| Status check | A recorded dependency whose *stored status* does not permit reuse (`Expired`, `Error`, …) refuses the load: one level deep. | The same, and the walk applies it recursively. |
+| Cost | No extra reads. | One metadata read per unknown upstream value, once per process (confirmed values are registered). |
+| Inconsistency tolerated | A value built on an upstream that changed between runs can be served until something touches that upstream (its recomputation cascades through the edges loading registered) or an audit runs. | None that the stored records can show. |
+| Audits | When the application calls them: per key (`trigger_dependency_audit`, over the manager's upstream closure), everything registered (`trigger_dependency_audit_all_registered`), or **the whole store**, typically once on start (`trigger_dependency_audit_store`). | Available, rarely needed. |
+
+**Common to both.** Stored bytes are checked against their own recorded version when read
+(`verify_versions`), which catches corruption and edits between runs. Whatever is loaded registers
+its edges. A change made *while* the manager runs, behind its back, is out of scope for both. A
+`sync`/reload operation is a separate feature: `ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE`.
+
+**The stored-records walk** (`AssetManager::stored_dependency_state(dep_key)`). It never evaluates
+and reads metadata only.
+- **Answers.** A version the manager holds is authoritative (`Known`). Otherwise the key's stored
+  metadata is read and its records are checked recursively, which gives one of:
+  - `Confirmed(version)`: the version and the edges are registered;
+  - `Stale { version, dependency }`: names what broke, and registers nothing;
+  - `Unresolvable`: absent, unversioned, unreadable, or a key no store answers.
+- **Comparison rules.**
+  - Against a known version, `Version::matches`.
+  - Against a stored version, equality.
+  - A recorded `Version::unknown()` is compatible and not followed.
+  - An `Unresolvable` store-resolvable dependency breaks the record: a missing intermediate is a
+    stale upstream.
+  - A stored `Status::Recipe` (a value removed with its version kept) vouches for its dependents,
+    as on the fast track.
+- **Shape.** It is iterative. One audit shares a memo, so each stored value is read once.
+  `AuditMode::ReportOnly` registers nothing.
+
+**The startup audit.** `trigger_dependency_audit_store(root, mode)`:
+- **What it checks:** every stored `Ready` or `Override` value under `root` that has dependency
+  records, each through the walk.
+- **In `Expire` mode:** a stale one is persisted `Expired` with
+  `Direct { StaleDependency { dependency } }`, and its registered dependents are cascaded.
+- **What it registers:** a confirmed one, so the managers start out knowing it.
+
+It is optional: the application calls it, usually right after building the environment (the
+`liquers-axum` `basic_server` example does, with `LIQUERS_STARTUP_AUDIT=1`). How to choose a
+policy is in [`guides/DEPENDENCY_CONSISTENCY_GUIDE.md`](../guides/DEPENDENCY_CONSISTENCY_GUIDE.md).
+
+**Example.** A chain `l0 ← l1 ← l2 ← l3` in `data/`, where only `l0` runs `make_text`. Its
+implementation version changed between runs; `l2` recorded `l1` and `upper`, never `make_text`.
+
+| After the restart | `Explicit` | `OnLoad` | `Explicit` + startup audit |
+|---|---|---|---|
+| Evaluate `l2` | Served as stored (`l1` unknown, so trusted) | Refused: the walk `l1 → l0` finds `make_text` v1 ≠ v2. `l0`, `l1`, `l2` recomputed | Recomputed: the audit expired `l0..l3` in the store |
+| Then evaluate `l0` | `l0` refused (its own `make_text` record), recomputed; its new version expires `l1`, `l2` through the loaded edges | — | — |
+| Then `admin/audit/data/l3.txt` | Finds the gap `l0` in `l3`'s upstream closure, expires `l1..l3` | — | — |
+
+The tests are `restart_*`, `audit_*`, `per_key_audit_*` and `startup_store_audit_*` in
+`liquers-core/tests/dependency_audit_integration.rs`.
 
 ## Detailed evaluation flows
 
@@ -349,8 +468,9 @@ This is the runtime dependency path for commands that discover dependencies whil
 This path handles dependencies known before command execution.
 
 1. `recipe.to_plan()` builds a plan.
-2. `finalize_plan()` performs static dependency analysis for volatility/expiration and seeds
-   `Context::pending_dependencies` with plan dependencies.
+2. `finalize_plan()` performs static dependency analysis (`analyze_plan_dependencies`, see
+   §What a dependency record holds) and seeds `Context::pending_dependencies` with the plan's
+   **direct** dependencies.
 3. If the plan's query is keyed, `AssetManager::register_plan_dependencies()` registers every
    direct plan edge in `DependencyManager`, with the dependency's registered version or, when it
    has none yet, `Version::unknown()`. The unknown edge is what lets a later registration (a
@@ -402,6 +522,17 @@ This path handles dependencies known before command execution.
   version expire; an unchanged entry expires nothing.
 - `DependencyManager::observe_version(key, version)` (crate): fill an empty entry with a version
   just confirmed against the store, expiring nothing (the `on_load` check).
+- `AssetManager::stored_dependency_state(dep_key)`: the stored-records walk (§Consistency
+  policies). `StoredDependencyState::{Known, Confirmed, Stale, Unresolvable}`.
+- `AssetManager::trigger_dependency_audit_store(root, mode)`: the store (startup) audit.
+- `DependencyManager::missing_versions_for(key)` (crate): the gaps in `key`'s upstream closure,
+  walking through known versions.
+- `DependencyManager::register_version(key, version)` (crate): the evaluation path's
+  registration. A change expires what does not positively match; a first registration expires
+  only edges recording a concrete, other version.
+- `analyze_plan_dependencies(envref, plan, initial_cwd)` (crate, `plan.rs`): the plan analysis.
+  It records direct dependencies and applies the transitive summary (§What a dependency record
+  holds).
 - `AssetManager::dependency_version(dep_key)`: the current version of a `-R/` key (`version`) or a
   `-R-dir/` key (listing version), without evaluating; any other key answers 0.
 - `AssetManager::refresh_listing_version(dir)`: recompute and register a listing version iff one
@@ -438,6 +569,7 @@ Dependency evaluation is now non-blocking and deadlock-free (see
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-08 | New §What a dependency record holds (records are direct; analysis summary versus record; what a fast-track load contributes) and §Consistency policies (`Explicit` / `OnLoad` compared, the stored-records walk, the startup store audit, the restart example). Current contract: `OnLoad` resolves unknown dependencies with the walk, recursively; audits resolve gaps through the walk and the per-key audit covers the upstream closure; `register_version` expires an edge recording a concrete, other version on a first registration. Flow C step 2 and the glossary updated. | phase-5 (`design/dependency-chain-analysis-cost/`) |
 | 2026-10-07 | §Current contract: an edge recorded against a version the map has already replaced marks the dependent stale (the stale-dependency route); the folder-listing bullet no longer names the window as uncaught. Flow B step 2: what `submit` leaves behind on each manager, including the saturated queued manager, which parks the dependency on the local queue. | phase-5 (`design/dependency-edge-superseded-version/`, `design/submit-eagerness-documentation/`) |
 | 2026-10-04 | Review fixes on orest-d/liquers#75: writes register through `register_written_version` (a first registration is a change); `on_load` records a version it confirmed; `makedir` / `removedir` refresh the parent listing; the directory step versions the read that built its value and re-reads once registered. | phase-5 |
 | 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. Current contract: versions are `from_content`; the "never / policy not expressible" bullet replaced by audits on first observation (`audit_version`), `AuditMode::ReportOnly` / `AuditFinding`, `DependencyAuditPolicy` (`explicit` / `on_load`) and folder-listing (`-R-dir/`) versions with their refresh. Flow B uses `submit` / `wait_for_dependency`; Flow C records an unknown edge for an unversioned plan dependency; glossary gains `submit`, `wait_for_dependency`, `audit_version`, `stale_edges`, `dependency_version`, `refresh_listing_version`. | phase-5 |

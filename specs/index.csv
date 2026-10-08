@@ -94,6 +94,7 @@ CWD-KEY-LINK-NOT-CONSUMABLE-BY-COMMAND,issue,A `-R-key/` link cannot be consumed
 DATA-FORMAT-CONSTANTS-AND-TOOLING,feature,"Data formats are bare string literals with no constants, validation, or generic serde path",draft,local,,,P2,L,core/value;lib/value;lib/commands;macro,,,,,,2026-08-18,specs/issues/DATA-FORMAT-CONSTANTS-AND-TOOLING.md
 DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK,issue,DefaultAssetManager's recipe_opt override skips the payload-required rejection,draft,local,,,P2,M,core/assets,,,,,,2026-09-25,specs/issues/DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK.md
 DELEGATED-VALUE-REPERSISTED,issue,An asset that delegates to a key's owner writes the owner's value to the store again,closed,local,,covered,P3,S,core/assets,,,,delegated-value-persistence,,2026-08-12,specs/issues/DELEGATED-VALUE-REPERSISTED.md
+DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION,feature,Each plan analysis re-walks the whole upstream recipe graph,draft,local,,,P3,M,core/plan;core/assets,,,,,,2026-10-08,specs/issues/DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION.md
 DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE,feature,"There is no way to say when dependency versions should be verified, so the strict and the exploratory workflow cannot both be served",closed,local,,,P2,M,core/assets,,,,dependency-audit-and-expiry-provenance,,2026-09-05,specs/issues/DEPENDENCY-AUDIT-POLICY-NOT-EXPRESSIBLE.md
 DEPENDENCY-EDGE-RECORDED-AGAINST-SUPERSEDED-VERSION-IS-NOT-EXPIRED,issue,A dependent that records an edge against a version the map has already replaced stays Ready,closed,local,,ready,P3,M,core/assets,,,,dependency-edge-superseded-version,,2026-10-04,specs/issues/DEPENDENCY-EDGE-RECORDED-AGAINST-SUPERSEDED-VERSION-IS-NOT-EXPIRED.md
 DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE,issue,Execution-time expired dependency always fails its dependent; the stale-value branch is dead,closed,local,,,P0,S,core/assets,,,,expired-binary-read-safety,,2026-08-08,specs/issues/DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE.md
@@ -116,7 +117,7 @@ ENVIRONMENT-MANAGER-REFERENCE-CYCLE,issue,"Environment and asset manager hold ea
 ERROR-WITH-KEY-SETS-QUERY-FIELD,issue,Error context cannot distinguish asset keys from nested queries,draft,local,,phase2-blocked,P2,L,core/error;core/query;core/assets;core/store;web;py;axum,,,,error-with-key-field,,2026-08-25,specs/issues/ERROR-WITH-KEY-SETS-QUERY-FIELD.md
 EVALUATE-DOES-NOT-CLEAR-CACHED-BINARY,issue,The evaluation body installs a new value without invalidating the cached binary,closed,local,,,P2,S,core/assets,,,,keyed-expiry-cascade-fix,,2026-09-04,specs/issues/EVALUATE-DOES-NOT-CLEAR-CACHED-BINARY.md
 EVALUATING-A-DEEP-CHAIN-TOP-DOWN-OVERFLOWS-THE-STACK,issue,Evaluating the last link of a deep recipe chain overflows the thread stack,draft,local,,,P2,M,core/assets,,,,,,2026-10-08,specs/issues/EVALUATING-A-DEEP-CHAIN-TOP-DOWN-OVERFLOWS-THE-STACK.md
-EVALUATING-A-LONG-DEPENDENCY-CHAIN-GETS-SUPER-LINEARLY-SLOW,issue,Evaluating a long dependency chain gets super-linearly slow,draft,local,,,P2,M,core/assets,,,,dependency-chain-analysis-cost,,2026-10-02,specs/issues/EVALUATING-A-LONG-DEPENDENCY-CHAIN-GETS-SUPER-LINEARLY-SLOW.md
+EVALUATING-A-LONG-DEPENDENCY-CHAIN-GETS-SUPER-LINEARLY-SLOW,issue,Evaluating a long dependency chain gets super-linearly slow,closed,local,,,P2,M,core/assets,,,,dependency-chain-analysis-cost,,2026-10-02,specs/issues/EVALUATING-A-LONG-DEPENDENCY-CHAIN-GETS-SUPER-LINEARLY-SLOW.md
 EXPIRATION-INTEGRATION-SUITE-FAILING-AT-HEAD,issue,Five expiration_integration tests fail at HEAD,closed,local,,,P0,M,core/assets,,,,,,2026-08-09,specs/issues/EXPIRATION-INTEGRATION-SUITE-FAILING-AT-HEAD.md
 EXPIRATION-RECOVERY-WEB-API,issue,Expiration recovery has no web API surface,closed,local,,,P2,M,axum;core/assets,,,,axum-assets-endpoints,,2026-08-08,specs/issues/EXPIRATION-RECOVERY-WEB-API.md
 EXPIRY-RECORDS-NO-REASON,issue,"An asset that becomes Expired records no reason, and the one path that does names the dependency by asset id",closed,local,,,P2,M,core/assets,,,,dependency-audit-and-expiry-provenance,,2026-09-04,specs/issues/EXPIRY-RECORDS-NO-REASON.md
@@ -309,7 +310,7 @@ CSV-PHYSICAL-LINES-SHORT-ROWS,design,CSV errors name physical lines; short rows 
 COVERED-10,design,Coverage record for DELEGATED-VALUE-REPERSISTED,in_review,local,architecture,covered,P3,S,docs,,,,delegated-value-persistence,,2026-09-03,specs/design/delegated-value-persistence/DESIGN.md
 DELEGATED-VALUE-REPERSISTENCE,design,Avoid re-persisting delegated asset values,complete,local,,,P3,S,core/assets,,,,delegated-value-repersisted,,2026-08-31,specs/design/delegated-value-repersisted/DESIGN.md
 DEPENDENCY-AUDIT-AND-EXPIRY-PROVENANCE,design,"Dependency audit correctness, audit policy, expiry provenance, outside-change detection and external asset managers",complete,local,,,,,core/assets,,75,,dependency-audit-and-expiry-provenance,,2026-09-28,specs/design/dependency-audit-and-expiry-provenance/DESIGN.md
-DEPENDENCY-CHAIN-ANALYSIS-COST,design,Direct dependency records and linear dependency analysis,approved,local,implementation,,P2,M,core/assets;core/plan,,,,dependency-chain-analysis-cost,,2026-10-06,specs/design/dependency-chain-analysis-cost/DESIGN.md
+DEPENDENCY-CHAIN-ANALYSIS-COST,design,Direct dependency records and linear dependency analysis,in_review,local,documentation,,P2,M,core/assets;core/plan,,,,dependency-chain-analysis-cost,,2026-10-06,specs/design/dependency-chain-analysis-cost/DESIGN.md
 DEPENDENCY-EDGE-SUPERSEDED-VERSION,design,A dependent whose edge is recorded against a superseded version is stale at birth,complete,local,,ready,P3,M,core/assets,,,,dependency-edge-superseded-version,,2026-10-06,specs/design/dependency-edge-superseded-version/DESIGN.md
 DEPENDENCY-FAILURE-ERROR-SUBJECT,design,Dependency-failure errors name the dependency by key or query,complete,local,,ready,P3,S,core/assets,,,,dependency-failure-error-subject,,2026-10-06,specs/design/dependency-failure-error-subject/DESIGN.md
 DEPENDENCY-MANAGEMENT,design,Dependency-wait lifecycle and deadlock-safe delegation,complete,local,,,,,core/assets,,5,,dependency-management,,2026-03-02,specs/design/dependency-management/DESIGN.md
@@ -432,16 +433,16 @@ WP2-TERMINAL-OUTCOME,design,Asset terminal outcome contract,complete,local,,,,,c
 API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,docs,,,,,2026-08-17,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
 DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
 DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,core/query,,,,,2026-08-17,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
-DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,core/assets,,,,,2026-10-07,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
+DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,core/assets,,,,,2026-10-08,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
 DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,core/context;core/plan,,,,,2026-10-06,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
-DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,core/plan;core/assets;core/context,,,,,2026-10-06,,specs/reference/api/DOC_08_RECIPES_PLANS.md
-ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,core/assets,,,,,2026-10-07,,specs/reference/ASSET_LIFECYCLE.md
+DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,core/plan;core/assets;core/context,,,,,2026-10-08,,specs/reference/api/DOC_08_RECIPES_PLANS.md
+ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,core/assets,,,,,2026-10-08,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,core/assets,,,,,2026-09-27,,specs/reference/ASSET_SET_OPERATION.md
-ASSETS,reference,Assets Specification,current,local,,,,,core/assets,,,,,2026-10-07,,specs/reference/ASSETS.md
+ASSETS,reference,Assets Specification,current,local,,,,,core/assets,,,,,2026-10-08,,specs/reference/ASSETS.md
 COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,core/commands;web;py,,,,,2026-10-07,,specs/reference/COMMAND_DECLARATION.md
 CONFORMANCE_TERMS,reference,Conformance Terms,current,local,,,,,docs,,,,,2026-09-02,,specs/reference/CONFORMANCE_TERMS.md
-DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,,core/assets,,,,,2026-10-07,,specs/reference/DEPENDENCIES_STATUS.md
-ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,core/context;core/store;core/assets,,,,,2026-10-02,,specs/reference/ENVIRONMENT_CONFIG.md
+DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,,core/assets,,,,,2026-10-08,,specs/reference/DEPENDENCIES_STATUS.md
+ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,core/context;core/store;core/assets,,,,,2026-10-08,,specs/reference/ENVIRONMENT_CONFIG.md
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,local,,,,,lib/image,,,,,2026-03-02,,specs/reference/IMAGE_COMMAND_LIBRARY.md
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,core/context;core/commands,,,,,2026-09-04,,specs/reference/PAYLOAD_GUIDE.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,lib/polars,,,,,2026-09-04,,specs/reference/POLARS_COMMAND_LIBRARY.md
@@ -453,11 +454,12 @@ STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,core/sto
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,core/value;lib/value,,,,,2026-09-27,,specs/reference/VALUE_TYPE_SYSTEM.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,axum;web,,,,,2026-10-07,,specs/reference/WEB_API_SPECIFICATION.md
-ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,core/assets,,,,,2026-10-07,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
+ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,core/assets,,,,,2026-10-08,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
 autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,docs;build,,,,,2026-10-05,,specs/guides/autonomous_bulk_design.md
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,,docs;build,,,,,2026-08-11,,specs/guides/autonomous_issue_fixing.md
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,core/commands;macro,,,,,2026-10-07,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
-ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,core/context;core/assets;core/store,,,,,2026-10-02,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
+DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,,,core/assets,,,,,2026-10-08,,specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md
+ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,core/context;core/assets;core/store,,,,,2026-10-08,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-09-30,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,core/query,,,,,2026-10-07,,specs/guides/QUERY_ESCAPING_GUIDE.md
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,records;lib/value,,,,,2026-10-07,,specs/guides/RECORD_STREAM_GUIDE.md

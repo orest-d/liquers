@@ -3,7 +3,7 @@ title: Asset Evaluation — Flows and Public Surface
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-07
+reviewed: 2026-10-08
 ---
 # Asset Evaluation — Flows and Public Surface
 
@@ -173,7 +173,7 @@ independent questions about every recorded dependency.
 
 | Question | Answered from | Catches |
 |---|---|---|
-| Was this dependency recomputed into *different content*? | the dependency manager's version for the key; under `dependency_audit: on_load`, when the manager has none, the current version resolved from the store (`dependency_version`) for a `-R/` or `-R-dir/` dependency recorded with a concrete version — a different or missing one refuses | a dependency that ran again; under `on_load`, also one that changed before this process started |
+| Was this dependency recomputed into *different content*? | the dependency manager's version for the key; under `dependency_audit: on_load`, when the manager has none, the stored-records walk (`stored_dependency_state`) for a `-R/` or `-R-dir/` dependency recorded with a concrete version — the dependency's stored version **and**, recursively, what it recorded; a different version, a stale upstream or a missing one refuses | a dependency that ran again; under `on_load`, also one that changed before this process started, however far upstream |
 | Is this dependency stale *right now*? | the dependency's live asset status, or failing that its stored metadata status | a dependency that expired and was never recomputed |
 
 The second exists because the first is silent exactly where it matters most. A version comparison
@@ -219,7 +219,7 @@ the same cascading primitive the monitor uses. A dependent inherits its dependen
 deadline, so a dependent read before its root reaches its own deadline and is recomputed too. A
 dependent that carries no such deadline (its stored copy was written without one, say) is served
 from its last value until the root is looked up; `trigger_dependency_audit` or
-`AuditPolicy::OnLoad` catch it.
+`DependencyAuditPolicy::OnLoad` catch it.
 
 The immediate manager's lazy check compares the **deadline**, not the status. It used to test the
 status, which is never `Expired` at that point, so it never fired
@@ -298,6 +298,7 @@ arrives mid-evaluation and must join the first rather than be turned away.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-08 | §Reusing a stored asset: under `on_load` the version question is answered by the stored-records walk, recursively (records are direct since `design/dependency-chain-analysis-cost/`). `AuditPolicy::OnLoad` corrected to `DependencyAuditPolicy::OnLoad`. | phase-5 (`design/dependency-chain-analysis-cost/`) |
 | 2026-10-07 | §Persistence outcomes: a keyed asset cancelled before its write is not written and records persistence status `None`. §Routes into `Expired`: a supplied `Expired` status records no reason and logs `Asset expired` plus an after-the-fact info entry. Lazy deadline expiry on the immediate manager cascades; new paragraph "Lazy expiry cascades" with the dependent-read-first case. | phase-5 (`design/save-to-store-skip-outcome/`, `design/supplied-expired-status-reason/`, `design/immediate-lazy-expiry-cascade/`) |
 | 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. §1: `Context::submit` / `wait_for_dependency`. §Reusing a stored asset: the content check under `verify_versions: on_read` comes first, and the version question resolves the store under `dependency_audit: on_load`. New §Routes into `Expired` naming the reason each route records, with the corrected immediate-manager lazy deadline check. | phase-5 |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. Steps 8 and 9, §4's axes, §5's persistence table and §6's metadata table now cover the `stored` and `cached` recipe flags: `stored: false` skips every write but still reads an existing copy, `cached: false` skips registration but keeps the asset the key's graph node, and neither is volatility. Details in `ASSETS.md` §`stored` and `cached`. | phase-5 |
