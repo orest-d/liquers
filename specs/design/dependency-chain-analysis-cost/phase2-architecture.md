@@ -287,6 +287,54 @@ The fast-track minimum rule from Decision 1 needs **no change**: `try_fast_track
 `load_from_records` for a consistent load (`assets.rs:1407`), and `add_dependency` keeps an edge
 whose dependency has no version yet.
 
+### `liquers-core/src/assets.rs`: the startup (store) audit
+
+```rust
+/// Audit every stored keyed value under `root` (the whole store for `Key::new()`), without
+/// evaluating anything: each stored value with dependency records is resolved through the
+/// stored-records walk; a stale one is persisted `Expired` with
+/// `ExpiryReason::Direct { cause: ExpiryCause::StaleDependency { dependency } }` and its
+/// registered dependents are cascaded. Typically called once after the environment is built.
+async fn trigger_dependency_audit_store(
+    &self,
+    root: &Key,
+    mode: AuditMode,
+) -> Result<AuditReport, Error>;
+```
+
+A default method on `AssetManager`, next to the other audits:
+1. **Key list.** It takes its keys the way `verify_stored_versions` does (`assets.rs:6095`): a
+   deep `listdir_keys_deep` for a directory, otherwise `root` itself.
+2. **Filter.** It keeps keys whose stored metadata is `Ready` or `Override` and has dependency
+   records. `Source` values have none, and other statuses are not reusable anyway.
+3. **Resolve.** Each key goes through the stored-records walk, with **one memo shared across the
+   whole audit**. The walk's private helper takes the memo as a parameter, so a stale upstream is
+   read once, not once per dependent: O(stored values) metadata reads in total.
+4. **Act on the result:**
+   - `Stale { dependency, .. }`: in `Expire` mode, `expire_stored_copy(self, store, key, reason)`
+     (`assets.rs:4353`, best-effort as in the cascade), then
+     `cascade_expire_dependents(key, StaleDependency)`. Each stale key is expired itself, so even
+     the one-level `Explicit` status check refuses every dependent later. In `ReportOnly` mode,
+     record a finding (`AuditFinding { dependency, dependent: key, expected: recorded, found }`).
+   - `Confirmed` or `Known`: nothing to do.
+   - `Unresolvable` (the key itself has no durable version): listed in `checked` only.
+5. **Report.** `checked` lists every audited key, `expired` lists the keys this audit expired
+   (including cascaded ones), and `findings` lists the stale edges.
+6. **Errors.** A listing error is returned. A per-key metadata error is `Unresolvable`, as
+   everywhere in the walk.
+
+No configuration option: the application calls it, for example right after
+`EnvironmentBuilder::build`. A config-driven "audit on start" would need an async start hook and
+belongs with the sync/reload feature (`ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE`).
+
+### Per-key audit over the upstream closure (B1)
+
+`trigger_dependency_audit(query)` collects the gaps over the key's **upstream closure** in the
+dependency manager's graph instead of its direct edges. `missing_versions_for` is fixed to match
+its own doc comment ("reachable"): one pass over `keyed_dependents` builds a forward index, then a
+breadth-first search runs from the key. Known versions are trusted. The gaps are then resolved
+through the walk, as in `audit_gaps`.
+
 ### `DefaultRecipeProvider` construction
 
 A field ends the unit struct. It is used as a value at 115 sites: 108 in `liquers-core`, 6 in
@@ -360,21 +408,45 @@ namespace involved. `specs/command_registry.yaml` is unchanged.
 
 ## Documentation Architecture
 
-- **Reference, extend `specs/reference/DEPENDENCIES_STATUS.md`** (audience: core developers and
-  agents). A section "What a dependency record holds" covering: direct only; what "direct" means
-  (nearest keyed operand, pass-through of `Evaluate` / nested plans, the read key's recipe key);
-  analysis summary versus record; the fast-track minimum rule; the stored-records walk and how
-  `Explicit` / `OnLoad` / audits use it, with the restart example. History row, `reviewed:`.
-- **Reference, review `specs/reference/ASSETS.md`** (the fast-track and audit-policy passages near
-  line 1153). Update what `OnLoad` guarantees. History row, `reviewed:` if changed.
+- **Reference, extend `specs/reference/DEPENDENCIES_STATUS.md`** (audience: core developers,
+  integrators, agents). Two sections, with a History row and `reviewed:`:
+  - **"What a dependency record holds".** Direct only. What "direct" means: the nearest keyed
+    operand, pass-through of `Evaluate` and nested plans, and the read key's recipe key. Analysis
+    summary versus record. The fast-track minimum rule.
+  - **"Consistency policies".** The Phase 1 table, in full.
+    - **Each policy:** what it checks on load, what it trusts, what it costs, and which
+      inconsistency it tolerates.
+    - **The audits:** what the per-key, all-registered and store audit each cover.
+    - **The walk:** the stored-records walk and its comparison rules.
+    - **Restart example:** the `make_text` chain under both policies, before and after a startup
+      audit.
+    - **Out of scope:** the trust assumption that the store is not modified while a manager runs,
+      with a pointer to the sync/reload issue.
+- **Reference, update `specs/reference/ASSET_LIFECYCLE.md`** ("Reusing a stored asset", the
+  table near line 176) for the deep `on_load` check, and **`specs/reference/ENVIRONMENT_CONFIG.md`**
+  (the `dependency_audit` row) to describe both policies precisely and link to the new section.
+- **Reference, review `specs/reference/ASSETS.md`.** Add `trigger_dependency_audit_store` to the
+  audit list, `stored_dependency_state` to the policy accessors, and the per-key audit's closure
+  semantics. History row and `reviewed:`.
 - **Reference, review `specs/reference/PROJECT_OVERVIEW.md`** if it describes dependency records.
   Expected: no change.
-- **Guide:** none, as decided in Phase 1.
+- **Guide, new `specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md`** (audience: application authors
+  and integrators). "Choosing how much inconsistency to tolerate":
+  - **The two modes**, with the decision table, and when to pick each: exploratory work with
+    intermediates deleted by hand calls for trusting; a strict service calls for conservative.
+  - **Configuration:** `dependency_audit` in YAML, and `AssetManagerOptions::with_dependency_audit`.
+  - **Startup audit:** running it after `build()`, with code, and reading its `AuditReport`.
+  - **Diagnosis:** finding why a value is stale from its expiry reason (`root`, `via`,
+    `StaleDependency`).
+  - **Scope:** what neither mode covers (outside edits while running → the future sync).
+
+  It links the reference sections. `specs/README.md` lists the guide.
 - **Other:** a Phase 5 follow-up issue `DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION`
   (the optional summary cache, P3).
 - **Updates:** the issue file's resolution, `specs/README.md` (design status), and the index via
   `scripts/docs_index.py`.
-- **`affects_docs`:** `DEPENDENCIES_STATUS.md`, `ASSETS.md`.
+- **`affects_docs`:** `DEPENDENCIES_STATUS.md`, `ASSET_LIFECYCLE.md`, `ENVIRONMENT_CONFIG.md`,
+  `ASSETS.md`, and `guides/DEPENDENCY_CONSISTENCY_GUIDE.md` (new).
 - **Evidence to collect during implementation:** before and after numbers from the benchmark
   (10/20/40/200 links), and the lookup count per link.
 

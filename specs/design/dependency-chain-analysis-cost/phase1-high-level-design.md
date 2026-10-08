@@ -104,14 +104,40 @@ dependencies). Its cost is invalidation correctness on recipe edits. **Opinion: 
 when real deployments show chains deeper than about 300 or large fan-in. Low priority.** It goes
 into a follow-up issue in Phase 5 rather than into this scope.
 
+## Scope addition (maintainer, 2026-10-08): consistency modes and a startup audit
+
+Two modes of operation:
+- **Trusting** (`Explicit`, the default). Tolerates a known, bounded inconsistency.
+- **Conservative** (`OnLoad`). Detects every inconsistency visible in the stored records.
+
+The trusting mode gains a **full audit of the store**, typically run on start,
+`AssetManager::trigger_dependency_audit_store`. Today an audit at start checks almost nothing,
+because the dependency manager knows only command versions. The policies are documented in detail
+(reference and guide). A store-wide sync/reload of a *running* system is a separate feature
+(`ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE`).
+
+| | **`Explicit`** (default, trusting) | **`OnLoad`** (conservative) |
+|---|---|---|
+| Loading a stored value | Each recorded dependency is compared with what the dependency manager **already knows**: command versions (always known), and assets already loaded or computed in this process. A dependency it doesn't know is **trusted**. | A recorded dependency the manager doesn't know is **resolved from the store** by the manager's walk, which reads its stored metadata and records recursively. A mismatch, a stale upstream or a missing intermediate refuses the load, and the value is recomputed. |
+| Cost | No extra reads. | Metadata reads for each unknown upstream key, once per process. |
+| Inconsistency tolerated | A value built on an upstream that changed between runs can be served until something touches that upstream, or an audit runs. | None that can be detected from stored records. |
+| Audits | Only when called: per key (`trigger_dependency_audit`, over the manager's upstream closure), everything registered (`trigger_dependency_audit_all_registered`), or **the whole store, typically on start** (`trigger_dependency_audit_store`). | The same calls are available, but rarely needed. |
+| Common to both | Stored bytes are checked against their own recorded version on read (`verify_versions`), which catches corruption or edits between runs. Whatever is loaded adds its edges to the manager. While running, the asset and dependency managers are the source of truth, and the store is not modified behind their back. | |
+
 ## Documentation Intent
 
-- **Reference:** extend `specs/reference/DEPENDENCIES_STATUS.md`. Records are direct only; how
-  transitivity is obtained (cascade; the dependency manager's walk under `OnLoad`); what the
-  manager learns on a fast-track load; analysis summaries versus records. Check
-  `specs/reference/ASSETS.md`'s fast-track section for what each audit policy guarantees.
-- **Guide:** neither. No new repeatable task. Reconsider if the audit policies gain
-  configuration.
+- **Reference:** extend `specs/reference/DEPENDENCIES_STATUS.md` with:
+  - **records:** they are direct only;
+  - **transitivity:** how it is obtained (the cascade, the dependency manager's walk);
+  - **fast-track loads:** what the manager learns from them;
+  - **summary vs record:** analysis summaries are not records;
+  - **policies:** the consistency policies in detail, with the table above and a restart example.
+
+  Update `ASSET_LIFECYCLE.md` (reusing a stored asset), `ENVIRONMENT_CONFIG.md`
+  (`dependency_audit`) and `ASSETS.md` (the audit list).
+- **Guide:** **new** `specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md`. How to choose a mode, how to
+  run a startup audit, how to diagnose a stale value from its expiry reason, and when to tolerate
+  inconsistency.
 - **Other:** a follow-up issue for the optional summary cache, filed in Phase 5.
 - **Updates:** the issue file's resolution, `specs/README.md` and the index.
 

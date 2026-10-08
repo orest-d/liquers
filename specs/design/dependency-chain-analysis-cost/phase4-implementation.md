@@ -359,6 +359,47 @@ Rationale: behaviour on the restart path; it has to match Phase 1 Decision 1 exa
 
 ---
 
+### Step 5b: Per-key audit closure and the startup (store) audit
+
+**Files:** `liquers-core/src/dependencies.rs` (`missing_versions_for`) and
+`liquers-core/src/assets.rs` (the trait).
+
+**Action:**
+- **B1.** `missing_versions_for(key)` becomes the upstream closure: one `iter_sync` over
+  `keyed_dependents` builds `HashMap<DependencyKey, Vec<DependencyKey>>` (dependent →
+  dependencies), then a breadth-first search from `key` collects every reached dependency whose
+  version is unknown and is demanded with a concrete version. This matches the existing doc
+  comment. Test I4d.
+- **Shared memo.** The private walk helper from Step 4 takes `&mut WalkMemo` (the on-path set and
+  the memo). `stored_dependency_state` creates a fresh one per call, and the store audit creates
+  one for the whole run.
+- **`trigger_dependency_audit_store(root, mode)`**, per Phase 2:
+  - key listing as in `verify_stored_versions`;
+  - filter to `Ready`/`Override` with records;
+  - walk;
+  - on `Stale`, `expire_stored_copy` with
+    `ExpiryReason::Direct { cause: ExpiryCause::StaleDependency { dependency } }` and
+    `cascade_expire_dependents`;
+  - in `ReportOnly`, findings only.
+- **Tests:** I9–I12 and I4d. I11 uses a counting store wrapper in `tests/fixtures/mod.rs`, shared
+  with I4c's failing wrapper as one configurable `ProbeStore`.
+
+**Validation:**
+```bash
+cargo test -p liquers-core --lib dependencies::
+cargo test -p liquers-core --test dependency_audit_integration
+```
+
+**Rollback:** `git revert`. Nothing else depends on it.
+
+**Agent Specification:** Model sonnet. Skills: rust-best-practices, liquers-unittest. Knowledge:
+- Phase 2 "the startup (store) audit" and "Per-key audit over the upstream closure";
+- `assets.rs:4353` (`expire_stored_copy`), `:5182` (`expire`) and `:6095`
+  (`verify_stored_versions`);
+- `dependencies.rs:990-1040`.
+
+---
+
 ### Step 6: Provenance, smoke, and the bound
 
 **Files:** `tests/dependency_audit_integration.rs` (I5), `tests/dependency_chain_scaling.rs`
@@ -440,6 +481,7 @@ cargo run -p liquers-core --features cli --bin liquers-validate -- --command mak
 | 3 Recipe cache | sonnet + haiku sweep | rust-best-practices | after 2 and 4 (the sweep edits `assets.rs` and `interpreter.rs` test code, and `recipes.rs` near 632) |
 | 4 Stored walk | sonnet | rust-best-practices, liquers-unittest | 2 (separate file) |
 | 5 Wiring | sonnet | rust-best-practices, liquers-unittest | after 4 |
+| 5b Closure and store audit | sonnet | rust-best-practices, liquers-unittest | after 5 |
 | 6 Tests and bound | haiku | liquers-unittest | after 3, 5 |
 | 7 Validation | sonnet | rust-best-practices | last |
 
@@ -454,13 +496,19 @@ Revert Steps 6 down to 2. Step 1's benchmark can stay, since it is harmless and 
 
 ### Partial Completion
 - **Steps 2 and 3 without 4 and 5.** Do not ship: records become direct-only, but `OnLoad` and the
-  audits lose the deep check, which I2–I4 catch. Ship Steps 2–5 together, or none.
+  audits lose the deep check, which I2–I4 catch. Ship Steps 2–5b together, or none.
 - **Step 3 alone** (the cache) is safe to ship on its own.
 
 ## Documentation Updates
 
 ### New Reference and Guide Documents
-None.
+- **`specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md`** (new, Phase 5). It follows Phase 2's
+  Documentation Architecture and Phase 3 Example 4.
+- **A new section in `DEPENDENCIES_STATUS.md`, "Consistency policies".** It holds the detailed
+  table.
+- **Whether the guide is written early.** It is allowed to go in with Step 5b if the reviewer
+  wants the behaviour documented in the same PR before Phase 5. Either way, the final text is
+  checked against the implemented behaviour in Phase 5.
 
 ### Existing Documents and `affects_docs`
 In Phase 5:
@@ -468,7 +516,11 @@ In Phase 5:
   holds", following the Phase 2 Documentation Architecture, plus a History row and `reviewed:`.
 - **`specs/reference/ASSETS.md`**: review and update the fast-track and audit-policy text, plus a
   History row and `reviewed:`.
-- `affects_docs: [DEPENDENCIES_STATUS.md, ASSETS.md]`.
+- **`specs/reference/ASSET_LIFECYCLE.md`** ("Reusing a stored asset") and
+  **`specs/reference/ENVIRONMENT_CONFIG.md`** (the `dependency_audit` row): precise per-policy
+  wording, plus History rows.
+- `affects_docs: [DEPENDENCIES_STATUS.md, ASSET_LIFECYCLE.md, ENVIRONMENT_CONFIG.md, ASSETS.md,
+  guides/DEPENDENCY_CONSISTENCY_GUIDE.md]`.
 
 ### Design, Capability, and Cross-Links
 - `specs/README.md` design status.
@@ -492,7 +544,7 @@ Steps 1–7 merged into the PR branch, all validation green, and review comments
 After approval: execute now (Steps 1–7 in order, one commit each), create a task list, revise, or
 exit.
 
-## Open Decision Before Execution (from the final review)
+## Decision B1 (resolved by the maintainer, 2026-10-08)
 
 **B1. The per-key audit loses depth.** `trigger_dependency_audit(query)`, which backs the axum
 `admin/audit/{key}` endpoint, collects only the key's **direct** gaps (`missing_versions_for`,

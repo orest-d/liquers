@@ -74,6 +74,10 @@ Every assertion on a dependency list describes the state **after** the change.
 | I6 | integration, `dependency_chain_scaling.rs` (new) | `chain_evaluation_scales` (`#[ignore]`) | The acceptance check, Phase 1 Decision 5. 10/20/40/200 links, times with `eprintln!`; asserts 40 < 1 s and 200 < 5 s. If 200 links misses, the assertion becomes 8 s (Phase 2 Decision 2) and the measurement is recorded in the PR and in Phase 5. Run in Phase 4 Step 6 |
 | I8 | integration, `liquers-axum/tests` | `audit_endpoint_reports_stale_gap_dependents` | The admin audit endpoint (`key_handlers.rs:484-496`) lists the dependents of a stale gap as expired, with `StaleDependency` |
 | I7 | integration, same as I6 | `chain_20_links_smoke` | **Smoke only, not acceptance.** 20 links under 3 s debug. Predicted ≈ 3·Σ(i+1) = 693 lookups × ~70 µs + floor ≈ 0.2 s, so 3 s is a generous ceiling against machine noise. Not ignored |
+| I9 | integration, `dependency_audit_integration.rs` | `startup_store_audit_expires_stale_chain` | Restart with `make_text` v2, **before** loading anything: `trigger_dependency_audit_store(&Key::new(), Expire)` expires `l0..l3` in the store (status `Expired`, reason `StaleDependency`); then under `Explicit`, `-R/data/l3.txt` evaluates to the new content |
+| I10 | integration, same | `startup_store_audit_report_only_changes_nothing` | The same in `ReportOnly`: findings for each stale link, store unchanged |
+| I11 | integration, same | `startup_store_audit_reads_each_key_once` | 50-link stale chain; a counting store wrapper sees at most one `get_metadata` per stored key (shared memo) |
+| I12 | integration, same | `startup_store_audit_confirms_fresh_store` | No change between runs: nothing expired; afterwards the manager knows every audited version |
 | R1 | changed | `find_dependencies_respects_nested_recipe_cwd` | Assert the link on the recipe's own analysis; outer list has no nested key |
 | R2 | changed | `expiration_nested_recipe_uses_keyed_recipe_plan` | Same; the 45 s expiry is unchanged |
 | R3 | changed | `volatility_populates_dependencies_once_and_expiration_reuses_them` | Now one call `analyze_plan_dependencies`; `recipe_opt` calls 3 → 1 |
@@ -176,6 +180,34 @@ assert_eq!(l2, "NEW");
 - **Editing `recipes.yaml` on disk.** It is seen at the next lookup, because the cache (new in
   Phase 4) compares the bytes (U13). No `clear_cache` is needed. This differs from `ManifestRecipeProvider` folder
   listings.
+
+## Example 4: Choosing a mode, and the startup audit
+
+### Scenario
+A service that must never serve a stale value, and an exploratory notebook-style app that may.
+
+### Sequence of Steps
+1. **Service.** `dependency_audit: on_load` in the environment config. Every load checks upstream
+   recursively, with no startup cost.
+2. **App, trusting with a clean start.** Keep `explicit` (the default), and right after building
+   the environment call
+   `envref.get_asset_manager().trigger_dependency_audit_store(&Key::new(), AuditMode::Expire)`.
+   It reads each stored value's metadata once, expires what changed between runs, and from then
+   on trusts the managers.
+3. **App, trusting and fast.** Skip the startup audit, and accept that a value can be stale until
+   its upstream is touched or audited. Diagnose a surprise with the value's expiry reason, or with
+   a per-key audit (`admin/audit/{key}`).
+
+### Core Example Code
+```rust
+let envref = builder.build()?;                         // dependency_audit: explicit (default)
+let report = envref.get_asset_manager()
+    .trigger_dependency_audit_store(&Key::new(), AuditMode::Expire).await?;
+eprintln!("startup audit: {} checked, {} expired", report.checked.len(), report.expired.len());
+```
+
+This example is the core of the new guide `DEPENDENCY_CONSISTENCY_GUIDE.md`. Its executable form
+is I9.
 
 ## Corner Cases
 

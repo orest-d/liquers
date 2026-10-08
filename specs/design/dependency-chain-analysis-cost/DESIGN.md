@@ -2,7 +2,7 @@
 id: DEPENDENCY-CHAIN-ANALYSIS-COST
 kind: design
 title: Direct dependency records and linear dependency analysis
-status: in_review
+status: approved
 phase: implementation
 workflow: liquers-project
 area: [core/assets, core/plan]
@@ -21,7 +21,7 @@ rewritten the same day; the earlier autonomous drafts are in git history.
 - [x] Phase 1: High-Level Design (revised and approved 2026-10-07)
 - [x] Phase 2: Solution and Architecture (approved 2026-10-07)
 - [x] Phase 3: Examples and Tests (pre-approved 2026-10-07)
-- [x] Phase 4: Implementation Plan (in review)
+- [x] Phase 4: Implementation Plan (approved 2026-10-08, with the startup audit)
 - [ ] Phase 5: Documentation
 
 ## Links
