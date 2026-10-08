@@ -5,7 +5,7 @@
 - [x] Step 1: add `committed_registry_impl_versions_are_fresh` (T1 passes at HEAD) — 31cbbd4
 - [x] Step 2: T2 and T3 by hand, reverted — no commit (outputs in the PR description)
 - [x] Step 3: CLAUDE.md registry section — adc30ab
-- [x] Step 4: close the issue, regenerate the index — STEP4
+- [x] Step 4: close the issue, regenerate the index — 55e5ad5
 
 **Finding during Step 2.** T2 as written does not fail: a `//` comment is not a token, so the
 `#[command_version]` hash of the function's token stream ignores it. A code edit
