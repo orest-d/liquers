@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 117
+Total rows: 116
 - P2: 61
-- P3: 56
+- P3: 55
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -79,7 +79,6 @@ Total rows: 117
 | [`PY-PYO3-REJECTS-PYTHON-3-13`](issues/PY-PYO3-REJECTS-PYTHON-3-13.md) | issue | liquers-py does not build against Python 3.13 without an environment override | draft | ready | eligible | P3 | S | py;build | [design](design/pyo3-python-3-13-support/DESIGN.md) | 2026-10-06 |
 | [`REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED`](issues/REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED.md) | issue | The committed command registry carries stale impl_versions and no test detects it | draft | ready | eligible | P3 | S | lib/commands;build;docs | [phase1](design/command-registry-impl-version-freshness/phase1-high-level-design.md)  [phase2](design/command-registry-impl-version-freshness/phase2-architecture.md)  [phase3](design/command-registry-impl-version-freshness/phase3-examples.md)  [phase4](design/command-registry-impl-version-freshness/phase4-implementation.md)  | 2026-08-25 |
 | [`SCHEMA-LESS-ORDERED-JSON-ORIENTS-LOSE-COLUMN-ORDER`](issues/SCHEMA-LESS-ORDERED-JSON-ORIENTS-LOSE-COLUMN-ORDER.md) | issue | A schema-less read of the split or values JSON orient sorts the columns its document orders | draft | ready | eligible | P3 | S | records | [design](design/ordered-json-orient-column-order/DESIGN.md) | 2026-10-07 |
-| [`MANIFEST-CHUNK-SCHEMA-ERROR-DOES-NOT-NAME-THE-CHUNK`](issues/MANIFEST-CHUNK-SCHEMA-ERROR-DOES-NOT-NAME-THE-CHUNK.md) | issue | A chunk that violates a manifest's uniform_schema is refused without naming which chunk | draft | ready | not-eligible | P3 | S | records | [design](design/manifest-chunk-error-identity/DESIGN.md) | 2026-10-07 |
 | [`ARGUMENT-INFO-HAS-NO-DESCRIPTION`](issues/ARGUMENT-INFO-HAS-NO-DESCRIPTION.md) | issue | ArgumentInfo has no per-argument description | draft | needs-decision | not-eligible | P3 | S | core/commands;macro | [design](design/command-metadata-descriptions-and-hints/DESIGN.md) | 2026-09-24 |
 | [`AXUM-STORE-UPLOAD-AND-METADATA-DROP-INFORMATION`](issues/AXUM-STORE-UPLOAD-AND-METADATA-DROP-INFORMATION.md) | issue | Store API uploads carry no media type, and legacy metadata is served as an empty object | draft | needs-decision | not-eligible | P3 | S | axum | [phase1](design/axum-store-upload-metadata/phase1-high-level-design.md)  [phase2](design/axum-store-upload-metadata/phase2-architecture.md)  [phase3](design/axum-store-upload-metadata/phase3-examples.md)  [phase4](design/axum-store-upload-metadata/phase4-implementation.md)  | 2026-09-28 |
 | [`COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS`](issues/COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS.md) | feature | A usage hint can be attached to an argument but not to a command | in_progress | needs-decision | not-eligible | P3 | S | core/commands;lib/ui | [design](design/command-metadata-descriptions-and-hints/DESIGN.md) | 2026-08-30 |
