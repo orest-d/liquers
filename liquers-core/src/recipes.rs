@@ -40,8 +40,7 @@ use crate::{
     metadata::{AssetInfo, Status},
     parse::{parse_key, parse_query},
     plan::{
-        has_expirable_dependencies, has_volatile_dependencies, Plan, PlanBuilder, Step,
-        VolatilitySource,
+        analyze_plan_dependencies, Plan, PlanBuilder, Step, VolatilitySource,
     },
     query::{Key, Query, ResourceName},
 };
@@ -629,10 +628,7 @@ async fn create_plan_with_init_metadata<E: Environment>(
         Some(key) => recipe.to_plan_for_key(cmr, key)?,
         None => recipe.to_plan(cmr)?,
     };
-    let _ = has_volatile_dependencies(envref.clone(), &mut plan, None).await; // TODO: looks suspicious, this should be done in plan building or checking
-    if plan.error.is_none() {
-        let _ = has_expirable_dependencies(envref, &mut plan).await; // TODO: looks suspicious, this should be done in plan building or checking
-    }
+    let _ = analyze_plan_dependencies(envref, &mut plan, None).await; // TODO: looks suspicious, this should be done in plan building or checking
     Ok(plan)
 }
 
@@ -681,29 +677,101 @@ impl<E: Environment> AsyncRecipeProvider<E> for TrivialRecipeProvider {
 ///
 /// Each file deserializes as [`RecipeList`]. Recipe query filenames identify the assets exposed in
 /// that directory, and the directory key is installed as each recipe's working key.
-pub struct DefaultRecipeProvider;
+///
+/// Parsed directories are cached. Every lookup still reads the stored `recipes.yaml` bytes and
+/// compares them with the cached copy, so a change — including one made behind Liquers' back — is
+/// seen at the next lookup, exactly as without the cache; what a hit saves is the YAML parse
+/// (`specs/design/dependency-chain-analysis-cost/`).
+#[derive(Debug, Default)]
+pub struct DefaultRecipeProvider {
+    cache: scc::HashMap<Key, Arc<CachedRecipes>>,
+    /// YAML parses performed, for tests that check the cache is hit.
+    #[cfg(test)]
+    parses: std::sync::atomic::AtomicUsize,
+}
+
+/// One directory's parsed `recipes.yaml`, with the bytes it was parsed from.
+#[derive(Debug)]
+struct CachedRecipes {
+    bytes: Vec<u8>,
+    /// With `cwd` already set to the directory.
+    list: RecipeList,
+    /// Filename to index into `list.recipes`; the first recipe with a name wins, as in
+    /// [`RecipeList::get`].
+    by_name: HashMap<String, usize>,
+}
+
+impl CachedRecipes {
+    fn get(&self, name: &str) -> Option<&Recipe> {
+        self.by_name.get(name).map(|index| &self.list.recipes[*index])
+    }
+}
 
 impl DefaultRecipeProvider {
+    /// A provider with nothing cached yet.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The parsed recipes of directory `key`, from the cache when the stored bytes are unchanged.
+    ///
+    /// Every store read failure — not only a missing file — is an empty recipe list, which is not
+    /// cached. Malformed YAML is an error, and is not cached either.
+    async fn cached_recipes<E: Environment>(
+        &self,
+        key: &Key,
+        envref: EnvRef<E>,
+    ) -> Result<Arc<CachedRecipes>, Error> {
+        let bytes = match envref
+            .get_async_store()
+            .get_bytes(&key.join("recipes.yaml"))
+            .await
+        {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                return Ok(Arc::new(CachedRecipes {
+                    bytes: Vec::new(),
+                    list: RecipeList::new(),
+                    by_name: HashMap::new(),
+                }))
+            }
+        };
+        if let Some(cached) = self.cache.read_async(key, |_, entry| entry.clone()).await {
+            if cached.bytes == bytes {
+                return Ok(cached);
+            }
+        }
+        #[cfg(test)]
+        self.parses
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let mut list: RecipeList = serde_yaml::from_slice(&bytes)
+            .map_err(|e| Error::general_error(format!("Error parsing recipes: {}", e)))?;
+        list.set_cwd(key.encode()).map_err(|e| e.with_key(key))?;
+        let mut by_name = HashMap::new();
+        for (index, recipe) in list.recipes.iter().enumerate() {
+            if let Ok(Some(filename)) = recipe.filename() {
+                by_name.entry(filename.name).or_insert(index);
+            }
+        }
+        let entry = Arc::new(CachedRecipes {
+            bytes,
+            list,
+            by_name,
+        });
+        self.cache.upsert_async(key.clone(), entry.clone()).await;
+        Ok(entry)
+    }
+
     /// Loads and parses `<key>/recipes.yaml`, then assigns `key` as every recipe's `cwd`.
     ///
     /// The current implementation maps every store read failure—not only a missing file—to an
-    /// empty recipe list. Malformed YAML remains an error. [`RecipeList::set_cwd`] may partially
-    /// mutate a list before rejecting a recipe that already specifies `cwd`.
+    /// empty recipe list. Malformed YAML remains an error.
     pub async fn get_recipes<E: Environment>(
         &self,
         key: &Key,
         envref: EnvRef<E>,
     ) -> Result<RecipeList, Error> {
-        let mut recipes: RecipeList = envref
-            .get_async_store()
-            .get_bytes(&key.join("recipes.yaml"))
-            .await
-            .map_or(Ok(RecipeList::new()), |bytes| {
-                serde_yaml::from_slice(&bytes)
-                    .map_err(|e| Error::general_error(format!("Error parsing recipes: {}", e)))
-            })?;
-        recipes.set_cwd(key.encode()).map_err(|e| e.with_key(key))?;
-        Ok(recipes)
+        Ok(self.cached_recipes(key, envref).await?.list.clone())
     }
 }
 
@@ -750,7 +818,7 @@ impl<E: Environment> AsyncRecipeProvider<E> for DefaultRecipeProvider {
 
     async fn recipe(&self, key: &Key, envref: EnvRef<E>) -> Result<Recipe, Error> {
         if let Some(filename) = key.filename() {
-            let recipes = self.get_recipes(&key.parent(), envref).await?;
+            let recipes = self.cached_recipes(&key.parent(), envref).await?;
             recipes.get(&filename.name).map_or(
                 Err(Error::general_error(format!("No recipe found for key {}", key)).with_key(key)),
                 |recipe| Ok(recipe.clone()),
@@ -766,7 +834,7 @@ impl<E: Environment> AsyncRecipeProvider<E> for DefaultRecipeProvider {
         if let Some(filename) = key.filename() {
             let parent_key = key.parent();
             if self.has_recipes(&parent_key, envref.clone()).await? {
-                let recipes = self.get_recipes(&parent_key, envref).await?;
+                let recipes = self.cached_recipes(&parent_key, envref).await?;
                 return Ok(recipes.get(&filename.name).cloned());
             }
         }
@@ -889,7 +957,7 @@ impl RecipeProviderChoice {
     /// The provider this choice names, shared.
     pub fn provider<E: Environment>(self) -> Arc<dyn AsyncRecipeProvider<E>> {
         match self {
-            RecipeProviderChoice::Default => Arc::new(DefaultRecipeProvider),
+            RecipeProviderChoice::Default => Arc::new(DefaultRecipeProvider::new()),
             RecipeProviderChoice::Trivial => Arc::new(TrivialRecipeProvider),
         }
     }
@@ -901,7 +969,7 @@ impl RecipeProviderChoice {
     /// `Arc::from(Box::new(…))` at the call site.
     pub fn boxed_provider<E: Environment>(self) -> Box<dyn AsyncRecipeProvider<E>> {
         match self {
-            RecipeProviderChoice::Default => Box::new(DefaultRecipeProvider),
+            RecipeProviderChoice::Default => Box::new(DefaultRecipeProvider::new()),
             RecipeProviderChoice::Trivial => Box::new(TrivialRecipeProvider),
         }
     }
@@ -1696,7 +1764,7 @@ mod test {
         let envref: EnvRef<SimpleEnvironment<Value>> = env.to_ref();
 
         // Create a DefaultRecipeProvider
-        let provider = super::DefaultRecipeProvider;
+        let provider = super::DefaultRecipeProvider::new();
 
         // Test has_recipes
         let folder_key = parse_key("folder").unwrap();
@@ -2389,9 +2457,116 @@ mod unsupported_key_tests {
         let envref = env.to_ref();
         let key = parse_key("data/input.txt")?;
 
-        assert!(!DefaultRecipeProvider.has_recipes(&key.parent(), envref.clone()).await?);
-        assert!(DefaultRecipeProvider.recipe_opt(&key, envref.clone()).await?.is_none());
-        assert!(!DefaultRecipeProvider.contains(&key, envref).await?);
+        assert!(!DefaultRecipeProvider::new().has_recipes(&key.parent(), envref.clone()).await?);
+        assert!(DefaultRecipeProvider::new().recipe_opt(&key, envref.clone()).await?.is_none());
+        assert!(!DefaultRecipeProvider::new().contains(&key, envref).await?);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod recipe_cache_tests {
+    //! The per-directory recipe cache of [`DefaultRecipeProvider`]
+    //! (`specs/design/dependency-chain-analysis-cost/`, Phase 3 U12-U14).
+    use super::*;
+    use crate::context::SimpleEnvironment;
+    use crate::metadata::Metadata;
+    use crate::parse::parse_key;
+    use crate::store::AsyncMemoryStore;
+    use crate::value::Value;
+    use std::sync::atomic::Ordering;
+
+    type TestEnv = SimpleEnvironment<Value>;
+
+    fn env() -> EnvRef<TestEnv> {
+        let mut env = TestEnv::new();
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+        env.to_ref()
+    }
+
+    async fn write_recipes(envref: &EnvRef<TestEnv>, yaml: &str) -> Result<(), Error> {
+        envref
+            .get_async_store()
+            .set(&parse_key("data/recipes.yaml")?, yaml.as_bytes(), &Metadata::new())
+            .await
+    }
+
+    fn yaml(recipes: &[(&str, &str)]) -> Result<String, Error> {
+        let mut list = RecipeList::new();
+        for (query, title) in recipes {
+            list.add_recipe(Recipe::new(query.to_string(), title.to_string(), String::new())?);
+        }
+        serde_yaml::to_string(&list).map_err(|e| Error::general_error(e.to_string()))
+    }
+
+    #[tokio::test]
+    async fn recipe_cache_hits_without_reparse() -> Result<(), Box<dyn std::error::Error>> {
+        let envref = env();
+        write_recipes(&envref, &yaml(&[("make/a.txt", "A"), ("make/b.txt", "B")])?).await?;
+        let provider = DefaultRecipeProvider::new();
+        let a = provider.recipe_opt(&parse_key("data/a.txt")?, envref.clone()).await?;
+        let b = provider.recipe_opt(&parse_key("data/b.txt")?, envref.clone()).await?;
+        assert_eq!(a.map(|r| r.title), Some("A".to_owned()));
+        assert_eq!(b.map(|r| r.title), Some("B".to_owned()));
+        assert_eq!(provider.parses.load(Ordering::SeqCst), 1);
+        // The cached recipes carry the directory as their working key, as a fresh parse does.
+        let recipe = provider.recipe(&parse_key("data/a.txt")?, envref).await?;
+        assert_eq!(recipe.cwd.as_deref(), Some("data"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn recipe_cache_sees_out_of_band_edit() -> Result<(), Box<dyn std::error::Error>> {
+        let envref = env();
+        write_recipes(&envref, &yaml(&[("make/a.txt", "Before")])?).await?;
+        let provider = DefaultRecipeProvider::new();
+        let key = parse_key("data/a.txt")?;
+        assert_eq!(provider.recipe(&key, envref.clone()).await?.title, "Before");
+        // Written straight to the store: no manager, no `directory_changed`.
+        write_recipes(&envref, &yaml(&[("make/a.txt", "After")])?).await?;
+        assert_eq!(provider.recipe(&key, envref).await?.title, "After");
+        assert_eq!(provider.parses.load(Ordering::SeqCst), 2);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn recipe_cache_first_duplicate_wins() -> Result<(), Box<dyn std::error::Error>> {
+        let envref = env();
+        write_recipes(&envref, &yaml(&[("make/a.txt", "First"), ("other/a.txt", "Second")])?)
+            .await?;
+        let provider = DefaultRecipeProvider::new();
+        let recipe = provider.recipe_opt(&parse_key("data/a.txt")?, envref.clone()).await?;
+        assert_eq!(recipe.map(|r| r.title), Some("First".to_owned()));
+        let list = provider.get_recipes(&parse_key("data")?, envref).await?;
+        assert_eq!(list.get("a.txt").map(|r| r.title.clone()), Some("First".to_owned()));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn recipe_cache_does_not_cache_malformed_yaml() -> Result<(), Box<dyn std::error::Error>> {
+        let envref = env();
+        write_recipes(&envref, "recipes: [ this is: not valid").await?;
+        let provider = DefaultRecipeProvider::new();
+        let key = parse_key("data/a.txt")?;
+        assert!(provider.recipe_opt(&key, envref.clone()).await.is_err());
+        assert!(provider.recipe_opt(&key, envref.clone()).await.is_err());
+        assert_eq!(provider.parses.load(Ordering::SeqCst), 2, "each lookup tries again");
+        write_recipes(&envref, &yaml(&[("make/a.txt", "Fixed")])?).await?;
+        assert_eq!(
+            provider.recipe_opt(&key, envref).await?.map(|r| r.title),
+            Some("Fixed".to_owned())
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn default_recipe_provider_new_equals_default() -> Result<(), Box<dyn std::error::Error>> {
+        let envref = env();
+        write_recipes(&envref, &yaml(&[("make/a.txt", "A")])?).await?;
+        let key = parse_key("data/a.txt")?;
+        let from_new = DefaultRecipeProvider::new().recipe(&key, envref.clone()).await?;
+        let from_default = DefaultRecipeProvider::default().recipe(&key, envref).await?;
+        assert_eq!(from_new.title, from_default.title);
         Ok(())
     }
 }

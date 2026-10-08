@@ -3,7 +3,7 @@ title: Building and Configuring an Environment
 kind: guide
 audience: both
 area: [core/context, core/assets, core/store]
-reviewed: 2026-10-02
+reviewed: 2026-10-08
 ---
 # Building and Configuring an Environment
 
@@ -118,6 +118,9 @@ The three policies apply to both built-in kinds; what each value means is in
 [`ENVIRONMENT_CONFIG.md`](../reference/ENVIRONMENT_CONFIG.md) §`assets`. A kind refuses a field it
 cannot honour at `build()` instead of ignoring it: `job_capacity` on `Inline` is an error, and so is
 `job_capacity: 0` on `Queued`.
+
+Which `dependency_audit` to choose, and how to run an optional audit of the whole store right after
+`build()`, is in [`DEPENDENCY_CONSISTENCY_GUIDE.md`](DEPENDENCY_CONSISTENCY_GUIDE.md).
 
 ## Configuring from a document
 
@@ -341,6 +344,7 @@ is the moment when that is safe: it runs before anything else can observe the re
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-08 | §Manager options links the new dependency consistency guide (choosing `dependency_audit`, the startup store audit). | phase-5 (`design/dependency-chain-analysis-cost/`) |
 | 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. New §Manager options: the `AssetManagerOptions` setters `with_job_capacity`, `with_dependency_audit`, `with_verify_versions`, `with_external_change`; the configuration example shows the three policy keys. §Choosing an execution model links the new asset-manager guide for a custom kind. §The readiness guarantee: `register_plan_dependencies` no longer skips a dependency with no version, so the account of the old defect is now in the past tense. | phase-5 |
 | 2026-09-27 | Recipe providers as a chain: `with_appended_recipe_provider`, `liquers-lib`'s default chain with `records`, and `with_records_recipe_provider` for builds that replace the base | phase-5 (`design/record-streams/`) |
 | 2026-09-05 | Added command-metadata preflight, full-report access, bounded build errors, and the builder-only validation boundary. | `design/variadic-metadata-tail-check` |

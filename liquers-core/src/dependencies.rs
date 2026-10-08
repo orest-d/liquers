@@ -7,7 +7,7 @@
 //! Pure data types (`Version`, `DependencyKey`, `DependencyRecord`) live in `crate::metadata`.
 //! This module defines the relationship/graph types and the `DependencyManager<E>`.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::assets::{AuditFinding, WeakAssetRef};
 use crate::context::Environment;
@@ -199,12 +199,21 @@ impl<E: Environment> DependencyManager<E> {
     /// Register (or update) the version for a dependency key.
     ///
     /// If the version changes, all transitive dependents are expired and returned.
+    ///
+    /// A first registration is not a change, with one exception: a dependent whose edge records
+    /// a **concrete, different** version was built from other content, and is expired
+    /// ([`Self::expire_contradicted_dependents`]). Only a stored dependency record produces such
+    /// an edge — a plan registers an edge to a key it has no version for as `Version::unknown()`
+    /// — so this is the dependent loaded from the store on top of a dependency this process has
+    /// just recomputed (`specs/design/dependency-chain-analysis-cost/`). An edge recording
+    /// `Version::unknown()` is spared, as on the evaluation path it must be.
     pub(crate) async fn register_version(
         &self,
         key: &DependencyKey,
         version: Version,
     ) -> ExpiredDependents<E> {
         let mut version_changed = false;
+        let mut first_registration = false;
         match self.versions.entry_async(key.clone()).await {
             scc::hash_map::Entry::Occupied(mut entry) => {
                 version_changed = *entry.get() != version;
@@ -212,14 +221,38 @@ impl<E: Environment> DependencyManager<E> {
             }
             scc::hash_map::Entry::Vacant(entry) => {
                 entry.insert_entry(version);
+                first_registration = true;
             }
         }
 
         if version_changed {
             self.expire_stale_dependents(key, version).await
+        } else if first_registration && !version.is_unknown() {
+            self.expire_contradicted_dependents(key, version).await
         } else {
             ExpiredDependents::for_root(key.clone())
         }
+    }
+
+    /// Expire the dependents whose edge records a concrete version of `key` other than
+    /// `version`: positive evidence that they were built from other content. Edges recording
+    /// `Version::unknown()` and weak-reference dependents are left alone.
+    async fn expire_contradicted_dependents(
+        &self,
+        key: &DependencyKey,
+        version: Version,
+    ) -> ExpiredDependents<E> {
+        let mut frontier = Vec::new();
+        for (dependent, expected) in self.snapshot_dependent_edges(key).await {
+            if !expected.is_unknown() && expected != version {
+                self.remove_edge(key, &dependent).await;
+                frontier.push(dependent);
+            }
+        }
+        if frontier.is_empty() {
+            return ExpiredDependents::for_root(key.clone());
+        }
+        self.expire_from_frontier(key, frontier, Vec::new()).await
     }
 
     /// Write counterpart of [`Self::register_version`]: record `version` as the content just
@@ -1009,21 +1042,44 @@ impl<E: Environment> DependencyManager<E> {
     }
 
     /// The gaps that checking `key` alone requires: the subset of [`Self::missing_versions`]
-    /// reachable from `key`'s own recorded dependencies.
+    /// reachable from `key`'s own recorded dependencies, transitively.
     ///
-    /// `keyed_dependents` is indexed by *dependency*, so this scans for entries in which `key`
-    /// appears as a dependent rather than walking outward from `key`.
+    /// A dependency the manager knows is trusted, but the walk continues through it: a version
+    /// known after a one-level fast track says nothing about what lies upstream of it.
+    /// `keyed_dependents` is indexed by *dependency*, so one scan builds the reverse index
+    /// (dependent → its dependencies) and a breadth-first search runs from `key`. In memory, O(E).
     pub(crate) fn missing_versions_for(&self, key: &DependencyKey) -> Vec<DependencyKey> {
-        let mut out = Vec::new();
+        let mut upstream: HashMap<DependencyKey, Vec<(DependencyKey, Version)>> = HashMap::new();
         self.keyed_dependents.iter_sync(|dependency, edges| {
-            let expected = edges.read_sync(key, |_, version| *version);
-            if let Some(expected) = expected {
-                if !expected.is_unknown() && self.version_is_unknown(dependency) {
-                    out.push(dependency.clone());
-                }
-            }
+            edges.iter_sync(|dependent, expected| {
+                upstream
+                    .entry(dependent.clone())
+                    .or_default()
+                    .push((dependency.clone(), *expected));
+                true
+            });
             true
         });
+        let mut out = Vec::new();
+        let mut reported = HashSet::new();
+        let mut visited = HashSet::from([key.clone()]);
+        let mut queue = VecDeque::from([key.clone()]);
+        while let Some(dependent) = queue.pop_front() {
+            let Some(dependencies) = upstream.get(&dependent) else {
+                continue;
+            };
+            for (dependency, expected) in dependencies {
+                if !expected.is_unknown()
+                    && self.version_is_unknown(dependency)
+                    && reported.insert(dependency.clone())
+                {
+                    out.push(dependency.clone());
+                }
+                if visited.insert(dependency.clone()) {
+                    queue.push_back(dependency.clone());
+                }
+            }
+        }
         out
     }
 
@@ -2266,15 +2322,34 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn register_version_first_registration_still_expires_nothing() {
+    async fn missing_versions_for_walks_the_upstream_closure() {
+        // c depends on b, b on a. b is known (loaded one level deep); a is not.
         let dm = DependencyManager::<TestEnv>::new();
-        let (a, b) = (dk("-R/a"), dk("-R/b"));
+        let (a, b, c) = (dk("-R/a"), dk("-R/b"), dk("-R/c"));
+        dm.register_version(&b, v(2)).await;
         dm.add_dependency(&b, &a, v(1)).await.unwrap();
+        dm.add_dependency(&c, &b, v(2)).await.unwrap();
+
+        assert_eq!(dm.missing_versions_for(&c), vec![a]);
+    }
+
+    #[tokio::test]
+    async fn register_version_first_registration_expires_only_contradicted_edges() {
+        // A first registration is not a change, except for an edge recording a concrete, other
+        // version: only a stored record makes one, and its dependent was built from other content.
+        let dm = DependencyManager::<TestEnv>::new();
+        let (a, contradicted, matching, unknown) =
+            (dk("-R/a"), dk("-R/contradicted"), dk("-R/matching"), dk("-R/unknown"));
+        dm.add_dependency(&contradicted, &a, v(1)).await.unwrap();
+        dm.add_dependency(&matching, &a, v(2)).await.unwrap();
+        dm.add_dependency(&unknown, &a, Version::unknown()).await.unwrap();
 
         let expired = dm.register_version(&a, v(2)).await;
 
-        assert!(expired.is_empty(), "a first registration is not a change");
-        assert_eq!(expired.root, Some(a));
+        assert_eq!(expired.root, Some(a.clone()));
+        assert!(expired.contains_key(&contradicted));
+        assert!(!expired.contains_key(&matching));
+        assert!(!expired.contains_key(&unknown), "the evaluation path's unknown edge is spared");
     }
 
     #[test]

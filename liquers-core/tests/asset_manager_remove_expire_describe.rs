@@ -40,7 +40,7 @@ fn env_over(store: AsyncMemoryStore) -> EnvRef<SimpleEnvironment<Value>> {
         })
         .unwrap();
     env.with_async_store(Box::new(store));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     env.to_ref()
 }
 

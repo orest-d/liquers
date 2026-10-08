@@ -127,7 +127,7 @@ async fn test_keyed_recipe_requiring_payload_is_rejected() -> Result<(), Box<dyn
         )
         .await?;
     env.with_async_store(Box::new(store));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
 
     let envref = env.to_ref();
     let key = parse_key("dash.txt")?;
@@ -242,7 +242,7 @@ async fn test_volatile_keyed_recipe_evaluates() -> Result<(), Box<dyn std::error
         )
         .await?;
     env.with_async_store(Box::new(store));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
 
     let envref = env.to_ref();
     let asset = envref.evaluate("-R/dash.txt").await?;

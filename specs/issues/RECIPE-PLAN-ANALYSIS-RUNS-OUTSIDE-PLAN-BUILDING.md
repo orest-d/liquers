@@ -43,6 +43,10 @@ Three things are off, beyond the placement the markers name:
 The function feeds `RecipeProvider::get_asset_info`, so the `is_volatile` and `expires` a
 directory listing or asset preview reports come from this path rather than the evaluation one.
 
+**Update 2026-10-08.** `dependency-chain-analysis-cost` merged the two passes into one call,
+`let _ = analyze_plan_dependencies(envref, &mut plan, None).await`. The discarded result, the CWD
+`None` and the duplication with `finalize_plan` remain as described above.
+
 ## Impact
 
 A preview can disagree with the evaluation about volatility, expiration, or dependencies for a

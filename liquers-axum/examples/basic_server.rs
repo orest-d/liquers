@@ -2,12 +2,14 @@
 ///
 /// This example demonstrates how to:
 /// - Create a SimpleEnvironment with a file-based store
+/// - Optionally audit the store on start (`LIQUERS_STARTUP_AUDIT=1`)
 /// - Build Query API and Store API routers
 /// - Compose them into a single Axum application
 /// - Run the server on localhost:3000
 ///
 /// Usage:
 ///   cargo run -p liquers-axum --example basic_server
+///   LIQUERS_STARTUP_AUDIT=1 cargo run -p liquers-axum --example basic_server
 ///
 /// Then test with:
 ///   curl http://localhost:3000/liquer/q/text-Hello
@@ -17,6 +19,7 @@ use std::sync::Arc;
 use liquers_axum::{QueryApiBuilder, StoreApiBuilder};
 use liquers_core::store::AsyncFileStore;
 use liquers_core::{
+    assets::{AssetManager, AuditMode},
     command_metadata::CommandKey,
     commands::CommandArguments,
     context::{Context, SimpleEnvironment},
@@ -71,6 +74,26 @@ async fn main() {
     register_commands(&mut builder.command_registry).expect("Failed to register commands");
 
     let env_ref = builder.build().expect("Failed to build environment");
+
+    // Optional startup audit. The default dependency policy trusts what it loads: a stored value
+    // whose upstream changed between runs (a command upgraded, a file edited) is served until
+    // something touches that upstream. Auditing the store on start reads each stored value's
+    // metadata once and expires what no longer holds, so the server starts consistent. See
+    // specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md.
+    if std::env::var("LIQUERS_STARTUP_AUDIT").is_ok_and(|v| v == "1") {
+        match env_ref
+            .get_asset_manager()
+            .trigger_dependency_audit_store(&Key::new(), AuditMode::Expire)
+            .await
+        {
+            Ok(report) => println!(
+                "Startup audit: {} stored values checked, {} expired",
+                report.checked.len(),
+                report.expired.len()
+            ),
+            Err(e) => eprintln!("Startup audit failed: {}", e),
+        }
+    }
 
     // Build Query API router (GET/POST /q/{*query})
     let query_router = QueryApiBuilder::new("/liquer/q").build();

@@ -49,7 +49,7 @@ async fn env_with(recipes: &[(&str, &str, &str)]) -> EnvRef<SimpleEnvironment<Va
         .await
         .unwrap();
     env.with_async_store(Box::new(store));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     env.to_ref()
 }
 

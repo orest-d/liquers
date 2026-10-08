@@ -3,7 +3,7 @@ title: Assets and Execution Lifecycle Reference
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-07
+reviewed: 2026-10-08
 ---
 # DOC-03: Assets and Execution Lifecycle
 
@@ -145,7 +145,8 @@ initial input value. It accepts stored `Ready`, `Source`, and `Override` metadat
 then:
 
 1. Deserializes the stored value
-2. Checks known dependency versions
+2. Checks known dependency versions; under `dependency_audit: on_load`, a recorded dependency the
+   manager does not know is resolved by the stored-records walk, recursively
 3. Checks that no recorded dependency is in a status it would not itself reuse
 4. Loads dependency records into the dependency manager
 5. Installs data, binary, metadata, and stored status
@@ -156,8 +157,11 @@ a dependency in a non-reusable status reject the fast track and continue with
 evaluation.
 
 Steps 2 and 3 answer different questions and neither subsumes the other. Step 2
-detects a dependency that was recomputed into different content, and is vacuous in
-a process whose dependency manager holds no versions yet. Step 3 detects a
+detects a dependency that was recomputed into different content. Under the default
+`explicit` policy it is vacuous for a dependency this process has not seen yet; under
+`on_load` it reaches as far upstream as the stored records go. Records are direct, so
+this is the only way a load sees past its immediate dependencies (see
+[`DEPENDENCIES_STATUS.md` §Consistency policies](../DEPENDENCIES_STATUS.md#consistency-policies)). Step 3 detects a
 dependency that is stale right now, asking the live asset first and the stored
 metadata only as a fallback. A dependency neither can address is inconclusive, not
 expired, and does not reject the fast track.
@@ -439,6 +443,7 @@ implements a manager outside the crate against the shared manager scenarios. See
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-08 | §Identity, caching, and fast track: step 2 under `on_load` uses the stored-records walk; records are direct, so step 2 is what reaches upstream. | phase-5 (`design/dependency-chain-analysis-cost/`) |
 | 2026-10-07 | §Persistence contract step 6 and the `PersistenceStatus` row: a write skipped because the asset was cancelled records `None`, as a `stored: false` skip does; it had recorded `Persisted`. The route table: the immediate lazy check cascades as the monitor does. | phase-5 (`design/save-to-store-skip-outcome/`, `design/immediate-lazy-expiry-cascade/`) |
 | 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. §Expiration, recovery, and cancellation: the route/reason table for `expiry_reason`, the immediate manager's lazy check (fires on the deadline, does not cascade), and `remove` corrected to the status-aware behaviour. The P1 "public trait exposes a private dependency-manager type" row is removed: resolved, the trait is implementable outside core. | phase-5 |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. §Identity, caching, and fast track: a `cached: false` key gets a fresh unregistered, non-volatile asset that stays its key's graph node. §Persistence contract: `stored: false` skips every write including the metadata saver's, a skipped write records `None` (fixed in this phase; it had recorded `Persisted`), and `set_state`/`set_binary` follow the supplied metadata's flag. Step 5 corrected from "a key or `store_to` key" to "keyed", as the 2026-09-04 row already stated. | phase-5 |

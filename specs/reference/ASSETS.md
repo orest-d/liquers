@@ -3,7 +3,7 @@ title: Assets Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-07
+reviewed: 2026-10-08
 ---
 # Assets Specification
 
@@ -66,7 +66,12 @@ an opaque type built with `DependencyManager::new()`) and `KeyMutationAccess` (o
 lifecycle work is in provided methods — among them `record_expiry`, `publish_version`,
 `expire_dependencies_result`, `cascade_expire_dependents`, `apply_external_change` — and three
 policy accessors (`dependency_audit_policy`, `version_verification`, `external_change_policy`)
-default to `Explicit`, `OnRead` and `UserInput`; a manager that is configurable overrides them. How
+default to `Explicit`, `OnRead` and `UserInput`; a manager that is configurable overrides them.
+Among the provided methods are the dependency checks: `stored_dependency_state` (the
+stored-records walk), `trigger_dependency_audit` (per key, over the upstream closure),
+`trigger_dependency_audit_all_registered` and `trigger_dependency_audit_store` (every stored
+value, typically on start). What each consistency policy guarantees is in
+[`DEPENDENCIES_STATUS.md` §Consistency policies](DEPENDENCIES_STATUS.md#consistency-policies). How
 to implement and test one: [`ASSET_MANAGER_IMPLEMENTATION_GUIDE.md`](../guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md).
 
 #### Key ownership
@@ -298,7 +303,7 @@ the cascade reached it (equal to `root` for a direct dependent). The seven cause
 | `Deadline { expiration_time }` | queued manager's expiration monitor; immediate manager's lazy check on `get` / `get_asset` | `Direct` | `Cascaded` (both managers: once the lazy check finds the deadline passed, it cascades as the monitor does) | Info |
 | `Explicit` | `AssetRef::expire`, `AssetManager::expire(key)` (live or stored-only) | `Direct` | `Cascaded` | Info |
 | `Audit { found }` | `trigger_dependency_audit*` in `AuditMode::Expire`; `found` is the current version, 0 when none | not expired | `Cascaded` | Warning |
-| `StaleDependency { dependency }` | an evaluation that waited (through `wait_for_dependency`) on a dependency that expired meanwhile, or that recorded its edge against a dependency version the map had already replaced | `Direct`, born `Expired` | `Cascaded`, root = the asset, cause still naming the stale input | Warning |
+| `StaleDependency { dependency }` | an evaluation that waited (through `wait_for_dependency`) on a dependency that expired meanwhile, or that recorded its edge against a dependency version the map had already replaced; an audit (`trigger_dependency_audit*` in `AuditMode::Expire`) that found a gap stale upstream, `dependency` naming what broke; the store audit (`trigger_dependency_audit_store`) on each stale stored value | `Direct`, born `Expired` (a stale stored value: `Direct`, persisted) | `Cascaded`, root = the asset (for an audit gap: the gap), cause still naming the stale input | Warning |
 | `UpdatedInStore { actual }` | stored bytes no longer match the recorded version (§Content changed outside Liquers) | not expired: becomes input, or is deleted | `Cascaded` | Warning |
 | `Updated { version }` | new content through Liquers: a recomputation with a new version, `set_state`, `set_binary`, `publish_version`, a fast-track load registering a different version, a changed command version, a changed folder listing | not expired | `Cascaded` | Info |
 | `Removed` | `AssetManager::remove` deleting a value (a `Source`/`Override`, or a key with no recipe) | removed | `Cascaded` | Info |
@@ -1167,6 +1172,7 @@ each with an `ExpiryReason` (§Why an asset is `Expired`). The rules are in
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-08 | §AssetManager names the dependency checks (`stored_dependency_state`, the per-key audit over the upstream closure, `trigger_dependency_audit_store`) and links §Consistency policies. The `StaleDependency` row gains the audit routes. | phase-5 (`design/dependency-chain-analysis-cost/`) |
 | 2026-10-07 | §Why an asset is `Expired`: a value supplied already `Expired` keeps its supplied reason and logs the warning `Asset expired` plus an after-the-fact info entry; one written-status rule for every manager. New §Progress after completion: started progress of a finished asset is done, unstarted progress stays absent, finalized after the service loop drains. The `Deadline` row: the immediate manager's lazy check cascades too. The manager-level recovery reads defer a `None`/`Recipe` placeholder to the store, and answer `Ok(None)` for a metadata-only entry. The `StaleDependency` row also covers an edge recorded against a superseded version. | phase-5 (`design/supplied-expired-status-reason/`, `design/immediate-set-state-status-match/`, `design/finished-asset-progress-contract/`, `design/immediate-lazy-expiry-cascade/`, `design/recovery-read-defers-placeholder/`, `design/memory-store-metadata-only-entry/`, `design/dependency-edge-superseded-version/`) |
 | 2026-10-06 | §Remove Semantics: `set_description` points to `Context::set_title` / `set_description` and its recipe-wins rule. | phase-5 |
 | 2026-10-06 | §Related keyed operations: `contains` vs `can_make`; `listdir_keys_deep` is complete (recipe keys at every store directory, `keys()` includes root recipes); `removedir` unmaps the directory's own recipe assets. `refresh_listing_version` also notifies the recipe provider. | phase-5 |

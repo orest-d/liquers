@@ -12,8 +12,8 @@ use crate::{
     metadata::{DependencyKey, DependencyRecord, ExpiryCause, LogEntry, Metadata, Version},
     parse::{SimpleTemplate, SimpleTemplateElement},
     plan::{
-        has_expirable_dependencies, has_volatile_dependencies, ParameterValue, Plan, PlanBuilder,
-        ResolvedParameterValues, Step,
+        analyze_plan_dependencies, ParameterValue, Plan, PlanBuilder, ResolvedParameterValues,
+        Step,
     },
     query::{CwdCursor, Key, Query, QuerySegment, TryToQuery, RELATIVE_WITHOUT_CWD_WARNING},
     recipes::Recipe,
@@ -62,8 +62,7 @@ pub async fn finalize_plan_expanded<E: Environment>(
     if defaulted_to_root && context.install_logical_root_if_unset() {
         context.warning(RELATIVE_WITHOUT_CWD_WARNING)?;
     }
-    has_volatile_dependencies(envref.clone(), plan, initial_cwd).await?;
-    has_expirable_dependencies(envref.clone(), plan).await?;
+    analyze_plan_dependencies(envref.clone(), plan, initial_cwd).await?;
 
     if !plan.is_volatile {
         let manager = envref.get_asset_manager();
@@ -172,11 +171,8 @@ async fn make_plan_with_cwd<E: Environment, Q: TryToQuery>(
     // Phase 1: Build plan, check commands and 'v' instruction
     let mut plan = pb.build()?;
 
-    // Phase 2: Check asset dependencies for volatility
-    has_volatile_dependencies(envref.clone(), &mut plan, initial_cwd).await?;
-
-    // Phase 3: Check asset dependencies for expiration
-    has_expirable_dependencies(envref, &mut plan).await?;
+    // Phase 2: Analyse asset dependencies: direct dependencies, volatility and expiration
+    analyze_plan_dependencies(envref, &mut plan, initial_cwd).await?;
 
     Ok(plan)
 }
@@ -2254,7 +2250,7 @@ mod tests {
         // Create a SimpleEnvironment and set the async store
         let mut env = SimpleEnvironment::<Value>::new();
         env.with_async_store(Box::new(memory_store));
-        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider));
+        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider::new()));
 
         let envref: EnvRef<SimpleEnvironment<Value>> = env.to_ref();
 
@@ -2301,7 +2297,7 @@ mod tests {
         // Create a SimpleEnvironment and set the async store
         let mut env = SimpleEnvironment::<Value>::new();
         env.with_async_store(Box::new(memory_store));
-        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider));
+        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider::new()));
 
         let envref: EnvRef<SimpleEnvironment<Value>> = env.to_ref();
 

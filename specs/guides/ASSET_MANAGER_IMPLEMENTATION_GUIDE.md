@@ -4,7 +4,7 @@ title: Asset Manager Implementation Guide
 kind: guide
 audience: both
 area: [core/assets]
-reviewed: 2026-10-07
+reviewed: 2026-10-08
 ---
 # Asset Manager Implementation Guide
 
@@ -391,11 +391,14 @@ let envref = MinimalEnv::new().to_ref();
 let builder = EnvironmentBuilder::<Value, (), MinimalKind>::new()
     .with_asset_manager_options(AssetManagerOptions::default().with_dependency_audit(policy))
     .with_async_store(Arc::new(store))
-    .with_recipe_provider(Arc::new(DefaultRecipeProvider));
+    .with_recipe_provider(Arc::new(DefaultRecipeProvider::new()));
 ```
 
 `external_manager_honours_audit_policy` checks that the option reaches the manager and changes what
-a restart does.
+a restart does. The stored-records walk behind `on_load` and the audits
+(`stored_dependency_state`, `trigger_dependency_audit_store`) are provided methods built on
+`dependency_manager()`, the store and `expire_dependencies_result`, so an external manager inherits
+them; see [`DEPENDENCIES_STATUS.md` §Consistency policies](../reference/DEPENDENCIES_STATUS.md#consistency-policies).
 
 ## 10. Running the shared scenarios
 
@@ -471,6 +474,7 @@ store conformance suite: shared scenarios, no rule numbers and no capability mod
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-08 | `DefaultRecipeProvider` is constructed with `::new()` (it holds a recipe cache). The audit-policy section notes that the stored-records walk and the store audit are inherited provided methods. | phase-5 (`design/dependency-chain-analysis-cost/`) |
 | 2026-10-07 | `remove_expired_from_maps`: the id comparison and the removal must be one atomic map operation. Deadlines: a lazy check that finds the deadline passed must cascade (`expire_without_cascade` then `cascade_expire_dependents`); the known-limit row is removed. | phase-5 (`design/queued-manager-conditional-eviction/`, `design/immediate-lazy-expiry-cascade/`) |
 | 2026-10-06 | `refresh_listing_version` also notifies the recipe provider; every write path must call it. | phase-5 |
 | 2026-10-02 | Created: decisions before writing code, what to hold, required and provided methods, the lifecycle primitives and their contracts, the key-mutation lock, registration invariants, overriding `record_expiry`, providing an `AssetManagerKind`, running the shared scenarios, known limits. Snippets from `tests/common/minimal_manager.rs` and `tests/external_asset_manager.rs`. | phase-5 (`design/dependency-audit-and-expiry-provenance/`) |

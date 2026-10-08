@@ -112,7 +112,7 @@ fn env_over_store(
     let mut env = TestEnv::new();
     register_chain_commands(&mut env, counter)?;
     env.with_async_store(store);
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     Ok(env.to_ref())
 }
 

@@ -3,7 +3,7 @@ title: Environment Configuration
 kind: reference
 audience: both
 area: [core/context, core/store, core/assets]
-reviewed: 2026-10-02
+reviewed: 2026-10-08
 ---
 # Environment Configuration
 
@@ -54,7 +54,7 @@ is omitted when the options are serialized.
 | Key | Values | Default | Meaning |
 |---|---|---|---|
 | `job_capacity` | integer | the manager's own (4) | Queued manager's job-queue size; **must be at least 1**. |
-| `dependency_audit` | `explicit` \| `on_load` | `explicit` | When recorded dependency versions are verified. `explicit`: only when `trigger_dependency_audit*` is called. `on_load`: also when a keyed asset is loaded from the store — a recorded dependency the dependency manager holds no version for is resolved, and a different or missing current version refuses the stored copy, so it is recomputed. See [Dependencies status](./DEPENDENCIES_STATUS.md). |
+| `dependency_audit` | `explicit` \| `on_load` | `explicit` | How much a restarted process checks before serving a stored value. `explicit` (trusting): a recorded dependency is compared with what the dependency manager already knows, and an unknown one is trusted; deeper checks run only when an audit is called (`trigger_dependency_audit*`, including the startup store audit `trigger_dependency_audit_store`). `on_load` (conservative): a recorded dependency the manager does not know is resolved from the store, together with everything it recorded, recursively; a mismatch, a stale upstream or a missing intermediate refuses the stored copy, so it is recomputed. See [Dependencies status §Consistency policies](./DEPENDENCIES_STATUS.md#consistency-policies) and [the consistency guide](../guides/DEPENDENCY_CONSISTENCY_GUIDE.md). |
 | `verify_versions` | `off` \| `on_read` | `on_read` | Whether stored bytes are re-hashed against their recorded version where the manager already reads them (fast track, `*_any_status`, `verify_stored_versions`). `off` never hashes, so outside edits go unnoticed. |
 | `external_change` | `user_input` \| `corrupted` | `user_input` | What a mismatch on a **recipe-backed** stored value means: `user_input` turns it into an `Override`; `corrupted` deletes the stored copy so the recipe recomputes it. A `Source` or `Override` is always kept as input. See [ASSETS §Content changed outside Liquers](./ASSETS.md#content-changed-outside-liquers). |
 
@@ -185,6 +185,7 @@ yet, so no built-in path calls it today; an application that does must.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-08 | `dependency_audit` row: the two values described as the trusting and conservative policies; `on_load` resolves upstream recursively; the startup store audit named; links to §Consistency policies and the new guide. | phase-5 (`design/dependency-chain-analysis-cost/`) |
 | 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. §Format gains the `assets` key table: `dependency_audit` (`explicit` \| `on_load`), `verify_versions` (`off` \| `on_read`) and `external_change` (`user_input` \| `corrupted`), with defaults and meaning, checked against `AssetManagerOptions`' serde names. | phase-5 |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. Added §The recipe provider chain: `RecipeProviderChain` and its delegation rules, `with_appended_recipe_provider` on the builder and on `GenericEnvironment`, `RecipeProviderChoice` unchanged and selecting only the base, `liquers-lib`'s `[DefaultRecipeProvider, ManifestRecipeProvider]` default with `records`, and `with_records_recipe_provider()` for a build that sets its own base. `recipes: default` answers "no recipes" for a folder the store refuses as unsupported. | phase-5 |
 | 2026-08-31 | Created with `EnvironmentConfig`: fields, constructors, deferred failures, the two deliberate omissions, and the `recipes`-absent asymmetry. | `design/environment-builder/phase-5` |

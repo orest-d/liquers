@@ -72,7 +72,7 @@ fn build_default_env(store: AsyncMemoryStore) -> Result<EnvRef<SimpleEnvironment
         register_command!(cr, fn plain(state) -> result)?;
     }
     env.with_async_store(Box::new(store));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     Ok(env.to_ref())
 }
 
@@ -88,7 +88,7 @@ fn build_immediate_env(
         register_command!(cr, fn plain(state) -> result)?;
     }
     env.with_async_store(Box::new(store));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     Ok(env.to_ref())
 }
 

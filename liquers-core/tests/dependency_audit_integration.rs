@@ -40,7 +40,7 @@ fn env_over(store: AsyncMemoryStore) -> EnvRef<TestEnv> {
     let mut env = TestEnv::new();
     register_provenance_commands(&mut env.command_registry);
     env.with_async_store(Box::new(store));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     env.to_ref()
 }
 
@@ -160,7 +160,7 @@ fn counting_env(store: Box<dyn AsyncStore>, calls: Arc<AtomicUsize>) -> EnvRef<T
     let mut env = TestEnv::new();
     register_counting_commands(&mut env, calls);
     env.with_async_store(store);
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     env.to_ref()
 }
 
@@ -222,7 +222,7 @@ async fn second_process_with(
     let mut builder = EnvironmentBuilder::<Value, (), Queued>::new()
         .with_asset_manager_options(AssetManagerOptions::default().with_dependency_audit(policy))
         .with_async_store(Arc::new(store))
-        .with_recipe_provider(Arc::new(DefaultRecipeProvider));
+        .with_recipe_provider(Arc::new(DefaultRecipeProvider::new()));
     register_counting_commands_in(&mut builder.command_registry, calls);
     Ok(builder.build()?)
 }
@@ -851,7 +851,7 @@ fn index_env(store: Box<dyn AsyncStore>, calls: Arc<AtomicUsize>) -> EnvRef<Test
     register_provenance_commands(&mut env.command_registry);
     common::manager_scenarios::register_index_files(&mut env.command_registry, calls);
     env.with_async_store(store);
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     env.to_ref()
 }
 
@@ -1187,7 +1187,7 @@ async fn stale_dependency_end_to_end_queued() -> TestResult {
     register_provenance_commands(&mut env.command_registry);
     register_gate_command(&mut env.command_registry, gate.clone());
     env.with_async_store(Box::new(stale_dependency_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_stale_dependency(env.to_ref(), gate).await?;
     Ok(())
 }
@@ -1200,7 +1200,7 @@ async fn stale_dependency_end_to_end_immediate() -> TestResult {
     register_provenance_commands(&mut env.command_registry);
     register_gate_command(&mut env.command_registry, gate.clone());
     env.with_async_store(Box::new(stale_dependency_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_stale_dependency(env.to_ref(), gate).await?;
     Ok(())
 }
@@ -1341,5 +1341,373 @@ async fn write_after_the_listing_snapshot_is_not_lost() -> TestResult {
     let again = within(envref.get_asset_manager().get(&key)).await?;
     let text = within(again.get()).await?.try_into_string()?;
     assert!(text.contains("data/late.txt"), "the late member is not lost: {text}");
+    Ok(())
+}
+
+// --- Direct dependency records across a restart --------------------------------------------
+// `specs/design/dependency-chain-analysis-cost/`, Phase 3 I1-I12. A chain `l0 <- l1 <- .. <- ln`
+// in `data/`, where only `l0` runs `make_text`; between the two processes `make_text` changes
+// its output and its implementation version. Records are direct, so `l2` records `l1` and
+// `upper`, never `make_text`: transitive freshness is the dependency manager's job.
+
+/// The `make_text` a process registers.
+#[derive(Clone, Copy)]
+struct MakeText {
+    text: &'static str,
+    impl_version: u128,
+}
+
+const OLD: MakeText = MakeText { text: "old", impl_version: 1 };
+const NEW: MakeText = MakeText { text: "new", impl_version: 2 };
+
+fn chain_link(i: usize) -> String {
+    format!("data/l{i}.txt")
+}
+
+fn chain_store_keys(n: usize) -> Result<Vec<Key>, Error> {
+    let mut keys = vec![parse_key("data/recipes.yaml")?];
+    for i in 0..=n {
+        keys.push(parse_key(&chain_link(i))?);
+    }
+    Ok(keys)
+}
+
+async fn chain_recipe_store(n: usize) -> Result<AsyncMemoryStore, Error> {
+    let mut rl = RecipeList::new();
+    rl.add_recipe(Recipe::new("make_text/l0.txt".to_owned(), "l0".to_owned(), String::new())?);
+    for i in 1..=n {
+        rl.add_recipe(Recipe::new(
+            format!("-R/data/l{}.txt/-/upper/l{i}.txt", i - 1),
+            format!("l{i}"),
+            String::new(),
+        )?);
+    }
+    let yaml = serde_yaml::to_string(&rl).map_err(|e| Error::general_error(e.to_string()))?;
+    let store = AsyncMemoryStore::new(&Key::new());
+    store.set(&parse_key("data/recipes.yaml")?, yaml.as_bytes(), &Metadata::new()).await?;
+    Ok(store)
+}
+
+/// An environment over `store` whose `upper` calls are counted.
+fn chain_env_over(
+    store: Arc<dyn AsyncStore>,
+    make_text: MakeText,
+    policy: DependencyAuditPolicy,
+    upper_calls: Arc<AtomicUsize>,
+) -> Result<EnvRef<TestEnv>, Box<dyn std::error::Error>> {
+    let mut builder = EnvironmentBuilder::<Value, (), Queued>::new()
+        .with_asset_manager_options(AssetManagerOptions::default().with_dependency_audit(policy))
+        .with_async_store(store)
+        .with_recipe_provider(Arc::new(DefaultRecipeProvider::new()));
+    builder.command_registry.register_command(
+        CommandKey::new_name("upper"),
+        move |state: &State<Value>, _args, _ctx| -> Result<Value, Error> {
+            upper_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(Value::from(state.try_into_string()?.to_uppercase()))
+        },
+    )?;
+    builder
+        .command_registry
+        .register_command(
+            CommandKey::new_name("make_text"),
+            move |_state, _args, _ctx| -> Result<Value, Error> { Ok(Value::from(make_text.text)) },
+        )?
+        .impl_version = Version::new(make_text.impl_version);
+    Ok(builder.build()?)
+}
+
+/// Process one: evaluate the whole chain with the old `make_text`, persist it, snapshot it.
+async fn chain_first_process(n: usize) -> Result<StoreSnapshot, Box<dyn std::error::Error>> {
+    let envref = chain_env_over(
+        Arc::new(chain_recipe_store(n).await?),
+        OLD,
+        DependencyAuditPolicy::Explicit,
+        Arc::new(AtomicUsize::new(0)),
+    )?;
+    // Link by link: evaluating the last link first recurses through the whole chain, which a
+    // long chain cannot afford (`EVALUATING-A-DEEP-CHAIN-TOP-DOWN-OVERFLOWS-THE-STACK`).
+    for i in 0..=n {
+        chain_value(&envref, i).await?;
+    }
+    assert_eq!(chain_value(&envref, n).await?, if n == 0 { "old" } else { "OLD" });
+    for i in 0..=n {
+        common::manager_scenarios::wait_until_stored(&envref, &parse_key(&chain_link(i))?, Status::Ready)
+            .await?;
+    }
+    Ok(StoreSnapshot::capture(&envref.get_async_store(), &chain_store_keys(n)?).await?)
+}
+
+/// Process two: a fresh store replaying `snapshot`, with `make_text` and `policy` as given.
+async fn chain_second_process(
+    snapshot: &StoreSnapshot,
+    make_text: MakeText,
+    policy: DependencyAuditPolicy,
+) -> Result<(EnvRef<TestEnv>, Arc<AtomicUsize>), Box<dyn std::error::Error>> {
+    let store = AsyncMemoryStore::new(&Key::new());
+    snapshot.replay_into(&store).await?;
+    let upper_calls = Arc::new(AtomicUsize::new(0));
+    let envref = chain_env_over(Arc::new(store), make_text, policy, upper_calls.clone())?;
+    Ok((envref, upper_calls))
+}
+
+async fn chain_value(envref: &EnvRef<TestEnv>, i: usize) -> Result<String, Box<dyn std::error::Error>> {
+    let asset = within(envref.evaluate(&format!("-R/{}", chain_link(i)))).await?;
+    Ok(within(asset.get()).await?.try_into_string()?)
+}
+
+async fn set_stored_status(snapshot: &StoreSnapshot, name: &str, status: Status) -> Result<StoreSnapshot, Box<dyn std::error::Error>> {
+    let store = AsyncMemoryStore::new(&Key::new());
+    snapshot.replay_into(&store).await?;
+    let key = parse_key(name)?;
+    let mut metadata = store.get_metadata(&key).await?;
+    metadata.set_status(status)?;
+    store.set_metadata(&key, &metadata).await?;
+    let store: Arc<dyn AsyncStore> = Arc::new(store);
+    Ok(StoreSnapshot::capture(&store, &chain_store_keys(3)?).await?)
+}
+
+/// I1: the trusting default serves what it cannot see is stale, until the manager learns of it:
+/// touching `l0` recomputes it and the cascade reaches `l2` through the edges loading recorded.
+#[tokio::test]
+async fn restart_upstream_command_change_explicit_serves_then_cascades() -> TestResult {
+    let snapshot = chain_first_process(3).await?;
+    let (envref, _) = chain_second_process(&snapshot, NEW, DependencyAuditPolicy::Explicit).await?;
+    assert_eq!(chain_value(&envref, 2).await?, "OLD", "l2 checks only l1, which is not known");
+    assert_eq!(chain_value(&envref, 1).await?, "OLD", "l1 checks only l0, which is not known");
+    assert_eq!(chain_value(&envref, 0).await?, "new", "l0 recorded make_text v1; v2 is registered");
+    assert_eq!(chain_value(&envref, 2).await?, "NEW", "the cascade expired l1 and l2");
+    Ok(())
+}
+
+/// I2: the conservative policy refuses `l2` at once: the walk finds `make_text` changed under `l0`.
+#[tokio::test]
+async fn restart_upstream_command_change_on_load_refuses() -> TestResult {
+    let snapshot = chain_first_process(3).await?;
+    let (envref, upper_calls) = chain_second_process(&snapshot, NEW, DependencyAuditPolicy::OnLoad).await?;
+    assert_eq!(chain_value(&envref, 2).await?, "NEW");
+    // At least l1 and l2; a refused dependency recomputed inside a dependent's evaluation may run
+    // its recipe twice (`REFUSED-DEPENDENCY-RECOMPUTED-TWICE-DURING-A-DEPENDENT-EVALUATION`).
+    assert!(upper_calls.load(Ordering::SeqCst) >= 2, "l1 and l2 recomputed");
+    Ok(())
+}
+
+/// I3: an upstream value stored `Expired` (it expired in a process that never loaded `l1`) refuses
+/// `l2` under the conservative policy.
+#[tokio::test]
+async fn restart_deep_expired_status_on_load_refuses() -> TestResult {
+    let snapshot = set_stored_status(&chain_first_process(3).await?, "data/l0.txt", Status::Expired).await?;
+    let (envref, upper_calls) = chain_second_process(&snapshot, OLD, DependencyAuditPolicy::OnLoad).await?;
+    assert_eq!(chain_value(&envref, 2).await?, "OLD");
+    assert!(upper_calls.load(Ordering::SeqCst) >= 2, "l1 and l2 recomputed, not served");
+    Ok(())
+}
+
+/// I3b: the same store under the trusting default serves `l2`: it sees `l1` `Ready`.
+#[tokio::test]
+async fn restart_deep_expired_status_explicit_serves() -> TestResult {
+    let snapshot = set_stored_status(&chain_first_process(3).await?, "data/l0.txt", Status::Expired).await?;
+    let (envref, upper_calls) = chain_second_process(&snapshot, OLD, DependencyAuditPolicy::Explicit).await?;
+    assert_eq!(chain_value(&envref, 2).await?, "OLD");
+    assert_eq!(upper_calls.load(Ordering::SeqCst), 0, "served as stored");
+    Ok(())
+}
+
+/// I4: under the trusting default, an audit of everything registered reaches past the gap: `l1`
+/// is unknown, and the walk from it finds `make_text` changed under `l0`.
+#[tokio::test]
+async fn audit_catches_deep_upstream_change() -> TestResult {
+    let snapshot = chain_first_process(3).await?;
+    let (envref, _) = chain_second_process(&snapshot, NEW, DependencyAuditPolicy::Explicit).await?;
+    assert_eq!(chain_value(&envref, 2).await?, "OLD");
+    let report = within(envref.get_asset_manager().trigger_dependency_audit_all_registered()).await?;
+    assert!(report.expired.contains(&dep(&chain_link(2))), "{report:?}");
+    let l2 = parse_key(&chain_link(2))?;
+    common::manager_scenarios::wait_until_stored(&envref, &l2, Status::Expired).await?;
+    assert_eq!(
+        envref.get_async_store().get_metadata(&l2).await?.expiry_reason(),
+        Some(ExpiryReason::Cascaded {
+            cause: ExpiryCause::StaleDependency {
+                dependency: DependencyKey::new("ns-dep/command_impl---make_text")
+            },
+            root: dep(&chain_link(1)),
+            via: dep(&chain_link(1)),
+        })
+    );
+    assert_eq!(chain_value(&envref, 2).await?, "NEW");
+    Ok(())
+}
+
+/// I4b: a gap missing from the store keeps the audit's existing answer: no durable version
+/// expires what recorded a concrete one.
+#[tokio::test]
+async fn audit_unresolvable_gap_keeps_todays_path() -> TestResult {
+    let mut keys = chain_store_keys(3)?;
+    keys.retain(|key| key.encode() != chain_link(1));
+    let first = chain_first_process(3).await?;
+    let store = AsyncMemoryStore::new(&Key::new());
+    first.replay_into(&store).await?;
+    let store: Arc<dyn AsyncStore> = Arc::new(store);
+    let snapshot = StoreSnapshot::capture(&store, &keys).await?;
+    let (envref, _) = chain_second_process(&snapshot, OLD, DependencyAuditPolicy::Explicit).await?;
+    assert_eq!(chain_value(&envref, 2).await?, "OLD");
+    let report = within(envref.get_asset_manager().trigger_dependency_audit_all_registered()).await?;
+    assert!(report.expired.contains(&dep(&chain_link(2))), "{report:?}");
+    Ok(())
+}
+
+/// I4d: the per-key audit walks the manager's upstream closure. `l1` was loaded, so it is known
+/// and is not a gap; `l0` behind it is, and it is stale.
+#[tokio::test]
+async fn per_key_audit_catches_deep_upstream_change() -> TestResult {
+    let snapshot = chain_first_process(3).await?;
+    let (envref, _) = chain_second_process(&snapshot, NEW, DependencyAuditPolicy::Explicit).await?;
+    assert_eq!(chain_value(&envref, 3).await?, "OLD");
+    assert_eq!(chain_value(&envref, 2).await?, "OLD");
+    assert_eq!(chain_value(&envref, 1).await?, "OLD");
+    let report = within(
+        envref
+            .get_asset_manager()
+            .trigger_dependency_audit(&parse_query(&format!("-R/{}", chain_link(3)))?),
+    )
+    .await?;
+    assert!(report.checked.contains(&dep(&chain_link(0))), "{report:?}");
+    assert!(report.expired.contains(&dep(&chain_link(3))), "{report:?}");
+    assert_eq!(chain_value(&envref, 3).await?, "NEW");
+    Ok(())
+}
+
+/// I5: with direct records, an expiry names the true predecessor as `via`.
+#[tokio::test]
+async fn cascade_names_true_predecessor() -> TestResult {
+    let envref = chain_env_over(
+        Arc::new(chain_recipe_store(9).await?),
+        OLD,
+        DependencyAuditPolicy::Explicit,
+        Arc::new(AtomicUsize::new(0)),
+    )?;
+    for i in 0..=9 {
+        chain_value(&envref, i).await?;
+    }
+    for i in 0..=9 {
+        common::manager_scenarios::wait_until_stored(&envref, &parse_key(&chain_link(i))?, Status::Ready)
+            .await?;
+    }
+    let l9 = parse_key(&chain_link(9))?;
+    let recorded: Vec<String> = envref
+        .get_async_store()
+        .get_metadata(&l9)
+        .await?
+        .get_dependencies()
+        .iter()
+        .map(|record| record.key.to_string())
+        .collect();
+    assert!(!recorded.contains(&dep(&chain_link(0)).to_string()), "{recorded:?}");
+    within(envref.get_asset_manager().expire(&parse_key(&chain_link(0))?)).await?;
+    common::manager_scenarios::wait_until_stored(&envref, &l9, Status::Expired).await?;
+    let reason = envref.get_async_store().get_metadata(&l9).await?.expiry_reason();
+    assert_eq!(
+        reason,
+        Some(ExpiryReason::Cascaded {
+            cause: ExpiryCause::Explicit,
+            root: dep(&chain_link(0)),
+            via: dep(&chain_link(8)),
+        })
+    );
+    Ok(())
+}
+
+/// I9: a startup audit under the trusting default expires everything that changed between runs,
+/// before anything is loaded.
+#[tokio::test]
+async fn startup_store_audit_expires_stale_chain() -> TestResult {
+    let snapshot = chain_first_process(3).await?;
+    let (envref, _) = chain_second_process(&snapshot, NEW, DependencyAuditPolicy::Explicit).await?;
+    let report = within(
+        envref
+            .get_asset_manager()
+            .trigger_dependency_audit_store(&Key::new(), AuditMode::Expire),
+    )
+    .await?;
+    for i in 0..=3 {
+        assert!(report.expired.contains(&dep(&chain_link(i))), "l{i}: {report:?}");
+        let stored = envref.get_async_store().get_metadata(&parse_key(&chain_link(i))?).await?;
+        assert_eq!(stored.status(), Status::Expired, "l{i}");
+        assert!(matches!(
+            stored.expiry_reason(),
+            Some(ExpiryReason::Direct { cause: ExpiryCause::StaleDependency { .. } })
+        ));
+    }
+    assert_eq!(chain_value(&envref, 3).await?, "NEW");
+    Ok(())
+}
+
+/// I10: the same audit in `ReportOnly` reports and changes nothing.
+#[tokio::test]
+async fn startup_store_audit_report_only_changes_nothing() -> TestResult {
+    let snapshot = chain_first_process(3).await?;
+    let (envref, upper_calls) = chain_second_process(&snapshot, NEW, DependencyAuditPolicy::Explicit).await?;
+    let report = within(
+        envref
+            .get_asset_manager()
+            .trigger_dependency_audit_store(&Key::new(), AuditMode::ReportOnly),
+    )
+    .await?;
+    assert!(report.expired.is_empty(), "{report:?}");
+    assert_eq!(report.findings.len(), 4, "{report:?}");
+    for i in 0..=3 {
+        let stored = envref.get_async_store().get_metadata(&parse_key(&chain_link(i))?).await?;
+        assert_eq!(stored.status(), Status::Ready, "l{i}");
+    }
+    assert_eq!(chain_value(&envref, 3).await?, "OLD", "nothing was registered or written");
+    assert_eq!(upper_calls.load(Ordering::SeqCst), 0);
+    Ok(())
+}
+
+/// I11: the store audit reads each stored value's metadata once, however long the chain: the
+/// walk's memo is shared across the audit.
+#[tokio::test]
+async fn startup_store_audit_reads_each_key_once() -> TestResult {
+    const LINKS: usize = 50;
+    let snapshot = chain_first_process(LINKS).await?;
+    let inner = AsyncMemoryStore::new(&Key::new());
+    snapshot.replay_into(&inner).await?;
+    let store = fixtures::CountingStore::new(inner);
+    let envref = chain_env_over(
+        Arc::new(store.clone()),
+        NEW,
+        DependencyAuditPolicy::Explicit,
+        Arc::new(AtomicUsize::new(0)),
+    )?;
+    let before = store.reads();
+    let report = within(
+        envref
+            .get_asset_manager()
+            .trigger_dependency_audit_store(&Key::new(), AuditMode::ReportOnly),
+    )
+    .await?;
+    assert_eq!(report.findings.len(), LINKS + 1);
+    let reads = store.reads() - before;
+    // One listing pass reads each entry's metadata, the walk reads each value once more.
+    assert!(reads <= 2 * (LINKS + 2), "{reads} metadata reads for {} stored entries", LINKS + 2);
+    Ok(())
+}
+
+/// I12: when nothing changed between runs, the startup audit expires nothing and the managers
+/// start out knowing the stored values: a load needs no recomputation.
+#[tokio::test]
+async fn startup_store_audit_confirms_fresh_store() -> TestResult {
+    let snapshot = chain_first_process(3).await?;
+    let (envref, upper_calls) = chain_second_process(&snapshot, OLD, DependencyAuditPolicy::Explicit).await?;
+    let report = within(
+        envref
+            .get_asset_manager()
+            .trigger_dependency_audit_store(&Key::new(), AuditMode::Expire),
+    )
+    .await?;
+    assert!(report.expired.is_empty(), "{report:?}");
+    assert!(report.findings.is_empty(), "{report:?}");
+    assert_eq!(report.checked.len(), 4, "{report:?}");
+    assert_eq!(chain_value(&envref, 3).await?, "OLD");
+    assert_eq!(upper_calls.load(Ordering::SeqCst), 0);
     Ok(())
 }

@@ -92,7 +92,7 @@ async fn keyed_eval_default() -> Result<(), Error> {
     let mut env = SimpleEnvironment::<Value>::new();
     register_greet(&mut env.command_registry);
     env.with_async_store(Box::new(recipe_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_keyed_eval(env.to_ref()).await
 }
 
@@ -101,7 +101,7 @@ async fn keyed_eval_immediate() -> Result<(), Error> {
     let mut env = ImmediateEnvironment::<Value>::new();
     register_greet(&mut env.command_registry);
     env.with_async_store(Box::new(recipe_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_keyed_eval(env.to_ref()).await
 }
 
@@ -111,7 +111,7 @@ async fn stored_value_precedes_recipe_default() -> Result<(), Error> {
     let mut env = SimpleEnvironment::<Value>::new();
     register_counted(&mut env.command_registry, calls.clone());
     env.with_async_store(Box::new(stored_text_store(true).await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_stored_value(env.to_ref(), calls).await
 }
 
@@ -121,7 +121,7 @@ async fn stored_value_precedes_recipe_immediate() -> Result<(), Error> {
     let mut env = ImmediateEnvironment::<Value>::new();
     register_counted(&mut env.command_registry, calls.clone());
     env.with_async_store(Box::new(stored_text_store(true).await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_stored_value(env.to_ref(), calls).await
 }
 
@@ -130,7 +130,7 @@ async fn plain_stored_value_default() -> Result<(), Error> {
     let calls = Arc::new(AtomicUsize::new(0));
     let mut env = SimpleEnvironment::<Value>::new();
     env.with_async_store(Box::new(stored_text_store(false).await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_stored_value(env.to_ref(), calls).await
 }
 
@@ -139,7 +139,7 @@ async fn plain_stored_value_immediate() -> Result<(), Error> {
     let calls = Arc::new(AtomicUsize::new(0));
     let mut env = ImmediateEnvironment::<Value>::new();
     env.with_async_store(Box::new(stored_text_store(false).await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_stored_value(env.to_ref(), calls).await
 }
 
@@ -150,7 +150,7 @@ async fn keyed_delegation_default() -> Result<(), Error> {
     let mut env = SimpleEnvironment::<Value>::new();
     register_counted(&mut env.command_registry, calls.clone());
     env.with_async_store(Box::new(store));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_keyed_delegation(env.to_ref(), calls).await?;
     assert_eq!(value_writes.load(Ordering::SeqCst), 1);
     Ok(())
@@ -163,7 +163,7 @@ async fn keyed_delegation_immediate() -> Result<(), Error> {
     let mut env = ImmediateEnvironment::<Value>::new();
     register_counted(&mut env.command_registry, calls.clone());
     env.with_async_store(Box::new(store));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_keyed_delegation(env.to_ref(), calls).await?;
     assert_eq!(value_writes.load(Ordering::SeqCst), 1);
     Ok(())
@@ -174,7 +174,7 @@ async fn volatile_keyed_eval_immediate() -> Result<(), Error> {
     let mut env = ImmediateEnvironment::<Value>::new();
     register_vol_cmd(&mut env.command_registry);
     env.with_async_store(Box::new(volatile_recipe_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_volatile_keyed_eval(env.to_ref()).await
 }
 
@@ -192,7 +192,7 @@ async fn keyed_asset_records_its_key_default() -> Result<(), Error> {
     let mut env = SimpleEnvironment::<Value>::new();
     register_greet(&mut env.command_registry);
     env.with_async_store(Box::new(recipe_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_keyed_asset_records_its_key(env.to_ref()).await
 }
 
@@ -201,7 +201,7 @@ async fn keyed_asset_records_its_key_immediate() -> Result<(), Error> {
     let mut env = ImmediateEnvironment::<Value>::new();
     register_greet(&mut env.command_registry);
     env.with_async_store(Box::new(recipe_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_keyed_asset_records_its_key(env.to_ref()).await
 }
 
@@ -210,7 +210,7 @@ async fn volatile_keyed_asset_records_its_key_default() -> Result<(), Error> {
     let mut env = SimpleEnvironment::<Value>::new();
     register_vol_cmd(&mut env.command_registry);
     env.with_async_store(Box::new(volatile_recipe_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     let envref = env.to_ref();
     let key = parse_key("vol.txt")?;
     let asset = envref.get_asset_manager().get(&key).await?;
@@ -229,7 +229,7 @@ async fn volatile_keyed_asset_records_its_key_immediate() -> Result<(), Error> {
     let mut env = ImmediateEnvironment::<Value>::new();
     register_vol_cmd(&mut env.command_registry);
     env.with_async_store(Box::new(volatile_recipe_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     let envref = env.to_ref();
     let key = parse_key("vol.txt")?;
     let asset = envref.get_asset_manager().get(&key).await?;
@@ -243,7 +243,7 @@ async fn adhoc_apply_is_not_keyed_default() -> Result<(), Error> {
     let mut env = SimpleEnvironment::<Value>::new();
     register_greet(&mut env.command_registry);
     env.with_async_store(Box::new(recipe_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_adhoc_apply_is_not_keyed(env.to_ref()).await
 }
 
@@ -252,7 +252,7 @@ async fn adhoc_apply_is_not_keyed_immediate() -> Result<(), Error> {
     let mut env = ImmediateEnvironment::<Value>::new();
     register_greet(&mut env.command_registry);
     env.with_async_store(Box::new(recipe_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_adhoc_apply_is_not_keyed(env.to_ref()).await
 }
 
@@ -297,7 +297,7 @@ async fn entry_point_equivalence_default() -> Result<(), Error> {
     register_greet(&mut env.command_registry);
     register_dependent(&mut env.command_registry);
     env.with_async_store(Box::new(recipe_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_entry_point_equivalence(env.to_ref()).await
 }
 
@@ -307,7 +307,7 @@ async fn entry_point_equivalence_immediate() -> Result<(), Error> {
     register_greet(&mut env.command_registry);
     register_dependent(&mut env.command_registry);
     env.with_async_store(Box::new(recipe_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_entry_point_equivalence(env.to_ref()).await
 }
 
@@ -384,7 +384,7 @@ fn immediate_keyed_eval_without_tokio_runtime() -> Result<(), Error> {
     register_greet(&mut env.command_registry);
     let store = futures::executor::block_on(recipe_store())?;
     env.with_async_store(Box::new(store));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     let envref: EnvRef<ImmediateEnvironment<Value>> = env.to_ref();
 
     let text: String = futures::executor::block_on(async move {
@@ -462,7 +462,7 @@ async fn persist_keyed_nonvolatile_default() -> Result<(), Error> {
     let mut env = SimpleEnvironment::<Value>::new();
     register_greet(&mut env.command_registry);
     env.with_async_store(Box::new(recipe_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_persist_keyed_nonvolatile(env.to_ref()).await
 }
 
@@ -471,7 +471,7 @@ async fn persist_keyed_nonvolatile_immediate() -> Result<(), Error> {
     let mut env = ImmediateEnvironment::<Value>::new();
     register_greet(&mut env.command_registry);
     env.with_async_store(Box::new(recipe_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_persist_keyed_nonvolatile(env.to_ref()).await
 }
 
@@ -480,7 +480,7 @@ async fn persist_keyed_volatile_default() -> Result<(), Error> {
     let mut env = SimpleEnvironment::<Value>::new();
     register_vol_cmd(&mut env.command_registry);
     env.with_async_store(Box::new(volatile_recipe_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_persist_keyed_volatile(env.to_ref()).await
 }
 
@@ -489,7 +489,7 @@ async fn persist_keyed_volatile_immediate() -> Result<(), Error> {
     let mut env = ImmediateEnvironment::<Value>::new();
     register_vol_cmd(&mut env.command_registry);
     env.with_async_store(Box::new(volatile_recipe_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_persist_keyed_volatile(env.to_ref()).await
 }
 
@@ -498,7 +498,7 @@ async fn persist_query_writes_nothing_default() -> Result<(), Error> {
     let mut env = SimpleEnvironment::<Value>::new();
     register_greet(&mut env.command_registry);
     env.with_async_store(Box::new(recipe_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_persist_query_writes_nothing(env.to_ref()).await
 }
 
@@ -507,7 +507,7 @@ async fn persist_query_writes_nothing_immediate() -> Result<(), Error> {
     let mut env = ImmediateEnvironment::<Value>::new();
     register_greet(&mut env.command_registry);
     env.with_async_store(Box::new(recipe_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_persist_query_writes_nothing(env.to_ref()).await
 }
 
@@ -516,7 +516,7 @@ async fn persist_apply_writes_nothing_default() -> Result<(), Error> {
     let mut env = SimpleEnvironment::<Value>::new();
     register_greet(&mut env.command_registry);
     env.with_async_store(Box::new(recipe_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_persist_apply_writes_nothing(env.to_ref()).await
 }
 
@@ -525,7 +525,7 @@ async fn persist_apply_writes_nothing_immediate() -> Result<(), Error> {
     let mut env = ImmediateEnvironment::<Value>::new();
     register_greet(&mut env.command_registry);
     env.with_async_store(Box::new(recipe_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_persist_apply_writes_nothing(env.to_ref()).await
 }
 
@@ -536,7 +536,7 @@ async fn expiry_reason_cascade_default() -> Result<(), Error> {
     let mut env = SimpleEnvironment::<Value>::new();
     register_provenance_commands(&mut env.command_registry);
     env.with_async_store(Box::new(provenance_store(false).await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_expiry_reason_cascade(env.to_ref()).await
 }
 
@@ -545,7 +545,7 @@ async fn expiry_reason_cascade_immediate() -> Result<(), Error> {
     let mut env = ImmediateEnvironment::<Value>::new();
     register_provenance_commands(&mut env.command_registry);
     env.with_async_store(Box::new(provenance_store(false).await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_expiry_reason_cascade(env.to_ref()).await
 }
 
@@ -554,7 +554,7 @@ async fn every_expired_asset_has_reason_and_log_line_default() -> Result<(), Err
     let mut env = SimpleEnvironment::<Value>::new();
     register_provenance_commands(&mut env.command_registry);
     env.with_async_store(Box::new(provenance_store(true).await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_every_expired_asset_has_reason_and_log_line(env.to_ref()).await
 }
 
@@ -563,7 +563,7 @@ async fn every_expired_asset_has_reason_and_log_line_immediate() -> Result<(), E
     let mut env = ImmediateEnvironment::<Value>::new();
     register_provenance_commands(&mut env.command_registry);
     env.with_async_store(Box::new(provenance_store(true).await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_every_expired_asset_has_reason_and_log_line(env.to_ref()).await
 }
 
@@ -573,7 +573,7 @@ async fn audit_after_restart_default() -> Result<(), Error> {
         let mut env = SimpleEnvironment::<Value>::new();
         register_provenance_commands(&mut env.command_registry);
         env.with_async_store(Box::new(store));
-        env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
         env.to_ref()
     })
     .await
@@ -585,7 +585,7 @@ async fn audit_after_restart_immediate() -> Result<(), Error> {
         let mut env = ImmediateEnvironment::<Value>::new();
         register_provenance_commands(&mut env.command_registry);
         env.with_async_store(Box::new(store));
-        env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
         env.to_ref()
     })
     .await
@@ -600,7 +600,7 @@ async fn listing_dependency_default() -> Result<(), Error> {
     register_provenance_commands(&mut env.command_registry);
     register_index_files(&mut env.command_registry, calls.clone());
     env.with_async_store(Box::new(listing_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_listing_dependency(env.to_ref(), calls).await
 }
 
@@ -611,7 +611,7 @@ async fn listing_dependency_immediate() -> Result<(), Error> {
     register_provenance_commands(&mut env.command_registry);
     register_index_files(&mut env.command_registry, calls.clone());
     env.with_async_store(Box::new(listing_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_listing_dependency(env.to_ref(), calls).await
 }
 
@@ -624,7 +624,7 @@ async fn stale_dependency_default() -> Result<(), Error> {
     register_provenance_commands(&mut env.command_registry);
     register_gate_command(&mut env.command_registry, gate.clone());
     env.with_async_store(Box::new(stale_dependency_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_stale_dependency(env.to_ref(), gate).await
 }
 
@@ -635,7 +635,7 @@ async fn stale_dependency_immediate() -> Result<(), Error> {
     register_provenance_commands(&mut env.command_registry);
     register_gate_command(&mut env.command_registry, gate.clone());
     env.with_async_store(Box::new(stale_dependency_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_stale_dependency(env.to_ref(), gate).await
 }
 
@@ -644,7 +644,7 @@ async fn lazy_deadline_expiry_cascades_default() -> Result<(), Error> {
     let mut env = SimpleEnvironment::<Value>::new();
     let calls = register_lazy_expiry_chain(&mut env.command_registry)?;
     env.with_async_store(Box::new(lazy_expiry_chain_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_lazy_deadline_expiry_cascade(env.to_ref(), calls).await
 }
 
@@ -653,7 +653,7 @@ async fn lazy_deadline_expiry_cascades_immediate() -> Result<(), Error> {
     let mut env = ImmediateEnvironment::<Value>::new();
     let calls = register_lazy_expiry_chain(&mut env.command_registry)?;
     env.with_async_store(Box::new(lazy_expiry_chain_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_lazy_deadline_expiry_cascade(env.to_ref(), calls).await
 }
 
@@ -662,6 +662,6 @@ async fn lazy_dependent_read_first_immediate() -> Result<(), Error> {
     let mut env = ImmediateEnvironment::<Value>::new();
     let calls = register_lazy_expiry_chain(&mut env.command_registry)?;
     env.with_async_store(Box::new(lazy_expiry_chain_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_lazy_dependent_read_first(env.to_ref(), calls).await
 }
