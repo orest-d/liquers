@@ -3,8 +3,7 @@ id: AXUM-RECIPES-METADATA-ENTRY
 kind: design
 workflow: liquers-project
 title: Recipes API metadata and entry return real recipe metadata and negotiate format
-status: in_review
-phase: documentation
+status: complete
 readiness: ready
 autofix: eligible
 area: [axum]
@@ -27,7 +26,7 @@ the first four phases, reviewed without phase approval. Not an approval and not 
 - [x] Phase 2: Solution and Architecture
 - [x] Phase 3: Examples and Tests
 - [x] Phase 4: Implementation Plan
-- [ ] Phase 5: Documentation (executed 2026-10-07; awaiting approval)
+- [x] Phase 5: Documentation (approved 2026-10-08, maintainer)
 
 ## Links
 

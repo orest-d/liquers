@@ -6,7 +6,7 @@ status: in_progress
 priority: P3
 complexity: S
 area: [core/commands, lib/ui]
-design: command-metadata-command-hints
+design: command-metadata-descriptions-and-hints
 created: 2026-08-30
 github:
 ---

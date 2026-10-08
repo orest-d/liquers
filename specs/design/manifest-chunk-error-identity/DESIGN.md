@@ -5,7 +5,7 @@ title: A manifest chunk read error names the chunk
 form: compact
 status: complete
 readiness: ready
-autofix: eligible
+autofix: not-eligible
 area: [records]
 issues: [MANIFEST-CHUNK-SCHEMA-ERROR-DOES-NOT-NAME-THE-CHUNK]
 created: 2026-10-08
@@ -61,9 +61,10 @@ changing the `pub` function's signature would be an interface change.
 ### Design Readiness
 
 - **Readiness:** ready
-- **Automatic fixing:** eligible — error-message fix in `liquers-records/src/sources.rs`
-  (`ManifestSource::advance`); no `pub` signature, type or format changes. The only edit outside
-  the crate is removing `#[ignore]` from the existing liquers-lib test that proves it.
+- **Automatic fixing:** not-eligible — the fix is in `liquers-records`, but its proof includes
+  un-ignoring a `liquers-lib` integration test, so the fix and its tests are not in one crate
+  (rule 6). Re-labeled on 2026-10-08 after review; the change is small and is reviewed as an ordinary
+  PR rather than landing unattended.
 - **Leading issue:** None
 - **Explanation:** The traversal already holds both the global chunk index and the `ChunkId` at the
   point where it calls `read_chunk`; prefixing the message there covers every reader path (stored
