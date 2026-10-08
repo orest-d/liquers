@@ -2,7 +2,7 @@
 id: SCHEMA-LESS-ORDERED-JSON-ORIENTS-LOSE-COLUMN-ORDER
 kind: issue
 title: A schema-less read of the split or values JSON orient sorts the columns its document orders
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [records]
@@ -39,3 +39,14 @@ sorts only when it does not.
 Found 2026-10-07 while implementing `design/json-table-column-order/`. That design sorts in
 `read_inferred_objects`; it changes nothing for these orients, because their rows already arrived
 sorted.
+
+## Resolution
+
+Closed 2026-10-08 by [`design/ordered-json-orient-column-order/`](../design/ordered-json-orient-column-order/DESIGN.md).
+`ndjson::objects_to_batch_ordered` (`pub(super)`) passes an optional column order to
+`read_inferred_objects`, which puts it first instead of sorting; `from_json_split` passes the index
+column then `columns`, `from_json_values` its `c<i>` names. Unordered shapes still sort and a
+declared schema still wins. Evidence: `split_without_schema_keeps_columns_order` and
+`values_without_schema_keeps_positional_order` in `liquers-records/src/formats/shapes.rs` fail
+without the fix and pass with it; `records_and_list_without_schema_still_sort` and
+`split_with_declared_schema_uses_schema_order` guard the unchanged cases.

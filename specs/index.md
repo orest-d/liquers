@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 119
+Total rows: 118
 - P2: 62
-- P3: 57
+- P3: 56
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -77,7 +77,6 @@ Total rows: 119
 | [`NO-REMOTE-STORE-OR-ASSET-MANAGER`](issues/NO-REMOTE-STORE-OR-ASSET-MANAGER.md) | feature | A client environment cannot use a server's store or asset manager as its own | draft |  |  | P2 | XL | axum;web;core/assets;core/store |  | 2026-09-27 |
 | [`VALUE-TYPE-DEFINITION-MACRO`](issues/VALUE-TYPE-DEFINITION-MACRO.md) | feature | Value types and their registry entries are hand-written instead of generated | draft |  |  | P2 | XL | macro;lib/value;core/value |  | 2026-08-18 |
 | [`MANIFEST-CHUNK-SCHEMA-ERROR-DOES-NOT-NAME-THE-CHUNK`](issues/MANIFEST-CHUNK-SCHEMA-ERROR-DOES-NOT-NAME-THE-CHUNK.md) | issue | A chunk that violates a manifest's uniform_schema is refused without naming which chunk | draft | ready | eligible | P3 | S | records | [design](design/manifest-chunk-error-identity/DESIGN.md) | 2026-10-07 |
-| [`SCHEMA-LESS-ORDERED-JSON-ORIENTS-LOSE-COLUMN-ORDER`](issues/SCHEMA-LESS-ORDERED-JSON-ORIENTS-LOSE-COLUMN-ORDER.md) | issue | A schema-less read of the split or values JSON orient sorts the columns its document orders | draft | ready | eligible | P3 | S | records | [design](design/ordered-json-orient-column-order/DESIGN.md) | 2026-10-07 |
 | [`SIMPLE-VALUE-READS-TEXT-SCALARS-AS-TEXT`](issues/SIMPLE-VALUE-READS-TEXT-SCALARS-AS-TEXT.md) | issue | liquers-lib's base value reads a scalar written as text back as Text, where core reads its type | draft | ready | eligible | P3 | S | lib/value | [design](design/simple-value-untyped-and-scalar-reads/DESIGN.md) | 2026-10-07 |
 | [`ARGUMENT-INFO-HAS-NO-DESCRIPTION`](issues/ARGUMENT-INFO-HAS-NO-DESCRIPTION.md) | issue | ArgumentInfo has no per-argument description | draft | needs-decision | not-eligible | P3 | S | core/commands;macro | [phase1](design/argument-info-description/phase1-high-level-design.md)  [phase2](design/argument-info-description/phase2-architecture.md)  [phase3](design/argument-info-description/phase3-examples.md)  [phase4](design/argument-info-description/phase4-implementation.md)  | 2026-09-24 |
 | [`AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN`](issues/AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN.md) | issue | GET /api/store/keys lists only the direct children of the prefix, not all keys | draft | needs-decision | not-eligible | P3 | S | axum | [phase1](design/axum-store-keys-deep/phase1-high-level-design.md)  [phase2](design/axum-store-keys-deep/phase2-architecture.md)  [phase3](design/axum-store-keys-deep/phase3-examples.md)  [phase4](design/axum-store-keys-deep/phase4-implementation.md)  | 2026-09-28 |

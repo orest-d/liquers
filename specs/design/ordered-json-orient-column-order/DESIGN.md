@@ -119,12 +119,12 @@ Command: `cargo test -p liquers-records --all-features --lib shapes`.
 
 ### Steps
 
-- [ ] 1. `formats/ndjson.rs` — `order` parameter and `objects_to_batch_ordered` — `cargo check -p
-  liquers-records --all-features`
-- [ ] 2. `formats/shapes.rs` — pass the order from `from_json_split` and `from_json_values` —
-  `cargo check -p liquers-records --all-features`
-- [ ] 3. Tests above; update any existing test that asserted the sorted order — `cargo test -p
-  liquers-records --all-features --lib --tests`
+- [x] 1. `formats/ndjson.rs` — `order` parameter and `objects_to_batch_ordered` — `cargo check -p
+  liquers-records --all-features` — edad23c
+- [x] 2. `formats/shapes.rs` — pass the order from `from_json_split` and `from_json_values` —
+  `cargo check -p liquers-records --all-features` — e563e89
+- [x] 3. Tests above; update any existing test that asserted the sorted order (none did) — `cargo
+  test -p liquers-records --all-features --lib --tests` — b980786
 - [ ] 4. `RECORD_STREAMS.md` sentence, History row; issue resolution and `status: closed`;
   `python3 scripts/docs_index.py --check`
 
