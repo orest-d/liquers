@@ -324,7 +324,9 @@ fn infer_json_column(cells: &[Option<&Value>]) -> (FieldType, bool) {
 ///
 /// `order` is the column order the document states, when its shape states one (`split`'s
 /// `columns`, `values`' positions): those names come first, in that order, followed by any other
-/// key seen, sorted. A name in `order` that no row carries is skipped, so `order` only reorders.
+/// key seen, sorted. A name in `order` is kept even when no row carries it, so an empty `split`
+/// document still reads with its declared columns (nullable `Text`, as [`infer_json_column`] gives
+/// a column with no values).
 fn read_inferred_objects(objects: &[&Map<String, Value>], order: Option<&[String]>) -> Result<RecordBatch, Error> {
     let mut names: Vec<String> = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -344,7 +346,7 @@ fn read_inferred_objects(objects: &[&Map<String, Value>], order: Option<&[String
         let mut placed = std::collections::HashSet::new();
         let mut ordered: Vec<String> = Vec::with_capacity(names.len());
         for name in order {
-            if seen.contains(name) && placed.insert(name.as_str()) {
+            if placed.insert(name.as_str()) {
                 ordered.push(name.clone());
             }
         }

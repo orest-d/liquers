@@ -1046,6 +1046,17 @@ mod tests {
         Ok(())
     }
 
+    /// An empty `split` document still states its columns; they read as nullable `Text`.
+    #[test]
+    fn split_without_schema_and_without_rows_keeps_its_columns() -> Result<(), Error> {
+        let json: Value = parse_json(r#"{"columns":["z","a"],"index":[],"data":[]}"#)?;
+        let batch = from_json(&json, JsonOrient::Split, ReadSchema::Infer)?;
+        assert_eq!(column_names(&batch), vec!["index", "z", "a"]);
+        assert_eq!(batch.len, 0);
+        assert!(batch.schema.fields.iter().all(|field| field.data_type == FieldType::Text && field.nullable));
+        Ok(())
+    }
+
     /// `values` states its column order by position: `c10` follows `c9`, not `c1`.
     #[test]
     fn values_without_schema_keeps_positional_order() -> Result<(), Error> {
