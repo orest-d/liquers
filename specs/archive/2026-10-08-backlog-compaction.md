@@ -50,7 +50,7 @@ Every `S` issue without a design now has a compact design (Phases 1-4, readiness
 | Design | Sources | Readiness | Auto-fix |
 |---|---|---|---|
 | `simple-value-untyped-and-scalar-reads` | `STORED-UNTYPED-FILE-OF-UNLISTED-FORMAT-CANNOT-BE-READ` (P2), `SIMPLE-VALUE-READS-TEXT-SCALARS-AS-TEXT` (P3) — merged, T3 (same function) | ready | eligible |
-| `manifest-chunk-error-identity` | `MANIFEST-CHUNK-SCHEMA-ERROR-DOES-NOT-NAME-THE-CHUNK` | ready | eligible |
+| `manifest-chunk-error-identity` | `MANIFEST-CHUNK-SCHEMA-ERROR-DOES-NOT-NAME-THE-CHUNK` | ready | eligible at the run; re-labeled not-eligible in review (rule 6: its proof un-ignores a liquers-lib test) |
 | `ordered-json-orient-column-order` | `SCHEMA-LESS-ORDERED-JSON-ORIENTS-LOSE-COLUMN-ORDER` | ready | eligible |
 | `pyo3-python-3-13-support` | `PY-PYO3-REJECTS-PYTHON-3-13` | needs-decision | not-eligible |
 | `store-key-format-seeding` | `STORES-DISAGREE-ON-SEEDING-THE-DATA-FORMAT-FROM-THE-KEY` | needs-decision | not-eligible |
@@ -88,13 +88,13 @@ exactly as their issues describe.
 
 Three eligible, `ready`, `P2`/`P3` designs, fixed as spin-offs (mechanism A, child sessions), one
 branch and one PR each, each based on this run's branch so the design is present. No eligible
-`P0`/`P1` item exists. Session and PR links are in the run's design-only PR description.
+`P0`/`P1` item exists. The design-only PR is https://github.com/orest-d/liquers/pull/88.
 
 | Order | Design | Crate | Must not run in parallel with |
 |---|---|---|---|
-| 1 | `simple-value-untyped-and-scalar-reads` | liquers-lib | — (touches one `#[ignore]` line in `records_manifest_over_csv_files.rs`, as does 2) |
-| 2 | `manifest-chunk-error-identity` | liquers-records (+ one `#[ignore]` in liquers-lib) | — (different line of the same test file as 1) |
-| 3 | `ordered-json-orient-column-order` | liquers-records | — (different files from 2) |
+| 1 | `simple-value-untyped-and-scalar-reads` (https://github.com/orest-d/liquers/pull/91) | liquers-lib | — (touches one `#[ignore]` line in `records_manifest_over_csv_files.rs`, as does 2) |
+| 2 | `manifest-chunk-error-identity` (https://github.com/orest-d/liquers/pull/89) | liquers-records (+ one `#[ignore]` in liquers-lib) | — (different line of the same test file as 1) |
+| 3 | `ordered-json-orient-column-order` (https://github.com/orest-d/liquers/pull/90) | liquers-records | — (different files from 2) |
 
 Also closed on evidence: `METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED` (the fix and the memory-store
 prerequisite were already merged; all three tests pass).
@@ -152,3 +152,23 @@ Ordered by what they unlock. Each names the recommendation.
 5. **Stale records for a human:** `expiration-integration-suite-repair` (draft, Phase 3; its issue
    is closed) and `asset-manager-insert-key-asset-semantics` (draft, Phase 5; its issue is closed
    and covered by `COVERED-01`) look finished or abandoned; their status is a maintainer's call.
+
+## Same-day follow-up (before this record landed)
+
+The maintainer answered part of the decision list on 2026-10-08; each answer is recorded in its
+design's Phase 1.
+
+- D1 merged the two command-metadata designs into `command-metadata-descriptions-and-hints`
+  (needs-decision on the two macro spellings). D2 deep, D3 declare `rust-version` (dependency floor
+  1.95; a minimum, not a pin), D4 option B, D6 as recommended: those four designs became ready and
+  eligible. D8 folded `type-info-write-only-formats` into `DATA-FORMAT-CONSTANTS-AND-TOOLING`.
+- Phase 5 approved and `status: complete` for the seven already-implemented eligible designs.
+- Two more spin-offs started within the cap of 5: `build-sysinfo-rustc-compatibility` (branch
+  `claude/declare-rust-version`) and `command-registry-impl-version-freshness` (branch
+  `claude/registry-impl-version-freshness`). Deferred by the cap: `axum-store-keys-deep`,
+  `pyo3-python-3-13-support`.
+- Review of the design PR corrected four designs: `manifest-chunk-error-identity` re-labeled
+  not-eligible (rule 6); `simple-value-untyped-and-scalar-reads` keeps `toml` reading as `Text`;
+  `pyo3-python-3-13-support` keeps the `>=3.8` lower bound; `store-key-format-seeding` handles
+  `LegacyMetadata` explicitly and puts its rules in the shared conformance inventory.
+

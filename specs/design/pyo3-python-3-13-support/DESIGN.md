@@ -65,7 +65,8 @@ in the repository names the variable.
 
 Specified for the chosen option B; option A is outlined for the follow-up feature.
 
-- **B:** `liquers-py/pyproject.toml` `requires-python`; a "Building" section in
+- **B:** `liquers-py/pyproject.toml` `requires-python = ">=3.8,<3.13"` (the existing lower bound is
+  kept; only the upper bound PyO3 0.21 imposes is added); a "Building" section in
   `liquers-py/README.md` stating the range, the error and the override; one line in `CLAUDE.md`
   under "Building and testing".
 - **A (follow-up feature):** `pyo3` bump in `liquers-py/Cargo.toml`; mechanical `&PyAny` → `Bound<'py,
