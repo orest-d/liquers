@@ -2,8 +2,7 @@
 id: DEPENDENCY-CHAIN-ANALYSIS-COST
 kind: design
 title: Direct dependency records and linear dependency analysis
-status: in_review
-phase: documentation
+status: complete
 affects_docs: [reference/DEPENDENCIES_STATUS.md, reference/ASSET_LIFECYCLE.md, reference/ENVIRONMENT_CONFIG.md, reference/ASSETS.md, reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md, reference/api/DOC_08_RECIPES_PLANS.md, guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md, guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md, guides/DEPENDENCY_CONSISTENCY_GUIDE.md]
 workflow: liquers-project
 area: [core/assets, core/plan]
@@ -23,7 +22,7 @@ rewritten the same day; the earlier autonomous drafts are in git history.
 - [x] Phase 2: Solution and Architecture (approved 2026-10-07)
 - [x] Phase 3: Examples and Tests (pre-approved 2026-10-07)
 - [x] Phase 4: Implementation Plan (approved 2026-10-08, with the startup audit; implemented)
-- [x] Phase 5: Documentation (in review)
+- [x] Phase 5: Documentation (approved 2026-10-08)
 
 ## Links
 
