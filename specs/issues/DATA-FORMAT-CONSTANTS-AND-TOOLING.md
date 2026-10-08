@@ -140,3 +140,10 @@ Related: `CORE-METADATA-FORMAT-TYPE-CONSISTENCY` established that a declared for
 supported by the type; this issue is about the vocabulary that declaration is written in.
 `COMBINED-VALUE-DISCRIMINATION` covers the identifier side of the same serializer.
 `VALUE-TYPE-DEFINITION-MACRO` owns the declaration syntax that will select from this vocabulary.
+
+## Update 2026-10-08 — absorbs write-only formats
+
+By maintainer decision (backlog compaction D8), this feature's design also covers
+[`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md): a type
+must be able to declare a format it writes but cannot read back (today `RecordView` lists `html`).
+The abandoned `design/type-info-write-only-formats/` Phase 2 (a subset list on `TypeInfo`) is input.

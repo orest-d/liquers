@@ -62,8 +62,9 @@ that disagree with what its users expect:
     or `js`
   - THEN the result is that scalar, parsed as core `Value` parses it; unparsable text is a
     conversion error, as in core
-- **AC-5** `None` and `Text` are unchanged
-  - WHEN identifier `""`, `Text` or `None` is read under a textual format
+- **AC-5** `None`, `Text` and `toml` are unchanged
+  - WHEN identifier `""`, `Text` or `None` is read under a textual format, or any base identifier
+    under `toml`
   - THEN the result is `Text`, as today (core has no `none` read rule either)
 
 Out of scope: core `Value`'s own `_` arm, which also refuses `csv` for `""`. A core-only
@@ -103,7 +104,9 @@ Two local edits to `SimpleValue::deserialize_from_bytes`, and one to
    `"" | "None" | "Text"` → `Text`, and one arm each for `Bool` (`SimpleValue::from_bool_str`, the
    `ValueInterface` default), `I32`, `I64`, `F64` (`str::parse`, mapped with
    `Error::conversion_error_with_message` exactly as `liquers-core/src/value.rs` ≈1028 does). The
-   `toml` format stays in the arm and follows the same rule.
+   per-scalar parsing applies to `txt`, `html`, `rs`, `py`, `css` and `js` only, as in core; `toml`
+   is split out of the arm and keeps today's rule (every base identifier reads as `Text`), since no
+   acceptance criterion covers it and core has no `toml` rule to match.
 
 Rejected: falling back to `Bytes` in `CombinedValue::deserialize_from_bytes`
 (`liquers-lib/src/value/extended.rs` ≈602) for every identifier — it would also swallow refusals
@@ -147,6 +150,7 @@ In `liquers-lib/src/value/extended.rs` tests:
 - `untyped_file_goes_to_an_inferring_extension_first` — AC-1
 - `named_identifier_neither_half_reads_still_refuses` — `Image`, `I32`; AC-3
 - `textual_scalars_read_back_as_their_type` — AC-4, including an unparsable `I32` error
+- `toml_scalars_still_read_as_text` — `I32` under `toml` reads as `Text`; AC-5
 - `every_declared_format_round_trips` (existing) — change the expectation so textual scalars read
   back as `value.clone()` except `None`, which stays `Text`; AC-4, AC-5
 

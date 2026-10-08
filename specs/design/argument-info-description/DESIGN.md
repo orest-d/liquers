@@ -2,15 +2,18 @@
 id: ARGUMENT-INFO-DESCRIPTION
 kind: design
 title: Per-argument description in ArgumentInfo and register_command!
-status: in_review
-phase: implementation
-readiness: needs-decision
-autofix: not-eligible
+status: superseded
 area: [core/commands, macro]
 issues: [ARGUMENT-INFO-HAS-NO-DESCRIPTION]
 created: 2026-10-06
+superseded_by: command-metadata-descriptions-and-hints
 ---
 # Per-argument description in ArgumentInfo and register_command!
+
+> **Superseded on 2026-10-08.** Merged by maintainer decision (backlog compaction D1) with `command-metadata-command-hints` into
+> [`command-metadata-descriptions-and-hints`](../command-metadata-descriptions-and-hints/), which now owns
+> `ARGUMENT-INFO-HAS-NO-DESCRIPTION`. The `description` field, macro option and tests moved there
+> unchanged; this folder is kept for its reasoning.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

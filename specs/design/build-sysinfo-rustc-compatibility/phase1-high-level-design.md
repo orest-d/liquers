@@ -2,29 +2,44 @@
 
 ## Design Readiness
 
-- **Readiness:** needs-decision
-- **Automatic fixing:** not-eligible — needs-decision (rule 5), and the chosen solution cannot be
-  carried out as written: `Cargo.lock` is git-ignored and no `rust-version` is declared, so there is
-  no lockfile to pin (compaction 2026-10-08)
-- **Leading issue:** Whether the project pins sysinfo to its declared Rust 1.94 support window or raises its MSRV.
-- **Explanation:** Pin the lockfile to the last sysinfo compatible with Rust 1.94; changing MSRV needs explicit maintainer approval.
-- **Open questions:** **Proposed resolution:** Pin the lockfile to the last sysinfo compatible with Rust 1.94; changing MSRV needs explicit maintainer approval.
-  - **Open design question (compaction 2026-10-08):** the proposed pin is not possible as written.
-    `.gitignore` excludes `Cargo.lock`, and no `rust-version` or `rust-toolchain` file exists, so
-    the repository declares no 1.94 window to stay inside. The cloud toolchain is now rustc 1.97.
-    Recommended: declare `rust-version = "1.95"` (or whatever the current dependency set needs) in
-    the workspace `Cargo.toml` and close the issue; pinning would first require committing
-    `Cargo.lock`, which is a separate maintainer decision.
+- **Readiness:** ready
+- **Automatic fixing:** eligible — build-settings fix: a `rust-version` declaration in the workspace
+  and member `Cargo.toml` files and one documentation line; no code, dependency or feature change.
+  (The member manifests are package metadata, not code in several crates.)
+- **Leading issue:** None
+- **Explanation:** Decided (maintainer, 2026-10-08, backlog compaction D3): declare the minimum
+  supported Rust version instead of pinning. The originally proposed pin was impossible:
+  `.gitignore` excludes `Cargo.lock`, so there is no committed lockfile to pin, and the repository
+  declared no 1.94 window. The current dependency set's own floor is **1.95** (`egui` 0.36, `sysinfo`
+  0.39, measured from `cargo metadata` on 2026-10-08). The cloud toolchain is rustc 1.97, so the
+  declaration constrains nothing there; it only makes an older toolchain fail with a clear
+  "requires rustc 1.95" message from Cargo itself.
+- **Open questions:** None. Recorded for the reviewer: `rust-version` is a minimum, never a pin, so
+  newer toolchains (cloud, CI's `stable`) are unaffected.
 
-## Problem, Behaviour, and Scope
+## Problem Example
 
-The source issue documents the observed failure and acceptance evidence. The desired behaviour is the source's expected behaviour, with compatibility preserved unless Phase 2 explicitly states otherwise. Affected systems are limited to the inspected files below; implementation, migrations, and test changes remain out of scope for this design-only work.
+On rustc 1.94.1, `cargo check -p liquers-lib --tests` fails with `sysinfo@0.39.6 requires rustc
+1.95` (and, since `47757dd`, the library target fails on nine crates). Nothing in the repository
+says which Rust is supported, so a contributor cannot tell whether that is their toolchain or a
+regression.
 
-## Constraints and Documentation
+## Scope and Acceptance Criteria
 
-Cargo resolution is reproducible through Cargo.lock; CI's stable toolchain remains a separate compatibility signal. Current documentation that names the affected contract must be updated with implementation, while historical design records remain frozen.
+- **AC-1** The minimum is declared
+  - WHEN a contributor reads the workspace `Cargo.toml`
+  - THEN `[workspace.package] rust-version` states the minimum, and every member inherits it
+- **AC-2** The declared minimum is the real floor
+  - WHEN the dependency set is resolved
+  - THEN no dependency declares a `rust-version` above the workspace's, and the workspace's own code
+    builds on that version where a toolchain for it can be installed
+- **AC-3** Newer toolchains are unaffected
+  - WHEN the default test loop runs on the cloud toolchain (1.97)
+  - THEN it builds as before
+
+Out of scope: committing `Cargo.lock`; switching to the MSRV-aware resolver (`resolver = "3"`); a CI
+job that builds on the declared minimum.
 
 ## Design Dependencies
 
 None.
-

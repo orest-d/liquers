@@ -2,15 +2,17 @@
 id: TYPE-INFO-WRITE-ONLY-FORMATS
 kind: design
 title: TypeInfo declares write-only data formats
-status: in_review
-phase: implementation
-readiness: needs-decision
-autofix: not-eligible
+status: abandoned
 area: [core/value]
 issues: [TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS]
 created: 2026-10-06
 ---
 # TypeInfo declares write-only data formats
+
+> **Abandoned on 2026-10-08: folded into `DATA-FORMAT-CONSTANTS-AND-TOOLING`** by maintainer decision
+> (backlog compaction D8). Write-only formats will be designed as part of that feature's data-format
+> vocabulary rather than as a separate `TypeInfo` field. The subset-list representation in Phase 2
+> and the `RecordView` `html` example remain input for that design.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance
