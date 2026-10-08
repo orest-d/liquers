@@ -877,6 +877,124 @@ def form_errors(rows: list[dict]) -> list[str]:
     return errors
 
 
+# §5.2.1: acceptance scenarios and implementation progress. A scenario is a Phase 1 list item
+# that starts with a bold `AC-<n>` id and carries a WHEN line and a THEN line; Phase 3 cites the id
+# for each test that proves it. Phase 4 tracks progress as a checklist, one item per step.
+SCENARIO_DEF_RE = re.compile(r"(?m)^[ \t]*[-*][ \t]+\*\*(AC-\d+)\*\*")
+SCENARIO_REF_RE = re.compile(r"\bAC-\d+\b")
+PROGRESS_ITEM_RE = re.compile(r"(?mi)^[ \t]*[-*][ \t]+\[([ x])\][ \t]+(?:Step[ \t]+)?(\d+)\b")
+# The checklist lives in `## Progress` (full form) or `### Steps` (compact form); checkboxes
+# elsewhere in Phase 4, such as entry criteria, are not step progress.
+PROGRESS_SECTION_RE = re.compile(r"(?ms)^(##|###) (?:Progress|Steps)\b[^\n]*\n(.*?)(?=^#{2,3} |\Z)")
+NO_SCENARIOS_NOTE = "**Acceptance scenarios not defined.**"
+
+
+def design_phase_text(row: dict, phase: int) -> str | None:
+    """The text of one phase of a design: its `## Phase N` section in a compact design (§5), or
+    every `phase<N>-*.md` file of a full one (some designs split a phase over two files)."""
+    path = Path(row["_path"])
+    if row["_fm"].get("form") == "compact":
+        text = path.read_text(encoding="utf-8")
+        match = re.search(rf"(?ms)^## Phase {phase}\b.*?(?=^## Phase \d|\Z)", text)
+        return match.group(0) if match else None
+    files = stable_paths(path.parent.glob(f"phase{phase}-*.md"))
+    if not files:
+        return None
+    return "\n".join(f.read_text(encoding="utf-8") for f in files)
+
+
+def scenario_definitions(phase1: str) -> dict[str, str]:
+    """`AC-<n>` id → the text of its list item, up to the next list item or heading."""
+    found: dict[str, str] = {}
+    matches = list(SCENARIO_DEF_RE.finditer(phase1))
+    for i, m in enumerate(matches):
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(phase1)
+        block = phase1[m.start() : end]
+        heading = re.search(r"(?m)^#", block[1:])
+        found[m.group(1)] = block[: heading.start() + 1] if heading else block
+    return found
+
+
+def phase3_is_written(row: dict) -> bool:
+    """Phase 3 counts as written once it is at review, or the design has moved past it."""
+    phase = row["_fm"].get("phase", "")
+    if PHASES.get(phase, 0) > PHASES["examples"]:
+        return True
+    if phase == "examples":
+        return row["_fm"].get("status") in ("in_review", "approved")
+    return row["status"] == "complete"
+
+
+def scenario_errors(rows: list[dict]) -> list[str]:
+    """§5.2.1: when Phase 1 defines scenarios, each has WHEN and THEN, and a written Phase 3 cites
+    every one and no other. A design without scenarios is not checked."""
+    errors: list[str] = []
+    for r in rows:
+        if r["kind"] != "design" or not r["_fm"]:
+            continue
+        phase1 = design_phase_text(r, 1)
+        if not phase1:
+            continue
+        defined = scenario_definitions(phase1)
+        if not defined:
+            continue
+        where = r["file"]
+        for sid, block in defined.items():
+            missing = [k for k in ("WHEN", "THEN") if not re.search(rf"\b{k}\b", block)]
+            if missing:
+                errors.append(f"{where}: scenario {sid} has no {' or '.join(missing)} (§5.2.1)")
+        phase3 = design_phase_text(r, 3)
+        if phase3 is None or not phase3_is_written(r):
+            continue
+        cited = set(SCENARIO_REF_RE.findall(phase3))
+        for sid in sorted(set(defined) - cited, key=lambda x: int(x[3:])):
+            errors.append(f"{where}: scenario {sid} has no Phase 3 test citing it (§5.2.1)")
+        for sid in sorted(cited - set(defined), key=lambda x: int(x[3:])):
+            errors.append(f"{where}: Phase 3 cites {sid}, which Phase 1 does not define (§5.2.1)")
+    return errors
+
+
+def progress_items(phase4: str) -> list[tuple[bool, int]]:
+    """Phase 4 progress checklist items as (ticked, step number)."""
+    items: list[tuple[bool, int]] = []
+    for section in PROGRESS_SECTION_RE.finditer(phase4):
+        items += [
+            (m.group(1).lower() == "x", int(m.group(2)))
+            for m in PROGRESS_ITEM_RE.finditer(section.group(2))
+        ]
+    return items
+
+
+def scenario_and_progress_warnings(rows: list[dict]) -> list[str]:
+    """§5.2.1 warnings: open designs that define no scenarios (one summary line), a "not
+    defined" note left behind after scenarios were added, and a design past implementation
+    whose progress checklist still has unticked steps."""
+    warnings: list[str] = []
+    without: list[str] = []
+    for r in rows:
+        if r["kind"] != "design" or not r["_fm"]:
+            continue
+        where = r["file"]
+        phase1 = design_phase_text(r, 1)
+        has_scenarios = bool(phase1 and scenario_definitions(phase1))
+        if not finished(r) and not has_scenarios:
+            without.append(r["design"])
+        if has_scenarios and NO_SCENARIOS_NOTE in Path(r["_path"]).read_text(encoding="utf-8"):
+            warnings.append(f"{where}: scenarios are defined; remove the 'not defined' note (§5.2.1)")
+        if r["_fm"].get("phase") == "documentation" or r["status"] == "complete":
+            phase4 = design_phase_text(r, 4) or ""
+            open_steps = [n for ticked, n in progress_items(phase4) if not ticked]
+            if open_steps:
+                steps = ", ".join(str(n) for n in open_steps)
+                warnings.append(f"{where}: Phase 4 progress has unticked steps {steps} (§5.2.1)")
+    if without:
+        warnings.append(
+            f"{len(without)} open designs define no acceptance scenarios (§5.2.1); "
+            f"consider adding them, e.g. {', '.join(sorted(without)[:3])}"
+        )
+    return warnings
+
+
 def check(rows: list[dict]) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -888,6 +1006,8 @@ def check(rows: list[dict]) -> tuple[list[str], list[str]]:
     errors.extend(readiness_errors(rows))
     errors.extend(autofix_errors(rows))
     errors.extend(form_errors(rows))
+    errors.extend(scenario_errors(rows))
+    warnings.extend(scenario_and_progress_warnings(rows))
 
     for r in rows:
         f, where = r["_fm"], r["file"]

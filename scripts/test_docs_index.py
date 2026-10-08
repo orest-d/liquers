@@ -458,3 +458,135 @@ class DesignFormTests(unittest.TestCase):
             finally:
                 docs_index.SPECS = saved
             self.assertIn("[design](design/small/DESIGN.md)", board)
+
+
+class ScenarioAndProgressTests(unittest.TestCase):
+    PHASE1 = (
+        "# Phase 1\n\n## Scope and Acceptance Criteria\n"
+        "- **AC-1** Empty frame\n  WHEN head runs on no rows\n  THEN it returns an empty frame\n"
+        "- **AC-2** Large frame\n  WHEN head runs on many rows\n  THEN it returns five\n\n"
+        "## Core Interactions\n"
+    )
+
+    def _design(self, root: Path, files: dict, phase: str = "implementation", status: str = "in_review"):
+        folder = root / "specs" / "design" / "d"
+        folder.mkdir(parents=True)
+        for name, text in files.items():
+            (folder / name).write_text(text, encoding="utf-8")
+        if "DESIGN.md" not in files:
+            (folder / "DESIGN.md").write_text("---\n---\n# d\n", encoding="utf-8")
+        row = _design("d", ["ONE"])
+        row["_path"] = folder / "DESIGN.md"
+        row["_fm"].update({"phase": phase, "status": status})
+        row["status"] = status
+        return row
+
+    def test_covered_scenarios_pass(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            row = self._design(
+                Path(temporary),
+                {"phase1-high-level-design.md": self.PHASE1,
+                 "phase3-examples.md": "| t1 | AC-1 |\n| t2 | AC-2 |\n"},
+            )
+            self.assertEqual(docs_index.scenario_errors([row]), [])
+
+    def test_uncovered_and_unknown_scenarios_are_errors(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            row = self._design(
+                Path(temporary),
+                {"phase1-high-level-design.md": self.PHASE1,
+                 "phase3-examples.md": "| t1 | AC-1 |\n| t3 | AC-3 |\n"},
+            )
+            self.assertEqual(
+                docs_index.scenario_errors([row]),
+                [
+                    "specs/design/d/DESIGN.md: scenario AC-2 has no Phase 3 test citing it (§5.2.1)",
+                    "specs/design/d/DESIGN.md: Phase 3 cites AC-3, which Phase 1 does not define (§5.2.1)",
+                ],
+            )
+
+    def test_coverage_waits_for_a_written_phase_3(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            row = self._design(
+                Path(temporary),
+                {"phase1-high-level-design.md": self.PHASE1, "phase3-examples.md": "draft\n"},
+                phase="examples",
+                status="draft",
+            )
+            self.assertEqual(docs_index.scenario_errors([row]), [])
+
+    def test_scenario_without_then_is_an_error(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            phase1 = "- **AC-1** Broken\n  WHEN something happens\n\n## Next\nTHEN elsewhere\n"
+            row = self._design(Path(temporary), {"phase1-high-level-design.md": phase1}, phase="high-level")
+            self.assertEqual(
+                docs_index.scenario_errors([row]),
+                ["specs/design/d/DESIGN.md: scenario AC-1 has no THEN (§5.2.1)"],
+            )
+
+    def test_design_without_scenarios_is_not_checked_but_counted(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            row = self._design(
+                Path(temporary),
+                {"phase1-high-level-design.md": "## Acceptance Criteria\n- works\n",
+                 "phase3-examples.md": "nothing cited\n"},
+            )
+            self.assertEqual(docs_index.scenario_errors([row]), [])
+            warnings = docs_index.scenario_and_progress_warnings([row])
+            self.assertEqual(len(warnings), 1)
+            self.assertTrue(warnings[0].startswith("1 open designs define no acceptance scenarios"))
+
+    def test_compact_design_scenarios_come_from_its_sections(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            text = (
+                "---\nform: compact\n---\n# d\n\n## Phase 1: High-Level Design\n"
+                "### Scope and Acceptance Criteria\n- **AC-1** x\n  WHEN a\n  THEN b\n\n"
+                "## Phase 3: Examples and Tests\n### Tests\n- `t` (AC-2)\n"
+            )
+            row = self._design(Path(temporary), {"DESIGN.md": text})
+            row["_fm"]["form"] = "compact"
+            self.assertEqual(
+                docs_index.scenario_errors([row]),
+                [
+                    "specs/design/d/DESIGN.md: scenario AC-1 has no Phase 3 test citing it (§5.2.1)",
+                    "specs/design/d/DESIGN.md: Phase 3 cites AC-2, which Phase 1 does not define (§5.2.1)",
+                ],
+            )
+
+    def test_stale_note_is_a_warning(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            row = self._design(
+                Path(temporary),
+                {"DESIGN.md": f"---\n---\n# d\n\n> {docs_index.NO_SCENARIOS_NOTE} …\n",
+                 "phase1-high-level-design.md": self.PHASE1},
+            )
+            self.assertEqual(
+                docs_index.scenario_and_progress_warnings([row]),
+                ["specs/design/d/DESIGN.md: scenarios are defined; remove the 'not defined' note (§5.2.1)"],
+            )
+
+    def test_progress_items_are_read_only_from_the_progress_section(self):
+        phase4 = (
+            "## Progress\n- [x] Step 1: a — abc1234\n- [ ] Step 2: b\n\n"
+            "## Phase 5 Entry Criteria\n- [ ] Steps 1-2 committed\n"
+        )
+        self.assertEqual(docs_index.progress_items(phase4), [(True, 1), (False, 2)])
+
+    def test_compact_steps_checklist_counts_as_progress(self):
+        self.assertEqual(
+            docs_index.progress_items("### Steps\n- [x] 1. a\n- [ ] 2. b\n### Validation\n"),
+            [(True, 1), (False, 2)],
+        )
+
+    def test_unticked_progress_at_documentation_is_a_warning(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            row = self._design(
+                Path(temporary),
+                {"phase1-high-level-design.md": self.PHASE1,
+                 "phase4-implementation.md": "## Progress\n- [x] Step 1: a\n- [ ] Step 2: b\n"},
+                phase="documentation",
+            )
+            self.assertEqual(
+                docs_index.scenario_and_progress_warnings([row]),
+                ["specs/design/d/DESIGN.md: Phase 4 progress has unticked steps 2 (§5.2.1)"],
+            )

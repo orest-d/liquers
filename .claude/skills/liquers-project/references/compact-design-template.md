@@ -25,6 +25,7 @@ created: <YYYY-MM-DD>
 ### Purpose
 ### Problem Example
 ### Scope and Acceptance Criteria
+<Scenarios: `- **AC-1** <name>` then a WHEN line and a THEN line (DOCS_STRUCTURE_GUIDE.md §5.2.1).>
 ### Design Readiness
 <Or `### Open Questions` when no readiness is assessed. Add `### Design Dependencies` and
 `### Scope Changes` when they apply.>
@@ -40,11 +41,12 @@ created: <YYYY-MM-DD>
 ## Phase 3: Examples and Tests
 ### Examples
 ### Tests
-<Exact test names, each mapped to an acceptance criterion; the command to run them.>
+<Exact test names, each citing the scenarios it proves (AC-1, …); the command to run them.>
 
 ## Phase 4: Implementation Plan
 ### Steps
-<Numbered: file and symbol, change, proof command.>
+<A checklist, one item per step: `- [ ] 1. <file and symbol> — <change> — <proof command>`.
+Tick each step when its proof passes and append the commit.>
 ### Validation
 <Final checks; documents and generated files to update.>
 

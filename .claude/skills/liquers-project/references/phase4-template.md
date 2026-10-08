@@ -9,6 +9,10 @@ signature a step depends on before writing it. File: `phase4-implementation.md`.
 ## Overview
 <What gets built, in what order, and why that order. Prerequisites: issues to fix first.>
 
+## Progress
+- [ ] Step 1: <action>
+- [ ] Step 2: <action>
+
 ## Implementation Steps
 ### Step 1: <action>
 - Files / symbols: `<path>` `<symbol>`
@@ -35,6 +39,13 @@ signature a step depends on before writing it. File: `phase4-implementation.md`.
 - [ ] User and review comments answered
 - [ ] Documentation checkable against implemented and tested behaviour
 ```
+
+**Progress** (`DOCS_STRUCTURE_GUIDE.md` §5.2.1) has one item per `### Step N`, in the same order.
+During implementation, tick a step when its proof passes and append the commit:
+`- [x] Step 2: add the reader — a1b2c3d`. Ticking is progress, not a design change: it needs no
+re-approval and is allowed after Phase 4 is approved. A session resuming the work, or a spin-off
+taking over part of it, starts at the first unticked step. Before Phase 5 every step is ticked, or
+the unfinished remainder has become an issue (§5.6) and the item says so.
 
 Designs without `workflow: liquers-project` (bulk design) write `None — four-phase design` under
 Phase 5 Entry Criteria.

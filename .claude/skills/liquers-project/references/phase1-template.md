@@ -15,8 +15,14 @@ design use [`compact-design-template.md`](compact-design-template.md) instead.
 For a new capability: what the user cannot do today, and how it reads once it exists.>
 
 ## Scope and Acceptance Criteria
-- <Testable criterion. Each one gets at least one Phase 3 test.>
-- Non-goals: <what this deliberately does not do>
+- **AC-1** <short name; the problem example is usually the first scenario>
+  WHEN <the action or condition>
+  THEN <the observable result>
+- **AC-2** <short name>
+  WHEN <…>
+  THEN <…>
+
+Non-goals: <what this deliberately does not do>
 
 ## Core Interactions
 <Only the systems this touches, one line each: Query, Store, Commands, Assets, Value types, Web/API,
@@ -37,6 +43,11 @@ UI, bindings. Omit the ones it does not touch.>
 ## References
 - <Related issues, designs, reference documents.>
 ```
+
+Scenario rules (`DOCS_STRUCTURE_GUIDE.md` §5.2.1): each `**AC-<n>**` item has a WHEN line and a
+THEN line; ids are never renumbered or reused (retire one by striking it through and saying why);
+every scenario is cited by at least one Phase 3 test. Keep scenarios observable: state what a caller,
+query or user sees, not how the code achieves it.
 
 Add when they apply:
 

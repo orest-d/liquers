@@ -55,24 +55,32 @@ changed signatures, never existing code. A design that cannot fit is two designs
 
 | # | `phase:` | Purpose | Must contain | Apply |
 |---|---|---|---|---|
-| 1 | `high-level` | What and why | Purpose; problem example; acceptance criteria; systems touched; crate placement; documentation intent; open questions | Overlap triage first |
+| 1 | `high-level` | What and why | Purpose; problem example; acceptance scenarios (`AC-<n>`, WHEN/THEN); systems touched; crate placement; documentation intent; open questions | Overlap triage first |
 | 2 | `architecture` | How | Chosen solution and rejected alternatives; known-issue preflight; new and changed interfaces; integration points; errors; sync/async; commands; documentation architecture; risks | `rust-best-practices` |
-| 3 | `examples` | Proof | Overview table; primary and secondary example; edge and error cases; test plan with exact test names | `liquers-unittest`, `liquers-validate` |
-| 4 | `implementation` | Steps | Ordered steps with files, symbols, validation command and rollback; testing plan; documentation updates | `rust-best-practices` |
+| 3 | `examples` | Proof | Overview table; primary and secondary example; edge and error cases; test plan with exact test names, each citing its scenarios | `liquers-unittest`, `liquers-validate` |
+| 4 | `implementation` | Steps | Progress checklist; ordered steps with files, symbols, validation command and rollback; testing plan; documentation updates | `rust-best-practices` |
 | 5 | `documentation` | Record | What was built versus approved; documents created and reviewed; issues closed and filed; learning | — |
 
 Phase-specific rules:
 
 - **Phase 1** states the problem on a concrete example: input, query, call or scenario; what happens
-  today; what should happen. Validate any query in it with `liquers-validate`.
+  today; what should happen. Validate any query in it with `liquers-validate`. Acceptance criteria
+  are scenarios: `- **AC-<n>** <name>` with a WHEN line and a THEN line (`DOCS_STRUCTURE_GUIDE.md`
+  §5.2.1); the problem example is usually AC-1. Ids are never renumbered or reused.
 - **Phase 2 known-issue preflight:** check open issues linked to the design or touching its areas
   and integration points. For each relevant one record whether it must be fixed first and whether it
   blocks. A blocker is resolved first or designed around; it is at least `P1` (`P0` only when it meets
   §4.4). List the command namespaces involved (e.g. `pl`, `lui`); the user confirms them at the gate.
 - **Phase 3** uses runnable tests by default. Use conceptual examples only where execution is
-  impossible, and say why. Every acceptance criterion from Phase 1 has at least one test.
-- **Phase 4** ends with execution options at the gate: execute now, create a task list, revise, or
-  exit (user implements; Phase 5 stays outstanding).
+  impossible, and say why. Every scenario is cited (`AC-<n>`) by at least one test, and no test
+  cites an undefined one; `validate_phase.py` and `docs_index.py --check` enforce this whenever
+  Phase 1 defines scenarios.
+- **Phase 4** opens with a `## Progress` checklist, one item per step (compact: the `### Steps`
+  checklist). During implementation tick a step when its proof passes and append the commit.
+  Ticking is progress, not a design change, and needs no re-approval. A resumed session or a
+  spin-off starts at the first unticked step; Phase 5 starts only when every item is ticked or its
+  remainder is an issue. The Phase 4 gate offers execution options: execute now, create a task
+  list, revise, or exit (user implements; Phase 5 stays outstanding).
 - **Phase 5** starts when the implementation is validated and every user and review comment is
   answered, normally in the same PR before merge. Write the summary
   ([`references/phase5-documentation.md`](references/phase5-documentation.md)); create the planned

@@ -121,6 +121,59 @@ def empty_sections(content: str, required: list, level: str) -> list[str]:
     return empty
 
 
+def load_docs_index(specs_dir: Path):
+    """The repository's scripts/docs_index.py, which owns the scenario and progress parsing
+    (DOCS_STRUCTURE_GUIDE.md §5.2.1), so --check and this script agree."""
+    sys.path.insert(0, str(specs_dir.parent / "scripts"))
+    try:
+        import docs_index  # noqa: PLC0415
+    finally:
+        sys.path.pop(0)
+    return docs_index
+
+
+def scenario_and_progress_problems(
+    docs_index, design_file: Path, fields: dict, phase: int, new_style: bool
+) -> tuple[list[str], list[str]]:
+    """Errors and warnings for §5.2.1: scenarios in Phase 1, their coverage in Phase 3, and the
+    progress checklist in Phase 4. Older designs are checked only for what they define."""
+    errors: list[str] = []
+    warnings: list[str] = []
+    row = {"_path": design_file, "_fm": fields}
+    phase1 = docs_index.design_phase_text(row, 1) or ""
+    defined = docs_index.scenario_definitions(phase1)
+    if phase == 1:
+        if not defined:
+            (errors if new_style else warnings).append(
+                "Phase 1 defines no acceptance scenarios (`- **AC-1** …` with WHEN/THEN lines)"
+            )
+        for sid, block in defined.items():
+            for keyword in ("WHEN", "THEN"):
+                if not re.search(rf"\b{keyword}\b", block):
+                    errors.append(f"scenario {sid} has no {keyword} line")
+    if phase == 3 and defined:
+        phase3 = docs_index.design_phase_text(row, 3) or ""
+        cited = set(docs_index.SCENARIO_REF_RE.findall(phase3))
+        for sid in sorted(set(defined) - cited, key=lambda x: int(x[3:])):
+            errors.append(f"scenario {sid} has no Phase 3 test citing it")
+        for sid in sorted(cited - set(defined), key=lambda x: int(x[3:])):
+            errors.append(f"Phase 3 cites {sid}, which Phase 1 does not define")
+    if phase == 4:
+        phase4 = docs_index.design_phase_text(row, 4) or ""
+        items = docs_index.progress_items(phase4)
+        steps = {int(n) for n in re.findall(r"(?mi)^###+ +Step +(\d+)\b", phase4)}
+        if not items:
+            (errors if new_style else warnings).append(
+                "no progress checklist (`## Progress` with `- [ ] Step N: …`, or a checklist under "
+                "`### Steps` in a compact design)"
+            )
+        elif steps and {n for _, n in items} != steps:
+            errors.append(
+                f"progress items {sorted({n for _, n in items})} do not match steps {sorted(steps)}"
+            )
+    return errors, warnings
+
+
 def validate_phase(slug: str, phase: int) -> bool:
     specs_dir = find_specs_dir()
     if specs_dir is None:
@@ -191,6 +244,18 @@ def validate_phase(slug: str, phase: int) -> bool:
             print(f"   line {n}: {line}")
     else:
         print("[OK] No template placeholders")
+
+    new_style = fields.get("created", "") >= TEMPLATE_REWRITE
+    extra_errors, extra_warnings = scenario_and_progress_problems(
+        load_docs_index(specs_dir), design_file, fields, phase, new_style
+    )
+    for message in extra_errors:
+        ok = False
+        print(f"[ERROR] {message}")
+    for message in extra_warnings:
+        print(f"[WARN] {message}")
+    if phase in (1, 3, 4) and not extra_errors and not extra_warnings:
+        print("[OK] Scenarios and progress (§5.2.1)")
 
     if compact:
         size = fields.get("complexity") or "M"

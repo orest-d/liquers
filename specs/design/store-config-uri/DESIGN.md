@@ -12,6 +12,11 @@ superseded_by:
 ---
 # Configuring a store from a URI
 
+> **Acceptance scenarios not defined.** This design predates acceptance scenarios
+> (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance
+> criteria as `AC-<n>` WHEN/THEN scenarios and cite each from the Phase 3 test that proves it. Remove
+> this note when you do; until then `docs_index.py --check` counts this design in its warning.
+
 Design tracking for [`issues/STORE-CONFIG-FROM-URI.md`](../../issues/STORE-CONFIG-FROM-URI.md),
 prepared under [`guides/autonomous_issue_fixing.md`](../../guides/autonomous_issue_fixing.md). No
 `workflow:` marker: this is a simplified transitional design whose required phases are the two

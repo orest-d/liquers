@@ -509,6 +509,37 @@ The `liquers-project` skill owns what its five phases *contain*. Designs created
 A short investigation does not run phases at all: it may go straight to `status: complete` with no
 `phase`, carrying `DESIGN.md` plus whatever findings document it produced.
 
+#### 5.2.1 Acceptance scenarios and implementation progress
+
+**Scenarios.** Phase 1 states its acceptance criteria as scenarios, one list item each:
+
+```markdown
+- **AC-1** Empty frame
+  WHEN `head` runs on a DataFrame with no rows
+  THEN it returns an empty DataFrame with the same schema
+```
+
+The id `AC-<n>` is unique within the design and is never renumbered or reused; a dropped scenario
+is struck through with a reason. Phase 3 cites the id of every scenario a test or example proves.
+When Phase 1 defines at least one scenario, `--check` requires that every scenario has a WHEN and
+a THEN line. Once Phase 3 is written (at review, or the design has moved past it), every scenario
+must be cited in Phase 3 and Phase 3 may cite no undefined id. A design that defines no scenarios
+is not checked, so designs written before scenarios existed stay valid. `--check` instead counts
+the open ones in a single warning, and each carries a note in its `DESIGN.md` saying the
+scenarios are missing; whoever adds them removes the note. A note left after scenarios exist is
+a warning too.
+
+**Progress.** Phase 4 opens with a `## Progress` checklist, one item per `### Step N`
+(`- [ ] Step N: …`); a compact design writes its `### Steps` as that checklist. A step is ticked
+when its proof passes, with the commit appended (`- [x] Step 2: … — a1b2c3d`). Ticking records
+progress, not a design decision: it is allowed after Phase 4 is approved and does not reopen the
+phase. A resumed session or a spin-off starts at the first unticked step. A design at
+`documentation` or `complete` with unticked items is a `--check` warning: tick them, or turn the
+remainder into an issue (§5.6) and say so in the item.
+
+`liquers-project`'s `validate_phase.py` applies the same rules, and requires scenarios and the
+progress checklist in designs created on or after 2026-10-08.
+
 ### 5.3 Changing the phase set
 
 The phase set changes over time — `documentation` was added after the initial four-phase set, and
@@ -789,6 +820,11 @@ tooling, no network and no Python can still record what it found.
 14. **Warning:** documents whose `reviewed:` is more than 92 days old (§9.4).
 15. *With network:* imported bodies still match `imported_body_sha`; every design whose linked PRs
     are all closed unmerged is reported for a human decision (§5.5).
+
+16. When Phase 1 defines `AC-<n>` scenarios, each has WHEN and THEN, and a written Phase 3 cites
+    every one and no other (§5.2.1). **Warnings:** open designs without scenarios (one summary
+    line); a "not defined" note left after scenarios exist; unticked Phase 4 progress at
+    `documentation` or `complete`.
 
 Checks 12, 13 and 15 are **not implemented yet** — 12 needs the git diff, 13 needs cross-document
 Phase 5 validation, and 15 needs the API. `--sync` is likewise unbuilt. Everything else runs
@@ -1094,6 +1130,7 @@ neither.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-08 | §5.2.1, §7.2 check 16: acceptance scenarios (`AC-<n>` WHEN/THEN) in Phase 1, cited by Phase 3 tests and checked only when defined; a Phase 4 progress checklist; open designs without scenarios carry a note and are counted in one warning. | maintainer decision |
 | 2026-10-08 | §5: a design's `form` — the default full form, or `compact` for `S`/`M` work, with every phase as a `## Phase N` section of `DESIGN.md`; `--check` validates the value and the sections; the `index.md` board links a compact design's `DESIGN.md`. | maintainer decision |
 | 2026-10-08 | §5.1.1, §6: optional `autofix` (`eligible` / `not-eligible`) beside `readiness`, projected into a new `index.csv` column and the `index.md` board; `--check` requires readiness with it, and `ready` plus an `S`/`M` leading source for `eligible`. | maintainer decision |
 | 2026-10-08 | §4.8.1 step 1 points to the `liquers-project` overlap triage. §5, §5.1.1, §5.2: `liquers-designer` removed in favour of `liquers-project`; a design may own several sources through triage of strongly overlapping issues as well as a maintainer merge, both recorded with `merged:`. | maintainer decision |

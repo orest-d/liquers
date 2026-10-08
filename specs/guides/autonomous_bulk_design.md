@@ -185,7 +185,8 @@ include:
 - the problem and observed evidence;
 - a `## Problem Example`: one concrete input, query, call or scenario, what happens today, and what
   should happen;
-- expected behaviour and testable acceptance criteria;
+- expected behaviour and testable acceptance criteria, as `AC-<n>` WHEN/THEN scenarios
+  (`DOCS_STRUCTURE_GUIDE.md` §5.2.1) that Phase 3 cites;
 - affected users, workflows, and Liquers systems;
 - scope, dependencies, and explicit non-goals;
 - compatibility, migration, security, and data-format constraints where relevant;
@@ -265,7 +266,8 @@ as if they were valid. Follow [`UNITTEST_GUIDE.md`](UNITTEST_GUIDE.md) and the r
 
 ## 10. Phase 4: Implementation plan
 
-Phase 4 is an executable plan, not execution. Each ordered step MUST name exact files and symbols,
+Phase 4 is an executable plan, not execution. It opens with an unticked progress checklist, one
+item per step (`DOCS_STRUCTURE_GUIDE.md` §5.2.1). Each ordered step MUST name exact files and symbols,
 the intended change, dependencies on earlier steps, proof by a Phase 3 test or validation command,
 and rollback or containment for risky work. Include:
 
@@ -344,6 +346,7 @@ as implementation-ready merely because four files exist.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-08 | §6: acceptance criteria as `AC-<n>` scenarios; §10: a Phase 4 progress checklist (`DOCS_STRUCTURE_GUIDE.md` §5.2.1). | maintainer decision |
 | 2026-10-08 | §5: `S`/`M` sources use the compact single-file design form. | maintainer decision |
 | 2026-10-08 | Invoked by the `liquers-project` keywords "bulk-design" / "bulk design". Rule 6, §4 and §5: strongly overlapping sources (the skill's `references/overlap.md`) share one design with `merged:`; merging existing designs stays a maintainer decision. §3: an **Automatic fixing** line, mirrored as `autofix:` in `DESIGN.md`. §6: a `## Problem Example`. | maintainer decision |
 | 2026-10-05 | Rule 6 and §5: one exception to one-source-per-design, a maintainer-directed merge of designs whose implementations depend on each other (`DOCS_STRUCTURE_GUIDE.md` §5.1.1). | maintainer decision |

@@ -20,7 +20,8 @@ that does not apply is skipped, not padded.
 
 - [ ] Purpose fits in 1-3 sentences.
 - [ ] `## Problem Example` shows one concrete case: what happens today, and what should happen.
-- [ ] Acceptance criteria are testable; non-goals are stated.
+- [ ] Acceptance criteria are `AC-<n>` scenarios, each with WHEN and THEN, observable from outside;
+  non-goals are stated.
 - [ ] Overlap triage done (`issue-triage.md`, `overlap.md`). No existing design already covers this,
   and weak overlaps are listed as dependencies.
 - [ ] Crate placement respects the dependency flow in `CLAUDE.md`.
@@ -43,7 +44,7 @@ that does not apply is skipped, not padded.
 
 ## Phase 3: examples and tests
 
-- [ ] Every acceptance criterion maps to at least one named test.
+- [ ] Every `AC-<n>` scenario is cited by at least one named test; no test cites an undefined one.
 - [ ] Tests assert externally meaningful behaviour, not implementation details.
 - [ ] Error and edge cases match the risks Phase 2 named. No more, no fewer.
 - [ ] Resource queries (`-R/…`) have a store in the test environment; the commands they use are
@@ -54,6 +55,7 @@ that does not apply is skipped, not padded.
 ## Phase 4: implementation plan
 
 - [ ] Every step names its files and symbols, its proof command and its rollback.
+- [ ] The `## Progress` checklist (compact: the `### Steps` checklist) has one unticked item per step.
 - [ ] The order is feasible: nothing uses a symbol before the step that creates it.
 - [ ] Signatures the steps depend on were re-opened at HEAD.
 - [ ] The plan includes test, documentation, index and generated-file updates, and the final checks
@@ -67,7 +69,8 @@ find.
 
 ## Phase 5: documentation
 
-- [ ] Entry criteria met: implementation validated, every comment answered.
+- [ ] Entry criteria met: implementation validated, every comment answered; every Phase 4 progress
+  item ticked, or its remainder filed as an issue.
 - [ ] The summary separates requested, implemented, omitted and added scope, and fits in 1-3 pages.
 - [ ] Every document in `affects_docs` reviewed against the code and tests, with a History row and a
   `reviewed:` bump (§9.2).
