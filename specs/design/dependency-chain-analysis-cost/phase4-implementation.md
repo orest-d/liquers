@@ -495,24 +495,32 @@ exit.
 ## Open Decision Before Execution (from the final review)
 
 **B1. The per-key audit loses depth.** `trigger_dependency_audit(query)`, which backs the axum
-`admin/audit/{key}` endpoint, audits the gaps on the key's direct edges
-(`missing_versions_for`, `dependencies.rs:1016`). Under `Explicit`, after a restart where `l2` and
-`l1` were fast-tracked, `l1` is `Known`, though checked only one level deep, so auditing `l2`
-finds nothing. Today it is caught, because `l2` records `make_text` directly.
-`trigger_dependency_audit_all_registered` still catches it.
+`admin/audit/{key}` endpoint, collects only the key's **direct** gaps (`missing_versions_for`,
+`dependencies.rs:1016`). Its doc comment says "reachable", but the code looks at one level.
 
-- **Recommendation.** An audit is an explicit request to check against storage, so it should
-  verify rather than trust. Give the walk a `trust_known: bool`:
-  - `OnLoad` passes `true`. Under `OnLoad` every `Known` key was itself loaded deep.
-  - Both audits pass `false`: they re-read the stored records of store-resolvable keys recursively
-    even when the manager knows a version. They still compare with the known version, and still
-    memoize per call.
-  - The per-key audit then calls the walk on each recorded dependency of the key.
-  - Cost: O(upstream) store metadata reads per audit, which is acceptable for an explicit
-    operation.
-- **Alternative.** Document the per-key audit as direct-only, and point users to the
-  all-registered audit.
-- **Test either way.** I4d `per_key_audit_catches_deep_upstream_change`.
+- **Scenario (restart, `Explicit`).** A chain `l0 → l1 → l2 → l3`, where `make_text` (used by
+  `l0`) changed between runs.
+  1. Loading `l3` and `l2` fast-tracks them one level deep.
+  2. `l2` checks `l1`, which the manager does not know yet, so `l2` is served and becomes known.
+  3. `l1` is loaded too and is not refused: under `Explicit` it checks only `l0`, which is unknown.
+  4. The manager now holds the edges `l0 → l1 → l2 → l3`, versions for `l1..l3`, and none for `l0`.
+  5. Auditing `l3` finds no direct gap, because `l2` is known, and reports nothing.
+     `trigger_dependency_audit_all_registered` finds the gap `l0` and catches it.
+  - The problem is not the store being modified at runtime. It is what changed *between runs* and
+    was not verified deeply on load under `Explicit`.
+- **Revised recommendation (maintainer's principle, 2026-10-08).** A running manager is trusted.
+  The per-key audit collects the gaps over the key's **upstream closure in the dependency
+  manager's graph**, not over its direct edges only. Then it resolves each gap with the walk, as
+  the full audit does.
+  - `Known` versions are trusted, and nothing is re-read for them.
+  - Computing the closure: one scan of `keyed_dependents` builds a forward index, then a
+    breadth-first search from the key. That is O(E), in memory.
+  - `missing_versions_for` is fixed to match its own doc comment ("reachable").
+- **Rejected:** distrusting `Known` versions in audits (the earlier `trust_known` proposal). A
+  store modified behind a running manager is out of scope. Making a running system consistent with
+  its store again is a separate operation, filed as
+  `ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE`.
+- **Test.** I4d `per_key_audit_catches_deep_upstream_change`, the scenario above.
 
 ## Accepted Deviations Noted in Review
 

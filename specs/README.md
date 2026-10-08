@@ -398,6 +398,7 @@ deliberately folded behind a broader line.
 - design `web-object06-error-type-exhaustiveness`
 - design `web-value04-bytes-identifier`
 - feature `AGENT-MEMORY-SERVICE`
+- feature `ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE`
 - feature `ASSET-REGISTRATION-OWNERSHIP-CONTRACT`
 - feature `ASSETS-API-ADMIN-OPERATIONS`
 - feature `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`
