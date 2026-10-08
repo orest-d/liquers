@@ -295,7 +295,7 @@
 //!
 
 use std::{
-    collections::{BTreeSet, HashMap, VecDeque},
+    collections::{BTreeSet, HashMap, HashSet, VecDeque},
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     sync::{Arc, Weak},
 };
@@ -1335,25 +1335,25 @@ impl<E: Environment> AssetData<E> {
                             && dep_record.key.is_store_resolvable()
                             && !dep_record.version.is_unknown()
                         {
-                            // The map does not know this dependency: resolve its current version.
-                            // A recorded unknown is compatible, so it is not asked at all. The
-                            // comparison is equality, not `Version::matches`, which would accept a
-                            // current 0 — and a dependency with no durable version refuses.
-                            let refuse = match manager.dependency_version(&dep_record.key).await {
-                                Ok(current) => current != dep_record.version,
-                                Err(e) => {
-                                    eprintln!(
-                                        "Asset {}: current version of dependency {} unavailable: {}",
-                                        self.id(),
-                                        dep_record.key,
-                                        e
-                                    );
-                                    true
+                            // The map does not know this dependency: the dependency manager
+                            // resolves it from the store — its stored version and, recursively,
+                            // everything it recorded — and registers what it confirms. A recorded
+                            // unknown is compatible, so it is not asked at all. A stored version is
+                            // compared by equality, not `Version::matches`, which would accept a
+                            // current 0; a dependency with no durable version refuses.
+                            let holds = match manager.stored_dependency_state(&dep_record.key).await {
+                                StoredDependencyState::Known(version) => {
+                                    version.matches(&dep_record.version)
                                 }
+                                StoredDependencyState::Confirmed(version) => {
+                                    version == dep_record.version
+                                }
+                                StoredDependencyState::Stale { .. }
+                                | StoredDependencyState::Unresolvable => false,
                             };
-                            if refuse {
+                            if !holds {
                                 eprintln!(
-                                    "Asset {} stale (on_load): dependency {} differs from the recorded version {:?}",
+                                    "Asset {} stale (on_load): dependency {} differs from the recorded version {:?}, or something it depends on does",
                                     self.id(),
                                     dep_record.key,
                                     dep_record.version
@@ -1361,10 +1361,6 @@ impl<E: Environment> AssetData<E> {
                                 self.clear_fast_track_payload();
                                 return Ok(false);
                             }
-                            // Confirmed: remember it, so that a later write or recomputation of
-                            // the dependency is compared with this version rather than taken as a
-                            // first observation that expires nothing.
-                            dm.observe_version(&dep_record.key, dep_record.version).await;
                         }
                         // The version check above answers "was this dependency recomputed into
                         // different content?" and is silent on "is it stale *right now*?" — the
@@ -1732,6 +1728,239 @@ impl AuditFinding {
             found,
         }
     }
+}
+
+/// What the dependency manager concludes about a dependency, from everything it knows plus the
+/// stored dependency records reachable from it ([`AssetManager::stored_dependency_state`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum StoredDependencyState {
+    /// The dependency manager already holds a version: authoritative, nothing was read.
+    Known(crate::metadata::Version),
+    /// Stored with a durable version, and every recorded dependency, recursively, still holds.
+    /// The version and the dependency's edges are now registered in the dependency manager.
+    Confirmed(crate::metadata::Version),
+    /// Stored, but `dependency` — this key or one upstream of it — no longer holds what was
+    /// recorded. Nothing is registered for it.
+    Stale {
+        version: crate::metadata::Version,
+        dependency: crate::metadata::DependencyKey,
+    },
+    /// No durable version to go by: absent from the store, unversioned, unreadable, not
+    /// store-resolvable, or on a cycle of stored records.
+    Unresolvable,
+}
+
+/// The state shared by one run of the stored-records walk: the keys on the current path and the
+/// keys already concluded. A store audit shares one across every key it checks.
+pub(crate) struct StoredWalkMemo {
+    on_path: HashSet<crate::metadata::DependencyKey>,
+    done: HashMap<crate::metadata::DependencyKey, StoredDependencyState>,
+    /// Whether a confirmed value is registered in the dependency manager. Off for an
+    /// `AuditMode::ReportOnly` audit, which must change nothing.
+    register: bool,
+}
+
+impl StoredWalkMemo {
+    pub(crate) fn new(register: bool) -> Self {
+        StoredWalkMemo {
+            on_path: HashSet::new(),
+            done: HashMap::new(),
+            register,
+        }
+    }
+}
+
+/// A stored value whose records are being checked by the stored-records walk.
+struct StoredFrame {
+    key: crate::metadata::DependencyKey,
+    version: crate::metadata::Version,
+    records: Vec<crate::metadata::DependencyRecord>,
+    next: usize,
+    /// The dependency that broke one of `records`, once one has.
+    broken: Option<crate::metadata::DependencyKey>,
+}
+
+/// What one key's own metadata says, before its records are checked.
+enum StoredLeaf {
+    Final(StoredDependencyState),
+    Expand(StoredFrame),
+}
+
+/// Whether `record` still holds given its dependency's state; the dependency that broke it if not.
+fn stored_record_breaks(
+    record: &crate::metadata::DependencyRecord,
+    state: &StoredDependencyState,
+) -> Option<crate::metadata::DependencyKey> {
+    match state {
+        StoredDependencyState::Known(version) => {
+            (!version.matches(&record.version)).then(|| record.key.clone())
+        }
+        // Equality, not `matches`: a stored 0 has no durable version to vouch for the record.
+        StoredDependencyState::Confirmed(version) => {
+            (*version != record.version).then(|| record.key.clone())
+        }
+        StoredDependencyState::Stale { dependency, .. } => Some(dependency.clone()),
+        // A missing intermediate is a stale upstream; a key no store can answer (a command
+        // without a version) is compatible, as it is for the fast track.
+        StoredDependencyState::Unresolvable => {
+            record.key.is_store_resolvable().then(|| record.key.clone())
+        }
+    }
+}
+
+/// The stored-records walk behind [`AssetManager::stored_dependency_state`]: iterative, with an
+/// explicit stack, because a chain of stored values has no bounded depth.
+pub(crate) async fn stored_dependency_walk<E: Environment, M: AssetManager<E> + ?Sized>(
+    manager: &M,
+    dep_key: &crate::metadata::DependencyKey,
+    memo: &mut StoredWalkMemo,
+) -> StoredDependencyState {
+    if let Some(state) = memo.done.get(dep_key) {
+        return state.clone();
+    }
+    let mut stack: Vec<StoredFrame> = Vec::new();
+    match stored_leaf(manager, dep_key, memo).await {
+        StoredLeaf::Final(state) => return state,
+        StoredLeaf::Expand(frame) => {
+            memo.on_path.insert(frame.key.clone());
+            stack.push(frame);
+        }
+    }
+    // The state of the frame just finished, owed to the record of its parent that reached it.
+    let mut finished: Option<StoredDependencyState> = None;
+    loop {
+        let next_record = {
+            let Some(top) = stack.last_mut() else {
+                return StoredDependencyState::Unresolvable;
+            };
+            if let Some(state) = finished.take() {
+                if let Some(record) = top.next.checked_sub(1).and_then(|i| top.records.get(i)) {
+                    top.broken = stored_record_breaks(record, &state);
+                }
+            }
+            if top.broken.is_some() || top.next >= top.records.len() {
+                None
+            } else {
+                top.next += 1;
+                Some(top.records[top.next - 1].clone())
+            }
+        };
+        match next_record {
+            Some(record) => {
+                // A recorded unknown is compatible, and is not followed.
+                if record.version.is_unknown() {
+                    continue;
+                }
+                let state = match memo.done.get(&record.key) {
+                    Some(state) => state.clone(),
+                    None => match stored_leaf(manager, &record.key, memo).await {
+                        StoredLeaf::Final(state) => state,
+                        StoredLeaf::Expand(frame) => {
+                            memo.on_path.insert(frame.key.clone());
+                            stack.push(frame);
+                            continue;
+                        }
+                    },
+                };
+                if let Some(top) = stack.last_mut() {
+                    top.broken = stored_record_breaks(&record, &state);
+                }
+            }
+            None => {
+                let Some(frame) = stack.pop() else {
+                    return StoredDependencyState::Unresolvable;
+                };
+                memo.on_path.remove(&frame.key);
+                let state = match frame.broken {
+                    Some(dependency) => StoredDependencyState::Stale {
+                        version: frame.version,
+                        dependency,
+                    },
+                    None => {
+                        if memo.register {
+                            let dm = manager.dependency_manager();
+                            dm.observe_version(&frame.key, frame.version).await;
+                            let expired = dm.load_from_records(&frame.key, &frame.records).await;
+                            manager
+                                .expire_dependencies_result(
+                                    expired,
+                                    ExpiryCause::Updated {
+                                        version: frame.version,
+                                    },
+                                )
+                                .await;
+                        }
+                        StoredDependencyState::Confirmed(frame.version)
+                    }
+                };
+                memo.done.insert(frame.key, state.clone());
+                if stack.is_empty() {
+                    return state;
+                }
+                finished = Some(state);
+            }
+        }
+    }
+}
+
+/// One key's own state, read from the dependency manager or its stored metadata.
+async fn stored_leaf<E: Environment, M: AssetManager<E> + ?Sized>(
+    manager: &M,
+    key: &crate::metadata::DependencyKey,
+    memo: &StoredWalkMemo,
+) -> StoredLeaf {
+    if let Some(version) = manager.dependency_manager().get_version(key).await {
+        return StoredLeaf::Final(StoredDependencyState::Known(version));
+    }
+    if !key.is_store_resolvable() || memo.on_path.contains(key) {
+        return StoredLeaf::Final(StoredDependencyState::Unresolvable);
+    }
+    if key.is_dir_key() {
+        // A listing has no status and no records: its version is the answer.
+        return match manager.dependency_version(key).await {
+            Ok(version) if !version.is_unknown() => {
+                if memo.register {
+                    manager
+                        .dependency_manager()
+                        .observe_version(key, version)
+                        .await;
+                }
+                StoredLeaf::Final(StoredDependencyState::Confirmed(version))
+            }
+            Ok(_) | Err(_) => StoredLeaf::Final(StoredDependencyState::Unresolvable),
+        };
+    }
+    let Ok(Some(store_key)) = key.key() else {
+        return StoredLeaf::Final(StoredDependencyState::Unresolvable);
+    };
+    let store = manager.get_envref().get_async_store();
+    let metadata = match store.get_metadata(&store_key).await {
+        Ok(metadata) => metadata,
+        Err(_) => return StoredLeaf::Final(StoredDependencyState::Unresolvable),
+    };
+    let Some(version) = metadata.version() else {
+        return StoredLeaf::Final(StoredDependencyState::Unresolvable);
+    };
+    let status = metadata.status();
+    if status == Status::Recipe {
+        // A computed value removed with its version kept: dependents were built from that
+        // version, so it vouches for them as it does on the fast track; it has nothing to recurse.
+        return StoredLeaf::Final(StoredDependencyState::Confirmed(version));
+    }
+    if !AssetData::<E>::status_permits_reuse(status) {
+        return StoredLeaf::Final(StoredDependencyState::Stale {
+            version,
+            dependency: key.clone(),
+        });
+    }
+    StoredLeaf::Expand(StoredFrame {
+        key: key.clone(),
+        version,
+        records: metadata.get_dependencies().to_vec(),
+        next: 0,
+        broken: None,
+    })
 }
 
 /// The bytes and version an evaluation settled on, ready to be installed alongside its status.
@@ -5648,6 +5877,106 @@ pub trait AssetManager<E: Environment>:
         self.audit_gaps(gaps, mode).await
     }
 
+    /// Audit every stored keyed value under `root` — the whole store for `Key::new()` — without
+    /// evaluating anything. Typically called once, right after the environment is built, by an
+    /// application that runs the default trusting policy (`DependencyAuditPolicy::Explicit`) but
+    /// wants a clean start: at start the dependency manager knows only command versions, so
+    /// [`Self::trigger_dependency_audit_all_registered`] would check almost nothing.
+    ///
+    /// Every stored `Ready` or `Override` value with dependency records is resolved through the
+    /// stored-records walk ([`Self::stored_dependency_state`]), sharing one memo, so each stored
+    /// value's metadata is read once. A stale one is, in [`AuditMode::Expire`], persisted
+    /// `Expired` with `ExpiryReason::Direct { cause: ExpiryCause::StaleDependency { dependency } }`
+    /// and its registered dependents are cascaded; in [`AuditMode::ReportOnly`] it is only
+    /// reported, and nothing is registered or written. A confirmed one is registered, as on any
+    /// walk, so the managers start out knowing it.
+    ///
+    /// `checked` lists the audited keys, `expired` the stale ones expired (cascaded dependents
+    /// are expired too, but only the stale stored values are listed), and `findings` one entry per
+    /// stale value: the dependency that broke it, with the version the value recorded for that
+    /// dependency when it is a direct one (`Version::unknown()` otherwise). A listing error is
+    /// returned; a value whose metadata cannot be read is skipped.
+    async fn trigger_dependency_audit_store(
+        &self,
+        root: &Key,
+        mode: AuditMode,
+    ) -> Result<AuditReport, Error> {
+        let store = self.get_envref().get_async_store();
+        let keys = if store.is_dir(root).await? {
+            store.listdir_keys_deep(root).await?
+        } else {
+            vec![root.clone()]
+        };
+        let mut report = AuditReport::default();
+        let mut memo = StoredWalkMemo::new(match mode {
+            AuditMode::Expire => true,
+            AuditMode::ReportOnly => false,
+        });
+        for key in keys {
+            let Ok(metadata) = store.get_metadata(&key).await else {
+                continue;
+            };
+            match metadata.status() {
+                Status::Ready | Status::Override => {}
+                Status::None
+                | Status::Recipe
+                | Status::Directory
+                | Status::Submitted
+                | Status::Dependencies
+                | Status::Processing
+                | Status::Partial
+                | Status::Error
+                | Status::Storing
+                | Status::Expired
+                | Status::Source
+                | Status::Cancelled
+                | Status::Volatile => continue,
+            }
+            if metadata.get_dependencies().is_empty() {
+                continue;
+            }
+            let dep_key = crate::metadata::DependencyKey::from(&key);
+            report.checked.push(dep_key.clone());
+            match stored_dependency_walk(self, &dep_key, &mut memo).await {
+                StoredDependencyState::Stale { dependency, .. } => {
+                    let expected = metadata
+                        .get_dependencies()
+                        .iter()
+                        .find(|record| record.key == dependency)
+                        .map(|record| record.version)
+                        .unwrap_or_else(Version::unknown);
+                    report.findings.push(AuditFinding::new(
+                        dependency.clone(),
+                        dep_key.clone(),
+                        expected,
+                        Version::unknown(),
+                    ));
+                    match mode {
+                        AuditMode::Expire => {
+                            let cause = ExpiryCause::StaleDependency { dependency };
+                            expire_stored_copy(
+                                self,
+                                store.clone(),
+                                &key,
+                                &ExpiryReason::Direct {
+                                    cause: cause.clone(),
+                                },
+                            )
+                            .await;
+                            report.expired.push(dep_key.clone());
+                            self.cascade_expire_dependents(&dep_key, cause).await;
+                        }
+                        AuditMode::ReportOnly => {}
+                    }
+                }
+                StoredDependencyState::Known(_)
+                | StoredDependencyState::Confirmed(_)
+                | StoredDependencyState::Unresolvable => {}
+            }
+        }
+        Ok(report)
+    }
+
     /// Resolve each gap through [`Self::dependency_version`] and compare it with what the
     /// dependents recorded.
     ///
@@ -5671,12 +6000,47 @@ pub trait AssetManager<E: Environment>:
         mode: AuditMode,
     ) -> Result<AuditReport, Error> {
         let mut report = AuditReport::default();
+        let mut memo = StoredWalkMemo::new(match mode {
+            AuditMode::Expire => true,
+            AuditMode::ReportOnly => false,
+        });
         for dep_key in gaps {
             report.checked.push(dep_key.clone());
             // Not store-resolvable (a command dependency, say): the manager holds those
             // authoritatively already and there is nothing to resolve from a store.
             if !dep_key.is_store_resolvable() {
                 continue;
+            }
+            // A gap whose stored version is unchanged can still be stale because of something it
+            // depends on: the stored-records walk looks upstream, which a version comparison
+            // cannot.
+            match stored_dependency_walk(self, &dep_key, &mut memo).await {
+                StoredDependencyState::Stale { dependency, .. } => {
+                    // Every dependent expecting a concrete version of the gap is stale with it.
+                    let findings = self
+                        .dependency_manager()
+                        .stale_edges(&dep_key, Version::unknown())
+                        .await;
+                    report.findings.extend(findings);
+                    match mode {
+                        AuditMode::Expire => {
+                            let expired = self.dependency_manager().expire(&dep_key).await;
+                            report.expired.extend(
+                                expired.keys.iter().map(|expired_key| expired_key.key.clone()),
+                            );
+                            self.expire_dependencies_result(
+                                expired,
+                                ExpiryCause::StaleDependency { dependency },
+                            )
+                            .await;
+                        }
+                        AuditMode::ReportOnly => {}
+                    }
+                    continue;
+                }
+                StoredDependencyState::Known(_)
+                | StoredDependencyState::Confirmed(_)
+                | StoredDependencyState::Unresolvable => {}
             }
             let found = self.dependency_version(&dep_key).await?;
             match mode {
@@ -5725,6 +6089,27 @@ pub trait AssetManager<E: Environment>:
             };
         }
         Ok(Version::unknown())
+    }
+
+    /// The dependency manager's view of `dep_key`, completed from stored dependency records where
+    /// it has none.
+    ///
+    /// A version the manager holds is authoritative (`Known`): while a manager runs it is the
+    /// source of truth. Otherwise the key's stored metadata is read and each recorded dependency
+    /// is checked the same way, recursively: against a known version with `Version::matches`,
+    /// against a stored one with equality. A recorded `Version::unknown()` is compatible and is not
+    /// followed. A value whose records all hold is registered — its version observed and its edges
+    /// loaded — so it is read at most once per process (`Confirmed`). One whose records do not is
+    /// `Stale`, naming the dependency that broke, and nothing is registered for it.
+    ///
+    /// Metadata only: nothing is evaluated and no value is read. Infallible: a store error is
+    /// `Unresolvable`, as is a key with no durable version.
+    async fn stored_dependency_state(
+        &self,
+        dep_key: &crate::metadata::DependencyKey,
+    ) -> StoredDependencyState {
+        let mut memo = StoredWalkMemo::new(true);
+        stored_dependency_walk(self, dep_key, &mut memo).await
     }
 
     /// Recompute and register the listing version of `dir` **iff** the dependency manager
@@ -9642,7 +10027,7 @@ recipes:
         env.with_async_store(Box::new(memory_store));
 
         // 5. Set DefaultAssetProvider as the asset provider for env
-        env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
 
         // 6. Register a command hello returning "Hello, world!"
         let key = CommandKey::new_name("hello");
@@ -11614,7 +11999,7 @@ recipes:
             )
             .await?;
         env.with_async_store(Box::new(store));
-        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider));
+        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider::new()));
         let envref = env.to_ref();
         let dep_key = crate::metadata::DependencyKey::from(&key);
         let manager = envref.get_asset_manager();
@@ -12482,7 +12867,7 @@ recipes:
 
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         env.with_async_store(Box::new(store));
-        env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
 
         let counter = calls.clone();
         env.command_registry
@@ -12834,7 +13219,7 @@ recipes:
 
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         env.with_async_store(Box::new(store));
-        env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
         let counter = calls.clone();
         env.command_registry
             .register_command(CommandKey::new_name("vol_counted"), move |_, _, _| {
@@ -12887,7 +13272,7 @@ recipes:
 
         let mut env: ImmediateEnvironment<Value> = ImmediateEnvironment::new();
         env.with_async_store(Box::new(store));
-        env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
         let counter = calls.clone();
         env.command_registry
             .register_command(CommandKey::new_name("counted"), move |_, _, _| {
@@ -12978,7 +13363,7 @@ recipes:
 
         let mut env: ImmediateEnvironment<Value> = ImmediateEnvironment::new();
         env.with_async_store(Box::new(store));
-        env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
         let counter = attempts.clone();
         env.command_registry
             .register_command(CommandKey::new_name("boom"), move |_, _, _| {
@@ -14026,7 +14411,7 @@ recipes:
     async fn listdir_keys_deep_is_complete_default_manager() {
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         env.with_async_store(Box::new(listing_fixture_store().await));
-        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider));
+        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider::new()));
         deep_listing_checks(env.to_ref()).await;
     }
 
@@ -14034,7 +14419,7 @@ recipes:
     async fn listdir_keys_deep_is_complete_immediate_manager() {
         let mut env: ImmediateEnvironment<Value> = ImmediateEnvironment::new();
         env.with_async_store(Box::new(listing_fixture_store().await));
-        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider));
+        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider::new()));
         deep_listing_checks(env.to_ref()).await;
     }
 
@@ -14042,7 +14427,7 @@ recipes:
     async fn removedir_unmaps_a_live_asset_of_the_directorys_own_recipe() {
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         env.with_async_store(Box::new(listing_fixture_store().await));
-        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider));
+        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider::new()));
         env.command_registry
             .register_command(CommandKey::new_name("mk"), |_, _, _| Ok(Value::from("x")))
             .expect("register mk");
@@ -14092,5 +14477,268 @@ recipes:
         assert!(manager.can_make(&key).await.expect("can_make"));
         assert!(!manager.can_make(&parse_key("a/x.txt").expect("key")).await.expect("can_make"));
         assert!(manager.get_asset_info(&key).await.is_ok());
+    }
+}
+
+#[cfg(test)]
+mod stored_walk_tests {
+    //! The stored-records walk, `AssetManager::stored_dependency_state`
+    //! (`specs/design/dependency-chain-analysis-cost/`, Phase 3 U15-U25).
+    use super::*;
+    use crate::context::SimpleEnvironment;
+    use crate::metadata::{DependencyKey, DependencyRecord, MetadataRecord, Version};
+    use crate::parse::parse_key;
+    use crate::store::{AsyncMemoryStore, AsyncStore};
+    use crate::value::Value;
+
+    type TestEnv = SimpleEnvironment<Value>;
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    fn env() -> EnvRef<TestEnv> {
+        let mut env = TestEnv::new();
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+        env.to_ref()
+    }
+
+    fn dk(name: &str) -> DependencyKey {
+        DependencyKey::from(&parse_key(name).expect("key"))
+    }
+
+    fn command() -> DependencyKey {
+        DependencyKey::new("ns-dep/command_impl---make_text")
+    }
+
+    /// Store `name` as an earlier run would have left it.
+    async fn stored(
+        envref: &EnvRef<TestEnv>,
+        name: &str,
+        version: u128,
+        status: Status,
+        records: &[(DependencyKey, u128)],
+    ) -> TestResult {
+        let mut mr = MetadataRecord::new();
+        mr.status = status;
+        mr.version = Some(Version::new(version));
+        mr.dependencies = records
+            .iter()
+            .map(|(key, version)| DependencyRecord::new(key.clone(), Version::new(*version)))
+            .collect();
+        envref
+            .get_async_store()
+            .set(&parse_key(name)?, b"bytes", &Metadata::MetadataRecord(mr))
+            .await?;
+        Ok(())
+    }
+
+    /// `d/a` <- `d/b` <- `d/c`, with `d/a` built by `make_text` impl version 1.
+    async fn stored_chain(envref: &EnvRef<TestEnv>) -> TestResult {
+        stored(envref, "d/a.txt", 1, Status::Ready, &[(command(), 1)]).await?;
+        stored(envref, "d/b.txt", 2, Status::Ready, &[(dk("d/a.txt"), 1)]).await?;
+        stored(envref, "d/c.txt", 3, Status::Ready, &[(dk("d/b.txt"), 2)]).await?;
+        Ok(())
+    }
+
+    async fn state(envref: &EnvRef<TestEnv>, name: &str) -> StoredDependencyState {
+        envref.get_asset_manager().stored_dependency_state(&dk(name)).await
+    }
+
+    async fn known(envref: &EnvRef<TestEnv>, key: &DependencyKey) -> Option<Version> {
+        envref.get_asset_manager().dependency_manager().get_version(key).await
+    }
+
+    #[tokio::test]
+    async fn stored_state_known_short_circuits() -> TestResult {
+        let envref = env();
+        let dm_key = dk("d/a.txt");
+        envref.get_asset_manager().dependency_manager().register_version(&dm_key, Version::new(5)).await;
+        // Nothing is stored: a known version is the answer, without reading the store.
+        assert_eq!(state(&envref, "d/a.txt").await, StoredDependencyState::Known(Version::new(5)));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stored_state_confirms_and_registers() -> TestResult {
+        let envref = env();
+        envref.get_asset_manager().dependency_manager().register_version(&command(), Version::new(1)).await;
+        stored_chain(&envref).await?;
+        assert_eq!(state(&envref, "d/c.txt").await, StoredDependencyState::Confirmed(Version::new(3)));
+        for (name, version) in [("d/a.txt", 1), ("d/b.txt", 2), ("d/c.txt", 3)] {
+            assert_eq!(known(&envref, &dk(name)).await, Some(Version::new(version)), "{name}");
+        }
+        // Registered once: the second answer comes from the manager.
+        assert_eq!(state(&envref, "d/c.txt").await, StoredDependencyState::Known(Version::new(3)));
+        // The edges were loaded too: expiring the root reaches the end of the chain.
+        let expired = envref.get_asset_manager().dependency_manager().expire(&dk("d/a.txt")).await;
+        assert!(expired.keys.iter().any(|k| k.key == dk("d/c.txt")));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stored_state_detects_deep_command_change() -> TestResult {
+        let envref = env();
+        envref.get_asset_manager().dependency_manager().register_version(&command(), Version::new(2)).await;
+        stored_chain(&envref).await?;
+        assert_eq!(
+            state(&envref, "d/c.txt").await,
+            StoredDependencyState::Stale { version: Version::new(3), dependency: command() }
+        );
+        // Stale registers nothing.
+        for name in ["d/a.txt", "d/b.txt", "d/c.txt"] {
+            assert_eq!(known(&envref, &dk(name)).await, None, "{name}");
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stored_state_detects_deep_expired_status() -> TestResult {
+        let envref = env();
+        stored(&envref, "d/a.txt", 1, Status::Expired, &[]).await?;
+        stored(&envref, "d/b.txt", 2, Status::Ready, &[(dk("d/a.txt"), 1)]).await?;
+        stored(&envref, "d/c.txt", 3, Status::Ready, &[(dk("d/b.txt"), 2)]).await?;
+        assert_eq!(
+            state(&envref, "d/c.txt").await,
+            StoredDependencyState::Stale { version: Version::new(3), dependency: dk("d/a.txt") }
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stored_state_recipe_status_vouches_for_dependents() -> TestResult {
+        let envref = env();
+        // A computed value removed with its version kept does not block, as on the fast track.
+        stored(&envref, "d/a.txt", 1, Status::Recipe, &[]).await?;
+        stored(&envref, "d/b.txt", 2, Status::Ready, &[(dk("d/a.txt"), 1)]).await?;
+        assert_eq!(state(&envref, "d/b.txt").await, StoredDependencyState::Confirmed(Version::new(2)));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stored_state_record_cycle_terminates() -> TestResult {
+        let envref = env();
+        stored(&envref, "d/a.txt", 1, Status::Ready, &[(dk("d/b.txt"), 2)]).await?;
+        stored(&envref, "d/b.txt", 2, Status::Ready, &[(dk("d/a.txt"), 1)]).await?;
+        // A cycle cannot be confirmed: the key that closes it is unresolvable, so it is stale.
+        assert!(matches!(state(&envref, "d/a.txt").await, StoredDependencyState::Stale { .. }));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stored_state_absent_is_unresolvable() -> TestResult {
+        let envref = env();
+        assert_eq!(state(&envref, "d/none.txt").await, StoredDependencyState::Unresolvable);
+        // A missing intermediate makes its dependent stale.
+        stored(&envref, "d/b.txt", 2, Status::Ready, &[(dk("d/none.txt"), 1)]).await?;
+        assert_eq!(
+            state(&envref, "d/b.txt").await,
+            StoredDependencyState::Stale { version: Version::new(2), dependency: dk("d/none.txt") }
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stored_state_known_uses_matches() -> TestResult {
+        let envref = env();
+        let dm = envref.get_asset_manager();
+        dm.dependency_manager().register_version(&dk("d/a.txt"), Version::new(1)).await;
+        stored(&envref, "d/b.txt", 2, Status::Ready, &[(dk("d/a.txt"), 1)]).await?;
+        assert_eq!(state(&envref, "d/b.txt").await, StoredDependencyState::Confirmed(Version::new(2)));
+        dm.dependency_manager().register_version(&dk("d/x.txt"), Version::new(9)).await;
+        stored(&envref, "d/y.txt", 2, Status::Ready, &[(dk("d/x.txt"), 1)]).await?;
+        assert_eq!(
+            state(&envref, "d/y.txt").await,
+            StoredDependencyState::Stale { version: Version::new(2), dependency: dk("d/x.txt") }
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stored_state_confirmed_uses_equality() -> TestResult {
+        let envref = env();
+        // A stored 0 is no durable version: it does not vouch for a concrete record.
+        stored(&envref, "d/a.txt", 0, Status::Ready, &[]).await?;
+        stored(&envref, "d/b.txt", 2, Status::Ready, &[(dk("d/a.txt"), 5)]).await?;
+        assert!(matches!(state(&envref, "d/b.txt").await, StoredDependencyState::Stale { .. }));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stored_state_unknown_and_unresolvable_records_compatible() -> TestResult {
+        let envref = env();
+        stored(
+            &envref,
+            "d/b.txt",
+            2,
+            Status::Ready,
+            &[
+                (dk("d/missing.txt"), 0),
+                (DependencyKey::from_recipe_key(&parse_key("d/b.txt")?), 4),
+                (DependencyKey::new("ns-dep/command_impl---unversioned"), 3),
+            ],
+        )
+        .await?;
+        assert_eq!(state(&envref, "d/b.txt").await, StoredDependencyState::Confirmed(Version::new(2)));
+        Ok(())
+    }
+
+    /// Fails every read, as an unreachable backend does.
+    struct FailingStore;
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl AsyncStore for FailingStore {
+        async fn get(&self, _key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+            Err(Error::general_error("unreachable backend".to_owned()))
+        }
+        async fn set_metadata(&self, _key: &Key, _metadata: &Metadata) -> Result<(), Error> {
+            Err(Error::general_error("unreachable backend".to_owned()))
+        }
+        async fn contains(&self, _key: &Key) -> Result<bool, Error> {
+            Err(Error::general_error("unreachable backend".to_owned()))
+        }
+    }
+
+    #[tokio::test]
+    async fn stored_state_store_error_is_unresolvable() -> TestResult {
+        let mut env = TestEnv::new();
+        env.with_async_store(Box::new(FailingStore));
+        let envref = env.to_ref();
+        assert_eq!(state(&envref, "d/a.txt").await, StoredDependencyState::Unresolvable);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn old_transitive_records_load_and_cascade() -> TestResult {
+        let envref = env();
+        envref.get_asset_manager().dependency_manager().register_version(&command(), Version::new(1)).await;
+        stored(&envref, "d/a.txt", 1, Status::Ready, &[(command(), 1)]).await?;
+        stored(&envref, "d/b.txt", 2, Status::Ready, &[(dk("d/a.txt"), 1), (command(), 1)]).await?;
+        // Written before records became direct: `c` also records `a` and the command.
+        stored(
+            &envref,
+            "d/c.txt",
+            3,
+            Status::Ready,
+            &[(dk("d/b.txt"), 2), (dk("d/a.txt"), 1), (command(), 1)],
+        )
+        .await?;
+        assert_eq!(state(&envref, "d/c.txt").await, StoredDependencyState::Confirmed(Version::new(3)));
+        let expired = envref.get_asset_manager().dependency_manager().expire(&dk("d/a.txt")).await;
+        assert!(expired.keys.iter().any(|k| k.key == dk("d/c.txt")));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stored_walk_handles_a_deep_chain() -> TestResult {
+        let envref = env();
+        stored(&envref, "d/l0.txt", 1, Status::Ready, &[]).await?;
+        for i in 1..=1500u128 {
+            stored(&envref, &format!("d/l{i}.txt"), i + 1, Status::Ready, &[(dk(&format!("d/l{}.txt", i - 1)), i)])
+                .await?;
+        }
+        assert_eq!(
+            state(&envref, "d/l1500.txt").await,
+            StoredDependencyState::Confirmed(Version::new(1501))
+        );
+        Ok(())
     }
 }

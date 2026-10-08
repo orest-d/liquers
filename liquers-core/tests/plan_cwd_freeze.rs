@@ -483,7 +483,7 @@ fn suite_env(store: AsyncMemoryStore) -> Result<EnvRef<CommandEnvironment>, Erro
         register_command!(registry, fn vol_counted(state) -> result volatile: true)?;
     }
     environment.with_async_store(Box::new(store));
-    environment.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    environment.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     Ok(environment.to_ref())
 }
 

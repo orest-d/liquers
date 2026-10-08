@@ -66,7 +66,7 @@ fn env_over(
     let mut env = MinimalEnv::new();
     register(&mut env.command_registry);
     env.with_async_store(Box::new(store));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     env.to_ref()
 }
 
@@ -155,7 +155,7 @@ async fn external_manager_passes_shared_scenarios() -> TestResult {
         let mut env = MinimalEnv::new();
         register_counted(&mut env.command_registry, calls.clone());
         env.with_async_store(Box::new(store));
-        env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
         env.to_ref()
     };
     scenario("keyed_delegation", scenario_keyed_delegation(envref, calls)).await?;
@@ -289,7 +289,7 @@ fn minimal_env_with_policy(
     let mut builder = EnvironmentBuilder::<Value, (), MinimalKind>::new()
         .with_asset_manager_options(AssetManagerOptions::default().with_dependency_audit(policy))
         .with_async_store(Arc::new(store))
-        .with_recipe_provider(Arc::new(DefaultRecipeProvider));
+        .with_recipe_provider(Arc::new(DefaultRecipeProvider::new()));
     register_counting_upper(&mut builder.command_registry, calls);
     builder.build()
 }
@@ -426,7 +426,7 @@ async fn external_manager_lazy_deadline_expiry_cascades() -> TestResult {
     let mut env = MinimalEnv::new();
     let calls = register_lazy_expiry_chain(&mut env.command_registry)?;
     env.with_async_store(Box::new(lazy_expiry_chain_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario(
         "lazy_deadline_expiry_cascade",
         scenario_lazy_deadline_expiry_cascade(env.to_ref(), calls),

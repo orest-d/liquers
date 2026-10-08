@@ -34,7 +34,7 @@ async fn env_with(recipes: &[(&str, &str, &str)]) -> EnvRef<SimpleEnvironment<Va
     let store = AsyncMemoryStore::new(&Key::new());
     store.set(&parse_key("recipes.yaml").unwrap(), serde_yaml::to_string(&rl).unwrap().as_bytes(), &Metadata::new()).await.unwrap();
     env.with_async_store(Box::new(store));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     env.to_ref()
 }
 

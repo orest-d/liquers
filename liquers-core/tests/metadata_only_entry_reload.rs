@@ -79,7 +79,7 @@ async fn env_over(
         })
         .unwrap();
     env.with_async_store(store);
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     (env.to_ref(), calls)
 }
 

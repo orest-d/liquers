@@ -67,7 +67,7 @@ fn env_with(
     let mut builder = EnvironmentBuilder::<Value, (), Queued>::new()
         .with_asset_manager_options(options)
         .with_async_store(store)
-        .with_recipe_provider(Arc::new(DefaultRecipeProvider));
+        .with_recipe_provider(Arc::new(DefaultRecipeProvider::new()));
     register_provenance_commands(&mut builder.command_registry);
     builder.build()
 }

@@ -187,7 +187,7 @@ async fn test_keyed_asset_evaluating_its_own_key_is_a_cycle(
         .expect("register self_cycle");
 
     env.with_async_store(Box::new(store));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     let envref = env.to_ref();
 
     let asset = envref

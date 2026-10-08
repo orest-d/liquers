@@ -151,4 +151,20 @@ impl AsyncStore for CountingStore {
     async fn remove(&self, key: &Key) -> Result<(), Error> {
         self.inner.remove(key).await
     }
+
+    async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+        self.inner.is_dir(key).await
+    }
+
+    async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+        self.inner.listdir(key).await
+    }
+
+    async fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
+        self.inner.listdir_keys(key).await
+    }
+
+    async fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
+        self.inner.listdir_keys_deep(key).await
+    }
 }
