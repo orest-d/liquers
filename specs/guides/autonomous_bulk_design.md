@@ -88,8 +88,9 @@ The agent MUST maintain a short `## Design Readiness` section near the start of
 `phase1-high-level-design.md` containing:
 
 - **Readiness:** the exact enum value;
-- **Automatic fixing:** `eligible` or `not eligible`, with the reason, under the `liquers-project`
+- **Automatic fixing:** `eligible` or `not-eligible`, with the reason, under the `liquers-project`
   skill's [`references/auto-fix.md`](../../.claude/skills/liquers-project/references/auto-fix.md);
+  the same value goes into `DESIGN.md` as `autofix:` (`DOCS_STRUCTURE_GUIDE.md` §5.1.1);
 - **Leading issue:** the highest-severity unresolved question, or `None`;
 - **Explanation:** one or two sentences stating why later phases are safe or why they stopped; and
 - **Open questions:** a severity-ordered list using the tiers below, or `None`.
@@ -340,6 +341,6 @@ as implementation-ready merely because four files exist.
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-08 | Invoked by the `liquers-project` keywords "bulk-design" / "bulk design". Rule 6, §4 and §5: strongly overlapping sources (the skill's `references/overlap.md`) share one design with `merged:`; merging existing designs stays a maintainer decision. §3: an **Automatic fixing** line. §6: a `## Problem Example`. | maintainer decision |
+| 2026-10-08 | Invoked by the `liquers-project` keywords "bulk-design" / "bulk design". Rule 6, §4 and §5: strongly overlapping sources (the skill's `references/overlap.md`) share one design with `merged:`; merging existing designs stays a maintainer decision. §3: an **Automatic fixing** line, mirrored as `autofix:` in `DESIGN.md`. §6: a `## Problem Example`. | maintainer decision |
 | 2026-10-05 | Rule 6 and §5: one exception to one-source-per-design, a maintainer-directed merge of designs whose implementations depend on each other (`DOCS_STRUCTURE_GUIDE.md` §5.1.1). | maintainer decision |
 | 2026-08-31 | Added the autonomous four-phase bulk-design procedure, one-source-per-design enforcement, finished-Phase-4 exclusion, dependency recording, continuous feasibility review, final Phase 1 synthesis, tiered questions, partial-design resumption, and indexed readiness states. | documentation |

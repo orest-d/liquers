@@ -98,6 +98,7 @@ def _issue(issue_id: str, design: str, priority: str = "P2") -> dict:
         "complexity": "S",
         "gh_issue": "",
         "readiness": "",
+        "autofix": "",
         "status": "draft",
         "_path": Path(f"specs/issues/{issue_id}.md"),
         "_fm": {
@@ -113,7 +114,11 @@ def _issue(issue_id: str, design: str, priority: str = "P2") -> dict:
 
 
 def _design(
-    slug: str, issues: list[str], readiness: str = "ready", merged: str = "2026-10-05"
+    slug: str,
+    issues: list[str],
+    readiness: str = "ready",
+    merged: str = "2026-10-05",
+    autofix: str = "",
 ) -> dict:
     fm = {
         "id": slug.upper(),
@@ -125,6 +130,8 @@ def _design(
     }
     if readiness:
         fm["readiness"] = readiness
+    if autofix:
+        fm["autofix"] = autofix
     if merged and len(issues) > 1:
         fm["merged"] = merged
     return {
@@ -136,6 +143,7 @@ def _design(
         "complexity": "",
         "gh_issue": "",
         "readiness": "",
+        "autofix": "",
         "status": "in_review",
         "_path": Path(f"specs/design/{slug}/DESIGN.md"),
         "_fm": fm,
@@ -210,7 +218,7 @@ class MergedDesignTests(unittest.TestCase):
             errors,
             [
                 "specs/design/unmarked/DESIGN.md: a readiness-labeled design with several "
-                "sources must record the maintainer's merge as `merged: YYYY-MM-DD` (§5.1.1)"
+                "sources must record the merge as `merged: YYYY-MM-DD` (§5.1.1)"
             ],
         )
 
@@ -319,3 +327,85 @@ class BlankCodeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AutofixTests(unittest.TestCase):
+    def test_autofix_is_projected_onto_every_source(self):
+        rows = [
+            _issue("LEAD", "merged"),
+            _issue("OTHER", "merged"),
+            _design("merged", ["LEAD", "OTHER"], autofix="eligible"),
+        ]
+
+        docs_index.join_design_sources(rows)
+
+        self.assertEqual([r["autofix"] for r in rows], ["eligible"] * 3)
+        self.assertEqual(docs_index.autofix_errors(rows), [])
+
+    def test_unknown_autofix_value_is_rejected(self):
+        rows = [_issue("ONE", "one"), _design("one", ["ONE"], autofix="yes")]
+
+        self.assertEqual(
+            docs_index.autofix_errors(rows),
+            ["specs/design/one/DESIGN.md: autofix 'yes' not in §5.1.1"],
+        )
+
+    def test_autofix_requires_readiness(self):
+        rows = [_issue("ONE", "one"), _design("one", ["ONE"], readiness="", autofix="not-eligible")]
+
+        self.assertEqual(
+            docs_index.autofix_errors(rows),
+            ["specs/design/one/DESIGN.md: autofix requires a readiness value (§5.1.1)"],
+        )
+        docs_index.join_design_sources(rows)
+        self.assertEqual(rows[0]["autofix"], "")
+
+    def test_eligible_requires_ready(self):
+        rows = [
+            _issue("ONE", "one"),
+            _design("one", ["ONE"], readiness="needs-decision", autofix="eligible"),
+        ]
+
+        self.assertEqual(
+            docs_index.autofix_errors(rows),
+            [
+                "specs/design/one/DESIGN.md: autofix 'eligible' requires readiness 'ready', "
+                "not 'needs-decision' (§5.1.1)"
+            ],
+        )
+
+    def test_eligible_requires_small_leading_source(self):
+        issue = _issue("ONE", "one")
+        issue["complexity"] = "L"
+        rows = [issue, _design("one", ["ONE"], autofix="eligible")]
+
+        self.assertEqual(
+            docs_index.autofix_errors(rows),
+            [
+                "specs/design/one/DESIGN.md: autofix 'eligible' requires complexity S or M, "
+                "but leading source 'ONE' is 'L' (§5.1.1)"
+            ],
+        )
+
+    def test_not_eligible_needs_no_size_or_readiness_check(self):
+        issue = _issue("ONE", "one")
+        issue["complexity"] = "XL"
+        rows = [issue, _design("one", ["ONE"], readiness="blocked", autofix="not-eligible")]
+
+        self.assertEqual(docs_index.autofix_errors(rows), [])
+
+    def test_board_orders_eligible_before_other_ready_work(self):
+        rows = [
+            _issue("B-LATER", "later"),
+            _issue("A-FIRST", "first"),
+            _design("later", ["B-LATER"], autofix="not-eligible"),
+            _design("first", ["A-FIRST"], autofix="eligible"),
+        ]
+        rows[0]["id"], rows[1]["id"] = "A-NOT", "B-ELIGIBLE"
+        rows[2]["_fm"]["issues"], rows[3]["_fm"]["issues"] = ["A-NOT"], ["B-ELIGIBLE"]
+
+        docs_index.join_design_sources(rows)
+
+        self.assertEqual(
+            [r["id"] for r in docs_index.active_work_rows(rows)], ["B-ELIGIBLE", "A-NOT"]
+        )

@@ -18,7 +18,8 @@ item without phase approval, labels readiness, and **never implements**.
 2. **Problem example.** Every Phase 1 has `## Problem Example` (see the Phase 1 template). An issue
    whose body lacks one gets it added in the same change.
 3. **Automatic-fix label.** Every design's `## Design Readiness` carries the
-   **Automatic fixing** line ([`auto-fix.md`](auto-fix.md)).
+   **Automatic fixing** line, and `DESIGN.md` the matching `autofix:` value
+   ([`auto-fix.md`](auto-fix.md)).
 4. **All phases where possible.** Prefer carrying an open question through Phases 3-4 as an explicit,
    recommended assumption (readiness `needs-decision`) over stopping at `phase2-blocked`. Use
    `phase2-blocked` only when no working solution can be stated even under an assumption, which is

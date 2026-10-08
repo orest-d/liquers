@@ -35,7 +35,8 @@ From `specs/index.csv`:
 - open issues and features (`draft`, `accepted`, `in_progress`) with priority, complexity, area and
   design;
 - open designs (`draft`, `in_review`, `approved`, in implementation) with phase and readiness;
-- for each design, the **Automatic fixing** line from Phase 1, or "unlabeled".
+- the `autofix` column (`eligible`, `not-eligible`, or empty for unassessed). Every unassessed
+  readiness-labeled design gets a value in this run.
 
 ### 3. Overlap map and merges
 

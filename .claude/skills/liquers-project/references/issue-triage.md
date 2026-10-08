@@ -38,7 +38,8 @@ working on. If N strongly overlaps it (and no exclusion applies):
    (`review-checklist.md`), the same reviewer roles (sequentially if the host has no parallel
    agents), and `validate_phase.py`. A change in Phase 2 that invalidates Phase 3 or 4 is fixed
    there too, not noted.
-4. **Re-label:** readiness, automatic-fix eligibility ([`auto-fix.md`](auto-fix.md)), leading issue
+4. **Re-label:** readiness, automatic-fix eligibility ([`auto-fix.md`](auto-fix.md); both the
+   `autofix:` front-matter value and its Phase 1 reason), leading issue
    and open questions in Phase 1's `## Design Readiness`.
 5. **Ask the user** (interactive) whether the change needs approval and, if so, to which phase the
    design returns, with a recommendation:
@@ -95,10 +96,11 @@ do not start implementing it as a side effect of filing it.
 
 ## Labels on the issue
 
-The readiness and automatic-fix labels live on the design. `docs_index.py` projects readiness onto
-every source issue's row in `specs/index.csv`, so do not copy it into the issue front-matter. In the
+The readiness and automatic-fix labels live on the design (`readiness:` and `autofix:` in
+`DESIGN.md`). `docs_index.py` projects both onto every source issue's row in `specs/index.csv`, so do
+not copy them into the issue front-matter. In the
 issue body, one line under **Expected behaviour** is enough:
-`Designed in design/<slug>/ — readiness: <value>; automatic fixing: <eligible|not eligible>.`
+`Designed in design/<slug>/ — readiness: <value>; automatic fixing: <eligible|not-eligible>.`
 Keep it truthful when the design changes.
 
 ## Finish

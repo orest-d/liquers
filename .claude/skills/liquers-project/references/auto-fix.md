@@ -42,22 +42,45 @@ eligible-labeled item that changes an API lands without one.
 
 ## Recording it
 
-In the design's Phase 1 `## Design Readiness` section, directly after **Readiness**:
+Two places, kept in step:
 
-```markdown
-- **Automatic fixing:** eligible — bug fix in `liquers-core/src/parse.rs`, no API change
-```
+1. **`DESIGN.md` front-matter**, beside `readiness` (`DOCS_STRUCTURE_GUIDE.md` §5.1.1):
 
-or
+   ```yaml
+   readiness: ready
+   autofix: eligible        # or not-eligible
+   ```
 
-```markdown
-- **Automatic fixing:** not eligible — adds a `pub` method to `AsyncStore` (rule 4)
-```
+   `docs_index.py --check` rejects `autofix` without `readiness`, and `eligible` unless readiness
+   is `ready` and the leading source is `S` or `M`. The value is projected into the `autofix`
+   column of `specs/index.csv` and the **Auto-fix** column of `specs/index.md`, on the design row
+   and every source row.
 
-Name the rule that fails. Find eligible items with:
+2. **The reason**, in the design's Phase 1 `## Design Readiness` section, directly after
+   **Readiness**:
+
+   ```markdown
+   - **Automatic fixing:** eligible — bug fix in `liquers-core/src/parse.rs`, no API change
+   ```
+
+   or
+
+   ```markdown
+   - **Automatic fixing:** not-eligible — adds a `pub` method to `AsyncStore` (rule 4)
+   ```
+
+   Name the rule that fails.
+
+Find eligible open items with:
 
 ```bash
-grep -l '^\- \*\*Automatic fixing:\*\* eligible' specs/design/*/phase1-high-level-design.md
+python3 - <<'PY'
+import csv
+for r in csv.DictReader(open("specs/index.csv")):
+    if r["autofix"] == "eligible" and r["kind"] in ("issue", "feature") \
+            and r["status"] in ("draft", "accepted", "in_progress"):
+        print(r["priority"], r["complexity"], r["id"], r["design"])
+PY
 ```
 
 Re-label whenever the design changes. Extending a design (triage cases 1-2) is the usual way an
@@ -66,5 +89,5 @@ eligible design becomes ineligible, which is why overlap exclusion E1 exists.
 ## Eligibility can be lost during the fix
 
 If the fix turns out to need something rule 3 or 4 forbids, stop the automatic fix, re-label the item
-`not eligible` with the reason, update the design, and hand it back through the normal gate. Never
+`not-eligible` (front-matter and Phase 1 reason), update the design, and hand it back through the normal gate. Never
 widen an automatic fix to finish it.

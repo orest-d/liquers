@@ -364,6 +364,7 @@ workflow: liquers-project  # five phases, including mandatory documentation; see
 status: in_review           # OMITTED once `gh_pr` is set — see §5.5
 phase: architecture         # see §5.2
 readiness: phase2-blocked   # optional implementation-readiness assessment; see §5.1.1
+autofix: not-eligible       # optional, beside readiness: may an agent fix it unattended? §5.1.1
 area: [core/assets]
 issues: [ASSET-EXPIRED-CACHED-BINARY-READ]
 gh_pr: [11]                 # PRs implementing this design; set by hand once, then owned by GitHub
@@ -416,9 +417,19 @@ Designs that do not make this assessment omit the field and have an empty `readi
 | `phase2-blocked` | Phases 1 and 2 are complete, but uncertainty prevents a working Phase 3 example/test contract or Phase 4 implementation plan. Phases 3 and 4 are intentionally absent or remain explicitly incomplete. |
 | `covered` | The issue or feature has its own Phase 1 and 2 record, but no independent Phase 3 or 4 is needed because another named design covers the work or the source is a duplicate. |
 
+**Automatic fixing.** A readiness-labeled design may also carry `autofix`: `eligible` when an
+agent may implement it without a human approving the design first, `not-eligible` otherwise. The
+rule that decides it is the `liquers-project` skill's
+`.claude/skills/liquers-project/references/auto-fix.md` (size `S`/`M`; a bug fix, tests,
+documentation or tooling; no new trait or data structure; no public interface change). `autofix`
+is part of the readiness assessment, so it requires a `readiness` value, and `eligible` requires
+`readiness: ready` and a leading source of complexity `S` or `M`; `--check` enforces all three. An
+omitted `autofix` means "not assessed". The reason for the value is the **Automatic fixing** line
+in Phase 1's Design Readiness section.
+
 The Phase 1 document owns the explanation, leading issue, and tiered open-question list supporting
-this value. `DESIGN.md` carries only the enum; `index.csv` projects it onto both the linked source
-issue or feature row and the design row. The design row inherits source priority and complexity, so
+these values. `DESIGN.md` carries only the enums; `index.csv` projects them onto both the linked source
+issue or feature rows and the design row. The design row inherits source priority and complexity, so
 readiness remains filterable alongside the queue fields in either representation. The procedure in
 [`guides/autonomous_bulk_design.md`](guides/autonomous_bulk_design.md) defines how autonomous bulk
 design work assigns and maintains it.
@@ -608,7 +619,7 @@ match regeneration. `index.html` is an untracked local HTML rendering of that bo
 Columns, in this exact order:
 
 ```
-id,kind,title,status,status_source,phase,readiness,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
+id,kind,title,status,status_source,phase,readiness,autofix,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
 ```
 
 | Column | Notes |
@@ -618,6 +629,7 @@ id,kind,title,status,status_source,phase,readiness,priority,complexity,area,gh_i
 | `status_source` | `local` for issues and features, which always own their status locally. Designs may read `github` only while their PR-derived status is cached. |
 | `phase` | `kind: design` only, and only in a status that carries one (§5.1). Empty otherwise. |
 | `readiness` | Optional implementation-readiness assessment authored by a readiness-labeled design (§5.1.1), rendered on both its one linked `kind: issue` or `kind: feature` row and its design row. Empty when there is no readiness-labeled reciprocal pair. |
+| `autofix` | `eligible`, `not-eligible`, or empty (not assessed), from the same readiness-labeled design as `readiness` and projected the same way (§5.1.1). Empty whenever `readiness` is. |
 | `priority`, `complexity` | From an issue or feature. A design with exactly one known source inherits those values, as does a merged readiness-labeled design from its leading (first-listed) source (§5.1.1); other design rows are empty. |
 | `area` | `;`-separated. |
 | `gh_issue` | Number, or empty. Written by hand once, in the issue's front-matter (§4.3). |
@@ -644,7 +656,8 @@ canonical CSV.
 `closed`, `closed_not_planned`, `rejected`, or `duplicate` rows), has hyperlinks to each issue and
 its linked design, and omits CSV-only operational columns: `status_source`, `phase`, `gh_issue`,
 `gh_pr`, `branch`, `reviewed`, and `file`. Its rows sort by priority, complexity, then readiness:
-`ready`, `needs-decision`, `blocked`, `phase2-blocked`, `covered`, and finally no assessment.
+`ready`, `needs-decision`, `blocked`, `phase2-blocked`, `covered`, and finally no assessment; then
+by `autofix`: `eligible`, `not-eligible`, and finally no assessment.
 
 Because `index.md` is a generated table, it can still conflict when branches add work. Keep either
 generated version while resolving the merge, complete the merge, then run
@@ -1072,6 +1085,7 @@ neither.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-08 | §5.1.1, §6: optional `autofix` (`eligible` / `not-eligible`) beside `readiness`, projected into a new `index.csv` column and the `index.md` board; `--check` requires readiness with it, and `ready` plus an `S`/`M` leading source for `eligible`. | maintainer decision |
 | 2026-10-08 | §4.8.1 step 1 points to the `liquers-project` overlap triage. §5, §5.1.1, §5.2: `liquers-designer` removed in favour of `liquers-project`; a design may own several sources through triage of strongly overlapping issues as well as a maintainer merge, both recorded with `merged:`. | maintainer decision |
 | 2026-10-06 | §7.2 check 9: links inside fenced blocks and inline code spans are not checked. | `DOCS-LINK-CHECK-READS-CODE-SPANS`, `design/docs-link-check-code-spans/` |
 | 2026-10-06 | §7.2 check 9: the dead-link check also covers the generated `specs/index.md`. | `DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS`, `design/docs-index-phase-link-targets/` |
