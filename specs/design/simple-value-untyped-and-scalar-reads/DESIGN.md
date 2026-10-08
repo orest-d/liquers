@@ -3,7 +3,7 @@ id: SIMPLE-VALUE-UNTYPED-AND-SCALAR-READS
 kind: design
 title: liquers-lib's base value reads untyped files as Bytes and textual scalars as their type
 form: compact
-status: in_review
+gh_pr: [91]
 phase: implementation
 readiness: ready
 autofix: eligible
@@ -146,11 +146,11 @@ records_manifest_over_csv_files`.
 
 ### Steps
 
-- [ ] 1. `simple.rs` `_` format arm — `Bytes` for `""`/`Bytes` — `cargo test -p liquers-lib --test
+- [x] 1. (99af3b3) `simple.rs` `_` format arm — `Bytes` for `""`/`Bytes` — `cargo test -p liquers-lib --test
   records_manifest_over_csv_files -- --include-ignored` (the hand-placed test must pass)
-- [ ] 2. `simple.rs` textual arm — per-scalar parsing — `cargo test -p liquers-lib --lib value::simple`
-- [ ] 3. Tests above; un-ignore the hand-placed test — `cargo test -p liquers-lib --lib --tests`
-- [ ] 4. Both issues' resolutions and `status: closed`;
+- [x] 2. (d7cde3f) `simple.rs` textual arm — per-scalar parsing — `cargo test -p liquers-lib --lib value::simple`
+- [x] 3. (4557cbe) Tests above; un-ignore the hand-placed test — `cargo test -p liquers-lib --lib --tests`
+- [x] 4. (this commit) Both issues' resolutions and `status: closed`;
   `python3 scripts/docs_index.py --check`
 
 ### Validation
