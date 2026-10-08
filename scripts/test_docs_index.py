@@ -590,3 +590,12 @@ class ScenarioAndProgressTests(unittest.TestCase):
                 docs_index.scenario_and_progress_warnings([row]),
                 ["specs/design/d/DESIGN.md: Phase 4 progress has unticked steps 2 (§5.2.1)"],
             )
+
+    def test_duplicate_scenario_id_is_an_error(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            phase1 = self.PHASE1.replace("**AC-2**", "**AC-1**")
+            row = self._design(Path(temporary), {"phase1-high-level-design.md": phase1}, phase="high-level")
+            self.assertEqual(
+                docs_index.scenario_errors([row]),
+                ["specs/design/d/DESIGN.md: scenario AC-1 is defined more than once (§5.2.1)"],
+            )

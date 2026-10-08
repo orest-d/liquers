@@ -95,7 +95,9 @@ def init_feature(slug: str, compact: bool, workflow: bool) -> Path | None:
         if workflow:
             text = re.sub(r"(?m)^workflow:.*$", "workflow: liquers-project", text)
         else:
+            # A four-phase design (bulk design, triage, compaction) has no Phase 5.
             text = re.sub(r"(?m)^workflow:.*\n", "", text)
+            text = re.sub(r"(?ms)^## Phase 5\b.*\Z", "", text).rstrip() + "\n"
         (feature_dir / "DESIGN.md").write_text(text, encoding="utf-8")
         created = ["DESIGN.md"]
     else:

@@ -915,6 +915,18 @@ def scenario_definitions(phase1: str) -> dict[str, str]:
     return found
 
 
+def duplicate_scenario_ids(phase1: str) -> list[str]:
+    """Scenario ids defined more than once; ids are unique and never reused (§5.2.1)."""
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for m in SCENARIO_DEF_RE.finditer(phase1):
+        sid = m.group(1)
+        if sid in seen and sid not in duplicates:
+            duplicates.append(sid)
+        seen.add(sid)
+    return duplicates
+
+
 def phase3_is_written(row: dict) -> bool:
     """Phase 3 counts as written once it is at review, or the design has moved past it."""
     phase = row["_fm"].get("phase", "")
@@ -939,6 +951,8 @@ def scenario_errors(rows: list[dict]) -> list[str]:
         if not defined:
             continue
         where = r["file"]
+        for sid in duplicate_scenario_ids(phase1):
+            errors.append(f"{where}: scenario {sid} is defined more than once (§5.2.1)")
         for sid, block in defined.items():
             missing = [k for k in ("WHEN", "THEN") if not re.search(rf"\b{k}\b", block)]
             if missing:

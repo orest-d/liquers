@@ -61,10 +61,17 @@ REQUIRED_COMPACT = {
 MAX_CHARS_FULL = {1: 6000, 2: 9000, 3: 9000, 4: 9000, 5: 9000}
 MAX_CHARS_COMPACT_TOTAL = {"S": 9000, "M": 15000}
 
-# A template hint: `<` + capital letter, containing two lowercase words in a row ("<Chosen
+# A template hint: `<` + a letter, containing two lowercase words in a row ("<Chosen
 # approach; …>"), or a bare name hint. Rust generics (`<E: Environment>`, `<Value, Error>`) never
 # have that shape; inline and fenced code are removed before matching anyway.
-PLACEHOLDER = re.compile(r"<[A-Z][^<>]{0,400}?\b[a-z]+\s+[a-z]+\b[^<>]{0,400}?>|<(name|title|slug)>")
+PLACEHOLDER = re.compile(
+    r"<[A-Za-z][^<>]{0,400}?\b[a-z]+\s+[a-z]+\b[^<>]{0,400}?>|<(name|title|slug)>|<…>"
+)
+# Designs written before the 2026-10-08 templates never had lowercase hints, and some use
+# `<what happened to it>`-style prose on purpose; they keep the original, capitalized-only rule.
+PLACEHOLDER_LEGACY = re.compile(
+    r"<[A-Z][^<>]{0,400}?\b[a-z]+\s+[a-z]+\b[^<>]{0,400}?>|<(name|title|slug)>"
+)
 INLINE_CODE = re.compile(r"`[^`\n]*`")
 FENCED_CODE = re.compile(r"(?ms)^ *(```|~~~).*?^ *\1[^\n]*$")
 
@@ -147,6 +154,8 @@ def scenario_and_progress_problems(
             (errors if new_style else warnings).append(
                 "Phase 1 defines no acceptance scenarios (`- **AC-1** …` with WHEN/THEN lines)"
             )
+        for sid in docs_index.duplicate_scenario_ids(phase1):
+            errors.append(f"scenario {sid} is defined more than once")
         for sid, block in defined.items():
             for keyword in ("WHEN", "THEN"):
                 if not re.search(rf"\b{keyword}\b", block):
@@ -214,6 +223,7 @@ def validate_phase(slug: str, phase: int) -> bool:
             print(f"[INFO] Created before {TEMPLATE_REWRITE}: checking the pre-rewrite sections")
 
     print(f"[VALIDATE] {where} ({'compact' if compact else 'full'} form)")
+    new_style = fields.get("created", "") >= TEMPLATE_REWRITE
     ok = True
     if not content.strip():
         print("[ERROR] Phase is empty")
@@ -235,7 +245,7 @@ def validate_phase(slug: str, phase: int) -> bool:
     scanned = "\n".join(INLINE_CODE.sub("", line) for line in scanned.splitlines())
     placeholders = [
         (scanned.count("\n", 0, m.start()) + 1, " ".join(m.group(0).split())[:80])
-        for m in PLACEHOLDER.finditer(scanned)
+        for m in (PLACEHOLDER if new_style else PLACEHOLDER_LEGACY).finditer(scanned)
     ]
     if placeholders:
         ok = False
@@ -245,7 +255,6 @@ def validate_phase(slug: str, phase: int) -> bool:
     else:
         print("[OK] No template placeholders")
 
-    new_style = fields.get("created", "") >= TEMPLATE_REWRITE
     extra_errors, extra_warnings = scenario_and_progress_problems(
         load_docs_index(specs_dir), design_file, fields, phase, new_style
     )
