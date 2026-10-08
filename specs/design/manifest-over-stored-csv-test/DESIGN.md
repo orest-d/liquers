@@ -6,6 +6,7 @@ title: End-to-end test of a manifest over stored CSV files
 status: in_review
 phase: documentation
 readiness: ready
+autofix: eligible
 area: [records]
 issues: [NO-END-TO-END-TEST-OF-A-MANIFEST-OVER-STORED-CSV-FILES]
 created: 2026-10-06

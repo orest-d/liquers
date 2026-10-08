@@ -5,6 +5,7 @@ title: Consistent state argument default in command metadata
 status: in_review
 phase: implementation
 readiness: needs-decision
+autofix: not-eligible
 area: [core/commands]
 issues: [STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE]
 gh_pr: []

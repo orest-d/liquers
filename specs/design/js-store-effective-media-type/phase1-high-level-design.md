@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** ready
+- **Automatic fixing:** not-eligible — adds `getAssetInfo` to the JavaScript `LiquersStore` binding
+  (rule 4)
 - **Leading issue:** None
 - **Explanation:** The issue's first option maps directly onto an existing `AsyncStore` method,
   `get_asset_info`, whose `AssetInfo.media_type` is the effective string. Exposing it is additive

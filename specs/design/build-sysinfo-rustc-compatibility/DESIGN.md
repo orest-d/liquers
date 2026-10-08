@@ -5,6 +5,7 @@ title: Design for BUILD-SYSINFO-REQUIRES-NEWER-RUSTC
 status: in_review
 phase: implementation
 readiness: needs-decision
+autofix: not-eligible
 area: [build]
 issues: [BUILD-SYSINFO-REQUIRES-NEWER-RUSTC]
 created: 2026-09-03

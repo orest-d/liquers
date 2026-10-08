@@ -3,6 +3,7 @@
 ## Design Readiness
 
 - **Readiness:** needs-decision
+- **Automatic fixing:** not-eligible — adds a serialized field to `ErrorPayload` (rule 4)
 - **Leading issue:** **Proposed resolution - traceback representation:** Store one optional UTF-8
   traceback string on `ErrorPayload` and copy it to the existing `LogEntry.traceback` field.
 - **Explanation:** The additive string solution is implementable and backward compatible, but it

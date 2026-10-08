@@ -5,6 +5,7 @@ title: Coverage record for STORE-OPENDAL-WITHOUT-ASYNC-STORE-BROKEN
 status: in_review
 phase: architecture
 readiness: covered
+autofix: not-eligible
 area: [docs]
 issues: [STORE-OPENDAL-WITHOUT-ASYNC-STORE-BROKEN]
 created: 2026-09-03

@@ -5,6 +5,7 @@ title: Command-level metadata hints
 status: in_review
 phase: implementation
 readiness: needs-decision
+autofix: not-eligible
 area: [core/commands, macro, lib/ui]
 issues: [COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS]
 created: 2026-08-31

@@ -6,6 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [records]
+design: manifest-chunk-error-identity
 created: 2026-10-07
 github:
 ---

@@ -5,6 +5,7 @@ title: Store guide status table: generator or honest hand maintenance
 status: in_review
 phase: implementation
 readiness: needs-decision
+autofix: not-eligible
 area: [docs, store/backends]
 issues: [STORE-GUIDE-STATUS-TABLE-HAS-NO-GENERATOR]
 created: 2026-10-06

@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** ready
+- **Automatic fixing:** not-eligible — adds a `ValueExtension` hook method (rule 4) across
+  `liquers-core` and `liquers-lib` (rule 6)
 - **Leading issue:** None
 - **Explanation:** The numeric `_option` conversions were fixed during the record-streams review
   with a `ValueExtension` hook delegated by `CombinedValue`. This is the same pattern for strings,

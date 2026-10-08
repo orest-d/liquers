@@ -6,6 +6,7 @@ title: register_all_commands! compiles under every feature combination
 status: in_review
 phase: documentation
 readiness: ready
+autofix: eligible
 area: [lib/commands]
 issues: [REGISTER-ALL-COMMANDS-MACRO-REQUIRES-EVERY-FEATURE]
 created: 2026-10-06

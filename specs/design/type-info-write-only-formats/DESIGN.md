@@ -5,6 +5,7 @@ title: TypeInfo declares write-only data formats
 status: in_review
 phase: implementation
 readiness: needs-decision
+autofix: not-eligible
 area: [core/value]
 issues: [TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS]
 created: 2026-10-06

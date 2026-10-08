@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** covered
+- **Automatic fixing:** not-eligible — covered by another record; no independent work to fix (rule
+  5)
 - **Leading issue:** None.
 - **Explanation:** The issue resolution records that the public method was removed and both managers now share a crate-private insert-if-absent helper. No independent implementation plan is needed.
 - **Open questions:** None.

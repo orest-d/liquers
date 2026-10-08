@@ -3,6 +3,7 @@
 ## Design Readiness
 
 - **Readiness:** ready
+- **Automatic fixing:** eligible — tooling fix in `scripts/docs_index.py` (already implemented)
 - **Leading issue:** None
 - **Explanation:** The correct link form is fixed by the rest of the same table (links relative
   to `specs/`, via `relative_specs_path`), and the check that would have caught the defect

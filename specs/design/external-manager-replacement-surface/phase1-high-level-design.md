@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** needs-decision
+- **Automatic fixing:** not-eligible — makes `AssetRef::notify_removed` public and adds a `pub`
+  constructor (rule 4)
 - **Leading issue:** **Open design question — widen the external manager surface or stop it
   here.** `specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md` currently lists `notify_removed` as
   "not exposed, deliberately". Exposing it reverses a recorded decision.

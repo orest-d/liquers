@@ -5,6 +5,7 @@ title: Fast track recognizes a metadata-only entry and recomputes without a corr
 status: in_review
 phase: implementation
 readiness: ready
+autofix: eligible
 area: [core/assets]
 issues: [METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED]
 created: 2026-10-06

@@ -21,6 +21,13 @@ Core structure and enrichment belong in `liquers-core`; stores attach access con
 - **Other documents:** none; the design and source issue retain rationale and unfinished work.
 - **Updates:** `PROJECT_OVERVIEW.md`, `ASSETS.md`, `ASSET_LIFECYCLE.md`,
   `WEB_API_SPECIFICATION.md`, and `specs/README.md`; Phase 2 defines exact changes and audience.
+## Design Readiness
+- **Readiness:** phase2-blocked
+- **Automatic fixing:** not-eligible — `L` (rule 1) and phase2-blocked (rule 5)
+- **Leading issue:** the error-context model (Open Questions 1 below).
+- **Explanation:** Phases 3-4 cannot be stated until the model is chosen. Section added by the
+  2026-10-08 backlog compaction, which found the design without one.
+- **Open questions:** see Open Questions below.
 ## Open Questions
 1. **Blocking:** model, roles/order/dedup/bounds, legacy projection, binding exposure, and rendering;
    Phase 3/4 cannot be valid until these are chosen. This is why readiness is `phase2-blocked`.

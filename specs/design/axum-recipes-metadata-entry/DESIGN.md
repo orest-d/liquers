@@ -6,6 +6,7 @@ title: Recipes API metadata and entry return real recipe metadata and negotiate 
 status: in_review
 phase: documentation
 readiness: ready
+autofix: eligible
 area: [axum]
 issues: [AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS]
 created: 2026-10-06

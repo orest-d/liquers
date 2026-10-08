@@ -3,9 +3,18 @@
 ## Design Readiness
 
 - **Readiness:** needs-decision
+- **Automatic fixing:** not-eligible — needs-decision (rule 5), and the chosen solution cannot be
+  carried out as written: `Cargo.lock` is git-ignored and no `rust-version` is declared, so there is
+  no lockfile to pin (compaction 2026-10-08)
 - **Leading issue:** Whether the project pins sysinfo to its declared Rust 1.94 support window or raises its MSRV.
 - **Explanation:** Pin the lockfile to the last sysinfo compatible with Rust 1.94; changing MSRV needs explicit maintainer approval.
 - **Open questions:** **Proposed resolution:** Pin the lockfile to the last sysinfo compatible with Rust 1.94; changing MSRV needs explicit maintainer approval.
+  - **Open design question (compaction 2026-10-08):** the proposed pin is not possible as written.
+    `.gitignore` excludes `Cargo.lock`, and no `rust-version` or `rust-toolchain` file exists, so
+    the repository declares no 1.94 window to stay inside. The cloud toolchain is now rustc 1.97.
+    Recommended: declare `rust-version = "1.95"` (or whatever the current dependency set needs) in
+    the workspace `Cargo.toml` and close the issue; pinning would first require committing
+    `Cargo.lock`, which is a separate maintainer decision.
 
 ## Problem, Behaviour, and Scope
 

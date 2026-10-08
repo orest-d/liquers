@@ -6,6 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/store, web]
+design: store-key-format-seeding
 created: 2026-10-07
 github:
 ---

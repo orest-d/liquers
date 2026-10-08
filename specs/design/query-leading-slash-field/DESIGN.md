@@ -5,6 +5,7 @@ title: Design for QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS
 status: in_review
 phase: implementation
 readiness: needs-decision
+autofix: not-eligible
 area: [core/query]
 issues: [QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS]
 created: 2026-09-03

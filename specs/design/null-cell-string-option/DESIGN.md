@@ -6,6 +6,7 @@ title: A null record cell reads as None through try_into_string_option
 status: in_review
 phase: documentation
 readiness: ready
+autofix: not-eligible
 area: [lib/value, records]
 issues: [NULL-CELL-READS-AS-THE-TEXT-NONE]
 created: 2026-10-06

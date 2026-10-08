@@ -5,6 +5,7 @@ title: Per-argument description in ArgumentInfo and register_command!
 status: in_review
 phase: implementation
 readiness: needs-decision
+autofix: not-eligible
 area: [core/commands, macro]
 issues: [ARGUMENT-INFO-HAS-NO-DESCRIPTION]
 created: 2026-10-06

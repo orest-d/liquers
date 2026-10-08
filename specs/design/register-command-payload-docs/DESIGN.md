@@ -6,6 +6,7 @@ workflow: liquers-project
 status: in_review
 phase: documentation
 readiness: ready
+autofix: eligible
 area: [docs, core/commands, macro]
 issues: [REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED, REGISTER-COMMAND-EXPIRES-AND-VERSION-STATEMENTS-UNDOCUMENTED]
 merged: 2026-10-05

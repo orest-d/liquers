@@ -6,6 +6,7 @@ title: ns-rec/rec_id accepts YYYYMMDD and YYYY-MM-DD ids
 status: in_review
 phase: documentation
 readiness: ready
+autofix: not-eligible
 area: [records, lib/commands]
 issues: [REC-ID-PARSES-DATE-AND-TIMESTAMP-IDS-AS-RAW-NUMBERS]
 created: 2026-10-06

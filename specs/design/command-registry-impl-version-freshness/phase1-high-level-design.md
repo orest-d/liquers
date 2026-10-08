@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** needs-decision
+- **Automatic fixing:** not-eligible — needs-decision (rule 5). Once decided it is a test-only
+  change in `liquers-lib` and would be eligible
 - **Leading issue:** **Open design question — exact `impl_version` freshness.** Comparing
   `impl_version` makes any token change in an `auto`-versioned command (`#[command_version]` hashes
   the whole function, comments included) require regenerating the committed registry.

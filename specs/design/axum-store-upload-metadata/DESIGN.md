@@ -5,6 +5,7 @@ title: Store API keeps upload media types and serves legacy metadata as stored
 status: in_review
 phase: implementation
 readiness: needs-decision
+autofix: not-eligible
 area: [axum]
 issues: [AXUM-STORE-UPLOAD-AND-METADATA-DROP-INFORMATION]
 created: 2026-10-06

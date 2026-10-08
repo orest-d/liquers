@@ -6,6 +6,7 @@ workflow: liquers-project
 status: in_review
 phase: implementation
 readiness: ready
+autofix: eligible
 area: [docs, build]
 issues: [DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS]
 affects_docs: [DOCS_STRUCTURE_GUIDE.md]

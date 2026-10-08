@@ -6,6 +6,7 @@ title: The ExtValue description-completeness test covers every variant
 status: in_review
 phase: documentation
 readiness: ready
+autofix: eligible
 area: [lib/value]
 issues: [EXT-VALUE-DESCRIPTION-COMPLETENESS-TEST-SAMPLES-TWO-VARIANTS]
 created: 2026-10-06

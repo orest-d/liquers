@@ -3,6 +3,7 @@
 ## Design Readiness
 
 - **Readiness:** ready
+- **Automatic fixing:** eligible — documentation-only (already implemented)
 - **Leading issue:** None. Leading source: `REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED`.
 - **Explanation:** All three statements' syntax and effects are fixed by the macro
   (`liquers-macro/src/registration.rs`) and asserted by existing tests. This is a documentation-only

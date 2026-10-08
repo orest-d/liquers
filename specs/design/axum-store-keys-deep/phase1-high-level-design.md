@@ -3,6 +3,9 @@
 ## Design Readiness
 
 - **Readiness:** needs-decision
+- **Automatic fixing:** not-eligible — needs-decision (rule 5). The recommended "deep" answer
+  changes what an HTTP route returns (rule 4); the "synonym" answer is a doc-comment fix and would
+  be eligible once chosen
 - **Leading issue:** **Open design question — HTTP contract of `GET {store}/keys`.** It is either
   deep (as its name, doc comment and the original `web-api-library` spec promised) or a documented
   synonym of `listdir` (current behaviour, now written into `WEB_API_SPECIFICATION.md`).

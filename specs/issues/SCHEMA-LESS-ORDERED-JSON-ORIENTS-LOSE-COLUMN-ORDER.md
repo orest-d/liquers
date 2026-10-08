@@ -6,6 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [records]
+design: ordered-json-orient-column-order
 created: 2026-10-07
 github:
 ---

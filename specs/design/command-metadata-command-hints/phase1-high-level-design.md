@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** needs-decision
+- **Automatic fixing:** not-eligible — adds a `pub` field to `CommandMetadata` and new
+  `register_command!` syntax (rule 4); also needs-decision (rule 5)
 - **Leading issue:** **Open design question - registration syntax:** command-level hints need a
   stable `register_command!` spelling. The existing `hint key: "value"` grammar is parameter-level
   only, and is parsed and discarded (`ParameterStatement::Hint`, `// TODO: Implement hints` in
