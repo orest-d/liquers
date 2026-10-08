@@ -3,9 +3,9 @@ id: MANIFEST-OVER-STORED-CSV-TEST
 kind: design
 workflow: liquers-project
 title: End-to-end test of a manifest over stored CSV files
-status: in_review
-phase: documentation
+status: complete
 readiness: ready
+autofix: eligible
 area: [records]
 issues: [NO-END-TO-END-TEST-OF-A-MANIFEST-OVER-STORED-CSV-FILES]
 created: 2026-10-06
@@ -26,7 +26,7 @@ the first four phases, reviewed without phase approval. Not an approval and not 
 - [x] Phase 2: Solution and Architecture
 - [x] Phase 3: Examples and Tests
 - [x] Phase 4: Implementation Plan
-- [ ] Phase 5: Documentation (executed 2026-10-07; awaiting approval)
+- [x] Phase 5: Documentation (approved 2026-10-08, maintainer)
 
 ## Links
 

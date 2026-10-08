@@ -3,6 +3,7 @@
 ## Design Readiness
 
 - **Readiness:** ready
+- **Automatic fixing:** not-eligible — changes the Markdown table serialized form (rule 4)
 - **Leading issue:** None
 - **Explanation:** Decided (Maintainer decision, 2026-10-06): follow the recommendation after checking CommonMark. The
   recommended marker, an empty HTML comment `<!---->`, is a valid comment in CommonMark (0.30 and

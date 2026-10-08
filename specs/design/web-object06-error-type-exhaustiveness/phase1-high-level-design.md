@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** ready
+- **Automatic fixing:** not-eligible — adds a list-generating macro in `liquers-core` used by a
+  `liquers-web` test (rule 6)
 - **Leading issue:** None
 - **Explanation:** The fix is test-only and its requirement — adding an `ErrorType` variant must
   fail to *compile* until the list is updated, instead of failing a hand-kept count — is met by

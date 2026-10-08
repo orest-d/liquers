@@ -1,6 +1,6 @@
 # Phase 5: Documentation - Resolvable Design-Phase Links in `index.md`
 
-**Status: plan.** Written on 2026-10-05, when the design adopted the five-phase `liquers-project`
+**Status: executed; approved 2026-10-08 (maintainer).** Written as a plan on 2026-10-05, when the design adopted the five-phase `liquers-project`
 contract; executed after implementation, following
 `.claude/skills/liquers-project/references/phase5-documentation.md`. The sections the skill requires
 after implementation are present and marked *pending*.

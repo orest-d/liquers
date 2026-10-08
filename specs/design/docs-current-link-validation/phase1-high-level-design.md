@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** covered
+- **Automatic fixing:** not-eligible — covered by another record; no independent work to fix (rule
+  5)
 - **Leading issue:** None.
 - **Explanation:** The resolution records current-document link validation, corpus repair, and Python regressions. No independent implementation plan is needed.
 - **Open questions:** None.

@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** needs-decision
+- **Automatic fixing:** not-eligible — changes documented semantics rather than restoring them (rule
+  2); also needs-decision (rule 5)
 - **Leading issue:** **Open design question — does a predecessor's command-set title/description
   reach the final asset?** The issue asks for exactly this decision: inherit, or keep the per-asset
   semantics and document it (the current state, already documented in

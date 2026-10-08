@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** ready
+- **Automatic fixing:** not-eligible — changes the observable column order of schema-less reads
+  under a new maintainer decision, not documented behaviour (rule 2)
 - **Leading issue:** None
 - **Explanation:** Decided (Maintainer decision, 2026-10-06): "If the column order is not specified […], it is irrelevant —
   collect column names and sort them to have a stable column order." JSON objects have no

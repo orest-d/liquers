@@ -5,6 +5,7 @@ title: Coverage record for CORE-LISTDIR-KEYS-DEEP-TESTS-THE-WRONG-KEY
 status: in_review
 phase: architecture
 readiness: covered
+autofix: not-eligible
 area: [docs]
 issues: [CORE-LISTDIR-KEYS-DEEP-TESTS-THE-WRONG-KEY]
 created: 2026-09-03

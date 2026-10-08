@@ -5,6 +5,7 @@ title: Coverage record for DOCS-DEAD-LINKS-OUTSIDE-README
 status: in_review
 phase: architecture
 readiness: covered
+autofix: not-eligible
 area: [docs]
 issues: [DOCS-DEAD-LINKS-OUTSIDE-README]
 created: 2026-09-03

@@ -3,9 +3,9 @@ id: REGISTER-ALL-COMMANDS-FEATURE-GATING
 kind: design
 workflow: liquers-project
 title: register_all_commands! compiles under every feature combination
-status: in_review
-phase: documentation
+status: complete
 readiness: ready
+autofix: eligible
 area: [lib/commands]
 issues: [REGISTER-ALL-COMMANDS-MACRO-REQUIRES-EVERY-FEATURE]
 created: 2026-10-06
@@ -26,7 +26,7 @@ the first four phases, reviewed without phase approval. Not an approval and not 
 - [x] Phase 2: Solution and Architecture
 - [x] Phase 3: Examples and Tests
 - [x] Phase 4: Implementation Plan
-- [ ] Phase 5: Documentation (executed 2026-10-07; awaiting approval)
+- [x] Phase 5: Documentation (approved 2026-10-08, maintainer)
 
 ## Links
 

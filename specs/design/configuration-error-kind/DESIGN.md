@@ -5,6 +5,7 @@ title: Classify semantic configuration failures
 status: in_review
 phase: implementation
 readiness: needs-decision
+autofix: not-eligible
 area: [core/error, store/config]
 issues: [CORE-CONFIGURATION-ERROR-KIND]
 created: 2026-08-31

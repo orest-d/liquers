@@ -5,6 +5,7 @@ title: Error traceback in metadata log entries
 status: in_review
 phase: implementation
 readiness: needs-decision
+autofix: not-eligible
 area: [core/value, core/error]
 issues: [CORE-METADATA-TRACEBACK-SUPPORT]
 gh_pr: []

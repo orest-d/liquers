@@ -2,21 +2,34 @@
 
 ## Chosen Solution
 
-Pin the lockfile to the last sysinfo compatible with Rust 1.94; changing MSRV needs explicit maintainer approval.
+Add to the workspace `Cargo.toml`:
 
-## Integration Boundary
+```toml
+[workspace.package]
+rust-version = "1.95"
+```
 
-**Files and symbols:** Cargo.lock, Cargo.toml, scripts/check-build-matrix.sh, .github/workflows/build-matrix.yml. Reuse existing typed Error constructors and existing async traits; avoid new ownership or dispatch abstractions unless the named boundary requires them. Serialized additions are optional and additive; public Rust renames retain explicit compatibility handling where stated.
+and `rust-version.workspace = true` to the `[package]` of every member (`liquers-core`,
+`liquers-macro`, `liquers-store`, `liquers-records`, `liquers-lib`, `liquers-axum`, `liquers-web`,
+`liquers-py`). Add one line to `CLAUDE.md` "Building and testing" naming the minimum and how it was
+derived.
 
-## Alternatives and Errors
+The value is the maximum `rust_version` over non-workspace packages in `cargo metadata` at
+implementation time; re-measure rather than copying 1.95 if dependencies changed.
 
-Reject pre-checks that race or duplicate I/O, broad catch-all error mapping, and unrelated refactors. Fallible paths return existing `Result<_, Error>` types and retain typed error kinds.
+## Alternatives
+
+- Pin `sysinfo` in a lockfile: impossible while `Cargo.lock` is git-ignored; committing it is a
+  separate decision.
+- `rust-toolchain.toml`: pins an exact toolchain for everyone, which is what the maintainer was
+  concerned about for the cloud environment. Rejected.
+- `resolver = "3"`: would make Cargo prefer dependency versions compatible with the declared
+  minimum, changing resolution for everyone. Out of scope.
 
 ## Risk Review
 
 | Risk | Validation and recovery |
 |---|---|
-| Contract or compatibility drift | Pin the source acceptance cases and preserve documented wire/error behaviour. Revert the isolated change if the contract cannot be met. |
-| Async or ownership regression | Keep existing AsyncStore/wasm Send bounds and borrow inputs; run focused crate tests. |
-| Documentation or generated-data drift | Update named current documents and regenerate/check required indexes. |
-
+| Workspace code uses a feature newer than the declared minimum | Build with that toolchain if `rustup toolchain install <v> --profile minimal` works; if not, record it as unverified in the issue resolution. Raise the value if it fails. |
+| The value goes stale after a dependency upgrade | Cargo reports it on any older toolchain; the derivation is documented in `CLAUDE.md` so it can be re-measured. |
+| liquers-web / liquers-py manifests | Metadata only; `cargo metadata` and the wasm check in `scripts/check-build-matrix.sh` confirm they still parse. |

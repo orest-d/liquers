@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** needs-decision
+- **Automatic fixing:** not-eligible — adds an `ErrorType` variant observed by every binding (rules
+  3-4) across five crates (rule 6)
 - **Leading issue:** **Open design question - public error taxonomy:** every binding observes
   `ErrorType` (JavaScript names, Python, HTTP status), so adding `ConfigurationError` is a
   cross-language compatibility commitment.

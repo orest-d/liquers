@@ -5,6 +5,7 @@ title: Replacement and state installation for external asset managers
 status: in_review
 phase: implementation
 readiness: needs-decision
+autofix: not-eligible
 area: [core/assets]
 issues: [EXTERNAL-MANAGER-CANNOT-NOTIFY-REPLACED-ASSET]
 created: 2026-10-06

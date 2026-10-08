@@ -301,7 +301,6 @@ deliberately folded behind a broader line.
 - `reference/VALUE_TYPE_SYSTEM.md`
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - design `argument-gui-info-default`
-- design `argument-info-description`
 - design `asset-manager-insert-key-asset-no-overwrite`
 - design `asset-manager-insert-key-asset-semantics`
 - design `async-memory-store-prefix-support`
@@ -314,7 +313,7 @@ deliberately folded behind a broader line.
 - design `combined-value-default-extension`
 - design `command-cache-flag`
 - design `command-declaration`
-- design `command-metadata-command-hints`
+- design `command-metadata-descriptions-and-hints`
 - design `command-registry-impl-version-freshness`
 - design `command-registry-issue-fields-coverage`
 - design `command-registry-issue-fields`
@@ -350,6 +349,7 @@ deliberately folded behind a broader line.
 - design `lib-integration-test-feature-gates`
 - design `lib-polars-ethnum-rust-1-98`
 - design `listdir-keys-deep-child-check`
+- design `manifest-chunk-error-identity`
 - design `manifest-over-stored-csv-test`
 - design `markdown-empty-text-and-tables`
 - design `memory-store-metadata-only-entry`
@@ -361,11 +361,13 @@ deliberately folded behind a broader line.
 - design `opendal-feature-without-async-store`
 - design `opendal-list-option-config`
 - design `opendal-localfs-assetinfo-test`
+- design `ordered-json-orient-column-order`
 - design `plan-cwd-freeze`
 - design `plan-relative-resolution`
 - design `plan-split-predecessor-fields`
 - design `polars-doc-example-namespace`
 - design `predecessor-cut-equivalence`
+- design `pyo3-python-3-13-support`
 - design `query-leading-slash-field`
 - design `queued-manager-conditional-eviction`
 - design `rec-id-iso-date-parsing`
@@ -379,9 +381,11 @@ deliberately folded behind a broader line.
 - design `save-to-store-skip-outcome`
 - design `sidecar-colliding-keys`
 - design `simple-value-serializer-parity`
+- design `simple-value-untyped-and-scalar-reads`
 - design `state-argument-serde-default`
 - design `store-conformance-suite`
 - design `store-guide-status-table`
+- design `store-key-format-seeding`
 - design `store-key-guard`
 - design `store-keys-contract`
 - design `store-router-directory-above-members`

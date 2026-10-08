@@ -6,6 +6,7 @@ workflow: liquers-project
 status: in_review
 phase: documentation
 readiness: ready
+autofix: not-eligible
 area: [web]
 issues: [WEB-OBJECT06-EXPECTS-A-STALE-ERROR-TYPE-COUNT]
 affects_docs: []

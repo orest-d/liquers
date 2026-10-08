@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** ready
+- **Automatic fixing:** not-eligible — adds `pub` methods `Context::set_title` / `set_description`
+  (rule 4)
 - **Leading issue:** None
 - **Explanation:** The precedence question was decided by the maintainer on 2026-10-04: **the
   recipe wins**. A recipe states the user's intention for the asset, while a command is generic

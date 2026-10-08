@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/value]
-design: type-info-write-only-formats
+design:
 created: 2026-09-24
 github:
 ---
@@ -48,3 +48,10 @@ Still open, and now met in practice. `record-streams` shipped HTML as a write-on
 because leaving it out would refuse `data.html`. So the registry claims a stored `.html` table can
 be read back, and it cannot. The design took the first of the two bad options this record
 describes; the representation is still to be settled.
+
+## Update 2026-10-08 — folded into `DATA-FORMAT-CONSTANTS-AND-TOOLING`
+
+Maintainer decision (backlog compaction D8): this gap is solved inside
+[`DATA-FORMAT-CONSTANTS-AND-TOOLING`](DATA-FORMAT-CONSTANTS-AND-TOOLING.md), whose design must include a
+way to declare a write-only format. Its standalone design `design/type-info-write-only-formats/` is
+`abandoned` and kept as input. This issue stays open until that feature lands.

@@ -6,6 +6,7 @@ workflow: liquers-project
 status: in_review
 phase: documentation
 readiness: ready
+autofix: not-eligible
 area: [core/value]
 issues: [TEXT-VALUE-CANNOT-BE-STORED-AS-MARKDOWN]
 affects_docs: [guides/TYPE_SYSTEM_GUIDE.md]

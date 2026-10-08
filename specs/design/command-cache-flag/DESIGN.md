@@ -6,6 +6,7 @@ title: Remove the unread CommandMetadata.cache flag
 status: in_review
 phase: documentation
 readiness: ready
+autofix: not-eligible
 area: [core/commands, macro]
 issues: [COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ]
 created: 2026-10-06

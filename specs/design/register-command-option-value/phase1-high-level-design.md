@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** needs-decision
+- **Automatic fixing:** not-eligible — adds `FromParameterValue` impls in `liquers-core` and macro
+  diagnostics in `liquers-macro` (rules 4, 6)
 - **Leading issue:** **Open design question — reject `Option<Value>` or support it.** The issue
   asks a human to choose. Supporting it is real work in `liquers-core::commands`
   (`FromParameterValue<Option<V>>`, `TryFrom<E::Value> for Option<V>`, the link-value fast path)

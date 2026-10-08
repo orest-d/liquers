@@ -6,6 +6,7 @@ title: Markdown tables round-trip empty text and state the one-table rule
 status: in_review
 phase: documentation
 readiness: ready
+autofix: not-eligible
 area: [records]
 issues: [MARKDOWN-TABLE-CANNOT-DISTINGUISH-NULL-FROM-EMPTY-TEXT]
 created: 2026-10-06

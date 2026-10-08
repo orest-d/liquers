@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** ready
+- **Automatic fixing:** eligible — build fix in `liquers-lib`: no-op twins of existing domain macros
+  under the negated `cfg`; no new names (already implemented)
 - **Leading issue:** None
 - **Explanation:** The issue already identifies the only working mechanism: a `cfg` inside a
   `macro_rules!` body is evaluated in the caller's crate, so the gating must happen where

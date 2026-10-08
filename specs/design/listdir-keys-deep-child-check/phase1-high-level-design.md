@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** covered
+- **Automatic fixing:** not-eligible — covered by another record; no independent work to fix (rule
+  5)
 - **Leading issue:** None.
 - **Explanation:** The resolution records that both defaults now test each child before recursion. No independent implementation plan is needed.
 - **Open questions:** None.

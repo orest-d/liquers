@@ -5,6 +5,7 @@ title: Coverage record for CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS
 status: in_review
 phase: architecture
 readiness: covered
+autofix: not-eligible
 area: [docs]
 issues: [CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS]
 created: 2026-09-03

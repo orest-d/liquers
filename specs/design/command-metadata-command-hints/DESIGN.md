@@ -2,14 +2,18 @@
 id: COMMAND-METADATA-COMMAND-HINTS
 kind: design
 title: Command-level metadata hints
-status: in_review
-phase: implementation
-readiness: needs-decision
+status: superseded
 area: [core/commands, macro, lib/ui]
 issues: [COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS]
 created: 2026-08-31
+superseded_by: command-metadata-descriptions-and-hints
 ---
 # Command-level metadata hints
+
+> **Superseded on 2026-10-08.** Merged by maintainer decision (backlog compaction D1) with `argument-info-description` into
+> [`command-metadata-descriptions-and-hints`](../command-metadata-descriptions-and-hints/), which now owns
+> `COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS`. The command-hint field, macro statement and tests
+> moved there unchanged; this folder is kept for its reasoning.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

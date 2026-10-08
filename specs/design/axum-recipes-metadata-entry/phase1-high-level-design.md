@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** ready
+- **Automatic fixing:** eligible — bug fix in `liquers-axum` replacing placeholder answers with the
+  documented ones; no route or type changes (already implemented)
 - **Leading issue:** None
 - **Explanation:** Both behaviours already exist elsewhere in the same crate. The Assets API builds
   a `MetadataRecord` from `AsyncRecipeProvider::get_asset_info` for a recipe key (`key_metadata`),

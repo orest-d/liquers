@@ -4,7 +4,8 @@ kind: design
 title: Design for REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
+autofix: eligible
 area: [lib/commands, build, docs]
 issues: [REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED]
 created: 2026-09-03

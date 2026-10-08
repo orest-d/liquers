@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** ready
+- **Automatic fixing:** not-eligible — changes the advertised OpenDAL store arguments, part of the
+  config schema (rule 4), across two crates (rule 6)
 - **Leading issue:** None
 - **Explanation:** The prerequisite (`STORE-OPENDAL-SERVICES-NOT-ENABLED`) is closed; OpenDAL 0.55's
   service configs were inspected (2026-10-05): each is `Default + Serialize`, `#[serde(default)]`,

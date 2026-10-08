@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [lib/value]
-design:
+design: simple-value-untyped-and-scalar-reads
 created: 2026-10-07
 github:
 ---

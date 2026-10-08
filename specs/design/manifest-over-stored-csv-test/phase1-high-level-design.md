@@ -3,6 +3,7 @@
 ## Design Readiness
 
 - **Readiness:** ready
+- **Automatic fixing:** eligible — test and guide change in `liquers-lib` (already implemented)
 - **Leading issue:** None
 - **Explanation:** Test-only work, plus a guide update that quotes the test. The shape is already
   specified by `RECORD_STREAM_GUIDE.md` §3.2 ("A directory of CSV files is the same shape…") and

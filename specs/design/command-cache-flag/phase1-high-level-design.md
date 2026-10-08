@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** ready
+- **Automatic fixing:** not-eligible — removes the `pub` field `CommandMetadata.cache` and the
+  Python getter (rule 4)
 - **Leading issue:** None
 - **Explanation:** Decided (Maintainer decision, 2026-10-06): remove the field. The one-time consequence (every command's
   `metadata_version` changes, so stored computed assets are recomputed once after the upgrade) is

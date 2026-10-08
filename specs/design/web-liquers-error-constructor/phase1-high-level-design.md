@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** needs-decision
+- **Automatic fixing:** not-eligible — adds a JavaScript constructor to the `LiquersError` binding
+  (rule 4)
 - **Leading issue:** **Open design question — what JavaScript may set when constructing a
   `LiquersError`.** Type and message only, or also `key`/`query` provenance?
 - **Explanation:** The two-argument form is complete, and optional provenance can be added later

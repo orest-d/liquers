@@ -5,6 +5,7 @@ title: Coverage record for PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS
 status: in_review
 phase: architecture
 readiness: covered
+autofix: not-eligible
 area: [docs]
 issues: [PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS]
 created: 2026-09-03

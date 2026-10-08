@@ -5,6 +5,7 @@ title: Coverage record for DELEGATED-VALUE-REPERSISTED
 status: in_review
 phase: architecture
 readiness: covered
+autofix: not-eligible
 area: [docs]
 issues: [DELEGATED-VALUE-REPERSISTED]
 created: 2026-09-03

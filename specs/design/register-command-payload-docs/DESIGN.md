@@ -3,9 +3,9 @@ id: REGISTER-COMMAND-PAYLOAD-DOCS
 kind: design
 title: Documenting the payload, expires and version metadata statements of register_command!
 workflow: liquers-project
-status: in_review
-phase: documentation
+status: complete
 readiness: ready
+autofix: eligible
 area: [docs, core/commands, macro]
 issues: [REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED, REGISTER-COMMAND-EXPIRES-AND-VERSION-STATEMENTS-UNDOCUMENTED]
 merged: 2026-10-05
@@ -28,7 +28,7 @@ Autonomous bulk design (`guides/autonomous_bulk_design.md`) for
 - [x] Phase 2: Solution & Architecture
 - [x] Phase 3: Examples and Tests
 - [x] Phase 4: Implementation Plan
-- [ ] Phase 5: Documentation (executed 2026-10-07; awaiting approval)
+- [x] Phase 5: Documentation (approved 2026-10-08, maintainer)
 
 ## Links
 

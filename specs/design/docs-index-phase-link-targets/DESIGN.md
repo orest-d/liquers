@@ -3,9 +3,9 @@ id: DOCS-INDEX-PHASE-LINK-TARGETS
 kind: design
 title: Resolvable design-phase links in the generated index.md
 workflow: liquers-project
-status: in_review
-phase: implementation
+status: complete
 readiness: ready
+autofix: eligible
 area: [docs, build]
 issues: [DOCS-INDEX-EMITS-MACHINE-LOCAL-PATHS]
 affects_docs: [DOCS_STRUCTURE_GUIDE.md]
@@ -27,7 +27,7 @@ Autonomous bulk design (`guides/autonomous_bulk_design.md`) for
 - [x] Phase 2: Solution & Architecture
 - [x] Phase 3: Examples and Tests
 - [x] Phase 4: Implementation Plan
-- [x] Phase 5: Documentation
+- [x] Phase 5: Documentation (approved 2026-10-08, maintainer)
 
 ## Links
 

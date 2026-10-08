@@ -5,6 +5,7 @@ title: register_command! rejects unsupported Option<T> argument types at expansi
 status: in_review
 phase: implementation
 readiness: needs-decision
+autofix: not-eligible
 area: [macro]
 issues: [REGISTER-COMMAND-OPTION-VALUE-CANNOT-BIND]
 created: 2026-10-06
