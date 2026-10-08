@@ -1,6 +1,6 @@
 # Phase 5: Documentation - End-to-end test of a manifest over stored CSV files
 
-**Status: executed 2026-10-07**, after implementation (Wave 4 step 28 of
+**Status: executed 2026-10-07; approved 2026-10-08 (maintainer)**, after implementation (Wave 4 step 28 of
 `archive/2026-10-06-p2-p3-s-implementation-order-revised.md`). Awaiting approval.
 
 ## Completion Preconditions

@@ -1,6 +1,6 @@
 # Phase 5: Documentation - Documenting `payload:`, `expires:` and `version:`
 
-**Status: executed 2026-10-07**, after implementation (Wave 3 step 20 of
+**Status: executed 2026-10-07; approved 2026-10-08 (maintainer)**, after implementation (Wave 3 step 20 of
 `archive/2026-10-06-p2-p3-s-implementation-order-revised.md`). Awaiting approval.
 
 ## Completion Preconditions

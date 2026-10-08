@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/commands, macro]
-design: argument-info-description
+design: command-metadata-descriptions-and-hints
 created: 2026-09-24
 github:
 ---
