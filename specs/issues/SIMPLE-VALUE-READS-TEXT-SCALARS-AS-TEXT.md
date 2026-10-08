@@ -48,11 +48,12 @@ divergence was left as found.
 
 ## Resolution (2026-10-08)
 
-Fixed by design `simple-value-untyped-and-scalar-reads` (commit d7cde3f). Under `txt`, `html`,
-`toml`, `rs`, `py`, `css` and `js`, identifiers `Bool`, `I32`, `I64` and `F64` now read back as
+Fixed by design `simple-value-untyped-and-scalar-reads` (PR #91). Under `txt`, `html`, `rs`,
+`py`, `css` and `js`, identifiers `Bool`, `I32`, `I64` and `F64` now read back as
 that scalar, parsed as core `Value` parses them (`from_bool_str`, `str::parse`); unparsable text
 is a conversion error, as in core. `""`, `None` and `Text` still read as `Text` — core has no
-textual read rule for `None` either.
+textual read rule for `None` either. `toml` keeps its old rule (every base scalar reads as `Text`),
+since core has no `toml` reader to match.
 
-Evidence: `textual_scalars_read_back_as_their_type` and the updated
-`every_declared_format_round_trips` (`liquers-lib/src/value/simple.rs`).
+Evidence: `textual_scalars_read_back_as_their_type`, `toml_scalars_still_read_as_text` and the
+updated `every_declared_format_round_trips` (`liquers-lib/src/value/simple.rs`).

@@ -679,19 +679,22 @@ impl DefaultValueSerializer for SimpleValue {
                     // Written raw; reading it as text would lose every byte that is not UTF-8.
                     "Bytes" => Ok(SimpleValue::Bytes { value: b.to_vec() }),
                     // Scalars are parsed as core `Value` parses them; text that does not parse
-                    // is a conversion error, as in core.
-                    "Bool" => SimpleValue::from_bool_str(&s),
-                    "I32" => s.parse::<i32>().map(|value| SimpleValue::I32 { value }).map_err(|e| {
+                    // is a conversion error, as in core. Core has no `toml` rule, so under `toml`
+                    // they keep reading as text.
+                    "Bool" if fmt != "toml" => SimpleValue::from_bool_str(&s),
+                    "I32" if fmt != "toml" => s.parse::<i32>().map(|value| SimpleValue::I32 { value }).map_err(|e| {
                         Error::conversion_error_with_message(&s, "i32", &e.to_string())
                     }),
-                    "I64" => s.parse::<i64>().map(|value| SimpleValue::I64 { value }).map_err(|e| {
+                    "I64" if fmt != "toml" => s.parse::<i64>().map(|value| SimpleValue::I64 { value }).map_err(|e| {
                         Error::conversion_error_with_message(&s, "i64", &e.to_string())
                     }),
-                    "F64" => s.parse::<f64>().map(|value| SimpleValue::F64 { value }).map_err(|e| {
+                    "F64" if fmt != "toml" => s.parse::<f64>().map(|value| SimpleValue::F64 { value }).map_err(|e| {
                         Error::conversion_error_with_message(&s, "f64", &e.to_string())
                     }),
                     // Core has no textual read rule for `None` either.
-                    "" | "None" | "Text" => Ok(SimpleValue::Text { value: s }),
+                    "" | "None" | "Text" | "Bool" | "I32" | "I64" | "F64" => {
+                        Ok(SimpleValue::Text { value: s })
+                    }
                     // Not a base identifier. `txt`, `html` and `toml` have always read as text
                     // whatever the identifier (`COMBINED-VALUE-DISCRIMINATION`); the formats added
                     // with them refuse, so `CombinedValue` asks the extension.
@@ -1143,7 +1146,7 @@ mod tests {
     /// A scalar under a textual format reads back as its type, parsed as core `Value` parses it.
     #[test]
     fn textual_scalars_read_back_as_their_type() -> Result<(), Box<dyn std::error::Error>> {
-        for format in ["txt", "html", "toml", "rs", "py", "css", "js"] {
+        for format in ["txt", "html", "rs", "py", "css", "js"] {
             assert_eq!(
                 SimpleValue::deserialize_from_bytes(b"true", "Bool", format)?,
                 SimpleValue::Bool { value: true }
@@ -1170,6 +1173,20 @@ mod tests {
                 .err()
                 .ok_or("unparsable I32 must not read")?;
             assert_eq!(error.error_type, ErrorType::ConversionError, "{error}");
+        }
+        Ok(())
+    }
+
+    /// `toml` keeps its old rule: core has no `toml` reader to match, so every scalar reads as
+    /// `Text`.
+    #[test]
+    fn toml_scalars_still_read_as_text() -> Result<(), Box<dyn std::error::Error>> {
+        for (id, text) in [("Bool", "true"), ("I32", "7"), ("I64", "7"), ("F64", "1.5"), ("I32", "abc")] {
+            assert_eq!(
+                SimpleValue::deserialize_from_bytes(text.as_bytes(), id, "toml")?,
+                SimpleValue::Text { value: text.to_string() },
+                "{id} as toml"
+            );
         }
         Ok(())
     }

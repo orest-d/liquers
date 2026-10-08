@@ -174,6 +174,8 @@ records_manifest_over_csv_files`.
   `python3 scripts/docs_index.py --check`
 - [x] 5. (review of PR #91) Empty-identifier fallback moved to `CombinedValue`, after the
   extension — `cargo test -p liquers-lib --lib --tests`
+- [x] 6. (review of PR #88) `toml` split out of the per-scalar parsing; add
+  `toml_scalars_still_read_as_text` — `cargo test -p liquers-lib --lib value::simple`
 
 ### Validation
 
