@@ -5,8 +5,8 @@ title: liquers-py builds against the current Python
 form: compact
 status: in_review
 phase: implementation
-readiness: needs-decision
-autofix: not-eligible
+readiness: ready
+autofix: eligible
 area: [py, build]
 issues: [PY-PYO3-REJECTS-PYTHON-3-13]
 created: 2026-10-08
@@ -44,20 +44,15 @@ in the repository names the variable.
 
 ### Design Readiness
 
-- **Readiness:** needs-decision
-- **Automatic fixing:** not-eligible — option A (PyO3 upgrade) migrates every binding to the
-  `Bound` API, which changes the Python binding surface (rule 4) and is not `S`. Option B alone
-  is a documentation fix and would be eligible once chosen.
-- **Leading issue:** **Open design question — upgrade PyO3 or document the range.**
-- **Explanation:** Both options are specified. The upgrade is the honest fix but is an API
-  migration across `liquers-py/src/`; documenting is small but leaves 3.13 unsupported in fact.
+- **Readiness:** ready
+- **Automatic fixing:** eligible — documentation and build-metadata fix (`liquers-py/pyproject.toml`,
+  `liquers-py/README.md`, `CLAUDE.md`); no Rust change.
+- **Leading issue:** None
+- **Explanation:** Decided (maintainer, 2026-10-08, backlog compaction D4): option B now, and the
+  PyO3 upgrade (option A) as its own `M` feature, filed when this design is implemented.
 - **Open questions:**
-  1. **Open design question — option A or B.** A: raise `pyo3` to the oldest release supporting
-     3.13 (0.22 or later) and migrate from the GIL-ref API. B: declare `requires-python = ">=3.9,
-     <3.13"` in `liquers-py/pyproject.toml`, document `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1` in
-     `liquers-py/README.md` and `CLAUDE.md`'s build section. **Recommended: B now, A as its own
-     `M` design**, because `liquers-py` is outside every default test loop and the migration needs
-     its own review.
+  1. **Resolved — option B** (maintainer, 2026-10-08). Option A, kept for the follow-up: raise
+     `pyo3` to the oldest release supporting 3.13 (0.22 or later) and migrate from the GIL-ref API.
 
 ### Design Dependencies
 
@@ -68,12 +63,13 @@ in the repository names the variable.
 
 ### Solution
 
-Specified for the recommended option B; option A is outlined for the decision.
+Specified for the chosen option B; option A is outlined for the follow-up feature.
 
-- **B:** `liquers-py/pyproject.toml` `requires-python`; a "Building" section in
+- **B:** `liquers-py/pyproject.toml` `requires-python = ">=3.8,<3.13"` (the existing lower bound is
+  kept; only the upper bound PyO3 0.21 imposes is added); a "Building" section in
   `liquers-py/README.md` stating the range, the error and the override; one line in `CLAUDE.md`
   under "Building and testing".
-- **A (if chosen):** `pyo3` bump in `liquers-py/Cargo.toml`; mechanical `&PyAny` → `Bound<'py,
+- **A (follow-up feature):** `pyo3` bump in `liquers-py/Cargo.toml`; mechanical `&PyAny` → `Bound<'py,
   PyAny>` migration in `liquers-py/src/`; re-run `liquers-py/tests/`. Re-size to `M` and redesign.
 
 ### Changes
@@ -104,7 +100,7 @@ The Problem Example, with and without the override.
 
 - [ ] 1. `liquers-py/pyproject.toml` — `requires-python` — `grep requires-python liquers-py/pyproject.toml`
 - [ ] 2. `liquers-py/README.md`, `CLAUDE.md` — supported range and override — manual check above
-- [ ] 3. Issue resolution (option B: file the PyO3 upgrade as a feature); `python3
+- [ ] 3. File the PyO3 upgrade (option A) as an `M` feature; issue resolution and `status: closed`; `python3
   scripts/docs_index.py --check`
 
 ### Validation

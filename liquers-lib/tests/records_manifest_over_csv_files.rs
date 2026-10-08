@@ -204,9 +204,8 @@ async fn manifest_csv_chunk_violating_uniform_schema_fails(
     Ok(())
 }
 
-/// Phase 1 asks for the error to name the chunk; today it names only the field.
+/// Phase 1 asks for the error to name the chunk.
 #[tokio::test]
-#[ignore = "MANIFEST-CHUNK-SCHEMA-ERROR-DOES-NOT-NAME-THE-CHUNK"]
 async fn manifest_csv_chunk_schema_error_names_the_chunk() -> Result<(), Box<dyn std::error::Error>>
 {
     let envref = build_env(stored_files(Some("RecordView")).await?)?;

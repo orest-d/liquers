@@ -404,6 +404,7 @@ impl ManifestSource {
         let result = source
             .read_chunk(&id, &resolver)
             .await
+            .map_err(|error| name_chunk(error, chunk_index, &id))
             .map(|view| place_chunk(view, chunk_index, Some(id), Some(counted)));
         let next_state = source.next_walk_state(&state, &result);
         let counted = match &result {
@@ -441,6 +442,18 @@ impl ManifestSource {
             },
         }
     }
+}
+
+/// `error`, with its message prefixed by the chunk it came from: `chunk <global index> (<key>): `,
+/// or the encoded query for an unkeyed chunk. Only the message changes, so the error type and its
+/// key, query and position fields stay those of the original failure.
+fn name_chunk(mut error: Error, index: u64, id: &ChunkId) -> Error {
+    let identity = match id {
+        ChunkId::Key(key) => key.encode(),
+        ChunkId::Query(query) => query.encode(),
+    };
+    error.message = format!("chunk {index} ({identity}): {}", error.message);
+    error
 }
 
 /// One step of [`ManifestSource`]'s walk over its chunks: the explicit prefix in order, then the
@@ -1479,5 +1492,80 @@ mod tests {
         // compile before this test could run.
         fn assert_usable_as_arc_dyn_chunk_resolver(_resolver: Arc<dyn ChunkResolver>) {}
         let _ = assert_usable_as_arc_dyn_chunk_resolver;
+    }
+
+    // --- ManifestSource::stream: a refused chunk is named -------------------------------------
+
+    /// A declared schema with one more field than `tiny_batch` has, so every chunk is refused.
+    fn schema_with_id_and_name() -> Arc<RecordSchema> {
+        Arc::new(
+            RecordSchema::new(vec![
+                FieldSchema::new("id", FieldType::Int).with_key(KeyRole::Id),
+                FieldSchema::new("name", FieldType::Text),
+            ])
+            .expect("schema"),
+        )
+    }
+
+    #[tokio::test]
+    async fn chunk_error_names_unkeyed_chunk_by_query() -> Result<(), Box<dyn std::error::Error>> {
+        let spec = ManifestSpec {
+            chunks: vec![Recipe { query: "ns-sql/sql_query-0-1000".to_string(), ..Default::default() }],
+            uniform_schema: Some(schema_with_id_and_name()),
+            ..ManifestSpec::default()
+        };
+        let source = Arc::new(ManifestSource::new(spec, None)?);
+        let view = tiny_batch(&[1, 2]) as Arc<dyn RecordView>;
+        let resolver: Arc<dyn ChunkResolver> = Arc::new(
+            FixtureResolver::new().with_evaluation("ns-sql/sql_query-0-1000", ChunkValue::View(view)),
+        );
+
+        let views: Vec<_> = source.stream(resolver).await?.collect().await;
+        assert_eq!(views.len(), 1);
+        let message = match &views[0] {
+            Ok(_) => return Err("the chunk violates uniform_schema and must be refused".into()),
+            Err(error) => error.message.clone(),
+        };
+        assert!(
+            message.starts_with("chunk 0 (ns-sql/sql_query-0-1000): ManifestSource: chunk schema has"),
+            "got: {message}"
+        );
+        assert!(message.contains("uniform_schema declares"), "got: {message}");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn chunk_error_keeps_error_type() -> Result<(), Box<dyn std::error::Error>> {
+        let declared = schema_with_id_and_name();
+        let unprefixed = match view_from_chunk_value(
+            ChunkValue::View(tiny_batch(&[1]) as Arc<dyn RecordView>),
+            Some(declared.as_ref()),
+        ) {
+            Ok(_) => return Err("the chunk violates uniform_schema and must be refused".into()),
+            Err(error) => error,
+        };
+
+        // A keyed chunk the store does not hold is evaluated, and its view checked as above.
+        let spec = ManifestSpec {
+            chunks: vec![Recipe { query: "ns-sql/sql_query-0-1000/data.csv".to_string(), ..Default::default() }],
+            uniform_schema: Some(declared),
+            stored: false,
+            ..ManifestSpec::default()
+        };
+        let source = Arc::new(ManifestSource::new(spec, Some(parse_key("data/sales/daily.manifest.yaml")?))?);
+        let view = tiny_batch(&[1]) as Arc<dyn RecordView>;
+        let resolver: Arc<dyn ChunkResolver> = Arc::new(
+            FixtureResolver::new().with_evaluation("-R/data/sales/data.csv", ChunkValue::View(view)),
+        );
+
+        let views: Vec<_> = source.stream(resolver).await?.collect().await;
+        let error = match views.into_iter().next() {
+            Some(Err(error)) => error,
+            Some(Ok(_)) => return Err("the chunk violates uniform_schema and must be refused".into()),
+            None => return Err("the manifest has one chunk".into()),
+        };
+        assert_eq!(error.error_type, unprefixed.error_type);
+        assert_eq!(error.message, format!("chunk 0 (data/sales/data.csv): {}", unprefixed.message));
+        Ok(())
     }
 }

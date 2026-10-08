@@ -301,7 +301,6 @@ deliberately folded behind a broader line.
 - `reference/VALUE_TYPE_SYSTEM.md`
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - design `argument-gui-info-default`
-- design `argument-info-description`
 - design `asset-manager-insert-key-asset-no-overwrite`
 - design `asset-manager-insert-key-asset-semantics`
 - design `async-memory-store-prefix-support`
@@ -314,7 +313,7 @@ deliberately folded behind a broader line.
 - design `combined-value-default-extension`
 - design `command-cache-flag`
 - design `command-declaration`
-- design `command-metadata-command-hints`
+- design `command-metadata-descriptions-and-hints`
 - design `command-registry-impl-version-freshness`
 - design `command-registry-issue-fields-coverage`
 - design `command-registry-issue-fields`

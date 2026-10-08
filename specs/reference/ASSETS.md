@@ -488,8 +488,8 @@ refuses the fast track and the key is recomputed), and the store branch of `get_
 `key` and reports `verified`, `skipped` and `changed` (`VersionVerificationReport`);
 `AuditMode::ReportOnly` writes and registers nothing. A key with metadata and no data object is
 skipped, not changed — deleting large intermediates is supported — and so are empty bytes under a
-timestamp version, which is how `AsyncMemoryStore` answers a metadata-only entry
-(`MEMORY-STORE-METADATA-ONLY-ENTRY-READS-AS-EMPTY-BYTES`). `verify_versions: off` hashes nothing,
+timestamp version, which is how `AsyncMemoryStore` answered a metadata-only entry before
+`design/memory-store-metadata-only-entry/` (every in-tree store now answers `KeyNotFound`). `verify_versions: off` hashes nothing,
 and `verify_stored_versions` then returns an empty report. A recorded-version audit
 (`trigger_dependency_audit`) cannot see an edit; this can.
 
@@ -1172,6 +1172,7 @@ each with an `ExpiryReason` (§Why an asset is `Expired`). The rules are in
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-08 | §Content changed outside Liquers: the memory store no longer answers a metadata-only entry with empty bytes; the empty-bytes skip is kept for older stores. | phase-5 (`design/metadata-only-entry-reload/`) |
 | 2026-10-08 | §AssetManager names the dependency checks (`stored_dependency_state`, the per-key audit over the upstream closure, `trigger_dependency_audit_store`) and links §Consistency policies. The `StaleDependency` row gains the audit routes. | phase-5 (`design/dependency-chain-analysis-cost/`) |
 | 2026-10-07 | §Why an asset is `Expired`: a value supplied already `Expired` keeps its supplied reason and logs the warning `Asset expired` plus an after-the-fact info entry; one written-status rule for every manager. New §Progress after completion: started progress of a finished asset is done, unstarted progress stays absent, finalized after the service loop drains. The `Deadline` row: the immediate manager's lazy check cascades too. The manager-level recovery reads defer a `None`/`Recipe` placeholder to the store, and answer `Ok(None)` for a metadata-only entry. The `StaleDependency` row also covers an edge recorded against a superseded version. | phase-5 (`design/supplied-expired-status-reason/`, `design/immediate-set-state-status-match/`, `design/finished-asset-progress-contract/`, `design/immediate-lazy-expiry-cascade/`, `design/recovery-read-defers-placeholder/`, `design/memory-store-metadata-only-entry/`, `design/dependency-edge-superseded-version/`) |
 | 2026-10-06 | §Remove Semantics: `set_description` points to `Context::set_title` / `set_description` and its recipe-wins rule. | phase-5 |

@@ -2,17 +2,16 @@
 
 ## Design Readiness
 
-- **Readiness:** needs-decision
-- **Automatic fixing:** not-eligible — needs-decision (rule 5). The recommended "deep" answer
-  changes what an HTTP route returns (rule 4); the "synonym" answer is a doc-comment fix and would
-  be eligible once chosen
-- **Leading issue:** **Open design question — HTTP contract of `GET {store}/keys`.** It is either
-  deep (as its name, doc comment and the original `web-api-library` spec promised) or a documented
-  synonym of `listdir` (current behaviour, now written into `WEB_API_SPECIFICATION.md`).
-- **Explanation:** Both are trivial to implement. The design specifies the recommended deep
-  answer. Choosing "synonym" reduces the work to a doc-comment fix.
+- **Readiness:** ready
+- **Automatic fixing:** eligible — bug fix in one `liquers-axum` handler (`keys_handler`) that
+  restores the behaviour its name and doc comment promise, as decided below; the route, its
+  parameters and its JSON shape (a list of keys) are unchanged, and no `pub` item changes.
+- **Leading issue:** None
+- **Explanation:** Decided (maintainer, 2026-10-08, backlog compaction D2): `GET {store}/keys` is
+  **deep**. `WEB_API_SPECIFICATION.md`, which currently documents the synonym behaviour, is
+  corrected in the same change.
 - **Open questions:**
-  1. **Proposed resolution — deep:** `keys` returns `listdir_keys_deep(prefix)`. Without it, the
+  1. **Resolved — deep** (maintainer, 2026-10-08): `keys` returns `listdir_keys_deep(prefix)`. Without it, the
      Store API has no single-call subtree enumeration. The Assets API's `key/listdir?deep=true` is
      not a substitute, because it includes recipe-declared keys and returns asset-level answers.
      The cost is unbounded response size on a large store. Mitigation: none in this design

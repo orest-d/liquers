@@ -308,7 +308,7 @@ expires: …                     # as in recipes.yaml
 | `chunks` | `Vec<Recipe>`. A chunk whose query ends in a filename is **keyed** by `<manifest folder>/<filename>`; otherwise it is unkeyed and identified by its query |
 | `template` | chunk *i* (a **global** index, starting after the explicit chunks) is `<query>-<first_offset + step × i>-<batch_size>`, followed by `/<key filename>` when keyed. The walk ends at the first template chunk with fewer than `batch_size` rows — or at the first error, which is yielded. The template command must therefore return a short or empty chunk past the end, not an error |
 | naming | a template chunk's key is `<folder>/<prefix>_{n:04}.<extension>`, `prefix` = the manifest's filename without `.manifest.yaml`. `ChunkNaming::index_of` accepts only the canonical spelling (`daily_00042.csv` is not chunk 42) |
-| `uniform_schema` | stored chunk bytes are parsed **with** it (schema-aware reader); a computed chunk's view is **checked** against it: same field count, names and types in order, and no nulls in a field declared not null. Without it, bytes are read schema-less and `schema()` is `None` |
+| `uniform_schema` | stored chunk bytes are parsed **with** it (schema-aware reader); a computed chunk's view is **checked** against it: same field count, names and types in order, and no nulls in a field declared not null. A chunk refused during a traversal is named in the error message as `chunk <global index> (<key, or encoded query when unkeyed>): …`, with the error type unchanged. Without it, bytes are read schema-less and `schema()` is `None` |
 | `stored`, `cached`, `volatile`, `expires` | copied onto every chunk recipe; see below |
 
 `ChunkTemplate::offset_at` saturates rather than overflowing. `ChunkTemplate::query_at` parses the
@@ -805,6 +805,7 @@ materializes to an empty batch; without one it is an error.
 | Date | Change | Source |
 |---|---|---|
 | 2026-10-08 | JSON: a schema-less `split` / `values` read keeps the document's column order; only unordered shapes sort. | phase-5, `design/ordered-json-orient-column-order/` |
+| 2026-10-08 | A chunk refused during a manifest traversal is named in the error message by its index and key or query. | phase-5, `design/manifest-chunk-error-identity/` |
 | 2026-10-07 | Markdown: an empty `Text` writes `<!---->` and round-trips; only the first table is read. | phase-5, `design/markdown-empty-text-and-tables/` |
 | 2026-10-07 | JSON: a schema-less read sorts its columns by name. | phase-5, `design/json-table-column-order/` |
 | 2026-10-07 | CSV: errors name the physical line (and record when they differ); short rows are padded and reported once per read (`ReadReport`, asset log). | phase-5, `design/csv-physical-lines-short-rows/` |

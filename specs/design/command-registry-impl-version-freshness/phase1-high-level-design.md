@@ -2,20 +2,18 @@
 
 ## Design Readiness
 
-- **Readiness:** needs-decision
-- **Automatic fixing:** not-eligible — needs-decision (rule 5). Once decided it is a test-only
-  change in `liquers-lib` and would be eligible
-- **Leading issue:** **Open design question — exact `impl_version` freshness.** Comparing
-  `impl_version` makes any token change in an `auto`-versioned command (`#[command_version]` hashes
-  the whole function, comments included) require regenerating the committed registry.
-- **Explanation:** The check is cheap and the failure message tells the contributor the exact
-  command. The alternative is to accept undetected drift.
+- **Readiness:** ready
+- **Automatic fixing:** eligible — test-only change in `liquers-lib/tests/registry_export.rs`
+  (plus guide text); no `pub` item, command or registry format changes.
+- **Leading issue:** None
+- **Explanation:** Decided (maintainer, 2026-10-08, backlog compaction D6): compare `impl_version`
+  exactly in a separate test, and refuse `version: now` in exported groups, as proposed below.
 - **Open questions:**
-  1. **Proposed resolution — compare exactly, in a separate test.** Keep `committed_registry_is_fresh`
+  1. **Resolved — compare exactly, in a separate test** (maintainer, 2026-10-08). Keep `committed_registry_is_fresh`
      (signatures) as is, and add `committed_registry_impl_versions_are_fresh`, which compares
      `impl_version` per command and names each stale command plus the regenerate command. Two
      tests give two clear messages: "signature changed" and "implementation changed".
-  2. **Proposed resolution — `version: now` is not allowed in exported command groups.** The new
+  2. **Resolved — `version: now` is not allowed in exported command groups** (maintainer, 2026-10-08). The new
      test fails with a dedicated message if a committed `impl_version` differs on two consecutive
      exports in the same process, which is the signature of `now`.
 
