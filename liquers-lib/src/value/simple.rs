@@ -1119,6 +1119,66 @@ mod tests {
         Ok(())
     }
 
+    /// A file with no type identifier, or `Bytes`, in a format the base value does not parse is
+    /// read as its bytes, so a hand-placed CSV or image stays loadable.
+    #[test]
+    fn untyped_unlisted_format_reads_as_bytes() -> Result<(), Box<dyn std::error::Error>> {
+        let bytes = b"a,b\n1,2\n\x89PNG\xff";
+        for id in ["", "Bytes"] {
+            for format in ["csv", "png", "parquet"] {
+                let back = SimpleValue::deserialize_from_bytes(bytes, id, format)?;
+                assert_eq!(
+                    back,
+                    SimpleValue::Bytes { value: bytes.to_vec() },
+                    "{id:?} as {format}"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Any other identifier still refuses an unlisted format, so `CombinedValue` asks the
+    /// extension.
+    #[test]
+    fn typed_unlisted_format_still_refuses() {
+        assert!(SimpleValue::deserialize_from_bytes(b"7", "I32", "csv").is_err());
+        assert!(SimpleValue::deserialize_from_bytes(b"x", "Text", "png").is_err());
+    }
+
+    /// A scalar under a textual format reads back as its type, parsed as core `Value` parses it.
+    #[test]
+    fn textual_scalars_read_back_as_their_type() -> Result<(), Box<dyn std::error::Error>> {
+        for format in ["txt", "html", "toml", "rs", "py", "css", "js"] {
+            assert_eq!(
+                SimpleValue::deserialize_from_bytes(b"true", "Bool", format)?,
+                SimpleValue::Bool { value: true }
+            );
+            assert_eq!(
+                SimpleValue::deserialize_from_bytes(b"7", "I32", format)?,
+                SimpleValue::I32 { value: 7 }
+            );
+            assert_eq!(
+                SimpleValue::deserialize_from_bytes(b"1099511627776", "I64", format)?,
+                SimpleValue::I64 { value: 1 << 40 }
+            );
+            assert_eq!(
+                SimpleValue::deserialize_from_bytes(b"1.5", "F64", format)?,
+                SimpleValue::F64 { value: 1.5 }
+            );
+            for id in ["", "None", "Text"] {
+                assert_eq!(
+                    SimpleValue::deserialize_from_bytes(b"7", id, format)?,
+                    SimpleValue::Text { value: "7".to_string() }
+                );
+            }
+            let error = SimpleValue::deserialize_from_bytes(b"abc", "I32", format)
+                .err()
+                .ok_or("unparsable I32 must not read")?;
+            assert_eq!(error.error_type, ErrorType::ConversionError, "{error}");
+        }
+        Ok(())
+    }
+
     /// The core `Value` sample with the same identifier as `sample(id)`, for the base types that
     /// have a text or bytes form.
     fn core_sample(id: &str) -> Option<liquers_core::value::Value> {
