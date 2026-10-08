@@ -743,10 +743,17 @@ impl DefaultValueSerializer for SimpleValue {
                     .map_err(|e| Error::from_error(ErrorType::ParseError, e))?;
                 SimpleValue::try_from_json_value(&json_value)
             }
-            _ => Err(Error::from_error(
-                ErrorType::SerializationError,
-                format!("Unsupported format in deserialize_from_bytes: {}", fmt),
-            )),
+            // A file with no type identifier, or `Bytes`, in a format the base value does not
+            // parse (`csv`, `png`, `parquet`) is its bytes: a hand-placed file stays loadable, and
+            // the command consuming it takes the format from the metadata. Any other identifier
+            // refuses, so `CombinedValue` asks the extension.
+            _ => match type_identifier {
+                "" | "Bytes" => Ok(SimpleValue::Bytes { value: b.to_vec() }),
+                _ => Err(Error::from_error(
+                    ErrorType::SerializationError,
+                    format!("Unsupported format in deserialize_from_bytes: {}", fmt),
+                )),
+            },
         }
     }
 }
