@@ -2,6 +2,7 @@
 name = "liquers-web"
 version = "0.1.0"
 edition = "2021"
+rust-version.workspace = true
 description = "Browser/JavaScript integration of Liquers, compiled to WebAssembly."
 
 # cdylib for the wasm artifact; rlib so a downstream crate can reuse the generic bridge
