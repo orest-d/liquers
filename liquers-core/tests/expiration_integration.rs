@@ -317,7 +317,7 @@ async fn test_dependent_expiration() -> Result<(), Box<dyn std::error::Error>> {
         .set(&recipes_key, yaml_content.as_bytes(), &Metadata::new())
         .await?;
     env.with_async_store(Box::new(store));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
 
     let envref = env.to_ref();
     let asset = envref.evaluate("-R/hello.txt/-/world").await?;
@@ -392,7 +392,7 @@ async fn test_dependent_expiration2() -> Result<(), Box<dyn std::error::Error>> 
         .set(&recipes_key, yaml_content.as_bytes(), &Metadata::new())
         .await?;
     env.with_async_store(Box::new(store));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
 
     let envref = env.to_ref();
     let asset = envref.evaluate("-R/hello.txt/-/world").await?;
@@ -583,7 +583,7 @@ async fn wp3_keyed_counter_env(
         .set(&recipes_key, yaml_content.as_bytes(), &Metadata::new())
         .await?;
     env.with_async_store(Box::new(store));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
 
     let envref = env.to_ref();
     Ok((envref, parse_key("wp3_counter.txt")?, calls))
@@ -718,7 +718,7 @@ async fn test_expired_dependency_is_recomputed_before_dependent_evaluation(
         .set(&recipes_key, yaml_content.as_bytes(), &Metadata::new())
         .await?;
     env.with_async_store(Box::new(store));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     let envref = env.to_ref();
 
     let parent1 = envref.evaluate("-R/wp3_child.txt/-/wp3_parent").await?;
@@ -1029,7 +1029,7 @@ async fn test_to_override_and_set_state_are_serialized_default_manager(
     let cr = &mut env.command_registry;
     register_command!(cr, fn race_value() -> result version: 1)?;
     env.with_async_store(Box::new(store.clone()));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
 
     assert_to_override_set_state_ordering(env.to_ref(), store, key).await
 }
@@ -1064,7 +1064,7 @@ async fn test_to_override_and_set_state_are_serialized_immediate_manager(
     let cr = &mut env.command_registry;
     register_command!(cr, fn race_value() -> result version: 1)?;
     env.with_async_store(Box::new(store.clone()));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
 
     assert_to_override_set_state_ordering(env.to_ref(), store, key).await
 }
@@ -1098,7 +1098,7 @@ async fn test_to_override_metadata_only_when_persisted() -> Result<(), Box<dyn s
         .await?;
     let store = WP3CountingStore::new(inner_store);
     env.with_async_store(Box::new(store.clone()));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     let envref = env.to_ref();
     let key = parse_key("wp3_persisted.txt")?;
     let manager = envref.get_asset_manager();
@@ -1202,7 +1202,7 @@ async fn test_to_override_retries_persist_when_not_persisted(
     };
     let set_attempts = store.set_attempts.clone();
     env.with_async_store(Box::new(store));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     let envref = env.to_ref();
     let key = parse_key("wp3_retry.txt")?;
     let manager = envref.get_asset_manager();
@@ -1265,7 +1265,7 @@ async fn test_to_override_skips_store_write_when_nonserializable(
         .set(&recipes_key, yaml_content.as_bytes(), &Metadata::new())
         .await?;
     env.with_async_store(Box::new(store));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     let envref = env.to_ref();
     let key = parse_key("wp3_widget.nosuchformat")?;
     let manager = envref.get_asset_manager();
@@ -1362,7 +1362,7 @@ async fn test_get_any_status_and_to_override_from_store_only(
             .set(&recipes_key, yaml_content.as_bytes(), &Metadata::new())
             .await?;
         env.with_async_store(Box::new(store));
-        env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
         let envref = env.to_ref();
         let manager = envref.get_asset_manager();
 
@@ -1388,7 +1388,7 @@ async fn test_get_any_status_and_to_override_from_store_only(
         .set(&key, &persisted_bytes.0, &persisted_bytes.1)
         .await?;
     env2.with_async_store(Box::new(store2));
-    env2.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env2.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     let envref2 = env2.to_ref();
     let manager2 = envref2.get_asset_manager();
 

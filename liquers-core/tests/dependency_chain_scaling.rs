@@ -85,7 +85,7 @@ async fn chain_env(n: usize) -> Result<(EnvRef<TestEnv>, Arc<AtomicUsize>), Box<
     env.with_async_store(Box::new(store));
     let calls = Arc::new(AtomicUsize::new(0));
     env.with_recipe_provider(Box::new(CountingProvider {
-        inner: DefaultRecipeProvider,
+        inner: DefaultRecipeProvider::new(),
         recipe_opt_calls: calls.clone(),
     }));
     Ok((env.to_ref(), calls))

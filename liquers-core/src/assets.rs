@@ -9642,7 +9642,7 @@ recipes:
         env.with_async_store(Box::new(memory_store));
 
         // 5. Set DefaultAssetProvider as the asset provider for env
-        env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
 
         // 6. Register a command hello returning "Hello, world!"
         let key = CommandKey::new_name("hello");
@@ -11614,7 +11614,7 @@ recipes:
             )
             .await?;
         env.with_async_store(Box::new(store));
-        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider));
+        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider::new()));
         let envref = env.to_ref();
         let dep_key = crate::metadata::DependencyKey::from(&key);
         let manager = envref.get_asset_manager();
@@ -12482,7 +12482,7 @@ recipes:
 
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         env.with_async_store(Box::new(store));
-        env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
 
         let counter = calls.clone();
         env.command_registry
@@ -12834,7 +12834,7 @@ recipes:
 
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         env.with_async_store(Box::new(store));
-        env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
         let counter = calls.clone();
         env.command_registry
             .register_command(CommandKey::new_name("vol_counted"), move |_, _, _| {
@@ -12887,7 +12887,7 @@ recipes:
 
         let mut env: ImmediateEnvironment<Value> = ImmediateEnvironment::new();
         env.with_async_store(Box::new(store));
-        env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
         let counter = calls.clone();
         env.command_registry
             .register_command(CommandKey::new_name("counted"), move |_, _, _| {
@@ -12978,7 +12978,7 @@ recipes:
 
         let mut env: ImmediateEnvironment<Value> = ImmediateEnvironment::new();
         env.with_async_store(Box::new(store));
-        env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
         let counter = attempts.clone();
         env.command_registry
             .register_command(CommandKey::new_name("boom"), move |_, _, _| {
@@ -14026,7 +14026,7 @@ recipes:
     async fn listdir_keys_deep_is_complete_default_manager() {
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         env.with_async_store(Box::new(listing_fixture_store().await));
-        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider));
+        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider::new()));
         deep_listing_checks(env.to_ref()).await;
     }
 
@@ -14034,7 +14034,7 @@ recipes:
     async fn listdir_keys_deep_is_complete_immediate_manager() {
         let mut env: ImmediateEnvironment<Value> = ImmediateEnvironment::new();
         env.with_async_store(Box::new(listing_fixture_store().await));
-        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider));
+        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider::new()));
         deep_listing_checks(env.to_ref()).await;
     }
 
@@ -14042,7 +14042,7 @@ recipes:
     async fn removedir_unmaps_a_live_asset_of_the_directorys_own_recipe() {
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         env.with_async_store(Box::new(listing_fixture_store().await));
-        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider));
+        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider::new()));
         env.command_registry
             .register_command(CommandKey::new_name("mk"), |_, _, _| Ok(Value::from("x")))
             .expect("register mk");

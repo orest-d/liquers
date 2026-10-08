@@ -2637,6 +2637,11 @@ impl DependencySummary {
 /// Every reachable recipe is analysed once per (key, caller CWD): `done` memoizes finished keys
 /// and `on_path` holds the keys of the current path, so a cycle is an O(1) check and the walk is
 /// linear in the reachable recipe graph. The memo lives for one analysis, so it cannot go stale.
+///
+/// The walk is iterative, with an explicit stack: its depth follows the length of a recipe chain,
+/// which has no bound, and a recursive walk over boxed futures overflowed the thread stack at a
+/// few hundred links. Only nesting inside one plan (`Evaluate`, `Step::Plan`) recurses, and that
+/// follows the shape of a query, not the length of a chain.
 struct DependencyWalk<E: Environment> {
     envref: EnvRef<E>,
     on_path: HashSet<Key>,
@@ -2653,6 +2658,62 @@ fn circular_dependency_error(key: &Key) -> Error {
     .with_key(key)
 }
 
+/// How a plan reads a key, which decides what the key's summary contributes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReadKind {
+    /// `GetAsset*`: the whole summary; recorded with a `Recipe` dependency when a recipe serves it.
+    State,
+    /// `GetAssetRecipe`: a leaf for volatility, but its expiry applies.
+    Recipe,
+    /// A link parameter: its expiry and its own recipe's `volatile` flag only. Not a cycle: a
+    /// link to a key on the current path is skipped, as the visited set skipped it before.
+    Link,
+    /// `GetAssetDirectory`: checked for a cycle only.
+    Directory,
+}
+
+/// A key a plan reads, with the cursor its recipe's relative operands resolve against.
+#[derive(Clone)]
+struct Read {
+    key: Key,
+    cursor: CwdCursor,
+    kind: ReadKind,
+}
+
+/// What one plan reads, found by [`DependencyWalk::scan_plan`] without looking anything up.
+#[derive(Default)]
+struct PlanScan {
+    dependencies: HashSet<PlanDependency>,
+    reads: Vec<Read>,
+}
+
+/// A recipe being analysed: the reads of its plan still to visit, and its summary so far.
+struct Frame {
+    /// `None` for the plan being analysed, which is not a keyed recipe.
+    key: Option<(Key, Option<Key>)>,
+    kind: ReadKind,
+    reads: Vec<Read>,
+    next: usize,
+    summary: DependencySummary,
+    /// For the plan being analysed only, one entry per read in order: whether it is a `State`
+    /// read served by a recipe.
+    served: Vec<bool>,
+}
+
+fn merge_read(target: &mut DependencySummary, read: &Read, summary: &DependencySummary) {
+    match read.kind {
+        ReadKind::State => target.merge(summary),
+        ReadKind::Recipe => target.expires |= summary.expires.clone(),
+        ReadKind::Link => {
+            if summary.self_volatile {
+                target.merge_volatile(Some(&read.key));
+            }
+            target.expires |= summary.expires.clone();
+        }
+        ReadKind::Directory => {}
+    }
+}
+
 impl<E: Environment> DependencyWalk<E> {
     fn new(envref: EnvRef<E>) -> Self {
         DependencyWalk {
@@ -2662,206 +2723,135 @@ impl<E: Environment> DependencyWalk<E> {
         }
     }
 
-    /// The DIRECT dependencies of `plan`, and the merged summary of what it reads.
+    /// The DIRECT dependencies of `plan` and the merged summary of what it reads.
     ///
     /// A keyed `GetAsset*` operand ends the dependency list there: what its recipe reads is that
     /// key's own dependency, reached through the dependency manager, not this plan's. `Evaluate`
     /// and nested `Step::Plan` have no key of their own, so their dependencies pass through.
-    fn walk_plan<'a>(
-        &'a mut self,
-        plan: &'a Plan,
-        cursor: &'a mut CwdCursor,
-    ) -> crate::maybe_send::BoxFuture<'a, Result<(HashSet<PlanDependency>, DependencySummary), Error>>
-    {
-        Box::pin(async move {
-            let mut dependencies = HashSet::new();
-            let mut summary = DependencySummary::default();
-            let absolute_resource_step = plan.absolute_query_resource_step_index();
-
-            for (step_index, step) in plan.steps.iter().enumerate() {
-                match step {
-                    Step::GetAsset(key) | Step::GetAssetBinary(key) | Step::GetAssetMetadata(key) => {
-                        let resolved_key = if absolute_resource_step == Some(step_index) {
-                            key.to_absolute(&Key::new())
-                        } else {
-                            cursor.resolve_key(key)
-                        };
-                        dependencies.insert(PlanDependency::new(
-                            DependencyKey::from(&resolved_key),
-                            DependencyRelation::StateArgument,
-                        ));
-                        if let Some(key_summary) = self.summarize_key(&resolved_key, cursor).await? {
-                            dependencies.insert(PlanDependency::new(
-                                DependencyKey::from_recipe_key(&resolved_key),
-                                DependencyRelation::Recipe,
-                            ));
-                            summary.merge(&key_summary);
-                        }
-                    }
-                    Step::GetAssetDirectory(key) => {
-                        let resolved_key = if absolute_resource_step == Some(step_index) {
-                            key.to_absolute(&Key::new())
-                        } else {
-                            cursor.resolve_key(key)
-                        };
-                        if self.on_path.contains(&resolved_key) {
-                            return Err(circular_dependency_error(&resolved_key));
-                        }
-                        dependencies.insert(PlanDependency::new(
-                            DependencyKey::from_dir_key(&resolved_key),
-                            DependencyRelation::StateArgument,
-                        ));
-                    }
-                    Step::GetAssetRecipe(key) => {
-                        let resolved_key = if absolute_resource_step == Some(step_index) {
-                            key.to_absolute(&Key::new())
-                        } else {
-                            cursor.resolve_key(key)
-                        };
-                        if self.on_path.contains(&resolved_key) {
-                            return Err(circular_dependency_error(&resolved_key));
-                        }
-                        dependencies.insert(PlanDependency::new(
-                            DependencyKey::from_recipe_key(&resolved_key),
-                            DependencyRelation::Recipe,
-                        ));
-                        // A recipe is a leaf for volatility, but its expiry still applies.
-                        if let Some(key_summary) = self.summarize_key(&resolved_key, cursor).await? {
-                            summary.expires |= key_summary.expires;
-                        }
-                    }
-                    Step::SetCwd(key) => {
-                        if absolute_resource_step == Some(step_index) {
-                            let resolved = key.to_absolute(&Key::new());
-                            cursor.set_cwd_from(&resolved);
-                        } else {
-                            cursor.set_cwd_from(key);
-                        }
-                    }
-                    Step::Evaluate(query) => {
-                        let resolved_query = cursor.resolve_query_scoped(query);
-                        let cmr = self.envref.get_command_metadata_registry();
-                        let eval_plan = PlanBuilder::new(resolved_query, cmr).build()?;
-                        let mut child_cursor = cursor.clone();
-                        let (child_dependencies, child_summary) =
-                            self.walk_plan(&eval_plan, &mut child_cursor).await?;
-                        for dependency in child_dependencies {
-                            if Key::try_from(&dependency.key).is_ok() {
-                                dependencies.insert(PlanDependency::new(
-                                    dependency.key,
-                                    DependencyRelation::StateArgument,
-                                ));
-                            } else {
-                                dependencies.insert(dependency);
-                            }
-                        }
-                        summary.merge(&child_summary);
-                    }
-                    Step::Plan(nested_plan) => {
-                        let (nested_dependencies, nested_summary) =
-                            self.walk_plan(nested_plan, cursor).await?;
-                        dependencies.extend(nested_dependencies);
-                        summary.merge(&nested_summary);
-                    }
-                    Step::Action {
-                        realm,
-                        ns,
-                        action_name,
-                        parameters,
-                        ..
-                    } => {
-                        let ck = CommandKey::new(realm, ns, action_name);
-                        dependencies.insert(PlanDependency::new(
-                            DependencyKey::for_command_metadata(&ck),
-                            DependencyRelation::CommandMetadata,
-                        ));
-                        dependencies.insert(PlanDependency::new(
-                            DependencyKey::for_command_implementation(&ck),
-                            DependencyRelation::CommandImplementation,
-                        ));
-                        let mut links = HashSet::new();
-                        for parameter in &parameters.0 {
-                            collect_parameter_dependencies(parameter, cursor, &mut links);
-                        }
-                        for link in links {
-                            // A link to a key contributes its expiry and its own recipe's
-                            // `volatile` flag; it is a leaf for volatility beyond that.
-                            if let Ok(Some(link_key)) = link.key.key() {
-                                if let Some(link_summary) =
-                                    self.summarize_key(&link_key, cursor).await?
-                                {
-                                    if link_summary.self_volatile {
-                                        summary.merge_volatile(Some(&link_key));
-                                    }
-                                    summary.expires |= link_summary.expires;
-                                }
-                            }
-                            dependencies.insert(link);
-                        }
-                    }
-                    Step::GetResource(_)
-                    | Step::GetResourceMetadata(_)
-                    | Step::GetResourceDirectory(_)
-                    | Step::UseKeyValue(_)
-                    | Step::UseQueryValue(_)
-                    | Step::Filename(_)
-                    | Step::Info(_)
-                    | Step::Warning(_)
-                    | Step::Error(_) => {}
-                }
-            }
-            Ok((dependencies, summary))
-        })
-    }
-
-    /// The summary of the keyed recipe at `key`, memoized; `Ok(None)` when no recipe serves `key`.
-    ///
-    /// "Circular dependency detected" when `key` is on the current path. The on-path check comes
-    /// before the memo, and `key` leaves the path on every exit, errors included.
-    fn summarize_key<'a>(
-        &'a mut self,
-        key: &'a Key,
-        cursor: &'a CwdCursor,
-    ) -> crate::maybe_send::BoxFuture<'a, Result<Option<DependencySummary>, Error>> {
-        Box::pin(async move {
-            if self.on_path.contains(key) {
-                return Err(circular_dependency_error(key));
-            }
-            let memo_key = (key.clone(), cursor.cwd().cloned());
-            if let Some(done) = self.done.get(&memo_key) {
-                return Ok(done.clone());
-            }
-            let recipe = match self
-                .envref
-                .get_recipe_provider()
-                .recipe_opt(key, self.envref.clone())
-                .await
-            {
-                Ok(Some(recipe)) => recipe,
-                Ok(None) | Err(_) => {
-                    self.done.insert(memo_key, None);
-                    return Ok(None);
-                }
-            };
-            self.on_path.insert(key.clone());
-            let result = self.summarize_recipe(key, &recipe, cursor).await;
-            self.on_path.remove(key);
-            let summary = result?;
-            self.done.insert(memo_key, Some(summary.clone()));
-            Ok(Some(summary))
-        })
-    }
-
-    async fn summarize_recipe(
+    async fn walk_plan(
         &mut self,
-        key: &Key,
-        recipe: &crate::recipes::Recipe,
-        cursor: &CwdCursor,
-    ) -> Result<DependencySummary, Error> {
+        plan: &Plan,
+        cursor: &mut CwdCursor,
+    ) -> Result<(HashSet<PlanDependency>, DependencySummary), Error> {
+        let mut scan = PlanScan::default();
+        self.scan_plan(plan, cursor, &mut scan)?;
+        let reads = scan.reads;
+        let root = Frame {
+            key: None,
+            kind: ReadKind::State,
+            served: Vec::with_capacity(reads.len()),
+            reads,
+            next: 0,
+            summary: DependencySummary::default(),
+        };
+        let root = match self.run(root).await {
+            Ok(root) => root,
+            Err(error) => {
+                self.on_path.clear();
+                return Err(error);
+            }
+        };
+        let mut dependencies = scan.dependencies;
+        for (read, served) in root.reads.iter().zip(root.served.iter()) {
+            if *served {
+                dependencies.insert(PlanDependency::new(
+                    DependencyKey::from_recipe_key(&read.key),
+                    DependencyRelation::Recipe,
+                ));
+            }
+        }
+        Ok((dependencies, root.summary))
+    }
+
+    /// Visit every read reachable from `root`, depth first, and return `root` finished.
+    async fn run(&mut self, root: Frame) -> Result<Frame, Error> {
+        let mut stack = vec![root];
+        loop {
+            let Some(top) = stack.last_mut() else {
+                return Err(Error::general_error(
+                    "dependency walk lost its root frame".to_owned(),
+                ));
+            };
+            if top.next < top.reads.len() {
+                let read = top.reads[top.next].clone();
+                top.next += 1;
+                match self.visit(&read).await? {
+                    Visit::Done(summary) => {
+                        let Some(top) = stack.last_mut() else {
+                            continue;
+                        };
+                        if top.key.is_none() {
+                            top.served.push(read.kind == ReadKind::State && summary.is_some());
+                        }
+                        if let Some(summary) = summary {
+                            merge_read(&mut top.summary, &read, &summary);
+                        }
+                    }
+                    Visit::Open(frame) => {
+                        if let Some((key, _)) = &frame.key {
+                            self.on_path.insert(key.clone());
+                        }
+                        stack.push(frame);
+                    }
+                }
+            } else {
+                let Some(frame) = stack.pop() else {
+                    continue;
+                };
+                let Some(memo_key) = frame.key.clone() else {
+                    return Ok(frame);
+                };
+                self.on_path.remove(&memo_key.0);
+                self.done.insert(memo_key.clone(), Some(frame.summary.clone()));
+                if let Some(parent) = stack.last_mut() {
+                    if parent.key.is_none() {
+                        parent.served.push(frame.kind == ReadKind::State);
+                    }
+                    let read = Read {
+                        key: memo_key.0,
+                        cursor: CwdCursor::default(),
+                        kind: frame.kind,
+                    };
+                    merge_read(&mut parent.summary, &read, &frame.summary);
+                }
+            }
+        }
+    }
+
+    /// One read: finished from the memo or because no recipe serves it, or a frame to descend into.
+    async fn visit(&mut self, read: &Read) -> Result<Visit, Error> {
+        if self.on_path.contains(&read.key) {
+            return match read.kind {
+                ReadKind::State | ReadKind::Recipe | ReadKind::Directory => {
+                    Err(circular_dependency_error(&read.key))
+                }
+                ReadKind::Link => Ok(Visit::Done(None)),
+            };
+        }
+        if read.kind == ReadKind::Directory {
+            return Ok(Visit::Done(None));
+        }
+        let memo_key = (read.key.clone(), read.cursor.cwd().cloned());
+        if let Some(done) = self.done.get(&memo_key) {
+            return Ok(Visit::Done(done.clone()));
+        }
+        let recipe = match self
+            .envref
+            .get_recipe_provider()
+            .recipe_opt(&read.key, self.envref.clone())
+            .await
+        {
+            Ok(Some(recipe)) => recipe,
+            Ok(None) | Err(_) => {
+                self.done.insert(memo_key, None);
+                return Ok(Visit::Done(None));
+            }
+        };
         let cmr = self.envref.get_command_metadata_registry();
-        let recipe_plan = recipe.to_plan_for_key(cmr, key)?;
-        let mut recipe_cursor = cursor.clone();
-        let (_, upstream) = self.walk_plan(&recipe_plan, &mut recipe_cursor).await?;
+        let recipe_plan = recipe.to_plan_for_key(cmr, &read.key)?;
+        let mut recipe_cursor = read.cursor.clone();
+        let mut scan = PlanScan::default();
+        self.scan_plan(&recipe_plan, &mut recipe_cursor, &mut scan)?;
         let mut summary = DependencySummary {
             self_volatile: recipe.volatile,
             declared_volatile: None,
@@ -2869,11 +2859,159 @@ impl<E: Environment> DependencyWalk<E> {
             expires: recipe.expires.clone() | recipe_plan.expires.clone(),
         };
         if recipe.volatile {
-            summary.merge_volatile(Some(key));
+            summary.merge_volatile(Some(&read.key));
         }
-        summary.merge(&upstream);
-        Ok(summary)
+        Ok(Visit::Open(Frame {
+            key: Some(memo_key),
+            kind: read.kind,
+            reads: scan.reads,
+            next: 0,
+            summary,
+            served: Vec::new(),
+        }))
     }
+
+    /// The dependencies `plan` declares and the keys it reads, resolved against `cursor`, without
+    /// looking anything up.
+    fn scan_plan(
+        &self,
+        plan: &Plan,
+        cursor: &mut CwdCursor,
+        scan: &mut PlanScan,
+    ) -> Result<(), Error> {
+        let absolute_resource_step = plan.absolute_query_resource_step_index();
+        for (step_index, step) in plan.steps.iter().enumerate() {
+            match step {
+                Step::GetAsset(key) | Step::GetAssetBinary(key) | Step::GetAssetMetadata(key) => {
+                    let resolved_key = if absolute_resource_step == Some(step_index) {
+                        key.to_absolute(&Key::new())
+                    } else {
+                        cursor.resolve_key(key)
+                    };
+                    scan.dependencies.insert(PlanDependency::new(
+                        DependencyKey::from(&resolved_key),
+                        DependencyRelation::StateArgument,
+                    ));
+                    scan.reads.push(Read {
+                        key: resolved_key,
+                        cursor: cursor.clone(),
+                        kind: ReadKind::State,
+                    });
+                }
+                Step::GetAssetDirectory(key) => {
+                    let resolved_key = if absolute_resource_step == Some(step_index) {
+                        key.to_absolute(&Key::new())
+                    } else {
+                        cursor.resolve_key(key)
+                    };
+                    scan.dependencies.insert(PlanDependency::new(
+                        DependencyKey::from_dir_key(&resolved_key),
+                        DependencyRelation::StateArgument,
+                    ));
+                    scan.reads.push(Read {
+                        key: resolved_key,
+                        cursor: cursor.clone(),
+                        kind: ReadKind::Directory,
+                    });
+                }
+                Step::GetAssetRecipe(key) => {
+                    let resolved_key = if absolute_resource_step == Some(step_index) {
+                        key.to_absolute(&Key::new())
+                    } else {
+                        cursor.resolve_key(key)
+                    };
+                    scan.dependencies.insert(PlanDependency::new(
+                        DependencyKey::from_recipe_key(&resolved_key),
+                        DependencyRelation::Recipe,
+                    ));
+                    scan.reads.push(Read {
+                        key: resolved_key,
+                        cursor: cursor.clone(),
+                        kind: ReadKind::Recipe,
+                    });
+                }
+                Step::SetCwd(key) => {
+                    if absolute_resource_step == Some(step_index) {
+                        let resolved = key.to_absolute(&Key::new());
+                        cursor.set_cwd_from(&resolved);
+                    } else {
+                        cursor.set_cwd_from(key);
+                    }
+                }
+                Step::Evaluate(query) => {
+                    let resolved_query = cursor.resolve_query_scoped(query);
+                    let cmr = self.envref.get_command_metadata_registry();
+                    let eval_plan = PlanBuilder::new(resolved_query, cmr).build()?;
+                    let mut child_cursor = cursor.clone();
+                    let mut child = PlanScan::default();
+                    self.scan_plan(&eval_plan, &mut child_cursor, &mut child)?;
+                    for dependency in child.dependencies {
+                        if Key::try_from(&dependency.key).is_ok() {
+                            scan.dependencies.insert(PlanDependency::new(
+                                dependency.key,
+                                DependencyRelation::StateArgument,
+                            ));
+                        } else {
+                            scan.dependencies.insert(dependency);
+                        }
+                    }
+                    scan.reads.extend(child.reads);
+                }
+                Step::Plan(nested_plan) => {
+                    self.scan_plan(nested_plan, cursor, scan)?;
+                }
+                Step::Action {
+                    realm,
+                    ns,
+                    action_name,
+                    parameters,
+                    ..
+                } => {
+                    let ck = CommandKey::new(realm, ns, action_name);
+                    scan.dependencies.insert(PlanDependency::new(
+                        DependencyKey::for_command_metadata(&ck),
+                        DependencyRelation::CommandMetadata,
+                    ));
+                    scan.dependencies.insert(PlanDependency::new(
+                        DependencyKey::for_command_implementation(&ck),
+                        DependencyRelation::CommandImplementation,
+                    ));
+                    let mut links = HashSet::new();
+                    for parameter in &parameters.0 {
+                        collect_parameter_dependencies(parameter, cursor, &mut links);
+                    }
+                    for link in links {
+                        if let Ok(Some(link_key)) = link.key.key() {
+                            scan.reads.push(Read {
+                                key: link_key,
+                                cursor: cursor.clone(),
+                                kind: ReadKind::Link,
+                            });
+                        }
+                        scan.dependencies.insert(link);
+                    }
+                }
+                Step::GetResource(_)
+                | Step::GetResourceMetadata(_)
+                | Step::GetResourceDirectory(_)
+                | Step::UseKeyValue(_)
+                | Step::UseQueryValue(_)
+                | Step::Filename(_)
+                | Step::Info(_)
+                | Step::Warning(_)
+                | Step::Error(_) => {}
+            }
+        }
+        Ok(())
+    }
+}
+
+/// What visiting one read found.
+enum Visit {
+    /// Finished: the summary, or `None` when no recipe serves the key.
+    Done(Option<DependencySummary>),
+    /// A recipe to analyse.
+    Open(Frame),
 }
 
 /// The direct dependencies of `plan`, sorted. The dependency list `analyze_plan_dependencies`
@@ -5864,6 +6002,18 @@ mod tests {
         analyze_plan_dependencies(envref, &mut plan, None).await?;
         assert_eq!(plan.expires, Expires::InDuration(std::time::Duration::from_secs(10)));
         assert_eq!(provider.recipe_opt_calls(), 4, "r twice (two CWDs), x/s and y/s once each");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn walk_handles_deep_chain_without_recursion() -> Result<(), Error> {
+        // A recursive walk overflowed the default test-thread stack at a few hundred links.
+        let provider = chain_provider(2000)?;
+        let envref = walk_env(&provider);
+        let mut plan = reading_plan("c/l2000.txt")?;
+        analyze_plan_dependencies(envref, &mut plan, None).await?;
+        assert_eq!(provider.recipe_opt_calls(), 2001);
+        assert_eq!(plan.dependencies.len(), 2, "direct only: l2000 and its recipe");
         Ok(())
     }
 }

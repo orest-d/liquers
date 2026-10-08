@@ -134,7 +134,7 @@ fn make_env(store: AsyncMemoryStore) -> Result<EnvRef<CommandEnvironment>, Error
         metadata.with_argument(ArgumentInfo::any_argument("values").set_multiple());
     }
     env.with_async_store(Box::new(store));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     Ok(env.to_ref())
 }
 

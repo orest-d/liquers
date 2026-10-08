@@ -202,7 +202,7 @@ impl ManifestRecipeProvider {
         envref: &EnvRef<E>,
         manifest_key: &Key,
     ) -> Result<(), Error> {
-        let recipes = DefaultRecipeProvider
+        let recipes = DefaultRecipeProvider::new()
             .get_recipes(folder, envref.clone())
             .await?;
         if recipes.get(name).is_some() {

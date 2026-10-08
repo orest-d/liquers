@@ -46,7 +46,7 @@ async fn provenance_env(with_a_recipe: bool) -> Result<EnvRef<TestEnv>, Error> {
     let mut env = TestEnv::new();
     register_provenance_commands(&mut env.command_registry);
     env.with_async_store(Box::new(provenance_store(with_a_recipe).await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     Ok(env.to_ref())
 }
 
@@ -348,7 +348,7 @@ async fn audit_never_expires_the_root() -> TestResult {
     let mut env = TestEnv::new();
     register_provenance_commands(&mut env.command_registry);
     env.with_async_store(Box::new(store));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     let envref = env.to_ref();
     // `a.txt` stays unloaded: loading it would register its moved version and make `b.txt` refuse
     // to load, leaving the audit nothing to expire.
@@ -473,7 +473,7 @@ async fn persisted_chain(a: &[u8]) -> Result<StoreSnapshot, Box<dyn std::error::
     let mut env = TestEnv::new();
     register_provenance_commands(&mut env.command_registry);
     env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     let envref = env.to_ref();
     let am = envref.get_asset_manager();
     within(am.set_binary(&key("data/recipes.yaml"), &recipes, provenance_text_metadata())).await?;
@@ -505,7 +505,7 @@ async fn provenance_env_over(store: AsyncMemoryStore) -> Result<EnvRef<TestEnv>,
     let mut env = TestEnv::new();
     register_provenance_commands(&mut env.command_registry);
     env.with_async_store(Box::new(store));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     Ok(env.to_ref())
 }
 
@@ -562,7 +562,7 @@ async fn drive(route: Route) -> Result<Vec<Observed>, Box<dyn std::error::Error>
             register_provenance_commands(&mut env.command_registry);
             register_gate_command(&mut env.command_registry, gate.clone());
             env.with_async_store(Box::new(stale_dependency_store().await?));
-            env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+            env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
             let envref = env.to_ref();
             let am = envref.get_asset_manager();
             let evaluation = {
@@ -744,7 +744,7 @@ async fn record_expiry_is_called_for_every_expired_asset() -> TestResult {
     let mut env = MinimalEnv::new();
     register_provenance_commands(&mut env.command_registry);
     env.with_async_store(Box::new(recording_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     let envref = env.to_ref();
     let mgr = envref.get_asset_manager();
 

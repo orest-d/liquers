@@ -40,7 +40,7 @@ fn env_over(store: AsyncMemoryStore) -> EnvRef<TestEnv> {
     let mut env = TestEnv::new();
     register_provenance_commands(&mut env.command_registry);
     env.with_async_store(Box::new(store));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     env.to_ref()
 }
 
@@ -160,7 +160,7 @@ fn counting_env(store: Box<dyn AsyncStore>, calls: Arc<AtomicUsize>) -> EnvRef<T
     let mut env = TestEnv::new();
     register_counting_commands(&mut env, calls);
     env.with_async_store(store);
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     env.to_ref()
 }
 
@@ -222,7 +222,7 @@ async fn second_process_with(
     let mut builder = EnvironmentBuilder::<Value, (), Queued>::new()
         .with_asset_manager_options(AssetManagerOptions::default().with_dependency_audit(policy))
         .with_async_store(Arc::new(store))
-        .with_recipe_provider(Arc::new(DefaultRecipeProvider));
+        .with_recipe_provider(Arc::new(DefaultRecipeProvider::new()));
     register_counting_commands_in(&mut builder.command_registry, calls);
     Ok(builder.build()?)
 }
@@ -851,7 +851,7 @@ fn index_env(store: Box<dyn AsyncStore>, calls: Arc<AtomicUsize>) -> EnvRef<Test
     register_provenance_commands(&mut env.command_registry);
     common::manager_scenarios::register_index_files(&mut env.command_registry, calls);
     env.with_async_store(store);
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     env.to_ref()
 }
 
@@ -1187,7 +1187,7 @@ async fn stale_dependency_end_to_end_queued() -> TestResult {
     register_provenance_commands(&mut env.command_registry);
     register_gate_command(&mut env.command_registry, gate.clone());
     env.with_async_store(Box::new(stale_dependency_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_stale_dependency(env.to_ref(), gate).await?;
     Ok(())
 }
@@ -1200,7 +1200,7 @@ async fn stale_dependency_end_to_end_immediate() -> TestResult {
     register_provenance_commands(&mut env.command_registry);
     register_gate_command(&mut env.command_registry, gate.clone());
     env.with_async_store(Box::new(stale_dependency_store().await?));
-    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_stale_dependency(env.to_ref(), gate).await?;
     Ok(())
 }

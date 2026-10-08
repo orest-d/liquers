@@ -2250,7 +2250,7 @@ mod tests {
         // Create a SimpleEnvironment and set the async store
         let mut env = SimpleEnvironment::<Value>::new();
         env.with_async_store(Box::new(memory_store));
-        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider));
+        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider::new()));
 
         let envref: EnvRef<SimpleEnvironment<Value>> = env.to_ref();
 
@@ -2297,7 +2297,7 @@ mod tests {
         // Create a SimpleEnvironment and set the async store
         let mut env = SimpleEnvironment::<Value>::new();
         env.with_async_store(Box::new(memory_store));
-        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider));
+        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider::new()));
 
         let envref: EnvRef<SimpleEnvironment<Value>> = env.to_ref();
 
