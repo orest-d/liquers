@@ -40,8 +40,7 @@ use crate::{
     metadata::{AssetInfo, Status},
     parse::{parse_key, parse_query},
     plan::{
-        has_expirable_dependencies, has_volatile_dependencies, Plan, PlanBuilder, Step,
-        VolatilitySource,
+        analyze_plan_dependencies, Plan, PlanBuilder, Step, VolatilitySource,
     },
     query::{Key, Query, ResourceName},
 };
@@ -629,10 +628,7 @@ async fn create_plan_with_init_metadata<E: Environment>(
         Some(key) => recipe.to_plan_for_key(cmr, key)?,
         None => recipe.to_plan(cmr)?,
     };
-    let _ = has_volatile_dependencies(envref.clone(), &mut plan, None).await; // TODO: looks suspicious, this should be done in plan building or checking
-    if plan.error.is_none() {
-        let _ = has_expirable_dependencies(envref, &mut plan).await; // TODO: looks suspicious, this should be done in plan building or checking
-    }
+    let _ = analyze_plan_dependencies(envref, &mut plan, None).await; // TODO: looks suspicious, this should be done in plan building or checking
     Ok(plan)
 }
 

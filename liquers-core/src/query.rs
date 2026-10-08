@@ -2256,6 +2256,11 @@ impl CwdCursor {
         }
     }
 
+    /// The current working key, if one is set.
+    pub(crate) fn cwd(&self) -> Option<&Key> {
+        self.cwd.as_ref()
+    }
+
     /// Whether `key` needs a CWD to be resolved, i.e. it *starts* with `.` or `..`.
     ///
     /// Deliberately narrower than [`Key::is_relative`], which inspects every element. The two ask
