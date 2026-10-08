@@ -235,7 +235,11 @@ fn from_json_split(value: &Value, schema: ReadSchema<'_>) -> Result<RecordBatch,
         }
         items.push(Value::Object(map));
     }
-    ndjson::objects_to_batch(&items, schema)
+    // `columns` states the column order; the index column goes first, as `to_json_split` takes it
+    // from the id column.
+    let order: Vec<String> =
+        std::iter::once(id_name.to_string()).chain(columns.iter().map(|name| (*name).to_string())).collect();
+    ndjson::objects_to_batch_ordered(&items, schema, Some(&order))
 }
 
 fn to_json_split(view: &dyn RecordView) -> Result<Value, Error> {
@@ -304,7 +308,8 @@ fn from_json_values(value: &Value, schema: ReadSchema<'_>) -> Result<RecordBatch
         }
         items.push(Value::Object(map));
     }
-    ndjson::objects_to_batch(&items, schema)
+    // Positions state the column order: `c10` follows `c9`, not `c1`.
+    ndjson::objects_to_batch_ordered(&items, schema, Some(&names))
 }
 
 fn to_json_values(view: &dyn RecordView) -> Result<Value, Error> {
