@@ -73,8 +73,12 @@ lost.
 ### Solution
 
 This assumes option 1 (refuse). `liquers-records/src/formats/shapes.rs`: in `from_json_split`,
-`from_json_columns` and `from_json_index`, when `declared_id_field(schema)` is `None` and a data
-column name equals `index_field_name(None)`, return an error before any row is built. For `split`
+`from_json_columns` and `from_json_index`, when `schema` is `ReadSchema::Infer` and a data column
+name equals `index_field_name(None)`, return an error before any row is built. The check must match
+on `ReadSchema::Infer` itself, not on `declared_id_field(schema)` being `None`: that is also `None`
+for a declared schema without an `Id` field, and such a schema with a payload field `index` reads
+correctly today (the data cell replaces the unwanted index and the schema reads it), so AC-3 would
+break. For `split`
 the check runs once over `columns`. For `columns` it runs over the outer keys. For `index` it runs
 over each row's inner keys. The new checks are private and no signature changes.
 
@@ -94,6 +98,9 @@ In the `liquers-records/src/formats/shapes.rs` tests:
 - `columns_and_index_without_schema_refuse_a_data_column_named_index`: AC-2
 - `split_with_declared_schema_accepts_a_column_named_index`: AC-3, with a declared `Id` named
   `order_id` and a payload field `index`
+- `split_with_declared_schema_without_id_reads_its_index_field`: AC-3, with a declared schema that
+  has no `Id` field and a payload field `index`; the read is unchanged and `index` holds the data
+  column
 
 ## Phase 4: Implementation Plan
 
