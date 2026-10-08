@@ -754,12 +754,13 @@ impl DefaultValueSerializer for SimpleValue {
                     .map_err(|e| Error::from_error(ErrorType::ParseError, e))?;
                 SimpleValue::try_from_json_value(&json_value)
             }
-            // A file with no type identifier, or `Bytes`, in a format the base value does not
-            // parse (`csv`, `png`, `parquet`) is its bytes: a hand-placed file stays loadable, and
-            // the command consuming it takes the format from the metadata. Any other identifier
-            // refuses, so `CombinedValue` asks the extension.
+            // `Bytes` in a format the base value does not parse (`csv`, `png`, `parquet`) is its
+            // bytes; the command consuming it takes the format from the metadata. Any other
+            // identifier refuses, so `CombinedValue` asks the extension. An empty identifier
+            // refuses too: the extension may infer a type from the format, and `CombinedValue`
+            // reads the file as bytes only when it does not.
             _ => match type_identifier {
-                "" | "Bytes" => Ok(SimpleValue::Bytes { value: b.to_vec() }),
+                "Bytes" => Ok(SimpleValue::Bytes { value: b.to_vec() }),
                 _ => Err(Error::from_error(
                     ErrorType::SerializationError,
                     format!("Unsupported format in deserialize_from_bytes: {}", fmt),
@@ -1119,30 +1120,24 @@ mod tests {
         Ok(())
     }
 
-    /// A file with no type identifier, or `Bytes`, in a format the base value does not parse is
-    /// read as its bytes, so a hand-placed CSV or image stays loadable.
+    /// `Bytes` in a format the base value does not parse is read as its bytes.
     #[test]
-    fn untyped_unlisted_format_reads_as_bytes() -> Result<(), Box<dyn std::error::Error>> {
+    fn bytes_in_unlisted_format_reads_as_bytes() -> Result<(), Box<dyn std::error::Error>> {
         let bytes = b"a,b\n1,2\n\x89PNG\xff";
-        for id in ["", "Bytes"] {
-            for format in ["csv", "png", "parquet"] {
-                let back = SimpleValue::deserialize_from_bytes(bytes, id, format)?;
-                assert_eq!(
-                    back,
-                    SimpleValue::Bytes { value: bytes.to_vec() },
-                    "{id:?} as {format}"
-                );
-            }
+        for format in ["csv", "png", "parquet"] {
+            let back = SimpleValue::deserialize_from_bytes(bytes, "Bytes", format)?;
+            assert_eq!(back, SimpleValue::Bytes { value: bytes.to_vec() }, "Bytes as {format}");
         }
         Ok(())
     }
 
-    /// Any other identifier still refuses an unlisted format, so `CombinedValue` asks the
-    /// extension.
+    /// Any other identifier, the empty one included, still refuses an unlisted format, so
+    /// `CombinedValue` asks the extension (which may infer a type from the format) first.
     #[test]
-    fn typed_unlisted_format_still_refuses() {
+    fn other_identifiers_in_unlisted_format_still_refuse() {
         assert!(SimpleValue::deserialize_from_bytes(b"7", "I32", "csv").is_err());
         assert!(SimpleValue::deserialize_from_bytes(b"x", "Text", "png").is_err());
+        assert!(SimpleValue::deserialize_from_bytes(b"a,b", "", "csv").is_err());
     }
 
     /// A scalar under a textual format reads back as its type, parsed as core `Value` parses it.
