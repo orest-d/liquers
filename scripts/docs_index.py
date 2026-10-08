@@ -87,6 +87,9 @@ DESIGN_READINESS = {"ready", "needs-decision", "blocked", "phase2-blocked", "cov
 # §5.1.1: whether an agent may fix the design without a human approving it first. Part of the
 # readiness assessment, so it is only meaningful (and only allowed) beside a `readiness` value.
 DESIGN_AUTOFIX = {"eligible", "not-eligible"}
+# §5: a design's document form. `compact` keeps every phase as a `## Phase N` section of DESIGN.md
+# (S/M work); the default full form has one file per phase.
+DESIGN_FORMS = {"full", "compact"}
 # §5.1.1 rule: an eligible design is fully designed and small.
 AUTOFIX_READINESS = {"ready"}
 AUTOFIX_COMPLEXITIES = {"S", "M"}
@@ -588,7 +591,10 @@ def render_index_markdown(rows: list[dict]) -> str:
                 for x in stable_paths(Path(designs[design]["_path"]).parent.iterdir())
                 if x.name != "DESIGN.md" and x.name.endswith(".md")
             )
-            design = design_phases
+            # A compact design (§5) keeps its phases inside DESIGN.md, so link that file.
+            design = design_phases or (
+                f"[design]({Path(designs[design]['_path']).relative_to(SPECS).as_posix()})"
+            )
         elif design:
             design = f"`{markdown_cell(design)}`"
         lines.append(
@@ -853,6 +859,24 @@ def autofix_errors(rows: list[dict]) -> list[str]:
     return errors
 
 
+def form_errors(rows: list[dict]) -> list[str]:
+    """§5: `form` is `full` (the default) or `compact`; a compact design carries its phases as
+    `## Phase N` sections of DESIGN.md, starting with Phase 1."""
+    errors: list[str] = []
+    for r in rows:
+        if r["kind"] != "design" or not r["_fm"]:
+            continue
+        f, where = r["_fm"], r["file"]
+        form = f.get("form")
+        if form and form not in DESIGN_FORMS:
+            errors.append(f"{where}: form '{form}' not in §5")
+        elif form == "compact" and not re.search(
+            r"(?m)^## Phase 1\b", Path(r["_path"]).read_text(encoding="utf-8")
+        ):
+            errors.append(f"{where}: a compact design keeps its phases as `## Phase N` (§5)")
+    return errors
+
+
 def check(rows: list[dict]) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -863,6 +887,7 @@ def check(rows: list[dict]) -> tuple[list[str], list[str]]:
     issue_rows = {r["id"]: r for r in rows if r["kind"] in ("issue", "feature")}
     errors.extend(readiness_errors(rows))
     errors.extend(autofix_errors(rows))
+    errors.extend(form_errors(rows))
 
     for r in rows:
         f, where = r["_fm"], r["file"]

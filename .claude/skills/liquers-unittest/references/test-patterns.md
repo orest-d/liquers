@@ -246,10 +246,10 @@ fn test_memory_store_directory_ops() -> Result<(), Box<dyn std::error::Error>> {
 
 ```rust
 #[tokio::test]
-async fn test_async_store_wrapper() -> Result<(), Box<dyn std::error::Error>> {
-    use liquers_core::store::AsyncStoreWrapper;
+async fn test_async_memory_store() -> Result<(), Box<dyn std::error::Error>> {
+    use liquers_core::store::{AsyncMemoryStore, AsyncStore};
 
-    let store = AsyncStoreWrapper(MemoryStore::new(&Key::new()));
+    let store = AsyncMemoryStore::new(&Key::new());
     let key = parse_key("async/test")?;
     let data = b"async data".to_vec();
     let metadata = Metadata::from(MetadataRecord::new());

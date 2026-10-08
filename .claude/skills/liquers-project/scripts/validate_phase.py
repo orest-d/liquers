@@ -1,221 +1,172 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
-Validate phase completion for liquers-project workflow.
+Validate one phase of a liquers-project design.
 
 Usage:
-    validate_phase.py <feature-name> <phase-number>
+    validate_phase.py <slug> <phase-number>
 
-Checks:
-- Phase file exists and is non-empty
-- Required sections present
-- Review checklist addressed
-- No template placeholders remaining
+Works on both forms:
+    full     specs/design/<slug>/phase<N>-*.md, with `##` sections
+    compact  the `## Phase <N>` section of specs/design/<slug>/DESIGN.md (`form: compact`),
+             with `###` subsections
+
+Checks: the phase exists and is non-empty; required sections are present; no template
+placeholders (`<…>` hints) remain; the length is within the skill's size limits (warning).
 
 Example:
     python3 validate_phase.py parquet-support 1
-    # Validates specs/design/parquet-support/phase1-high-level-design.md
 """
 
 import argparse
-import sys
 import re
+import sys
 from pathlib import Path
 
-# Required sections per phase
-REQUIRED_SECTIONS = {
-    1: [
-        "Feature Name",
-        "Purpose",
-        "Problem Example",
-        "Core Interactions",
-        "Crate Placement",
-        "Documentation Intent",
-        "Open Questions"
-    ],
-    2: [
-        "Overview",
-        "Known-Issue Preflight",
-        "Data Structures",
-        "Trait Implementations",
-        "Sync vs Async",
-        "Function Signatures",
-        "Integration Points",
-        "Documentation Architecture",
-        "Relevant Commands",
-        "Error Handling"
-    ],
-    3: [
-        "Overview Table",
-        "Example",
-        "Corner Cases",
-        "Documentation and Learning Log",
-        "Test Plan"
-    ],
-    4: [
-        "Overview",
-        "Implementation Steps",
-        "Testing Plan",
-        "Agent Assignment",
-        "Rollback Plan",
-        "Phase 5 Entry Criteria"
-    ],
-    5: [
-        "Completion Preconditions",
-        "Implementation Summary",
-        "Documentation Delivered",
-        "Issues Filed",
-        "Important Learning",
-        "Conformance and Remaining Work",
-        "Validation"
-    ]
+# Section names are matched case-insensitively as a heading prefix. A tuple means "any of".
+REQUIRED_FULL = {
+    1: ["Purpose", "Problem Example", ("Scope and Acceptance Criteria", "Acceptance Criteria"),
+        "Core Interactions", "Crate Placement", "Documentation Intent",
+        ("Open Questions", "Design Readiness")],
+    2: ["Overview", "Known-Issue Preflight", ("Interfaces", "Data Structures"), "Integration Points",
+        "Error Handling", "Relevant Commands", "Documentation Architecture", "Risks"],
+    3: ["Overview Table", "Example", ("Edge and Error Cases", "Corner Cases"), "Test Plan"],
+    4: ["Overview", "Implementation Steps", "Testing Plan", "Rollback Plan",
+        "Documentation Updates", "Phase 5 Entry Criteria"],
+    5: ["Completion Preconditions", "Implementation Summary", "Documentation Delivered",
+        "Issues Filed", "Important Learning", "Conformance and Remaining Work", "Validation"],
 }
+REQUIRED_COMPACT = {
+    1: ["Purpose", "Problem Example", ("Scope and Acceptance Criteria", "Acceptance Criteria"),
+        ("Design Readiness", "Open Questions")],
+    2: ["Solution", "Changes", "Risks"],
+    3: ["Examples", "Tests"],
+    4: ["Steps", "Validation"],
+    5: [],
+}
+# Size limits from SKILL.md §Design depth, as characters (≈ 3,000 per page). Warnings only.
+MAX_CHARS_FULL = {1: 6000, 2: 9000, 3: 9000, 4: 9000, 5: 9000}
+MAX_CHARS_COMPACT_TOTAL = {"S": 9000, "M": 15000}
 
-# Template placeholders that indicate incomplete sections
-TEMPLATE_PLACEHOLDERS = [
-    r"\[.*?\]",  # [Square brackets with content]
-    r"\(.*?\)",  # (Parentheses with content like (Add notes))
-]
+# A template hint: `<` + capital letter + a phrase with a space, or a bare name hint. Inline code
+# is removed before matching, so `Result<Value, Error>` in backticks is never a placeholder.
+PLACEHOLDER = re.compile(r"<[A-Z][^<>\n]* [^<>\n]*>|<(name|title|slug)>")
+INLINE_CODE = re.compile(r"`[^`\n]*`")
 
 
-def find_specs_dir():
-    """Find the specs/ directory by walking up from current directory."""
-    current_dir = Path.cwd()
-    for parent in [current_dir, *current_dir.parents]:
-        potential_specs = parent / "specs"
-        if potential_specs.is_dir():
-            return potential_specs
+def find_specs_dir() -> Path | None:
+    current = Path.cwd()
+    for parent in [current, *current.parents]:
+        if (parent / "specs").is_dir():
+            return parent / "specs"
     return None
 
 
-def validate_phase(feature_name, phase_num):
-    """Validate phase document completeness."""
-    # Find specs directory
+def front_matter(text: str) -> dict:
+    match = re.match(r"---\n(.*?)\n---\n", text, re.S)
+    fields = {}
+    if match:
+        for line in match.group(1).splitlines():
+            if ":" in line and not line.startswith(" "):
+                key, value = line.split(":", 1)
+                fields[key.strip()] = value.split("#", 1)[0].strip()
+    return fields
+
+
+def compact_section(text: str, phase: int) -> str | None:
+    match = re.search(rf"(?m)^## Phase {phase}\b.*?(?=^## Phase \d|\Z)", text, re.S)
+    return match.group(0) if match else None
+
+
+def missing_sections(content: str, required: list, level: str) -> list[str]:
+    missing = []
+    for item in required:
+        names = item if isinstance(item, tuple) else (item,)
+        if not any(
+            re.search(rf"(?mi)^{level} +(\d+\.? +)?{re.escape(n)}", content) for n in names
+        ):
+            missing.append(" / ".join(names))
+    return missing
+
+
+def validate_phase(slug: str, phase: int) -> bool:
     specs_dir = find_specs_dir()
     if specs_dir is None:
-        print("[ERROR] Could not find specs/ directory")
-        print("   Run this script from the project root or a subdirectory")
+        print("[ERROR] Could not find a specs/ directory above the working directory")
         return False
-
-    # Construct phase file path
-    feature_dir = specs_dir / "design" / feature_name
-    if not feature_dir.is_dir():
-        print(f"[ERROR] Feature directory not found: {feature_dir}")
-        print(f"   Did you run init_feature.py first?")
-        return False
-
+    feature_dir = specs_dir / "design" / slug
     design_file = feature_dir / "DESIGN.md"
     if not design_file.is_file():
-        print(f"[ERROR] DESIGN.md not found: {design_file}")
+        print(f"[ERROR] {design_file} not found (run init_feature.py first)")
         return False
-    try:
-        design_content = design_file.read_text(encoding="utf-8")
-    except Exception as e:
-        print(f"[ERROR] Could not read DESIGN.md: {e}")
-        return False
-    if not re.search(r"(?m)^workflow:\s*liquers-project\s*$", design_content):
-        print("[ERROR] DESIGN.md must contain 'workflow: liquers-project'")
-        print("   This marker distinguishes the mandatory five-phase project workflow")
-        return False
-    print("[OK] DESIGN.md declares workflow: liquers-project")
+    design_text = design_file.read_text(encoding="utf-8")
+    fields = front_matter(design_text)
+    compact = fields.get("form") == "compact"
+    workflow = fields.get("workflow") == "liquers-project"
 
-    phase_file = feature_dir / f"phase{phase_num}-*.md"
-    # Find matching file
-    matching_files = list(feature_dir.glob(f"phase{phase_num}-*.md"))
-    if not matching_files:
-        print(f"[ERROR] Phase {phase_num} file not found in {feature_dir}")
+    if phase == 5 and not workflow:
+        print("[ERROR] Phase 5 exists only for `workflow: liquers-project` designs")
         return False
 
-    phase_file = matching_files[0]
-
-    print(f"[VALIDATE] {phase_file}")
-    print()
-
-    # Read phase content
-    try:
-        content = phase_file.read_text(encoding="utf-8")
-    except Exception as e:
-        print(f"[ERROR] Could not read file: {e}")
-        return False
-
-    # Check 1: File is non-empty
-    if len(content.strip()) == 0:
-        print("[ERROR] File is empty")
-        return False
-    print("[OK] File is non-empty")
-
-    # Check 2: Required sections present
-    required_sections = REQUIRED_SECTIONS.get(phase_num, [])
-    missing_sections = []
-    for section in required_sections:
-        # Look for section heading (case-insensitive, flexible formatting)
-        pattern = re.compile(f"##.*{re.escape(section)}", re.IGNORECASE)
-        if not pattern.search(content):
-            missing_sections.append(section)
-
-    if missing_sections:
-        print("[ERROR] Missing required sections:")
-        for section in missing_sections:
-            print(f"   - {section}")
-        return False
-    print(f"[OK] All required sections present ({len(required_sections)} sections)")
-
-    # Check 3: Template placeholders remaining
-    # Count placeholder patterns
-    placeholder_count = 0
-    placeholder_lines = []
-
-    for line_num, line in enumerate(content.splitlines(), start=1):
-        for pattern in TEMPLATE_PLACEHOLDERS:
-            if re.search(pattern, line):
-                # Exclude headings (they use [brackets] for emphasis)
-                if not line.strip().startswith("#"):
-                    placeholder_count += 1
-                    if len(placeholder_lines) < 5:  # Show max 5 examples
-                        placeholder_lines.append((line_num, line.strip()[:80]))
-
-    if placeholder_count > 0:
-        print(f"[WARN] Found {placeholder_count} potential template placeholders")
-        print(f"   (This may indicate incomplete sections)")
-        if placeholder_lines:
-            print(f"   Example lines:")
-            for line_num, line in placeholder_lines:
-                print(f"     Line {line_num}: {line}")
-        print()
-        print("   [INFO] These might be legitimate content; review manually")
-        # Don't fail validation, just warn
+    if compact:
+        content = compact_section(design_text, phase)
+        where = f"{design_file} § Phase {phase}"
+        if content is None:
+            print(f"[ERROR] No `## Phase {phase}` section in {design_file}")
+            return False
+        required, level = REQUIRED_COMPACT[phase], "###"
     else:
-        print("[OK] No obvious template placeholders found")
+        files = sorted(feature_dir.glob(f"phase{phase}-*.md"))
+        if not files:
+            print(f"[ERROR] No phase{phase}-*.md in {feature_dir}")
+            return False
+        content = files[0].read_text(encoding="utf-8")
+        where = str(files[0])
+        required, level = REQUIRED_FULL[phase], "##"
 
-    # Check 4: Minimum content length (heuristic for completeness)
-    min_length = {
-        1: 500,   # Phase 1: ~30 lines, ~500 chars
-        2: 2000,  # Phase 2: More detailed, ~2000 chars
-        3: 1500,  # Phase 3: Examples + tests, ~1500 chars
-        4: 2000,  # Phase 4: Implementation plan, ~2000 chars
-        5: 1000,  # Phase 5: Concise one-to-three-page summary
-    }
+    print(f"[VALIDATE] {where} ({'compact' if compact else 'full'} form)")
+    ok = True
+    if not content.strip():
+        print("[ERROR] Phase is empty")
+        return False
 
-    min_chars = min_length.get(phase_num, 500)
-    if len(content) < min_chars:
-        print(f"[WARN] Phase {phase_num} content is shorter than expected")
-        print(f"   Expected: ~{min_chars} chars, Found: {len(content)} chars")
-        print(f"   (This may indicate incomplete content)")
-        # Don't fail, just warn
+    missing = missing_sections(content, required, level)
+    if missing:
+        ok = False
+        print("[ERROR] Missing sections:")
+        for name in missing:
+            print(f"   - {name}")
     else:
-        print(f"[OK] Content length is adequate ({len(content)} chars)")
+        print(f"[OK] Required sections present ({len(required)})")
 
-    print()
-    print(f"[OK] Phase {phase_num} validation passed")
-    print()
-    print(f"Next steps:")
-    print(f"1. Review the phase document manually")
-    print(f"2. Run critical review using references/review-checklist.md")
-    if phase_num == 5:
-        print("3. Request user approval before marking the design complete")
+    placeholders = [
+        (n, line.strip()[:80])
+        for n, line in enumerate(content.splitlines(), start=1)
+        if PLACEHOLDER.search(INLINE_CODE.sub("", line))
+    ]
+    if placeholders:
+        ok = False
+        print(f"[ERROR] {len(placeholders)} template placeholder line(s) remain, e.g.:")
+        for n, line in placeholders[:5]:
+            print(f"   line {n}: {line}")
     else:
-        print(f"3. Request user approval before proceeding to Phase {phase_num + 1}")
+        print("[OK] No template placeholders")
 
-    return True
+    if compact:
+        size = fields.get("complexity") or "M"
+        limit = MAX_CHARS_COMPACT_TOTAL.get(size, MAX_CHARS_COMPACT_TOTAL["M"])
+        length = len(design_text)
+    else:
+        limit, length = MAX_CHARS_FULL[phase], len(content)
+    if length > limit:
+        print(f"[WARN] {length} characters, over the ~{limit} size limit: split or trim")
+    else:
+        print(f"[OK] Length {length} characters (limit ~{limit})")
+
+    if not workflow:
+        print("[INFO] No `workflow: liquers-project`: a four-phase design (bulk/triage/compaction)")
+
+    print(f"[{'OK' if ok else 'FAIL'}] Phase {phase} validation {'passed' if ok else 'failed'}")
+    return ok
 
 
 # Lowercase-kebab, as defined by specs/DOCS_STRUCTURE_GUIDE.md §2 "Naming".
@@ -224,7 +175,7 @@ SLUG_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(
-        description="Validate specs/design/<feature-name>/phase<phase-number>-*.md.",
+        description="Validate one phase of specs/design/<slug>/ (full or compact form).",
         epilog="Example: python3 validate_phase.py parquet-support 1",
     )
     parser.add_argument("feature_name", help="lowercase-kebab design slug, e.g. parquet-support")
@@ -237,8 +188,7 @@ def parse_args(argv=None):
 
 def main(argv=None):
     args = parse_args(argv)
-    result = validate_phase(args.feature_name, args.phase_number)
-    if not result:
+    if not validate_phase(args.feature_name, args.phase_number):
         sys.exit(1)
 
 

@@ -53,7 +53,7 @@ Run the overlap tests pairwise within each area and across areas that share symb
 
 ### 4. Design every `S` issue
 
-Every open `S` issue or feature without a design gets one: Phases 1-4 per bulk design, with readiness,
+Every open `S` issue or feature without a design gets one, in the compact form: Phases 1-4 per bulk design, with readiness,
 the automatic-fix label, and all questions and decisions collected. Design `M` items too as the run's
 budget allows, highest priority first. Re-check readiness of existing designs whose sources or
 dependencies changed in step 3.

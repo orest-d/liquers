@@ -355,6 +355,14 @@ folder.
 
 **The only hard requirement is `DESIGN.md` with front-matter.**
 
+**Form.** A design is written in one of two forms. The default **full** form keeps each phase in
+its own file (§5.2). The **compact** form, `form: compact`, is for `S` and `M` work: everything is
+in `DESIGN.md`, and each phase is a `## Phase N` section with the same obligations as the
+corresponding phase file. Wherever this guide or a procedure refers to a phase document, a compact
+design means its `## Phase N` section. A compact design that grows to `L` is converted to the full
+form. `--check` rejects any other `form` value, and a compact design without a `## Phase 1`
+section.
+
 ```yaml
 ---
 id: EXPIRATION-SAFETY
@@ -363,6 +371,7 @@ title: Timing and race safety in asset expiration
 workflow: liquers-project  # five phases, including mandatory documentation; see §5.2
 status: in_review           # OMITTED once `gh_pr` is set — see §5.5
 phase: architecture         # see §5.2
+form: compact               # optional; `full` (default) or `compact` for S/M work — see above
 readiness: phase2-blocked   # optional implementation-readiness assessment; see §5.1.1
 autofix: not-eligible       # optional, beside readiness: may an agent fix it unattended? §5.1.1
 area: [core/assets]
@@ -1085,6 +1094,7 @@ neither.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-08 | §5: a design's `form` — the default full form, or `compact` for `S`/`M` work, with every phase as a `## Phase N` section of `DESIGN.md`; `--check` validates the value and the sections; the `index.md` board links a compact design's `DESIGN.md`. | maintainer decision |
 | 2026-10-08 | §5.1.1, §6: optional `autofix` (`eligible` / `not-eligible`) beside `readiness`, projected into a new `index.csv` column and the `index.md` board; `--check` requires readiness with it, and `ready` plus an `S`/`M` leading source for `eligible`. | maintainer decision |
 | 2026-10-08 | §4.8.1 step 1 points to the `liquers-project` overlap triage. §5, §5.1.1, §5.2: `liquers-designer` removed in favour of `liquers-project`; a design may own several sources through triage of strongly overlapping issues as well as a maintainer merge, both recorded with `merged:`. | maintainer decision |
 | 2026-10-06 | §7.2 check 9: links inside fenced blocks and inline code spans are not checked. | `DOCS-LINK-CHECK-READS-CODE-SPANS`, `design/docs-link-check-code-spans/` |

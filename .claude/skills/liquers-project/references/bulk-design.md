@@ -24,7 +24,9 @@ item without phase approval, labels readiness, and **never implements**.
    recommended assumption (readiness `needs-decision`) over stopping at `phase2-blocked`. Use
    `phase2-blocked` only when no working solution can be stated even under an assumption, which is
    what guide §8 already requires.
-5. **Phase 1 template.** Use this skill's `references/phase1-template.md` sections, plus the guide's
+5. **Form and templates.** `S`/`M` sources get a compact design
+   ([`compact-design-template.md`](compact-design-template.md), `init_feature.py <slug> --compact
+   --no-workflow`); `L`/`XL` the full form with `references/phase1-template.md` sections, plus the guide's
    Design Readiness, Design Dependencies and Consolidated Findings sections. Designs from this
    procedure omit `workflow:` (guide §5).
 6. **Report.** The guide's §13 closing report, plus two lists: items **eligible for automatic

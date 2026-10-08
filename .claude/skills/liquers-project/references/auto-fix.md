@@ -56,7 +56,8 @@ Two places, kept in step:
    column of `specs/index.csv` and the **Auto-fix** column of `specs/index.md`, on the design row
    and every source row.
 
-2. **The reason**, in the design's Phase 1 `## Design Readiness` section, directly after
+2. **The reason**, in the design's Phase 1 Design Readiness section (in a compact design, the
+   `### Design Readiness` subsection of `## Phase 1`), directly after
    **Readiness**:
 
    ```markdown

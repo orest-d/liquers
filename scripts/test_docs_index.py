@@ -409,3 +409,52 @@ class AutofixTests(unittest.TestCase):
         self.assertEqual(
             [r["id"] for r in docs_index.active_work_rows(rows)], ["B-ELIGIBLE", "A-NOT"]
         )
+
+
+class DesignFormTests(unittest.TestCase):
+    def _compact(self, root: Path, body: str, form: str = "compact") -> dict:
+        path = root / "specs" / "design" / "small" / "DESIGN.md"
+        path.parent.mkdir(parents=True)
+        path.write_text(f"---\nform: {form}\n---\n{body}", encoding="utf-8")
+        row = _design("small", ["ONE"])
+        row["_fm"]["form"] = form
+        row["_path"] = path
+        return row
+
+    def test_compact_design_with_phase_sections_passes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            row = self._compact(Path(temporary), "# Small\n\n## Phase 1: High-Level Design\n")
+            self.assertEqual(docs_index.form_errors([row]), [])
+
+    def test_compact_design_without_phase_sections_is_refused(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            row = self._compact(Path(temporary), "# Small\n")
+            self.assertEqual(
+                docs_index.form_errors([row]),
+                [
+                    "specs/design/small/DESIGN.md: a compact design keeps its phases as "
+                    "`## Phase N` (§5)"
+                ],
+            )
+
+    def test_unknown_form_is_refused(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            row = self._compact(Path(temporary), "## Phase 1\n", form="tiny")
+            self.assertEqual(
+                docs_index.form_errors([row]),
+                ["specs/design/small/DESIGN.md: form 'tiny' not in §5"],
+            )
+
+    def test_board_links_design_md_of_a_compact_design(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            design = self._compact(root, "## Phase 1\n")
+            issue = _issue("ONE", "small")
+            issue["area"], issue["title"], issue["created"] = "docs", "t", "2026-10-08"
+            saved = docs_index.SPECS
+            docs_index.SPECS = root / "specs"
+            try:
+                board = docs_index.render_index_markdown([issue, design])
+            finally:
+                docs_index.SPECS = saved
+            self.assertIn("[design](design/small/DESIGN.md)", board)

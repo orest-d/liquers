@@ -2,7 +2,7 @@
 id: SKILL-REFERENCES-TEACH-REMOVED-SYNC-STORE-WRAPPER
 kind: issue
 title: liquers-project references still teach the removed AsyncStoreWrapper and old design paths
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [docs]
@@ -46,3 +46,14 @@ it), and every path uses `specs/design/<slug>/`.
 Found during a review of the `liquers-project` skill on 2026-10-08. The closed
 `DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS` corrected three `specs/` documents but not the skill's
 own references, so this is the same stale fact surviving in files that issue did not cover.
+
+## Resolution
+
+Fixed on 2026-10-08 in the `liquers-project` consolidation (branch `claude/brave-allen-1dafje`).
+`references/liquers-patterns.md` was removed: its rules were either already in `CLAUDE.md` and
+`rust-best-practices`, or out of date. The rewritten Phase 1-4 templates and review checklist no
+longer mention sync wrappers, and `SKILL.md` no longer cites `specs/<feature>/` or the flat
+`specs/` layout. `rust-best-practices/SKILL.md`, which also taught `AsyncStoreWrapper`, now states
+the async-only rule, and the `liquers-unittest` references use `AsyncMemoryStore` instead of the
+wrapper. Evidence: `grep -rn "AsyncStoreWrapper\|specs/<feature>" .claude .agents`
+finds only the `rust-best-practices` sentence saying it no longer exists.

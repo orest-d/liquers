@@ -20,8 +20,7 @@ document, a diff, or a set of signatures and produce a short list of concrete
 findings: what violates a convention, *why the convention exists*, and the
 minimal fix. Prefer a few high-confidence findings over an exhaustive dump.
 
-The Liquers rules below are the enforced ones — they come from `CLAUDE.md` and
-`.claude/skills/liquers-project/references/liquers-patterns.md`. General Rust
+The Liquers rules below are the enforced ones — they come from `CLAUDE.md`. General Rust
 idioms follow. When these two conflict, the Liquers rule wins (it encodes a
 deliberate project decision).
 
@@ -53,9 +52,11 @@ These are enforced project-wide. A violation is a blocking finding.
   variant so adding a variant later is a compile error, not a silent fallthrough.
   Exception: matching on *external* enums you don't own (document why).
 - **Async is the default.** I/O and anything reachable from an async context is
-  async (`#[async_trait]`, `AsyncStore`). Sync exists only as a deliberate wrapper
-  (`AsyncStoreWrapper`) or for genuinely CPU-bound, I/O-free, sync-called code
-  (e.g. a render pass, Python bindings). No blocking I/O inside async.
+  async (`#[async_trait]`, `AsyncStore`). There is no sync store and no sync
+  wrapper: the sync `Store` trait is obsolete and `AsyncStoreWrapper` no longer
+  exists. Sync code is only for genuinely CPU-bound, I/O-free, sync-called code
+  (e.g. a render pass); a sync caller such as a binding drives the async API on a
+  runtime. No blocking I/O inside async.
 - **Respect the one-way crate dependency flow:**
   `liquers-core ← liquers-macro ← liquers-store ← liquers-lib ← liquers-axum ← liquers-py`.
   A `use` that points backward (e.g. `liquers-core` importing `liquers-lib`) is a

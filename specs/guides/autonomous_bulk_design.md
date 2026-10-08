@@ -145,7 +145,10 @@ count, and do not stop the whole run merely because one design is blocked.
 
 ## 5. Design folder and lifecycle metadata
 
-Create `specs/design/<slug>/DESIGN.md` using the contract in `DOCS_STRUCTURE_GUIDE.md`. Its
+Create `specs/design/<slug>/DESIGN.md` using the contract in `DOCS_STRUCTURE_GUIDE.md`. Use the
+compact form (`form: compact`, `DOCS_STRUCTURE_GUIDE.md` §5) for an `S` or `M` source: every phase
+document named in this guide is then a `## Phase N` section of `DESIGN.md`, and
+`phase1-high-level-design.md` means its `## Phase 1` section. Its
 `issues:` list MUST contain exactly one issue or feature ID, unless the sources strongly overlap
 (rule 6) or a maintainer merged the designs; a several-source design records `merged:`. Every
 source document's `design:` field MUST link back to this design slug, and no other readiness-labeled
@@ -341,6 +344,7 @@ as implementation-ready merely because four files exist.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-08 | §5: `S`/`M` sources use the compact single-file design form. | maintainer decision |
 | 2026-10-08 | Invoked by the `liquers-project` keywords "bulk-design" / "bulk design". Rule 6, §4 and §5: strongly overlapping sources (the skill's `references/overlap.md`) share one design with `merged:`; merging existing designs stays a maintainer decision. §3: an **Automatic fixing** line, mirrored as `autofix:` in `DESIGN.md`. §6: a `## Problem Example`. | maintainer decision |
 | 2026-10-05 | Rule 6 and §5: one exception to one-source-per-design, a maintainer-directed merge of designs whose implementations depend on each other (`DOCS_STRUCTURE_GUIDE.md` §5.1.1). | maintainer decision |
 | 2026-08-31 | Added the autonomous four-phase bulk-design procedure, one-source-per-design enforcement, finished-Phase-4 exclusion, dependency recording, continuous feasibility review, final Phase 1 synthesis, tiered questions, partial-design resumption, and indexed readiness states. | documentation |
