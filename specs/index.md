@@ -8,15 +8,14 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 114
-- P2: 59
+Total rows: 113
+- P2: 58
 - P3: 55
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
 | [`CORE-METADATA-TRACEBACK-SUPPORT`](issues/CORE-METADATA-TRACEBACK-SUPPORT.md) | issue | Metadata has no place for an error traceback | accepted | needs-decision | not-eligible | P2 | S | core/value;core/error | [phase1](design/metadata-error-traceback/phase1-high-level-design.md)  [phase2](design/metadata-error-traceback/phase2-architecture.md)  [phase3](design/metadata-error-traceback/phase3-examples.md)  [phase4](design/metadata-error-traceback/phase4-implementation.md)  | 2026-08-08 |
 | [`STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE`](issues/STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE.md) | issue | Constructing and deserializing the same CommandMetadata give different state arguments | draft | needs-decision | not-eligible | P2 | S | core/commands | [phase1](design/state-argument-serde-default/phase1-high-level-design.md)  [phase2](design/state-argument-serde-default/phase2-architecture.md)  [phase3](design/state-argument-serde-default/phase3-examples.md)  [phase4](design/state-argument-serde-default/phase4-implementation.md)  | 2026-08-29 |
-| [`COMBINED-VALUE-DISCRIMINATION`](issues/COMBINED-VALUE-DISCRIMINATION.md) | feature | Deserialization cannot discriminate base from extended values | accepted | ready | eligible | P2 | M | core/value;lib/value | [design](design/combined-value-identifier-dispatch/DESIGN.md) | 2026-08-08 |
 | [`COMMAND-ALIAS-DEFINITION-UNTESTED`](issues/COMMAND-ALIAS-DEFINITION-UNTESTED.md) | issue | CommandDefinition::Alias has no test and no user, and its head-parameter semantics are unexercised | draft |  |  | P2 | M | core/plan;core/commands |  | 2026-08-29 |
 | [`COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT`](issues/COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT.md) | feature | A command cannot be run with a restricted context | draft |  |  | P2 | M | core/context;core/commands |  | 2026-09-17 |
 | [`COMMAND-CONTEXT-PARAM-ORDER`](issues/COMMAND-CONTEXT-PARAM-ORDER.md) | issue | The context parameter must come last, as a workaround | accepted |  |  | P2 | M | core/commands;macro | [FINDINGS.md](design/context-param-order/FINDINGS.md)  [SOLUTION.md](design/context-param-order/SOLUTION.md)  | 2026-08-08 |

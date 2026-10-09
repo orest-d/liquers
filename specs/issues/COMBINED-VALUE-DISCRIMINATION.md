@@ -2,7 +2,7 @@
 id: COMBINED-VALUE-DISCRIMINATION
 kind: feature
 title: Deserialization cannot discriminate base from extended values
-status: accepted
+status: closed
 priority: P2
 complexity: M
 area: [core/value, lib/value]
@@ -47,3 +47,22 @@ Found while adding `md` to `Text` (`specs/design/text-value-markdown-format/`), 
 trap and avoided it by refusing every identifier but `Text` in `SimpleValue`'s `md` arm. The
 general fix is that rule for every arm: the base reads an identifier it owns, or an empty one,
 and refuses the rest.
+
+## Resolution
+
+Fixed in `specs/design/combined-value-identifier-dispatch/`. `CombinedValue::deserialize_from_bytes`
+(`liquers-lib/src/value/extended.rs`) now routes by the declared identifier: one the extension
+declares in `type_descriptions()` is read by the extension alone, and its refusal is final; every
+other identifier keeps the base-first order; when both halves refuse a named identifier, the error
+is the one from the half that declares it, which replaces the hard-coded `polars.DataFrame` branch.
+
+The issue's suggested route — making every `SimpleValue` arm refuse identifiers it does not own —
+was not taken: the dispatch in `CombinedValue` covers every extension, including `liquers-web`'s
+combinations, and leaves the base lenient for empty and undeclared identifiers. Goal 1 is the
+dispatch, goal 2 the base-first fallback, goal 3 unchanged base and untyped reads.
+
+Evidence: `record_view_json_reads_back_as_a_record_view`,
+`record_source_manifest_reads_back_as_a_record_source` and
+`record_view_html_refuses_instead_of_reading_as_text` (`liquers-lib/tests/record_typeinfo.rs`),
+`extension_identifiers_never_read_as_base_values` (`liquers-lib/tests/value_type_system.rs`), and
+five unit tests in `liquers-lib/src/value/extended.rs`.

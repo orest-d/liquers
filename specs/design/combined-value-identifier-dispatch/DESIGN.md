@@ -5,10 +5,11 @@ title: CombinedValue reads an identifier the extension declares through the exte
 form: compact
 workflow: liquers-project
 status: approved
-phase: implementation
+phase: documentation
 readiness: ready
 autofix: eligible
 area: [lib/value]
+affects_docs: [specs/reference/VALUE_TYPE_SYSTEM.md, specs/guides/TYPE_SYSTEM_GUIDE.md]
 issues: [COMBINED-VALUE-DISCRIMINATION]
 created: 2026-10-09
 ---
@@ -132,19 +133,10 @@ Overlap triage (`references/overlap.md`), all weak; none is merged into this des
 
 ### Open Questions
 
-Decided at the Phase 1 gate (2026-10-09), all on the recommendation:
-
-1. **Resolved — where the dispatch lives.** In `CombinedValue`: an identifier that
-   `E::type_descriptions()` declares is read by the extension only; every other identifier keeps
-   today's base-first order. The `SimpleValue` arms stay as they are.
-2. **Resolved — extension declared, extension fails.** The extension's error is returned; there is
-   no fallback to the base (AC-3).
-3. **Resolved — cost.** `type_descriptions()` is called per read; no new trait method.
-4. **Resolved in Phase 2 — the `polars.DataFrame` special case.** Generalised rather than kept:
-   when neither half reads a named identifier, the base's error is returned if the base declares
-   the identifier, and the extension's otherwise (Phase 2 §Changes).
-
-No question is open.
+None open. Decided at the Phase 1 gate (2026-10-09) on the recommendation: (1) the dispatch lives in
+`CombinedValue`, `SimpleValue`'s arms stay; (2) an extension's refusal of its own identifier is
+final; (3) `type_descriptions()` is called per read, no new trait method; (4) the `polars.DataFrame`
+special case is generalised (Phase 2 rule 3, AC-6).
 
 ## Phase 2: Architecture
 
@@ -196,21 +188,11 @@ No blocker. **Command namespaces involved:** none.
 No `pub` item changes.
 
 ```rust
-/// Whether `descriptions` declare `type_identifier`. The empty identifier ("not known") is never
-/// declared.
-fn declares(descriptions: &[liquers_core::type_system::TypeInfo], type_identifier: &str) -> bool {
-    !type_identifier.is_empty()
-        && descriptions.iter().any(|info| info.type_identifier == type_identifier)
-}
-
-impl<B: ValueInterface + Default, E: ValueExtension> DefaultValueSerializer for CombinedValue<B, E> {
-    fn deserialize_from_bytes(b: &[u8], type_identifier: &str, fmt: &str) -> Result<Self, Error>;
-    //   1. declares(&<E as ValueExtension>::type_descriptions(), id) → E only
-    //   2. B, then E, then (id empty) B::from_bytes
-    //   3. both refuse a named id → base_err if declares(&<B as ValueInterface>::type_descriptions(), id),
-    //      ext_err otherwise
-}
+/// Whether `descriptions` declare `type_identifier`. The empty identifier is never declared.
+fn declares(descriptions: &[liquers_core::type_system::TypeInfo], type_identifier: &str) -> bool;
 ```
+
+`CombinedValue::deserialize_from_bytes` keeps its signature; its body applies rules 1-3.
 
 The `type_descriptions` calls are fully qualified: `ValueExtension` and `ValueInterface` both
 define one, and `B` and `E` are bounded by different traits. The base's list is built only on the
@@ -298,15 +280,15 @@ and none from `CLAUDE.md`.
 
 ### Steps
 
-- [ ] 1. `liquers-lib/src/value/extended.rs` — add `declares` and route
+- [x] 1. `liquers-lib/src/value/extended.rs` — add `declares` and route
   `CombinedValue::deserialize_from_bytes` by it (Phase 2 rules 1-3, dropping the `polars.DataFrame`
   branch); add `DeclaringExtension` and the five unit tests — `cargo test -p liquers-lib --lib value::extended`.
-  Rollback: revert the file.
-- [ ] 2. `liquers-lib/tests/record_typeinfo.rs`, `liquers-lib/tests/value_type_system.rs` — the four
+  Rollback: revert the file. Commit `cebdcd8`.
+- [x] 2. `liquers-lib/tests/record_typeinfo.rs`, `liquers-lib/tests/value_type_system.rs` — the four
   integration tests — `cargo test -p liquers-lib --test record_typeinfo --test value_type_system`.
-  Rollback: revert the two files.
-- [ ] 3. `liquers-lib/src/value/simple.rs` — the `txt`/`html`/`toml` and `md` comments (no code) —
-  `cargo test -p liquers-lib --lib --tests`. Rollback: revert the comments.
+  Rollback: revert the two files. Commit `cebdcd8`.
+- [x] 3. `liquers-lib/src/value/simple.rs` — the `txt`/`html`/`toml` and `md` comments (no code) —
+  `cargo test -p liquers-lib --lib --tests`. Rollback: revert the comments. Commit `cebdcd8`.
 - [ ] 4. Feature rows — `cargo test -p liquers-lib --no-default-features --lib --tests` and
   `--no-default-features --features records`; `bash scripts/check-build-matrix.sh` if disk allows,
   otherwise the two rows plus `--features polars`.
@@ -318,3 +300,28 @@ and none from `CLAUDE.md`.
 `specs/reference/VALUE_TYPE_SYSTEM.md` §Reading and `specs/guides/TYPE_SYSTEM_GUIDE.md` step 4, each
 with a History row and `reviewed:` bump; the issue closed with a resolution note; `specs/README.md`
 entry moved to built; `python3 scripts/docs_index.py --check`.
+
+## Phase 5: Documentation
+
+**Built versus approved.** As approved in Phases 2-4: one private helper (`declares`) and the body
+of `CombinedValue::deserialize_from_bytes` in `liquers-lib/src/value/extended.rs`; comments in
+`liquers-lib/src/value/simple.rs`; five unit tests over a new test-local `DeclaringExtension`; four
+integration tests in `liquers-lib/tests/record_typeinfo.rs` (`records`) and
+`liquers-lib/tests/value_type_system.rs`. No `pub` item, command, feature or stored format changed.
+**Added:** AC-6 in Phase 3 (Scope Changes). **Omitted:** nothing.
+
+**Validation.** `cargo test -p liquers-lib --lib --tests` green (385 unit tests and every integration
+suite); the `--no-default-features` rows for none, `records` and `polars` per step 4.
+
+**Documents reviewed against the code** (`affects_docs`): `specs/reference/VALUE_TYPE_SYSTEM.md`
+§Reading gains the three dispatch rules; `specs/guides/TYPE_SYSTEM_GUIDE.md` §4 says the `TypeInfo`
+also routes reading. Each has a History row and `reviewed: 2026-10-09`. `specs/README.md` lists the
+work as built.
+
+**Issues.** `COMBINED-VALUE-DISCRIMINATION` closed with a resolution note. No new problem found.
+`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS` (open, P3) gained evidence: a `RecordView` stored as
+`html` now fails to load instead of loading as `Text`, as AC-3 intends.
+
+**Learning.** A two-step "ask one half, then the other" read is only as precise as the more lenient
+half. The identifier already says who owns the bytes; asking the owner first removes the need for
+every base arm to remember to refuse.
