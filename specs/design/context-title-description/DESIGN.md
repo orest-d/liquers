@@ -6,6 +6,7 @@ workflow: liquers-project
 status: in_review
 phase: implementation
 readiness: ready
+autofix: not-eligible
 area: [core/context]
 issues: [CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION]
 affects_docs: [reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md, guides/COMMAND_REGISTRATION_GUIDE.md, reference/ASSETS.md]

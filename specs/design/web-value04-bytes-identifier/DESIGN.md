@@ -5,6 +5,7 @@ title: Coverage record for WEB-VALUE04-BYTES-IDENTIFIER-CASE-MISMATCH
 status: in_review
 phase: architecture
 readiness: covered
+autofix: not-eligible
 area: [docs]
 issues: [WEB-VALUE04-BYTES-IDENTIFIER-CASE-MISMATCH]
 created: 2026-09-03

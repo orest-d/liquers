@@ -4,7 +4,8 @@ kind: design
 title: Store API keys route enumerates every key under the prefix
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
+autofix: eligible
 area: [axum]
 issues: [AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN]
 created: 2026-10-06

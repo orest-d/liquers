@@ -2,9 +2,9 @@
 id: METADATA-ONLY-ENTRY-RELOAD
 kind: design
 title: Fast track recognizes a metadata-only entry and recomputes without a corruption report
-status: in_review
-phase: implementation
+status: complete
 readiness: ready
+autofix: eligible
 area: [core/assets]
 issues: [METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED]
 created: 2026-10-06
@@ -25,6 +25,7 @@ the first four phases, reviewed without phase approval. Not an approval and not 
 - [x] Phase 2: Solution and Architecture
 - [x] Phase 3: Examples and Tests
 - [x] Phase 4: Implementation Plan
+- [x] Phase 5: Documentation (approved 2026-10-08, maintainer)
 
 ## Links
 
@@ -32,6 +33,7 @@ the first four phases, reviewed without phase approval. Not an approval and not 
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
+- [Phase 5](./phase5-documentation.md)
 
 ## Implementation status (2026-10-06)
 

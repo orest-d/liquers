@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** needs-decision
+- **Automatic fixing:** not-eligible — adds a `pub` field to `ArgumentInfo` and `register_command!`
+  syntax, and changes `specs/command_registry.yaml` (rule 4); also needs-decision (rule 5)
 - **Leading issue:** **Open design question — settle together with command-level hints.** The
   issue and `COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS` (design
   `command-metadata-command-hints`, `needs-decision`) are two halves of one asymmetry. The

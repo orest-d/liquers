@@ -6,6 +6,7 @@ title: SimpleValue serializes every format its shared TypeInfo declares
 status: in_review
 phase: documentation
 readiness: ready
+autofix: not-eligible
 area: [lib/value]
 issues: [SIMPLE-VALUE-WRITES-FEWER-FORMATS-THAN-DECLARED]
 created: 2026-10-06

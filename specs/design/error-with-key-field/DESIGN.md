@@ -6,6 +6,7 @@ workflow: liquers-project
 status: in_review
 phase: architecture
 readiness: phase2-blocked
+autofix: not-eligible
 area: [core/error, core/query, core/assets, core/store, web, py, axum]
 issues: [ERROR-WITH-KEY-SETS-QUERY-FIELD]
 gh_pr: []

@@ -2,7 +2,7 @@
 id: METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED
 kind: issue
 title: A value stored as metadata only is reloaded through the corrupted-data path
-status: in_progress
+status: closed
 priority: P3
 complexity: S
 area: [core/assets]
@@ -71,3 +71,12 @@ follows `STORE_SEMANTICS.md` §2 are done. The memory store still answers empty 
 (`MEMORY-STORE-METADATA-ONLY-ENTRY-READS-AS-EMPTY-BYTES`), so on it this issue remains open until
 that design is implemented.
 
+
+## Resolution
+
+Closed on 2026-10-08 by the backlog compaction, on evidence: `try_fast_track` treats a
+`KeyNotFound` from `store.get` as a metadata-only entry (commit `8c018e7`), and
+`memory-store-metadata-only-entry` (complete) made the memory store answer that way too. All three
+tests in `liquers-core/tests/metadata_only_entry_reload.rs` pass, including
+`metadata_only_entry_on_memory_store_is_recomputed`. Design: `design/metadata-only-entry-reload/`
+(its Phase 5 record is still outstanding).

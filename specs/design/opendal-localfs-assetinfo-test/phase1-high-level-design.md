@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** covered
+- **Automatic fixing:** not-eligible — covered by another record; no independent work to fix (rule
+  5)
 - **Leading issue:** None.
 - **Explanation:** The resolution records a let-else assertion and a concrete filename assertion. No independent implementation plan is needed.
 - **Open questions:** None.

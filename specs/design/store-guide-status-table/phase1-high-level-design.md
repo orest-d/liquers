@@ -3,6 +3,9 @@
 ## Design Readiness
 
 - **Readiness:** needs-decision
+- **Automatic fixing:** not-eligible — needs-decision (rule 5). Either answer (a generator test, or
+  closing as documented) is test or documentation work in one crate and would be eligible once
+  chosen
 - **Leading issue:** **Open design question — build a generator, or close the issue now that the
   guide is honest.** Since the issue was filed, `STORE_IMPLEMENTATION_GUIDE.md` §9 was rewritten.
   It now says the table is "maintained by hand from the printed reports — no generator exists

@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** needs-decision
+- **Automatic fixing:** not-eligible — adds a serialized `pub` field and methods to `TypeInfo`
+  (rules 3-4)
 - **Leading issue:** **Open design question — representation, and whether to settle it here or in
   `DATA-FORMAT-CONSTANTS-AND-TOOLING`** (P2, L, no design), which the issue names as the natural
   home. `TypeInfo` is serialized (`Serialize, Deserialize`), so a new field is a format addition.

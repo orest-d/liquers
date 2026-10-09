@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** covered
+- **Automatic fixing:** not-eligible — covered by another record; no independent work to fix (rule
+  5)
 - **Leading issue:** None.
 - **Explanation:** The resolution records explicit delegation to the extended value and tests for consistent defaults. No independent implementation plan is needed.
 - **Open questions:** None.

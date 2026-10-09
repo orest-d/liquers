@@ -5,6 +5,7 @@ title: Coverage record for OPENDAL-LOCALFS-TEST-SILENT-ON-WRONG-VALUE-TYPE
 status: in_review
 phase: architecture
 readiness: covered
+autofix: not-eligible
 area: [docs]
 issues: [OPENDAL-LOCALFS-TEST-SILENT-ON-WRONG-VALUE-TYPE]
 created: 2026-09-03

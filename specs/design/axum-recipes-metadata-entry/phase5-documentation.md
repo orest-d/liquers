@@ -1,6 +1,6 @@
 # Phase 5: Documentation - Recipes API metadata and entry
 
-**Status: executed 2026-10-07**, after implementation (Wave 5 step 31 of
+**Status: executed 2026-10-07; approved 2026-10-08 (maintainer)**, after implementation (Wave 5 step 31 of
 `archive/2026-10-06-p2-p3-s-implementation-order-revised.md`). Awaiting approval.
 
 ## Completion Preconditions

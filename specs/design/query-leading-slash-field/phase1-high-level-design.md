@@ -3,6 +3,9 @@
 ## Design Readiness
 
 - **Readiness:** needs-decision
+- **Automatic fixing:** not-eligible — the recommended answer renames the `pub` field
+  `Query::absolute` (rule 4); the alternative (document the meaning) is a documentation fix and
+  would be eligible once chosen
 - **Leading issue:** **Open design question — rename the public field `Query::absolute`.** Since
   the issue was filed, the leading `/` has gained meaning: it roots the query's resource segments
   at the logical root, independent of the live CWD. The name collision with `Key::as_absolute` /

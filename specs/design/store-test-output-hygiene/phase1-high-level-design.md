@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** covered
+- **Automatic fixing:** not-eligible — covered by another record; no independent work to fix (rule
+  5)
 - **Leading issue:** None.
 - **Explanation:** The resolution removes diagnostics, and the later completed path-mapping work replaces the remaining weak branch with assertions. No independent implementation plan is needed.
 - **Open questions:** None.

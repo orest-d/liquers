@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** covered
+- **Automatic fixing:** not-eligible — covered by another record; no independent work to fix (rule
+  5)
 - **Leading issue:** None.
 - **Explanation:** The resolution settles the namespace-wide keys contract and says every in-tree store is checked. No independent implementation plan is needed.
 - **Open questions:** None.

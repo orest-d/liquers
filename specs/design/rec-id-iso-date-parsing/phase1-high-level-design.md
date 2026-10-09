@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** ready
+- **Automatic fixing:** not-eligible — changes a command's argument parsing across `liquers-records`
+  and `liquers-lib` (rule 6)
 - **Leading issue:** None
 - **Explanation:** Decided (Maintainer decision, 2026-10-06): the recommended date format in Liquers command arguments is
   `YYYYMMDD`, or `YYYY-MM-DD` after expansion, which is written `YYYY~MM~DD` with tilde escaping.

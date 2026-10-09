@@ -2,10 +2,11 @@
 id: MANIFEST-CHUNK-SCHEMA-ERROR-DOES-NOT-NAME-THE-CHUNK
 kind: issue
 title: A chunk that violates a manifest's uniform_schema is refused without naming which chunk
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [records]
+design: manifest-chunk-error-identity
 created: 2026-10-07
 github:
 ---
@@ -36,3 +37,20 @@ holds 1 null(s) …`. The same applies to the field-count and field-type mismatc
 Found 2026-10-07 by `design/manifest-over-stored-csv-test/`. Its test
 `manifest_csv_chunk_schema_error_names_the_chunk`
 (`liquers-lib/tests/records_manifest_over_csv_files.rs`) is `#[ignore]`d with this ID.
+
+## Resolution
+
+Fixed 2026-10-08 by `design/manifest-chunk-error-identity/` on branch
+`claude/manifest-chunk-error-identity`. `ManifestSource::advance` (`liquers-records/src/sources.rs`)
+now passes a chunk read error through a private `name_chunk`, which prefixes the message with
+`chunk <global index> (<key>): `, or the encoded query for an unkeyed chunk, and keeps the error
+type and the other payload fields. The example above now reads
+`chunk 2 (data/raw/bad.csv): ManifestSource: chunk field 'amount' holds 1 null(s), …`.
+
+A single chunk read by `ns-rec/rowid` through the `pub` `view_from_chunk_value` is unchanged: that
+caller already names the chunk it asked for.
+
+Evidence: `manifest_csv_chunk_schema_error_names_the_chunk`
+(`liquers-lib/tests/records_manifest_over_csv_files.rs`) is no longer ignored and passes; new unit
+tests `chunk_error_names_unkeyed_chunk_by_query` and `chunk_error_keeps_error_type` in
+`liquers-records/src/sources.rs`.

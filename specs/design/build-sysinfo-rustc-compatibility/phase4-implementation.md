@@ -1,11 +1,15 @@
 # Phase 4: Implementation Plan
 
-1. Inspect the current signatures and callers in Cargo.lock, Cargo.toml, scripts/check-build-matrix.sh, .github/workflows/build-matrix.yml; stop if they differ from Phase 2. Proof: the focused Phase 3 test. Containment: revert only this source's files.
-2. Implement Pin the lockfile to the last sysinfo compatible with Rust 1.94; changing MSRV needs explicit maintainer approval. Preserve existing ownership, async, serialization, and typed-error conventions. Proof: cargo check -p liquers-lib --tests; cargo check -p liquers-lib --no-default-features --features polars --tests.
-3. Add the Phase 3 regression tests and any current contract documentation updates. Proof: focused tests plus documentation review.
-4. Update the source issue resolution/status only after evidence exists; regenerate `specs/index.csv` with `python3 scripts/docs_index.py`, run `python3 scripts/docs_index.py --check`, format, and review the diff for unrelated edits.
+## Progress
 
-## Final Review
+- [ ] 1. Measure the floor: `cargo metadata --format-version 1` → max `rust_version` over
+  non-workspace packages (expected 1.95)
+- [ ] 2. `Cargo.toml` `[workspace.package] rust-version`; `rust-version.workspace = true` in each
+  member — `msrv-declared`
+- [ ] 3. `msrv-is-floor`; `msrv-builds` if a toolchain can be installed, otherwise note it as
+  unverified
+- [ ] 4. `CLAUDE.md` line; `bash scripts/check-build-matrix.sh` (or at least the native rows and
+  `cargo check -p liquers-web --target wasm32-unknown-unknown`) — `default-loop`
+- [ ] 5. Issue resolution and `status: closed`; `python3 scripts/docs_index.py --check`
 
-The plan is intentionally implementation-free. It must be rechecked against current signatures before execution and rolled back as a single scoped change if validation fails.
-
+Rollback: revert the commit.

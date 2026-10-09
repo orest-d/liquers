@@ -6,6 +6,7 @@ title: LiquersStore exposes getAssetInfo with effective media type
 status: in_review
 phase: documentation
 readiness: ready
+autofix: not-eligible
 area: [web]
 issues: [JS-STORE-WRAPPER-HAS-NO-EFFECTIVE-MEDIA-TYPE]
 created: 2026-10-06

@@ -6,6 +6,7 @@ workflow: liquers-project
 status: in_review
 phase: documentation
 readiness: ready
+autofix: not-eligible
 area: [store/backends, store/config]
 issues: [STORE-OPENDAL-ARGUMENTS-NOT-DERIVED]
 affects_docs: [reference/STORE_CONFIG_FSD.md, guides/STORE_FACTORY_GUIDE.md]

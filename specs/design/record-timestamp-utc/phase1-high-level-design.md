@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** needs-decision
+- **Automatic fixing:** not-eligible — changes the IPC serialized type and the polars dtype (rule
+  4), in two crates (rule 6)
 - **Leading issue:** **Open design question — Timestamp is a UTC instant everywhere (change IPC
   and the polars bridge), or a naive date-time everywhere (change Parquet and the text formats).**
   It changes a frozen design's IPC table (`record-streams` Phase 2) and the dtype users see in

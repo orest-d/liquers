@@ -6,6 +6,7 @@ title: Schema-less JSON reads use a stable, sorted column order
 status: in_review
 phase: documentation
 readiness: ready
+autofix: not-eligible
 area: [records]
 issues: [SCHEMA-LESS-JSON-READS-SORT-COLUMNS-ALPHABETICALLY]
 created: 2026-10-06

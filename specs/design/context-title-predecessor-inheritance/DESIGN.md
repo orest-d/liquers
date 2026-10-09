@@ -5,6 +5,7 @@ title: Command-set title and description cross a predecessor boundary
 status: in_review
 phase: implementation
 readiness: needs-decision
+autofix: not-eligible
 area: [core/context, core/plan]
 issues: [CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY]
 created: 2026-10-06

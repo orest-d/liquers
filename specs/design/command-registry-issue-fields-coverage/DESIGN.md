@@ -5,6 +5,7 @@ title: Coverage record for COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED
 status: in_review
 phase: architecture
 readiness: covered
+autofix: not-eligible
 area: [core/commands]
 issues: [COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED]
 created: 2026-09-03

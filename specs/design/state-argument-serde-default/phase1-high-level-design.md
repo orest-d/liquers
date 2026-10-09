@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** needs-decision
+- **Automatic fixing:** not-eligible — changes what an omitted serialized field means (rule 4); also
+  needs-decision (rule 5)
 - **Leading issue:** **Proposed resolution - omission semantics:** Omitted `state_argument` should
   mean the conventional transforming command; source commands must write explicit `null`.
 - **Explanation:** This preserves both constructors and existing registration defaults, but omission

@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [py, build]
-design:
+design: pyo3-python-3-13-support
 created: 2026-10-06
 github:
 ---

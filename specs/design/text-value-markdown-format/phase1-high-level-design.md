@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** ready
+- **Automatic fixing:** not-eligible — adds a data format to `Text`'s `TypeInfo` (rule 4) across
+  three crates (rule 6)
 - **Leading issue:** None
 - **Explanation:** `md` is a plain-text encoding that both base-value serializers can handle with
   the code they already use for `txt`; the type registry gates the write path, so declaring it on

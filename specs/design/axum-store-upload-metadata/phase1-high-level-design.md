@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** needs-decision
+- **Automatic fixing:** not-eligible — needs-decision (rule 5): the upload half sets the stored
+  `media_type` contract. Once decided it is a bug fix in `liquers-axum` and would be eligible
 - **Leading issue:** **Open design question — what an upload declares as `media_type`.** Under the
   metadata level model, `MetadataRecord.media_type` holds only a *declared override*. The effective
   media type is derived from the data format (`MetadataRecord::get_media_type`). Writing the

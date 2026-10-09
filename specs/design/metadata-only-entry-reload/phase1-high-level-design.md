@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** ready
+- **Automatic fixing:** eligible — bug fix in `liquers-core` `try_fast_track`; no API change
+  (already implemented)
 - **Leading issue:** None
 - **Explanation:** With `memory-store-metadata-only-entry`, every store answers a metadata-only key
   with `KeyNotFound` on `get`, so the fast track can recognize the case without a new metadata

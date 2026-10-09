@@ -1,14 +1,11 @@
 # Phase 3: Examples and Tests
 
-| Case | Expected result |
-|---|---|
-| Source reproduction | The source issue's failure becomes the stated successful or typed-error outcome. |
-| Compatibility/error path | Existing callers retain their documented behaviour and invalid input retains a typed error. |
-| Regression boundary | A focused test proves the precise changed contract, not only execution reachability. |
+| Test | Checks | Scenarios |
+|---|---|---|
+| `msrv-declared` (`cargo metadata`) | every workspace member reports `rust_version == "1.95"` | AC-1 |
+| `msrv-is-floor` (`cargo metadata`) | no non-workspace package's `rust_version` exceeds it | AC-2 |
+| `msrv-builds` (`cargo +1.95 check -p liquers-lib --lib`, if installable) | workspace code builds on the minimum | AC-2 |
+| `default-loop` (`cargo test -p liquers-lib --lib --tests`) | the cloud toolchain is unaffected | AC-3 |
 
-## Test Plan
-
-Add or amend focused tests beside the named implementation or in the named integration suite. Use descriptive single-behaviour test names, `#[tokio::test]` for async store paths, and assertions on error kind or structured fields rather than message parsing.
-
-**Validation commands:** cargo check -p liquers-lib --tests; cargo check -p liquers-lib --no-default-features --features polars --tests.
-
+These are command checks, not Rust tests: the contract is build metadata, which no test binary can
+observe.

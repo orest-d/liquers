@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** ready
+- **Automatic fixing:** not-eligible — adds writable formats to stored output across `liquers-core`
+  and `liquers-lib` (rule 6)
 - **Leading issue:** None
 - **Explanation:** The issue records the preferred fix and the evidence. `SimpleValue` shares core
   `Value`'s `TypeInfo`s by design, and the two serializers are meant to mirror each other variant

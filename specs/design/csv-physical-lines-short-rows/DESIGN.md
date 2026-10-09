@@ -6,6 +6,7 @@ title: CSV errors name physical lines; short rows are padded with an aggregate w
 status: in_review
 phase: documentation
 readiness: ready
+autofix: not-eligible
 area: [records]
 issues: [CSV-ROW-NUMBERS-COUNT-RECORDS-AND-SHORT-ROWS-READ-AS-NULL]
 created: 2026-10-06

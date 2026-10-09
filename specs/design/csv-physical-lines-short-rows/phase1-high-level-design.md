@@ -3,6 +3,8 @@
 ## Design Readiness
 
 - **Readiness:** ready
+- **Automatic fixing:** not-eligible — adds a read report structure (rule 3) used across
+  `liquers-records` and `liquers-lib` (rule 6)
 - **Leading issue:** None
 - **Explanation:** Decided (Maintainer decision, 2026-10-06): rows shorter than the header "may be padded with nulls or
   empty strings. They should not be silently ignored. A warning should be written to log that a row

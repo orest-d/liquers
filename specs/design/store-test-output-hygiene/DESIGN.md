@@ -5,6 +5,7 @@ title: Coverage record for STORE-TESTS-PRINT-TO-STDOUT
 status: in_review
 phase: architecture
 readiness: covered
+autofix: not-eligible
 area: [docs]
 issues: [STORE-TESTS-PRINT-TO-STDOUT]
 created: 2026-09-03

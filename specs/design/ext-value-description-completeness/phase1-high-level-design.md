@@ -3,6 +3,7 @@
 ## Design Readiness
 
 - **Readiness:** ready
+- **Automatic fixing:** eligible — test-only change in `liquers-lib` (already implemented)
 - **Leading issue:** None
 - **Explanation:** Test-only work. The design adds a compile-time guard (an exhaustive match that
   must name every `ExtValue` variant) so the test cannot fall behind the enum again.
