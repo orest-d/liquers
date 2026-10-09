@@ -4,8 +4,8 @@ kind: design
 title: CombinedValue reads an identifier the extension declares through the extension
 form: compact
 gh_pr: [97]
+status: complete
 workflow: liquers-project
-phase: documentation
 readiness: ready
 autofix: eligible
 area: [lib/value]
@@ -289,9 +289,9 @@ and none from `CLAUDE.md`.
   Rollback: revert the two files. Commit `cebdcd8`.
 - [x] 3. `liquers-lib/src/value/simple.rs` — the `txt`/`html`/`toml` and `md` comments (no code) —
   `cargo test -p liquers-lib --lib --tests`. Rollback: revert the comments. Commit `cebdcd8`.
-- [ ] 4. Feature rows — `cargo test -p liquers-lib --no-default-features --lib --tests` and
+- [x] 4. Feature rows — `cargo test -p liquers-lib --no-default-features --lib --tests` and
   `--no-default-features --features records`; `bash scripts/check-build-matrix.sh` if disk allows,
-  otherwise the two rows plus `--features polars`.
+  otherwise the two rows plus `--features polars`. All three rows green (35 suites each), 2026-10-09.
 
 ### Validation
 
