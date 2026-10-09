@@ -2,12 +2,12 @@
 id: ACTIVE-09
 kind: design
 title: Design for REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED
-status: in_review
 phase: implementation
 readiness: ready
 autofix: eligible
 area: [lib/commands, build, docs]
 issues: [REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED]
+gh_pr: [94]
 created: 2026-09-03
 ---
 

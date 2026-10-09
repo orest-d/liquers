@@ -221,6 +221,76 @@ async fn committed_registry_is_fresh() -> Result<(), Error> {
     Ok(())
 }
 
+/// The committed registry's implementation versions must match the code.
+///
+/// Separate from `committed_registry_is_fresh` (signatures) so the message says which kind of
+/// change needs a regeneration: an edited command body changes `impl_version` only. With
+/// `version: auto` that version hashes the whole function, so even a comment edit counts.
+///
+/// A `version: now` command takes the wall-clock time at registration, so it can never match a
+/// committed file. `Version::kind` cannot recognise such a version reliably (the flag bit it reads
+/// may also be clear in a hash), so it is detected by instability instead: two registrations in
+/// the same process give it two different versions.
+///
+/// See specs/design/command-registry-impl-version-freshness/.
+#[cfg(all(feature = "egui", feature = "image-support", feature = "polars", feature = "records"))]
+#[tokio::test]
+async fn committed_registry_impl_versions_are_fresh() -> Result<(), Error> {
+    let path = committed_registry_path();
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| Error::general_error(format!("Cannot read '{}': {}", path.display(), e)))?;
+    let committed: CommandMetadataRegistry = from_json_or_yaml(&path.display().to_string(), &text)?;
+    let current = full_registry()?;
+    let again = full_registry()?;
+
+    let regenerate = "Regenerate with:\n  cargo run -p liquers-lib --features cli \
+                      --bin export-command-registry -- --format yaml -o specs/command_registry.yaml";
+    let name_of = |k: &CommandKey| format!("{}/{}/{}", k.realm, k.namespace, k.name);
+
+    let mut time_based: Vec<String> = current
+        .commands
+        .iter()
+        .filter(|c| {
+            again
+                .get(c.key())
+                .is_some_and(|other| other.impl_version != c.impl_version)
+        })
+        .map(|c| name_of(&c.key()))
+        .collect();
+    time_based.sort();
+    assert!(
+        time_based.is_empty(),
+        "{time_based:?} use `version: now`, which cannot be committed: their implementation \
+         version changes every time they are registered. Use `version: auto` or a fixed version."
+    );
+
+    // Key sets are compared by `committed_registry_is_fresh`; a command missing on either side
+    // is reported there, not here.
+    let mut stale: Vec<String> = current
+        .commands
+        .iter()
+        .filter_map(|c| {
+            let committed_command = committed.get(c.key())?;
+            (committed_command.impl_version != c.impl_version).then(|| {
+                format!(
+                    "{}: committed {}, current {}",
+                    name_of(&c.key()),
+                    committed_command.impl_version,
+                    c.impl_version
+                )
+            })
+        })
+        .collect();
+    stale.sort();
+    assert!(
+        stale.is_empty(),
+        "specs/command_registry.yaml carries stale implementation versions (a command body \
+         changed since the last export):\n  {}\n{regenerate}",
+        stale.join("\n  ")
+    );
+    Ok(())
+}
+
 /// I6 — `multiple: true` together with an element-derived `argument_type` is a serde combination
 /// that had never existed in an exported registry before variadic arguments became declarable
 /// (`grep multiple specs/command_registry.yaml` returned nothing). Both fields are independently
