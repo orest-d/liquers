@@ -3,7 +3,7 @@ id: SIMPLE-VALUE-UNTYPED-AND-SCALAR-READS
 kind: design
 title: liquers-lib's base value reads untyped files as Bytes and textual scalars as their type
 form: compact
-status: in_review
+gh_pr: [91]
 phase: implementation
 readiness: ready
 autofix: eligible
@@ -44,22 +44,27 @@ that disagree with what its users expect:
 ### Scope and Acceptance Criteria
 
 - **AC-1** Untyped file of an unlisted format loads as Bytes
-  - WHEN `SimpleValue::deserialize_from_bytes(b, "" | "Bytes", fmt)` is called with a format no arm
-    handles
-  - THEN it returns `SimpleValue::Bytes` holding `b`
+  - WHEN `SimpleValue::deserialize_from_bytes(b, "Bytes", fmt)` is called with a format no arm
+    handles, or `CombinedValue::deserialize_from_bytes(b, "", fmt)` with a format neither half
+    reads
+  - THEN it returns `Bytes` holding `b`; for `""` the extension is asked first, since the
+    `DefaultValueSerializer` contract lets it infer a type from the format (revised in review of
+    PR #91)
 - **AC-2** A hand-placed CSV is usable as a resource
   - WHEN a CSV with no type identifier is stored and a manifest or `ns-rec/to_record` reads it
   - THEN the query succeeds, taking the format from the metadata
 - **AC-3** Other identifiers still refuse an unlisted format
-  - WHEN the identifier is a base type other than `Bytes` (e.g. `I32`) and the format is unlisted
+  - WHEN the identifier is anything other than `Bytes` (e.g. `I32`, `Image`, or `""` in
+    `SimpleValue` alone) and the format is unlisted
   - THEN the read fails as today, so `CombinedValue` still asks the extension
 - **AC-4** Textual scalars read back as their type
   - WHEN identifier `Bool`, `I32`, `I64` or `F64` is read under `txt`, `html`, `rs`, `py`, `css`
     or `js`
   - THEN the result is that scalar, parsed as core `Value` parses it; unparsable text is a
     conversion error, as in core
-- **AC-5** `None` and `Text` are unchanged
-  - WHEN identifier `""`, `Text` or `None` is read under a textual format
+- **AC-5** `None`, `Text` and `toml` are unchanged
+  - WHEN identifier `""`, `Text` or `None` is read under a textual format, or any base identifier
+    under `toml`
   - THEN the result is `Text`, as today (core has no `none` read rule either)
 
 Out of scope: core `Value`'s own `_` arm, which also refuses `csv` for `""`. A core-only
@@ -87,23 +92,31 @@ environment has no command that consumes a CSV, so the refusal costs nothing the
 
 ### Solution
 
-Two local edits to `SimpleValue::deserialize_from_bytes`:
+Two local edits to `SimpleValue::deserialize_from_bytes`, and one to
+`CombinedValue::deserialize_from_bytes`:
 
-1. The final `_ =>` format arm returns `Bytes` when `type_identifier` is `""` or `"Bytes"`, and
-   keeps the "Unsupported format" error otherwise.
+1. The final `_ =>` format arm returns `Bytes` when `type_identifier` is `"Bytes"`, and keeps the
+   "Unsupported format" error otherwise. When both halves refuse an empty identifier,
+   `CombinedValue` returns `Base(B::from_bytes(b))`. (First implemented as `""` | `"Bytes"` in
+   `SimpleValue`; moved after review of PR #91, because the base is asked before the extension and
+   would have pre-empted an extension inferring a type from the format.)
 2. In the textual arm, split `"" | "None" | "Bool" | "I32" | "I64" | "F64" | "Text"` into
    `"" | "None" | "Text"` → `Text`, and one arm each for `Bool` (`SimpleValue::from_bool_str`, the
    `ValueInterface` default), `I32`, `I64`, `F64` (`str::parse`, mapped with
    `Error::conversion_error_with_message` exactly as `liquers-core/src/value.rs` ≈1028 does). The
-   `toml` format stays in the arm and follows the same rule.
+   per-scalar parsing applies to `txt`, `html`, `rs`, `py`, `css` and `js` only, as in core; `toml`
+   is split out of the arm and keeps today's rule (every base identifier reads as `Text`), since no
+   acceptance criterion covers it and core has no `toml` rule to match.
 
 Rejected: falling back to `Bytes` in `CombinedValue::deserialize_from_bytes`
-(`liquers-lib/src/value/extended.rs` ≈602) — it would also swallow refusals for real identifiers
-such as `Image`, hiding a broken stored image as bytes.
+(`liquers-lib/src/value/extended.rs` ≈602) for every identifier — it would also swallow refusals
+for real identifiers such as `Image`, hiding a broken stored image as bytes. The fallback kept is
+limited to the empty identifier, which names no type to be broken.
 
 ### Changes
 
-- `liquers-lib/src/value/simple.rs` `SimpleValue::deserialize_from_bytes` only.
+- `liquers-lib/src/value/simple.rs` `SimpleValue::deserialize_from_bytes`;
+  `liquers-lib/src/value/extended.rs` `CombinedValue::deserialize_from_bytes` (empty identifier).
 - No commands, no registry change, sync code only.
 - Documents: no reference document states these read rules (searched 2026-10-08); the doc
   comment on `every_declared_format_round_trips` is the statement, and is updated with the test.
@@ -128,9 +141,16 @@ The two Problem Examples. Secondary: `deserialize_from_bytes(b"\x89PNG…", "", 
 
 In `liquers-lib/src/value/simple.rs` tests:
 
-- `untyped_unlisted_format_reads_as_bytes` — `""` and `Bytes` with `csv`, `png`, `parquet`; AC-1
-- `typed_unlisted_format_still_refuses` — `I32` with `csv`; AC-3
+- `bytes_in_unlisted_format_reads_as_bytes` — `Bytes` with `csv`, `png`, `parquet`; AC-1
+- `other_identifiers_in_unlisted_format_still_refuse` — `I32`, `Text`, and `""` alone; AC-3
+
+In `liquers-lib/src/value/extended.rs` tests:
+
+- `untyped_file_neither_half_reads_is_bytes` — `""` with `csv`, `png`, `parquet`; AC-1
+- `untyped_file_goes_to_an_inferring_extension_first` — AC-1
+- `named_identifier_neither_half_reads_still_refuses` — `Image`, `I32`; AC-3
 - `textual_scalars_read_back_as_their_type` — AC-4, including an unparsable `I32` error
+- `toml_scalars_still_read_as_text` — `I32` under `toml` reads as `Text`; AC-5
 - `every_declared_format_round_trips` (existing) — change the expectation so textual scalars read
   back as `value.clone()` except `None`, which stays `Text`; AC-4, AC-5
 
@@ -146,12 +166,16 @@ records_manifest_over_csv_files`.
 
 ### Steps
 
-- [ ] 1. `simple.rs` `_` format arm — `Bytes` for `""`/`Bytes` — `cargo test -p liquers-lib --test
+- [x] 1. (99af3b3) `simple.rs` `_` format arm — `Bytes` for `""`/`Bytes` — `cargo test -p liquers-lib --test
   records_manifest_over_csv_files -- --include-ignored` (the hand-placed test must pass)
-- [ ] 2. `simple.rs` textual arm — per-scalar parsing — `cargo test -p liquers-lib --lib value::simple`
-- [ ] 3. Tests above; un-ignore the hand-placed test — `cargo test -p liquers-lib --lib --tests`
-- [ ] 4. Both issues' resolutions and `status: closed`;
+- [x] 2. (d7cde3f) `simple.rs` textual arm — per-scalar parsing — `cargo test -p liquers-lib --lib value::simple`
+- [x] 3. (4557cbe) Tests above; un-ignore the hand-placed test — `cargo test -p liquers-lib --lib --tests`
+- [x] 4. (8b78ba7) Both issues' resolutions and `status: closed`;
   `python3 scripts/docs_index.py --check`
+- [x] 5. (review of PR #91) Empty-identifier fallback moved to `CombinedValue`, after the
+  extension — `cargo test -p liquers-lib --lib --tests`
+- [x] 6. (review of PR #88) `toml` split out of the per-scalar parsing; add
+  `toml_scalars_still_read_as_text` — `cargo test -p liquers-lib --lib value::simple`
 
 ### Validation
 

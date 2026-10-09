@@ -6,8 +6,9 @@
 //! identified by its query.
 //!
 //! The CSV files carry the `RecordView` type identifier, as Liquers writes them. A hand-placed CSV
-//! without it cannot be loaded at all (`STORED-UNTYPED-FILE-OF-UNLISTED-FORMAT-CANNOT-BE-READ`);
-//! [`manifest_over_hand_placed_csv_files_materializes`] is that case, ignored until it is fixed.
+//! has none and is read as bytes, the format coming from the metadata
+//! (`STORED-UNTYPED-FILE-OF-UNLISTED-FORMAT-CANNOT-BE-READ`);
+//! [`manifest_over_hand_placed_csv_files_materializes`] is that case.
 #![cfg(feature = "records")]
 
 use liquers_core::context::{Context, EnvRef, Environment};
@@ -204,9 +205,8 @@ async fn manifest_csv_chunk_violating_uniform_schema_fails(
     Ok(())
 }
 
-/// Phase 1 asks for the error to name the chunk; today it names only the field.
+/// Phase 1 asks for the error to name the chunk.
 #[tokio::test]
-#[ignore = "MANIFEST-CHUNK-SCHEMA-ERROR-DOES-NOT-NAME-THE-CHUNK"]
 async fn manifest_csv_chunk_schema_error_names_the_chunk() -> Result<(), Box<dyn std::error::Error>>
 {
     let envref = build_env(stored_files(Some("RecordView")).await?)?;
@@ -220,7 +220,6 @@ async fn manifest_csv_chunk_schema_error_names_the_chunk() -> Result<(), Box<dyn
 
 /// The same directory of CSV files placed by hand, with no type identifier.
 #[tokio::test]
-#[ignore = "STORED-UNTYPED-FILE-OF-UNLISTED-FORMAT-CANNOT-BE-READ"]
 async fn manifest_over_hand_placed_csv_files_materializes(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let envref = build_env(stored_files(None).await?)?;

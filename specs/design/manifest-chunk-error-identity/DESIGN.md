@@ -3,10 +3,9 @@ id: MANIFEST-CHUNK-ERROR-IDENTITY
 kind: design
 title: A manifest chunk read error names the chunk
 form: compact
-status: in_review
-phase: implementation
+status: complete
 readiness: ready
-autofix: eligible
+autofix: not-eligible
 area: [records]
 issues: [MANIFEST-CHUNK-SCHEMA-ERROR-DOES-NOT-NAME-THE-CHUNK]
 created: 2026-10-08
@@ -62,9 +61,10 @@ changing the `pub` function's signature would be an interface change.
 ### Design Readiness
 
 - **Readiness:** ready
-- **Automatic fixing:** eligible — error-message fix in `liquers-records/src/sources.rs`
-  (`ManifestSource::advance`); no `pub` signature, type or format changes. The only edit outside
-  the crate is removing `#[ignore]` from the existing liquers-lib test that proves it.
+- **Automatic fixing:** not-eligible — the fix is in `liquers-records`, but its proof includes
+  un-ignoring a `liquers-lib` integration test, so the fix and its tests are not in one crate
+  (rule 6). Re-labeled on 2026-10-08 after review; the change is small and is reviewed as an ordinary
+  PR rather than landing unattended.
 - **Leading issue:** None
 - **Explanation:** The traversal already holds both the global chunk index and the `ChunkId` at the
   point where it calls `read_chunk`; prefixing the message there covers every reader path (stored
@@ -131,17 +131,26 @@ Command: `cargo test -p liquers-records --all-features --lib --tests` and
 
 ### Steps
 
-- [ ] 1. `liquers-records/src/sources.rs` — add `name_chunk` and apply it in `advance` —
+- [x] 1. (`20a282c`) `liquers-records/src/sources.rs` — add `name_chunk` and apply it in `advance` —
   `cargo check -p liquers-records --all-features`
-- [ ] 2. `liquers-records/src/sources.rs` tests — add `chunk_error_names_unkeyed_chunk_by_query`
+- [x] 2. (`2af80b3`) `liquers-records/src/sources.rs` tests — add `chunk_error_names_unkeyed_chunk_by_query`
   and `chunk_error_keeps_error_type` — `cargo test -p liquers-records --all-features --lib`
-- [ ] 3. `liquers-lib/tests/records_manifest_over_csv_files.rs` — remove the `#[ignore]` on
+- [x] 3. (`679138b`) `liquers-lib/tests/records_manifest_over_csv_files.rs` — remove the `#[ignore]` on
   `manifest_csv_chunk_schema_error_names_the_chunk` — `cargo test -p liquers-lib --test
   records_manifest_over_csv_files`
-- [ ] 4. Issue resolution and `status: closed`; Phase 5 note; `python3 scripts/docs_index.py` and
+- [x] 4. (the commit closing the issue) Issue resolution and `status: closed`; Phase 5 note; `python3 scripts/docs_index.py` and
   `--check` — index check passes
 
 ### Validation
 
 `cargo test -p liquers-records --all-features --lib --tests`; `cargo test -p liquers-records --lib
 --tests` (no formats); the liquers-lib test above. Rollback: revert the single commit.
+
+## Phase 5: Documentation
+
+Implemented 2026-10-08 on `claude/manifest-chunk-error-identity`. A chunk refused while
+`ManifestSource` walks its chunks now fails with `chunk <global index> (<key or encoded query>): `
+followed by the original message, error type unchanged; `ns-rec/rowid`'s single-chunk read is not
+affected. Small maintenance: one sentence in [`reference/RECORD_STREAMS.md`](../../reference/RECORD_STREAMS.md)
+(the `uniform_schema` row of the manifest fields table), and the issue's resolution. No new
+reference or guide is needed.

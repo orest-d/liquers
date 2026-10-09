@@ -678,7 +678,21 @@ impl DefaultValueSerializer for SimpleValue {
                     "Key" => liquers_core::parse::parse_key(&s).map(|value| SimpleValue::Key { value }),
                     // Written raw; reading it as text would lose every byte that is not UTF-8.
                     "Bytes" => Ok(SimpleValue::Bytes { value: b.to_vec() }),
-                    "" | "None" | "Bool" | "I32" | "I64" | "F64" | "Text" => {
+                    // Scalars are parsed as core `Value` parses them; text that does not parse
+                    // is a conversion error, as in core. Core has no `toml` rule, so under `toml`
+                    // they keep reading as text.
+                    "Bool" if fmt != "toml" => SimpleValue::from_bool_str(&s),
+                    "I32" if fmt != "toml" => s.parse::<i32>().map(|value| SimpleValue::I32 { value }).map_err(|e| {
+                        Error::conversion_error_with_message(&s, "i32", &e.to_string())
+                    }),
+                    "I64" if fmt != "toml" => s.parse::<i64>().map(|value| SimpleValue::I64 { value }).map_err(|e| {
+                        Error::conversion_error_with_message(&s, "i64", &e.to_string())
+                    }),
+                    "F64" if fmt != "toml" => s.parse::<f64>().map(|value| SimpleValue::F64 { value }).map_err(|e| {
+                        Error::conversion_error_with_message(&s, "f64", &e.to_string())
+                    }),
+                    // Core has no textual read rule for `None` either.
+                    "" | "None" | "Text" | "Bool" | "I32" | "I64" | "F64" => {
                         Ok(SimpleValue::Text { value: s })
                     }
                     // Not a base identifier. `txt`, `html` and `toml` have always read as text
@@ -743,10 +757,18 @@ impl DefaultValueSerializer for SimpleValue {
                     .map_err(|e| Error::from_error(ErrorType::ParseError, e))?;
                 SimpleValue::try_from_json_value(&json_value)
             }
-            _ => Err(Error::from_error(
-                ErrorType::SerializationError,
-                format!("Unsupported format in deserialize_from_bytes: {}", fmt),
-            )),
+            // `Bytes` in a format the base value does not parse (`csv`, `png`, `parquet`) is its
+            // bytes; the command consuming it takes the format from the metadata. Any other
+            // identifier refuses, so `CombinedValue` asks the extension. An empty identifier
+            // refuses too: the extension may infer a type from the format, and `CombinedValue`
+            // reads the file as bytes only when it does not.
+            _ => match type_identifier {
+                "Bytes" => Ok(SimpleValue::Bytes { value: b.to_vec() }),
+                _ => Err(Error::from_error(
+                    ErrorType::SerializationError,
+                    format!("Unsupported format in deserialize_from_bytes: {}", fmt),
+                )),
+            },
         }
     }
 }
@@ -1076,8 +1098,8 @@ mod tests {
     }
 
     /// Every (type, format) pair `SimpleValue`'s `TypeInfo` declares is written and read back,
-    /// with no exceptions. A text format carries no type, so a scalar reads back as `Text`, while
-    /// `Bytes`, `Query` and `Key` read back as themselves; JSON numbers read back as `I64`.
+    /// with no exceptions. Under a text format every type reads back as itself, as core `Value`
+    /// reads it, except `None`, which reads back as `Text`; JSON numbers read back as `I64`.
     #[test]
     fn every_declared_format_round_trips() -> Result<(), Box<dyn std::error::Error>> {
         for info in SimpleValue::type_descriptions() {
@@ -1089,11 +1111,7 @@ mod tests {
                     .map_err(|e| format!("{id} declares {format} but does not write it: {e}"))?;
                 let back = SimpleValue::deserialize_from_bytes(&bytes, &id, format)?;
                 let expected = match (format.as_ref(), &value) {
-                    (
-                        "txt" | "html" | "md" | "rs" | "py" | "css" | "js",
-                        SimpleValue::Bytes { .. } | SimpleValue::Query { .. } | SimpleValue::Key { .. },
-                    ) => value.clone(),
-                    ("txt" | "html" | "md" | "rs" | "py" | "css" | "js", _) => {
+                    ("txt" | "html" | "md" | "rs" | "py" | "css" | "js", SimpleValue::None {}) => {
                         SimpleValue::Text { value: String::from_utf8(bytes.clone())? }
                     }
                     ("json", SimpleValue::I32 { value }) => SimpleValue::I64 { value: i64::from(*value) },
@@ -1101,6 +1119,74 @@ mod tests {
                 };
                 assert_eq!(back, expected, "round trip of {id} as {format}");
             }
+        }
+        Ok(())
+    }
+
+    /// `Bytes` in a format the base value does not parse is read as its bytes.
+    #[test]
+    fn bytes_in_unlisted_format_reads_as_bytes() -> Result<(), Box<dyn std::error::Error>> {
+        let bytes = b"a,b\n1,2\n\x89PNG\xff";
+        for format in ["csv", "png", "parquet"] {
+            let back = SimpleValue::deserialize_from_bytes(bytes, "Bytes", format)?;
+            assert_eq!(back, SimpleValue::Bytes { value: bytes.to_vec() }, "Bytes as {format}");
+        }
+        Ok(())
+    }
+
+    /// Any other identifier, the empty one included, still refuses an unlisted format, so
+    /// `CombinedValue` asks the extension (which may infer a type from the format) first.
+    #[test]
+    fn other_identifiers_in_unlisted_format_still_refuse() {
+        assert!(SimpleValue::deserialize_from_bytes(b"7", "I32", "csv").is_err());
+        assert!(SimpleValue::deserialize_from_bytes(b"x", "Text", "png").is_err());
+        assert!(SimpleValue::deserialize_from_bytes(b"a,b", "", "csv").is_err());
+    }
+
+    /// A scalar under a textual format reads back as its type, parsed as core `Value` parses it.
+    #[test]
+    fn textual_scalars_read_back_as_their_type() -> Result<(), Box<dyn std::error::Error>> {
+        for format in ["txt", "html", "rs", "py", "css", "js"] {
+            assert_eq!(
+                SimpleValue::deserialize_from_bytes(b"true", "Bool", format)?,
+                SimpleValue::Bool { value: true }
+            );
+            assert_eq!(
+                SimpleValue::deserialize_from_bytes(b"7", "I32", format)?,
+                SimpleValue::I32 { value: 7 }
+            );
+            assert_eq!(
+                SimpleValue::deserialize_from_bytes(b"1099511627776", "I64", format)?,
+                SimpleValue::I64 { value: 1 << 40 }
+            );
+            assert_eq!(
+                SimpleValue::deserialize_from_bytes(b"1.5", "F64", format)?,
+                SimpleValue::F64 { value: 1.5 }
+            );
+            for id in ["", "None", "Text"] {
+                assert_eq!(
+                    SimpleValue::deserialize_from_bytes(b"7", id, format)?,
+                    SimpleValue::Text { value: "7".to_string() }
+                );
+            }
+            let error = SimpleValue::deserialize_from_bytes(b"abc", "I32", format)
+                .err()
+                .ok_or("unparsable I32 must not read")?;
+            assert_eq!(error.error_type, ErrorType::ConversionError, "{error}");
+        }
+        Ok(())
+    }
+
+    /// `toml` keeps its old rule: core has no `toml` reader to match, so every scalar reads as
+    /// `Text`.
+    #[test]
+    fn toml_scalars_still_read_as_text() -> Result<(), Box<dyn std::error::Error>> {
+        for (id, text) in [("Bool", "true"), ("I32", "7"), ("I64", "7"), ("F64", "1.5"), ("I32", "abc")] {
+            assert_eq!(
+                SimpleValue::deserialize_from_bytes(text.as_bytes(), id, "toml")?,
+                SimpleValue::Text { value: text.to_string() },
+                "{id} as toml"
+            );
         }
         Ok(())
     }
