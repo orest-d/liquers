@@ -183,3 +183,46 @@ fn combined_registry_contains_both_sides() {
         "there is no error type: a failure is metadata, not something a value can be"
     );
 }
+
+/// AC-4 (`specs/design/combined-value-identifier-dispatch/`): an identifier the extension declares
+/// never reads back as a base value, in any of its own formats or in the formats the base reads
+/// whatever the identifier. The payload is a JSON array, which the base would accept as `txt`,
+/// `json` and `yaml`. Also pins that the two identifier lists are disjoint, which the dispatch
+/// relies on.
+#[test]
+fn extension_identifiers_never_read_as_base_values() {
+    use liquers_core::value::DefaultValueSerializer;
+
+    let base: Vec<String> = SimpleValue::type_descriptions()
+        .iter()
+        .map(|info| info.type_identifier.to_string())
+        .collect();
+    let payload = b"[{\"n\": 1}, {\"n\": 2}]";
+    for info in <ExtValue as ValueExtension>::type_descriptions() {
+        let identifier = info.type_identifier.to_string();
+        assert!(
+            !base.contains(&identifier),
+            "{identifier} is declared by both the base and the extension"
+        );
+        let mut formats: Vec<String> = info
+            .supported_data_formats
+            .iter()
+            .map(|format| format.to_string())
+            .collect();
+        formats.extend(["txt", "json", "yaml"].map(String::from));
+        for format in formats {
+            match Combined::deserialize_from_bytes(payload, &identifier, &format) {
+                Ok(CombinedValue::Extended(ext)) => assert_eq!(
+                    ValueExtension::identifier(&ext),
+                    identifier,
+                    "{identifier} as {format}"
+                ),
+                Ok(CombinedValue::Base(base_value)) => panic!(
+                    "{identifier} as {format} read as the base value {}",
+                    base_value.identifier()
+                ),
+                Err(_) => {}
+            }
+        }
+    }
+}

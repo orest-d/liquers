@@ -2,11 +2,11 @@
 id: ASSET-CANCEL-DURING-PROCESSING-FINISHES-READY
 kind: issue
 title: An asset cancelled while its command runs is finalized Ready when the command returns
-status: draft
+status: closed
 priority: P2
-complexity: M
+complexity: L
 area: [core/assets]
-design:
+design: asset-cancellation-outcome
 created: 2026-09-28
 github:
 ---
@@ -42,3 +42,14 @@ the asset's `AssetInfo` after the cancel, so either answer is visible to the cli
 
 Found 2026-09-28 while implementing `specs/design/axum-assets-endpoints/` (Step 12): Phase 3's
 cancel tests assumed a cancelled `Processing` query ends `Cancelled`.
+
+## Resolution
+
+Closed 2026-10-09 by `design/asset-cancellation-outcome/`. The run is now the single writer of the
+terminal status: `cancel()` sets a request; the run races its compute against it and finalizes once,
+from an in-flight status. A command that has already returned `Ok` ends `Ready` and **is persisted**
+(the request is dropped); a suspended async command is dropped and the asset ends `Cancelled`; a
+command can stop early with `Context::check_cancelled()?`. The service loop no longer sets a status
+on `Cancel`, so the `Cancelled`-then-`Ready` flip is gone. Evidence:
+`liquers-core/tests/asset_cancellation.rs` (`ac01_completed_sync_run_wins_over_late_cancel`,
+`ac07_one_terminal_status_per_run`) and the tightened `aae92` / `aae38`, which now assert `Ready`.

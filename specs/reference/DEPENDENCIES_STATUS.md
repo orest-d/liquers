@@ -3,7 +3,7 @@ title: Status::Dependencies Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-08
+reviewed: 2026-10-09
 ---
 # Dependencies Status Specification
 
@@ -38,8 +38,9 @@ machinery:
 - If the delegated child is still only queued, the parent path runs that child job inline. This is
   the current deadlock guard: the child no longer needs to wait for another queue slot before it can
   make progress.
-- `AssetRef::fail_due_to_dependency(error)` turns parent evaluation into `Error` when the delegated
-  child fails.
+- When the delegated child fails, `wait_for_dependency` returns its error and the parent's run
+  records it (`Error`, or `Cancelled` for a cancelled child); the wait does not set the parent's
+  status itself.
 - `AssetRef::leave_dependencies_for_resubmit()` clears the dependency wait once the child is ready,
   and the parent can finish normally.
 - `JobQueue` is notify-driven (`Notify`) rather than a periodic sleeper, so submitted work and job
@@ -391,8 +392,9 @@ This is the F-1 path.
    - On failure, `B.run()` returns an error.
 
 7. **Propagate child result**
-   - If the inline child run failed, `A.fail_due_to_dependency(error)` clears parent data/binary,
-     sets `Status::Error`, records error metadata, and sends `ErrorOccurred`.
+   - If the inline child run failed, the wait returns the child's error to `A`'s evaluation; `A`'s
+     run then fails (`Error`) or, for a cancellation, ends `Cancelled` — unless `A`'s command
+     handles the error.
    - Otherwise `A` calls `B.get()` and obtains the child state. If `get()` returns an error,
      parent evaluation returns a dependency-context error.
 
@@ -481,12 +483,21 @@ This path handles dependencies known before command execution.
 
 ### Flow D: cancellation and failures while waiting
 
-1. Cancellation of an asset in `Dependencies` is handled like cancellation from `Processing`:
-   the current asset transitions to `Cancelled`.
-2. The dependency asset is not cancelled; it may be needed by other assets.
-3. Dependency failures propagate through `fail_due_to_dependency()` in the delegation path or as
-   errors returned from `context.wait_for_dependency(&child)` in runtime-command paths.
-4. `Status::Dependencies` itself is never terminal and never exposes data.
+1. Cancellation of an asset in `Dependencies` is handled like cancellation from `Processing`: the
+   request drops the asset's suspended evaluation and it transitions to `Cancelled`.
+2. The dependency asset is not cancelled; it may be needed by other assets. If the cancelled parent
+   had claimed the dependency's run inline, the claim's `Drop` re-parks the dependency, which
+   finishes normally.
+3. Dependency failures propagate as errors returned from `wait_for_dependency` (the delegation path,
+   `context.wait_for_dependency(&child)`, `context.get_dependency_state`). The wait restores the
+   parent from `Dependencies` to `Processing` and returns; the parent's run decides its status.
+4. **Cascade.** A dependency that ended `Cancelled` makes the wait return the dependency's recorded
+   cancellation error unchanged (its `query` names the asset whose cancel was requested, at any
+   depth), or one built for the dependency when it recorded none. Unless the parent's own cancel
+   was requested, the parent logs one warning `Dependency <dep> was cancelled; root cause: <root>`.
+   Propagated, the error ends the parent `Cancelled`; handled by its command, the parent finishes
+   normally. A shared dependency's cancel reaches every waiter.
+5. `Status::Dependencies` itself is never terminal and never exposes data.
 
 ## Function glossary
 
@@ -510,8 +521,8 @@ This path handles dependencies known before command execution.
   dependency wait state.
 - `AssetRef::leave_dependencies_for_resubmit()`: helper for leaving `Dependencies` before parent
   evaluation finishes or is resubmitted.
-- `AssetRef::fail_due_to_dependency(error)`: helper for converting dependency failure into parent
-  `Error` state.
+- `AssetRef::cancelled_dependency_cause(&dependency)`: the error a wait for a cancelled dependency
+  returns, plus the parent's cascade warning (Flow D step 4).
 - `DependencyManager::audit_version(key, version)` (crate): records `version` and expires every
   dependent that does not positively match, also on a first observation; returns the expired set
   and the direct findings.
@@ -569,6 +580,7 @@ Dependency evaluation is now non-blocking and deadlock-free (see
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-09 | Flow D: cascade cancellation, the wait no longer sets the parent's status (`fail_due_to_dependency` removed); the delegation description and glossary follow. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-08 | New §What a dependency record holds (records are direct; analysis summary versus record; what a fast-track load contributes) and §Consistency policies (`Explicit` / `OnLoad` compared, the stored-records walk, the startup store audit, the restart example). Current contract: `OnLoad` resolves unknown dependencies with the walk, recursively; audits resolve gaps through the walk and the per-key audit covers the upstream closure; `register_version` expires an edge recording a concrete, other version on a first registration. Flow C step 2 and the glossary updated. | phase-5 (`design/dependency-chain-analysis-cost/`) |
 | 2026-10-07 | §Current contract: an edge recorded against a version the map has already replaced marks the dependent stale (the stale-dependency route); the folder-listing bullet no longer names the window as uncaught. Flow B step 2: what `submit` leaves behind on each manager, including the saturated queued manager, which parks the dependency on the local queue. | phase-5 (`design/dependency-edge-superseded-version/`, `design/submit-eagerness-documentation/`) |
 | 2026-10-04 | Review fixes on orest-d/liquers#75: writes register through `register_written_version` (a first registration is a change); `on_load` records a version it confirmed; `makedir` / `removedir` refresh the parent listing; the directory step versions the read that built its value and re-reads once registered. | phase-5 |

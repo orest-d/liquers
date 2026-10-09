@@ -5,7 +5,7 @@ ANY-STATUS-READ-MISSES-STORED-VALUE-OF-UNLOADED-LIVE-ASSET,issue,Recovery reads 
 ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING,feature,Declared arguments replace inferred ones instead of augmenting them,closed,local,,,,P3,M,core/commands;web;py,,,,,,2026-08-29,specs/issues/ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING.md
 ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS,issue,An argument's default gui_info differs depending on how the command was registered,closed,local,,ready,,P2,S,core/commands;macro;web,,,,argument-gui-info-default,,2026-08-30,specs/issues/ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS.md
 ARGUMENT-INFO-HAS-NO-DESCRIPTION,issue,ArgumentInfo has no per-argument description,draft,local,,needs-decision,not-eligible,P3,S,core/commands;macro,,,,command-metadata-descriptions-and-hints,,2026-09-24,specs/issues/ARGUMENT-INFO-HAS-NO-DESCRIPTION.md
-ASSET-CANCEL-DURING-PROCESSING-FINISHES-READY,issue,An asset cancelled while its command runs is finalized Ready when the command returns,draft,local,,,,P2,M,core/assets,,,,,,2026-09-28,specs/issues/ASSET-CANCEL-DURING-PROCESSING-FINISHES-READY.md
+ASSET-CANCEL-DURING-PROCESSING-FINISHES-READY,issue,An asset cancelled while its command runs is finalized Ready when the command returns,closed,local,,,,P2,L,core/assets,,,,asset-cancellation-outcome,,2026-09-28,specs/issues/ASSET-CANCEL-DURING-PROCESSING-FINISHES-READY.md
 ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET,feature,Asset expiration events cannot be observed except per asset,draft,local,,,,P2,L,core/assets,,,,,,2026-09-17,specs/issues/ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET.md
 ASSET-EXPIRED-CACHED-BINARY-READ,issue,Expired asset can still return its cached binary on read,closed,local,,,,P0,M,core/assets;core/store,,,,expiration-safety,,2026-08-08,specs/issues/ASSET-EXPIRED-CACHED-BINARY-READ.md
 ASSET-FINISHED-PROGRESS-CONTRACT-UNDEFINED,issue,"What progress a finished asset reports is undefined, and was asserted by a race",closed,local,,ready,,P3,S,core/assets,,,,finished-asset-progress-contract,,2026-09-03,specs/issues/ASSET-FINISHED-PROGRESS-CONTRACT-UNDEFINED.md
@@ -38,11 +38,12 @@ BENCHMARK-SUITE,feature,No reproducible benchmarks for core runtime paths,accept
 BUILD-MATRIX-CI-SKIPS-LIQUERS-RECORDS-CHANGES,issue,The build-matrix workflow does not run on a change confined to liquers-records,closed,local,,,,P3,S,build;records,,,,,,2026-10-08,specs/issues/BUILD-MATRIX-CI-SKIPS-LIQUERS-RECORDS-CHANGES.md
 BUILD-MATRIX-NOT-RUN-IN-CI,issue,The feature/target build matrix is never run automatically,closed,local,,ready,,P2,S,build;docs,,,,build-matrix-ci,,2026-08-25,specs/issues/BUILD-MATRIX-NOT-RUN-IN-CI.md
 BUILD-SYSINFO-REQUIRES-NEWER-RUSTC,issue,liquers-lib test builds fail on rustc 1.94 because a transitive sysinfo requires 1.95,closed,local,,ready,eligible,P2,S,build,,,,build-sysinfo-rustc-compatibility,,2026-09-02,specs/issues/BUILD-SYSINFO-REQUIRES-NEWER-RUSTC.md
+CANCEL-CAN-OVERTAKE-A-RETURNED-COMMAND,issue,"A cancel can still win after the last command returned Ok, if the rest of the evaluation then suspends",draft,local,,,,P3,M,core/assets,,,,,,2026-10-09,specs/issues/CANCEL-CAN-OVERTAKE-A-RETURNED-COMMAND.md
 COLUMN-SLICE-COPIES-INSTEAD-OF-SHARING-BUFFER-STORAGE,issue,Column slice copies instead of sharing buffer storage,draft,local,,,,P3,M,records,,,,record-streams,,2026-09-26,specs/issues/COLUMN-SLICE-COPIES-INSTEAD-OF-SHARING-BUFFER-STORAGE.md
 COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY,issue,"ColumnMut always copies validity, and rebuilds the whole column to overwrite one Text/Binary cell",draft,local,,,,P3,M,records,,,,record-streams,,2026-09-26,specs/issues/COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY.md
 COMBINED-EXPIRES,feature,No algebra for combining expiration across dependencies,accepted,local,,,,P2,L,core/assets,,,,,,2026-08-08,specs/issues/COMBINED-EXPIRES.md
 COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED,issue,"CombinedValue::default_extension returns ""ext"" for every extended value",closed,local,,covered,not-eligible,P2,S,lib/value,,,,combined-value-default-extension,,2026-08-18,specs/issues/COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED.md
-COMBINED-VALUE-DISCRIMINATION,feature,Deserialization cannot discriminate base from extended values,accepted,local,,,,P2,M,core/value;lib/value,,,,,,2026-08-08,specs/issues/COMBINED-VALUE-DISCRIMINATION.md
+COMBINED-VALUE-DISCRIMINATION,feature,Deserialization cannot discriminate base from extended values,closed,local,,ready,eligible,P2,M,core/value;lib/value,,,,combined-value-identifier-dispatch,,2026-08-08,specs/issues/COMBINED-VALUE-DISCRIMINATION.md
 COMMAND-ALIAS-DEFINITION-UNTESTED,issue,"CommandDefinition::Alias has no test and no user, and its head-parameter semantics are unexercised",draft,local,,,,P2,M,core/plan;core/commands,,,,command-alias-contract,,2026-08-29,specs/issues/COMMAND-ALIAS-DEFINITION-UNTESTED.md
 COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ,issue,"CommandMetadata.cache is declared, documented and exported, but nothing reads it",closed,local,,ready,not-eligible,P3,S,core/commands;macro,,,,command-cache-flag,,2026-09-19,specs/issues/COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ.md
 COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT,feature,A command cannot be run with a restricted context,draft,local,,,,P2,M,core/context;core/commands,,,,,,2026-09-17,specs/issues/COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT.md
@@ -282,6 +283,7 @@ WORKSPACE-SERDE-DERIVE-UNDECLARED,issue,Three crates use serde derive macros wit
 AGENT-MEMORY-MVP,design,MVP for an agent memory service on the liquers stack,in_review,local,high-level,,,P2,XL,axum;lib/commands;core/assets;docs,,,,agent-memory-mvp,,2026-09-15,specs/design/agent-memory-mvp/DESIGN.md
 ARGUMENT-GUI-INFO-DEFAULT,design,Consistent default GUI metadata for command arguments,complete,local,,ready,,P2,S,core/commands;macro;web,,,,argument-gui-info-default,,2026-09-01,specs/design/argument-gui-info-default/DESIGN.md
 ARGUMENT-INFO-DESCRIPTION,design,Per-argument description in ArgumentInfo and register_command!,superseded,local,,,,P3,S,core/commands;macro,,,,argument-info-description,,2026-10-06,specs/design/argument-info-description/DESIGN.md
+ASSET-CANCELLATION-OUTCOME,design,Deterministic asset cancellation outcome and cooperative command cancellation,in_review,local,documentation,,,P2,L,core/assets;core/commands,,,,asset-cancellation-outcome,,2026-10-09,specs/design/asset-cancellation-outcome/DESIGN.md
 COVERED-01,design,Coverage record for ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE,in_review,local,architecture,covered,not-eligible,P2,S,docs,,,,asset-manager-insert-key-asset-no-overwrite,,2026-09-03,specs/design/asset-manager-insert-key-asset-no-overwrite/DESIGN.md
 ASSET-MANAGER-INSERT-KEY-ASSET-SEMANTICS,design,asset-manager-insert-key-asset-semantics,draft,local,documentation,,,P2,S,core/assets,,,,asset-manager-insert-key-asset-semantics,,2026-08-25,specs/design/asset-manager-insert-key-asset-semantics/DESIGN.md
 ASYNC-MEMORY-STORE-PREFIX-SUPPORT,design,Memory-store support predicates respect prefixes,complete,local,,,,P1,S,core/store,,,,async-memory-store-prefix-support,,2026-09-02,specs/design/async-memory-store-prefix-support/DESIGN.md
@@ -295,6 +297,7 @@ AXUM-STORE-UPLOAD-METADATA,design,Store API keeps upload media types and serves 
 BUILD-MATRIX-CI,design,Run the feature and target build matrix in CI,complete,local,,ready,,P2,S,build;docs,,,,build-matrix-ci,,2026-09-01,specs/design/build-matrix-ci/DESIGN.md
 ACTIVE-01,design,Declare the workspace's minimum supported Rust version,complete,local,,ready,eligible,P2,S,build,,,,build-sysinfo-rustc-compatibility,,2026-09-03,specs/design/build-sysinfo-rustc-compatibility/DESIGN.md
 COVERED-02,design,Coverage record for COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED,in_review,local,architecture,covered,not-eligible,P2,S,docs,,,,combined-value-default-extension,,2026-09-03,specs/design/combined-value-default-extension/DESIGN.md
+COMBINED-VALUE-IDENTIFIER-DISPATCH,design,CombinedValue reads an identifier the extension declares through the extension,complete,local,,ready,eligible,P2,M,lib/value,,97,,combined-value-identifier-dispatch,,2026-10-09,specs/design/combined-value-identifier-dispatch/DESIGN.md
 COMMAND-ALIAS-CONTRACT,design,"A specified, validated and exercised contract for command aliases",in_review,local,high-level,,,P2,M,core/plan;core/commands,,,,command-alias-contract,,2026-10-09,specs/design/command-alias-contract/DESIGN.md
 COMMAND-CACHE-FLAG,design,Remove the unread CommandMetadata.cache flag,in_review,local,documentation,ready,not-eligible,P3,S,core/commands;macro,,,,command-cache-flag,,2026-10-06,specs/design/command-cache-flag/DESIGN.md
 COMMAND-DECLARATION,design,A language-neutral command declaration type,complete,local,,,,,,core/commands;web;py,,50,,command-declaration,,2026-08-29,specs/design/command-declaration/DESIGN.md
@@ -444,15 +447,15 @@ WP2-TERMINAL-OUTCOME,design,Asset terminal outcome contract,complete,local,,,,,,
 API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,,docs,,,,,2026-08-17,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
 DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
 DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,,core/query,,,,,2026-08-17,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
-DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
+DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,,core/assets,,,,,2026-10-09,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
 DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,,core/context;core/plan,,,,,2026-10-06,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
 DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/assets;core/context,,,,,2026-10-08,,specs/reference/api/DOC_08_RECIPES_PLANS.md
-ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/reference/ASSET_LIFECYCLE.md
-ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,,core/assets,,,,,2026-09-27,,specs/reference/ASSET_SET_OPERATION.md
-ASSETS,reference,Assets Specification,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/reference/ASSETS.md
+ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,,core/assets,,,,,2026-10-09,,specs/reference/ASSET_LIFECYCLE.md
+ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,,core/assets,,,,,2026-10-09,,specs/reference/ASSET_SET_OPERATION.md
+ASSETS,reference,Assets Specification,current,local,,,,,,core/assets,,,,,2026-10-09,,specs/reference/ASSETS.md
 COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,,core/commands;web;py,,,,,2026-10-07,,specs/reference/COMMAND_DECLARATION.md
 CONFORMANCE_TERMS,reference,Conformance Terms,current,local,,,,,,docs,,,,,2026-09-02,,specs/reference/CONFORMANCE_TERMS.md
-DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/reference/DEPENDENCIES_STATUS.md
+DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,,,core/assets,,,,,2026-10-09,,specs/reference/DEPENDENCIES_STATUS.md
 ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,,core/context;core/store;core/assets,,,,,2026-10-08,,specs/reference/ENVIRONMENT_CONFIG.md
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,local,,,,,,lib/image,,,,,2026-03-02,,specs/reference/IMAGE_COMMAND_LIBRARY.md
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,,core/context;core/commands,,,,,2026-09-04,,specs/reference/PAYLOAD_GUIDE.md
@@ -463,12 +466,13 @@ REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,,store/config,,,,,2026-10-07,,specs/reference/STORE_CONFIG_FSD.md
 STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-07,,specs/reference/STORE_SEMANTICS.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
-VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-09-27,,specs/reference/VALUE_TYPE_SYSTEM.md
-WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-10-07,,specs/reference/WEB_API_SPECIFICATION.md
-ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
+VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-10-09,,specs/reference/VALUE_TYPE_SYSTEM.md
+WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-10-09,,specs/reference/WEB_API_SPECIFICATION.md
+ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,,core/assets,,,,,2026-10-09,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
 autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_bulk_design.md
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_issue_fixing.md
-COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,core/commands;macro,,,,,2026-10-07,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
+COMMAND_DESIGN_GUIDE,guide,Command Design Guide,current,local,,,,,,core/commands,,,,,2026-10-09,,specs/guides/COMMAND_DESIGN_GUIDE.md
+COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,core/commands;macro,,,,,2026-10-09,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-10-08,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-10-08,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
@@ -476,6 +480,6 @@ QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-07,,specs/guides/RECORD_STREAM_GUIDE.md
 STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,,core/store;store/config,,,,,2026-10-07,,specs/guides/STORE_FACTORY_GUIDE.md
 STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-07,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
-TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,,core/value;lib/value,,,,,2026-10-07,,specs/guides/TYPE_SYSTEM_GUIDE.md
+TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,,core/value;lib/value,,,,,2026-10-09,,specs/guides/TYPE_SYSTEM_GUIDE.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,,build;core/assets,,,,,2026-10-02,,specs/guides/UNITTEST_GUIDE.md
-WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,,axum;web,,,,,2026-10-06,,specs/guides/WEB_API_GUIDE.md
+WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,,axum;web,,,,,2026-10-09,,specs/guides/WEB_API_GUIDE.md

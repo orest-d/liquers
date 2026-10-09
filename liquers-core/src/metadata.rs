@@ -1462,6 +1462,17 @@ impl MetadataRecord {
         self
     }
 
+    /// Records that the evaluation was cancelled: status `Cancelled`, the cancellation error in
+    /// `error_data` (its `query` names the asset whose cancel was requested), and an info log
+    /// entry. `is_error` is left alone: a cancellation is not a failure.
+    pub fn with_cancellation(&mut self, cause: Error) -> &mut Self {
+        self.info(&cause.to_string());
+        self.with_status(Status::Cancelled);
+        self.error_data = Some(cause);
+        self.set_updated_now();
+        self
+    }
+
     pub fn with_error(&mut self, error: Error) -> &mut Self {
         self.error(&error.to_string());
         self.is_error = true;
@@ -2264,6 +2275,25 @@ impl Metadata {
     /// type's, set from the value like any other state's. Overwriting the identifier here would
     /// put a type on the type axis that no value can have, and would leave `type_name` empty,
     /// which the write path refuses.
+    /// Records a cancellation (see [`MetadataRecord::with_cancellation`]). Legacy metadata only
+    /// gets the status and message.
+    pub fn with_cancellation(&mut self, cause: Error) -> &mut Self {
+        match self {
+            Metadata::MetadataRecord(m) => {
+                m.with_cancellation(cause);
+            }
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                o.insert(
+                    "status".to_string(),
+                    Value::String(format!("{:?}", Status::Cancelled)),
+                );
+                o.insert("message".to_string(), Value::String(cause.to_string()));
+            }
+            Metadata::LegacyMetadata(_) => {}
+        }
+        self
+    }
+
     pub fn with_error(&mut self, e: Error) -> &mut Self {
         match self {
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {

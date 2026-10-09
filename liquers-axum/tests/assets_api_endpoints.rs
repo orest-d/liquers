@@ -165,6 +165,17 @@ async fn post_entry_json(app: axum::Router, key: &str, entry: serde_json::Value)
 }
 
 /// Poll until `status` is any of `wanted`, or panic after `max_attempts`.
+/// Wait (at most 5 s) until a command set `started`.
+async fn wait_until_started(started: &std::sync::atomic::AtomicBool) {
+    for _ in 0..1000 {
+        if started.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    panic!("the command did not start within 5 s");
+}
+
 async fn poll_until_one_of(app: axum::Router, uri: &str, wanted: &[&str], max_attempts: u32) -> serde_json::Value {
     let mut last = serde_json::Value::Null;
     for _ in 1..=max_attempts {
@@ -319,8 +330,13 @@ async fn aae91_polling_unsubmitted_query_404_never_evaluates() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn aae92_cancel_while_processing_reports_cancelled_deterministically() {
     let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+    // The command reports that it started: `Processing` alone is set when the job is claimed,
+    // before the command runs, and a cancel landing in that gap correctly skips it.
+    let started = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let start = started.clone();
     env.command_registry
-        .register_command(CommandKey::new_name("sleep_long"), |_, _, _| {
+        .register_command(CommandKey::new_name("sleep_long"), move |_, _, _| {
+            start.store(true, std::sync::atomic::Ordering::SeqCst);
             std::thread::sleep(std::time::Duration::from_millis(500));
             Ok(Value::from("slept"))
         })
@@ -334,15 +350,21 @@ async fn aae92_cancel_while_processing_reports_cancelled_deterministically() {
     // Deterministic gate: wait until the asset is actually Processing before cancelling, so the
     // cancel is not racing a job that has not started yet.
     poll_until(app.clone(), "/api/assets/q/info/sleep_long", "Processing", 50).await;
+    wait_until_started(&started).await;
 
     let (status, json) = send(app.clone(), "POST", "/api/assets/q/cancel/sleep_long", Body::empty()).await;
     assert_eq!(status, StatusCode::OK, "POST q/cancel must return 200");
     assert_eq!(json["status"], "OK");
 
-    // See aae38: until ASSET-CANCEL-DURING-PROCESSING-FINISHES-READY is fixed, a started blocking
-    // command finishes `Ready` despite the cancel.
-    let info = poll_until_one_of(app, "/api/assets/q/info/sleep_long", &["Cancelled", "Ready"], 100).await;
-    eprintln!("aae92: final status after cancel: {}", info["result"]["status"]);
+    // A blocking command that has already started cannot be interrupted; it completes, and a
+    // completed run wins over the cancel (asset-cancellation-outcome AC-1): one terminal status,
+    // `Ready`.
+    let info = poll_until_one_of(app.clone(), "/api/assets/q/info/sleep_long", &["Cancelled", "Ready"], 100).await;
+    assert_eq!(info["result"]["status"], "Ready", "{info}");
+    // It stays there: no second terminal status follows (AC-7).
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    let (_, info) = send(app, "GET", "/api/assets/q/info/sleep_long", Body::empty()).await;
+    assert_eq!(info["result"]["status"], "Ready", "{info}");
 }
 
 #[tokio::test]
@@ -1147,8 +1169,13 @@ async fn aae37_q_entry_json_format_gives_data_entry_with_base64_data() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn aae38_get_q_cancel_with_destructive_gets() {
     let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+    // The command reports that it started: `Processing` alone is set when the job is claimed,
+    // before the command runs, and a cancel landing in that gap correctly skips it.
+    let started = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let start = started.clone();
     env.command_registry
-        .register_command(CommandKey::new_name("sleep_cancel_q"), |_, _, _| {
+        .register_command(CommandKey::new_name("sleep_cancel_q"), move |_, _, _| {
+            start.store(true, std::sync::atomic::Ordering::SeqCst);
             std::thread::sleep(std::time::Duration::from_millis(500));
             Ok(Value::from("slept"))
         })
@@ -1162,15 +1189,16 @@ async fn aae38_get_q_cancel_with_destructive_gets() {
     let (status, _) = send(app.clone(), "POST", "/api/assets/q/submit/sleep_cancel_q", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     poll_until(app.clone(), "/api/assets/q/info/sleep_cancel_q", "Processing", 50).await;
+    wait_until_started(&started).await;
 
     let (status, json) = send(app.clone(), "GET", "/api/assets/q/cancel/sleep_cancel_q", Body::empty()).await;
     assert_eq!(status, StatusCode::OK, "GET q/cancel is routed with the flag");
     assert_eq!(json["status"], "OK");
 
-    // A blocking command that has already started runs to completion, and today the asset is
-    // then finalized `Ready` despite the cancel (ASSET-CANCEL-DURING-PROCESSING-FINISHES-READY).
-    // This test is about the route; it accepts either terminal outcome until that is fixed.
-    poll_until_one_of(app, "/api/assets/q/info/sleep_cancel_q", &["Cancelled", "Ready"], 100).await;
+    // A blocking command that has already started runs to completion, and a completed run wins
+    // over the cancel (asset-cancellation-outcome AC-1).
+    let info = poll_until_one_of(app, "/api/assets/q/info/sleep_cancel_q", &["Cancelled", "Ready"], 100).await;
+    assert_eq!(info["result"]["status"], "Ready", "{info}");
 }
 
 #[tokio::test]

@@ -43,9 +43,11 @@ pub enum ErrorType {
     /// directory, expiring a `Source`, describing a computed value. Distinct from
     /// [`ErrorType::NotSupported`], which means the operation is never available.
     StatusConflict,
-    /// The error type returned when a *value* is requested from a cancelled asset/state.
-    /// It is NOT stored as an asset's computed error; being in `Status::Cancelled` is a
-    /// legitimate terminal state, and this error is synthesized only at value extraction.
+    /// An evaluation was intentionally interrupted: an asset's cancel was requested, or a
+    /// dependency it waited for was cancelled. A command returning it ends its asset
+    /// `Status::Cancelled`, not `Error`. The error's `query` names the asset whose cancel was
+    /// requested (the root cause); a cancelled asset records it in its metadata's `error_data`,
+    /// with `is_error` false, since a cancellation is not a failure.
     Cancelled,
 }
 
@@ -176,7 +178,8 @@ impl Error {
         self.error_type == ErrorType::NotAvailable
     }
     /// Constructs a cancellation error (`ErrorType::Cancelled`).
-    /// Used when a value is requested from an asset/state in `Status::Cancelled`.
+    /// Returned by `Context::check_cancelled`, recorded by a cancelled asset, and read back
+    /// from a state in `Status::Cancelled`.
     pub fn cancelled(message: impl Into<String>) -> Self {
         Error::new(ErrorType::Cancelled, message.into())
     }

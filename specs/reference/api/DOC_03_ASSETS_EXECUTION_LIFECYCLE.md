@@ -3,7 +3,7 @@ title: Assets and Execution Lifecycle Reference
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-08
+reviewed: 2026-10-09
 ---
 # DOC-03: Assets and Execution Lifecycle
 
@@ -232,9 +232,9 @@ Queued and ordinary inline evaluation use `evaluate_and_store`:
    metadata says `stored: false` — then nothing is written, not even metadata, and
    the `MetadataSaver` skips its status and progress writes for the key as well.
 6. Record `PersistenceStatus`. A skipped write records `None`, never `Persisted`:
-   skipped for `stored: false`, or because the asset was cancelled (checked before
-   and again after serialization). So a later `to_override` does not write the
-   metadata to the store either.
+   skipped for `stored: false`, or because the asset is `Cancelled` (checked before
+   and again after serialization). A run persists only a value it finalized, so a
+   cancelled, failed or replaced run writes nothing.
 
 The default asset data configuration requests background persistence. The queued
 manager can therefore expose a ready in-memory value before the store write
@@ -253,8 +253,9 @@ evaluation failure:
 `AssetRef`. `set_state` creates an in-memory entry and writes data plus metadata, or
 metadata only if serialization fails. Both skip the store write when the
 **supplied** metadata says `stored: false`; the recipe's flag is not consulted, so
-an explicit set may still write a `stored: false` key. Both cancel and evict an existing keyed
-entry. Except for explicitly supplied `Expired` and `Error`, external values become
+an explicit set may still write a `stored: false` key. Both evict an existing keyed
+entry with `AssetRef::cancel_for_replacement`, which ends an in-flight one `Cancelled` at once and
+discards its run's late result. Except for explicitly supplied `Expired` and `Error`, external values become
 `Override` when a recipe exists and `Source` otherwise.
 
 ## Expiration, recovery, and cancellation
@@ -312,11 +313,17 @@ uses:
 - `AssetManager::to_override`: promote retained keyed state to `Override`.
 
 `AssetRef::cancel` is best-effort and only acts on `Submitted`, `Dependencies`,
-`Processing`, and `Partial`. Native cancellation waits up to five seconds for a
-terminal notification and returns success on timeout. The cancellation flag guards
-later store writes.
+`Processing`, and `Partial`. A `Submitted` asset ends `Cancelled` at once. For a running
+one it is a request: the run drops its evaluation at the next suspension point and ends
+`Cancelled`, a command can check `Context::is_cancelled` / `check_cancelled`, and a run
+whose command already returned `Ok` ends ready and is stored. A command returning an
+`ErrorType::Cancelled` error ends its asset `Cancelled`; a cancelled dependency cascades to
+the dependents that do not handle it. A cancelled asset records the cancellation in
+`error_data` (`is_error` false) with the root cause's key or query in its `query` field.
+Native cancellation waits up to five seconds for the run to finish and returns success
+whether or not it took effect.
 
-`AssetManager::remove` cancels an in-memory keyed asset and unmaps it, then decides by
+`AssetManager::remove` cancels an in-memory keyed asset (`cancel_for_replacement`) and unmaps it, then decides by
 status: a user value (`Source`, `Override`) or a key without a recipe is deleted from the
 store and the dependency graph, expiring its dependents; a computed value under a recipe
 is dropped and its stored record rewritten as `Recipe` with the version kept, expiring
@@ -443,6 +450,7 @@ implements a manager outside the crate against the shared manager scenarios. See
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-09 | §Expiration, recovery, and cancellation: cancel is a request the run decides, cooperative checks, cascade, recorded cause. Persistence step 6 and §set: a cancelled/failed/replaced run writes nothing; `cancel_for_replacement`. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-08 | §Identity, caching, and fast track: step 2 under `on_load` uses the stored-records walk; records are direct, so step 2 is what reaches upstream. | phase-5 (`design/dependency-chain-analysis-cost/`) |
 | 2026-10-07 | §Persistence contract step 6 and the `PersistenceStatus` row: a write skipped because the asset was cancelled records `None`, as a `stored: false` skip does; it had recorded `Persisted`. The route table: the immediate lazy check cascades as the monitor does. | phase-5 (`design/save-to-store-skip-outcome/`, `design/immediate-lazy-expiry-cascade/`) |
 | 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. §Expiration, recovery, and cancellation: the route/reason table for `expiry_reason`, the immediate manager's lazy check (fires on the deadline, does not cascade), and `remove` corrected to the status-aware behaviour. The P1 "public trait exposes a private dependency-manager type" row is removed: resolved, the trait is implementable outside core. | phase-5 |

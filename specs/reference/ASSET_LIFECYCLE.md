@@ -3,7 +3,7 @@ title: Asset Evaluation — Flows and Public Surface
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-08
+reviewed: 2026-10-09
 ---
 # Asset Evaluation — Flows and Public Surface
 
@@ -153,7 +153,10 @@ Read the contrapositive: **not keyed means never stored and never loadable.**
 | Keyed, volatile | yes | yes, **not** loadable |
 | Keyed, recipe says `stored: false` | yes | no — not even metadata; an existing stored copy is still loaded |
 | Keyed, recipe says `cached: false` | yes | yes, loadable; the asset is simply not registered for reuse |
-| Keyed, cancelled before the write | yes | no; persistence status `None`, so `to_override` writes no metadata-only entry |
+| Keyed, cancelled before its command returned (or by cascade, or a command's own `Error::cancelled`) | yes | no — neither value nor metadata; `Cancelled` with its cause is kept in memory only |
+| Keyed, cancel requested after the command returned `Ok` | yes | yes, loadable — a completed run wins and the request is dropped |
+| Keyed, replaced while running | yes | no — the late result is discarded and the replaced asset writes nothing more |
+| Keyed, failed | yes | no — the error is kept in memory only |
 | Keyed, delegating to the owner | yes | no — the owner writes |
 | Query asset | no | no |
 | `apply`, bare-key recipe | no | no |
@@ -304,6 +307,7 @@ arrives mid-evaluation and must join the first rather than be turned away.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-09 | §Persistence outcomes: the cancelled, cancelled-after-completion, replaced-while-running and failed rows. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-08 | §Reusing a stored asset: a metadata-only entry is recomputed from its recipe without a corruption report, and answers like an absent key when there is none. | phase-5 (`design/metadata-only-entry-reload/`) |
 | 2026-10-08 | §Reusing a stored asset: under `on_load` the version question is answered by the stored-records walk, recursively (records are direct since `design/dependency-chain-analysis-cost/`). `AuditPolicy::OnLoad` corrected to `DependencyAuditPolicy::OnLoad`. | phase-5 (`design/dependency-chain-analysis-cost/`) |
 | 2026-10-07 | §Persistence outcomes: a keyed asset cancelled before its write is not written and records persistence status `None`. §Routes into `Expired`: a supplied `Expired` status records no reason and logs `Asset expired` plus an after-the-fact info entry. Lazy deadline expiry on the immediate manager cascades; new paragraph "Lazy expiry cascades" with the dependent-read-first case. | phase-5 (`design/save-to-store-skip-outcome/`, `design/supplied-expired-status-reason/`, `design/immediate-lazy-expiry-cascade/`) |
