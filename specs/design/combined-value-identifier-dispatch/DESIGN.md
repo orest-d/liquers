@@ -3,8 +3,8 @@ id: COMBINED-VALUE-IDENTIFIER-DISPATCH
 kind: design
 title: CombinedValue reads an identifier the extension declares through the extension
 form: compact
+gh_pr: [97]
 workflow: liquers-project
-status: approved
 phase: documentation
 readiness: ready
 autofix: eligible
