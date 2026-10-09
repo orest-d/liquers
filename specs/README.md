@@ -111,7 +111,7 @@ simply stop being wanted.
 - **Auto-generated value descriptions** — planned → [`issues/VALUE-DESCRIPTION.md`](issues/VALUE-DESCRIPTION.md)
 - **Application-defined metadata attributes** — planned → [`issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md`](issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md)
 - **Setting title and description from a command** — planned → [`issues/CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION.md`](issues/CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION.md)
-- **Base/extended value discrimination** — planned → [`issues/COMBINED-VALUE-DISCRIMINATION.md`](issues/COMBINED-VALUE-DISCRIMINATION.md)
+- **Base/extended value discrimination** — built → [`reference/VALUE_TYPE_SYSTEM.md`](reference/VALUE_TYPE_SYSTEM.md) §Reading *(design: [`combined-value-identifier-dispatch`](design/combined-value-identifier-dispatch/))*
 
 `CORE-METADATA-TRACEBACK-SUPPORT` and `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT` are one defect
 seen from two directions — `Error` has nowhere to put structured context — and one field design
@@ -301,7 +301,6 @@ deliberately folded behind a broader line.
 <!-- BEGIN generated: unplaced -->
 - `guides/TYPE_SYSTEM_GUIDE.md`
 - `reference/CONFORMANCE_TERMS.md`
-- `reference/VALUE_TYPE_SYSTEM.md`
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - design `argument-gui-info-default`
 - design `asset-manager-insert-key-asset-no-overwrite`

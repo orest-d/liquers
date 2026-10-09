@@ -55,3 +55,9 @@ Maintainer decision (backlog compaction D8): this gap is solved inside
 [`DATA-FORMAT-CONSTANTS-AND-TOOLING`](DATA-FORMAT-CONSTANTS-AND-TOOLING.md), whose design must include a
 way to declare a write-only format. Its standalone design `design/type-info-write-only-formats/` is
 `abandoned` and kept as input. This issue stays open until that feature lands.
+
+## Evidence (2026-10-09)
+
+Before `specs/design/combined-value-identifier-dispatch/`, a `RecordView` stored as `html` loaded
+through the combined `Value` as `Text`, which hid this issue for that case. It now fails to load (the
+extension's refusal is final), so the "declare it" consequence above applies to it as written.

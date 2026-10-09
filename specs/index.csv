@@ -43,7 +43,7 @@ COLUMN-SLICE-COPIES-INSTEAD-OF-SHARING-BUFFER-STORAGE,issue,Column slice copies 
 COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY,issue,"ColumnMut always copies validity, and rebuilds the whole column to overwrite one Text/Binary cell",draft,local,,,,P3,M,records,,,,record-streams,,2026-09-26,specs/issues/COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY.md
 COMBINED-EXPIRES,feature,No algebra for combining expiration across dependencies,accepted,local,,,,P2,L,core/assets,,,,,,2026-08-08,specs/issues/COMBINED-EXPIRES.md
 COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED,issue,"CombinedValue::default_extension returns ""ext"" for every extended value",closed,local,,covered,not-eligible,P2,S,lib/value,,,,combined-value-default-extension,,2026-08-18,specs/issues/COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED.md
-COMBINED-VALUE-DISCRIMINATION,feature,Deserialization cannot discriminate base from extended values,accepted,local,,,,P2,M,core/value;lib/value,,,,,,2026-08-08,specs/issues/COMBINED-VALUE-DISCRIMINATION.md
+COMBINED-VALUE-DISCRIMINATION,feature,Deserialization cannot discriminate base from extended values,closed,local,,ready,eligible,P2,M,core/value;lib/value,,,,combined-value-identifier-dispatch,,2026-08-08,specs/issues/COMBINED-VALUE-DISCRIMINATION.md
 COMMAND-ALIAS-DEFINITION-UNTESTED,issue,"CommandDefinition::Alias has no test and no user, and its head-parameter semantics are unexercised",draft,local,,,,P2,M,core/plan;core/commands,,,,,,2026-08-29,specs/issues/COMMAND-ALIAS-DEFINITION-UNTESTED.md
 COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ,issue,"CommandMetadata.cache is declared, documented and exported, but nothing reads it",closed,local,,ready,not-eligible,P3,S,core/commands;macro,,,,command-cache-flag,,2026-09-19,specs/issues/COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ.md
 COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT,feature,A command cannot be run with a restricted context,draft,local,,,,P2,M,core/context;core/commands,,,,,,2026-09-17,specs/issues/COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT.md
@@ -297,6 +297,7 @@ AXUM-STORE-UPLOAD-METADATA,design,Store API keeps upload media types and serves 
 BUILD-MATRIX-CI,design,Run the feature and target build matrix in CI,complete,local,,ready,,P2,S,build;docs,,,,build-matrix-ci,,2026-09-01,specs/design/build-matrix-ci/DESIGN.md
 ACTIVE-01,design,Declare the workspace's minimum supported Rust version,complete,local,,ready,eligible,P2,S,build,,,,build-sysinfo-rustc-compatibility,,2026-09-03,specs/design/build-sysinfo-rustc-compatibility/DESIGN.md
 COVERED-02,design,Coverage record for COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED,in_review,local,architecture,covered,not-eligible,P2,S,docs,,,,combined-value-default-extension,,2026-09-03,specs/design/combined-value-default-extension/DESIGN.md
+COMBINED-VALUE-IDENTIFIER-DISPATCH,design,CombinedValue reads an identifier the extension declares through the extension,complete,local,,ready,eligible,P2,M,lib/value,,97,,combined-value-identifier-dispatch,,2026-10-09,specs/design/combined-value-identifier-dispatch/DESIGN.md
 COMMAND-CACHE-FLAG,design,Remove the unread CommandMetadata.cache flag,in_review,local,documentation,ready,not-eligible,P3,S,core/commands;macro,,,,command-cache-flag,,2026-10-06,specs/design/command-cache-flag/DESIGN.md
 COMMAND-DECLARATION,design,A language-neutral command declaration type,complete,local,,,,,,core/commands;web;py,,50,,command-declaration,,2026-08-29,specs/design/command-declaration/DESIGN.md
 COMMAND-METADATA-COMMAND-HINTS,design,Command-level metadata hints,superseded,local,,,,P3,S,core/commands;macro;lib/ui,,,,command-metadata-command-hints,,2026-08-31,specs/design/command-metadata-command-hints/DESIGN.md
@@ -464,7 +465,7 @@ REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,,store/config,,,,,2026-10-07,,specs/reference/STORE_CONFIG_FSD.md
 STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-07,,specs/reference/STORE_SEMANTICS.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
-VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-09-27,,specs/reference/VALUE_TYPE_SYSTEM.md
+VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-10-09,,specs/reference/VALUE_TYPE_SYSTEM.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-10-09,,specs/reference/WEB_API_SPECIFICATION.md
 ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,,core/assets,,,,,2026-10-09,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
 autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_bulk_design.md
@@ -478,6 +479,6 @@ QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-07,,specs/guides/RECORD_STREAM_GUIDE.md
 STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,,core/store;store/config,,,,,2026-10-07,,specs/guides/STORE_FACTORY_GUIDE.md
 STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-07,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
-TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,,core/value;lib/value,,,,,2026-10-07,,specs/guides/TYPE_SYSTEM_GUIDE.md
+TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,,core/value;lib/value,,,,,2026-10-09,,specs/guides/TYPE_SYSTEM_GUIDE.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,,build;core/assets,,,,,2026-10-02,,specs/guides/UNITTEST_GUIDE.md
 WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,,axum;web,,,,,2026-10-09,,specs/guides/WEB_API_GUIDE.md
