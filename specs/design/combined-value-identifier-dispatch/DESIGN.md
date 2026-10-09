@@ -5,7 +5,7 @@ title: CombinedValue reads an identifier the extension declares through the exte
 form: compact
 workflow: liquers-project
 status: in_review
-phase: high-level
+phase: architecture
 area: [lib/value]
 issues: [COMBINED-VALUE-DISCRIMINATION]
 created: 2026-10-09
@@ -104,18 +104,117 @@ Overlap triage (`references/overlap.md`), all weak; none is merged into this des
 
 ### Open Questions
 
-1. **Proposed resolution — where the dispatch lives.** (a) `CombinedValue` checks whether
-   `E::type_descriptions()` declares the identifier and, if so, asks only the extension; otherwise
-   it keeps today's order. (b) The issue's suggestion: every `SimpleValue` arm refuses identifiers
-   it does not own. (c) Both. **Recommend (a):** one function, generic over every extension (it
-   fixes `liquers-web`'s combinations too), and it leaves the base lenient for empty and legacy
-   identifiers. (b) spreads the rule over every arm of one base type and still depends on each
-   base remembering it.
-2. **Proposed resolution — extension declared, extension fails.** Return the extension's error, or
-   fall back to the base? **Recommend the error** (AC-3): falling back is the bug. Consequence: a
-   `RecordView` cached as `html` now fails to read instead of becoming `Text`.
-3. **Implementation detail — cost.** `type_descriptions()` builds a `Vec` per read. Reads go
-   through a store, so this is small; Phase 2 decides whether a cheaper membership hook is worth a
-   trait method (which would affect automatic-fix eligibility).
-4. **Implementation detail.** Whether the `polars.DataFrame` special case in the fallback branch is
-   kept; with (a) it is reached only when the `polars` feature is off.
+Decided at the Phase 1 gate (2026-10-09), all on the recommendation:
+
+1. **Resolved — where the dispatch lives.** In `CombinedValue`: an identifier that
+   `E::type_descriptions()` declares is read by the extension only; every other identifier keeps
+   today's base-first order. The `SimpleValue` arms stay as they are.
+2. **Resolved — extension declared, extension fails.** The extension's error is returned; there is
+   no fallback to the base (AC-3).
+3. **Resolved — cost.** `type_descriptions()` is called per read; no new trait method.
+4. **Resolved in Phase 2 — the `polars.DataFrame` special case.** Generalised rather than kept:
+   when neither half reads a named identifier, the base's error is returned if the base declares
+   the identifier, and the extension's otherwise (Phase 2 §Changes).
+
+No question is open.
+
+## Phase 2: Architecture
+
+### Solution
+
+`CombinedValue::deserialize_from_bytes` routes by the declared type identifier before it tries
+anything:
+
+1. **The extension declares it** (non-empty, in `<E as ValueExtension>::type_descriptions()`): ask
+   `E` only. Its value is `CombinedValue::Extended`, its error is returned unchanged.
+2. **Otherwise** (empty, base-declared, or declared by nobody): today's chain, unchanged in what it
+   accepts. `B` first; then `E`; then, for an empty identifier only, the bytes as a base `Bytes`.
+3. **Error choice when both refuse a named identifier:** the base's error if
+   `<B as ValueInterface>::type_descriptions()` declares the identifier, the extension's otherwise.
+   This replaces the hard-coded `type_identifier == "polars.DataFrame"` branch: with `polars` on that
+   identifier never reaches here (rule 1), and with it off the extension's "unsupported type
+   identifier" is the more accurate message, which is what the special case existed to give.
+
+The identifier spaces are meant to be disjoint: `CombinedValue::type_descriptions` concatenates
+both lists, and `TypeRegistry::from_value_type` (`liquers-core/src/type_system.rs`) reports a
+duplicate on stderr and keeps the first (the base's). The rule does not enforce it: an identifier
+declared by both would be read by the extension. That is a bug in the two lists, not a case to
+design for; the Phase 3 test for AC-4 asserts the lists are disjoint for `Value`, so it cannot
+happen silently.
+
+**Rejected.** *Strict base arms* (every `SimpleValue` arm refuses identifiers it does not own): fixes
+one base type only, spreads the rule over every arm, and makes `liquers-web`'s combinations rely on
+the same discipline (Phase 1 Q1). *Extension first for every identifier*: an extension may infer a
+type from the format for `""` (`ScalarExtension` in the tests), so asking it first would change
+untyped reads (AC-5). *A cached or overridable `declares_identifier` hook on `ValueExtension`*: a new
+trait method for a saving nobody has measured (Q3). *Consulting the asset layer's `TypeRegistry`*:
+`DefaultValueSerializer::deserialize_from_bytes` is a static function with no registry argument, and
+the cache path (`liquers-core/src/cache.rs`) calls it without one.
+
+**Known-issue preflight** (open items in `lib/value` / `core/value` and the integration points):
+
+| Issue | Relevance | Fix first? | Blocks? |
+|---|---|---|---|
+| `TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS` (P3) | `RecordView` declares `html` but cannot read it. With AC-3 a stored `html` view now fails to load and is recomputed instead of loading as `Text`, which is that issue's documented consequence | no | no |
+| `PY-VALUE-SERIALIZER-IS-A-STUB` (P2) | `liquers-py`'s `Value` is not a `CombinedValue`; untouched | no | no |
+| `DATA-FORMAT-CONSTANTS-AND-TOOLING` (P2, L) | Format vocabulary of the same serializers; independent | no | no |
+| `TYPE-REGISTRY-NOT-REALM-AWARE` (P2, L) | Identifiers are compared in the default realm only, as everywhere else in `type_descriptions` | no | no |
+
+No blocker. **Command namespaces involved:** none.
+
+### Changes
+
+**`liquers-lib/src/value/extended.rs`** — one private helper and the body of one existing method.
+No `pub` item changes.
+
+```rust
+/// Whether `descriptions` declare `type_identifier`. The empty identifier ("not known") is never
+/// declared.
+fn declares(descriptions: &[liquers_core::type_system::TypeInfo], type_identifier: &str) -> bool {
+    !type_identifier.is_empty()
+        && descriptions.iter().any(|info| info.type_identifier == type_identifier)
+}
+
+impl<B: ValueInterface + Default, E: ValueExtension> DefaultValueSerializer for CombinedValue<B, E> {
+    fn deserialize_from_bytes(b: &[u8], type_identifier: &str, fmt: &str) -> Result<Self, Error>;
+    //   1. declares(&<E as ValueExtension>::type_descriptions(), id) → E only
+    //   2. B, then E, then (id empty) B::from_bytes
+    //   3. both refuse a named id → base_err if declares(&<B as ValueInterface>::type_descriptions(), id),
+    //      ext_err otherwise
+}
+```
+
+The `type_descriptions` calls are fully qualified: `ValueExtension` and `ValueInterface` both
+define one, and `B` and `E` are bounded by different traits. The base's list is built only on the
+double-refusal path.
+
+**`liquers-lib/src/value/simple.rs`** — comments only. The `txt` / `html` / `toml` arm's comment
+says the lenient read is kept for identifiers no half declares, and that extension identifiers no
+longer reach it through `CombinedValue`. The `md` arm's comment loses "so `CombinedValue` asks the
+extension" as the reason (the `md` refusal is kept: it is correct for `SimpleValue` used alone).
+
+**Errors:** existing constructors only; no message text changes except that the double-refusal path
+may now return the extension's message (rule 3). **Sync/async:** synchronous, CPU-only, as today.
+**Commands:** none; `specs/command_registry.yaml` does not change. **Features:** no new `cfg`.
+Every identifier `ExtValue::type_descriptions()` declares under a feature has its read arm under the
+same feature (`RecordView`, `RecordSource` under `records`; `polars.DataFrame` under `polars`).
+`UIElement`, `egui.Command` and `egui.Widget` are declared with no read arm, so they now fail in the
+extension instead of in the base; they have no byte form and are persisted as metadata only.
+
+**Documents** (`affects_docs`): `specs/reference/VALUE_TYPE_SYSTEM.md` §Reading — a paragraph
+stating the three rules. `specs/guides/TYPE_SYSTEM_GUIDE.md` step 4 — a sentence: an extension's
+`TypeInfo` also routes reading, so an identifier it omits is offered to the base value first. Both
+get a `## History` row and a `reviewed:` bump. `specs/README.md` moves the entry to "built" in
+Phase 5.
+
+### Risks
+
+| Category | Risk | Mitigation |
+|---|---|---|
+| Files | Two files in `liquers-lib/src/value/` | — |
+| Tests likely to change | None should; `record_typeinfo.rs` and the `extended.rs` tests already pin the paths kept. A test that relied on an extension identifier reading as a base value would fail, and that is the bug | Run `cargo test -p liquers-lib --lib --tests` and the `records` / no-default feature rows |
+| Compatibility | A stored or cached `RecordView` in `html`, or an extension identifier stored in a format only the base could read (an `Image` as `txt`), now fails to load and is recomputed instead of loading as a base value of the wrong type | Intended (AC-3); noted in the reference |
+| Performance | One `Vec<TypeInfo>` allocation per read through `Value` | Reads already go through a store and allocate the whole payload; accepted at the gate |
+| Feature matrix | A declared identifier without a read arm in some configuration would now error instead of falling back | Checked above; `scripts/check-build-matrix.sh` in Phase 4 |
+| Recovery | Revert the one method body | — |
+| Certainty | High: every path was read at HEAD; the change is local to one generic function | — |
