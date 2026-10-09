@@ -4,7 +4,7 @@ title: Asset Manager Implementation Guide
 kind: guide
 audience: both
 area: [core/assets]
-reviewed: 2026-10-08
+reviewed: 2026-10-09
 ---
 # Asset Manager Implementation Guide
 
@@ -178,7 +178,8 @@ rustdoc; the summary:
 | `AssetRef::submitted()` | Mark the asset `Submitted` before handing it to `run`. A manager that runs immediately may skip it. |
 | `AssetRef::set_payload_path(path)` | On a freshly built payload-evaluated asset, before running it, to carry cycle detection down the payload path. |
 | `AssetRef::expire_without_cascade(reason)` | Expire this asset alone. `Ready` and `Override` become `Expired` and the reason is recorded through `record_expiry`; already `Expired` is a no-op; any other status is an error. Persists the `Expired` status for a stored keyed asset. Does not touch the graph or your maps — the cascade and the eviction are the caller's. |
-| `AssetRef::cancel()` | Cancel the asset a write replaces. |
+| `AssetRef::cancel_for_replacement()` | Retire the asset a write or removal replaces. An in-flight one ends `Cancelled` at once (releasing its waiters with `JobFinished`), its run's late result is discarded, and it writes nothing more to the store; a finished one is left as it is. Call it before writing the key's new entry. |
+| `AssetRef::cancel()` | A client's best-effort cancel: a request the run decides (a completed command still ends ready and is stored). Not for replacement — its late result could overwrite your write. |
 | `AssetManager::publish_version(dep_key, version)` | Publish a written key's new version and cascade-expire dependents that recorded another (`Updated`). Graph only: no store write, no lock, safe under the key-mutation lock. Unchanged version, no cascade. |
 | `AssetManager::refresh_listing_version(dir)` | Call it with the written key's parent after every write or removal. First tells the recipe provider (`directory_changed`, so a caching provider such as the manifest provider drops its folder listing), then re-hashes a directory listing that something depends on. |
 | `AssetManager::is_volatile(key)`, `is_volatile_query(query)` | Volatility **without evaluating**, asked before registering (§7). |
@@ -241,7 +242,7 @@ The shape of a write, from the minimal manager's `set_binary` (status decision e
 ```rust
 let mutation = self.mutation_lock.lock().await;
 if let Some(old) = self.lookup_key_asset(key) {
-    old.cancel().await?;
+    old.cancel_for_replacement().await?;
     self.remove_key_asset(key).await;
 }
 // … decide `final_status`, set `metadata.version = Some(Version::from_content(binary))` …
@@ -454,7 +455,7 @@ store conformance suite: shared scenarios, no rule numbers and no capability mod
 
 | Limit | Issue |
 |---|---|
-| A write cannot send the replaced asset its `Removed` notification (`notify_removed` is crate-private); a waiter is released by the cancellation only. `set_state` can only store a state that has bytes, and the next `get` fast-tracks it; a non-serializable value is refused. | `EXTERNAL-MANAGER-CANNOT-NOTIFY-REPLACED-ASSET` |
+| A write cannot send the replaced asset its `Removed` notification (`notify_removed` is crate-private); a waiter is released by `cancel_for_replacement`'s `JobFinished` only. `set_state` can only store a state that has bytes, and the next `get` fast-tracks it; a non-serializable value is refused. | `EXTERNAL-MANAGER-CANNOT-NOTIFY-REPLACED-ASSET` |
 | An inline run dropped mid-flight can strand callers already waiting on it. | `INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS` |
 | Ownership is read from your map; what registration guarantees beyond §7 is open. | `ASSET-REGISTRATION-OWNERSHIP-CONTRACT` |
 | The manager and the environment hold each other strongly. | `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` |
@@ -474,6 +475,7 @@ store conformance suite: shared scenarios, no rule numbers and no capability mod
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-09 | §Primitives: `cancel_for_replacement` for writes and removals (the `cancel()` row says why not); the write example and the known-limits row follow. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-08 | `DefaultRecipeProvider` is constructed with `::new()` (it holds a recipe cache). The audit-policy section notes that the stored-records walk and the store audit are inherited provided methods. | phase-5 (`design/dependency-chain-analysis-cost/`) |
 | 2026-10-07 | `remove_expired_from_maps`: the id comparison and the removal must be one atomic map operation. Deadlines: a lazy check that finds the deadline passed must cascade (`expire_without_cascade` then `cascade_expire_dependents`); the known-limit row is removed. | phase-5 (`design/queued-manager-conditional-eviction/`, `design/immediate-lazy-expiry-cascade/`) |
 | 2026-10-06 | `refresh_listing_version` also notifies the recipe provider; every write path must call it. | phase-5 |

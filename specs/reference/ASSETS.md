@@ -3,7 +3,7 @@ title: Assets Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-08
+reviewed: 2026-10-09
 ---
 # Assets Specification
 
@@ -163,7 +163,7 @@ pub enum AssetServiceMessage {
     LogMessage(LogEntry),              // Log entry from computation
     UpdatePrimaryProgress(ProgressEntry),
     UpdateSecondaryProgress(ProgressEntry),
-    Cancel,                            // Request cancellation
+    Cancel,                            // Request cancellation (sets the request; never a status)
     ErrorOccurred(Error),              // Error during processing
     JobFinishing,                      // About to finish (housekeeping)
     JobFinished,                       // Processing complete
@@ -235,7 +235,10 @@ pub enum Status {
 - **Storing**: Transient state during store write; if loaded from store with this status, treat as corrupted/Error
 - **Ready**: Successfully computed, data available
 - **Expired**: The data is stale — see §The one meaning of `Expired` below
-- **Cancelled**: Processing was cancelled via Cancel message
+- **Cancelled**: The evaluation was interrupted before it produced a value: its own cancel was
+  requested, its command returned an `ErrorType::Cancelled` error, a dependency it waited for was
+  cancelled (cascade), or it was replaced while running. The cancellation error is recorded in
+  `error_data` (its `query` names the asset whose cancel was requested); `is_error` stays false
 - **Source**: Data provided externally via set(), no recipe exists
 - **Override**: Data provided externally via set(), recipe exists but was not used
 
@@ -713,27 +716,22 @@ Any State ──────► set(key, data, metadata) ──────┐
 CANCELLATION PATH
 ══════════════════════════════════════════════════════════════════════════
 
-Submitted/Dependencies/Processing
+Submitted ── cancel() ──────────────────────────────────────► Cancelled
+                       (claimed under the write lock; the command never runs)
+
+Dependencies/Processing/Partial ── cancel() ──► request set (no status change)
             │
-            │ Service: Cancel
-            ▼
-      ┌───────────┐
-      │Cancelling │ (transient, internal)
-      │───────────│
-      │•Cancelling│
-      └─────┬─────┘
-            │
-            │ (graceful shutdown complete)
-            ▼
-      ┌───────────┐
-      │ Cancelled │
-      │───────────│
-      │•Status-   │
-      │ Changed   │
-      │•Job-      │
-      │ Finished  │
-      └───────────┘
+            │ the run races compute against the request (compute polled first)
+            ├── compute returned Ok ──► finalize Ready/Volatile/Expired, persist (D2)
+            ├── compute suspended   ──► compute dropped ──► Cancelled (cause recorded)
+            └── command returned Error::cancelled (check_cancelled, cascade) ──► Cancelled
+
+set/set_state/remove/to_override on an in-flight asset ──► Cancelled at once;
+            the run's late result is discarded (cancel_for_replacement)
 ```
+
+One terminal transition per run, from an in-flight status, by its run (or by the two claims above,
+which need no run); whoever makes it sends the single `JobFinished`.
 
 ## Asset Lifecycle Scenarios
 
@@ -765,7 +763,8 @@ Submitted/Dependencies/Processing
 ### Scenario 3: Set External Data (Override)
 ```
 1. set_binary(key, data, metadata) or set_state(key, state) called; takes key_mutation_lock
-2. If a live asset holds the key: cancel().await (waits for the cancellation), then unmap it
+2. If a live asset holds the key: cancel_for_replacement() (an in-flight one ends Cancelled at once,
+   its run's late result is discarded and it writes nothing more to the store), then unmap it
 3. Check if recipe exists for key
 4. Status → Override (recipe exists) or Source (no recipe)
 5. Store data to store; register the new version, expire dependents
@@ -775,19 +774,23 @@ Submitted/Dependencies/Processing
 ### Scenario 4: Cancellation
 ```
 1. cancel() called on AssetRef
-2. Service: Cancel sent
-3. process_service_messages receives Cancel
-4. Status → Cancelled
-5. Notification: StatusChanged(Cancelled), JobFinished
-6. Metadata saved to store
-7. cancel() returns Ok(())
+2a. Submitted: Status → Cancelled at once; Notification: StatusChanged(Cancelled), JobFinished
+2b. Dependencies/Processing/Partial: the cancellation request is set (shared with the Context)
+3. The run's compute is dropped at its next suspension point, or the command sees
+   context.is_cancelled() and returns context.check_cancelled()'s error
+4. Status → Cancelled, cause in error_data; Notification: StatusChanged(Cancelled), JobFinished
+   (in memory only: no metadata-only entry is written for the key)
+   — or, if the command had already returned Ok: Status → Ready, persisted, request cleared
+5. cancel() returns Ok(()) (after at most 5 s on native, whatever the outcome)
+6. Dependents waiting on this asset get its cancellation error unchanged and, unless they handle
+   it, end Cancelled too, each logging one cascade warning
 ```
 
 ### Scenario 5: Remove and Recalculate
 ```
 1. remove(key) called on AssetManager; takes key_mutation_lock
 2. Decide by status (see "Remove Semantics" below): Directory → StatusConflict
-3. If a live asset holds the key: cancel().await, untrack expiration, unmap it
+3. If a live asset holds the key: cancel_for_replacement(), untrack expiration, unmap it
 4a. Delete (user value, or a key without a recipe): expire dependents, then drop the key from
     the dependency graph, then remove it from the store
 4b. Drop a computed value: keep the stored record as status Recipe with its version; dependents
@@ -951,7 +954,7 @@ The following issues were identified and resolved through discussion:
 ### 3. Cancel → Set Path (RESOLVED)
 **Problem**: What status path for set() on Processing asset?
 
-**Resolution**: Direct transition: `Processing → Cancelled → Override/Source`. After cancel() completes, set() directly sets the final status.
+**Resolution**: Direct transition: `Processing → Cancelled → Override/Source`. `cancel_for_replacement()` ends the replaced asset `Cancelled` at once and discards its run's late result; set() then writes the final status.
 
 ### 4. Fast Track Notifications (RESOLVED)
 **Problem**: Inconsistent notifications between fast-track and JobQueue paths.
@@ -1075,8 +1078,10 @@ its `Metadata`) is the single source of truth for the outcome. There is no separ
 status is legitimate; only *requesting a value* from it is an error:
 - `Status::Error` stores the computed `Error` in `MetadataRecord.error_data` (serializable, so it
   survives persistence). Value extraction returns that stored error.
-- `Status::Cancelled` stores **no** error (`is_error == false`). Value extraction *synthesizes*
-  `Error::cancelled(...)` (`ErrorType::Cancelled`, reserved for exactly this).
+- `Status::Cancelled` records its cancellation error in `error_data` but is not an error
+  (`is_error == false`). Value extraction returns that recorded error (`ErrorType::Cancelled`), whose
+  `query` names the asset whose cancel was requested — the root cause of a cascade; a record without
+  one (older stores) gets a synthesized `Error::cancelled(...)`.
 
 **Neither status changes the type axis into an error type — there is none.** A failed asset holds no
 value, so its `type_identifier` becomes the *none* type: the type reports what is available, not what
@@ -1104,15 +1109,20 @@ bytes. See `specs/reference/VALUE_TYPE_SYSTEM.md`, "How a failure is typed".
 
 **Failure recording.** One routine, `AssetRef::fail_asset(e)`, records a computed failure by
 mutating the existing metadata (`with_error`, preserving the log/query/type audit trail) — it does
-**not** replace the record. Cancellation is a separate `Status::Cancelled` transition that stores
-no error.
+**not** replace the record. It acts only on an in-flight asset, once. A cancellation error routed to
+it is not a failure: the asset ends `Status::Cancelled` (`with_cancellation`), not `Error`. A run's
+own failure or cancellation is recorded in memory only, never as a metadata-only store entry.
 
 **Re-evaluation.** `Error`, `Cancelled` and `Expired` are a **cache miss at the manager request
 boundary**: `get(key)`/`get_asset(query)` drop such a stale-terminal asset and rebuild a fresh one
 (a failure may be transient — hardware/volatile). `AssetRef::get()` itself does not re-evaluate, so
 awaiting a completed evaluation reports the same outcome repeatably. Dependencies: a stale
 `Error`/`Cancelled` dependency re-evaluates; a fresh error propagates as a dependency failure; a
-fresh or mid-flight cancellation cascade-cancels the parent.
+fresh or mid-flight cancellation cascade-cancels the parent: `wait_for_dependency` returns the
+dependency's recorded cancellation unchanged, logs `Dependency <dep> was cancelled; root cause:
+<root>` on the parent (unless the parent's own cancel was requested, which then wins as the cause),
+and the parent ends `Cancelled` unless its command handles the error and returns `Ok`. The wait
+never sets the parent's status itself; its run does.
 
 **Post-finish messages.** Once finalized, display-mutating/control service messages
 (`UpdatePrimaryProgress`, `UpdateSecondaryProgress`, `JobSubmitted`, `JobStarted`, `Cancel`,
@@ -1133,7 +1143,7 @@ drained) leaves the primary progress as follows:
 | The command reported progress, and the last entry is already done | that entry, unchanged (its final message is kept) |
 | The command reported progress, and the last entry is not done (a tick, 3/10, …) | a done entry carrying the last entry's message |
 | The command never reported progress | none (`ProgressEntry::off()`), so no bar is drawn |
-| Cancelled | `done("Cancelled")`, written by the cancel handler |
+| Cancelled | `done("Cancelled")`, written when the asset is cancelled |
 
 Secondary progress is cleared. A finished asset's `primary_progress()` is therefore always
 `is_done()` or `is_off()`, and the same evaluation always leaves the same progress, on both the
@@ -1172,6 +1182,7 @@ each with an `ExpiryReason` (§Why an asset is `Expired`). The rules are in
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-09 | Cancellation is a request decided by the run: `Cancelled` status description, the cancellation path diagram, Scenarios 3-5 (`cancel_for_replacement`), §Terminal outcome (`Cancelled` records its cause in `error_data`; `fail_asset` acts once on an in-flight asset; cascade cancellation through `wait_for_dependency`). | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-08 | §Content changed outside Liquers: the memory store no longer answers a metadata-only entry with empty bytes; the empty-bytes skip is kept for older stores. | phase-5 (`design/metadata-only-entry-reload/`) |
 | 2026-10-08 | §AssetManager names the dependency checks (`stored_dependency_state`, the per-key audit over the upstream closure, `trigger_dependency_audit_store`) and links §Consistency policies. The `StaleDependency` row gains the audit routes. | phase-5 (`design/dependency-chain-analysis-cost/`) |
 | 2026-10-07 | §Why an asset is `Expired`: a value supplied already `Expired` keeps its supplied reason and logs the warning `Asset expired` plus an after-the-fact info entry; one written-status rule for every manager. New §Progress after completion: started progress of a finished asset is done, unstarted progress stays absent, finalized after the service loop drains. The `Deadline` row: the immediate manager's lazy check cascades too. The manager-level recovery reads defer a `None`/`Recipe` placeholder to the store, and answer `Ok(None)` for a metadata-only entry. The `StaleDependency` row also covers an edge recorded against a superseded version. | phase-5 (`design/supplied-expired-status-reason/`, `design/immediate-set-state-status-match/`, `design/finished-asset-progress-contract/`, `design/immediate-lazy-expiry-cascade/`, `design/recovery-read-defers-placeholder/`, `design/memory-store-metadata-only-entry/`, `design/dependency-edge-superseded-version/`) |

@@ -122,6 +122,17 @@ None. Decided with the maintainer on 2026-10-09 (each as recommended unless stat
 - **D13 Visibility** (maintainer's question). Asset info of a cancelled keyed asset reports
   `Cancelled` with its cause, not `Recipe`, until the next `get` or `remove` (AC-12).
 
+## Design Readiness
+Decision log (pre-approval after Phase 2, 2026-10-09). **Needs decision: none. Blocking: none.**
+Implementation choices recorded as assumptions, none changing an approved contract:
+- A run's own failure or cancellation is recorded in memory only, never written as a metadata-only
+  store entry (the evaluation error path always behaved so; `keyabs12` depends on it).
+- `cancel_for_replacement` closes the replaced asset's `MetadataSaver`, so neither its `Cancelled`
+  status nor a later log line from its still-running command overwrites the replacement (AC-8).
+  `AssetRef::to_override` keeps the asset and discards the run without closing it.
+- `fail_asset` leaves a finalized progress bar alone (`finished_run_progress_contract_*`).
+- Residual limitation filed: `CANCEL-CAN-OVERTAKE-A-RETURNED-COMMAND` (P3).
+
 ## Design Dependencies
 - overlaps `error-with-key-field` (in review, T2 shared contract on error `query`/`key`; not merged,
   E2 size): this design uses only `query` for the root cause; `Error::with_key` currently writes

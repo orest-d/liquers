@@ -3,7 +3,7 @@ title: Asset Set Operation Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-09-27
+reviewed: 2026-10-09
 ---
 # Asset Set Operation Specification
 
@@ -148,31 +148,29 @@ When `set_binary()` or `set_state()` is called:
 
 ### In-Flight Asset Handling
 
-If the asset exists in AssetManager with status `Submitted`, `Dependencies`, or `Processing`:
+If the asset exists in AssetManager with an in-flight status (`None`, `Recipe`, `Submitted`,
+`Dependencies`, `Processing`, `Partial`):
 
-1. Set `cancelled = true` flag on AssetData (prevents orphan writes)
-2. Send `Cancel` message to service channel
-3. **Immediately** remove AssetRef from AssetManager
-4. Proceed with set operation
-5. Orphaned task (if still running) will check `cancelled` flag and silently drop results
+1. `AssetRef::cancel_for_replacement()`: close the replaced asset's metadata saver (nothing more of
+   it is written to the store, including log lines its still-running command sends later), request
+   its cancellation, and end it `Cancelled` at once (cause: `Asset <key> was replaced`) — in memory
+   only
+2. **Immediately** remove AssetRef from AssetManager
+3. Proceed with set operation
+4. The orphaned run, if still running, is discarded: a suspended async command is dropped; a sync
+   command that returns later finds the asset finished, and its result changes neither the asset nor
+   the store
 
-### Cancelled Flag Safety Mechanism
+### Discarding a late result
 
-The `cancelled: bool` flag on AssetData prevents race conditions with long-running, non-cooperative commands (e.g., ML training in Python):
+There is no flag to consult. Every terminal transition of a run happens once, from an in-flight
+status (`finalize_status_with_version`, `fail_asset`, `finish_cancelled` all check it under the
+asset's write lock), and the run installs, persists and registers a value only if it finalized. A
+replaced asset is already `Cancelled`, so its run's result is dropped. `save_to_store` additionally
+skips an asset in status `Cancelled`. External managers call `cancel_for_replacement()` the same way.
 
-```rust
-pub struct AssetData<E: Environment> {
-    // ... existing fields ...
-
-    /// If true, this asset has been cancelled and should not write results.
-    cancelled: bool,
-}
-```
-
-**Write prevention points** (all must check `cancelled` flag):
-- `ValueProduced` handler
-- Store write operations
-- Status updates
+`AssetRef::to_override` discards an in-flight run the same way but keeps the asset (it becomes the
+key's `Override`), so its metadata saver stays open.
 
 ## Error Recovery
 
@@ -205,8 +203,8 @@ When multiple stores exist in a StoreRouter:
 
 Setting an asset triggers notifications:
 
-1. `Cancelling` - sent when cancel is initiated (if asset was processing)
-2. `Cancelled` - sent after AssetRef is removed
+1. To the replaced asset, if it was in flight: `StatusChanged(Cancelled)` and `JobFinished`
+2. To the replaced asset: `Removed`, its last message
 3. Subscribers (including WebSocket) should request new AssetRef after receiving these
 
 WebSocket service is responsible for:
@@ -221,24 +219,28 @@ WebSocket service is responsible for:
 ```rust
 impl AssetRef {
     pub async fn cancel(&self) -> Result<(), Error>
+    pub async fn cancel_for_replacement(&self) -> Result<(), Error>
 }
 ```
 
-This method:
-1. Check if asset is being evaluated (`Submitted`, `Dependencies`, or `Processing`) - otherwise return Ok
-2. Set `cancelled = true` on AssetData
-3. Send `Cancel` message to the service channel
-4. Wait (with timeout) for status to change to `Cancelled` or `JobFinished` on notification channel
-5. Return Ok even if timeout occurs (best-effort)
+`cancel()`:
+1. `Submitted`: end `Cancelled` at once (under the write lock, so no runner claims it in between);
+   the command is never run
+2. `Dependencies`, `Processing`, `Partial`: set the cancellation request (shared with the run's
+   `Context`, readable through `Context::is_cancelled`); any other status: return Ok
+3. Wait (with a 5 s timeout, native only) for the run to finish
+4. Return Ok whether or not the cancel took effect (best-effort)
+
+The run decides the outcome: a compute still suspended is dropped and the asset ends `Cancelled`; a
+command that already returned `Ok` ends ready and is stored, and the request is cleared. See
+`specs/guides/COMMAND_DESIGN_GUIDE.md` §Cooperative cancellation.
+
+`cancel_for_replacement()` is described under §In-Flight Asset Handling.
 
 ### Processing Task Behavior
 
-The processing task should:
-1. Listen for `Cancel` message on service channel
-2. Send `Cancelling` notification immediately upon receiving Cancel
-3. Gracefully shut down
-4. Send `Cancelled` notification
-5. Send `JobFinished` notification
+The service loop's `Cancel` message only sets the request (kept for external senders); it never
+sets a status. The run races its compute against the request and records one terminal status.
 
 ## Remove Operations
 
@@ -301,7 +303,8 @@ Rationale: Validation would require potentially costly de-serialization, adding 
    - Update `has_data()`, `is_finished()`, etc. to handle `Override`
 
 2. **`liquers-core/src/assets.rs`**
-   - Add `cancelled: bool` field to `AssetData`
+   - (A `cancelled: bool` field was planned here; replaced by `cancel_for_replacement`, see
+     §In-Flight Asset Handling)
    - Add `set()` method to `AssetManager` trait
    - Add `set_state()` method to `AssetManager` trait
    - Add `remove()` and `remove_asset()` methods
@@ -334,8 +337,8 @@ Rationale: Validation would require potentially costly de-serialization, adding 
 ### Implementation Steps
 
 1. Add `Override` status to `Status` enum and update helper methods
-2. Add `cancelled` flag to `AssetData`
-3. Add `cancel()` method to `AssetRef`
+2. (Superseded) the `cancelled` flag on `AssetData` — see §Discarding a late result
+3. Add `cancel()` and `cancel_for_replacement()` methods to `AssetRef`
 4. Implement `set()` in `DefaultAssetManager`:
    - Acquire lock on key
    - Check if asset exists in memory; if processing, cancel
@@ -383,6 +386,7 @@ Rationale: Validation would require potentially costly de-serialization, adding 
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-09 | §In-Flight Asset Handling and §Cancellation Mechanism rewritten: `cancel_for_replacement` discards a replaced run's late result (no `cancelled` flag); `cancel()` is a request the run decides; replacement notifications as sent. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-09-27 | Reviewed against the code for record-streams: the binary operation is `set_binary()` (was written `set()`); both operations honour the supplied metadata's `stored: false`. Repaired this History table's header | phase-5 (`design/record-streams/`) |
 | 2026-08-26 | Corrected the error-state exemption: an errored asset is typed by the value it holds, which is none. There is no `error` identifier. | `design/foreign-value-type-registration/` |
 | 2026-08-18 | The mandatory-field rules this document asserted are now enforced, in two tiers; records which checks reject, which warn, and the two exemptions from the format check. | `design/value-type-system/` |
