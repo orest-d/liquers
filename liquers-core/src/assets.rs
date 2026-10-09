@@ -283,8 +283,15 @@
 //! evaluate a recipe-backed asset again.
 //!
 //! [`AssetRef::cancel`] is best-effort. It acts only on submitted, dependency,
-//! processing, or partial assets. On native targets it waits at most five seconds
-//! for a cancellation or finish notification and returns `Ok(())` on timeout.
+//! processing, or partial assets. A submitted asset ends `Cancelled` at once; for a
+//! running one it is a request, which the run honours at its next suspension point
+//! (or a command honours through `Context::is_cancelled`). A run whose command has
+//! already returned `Ok` ends ready and is stored. A cancellation reaching a dependent
+//! cascades: the dependent ends `Cancelled` too, with the same cause, whose `query`
+//! names the asset that was cancelled. On native targets `cancel` waits at most five
+//! seconds for the run to finish and returns `Ok(())` on timeout. Replacing an asset
+//! (`set`, `set_state`, `remove`, `to_override`) uses
+//! [`AssetRef::cancel_for_replacement`], which discards the run's late result.
 //!
 //! # Manager implementations
 //!
@@ -418,6 +425,9 @@ enum SaveOutcome {
 pub struct MetadataSaver {
     state: Mutex<MetadataSaverState>,
     interval: std::time::Duration,
+    /// Set once the asset was replaced: its key's store entry belongs to the replacement, so
+    /// nothing more is written for it (see [`Self::close`]).
+    closed: AtomicBool,
 }
 
 #[derive(Default)]
@@ -438,6 +448,28 @@ impl MetadataSaver {
         Self {
             state: Mutex::new(MetadataSaverState::default()),
             interval,
+            closed: AtomicBool::new(false),
+        }
+    }
+
+    /// Stop writing: drop the pending metadata, wait for a write already under way, and ignore
+    /// every later save. Used when the asset is replaced, so that none of its metadata — a status,
+    /// a log line from its still-running command — lands on top of the replacement's.
+    pub(crate) async fn close(&self) {
+        self.closed.store(true, Ordering::SeqCst);
+        #[cfg(not(target_arch = "wasm32"))]
+        let in_flight = {
+            let mut lock = self.state.lock().await;
+            lock.pending = None;
+            lock.in_flight.take()
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(handle) = in_flight {
+            let _ = handle.await;
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.state.lock().await.pending = None;
         }
     }
 
@@ -449,6 +481,9 @@ impl MetadataSaver {
         envref: EnvRef<E>,
     ) {
         let mut lock = self.state.lock().await;
+        if self.closed.load(Ordering::SeqCst) {
+            return;
+        }
         lock.pending = Some(metadata);
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -504,6 +539,9 @@ impl MetadataSaver {
                 lock.pending.take()
             };
 
+            if self.closed.load(Ordering::SeqCst) {
+                return;
+            }
             if let Some(metadata) = maybe_payload {
                 if let Some(key) = key.as_ref() {
                     // `stored: false` — this is the easiest-to-miss, most frequent writer for a
@@ -523,6 +561,106 @@ impl MetadataSaver {
                 }
             }
         }
+    }
+}
+
+/// A request to cancel one asset's run, shared by the asset and every [`Context`] of that run.
+///
+/// Readable from synchronous code without a lock, so a command can poll it
+/// (`Context::is_cancelled`). The run races its evaluation against [`Self::requested`] and is the
+/// only party that turns a request into a status: a request alone never finalizes anything.
+/// Never held across an await.
+pub(crate) struct CancellationRequest {
+    requested: AtomicBool,
+    /// Written before `requested` is set (Release), read after it is seen (Acquire).
+    cause: std::sync::Mutex<Option<Error>>,
+    notify: tokio::sync::Notify,
+}
+
+impl CancellationRequest {
+    pub(crate) fn new() -> Self {
+        CancellationRequest {
+            requested: AtomicBool::new(false),
+            cause: std::sync::Mutex::new(None),
+            notify: tokio::sync::Notify::new(),
+        }
+    }
+
+    /// Request cancellation with `cause`. The first cause wins; returns whether this call made
+    /// the request.
+    pub(crate) fn request(&self, cause: Error) -> bool {
+        {
+            let mut guard = self.cause.lock().unwrap_or_else(|e| e.into_inner());
+            if self.requested.load(Ordering::Acquire) {
+                return false;
+            }
+            *guard = Some(cause);
+            self.requested.store(true, Ordering::Release);
+        }
+        self.notify.notify_waiters();
+        true
+    }
+
+    pub(crate) fn is_requested(&self) -> bool {
+        self.requested.load(Ordering::Acquire)
+    }
+
+    /// The cause of a pending request, if there is one.
+    pub(crate) fn cause(&self) -> Option<Error> {
+        if !self.is_requested() {
+            return None;
+        }
+        self.cause.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Forget a request that a successful run overtook (D6).
+    pub(crate) fn clear(&self) {
+        let mut guard = self.cause.lock().unwrap_or_else(|e| e.into_inner());
+        self.requested.store(false, Ordering::Release);
+        *guard = None;
+    }
+
+    /// Completes once cancellation has been requested.
+    pub(crate) async fn requested(&self) {
+        loop {
+            let mut notified = std::pin::pin!(self.notify.notified());
+            // Registered before the check, so a request made in between is not lost.
+            notified.as_mut().enable();
+            if self.is_requested() {
+                return;
+            }
+            notified.await;
+        }
+    }
+}
+
+impl std::fmt::Debug for CancellationRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CancellationRequest")
+            .field("requested", &self.is_requested())
+            .finish()
+    }
+}
+
+/// Whether `status` belongs to an evaluation that has not reached its terminal status yet.
+/// Every terminal transition of a run (ready, failed, cancelled) happens from one of these, once.
+fn is_in_flight(status: Status) -> bool {
+    match status {
+        Status::None
+        | Status::Recipe
+        | Status::Submitted
+        | Status::Dependencies
+        | Status::Processing
+        | Status::Partial => true,
+        Status::Directory
+        | Status::Error
+        | Status::Storing
+        | Status::Ready
+        | Status::Expired
+        | Status::Cancelled
+        | Status::Source
+        | Status::Override
+        | Status::Volatile => false,
     }
 }
 
@@ -576,10 +714,9 @@ pub struct AssetData<E: Environment> {
     /// it, late progress updates are dropped (post-finish message policy).
     progress_finalized: bool,
 
-    /// If true, this asset has been cancelled and should not write results.
-    /// Any ValueProduced or store write attempts should be silently dropped.
-    /// This is used to prevent race conditions when cancelling long-running tasks.
-    cancelled: bool,
+    /// Cancellation request of the current run, shared with every `Context` of that run.
+    /// A request is not a status: the run decides the terminal status (see `AssetRef::cancel`).
+    cancellation: Arc<CancellationRequest>,
 
     /// The key this asset is associated with — it is a *keyed asset* — or `None` when it is not.
     ///
@@ -996,7 +1133,7 @@ impl<E: Environment> AssetData<E> {
             metadata_saver: Arc::new(MetadataSaver::new(std::time::Duration::from_millis(100))),
             save_in_background: true,
             progress_finalized: false,
-            cancelled: false,
+            cancellation: Arc::new(CancellationRequest::new()),
             is_volatile: false,
             key,
             payload_path: Vec::new(),
@@ -1092,6 +1229,21 @@ impl<E: Environment> AssetData<E> {
     }
 
     /// The subject an expiry log line names: this asset's key, else its query — never its id.
+    /// Attach this asset's identity to `error`'s `query` field: its key when keyed, else its
+    /// query. An asset with neither leaves the field unset.
+    pub(crate) fn identify_in_error(&self, error: Error) -> Error {
+        if let Some(key) = &self.key {
+            return error.with_key(key);
+        }
+        if let Some(query) = self.query.as_ref() {
+            return error.with_query(query);
+        }
+        match self.recipe.get_query() {
+            Ok(query) => error.with_query(&query),
+            Err(_) => error,
+        }
+    }
+
     pub(crate) fn expiry_subject(&self) -> String {
         if let Some(key) = &self.key {
             return key.to_string();
@@ -1534,14 +1686,26 @@ impl<E: Environment> AssetData<E> {
         }
     }
 
-    /// Check if the asset has been cancelled
+    /// Whether cancellation of the current run has been requested and not yet overtaken by a
+    /// successful finish.
     pub fn is_cancelled(&self) -> bool {
-        self.cancelled
+        self.cancellation.is_requested()
     }
 
-    /// Set the cancelled flag
-    pub fn set_cancelled(&mut self, cancelled: bool) {
-        self.cancelled = cancelled;
+    /// Put an in-flight asset into its terminal `Cancelled` status, recording `cause`. Returns
+    /// whether it did; an asset that already finished is left as it is. The caller notifies.
+    fn mark_cancelled(&mut self, cause: Error) -> bool {
+        if !is_in_flight(self.status) {
+            return false;
+        }
+        self.data = None;
+        self.binary = None;
+        self.status = Status::Cancelled;
+        self.metadata.with_cancellation(cause);
+        retype_as_none::<E>(&mut self.metadata);
+        self.metadata
+            .set_primary_progress(&ProgressEntry::done("Cancelled".to_string()));
+        true
     }
 
     /// Poll the cached binary data and metadata without any async operations.
@@ -1992,7 +2156,7 @@ enum ValueOrigin {
     Delegated { version: Option<Version> },
 }
 
-struct RecipeEvaluation<V: ValueInterface> {
+pub(crate) struct RecipeEvaluation<V: ValueInterface> {
     /// The produced value.
     value: Arc<V>,
     /// Dependencies observed during this evaluation, to be merged into the asset's live metadata.
@@ -2002,6 +2166,14 @@ struct RecipeEvaluation<V: ValueInterface> {
     /// evaluation, so installing a snapshot taken mid-evaluation silently discards them.
     dependencies: Vec<DependencyRecord>,
     origin: ValueOrigin,
+}
+
+/// How the race inside a run ended: the evaluation finished, another party finished the asset
+/// first, or cancellation was requested while the evaluation was still running.
+enum RunOutcome<V: ValueInterface> {
+    Computed(Result<RecipeEvaluation<V>, Error>),
+    FinishedElsewhere(Result<(), Error>),
+    CancelRequested,
 }
 
 /// Weak handle that preserves an asset id without keeping its data alive.
@@ -2062,20 +2234,31 @@ impl<E: Environment> AssetRef<E> {
         Ok(())
     }
 
-    /// Fail this asset because a dependency failed.
-    pub(crate) async fn fail_due_to_dependency(&self, error: Error) -> Result<(), Error> {
-        let mut lock = self.data.write().await;
-        lock.data = None;
-        lock.binary = None;
-        lock.status = Status::Error;
-        lock.metadata.with_error(error.clone());
-        // The value is gone, so the type axis must say so: it reports what is *available*, not
-        // what was intended. The intent survives in the query, key and filename.
-        retype_as_none::<E>(&mut lock.metadata);
-        let _ = lock
-            .notification_tx
-            .send(AssetNotificationMessage::ErrorOccurred(error));
-        Ok(())
+    /// The error with which this asset's wait for a cancelled `dependency` ends: the cancellation
+    /// the dependency recorded, passed on unchanged so its `query` keeps naming the root cause,
+    /// or one built for the dependency when it recorded none. Unless this asset's own cancel was
+    /// requested, a warning naming the dependency and the root cause goes into its log.
+    pub(crate) async fn cancelled_dependency_cause(&self, dependency: &AssetRef<E>) -> Error {
+        let cause = match dependency.stored_error().await {
+            Some(cause) if cause.is_cancelled() => cause,
+            Some(_) | None => {
+                let dep = dependency.data.read().await;
+                dep.identify_in_error(Error::cancelled(format!(
+                    "Dependency {} was cancelled",
+                    dep.expiry_subject()
+                )))
+            }
+        };
+        if !self.is_cancelled().await {
+            let dependency_name = dependency.expiry_subject().await;
+            let root = cause.query.clone().unwrap_or_else(|| cause.message.clone());
+            let mut lock = self.data.write().await;
+            let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
+                "Dependency {} was cancelled; root cause: {}",
+                dependency_name, root
+            )));
+        }
+        cause
     }
 
     /// Leave `Status::Dependencies` and resume this asset as `Processing`.
@@ -2631,7 +2814,7 @@ impl<E: Environment> AssetRef<E> {
     /// Manages asset expiration timing and expiration state transitions.
     /// Labels asset as Ready or Volatile when it has data, Error otherwise.
     /// Used by: `finish_run_with_result` in this module.
-    async fn try_to_set_ready(&self) {
+    async fn try_to_set_ready(&self) -> bool {
         self.finalize_status_with_version(None).await
     }
 
@@ -2641,13 +2824,22 @@ impl<E: Environment> AssetRef<E> {
     /// One transaction is the point: it is what makes "the version is available as soon as the
     /// asset is readable" an invariant of the code rather than of a comment, since no observer can
     /// see the asset between the two.
-    async fn finalize_status_with_version(&self, prepared: Option<PreparedVersion>) {
+    ///
+    /// Returns whether it finalized. Only an in-flight asset is finalized: one that a replacement
+    /// or a cancel already finished keeps its status, and the caller discards its result.
+    async fn finalize_status_with_version(&self, prepared: Option<PreparedVersion>) -> bool {
         eprintln!(
             "Trying to set asset {} to ready - status {:?}",
             self.id(),
             self.status().await
         );
         let mut lock = self.data.write().await;
+        if !is_in_flight(lock.status) {
+            return false;
+        }
+        // The run finished, so a cancel it overtook is dropped (D6) — under the same lock as the
+        // status change, so no observer sees a finished asset with a pending request.
+        lock.cancellation.clear();
         if let Some(prepared) = prepared {
             if let Err(e) = lock.metadata.set_version(Some(prepared.version)) {
                 let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
@@ -2754,6 +2946,7 @@ impl<E: Environment> AssetRef<E> {
                 eprintln!("!!!ERROR!!! Failed to add log entry: {}", e);
             }
         }
+        true
     }
 
     /// Returns a human-readable description of this runtime asset.
@@ -2868,19 +3061,18 @@ impl<E: Environment> AssetRef<E> {
     }
 
     /// Save to store and track persistence outcomes.
-    /// Short-circuits when cancelled, then persists either in a background task or synchronously and records the resulting persistence status.
-    /// Used by: `evaluate_and_store`, `set_state`, `set_value` in this module.
+    /// Short-circuits for `stored: false`, then persists either in a background task or synchronously and records the resulting persistence status.
+    /// Used by: `complete_evaluation`, `set_state`, `set_value` in this module.
     ///
     /// Arguments:
     /// - `save_in_background`: When true, performs persistence asynchronously in a spawned task.
-    /// - `cancelled`: Cancellation flag used to skip writes after cancellation.
-    async fn persist_with_status_tracking(&self, save_in_background: bool, cancelled: bool) {
+    async fn persist_with_status_tracking(&self, save_in_background: bool) {
         // `stored: false` skips the write, so it is recorded as no attempt — `None`, as for a
         // cancelled save — never `Persisted`. A skipped write reported as `Persisted` sent
         // `AssetManager::to_override` down the branch that writes the metadata straight to the
         // store, leaving the metadata-only entry the flag exists to prevent.
         let not_stored = !self.data.read().await.metadata.stored();
-        if cancelled || not_stored {
+        if not_stored {
             self.set_persistence_status(PersistenceStatus::None, None)
                 .await;
             return;
@@ -2917,9 +3109,15 @@ impl<E: Environment> AssetRef<E> {
     /// Contract for an [`AssetManager`] implementation: call it once when the asset is accepted
     /// for evaluation but not yet running, before handing it to [`Self::run`]. A manager that
     /// runs the asset immediately and never queues it may skip it.
+    ///
+    /// A finished asset is left as it is, so re-parking a run that a cancel already finished
+    /// cannot revive it.
     pub async fn submitted(&self) -> Result<(), Error> {
-        self.set_status(Status::Submitted).await?;
-        let lock = self.data.read().await;
+        let mut lock = self.data.write().await;
+        if lock.status.is_finished() {
+            return Ok(());
+        }
+        lock.set_status(Status::Submitted)?;
 
         lock.service_tx
             .send(AssetServiceMessage::JobSubmitted)
@@ -2990,17 +3188,9 @@ impl<E: Environment> AssetRef<E> {
                     let _ = notification_tx.send(AssetNotificationMessage::LogMessage);
                 }
                 AssetServiceMessage::Cancel => {
-                    self.set_status(Status::Cancelled).await?;
-                    {
-                        let mut lock = self.data.write().await;
-                        lock.metadata
-                            .set_primary_progress(&ProgressEntry::done("Cancelled".to_string()));
-                    }
-                    let _ = notification_tx
-                        .send(AssetNotificationMessage::StatusChanged(Status::Cancelled));
-                    let _ = notification_tx.send(AssetNotificationMessage::JobFinished);
-                    self.save_metadata_to_store().await?;
-                    return Ok(());
+                    // A request only: the run decides the terminal status (single writer).
+                    let cause = self.own_cancellation_cause("cancelled").await;
+                    self.cancellation().await.request(cause);
                 }
                 AssetServiceMessage::UpdatePrimaryProgress(progress) => {
                     eprintln!(
@@ -3079,18 +3269,52 @@ impl<E: Environment> AssetRef<E> {
         }
     }
 
-    /// Coordinates asset evaluation with the service-message loop.
-    /// This is executed after the processing of service messages finishes (due to successful job evaluation,
-    /// error or cancelation).
-    /// Sends lifecycle updates through the asset notification channel.
-    /// Used by: `run_with_future` in this module.
+    /// Turns how the race between computing and cancelling ended into this run's result:
+    /// `Ok(true)` when this run finalized the asset, `Ok(false)` when someone else finished it
+    /// first, `Err` when the run failed or was cancelled.
+    async fn settle_run(&self, outcome: RunOutcome<E::Value>) -> Result<bool, Error> {
+        match outcome {
+            // Past the point of no return: finalizing and storing are not cancellable (D2).
+            RunOutcome::Computed(Ok(evaluation)) => self.complete_evaluation(evaluation).await,
+            RunOutcome::Computed(Err(e)) => Err(e),
+            RunOutcome::FinishedElsewhere(res) => res.map(|()| false),
+            RunOutcome::CancelRequested => {
+                let cause = match self.cancellation().await.cause() {
+                    Some(cause) => cause,
+                    None => self.own_cancellation_cause("cancelled").await,
+                };
+                Err(cause)
+            }
+        }
+    }
+
+    /// The error a failed or cancelled run records. A cancellation is attributed to this asset's
+    /// own cancel when one was requested (D12), and otherwise to the asset it names; one that
+    /// names none gets this asset's identity.
+    async fn attribute_run_error(&self, error: Error) -> Error {
+        if !error.is_cancelled() {
+            return error;
+        }
+        if let Some(own) = self.cancellation().await.cause() {
+            return own;
+        }
+        if error.query.is_none() {
+            return self.data.read().await.identify_in_error(error);
+        }
+        error
+    }
+
+    /// Records the outcome of a run once the service-message loop has drained, and releases its
+    /// waiters. Exactly one terminal transition happens per run, and whoever makes it sends the
+    /// single `JobFinished`.
+    /// Used by: `run_with_future`, `run_with_future_inline` in this module.
     ///
     /// Arguments:
-    /// - `result`: Evaluation/persistence result to convert into asset state updates.
+    /// - `result`: the run's result, from [`Self::settle_run`].
     /// - `psm_result`: output of process_service_messages task to check if the service loop finished without errors.
     async fn finish_run_with_result(
         &self,
-        mut result: Result<(), Error>,
+        mut result: Result<bool, Error>,
         psm_result: Result<Result<(), Error>, PsmJoinError>,
     ) -> Result<(), Error> {
         match psm_result {
@@ -3116,86 +3340,69 @@ impl<E: Environment> AssetRef<E> {
             }
         }
 
-        if let Err(e) = &result {
-            // Unified failure routine: preserves the metadata audit trail (with_error) instead
-            // of replacing it (Metadata::from_error).
-            let _ = self.fail_asset(e.clone()).await;
-        } else {
-            // Finalization is guarded by current status because concurrent service messages may
-            // already have transitioned the asset (e.g. cancellation/error). This is non-recursive:
-            // try_to_set_ready() mutates local state only and never calls run()/run_immediately().
-            match self.status().await {
-                Status::None
-                | Status::Recipe
-                | Status::Submitted
-                | Status::Dependencies
-                | Status::Processing
-                | Status::Partial => {
-                    self.try_to_set_ready().await;
-                }
-                Status::Error => {
-                    let mut lock = self.data.write().await;
-                    lock.data = None;
-                    lock.binary = None;
-                    let _ = lock.metadata.add_log_entry(LogEntry::error(
-                        "Asset ended in error status after evaluation".to_string(),
-                    ));
-                }
-                Status::Storing => {
-                    let mut lock = self.data.write().await;
-                    let _ = lock.metadata.add_log_entry(LogEntry::warning(
-                        "Asset ended in status 'Storing' after evaluation".to_string(),
-                    ));
-                }
-                Status::Ready
-                | Status::Directory
-                | Status::Expired
-                | Status::Cancelled
-                | Status::Source
-                | Status::Override
-                | Status::Volatile => {}
+        match result {
+            Err(e) => {
+                let e = self.attribute_run_error(e).await;
+                // Unified failure routine: preserves the metadata audit trail (with_error) instead
+                // of replacing it (Metadata::from_error). It notifies when it finalizes; an asset
+                // finished by someone else (a replacement) keeps its status. In memory only, as the
+                // evaluation error path always has been.
+                let _ = self.fail_asset_with(e.clone(), false).await;
+                Err(e)
             }
-            // Schedule expiration if asset has a finite expiration time
-            let exp_time = self.expiration_time().await;
-            if !exp_time.is_never() && !exp_time.is_expired() {
-                self.schedule_expiration(&exp_time).await;
+            Ok(finalized_by_run) => {
+                // Nothing finalized the asset — no evaluation result reached it — so finalize
+                // now; with no data this records an error. Non-recursive: try_to_set_ready()
+                // mutates local state only and never calls run().
+                let finalized = finalized_by_run
+                    || (is_in_flight(self.status().await) && self.try_to_set_ready().await);
+                // Schedule expiration if asset has a finite expiration time
+                let exp_time = self.expiration_time().await;
+                if !exp_time.is_never() && !exp_time.is_expired() {
+                    self.schedule_expiration(&exp_time).await;
+                }
+                if finalized {
+                    let lock = self.data.read().await;
+                    lock.notification_tx
+                        .send(AssetNotificationMessage::JobFinished)
+                        .ok();
+                }
+                Ok(())
             }
         }
-
-        // Note: the psm loop has already terminated via the JobFinishing message sent in
-        // run_with_future, so the previous JobFinished *service* message here was dead code
-        // (resolves the "meaningless send" FIXME). Only the notification wake-up remains.
-        {
-            let lock = self.data.write().await;
-            lock.notification_tx
-                .send(AssetNotificationMessage::JobFinished)
-                .ok();
-        }
-        result
     }
 
     /// Coordinates asset evaluation with the service-message loop.
     /// Spawns background asynchronous work with `tokio::spawn`.
-    /// Used by: `run`, `run_immediately` in this module.
+    /// Used by: `run` in this module.
     ///
-    /// GENERATED
+    /// `compute` is raced against this asset's cancellation request (polled first, so a result
+    /// that is ready wins); its result is then completed outside the race.
     #[cfg(not(target_arch = "wasm32"))]
-    async fn run_with_future<Fut>(&self, evaluate_future: Fut) -> Result<(), Error>
+    async fn run_with_future<Fut>(&self, compute: Fut) -> Result<(), Error>
     where
-        Fut: std::future::Future<Output = Result<(), Error>>,
+        Fut: std::future::Future<Output = Result<RecipeEvaluation<E::Value>, Error>>,
     {
         self.resolve_volatility_before_evaluation().await;
         if self.status().await.is_finished() {
             return Ok(()); // Already finished
         }
+        let cancellation = self.cancellation().await;
         let assetref = self.clone();
         // all service messages should be processed, therefore they run in a separate task
         let psm = tokio::spawn(async move { assetref.process_service_messages().await });
-        // Wait until either the asset evaluation future is evaluated or the service message loop finishes (which may happen in case of errors or cancellation).
-        let result = tokio::select! {
-            res = self.wait_to_finish() => res,
-            res = evaluate_future => res
+        let outcome = if cancellation.is_requested() {
+            // Requested before the job started: the command is never invoked.
+            RunOutcome::CancelRequested
+        } else {
+            tokio::select! {
+                biased;
+                res = compute => RunOutcome::Computed(res),
+                res = self.wait_to_finish() => RunOutcome::FinishedElsewhere(res),
+                _ = cancellation.requested() => RunOutcome::CancelRequested,
+            }
         };
+        let result = self.settle_run(outcome).await;
         self.service_sender()
             .await
             .send(AssetServiceMessage::JobFinishing)
@@ -3218,7 +3425,7 @@ impl<E: Environment> AssetRef<E> {
     /// it returns. Managers that must not spawn use [`Self::run_inline`].
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn run(&self, payload: Option<E::Payload>) -> Result<(), Error> {
-        self.run_with_future(self.evaluate(payload)).await
+        self.run_with_future(self.compute(payload)).await
     }
 
     /// Single-task (spawn-free) variant of [`run_with_future`] used by immediate-mode managers.
@@ -3226,12 +3433,9 @@ impl<E: Environment> AssetRef<E> {
     /// the evaluate/wait race uses `futures::select!` — both executor-agnostic, so this compiles
     /// and runs on `wasm32` with no tokio runtime. Sound because the psm loop terminates on the
     /// `JobFinishing` message sent below (see `finish_run_with_result` note).
-    pub(crate) async fn run_with_future_inline<Fut>(
-        &self,
-        evaluate_future: Fut,
-    ) -> Result<(), Error>
+    pub(crate) async fn run_with_future_inline<Fut>(&self, compute: Fut) -> Result<(), Error>
     where
-        Fut: core::future::Future<Output = Result<(), Error>>,
+        Fut: core::future::Future<Output = Result<RecipeEvaluation<E::Value>, Error>>,
     {
         use futures::FutureExt;
         self.resolve_volatility_before_evaluation().await;
@@ -3251,14 +3455,22 @@ impl<E: Environment> AssetRef<E> {
                 return self.wait_to_finish().await;
             }
         };
+        let cancellation = self.cancellation().await;
         let eval_side = async {
-            let wait = self.wait_to_finish().fuse();
-            let ev = evaluate_future.fuse();
-            futures::pin_mut!(wait, ev);
-            let result = futures::select! {
-                res = wait => res,
-                res = ev => res,
+            let outcome = if cancellation.is_requested() {
+                RunOutcome::CancelRequested
+            } else {
+                let wait = self.wait_to_finish().fuse();
+                let ev = compute.fuse();
+                let requested = cancellation.requested().fuse();
+                futures::pin_mut!(wait, ev, requested);
+                futures::select_biased! {
+                    res = ev => RunOutcome::Computed(res),
+                    res = wait => RunOutcome::FinishedElsewhere(res),
+                    () = requested => RunOutcome::CancelRequested,
+                }
             };
+            let result = self.settle_run(outcome).await;
             self.service_sender()
                 .await
                 .send(AssetServiceMessage::JobFinishing)
@@ -3287,7 +3499,7 @@ impl<E: Environment> AssetRef<E> {
     /// on it can be stranded (`INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS`), so await it to the
     /// end.
     pub async fn run_inline(&self, payload: Option<E::Payload>) -> Result<(), Error> {
-        self.run_with_future_inline(self.evaluate(payload)).await
+        self.run_with_future_inline(self.compute(payload)).await
     }
 
     /// Fetch initial state and recipe of the asset
@@ -3448,13 +3660,35 @@ impl<E: Environment> AssetRef<E> {
     /// 7. persist, if this is a keyed asset and this evaluation did not hand off;
     /// 8. register with the dependency manager, which is self-limiting on status and ownership.
     ///
+    /// Steps 1-2 are [`Self::compute`], which the run races against cancellation; steps 3-8 are
+    /// [`Self::complete_evaluation`], which is not cancellable once it starts.
+    ///
     /// `payload` carries per-call caller context. It is deliberately not part of an asset's
     /// identity, so an asset evaluated with one is never shared, reused, or persisted as loadable.
-    async fn evaluate(&self, payload: Option<E::Payload>) -> Result<(), Error> {
+    async fn compute(
+        &self,
+        payload: Option<E::Payload>,
+    ) -> Result<RecipeEvaluation<E::Value>, Error> {
         self.resolve_volatility_before_evaluation().await;
-        let res = self.evaluate_recipe_outcome(payload).await;
-        match res {
-            Ok(outcome) => {
+        self.evaluate_recipe_outcome(payload).await
+    }
+
+    /// The evaluation body without the run harness, for tests that evaluate an asset directly.
+    #[cfg(test)]
+    async fn evaluate(&self, payload: Option<E::Payload>) -> Result<(), Error> {
+        let outcome = self.compute(payload).await?;
+        self.complete_evaluation(outcome).await.map(|_| ())
+    }
+
+    /// Steps 3-8 of the evaluation body (see [`Self::compute`]): install the computed value,
+    /// finalize, notify, persist and register. Returns whether it finalized; a result that
+    /// arrives after the asset was finished elsewhere (replaced) is discarded.
+    async fn complete_evaluation(
+        &self,
+        outcome: RecipeEvaluation<E::Value>,
+    ) -> Result<bool, Error> {
+        {
+            {
                 let RecipeEvaluation {
                     value,
                     dependencies,
@@ -3465,6 +3699,11 @@ impl<E: Environment> AssetRef<E> {
                     // service-message loop is writing progress and log entries to this same
                     // record while evaluation runs, and a wholesale replacement drops them.
                     let mut lock = self.data.write().await;
+                    if !is_in_flight(lock.status) {
+                        // Replaced or otherwise finished while the command ran: the late result
+                        // must change neither this asset nor the store (AC-8).
+                        return Ok(false);
+                    }
                     lock.metadata
                         .with_type_identifier(value.identifier().to_string())
                         .with_type_name(value.type_name().to_string());
@@ -3490,15 +3729,17 @@ impl<E: Environment> AssetRef<E> {
                 let prepared = self.prepare_version(origin).await;
                 // Finalize status and expiration in one place (replaces inline match block).
                 // Must happen before persistence so poll_state() returns Some for serialization.
-                self.finalize_status_with_version(prepared).await;
-                let (save_in_background, cancelled, lock_is_volatile, stale_dependency) = {
+                if !self.finalize_status_with_version(prepared).await {
+                    // Finished elsewhere between the check above and here.
+                    return Ok(false);
+                }
+                let (save_in_background, lock_is_volatile, stale_dependency) = {
                     let lock = self.data.read().await;
                     let _ = lock
                         .notification_tx
                         .send(AssetNotificationMessage::ValueProduced);
                     (
                         lock.save_in_background,
-                        lock.is_cancelled(),
                         lock.is_volatile,
                         lock.stale_dependency.clone(),
                     )
@@ -3514,8 +3755,7 @@ impl<E: Environment> AssetRef<E> {
                 // — which `try_fast_track` later reads as "nothing to check".
                 let is_keyed = self.data.read().await.key.is_some();
                 if is_keyed && matches!(origin, ValueOrigin::Computed) {
-                    self.persist_with_status_tracking(save_in_background, cancelled)
-                        .await;
+                    self.persist_with_status_tracking(save_in_background).await;
                 }
 
                 // Register in DM for non-volatile assets.
@@ -3575,19 +3815,7 @@ impl<E: Environment> AssetRef<E> {
                         .await;
                 }
 
-                Ok(())
-            }
-            Err(e) => {
-                eprintln!("Error during evaluation of asset {}: {}", self.id(), e);
-                let mut lock = self.data.write().await;
-                lock.data = None;
-                lock.metadata.with_error(e.clone());
-                lock.status = Status::Error;
-                lock.binary = None;
-                let _ = lock
-                    .notification_tx
-                    .send(AssetNotificationMessage::ErrorOccurred(e.clone()));
-                Err(e)
+                Ok(true)
             }
         }
     }
@@ -3595,9 +3823,9 @@ impl<E: Environment> AssetRef<E> {
     /// Persists metadata updates to the configured async store.
     /// Used by: `persist_with_status_tracking`
     async fn save_to_store(&self) -> Result<SaveOutcome, Error> {
-        // Check cancelled flag before writing to store (cancel-safety)
-        // This prevents orphaned tasks from overwriting data after cancellation
-        if self.is_cancelled().await {
+        // A cancelled asset holds no value to write. The run never persists one (it persists only
+        // what it finalized), so this is a defensive check against a caller persisting it anyway.
+        if self.status().await == Status::Cancelled {
             eprintln!(
                 "Asset {} cancelled, skipping store write in save_to_store",
                 self.id()
@@ -3620,8 +3848,8 @@ impl<E: Environment> AssetRef<E> {
         if let Some((data, metadata)) = x {
             let lock = self.data.read().await;
 
-            // Double-check cancelled flag after potentially long serialization
-            if lock.is_cancelled() {
+            // Double-check after potentially long serialization
+            if lock.status == Status::Cancelled {
                 eprintln!(
                     "Asset {} cancelled after serialization, skipping store write",
                     self.id()
@@ -3765,45 +3993,56 @@ impl<E: Environment> AssetRef<E> {
 
     /// Requests cancellation of an in-flight asset.
     ///
-    /// Only `Submitted`, `Dependencies`, `Processing`, and `Partial` are
-    /// cancellable; other statuses return `Ok(())` without change. Cancellation
-    /// sets a flag that prevents later store writes and sends an internal control
-    /// message. On native targets this waits for a cancellation or finish
-    /// notification for at most five seconds and still returns `Ok(())` on timeout.
-    /// On Wasm it returns after setting the flag and sending the message.
+    /// Only `Submitted`, `Dependencies`, `Processing`, and `Partial` are cancellable; other
+    /// statuses return `Ok(())` without change. A `Submitted` asset has not started, so it ends
+    /// `Cancelled` at once and its command is never run. Otherwise this is a *request*: the run
+    /// stops at its next suspension point and ends `Cancelled`, a command can notice it through
+    /// `Context::is_cancelled`, and a run whose command has already returned `Ok` ends ready
+    /// and is stored as usual — the request is then dropped. The cancellation error, whose
+    /// `query` names this asset, is recorded in the cancelled asset's metadata.
+    ///
+    /// On native targets this waits for the run to finish for at most five seconds and still
+    /// returns `Ok(())` on timeout, whether or not the cancel took effect. On Wasm it returns
+    /// after making the request.
     pub async fn cancel(&self) -> Result<(), Error> {
-        let status = self.status().await;
-
-        // Check if asset is in a cancellable state
-        match status {
-            Status::Submitted | Status::Dependencies | Status::Processing | Status::Partial => {
-                // Asset is being evaluated, proceed with cancellation
-            }
-            Status::None
-            | Status::Directory
-            | Status::Recipe
-            | Status::Error
-            | Status::Storing
-            | Status::Ready
-            | Status::Expired
-            | Status::Cancelled
-            | Status::Source
-            | Status::Override
-            | Status::Volatile => {
-                // Already finished or not started, nothing to cancel
-                return Ok(());
-            }
-        }
-
-        // Set cancelled flag to prevent orphan writes
-        {
+        let cause = self.own_cancellation_cause("cancelled").await;
+        let queued = {
             let mut lock = self.data.write().await;
-            lock.set_cancelled(true);
+            match lock.status {
+                // Not started: claimed under this lock, so no runner can start it in between.
+                Status::Submitted => {
+                    lock.cancellation.request(cause.clone());
+                    lock.mark_cancelled(cause.clone());
+                    Some(lock.notification_tx.clone())
+                }
+                Status::Dependencies | Status::Processing | Status::Partial => {
+                    lock.cancellation.request(cause.clone());
+                    None
+                }
+                Status::None
+                | Status::Directory
+                | Status::Recipe
+                | Status::Error
+                | Status::Storing
+                | Status::Ready
+                | Status::Expired
+                | Status::Cancelled
+                | Status::Source
+                | Status::Override
+                | Status::Volatile => {
+                    // Already finished or not started, nothing to cancel
+                    return Ok(());
+                }
+            }
+        };
+        if let Some(notification_tx) = queued {
+            // In memory only, like every cancellation: no metadata-only entry for a key that
+            // holds no value.
+            let _ =
+                notification_tx.send(AssetNotificationMessage::StatusChanged(Status::Cancelled));
+            let _ = notification_tx.send(AssetNotificationMessage::JobFinished);
+            return Ok(());
         }
-
-        // Send cancel message
-        let service_sender = self.service_sender().await;
-        let _ = service_sender.send(AssetServiceMessage::Cancel);
 
         // Wait for cancellation. Native: a background task may still be processing, so bound
         // the wait with a 5s timeout. Wasm/immediate: evaluation runs inline in the caller's
@@ -3815,6 +4054,11 @@ impl<E: Environment> AssetRef<E> {
             let timeout = tokio::time::Duration::from_secs(5);
             let result = tokio::time::timeout(timeout, async {
                 loop {
+                    // The watch channel keeps only the latest message, so a finish that a later
+                    // log line overwrote is caught by the status.
+                    if self.status().await.is_finished() {
+                        return Ok(());
+                    }
                     let notification = rx.borrow().clone();
                     match notification {
                         AssetNotificationMessage::JobFinished => {
@@ -3846,10 +4090,73 @@ impl<E: Environment> AssetRef<E> {
         }
     }
 
-    /// Returns whether cancellation has been requested for this asset.
+    /// Returns whether cancellation has been requested for this asset's current run.
     pub async fn is_cancelled(&self) -> bool {
         let lock = self.data.read().await;
         lock.is_cancelled()
+    }
+
+    /// The cancellation request shared by this asset and its run's contexts.
+    pub(crate) async fn cancellation(&self) -> Arc<CancellationRequest> {
+        self.data.read().await.cancellation.clone()
+    }
+
+    /// A cancellation error naming this asset: `"Asset <subject> was <verb>"`, with this asset's
+    /// key (or query) in the error's `query` field, so it can name the root cause of a cascade.
+    pub(crate) async fn own_cancellation_cause(&self, verb: &str) -> Error {
+        let lock = self.data.read().await;
+        lock.identify_in_error(Error::cancelled(format!(
+            "Asset {} was {}",
+            lock.expiry_subject(),
+            verb
+        )))
+    }
+
+    /// Finish an in-flight asset as `Cancelled` with `cause`; mirrors [`Self::fail_asset`].
+    /// Returns whether it finished the asset (`false`: it had already finished).
+    ///
+    /// `save_metadata: false` records it in memory only: for a run's own outcome (see
+    /// [`Self::fail_asset_with`]) and for an asset whose key someone else is about to write.
+    async fn finish_cancelled(&self, cause: Error, save_metadata: bool) -> Result<bool, Error> {
+        let notification_tx = {
+            let mut lock = self.data.write().await;
+            if !lock.mark_cancelled(cause) {
+                return Ok(false);
+            }
+            lock.notification_tx.clone()
+        };
+        if save_metadata {
+            let _ = self.save_metadata_to_store().await;
+        }
+        let _ = notification_tx.send(AssetNotificationMessage::StatusChanged(Status::Cancelled));
+        let _ = notification_tx.send(AssetNotificationMessage::JobFinished);
+        Ok(true)
+    }
+
+    /// Cancel this asset because it is being replaced (`set`, `set_state`, `remove`,
+    /// `to_override`). Unlike [`Self::cancel`], an in-flight asset ends `Cancelled` at once and
+    /// the result its run produces later is discarded, so it can overwrite neither the
+    /// replacement's status nor the store. A finished asset is left as it is.
+    ///
+    /// An external [`AssetManager`] calls this in place of `cancel()` when it replaces an asset.
+    pub async fn cancel_for_replacement(&self) -> Result<(), Error> {
+        if !is_in_flight(self.status().await) {
+            return Ok(());
+        }
+        // The key's store entry now belongs to the replacement: nothing more is written for this
+        // asset, including a log line its still-running command sends later.
+        let saver = self.data.read().await.metadata_saver.clone();
+        saver.close().await;
+        self.discard_run("replaced").await
+    }
+
+    /// End an in-flight run as `Cancelled` without writing to the store, so its late result is
+    /// discarded. The caller writes the key's new entry.
+    async fn discard_run(&self, verb: &str) -> Result<(), Error> {
+        let cause = self.own_cancellation_cause(verb).await;
+        self.cancellation().await.request(cause.clone());
+        self.finish_cancelled(cause, false).await?;
+        Ok(())
     }
 
     /// Announce that the manager has removed this asset: the terminal
@@ -3920,12 +4227,14 @@ impl<E: Environment> AssetRef<E> {
             | Status::Processing
             | Status::Error
             | Status::Cancelled => {
-                // Use existing cancel() method for in-flight evaluations
-                // Drop the write lock before calling cancel() to avoid deadlock
+                // Drop the write lock first: cancel_for_replacement takes it itself.
                 drop(data);
 
-                // Cancel using AssetRef::cancel() method
-                self.cancel().await?;
+                // An in-flight run's late result is discarded rather than overwriting Override.
+                // The asset stays the key's, so its metadata saver stays open.
+                if is_in_flight(self.status().await) {
+                    self.discard_run("overridden").await?;
+                }
 
                 // Re-acquire write lock to set Override state
                 let mut data = self.data.write().await;
@@ -4283,10 +4592,14 @@ impl<E: Environment> AssetRef<E> {
                     )),
                 }
             }
-            Status::Cancelled => Error::general_error(format!(
-                "Asset {} was cancelled; no binary representation",
-                self.asset_reference().await
-            )),
+            // The recorded cancellation (its `query` names the root cause), else a fresh one.
+            Status::Cancelled => match self.stored_error().await {
+                Some(cause) if cause.is_cancelled() => cause,
+                Some(_) | None => Error::cancelled(format!(
+                    "Asset {} was cancelled; no binary representation",
+                    self.asset_reference().await
+                )),
+            },
             Status::Directory => Error::general_error(format!(
                 "Asset {} is a directory; no binary representation",
                 self.asset_reference().await
@@ -4458,15 +4771,13 @@ impl<E: Environment> AssetRef<E> {
             .notification_tx
             .send(AssetNotificationMessage::ValueProduced);
         let save_in_background = lock.save_in_background;
-        let cancelled = lock.is_cancelled();
         lock.service_sender()
             .send(AssetServiceMessage::JobFinishing)
             .map_err(|e| {
                 Error::general_error(format!("Failed to send JobFinishing message: {}", e))
             })?;
         drop(lock);
-        self.persist_with_status_tracking(save_in_background, cancelled)
-            .await;
+        self.persist_with_status_tracking(save_in_background).await;
         Ok(())
     }
 
@@ -4475,38 +4786,56 @@ impl<E: Environment> AssetRef<E> {
     /// (NOT `Metadata::from_error`, which replaces the record). Clears data and binary, records
     /// the typed error, and notifies subscribers once.
     ///
-    /// Idempotent: if the asset is already in `Status::Error`, the first error is kept.
-    /// Used ONLY for computed errors — cancellation is a separate status (`Status::Cancelled`)
-    /// that stores no error and does not use this routine.
-    pub(crate) async fn fail_asset(&self, error: Error) -> Result<(), Error> {
+    /// Only an in-flight asset is failed, once: a finished asset (already failed, cancelled,
+    /// ready or replaced) keeps its status and the first outcome. Returns whether it finalized.
+    ///
+    /// A cancellation error (`ErrorType::Cancelled`) is not a failure: the asset ends
+    /// `Cancelled` with the error recorded as its cause (see [`Self::finish_cancelled`]).
+    pub(crate) async fn fail_asset(&self, error: Error) -> Result<bool, Error> {
+        self.fail_asset_with(error, true).await
+    }
+
+    /// [`Self::fail_asset`]; `save_metadata: false` records the outcome in memory only. A run's
+    /// own failure or cancellation is recorded that way: writing it would leave a metadata-only
+    /// entry for a key that holds no value (`METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED`).
+    async fn fail_asset_with(&self, error: Error, save_metadata: bool) -> Result<bool, Error> {
+        if error.is_cancelled() {
+            return self.finish_cancelled(error, save_metadata).await;
+        }
         let notification_tx = {
             let mut lock = self.data.write().await;
-            if lock.status == Status::Error {
-                return Ok(()); // already failed; keep the first error
+            if !is_in_flight(lock.status) {
+                return Ok(false); // already finished; keep the first outcome
             }
             lock.data = None;
             lock.binary = None;
             lock.status = Status::Error;
             lock.metadata.with_error(error.clone());
-            // As in `fail_due_to_dependency`: the value was just cleared, so the type it reports
-            // becomes the none type rather than the type this asset was going to produce.
+            // The value was just cleared, so the type it reports becomes the none type rather
+            // than the type this asset was going to produce.
             retype_as_none::<E>(&mut lock.metadata);
             let _ = lock.metadata.set_status(Status::Error);
-            lock.metadata
-                .set_primary_progress(&ProgressEntry::done("Error".to_string()));
+            // A run's progress is finalized before its failure is recorded, and the finished bar
+            // keeps the command's own last message; only an unfinalized bar is closed here.
+            if !lock.progress_finalized {
+                lock.metadata
+                    .set_primary_progress(&ProgressEntry::done("Error".to_string()));
+            }
             lock.notification_tx.clone()
         };
-        // A persistence hiccup here must not mask the computed error, so ignore its result.
-        let _ = self.save_metadata_to_store().await;
+        if save_metadata {
+            // A persistence hiccup here must not mask the computed error, so ignore its result.
+            let _ = self.save_metadata_to_store().await;
+        }
         let _ = notification_tx.send(AssetNotificationMessage::ErrorOccurred(error));
         let _ = notification_tx.send(AssetNotificationMessage::JobFinished);
-        Ok(())
+        Ok(true)
     }
 
     /// Sets an error state for the asset, with the provided error information.
     /// Delegates to the unified [`Self::fail_asset`] routine (metadata-preserving).
     pub(crate) async fn set_error(&self, error: Error) -> Result<(), Error> {
-        self.fail_asset(error).await
+        self.fail_asset(error).await.map(|_| ())
     }
 }
 
@@ -5268,6 +5597,10 @@ pub trait AssetManager<E: Environment>:
     ) -> Result<State<E::Value>, Error> {
         parent.enter_dependencies(dependency).await?;
         let result = match dependency.get().await {
+            // Cascade a cancelled dependency (see `DefaultAssetManager::wait_for_dependency`).
+            Ok(state) if state.status() == Status::Cancelled => {
+                Err(parent.cancelled_dependency_cause(dependency).await)
+            }
             Ok(state) => Ok(state),
             Err(error) => {
                 // The stale-dependency policy (see `DefaultAssetManager::wait_for_dependency`):
@@ -5366,7 +5699,7 @@ pub trait AssetManager<E: Environment>:
             return Ok(());
         }
         if let Some(asset) = &live {
-            asset.cancel().await?;
+            asset.cancel_for_replacement().await?;
             self.untrack_expiration(asset.id());
             self.remove_key_asset(key).await;
         }
@@ -6699,7 +7032,7 @@ pub trait AssetManager<E: Environment>:
                 }
                 PersistenceStatus::NonSerializable => {}
                 PersistenceStatus::NotPersisted | PersistenceStatus::None => {
-                    asset_ref.persist_with_status_tracking(false, false).await;
+                    asset_ref.persist_with_status_tracking(false).await;
                 }
             }
             return Ok(());
@@ -7389,7 +7722,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 }
                 PersistenceStatus::NonSerializable => {}
                 PersistenceStatus::NotPersisted | PersistenceStatus::None => {
-                    asset_ref.persist_with_status_tracking(false, false).await;
+                    asset_ref.persist_with_status_tracking(false).await;
                 }
             }
             // The mutation gate keeps a concurrent eviction or replacement from removing this
@@ -7585,7 +7918,14 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             // Error/Cancelled, so those MUST be handled before polling.
             let status = dependency.status().await;
             match status {
-                Status::Error | Status::Cancelled => {
+                Status::Cancelled => {
+                    // Cascade: the dependent is cancelled too, unless its command handles the
+                    // error. The run decides its status (D1); the wait only reports.
+                    let e = parent.cancelled_dependency_cause(dependency).await;
+                    let _ = parent.leave_dependencies_and_resume().await;
+                    return Err(e);
+                }
+                Status::Error => {
                     // Carry the dependency's own error up, rather than replacing it with the fact
                     // that a dependency failed. Which asset failed is the least useful half of the
                     // story, and it is the only half a caller sees once an evaluation boundary
@@ -7604,7 +7944,9 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                             status
                         )),
                     };
-                    let _ = parent.fail_due_to_dependency(e.clone()).await;
+                    // The run decides the dependent's status (D1): an unhandled error fails it
+                    // with this same cause, a handled one lets it finish.
+                    let _ = parent.leave_dependencies_and_resume().await;
                     return Err(e);
                 }
                 Status::Ready
@@ -7638,7 +7980,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                                  be used",
                                 dependency.expiry_subject().await
                             ));
-                            let _ = parent.fail_due_to_dependency(e.clone()).await;
+                            let _ = parent.leave_dependencies_and_resume().await;
                             return Err(e);
                         }
                     }
@@ -7791,7 +8133,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 drop(asset_entry);
 
                 // Cancel if processing
-                asset_ref.cancel().await?;
+                asset_ref.cancel_for_replacement().await?;
                 replaced = Some(asset_ref.clone());
                 // Cancel any pending expiration tracking for this asset
                 self.untrack_expiration(asset_ref.id());
@@ -7893,7 +8235,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 drop(asset_entry);
 
                 // Cancel if processing
-                asset_ref.cancel().await?;
+                asset_ref.cancel_for_replacement().await?;
                 replaced = Some(asset_ref.clone());
                 // Cancel any pending expiration tracking for this asset
                 self.untrack_expiration(asset_ref.id());
@@ -8812,7 +9154,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 }
                 PersistenceStatus::NonSerializable => {}
                 PersistenceStatus::NotPersisted | PersistenceStatus::None => {
-                    asset_ref.persist_with_status_tracking(false, false).await;
+                    asset_ref.persist_with_status_tracking(false).await;
                 }
             }
             return Ok(());
@@ -9003,7 +9345,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         let old = self.lookup_key_asset(key);
         let mut replaced: Option<AssetRef<E>> = None;
         if let Some(asset) = old {
-            asset.cancel().await?;
+            asset.cancel_for_replacement().await?;
             self.remove_key_asset(key).await;
             replaced = Some(asset);
         }
@@ -9063,7 +9405,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         let old = self.lookup_key_asset(key);
         let mut replaced: Option<AssetRef<E>> = None;
         if let Some(asset) = old {
-            asset.cancel().await?;
+            asset.cancel_for_replacement().await?;
             self.remove_key_asset(key).await;
             replaced = Some(asset);
         }
@@ -10488,6 +10830,8 @@ recipes:
         assert_eq!(state.unwrap().try_into_string().unwrap(), "Hello, world!");
     }
 
+    /// The wait reports the error; the parent's run decides its status (D1), so the wait itself
+    /// leaves the parent unfinished.
     #[tokio::test]
     async fn test_wait_for_evicted_expired_dependency_fails_parent() {
         let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
@@ -10517,7 +10861,7 @@ recipes:
         assert!(error
             .to_string()
             .contains("expired and was evicted before its value could be used"));
-        assert_eq!(parent.status().await, Status::Error);
+        assert!(!parent.status().await.is_finished());
     }
 
     /// `true` when `message` contains "asset " followed by a digit — a runtime id.
@@ -10555,6 +10899,39 @@ recipes:
             .expect_err("a cancelled dependency fails the dependent");
         assert!(error.message.contains("data/b.txt"), "{}", error.message);
         assert!(!names_an_asset_id(&error.message), "{}", error.message);
+        // Cascade: a cancellation, whose `query` names the cancelled dependency (AC-9, AC-10).
+        assert_eq!(error.error_type, ErrorType::Cancelled);
+        assert_eq!(error.query.as_deref(), Some("data/b.txt"));
+    }
+
+    /// The first cause wins, the request wakes a waiter registered before it, and `clear`
+    /// forgets it (D4, D6).
+    #[tokio::test]
+    async fn cancellation_request_first_cause_wins_and_clear_resets() {
+        let request = Arc::new(CancellationRequest::new());
+        assert!(!request.is_requested());
+        assert!(request.cause().is_none());
+        let waiter = {
+            let request = request.clone();
+            tokio::spawn(async move { request.requested().await })
+        };
+        tokio::task::yield_now().await;
+        assert!(request.request(Error::cancelled("first".to_string())));
+        assert!(!request.request(Error::cancelled("second".to_string())));
+        tokio::time::timeout(std::time::Duration::from_secs(5), waiter)
+            .await
+            .expect("the waiter is woken")
+            .expect("the waiter does not panic");
+        assert!(request.is_requested());
+        assert_eq!(request.cause().map(|e| e.message.clone()), Some("first".to_string()));
+        request.clear();
+        assert!(!request.is_requested());
+        assert!(request.cause().is_none());
+        // Already requested before waiting: completes at once.
+        request.request(Error::cancelled("again".to_string()));
+        tokio::time::timeout(std::time::Duration::from_secs(5), request.requested())
+            .await
+            .expect("an earlier request is seen");
     }
 
     /// An expired-and-evicted keyed dependency is named by its key.
@@ -12590,7 +12967,8 @@ recipes:
         let envref = test_envref();
 
         // Error: reuses the asset's own recorded failure.
-        let failed = asset_with_binary(9310, Status::Ready, true, envref.clone()).to_ref();
+        // Failed while in flight: a finished asset is never failed afterwards.
+        let failed = asset_with_binary(9310, Status::Processing, true, envref.clone()).to_ref();
         failed
             .fail_asset(Error::general_error("recipe blew up".to_owned()))
             .await?;
@@ -12723,7 +13101,7 @@ recipes:
         Ok(())
     }
 
-    /// A keyed asset holding bytes, cancelled, in a memory-store environment.
+    /// A keyed asset holding bytes, in status `Cancelled`, in a memory-store environment.
     fn cancelled_keyed_asset(
         id: u64,
         key: &Key,
@@ -12739,21 +13117,20 @@ recipes:
         );
         d.binary = Some(Arc::new(b"never written".to_vec()));
         d.data = Some(Arc::new(Value::from("never written")));
-        d.status = Status::Ready;
+        d.status = Status::Cancelled;
         d.save_in_background = false;
-        d.set_cancelled(true);
         (envref, d.to_ref())
     }
 
-    /// A write skipped because the asset was cancelled is recorded as no attempt (`None`), not
-    /// `Persisted`, and no error is recorded. `cancelled = false` is passed so the check *inside*
-    /// `save_to_store` is the one that fires.
+    /// A write skipped because the asset is `Cancelled` is recorded as no attempt (`None`), not
+    /// `Persisted`, and no error is recorded. The check *inside* `save_to_store` is the one that
+    /// fires.
     #[tokio::test]
     async fn cancelled_asset_save_is_recorded_as_no_attempt() -> Result<(), Box<dyn std::error::Error>>
     {
         let key = parse_key("gate/cancelled.txt")?;
         let (envref, assetref) = cancelled_keyed_asset(9331, &key);
-        assetref.persist_with_status_tracking(false, false).await;
+        assetref.persist_with_status_tracking(false).await;
         assert_eq!(assetref.persistence_status().await, PersistenceStatus::None);
         assert!(assetref.data.read().await.last_persistence_error.is_none());
         assert!(!envref.get_async_store().contains(&key).await?);
@@ -12774,8 +13151,8 @@ recipes:
     async fn save_to_store_reports_written_on_success() -> Result<(), Box<dyn std::error::Error>> {
         let key = parse_key("gate/written.txt")?;
         let (envref, assetref) = cancelled_keyed_asset(9333, &key);
-        assetref.data.write().await.set_cancelled(false);
-        assetref.persist_with_status_tracking(false, false).await;
+        assetref.data.write().await.status = Status::Ready;
+        assetref.persist_with_status_tracking(false).await;
         assert_eq!(
             assetref.persistence_status().await,
             PersistenceStatus::Persisted
@@ -12795,7 +13172,7 @@ recipes:
         let (envref, assetref) = cancelled_keyed_asset(9334, &key);
         {
             let mut lock = assetref.data.write().await;
-            lock.set_cancelled(false);
+            lock.status = Status::Ready;
             if let Metadata::MetadataRecord(record) = &mut lock.metadata {
                 record.stored = Some(false);
             }
@@ -12805,21 +13182,21 @@ recipes:
         Ok(())
     }
 
-    /// After a cancelled save, `to_override` takes the non-`Persisted` branch, which skips the
-    /// write again, so no metadata-only entry is left in the store.
+    /// After a cancelled save, `to_override` takes the non-`Persisted` branch. The asset is no
+    /// longer cancelled — it is an `Override` — so the retried persist writes a complete entry,
+    /// value and metadata, never a metadata-only one.
     #[tokio::test]
     async fn to_override_after_cancelled_save_writes_no_metadata_only_entry(
     ) -> Result<(), Box<dyn std::error::Error>> {
         let key = parse_key("gate/override_cancelled.txt")?;
         let (envref, assetref) = cancelled_keyed_asset(9335, &key);
-        assetref.persist_with_status_tracking(false, false).await;
+        assetref.persist_with_status_tracking(false).await;
         let manager = envref.get_asset_manager();
         assert!(manager.try_insert_key_asset(&key, assetref.clone()).await);
+        assert_eq!(assetref.persistence_status().await, PersistenceStatus::None);
         let _ = manager.to_override(&key).await;
-        assert!(
-            !envref.get_async_store().contains(&key).await?,
-            "a skipped write must not leave a metadata-only entry"
-        );
+        let (_, metadata) = envref.get_async_store().get(&key).await?;
+        assert_eq!(metadata.status(), Status::Override);
         Ok(())
     }
 

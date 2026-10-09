@@ -339,10 +339,15 @@ async fn aae92_cancel_while_processing_reports_cancelled_deterministically() {
     assert_eq!(status, StatusCode::OK, "POST q/cancel must return 200");
     assert_eq!(json["status"], "OK");
 
-    // See aae38: until ASSET-CANCEL-DURING-PROCESSING-FINISHES-READY is fixed, a started blocking
-    // command finishes `Ready` despite the cancel.
-    let info = poll_until_one_of(app, "/api/assets/q/info/sleep_long", &["Cancelled", "Ready"], 100).await;
-    eprintln!("aae92: final status after cancel: {}", info["result"]["status"]);
+    // A blocking command that has already started cannot be interrupted; it completes, and a
+    // completed run wins over the cancel (asset-cancellation-outcome AC-1): one terminal status,
+    // `Ready`.
+    let info = poll_until_one_of(app.clone(), "/api/assets/q/info/sleep_long", &["Cancelled", "Ready"], 100).await;
+    assert_eq!(info["result"]["status"], "Ready", "{info}");
+    // It stays there: no second terminal status follows (AC-7).
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    let (_, info) = send(app, "GET", "/api/assets/q/info/sleep_long", Body::empty()).await;
+    assert_eq!(info["result"]["status"], "Ready", "{info}");
 }
 
 #[tokio::test]
@@ -1167,10 +1172,10 @@ async fn aae38_get_q_cancel_with_destructive_gets() {
     assert_eq!(status, StatusCode::OK, "GET q/cancel is routed with the flag");
     assert_eq!(json["status"], "OK");
 
-    // A blocking command that has already started runs to completion, and today the asset is
-    // then finalized `Ready` despite the cancel (ASSET-CANCEL-DURING-PROCESSING-FINISHES-READY).
-    // This test is about the route; it accepts either terminal outcome until that is fixed.
-    poll_until_one_of(app, "/api/assets/q/info/sleep_cancel_q", &["Cancelled", "Ready"], 100).await;
+    // A blocking command that has already started runs to completion, and a completed run wins
+    // over the cancel (asset-cancellation-outcome AC-1).
+    let info = poll_until_one_of(app, "/api/assets/q/info/sleep_cancel_q", &["Cancelled", "Ready"], 100).await;
+    assert_eq!(info["result"]["status"], "Ready", "{info}");
 }
 
 #[tokio::test]
