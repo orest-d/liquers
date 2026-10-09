@@ -133,8 +133,16 @@ impl<V: ValueInterface> State<V> {
     /// NOTE: this is intentionally not `error_result()`. A cancelled state has `is_error ==
     /// false`, so its `error_result()` is `Ok`; value extraction must consult the status.
     pub fn value_error(&self) -> Option<Error> {
-        // Cancellation is a status, not a stored error: synthesize a typed cancellation error.
+        // A cancelled asset records its cancellation (whose `query` names the root cause) in
+        // `error_data`; an older record without one gets a synthesized typed error.
         if self.status() == Status::Cancelled {
+            if let Metadata::MetadataRecord(record) = &*self.metadata {
+                if let Some(cause) = &record.error_data {
+                    if cause.is_cancelled() {
+                        return Some(cause.clone());
+                    }
+                }
+            }
             let msg = self.message();
             return Some(if msg.is_empty() {
                 Error::cancelled("Asset was cancelled")
