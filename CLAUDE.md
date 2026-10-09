@@ -152,6 +152,8 @@ mod tests {
 
 ## Building and testing
 
+**Minimum Rust: 1.95** (`[workspace.package] rust-version` in `Cargo.toml`, set by the egui 0.36 / sysinfo 0.39 dependencies; a minimum, not a pin — on an older toolchain run `rustup update stable`).
+
 Rust debug builds of this workspace are large — large enough that a full build does not fit in a
 cloud dev environment (Claude Code on the web caps sessions at **30 GB of disk**, and `df` reports
 the allowance, not the machine). The settings below are already applied; this section records what

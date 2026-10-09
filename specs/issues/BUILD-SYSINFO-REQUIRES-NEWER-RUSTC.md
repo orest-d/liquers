@@ -2,7 +2,7 @@
 id: BUILD-SYSINFO-REQUIRES-NEWER-RUSTC
 kind: issue
 title: liquers-lib test builds fail on rustc 1.94 because a transitive sysinfo requires 1.95
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [build]
@@ -158,3 +158,26 @@ friends) require rustc 1.95. `rustup update stable` in the cloud session (to rus
 and the whole `liquers-lib` suite then passed. The workaround is therefore a toolchain update, not a
 code change. Whether to pin a minimum toolchain (`rust-version` / `rust-toolchain.toml`) remains
 the open decision.
+
+## Resolution 2026-10-08
+
+Fixed by declaring the minimum supported Rust version, per the maintainer decision of 2026-10-08
+(declare, do not pin: `Cargo.lock` is git-ignored, so a pin cannot be committed). Design:
+`design/build-sysinfo-rustc-compatibility/`.
+
+- `Cargo.toml` `[workspace.package] rust-version = "1.95"`; every member inherits it with
+  `rust-version.workspace = true`. No `rust-toolchain` file; resolver unchanged.
+- `CLAUDE.md` "Building and testing" states the minimum and the remedy (`rustup update stable`).
+
+On rustc 1.94 the build still fails — that is inherent, the dependencies need 1.95 — but it now
+fails against a declared, documented minimum rather than an unexplained dependency error.
+
+Evidence:
+
+- `msrv-is-floor`: `cargo metadata` max `rust_version` over non-workspace packages is **1.95**
+  (egui/eframe/epaint/emath 0.36.2, egui_commonmark 0.25.0, egui_plot 0.37.0, sysinfo 0.39.6).
+- `msrv-declared`: all eight workspace members report `rust_version == "1.95"`.
+- `msrv-builds`: **verified** — `cargo +1.95 check -p liquers-lib --lib` succeeds on rustc 1.95.0
+  (installed with `rustup toolchain install 1.95 --profile minimal`).
+- `default-loop`: `cargo test -p liquers-lib --lib --tests` on rustc 1.97.0 — 35 suites, 536 tests
+  pass; `cargo check -p liquers-web --target wasm32-unknown-unknown` passes.

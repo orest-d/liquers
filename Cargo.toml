@@ -8,6 +8,13 @@ members=["liquers-core", "liquers-py", "liquers-store", "liquers-axum", "liquers
 # See specs/design/liquers-web/phase4-implementation.md, Step 8.
 default-members = ["liquers-core", "liquers-py", "liquers-store", "liquers-axum", "liquers-macro", "liquers-lib", "liquers-records"]
 
+# Minimum supported Rust version, inherited by every member. A minimum, not a pin: newer toolchains
+# keep working. It is the highest `rust-version` among the resolved dependencies (egui 0.36 and
+# sysinfo 0.39 require 1.95). Cargo.lock is not committed, so raise this when a dependency upgrade
+# raises the floor. See specs/design/build-sysinfo-rustc-compatibility/.
+[workspace.package]
+rust-version = "1.95"
+
 # Debug info dominates the size of `target/` and is the difference between a test run that fits in
 # a constrained environment and one that does not: measured on `cargo test -p liquers-lib --lib
 # --tests`, full debug info costs 22.6 GB and 288 s, these settings cost 4.2 GB and 183 s.
