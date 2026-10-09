@@ -95,7 +95,8 @@ No macro change: `context` is already injectable into sync and async commands.
 - Documents to update: `specs/reference/ASSETS.md`, `specs/guides/COMMAND_REGISTRATION_GUIDE.md`.
 
 ## Open Questions
-Each has a recommended answer; Phase 2 assumes it unless you decide otherwise.
+Q5 and Q10-Q12 are decided. The rest have a recommended answer, which Phase 2 assumes unless you
+decide otherwise.
 
 1. **Who decides the terminal status?** Today two writers race: the service loop's `Cancel` handler
    sets `Cancelled` and announces `JobFinished`, and `evaluate` later sets `Ready` regardless — the
@@ -138,27 +139,26 @@ Each has a recommended answer; Phase 2 assumes it unless you decide otherwise.
 9. **Guide file name.** Guides are named `UPPER_SNAKE_GUIDE.md` except
    `LANGUAGE-INTEGRATION_GUIDE.md`. *Recommended:* `COMMAND_DESIGN_GUIDE.md` for consistency, unless
    you want the requested `COMMAND-DESIGN-GUIDE.md` kept as is.
-10. **Where a `Cancelled` asset keeps its root cause.** `wp2-terminal-outcome` made `Cancelled` store
+10. **Decided 2026-10-09 (recommended answer): where a `Cancelled` asset keeps its root cause.** `wp2-terminal-outcome` made `Cancelled` store
     no error, and `State::value_error` synthesizes a bare `Error::cancelled("Asset was cancelled")`.
     The root cause must survive persistence and several levels of cascade, so it needs a home.
-    *Recommended:* a `Cancelled` asset records its cancellation `Error` in its metadata, as `Error`
-    assets do, and `value_error` returns that instead of synthesizing one. Status alone still decides
-    error-ness, so `Cancelled` remains distinct from `Error`. A dedicated metadata field
-    (`cancelled_by`) is the alternative if you want the error slot reserved for failures.
-11. **Cascade across clients.** A dependency is shared, so one client's `cancel()` on it cancels every
+    A `Cancelled` asset records its cancellation `Error` in its metadata, as `Error` assets do, and
+    `value_error` returns that instead of synthesizing one. Status alone still decides error-ness, so
+    `Cancelled` remains distinct from `Error`. Rejected: a dedicated `cancelled_by` metadata field.
+11. **Decided 2026-10-09 (recommended answer): cascade across clients.** A dependency is shared, so one client's `cancel()` on it cancels every
     asset waiting on it, including other clients' requests. Today those fail with `Error` anyway;
-    after this design they end `Cancelled`, a cache miss, so a retry re-evaluates. *Recommended:*
-    accept and document it; "cancel only if nobody else waits" is a separate feature, filed if wanted.
-12. **Two causes at once.** An asset may be cancelled directly while its dependency is also being
-    cancelled. *Recommended:* its own `cancel()` wins: the root cause is the asset itself, with no
-    cascade warning.
+    after this design they end `Cancelled`, a cache miss, so a retry re-evaluates. Accepted and
+    documented; "cancel only if nobody else waits" is a separate feature, filed only if wanted.
+12. **Decided 2026-10-09 (recommended answer): two causes at once.** An asset may be cancelled directly while its dependency is also being
+    cancelled. Its own `cancel()` wins: the root cause is the asset itself, with no cascade warning.
 
 ## Design Dependencies
 - overlaps `axum-assets-endpoints` (in implementation, PR #73; exclusion E3): its tests `aae92` and
   `aae38` accept either status and cite the source issue; this design tightens them after it lands.
 - overlaps `WEB-CANCELLATION-INERT`: same contract, different cause (inline evaluation); not merged.
 - revisits `wp2-terminal-outcome` (complete, E4): implements its approved but unimplemented
-  dependency cascade-cancel rule (Q5); Q10 revisits its "`Cancelled` stores no error" rule.
+  dependency cascade-cancel rule (Q5) and replaces its "`Cancelled` stores no error" rule with
+  "`Cancelled` stores its cancellation cause" (Q10).
 - revisits `save-to-store-skip-outcome` (complete, frozen, E4): its "cancelled ⇒ `NotPersisted`" rule
   now applies only to runs that end `Cancelled`.
 
@@ -170,7 +170,7 @@ Each has a recommended answer; Phase 2 assumes it unless you decide otherwise.
 - 2026-10-09: maintainer chose cascade cancellation over failing the dependent (Q5): a dependency's
   cancellation cancels its waiting dependents, the cancellation error's `query`/`key` name the root
   cause, and a cascaded asset logs it as a warning. Adds AC-9 to AC-11 and Q10 to Q12; revises AC-6.
-  Size stays `L`.
+  Size stays `L`. Q10-Q12 then decided as recommended.
 
 ## References
 - `specs/issues/ASSET-CANCEL-DURING-PROCESSING-FINISHES-READY.md` (source)
