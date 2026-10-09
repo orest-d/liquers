@@ -64,6 +64,9 @@ until `Processing`, then cancelled with `POST q/cancel`.
 - **AC-11** Cascade is logged
   WHEN an asset ends `Cancelled` because of a dependency rather than its own `cancel()`
   THEN its log holds one warning naming the dependency it waited for and the root cause
+- **AC-12** Cancelled stays visible until requested again (pending Q13)
+  WHEN asset info is read for a keyed asset that ended `Cancelled`
+  THEN it reports `Cancelled` with the root cause; a following `get` re-evaluates it
 
 Non-goals: preemptive interruption of synchronous code; cancelling an asset's dependencies downward
 (they are shared with other dependents; cascade runs upward only); cancellation on the inline (`ImmediateAssetManager`/wasm) path beyond
@@ -89,14 +92,13 @@ No macro change: `context` is already injectable into sync and async commands.
 ## Documentation Intent
 - Reference: extend `specs/reference/ASSETS.md` (cancellation path, Scenario 4, statuses) and the
   `liquers-core/src/assets.rs` module docs on cancellation.
-- Guide: new `specs/guides/COMMAND-DESIGN-GUIDE.md` (name per request, see Q9): cooperative
+- Guide: new `specs/guides/COMMAND_DESIGN_GUIDE.md` (Q9): cooperative
   cancellation, what cancel guarantees, sync vs async commands, returning `Error::cancelled`.
 - Other documents: link the new guide from `COMMAND_REGISTRATION_GUIDE.md` and `specs/README.md`.
 - Documents to update: `specs/reference/ASSETS.md`, `specs/guides/COMMAND_REGISTRATION_GUIDE.md`.
 
 ## Open Questions
-Q1-Q5 and Q10-Q12 are decided. The rest have a recommended answer, which Phase 2 assumes unless you
-decide otherwise.
+Q1-Q12 are decided (2026-10-09); Q13 is open.
 
 1. **Decided 2026-10-09 (recommended answer):** **Who decides the terminal status?** Today two writers race: the service loop's `Cancel` handler
    sets `Cancelled` and announces `JobFinished`, and `evaluate` later sets `Ready` regardless — the
@@ -123,20 +125,20 @@ decide otherwise.
    a cascaded asset logs one warning with the dependency and the root (AC-11). Consequence for
    command authors, for the guide: wrapping a cancellation in another error type (e.g.
    `Error::from_error(ErrorType::General, e)`) turns it back into an `Error`; propagate it as is.
-6. **What "cancelled flag" means after a successful finish.** It now blocks store writes
+6. **Decided 2026-10-09 (recommended answer):** **What "cancelled flag" means after a successful finish.** It now blocks store writes
    (`save_to_store`, `persist_with_status_tracking`, and the closed design `save-to-store-skip-outcome`
    records the skip as `NotPersisted`). *Recommended:* the flag means "cancel requested for this run";
    a run that finalizes ready ignores it and clears it, and the orphan-write guard becomes "this run
    lost the terminal transition" (which is what AC-8 needs).
-7. **What `cancel()` reports.** It returns `Ok(())` whether or not it took effect, and gives up after
+7. **Decided 2026-10-09 (recommended answer):** **What `cancel()` reports.** It returns `Ok(())` whether or not it took effect, and gives up after
    5 s, so a sync command longer than that is still `Processing` when it returns. *Recommended:* keep
    the signature (axum already answers with `AssetInfo`), document both facts; a status-returning
    variant can be a later issue.
-8. **Queued assets.** The service loop is spawned only when the run starts, so a `Cancel` sent to a
+8. **Decided 2026-10-09 (recommended answer):** **Queued assets.** The service loop is spawned only when the run starts, so a `Cancel` sent to a
    `Submitted` asset waits in the channel, and `cancel()` may time out before the job is picked up.
    *Recommended:* `run` checks the flag before invoking the command (AC-4); Phase 2 verifies the
    `JobQueue` path.
-9. **Guide file name.** Guides are named `UPPER_SNAKE_GUIDE.md` except
+9. **Decided 2026-10-09 (recommended answer):** **Guide file name.** Guides are named `UPPER_SNAKE_GUIDE.md` except
    `LANGUAGE-INTEGRATION_GUIDE.md`. *Recommended:* `COMMAND_DESIGN_GUIDE.md` for consistency, unless
    you want the requested `COMMAND-DESIGN-GUIDE.md` kept as is.
 10. **Decided 2026-10-09 (recommended answer): where a `Cancelled` asset keeps its root cause.** `wp2-terminal-outcome` made `Cancelled` store
@@ -151,6 +153,17 @@ decide otherwise.
     documented; "cancel only if nobody else waits" is a separate feature, filed only if wanted.
 12. **Decided 2026-10-09 (recommended answer): two causes at once.** An asset may be cancelled directly while its dependency is also being
     cancelled. Its own `cancel()` wins: the root cause is the asset itself, with no cascade warning.
+
+13. **What asset info reports for a cancelled keyed asset.** (Raised 2026-10-09 by the maintainer,
+    who expected `Recipe`.) Today `cancel()` does not unmap the asset: it stays in the manager's key
+    map as `Cancelled`, and `AssetManager::get_asset_info` returns the live asset's status first.
+    The service loop also persists metadata on every status change (`MetadataSaver`), so the store
+    holds a metadata-only `Cancelled` entry for the key, which `get_asset_info` falls back to once the
+    live asset is gone. `get` treats both as a cache miss and re-evaluates. Reporting `Recipe` would
+    need the cancel to unmap the asset *and* rewrite the stored record as `remove` does (Scenario 5,
+    4b), and the root cause (AC-10) would no longer be visible. *Recommended:* keep `Cancelled`
+    visible in asset info until the next `get` or `remove`, with the root cause, as AC-12 states;
+    the next request re-evaluates, so nothing stale is served.
 
 ## Design Dependencies
 - overlaps `axum-assets-endpoints` (in implementation, PR #73; exclusion E3): its tests `aae92` and
@@ -170,7 +183,7 @@ decide otherwise.
 - 2026-10-09: maintainer chose cascade cancellation over failing the dependent (Q5): a dependency's
   cancellation cancels its waiting dependents, the cancellation error's `query`/`key` name the root
   cause, and a cascaded asset logs it as a warning. Adds AC-9 to AC-11 and Q10 to Q12; revises AC-6.
-  Size stays `L`. Q1-Q4 and Q10-Q12 then decided as recommended.
+  Size stays `L`. Q1-Q4 and Q6-Q12 then decided as recommended.
 
 ## References
 - `specs/issues/ASSET-CANCEL-DURING-PROCESSING-FINISHES-READY.md` (source)
