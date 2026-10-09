@@ -78,3 +78,10 @@ cancels `root_dep`. `middle`'s wait returns the cancellation `root_dep` recorded
   `error_data`.
 - `fail_asset` runs after `finalize_primary_progress`, so it must not overwrite a finalized bar
   (`finished_run_progress_contract_*`).
+- A job that waited in the queue reads its `JobSubmitted` service message only after it was claimed,
+  because the service loop starts with the run; the message must not rewind `Processing` to
+  `Submitted`, or `cancel` discards a running job's result (PR review;
+  `assets::tests::stale_job_submitted_does_not_rewind_a_running_asset`).
+- An *async* command that blocks its thread starves whatever Tokio parked in that worker's
+  non-stealable LIFO slot — the service loop, typically — so tests of blocking behaviour use a
+  sync command (run as one poll) or an async command that only awaits.

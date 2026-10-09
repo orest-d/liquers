@@ -3214,11 +3214,38 @@ impl<E: Environment> AssetRef<E> {
                     );
                 }
                 AssetServiceMessage::JobSubmitted => {
-                    self.set_status(Status::Submitted).await?;
-                    self.save_metadata_to_store().await?;
-                    let _ = notification_tx
-                        .send(AssetNotificationMessage::StatusChanged(Status::Submitted));
-                    let _ = notification_tx.send(AssetNotificationMessage::JobSubmitted);
+                    // `submitted()` set the status already. This loop runs only once the job has
+                    // been claimed, so a job that waited in the queue reads the message late and
+                    // must not rewind its `Processing` to `Submitted` — `cancel` would then take
+                    // a running job for an unstarted one and discard its result.
+                    let rewinds = {
+                        let mut lock = self.data.write().await;
+                        match lock.status {
+                            Status::None | Status::Recipe => {
+                                lock.set_status(Status::Submitted)?;
+                                false
+                            }
+                            Status::Submitted => false,
+                            Status::Dependencies
+                            | Status::Processing
+                            | Status::Partial
+                            | Status::Directory
+                            | Status::Error
+                            | Status::Storing
+                            | Status::Ready
+                            | Status::Expired
+                            | Status::Cancelled
+                            | Status::Source
+                            | Status::Override
+                            | Status::Volatile => true,
+                        }
+                    };
+                    if !rewinds {
+                        self.save_metadata_to_store().await?;
+                        let _ = notification_tx
+                            .send(AssetNotificationMessage::StatusChanged(Status::Submitted));
+                        let _ = notification_tx.send(AssetNotificationMessage::JobSubmitted);
+                    }
                 }
                 AssetServiceMessage::JobStarted => {
                     self.set_status(Status::Processing).await?;
@@ -10902,6 +10929,61 @@ recipes:
         // Cascade: a cancellation, whose `query` names the cancelled dependency (AC-9, AC-10).
         assert_eq!(error.error_type, ErrorType::Cancelled);
         assert_eq!(error.query.as_deref(), Some("data/b.txt"));
+    }
+
+    /// A job that waited in the queue has a `JobSubmitted` message pending when it is claimed,
+    /// and the service loop reads it only once the run starts. It must not rewind the running
+    /// asset to `Submitted`: `cancel` would take that for an unstarted job, finish it `Cancelled`
+    /// at once and discard the result of a command that then completes (AC-1).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn stale_job_submitted_does_not_rewind_a_running_asset() {
+        use std::sync::atomic::AtomicBool;
+        let started = Arc::new(AtomicBool::new(false));
+        let release = Arc::new(AtomicBool::new(false));
+        let (start, gate) = (started.clone(), release.clone());
+        let mut env = SimpleEnvironment::<Value>::new();
+        env.command_registry
+            .register_async_command(CommandKey::new_name("queued_then_run"), move |_, _, _| {
+                let (start, gate) = (start.clone(), gate.clone());
+                Box::pin(async move {
+                    start.store(true, Ordering::SeqCst);
+                    while !gate.load(Ordering::SeqCst) {
+                        sleep(Duration::from_millis(2)).await;
+                    }
+                    Ok(Value::from("completed"))
+                })
+            })
+            .unwrap();
+        let envref = env.to_ref();
+        let asset = AssetData::<SimpleEnvironment<Value>>::new(
+            9601,
+            parse_query("queued_then_run").unwrap().into(),
+            None,
+            envref,
+        )
+        .to_ref();
+        // Queued without capacity, then claimed: what `JobQueue` does.
+        asset.submitted().await.unwrap();
+        asset.set_status(Status::Processing).await.unwrap();
+        let runner = {
+            let asset = asset.clone();
+            tokio::spawn(async move { asset.run(None).await })
+        };
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !started.load(Ordering::SeqCst) {
+                sleep(Duration::from_millis(2)).await;
+            }
+        })
+        .await
+        .expect("the command starts");
+        // Give the service loop time to read the stale message.
+        sleep(Duration::from_millis(50)).await;
+        let running_status = asset.status().await;
+        release.store(true, Ordering::SeqCst);
+        let _ = tokio::time::timeout(Duration::from_secs(10), runner).await;
+
+        assert_eq!(running_status, Status::Processing, "not rewound to Submitted");
+        assert_eq!(asset.status().await, Status::Ready);
     }
 
     /// The first cause wins, the request wakes a waiter registered before it, and `clear`
