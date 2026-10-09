@@ -2,7 +2,7 @@
 id: STORED-UNTYPED-FILE-OF-UNLISTED-FORMAT-CANNOT-BE-READ
 kind: issue
 title: A stored file with no type identifier, in a format the base value does not list (csv, png, parquet), cannot be loaded as a resource
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [lib/value, core/assets]
@@ -48,3 +48,21 @@ metadata.
 Found 2026-10-07 while implementing `design/csv-physical-lines-short-rows/` Phase 3 T7. That test
 was planned against a stored `data/short.csv` and now reads the CSV from a command instead
 (`to_record_logs_padded_csv_rows`, `liquers-lib/tests/records_end_to_end.rs`).
+
+## Resolution (2026-10-08)
+
+Fixed by design `simple-value-untyped-and-scalar-reads` (PR #91).
+`SimpleValue::deserialize_from_bytes` now returns `SimpleValue::Bytes` for identifier `Bytes` in a
+format it does not parse (`csv`, `png`, `parquet`, …). For an empty identifier,
+`CombinedValue::deserialize_from_bytes` asks the extension first (it may infer a type from the
+format) and returns the bytes only when both halves refuse; a named identifier keeps its refusal.
+A hand-placed CSV loads as bytes and
+`ns-rec/to_record` takes the format from the metadata. Core `Value`'s own `_` arm is unchanged
+(out of scope: no core-only command consumes a CSV).
+
+Evidence: `manifest_over_hand_placed_csv_files_materializes` (no longer ignored,
+`liquers-lib/tests/records_manifest_over_csv_files.rs`);
+`bytes_in_unlisted_format_reads_as_bytes`, `other_identifiers_in_unlisted_format_still_refuse`
+(`liquers-lib/src/value/simple.rs`); `untyped_file_neither_half_reads_is_bytes`,
+`untyped_file_goes_to_an_inferring_extension_first`,
+`named_identifier_neither_half_reads_still_refuses` (`liquers-lib/src/value/extended.rs`).

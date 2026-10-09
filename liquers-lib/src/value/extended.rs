@@ -605,7 +605,13 @@ impl<B: ValueInterface + Default, E: ValueExtension> DefaultValueSerializer
             Err(base_err) => match E::deserialize_from_bytes(b, type_identifier, fmt) {
                 Ok(ext) => Ok(CombinedValue::Extended(ext)),
                 Err(ext_err) => {
-                    if type_identifier == "polars.DataFrame" {
+                    // A file with no type identifier that neither half infers a type for (a
+                    // hand-placed CSV) is its bytes; the command consuming it takes the format
+                    // from the metadata. A named identifier keeps its refusal, so a broken stored
+                    // value is not hidden as bytes.
+                    if type_identifier.is_empty() {
+                        Ok(CombinedValue::Base(B::from_bytes(b.to_vec())))
+                    } else if type_identifier == "polars.DataFrame" {
                         Err(ext_err)
                     } else {
                         Err(base_err)
@@ -705,12 +711,21 @@ mod tests {
         fn as_bytes(&self, _format: &str) -> Result<Vec<u8>, Error> {
             Ok(self.0.to_string().into_bytes())
         }
+        /// Infers its type from the `csv` format when the identifier is empty, as the
+        /// `DefaultValueSerializer` contract permits.
         fn deserialize_from_bytes(
-            _b: &[u8],
+            b: &[u8],
             type_identifier: &str,
-            _fmt: &str,
+            fmt: &str,
         ) -> Result<Self, Error> {
-            Err(Error::conversion_error(type_identifier, "ScalarExtension"))
+            match (type_identifier, fmt) {
+                ("", "csv") => String::from_utf8_lossy(b)
+                    .trim()
+                    .parse::<i64>()
+                    .map(ScalarExtension)
+                    .map_err(|e| Error::conversion_error_with_message("csv", "i64", &e.to_string())),
+                _ => Err(Error::conversion_error(type_identifier, "ScalarExtension")),
+            }
         }
     }
 
@@ -749,6 +764,36 @@ mod tests {
 
     type RefusingValue = CombinedValue<crate::value::SimpleValue, RefusingExtension>;
     type ScalarValue = CombinedValue<crate::value::SimpleValue, ScalarExtension>;
+
+    /// A file with no type identifier in a format neither half parses is read as bytes, so a
+    /// hand-placed CSV or image stays loadable.
+    #[test]
+    fn untyped_file_neither_half_reads_is_bytes() -> Result<(), Box<dyn std::error::Error>> {
+        let bytes = b"a,b\n1,2\n";
+        for format in ["csv", "png", "parquet"] {
+            let back = RefusingValue::deserialize_from_bytes(bytes, "", format)?;
+            assert_eq!(back.try_into_bytes()?, bytes.to_vec(), "\"\" as {format}");
+            assert!(matches!(back, CombinedValue::Base(_)), "\"\" as {format}");
+        }
+        Ok(())
+    }
+
+    /// The bytes fallback runs only after the extension refused: an extension that infers a type
+    /// from the format for an empty identifier still gets the file.
+    #[test]
+    fn untyped_file_goes_to_an_inferring_extension_first() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let back = ScalarValue::deserialize_from_bytes(b"42", "", "csv")?;
+        assert!(matches!(back, CombinedValue::Extended(ScalarExtension(42))));
+        Ok(())
+    }
+
+    /// A named identifier keeps its refusal: a broken stored value is not hidden as bytes.
+    #[test]
+    fn named_identifier_neither_half_reads_still_refuses() {
+        assert!(RefusingValue::deserialize_from_bytes(b"a,b", "Image", "png").is_err());
+        assert!(RefusingValue::deserialize_from_bytes(b"a,b", "I32", "csv").is_err());
+    }
 
     /// `EXTENDED-VALUES-CANNOT-BIND-TO-SCALAR-ARGUMENTS`: a refusing extension errors identically
     /// through `ValueInterface` and through `TryFrom`, for every scalar type.
