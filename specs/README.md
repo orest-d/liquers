@@ -78,6 +78,7 @@ volatility work all landed in `assets.rs`.
 - **Keyed-recipe ownership** — built → [`design/keyed-recipe-ownership/`](design/keyed-recipe-ownership/)
 - **Keyed delegation as a hand-off** — built → [`design/keyed-delegation-hand-off/`](design/keyed-delegation-hand-off/) *(rule documented in [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md))*
 - **Terminal outcome contract** — built → [`design/wp2-terminal-outcome/`](design/wp2-terminal-outcome/)
+- **Cancellation outcome and cooperative command cancellation** — designing → [`design/asset-cancellation-outcome/`](design/asset-cancellation-outcome/)
 - **Listed vs producible recipe keys, manifest-cache freshness, complete deep listings** — built → [`design/recipe-provider-listing-contract/`](design/recipe-provider-listing-contract/) *(contract in [`reference/api/DOC_08_RECIPES_PLANS.md`](reference/api/DOC_08_RECIPES_PLANS.md) §Provider contract; manifest freshness in [`reference/RECORD_STREAMS.md`](reference/RECORD_STREAMS.md) and [`guides/RECORD_STREAM_GUIDE.md`](guides/RECORD_STREAM_GUIDE.md))*
 - **Recipe-provider selection by name** — built → [`design/recipe-provider-selection/`](design/recipe-provider-selection/) *(contract in [`reference/api/DOC_08_RECIPES_PLANS.md`](reference/api/DOC_08_RECIPES_PLANS.md))*
 - **Dependency audit, audit policy and listing dependencies** — documented → [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md) *(design in [`design/dependency-audit-and-expiry-provenance/`](design/dependency-audit-and-expiry-provenance/))*

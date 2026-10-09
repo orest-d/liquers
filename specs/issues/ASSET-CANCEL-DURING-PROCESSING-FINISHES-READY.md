@@ -2,11 +2,11 @@
 id: ASSET-CANCEL-DURING-PROCESSING-FINISHES-READY
 kind: issue
 title: An asset cancelled while its command runs is finalized Ready when the command returns
-status: draft
+status: accepted
 priority: P2
-complexity: M
+complexity: L
 area: [core/assets]
-design:
+design: asset-cancellation-outcome
 created: 2026-09-28
 github:
 ---
