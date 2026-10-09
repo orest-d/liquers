@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [core/plan, core/commands]
-design:
+design: command-alias-contract
 created: 2026-08-29
 github:
 ---
