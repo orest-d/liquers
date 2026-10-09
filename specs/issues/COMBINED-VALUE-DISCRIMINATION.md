@@ -6,7 +6,7 @@ status: accepted
 priority: P2
 complexity: M
 area: [core/value, lib/value]
-design:
+design: combined-value-identifier-dispatch
 created: 2026-08-08
 github:
 ---
