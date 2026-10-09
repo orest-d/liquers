@@ -6,6 +6,8 @@ evaluation that finishes after `cancel()` ends `Ready` but is silently not store
 command notice a cancel while it runs. This design makes the terminal status a single, deterministic
 decision: a successful evaluation ends ready and is stored; an unfinished one ends `Cancelled`; and a
 command can stop early by checking `Context::is_cancelled()` and returning a cancellation error.
+A cancellation stays distinct from a failure as it cascades to dependents, and always names the
+asset that was cancelled in the first place.
 
 ## Problem Example
 `liquers-axum/tests/assets_api_endpoints.rs` `aae92_cancel_while_processing_reports_cancelled_deterministically`:
@@ -41,17 +43,30 @@ until `Processing`, then cancelled with `POST q/cancel`.
   THEN it returns `false` until `cancel()` is requested on that asset and `true` afterwards, from sync
   and async commands alike
 - **AC-6** Cancellation error ends `Cancelled`
-  WHEN a command returns an `ErrorType::Cancelled` error after its asset's cancel was requested
-  THEN the asset ends `Cancelled`, not `Error`, with no error recorded and nothing persisted
+  WHEN a command returns an `ErrorType::Cancelled` error, whether or not its own asset's cancel was
+  requested
+  THEN the asset ends `Cancelled`, not `Error`, and nothing is persisted
 - **AC-7** One terminal status per run
   WHEN cancellation races with completion
   THEN subscribers observe exactly one terminal status and one `JobFinished`
 - **AC-8** Replacement is not overwritten
   WHEN `to_override` or `remove` replaces a cancelled asset whose sync command finishes later
   THEN the late result changes neither the replacement's status nor the store
+- **AC-9** Cascade cancellation
+  WHEN an asset waits for a dependency (`Dependencies`, or inside `context.evaluate`) and that
+  dependency ends `Cancelled`
+  THEN the waiting asset ends `Cancelled`, not `Error`, unless its command handles the cancellation
+  error and returns `Ok`
+- **AC-10** Root cause is named
+  WHEN an asset is cancelled directly or by cascade, at any depth
+  THEN the cancellation error read from it (`State::value_error`, its metadata) has `ErrorType::Cancelled`
+  and its `query` field (and `key`, when keyed) names the asset whose `cancel()` was called
+- **AC-11** Cascade is logged
+  WHEN an asset ends `Cancelled` because of a dependency rather than its own `cancel()`
+  THEN its log holds one warning naming the dependency it waited for and the root cause
 
-Non-goals: preemptive interruption of synchronous code; cancelling an asset's dependencies (they are
-shared with other dependents); cancellation on the inline (`ImmediateAssetManager`/wasm) path beyond
+Non-goals: preemptive interruption of synchronous code; cancelling an asset's dependencies downward
+(they are shared with other dependents; cascade runs upward only); cancellation on the inline (`ImmediateAssetManager`/wasm) path beyond
 what AC-5 gives (`WEB-CANCELLATION-INERT`); changing the `AssetRef::cancel` signature.
 
 ## Core Interactions
@@ -60,7 +75,10 @@ what AC-5 gives (`WEB-CANCELLATION-INERT`); changing the `AssetRef::cancel` sign
 - **Commands:** `Context` gains `is_cancelled()` (and a `?`-friendly helper, Q3); commands may return
   `Error::cancelled`.
 - **Errors:** `ErrorType::Cancelled` already exists (`liquers-core/src/error.rs`); its documented meaning
-  widens from "value requested from a cancelled asset" to also "a command stopped on request".
+  widens from "value requested from a cancelled asset" to "evaluation was intentionally interrupted",
+  and its existing `query`/`key` fields carry the root cause.
+- **Dependencies:** `AssetManager::wait_for_dependency` cascades a dependency's `Cancelled` instead
+  of failing the parent through `fail_due_to_dependency`.
 - **Web/API:** `q/cancel` and `key/cancel` keep their contract; `aae92`/`aae38` tighten to one answer.
 - **Bindings:** `liquers-py` exposes no `Context` cancel API today; no change planned.
 
@@ -95,15 +113,15 @@ Each has a recommended answer; Phase 2 assumes it unless you decide otherwise.
    Result<(), Error>` returning `Error::cancelled(..)` for use with `?`.
 4. **A synchronous check.** The flag lives inside the asset's async `RwLock`, which a sync command
    cannot await. *Recommended:* move it to a shared `Arc<AtomicBool>` read lock-free by `Context`.
-5. **New error type or the existing one?** `ErrorType::Cancelled` exists, and `State::value_error`
-   already synthesizes it when a *dependency* was cancelled. Mapping every `Cancelled` error to
-   `Status::Cancelled` would turn "my dependency was cancelled by someone else" into a retryable
-   cancel of this asset. A precedent conflicts here: `wp2-terminal-outcome` Phase 2 approved
-   *cascade-cancelling* a parent whose dependency is cancelled, but the code fails the parent instead
-   (`wait_for_dependency`, test `dependency_failure_error_names_key`). *Recommended:* reuse the
-   existing type; a command's `Cancelled` error yields `Status::Cancelled` only when this asset's
-   cancel was requested, and is an ordinary `Error` otherwise (AC-6), which matches today's code and
-   retires the unimplemented cascade rule explicitly. A distinct variant is the alternative.
+5. **Decided 2026-10-09: cascade cancellation.** A cancellation is an intentional interruption, not a
+   problem, so it stays distinct from `Error` all the way up. This implements the cascade rule
+   `wp2-terminal-outcome` Phase 2 approved and the code never did (`wait_for_dependency` fails the
+   parent today; test `dependency_failure_error_names_key` changes). The existing
+   `ErrorType::Cancelled` is reused; any command returning it ends `Cancelled` (AC-6, AC-9). The
+   error's `query` (and `key`) name the root cause and are copied unchanged at every level (AC-10);
+   a cascaded asset logs one warning with the dependency and the root (AC-11). Consequence for
+   command authors, for the guide: wrapping a cancellation in another error type (e.g.
+   `Error::from_error(ErrorType::General, e)`) turns it back into an `Error`; propagate it as is.
 6. **What "cancelled flag" means after a successful finish.** It now blocks store writes
    (`save_to_store`, `persist_with_status_tracking`, and the closed design `save-to-store-skip-outcome`
    records the skip as `NotPersisted`). *Recommended:* the flag means "cancel requested for this run";
@@ -120,13 +138,27 @@ Each has a recommended answer; Phase 2 assumes it unless you decide otherwise.
 9. **Guide file name.** Guides are named `UPPER_SNAKE_GUIDE.md` except
    `LANGUAGE-INTEGRATION_GUIDE.md`. *Recommended:* `COMMAND_DESIGN_GUIDE.md` for consistency, unless
    you want the requested `COMMAND-DESIGN-GUIDE.md` kept as is.
+10. **Where a `Cancelled` asset keeps its root cause.** `wp2-terminal-outcome` made `Cancelled` store
+    no error, and `State::value_error` synthesizes a bare `Error::cancelled("Asset was cancelled")`.
+    The root cause must survive persistence and several levels of cascade, so it needs a home.
+    *Recommended:* a `Cancelled` asset records its cancellation `Error` in its metadata, as `Error`
+    assets do, and `value_error` returns that instead of synthesizing one. Status alone still decides
+    error-ness, so `Cancelled` remains distinct from `Error`. A dedicated metadata field
+    (`cancelled_by`) is the alternative if you want the error slot reserved for failures.
+11. **Cascade across clients.** A dependency is shared, so one client's `cancel()` on it cancels every
+    asset waiting on it, including other clients' requests. Today those fail with `Error` anyway;
+    after this design they end `Cancelled`, a cache miss, so a retry re-evaluates. *Recommended:*
+    accept and document it; "cancel only if nobody else waits" is a separate feature, filed if wanted.
+12. **Two causes at once.** An asset may be cancelled directly while its dependency is also being
+    cancelled. *Recommended:* its own `cancel()` wins: the root cause is the asset itself, with no
+    cascade warning.
 
 ## Design Dependencies
 - overlaps `axum-assets-endpoints` (in implementation, PR #73; exclusion E3): its tests `aae92` and
   `aae38` accept either status and cite the source issue; this design tightens them after it lands.
 - overlaps `WEB-CANCELLATION-INERT`: same contract, different cause (inline evaluation); not merged.
-- revisits `wp2-terminal-outcome` (complete, E4): keeps "`Cancelled` stores no error"; Q5 decides
-  its unimplemented dependency cascade-cancel rule.
+- revisits `wp2-terminal-outcome` (complete, E4): implements its approved but unimplemented
+  dependency cascade-cancel rule (Q5); Q10 revisits its "`Cancelled` stores no error" rule.
 - revisits `save-to-store-skip-outcome` (complete, frozen, E4): its "cancelled ⇒ `NotPersisted`" rule
   now applies only to runs that end `Cancelled`.
 
@@ -135,10 +167,15 @@ Each has a recommended answer; Phase 2 assumes it unless you decide otherwise.
   `Cancelled`" or "document best-effort") to: successful runs win and are stored, cooperative
   `Context::is_cancelled`, cancellation errors map to `Cancelled`, and a new command design guide.
   Complexity raised from `M` to `L`, hence the full form.
+- 2026-10-09: maintainer chose cascade cancellation over failing the dependent (Q5): a dependency's
+  cancellation cancels its waiting dependents, the cancellation error's `query`/`key` name the root
+  cause, and a cascaded asset logs it as a warning. Adds AC-9 to AC-11 and Q10 to Q12; revises AC-6.
+  Size stays `L`.
 
 ## References
 - `specs/issues/ASSET-CANCEL-DURING-PROCESSING-FINISHES-READY.md` (source)
 - `specs/reference/ASSETS.md` — Scenario 4 and the cancellation path
 - `liquers-core/src/assets.rs` `AssetRef::cancel`, `process_service_messages`, `run_with_future`,
-  `evaluate`, `finalize_status_with_version`, `persist_with_status_tracking`, `save_to_store`
+  `evaluate`, `finalize_status_with_version`, `persist_with_status_tracking`, `save_to_store`,
+  `AssetRef::fail_due_to_dependency`, `AssetManager::wait_for_dependency`
 - `liquers-core/src/error.rs` `ErrorType::Cancelled`; `liquers-core/src/state.rs` `State::value_error`
