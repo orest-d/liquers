@@ -4,8 +4,10 @@ kind: design
 title: CombinedValue reads an identifier the extension declares through the extension
 form: compact
 workflow: liquers-project
-status: in_review
-phase: architecture
+status: approved
+phase: implementation
+readiness: ready
+autofix: eligible
 area: [lib/value]
 issues: [COMBINED-VALUE-DISCRIMINATION]
 created: 2026-10-09
@@ -67,6 +69,10 @@ extension's.
   read through `Value` in any format
   THEN the result is what it is at HEAD: the existing `SimpleValue` round-trip tests, the untyped
   `csv` → `Bytes` fallback and an extension's format inference for `""` all still pass
+- **AC-6** The refusal comes from the side that owns the identifier
+  WHEN neither half reads a named identifier
+  THEN the error is the base's if the base declares the identifier, and the extension's otherwise
+  (added in Phase 3 from Phase 2 rule 3; see Scope Changes)
 
 **Non-goals.** `liquers_core::value::Value` has no extension and nothing to discriminate; its `json`
 identifier dispatch already exists. `liquers-py`'s `Value` is `PY-VALUE-SERIALIZER-IS-A-STUB`.
@@ -88,6 +94,28 @@ The issue's `core/value` area is not touched.
   also routes reading: an extension identifier missing from `type_descriptions()` is offered to the
   base first.
 - No new documents. `specs/README.md` links this design in place of the issue.
+
+### Scope Changes
+
+- 2026-10-09, Phase 3: **AC-6** added. Phase 2 resolved Q4 by generalising the `polars.DataFrame`
+  error choice (rule 3); that rule is observable, so it gets a scenario and a test. No scope added
+  beyond Phase 2.
+
+### Design Readiness
+
+Pre-approved after Phase 2 on 2026-10-09 (`proceed all`).
+
+- **Readiness:** `ready` — Phases 1-4 present and reviewed; no blocking or open design question.
+- **Automatic fixing:** eligible by the rule (M, a bug fix restoring the declared identifier's
+  meaning, one private helper, no `pub` change, one crate), assessed after the decisions were made.
+- **Decision log** (`proceed all`):
+  - *Blocking:* none.
+  - *Needs decision:* none.
+  - *Proposed resolution, taken:* AC-6 added for Phase 2 rule 3 (above). The AC-4 test also
+    asserts the base and extension identifier lists are disjoint (Phase 2 review finding).
+  - *Implementation detail:* the test extensions in `extended.rs` gain one that declares its
+    identifier; `RefusingExtension` and `ScalarExtension` keep declaring nothing, so the tests that
+    use them keep pinning the undeclared path.
 
 ### Design Dependencies
 
@@ -218,3 +246,75 @@ Phase 5.
 | Feature matrix | A declared identifier without a read arm in some configuration would now error instead of falling back | Checked above; `scripts/check-build-matrix.sh` in Phase 4 |
 | Recovery | Revert the one method body | — |
 | Certainty | High: every path was read at HEAD; the change is local to one generic function | — |
+
+## Phase 3: Examples and Tests
+
+### Examples
+
+**Primary (AC-1).** The problem example: a 3-row `RecordView` written as `json` and read back
+through `Value` with identifier `RecordView` is a `RecordView` of 3 rows.
+
+**Secondary (AC-3).** The same view written as `html` and read back with identifier `RecordView`
+is an error whose message comes from the `RecordView` reader; at HEAD it is `Text`.
+
+**Edge and error cases**, matching Phase 2's risks: a declared identifier in a format only the base
+reads (`RecordView` as `txt`) refuses (AC-4); the empty identifier still reads `json` as plain JSON
+and `csv` as bytes (AC-5); an identifier nobody declares, which both halves refuse, reports the
+extension's error, and a base identifier reports the base's (AC-6).
+
+No Liquers query is involved; the tests call `DefaultValueSerializer::deserialize_from_bytes`
+directly, as the existing serializer tests do.
+
+### Tests
+
+Unit tests in `liquers-lib/src/value/extended.rs` `mod tests`, over a new test-local
+`DeclaringExtension` (declares `test.Declared` in `json`; reads any `json` as itself, refuses every
+other format) combined with `SimpleValue`. No feature gate.
+
+| Test | Proves |
+|---|---|
+| `declared_identifier_is_read_by_the_extension_even_when_the_base_could` | AC-1, AC-4 — `test.Declared` as `json` is `Extended` (the base would read plain JSON) |
+| `declared_identifier_keeps_the_extension_refusal` | AC-3, AC-4 — `test.Declared` as `txt` is `Err` from the extension, not `Text` |
+| `undeclared_and_base_identifiers_read_as_before` | AC-5 — `""` as `json` and `Text` as `txt` are base values; `""` as `csv` is `Bytes` |
+| `undeclared_identifier_refusal_comes_from_the_extension` | AC-6 — `test.Unknown` as `csv` through `RefusingValue` fails with the extension's message |
+| `base_identifier_refusal_comes_from_the_base` | AC-6 — `I32` as `csv` through `RefusingValue` fails with the base's message |
+
+The existing `untyped_file_neither_half_reads_is_bytes`, `untyped_file_goes_to_an_inferring_extension_first`
+and `named_identifier_neither_half_reads_still_refuses` stay unchanged and also prove AC-5.
+
+Integration tests with the real `Value`:
+
+| File (gate) | Test | Proves |
+|---|---|---|
+| `liquers-lib/tests/record_typeinfo.rs` (`records`) | `record_view_json_reads_back_as_a_record_view` | AC-1 |
+| same | `record_source_manifest_reads_back_as_a_record_source` (`yaml` and `json`) | AC-2 |
+| same | `record_view_html_refuses_instead_of_reading_as_text` | AC-3 |
+| `liquers-lib/tests/value_type_system.rs` (none) | `extension_identifiers_never_read_as_base_values` — every `ExtValue::type_descriptions()` identifier × each of its formats plus `txt`, `json`, `yaml`, over one JSON-array payload: `Err` or `Extended` with that identifier; and the base and extension identifier lists are disjoint | AC-4 |
+
+Run: `cargo test -p liquers-lib --lib --tests`, then the `--no-default-features` rows for `records`
+and none from `CLAUDE.md`.
+
+## Phase 4: Implementation Plan
+
+### Steps
+
+- [ ] 1. `liquers-lib/src/value/extended.rs` — add `declares` and route
+  `CombinedValue::deserialize_from_bytes` by it (Phase 2 rules 1-3, dropping the `polars.DataFrame`
+  branch); add `DeclaringExtension` and the five unit tests — `cargo test -p liquers-lib --lib value::extended`.
+  Rollback: revert the file.
+- [ ] 2. `liquers-lib/tests/record_typeinfo.rs`, `liquers-lib/tests/value_type_system.rs` — the four
+  integration tests — `cargo test -p liquers-lib --test record_typeinfo --test value_type_system`.
+  Rollback: revert the two files.
+- [ ] 3. `liquers-lib/src/value/simple.rs` — the `txt`/`html`/`toml` and `md` comments (no code) —
+  `cargo test -p liquers-lib --lib --tests`. Rollback: revert the comments.
+- [ ] 4. Feature rows — `cargo test -p liquers-lib --no-default-features --lib --tests` and
+  `--no-default-features --features records`; `bash scripts/check-build-matrix.sh` if disk allows,
+  otherwise the two rows plus `--features polars`.
+
+### Validation
+
+`cargo test -p liquers-lib --lib --tests` green; the feature rows of step 4 green; no
+`specs/command_registry.yaml` change (no command touched). Documents (Phase 5):
+`specs/reference/VALUE_TYPE_SYSTEM.md` §Reading and `specs/guides/TYPE_SYSTEM_GUIDE.md` step 4, each
+with a History row and `reviewed:` bump; the issue closed with a resolution note; `specs/README.md`
+entry moved to built; `python3 scripts/docs_index.py --check`.
