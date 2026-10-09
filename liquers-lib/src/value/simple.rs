@@ -696,8 +696,10 @@ impl DefaultValueSerializer for SimpleValue {
                         Ok(SimpleValue::Text { value: s })
                     }
                     // Not a base identifier. `txt`, `html` and `toml` have always read as text
-                    // whatever the identifier (`COMBINED-VALUE-DISCRIMINATION`); the formats added
-                    // with them refuse, so `CombinedValue` asks the extension.
+                    // whatever the identifier; the formats added with them refuse. Through
+                    // `CombinedValue` an identifier the extension declares never reaches this arm
+                    // (`specs/design/combined-value-identifier-dispatch/`), so the lenient read is
+                    // left to identifiers nobody declares.
                     _ if matches!(fmt, "txt" | "html" | "toml") => Ok(SimpleValue::Text { value: s }),
                     other => Err(Error::from_error(
                         ErrorType::SerializationError,
@@ -715,8 +717,7 @@ impl DefaultValueSerializer for SimpleValue {
                     format!("Type identifier {} is not read as {} by the base value", other, fmt),
                 )),
             },
-            // Only `Text` is markdown among the base types. Any other identifier is refused, so
-            // `CombinedValue` asks the extension: a `RecordView` written as `md` is a table.
+            // Only `Text` is markdown among the base types; any other identifier is refused.
             "md" => match type_identifier {
                 "" | "Text" => Ok(SimpleValue::Text {
                     value: String::from_utf8_lossy(b).to_string(),

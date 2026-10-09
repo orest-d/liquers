@@ -133,3 +133,66 @@ fn record_view_markdown_reads_back_as_a_table_through_the_combined_value(
     assert_eq!(text.try_into_string()?, "# x");
     Ok(())
 }
+
+fn three_row_view() -> Result<liquers_lib::value::Value, Box<dyn std::error::Error>> {
+    use liquers_lib::value::{ExtValueInterface, Value};
+    use liquers_records::{Buffer, Column, FieldSchema, FieldType, RecordBatch, RecordSchema};
+    use std::sync::Arc;
+
+    let schema = Arc::new(RecordSchema::new(vec![FieldSchema::new("n", FieldType::Int)])?);
+    let column = Column::Int {
+        validity: None,
+        values: Buffer::from_slice(&[1i64, 2, 3]),
+    };
+    let batch = RecordBatch::new(schema, vec![column], None, None, vec![])?;
+    Ok(Value::from_record_view(Arc::new(batch)))
+}
+
+/// AC-1 (`specs/design/combined-value-identifier-dispatch/`): the base value reads any `json` as
+/// plain JSON, so a `RecordView` written as JSON used to read back as an `Array`.
+#[test]
+fn record_view_json_reads_back_as_a_record_view() -> Result<(), Box<dyn std::error::Error>> {
+    use liquers_core::value::{DefaultValueSerializer, ValueInterface};
+    use liquers_lib::value::{ExtValueInterface, Value};
+
+    let bytes = three_row_view()?.as_bytes("json")?;
+    let back = Value::deserialize_from_bytes(&bytes, "RecordView", "json")?;
+    assert_eq!(back.identifier(), "RecordView");
+    assert_eq!(back.as_record_view()?.len(), 3);
+    Ok(())
+}
+
+/// AC-2: a manifest written as `yaml` or `json` used to read back as an `Object`.
+#[test]
+fn record_source_manifest_reads_back_as_a_record_source() -> Result<(), Box<dyn std::error::Error>>
+{
+    use liquers_core::value::{DefaultValueSerializer, ValueInterface};
+    use liquers_lib::value::{ExtValueInterface, Value};
+    use liquers_records::{ManifestSource, ManifestSpec, RecordSource};
+    use std::sync::Arc;
+
+    let source: Arc<dyn RecordSource> =
+        Arc::new(ManifestSource::new(ManifestSpec::default(), None)?);
+    let value = Value::from_record_source(source);
+    for format in ["yaml", "json"] {
+        let bytes = value.as_bytes(format)?;
+        let back = Value::deserialize_from_bytes(&bytes, "RecordSource", format)?;
+        assert_eq!(back.identifier(), "RecordSource", "RecordSource as {format}");
+        back.as_record_source()?;
+    }
+    Ok(())
+}
+
+/// AC-3: `html` is write-only for `RecordView`. Reading it refuses instead of producing `Text`.
+#[test]
+fn record_view_html_refuses_instead_of_reading_as_text() -> Result<(), Box<dyn std::error::Error>> {
+    use liquers_core::value::DefaultValueSerializer;
+    use liquers_lib::value::Value;
+
+    let bytes = three_row_view()?.as_bytes("html")?;
+    assert!(
+        Value::deserialize_from_bytes(&bytes, "RecordView", "html").is_err(),
+        "a RecordView written as html must not read back as Text"
+    );
+    Ok(())
+}

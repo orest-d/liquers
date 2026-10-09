@@ -3,7 +3,7 @@ title: Value Type System
 kind: reference
 audience: internal
 area: [core/value, lib/value]
-reviewed: 2026-09-27
+reviewed: 2026-10-09
 ---
 
 # Value Type System
@@ -336,6 +336,21 @@ The identifier check applies in both cases.
 know **degrades**: the bytes and metadata are kept verbatim so a minimal build can copy, proxy and
 re-store data it cannot interpret. Asking for a *value* then fails with an error naming the type.
 
+A combined value (`liquers_lib::value::Value`, a `CombinedValue<SimpleValue, ExtValue>`) then
+chooses which half reads the bytes **by the identifier**, not by trying one half after the other
+(`CombinedValue::deserialize_from_bytes`):
+
+1. An identifier the extension declares in its `type_descriptions()` is read by the extension
+   only. If the extension cannot read that format, the read fails; the base value is never asked,
+   because it reads some formats (`txt`, `html`, `toml`, `json`, `yaml`) whatever the identifier
+   and would return a value of another type. A `RecordView` stored as `html`, which is write-only,
+   therefore fails to load and is recomputed.
+2. Every other identifier (a base identifier, the empty one, or one nobody declares) goes to the
+   base first, then to the extension, which may infer a type from the format for an empty
+   identifier. An empty identifier neither half reads is the file's bytes.
+3. When neither half reads a named identifier, the error is the base's if the base declares the
+   identifier, and the extension's otherwise.
+
 The lowercase `bytes`/`binary`/`bin`/`b` identifiers are read but never produced — a read-side
 accommodation for older stores, not an alias, and the write path refuses them because they are not
 registered.
@@ -351,6 +366,7 @@ degrades on read.
 
 | Date | Change |
 |---|---|
+| 2026-10-09 | §Reading: a combined value picks the half that reads the bytes by the declared identifier; an extension identifier is never read by the base value (`design/combined-value-identifier-dispatch/`, closing `COMBINED-VALUE-DISCRIMINATION`). |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5 (phase-5). Added `RecordView` and `RecordSource` to the registered identifiers, and §The record identifiers: `records`-gated trait-object variants, their `TypeInfo`s (formats and aliases, `ipc`/`parquet` behind `records-ipc`/`records-parquet`, `html` write-only, Parquet read only through polars), manifest-only serialization of a source, single-cell scalar reading by delegation to the base value, and `try_into_json_value`. |
 | 2026-08-18 | Created with the `value-type-system` design, resolving `CORE-METADATA-FORMAT-TYPE-CONSISTENCY`. |
 | 2026-08-26 | Removed the `error` type identifier: an errored state is typed by the value it holds, which is none, and the failure lives in the metadata. Stated the one-identifier-per-variant rule. Added runtime registration for a type an integration owns (`foreign-value-type-registration`). |

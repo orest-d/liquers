@@ -600,6 +600,16 @@ impl<B: ValueInterface + Default, E: ValueExtension> DefaultValueSerializer
         }
     }
     fn deserialize_from_bytes(b: &[u8], type_identifier: &str, fmt: &str) -> Result<Self, Error> {
+        // An identifier the extension declares is the extension's to read, and only its: the base
+        // reads some formats whatever the identifier (`txt`, `json`, `yaml`), so asking it first
+        // turned a `RecordView` written as JSON into an `Array`. A refusal here is final; falling
+        // back to the base would produce a value of another type.
+        if declares(&<E as ValueExtension>::type_descriptions(), type_identifier) {
+            return E::deserialize_from_bytes(b, type_identifier, fmt).map(CombinedValue::Extended);
+        }
+        // Base identifiers, the empty identifier and identifiers nobody declares keep the base
+        // first. The extension is still asked next, since it may infer a type from the format for
+        // an empty identifier.
         match B::deserialize_from_bytes(b, type_identifier, fmt) {
             Ok(base) => Ok(CombinedValue::Base(base)),
             Err(base_err) => match E::deserialize_from_bytes(b, type_identifier, fmt) {
@@ -608,18 +618,29 @@ impl<B: ValueInterface + Default, E: ValueExtension> DefaultValueSerializer
                     // A file with no type identifier that neither half infers a type for (a
                     // hand-placed CSV) is its bytes; the command consuming it takes the format
                     // from the metadata. A named identifier keeps its refusal, so a broken stored
-                    // value is not hidden as bytes.
+                    // value is not hidden as bytes, and the refusal comes from the half that
+                    // owns the identifier.
                     if type_identifier.is_empty() {
                         Ok(CombinedValue::Base(B::from_bytes(b.to_vec())))
-                    } else if type_identifier == "polars.DataFrame" {
-                        Err(ext_err)
-                    } else {
+                    } else if declares(&<B as ValueInterface>::type_descriptions(), type_identifier)
+                    {
                         Err(base_err)
+                    } else {
+                        Err(ext_err)
                     }
                 }
             },
         }
     }
+}
+
+/// Whether `descriptions` declare `type_identifier`. The empty identifier ("not known") is never
+/// declared.
+fn declares(descriptions: &[liquers_core::type_system::TypeInfo], type_identifier: &str) -> bool {
+    !type_identifier.is_empty()
+        && descriptions
+            .iter()
+            .any(|info| info.type_identifier == type_identifier)
 }
 
 #[cfg(test)]
@@ -793,6 +814,114 @@ mod tests {
     fn named_identifier_neither_half_reads_still_refuses() {
         assert!(RefusingValue::deserialize_from_bytes(b"a,b", "Image", "png").is_err());
         assert!(RefusingValue::deserialize_from_bytes(b"a,b", "I32", "csv").is_err());
+    }
+
+    /// A test-local extension that declares its identifier, `test.Declared`, in `json`, and reads
+    /// any `json` as itself. Every other format is refused.
+    #[derive(Debug, Clone)]
+    struct DeclaringExtension;
+
+    impl DefaultValueSerializer for DeclaringExtension {
+        fn as_bytes(&self, _format: &str) -> Result<Vec<u8>, Error> {
+            Ok(b"[]".to_vec())
+        }
+        fn deserialize_from_bytes(
+            _b: &[u8],
+            type_identifier: &str,
+            fmt: &str,
+        ) -> Result<Self, Error> {
+            match fmt {
+                "json" => Ok(DeclaringExtension),
+                other => Err(Error::conversion_error_with_message(
+                    type_identifier,
+                    "DeclaringExtension",
+                    &format!("format {other} is not read"),
+                )),
+            }
+        }
+    }
+
+    impl ValueExtension for DeclaringExtension {
+        fn type_descriptions() -> Vec<liquers_core::type_system::TypeInfo> {
+            vec![liquers_core::type_system::TypeInfo::new("test.Declared")
+                .with_type_name("declared")
+                .with_data_format("json")]
+        }
+        fn identifier(&self) -> Cow<'static, str> {
+            Cow::Borrowed("test.Declared")
+        }
+        fn type_name(&self) -> Cow<'static, str> {
+            Cow::Borrowed("declared")
+        }
+        fn default_extension(&self) -> Cow<'static, str> {
+            Cow::Borrowed("json")
+        }
+        fn default_filename(&self) -> Cow<'static, str> {
+            Cow::Borrowed("value.json")
+        }
+        fn default_media_type(&self) -> Cow<'static, str> {
+            Cow::Borrowed("application/json")
+        }
+    }
+
+    type DeclaringValue = CombinedValue<crate::value::SimpleValue, DeclaringExtension>;
+
+    /// AC-1, AC-4: an identifier the extension declares goes to the extension, although the base
+    /// would read the same `json` as plain JSON.
+    #[test]
+    fn declared_identifier_is_read_by_the_extension_even_when_the_base_could(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let back = DeclaringValue::deserialize_from_bytes(b"[1, 2, 3]", "test.Declared", "json")?;
+        assert!(matches!(back, CombinedValue::Extended(DeclaringExtension)));
+        Ok(())
+    }
+
+    /// AC-3, AC-4: the extension's refusal is final; the base, which reads any `txt` as text, is
+    /// not asked.
+    #[test]
+    fn declared_identifier_keeps_the_extension_refusal() {
+        let result = DeclaringValue::deserialize_from_bytes(b"[1, 2, 3]", "test.Declared", "txt");
+        let error = result.expect_err("a declared identifier must not read as Text");
+        assert!(
+            error.to_string().contains("DeclaringExtension"),
+            "the refusal is the extension's: {error}"
+        );
+    }
+
+    /// AC-5: base identifiers and the empty identifier still go to the base first.
+    #[test]
+    fn undeclared_and_base_identifiers_read_as_before() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::value::SimpleValue;
+
+        let untyped = DeclaringValue::deserialize_from_bytes(b"[1, 2, 3]", "", "json")?;
+        assert!(matches!(untyped, CombinedValue::Base(SimpleValue::Array { .. })));
+        let text = DeclaringValue::deserialize_from_bytes(b"[1, 2, 3]", "Text", "txt")?;
+        assert!(matches!(text, CombinedValue::Base(SimpleValue::Text { .. })));
+        let csv = DeclaringValue::deserialize_from_bytes(b"a,b", "", "csv")?;
+        assert!(matches!(csv, CombinedValue::Base(SimpleValue::Bytes { .. })));
+        Ok(())
+    }
+
+    /// AC-6: an identifier nobody declares, refused by both halves, reports the extension's error.
+    #[test]
+    fn undeclared_identifier_refusal_comes_from_the_extension() {
+        let error = RefusingValue::deserialize_from_bytes(b"a,b", "test.Unknown", "csv")
+            .expect_err("nobody reads test.Unknown");
+        assert!(
+            error.to_string().contains("RefusingExtension"),
+            "the refusal is the extension's: {error}"
+        );
+    }
+
+    /// AC-6: a base identifier refused by both halves reports the base's error.
+    #[test]
+    fn base_identifier_refusal_comes_from_the_base() {
+        let error = RefusingValue::deserialize_from_bytes(b"a,b", "I32", "csv")
+            .expect_err("I32 is not read as csv");
+        assert!(
+            !error.to_string().contains("RefusingExtension"),
+            "the refusal is the base's: {error}"
+        );
     }
 
     /// `EXTENDED-VALUES-CANNOT-BIND-TO-SCALAR-ARGUMENTS`: a refusing extension errors identically

@@ -3,7 +3,7 @@ title: Adding and Typing Value Types
 kind: guide
 audience: both
 area: [core/value, lib/value]
-reviewed: 2026-10-07
+reviewed: 2026-10-09
 ---
 
 # Adding and Typing Value Types
@@ -84,6 +84,11 @@ TypeInfo::new("Sketch")
 `supported_data_formats` lists what the type can be **written** in — that is what the write path
 checks. It is legitimately wider than what round-trips: `Text` can be written as bytes and reads
 back as `Bytes`. Declare what `as_bytes` accepts.
+
+The description also **routes reading**. Through the combined `Value`, an identifier listed here
+is read by `ExtValue` alone; one missing from the list is offered to the base value first, which
+reads `txt`, `json` and `yaml` whatever the identifier, so a `Sketch` stored as `json` would come
+back as an `Array`.
 
 A type with **no** byte form declares no formats and omits `with_data_formats`. It is then stored
 as metadata only, which is what a UI element or a foreign handle needs.
@@ -235,6 +240,7 @@ This resolves at compile time and cannot drift from the registration.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-09 | §4 Describe it: the `TypeInfo` also routes reading — an extension identifier is read by the extension only, and an undeclared one is offered to the base value first. | phase-5, `design/combined-value-identifier-dispatch/` |
 | 2026-10-07 | §Verifying it: `ext_value_type_descriptions_complete` samples every variant but `Foreign`, fails to compile when a variant has no sample, and has a reverse (no stale description) sibling. | phase-5, `design/ext-value-description-completeness/` |
 | 2026-10-07 | §Choosing a data format: `md` is declared on `Text` (plain markdown) as well as on `RecordView` (a markdown table). | phase-5, `design/text-value-markdown-format/` |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. Added §A gated variant, worked: `RecordView` and `RecordSource` — trait-object payloads, a `#[cfg(feature = "records")]` arm in every `ExtValue` match including `liquers-web`'s, `TypeInfo`s declared under the features that enable their writers, and the build-matrix rows. §Verifying it no longer claims `ext_value_type_descriptions_complete` covers every variant. | phase-5 |
