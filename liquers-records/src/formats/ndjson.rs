@@ -321,7 +321,13 @@ fn infer_json_column(cells: &[Option<&Value>]) -> (FieldType, bool) {
 /// non-null cell across every row (the **union** of keys, not just the first row's), then every
 /// cell is parsed as that type — [`json_cell_as_text`] for the `Text` fallback, since a plain
 /// string column must round-trip verbatim rather than come back quoted.
-fn read_inferred_objects(objects: &[&Map<String, Value>]) -> Result<RecordBatch, Error> {
+///
+/// `order` is the column order the document states, when its shape states one (`split`'s
+/// `columns`, `values`' positions): those names come first, in that order, followed by any other
+/// key seen, sorted. A name in `order` is kept even when no row carries it, so an empty `split`
+/// document still reads with its declared columns (nullable `Text`, as [`infer_json_column`] gives
+/// a column with no values).
+fn read_inferred_objects(objects: &[&Map<String, Value>], order: Option<&[String]>) -> Result<RecordBatch, Error> {
     let mut names: Vec<String> = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for obj in objects {
@@ -333,8 +339,20 @@ fn read_inferred_objects(objects: &[&Map<String, Value>]) -> Result<RecordBatch,
     }
     // JSON has no key order, so columns are sorted by name for a stable order: the same columns
     // read the same way whatever the row order, and whether or not `serde_json/preserve_order` is
-    // on (`specs/reference/RECORD_STREAMS.md`, maintainer decision 2026-10-06).
+    // on (`specs/reference/RECORD_STREAMS.md`, maintainer decision 2026-10-06). The decision
+    // covers JSON whose column order is not specified; an `order` the shape states wins.
     names.sort();
+    if let Some(order) = order {
+        let mut placed = std::collections::HashSet::new();
+        let mut ordered: Vec<String> = Vec::with_capacity(names.len());
+        for name in order {
+            if placed.insert(name.as_str()) {
+                ordered.push(name.clone());
+            }
+        }
+        ordered.extend(names.iter().filter(|name| !placed.contains(name.as_str())).cloned());
+        names = ordered;
+    }
 
     let mut fields = Vec::with_capacity(names.len());
     let mut field_types = Vec::with_capacity(names.len());
@@ -373,6 +391,17 @@ fn read_inferred_objects(objects: &[&Map<String, Value>]) -> Result<RecordBatch,
 /// orient and every transposed orient (`list`, `split`, `values`, `columns`, `index`, `table`)
 /// funnel through this one declared/inferred split rather than re-implementing it.
 pub(super) fn objects_to_batch(items: &[Value], schema: ReadSchema<'_>) -> Result<RecordBatch, Error> {
+    objects_to_batch_ordered(items, schema, None)
+}
+
+/// [`objects_to_batch`] for a shape that states its column order (`split`, `values`): without a
+/// schema, the columns follow `order` instead of being sorted by name. A declared schema's field
+/// order still wins, so `order` is ignored under [`ReadSchema::Declared`].
+pub(super) fn objects_to_batch_ordered(
+    items: &[Value],
+    schema: ReadSchema<'_>,
+    order: Option<&[String]>,
+) -> Result<RecordBatch, Error> {
     let mut objects: Vec<&Map<String, Value>> = Vec::with_capacity(items.len());
     for (row, item) in items.iter().enumerate() {
         match item {
@@ -386,7 +415,7 @@ pub(super) fn objects_to_batch(items: &[Value], schema: ReadSchema<'_>) -> Resul
     }
     match schema {
         ReadSchema::Declared(schema) => read_declared_objects(&objects, schema),
-        ReadSchema::Infer => read_inferred_objects(&objects),
+        ReadSchema::Infer => read_inferred_objects(&objects, order),
     }
 }
 

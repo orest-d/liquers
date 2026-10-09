@@ -422,7 +422,9 @@ you meant. `encoded` works at parse level, with no registry.
 The file is **generated — never edit it by hand**. It exists so query validation does not have to
 link liquers-lib and its optional dependencies.
 
-Regenerate whenever a `register_command!` signature changes, or a command is added or removed:
+Regenerate whenever a `register_command!` signature changes, a command is added or removed, **or
+the body of a command with `version: auto` changes** (its implementation version hashes the
+function's tokens, so a code edit counts and a `//` comment does not):
 
 ```bash
 cargo run -p liquers-lib --features cli --bin export-command-registry -- \
@@ -433,8 +435,11 @@ Then add a dated line inside the `# CHANGELOG-BEGIN` / `# CHANGELOG-END` markers
 carries that block over verbatim, and it is the only hand-maintained part of the file.
 
 `cargo test -p liquers-lib --test registry_export` enforces this: it fails when the file no
-longer matches the registered commands, comparing signatures rather than file bytes, so
-reformatting is not a failure but a changed argument list is.
+longer matches the registered commands, comparing structures rather than file bytes, so
+reformatting is not a failure but a changed argument list is. `committed_registry_is_fresh` checks
+signatures and `committed_registry_impl_versions_are_fresh` checks each command's `impl_version`;
+the latter also rejects `version: now` in an exported group, since a timestamp can never match a
+committed file.
 
 ### Adding a Store Backend
 
