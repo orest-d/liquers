@@ -3,7 +3,7 @@ title: Web API Guide
 kind: guide
 audience: both
 area: [axum, web]
-reviewed: 2026-10-06
+reviewed: 2026-10-09
 ---
 # Using the Liquers web API
 
@@ -156,7 +156,10 @@ The statuses you will see while polling: `Submitted`, `Processing`, `Dependencie
 input), then a final one — `Ready` (the value is available), `Error` (the `result.message` and
 `result.error_data` say why), `Cancelled`, or `Expired`. `result.progress` carries `message`,
 `done` and `total` for commands that report progress. `GET q/version/…` returns 32 zeros until the
-value exists. `POST q/cancel/…` cancels a submitted query.
+value exists. `POST q/cancel/…` cancels a submitted query. It is best-effort: a command that has
+already finished (or that cannot be interrupted) leaves the query `Ready`, with its value; a
+`Cancelled` result carries the cancellation in `result.error_data`, whose `query` names the asset
+that was cancelled — a dependency, when the cancel cascaded.
 
 The same in Python, with `requests`:
 
@@ -431,12 +434,12 @@ runnable Rust client that also follows a key through its deletion is
   evaluates before it answers and returns the final status.
 - Known gaps are filed under `specs/issues/`: the Recipes API's `metadata` is a placeholder
   (`AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS`), Store API `keys` lists only one level
-  (`AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN`), and cancelling a running command may still end
-  `Ready` (`ASSET-CANCEL-DURING-PROCESSING-FINISHES-READY`).
+  (`AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN`).
 
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-09 | `q/cancel` is best-effort (a completed command stays `Ready`), the cause in `error_data`; the cancel-ends-`Ready` known gap removed. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-06 | Added a `key/can_make` example beside `key/contains`. | phase-5 |
 | 2026-09-29 | Created: organization and conventions, short queries, parameters, submit and poll, the Store API, the Assets API (writing, navigating, recipes, dependencies, removal), and the WebSocket, with curl and Python examples run against `examples/assets_recipes_basic.rs`. | `design/axum-assets-endpoints/` |

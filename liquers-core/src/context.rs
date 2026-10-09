@@ -102,7 +102,7 @@ use std::sync::{Arc, Mutex};
 use crate::maybe_send::MaybeBoxed;
 
 use crate::{
-    assets::{AssetManager, AssetRef, AssetServiceMessage, DependencyManagerAccess},
+    assets::{AssetManager, AssetRef, AssetServiceMessage, CancellationRequest, DependencyManagerAccess},
     command_metadata::CommandMetadataRegistry,
     commands::{CommandExecutor, CommandRegistry},
     dependencies::ScheduleNode,
@@ -441,6 +441,9 @@ pub struct Context<E: Environment> {
     ///
     /// Shared across context clones so it tracks the path rather than one action.
     active_payload_queries: Arc<tokio::sync::Mutex<Vec<Query>>>,
+
+    /// Cancellation request of the asset this context evaluates, shared with the asset.
+    cancellation: Arc<CancellationRequest>,
 }
 
 impl<E: Environment> Context<E> {
@@ -451,6 +454,7 @@ impl<E: Environment> Context<E> {
     pub async fn new(assetref: AssetRef<E>, is_volatile: bool) -> Self {
         let service_tx = assetref.service_sender().await;
         let envref = assetref.get_envref().await;
+        let cancellation = assetref.cancellation().await;
         Context {
             assetref,
             envref,
@@ -461,6 +465,7 @@ impl<E: Environment> Context<E> {
             pending_dependencies: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             submitted_dependencies: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             active_payload_queries: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            cancellation,
         }
     }
 
@@ -848,6 +853,30 @@ impl<E: Environment> Context<E> {
         self.is_volatile
     }
 
+    /// Whether cancellation of the asset this command is evaluating has been requested.
+    ///
+    /// Lock-free, so a synchronous command can poll it in a loop. A command that sees `true` should
+    /// stop and return the error from [`Self::check_cancelled`]; one that finishes anyway returns
+    /// `Ok`, and its asset then ends ready and is stored as usual. See
+    /// `specs/guides/COMMAND_DESIGN_GUIDE.md`.
+    pub fn is_cancelled(&self) -> bool {
+        self.cancellation.is_requested()
+    }
+
+    /// `Err(cause)` once cancellation has been requested, for `context.check_cancelled()?`.
+    ///
+    /// The error has `ErrorType::Cancelled` and names the asset whose cancel was requested.
+    /// Returned from a command unchanged, it ends the asset `Cancelled` rather than `Error`.
+    pub fn check_cancelled(&self) -> Result<(), Error> {
+        if !self.cancellation.is_requested() {
+            return Ok(());
+        }
+        Err(self
+            .cancellation
+            .cause()
+            .unwrap_or_else(|| Error::cancelled("Evaluation was cancelled".to_string())))
+    }
+
     /// Clones this context and adds a volatility requirement.
     ///
     /// Volatility is contagious: the returned context is volatile if either the
@@ -864,6 +893,7 @@ impl<E: Environment> Context<E> {
             pending_dependencies: self.pending_dependencies.clone(),
             submitted_dependencies: self.submitted_dependencies.clone(),
             active_payload_queries: self.active_payload_queries.clone(),
+            cancellation: self.cancellation.clone(),
         }
     }
 
@@ -943,6 +973,7 @@ impl<E: Environment> Context<E> {
             pending_dependencies: self.pending_dependencies.clone(),
             submitted_dependencies: self.submitted_dependencies.clone(),
             active_payload_queries: self.active_payload_queries.clone(),
+            cancellation: self.cancellation.clone(),
         }
     }
     /// Returns the current working key used for relative query resolution.
@@ -1122,6 +1153,7 @@ impl<E: Environment> Clone for Context<E> {
             pending_dependencies: self.pending_dependencies.clone(),
             submitted_dependencies: self.submitted_dependencies.clone(),
             active_payload_queries: self.active_payload_queries.clone(),
+            cancellation: self.cancellation.clone(),
         }
     }
 }
@@ -1639,6 +1671,7 @@ mod tests {
                 pending_dependencies: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             submitted_dependencies: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                 active_payload_queries: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+                cancellation: Arc::new(CancellationRequest::new()),
             },
             service_rx,
         )

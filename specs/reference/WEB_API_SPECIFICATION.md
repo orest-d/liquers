@@ -3,7 +3,7 @@ title: Liquers Web API Specification
 kind: reference
 audience: internal
 area: [axum, web]
-reviewed: 2026-10-07
+reviewed: 2026-10-09
 ---
 # Liquers Web API Specification
 
@@ -263,9 +263,13 @@ Each family offers three modes, and **only the first two can start an evaluation
 | `POST q/cancel/{*query}` | — | `AssetInfo` after the cancel | 404 `NotAvailable` when the query is not cached |
 
 `q/cancel` looks the asset up without creating one, so it never starts the evaluation it cancels.
-A command that is already running is not interrupted; today such an asset can still finish
-`Ready` (`ASSET-CANCEL-DURING-PROCESSING-FINISHES-READY`), which the returned and later `info`
-show.
+Cancellation is best-effort and always answers 200: a queued asset ends `Cancelled`; a running
+one is asked to stop and ends `Cancelled` if its command is suspended or checks the request; a
+command that has already completed (or that cannot be interrupted and completes) leaves the asset
+`Ready` and stored. Clients read the outcome from the returned or a later `info`. A `Cancelled`
+asset's `info.error_data` is the cancellation error (`error_type` `Cancelled`, `is_error` false),
+whose `query` names the asset whose cancel was requested — for a dependent cancelled by cascade,
+that is the dependency. Subscribers see one terminal status.
 
 ### 5.4 Key family routes
 
@@ -587,6 +591,7 @@ Not available at HEAD; listed so that no reader mistakes them for features:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-09 | §5.3 `q/cancel`: the best-effort outcomes (a completed command stays `Ready`), the cause in `error_data`, cascade attribution; `ASSET-CANCEL-DURING-PROCESSING-FINISHES-READY` closed. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-07 | §6: Recipes API `metadata` and `entry` return the recipe's asset info as metadata, and `entry` is negotiated by `?format=` / `Accept`. | phase-5, `design/axum-recipes-metadata-entry/` |
 | 2026-10-06 | Added `key/can_make`; `key/contains` is stored-or-listed; deep listing is complete; Store API writes notify the provider. | phase-5 |
 | 2026-09-29 | Review fixes of PR #73: §5.8 — each subscription requests its asset in its own task, so the connection stays responsive; with an inline manager `Initial` arrives after the evaluation. §7 — the timeout bounds the whole wait, evaluation included. Linked the new `WEB_API_GUIDE.md`. | `design/axum-assets-endpoints/` |

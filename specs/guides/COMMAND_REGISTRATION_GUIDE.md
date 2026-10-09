@@ -3,7 +3,7 @@ title: Command Registration Guide
 kind: guide
 audience: internal
 area: [core/commands, macro]
-reviewed: 2026-10-07
+reviewed: 2026-10-09
 ---
 # Command Registration Guide
 
@@ -16,6 +16,10 @@ This guide covers defining and registering new commands in Liquers. It covers bo
 | `register_command!` macro | Standard commands with metadata | Low |
 | Manual registration | Fine-grained control, closures, tests | Medium |
 | Generic Environment | Library commands for any environment | High |
+
+How a registered command should behave while it runs — checking for cancellation with
+`context.is_cancelled()` / `context.check_cancelled()?`, what `cancel()` guarantees — is in
+[`COMMAND_DESIGN_GUIDE.md`](COMMAND_DESIGN_GUIDE.md).
 
 ---
 
@@ -242,7 +246,11 @@ method:
 - applies the stale-dependency policy: a dependency that expired while this command was
   using it is returned as it stands, and the current asset finishes `Expired`
   (`StaleDependency`) so the next request recomputes it. `asset.get()` returns an error
-  for an expired asset instead.
+  for an expired asset instead;
+- cascades a cancelled dependency: it returns the dependency's `ErrorType::Cancelled` error
+  unchanged, so `?` ends the current asset `Cancelled` too, naming the root cause. Match
+  `Err(e) if e.is_cancelled()` to tolerate it — see
+  [`COMMAND_DESIGN_GUIDE.md`](COMMAND_DESIGN_GUIDE.md) §Dependencies and cascade.
 
 **`submit` is not lazy.** The dependency has already started when it returns: the queued
 manager starts it at once when it has capacity, and the inline manager runs it to
@@ -911,6 +919,7 @@ fn apply(...) -> Result<...> { ... }
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-09 | Quick Reference links the new `COMMAND_DESIGN_GUIDE.md` (cooperative cancellation); "Waiting for dependencies" adds the cascade of a cancelled dependency. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-07 | §Macro DSL Syntax lists every metadata statement; new sections "Commands that need the payload" (`payload: required`) and "Versioning a command…" (`#[command_version]`, `version: auto`, `expires:`). | phase-5, `design/register-command-payload-docs/` |
 | 2026-10-06 | New section "Describing the result: title and description" (`context.set_title` / `set_description`, recipe title takes precedence per field). | phase-5 |
 | 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. New section "Waiting for dependencies from inside a command": `context.submit` + `context.wait_for_dependency`, why not `asset.get()`, and that `submit` is not lazy. The `read_sibling` example now waits through `context.wait_for_dependency(&asset)`; `submit` added to the methods that refuse relative queries. | phase-5 |

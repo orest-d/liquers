@@ -353,7 +353,7 @@ impl<E: Environment> AssetManager<E> for MinimalInlineAssetManager<E> {
     ) -> Result<(), Error> {
         let mutation = self.mutation_lock.lock().await;
         if let Some(old) = self.lookup_key_asset(key) {
-            old.cancel().await?;
+            old.cancel_for_replacement().await?;
             self.remove_key_asset(key).await;
         }
         let final_status = if metadata.status == Status::Expired {
