@@ -345,6 +345,7 @@ deliberately folded behind a broader line.
 - design `immediate-lazy-expiry-cascade`
 - design `immediate-set-state-status-match`
 - design `js-store-effective-media-type`
+- design `json-orient-index-column-collision`
 - design `json-table-column-order`
 - design `lib-integration-test-feature-gates`
 - design `lib-polars-ethnum-rust-1-98`
