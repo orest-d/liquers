@@ -95,24 +95,24 @@ No macro change: `context` is already injectable into sync and async commands.
 - Documents to update: `specs/reference/ASSETS.md`, `specs/guides/COMMAND_REGISTRATION_GUIDE.md`.
 
 ## Open Questions
-Q5 and Q10-Q12 are decided. The rest have a recommended answer, which Phase 2 assumes unless you
+Q1-Q5 and Q10-Q12 are decided. The rest have a recommended answer, which Phase 2 assumes unless you
 decide otherwise.
 
-1. **Who decides the terminal status?** Today two writers race: the service loop's `Cancel` handler
+1. **Decided 2026-10-09 (recommended answer):** **Who decides the terminal status?** Today two writers race: the service loop's `Cancel` handler
    sets `Cancelled` and announces `JobFinished`, and `evaluate` later sets `Ready` regardless — the
    root cause of AC-1/AC-7. *Recommended:* the run owner is the only writer. While a run is in flight,
    `Cancel` only requests that the evaluation future be dropped; `run_with_future` sets `Cancelled`
    if that drop happened (or the command returned a cancellation error) and the normal ready status
    otherwise, through one guarded "finalize once" transition that refuses to leave a terminal status.
-2. **Point of no return.** `tokio::select!` can drop the evaluation future *after* the value is
+2. **Decided 2026-10-09 (recommended answer):** **Point of no return.** `tokio::select!` can drop the evaluation future *after* the value is
    installed, e.g. in the middle of `persist_with_status_tracking`, leaving a `Ready` asset half
    written. *Recommended:* once the command has returned `Ok`, finalization and persistence run
    outside the cancellable section; cancellation applies only up to that point.
-3. **Spelling and helper.** The request says `is_canceled`; the code base uses *cancelled*
+3. **Decided 2026-10-09 (recommended answer):** **Spelling and helper.** The request says `is_canceled`; the code base uses *cancelled*
    throughout (`Status::Cancelled`, `ErrorType::Cancelled`, `AssetRef::is_cancelled`).
    *Recommended:* `Context::is_cancelled(&self) -> bool`, plus `Context::check_cancelled(&self) ->
    Result<(), Error>` returning `Error::cancelled(..)` for use with `?`.
-4. **A synchronous check.** The flag lives inside the asset's async `RwLock`, which a sync command
+4. **Decided 2026-10-09 (recommended answer):** **A synchronous check.** The flag lives inside the asset's async `RwLock`, which a sync command
    cannot await. *Recommended:* move it to a shared `Arc<AtomicBool>` read lock-free by `Context`.
 5. **Decided 2026-10-09: cascade cancellation.** A cancellation is an intentional interruption, not a
    problem, so it stays distinct from `Error` all the way up. This implements the cascade rule
@@ -170,7 +170,7 @@ decide otherwise.
 - 2026-10-09: maintainer chose cascade cancellation over failing the dependent (Q5): a dependency's
   cancellation cancels its waiting dependents, the cancellation error's `query`/`key` name the root
   cause, and a cascaded asset logs it as a warning. Adds AC-9 to AC-11 and Q10 to Q12; revises AC-6.
-  Size stays `L`. Q10-Q12 then decided as recommended.
+  Size stays `L`. Q1-Q4 and Q10-Q12 then decided as recommended.
 
 ## References
 - `specs/issues/ASSET-CANCEL-DURING-PROCESSING-FINISHES-READY.md` (source)
