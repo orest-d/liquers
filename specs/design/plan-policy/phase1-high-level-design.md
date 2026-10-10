@@ -2,171 +2,201 @@
 
 ## Purpose
 
-Large, cheap intermediates (a parsed or filtered frame) waste memory and disk when they are kept,
-and today only a keyed recipe can say "do not keep this". This design lets the **command** that
-produces a value, the **query** (with directives), and the **recipe** say whether a result is
-`stored` and `cached`. The plan computes the effective flags and the reason for them, every asset
-honours them, and the predecessor boundary is never cut at a result that is not cached. It also
-makes `v` positional and retires the three `TODO: support …` markers in `plan.rs`.
+Today every prefix of a chain becomes a cached asset (measured, `DESIGN.md` notes), so a long chain
+over a large value keeps one copy per step. Nobody can limit this: not the command author, not the
+recipe author, and not the operator of a public service. This design adds three instruments for
+that:
+
+- a **command flag** for execution: an uncached command runs inline;
+- a **caching strategy** per recipe, with environment defaults for recipes and for ad-hoc queries;
+- a **debugging switch** that disables cutting.
+
+It also makes `v` positional and retires the three `TODO: support …` markers in `plan.rs`.
 
 ## Problem Example
+
+An internet-facing service lets guests run ad-hoc queries. Its recipes are the approved
+computations, such as:
 
 ```yaml
 sales_summary.txt:
   query: "-R/data/sales.csv/-/ns-pl/from_csv/eq-region-EU/describe"
 ```
 
-Today the plan is cut at `-R/data/sales.csv/-/ns-pl/from_csv/eq-region-EU`. The filtered frame
-becomes a cached asset and stays in memory, although `eq` is quick and the frame is used once.
-Nothing can prevent this. `pl/eq` cannot declare it, the query cannot say it, and the recipe's
-`cached: false` applies only to the final keyed asset.
+The query validates with `liquers-validate`.
 
-Expected: the author writes `…/eq-region-EU/cached-false/describe`, or `pl/eq` is registered with
-`cached: false`. The boundary walk skips the uncached candidate and cuts one level earlier:
-`Evaluate(-R/data/sales.csv/-/ns-pl/from_csv) Action(eq) Action(describe)`. The parsed frame is
-cached, the filtered one is not, `describe`'s small result is cached and stored as before, and the
-plan log says why: `Predecessor boundary expanded at '…/eq-region-EU/cached-false': its result is
-not cached (directive 'cached-false')`.
+**Today**, evaluating it caches the final result and every prefix, including the filtered frame
+`…/from_csv/eq-region-EU`. `eq` is quick and its output is large. Each guest query caches every
+prefix too, and nothing can stop either.
 
-Both queries validate with `liquers-validate` (with `--command cached` standing in for the new
-directive until it exists).
+**Expected:**
+
+- `pl/eq`, registered with `cached: false`, runs inline. The plan is
+  `Evaluate(-R/data/sales.csv/-/ns-pl/from_csv) Action(eq) Action(describe)`, and the log says
+  `not cached: command 'pl/eq' declares cached: false`.
+- The operator sets `assets.query_cache_strategy: none`. Guest queries then create no cache entries,
+  but still reuse the parsed frame `…/from_csv` that the approved recipe cached.
 
 ## Analysis: the three markers
 
 | Marker | Decision |
 |---|---|
-| `cache` | The `stored`/`cached` model below. **Intermediate** caching is the predecessor boundary, so a result that is not cached is never a boundary. |
-| `inline flag` | **Not added.** Inlining a command `c` in `a/b/c/d` gives `Evaluate(a/b) c d`, the same plan that `cached: false` on `c` produces. The claimed speed-up and queue avoidance belong to the boundary `Evaluate(a/b)`, which inlining `c` keeps. "Inline" already names `EvalMode::Inline` and `run_inline`. |
-| `volatile flags` | All volatility instruments already exist. `Plan::is_volatile` stays: it is the analysis result, read by `get_query_asset`, `cut_predecessor` and dependency recording. The one gap, positional `v`, is merged in. |
+| `cache` | The caching strategies (`none` / `result` / `all`). Intermediate caching *is* the predecessor boundary, because a boundary is a cache entry. |
+| `inline flag` | The command's `cached: false`: its output is never a boundary, so the command runs inline after the nearest kept prefix. A separate `inline` keyword was rejected, because the word already names the inline asset manager. `qinline` (a command receiving its predecessor's query) was rejected too: `q` already expresses it explicitly, and hiding it would mislead dependency, volatility and cut analysis. |
+| `volatile flags` | All volatility instruments already exist. `Plan::is_volatile` stays, as the analysis result. The one gap is positional `v` (merged in). |
 
-`qinline` was also considered and rejected. `qinline c` would make `a/b/c/d` mean `a/b/q/c/d`, which
-`q` already expresses and the builder already plans (`UseQueryValue(a/b) c d`). Hiding the quoting
-inside a command makes a pipeline that never evaluates its prefix look like one that does. That
-hidden quoting would also need special cases in dependency, volatility, expiry, cut and validation.
+## The model
 
-## The retention model
+**Caching strategy.** `none`, `result` or `all`:
 
-- **The flags belong to a value and are decided by whoever produced it. They are not contagious.**
-  Each prefix result has a `(stored, cached)` pair, true/true by default.
-  - An action takes the pair from its command's metadata. A command that declares nothing gives
-    the default, so `a/b` is not stored when `b` declares `stored: false`, and `b/a` is stored.
-  - A `stored` or `cached` **directive** overrides the pair for the value at its own position.
-  - A recipe's explicit field overrides the plan's final pair. A conflict is logged.
-- **Volatility is contagious and positional.** `a/b/v/c` is volatile from `v` onward and stable in
-  `a/b`. `v` at the head still means the whole query. A recipe's `volatile: true` stays whole-plan,
-  because it has no position.
-- **One rule for the boundary.** A candidate whose result is volatile, needs a payload, or is not
-  cached is not cut; the walk steps back past it. `stored: false` alone does not block a boundary.
-  The boundary is still a valid in-memory cache entry.
+| Strategy | Result kept | Intermediates |
+|---|---|---|
+| `all` (default) | yes | created and cached, as today |
+| `result` | yes | not created; an existing one is reused |
+| `none` | no | not created; an existing one is reused |
+
+- **The strategy follows the origin.**
+  - A keyed recipe uses its `cached:` (`default`, `none`, `result`, `all`; `true` = `all`,
+    `false` = `none`). Absent or `default` means `assets.recipe_cache_strategy`.
+  - An ad-hoc query uses `assets.query_cache_strategy`.
+  - A boundary uses the strategy of the evaluation that created it. The strategy changes no value,
+    so it is not part of the boundary's identity.
+  - An intermediate that already exists is reused by everyone.
+- **Keyed result:** decided by the effective recipe strategy alone.
+- **Non-keyed result:** first the last command (`cached: false` means not kept), then the query
+  strategy.
+- **Intermediate:** created only under `all`, and only when its producing command does not
+  declare `cached: false`. The command flag can only restrict. A recipe cannot force an intermediate
+  that its command declared not worth caching.
+- **Volatile values are never kept**, as today. Positional `v` makes `a/b/v/c` volatile from `v`
+  onward, so `a/b` can be a boundary. `v` at the head still means the whole query. A recipe's
+  `volatile: true` stays whole-plan.
+- **`assets.cut_predecessors: false`** (debugging) never cuts and never reuses, giving a fully
+  expanded plan to compare against.
+- **`stored` is unchanged** and stays recipe-only.
 
 ## Scope and Acceptance Criteria
 
-- **AC-1** Directive skips a boundary
-  WHEN the problem example is evaluated with `cached-false` after `eq-region-EU`
-  THEN the plan is `Evaluate(…/from_csv) eq describe`, the result equals today's, and the log
-  names the directive
-- **AC-2** Command declaration
-  WHEN a command registered with `cached: false` (or `stored: false`) ends a query
-  THEN the query's asset is not registered for reuse (not written to the store), and the log names
-  the command
-- **AC-3** Not contagious
-  WHEN `b` declares `stored: false` and `a` declares nothing
-  THEN `a/b` is not stored and `b/a` is stored
-- **AC-4** Directive vocabulary
-  WHEN `stored`, `stored-true`, `stored-false`, `cached`, `cached-true` or `cached-false` appears in
-  a query
-  THEN it emits no step, sets the flag for the value at its position, rejects any other argument
-  with a positioned error, and is reserved in every namespace like `q`, `v` and `ns`
-- **AC-5** Query assets honour `cached`
-  WHEN a non-keyed query whose result is not cached is evaluated twice, on either manager
-  THEN it is evaluated twice and never inserted into `query_assets`, and it is not volatile
-- **AC-6** Recipe precedence
-  WHEN a recipe sets `cached` or `stored` explicitly and its plan says otherwise
-  THEN the recipe wins and the log records the override
-- **AC-7** Visible in metadata
-  WHEN an asset's result is not stored or not cached
-  THEN its `MetadataRecord` and `AssetInfo` show the effective flag as `Some(false)`, and its log
-  carries the reason
-- **AC-8** Positional `v`
+- **AC-1** Command runs inline
+  WHEN `a/b/c/d` is evaluated and `c` is registered with `cached: false`
+  THEN the plan is `Evaluate(a/b) c d`, the result equals today's, and the log names `c`
+- **AC-2** Uncached command ends an ad-hoc query
+  WHEN a non-keyed query ending with a `cached: false` command is evaluated twice, on either manager
+  THEN it runs twice, is never inserted into `query_assets`, and is not volatile
+- **AC-3** Query strategy
+  WHEN `query_cache_strategy` is `result` (or `none`) and an ad-hoc query is evaluated
+  THEN no intermediate asset is created, and its result is kept (or not kept)
+- **AC-4** Existing intermediates are reused
+  WHEN the strategy excludes intermediates and a prefix of the query is already cached
+  THEN the plan cuts at that prefix and its commands do not run again; when no prefix is cached,
+  the plan runs expanded
+- **AC-5** Recipe strategy
+  WHEN a recipe sets `cached: result`, `none`, `all`, `default`, `true` or `false`, or omits it
+  THEN its result and intermediates follow the table above, with `default` and absent meaning
+  `recipe_cache_strategy`
+- **AC-6** Strategy follows the origin
+  WHEN a recipe with strategy `all` runs while `query_cache_strategy` is `none`, and an ad-hoc query
+  then shares its prefix
+  THEN every boundary the recipe created is cached, and the ad-hoc query reuses them but creates no
+  asset of its own
+- **AC-7** Keyed result ignores the command flag
+  WHEN a recipe with strategy `all` or `result` ends with a `cached: false` command
+  THEN its keyed result is kept
+- **AC-8** Debugging switch
+  WHEN `assets.cut_predecessors` is `false`
+  THEN no plan contains a boundary, no existing intermediate is reused, and results are unchanged
+- **AC-9** Positional `v`
   WHEN `a/b/v/c` is evaluated
-  THEN the plan is volatile, `a/b` is cut as a cached boundary, and `v/a/b/c` still cuts nothing
-- **AC-9** Defaults unchanged
-  WHEN no command, directive or recipe sets a flag and `v` is absent or at the head
-  THEN plans, assets and stored files are exactly as today, and existing tests pass unchanged
-- **AC-10** Markers retired
-  WHEN `plan.rs` is read
-  THEN the three `TODO: support …` markers are gone, and the builder documentation says where
-  each concern now lives
+  THEN the plan is volatile, `a/b` is cut as a cached boundary, and `v/a/b/c` cuts nothing
+- **AC-10** Visible in metadata
+  WHEN a result is not kept
+  THEN its `MetadataRecord` and `AssetInfo` carry `cached: Some(false)`, and its log gives the reason
+- **AC-11** Defaults and old files unchanged
+  WHEN no strategy, recipe value or command flag is set, and `v` is absent or at the head
+  THEN behaviour is as today. Existing recipes (boolean `cached`), configurations and serialized
+  plans load unchanged, and existing tests pass
+- **AC-12** Markers retired, reference corrected
+  WHEN `plan.rs` and `DOC_08_RECIPES_PLANS.md` are read
+  THEN the three markers are gone, and the reference describes recursive cutting and the strategies
+  instead of "one cut retains one intermediate"
 
-**Non-goals.** An `inline` or `qinline` command flag. An environment- or recipe-level
-"never cut" switch (see Open Questions, 1). Changing any existing library command's flags. A
-reason field on metadata. An asset retention or GC policy (`CORE-ASSET-GC`).
+**Non-goals.**
+- In-query cache directives (`QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`, deferred).
+- A cache size limit or eviction (`CORE-ASSET-GC`).
+- A `stored` flag for commands.
+- Changing any existing library command's flags.
 
 ## Core Interactions
 
-- **Query/parse:** two new directives, reserved like `q`/`v`/`ns`. No grammar change.
-- **Commands and macro:** `stored:` / `cached:` metadata, a registry export field, and a
-  `specs/command_registry.yaml` regeneration.
-- **Plan:** effective flags with reasons; positional `v`; the boundary walk's third condition.
-- **Assets:** both managers' query-asset paths; keyed assets taking the plan's flags when the
-  recipe is silent.
+- **Commands and macro:** the `cached: false` keyword, a `CommandMetadata` field, and the registry
+  export with a `specs/command_registry.yaml` regeneration.
+- **Plan and interpreter:** the boundary walk gains the strategy, the command flag and reuse of
+  existing assets (via `AssetManager::lookup_query_asset`). Also positional `v`, and log reasons.
+- **Assets:** strategy settings on both managers (in `AssetManagerOptions`). Query-asset
+  registration honours the result rule. Boundaries carry their creator's strategy.
+- **Recipes and metadata:** the recipe's `cached` widens from a boolean to a strategy. Metadata keeps
+  a boolean.
+- **Configuration:** three `assets:` keys.
 
 ## Crate Placement
 
-`liquers-core` (plan, assets, command metadata, recipes) and `liquers-macro` (keywords).
-`liquers-lib` only for the regenerated registry. `liquers-py` and `liquers-web` are untouched,
-since the new fields have serde defaults.
+- `liquers-core`: plan, interpreter, assets, recipes, metadata, configuration.
+- `liquers-macro`: the keyword.
+- `liquers-lib`: the regenerated registry only.
+- `liquers-records`: one-line change where the provider copies the manifest's boolean `cached` into
+  each chunk recipe (`provider.rs`), because the recipe field's Rust type widens. Serialized
+  manifests and recipes are unaffected. For manifests with `cached: false`, the chunks'
+  intermediates stop being cached, which is the intended effect.
 
 ## Documentation Intent
 
-- Reference: extend `DOC_08_RECIPES_PLANS.md` (retention flags, directives, positional `v`, the
-  boundary rule), `REGISTER_COMMAND_FSD.md` (keywords), `ASSETS.md` (query-asset caching), and
-  `PROJECT_OVERVIEW.md` (the directive list).
-- Guide: extend `COMMAND_REGISTRATION_GUIDE.md` with when to declare `cached: false`.
-- Other documents: close both source issues with resolution notes mapping each marker.
-- Documents to update: `specs/README.md`, and `CLAUDE.md`'s DSL metadata list.
+- Reference: extend these documents:
+  - `DOC_08_RECIPES_PLANS.md`: boundaries, strategies, positional `v`, and correcting the
+    one-intermediate claim;
+  - `ENVIRONMENT_CONFIG.md`: three keys;
+  - `REGISTER_COMMAND_FSD.md`: the keyword;
+  - `ASSETS.md`: when assets are kept;
+  - `PROJECT_OVERVIEW.md`: the `v` rule.
+- Guide: extend `COMMAND_REGISTRATION_GUIDE.md` (when to declare `cached: false`).
+- Other documents: close both source issues with resolution notes, update `CLAUDE.md`'s DSL
+  metadata list, and update `specs/README.md`.
 
 ## Scope Changes
 
-- **2026-10-10, discussion before the Phase 1 gate.** The first draft proposed a
-  `predecessor_boundary` policy (environment default plus recipe override) as the answer to both
-  `cache` and `inline`. The user redirected the scope to the `stored`/`cached` model across command,
-  plan, directive, asset and metadata, with reasons in the log, and asked for `inline` and
-  `qinline` to be evaluated (both rejected above). Merged `V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL`
-  at the user's request (overlap T3, the same `mark_volatile` / `VolatilitySource` change site, and
-  T2, the shared boundary rule). Found while checking: `get_query_asset` ignores `cached` on both
-  managers, which is now AC-5. Size: `M` → `L`, so the design was converted to the full form.
+- **2026-10-10, before the Phase 1 gate, in five discussion rounds** (recorded in `DESIGN.md`
+  Notes). The first draft's single `predecessor_boundary` policy became the model above.
+  - Merged `V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL`: overlap T3 (the same `mark_volatile` /
+    `VolatilitySource` site) and T2 (the shared boundary rule), at the user's request.
+  - Found and folded in: query assets ignore `cached` (AC-2), and every prefix is cached
+    recursively, contrary to `DOC_08` (AC-12).
+  - Deferred: in-query directives. Delegated: the size limit, to `CORE-ASSET-GC`.
+  - Size grew from `M` to `L`, so the design was converted to the full form.
 
 ## Design Dependencies
 
-- **overlaps** `CORE-ASSET-GC`: retention over time. This design decides only whether a value is
-  kept at all.
-- **predecessor** `predecessor-cut-equivalence` (complete, frozen): the boundary walk this extends.
+- **overlaps** `CORE-ASSET-GC`: how much is kept, versus whether it is kept.
+- **overlaps** `QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`: builds on these strategies when it is taken
+  up.
+- **predecessor** `predecessor-cut-equivalence` (complete): the boundary walk this extends.
 
 ## Open Questions
 
-1. **(Proposed resolution) Drop the environment/recipe `predecessor_boundary: expand` switch.**
-   Whether to cut does not depend on the manager. Both managers register the boundary in
-   `query_assets` and expire it, so sharing, independent expiry and the dependency edge are the same
-   on either. Only parallelism differs: the queued manager runs the boundary alongside the plan's
-   other dependencies (`schedule_plan_dependencies_from`). The inline manager runs it in sequence,
-   at the cost of one extra asset and a map lookup. Tying the policy to the manager kind would make
-   the same query leave different assets and dependency edges per manager, which the equivalence
-   tests between managers exist to prevent. A global "expand" pays off only when a prefix is never
-   reused, which is a property of the command or query, and is now expressed by `cached: false`.
-   `finalize_plan_expanded` remains for readers and tools. It can be added later without breaking
-   anything if a real workload needs it.
-2. **(Open design) The asymmetry between `v` and the retention flags.** After `v` everything is
-   volatile, while `cached-false` applies to one value and the next action resets it. This is
-   deliberate, because purity flows forward and size does not. It is the most likely point of
-   confusion, so the reference will state it next to both directives. Is that enough, or should
-   the retention directives be named to signal "this value only"?
-3. **(Implementation detail) What counts as the last producer.** `Filename`, `ns` and `cwd` do not
-   reset the pair. A resource step (`-R/key`) takes the pair from that key's own recipe. To be fixed
-   in Phase 2.
+1. **(Implementation detail) How a boundary carries its creator's strategy.** Either through the
+   creating `Context` when the dependency is submitted, or as a field on `Step::Evaluate`.
+   Recommendation: the context, so that the serialized `Step` shape stays as it is. To be fixed in
+   Phase 2.
+2. **(Implementation detail) Positional `v` reopens two pitfalls** recorded in `DOC_08`:
+   - `a/b` and `a/b/v` have the same step count, so a candidate cannot be identified by index alone;
+   - in `a/b/v`, the outermost non-volatile prefix is the whole plan.
+
+   Phase 2 must handle both. The `>=` guard in `cut_predecessor` already pins the second.
+3. **(Implementation detail) A reused intermediate expires between finalisation and use.** The
+   boundary step would then recreate and cache it once. Recommendation: accept this (a rare,
+   bounded effect), or have the step fall back to inline steps. Decide in Phase 2.
 
 ## References
 
 - `specs/issues/CORE-PLAN-POLICY-AND-DEFAULTS.md`, `specs/issues/V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL.md`
-- `specs/design/record-streams/phase2-architecture.md` §"C. `stored` and `cached`" (the recipe flags)
-- `specs/reference/api/DOC_08_RECIPES_PLANS.md`, "Predecessor boundaries"
+- `specs/design/record-streams/phase2-architecture.md` §"C. `stored` and `cached`"
+- `specs/reference/api/DOC_08_RECIPES_PLANS.md` "Predecessor boundaries";
+  `specs/reference/ENVIRONMENT_CONFIG.md`

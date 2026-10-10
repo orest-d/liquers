@@ -61,11 +61,16 @@ shape of a plan. `DOC_08_RECIPES_PLANS.md` is updated accordingly.
 
 ## Update, 2026-10-10 (`plan-policy`)
 
-Design `plan-policy` owns the remaining markers. `cache` becomes the `stored` / `cached` retention
-model across command, query directive, plan, recipe and asset. `inline flag` is not added, because
-`cached: false` produces the same plan. `volatile flags` was already covered, apart from positional
-`v`, which is merged in from `V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL`. Complexity re-evaluated
-`M` → `L`.
+Design `plan-policy` owns the remaining markers:
+
+- `cache` becomes the caching strategies `none` / `result` / `all`: a recipe's `cached:`, plus the
+  `assets.recipe_cache_strategy` and `assets.query_cache_strategy` defaults.
+- `inline flag` becomes a command's `cached: false`: its output is never a boundary, so the command
+  runs inline.
+- `volatile flags` was already covered, apart from positional `v`, which is merged in from
+  `V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL`.
+
+Complexity re-evaluated `M` → `L`.
 
 ## Expected behaviour
 

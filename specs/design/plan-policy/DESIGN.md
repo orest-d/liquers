@@ -1,14 +1,14 @@
 ---
 id: PLAN-POLICY
 kind: design
-title: Retention flags (stored, cached) through command, plan, directive and asset, positional volatility, and retirement of the plan-builder policy markers
+title: Caching strategies for recipes and queries, an inline-running command flag, positional volatility, and retirement of the plan-builder policy markers
 workflow: liquers-project
 status: in_review
 phase: high-level
-area: [core/plan, core/assets, core/commands, core/query]
+area: [core/plan, core/assets, core/commands, core/query, core/context]
 issues: [CORE-PLAN-POLICY-AND-DEFAULTS, V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL]
 merged: 2026-10-10
-affects_docs: [specs/reference/api/DOC_08_RECIPES_PLANS.md, specs/reference/REGISTER_COMMAND_FSD.md, specs/reference/ASSETS.md, specs/reference/PROJECT_OVERVIEW.md]
+affects_docs: [specs/reference/api/DOC_08_RECIPES_PLANS.md, specs/reference/ENVIRONMENT_CONFIG.md, specs/reference/REGISTER_COMMAND_FSD.md, specs/reference/ASSETS.md, specs/reference/PROJECT_OVERVIEW.md, specs/guides/COMMAND_REGISTRATION_GUIDE.md]
 created: 2026-10-10
 ---
 # Plan Policy Design Tracking
@@ -21,7 +21,7 @@ merged on 2026-10-10 at the user's request.
 
 ## Phase Status
 
-- [ ] Phase 1: High-Level Design — in review
+- [ ] Phase 1: High-Level Design — in review (rewritten 2026-10-10 after five discussion rounds)
 - [ ] Phase 2: Architecture
 - [ ] Phase 3: Examples and Tests
 - [ ] Phase 4: Implementation Plan
@@ -66,3 +66,7 @@ merged on 2026-10-10 at the user's request.
   `CORE-ASSET-GC` and is noted there. Strategy propagation into boundaries was reopened by the
   user's web-service case: guests run ad-hoc queries with a restricted cache, while recipes are
   "approved" queries whose intermediates should be cached.
+- 2026-10-10, fifth round. Decided: the strategy follows the origin. A boundary uses its creator's
+  strategy, an existing intermediate is reused by everyone, and the command flag only restricts.
+  The `assets:` keys are `recipe_cache_strategy`, `query_cache_strategy` and `cut_predecessors`.
+  The size limit stays in `CORE-ASSET-GC`. Phase 1 rewritten on this model.
