@@ -253,3 +253,26 @@ async fn rowid_reaches_a_keyed_chunk_that_has_not_been_produced_yet(
     assert_eq!(offsets(&view)?, vec![FieldValue::Int(55)]);
     Ok(())
 }
+
+/// Phase 3 test 24 (AC-7) of `design/plan-step-state-metadata/` - a manifest read as a resource
+/// is not wrapped in a predecessor boundary: the evaluated plan reads the key and runs the
+/// action, so `materialize` receives the keyed asset's own state, key included.
+#[tokio::test]
+async fn materialize_plan_is_get_asset_then_action() -> Result<(), Box<dyn std::error::Error>> {
+    use liquers_core::assets::AssetRef;
+    use liquers_core::interpreter::{finalize_plan, make_plan};
+    use liquers_core::plan::Step;
+    use liquers_core::state::State;
+
+    let store = AsyncMemoryStore::new(&Key::new());
+    set_manifest(&store, &parse_key("data/x.manifest.yaml")?, MANIFEST).await?;
+    let envref = build_env(store)?;
+
+    let mut plan = make_plan(envref.clone(), "-R/data/x.manifest.yaml/-/ns-rec/materialize").await?;
+    let context = Context::new(AssetRef::new_temporary(envref.clone()), false).await;
+    finalize_plan(envref.clone(), &mut plan, &context, &State::new()).await?;
+    assert_eq!(plan.steps.len(), 2, "{:?}", plan.steps);
+    assert!(matches!(plan.steps[0], Step::GetAsset(_)), "{:?}", plan.steps);
+    assert!(matches!(plan.steps[1], Step::Action { .. }), "{:?}", plan.steps);
+    Ok(())
+}
