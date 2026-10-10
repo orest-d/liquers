@@ -3,8 +3,7 @@ id: AXUM-STORE-MAKEDIR-TEST-UNIGNORE
 kind: design
 title: Run the axum store makedir test that is ignored for a fixed limitation
 form: compact
-status: in_review
-phase: implementation
+gh_pr: [105]
 readiness: ready
 autofix: eligible
 area: [axum, core/store]
