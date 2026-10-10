@@ -398,6 +398,7 @@ deliberately folded behind a broader line.
 - design `stubs01-class-detection`
 - design `submit-eagerness-documentation`
 - design `supplied-expired-status-reason`
+- design `sync-store-removal`
 - design `text-value-markdown-format`
 - design `type-info-write-only-formats`
 - design `ui-query-console-error-highlight`

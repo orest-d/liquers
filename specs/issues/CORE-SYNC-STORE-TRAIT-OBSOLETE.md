@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [core/store, py, docs]
-design:
+design: sync-store-removal
 created: 2026-09-02
 github:
 ---
