@@ -1936,7 +1936,8 @@ pub struct Plan {
     /// Diagnostics produced during planning and analysis, before execution.
     ///
     /// This should contain only [`Step::Info`], [`Step::Warning`], and [`Step::Error`]. The
-    /// interpreter does not execute this list; metadata projection copies it into the asset log.
+    /// interpreter does not execute this list: applying the plan appends it to the evaluating
+    /// asset's log once, before the first step runs (`interpreter::apply_plan_state`).
     #[serde(default)]
     pub init_steps: Vec<Step>,
 

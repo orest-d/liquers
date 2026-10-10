@@ -211,6 +211,12 @@ async fn uncached_command_runs_inline<K: AssetManagerKind>(tag: &str) -> Result<
     assert_eq!(ran("seed", tag), 1);
     assert_eq!(ran("t1", tag), 1, "the kept prefix is reused");
     assert_eq!(ran("wide", tag), 2, "the inline command runs for each consumer");
+    let asset = envref.get_asset_manager().get_asset(&parse_query(&second)?).await?;
+    let log = log_of(&asset.get_metadata().await?);
+    assert!(
+        log.iter().any(|m| m.contains("Predecessor boundary expanded") && m.contains("wide")),
+        "the planning reason reaches the asset log: {log:?}"
+    );
     Ok(())
 }
 
@@ -370,9 +376,15 @@ async fn cut_predecessors_false_expands<K: AssetManagerKind>(tag: &str) -> Resul
     let full = format!("{prefix}/t3-{tag}");
     assert_eq!(eval(&envref, &full).await?, "seedt1t3");
     assert_eq!(ran("t1", tag), 2, "the expanded plan recomputes the prefix");
-    // The switch's `Step::Info` is a planning diagnostic, which does not reach the asset log
-    // today (`PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG`); the recomputation above is the
-    // observable effect.
+    // The switch's planning diagnostic reaches the asset log
+    // (`PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG`).
+    let asset = envref.get_asset_manager().get_asset(&parse_query(&full)?).await?;
+    asset.get().await?;
+    let log = log_of(&asset.get_metadata().await?);
+    assert!(
+        log.iter().any(|m| m.contains("cut_predecessors is false")),
+        "the switch is logged: {log:?}"
+    );
     Ok(())
 }
 

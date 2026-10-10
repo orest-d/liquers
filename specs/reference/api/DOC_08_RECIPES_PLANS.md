@@ -533,9 +533,11 @@ Predecessor boundary not cut: the plan is declared volatile, so none of it may b
 Predecessor boundary not cut: cut_predecessors is false
 ```
 
-These are planning diagnostics in `Plan::init_steps`. They do not reach the
-evaluated asset's log today (`PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG`); the
-asset manager's own "Not cached for reuse: …" line does.
+These are planning diagnostics in `Plan::init_steps`. Applying a plan appends them
+to the evaluating asset's log once, before its first step runs — so a rejected
+asset still records how it was planned — alongside the asset manager's own
+"Not cached for reuse: …" line. They are appended without a metadata save of their
+own and written with the asset's ordinary save.
 
 Two candidates are never chosen: one whose remainder is a trailing filename rather
 than an action — cutting there would leave the parent nothing but a `Filename`
@@ -723,6 +725,7 @@ runtime behavior is unchanged.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | Predecessor boundaries: planning diagnostics (`init_steps`) now reach the evaluated asset's log, appended once when the plan is applied (`PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG`). | `issues/PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG.md` |
 | 2026-10-10 | Reviewed against `design/plan-policy/`. Recipe contract: `cached` is a caching strategy (`none` \| `result` \| `all`, booleans read as `all`/`none`, absent or `default` = `recipe_cache_strategy`). Planning contract: `v` is positional (`a/b/v/c` cuts `a/b`, `a/b/v` is `Evaluate(a/b)`, `v/…` recomputes everything); `Plan::uncached_by`. Predecessor boundaries: cutting is recursive (corrects "one cut retains one intermediate"); new "What is kept" (the command flag, strategies following the origin, the plan independent of strategy and manager state, `cut_predecessors`); a fourth condition, not cached; `Declared` is recipe-level only; the stable-plan empty-tail rule; two pitfalls updated or added; planning diagnostics do not reach the asset log (`PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG`). | phase-5, `design/plan-policy/` |
 | 2026-10-10 | Reviewed against `design/plan-step-state-metadata/`. Recipe contract: `Recipe::data_format` is `None` without a filename (no `bin`); an override clears the patched action's prefix query. Predecessor boundaries: no boundary over a bare key read. Plan fields: `Step::Action::query`. Execution: each step produces the state it hands on (table in DOC-04); the `key`-only adjustment and `fetched_key` are gone. | phase-5, `design/plan-step-state-metadata/` |
 | 2026-10-10 | Planning contract: aliases are resolved by the builder into a target `Step::Action` with `origin: ActionOrigin::Alias`; `dependencies` includes the alias's metadata key; `origin` serialization. | phase-5, `design/command-alias-contract/` |

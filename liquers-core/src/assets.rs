@@ -2211,6 +2211,23 @@ impl<E: Environment> AssetRef<E> {
     ///
     /// This is scheduler-local lifecycle bookkeeping only: dependency facts are
     /// recorded in metadata and the `DependencyManager`.
+    /// Appends entries to this asset's metadata log **without** saving the metadata.
+    ///
+    /// For records known before evaluation starts — the plan's planning diagnostics. A
+    /// [`crate::context::Context`] log message is persisted at once (`LogMessage` saves the
+    /// metadata), which for a keyed asset leaves a metadata-only store entry mid-evaluation; these
+    /// lines need no save of their own and are written with the asset's ordinary save.
+    pub(crate) async fn append_log_entries(
+        &self,
+        entries: impl IntoIterator<Item = LogEntry>,
+    ) -> Result<(), Error> {
+        let mut lock = self.data.write().await;
+        for entry in entries {
+            lock.metadata.add_log_entry(entry)?;
+        }
+        Ok(())
+    }
+
     pub(crate) async fn enter_dependencies(&self, dependency: &AssetRef<E>) -> Result<(), Error> {
         // Named by key or query, never by runtime id, which means nothing in a persisted log.
         // Read before taking this asset's lock: holding one `data` lock while waiting for another
