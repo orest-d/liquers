@@ -3,7 +3,7 @@ title: Store Implementation Guide
 kind: guide
 audience: internal
 area: [core/store, store/backends, web]
-reviewed: 2026-10-07
+reviewed: 2026-10-10
 ---
 # Store Implementation Guide
 
@@ -417,6 +417,7 @@ Update it when a rule is added or a store's result changes.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | Reviewed after the synchronous `Store` trait was removed: the guide already teaches `AsyncStore` only; no change needed. | phase-5 (`design/sync-store-removal/`) |
 | 2026-10-07 | §8: added `sidecar05` — a key holding only metadata has no data object. §9: 44 rules; each store that accepts writes with stored metadata runs one more rule. §9 router row: a directory above the members now has metadata. | `design/memory-store-metadata-only-entry/`, `design/store-router-directory-above-members/` |
 | 2026-10-02 | Added a "see also" link to the new `ASSET_MANAGER_IMPLEMENTATION_GUIDE.md`, which follows this guide's pattern. Link-only change, recorded because §9.2 has no link-only exemption; the store content was not re-verified in this pass. | phase-5 (`design/dependency-audit-and-expiry-provenance/`) |
 | 2026-09-30 | §2: delegated stores must be able to say "absent". §5: "Naming your tests" — rule families are owned by the rules, unit tests are named by subject, refutation tests are `refute_<rule id>_…`, and D1 enforces it; noted that no suite carries an allowed failure. §9 rewritten from the final reports: 43 rules, every in-tree store conformant, `JsStore` and `LocalStorageStore` included; the table is said to be maintained by hand, which it always was. | phase-5 (`design/store-conformance-backlog/`) |

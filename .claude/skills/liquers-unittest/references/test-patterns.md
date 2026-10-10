@@ -195,47 +195,49 @@ async fn test_injection() -> Result<(), Box<dyn std::error::Error>> {
 ## 6. Store CRUD Test
 
 ```rust
-#[test]
-fn test_memory_store_crud() -> Result<(), Box<dyn std::error::Error>> {
-    let store = MemoryStore::new(&Key::new());
+#[tokio::test]
+async fn test_memory_store_crud() -> Result<(), Box<dyn std::error::Error>> {
+    use liquers_core::store::{AsyncMemoryStore, AsyncStore};
+
+    let store = AsyncMemoryStore::new(&Key::new()); // the only store trait is AsyncStore
     let key = parse_key("data/test")?;
     let data = b"test content".to_vec();
     let metadata = Metadata::from(MetadataRecord::new());
 
     // Set
-    store.set(&key, &data, &metadata)?;
-    assert!(store.contains(&key)?);
+    store.set(&key, &data, &metadata).await?;
+    assert!(store.contains(&key).await?);
 
     // Get
-    let (retrieved_data, _retrieved_meta) = store.get(&key)?;
+    let (retrieved_data, _retrieved_meta) = store.get(&key).await?;
     assert_eq!(data, retrieved_data);
 
     // Get bytes only
-    let bytes = store.get_bytes(&key)?;
+    let bytes = store.get_bytes(&key).await?;
     assert_eq!(data, bytes);
 
     // Remove
-    store.remove(&key)?;
-    assert!(!store.contains(&key)?);
+    store.remove(&key).await?;
+    assert!(!store.contains(&key).await?);
 
     // Get after remove should fail
-    assert!(store.get(&key).is_err());
+    assert!(store.get(&key).await.is_err());
 
     Ok(())
 }
 
-#[test]
-fn test_memory_store_directory_ops() -> Result<(), Box<dyn std::error::Error>> {
-    let store = MemoryStore::new(&Key::new());
+#[tokio::test]
+async fn test_memory_store_directory_ops() -> Result<(), Box<dyn std::error::Error>> {
+    let store = AsyncMemoryStore::new(&Key::new()); // the only store trait is AsyncStore
     let key1 = parse_key("dir/file1")?;
     let key2 = parse_key("dir/file2")?;
     let dir_key = parse_key("dir")?;
     let metadata = Metadata::from(MetadataRecord::new());
 
-    store.set(&key1, b"data1", &metadata)?;
-    store.set(&key2, b"data2", &metadata)?;
+    store.set(&key1, b"data1", &metadata).await?;
+    store.set(&key2, b"data2", &metadata).await?;
 
-    let listing = store.listdir(&dir_key)?;
+    let listing = store.listdir(&dir_key).await?;
     assert_eq!(listing.len(), 2);
 
     Ok(())

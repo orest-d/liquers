@@ -3,7 +3,7 @@ title: Environment, Context and Evaluation Reference
 kind: reference
 audience: internal
 area: [core/context, core/plan]
-reviewed: 2026-10-06
+reviewed: 2026-10-10
 ---
 # DOC-04: Environment, Context, and End-to-End Evaluation
 
@@ -231,20 +231,8 @@ A normal context is created by `AssetRef::create_context` for one asset
 evaluation. `apply_plan` clones it for each plan step and commands receive those
 clones.
 
-The input *state* a step receives is rebuilt after every step from the previous
-step's value and the context's current metadata (`Context::get_metadata`), with
-one adjustment: the metadata `key` names where the value came from. After a step
-that fetches content or a listing at a key — `GetAsset`, `GetAssetBinary`,
-`GetAssetDirectory`, `GetResource`, `GetResourceDirectory` — it is that key,
-resolved against the live CWD; after an `Evaluate` boundary whose query is a key
-followed only by `ns-…` declarations (a predecessor cut keeps the namespace with
-its prefix), it is that key too. `Filename`, `Info`, `Warning`, `Error` and
-`SetCwd` pass the value through and keep the previous answer; every other step
-produces a new value and drops it, so the state carries the evaluating asset's own
-key again. Only `key` is adjusted — `filename` and `data_format` stay the asset's,
-and the asset's own metadata is not modified. This is what lets a command reached
-as `-R/data/x.manifest.yaml/-/ns-rec/…`, which runs as a keyless query asset, learn
-the key its input was read from.
+Each step produces the *state* it hands to the next step; see §Metadata ownership during
+evaluation below for what that state carries.
 
 | Context component | Clone behavior |
 |---|---|
@@ -263,6 +251,46 @@ deliberately contain `Arc`, mutexes, or other interior-shared application state.
 
 `clone_context` is behaviorally equivalent to `Clone::clone`, despite being an
 async method.
+
+## Metadata ownership during evaluation
+
+Three things hold metadata while a plan runs, and only one of them is authoritative.
+
+| Holder | Role |
+|---|---|
+| **Asset** (`AssetData::metadata`) | The one authoritative record of what is being built. Seeded from the recipe (`Recipe::get_asset_info`), written through the context and the service channel while it runs (log, progress, title, filename), finalized by `AssetRef::complete_evaluation` (type, dependencies, status, version) and, for a keyed asset, persisted. |
+| **Context** | Holds no metadata of its own. `Context::get_metadata` returns a **copy** of the asset's record; `set_filename`, `set_title`, `set_description`, `set_expires` and `add_log_entry` write to the asset. Its pending dependencies are a buffer merged into the asset at completion. |
+| **Step states** | Transient. `apply_plan` returns only the value; the last state's metadata is discarded and the asset's record is what survives. |
+
+A step state describes **its own value**, not the asset being built. The reference is the cut
+plan: `a/b/c` evaluates as `Evaluate(a/b), Action(c)`, and `Evaluate(a/b)` hands `c` the state of
+asset `a/b` unchanged — value and metadata. An expanded plan (one applied to an input state, or
+one whose prefix is not cut) approximates that state. `interpreter::do_step_state`:
+
+| Step | State handed on |
+|---|---|
+| `Evaluate`, `GetAsset` | the dependency's state as resolved; `GetAsset` fills in the key when the record lacks one |
+| `GetAssetBinary` | the bytes, with the dependency's metadata and the format they were written in |
+| `GetResource` | the bytes, with the **stored** metadata (legacy stored metadata is not handed on: a warning, and only the key) |
+| `Info`, `Warning`, `Error`, `SetCwd`, `Filename` | the input state, unchanged |
+| `Plan` | the state the nested plan produced |
+| `Action` | the result, with a copy of the asset's record corrected to describe the prefix the action completes: `query` is the step's recorded prefix (`Step::Action::query`, DOC-08); no `key`, `filename`, `data_format` or `media_type`; a recipe-declared title or description cleared. Status, log, dependencies and what commands wrote through the context are kept |
+| `GetAssetDirectory`, `GetResourceDirectory` | the listing, with the same corrected copy and the listed key |
+| `GetAssetMetadata`, `GetResourceMetadata`, `GetAssetRecipe`, `UseQueryValue`, `UseKeyValue` | the value, with the corrected copy and no query |
+
+Consequences a command author can rely on:
+
+- `state.metadata` describes the input: its format, filename, key and origin query. A command
+  reached as `-R/data/x.csv/-/…` reads the stored format and `key: data/x.csv`; a trailing
+  `/out.txt` in the query names the *output* and never labels the input.
+- The input's status and log are the input's (in the cut form, another asset's); a command reads
+  and writes its own asset through `Context`.
+- A prefix that only reads a key is never cut into a boundary (DOC-08), so the command receives
+  the keyed asset's own state.
+- When the plan is applied to an input state (`AssetManager::apply`, `Context::apply`), the asset
+  and every step state carry `is_applied: true`: their `query` names the computation, not a
+  value that query reproduces on its own. `AssetData::new_ext` sets it from a non-empty initial
+  state — the condition under which an asset is already never keyed, cached or persisted.
 
 ## Working-key and relative-resolution contract
 
@@ -445,18 +473,16 @@ legacy JSON metadata.
 
 | Type | Target | Payload | Manager | Recipe-provider fallback | Store configuration |
 |---|---|---|---|---|---|
-| `SimpleEnvironment<V>` | Native only | `()` | Queued `DefaultAssetManager` | `TrivialRecipeProvider` with stderr notice | Async store; legacy sync setter |
+| `SimpleEnvironment<V>` | Native only | `()` | Queued `DefaultAssetManager` | `TrivialRecipeProvider` with stderr notice | Async store |
 | `ImmediateEnvironment<V>` | Native or Wasm | `()` | Inline `ImmediateAssetManager` | `TrivialRecipeProvider` | Async store |
-| `SimpleEnvironmentWithPayload<V, P>` | Native only | `P` | Queued `DefaultAssetManager` | `TrivialRecipeProvider` with stderr notice | Async store; legacy sync setter |
+| `SimpleEnvironmentWithPayload<V, P>` | Native only | `P` | Queued `DefaultAssetManager` | `TrivialRecipeProvider` with stderr notice | Async store |
 | `ImmediateEnvironmentWithPayload<V, P>` | Native or Wasm | `P` | Inline `ImmediateAssetManager` | `TrivialRecipeProvider` | Async store |
 | `liquers_lib::DefaultEnvironment<V, P>` | Native or Wasm | `P` | Queued natively, inline on Wasm | Configured provider; defaults to `DefaultRecipeProvider`, chained with `ManifestRecipeProvider` under `records` | Async store |
 
-`SimpleEnvironment::with_cache` and
-`SimpleEnvironmentWithPayload::with_cache` always panic.
-
-The synchronous `with_store` setters update fields that are not exposed by the
-current `Environment` trait or used by the asset manager. `with_async_store` is the
-effective persistence configuration.
+`with_async_store` is the persistence configuration of `SimpleEnvironment` and
+`SimpleEnvironmentWithPayload`. They have no synchronous `with_store` and no
+`with_cache`: the synchronous store and the `cache` module were removed, and the asset
+manager caches results.
 
 ## Public versus framework APIs
 
@@ -492,7 +518,6 @@ Visibility does not consistently enforce this separation.
 | P3 | Recipe-provider absence diagnostics are not uniform | Native queued core environments write a stderr notice when falling back to trivial recipes; immediate environments stay silent, and `liquers_lib::DefaultEnvironment` has a default provider | Decide whether provider absence should be quiet, logged, or impossible by construction in the future environment builder |
 | P1 | Public context lifecycle methods can break finalization invariants | `take_pending_dependencies` clears records; `set_error` and `set_expires` directly affect the asset | Narrow visibility or split command-facing and engine-facing context traits |
 | P1 | Payload mutability semantics are easy to misread | `payload` is public and cloned by value, while guides describe it as mutable/inherited | Document clone semantics and prefer accessors or an explicit shared payload wrapper |
-| P2 | Synchronous store and cache configuration APIs are nonfunctional | `with_store` is unused by asset evaluation; `with_cache` always panics | Remove, deprecate, or make them operational |
 | P2 | `clone_context` is redundant and unnecessarily async | It performs the same field clones as `Clone::clone` and awaits nothing | Deprecate it in favor of `Clone` |
 | P2 | Context convenience logging always writes to stderr | `debug`, `info`, `warning`, and `error` both print and enqueue structured logs | Route console output through configurable logging instead of unconditional side effects |
 
@@ -513,7 +538,6 @@ The improved reference should prevent:
 - Treating `Context::apply` as dependency-tracked evaluation
 - Mutating one context clone's payload and expecting other clones to see replacement
 - Selecting `SimpleEnvironmentWithPayload` for Wasm
-- Configuring `with_store` or `with_cache` and assuming the asset manager uses it
 
 For coding agents, these distinctions determine correct type selection,
 initialization order, waiting behavior, and generated command code. For human
@@ -553,6 +577,8 @@ methods crate-private), so an asset manager can be implemented outside `liquers-
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | §Built-in environment comparison: no `with_store` / `with_cache` setters (they no longer exist); `with_async_store` is the only store setter. The gap-table row and pitfall about them are removed. | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |
+| 2026-10-10 | Reviewed against `design/plan-step-state-metadata/`. New §Metadata ownership during evaluation: asset, context and step-state roles; the cut plan as the reference for a step's input state; the per-step table of `do_step_state`; `is_applied`. §Context lifetime no longer describes rebuilding every state from the context's metadata with a `key`-only adjustment (`value_origin_key` removed). | phase-5 |
 | 2026-10-06 | Reviewed against `design/context-title-description/`. §Metadata-writing methods: `Context::set_title` / `set_description`, recipe-wins-per-field, `Ok(())` when the recipe's value is kept, persistence, no effect on `version`, and the predecessor-asset caveat. | phase-5 |
 | 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. §Dependency and apply methods: `submit` and the now-public `wait_for_dependency` added; `evaluate` = `submit` + drain and `get_dependency_state` = `submit` + `wait_for_dependency`; `submit` is not lazy on either manager; waiting through `AssetRef::get` bypasses the stale-dependency policy and the version upgrade. `submit` also refuses relative queries. Verification note on the `DependencyManager` visibility warning corrected (the type is now public). | phase-5 |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. §Context lifetime and sharing: the state handed to the next step carries the fetched key as metadata `key` (review fix C2 in `interpreter::apply_plan`), with the step-by-step rule. `LibKind`'s default recipe provider is a chain with `ManifestRecipeProvider` under `records`. | phase-5 |

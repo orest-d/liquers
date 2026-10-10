@@ -117,7 +117,7 @@ doc-comment examples print to stdout.
 - Default to async (`AsyncStore`, `AsyncStoreRouter`)
 - Use `#[async_trait]` for async trait methods
 - Tokio runtime with `sync`, `rt`, `macros`, `time` features
-- The synchronous `Store` trait is obsolete and unreachable (`CORE-SYNC-STORE-TRAIT-OBSOLETE`); implement `AsyncStore`
+- There is no synchronous store trait (removed by `CORE-SYNC-STORE-TRAIT-OBSOLETE`); implement `AsyncStore`
 
 ### Naming
 - Traits: `ValueInterface`, `ExtValueInterface`, `AsyncStore`, `CommandExecutor`
@@ -294,7 +294,7 @@ is broken.
 - Create new error types outside `liquers_core::error`
 - Use `Error::new` directly
 - Use blocking I/O in async contexts
-- Add sync Store implementations (async only, sync via wrapper)
+- Add a synchronous store trait or implementation (async only; see `specs/reference/STORE_SEMANTICS.md`)
 - Modify Query/Key encoding without updating `specs/reference/PROJECT_OVERVIEW.md`
 
 ### Performance-Sensitive Areas

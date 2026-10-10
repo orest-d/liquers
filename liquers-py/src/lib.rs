@@ -6,7 +6,7 @@ use pyo3::prelude::*;
 
 pub mod command_metadata;
 // `value` and `context` are declared; the remaining orphaned files
-// (`cache`, `commands`, `interpreter`, `state`, `store`) are not — see
+// (`commands`, `interpreter`, `state`) are not — see
 // `specs/issues/PY-MODULES-NOT-DECLARED-IN-LIB.md`.
 pub mod context;
 pub mod dependencies;

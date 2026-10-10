@@ -86,7 +86,15 @@ fields and Serde deserialization do not validate strings eagerly, so
 
 `Recipe::to_plan` enables placeholders, builds the query, and applies overrides to
 the last action step only. An override whose name is not present on that action is
-an error. Link strings are parsed during conversion. When `cwd` is present,
+an error. Because an override patches that action, its recorded prefix query
+(`Step::Action::query`) no longer describes what runs and is cleared; earlier
+actions keep theirs.
+
+`Recipe::data_format` is the query's filename extension, `None` without a filename,
+and `Recipe::get_asset_info` declares exactly that. An unnamed query therefore
+declares **no** format: the value's own default applies when it is serialized
+(`VALUE_TYPE_SYSTEM.md` §The encoding axis). A keyed asset whose recipe query has no
+filename takes its format from the key's filename. Link strings are parsed during conversion. When `cwd` is present,
 `to_plan` prepends one raw executable `Step::SetCwd` and adds one non-executable
 `Step::Info` to `init_steps` with the exact text
 `Recipe set CWD to '<encoded-key>'`. It does not rewrite relative query operands.
@@ -407,6 +415,16 @@ There are exactly **three conditions**, and they differ in where the answer live
 Conditions 1 and 2 are decided **per candidate**, by building that candidate's own
 plan. Condition 3 is decided **per application**, by the caller.
 
+A boundary is also declined where it would be worthless: when the prefix, apart from
+`SetCwd`, is a single step reading a key (`GetAsset`, `GetAssetBinary`,
+`GetAssetMetadata`, `GetAssetRecipe`, `GetAssetDirectory`, `GetResource`,
+`GetResourceMetadata`, `GetResourceDirectory`), with any namespace declarations.
+The asset at that key is already cached under the key, so a boundary would only
+add a keyless query asset — and hand the next command that asset's state instead
+of the keyed asset's own. `-R/data/x.manifest.yaml/-/ns-rec/materialize` therefore
+stays `GetAsset(data/x.manifest.yaml), Action(rec/materialize)`; the decline is
+recorded as a planning `Info`.
+
 #### 1 and 2 — per candidate
 
 `Plan::payload_required` and `Plan::is_volatile` answer "does this query need a
@@ -525,6 +543,13 @@ Every item below was observed, not anticipated.
 | `prologue_steps` | Leading steps not emitted by the builder for `query` — a recipe's CWD prefix |
 | `volatility_source` | Whether volatility permits a boundary in front of it (`Positional`) or forbids one anywhere (`Declared`) |
 
+Each `Step::Action` also records `query`: the prefix of the plan's query that ends
+with it — the query a boundary cut right after it would evaluate. It is built with
+relative default links promoted and frozen with the same cursor as `predecessor`;
+an alias keeps the name as written. `None` for a hand-built step and for the action
+a recipe override patches. Omitted from the serialized plan when `None`, so plans
+written before the field existed load unchanged.
+
 `apply_plan` does not execute `init_steps`. They are copied into metadata by the
 plan-to-metadata helpers. `Step::Error` in `steps` logs through `Context::error`;
 it does not by itself return an execution error. `Plan::error` is the structured
@@ -532,15 +557,13 @@ planning failure channel.
 
 Before sequential step execution, `apply_plan` schedules known keyed dependencies
 so they can start concurrently. Steps themselves are then interpreted in order,
-and each data-producing step replaces the current value. Context modifiers retain
-the current value. The state handed to the next step carries the context's
-metadata with its `key` set to the value's origin: the fetched key after
-`GetAsset`, `GetAssetBinary`, `GetAssetDirectory`, `GetResource` or
-`GetResourceDirectory`, and after an `Evaluate` boundary whose query is a key
-followed only by `ns-…` declarations; kept by `Filename`, `Info`, `Warning`,
-`Error` and `SetCwd`; left as the asset's own key after any other step.
-`filename` and `data_format` are not changed. `apply_plan` rejects a payload-required plan when its context has
-no payload.
+and each step produces the state handed to the next (`interpreter::do_step_state`):
+a fetch hands on the fetched state — a boundary hands on its asset's state
+unchanged — steps that produce no value hand on their input, and an action's result
+carries the asset's record corrected to describe the prefix it completes. The full
+table, and `is_applied` for a plan applied to an input state, are in DOC-04
+§Metadata ownership during evaluation. `apply_plan` rejects a payload-required plan
+when its context has no payload.
 
 Every key-bearing executable step and every query/link operand is resolved when it
 is analyzed or consumed. `SetCwd` resolves and installs its operand before later
@@ -665,6 +688,7 @@ runtime behavior is unchanged.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | Reviewed against `design/plan-step-state-metadata/`. Recipe contract: `Recipe::data_format` is `None` without a filename (no `bin`); an override clears the patched action's prefix query. Predecessor boundaries: no boundary over a bare key read. Plan fields: `Step::Action::query`. Execution: each step produces the state it hands on (table in DOC-04); the `key`-only adjustment and `fetched_key` are gone. | phase-5, `design/plan-step-state-metadata/` |
 | 2026-10-10 | Planning contract: aliases are resolved by the builder into a target `Step::Action` with `origin: ActionOrigin::Alias`; `dependencies` includes the alias's metadata key; `origin` serialization. | phase-5, `design/command-alias-contract/` |
 | 2026-10-08 | §Plan fields: `dependencies` is the direct list. §Finalization: one analysis pass (`analyze_plan_dependencies`) replaces the volatility and expiration passes; `DefaultRecipeProvider` caches parsed `recipes.yaml` per directory, checked against the stored bytes. | phase-5 (`design/dependency-chain-analysis-cost/`) |
 | 2026-10-06 | §Provider contract: `contains` (listed) vs `can_make` (producible), `directory_changed`; chain table; manifest provider lists explicit chunks only. | phase-5 |

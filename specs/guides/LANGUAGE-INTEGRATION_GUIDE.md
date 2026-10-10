@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets]
-reviewed: 2026-10-08
+reviewed: 2026-10-10
 ---
 # Liquers Language Integration Guide
 
@@ -241,7 +241,7 @@ Recommended minimum profiles:
 
 `STUBS` and `PACKAGE` are delivery features rather than capabilities: they describe how the *integration* is declared to tooling and shipped to users, not what it can do. Any *integration* consumed outside this repository should select `PACKAGE`, and `STUBS` wherever the *integrated language* has a stub format at all.
 
-**Out of scope: cache.** There is deliberately no cache feature. The `liquers_core::cache` module (`BinCache`, `Cache`) is legacy and scheduled for removal — assets provide caching, as noted in [PROJECT_OVERVIEW.md](../reference/PROJECT_OVERVIEW.md). An *integration* should not expose it, and an existing wrapper such as `liquers-py/src/cache.rs` should be dropped rather than modernized. This is a scope decision for the guide as a whole, so it does not need a per-design `NA` entry.
+**Out of scope: cache.** There is deliberately no cache feature. The legacy `liquers_core::cache` module (`BinCache`, `Cache`) was removed, with `liquers-py`'s wrapper of it — assets provide caching, as noted in [PROJECT_OVERVIEW.md](../reference/PROJECT_OVERVIEW.md). An *integration* should not reintroduce a separate result cache. This is a scope decision for the guide as a whole, so it does not need a per-design `NA` entry.
 
 ## 5. Feature Guidance
 
@@ -2799,6 +2799,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | §4 *Out of scope: cache*: the cache module and `liquers-py`'s wrapper were removed, not scheduled for removal. | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |
 | 2026-10-08 | §7: the design workflow is the `liquers-project` skill (the `liquers-designer` skill was removed), and design folders live under `specs/design/`. | skill consolidation |
 | 2026-09-30 | STORE: a *language*-defined store needs a way to express absence as distinct from failure, with `JsStore`'s sentinel as the example. | phase-5 (`design/store-conformance-backlog/`) |
 | 2026-09-27 | Reviewed against the implemented `record-streams` code (Phase 5). RECORDS: states that `liquers-web` crosses a batch as lent buffers, not Arrow — `LiquersRecordBatch` (JS `RecordBatch`) with column descriptors, `columnCopy` and `columnView`, a view materialized first, a source not yet mapped; inventory corrected (`ChunkKeys` does not exist and is removed; `RecordValue` and the manifest types added). RECIPE: provider composition is `RecipeProviderChain` via `with_appended_recipe_provider`, and a chain answers `contains` through each provider's `recipe_opt`. | phase-5 |

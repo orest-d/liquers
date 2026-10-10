@@ -3,7 +3,7 @@ title: API Documentation Gap Analysis
 kind: reference
 audience: internal
 area: [docs]
-reviewed: 2026-08-17
+reviewed: 2026-10-10
 ---
 # API Documentation Gap Analysis
 
@@ -134,8 +134,8 @@ The API consists of the following major concepts:
       immediate and queued evaluation, cancellation, persistence, and notifications
 
 11. **Storage, routing, and caching**
-    - Store traits, memory and file stores, OpenDAL, store routers, backend
-      configuration, directory operations, persistence, and caches
+    - The `AsyncStore` trait, memory and file stores, OpenDAL, the store router,
+      backend configuration, directory operations, and persistence
 
 12. **Dependencies, expiration, and volatility**
     - Dependency records, versions, dependency scheduling, expiration, invalidation,
@@ -352,8 +352,8 @@ constructs inconsistent state or metadata.
 ### 7. Stores and persistence
 
 store configuration has current source documentation and examples
-in [`store_factory.rs`](../../../liquers-core/src/store_factory.rs). The underlying `Store` and
-`AsyncStore` consumer contract is less clear.
+in [`store_factory.rs`](../../../liquers-core/src/store_factory.rs). The underlying `AsyncStore`
+consumer contract is stated in `specs/reference/STORE_SEMANTICS.md`; its API rustdoc is thinner.
 
 #### Recommended documentation
 
@@ -365,7 +365,7 @@ in [`store_factory.rs`](../../../liquers-core/src/store_factory.rs). The underly
   enforced, since only the store routers consult that method. Tracked by
   `specs/issues/STORE-FILESTORE-PATH-TRAVERSAL.md` and designed in
   `specs/design/store-key-guard/`; until DOC-07 exists, the rule lives in the `liquers-core::store`
-  module and `Store`/`AsyncStore` trait rustdoc.
+  module and `AsyncStore` trait rustdoc.
 - Prefix routing and precedence
 - Data and metadata consistency
 - Atomicity guarantees
@@ -374,7 +374,7 @@ in [`store_factory.rs`](../../../liquers-core/src/store_factory.rs). The underly
 - Concurrency guarantees
 - Memory, file, and OpenDAL backend differences
 - Environment-variable expansion and supported configuration
-- The status and intended future of synchronous store APIs
+- That there is no synchronous store (it was removed; see `STORE_SEMANTICS.md` on what reintroducing one would need)
 
 ### 8. Recipes and plans
 
@@ -661,5 +661,6 @@ Suggested files for further work:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | §7 and the topic list: the synchronous `Store` trait and the `cache` module were removed; only `AsyncStore` remains to document. | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |
 | 2026-08-17 | Recorded the absolute-key precondition as required DOC-07 content in §7 and in the progress tracker. DOC-07 does not exist yet, so the rule is documented in `liquers-core::store` rustdoc meanwhile. | `design/store-key-guard/` |
 | 2026-08-09 | Promoted to current API reference; reviewed the gap inventory against HEAD, updated completed work and documentation-structure findings, and corrected links. | quarterly |

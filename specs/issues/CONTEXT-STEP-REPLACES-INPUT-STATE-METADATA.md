@@ -2,11 +2,11 @@
 id: CONTEXT-STEP-REPLACES-INPUT-STATE-METADATA
 kind: issue
 title: A step that only passes the value through replaces the input state's metadata with the context's
-status: draft
+status: closed
 priority: P2
-complexity: M
-area: [core/plan]
-design: 
+complexity: L
+area: [core/plan, core/context]
+design: plan-step-state-metadata
 created: 2026-10-10
 github:
 ---
@@ -45,3 +45,15 @@ log into it) instead of replacing it.
 
 `design/command-alias-contract` Phase 4, Step 8: `polars_commands::test_head_alias_matches_slice`
 failed until the alias message moved to `init_steps`.
+
+## Resolution
+
+Closed 2026-10-10 by `design/plan-step-state-metadata/`. Each plan step now builds the state it
+hands on (`interpreter::do_step_state`): `Info`, `Warning`, `Error`, `SetCwd` and `Filename` hand on
+their input state unchanged, and fetch steps hand on the fetched state instead of the asset's
+record — the same root cause, which also dropped the format of every fetched dependency. The
+reference is the cut plan: a predecessor boundary hands on its asset's state unchanged. Evidence:
+`liquers-core/tests/plan_step_state_metadata.rs` (`pass_through_steps_keep_the_input_metadata` and
+eleven more), `polars_commands::slice_after_info_step_keeps_csv_format` (the failure reported here).
+Contract: `reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md` §Metadata ownership during
+evaluation.

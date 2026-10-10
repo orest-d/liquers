@@ -1,11 +1,10 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use liquers_core::{
-    cache::{Cache, NoCache},
     command_metadata::CommandMetadataRegistry,
     commands::CommandRegistry,
     context::SimpleSession,
-    store::{AsyncStore, NoAsyncStore, Store},
+    store::{AsyncStore, NoAsyncStore},
 };
 use pyo3::{exceptions::PyException, prelude::*};
 
@@ -28,8 +27,6 @@ impl EnvRef{
 #[pyclass]
 pub struct Environment {
     pub type_registry: liquers_core::type_system::TypeRegistry,
-    pub store: Arc<dyn Store>,
-    pub cache: Arc<Mutex<Box<dyn Cache<Value>>>>,
     pub command_registry: CommandRegistry<Self>,
     //#[cfg(feature = "async_store")]
     //async_store: Arc<Mutex<Box<dyn AsyncStore>>>,
@@ -41,9 +38,7 @@ impl Environment {
     pub fn new() -> Self {
         Environment {
             type_registry: liquers_core::type_system::TypeRegistry::from_value_type::<Value>(),
-            store: Arc::new(liquers_core::store::NoStore),
             command_registry: CommandRegistry::new(),
-            cache: Arc::new(Mutex::new(Box::new(NoCache::new()))),
             //#[cfg(feature = "async_store")]
             //async_store: Arc::new(Mutex::new(Box::new(NoAsyncStore))),
         }
@@ -62,17 +57,9 @@ impl Environment {
     }
 
     /*
-    pub fn with_store(&mut self, store: Box<dyn Store>) -> &mut Self {
-        self.store = Arc::new(Mutex::new(store));
-        self
-    }
     #[cfg(feature = "async_store")]
     pub fn with_async_store(&mut self, store:Box<dyn AsyncStore>) -> &mut Self {
         self.async_store = Arc::new(Mutex::new(store));
-        self
-    }
-    pub fn with_cache(&mut self, cache: Box<dyn Cache<Value>>) -> &mut Self {
-        self.cache = Arc::new(Mutex::new(cache));
         self
     }
     pub fn to_ref(self)->EnvRef{

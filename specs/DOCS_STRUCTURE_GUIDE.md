@@ -83,7 +83,7 @@ and a YAML list in front-matter.
 | `core/plan` | `liquers-core`: `plan.rs`, `interpreter.rs` — plan building and evaluation |
 | `core/commands` | `liquers-core`: `commands.rs`, `command_metadata.rs` — registry, executor, metadata |
 | `core/assets` | `liquers-core`: `assets.rs`, `dependencies.rs`, `expiration.rs`, `recipes.rs` — asset lifecycle |
-| `core/store` | `liquers-core`: `store.rs`, `cache.rs` — store traits |
+| `core/store` | `liquers-core`: `store.rs` — the store trait, router and backends |
 | `core/value` | `liquers-core`: `value.rs`, `state.rs`, `metadata.rs`, `media_type.rs`, `entities.rs` |
 | `core/context` | `liquers-core`: `context.rs` — `Environment`, `EnvRef`, `Context`, `Session` |
 | `core/error` | `liquers-core`: `error.rs` — `Error`, `ErrorType` |
@@ -1073,6 +1073,7 @@ Every `reference/` and `guides/` document ends with:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | §3 `core/store` area: `cache.rs` removed. | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |
 | 2026-08-08 | Reviewed against `design/expiration-safety/`; no changes needed. | phase-5 |
 | 2026-07-02 | Documented eviction ordering and the stale-read guard. | PR #11 |
 | 2026-05-19 | Quarterly review; corrected two stale type names. | quarterly |

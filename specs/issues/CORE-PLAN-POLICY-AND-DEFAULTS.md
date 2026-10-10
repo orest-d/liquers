@@ -59,6 +59,15 @@ shape of a plan. `DOC_08_RECIPES_PLANS.md` is updated accordingly.
 **What remains here:** the `cache`, `volatile flags` and `inline flag` markers at
 `plan.rs:899-901`, untouched.
 
+## Update, 2026-10-10 (`plan-step-state-metadata`)
+
+One more cut policy: `Plan::cut_predecessor` declines a boundary when the prefix, apart from
+`SetCwd`, is a single key read — the asset at that key is already cached under its key, so the
+boundary added nothing but a keyless query asset. Each `Step::Action` now records the prefix query
+it completes (`Step::Action::query`), frozen like `Plan::predecessor`; a future configurable cut
+policy can read candidate boundary queries from the steps instead of rebuilding candidate plans.
+See `reference/api/DOC_08_RECIPES_PLANS.md` §Predecessor boundaries.
+
 ## Update, 2026-10-10 (`plan-policy`)
 
 Design `plan-policy` owns the remaining markers:

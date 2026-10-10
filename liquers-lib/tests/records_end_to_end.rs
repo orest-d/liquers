@@ -125,16 +125,11 @@ fn build_env(store: AsyncMemoryStore) -> Result<EnvRef<DefaultEnvironment<Value>
     Ok(env.to_ref())
 }
 
-/// Evaluates `query` through the environment's own asset manager
-/// ([`EnvRef::evaluate`]) rather than `liquers_core::interpreter::evaluate` — the free function
-/// always evaluates as an ad-hoc, `Recipe::default()`-rooted asset (its own doc comment: "TODO:
-/// this should be decommissioned in favor of environment evaluate methods"), and
-/// `Recipe::data_format()` falls back to `"bin"` when a recipe has no query of its own to take a
-/// filename extension from. That baked-in `"bin"` is a *declared* format, so a later
-/// `ns-rec/materialize/daily.csv` filename segment can never seed a different one — `set_filename`
-/// only seeds `data_format` when none is set yet. `EnvRef::evaluate` builds the asset from the
-/// query itself, so its recipe carries the real trailing filename and `state.as_bytes()` resolves
-/// to the format that implies.
+/// Evaluates `query` through the environment's own asset manager ([`EnvRef::evaluate`]) rather
+/// than `liquers_core::interpreter::evaluate`, the free function its own doc comment marks for
+/// decommissioning. (It used to matter more: the free function's ad-hoc asset declared
+/// `data_format: bin`, which a trailing `daily.csv` could not override —
+/// `FREE-FUNCTION-EVALUATE-BAKES-A-BIN-DATA-FORMAT`, closed by `design/plan-step-state-metadata/`.)
 async fn eval(
     envref: EnvRef<DefaultEnvironment<Value>>,
     query: &str,

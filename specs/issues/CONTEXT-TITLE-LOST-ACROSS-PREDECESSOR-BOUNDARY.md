@@ -28,6 +28,14 @@ an input state, and `DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md` documents the cav
 Whether a command's description survives depends on whether it is the last action of the chain
 and on whether the caller passed an input state — neither visible to the command author.
 
+## Update, 2026-10-10 (`plan-step-state-metadata`)
+
+The cut plan's `Step::Evaluate` now hands the predecessor asset's whole state to the next step
+(`interpreter::do_step_state`), so in `titled/retitled` the `retitled` command *receives* `T1`/`D`
+in `state.metadata`. The final asset's own record is unchanged — still `T2`/empty — so the
+question this issue asks (inherit into the final asset, or keep per-asset semantics) is still
+open. The inheritance design's `Step::Evaluate` change now belongs in `do_step_state`.
+
 ## Expected behaviour
 
 Decide whether a predecessor's title/description should be inherited by its consumer when the

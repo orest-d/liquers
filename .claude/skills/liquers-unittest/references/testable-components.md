@@ -141,11 +141,11 @@ What to test for each Liquers component, including edge cases and error conditio
 **File**: `liquers-core/src/store.rs`
 
 ### What to test
-- **MemoryStore**: get, set, remove, contains, listdir, makedir, is_dir
-- **FileStore**: same operations with filesystem persistence
-- **StoreRouter**: delegation to correct store based on key prefix
-- **AsyncMemoryStore**: the in-memory `AsyncStore` used in tests (`AsyncMemoryStore::new(&Key::new())`); there is no sync-to-async wrapper
-- **NoStore/NoAsyncStore**: returns appropriate errors
+- **AsyncMemoryStore**: get, set, remove, contains, listdir, makedir, is_dir — the in-memory `AsyncStore` used in tests (`AsyncMemoryStore::new(&Key::new())`)
+- **AsyncFileStore**: same operations with filesystem persistence
+- **AsyncStoreRouter**: delegation to correct store based on key prefix
+- **NoAsyncStore**: returns appropriate errors
+- There is no synchronous store trait (it was removed); every store is an `AsyncStore`
 - Key prefix isolation between stores in router
 - Metadata finalization on set
 
@@ -441,7 +441,7 @@ When deciding what tests to write, prioritize:
 | `liquers-core/src/query.rs` | Several | Key operations |
 | `liquers-core/src/plan.rs` | 3+ | Plan building |
 | `liquers-core/src/commands.rs` | 3+ | Command execution |
-| `liquers-core/src/store.rs` | Several | MemoryStore |
+| `liquers-core/src/store.rs` | Several | AsyncMemoryStore, AsyncFileStore, AsyncStoreRouter |
 | `liquers-core/src/error.rs` | Several | Error formatting |
 | `liquers-core/src/value.rs` | Several | Value conversions |
 | `liquers-core/tests/async_hellow_world.rs` | 3+ | End-to-end evaluation |

@@ -45,6 +45,7 @@ encoding, and the interpreter that turns a plan into asset evaluation.
 - **Plan building and evaluation** — documented → [`reference/api/DOC_01_ARCHITECTURE_REFERENCE.md`](reference/api/DOC_01_ARCHITECTURE_REFERENCE.md)
 - **One evaluation path: flows and public surface** — documented → [`reference/ASSET_LIFECYCLE.md`](reference/ASSET_LIFECYCLE.md) *(design in [`design/evaluate-path-consolidation/`](design/evaluate-path-consolidation/))*
 - **Recipes and plan contracts** — documented → [`reference/api/DOC_08_RECIPES_PLANS.md`](reference/api/DOC_08_RECIPES_PLANS.md)
+- **Metadata ownership during plan execution (asset, context, step state)** — documented → [`reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`](reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md) §Metadata ownership during evaluation *(design in [`design/plan-step-state-metadata/`](design/plan-step-state-metadata/))*
 - **Offline query and recipe validation** — built → [`design/query-validation/`](design/query-validation/)
 - **Action-parameter links (`~X~~E`)** — built → [`design/query-link-parser/`](design/query-link-parser/)
 - **Parameter escaping: numeric and named entities** — documented → [`guides/QUERY_ESCAPING_GUIDE.md`](guides/QUERY_ESCAPING_GUIDE.md) *(entity table in [`reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md`](reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md); design in [`design/parameter-entity-escaping/`](design/parameter-entity-escaping/))*
@@ -144,6 +145,7 @@ expansion time rather than at runtime. That is the cheapest item here.
 - **Type-enforced key absoluteness** — planned → [`issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md`](issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md)
 - **OpenDAL path normalization** — documented → [`reference/STORE_SEMANTICS.md`](reference/STORE_SEMANTICS.md) *(design in [`design/opendal-path-mapping/`](design/opendal-path-mapping/))*
 - **Store behavioural semantics** — documented → [`reference/STORE_SEMANTICS.md`](reference/STORE_SEMANTICS.md); implementing and testing a store: [`guides/STORE_IMPLEMENTATION_GUIDE.md`](guides/STORE_IMPLEMENTATION_GUIDE.md) *(every in-tree store passes the conformance suite as of 2026-09-30; see [`design/store-conformance-backlog/`](design/store-conformance-backlog/))*
+- **One store trait, `AsyncStore` (the synchronous `Store` and the `cache` module are removed)** — documented → [`reference/STORE_SEMANTICS.md`](reference/STORE_SEMANTICS.md) *(design in [`design/sync-store-removal/`](design/sync-store-removal/))*
 - **Shared directory support for backends without directories** — documented → `liquers-core/src/store_dir_index.rs` *(design in [`design/opendal-path-mapping/`](design/opendal-path-mapping/))*
 - **Streaming binary access (`openbin`)** — planned → [`issues/CORE-STORE-OPENBIN-MISSING.md`](issues/CORE-STORE-OPENBIN-MISSING.md)
 - **Record streams — a chunked, Arrow-interoperable tabular abstraction** — built → [`reference/RECORD_STREAMS.md`](reference/RECORD_STREAMS.md); producing records: [`guides/RECORD_STREAM_GUIDE.md`](guides/RECORD_STREAM_GUIDE.md) *(design in [`design/record-streams/`](design/record-streams/))*

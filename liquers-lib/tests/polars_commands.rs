@@ -370,3 +370,60 @@ async fn test_parse_utilities() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+// ---------------------------------------------------------------------------------------------
+// The input state a command receives (specs/design/plan-step-state-metadata/).
+// ---------------------------------------------------------------------------------------------
+
+/// Phase 3 test 22 (AC-1, AC-9) - the source issue: a step that produces no value before the
+/// action used to replace the input's `data_format: csv` with the asset's `bin`, and polars
+/// refused it ("Unsupported polars data_format 'bin'").
+#[tokio::test(flavor = "multi_thread")]
+async fn slice_after_info_step_keeps_csv_format() -> Result<(), Box<dyn std::error::Error>> {
+    use liquers_core::assets::AssetRef;
+    use liquers_core::context::Context;
+    use liquers_core::interpreter::apply_plan;
+    use liquers_core::parse::parse_query;
+    use liquers_core::plan::{PlanBuilder, Step};
+
+    let envref = create_test_env().to_ref();
+    let mut plan = PlanBuilder::new(
+        parse_query("ns-pl/slice-0-2")?,
+        envref.get_command_metadata_registry(),
+    )
+    .build()?;
+    plan.steps.insert(0, Step::Info("before the action".to_string()));
+    let context = Context::new(AssetRef::new_temporary(envref.clone()), false).await;
+    let value = apply_plan(plan, create_csv_state("a\n1\n2\n3"), context, envref).await?;
+    assert_eq!(value.as_polars_dataframe()?.height(), 2);
+    Ok(())
+}
+
+/// Phase 3 test 23 (AC-9) - a CSV placed in the store as untyped bytes reaches `slice` with the
+/// stored `data_format`, not the `bin` the asset of an unnamed query used to declare.
+#[tokio::test(flavor = "multi_thread")]
+async fn slice_over_stored_csv_bytes_reads_the_stored_format(
+) -> Result<(), Box<dyn std::error::Error>> {
+    use liquers_core::metadata::{Metadata, Status};
+    use liquers_core::parse::{parse_key, parse_query};
+    use liquers_core::query::Key;
+    use liquers_core::store::{AsyncMemoryStore, AsyncStore};
+
+    let store = AsyncMemoryStore::new(&Key::new());
+    let key = parse_key("data/x.csv")?;
+    let mut metadata = Metadata::new();
+    metadata.set_filename("x.csv")?;
+    metadata.set_status(Status::Source)?;
+    store.set(&key, b"a\n1\n2\n3\n", &metadata).await?;
+
+    let mut env = create_test_env();
+    env.with_async_store(Box::new(store));
+    let envref = env.to_ref();
+    let state = envref
+        .evaluate(parse_query("-R/data/x.csv/-/ns-pl/slice-0-2")?)
+        .await?
+        .get()
+        .await?;
+    assert_eq!(state.value()?.as_polars_dataframe()?.height(), 2);
+    Ok(())
+}

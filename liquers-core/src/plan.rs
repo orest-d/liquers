@@ -280,6 +280,14 @@ pub enum Step {
         /// Omitted from the serialized plan when `Direct`, so unaliased plans are unchanged.
         #[serde(default, skip_serializing_if = "ActionOrigin::is_direct")]
         origin: ActionOrigin,
+        /// The query this action completes: the prefix of the plan's query that ends with it,
+        /// with relative default links promoted and frozen against the working key exactly as
+        /// [`Plan::predecessor`] is, so it names the asset a cut at this point would evaluate.
+        /// The interpreter records it as the `query` of the state this action produces.
+        /// `None` when unknown: a hand-built step, or a recipe with argument or link overrides,
+        /// whose text would not describe what ran. Omitted from the serialized plan when `None`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        query: Option<Query>,
     },
     /// Set the output filename in the current execution context.
     Filename(ResourceName),
@@ -1580,9 +1588,12 @@ impl<'c> PlanBuilder<'c> {
         }
     }
 
+    /// `prefix` is the query the action completes (see `Step::Action::query`). It differs from
+    /// `query` only for a query that is a single transform, whose `query` arrives emptied.
     fn process_action(
         &mut self,
         query: &Query,
+        prefix: &Query,
         action_request: &ActionRequest,
     ) -> Result<(), Error> {
         // Intercept 'v' instruction BEFORE normal action processing
@@ -1631,6 +1642,7 @@ impl<'c> PlanBuilder<'c> {
                 // Check parameters for links to volatile queries
                 self.check_parameters_for_volatile_links(&parameters)?;
 
+                let prefix = promote_relative_default_links(prefix, self.command_registry)?;
                 self.plan.steps.push(Step::Action {
                     origin: ActionOrigin::Direct,
                     realm: command_metadata.realm.clone(),
@@ -1638,6 +1650,7 @@ impl<'c> PlanBuilder<'c> {
                     action_name: action_request.name.clone(),
                     position: action_request.position.clone(),
                     parameters,
+                    query: Some(prefix),
                 });
             }
             command_metadata::CommandDefinition::Alias {
@@ -1674,6 +1687,8 @@ impl<'c> PlanBuilder<'c> {
                 // Check parameters for links to volatile queries
                 self.check_parameters_for_volatile_links(&parameters)?;
 
+                // The query as written: it names the alias, as a cut at this point would.
+                let prefix = promote_relative_default_links(prefix, self.command_registry)?;
                 self.plan.steps.push(Step::Action {
                     realm: command.realm.clone(),
                     ns: command.namespace.clone(),
@@ -1683,6 +1698,7 @@ impl<'c> PlanBuilder<'c> {
                     origin: ActionOrigin::Alias {
                         command: original_key,
                     },
+                    query: Some(prefix),
                 });
             }
         }
@@ -1770,9 +1786,10 @@ impl<'c> PlanBuilder<'c> {
         if let Some(transform) = query.transform_query() {
             //eprintln!("TRANSFORM {}", &transform);
             if let Some(action) = transform.action() {
+                let prefix = query.clone();
                 let mut query = query.clone();
                 query.segments = Vec::new();
-                self.process_action(&query, &action)?;
+                self.process_action(&query, &prefix, &action)?;
                 return Ok(());
             }
             if transform.is_filename() {
@@ -1835,7 +1852,7 @@ impl<'c> PlanBuilder<'c> {
                         return Ok(());
                     }
                     if let Some(action) = tqs.action() {
-                        self.process_action(query, &action)?;
+                        self.process_action(query, query, &action)?;
                         return Ok(());
                     }
                     if tqs.is_filename() {
@@ -2115,14 +2132,26 @@ impl Plan {
         // walk — *after* any prologue. A recipe's `SetCwd` prefix is not part of `query`, so the
         // cursor has to be advanced over it first: leaving it out freezes the boundary query one
         // CWD short, and every relative operand inside it silently loses its folder.
-        if let Some(predecessor) = &mut self.predecessor {
-            let mut scoped = cursor.clone();
-            for step in self.steps.iter().take(self.prologue_steps) {
-                if let Step::SetCwd(key) = step {
-                    scoped.set_cwd_from(key);
-                }
+        let mut scoped = cursor.clone();
+        for step in self.steps.iter().take(self.prologue_steps) {
+            if let Step::SetCwd(key) = step {
+                scoped.set_cwd_from(key);
             }
+        }
+        if let Some(predecessor) = &mut self.predecessor {
             *predecessor = scoped.resolve_query_scoped(predecessor);
+        }
+        // Each action's prefix query is a prefix of the same query as `predecessor`, so it starts
+        // from the same entry state and is frozen the same way: it must name exactly the boundary
+        // a cut after that action would evaluate.
+        for step in self.steps.iter_mut() {
+            if let Step::Action {
+                query: Some(prefix),
+                ..
+            } = step
+            {
+                *prefix = scoped.resolve_query_scoped(prefix);
+            }
         }
 
         for (index, step) in self.steps.iter_mut().enumerate() {
@@ -2267,6 +2296,17 @@ impl Plan {
             boundary = inner;
         }
 
+        // A prefix that only reads a key is not worth a boundary: the asset at that key is already
+        // cached under the key, so the boundary would add a keyless query asset that recomputes
+        // nothing — and hand on that asset's state instead of the keyed asset's own.
+        if Self::is_bare_key_read(&self.steps[..cut_at]) {
+            self.init_info(format!(
+                "Predecessor boundary not cut at '{}': the prefix only reads a key",
+                boundary.encode()
+            ));
+            return Ok(false);
+        }
+
         let tail = self.steps.split_off(cut_at);
         let mut head: Vec<Step> = self
             .steps
@@ -2280,6 +2320,35 @@ impl Plan {
         self.steps = head;
         self.check_consistent()?;
         Ok(true)
+    }
+
+    /// Whether `steps`, apart from `SetCwd`, are exactly one step reading a key: the asset, its
+    /// bytes, metadata, recipe or directory listing, or the resource, its metadata or listing.
+    fn is_bare_key_read(steps: &[Step]) -> bool {
+        let mut reads = 0;
+        for step in steps {
+            match step {
+                Step::SetCwd(_) => {}
+                Step::GetAsset(_)
+                | Step::GetAssetBinary(_)
+                | Step::GetAssetMetadata(_)
+                | Step::GetAssetRecipe(_)
+                | Step::GetAssetDirectory(_)
+                | Step::GetResource(_)
+                | Step::GetResourceMetadata(_)
+                | Step::GetResourceDirectory(_) => reads += 1,
+                Step::Evaluate(_)
+                | Step::UseQueryValue(_)
+                | Step::UseKeyValue(_)
+                | Step::Action { .. }
+                | Step::Filename(_)
+                | Step::Info(_)
+                | Step::Warning(_)
+                | Step::Error(_)
+                | Step::Plan(_) => return false,
+            }
+        }
+        reads == 1
     }
 
     /// Locates the first executable step produced by an absolute query's own resource segments.
@@ -3585,6 +3654,7 @@ mod tests {
                     action_name: "a".to_string(),
                     position: Position::unknown(),
                     parameters: ResolvedParameterValues::new(),
+                    query: None,
                 },
                 Step::Info("info".to_string()),
             ],
@@ -3614,6 +3684,7 @@ mod tests {
                     action_name: "a".to_string(),
                     position: Position::unknown(),
                     parameters: ResolvedParameterValues::new(),
+                    query: None,
                 },
                 Step::Warning("warn".to_string()),
                 Step::Filename(ResourceName::new("file.txt".to_string())),
@@ -3644,6 +3715,7 @@ mod tests {
                     action_name: "a".to_string(),
                     position: Position::unknown(),
                     parameters: ResolvedParameterValues::new(),
+                    query: None,
                 },
                 Step::Info("info2".to_string()),
             ],
@@ -3676,6 +3748,7 @@ mod tests {
                     action_name: "a1".to_string(),
                     position: Position::unknown(),
                     parameters: ResolvedParameterValues::new(),
+                    query: None,
                 },
                 Step::Action {
                     origin: ActionOrigin::Direct,
@@ -3684,6 +3757,7 @@ mod tests {
                     action_name: "a2".to_string(),
                     position: Position::unknown(),
                     parameters: ResolvedParameterValues::new(),
+                    query: None,
                 },
                 Step::Info("info".to_string()),
             ],
@@ -4449,6 +4523,7 @@ mod tests {
                         )],
                     ),
                 ]),
+                query: None,
             },
         ];
 
@@ -4527,6 +4602,7 @@ mod tests {
                 action_name: "deep".to_owned(),
                 position: action_position.clone(),
                 parameters: ResolvedParameterValues(vec![nested]),
+                query: None,
             },
         ];
 
@@ -5288,6 +5364,7 @@ mod tests {
                     parse_query("-R-cwd/./child/-R/./inside.txt")?,
                     Position::unknown(),
                 )]),
+                query: None,
             },
             Step::GetAsset(parse_key("./outside.txt")?),
         ];
@@ -6210,6 +6287,7 @@ mod tests {
             position: Position::unknown(),
             parameters: ResolvedParameterValues::new(),
             origin: ActionOrigin::Direct,
+            query: None,
         };
         let json = serde_json::to_string(&direct)?;
         assert!(
@@ -6231,6 +6309,7 @@ mod tests {
             origin: ActionOrigin::Alias {
                 command: CommandKey::new("", "pl", "head"),
             },
+            query: None,
         };
         let yaml = serde_yaml::to_string(&aliased)?;
         let reloaded: Step = serde_yaml::from_str(&yaml)?;
@@ -6238,6 +6317,156 @@ mod tests {
             panic!("an action deserializes as an action");
         };
         assert_eq!(origin.alias(), Some(&CommandKey::new("", "pl", "head")));
+        Ok(())
+    }
+
+    /// The prefix query recorded on every action step, in step order.
+    fn action_queries(plan: &Plan) -> Vec<Option<String>> {
+        plan.steps
+            .iter()
+            .filter_map(|step| match step {
+                Step::Action { query, .. } => Some(query.as_ref().map(|q| q.encode())),
+                Step::GetResource(_)
+                | Step::GetResourceMetadata(_)
+                | Step::GetResourceDirectory(_)
+                | Step::GetAsset(_)
+                | Step::GetAssetBinary(_)
+                | Step::GetAssetMetadata(_)
+                | Step::GetAssetRecipe(_)
+                | Step::GetAssetDirectory(_)
+                | Step::Evaluate(_)
+                | Step::UseQueryValue(_)
+                | Step::Filename(_)
+                | Step::Info(_)
+                | Step::Warning(_)
+                | Step::Error(_)
+                | Step::Plan(_)
+                | Step::SetCwd(_)
+                | Step::UseKeyValue(_) => None,
+            })
+            .collect()
+    }
+
+    /// Phase 3 test 15 (AC-11) of `design/plan-step-state-metadata/`: every action records the
+    /// prefix of the query it completes; a trailing filename belongs to no action.
+    #[test]
+    fn action_steps_record_their_prefix_query() -> Result<(), Error> {
+        let mut cmr = CommandMetadataRegistry::new();
+        for name in ["a", "b", "c"] {
+            cmr.add_command(&CommandMetadata::new(name));
+        }
+        let plan = PlanBuilder::new(parse_query("a/b/c/out.txt")?, &cmr).build()?;
+        assert_eq!(
+            action_queries(&plan),
+            vec![
+                Some("a".to_string()),
+                Some("a/b".to_string()),
+                Some("a/b/c".to_string())
+            ]
+        );
+        let single = PlanBuilder::new(parse_query("a")?, &cmr).build()?;
+        assert_eq!(action_queries(&single), vec![Some("a".to_string())]);
+        Ok(())
+    }
+
+    /// Phase 3 test 16 (AC-11): prefix queries are frozen exactly like the recorded predecessor,
+    /// after the recipe's CWD prologue, so each names the boundary a cut there would evaluate.
+    #[test]
+    fn prefix_queries_are_frozen_with_the_predecessor() -> Result<(), Box<dyn std::error::Error>> {
+        let cmr = prologue_registry();
+        let mut recipe = Recipe::new(
+            "-R/./input.txt/-/identity/tail/out.txt".to_owned(),
+            String::new(),
+            String::new(),
+        )?;
+        recipe.cwd = Some("a/c".to_owned());
+        let mut plan = recipe.to_plan(&cmr)?;
+        plan.freeze_cwd(None)?;
+        let predecessor = plan.predecessor.as_ref().map(|q| q.encode());
+        assert_eq!(
+            action_queries(&plan),
+            vec![
+                Some("-R/a/c/input.txt/-/identity".to_string()),
+                Some("-R/a/c/input.txt/-/identity/tail".to_string())
+            ]
+        );
+        assert_eq!(action_queries(&plan)[0], predecessor);
+        Ok(())
+    }
+
+    /// Phase 3 test 17 (AC-11): an aliased action records the query as written — the alias name —
+    /// as a boundary cut there would; `origin` records the target.
+    #[test]
+    fn alias_step_records_the_alias_query() -> Result<(), Error> {
+        let registry = alias_flag_registry();
+        let plan = PlanBuilder::new(parse_query("calm")?, &registry).build()?;
+        assert_eq!(action_queries(&plan), vec![Some("calm".to_string())]);
+        Ok(())
+    }
+
+    /// Phase 3 test 18 (AC-11): `query` is omitted when absent, so a plan serialized before the
+    /// field existed still loads; a recorded query round-trips.
+    #[test]
+    fn plan_without_action_query_deserializes() -> Result<(), Box<dyn std::error::Error>> {
+        let bare = Step::Action {
+            realm: String::new(),
+            ns: String::new(),
+            action_name: "a".to_string(),
+            position: Position::unknown(),
+            parameters: ResolvedParameterValues::new(),
+            origin: ActionOrigin::Direct,
+            query: None,
+        };
+        let json = serde_json::to_string(&bare)?;
+        assert!(!json.contains("query"), "an absent query is not serialized: {json}");
+        let Step::Action { query, .. } = serde_json::from_str::<Step>(&json)? else {
+            panic!("an action deserializes as an action");
+        };
+        assert_eq!(query, None);
+
+        let recorded = Step::Action {
+            realm: String::new(),
+            ns: String::new(),
+            action_name: "b".to_string(),
+            position: Position::unknown(),
+            parameters: ResolvedParameterValues::new(),
+            origin: ActionOrigin::Direct,
+            query: Some(parse_query("a/b")?),
+        };
+        let yaml = serde_yaml::to_string(&recorded)?;
+        let Step::Action { query, .. } = serde_yaml::from_str::<Step>(&yaml)? else {
+            panic!("an action deserializes as an action");
+        };
+        assert_eq!(query.map(|q| q.encode()), Some("a/b".to_string()));
+        Ok(())
+    }
+
+    /// Phase 3 test 19 (AC-7): a prefix that only reads a key is not cut — the plan keeps the
+    /// read inline and records why — while a prefix that runs an action still is.
+    #[test]
+    fn cut_declines_a_bare_key_read() -> Result<(), Error> {
+        let mut cmr = CommandMetadataRegistry::new();
+        for name in ["a", "b", "c"] {
+            cmr.add_command(&CommandMetadata::new(name));
+        }
+
+        let mut read = PlanBuilder::new(parse_query("-R/data/x.txt/-/c")?, &cmr).build()?;
+        read.freeze_cwd(None)?;
+        assert!(!read.cut_predecessor(&cmr)?);
+        assert!(matches!(read.steps.first(), Some(Step::GetAsset(_))));
+        assert!(
+            read.init_steps.iter().any(|step| matches!(
+                step,
+                Step::Info(message) if message.contains("only reads a key")
+            )),
+            "the declined cut is recorded: {:?}",
+            read.init_steps
+        );
+
+        let mut chain = PlanBuilder::new(parse_query("a/b/c")?, &cmr).build()?;
+        chain.freeze_cwd(None)?;
+        assert!(chain.cut_predecessor(&cmr)?);
+        assert!(matches!(chain.steps.first(), Some(Step::Evaluate(_))));
         Ok(())
     }
 }
