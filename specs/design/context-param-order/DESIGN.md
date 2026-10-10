@@ -3,8 +3,8 @@ id: CONTEXT-PARAM-ORDER
 kind: design
 title: Context parameter at any position in register_command!
 workflow: liquers-project
-status: approved
-phase: implementation
+status: in_review
+phase: documentation
 area: [core/commands, macro]
 issues: [COMMAND-CONTEXT-PARAM-ORDER, MACRO-TESTS-PRINT-TO-STDOUT]
 merged: 2026-10-10
@@ -30,5 +30,5 @@ Pre-approved after Phase 2 on 2026-10-10 (`proceed all`).
 - [x] [Phase 1: High-Level Design](phase1-high-level-design.md) — approved 2026-10-10
 - [x] [Phase 2: Solution & Architecture](phase2-architecture.md) — approved 2026-10-10
 - [x] [Phase 3: Examples and Tests](phase3-examples.md) — pre-approved
-- [x] [Phase 4: Implementation Plan](phase4-implementation.md) — pre-approved; in execution
-- [ ] Phase 5: Documentation
+- [x] [Phase 4: Implementation Plan](phase4-implementation.md) — pre-approved; implemented
+- [ ] [Phase 5: Documentation](phase5-documentation.md) — written; awaiting approval

@@ -102,4 +102,18 @@ hints (`COMMAND-METADATA-DESCRIPTIONS-AND-HINTS`), query-literal validation in t
 
 ## Validation
 
-Pending: the `liquers-lib` suite (AC-7) is still running; results are added here when it finishes.
+All run on 2026-10-10 at the final implementation commit, `CARGO_INCREMENTAL=0`:
+
+| Check | Result | Proves |
+|---|---|---|
+| `cargo test -p liquers-macro` | 62 passed | AC-1, AC-2, AC-4, AC-5, AC-6, AC-10, AC-11 |
+| `cargo test -p liquers-core --lib --tests` | 1,488 passed, 0 failed (incl. `argument_number_tests` 4, `context_parameter_position` 6) | AC-1, AC-2, AC-3, AC-5, AC-9, AC-12 |
+| `cargo test -p liquers-lib --lib --tests` | 557 passed, 0 failed, 1 ignored (pre-existing); includes `registry_export` | AC-7 |
+| `grep -c 'println!' liquers-macro/src/registration.rs` | 0 | AC-10 |
+| `cargo build -p liquers-macro` | no warnings | AC-11 |
+| AC-8 `grep` over the reference, guides, `CLAUDE.md`, skill and JS issue | no matches | AC-8 |
+| `cargo fmt -p liquers-macro --check`; `rustfmt --check` on the new test file | clean | — |
+| `python3 scripts/docs_index.py --check` | 0 errors | records |
+
+`scripts/check-build-matrix.sh` was not run: no `cfg(feature)`, optional dependency or `ExtValue`
+match changed.

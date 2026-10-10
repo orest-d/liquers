@@ -9,13 +9,13 @@ last so they describe tested behaviour. No prerequisite issue. Step 1 (AC-10) is
 ## Progress
 
 - [x] Step 1: Macro tests assert instead of printing (AC-10) — a849a47
-- [ ] Step 2: Signature items, order checks and `state_position` (AC-1…AC-6)
-- [ ] Step 3: Reject the argument `hint` option (AC-11)
-- [ ] Step 4: Macro unit tests for Steps 2–3
-- [ ] Step 5: 1-based argument numbers in runtime errors, with unit tests (AC-12)
-- [ ] Step 6: End-to-end tests `context_parameter_position.rs`
-- [ ] Step 7: Workspace validation (AC-7, AC-10, AC-11 checks)
-- [ ] Step 8: Documents (AC-8, AC-9)
+- [x] Step 2: Signature items, order checks and `state_position` (AC-1…AC-6) — 16055dc
+- [x] Step 3: Reject the argument `hint` option (AC-11) — 16055dc
+- [x] Step 4: Macro unit tests for Steps 2–3 — 16055dc
+- [x] Step 5: 1-based argument numbers in runtime errors, with unit tests (AC-12) — f72d129
+- [x] Step 6: End-to-end tests `context_parameter_position.rs` — 82faf8a
+- [x] Step 7: Workspace validation (AC-7, AC-10, AC-11 checks) — Phase 5 §Validation
+- [x] Step 8: Documents (AC-8, AC-9) — 18ba63f
 
 ## Implementation Steps
 
@@ -70,7 +70,8 @@ Done in `a849a47`; see Phase 2 and `MACRO-TESTS-PRINT-TO-STDOUT`.
 - Proof: `cargo test -p liquers-core --lib --tests`; `cargo test -p liquers-lib --lib --tests`
   (every macro use compiles, AC-7); `cargo test -p liquers-lib --test registry_export`;
   `grep -c 'println!' liquers-macro/src/registration.rs` → 0 (AC-10); `cargo build -p liquers-macro`
-  without `warning:` (AC-11); `cargo fmt --check -p liquers-macro -p liquers-core`.
+  without `warning:` (AC-11); `cargo fmt --check -p liquers-macro`, and `rustfmt --check` on the new test file (`liquers-core`
+  as a whole is not rustfmt-clean, `WORKSPACE-NOT-RUSTFMT-CLEAN`).
 - Rollback: n/a (checks only).
 
 ### Step 8: Documents
@@ -105,6 +106,6 @@ only one track lands, the other's ACs stay open and Phase 5 records them as an i
 
 ## Phase 5 Entry Criteria
 
-- [ ] Implementation finished and validated (all Progress items ticked)
-- [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
+- [x] Implementation finished and validated (all Progress items ticked)
+- [x] User and review comments answered
+- [x] Documentation checkable against implemented and tested behaviour

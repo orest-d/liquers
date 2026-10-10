@@ -2,7 +2,7 @@
 id: MACRO-TESTS-PRINT-TO-STDOUT
 kind: issue
 title: liquers-macro unit tests print generated tokens to stdout
-status: in_progress
+status: closed
 priority: P3
 complexity: S
 area: [macro]
@@ -36,6 +36,5 @@ Found on 2026-10-10 while reading the macro's test module for the `context-param
 
 ## Resolution
 
-Merged into `design/context-param-order/` (AC-10) on 2026-10-10 at the maintainer's request and
-fixed on its branch: the prints are gone and the four tests that only built tokens now assert on
-them. Closed by that design's Phase 5.
+Fixed in `a849a47` as `design/context-param-order/` AC-10: no `println!` remains and the tests
+that only printed now assert.
