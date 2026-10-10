@@ -127,6 +127,11 @@ pub async fn finalize_plan_expanded<E: Environment>(
 /// **A stateful application requires a fully expanded plan**, and gets one: the cut is skipped
 /// whenever `input_state` carries a value, with a `Step::Info` recording why. See
 /// [`finalize_plan_expanded`] for the other two ways to obtain an expanded plan.
+///
+/// The asset manager's `cut_predecessors()` switch (`assets.cut_predecessors: false`) also skips
+/// the cut, for every plan: a debugging aid to check whether cutting changes a result. Nothing else
+/// about the manager is read here — the plan does not depend on caching strategies or on which
+/// assets exist; whether a boundary is reused or registered is decided when it executes.
 pub async fn finalize_plan<E: Environment>(
     envref: EnvRef<E>,
     plan: &mut Plan,
@@ -135,7 +140,13 @@ pub async fn finalize_plan<E: Environment>(
 ) -> Result<(), Error> {
     finalize_plan_expanded(envref.clone(), plan, context).await?;
 
-    if input_state.is_none() {
+    if !envref.get_asset_manager().cut_predecessors() {
+        // The debugging switch: a fully expanded plan, to compare against the cut one. Nothing is
+        // reused either, since reuse happens only where a boundary step executes.
+        plan.init_info(
+            "Predecessor boundary not cut: cut_predecessors is false".to_string(),
+        );
+    } else if input_state.is_none() {
         // Cut after the analysis passes deliberately: volatility, payload requirement and
         // expiration are computed over the fully expanded plan, and the cut consults them
         // rather than recomputing them. After freezing, so the boundary query is absolute and
