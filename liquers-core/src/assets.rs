@@ -4216,6 +4216,13 @@ impl<E: Environment> AssetRef<E> {
     /// whose value came from the key's resolved recipe, which is kept. `Ok(())` either way.
     /// Used by `Context::set_title` and `Context::set_description`; unlike
     /// [`Self::set_description_fields`] it does not override the recipe.
+    /// Whether the resolved recipe declared the title and the description — the fields a
+    /// command cannot override (see [`Self::set_description_fields_from_command`]).
+    pub(crate) async fn recipe_declared_description(&self) -> (bool, bool) {
+        let lock = self.data.read().await;
+        (lock.recipe_sets_title, lock.recipe_sets_description)
+    }
+
     pub(crate) async fn set_description_fields_from_command(
         &self,
         title: Option<String>,

@@ -15,7 +15,7 @@ use crate::{
         analyze_plan_dependencies, ParameterValue, Plan, PlanBuilder, ResolvedParameterValues,
         Step,
     },
-    query::{CwdCursor, Key, Query, QuerySegment, TryToQuery, RELATIVE_WITHOUT_CWD_WARNING},
+    query::{CwdCursor, Key, Query, TryToQuery, RELATIVE_WITHOUT_CWD_WARNING},
     recipes::Recipe,
     state::State,
     value::ValueInterface,
@@ -330,14 +330,36 @@ fn resolve_absolute_query_resource_step(step: Step) -> Step {
     }
 }
 
+/// Applies `plan` to `input_state` and returns the value of the last step.
+///
+/// The metadata of the state each step hands to the next is described at
+/// [`apply_plan_state`]; this returns only the value, because the asset's own record — not the
+/// last intermediate state — is the authoritative metadata of what the plan produced.
 pub fn apply_plan<E: Environment>(
+    plan: Plan,
+    input_state: State<E::Value>,
+    context: Context<E>,
+    envref: EnvRef<E>,
+) -> crate::maybe_send::BoxFuture<'static, Result<Arc<E::Value>, Error>> {
+    async move {
+        apply_plan_state(plan, input_state, context, envref)
+            .await?
+            .value()
+    }
+    .maybe_boxed()
+}
+
+/// Applies `plan` to `input_state` and returns the state the last step produced.
+///
+/// Every step builds the state it hands on ([`do_step_state`]). The reference is the cut plan:
+/// a predecessor boundary hands on the state of its asset unchanged, and the expanded form
+/// approximates that state. See `specs/design/plan-step-state-metadata/`.
+pub(crate) fn apply_plan_state<E: Environment>(
     mut plan: Plan,
     input_state: State<E::Value>,
     context: Context<E>,
     envref: EnvRef<E>,
-) -> crate::maybe_send::BoxFuture<'static, Result<Arc<E::Value>, Error>>
-//impl std::future::Future<Output = Result<State<<E as NGEnvironment>::Value>, Error>>
-{
+) -> crate::maybe_send::BoxFuture<'static, Result<State<E::Value>, Error>> {
     if let Some(step_index) = plan.absolute_query_resource_step_index() {
         plan.steps[step_index] =
             resolve_absolute_query_resource_step(plan.steps[step_index].clone());
@@ -376,111 +398,14 @@ pub fn apply_plan<E: Environment>(
         schedule_plan_dependencies(&plan, &context).await?;
         context.evaluate_local_queue().await?;
         let mut state = input_state;
-        let mut origin_key: Option<Key> = None;
         for i in 0..plan.len() {
             eprintln!("Applying step {}/{}: {:?}", i + 1, plan.len(), &plan[i]);
             let step = plan[i].clone();
-            let envref1 = envref.clone();
-            let context1 = context.clone();
-            let res = async move { do_step(step, state, context1, envref1).await }.await?;
-            origin_key = value_origin_key(&plan[i], origin_key, &context)?;
-            let mut metadata = context.get_metadata().await?;
-            if let Some(key) = &origin_key {
-                metadata.key = Some(key.clone());
-            }
-            state = State::new()
-                .with_data((*res).clone())
-                .with_metadata(metadata.into());
+            state = do_step_state(step, state, context.clone(), envref.clone()).await?;
         }
-        state.value()
+        Ok(state)
     }
     .maybe_boxed()
-}
-
-/// The key the value produced by `step` was read from, for the state handed to the next step.
-///
-/// Between steps the state carries the evaluating asset's own metadata, so a command's input
-/// would otherwise never know which resource it came from: `-R/data/x.manifest.yaml/-/ns-rec/…`
-/// runs as a query asset whose metadata has no key. A step that reads the content (or listing) at
-/// a key names that key; a step that only passes its input through keeps the previous answer; any
-/// step producing a new value clears it. Only `key` is set — `filename` and `data_format` stay the
-/// evaluating asset's, so nothing that derives a format from them changes.
-///
-/// Called after `step` ran, so the cwd it resolves against is the one `do_step` used.
-fn value_origin_key<E: Environment>(
-    step: &Step,
-    previous: Option<Key>,
-    context: &Context<E>,
-) -> Result<Option<Key>, Error> {
-    match step {
-        Step::GetAsset(key)
-        | Step::GetAssetBinary(key)
-        | Step::GetAssetDirectory(key)
-        | Step::GetResource(key)
-        | Step::GetResourceDirectory(key) => Ok(Some(context.resolve_key_from_cwd(key)?)),
-        // A predecessor boundary. The cut keeps a namespace declaration with its prefix, so
-        // `-R/data/x.manifest.yaml/-/ns-rec/materialize` evaluates `-R/data/x.manifest.yaml/-/ns-rec`
-        // — still just the asset at the key.
-        Step::Evaluate(query) => Ok(fetched_key(&context.resolve_query_from_cwd(query)?)),
-        Step::Filename(_)
-        | Step::Info(_)
-        | Step::Warning(_)
-        | Step::Error(_)
-        | Step::SetCwd(_) => Ok(previous),
-        Step::GetAssetMetadata(_)
-        | Step::GetAssetRecipe(_)
-        | Step::GetResourceMetadata(_)
-        | Step::UseQueryValue(_)
-        | Step::UseKeyValue(_)
-        | Step::Action { .. }
-        | Step::Plan(_) => Ok(None),
-    }
-}
-
-/// The key `query` evaluates to the asset (or listing) of: a resource segment followed by nothing
-/// but namespace declarations (`ns-…`) and no filename. The segment's header must be one whose
-/// step [`value_origin_key`] names the key for — none, `data`/`value`, `b`/`bin`/`binary`, the
-/// `stored` forms, `dir`/`directory` and `sdir`/`store_directory` — so `-R-sdir/data/-/ns-rec/…`
-/// carries `data` as `-R/data/-/ns-rec/…` would. `None` for any other header and for anything that
-/// runs an action.
-fn fetched_key(query: &Query) -> Option<Key> {
-    let (first, rest) = query.segments.split_first()?;
-    let QuerySegment::Resource(resource) = first else {
-        return None;
-    };
-    let carries_key = match &resource.header {
-        None => true,
-        Some(header) => match header.parameters.first() {
-            None => true,
-            Some(parameter) => matches!(
-                parameter.value.as_str(),
-                "data"
-                    | "value"
-                    | "b"
-                    | "bin"
-                    | "binary"
-                    | "stored"
-                    | "stored_binary"
-                    | "stored_bin"
-                    | "sbin"
-                    | "dir"
-                    | "directory"
-                    | "sdir"
-                    | "store_directory"
-            ),
-        },
-    };
-    if !carries_key {
-        return None;
-    }
-    let key = resource.key.clone();
-    let only_namespaces = rest.iter().all(|segment| match segment {
-        QuerySegment::Resource(_) => false,
-        QuerySegment::Transform(transform) => {
-            transform.filename.is_none() && transform.query.iter().all(|action| action.is_ns())
-        }
-    });
-    only_namespaces.then_some(key)
 }
 
 fn materialize_link_json<'a, E: Environment>(
@@ -568,6 +493,38 @@ fn attach_parameter_link_context(error: Error, parameter: &ParameterValue, query
     }
 }
 
+/// The metadata of a state holding a value a step has just produced (an action's result, a
+/// listing, a metadata or recipe value): a copy of the evaluating asset's record — status, log,
+/// dependencies and what commands wrote through the context — corrected to describe the prefix
+/// that produced it instead of the asset's final query. `query` is that prefix (empty when
+/// unknown); `key`, `filename`, `data_format` and `media_type` are cleared, because a prefix
+/// ending in a value-producing step is a keyless query asset with no filename of its own; a title
+/// or description the asset's *recipe* declared is cleared for the same reason. `is_applied` is
+/// kept, so every intermediate state of an applied plan says so.
+async fn prefix_metadata<E: Environment>(
+    context: &Context<E>,
+    query: Option<&Query>,
+) -> Result<Metadata, Error> {
+    let mut record = context.get_metadata().await?;
+    let (recipe_title, recipe_description) =
+        context.get_asset_ref().recipe_declared_description().await;
+    record.query = query.cloned().unwrap_or_default();
+    record.key = None;
+    record.filename = None;
+    record.data_format = None;
+    record.media_type = None;
+    record.unicode_icon = crate::icons::DEFAULT_ICON.to_string();
+    if recipe_title {
+        record.title.clear();
+    }
+    if recipe_description {
+        record.description.clear();
+    }
+    Ok(Metadata::MetadataRecord(record))
+}
+
+/// Executes one step and returns the value it produces; [`do_step_state`] also returns the
+/// metadata the value is handed on with.
 pub fn do_step<E: Environment>(
     step: Step,
     input: State<E::Value>,
@@ -855,6 +812,157 @@ pub fn do_step<E: Environment>(
             let key = context.resolve_key_from_cwd(&key)?;
             let value = E::Value::from_key(&key);
             Ok(Arc::new(value))
+        }
+        .maybe_boxed(),
+    }
+}
+
+/// A state holding `value` with `metadata`, its type fields synced from the value.
+fn state_of<V: ValueInterface>(value: Arc<V>, metadata: Metadata) -> State<V> {
+    State::from_parts(value, Arc::new(Metadata::new())).with_metadata(metadata)
+}
+
+/// Executes one step and returns the state it hands to the next step.
+///
+/// The cut plan is the reference: a predecessor boundary (`Evaluate`) hands on the state of its
+/// asset unchanged, so a command receives what its predecessor would produce as an asset. The
+/// expanded form approximates that with [`prefix_metadata`].
+///
+/// | Step | State handed on |
+/// |---|---|
+/// | `Evaluate`, `GetAsset` | the dependency's state as resolved (`GetAsset` fills in the key if the record lacks one) |
+/// | `GetAssetBinary` | the bytes, with the dependency's metadata and the format they were written in |
+/// | `GetResource` | the bytes, with the stored metadata |
+/// | `Info`, `Warning`, `Error`, `SetCwd`, `Filename` | the input state, unchanged |
+/// | `Plan` | the state the nested plan produced |
+/// | `Action` | the result, with [`prefix_metadata`] for the action's recorded query |
+/// | `GetAssetDirectory`, `GetResourceDirectory` | the listing, with [`prefix_metadata`] and the listed key |
+/// | `GetAssetMetadata`, `GetResourceMetadata`, `GetAssetRecipe`, `UseQueryValue`, `UseKeyValue` | the value, with [`prefix_metadata`] and no query |
+pub(crate) fn do_step_state<E: Environment>(
+    step: Step,
+    input: State<E::Value>,
+    context: Context<E>,
+    envref: EnvRef<E>,
+) -> crate::maybe_send::BoxFuture<'static, Result<State<E::Value>, Error>> {
+    match step {
+        Step::Evaluate(query) => async move {
+            let query = context.resolve_query_from_cwd(&query)?;
+            // Claim-aware wait (drain the parent's local queue + direct-claim before blocking)
+            // so an at-capacity dependency never deadlocks the parent.
+            context.get_dependency_state(&query).await
+        }
+        .maybe_boxed(),
+        Step::GetAsset(key) => async move {
+            let key = context.resolve_key_from_cwd(&key)?;
+            let state = context.get_dependency_state(&key.clone().into()).await?;
+            // The state of a keyed asset names its key. A record loaded from a store that never
+            // stored one (a file placed by hand) is completed here rather than handed on keyless.
+            let mut metadata = (*state.metadata).clone();
+            if let Metadata::MetadataRecord(record) = &mut metadata {
+                if record.key.is_none() {
+                    record.with_key(key);
+                }
+            }
+            Ok(State::from_parts(
+                state.data_unchecked().clone(),
+                Arc::new(metadata),
+            ))
+        }
+        .maybe_boxed(),
+        Step::GetAssetBinary(key) => async move {
+            let key = context.resolve_key_from_cwd(&key)?;
+            let asset = context.schedule_dependency_asset(&key.into()).await?;
+            // Serialize the state the dependency resolution just returned, rather than issuing a
+            // second, independently-gated read of the same asset (see `do_step`).
+            let state = context.wait_for_dependency(&asset).await?;
+            let binary = state.as_bytes()?;
+            let format = state.effective_data_format();
+            let mut metadata = (*state.metadata).clone();
+            if let Metadata::MetadataRecord(record) = &mut metadata {
+                // The bytes are in the format they were just written in, declared or not.
+                record.data_format = Some(format);
+            }
+            Ok(state_of(
+                Arc::new(<<E as Environment>::Value as ValueInterface>::from_bytes(binary)),
+                metadata,
+            ))
+        }
+        .maybe_boxed(),
+        Step::GetResource(key) => async move {
+            let key = context.resolve_key_from_cwd(&key)?;
+            context.add_log_entry(
+                LogEntry::info("Getting resource".to_string()).with_query(key.clone().into()),
+            )?;
+            let store = envref.get_async_store();
+            let (data, stored) = store.get(&key).await?;
+            let value = Arc::new(<<E as Environment>::Value as ValueInterface>::from_bytes(data));
+            let metadata = match stored {
+                Metadata::MetadataRecord(mut record) => {
+                    if record.key.is_none() {
+                        record.with_key(key);
+                    }
+                    Metadata::MetadataRecord(record)
+                }
+                Metadata::LegacyMetadata(_) => {
+                    context.add_log_entry(
+                        LogEntry::warning(
+                            "Resource metadata is in legacy format; it is not handed on"
+                                .to_string(),
+                        )
+                        .with_query(key.clone().into()),
+                    )?;
+                    let mut metadata = prefix_metadata(&context, None).await?;
+                    if let Metadata::MetadataRecord(record) = &mut metadata {
+                        record.with_key(key);
+                    }
+                    metadata
+                }
+            };
+            Ok(state_of(value, metadata))
+        }
+        .maybe_boxed(),
+        Step::Info(_)
+        | Step::Warning(_)
+        | Step::Error(_)
+        | Step::SetCwd(_)
+        | Step::Filename(_) => async move {
+            // Run the step for its effect on the context; the value passes through untouched,
+            // and so does the description of it.
+            do_step(step, input.clone(), context, envref).await?;
+            Ok(input)
+        }
+        .maybe_boxed(),
+        Step::Plan(plan) => apply_plan_state(plan, input, context, envref),
+        Step::Action { ref query, .. } => {
+            let query = query.clone();
+            async move {
+                let value = do_step(step, input, context.clone(), envref).await?;
+                let metadata = prefix_metadata(&context, query.as_ref()).await?;
+                Ok(state_of(value, metadata))
+            }
+            .maybe_boxed()
+        }
+        Step::GetAssetDirectory(ref key) | Step::GetResourceDirectory(ref key) => {
+            let key = key.clone();
+            async move {
+                let listed = context.resolve_key_from_cwd(&key)?;
+                let value = do_step(step, input, context.clone(), envref).await?;
+                let mut metadata = prefix_metadata(&context, None).await?;
+                if let Metadata::MetadataRecord(record) = &mut metadata {
+                    record.key = Some(listed);
+                }
+                Ok(state_of(value, metadata))
+            }
+            .maybe_boxed()
+        }
+        Step::GetAssetMetadata(_)
+        | Step::GetResourceMetadata(_)
+        | Step::GetAssetRecipe(_)
+        | Step::UseQueryValue(_)
+        | Step::UseKeyValue(_) => async move {
+            let value = do_step(step, input, context.clone(), envref).await?;
+            let metadata = prefix_metadata(&context, None).await?;
+            Ok(state_of(value, metadata))
         }
         .maybe_boxed(),
     }
@@ -1222,20 +1330,6 @@ mod tests {
             .is_volatile(envref)
             .await?
         );
-        Ok(())
-    }
-
-    /// A predecessor boundary carries its key when the resource header's step reads the content
-    /// or listing at the key (as `value_origin_key` does for the step itself), and not otherwise.
-    #[test]
-    fn fetched_key_honours_the_resource_header() -> Result<(), Error> {
-        let data = parse_key("data")?;
-        for carrying in ["-R/data/-/ns-rec", "-R-sdir/data/-/ns-rec", "-R-dir/data/-/ns-rec", "-R-bin/data"] {
-            assert_eq!(fetched_key(&parse_query(carrying)?), Some(data.clone()), "{carrying}");
-        }
-        for not_carrying in ["-R-meta/data/-/ns-rec", "-R-key/data", "-R/data/-/ns-rec/materialize"] {
-            assert_eq!(fetched_key(&parse_query(not_carrying)?), None, "{not_carrying}");
-        }
         Ok(())
     }
 
