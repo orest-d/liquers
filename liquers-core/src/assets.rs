@@ -2620,6 +2620,33 @@ impl<E: Environment> AssetRef<E> {
         self.data.read().await.key.clone()
     }
 
+    /// How this asset was created, as far as caching goes: its recipe's `cached` strategy, else
+    /// the manager's default for its kind — `recipe_cache_strategy` for a keyed asset,
+    /// `query_cache_strategy` for a non-keyed one.
+    ///
+    /// A non-keyed dependency the manager constructs (a predecessor boundary, a link, a
+    /// `context.evaluate`) has its creator's strategy written into its recipe, so a boundary
+    /// follows the asset that created it. The strategy decides what this asset registers for
+    /// reuse — its result and the intermediates it creates — and never changes a value. See
+    /// [`crate::cache_strategy`].
+    pub async fn cache_strategy(&self) -> CacheStrategy {
+        let (explicit, keyed) = {
+            let lock = self.data.read().await;
+            (lock.recipe.cached, lock.key.is_some())
+        };
+        match explicit {
+            Some(strategy) => strategy,
+            None => {
+                let manager = self.get_envref().await.get_asset_manager();
+                if keyed {
+                    manager.recipe_cache_strategy()
+                } else {
+                    manager.query_cache_strategy()
+                }
+            }
+        }
+    }
+
     /// Whether this asset's plan required an evaluation payload.
     ///
     /// Recorded during evaluation by [`Context::set_payload_required`](crate::context::Context::set_payload_required)
