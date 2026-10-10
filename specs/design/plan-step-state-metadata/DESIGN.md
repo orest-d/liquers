@@ -4,7 +4,9 @@ kind: design
 title: A plan step's input state is the state its predecessor would produce as an asset
 workflow: liquers-project
 status: in_review
-phase: architecture
+phase: implementation
+readiness: needs-decision
+autofix: not-eligible
 area: [core/plan, core/context]
 issues: [FREE-FUNCTION-EVALUATE-BAKES-A-BIN-DATA-FORMAT, CONTEXT-STEP-REPLACES-INPUT-STATE-METADATA]
 merged: 2026-10-10
@@ -21,12 +23,15 @@ because under that rule a prefix asset's metadata reaches the next command as it
 ## Phase Status
 
 - [x] Phase 1: High-Level Design — `phase1-high-level-design.md` (approved 2026-10-10)
-- [ ] Phase 2: Architecture — `phase2-architecture.md` (in review)
-- [ ] Phase 3: Examples and Tests
-- [ ] Phase 4: Implementation Plan
+- [x] Phase 2: Architecture — `phase2-architecture.md` (approved 2026-10-10)
+- [x] Phase 3: Examples and Tests — `phase3-examples.md` (pre-approved)
+- [x] Phase 4: Implementation Plan — `phase4-implementation.md` (pre-approved; stopped before implementation on one needs-decision item)
 - [ ] Phase 5: Documentation
 
 ## Notes
+
+Pre-approved after Phase 2 on 2026-10-10.
+
 
 Started as a compact design for `CONTEXT-STEP-REPLACES-INPUT-STATE-METADATA` (size M). Converted
 to the full form on 2026-10-10 after the scope grew (Phase 1 §Scope Changes); the compact Phase 1

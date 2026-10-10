@@ -171,9 +171,23 @@ Settled with the maintainer on 2026-10-10; Phase 2 implements them.
    the prefix query, although the value depends on the input; the applied asset's own record
    already carries its recipe's query in the same situation.
 
-## Open Questions
+## Design Readiness
 
-None blocking. Decision 7 is an assumption awaiting confirmation at the Phase 2 gate.
+Decision log under pre-approval (Phases 3-4 pre-approved after Phase 2 on 2026-10-10).
+
+- **Readiness:** needs-decision
+- **Automatic fixing:** not-eligible — changes documented step-state and plan-cut semantics and a
+  public signature (`Recipe::data_format`), and carries an open decision.
+- **Leading issue:** Decision 7, needs decision.
+- **Explanation:** Phases 1-4 specify a working solution; the consistency pass over all four found
+  no contradiction, every AC is cited by a Phase 3 test, and every Phase 4 step has a proof.
+- **Open questions:**
+  1. **Needs decision — prefix query under an applied input state (Decision 7).** Assumed: record
+     it, as the applied asset's own record already carries its recipe's query. Alternative: leave
+     `query` unset on actions of a plan applied to a non-empty state, so the metadata never names
+     a query that does not reproduce the value. Either is a one-line difference in Step 4.
+  2. **Proposed resolution — Phase 1 length.** Phase 1 is over the size guideline because of the
+     ownership background; it moves into DOC_04 at Phase 5 and Phase 1 then cites it.
 
 ## Design Dependencies
 
