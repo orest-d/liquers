@@ -220,19 +220,33 @@ Each changed reference or guide gets a `## History` row and a `reviewed:` bump.
   up.
 - **predecessor** `predecessor-cut-equivalence` (complete): the boundary walk this extends.
 
-## Open Questions
+## Design Readiness
 
-No open question is left for Phase 1. Resolved on 2026-10-10:
+Decision log, kept under the pre-approval given after Phase 2 (2026-10-10). Tiers follow
+`autonomous_bulk_design.md` §3.
 
-1. **Where a boundary's strategy lives:** on the asset, set at construction. The context reads it
-   through its asset. It is not a context field or a `Step` field.
-2. **`a/b` and `a/b/v`:** both cache `a/b`, and `a/b/v` yields a volatile, unmanaged asset holding
-   that value. No problem with it. Phase 2 relaxes the `>=` empty-tail guard in `cut_predecessor`
-   for positional volatility, since `Evaluate(a/b)` then names a different, cacheable asset rather
-   than recomputing the whole plan.
-3. **Reuse is decided at execution, not at finalisation.** The plan does not depend on the asset
-   manager's state. The question about an expiry between finalisation and use no longer arises; an
-   expiry during use is the existing dependency-expiry behaviour.
+- **Blocking:** none.
+- **Needs decision:** none.
+- **Resolved with the user before the Phase 1 gate (2026-10-10):**
+  1. A boundary's strategy lives on the asset, set at construction. The context reads it through
+     its asset; it is neither a context field nor a `Step` field.
+  2. `a/b` and `a/b/v` both cache `a/b`, and `a/b/v` yields a volatile, unmanaged asset holding
+     that value. Phase 2 relaxes the `>=` empty-tail guard in `cut_predecessor` for positional
+     volatility.
+  3. Reuse is decided at execution, not at finalisation. The plan does not depend on the asset
+     manager's state. An expiry during use is the existing dependency-expiry behaviour.
+- **Proposed resolutions (taken as assumptions in Phases 2–4):**
+  4. **Every non-keyed dependency follows its creator's strategy, not only a cut boundary.** This
+     covers a link parameter's query and a command's own `context.evaluate`. They are computed on
+     behalf of the creating asset, exactly as a boundary is, so the "strategy follows the origin"
+     rule applies to them unchanged. A keyed dependency always follows its own recipe.
+  5. A recipe's `cached` is serialised as the word (`all`, `result`, `none`). Booleans are still
+     accepted when reading.
+  6. `Context::cache_strategy()` is public and read-only, so a command can see how its asset is
+     being kept.
+- **Implementation details (fixed in Phase 4):** `Option` instead of `bool` for the two
+  default-`true` flags; `with_policies(&AssetManagerOptions)`; an `ImmediateAssetManager`
+  override of `get_dependency_asset`.
 
 ## References
 

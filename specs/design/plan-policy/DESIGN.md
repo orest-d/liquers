@@ -3,8 +3,8 @@ id: PLAN-POLICY
 kind: design
 title: Caching strategies for recipes and queries, an inline-running command flag, positional volatility, and retirement of the plan-builder policy markers
 workflow: liquers-project
-status: in_review
-phase: architecture
+status: approved
+phase: implementation
 area: [core/plan, core/assets, core/commands, core/query, core/context]
 issues: [CORE-PLAN-POLICY-AND-DEFAULTS, V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL]
 merged: 2026-10-10
@@ -22,9 +22,12 @@ merged on 2026-10-10 at the user's request.
 ## Phase Status
 
 - [x] Phase 1: High-Level Design — **approved 2026-10-10**
-- [ ] Phase 2: Architecture — in review
-- [ ] Phase 3: Examples and Tests
-- [ ] Phase 4: Implementation Plan
+- [x] Phase 2: Architecture — **approved 2026-10-10**
+
+Pre-approved after Phase 2 on 2026-10-10 (`proceed all`): Phases 3 and 4, implementation and Phase 5.
+
+- [x] Phase 3: Examples and Tests — reviewed 2026-10-10 (pre-approved)
+- [x] Phase 4: Implementation Plan — reviewed 2026-10-10 (pre-approved; decision log: nothing blocking, nothing needs a decision)
 - [ ] Implementation
 - [ ] Phase 5: Documentation
 
