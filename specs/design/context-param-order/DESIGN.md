@@ -93,9 +93,18 @@ metadata has exactly one argument, `limit`, at index 0; and the query `load-5` r
 - **AC-8** The documentation states the rule, not the workaround
   WHEN `REGISTER_COMMAND_FSD.md`, `COMMAND_REGISTRATION_GUIDE.md`, `RECORD_STREAM_GUIDE.md`, `CLAUDE.md` and the `rust-best-practices` anti-patterns are read
   THEN they say `context` may appear at any position and occupies no argument slot, and none presents "context last" as required
+- **AC-9** The documentation recommends a conventional position
+  WHEN the reference and the guide describe where to put `context`
+  THEN they recommend it **last**, or **immediately before a `multiple` argument** when there is one, giving the reason: a Python signature cannot take a positional parameter after `*args` (`def f(state, context, *items)`), so this position keeps a command portable to the Python bindings; their examples follow the recommendation except the one that demonstrates `context` first
+
+**Position rules (decided 2026-10-10).** The state keyword, when present, is the first parameter
+that is not `context`. `context` may appear at any position, before the state included; the
+recommended position is last, or just before a `multiple` argument (AC-9). The recommendation is
+documentation only: the macro does not warn, because a stable proc-macro cannot emit warnings and
+every position is correct.
 
 **Non-goals.** Taking the context by reference (`&Context<E>`); renaming the parameter (`ctx`);
-moving the state to arbitrary positions (see Q1); hand-built `CommandMetadata` and manual
+moving the state to other positions (Q1); hand-built `CommandMetadata` and manual
 registration, where `context` is already a separate wrapper parameter; the JavaScript calling
 convention (`JS-COMMAND-CANNOT-ACCESS-CONTEXT`).
 
@@ -114,30 +123,30 @@ convention (`JS-COMMAND-CANNOT-ACCESS-CONTEXT`).
 - **Reference:** `specs/reference/REGISTER_COMMAND_FSD.md` §"Context Parameter" states the position
   rule, the duplicate/misplacement errors and the keyword-versus-argument rule for `value` / `text` /
   `state`.
-- **Guide:** `specs/guides/COMMAND_REGISTRATION_GUIDE.md` gets one example with `context` first;
-  no new guide.
+- **Guide:** `specs/guides/COMMAND_REGISTRATION_GUIDE.md` states the recommended position (AC-9)
+  with one example before a `multiple` argument, and one example with `context` first labelled as
+  allowed but not recommended; no new guide.
 - **Other documents updated:** `specs/guides/RECORD_STREAM_GUIDE.md` (drops "context as its last
   parameter" as a requirement); `CLAUDE.md` DSL reference (one line);
   `.claude/skills/rust-best-practices/references/anti-patterns.md` (the "context not last" smell is
-  removed); the `JS-COMMAND-CANNOT-ACCESS-CONTEXT` note that the macro "requires context last".
+  replaced by the recommendation); the `JS-COMMAND-CANNOT-ACCESS-CONTEXT` note that the macro "requires context last".
 - **Not edited:** completed designs (`variadic-arguments-declaration`, `record-streams`,
   `store-and-asset-search`) that recorded "context must be last" as honoured at their time — they
   are history.
 
 ### Open Questions
 
-1. **Open design — may the state also go anywhere?** Recommended: **no.** The state stays before
-   every argument, and only `context` may precede it (AC-6). The state is the pipeline input, not
-   an argument, and this matches the language-neutral convention in `COMMAND-DECLARATION`, where
-   the first non-context argument becomes the state (`command_declaration.rs`,
-   `WarningKind::ContextBeforeState`). Allowing it anywhere is cheap once keywords are recognised by
-   form (AC-5) but has no known use, and a second free position makes signatures harder to read.
-   *If you prefer "anywhere", AC-6 narrows to "state declared twice".*
-2. **Proposed resolution — keep the `Context` alias.** The parser accepts `Context` as well as
-   `context`; keep both, and treat them as the same parameter for AC-4.
-3. **Proposed resolution — a no-op rename of the issue.** The issue title ("must come last, as a
-   workaround") stays as filed; the issue is closed by this design's Phase 5.
-4. **Implementation detail — error spans.** AC-4 and AC-6 report on the offending token's span, as
+All resolved by the maintainer on 2026-10-10; none remain open.
+
+1. **Resolved — the state is first.** The state keyword may only be the first parameter (counting
+   every parameter except `context`); anywhere else is AC-6's error. `context` may still precede it
+   (AC-1), since `context` may be anywhere. This matches `COMMAND-DECLARATION`, where the first
+   non-context argument becomes the state (`WarningKind::ContextBeforeState`).
+2. **Resolved — keep the `Context` alias,** treated as the same parameter for AC-4.
+3. **Resolved — the issue keeps its title** and is closed by this design's Phase 5.
+4. **Resolved — recommended position (new):** `context` last, or immediately before a `multiple`
+   argument, for Python-convention parity (AC-9). Documentation only; nothing is enforced.
+5. **Implementation detail — error spans.** AC-4 and AC-6 report on the offending token's span, as
    the existing `multiple`-ordering check does (`impl Parse for CommandSignature`).
 
 ### Design Dependencies
@@ -157,6 +166,8 @@ convention (`JS-COMMAND-CANNOT-ACCESS-CONTEXT`).
 
 - 2026-10-10 — Design rewritten in the five-phase compact form. The original index-shift fix is
   recorded as landed; the old findings and solution moved to `specs/archive/`.
+- 2026-10-10 — AC-9 added and Q1-Q3 resolved after maintainer feedback: state first; `context`
+  anywhere, recommended last or before a `multiple` argument (Python `*args` convention).
 - 2026-10-10 — AC-5 added: the bare-keyword misparse of a stateless first argument named `value` /
   `text` / `state` was found while verifying this design. Triage case 1 (belongs to the design in
   hand): same root cause — state keywords recognised by position, not form — and same change site
