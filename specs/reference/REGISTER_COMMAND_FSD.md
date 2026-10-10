@@ -3,7 +3,7 @@ title: register_command! Macro Functional Specification
 kind: reference
 audience: internal
 area: [macro, core/commands]
-reviewed: 2026-10-07
+reviewed: 2026-10-10
 ---
 # register_command! Macro Functional Specification
 
@@ -58,7 +58,7 @@ register_command!(cr, fn my_command(state, arg: String) -> result)?;
 ```
 register_command!(
     <registry>,
-    [async] fn <name>(<state_param>, <params...>) -> <return_type>
+    [async] fn <name>([context,] <state_param>, <params...>) -> <return_type>
     [<metadata_statements...>]
 )
 ```
@@ -71,7 +71,7 @@ register_command!(
 | `async` | No | Makes the command async |
 | `<name>` | Yes | Function name (must match defined function) |
 | `<state_param>` | No | How to pass input state to function |
-| `<params>` | No | Command parameters |
+| `<params>` | No | Command parameters, and `context` at any position (§Context Parameter) |
 | `<return_type>` | Yes | Either `result` or `value` |
 | `<metadata_statements>` | No | Command metadata (label, doc, etc.) |
 
@@ -79,7 +79,13 @@ register_command!(
 
 ## State Parameter
 
-The first parameter position (before the comma) specifies how the input state is passed to the command function.
+The state keyword specifies how the input state is passed to the command function. It comes
+before every argument; only `context` may precede it (§Context Parameter).
+
+A keyword is recognised by its **form**: a bare `state`, `value` or `text` is the state keyword,
+while the same word followed by `:` names an argument. `fn cmd(value: String)` is a command with no
+state and one argument called `value`; `fn cmd(value)` takes the state's value. Placing the state
+after an argument, or declaring it twice, is a compile-time error.
 
 | DSL Keyword | Function Receives | Use Case |
 |-------------|-------------------|----------|
@@ -240,6 +246,10 @@ register_command!(cr,
 | `enum: <EnumSpec>` | Inline enum alternatives and mapping |
 | `enum_ref: "..."` | Reference a global enum by name |
 
+`hint key: "..."` is rejected with *argument hints are not supported; `hint` would be ignored*.
+It used to be parsed and silently dropped. Argument hints are planned in
+`design/command-metadata-descriptions-and-hints/`.
+
 Enum metadata syntax:
 
 ```text
@@ -301,15 +311,37 @@ When enum metadata is present and `gui:` is omitted, defaults are:
 
 ## Context Parameter
 
-The special `context` keyword passes the execution context to the function:
+The special `context` keyword (or `Context`) passes the execution context to the function. It is
+not a command argument: it takes no type, consumes no query parameter and occupies no argument slot,
+so the argument numbering in the metadata and in `specs/command_registry.yaml` skips it.
+
+**Position.** `context` may appear anywhere in the list — before the state, between arguments, or
+last — and the generated wrapper passes it to the function in the declared position:
 
 ```rust
-fn cmd(state: &State<Value>, context: Context<E>) -> Result<Value, Error> {
-    context.info("Processing...");
+fn cmd(state: &State<Value>, n: i64, context: Context<E>) -> Result<Value, Error> {
+    context.info("Processing...")?;
     // ...
 }
-register_command!(cr, fn cmd(state, context) -> result)?;
+register_command!(cr, fn cmd(state, n: i64, context) -> result)?;
 ```
+
+**Recommended position:** last, or immediately before a `multiple` argument when there is one:
+
+```rust
+register_command!(cr, fn join(state, context, items: Vec<String> multiple) -> result)?;
+```
+
+The reason is portability: a Python signature cannot take a positional parameter after `*args`
+(`def join(state, context, *items)`), so this order maps directly to the Python bindings.
+`context` first (`fn cmd(context, state, n: i64)`) is allowed but not recommended.
+
+**Compile-time errors**, each reported at the offending token:
+
+| Signature | Error |
+|---|---|
+| `context` declared twice (either spelling) | `` `context` is declared twice `` |
+| `context: T` | `` `context` is reserved for the execution context and takes no type `` |
 
 Context provides:
 - `envref` - Reference to Environment
@@ -541,11 +573,17 @@ register_command!(cr, fn cmd(state) -> result)?;
 register_command!(cr, fn cmd(state) -> result).expect("registration failed");
 ```
 
-Common errors:
+Common compile-time errors:
 - Parameter name starts with `_` or contains `__`
+- `context` declared twice or given a type; the state keyword declared twice or after an argument
+- An argument `hint` option (not supported)
 - Unknown metadata statement
 - Invalid default value type
-- Type mismatch between function and DSL
+- Type mismatch between function and DSL — including parameter *order*: the wrapper calls the
+  function with its parameters in the declared order
+
+At run time, an argument error names the argument by its 1-based position in the command's argument
+list and by name, e.g. `Missing argument #1 'limit'`.
 
 ---
 
@@ -627,7 +665,7 @@ pub fn register_commands(mut env: DefaultEnvironment<Value>) -> Result<DefaultEn
 
 ## References
 
-- Implementation: `liquers-macro/src/lib.rs`
+- Implementation: `liquers-macro/src/registration.rs` (entry point `liquers-macro/src/lib.rs`)
 - Usage examples: `liquers-lib/src/commands.rs`, `liquers-core/tests/async_hellow_world.rs`
 - Command framework: `liquers-core/src/commands.rs`
 - Command metadata: `liquers-core/src/command_metadata.rs`
@@ -640,6 +678,7 @@ pub fn register_commands(mut env: DefaultEnvironment<Value>) -> Result<DefaultEn
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | §Context Parameter rewritten: `context` at any position, the recommended position (last or before `multiple`, for Python `*args` parity), its compile-time errors; §State Parameter: keywords recognised by form, state before every argument; §Parameter Metadata: argument `hint` rejected; §Error Handling: new diagnostics, 1-based argument numbers; §References: implementation file. | phase-5, `design/context-param-order/` |
 | 2026-10-07 | §Metadata Statements: rows for `payload:`, `expires:` and `version:`, the example block shows them, new §Implementation versions (`#[command_version]`); §Injected Parameters links `payload: required`. | phase-5, `design/register-command-payload-docs/` |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5 (its Phase 4 plan added this document to the set): §Async Commands states that an async command taking `context` needs the `CommandEnvironment` alias in scope for its own signature. | phase-5 |
 | 2026-09-04 | Made omitted argument `gui_info` use the shared `command_metadata::DEFAULT_GUI` (`TextField(40)`) in macro, declaration, and serde paths. | `ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS` |

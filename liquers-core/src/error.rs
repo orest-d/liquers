@@ -207,10 +207,14 @@ impl Error {
         )
         .with_position(&action.position)
     }
+    /// A command argument has no value.
+    ///
+    /// `i` is the argument's 0-based slot in the command's argument list; the message numbers
+    /// arguments from 1, like [`Self::too_many_parameters`], and always names the argument.
     pub fn missing_argument(i: usize, name: &str, position: &Position) -> Self {
         Error::new(
             ErrorType::ArgumentMissing,
-            format!("Missing argument #{}:{}", i, name),
+            format!("Missing argument #{} '{}'", i + 1, name),
         )
         .with_position(position)
     }

@@ -1054,7 +1054,6 @@ enum CommandParameterStatement {
     Gui(ArgumentGUIInfo),
     Enum(EnumParameterSpec),
     EnumRef(String),
-    Hint(String, String), // TODO: Implement hints
 }
 
 impl Parse for CommandParameterStatement {
@@ -1080,16 +1079,13 @@ impl Parse for CommandParameterStatement {
                 let lit: syn::LitStr = input.parse()?;
                 Ok(CommandParameterStatement::EnumRef(lit.value()))
             }
-            "hint" => {
-                // Parse: hint key_identifier: "Some hint"
-                let key: syn::Ident = input.parse()?;
-                input.parse::<syn::Token![:]>()?;
-                let lit: syn::LitStr = input.parse()?;
-                Ok(CommandParameterStatement::Hint(
-                    key.to_string(),
-                    lit.value(),
-                ))
-            }
+            // Argument hints were once parsed and silently dropped. Until `ArgumentInfo` hints
+            // can be set from the macro (design `command-metadata-descriptions-and-hints`), a
+            // hint is an error rather than an option that does nothing.
+            "hint" => Err(syn::Error::new(
+                ident.span(),
+                "argument hints are not supported; `hint` would be ignored",
+            )),
             other => Err(syn::Error::new(
                 ident.span(),
                 format!("Unknown command parameter statement '{}'", other),
@@ -1119,6 +1115,9 @@ struct CommandSignature {
     pub payload_required: bool,
     pub expires: String,
     pub impl_version: Option<CommandImplVersionSpec>,
+    /// Index in `parameters` before which the state is passed: 1 when `context` precedes the
+    /// state, otherwise 0. Unused when `state_parameter` is `StateParameter::None`.
+    pub state_position: usize,
     pub wrapper_version: WrapperVersion,
 }
 
@@ -1154,13 +1153,14 @@ impl CommandSignature {
     }
 
     pub fn wrapper_arguments(&self) -> proc_macro2::TokenStream {
-        let state_param = self.state_argument_parameter();
-        let mut args = vec![];
-        if let Some(state_param) = state_param {
-            args.push(state_param);
-        }
-        for param in &self.parameters {
-            args.push(param.parameter_name());
+        // Arguments are passed in declared order, so the state goes where it was declared.
+        let mut args: Vec<proc_macro2::TokenStream> = self
+            .parameters
+            .iter()
+            .map(|param| param.parameter_name())
+            .collect();
+        if let Some(state_param) = self.state_argument_parameter() {
+            args.insert(self.state_position.min(args.len()), state_param);
         }
         quote! {
             #(#args),*
@@ -1596,8 +1596,14 @@ impl Parse for CommandParameter {
         if input.peek(syn::Ident) {
             let fork = input.fork();
             let ident: syn::Ident = fork.parse()?;
-            if ident == "context" || ident == "Context" {
+            if is_context_keyword(&ident) {
                 input.parse::<syn::Ident>()?;
+                if input.peek(syn::Token![:]) {
+                    return Err(syn::Error::new(
+                        ident.span(),
+                        "`context` is reserved for the execution context and takes no type",
+                    ));
+                }
                 Ok(CommandParameter::Context)
             } else {
                 let name: syn::Ident = input.parse()?;
@@ -1739,7 +1745,6 @@ impl Parse for CommandParameter {
                                 }
                                 enum_spec = Some(EnumParameterSpec::Ref(spec));
                             }
-                            CommandParameterStatement::Hint(_, _) => {} // TODO: handle hints
                         }
                         if content.peek(syn::Token![,]) {
                             content.parse::<syn::Token![,]>()?;
@@ -1778,19 +1783,51 @@ impl Parse for CommandSignature {
         let content;
         syn::parenthesized!(content in input);
 
-        let state_parameter = StateParameter::parse(&content)?;
-
+        // The state keyword and `context` are recognised by form, not by position: `context` may
+        // appear anywhere, and the state must precede every argument (only `context` may come
+        // before it). The state is kept out of `parameters`; `state_position` records where the
+        // wrapper passes it.
+        let items = content.parse_terminated(SignatureItem::parse, syn::Token![,])?;
+        let mut state_parameter = StateParameter::None;
+        let mut state_keyword: Option<syn::Ident> = None;
+        let mut state_position = 0usize;
+        let mut context_seen = false;
         let mut parameters = Vec::new();
-        while (parameters.is_empty() && state_parameter == StateParameter::None)
-            || content.peek(syn::Token![,])
-        {
-            if (!parameters.is_empty()) || state_parameter != StateParameter::None {
-                content.parse::<syn::Token![,]>()?;
+        for item in items {
+            match item {
+                SignatureItem::State(state, keyword) => {
+                    if state_keyword.is_some() {
+                        return Err(syn::Error::new(
+                            keyword.span(),
+                            "the state parameter is declared twice",
+                        ));
+                    }
+                    let follows_argument = parameters.iter().any(|p| match p {
+                        CommandParameter::Param { .. } => true,
+                        CommandParameter::Context => false,
+                    });
+                    if follows_argument {
+                        return Err(syn::Error::new(
+                            keyword.span(),
+                            format!(
+                                "the state parameter `{keyword}` must come before every argument; \
+                                 only `context` may precede it"
+                            ),
+                        ));
+                    }
+                    state_position = parameters.len();
+                    state_parameter = state;
+                    state_keyword = Some(keyword);
+                }
+                SignatureItem::Context(span) => {
+                    if context_seen {
+                        return Err(syn::Error::new(span, "`context` is declared twice"));
+                    }
+                    context_seen = true;
+                    parameters.push(CommandParameter::Context);
+                }
+                SignatureItem::Param(parameter) => parameters.push(parameter),
             }
-            if content.is_empty() {
-                break;
-            }
-            parameters.push(content.parse()?);
         }
 
         // A `multiple` argument consumes every remaining action parameter, so any argument
@@ -1895,34 +1932,64 @@ impl Parse for CommandSignature {
             payload_required,
             expires,
             impl_version,
+            state_position,
             wrapper_version: WrapperVersion::V2,
         })
     }
 }
 
-impl Parse for StateParameter {
+/// `context` and its alias `Context` name the execution context, never an argument.
+fn is_context_keyword(ident: &syn::Ident) -> bool {
+    ident == "context" || ident == "Context"
+}
+
+impl StateParameter {
+    /// The state kind a keyword names: `Some` for `state`, `value` and `text`, never
+    /// `StateParameter::None`. Whether the identifier *is* the keyword depends on its form - a
+    /// keyword is bare, while `value: String` is an argument - which the caller checks.
+    fn from_keyword(ident: &syn::Ident) -> Option<StateParameter> {
+        match ident.to_string().as_str() {
+            "state" => Some(StateParameter::State),
+            "value" => Some(StateParameter::Value),
+            "text" => Some(StateParameter::Text),
+            _ => None,
+        }
+    }
+}
+
+/// One entry of a command's parenthesised parameter list, before it is split into
+/// `CommandSignature::state_parameter` and `CommandSignature::parameters`.
+enum SignatureItem {
+    /// A bare state keyword, kept with its identifier for error messages.
+    State(StateParameter, syn::Ident),
+    /// `context` or `Context`.
+    Context(proc_macro2::Span),
+    /// A command argument.
+    Param(CommandParameter),
+}
+
+impl Parse for SignatureItem {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         if input.peek(syn::Ident) {
             let fork = input.fork();
             let ident: syn::Ident = fork.parse()?;
-            match ident.to_string().as_str() {
-                "value" => {
+            // A state keyword is bare; followed by `:` the same word names an argument.
+            if !fork.peek(syn::Token![:]) {
+                if let Some(state) = StateParameter::from_keyword(&ident) {
                     input.parse::<syn::Ident>()?;
-                    Ok(StateParameter::Value)
+                    return Ok(SignatureItem::State(state, ident));
                 }
-                "text" => {
-                    input.parse::<syn::Ident>()?;
-                    Ok(StateParameter::Text)
-                }
-                "state" => {
-                    input.parse::<syn::Ident>()?;
-                    Ok(StateParameter::State)
-                }
-                _ => Ok(StateParameter::None), // do not consume
             }
-        } else {
-            Ok(StateParameter::None)
+            if is_context_keyword(&ident) {
+                return match input.parse::<CommandParameter>()? {
+                    CommandParameter::Context => Ok(SignatureItem::Context(ident.span())),
+                    parameter @ CommandParameter::Param { .. } => {
+                        Ok(SignatureItem::Param(parameter))
+                    }
+                };
+            }
         }
+        Ok(SignatureItem::Param(input.parse()?))
     }
 }
 
@@ -2688,7 +2755,6 @@ mod tests {
         }
         "#;
 
-        println!("Generated tokens: {}", tokens.to_string());
         for (a, b) in fuzzy(&tokens.to_string())
             .split(",")
             .zip(fuzzy(expected).split(","))
@@ -2759,7 +2825,6 @@ mod tests {
         }
         "#;
 
-        println!("Generated tokens: {}", tokens.to_string());
         for (a, b) in fuzzy(&tokens.to_string())
             .split(",")
             .zip(fuzzy(expected).split(","))
@@ -2786,8 +2851,6 @@ mod tests {
         let expected_label = "cm . with_label (\"Test label\") ;";
 
         let tokens_str = tokens.to_string();
-        //println!();
-        //println!("Generated tokens: {}", tokens_str);
 
         assert!(&tokens_str.contains("pub fn REGISTER__test_fn"));
         assert!(&tokens_str.contains(expected_label));
@@ -2853,8 +2916,9 @@ mod tests {
 
         let tokens = sig.command_registration();
 
-        let tokens_str = tokens.to_string();
-        //println!("{}",tokens_str)
+        let tokens = fuzzy(&tokens.to_string());
+        assert!(tokens.contains("letres=nostate();"));
+        assert!(tokens.contains("cm.arguments=vec![];"));
     }
 
     #[test]
@@ -2865,8 +2929,10 @@ mod tests {
 
         let tokens = sig.command_registration();
 
-        let tokens_str = tokens.to_string();
-        println!("{}", tokens_str)
+        // `context` is passed to the function but occupies no argument slot.
+        let tokens = fuzzy(&tokens.to_string());
+        assert!(tokens.contains("letres=nostate(context);"));
+        assert!(tokens.contains("cm.arguments=vec![];"));
     }
 
     #[test]
@@ -2882,8 +2948,10 @@ mod tests {
 
         let tokens = sig.command_registration();
 
-        let tokens_str = tokens.to_string();
-        println!("{}", tokens_str)
+        let tokens = fuzzy(&tokens.to_string());
+        assert!(tokens.contains("letdefault__par=arguments.get_value(0usize,\"default\")?;"));
+        assert!(tokens.contains("letres=config(default__par,context).await;"));
+        assert!(tokens.contains("try_to_query(\"-R/config/config.yaml/-/from_yaml\")"));
     }
 
     #[test]
@@ -2955,6 +3023,10 @@ mod tests {
         // OR they could explicitly call with_async(false) - either is acceptable
         // Just verify the code compiles and doesn't error
         assert!(
+            !fuzzy(&generated).contains("with_async(true)"),
+            "Sync command must not be registered as async"
+        );
+        assert!(
             !sig.is_async,
             "Sync command should have is_async=false in signature"
         );
@@ -3021,5 +3093,121 @@ mod tests {
             method: String = "unknown" (enum: ["nearest", "lanczos3"])
         });
         assert!(parsed.is_err());
+    }
+
+    /// Parses a signature that must be rejected and returns the error message.
+    fn signature_error(tokens: proc_macro2::TokenStream) -> String {
+        match syn::parse2::<CommandSignature>(tokens) {
+            Ok(_) => panic!("the signature should have been rejected"),
+            Err(error) => error.to_string(),
+        }
+    }
+
+    #[test]
+    fn signature_context_before_state_calls_in_declared_order() {
+        let sig: CommandSignature = syn::parse_quote! {
+            fn t(context, state, n: i64) -> result
+        };
+        assert_eq!(sig.state_parameter, StateParameter::State);
+        assert_eq!(
+            fuzzy(&sig.wrapper_arguments().to_string()),
+            "context,state,n__par"
+        );
+        assert_eq!(
+            fuzzy(&sig.extract_all_parameters().to_string()),
+            fuzzy(&quote! { let n__par: i64 = arguments.get(0usize, "n")?; }.to_string())
+        );
+
+        let sig: CommandSignature = syn::parse_quote! { fn t(context, text) -> result };
+        assert_eq!(
+            fuzzy(&sig.wrapper_arguments().to_string()),
+            "context,state.try_into_string()?.as_str()"
+        );
+    }
+
+    #[test]
+    fn signature_context_between_arguments_calls_in_declared_order() {
+        let sig: CommandSignature = syn::parse_quote! {
+            fn t(state, a: i64, context, b: String injected, c: String) -> result
+        };
+        assert_eq!(
+            fuzzy(&sig.wrapper_arguments().to_string()),
+            "state,a__par,context,b__par,c__par"
+        );
+    }
+
+    #[test]
+    fn signature_context_twice_is_rejected() {
+        assert_eq!(
+            signature_error(quote! { fn t(state, context, a: i64, context) -> result }),
+            "`context` is declared twice"
+        );
+        assert_eq!(
+            signature_error(quote! { fn t(context, state, Context) -> result }),
+            "`context` is declared twice"
+        );
+    }
+
+    #[test]
+    fn signature_bare_keyword_is_state_typed_keyword_is_argument() {
+        let sig: CommandSignature = syn::parse_quote! { fn t(value: String) -> result };
+        assert_eq!(sig.state_parameter, StateParameter::None);
+        assert_eq!(sig.parameters.len(), 1);
+        assert_eq!(fuzzy(&sig.wrapper_arguments().to_string()), "value__par");
+
+        let sig: CommandSignature = syn::parse_quote! { fn t(state, state: String) -> result };
+        assert_eq!(sig.state_parameter, StateParameter::State);
+        assert_eq!(
+            fuzzy(&sig.wrapper_arguments().to_string()),
+            "state,state__par"
+        );
+
+        let sig: CommandSignature = syn::parse_quote! { fn t(value) -> result };
+        assert_eq!(sig.state_parameter, StateParameter::Value);
+        assert!(sig.parameters.is_empty());
+    }
+
+    #[test]
+    fn signature_state_after_argument_is_rejected() {
+        assert_eq!(
+            signature_error(quote! { fn t(a: i64, state) -> result }),
+            "the state parameter `state` must come before every argument; \
+             only `context` may precede it"
+        );
+    }
+
+    #[test]
+    fn signature_state_twice_is_rejected() {
+        assert_eq!(
+            signature_error(quote! { fn t(value, text) -> result }),
+            "the state parameter is declared twice"
+        );
+    }
+
+    #[test]
+    fn signature_context_with_type_is_rejected() {
+        assert_eq!(
+            signature_error(quote! { fn t(state, context: i64) -> result }),
+            "`context` is reserved for the execution context and takes no type"
+        );
+    }
+
+    #[test]
+    fn signature_empty_and_trailing_comma_still_parse() {
+        let sig: CommandSignature = syn::parse_quote! { fn t() -> result };
+        assert_eq!(sig.state_parameter, StateParameter::None);
+        assert!(sig.parameters.is_empty());
+
+        let sig: CommandSignature = syn::parse_quote! { fn t(state, a: i64,) -> result };
+        assert_eq!(sig.state_parameter, StateParameter::State);
+        assert_eq!(sig.parameters.len(), 1);
+    }
+
+    #[test]
+    fn argument_hint_option_is_rejected() {
+        assert_eq!(
+            signature_error(quote! { fn t(state, a: i64 (hint icon: "x")) -> result }),
+            "argument hints are not supported; `hint` would be ignored"
+        );
     }
 }

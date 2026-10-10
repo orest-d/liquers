@@ -3,7 +3,7 @@ title: Record Stream Guide
 kind: guide
 audience: internal
 area: [records, lib/value]
-reviewed: 2026-10-07
+reviewed: 2026-10-10
 ---
 
 # Record Stream Guide
@@ -221,7 +221,8 @@ let mut env = DefaultEnvironment::<Value>::new();
 ```
 <sub>`liquers-lib/tests/records_end_to_end.rs`, `build_env`</sub>
 
-**A command that takes an input state is an `async fn` with `context` as its last parameter.** It
+**A command that takes an input state is an `async fn` that takes `context`** — placed last, by
+the recommendation in `COMMAND_REGISTRATION_GUIDE.md` (any position compiles). It
 converts its input through `to_record` or `to_record_source`, both of which are async and need the
 context, because the input may be a key the context has to fetch and record as a dependency. The
 function takes an owned `State`:
@@ -928,6 +929,7 @@ write-only. Parquet is written here and read back only through polars
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | "`context` as its last parameter" restated as the recommendation: the macro now accepts `context` at any position. | phase-5, `design/context-param-order/` |
 | 2026-10-07 | §3.2: the directory-of-CSV-files manifest, quoted from its end-to-end test, with the two limits the test found. | `design/manifest-over-stored-csv-test/` |
 | 2026-10-06 | §3: adding or changing a manifest on a running server (event-driven folder listing, `clear_cache`, template chunks are producible not listed). | phase-5 |
 | 2026-09-27 | §6.4: a generator command (`RowFnView`) and a template source over it, with a note on when a source is worth it over a lazy view; §6.4–6.5 renumbered to 6.5–6.6. | user request |

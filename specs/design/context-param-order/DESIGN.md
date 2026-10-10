@@ -1,21 +1,34 @@
 ---
 id: CONTEXT-PARAM-ORDER
 kind: design
-title: Context parameter position in register_command!
-status: draft
-phase: architecture
+title: Context parameter at any position in register_command!
+workflow: liquers-project
+status: complete
 area: [core/commands, macro]
-gh_pr: []
-issues: []
-created: 2026-03-02
-superseded_by:
+issues: [COMMAND-CONTEXT-PARAM-ORDER, MACRO-TESTS-PRINT-TO-STDOUT]
+merged: 2026-10-10
+gh_pr: [99]
+affects_docs: [REGISTER_COMMAND_FSD, COMMAND_REGISTRATION_GUIDE, RECORD_STREAM_GUIDE]
+created: 2026-10-10
 ---
-# Context parameter position in register_command!
+# Context parameter at any position in register_command!
 
-> **Acceptance scenarios not defined.** This design predates acceptance scenarios
-> (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance
-> criteria as `AC-<n>` WHEN/THEN scenarios and cite each from the Phase 3 test that proves it. Remove
-> this note when you do; until then `docs_index.py --check` counts this design in its warning.
+`context` may appear anywhere in a `register_command!` signature, with compile-time errors for
+placements the macro cannot honour. Merged in: the macro's tests assert instead of printing,
+argument `hint` options are rejected instead of discarded, and command-argument errors number
+arguments from 1.
 
-Design tracking for `context-param-order`. This folder predates the four-phase
-skeleton; its findings and proposed solution are in the sibling documents.
+The folder dates from 2026-03-02. It was rewritten from scratch on 2026-10-10 under the
+`liquers-project` workflow (hence `created`); its earlier findings and solution are archived as
+`specs/archive/2026-09-02-context-param-order-{findings,solution}.md`. It began in the compact form
+and was converted to the full form when its scope became cross-crate (Phase 1, Scope Changes).
+
+Pre-approved after Phase 2 on 2026-10-10 (`proceed all`).
+
+## Phases
+
+- [x] [Phase 1: High-Level Design](phase1-high-level-design.md) — approved 2026-10-10
+- [x] [Phase 2: Solution & Architecture](phase2-architecture.md) — approved 2026-10-10
+- [x] [Phase 3: Examples and Tests](phase3-examples.md) — pre-approved
+- [x] [Phase 4: Implementation Plan](phase4-implementation.md) — pre-approved; implemented
+- [x] [Phase 5: Documentation](phase5-documentation.md) — approved 2026-10-10

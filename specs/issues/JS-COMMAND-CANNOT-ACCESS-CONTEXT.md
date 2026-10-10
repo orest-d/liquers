@@ -49,8 +49,9 @@ Two halves, and the second is the substantial one:
    `RefCell`/manager-guard discipline in `adapter.rs`'s module comment survives a re-entrant call,
    are all open. This is the design work; the declaration half is trivial by comparison.
 
-Note `COMMAND-CONTEXT-PARAM-ORDER` (P2, `accepted`): the Rust macro currently requires `context`
-last as a workaround. A JavaScript convention should not inherit that constraint by accident —
+Note `COMMAND-CONTEXT-PARAM-ORDER` (closed 2026-10-10): the Rust macro accepts `context` at any
+position, recommending last or just before a variadic argument. A JavaScript convention should not
+inherit a positional constraint by accident —
 positional context in a JavaScript call is a choice, not a given, and a leading context argument or
 a bound `this` may be better.
 
@@ -60,7 +61,7 @@ a bound `this` may be better.
   decisions are portable. Not a blocker for it: that design records context injection as a wrapping
   decision with no JavaScript implementation, and leaves `CallingConvention` open to gaining the
   field later.
-- `COMMAND-CONTEXT-PARAM-ORDER` — the Rust-side ordering workaround.
+- `COMMAND-CONTEXT-PARAM-ORDER` — the Rust-side ordering, now free (closed 2026-10-10).
 - `POST-INIT-COMMAND-REGISTRATION` — unrelated, but touches the same registration path.
 
 ## Verification

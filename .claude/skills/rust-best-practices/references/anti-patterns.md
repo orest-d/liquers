@@ -213,17 +213,21 @@ struct Elem {
 
 ## 7. Command signatures
 
-**Smell: wrong state ownership / context position.**
+**Smell: wrong state ownership.**
 ```rust
-// BAD — async command borrowing state; context not last
-async fn cmd(state: &State<Value>, context: Context<E>, n: i64) -> Result<Value, Error>
+// BAD — async command borrowing state
+async fn cmd(state: &State<Value>, n: i64, context: Context<E>) -> Result<Value, Error>
 ```
 ```rust
-// GOOD — async takes owned State; context is the final parameter
+// GOOD — async takes owned State
 async fn cmd(state: State<Value>, n: i64, context: Context<E>) -> Result<Value, Error>
 // sync variant borrows:
 fn cmd(state: &State<Value>, n: i64) -> Result<Value, Error>
 ```
-Why: the `register_command!` macro and the parameter-index handling expect exactly
-this shape (see `specs/issues/COMMAND-CONTEXT-PARAM-ORDER.md`). Namespace is
-set in the macro metadata, never baked into the function name.
+Why: the async wrapper moves the state into a `'static` future, so it cannot lend
+a borrow. Namespace is set in the macro metadata, never baked into the function name.
+
+**Advisory: context position.** `register_command!` accepts `context` anywhere
+(`specs/reference/REGISTER_COMMAND_FSD.md` §Context Parameter). Recommend it last, or
+just before a `multiple` argument, so the order maps onto a Python signature, where
+nothing positional may follow `*args`. Any other position is correct, not a defect.

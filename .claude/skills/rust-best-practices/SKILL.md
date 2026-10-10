@@ -65,8 +65,9 @@ These are enforced project-wide. A violation is a blocking finding.
   `ExtValue` derives only `Debug + Clone` (no `Serialize`); use `Arc<T>` for shared
   payloads; serialize via `DefaultValueSerializer`, not a `Serialize` derive.
 - **Commands via the `register_command!` macro.** Sync command fns take
-  `&State<Value>`; async command fns take **owned** `State<Value>`. A `context`
-  parameter must be **last**. Namespace goes in metadata, not the fn name.
+  `&State<Value>`; async command fns take **owned** `State<Value>`. Namespace goes in
+  metadata, not the fn name. `context` may sit anywhere in the signature; recommend
+  it last, or just before a `multiple` argument (advisory, not blocking).
 
 ## Ownership & types (mostly blocking when wrong, some advisory)
 
