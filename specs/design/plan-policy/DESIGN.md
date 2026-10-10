@@ -70,3 +70,10 @@ merged on 2026-10-10 at the user's request.
   strategy, an existing intermediate is reused by everyone, and the command flag only restricts.
   The `assets:` keys are `recipe_cache_strategy`, `query_cache_strategy` and `cut_predecessors`.
   The size limit stays in `CORE-ASSET-GC`. Phase 1 rewritten on this model.
+- 2026-10-10, sixth round. The strategy is a property of the asset, set at construction and read
+  by its context. The plan is independent of the strategy and of the manager's state: reuse
+  happens when a boundary step executes, and a missing boundary is evaluated unregistered under
+  `result` / `none`. `a/b/v` caches `a/b` and yields a volatile, unmanaged asset; this changes the
+  meaning of an existing trailing or mid-chain `v`. The documentation plan now covers configuration,
+  the environment construction guide, and the API references for plan, command metadata, recipes
+  and the asset manager.

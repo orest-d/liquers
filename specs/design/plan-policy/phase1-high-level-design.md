@@ -51,27 +51,45 @@ prefix too, and nothing can stop either.
 
 | Strategy | Result kept | Intermediates |
 |---|---|---|
-| `all` (default) | yes | created and cached, as today |
-| `result` | yes | not created; an existing one is reused |
-| `none` | no | not created; an existing one is reused |
+| `all` (default) | yes | registered and reused, as today |
+| `result` | yes | an existing one is reused; a missing one is evaluated unregistered |
+| `none` | no | an existing one is reused; a missing one is evaluated unregistered |
+
+**The strategy does not change the plan.** A plan is a function of its query, the command metadata
+and the `cut_predecessors` switch, and it is never of the asset manager's state. A boundary
+`Evaluate(a/b)` is in the plan whatever the strategy. The strategy acts when that step executes:
+an `a/b` the manager already holds is used; a missing one is evaluated, and the strategy decides
+whether it is registered for reuse. An unregistered boundary is released after its consumer has
+used it. A boundary that expires while in use is the existing problem of any dependency expiring,
+not a new one.
+
+**The strategy is a property of the asset:** how the asset was created. It is set when the asset is
+constructed, and the asset's `Context` reads it through the asset. A boundary asset is constructed
+with the strategy of the asset whose plan contains the boundary step.
 
 - **The strategy follows the origin.**
   - A keyed recipe uses its `cached:` (`default`, `none`, `result`, `all`; `true` = `all`,
     `false` = `none`). Absent or `default` means `assets.recipe_cache_strategy`.
   - An ad-hoc query uses `assets.query_cache_strategy`.
-  - A boundary uses the strategy of the evaluation that created it. The strategy changes no value,
-    so it is not part of the boundary's identity.
+  - A boundary uses the strategy of the asset that created it. The strategy changes no value, so it
+    is not part of the boundary's identity.
   - An intermediate that already exists is reused by everyone.
 - **Keyed result:** decided by the effective recipe strategy alone.
 - **Non-keyed result:** first the last command (`cached: false` means not kept), then the query
   strategy.
-- **Intermediate:** created only under `all`, and only when its producing command does not
-  declare `cached: false`. The command flag can only restrict. A recipe cannot force an intermediate
-  that its command declared not worth caching.
+- **Intermediate:** registered only under `all`. A command's `cached: false` acts earlier, when the
+  plan is built: its output is never a boundary candidate at all, so the command runs inline. The
+  command flag can only restrict. A recipe cannot force an intermediate that its command declared
+  not worth caching.
 - **Volatile values are never kept**, as today. Positional `v` makes `a/b/v/c` volatile from `v`
   onward, so `a/b` can be a boundary. `v` at the head still means the whole query. A recipe's
-  `volatile: true` stays whole-plan.
-- **`assets.cut_predecessors: false`** (debugging) never cuts and never reuses, giving a fully
+  `volatile: true` stays whole-plan. A trailing `v` behaves the same way: `a/b/v` is
+  `Evaluate(a/b)` with nothing after it. `a/b` is cached, and the `a/b/v` asset is volatile and
+  unmanaged.
+  - **This changes the meaning of existing queries.** Today a trailing or mid-chain `v` recomputes
+    the whole chain. Afterwards only the part after `v` is recomputed, and recomputing everything
+    is written `v/a/b`. The two tests that pin the old meaning in `plan.rs` change with it.
+- **`assets.cut_predecessors: false`** (debugging) never cuts, so nothing is reused, giving a fully
   expanded plan to compare against.
 - **`stored` is unchanged** and stays recipe-only.
 
@@ -85,11 +103,12 @@ prefix too, and nothing can stop either.
   THEN it runs twice, is never inserted into `query_assets`, and is not volatile
 - **AC-3** Query strategy
   WHEN `query_cache_strategy` is `result` (or `none`) and an ad-hoc query is evaluated
-  THEN no intermediate asset is created, and its result is kept (or not kept)
+  THEN no intermediate asset is registered, and its result is kept (or not kept)
 - **AC-4** Existing intermediates are reused
-  WHEN the strategy excludes intermediates and a prefix of the query is already cached
-  THEN the plan cuts at that prefix and its commands do not run again; when no prefix is cached,
-  the plan runs expanded
+  WHEN the strategy excludes intermediates and the query is evaluated with and without its
+  prefix already cached
+  THEN the plan is the same both times. With the prefix cached its commands do not run again;
+  without it each command runs once and nothing new is left in `query_assets`
 - **AC-5** Recipe strategy
   WHEN a recipe sets `cached: result`, `none`, `all`, `default`, `true` or `false`, or omits it
   THEN its result and intermediates follow the table above, with `default` and absent meaning
@@ -107,7 +126,8 @@ prefix too, and nothing can stop either.
   THEN no plan contains a boundary, no existing intermediate is reused, and results are unchanged
 - **AC-9** Positional `v`
   WHEN `a/b/v/c` is evaluated
-  THEN the plan is volatile, `a/b` is cut as a cached boundary, and `v/a/b/c` cuts nothing
+  THEN the plan is volatile, `a/b` is cut as a cached boundary, and `c` runs on every request.
+  `a/b/v` serves the cached `a/b` as a volatile asset, and `v/a/b/c` cuts nothing
 - **AC-10** Visible in metadata
   WHEN a result is not kept
   THEN its `MetadataRecord` and `AssetInfo` carry `cached: Some(false)`, and its log gives the reason
@@ -130,10 +150,11 @@ prefix too, and nothing can stop either.
 
 - **Commands and macro:** the `cached: false` keyword, a `CommandMetadata` field, and the registry
   export with a `specs/command_registry.yaml` regeneration.
-- **Plan and interpreter:** the boundary walk gains the strategy, the command flag and reuse of
-  existing assets (via `AssetManager::lookup_query_asset`). Also positional `v`, and log reasons.
-- **Assets:** strategy settings on both managers (in `AssetManagerOptions`). Query-asset
-  registration honours the result rule. Boundaries carry their creator's strategy.
+- **Plan:** the boundary walk gains the command flag and positional `v`, and the log gives reasons.
+  The plan never reads the strategy.
+- **Interpreter and assets:** strategy settings on both managers (in `AssetManagerOptions`).
+  Executing a boundary step reuses an existing asset, or constructs one with its creator's strategy
+  and registers it only under `all`. Query-asset registration follows the result rule.
 - **Recipes and metadata:** the recipe's `cached` widens from a boolean to a strategy. Metadata keeps
   a boolean.
 - **Configuration:** three `assets:` keys.
@@ -150,16 +171,36 @@ prefix too, and nothing can stop either.
 
 ## Documentation Intent
 
-- Reference: extend these documents:
-  - `DOC_08_RECIPES_PLANS.md`: boundaries, strategies, positional `v`, and correcting the
-    one-intermediate claim;
-  - `ENVIRONMENT_CONFIG.md`: three keys;
-  - `REGISTER_COMMAND_FSD.md`: the keyword;
-  - `ASSETS.md`: when assets are kept;
-  - `PROJECT_OVERVIEW.md`: the `v` rule.
-- Guide: extend `COMMAND_REGISTRATION_GUIDE.md` (when to declare `cached: false`).
-- Other documents: close both source issues with resolution notes, update `CLAUDE.md`'s DSL
-  metadata list, and update `specs/README.md`.
+Every document a user or an implementer reads to learn this behaviour is updated in the same PR:
+
+- Reference, configuration and environment:
+  - `ENVIRONMENT_CONFIG.md`: the three `assets:` keys, their values and defaults, and the
+    public-service example;
+  - `api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`: the environment and context API, including
+    the strategy as a property of the asset and how a context reads it.
+- Reference, plan and recipes (`api/DOC_08_RECIPES_PLANS.md`):
+  - the boundary rule with the command flag, and recursive cutting (correcting "one cut retains
+    one intermediate");
+  - positional `v`;
+  - the recipe `cached:` values;
+  - the plan being independent of the strategy;
+  - the `cut_predecessors` switch.
+- Reference, query language: `api/DOC_02_QUERY_LANGUAGE_REFERENCE.md` and `PROJECT_OVERVIEW.md`,
+  for the `v` rule and its changed meaning.
+- Reference, command metadata: `COMMAND_DECLARATION.md` and `REGISTER_COMMAND_FSD.md`, for the
+  `cached: false` field and keyword.
+- Reference, asset manager: `api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md` and `ASSETS.md`. When an
+  asset is registered or kept, query assets included, the strategy recorded on the asset, and the
+  reuse of an existing boundary.
+- Guides:
+  - `ENVIRONMENT_CONSTRUCTION_GUIDE.md`: choosing strategies, with the public-service setup;
+  - `COMMAND_REGISTRATION_GUIDE.md` and `COMMAND_DESIGN_GUIDE.md`: when to declare
+    `cached: false`;
+  - `ASSET_MANAGER_IMPLEMENTATION_GUIDE.md`: what a custom manager must honour.
+- Other documents: `CLAUDE.md` (DSL metadata list), `specs/README.md`, and resolution notes on
+  both source issues.
+
+Each changed reference or guide gets a `## History` row and a `reviewed:` bump.
 
 ## Scope Changes
 
@@ -181,18 +222,17 @@ prefix too, and nothing can stop either.
 
 ## Open Questions
 
-1. **(Implementation detail) How a boundary carries its creator's strategy.** Either through the
-   creating `Context` when the dependency is submitted, or as a field on `Step::Evaluate`.
-   Recommendation: the context, so that the serialized `Step` shape stays as it is. To be fixed in
-   Phase 2.
-2. **(Implementation detail) Positional `v` reopens two pitfalls** recorded in `DOC_08`:
-   - `a/b` and `a/b/v` have the same step count, so a candidate cannot be identified by index alone;
-   - in `a/b/v`, the outermost non-volatile prefix is the whole plan.
+No open question is left for Phase 1. Resolved on 2026-10-10:
 
-   Phase 2 must handle both. The `>=` guard in `cut_predecessor` already pins the second.
-3. **(Implementation detail) A reused intermediate expires between finalisation and use.** The
-   boundary step would then recreate and cache it once. Recommendation: accept this (a rare,
-   bounded effect), or have the step fall back to inline steps. Decide in Phase 2.
+1. **Where a boundary's strategy lives:** on the asset, set at construction. The context reads it
+   through its asset. It is not a context field or a `Step` field.
+2. **`a/b` and `a/b/v`:** both cache `a/b`, and `a/b/v` yields a volatile, unmanaged asset holding
+   that value. No problem with it. Phase 2 relaxes the `>=` empty-tail guard in `cut_predecessor`
+   for positional volatility, since `Evaluate(a/b)` then names a different, cacheable asset rather
+   than recomputing the whole plan.
+3. **Reuse is decided at execution, not at finalisation.** The plan does not depend on the asset
+   manager's state. The question about an expiry between finalisation and use no longer arises; an
+   expiry during use is the existing dependency-expiry behaviour.
 
 ## References
 
