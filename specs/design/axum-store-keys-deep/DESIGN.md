@@ -2,8 +2,7 @@
 id: AXUM-STORE-KEYS-DEEP
 kind: design
 title: Store API keys route enumerates every key under the prefix
-status: in_review
-phase: implementation
+gh_pr: [109]
 readiness: ready
 autofix: eligible
 area: [axum]
