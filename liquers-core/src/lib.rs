@@ -123,6 +123,7 @@ extern crate serde_derive;
 /// against; a hand-maintained string would drift from the manifest exactly when it mattered.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+pub mod cache_strategy;
 pub mod command_declaration;
 pub mod command_metadata;
 #[macro_use]

@@ -409,6 +409,14 @@ dependency that expired meanwhile is used as it stands and the current asset is 
 and keeps the unknown schedule-time version. Both built-in managers apply the policy (the
 inline manager through the trait-default `AssetManager::wait_for_dependency`).
 
+A non-keyed dependency scheduled by any of these methods is created under **the current
+asset's caching strategy** (`Context::cache_strategy()`, read-only: the asset's recipe
+`cached:`, else the manager's `recipe_cache_strategy` for a keyed asset or
+`query_cache_strategy` for a non-keyed one). So a recipe whose strategy is `all` caches the
+intermediates it creates even when ad-hoc queries cache nothing, and an intermediate that
+already exists is reused under every strategy. The strategy is a property of the asset, not of
+the context; see [`ASSETS.md`](../ASSETS.md) §When an asset is kept for reuse.
+
 `Context::apply` is an ad-hoc transformation of a supplied state. It does not
 record a dependency. For a payload-required plan it forwards the current payload
 and uses immediate application; other plans follow the manager's ordinary mode.
@@ -577,6 +585,7 @@ methods crate-private), so an asset manager can be implemented outside `liquers-
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | Dependency and apply methods: a non-keyed dependency is created under the current asset's caching strategy; `Context::cache_strategy()`. | phase-5, `design/plan-policy/` |
 | 2026-10-10 | §Built-in environment comparison: no `with_store` / `with_cache` setters (they no longer exist); `with_async_store` is the only store setter. The gap-table row and pitfall about them are removed. | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |
 | 2026-10-10 | Reviewed against `design/plan-step-state-metadata/`. New §Metadata ownership during evaluation: asset, context and step-state roles; the cut plan as the reference for a step's input state; the per-step table of `do_step_state`; `is_applied`. §Context lifetime no longer describes rebuilding every state from the context's metadata with a `key`-only adjustment (`value_origin_key` removed). | phase-5 |
 | 2026-10-06 | Reviewed against `design/context-title-description/`. §Metadata-writing methods: `Context::set_title` / `set_description`, recipe-wins-per-field, `Ok(())` when the recipe's value is kept, persistence, no effect on `version`, and the predecessor-asset caveat. | phase-5 |

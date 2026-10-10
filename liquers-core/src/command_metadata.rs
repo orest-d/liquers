@@ -1020,6 +1020,21 @@ pub struct CommandMetadata {
     #[serde(default)]
     pub payload_required: PayloadRequirement,
 
+    /// Whether this command's output is worth keeping for reuse. `None` (the default) means
+    /// `true`; read it through [`Self::cached`].
+    ///
+    /// Declared with `cached: false` in `register_command!` for a command that is cheap to
+    /// recompute and produces a large value. Its output is then never a predecessor boundary, so
+    /// the plan runs it inline after the nearest kept prefix (`a/b/c/d` with `c` uncached plans as
+    /// `Evaluate(a/b) c d`), and a non-keyed query ending with it is not registered for reuse. It
+    /// does not make anything volatile, and a keyed recipe's own result follows the recipe's
+    /// caching strategy instead. See [`crate::cache_strategy`].
+    ///
+    /// An `Option` rather than a `bool` because this type derives `Default`: a plain `bool` would
+    /// default to "not cached". Unrelated to the legacy `cache` key, which is still ignored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached: Option<bool>,
+
     /// Expiration specification for the command result.
     /// If set to anything other than Never, assets produced by this command
     /// will have their expiration time derived from this specification.
@@ -1067,6 +1082,7 @@ impl CommandMetadata {
             arguments: Vec::new(),
             volatile: false,
             payload_required: PayloadRequirement::None,
+            cached: None,
             expires: Expires::Never,
             is_async: false,
             definition: CommandDefinition::Registered,
@@ -1098,6 +1114,7 @@ impl CommandMetadata {
             arguments: Vec::new(),
             volatile: false,
             payload_required: PayloadRequirement::None,
+            cached: None,
             expires: Expires::Never,
             is_async: false,
             definition: CommandDefinition::Registered,
@@ -1109,6 +1126,10 @@ impl CommandMetadata {
     }
     pub fn key(&self) -> CommandKey {
         CommandKey::new(&self.realm, &self.namespace, &self.name)
+    }
+    /// Whether this command's output is worth keeping for reuse; see [`Self::cached`] (the field).
+    pub fn cached(&self) -> bool {
+        self.cached.unwrap_or(true)
     }
     pub fn check(&self) -> IssueReport {
         let mut issues = IssueReport::default();
@@ -1781,6 +1802,10 @@ mod tests {
             "definition":"Registered","filename":""}"#;
         let cm: CommandMetadata = serde_json::from_str(legacy)?;
         assert_eq!(cm.name, "test");
+        // The legacy key is not read as the new `cached` field.
+        assert_eq!(cm.cached, None);
+        assert!(cm.cached());
+        assert!(!json.contains("\"cached\""), "an undeclared flag is not serialized: {json}");
         Ok(())
     }
 

@@ -26,6 +26,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use crate::assets::AssetManager;
+pub use crate::cache_strategy::CacheStrategy;
 use crate::commands::{CommandRegistry, PayloadType};
 use crate::assets::ExternalChangePolicy;
 use crate::context::{EnvRef, Environment, GenericEnvironment};
@@ -63,6 +64,21 @@ pub struct AssetManagerOptions {
     /// What a version mismatch on a recipe-backed value means. Default: `UserInput`.
     #[serde(default, skip_serializing_if = "ExternalChangePolicy::is_user_input")]
     pub external_change: ExternalChangePolicy,
+    /// Caching strategy of a keyed asset whose recipe states none (`cached:` absent or
+    /// `default`). Default: [`CacheStrategy::All`]. See [`crate::cache_strategy`].
+    #[serde(default, skip_serializing_if = "CacheStrategy::is_all")]
+    pub recipe_cache_strategy: CacheStrategy,
+    /// Caching strategy of a top-level non-keyed (ad-hoc) query. Default: [`CacheStrategy::All`].
+    /// `none` keeps anonymous queries from adding to the cache while they still reuse what the
+    /// recipes cached.
+    #[serde(default, skip_serializing_if = "CacheStrategy::is_all")]
+    pub query_cache_strategy: CacheStrategy,
+    /// Whether predecessor boundaries are cut at all. `false` gives fully expanded plans and so
+    /// reuses no intermediate — a debugging aid, to check whether a cut changes a result. Read it
+    /// through [`Self::cut_predecessors`]: an `Option` because this type derives `Default`, and a
+    /// plain `bool` would default to "never cut".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cut_predecessors: Option<bool>,
 }
 
 /// When recorded dependency versions are verified against current ones.
@@ -128,6 +144,29 @@ impl AssetManagerOptions {
     pub fn with_job_capacity(mut self, capacity: usize) -> Self {
         self.job_capacity = Some(capacity);
         self
+    }
+
+    /// Sets the caching strategy of keyed assets whose recipe states none.
+    pub fn with_recipe_cache_strategy(mut self, strategy: CacheStrategy) -> Self {
+        self.recipe_cache_strategy = strategy;
+        self
+    }
+
+    /// Sets the caching strategy of top-level non-keyed queries.
+    pub fn with_query_cache_strategy(mut self, strategy: CacheStrategy) -> Self {
+        self.query_cache_strategy = strategy;
+        self
+    }
+
+    /// Sets whether predecessor boundaries are cut (`false`: never, for debugging).
+    pub fn with_cut_predecessors(mut self, cut: bool) -> Self {
+        self.cut_predecessors = Some(cut);
+        self
+    }
+
+    /// Whether predecessor boundaries are cut; `true` unless set to `false`.
+    pub fn cut_predecessors(&self) -> bool {
+        self.cut_predecessors.unwrap_or(true)
     }
 }
 
@@ -198,11 +237,7 @@ impl AssetManagerKind for Queued {
             Some(capacity) => crate::assets::DefaultAssetManager::with_capacity(envref, capacity),
             None => crate::assets::DefaultAssetManager::new(envref),
         };
-        Ok(Arc::new(manager.with_policies(
-            options.dependency_audit,
-            options.verify_versions,
-            options.external_change,
-        )))
+        Ok(Arc::new(manager.with_policies(options)))
     }
 }
 
@@ -225,11 +260,7 @@ impl AssetManagerKind for Inline {
             ));
         }
         Ok(Arc::new(
-            crate::assets::ImmediateAssetManager::new(envref).with_policies(
-                options.dependency_audit,
-                options.verify_versions,
-                options.external_change,
-            ),
+            crate::assets::ImmediateAssetManager::new(envref).with_policies(options),
         ))
     }
 }
@@ -474,6 +505,19 @@ impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<
 
 #[cfg(test)]
 mod tests {
+
+    /// plan-policy: `AssetManagerOptions` derives `Default`, so the cut switch must still default
+    /// to "cut" — the trap a plain `bool` field would fall into.
+    #[test]
+    fn default_options_cut_predecessors() {
+        let options = AssetManagerOptions::default();
+        assert!(options.cut_predecessors());
+        assert_eq!(options.cut_predecessors, None);
+        assert!(!options.clone().with_cut_predecessors(false).cut_predecessors());
+        assert_eq!(options.recipe_cache_strategy, CacheStrategy::All);
+        assert_eq!(options.query_cache_strategy, CacheStrategy::All);
+    }
+
     use super::*;
     use crate::command_metadata::{CommandKey, CommandMetadata};
     use crate::metadata::DependencyKey;

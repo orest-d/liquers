@@ -3,8 +3,7 @@ id: STORE-CONFORMANCE-WARNING-CLEANUP
 kind: design
 title: Build the store-conformance feature without warnings
 form: compact
-status: in_review
-phase: implementation
+gh_pr: [106]
 readiness: ready
 autofix: eligible
 area: [core/store, build]

@@ -2,11 +2,11 @@
 id: CORE-PLAN-POLICY-AND-DEFAULTS
 kind: issue
 title: Plan builder has no configuration and questionable defaults
-status: accepted
+status: closed
 priority: P2
-complexity: M
+complexity: L
 area: [core/plan]
-design: 
+design: plan-policy
 created: 2026-08-08
 github:
 ---
@@ -68,6 +68,19 @@ it completes (`Step::Action::query`), frozen like `Plan::predecessor`; a future 
 policy can read candidate boundary queries from the steps instead of rebuilding candidate plans.
 See `reference/api/DOC_08_RECIPES_PLANS.md` §Predecessor boundaries.
 
+## Update, 2026-10-10 (`plan-policy`)
+
+Design `plan-policy` owns the remaining markers:
+
+- `cache` becomes the caching strategies `none` / `result` / `all`: a recipe's `cached:`, plus the
+  `assets.recipe_cache_strategy` and `assets.query_cache_strategy` defaults.
+- `inline flag` becomes a command's `cached: false`: its output is never a boundary, so the command
+  runs inline.
+- `volatile flags` was already covered, apart from positional `v`, which is merged in from
+  `V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL`.
+
+Complexity re-evaluated `M` → `L`.
+
 ## Expected behaviour
 
 A `PlanBuilderConfig` carrying these policies, with the defaults chosen deliberately and stated.
@@ -75,3 +88,21 @@ A `PlanBuilderConfig` carrying these policies, with the defaults chosen delibera
 ## Discovery
 
 Migration triage, 2026-08-08. Source: `todo20260219.md` #8, work package WP-7. Verified against HEAD: markers present at `plan.rs:899-901` and `:909`. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.0c.
+
+## Resolution
+
+Closed 2026-10-10 by `design/plan-policy/`. The three markers are replaced by builder documentation
+(`builder_policy_markers_are_retired` pins their absence), and each policy is now a stated choice:
+
+- `cache` → `CacheStrategy` (`none` / `result` / `all`) per asset: a recipe's `cached:` or
+  `assets.recipe_cache_strategy`, `assets.query_cache_strategy` for ad-hoc queries, and the
+  creator's strategy for a dependency.
+- `inline flag` → a command's `cached: false` (`Plan::uncached_by`): the boundary walk steps back
+  past it, so the command runs inline.
+- `volatile flags` → already covered, plus positional `v`.
+- The debugging switch `assets.cut_predecessors`.
+
+All defaults equal the previous behaviour. Evidence: `liquers-core/tests/cache_strategy.rs` (18
+tests on both managers) and the unit tests in `cache_strategy.rs`, `plan.rs`,
+`environment_config.rs` and `environment_builder.rs`. Reference: `ASSETS.md` §When an asset is
+kept for reuse, `DOC_08_RECIPES_PLANS.md` §Predecessor boundaries, `ENVIRONMENT_CONFIG.md`.

@@ -261,7 +261,7 @@ fn template_chunk_recipe(manifest: &ManifestSpec, folder: &Key, query: Query) ->
         circular_dependency_key: None,
         expires: manifest.expires.clone(),
         stored: Some(manifest.stored),
-        cached: Some(manifest.cached),
+        cached: Some(manifest.cached.into()),
     }
 }
 
@@ -273,7 +273,7 @@ fn explicit_chunk_recipe(manifest: &ManifestSpec, folder: &Key, chunk: &Recipe) 
     let mut recipe = chunk.clone();
     recipe.cwd = Some(folder.encode());
     recipe.stored = Some(manifest.stored);
-    recipe.cached = Some(manifest.cached);
+    recipe.cached = Some(manifest.cached.into());
     recipe.expires = manifest.expires.clone();
     recipe.volatile = manifest.volatile;
     for (name, value) in &manifest.arguments {
@@ -481,7 +481,7 @@ links:
         assert_eq!(recipe.cwd, Some("data/sales".to_string()));
         assert_eq!(recipe.title, "Orders (EU)");
         assert_eq!(recipe.stored, Some(true));
-        assert_eq!(recipe.cached, Some(true));
+        assert_eq!(recipe.cached, Some(liquers_core::cache_strategy::CacheStrategy::All));
         // The chunk's own argument is kept, and the manifest's shared one is merged in beside it.
         assert_eq!(
             recipe.arguments.get("region"),
@@ -544,7 +544,7 @@ arguments:
 
         assert_eq!(recipe.cwd, Some("data/sales".to_string()));
         assert_eq!(recipe.stored, Some(true));
-        assert_eq!(recipe.cached, Some(true));
+        assert_eq!(recipe.cached, Some(liquers_core::cache_strategy::CacheStrategy::All));
         let expected_query =
             liquers_core::parse::parse_query("ns-fixture/fixture_rows-1100-10/daily_0010.csv")?
                 .encode();

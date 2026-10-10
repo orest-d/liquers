@@ -82,7 +82,7 @@ fields and Serde deserialization do not validate strings eagerly, so
 | `circular_dependency_key` | Reported key associated with the detected cycle |
 | `expires` | Recipe-level expiration combined with finalized plan expiration |
 | `stored` | `Option<bool>`, absent = `true`. `false`: the produced value is never written to the store, not even as metadata; an existing stored copy is still read and preferred. Read through `stored()` |
-| `cached` | `Option<bool>`, absent = `true`. `false`: the keyed asset is not registered for reuse, yet stays the key's dependency-graph node. Read through `cached()`. Neither flag makes the recipe volatile |
+| `cached` | `Option<CacheStrategy>` — the **caching strategy** of an evaluation of this recipe: `all` (the keyed result and every intermediate it creates are registered), `result` (only the result; a missing intermediate is computed unregistered), `none` (nothing new is registered; the keyed asset still stays the key's dependency-graph node). `true`/`false` are read as `all`/`none`; absent or `default` means the asset manager's `recipe_cache_strategy`. An intermediate that already exists is reused under every strategy. Read through `effective_cache_strategy(default)`. Neither this nor `stored` makes the recipe volatile — see §Predecessor boundaries, "What is kept" |
 
 `Recipe::to_plan` enables placeholders, builds the query, and applies overrides to
 the last action step only. An override whose name is not present on that action is
@@ -252,13 +252,18 @@ produces a query value and accepts no arguments.
 
 The `v` instruction is intercepted by the builder before command metadata is
 resolved, like `q` and `ns`. It takes no parameters and emits no step, so it is an
-identity on the value — and it marks the **whole** plan volatile regardless of
-where it appears. That last point is the one a reader is most likely to get wrong:
-`a/b/v/c` is volatile throughout, not volatile from `v` onward, so `v`'s position
-carries no information. It is therefore a `Declared` volatility source and a plan
-containing it is never cut. Making it positional — which would let an author's
-declared volatility boundary and the cache boundary coincide — is
-`V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL`.
+identity on the value — and it is **positional**: everything from `v` onward is
+volatile, while the prefix ahead of it stays pure. `a/b/v/c` is volatile, and its
+`a/b` is cut as a cached boundary; `c` runs on every request. A trailing `v` is the
+same rule with nothing after it: `a/b/v` is `[Evaluate(a/b)]`, which serves the
+cached `a/b` as a volatile, unmanaged asset. `v` at the head leaves no pure prefix,
+so `v/a/b/c` is volatile throughout and cuts nothing — write it there to recompute
+everything. (Until `plan-policy`, `v` anywhere marked the whole plan volatile; a
+recipe's `volatile: true`, which carries no position, still does.)
+
+A command registered with `cached: false` sets `Plan::uncached_by` when it is the
+**last** action: the next action, a resource step or `q` clears it, and a filename,
+`ns` or `v` keeps it. It is not contagious — `a/u` is uncached, `u/a` is not.
 
 A command alias is resolved here, completely: the builder validates it against its
 target, applies the target's volatility, payload requirement and expiration as well
@@ -386,15 +391,33 @@ how to do but currently cannot apply to an intermediate:
 This **is** the default. `finalize_plan` cuts, after freezing and after the
 analysis passes.
 
-An earlier revision of this section deferred that decision, on the ground that the
-memory-versus-recomputation trade is per query rather than global. That reasoning
-was about cutting *everywhere*, which retains every intermediate and does look
-wrong as a global default. One cut retains **one** intermediate, and it is the one
-most likely to be shared. The memory counterweight belongs to an asset-manager
-retention policy — `CORE-ASSET-GC` — rather than to the shape of a plan.
+**Cutting is recursive.** A boundary is evaluated as its own query asset, whose
+plan is finalized — and cut — in turn, so a chain `a/b/c/d` becomes the assets
+`a/b/c`, `a/b` and `a`, each registered under the default strategy. (An earlier
+revision said "one cut retains one intermediate"; that is true of one plan, not of
+an evaluation, and was corrected by measurement in `plan-policy`.) A long chain
+over a large value therefore keeps one copy per step unless something limits it.
 
-`CORE-PLAN-POLICY-AND-DEFAULTS` still owns the `cache`, `volatile flags` and
-`inline flag` markers; its `expand_predecessors` half is answered here.
+#### What is kept
+
+Two instruments limit it, and neither changes the plan's value
+(`specs/design/plan-policy/`):
+
+- **A command's `cached: false`** says its output is cheap to recompute and not
+  worth keeping. The walk steps back past a candidate ending with it (condition 4
+  below), so the command runs **inline** after the nearest kept prefix:
+  `a/b/c/d` with `c` uncached is `Evaluate(a/b) c d`.
+- **A caching strategy** (`none` \| `result` \| `all`) decides which *new* assets
+  are registered when a boundary executes. It is a property of each asset: a recipe
+  takes its `cached:` or the manager's `recipe_cache_strategy`, a top-level query
+  takes `query_cache_strategy`, and a boundary, a link or a `context.evaluate`
+  takes **its creator's**. An asset that already exists is reused under every
+  strategy. The rules are in `ASSETS.md` §When an asset is kept for reuse.
+
+**The plan never reads a strategy, nor the manager's state.** It is a function of
+its query, the command metadata and one switch: `assets.cut_predecessors: false`
+skips the cut for every plan (a debugging aid, to check whether cutting changes a
+result). A size limit on the cache is not a plan concern — `CORE-ASSET-GC`.
 
 ### Where a boundary goes
 
@@ -404,16 +427,17 @@ keyed by its query.* Anything that feeds the prefix but is **not** part of that
 key makes the entry unsound, and anything that makes the entry worthless makes
 the boundary pointless.
 
-There are exactly **three conditions**, and they differ in where the answer lives.
+There are exactly **four conditions**, and they differ in where the answer lives.
 
 | # | Condition | Why it blocks a boundary | Where the answer lives |
 |---|---|---|---|
 | 1 | **Volatility** | A boundary recomputed on every request buys none of the three things above, and costs an extra asset and an extra hop | In the plan — per candidate, or whole-plan via `Plan::volatility_source` |
 | 2 | **Payload requirement** | A payload is not part of a cache key, so a value computed from one must never sit behind a boundary | In the plan — per candidate, via `Plan::payload_required` |
 | 3 | **Input state** | Likewise not part of a cache key. A boundary is evaluated as its own asset, starting from `State::new()`, so a prefix that consumes a caller's state would silently receive nothing | **Not in the plan at all** — only the caller knows it |
+| 4 | **Not cached** | The candidate's last command declares `cached: false`: its output is not worth an entry, so it runs inline instead | In the plan — per candidate, via `Plan::uncached_by` |
 
-Conditions 1 and 2 are decided **per candidate**, by building that candidate's own
-plan. Condition 3 is decided **per application**, by the caller.
+Conditions 1, 2 and 4 are decided **per candidate**, by building that candidate's
+own plan. Condition 3 is decided **per application**, by the caller.
 
 A boundary is also declined where it would be worthless: when the prefix, apart from
 `SetCwd`, is a single step reading a key (`GetAsset`, `GetAssetBinary`,
@@ -439,6 +463,8 @@ qualifies:
 fetch/expensive/render          -> boundary at fetch/expensive
 fetch/personalize/render        -> personalize requires a payload; boundary at fetch
 fetch/vol_step/render           -> vol_step is volatile;          boundary at fetch
+fetch/expensive/wide/render     -> wide declares cached: false;   boundary at fetch/expensive
+fetch/expensive/v/render        -> volatile from v onward;        boundary at fetch/expensive
 personalize/fetch/render        -> the condition reaches the head; no boundary
 ```
 
@@ -489,8 +515,8 @@ distinguishes the two kinds:
 
 | Source | Means | Effect on a boundary |
 |---|---|---|
-| `Positional` | A volatile command, or a link to a volatile query. Volatility is a property *of that command*, so everything ahead of it is pure. | A boundary may be cut in front of it. |
-| `Declared` | The `v` instruction, a recipe's `volatile: true`, or a recipe `expires:` that is itself volatile. A statement about the whole plan, carrying no position. | Nothing here is cacheable; the plan is not cut at all. |
+| `Positional` | A volatile command, a link to a volatile query, or the `v` instruction. Volatility starts at that point, so everything ahead of it is pure. | A boundary may be cut in front of it. |
+| `Declared` | A recipe's `volatile: true`, or a recipe `expires:` that is itself volatile. A statement about the whole plan, carrying no position. | Nothing here is cacheable; the plan is not cut at all. |
 
 A `Declared` source appears in no candidate's query, so the walk could not see it
 — which is why `Recipe::to_plan` records it and the check comes first.
@@ -502,13 +528,23 @@ predecessor:
 ```
 Predecessor boundary expanded at 'fetch/personalize': it requires an evaluation payload
 Predecessor boundary expanded at 'prefix/vol_step': it is volatile
+Predecessor boundary expanded at 'fetch/expensive/wide': it is not cached (command '/root/wide' declares cached: false)
 Predecessor boundary not cut: the plan is declared volatile, so none of it may be cached
+Predecessor boundary not cut: cut_predecessors is false
 ```
+
+These are planning diagnostics in `Plan::init_steps`. Applying a plan appends them
+to the evaluating asset's log once, before its first step runs — so a rejected
+asset still records how it was planned — alongside the asset manager's own
+"Not cached for reuse: …" line. They are appended without a metadata save of their
+own and written with the asset's ordinary save.
 
 Two candidates are never chosen: one whose remainder is a trailing filename rather
 than an action — cutting there would leave the parent nothing but a `Filename`
-step, and a recipe's overrides nothing to patch — and one covering every step,
-which would replace the whole plan with a boundary that recomputes it.
+step, and a recipe's overrides nothing to patch — and, in a **stable** plan, one
+covering every step, which would replace the whole plan with a boundary that
+recomputes it. In a volatile plan that candidate is right: only a trailing `v`
+reaches it, and `Evaluate(a/b)` then names a different, cacheable asset.
 
 ### Pitfalls
 
@@ -524,7 +560,8 @@ Every item below was observed, not anticipated.
 | A boundary query frozen before the prologue | Sibling of the row above it, and the same prepended `SetCwd`. The step *count* was compensated; the *cursor* was not, so the recorded predecessor was resolved against the entry CWD and the boundary query — the only thing a cut carries — lost its folder. Silent: it produced a wrong value as readily as a `KeyNotFound`. Fixed by `Plan::prologue_steps`. |
 | A recipe-level flag is not in the query | `volatile:` and `expires:` live in the `recipes.yaml` entry, not in the query text, so unlike a volatile *command* they do not travel into a boundary. Measured: the prefix of a `volatile: true` recipe ran once across two evaluations where expanded it ran twice — the parent dutifully recomputing around a cached boundary. Fixed by folding them onto the plan as `VolatilitySource::Declared`. |
 | A cut swallows the caller's input state | `apply` and `apply_immediately` supply a state; a boundary runs as its own asset from `State::new()`. Measured: `wrap/wrap` applied to `"x"` yielded `[[None]]`. Forwarding the state would be worse — the boundary is cached by query, so callers with different states would share one entry. A stateful application needs a fully expanded plan, which `finalize_plan` produces when it is given one. |
-| `v` emits no step | `a/b` and `a/b/v` report the same step count, so a candidate cannot be identified by index alone; and in `a/b/v` the outermost non-volatile prefix is the *entire* plan. Both are unreachable while `Declared` declines first, and both would return if `v` ever became positional (`V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL`). |
+| `v` emits no step | `a/b` and `a/b/v` report the same step count, and in `a/b/v` the outermost non-volatile prefix is the *entire* plan. Since `v` is positional both are reachable, and both are handled: the walk's step-count check compares a candidate with the cut index it would produce, which is the same for `a/b/v` and `a/b`, and the empty-tail guard admits equality only for a volatile plan. Pinned by `positional_v_cuts_before_itself` and `trailing_v_cuts_the_whole_prefix`. |
+| A `bool` that defaults to `true` on a `Default` type | `CommandMetadata` and `AssetManagerOptions` derive `Default`, so a plain `cached: bool` would read "not cached" and a `cut_predecessors: bool` "never cut" for every value built in code. Both are `Option<bool>` read through an accessor; `default_options_cut_predecessors` pins the second. |
 
 ## Plan fields and execution
 
@@ -688,6 +725,8 @@ runtime behavior is unchanged.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | Predecessor boundaries: planning diagnostics (`init_steps`) now reach the evaluated asset's log, appended once when the plan is applied (`PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG`). | `issues/PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG.md` |
+| 2026-10-10 | Reviewed against `design/plan-policy/`. Recipe contract: `cached` is a caching strategy (`none` \| `result` \| `all`, booleans read as `all`/`none`, absent or `default` = `recipe_cache_strategy`). Planning contract: `v` is positional (`a/b/v/c` cuts `a/b`, `a/b/v` is `Evaluate(a/b)`, `v/…` recomputes everything); `Plan::uncached_by`. Predecessor boundaries: cutting is recursive (corrects "one cut retains one intermediate"); new "What is kept" (the command flag, strategies following the origin, the plan independent of strategy and manager state, `cut_predecessors`); a fourth condition, not cached; `Declared` is recipe-level only; the stable-plan empty-tail rule; two pitfalls updated or added; planning diagnostics do not reach the asset log (`PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG`). | phase-5, `design/plan-policy/` |
 | 2026-10-10 | Reviewed against `design/plan-step-state-metadata/`. Recipe contract: `Recipe::data_format` is `None` without a filename (no `bin`); an override clears the patched action's prefix query. Predecessor boundaries: no boundary over a bare key read. Plan fields: `Step::Action::query`. Execution: each step produces the state it hands on (table in DOC-04); the `key`-only adjustment and `fetched_key` are gone. | phase-5, `design/plan-step-state-metadata/` |
 | 2026-10-10 | Planning contract: aliases are resolved by the builder into a target `Step::Action` with `origin: ActionOrigin::Alias`; `dependencies` includes the alias's metadata key; `origin` serialization. | phase-5, `design/command-alias-contract/` |
 | 2026-10-08 | §Plan fields: `dependencies` is the direct list. §Finalization: one analysis pass (`analyze_plan_dependencies`) replaces the volatility and expiration passes; `DefaultRecipeProvider` caches parsed `recipes.yaml` per directory, checked against the stored bytes. | phase-5 (`design/dependency-chain-analysis-cost/`) |

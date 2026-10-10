@@ -1279,9 +1279,18 @@ pub struct PlanBuilder<'c> {
     expires: Expires,
 }
 
-// TODO: support cache
-// TODO: support volatile flags
-// TODO: support inline flag
+// The builder takes no configuration, and its behaviour is fixed: it always expands
+// predecessors, and it rejects a missing required argument unless placeholders are allowed
+// (recipes allow them and fill them afterwards). What the three policy questions once asked of it
+// is answered elsewhere (`specs/design/plan-policy/`):
+//
+// - *Caching* is the asset manager's: a [`crate::cache_strategy::CacheStrategy`] on each asset
+//   decides what is registered for reuse, and the plan never reads it.
+// - *Inlining* is a command's `cached: false`, recorded here as [`Plan::uncached_by`]; the
+//   boundary walk steps back past such a command, so it runs inline.
+// - *Volatility* is recorded here from commands, links, `v` and recipe declarations, as
+//   [`Plan::is_volatile`] and [`Plan::volatility_source`]. `v` is positional: `a/b/v/c` is
+//   volatile from `v` onward.
 //
 // `PlanBuilder` also *records* facts it does not act on, for the passes that run after it:
 // [`Plan::predecessor`] and [`Plan::predecessor_steps`] describe a boundary it never cuts, and
@@ -1479,6 +1488,8 @@ impl<'c> PlanBuilder<'c> {
 
     // TODO: RQS realm should should be supported
     fn process_resource_query(&mut self, rqs: &ResourceQuerySegment) -> Result<(), Error> {
+        // A resource step produces the key's own value: no command's `cached: false` applies.
+        self.plan.uncached_by = None;
         if let Some(header) = &rqs.header {
             if !header.name.is_empty() {
                 self.plan.init_warning(format!(
@@ -1586,6 +1597,24 @@ impl<'c> PlanBuilder<'c> {
         if !action_expires.is_never() {
             self.update_expiration(&action_expires);
         }
+
+        // `cached: false`: this action's output is not worth keeping. Recorded once per action —
+        // for an alias, by whichever of the alias and its target declares it first.
+        if self.plan.uncached_by.is_none() && !self.is_action_cached(command_key) {
+            self.plan.init_info(format!(
+                "Command '{}/{}/{}' declares cached: false: its output is not kept for reuse",
+                command_key.realm, command_key.namespace, command_key.name
+            ));
+            self.plan.uncached_by = Some(command_key.clone());
+        }
+    }
+
+    /// Helper: whether an action command's output is worth keeping, via CommandMetadata.
+    fn is_action_cached(&self, command_key: &CommandKey) -> bool {
+        match self.command_registry.get(command_key.clone()) {
+            Some(metadata) => metadata.cached(),
+            None => true,
+        }
     }
 
     /// `prefix` is the query the action completes (see `Step::Action::query`). It differs from
@@ -1610,16 +1639,18 @@ impl<'c> PlanBuilder<'c> {
                     &excess.position(),
                 ));
             }
-            // `v` is a statement about the whole plan, not about a position in it: it emits no
-            // step, and its position carries no information. Nothing here is cacheable.
-            self.mark_volatile(
-                "Volatile due to instruction 'v'",
-                VolatilitySource::Declared,
-            );
+            // `v` is positional: it emits no step, and everything from its position onward is
+            // volatile while the prefix ahead of it stays pure. So `a/b/v/c` cuts `a/b` as a
+            // cached boundary, and `v` at the head still makes the whole query volatile, because
+            // no candidate prefix is then free of it.
+            self.mark_volatile("Volatile due to instruction 'v'", VolatilitySource::Positional);
             return Ok(()); // Don't create Step::Action for 'v'
         }
 
         let command_metadata = self.get_command_metadata(query, action_request)?;
+
+        // `uncached_by` describes the last action only: this action's commands decide it afresh.
+        self.plan.uncached_by = None;
 
         // Check if command is volatile
         let command_key = CommandKey::new(
@@ -1769,6 +1800,8 @@ impl<'c> PlanBuilder<'c> {
                     .steps
                     .push(Step::UseQueryValue(query_without_q_and_filename));
             }
+            // The value is the query itself, not any command's output.
+            self.plan.uncached_by = None;
 
             // Add filename as separate step if present
             if let Some(filename) = filename {
@@ -1822,6 +1855,7 @@ impl<'c> PlanBuilder<'c> {
                     if !query_without_q.is_empty() {
                         self.plan.steps.push(Step::UseQueryValue(query_without_q));
                     }
+                    self.plan.uncached_by = None;
                 } else {
                     // The builder always expands. Cutting a boundary is a policy decision made
                     // after freezing, when the steps are in execution order and every operand is
@@ -1902,7 +1936,8 @@ pub struct Plan {
     /// Diagnostics produced during planning and analysis, before execution.
     ///
     /// This should contain only [`Step::Info`], [`Step::Warning`], and [`Step::Error`]. The
-    /// interpreter does not execute this list; metadata projection copies it into the asset log.
+    /// interpreter does not execute this list: applying the plan appends it to the evaluating
+    /// asset's log once, before the first step runs (`interpreter::apply_plan_state`).
     #[serde(default)]
     pub init_steps: Vec<Step>,
 
@@ -1973,6 +2008,19 @@ pub struct Plan {
     /// taken against the query's own steps survive the insert.
     #[serde(default)]
     pub prologue_steps: usize,
+
+    /// The command whose `cached: false` makes this plan's result not worth keeping for reuse,
+    /// or `None` when no command objects.
+    ///
+    /// Describes the **last** action only: each action sets it from its own command (and, for an
+    /// alias, the alias's), a resource step or `q` clears it, and `Filename`, `ns` and `v` leave
+    /// it. So it is not contagious — `a/u` is uncached, `u/a` is not. It is what
+    /// [`Self::cut_predecessor`] reads to step back past a candidate, which runs the command
+    /// inline, and what the asset manager reads before registering a non-keyed query. A keyed
+    /// recipe's own result follows the recipe's caching strategy instead
+    /// ([`crate::cache_strategy`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uncached_by: Option<CommandKey>,
 }
 
 /// How a plan came to be volatile.
@@ -1981,13 +2029,14 @@ pub struct Plan {
 /// than a diagnostic. A closed set: a new source is a compile error at every match.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VolatilitySource {
-    /// A volatile command, or a volatile dependency.
+    /// A volatile command, a volatile dependency, or the `v` instruction.
     ///
-    /// **Positional**: volatility is a property of that command, so everything ahead of it in
-    /// the chain is genuinely pure and a boundary may be cut in front of it.
+    /// **Positional**: volatility starts at that point, so everything ahead of it in the chain
+    /// is genuinely pure and a boundary may be cut in front of it. `v` at the head of a query
+    /// leaves no pure prefix, so it still makes the whole query volatile.
     Positional,
-    /// A whole-plan declaration — the `v` instruction, a recipe's `volatile: true`, or a recipe
-    /// expiration that is itself volatile.
+    /// A whole-plan declaration — a recipe's `volatile: true`, or a recipe expiration that is
+    /// itself volatile.
     ///
     /// **Not positional**: it carries no position and says that nothing here is cacheable, so
     /// the plan may not be cut at all. A boundary is a cache entry.
@@ -2030,6 +2079,7 @@ impl Plan {
             predecessor_steps: 0,
             volatility_source: None,
             prologue_steps: 0,
+            uncached_by: None,
         }
     }
 
@@ -2206,11 +2256,17 @@ impl Plan {
     /// - its plan **requires a payload** — a payload is deliberately not part of a cache key,
     ///   so a value computed from one must never end up behind a boundary;
     /// - its plan is **volatile** — a boundary that is recomputed every time buys none of the
-    ///   three things a boundary exists for, and costs an extra asset and an extra hop.
+    ///   three things a boundary exists for, and costs an extra asset and an extra hop;
+    /// - its result is **not cached** ([`Plan::uncached_by`]) — its last command declares
+    ///   `cached: false`, so that command runs inline after the next candidate instead.
     ///
-    /// Whole-plan volatility ([`VolatilitySource::Declared`] — the `v` instruction, a recipe's
-    /// `volatile: true`) is checked first and declines outright: it says nothing here is
-    /// cacheable, and it appears in no candidate's query, so the walk could not see it.
+    /// Whole-plan volatility ([`VolatilitySource::Declared`] — a recipe's `volatile: true`) is
+    /// checked first and declines outright: it says nothing here is cacheable, and it appears in
+    /// no candidate's query, so the walk could not see it. The `v` instruction is positional, so
+    /// the walk sees it in each candidate and cuts ahead of it: `a/b/v/c` → `Evaluate(a/b) c`.
+    ///
+    /// The cut does not read the asset manager or any caching strategy: whether a boundary is
+    /// registered for reuse is decided when it executes ([`crate::cache_strategy`]).
     ///
     /// Requires a frozen plan — cutting an unfrozen one would produce a CWD-dependent boundary
     /// query, which is the defect freezing exists to remove. Each candidate found by stepping
@@ -2242,10 +2298,14 @@ impl Plan {
         let Some(recorded) = self.predecessor.clone() else {
             return Ok(false);
         };
-        // `>=` rather than `>`: equality leaves an empty tail, which is the whole plan replaced
-        // by a boundary that recomputes it. Unreachable while `v` declines above, and pinned
-        // anyway because a positional `v` would reopen it.
-        if self.predecessor_steps == 0 || self.predecessor_steps >= self.steps.len() {
+        // Equality leaves an empty tail: the whole plan replaced by one boundary. For a stable
+        // plan that boundary would recompute the very same thing, so it declines. For a volatile
+        // plan it is exactly right — only a trailing `v` (which emits no step) gets here, and
+        // `a/b/v` is then `Evaluate(a/b)`: `a/b` is cached, and this asset is volatile.
+        if self.predecessor_steps == 0
+            || self.predecessor_steps > self.steps.len()
+            || (self.predecessor_steps == self.steps.len() && !self.is_volatile)
+        {
             return Ok(false);
         }
 
@@ -2272,9 +2332,14 @@ impl Plan {
                 return Ok(false);
             }
             let reason = if candidate.payload_required.is_required() {
-                "requires an evaluation payload"
+                "requires an evaluation payload".to_string()
             } else if candidate.is_volatile {
-                "is volatile"
+                "is volatile".to_string()
+            } else if let Some(command) = &candidate.uncached_by {
+                format!(
+                    "is not cached (command '{}/{}/{}' declares cached: false)",
+                    command.realm, command.namespace, command.name
+                )
             } else {
                 break;
             };
@@ -2619,6 +2684,8 @@ impl Plan {
         // and `split` has no registry to build it.
         first_plan.predecessor = None;
         first_plan.predecessor_steps = 0;
+        // `uncached_by` describes the last action of the whole plan, which is in the second half.
+        first_plan.uncached_by = None;
 
         let mut second_plan = self.clone();
         second_plan.steps = self.steps[split_index..].to_vec();
@@ -5568,35 +5635,47 @@ mod tests {
         );
     }
 
-    /// `v` is a statement about the whole plan, wherever it sits.
+    fn volatile_recipe_plan(query: &str, cmr: &CommandMetadataRegistry) -> Plan {
+        let mut recipe =
+            crate::recipes::Recipe::new(query.to_string(), String::new(), String::new()).unwrap();
+        recipe.volatile = true;
+        recipe.to_plan(cmr).unwrap()
+    }
+
+    /// plan-policy: `v` is positional wherever it sits — only a recipe's `volatile: true`, which
+    /// carries no position, is a whole-plan declaration.
     #[test]
-    fn the_v_instruction_is_declared() {
+    fn the_v_instruction_is_positional() {
         let cmr = scope_registry();
         for query in ["v/prefix/tail", "prefix/v/tail", "prefix/tail/v"] {
             assert_eq!(
                 source_of(query, &cmr),
-                Some(VolatilitySource::Declared),
-                "`v` declares whole-plan volatility in {query}"
+                Some(VolatilitySource::Positional),
+                "`v` is positional in {query}"
             );
         }
+        assert_eq!(
+            volatile_recipe_plan("prefix/tail", &cmr).volatility_source,
+            Some(VolatilitySource::Declared)
+        );
     }
 
     /// The trap: `mark_volatile` records its *reason* only when the plan is not already
-    /// volatile. If the scope upgrade sat inside that early-out, a `v` following a volatile
-    /// command would be swallowed, the plan would look positional, and a boundary would be cut
-    /// out of a plan that declares nothing is cacheable.
+    /// volatile. If the scope upgrade sat inside that early-out, a recipe's declaration following
+    /// a volatile command would be swallowed, the plan would look positional, and a boundary
+    /// would be cut out of a plan that declares nothing is cacheable.
     #[test]
     fn a_declared_source_survives_an_earlier_positional_one() {
         let cmr = scope_registry();
         assert_eq!(
-            source_of("vol_cmd/v/tail", &cmr),
+            volatile_recipe_plan("vol_cmd/tail", &cmr).volatility_source,
             Some(VolatilitySource::Declared),
             "`Declared` must outrank a `Positional` source recorded before it"
         );
-        // ...and the reverse order must not weaken it either.
         assert_eq!(
-            source_of("v/vol_cmd/tail", &cmr),
-            Some(VolatilitySource::Declared)
+            volatile_recipe_plan("prefix/v/tail", &cmr).volatility_source,
+            Some(VolatilitySource::Declared),
+            "...including one recorded by `v`"
         );
     }
 
@@ -5817,6 +5896,9 @@ mod tests {
         let mut vol = CommandMetadata::new("vol_step");
         vol.volatile = true;
         cmr.add_command(&vol);
+        let mut wide = CommandMetadata::new("wide");
+        wide.cached = Some(false);
+        cmr.add_command(&wide);
         cmr
     }
 
@@ -5884,12 +5966,15 @@ mod tests {
     }
 
     /// Whole-plan volatility declines before the walk starts: it appears in no candidate query,
-    /// so the walk could not see it, and it says nothing here is cacheable.
+    /// so the walk could not see it, and it says nothing here is cacheable. Since plan-policy the
+    /// only whole-plan source is a recipe's own declaration.
     #[test]
     fn declared_volatility_declines_before_the_walk() -> Result<(), Box<dyn std::error::Error>> {
         let cmr = walk_registry();
-        for query in ["fetch/v/expensive/render", "fetch/expensive/render/v"] {
-            let plan = cut_of(query, &cmr)?;
+        for query in ["fetch/expensive/render", "fetch/v/expensive/render"] {
+            let mut plan = volatile_recipe_plan(query, &cmr);
+            plan.freeze_cwd(None)?;
+            plan.cut_predecessor(&cmr)?;
             assert_eq!(boundary_of(&plan), None, "no boundary in {query}");
             assert!(
                 plan.init_steps
@@ -5900,6 +5985,103 @@ mod tests {
             );
         }
         Ok(())
+    }
+
+    fn uncached_by_of(query: &str, cmr: &CommandMetadataRegistry) -> Option<String> {
+        PlanBuilder::new(parse_query(query).unwrap(), cmr)
+            .build()
+            .unwrap()
+            .uncached_by
+            .map(|key| key.name)
+    }
+
+    /// plan-policy: `uncached_by` describes the last action only. A later action, a resource
+    /// step or `q` replaces it; a filename does not.
+    #[test]
+    fn uncached_command_sets_uncached_by_and_is_not_contagious() {
+        let cmr = walk_registry();
+        assert_eq!(uncached_by_of("fetch/wide", &cmr).as_deref(), Some("wide"));
+        assert_eq!(uncached_by_of("wide/fetch", &cmr), None, "not contagious");
+        assert_eq!(
+            uncached_by_of("fetch/wide/out.txt", &cmr).as_deref(),
+            Some("wide"),
+            "a filename keeps it"
+        );
+        assert_eq!(uncached_by_of("fetch/wide/q", &cmr), None, "a query value is no output");
+        assert_eq!(uncached_by_of("fetch/expensive", &cmr), None);
+        let plan = PlanBuilder::new(parse_query("fetch/wide").unwrap(), &cmr)
+            .build()
+            .unwrap();
+        assert!(
+            plan.init_steps.iter().any(|step| matches!(step, Step::Info(m)
+                if m.contains("wide") && m.contains("cached: false"))),
+            "the declaration is logged: {:?}",
+            plan.init_steps
+        );
+    }
+
+    /// plan-policy AC-1: an uncached candidate is never a boundary, so its command runs inline
+    /// after the next candidate.
+    #[test]
+    fn walk_steps_back_past_an_uncached_candidate() -> Result<(), Box<dyn std::error::Error>> {
+        let cmr = walk_registry();
+        let plan = cut_of("fetch/expensive/wide/render", &cmr)?;
+        assert_eq!(boundary_of(&plan).as_deref(), Some("fetch/expensive"));
+        let actions: Vec<&str> = plan
+            .steps
+            .iter()
+            .filter_map(|step| match step {
+                Step::Action { action_name, .. } => Some(action_name.as_str()),
+                _other => None,
+            })
+            .collect();
+        assert_eq!(actions, ["wide", "render"], "wide runs inline: {:?}", plan.steps);
+        assert!(
+            plan.init_steps.iter().any(|step| matches!(step, Step::Info(m)
+                if m.contains("fetch/expensive/wide") && m.contains("not cached"))),
+            "the reason is recorded: {:?}",
+            plan.init_steps
+        );
+        Ok(())
+    }
+
+    /// plan-policy AC-9: `v` is positional, so the boundary lands just ahead of it; `v` at the
+    /// head leaves no pure prefix.
+    #[test]
+    fn positional_v_cuts_before_itself() -> Result<(), Box<dyn std::error::Error>> {
+        let cmr = walk_registry();
+        let plan = cut_of("fetch/expensive/v/render", &cmr)?;
+        assert!(plan.is_volatile);
+        assert_eq!(boundary_of(&plan).as_deref(), Some("fetch/expensive"));
+        let plan = cut_of("v/fetch/expensive/render", &cmr)?;
+        assert!(plan.is_volatile);
+        assert_eq!(boundary_of(&plan), None, "nothing ahead of a leading `v` is pure");
+        Ok(())
+    }
+
+    /// plan-policy AC-9: a trailing `v` emits no step, so the cut leaves an empty tail — the
+    /// whole plan becomes the boundary, which is cached while this asset stays volatile.
+    #[test]
+    fn trailing_v_cuts_the_whole_prefix() -> Result<(), Box<dyn std::error::Error>> {
+        let cmr = walk_registry();
+        let plan = cut_of("fetch/expensive/v", &cmr)?;
+        assert!(plan.is_volatile);
+        assert_eq!(plan.steps.len(), 1, "{:?}", plan.steps);
+        assert_eq!(boundary_of(&plan).as_deref(), Some("fetch/expensive"));
+        // A stable plan with the same shape still declines: the boundary would be itself.
+        let stable = cut_of("fetch/expensive", &cmr)?;
+        assert!(boundary_of(&stable).as_deref() != Some("fetch/expensive"));
+        Ok(())
+    }
+
+    /// plan-policy AC-12: the builder policy markers are answered and gone.
+    #[test]
+    fn builder_policy_markers_are_retired() {
+        let source = include_str!("plan.rs");
+        for marker in ["support cache", "support volatile flags", "support inline flag"] {
+            let line = format!("// TODO: {marker}");
+            assert!(!source.contains(&line), "`{line}` is still present");
+        }
     }
 
     /// A trailing filename is not an action, so the candidate that would swallow the last real
