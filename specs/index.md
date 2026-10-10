@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 113
+Total rows: 114
 - P2: 56
-- P3: 57
+- P3: 58
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -85,6 +85,7 @@ Total rows: 113
 | [`STORES-DISAGREE-ON-SEEDING-THE-DATA-FORMAT-FROM-THE-KEY`](issues/STORES-DISAGREE-ON-SEEDING-THE-DATA-FORMAT-FROM-THE-KEY.md) | issue | Some stores derive a file's data format from its key's extension and others do not | draft | needs-decision | not-eligible | P3 | S | core/store;web | [design](design/store-key-format-seeding/DESIGN.md) | 2026-10-07 |
 | [`WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE`](issues/WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE.md) | issue | JavaScript cannot construct a LiquersError, so a page cannot raise a typed error | accepted | needs-decision | not-eligible | P3 | S | web;core/error | [phase1](design/web-liquers-error-constructor/phase1-high-level-design.md)  [phase2](design/web-liquers-error-constructor/phase2-architecture.md)  [phase3](design/web-liquers-error-constructor/phase3-examples.md)  [phase4](design/web-liquers-error-constructor/phase4-implementation.md)  | 2026-08-09 |
 | [`AXUM-STORE-MAKEDIR-TEST-IGNORED-FOR-A-FIXED-LIMITATION`](issues/AXUM-STORE-MAKEDIR-TEST-IGNORED-FOR-A-FIXED-LIMITATION.md) | issue | An axum store test is ignored for an AsyncMemoryStore limitation that has been fixed | draft |  |  | P3 | S | axum;core/store |  | 2026-10-10 |
+| [`STORE-CONFORMANCE-FEATURE-BUILD-WARNINGS`](issues/STORE-CONFORMANCE-FEATURE-BUILD-WARNINGS.md) | issue | The store-conformance feature build emits unused-import and dead-code warnings | draft |  |  | P3 | S | core/store;build |  | 2026-10-10 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  |  | P3 | S | core/value |  | 2026-09-24 |
 | [`CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY`](issues/CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY.md) | issue | A title or description set by a command in a cut predecessor does not reach the final asset | draft | needs-decision | not-eligible | P3 | M | core/context;core/plan | [phase1](design/context-title-predecessor-inheritance/phase1-high-level-design.md)  [phase2](design/context-title-predecessor-inheritance/phase2-architecture.md)  [phase3](design/context-title-predecessor-inheritance/phase3-examples.md)  [phase4](design/context-title-predecessor-inheritance/phase4-implementation.md)  | 2026-10-06 |
 | [`ASSETS-API-ADMIN-OPERATIONS`](issues/ASSETS-API-ADMIN-OPERATIONS.md) | feature | Manager status and a guarded remove have no assets API endpoint | draft |  |  | P3 | M | axum;core/assets |  | 2026-09-27 |
