@@ -34,3 +34,16 @@ merged on 2026-10-10 at the user's request.
   the scope grew to `L` (see Phase 1, Scope Changes), so the design was converted to the full form.
 - User decisions recorded on 2026-10-10: directive syntax `stored-<bool>` / `cached-<bool>`; positional
   `v` folded in; flags plus a log entry are enough to explain a missing value (no reason field).
+- 2026-10-10, measured rather than read. Each cut boundary is evaluated as its own query asset,
+  whose plan is finalized and cut again, so **every prefix of a chain becomes a cached asset**.
+  With counting commands, after `seed/t1/t2/t1` was fetched through `AssetManager::get_asset`,
+  `seed/t1/t2`, `seed/t1` and `seed` were all served without recomputation (counters unchanged).
+  So `DOC_08_RECIPES_PLANS.md` ("One cut retains **one** intermediate") is wrong at HEAD, and a
+  long chain over a large value retains one copy per step. The free function
+  `interpreter::evaluate` recomputed every prefix, which is consistent with it bypassing the asset
+  cache. The probe was a temporary test and is not committed.
+- 2026-10-10, second discussion round. The user keeps the "disable cutting" switch as a debugging
+  aid (checking whether an uncut plan gives a different result). Agreed that `stored` is meaningful
+  only for keyed assets and stays recipe-only: no command keyword, no directive. Under assessment: a
+  positional cache switch (`cache-off` / `cache-on` / `cache-this`) instead of per-value
+  `cached-<bool>`.
