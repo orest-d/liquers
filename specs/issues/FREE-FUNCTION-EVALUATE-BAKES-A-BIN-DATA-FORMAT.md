@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [core/plan]
-design: 
+design: plan-step-state-metadata
 created: 2026-09-26
 github:
 ---

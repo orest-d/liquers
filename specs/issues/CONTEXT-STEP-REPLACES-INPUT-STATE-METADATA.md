@@ -4,8 +4,8 @@ kind: issue
 title: A step that only passes the value through replaces the input state's metadata with the context's
 status: draft
 priority: P2
-complexity: M
-area: [core/plan]
+complexity: L
+area: [core/plan, core/context]
 design: plan-step-state-metadata
 created: 2026-10-10
 github:
