@@ -1651,10 +1651,13 @@ impl<'c> PlanBuilder<'c> {
                     .command_registry
                     .alias_target(&command_metadata)?
                     .ok_or_else(|| Error::alias_target_not_registered(&original_key, command))?;
-                self.plan.steps.push(Step::Info(format!(
-                    "Alias command {} to {}",
+                // A planning diagnostic, not an executed step: an executed step between the input
+                // and the action would replace the input's metadata with the context's (the
+                // action's `origin` already records the alias structurally).
+                self.plan.init_info(format!(
+                    "Command '{}' is an alias of '{}'",
                     original_key, &command
-                )));
+                ));
 
                 // The alias's own flags were applied above; the target's apply as well, so an
                 // alias can never make a volatile or payload-requiring command look stable.

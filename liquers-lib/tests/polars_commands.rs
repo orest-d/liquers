@@ -142,6 +142,22 @@ async fn eval_over_csv(csv: &str, action: &str) -> Result<Arc<polars::prelude::D
     liquers_lib::polars::util::try_to_polars_dataframe(&state)
 }
 
+/// Phase 3 test 18 (AC-1, AC-9) - `pl/head` is an alias of `pl/slice` with `offset = 0`, run
+/// through the command path: `head-2` gives exactly the rows of `slice-0-2`, and the default
+/// `n = 5` on three rows gives all three. See specs/design/command-alias-contract/.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_head_alias_matches_slice() -> Result<(), Box<dyn std::error::Error>> {
+    let csv = "a\n1\n2\n3";
+    let head = eval_over_csv(csv, "head-2").await?;
+    let slice = eval_over_csv(csv, "slice-0-2").await?;
+    assert_eq!(head.height(), 2);
+    assert!(head.equals(&slice), "head-2 must equal slice-0-2");
+
+    let default = eval_over_csv(csv, "head").await?;
+    assert_eq!(default.height(), 3);
+    Ok(())
+}
+
 /// I1 - one parameter per column. This spelling is an arity error before the commands became
 /// variadic ("accepts 1, but parameter #2 'c' was supplied").
 #[tokio::test(flavor = "multi_thread")]

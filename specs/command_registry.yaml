@@ -18,6 +18,9 @@
 # 2026-10-07  CommandMetadata.cache removed (never read): no `cache:` lines. Changes every
 #             command's metadata_version once, so stored results are recomputed once after the
 #             upgrade (accepted). design/command-cache-flag
+# 2026-10-10  pl/head is an alias of pl/slice (head parameter 0, own argument n = 5): first
+#             `definition: !Alias` in the registry; no impl_version; n's gui_info becomes
+#             IntegerField. design/command-alias-contract
 # CHANGELOG-END
 commands:
 - name: to_text
@@ -1547,25 +1550,6 @@ commands:
   definition: Registered
   impl_version: 3228f6e3d3a143d54b8cf789d09b6424
 - namespace: pl
-  name: head
-  label: Get first rows
-  doc: 'Return first N rows (default: 5)'
-  state_argument:
-    name: state
-    label: state
-    default: None
-    gui_info: !TextField 40
-  arguments:
-  - name: n
-    label: n
-    default: !Value 5
-    argument_type: int
-    gui_info: !TextField 40
-  volatile: false
-  expires: never
-  definition: Registered
-  impl_version: de08a646e2af3a5621ba8d666fe67d6e
-- namespace: pl
   name: tail
   label: Get last rows
   doc: 'Return last N rows (default: 5)'
@@ -1608,6 +1592,30 @@ commands:
   expires: never
   definition: Registered
   impl_version: 56e590b919d643e2e3e268abae38c511
+- namespace: pl
+  name: head
+  label: Get first rows
+  doc: 'Return first N rows (default: 5)'
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: n
+    label: n
+    default: !Value 5
+    argument_type: int
+    gui_info: IntegerField
+  volatile: false
+  expires: never
+  definition: !Alias
+    command:
+      realm: ''
+      namespace: pl
+      name: slice
+    head_parameters:
+    - !Value 0
 - namespace: pl
   name: eq
   label: Equal to

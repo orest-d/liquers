@@ -339,3 +339,35 @@ async fn variadic_argument_round_trips_through_the_registry() -> Result<(), Erro
     );
     Ok(())
 }
+
+/// Phase 3 test 19 (AC-11) - `pl/head` is exported as an alias of `pl/slice`, and its definition,
+/// head parameter and own argument survive the YAML round trip that the validator and the
+/// committed `specs/command_registry.yaml` depend on. See specs/design/command-alias-contract/.
+#[cfg(feature = "polars")]
+#[tokio::test]
+async fn pl_head_is_exported_as_alias_of_slice() -> Result<(), Error> {
+    let registry = full_registry()?;
+    let yaml = serde_yaml::to_string(&registry)
+        .map_err(|e| Error::general_error(format!("could not serialize the registry: {e}")))?;
+    let after: CommandMetadataRegistry = from_json_or_yaml("round-trip", &yaml)?;
+
+    for registry in [&registry, &after] {
+        let head = registry
+            .get(CommandKey::new("", "pl", "head"))
+            .expect("pl/head is registered");
+        assert_eq!(
+            head.definition,
+            CommandDefinition::Alias {
+                command: CommandKey::new("", "pl", "slice"),
+                head_parameters: vec![CommandParameterValue::Value(0.into())],
+            }
+        );
+        let names: Vec<&str> = head.arguments.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, vec!["n"]);
+        assert!(
+            registry.alias_target(head)?.is_some(),
+            "the exported alias validates against the exported registry"
+        );
+    }
+    Ok(())
+}

@@ -65,19 +65,6 @@ pub fn drop_columns(state: &State<Value>, columns: Vec<String>) -> Result<Value,
     Ok(Value::from_polars_dataframe(result))
 }
 
-/// Get first N rows
-///
-/// Arguments:
-/// - n: Number of rows (default: 5)
-#[liquers_macro::command_version]
-pub fn head(state: &State<Value>, n: i32) -> Result<Value, Error> {
-    let df = try_to_polars_dataframe(state)?;
-    let num_rows = n.max(0) as usize;
-
-    let result = df.head(Some(num_rows));
-    Ok(Value::from_polars_dataframe(result))
-}
-
 /// Get last N rows
 ///
 /// Arguments:
@@ -135,15 +122,6 @@ macro_rules! register_polars_selection_commands {
         )?;
 
         register_command!($cr,
-            fn head(state, n: i32 = 5) -> result
-            namespace: "pl"
-            label: "Get first rows"
-            doc: "Return first N rows (default: 5)"
-
-        version: auto
-        )?;
-
-        register_command!($cr,
             fn tail(state, n: i32 = 5) -> result
             namespace: "pl"
             label: "Get last rows"
@@ -160,6 +138,18 @@ macro_rules! register_polars_selection_commands {
 
         version: auto
         )?;
+
+        // `head` is `slice` from the first row: an alias, not a second implementation.
+        // See specs/reference/COMMAND_ALIASES.md.
+        $cr.register_alias(
+            liquers_core::command_metadata::CommandKey::new("", "pl", "head"),
+            liquers_core::command_metadata::CommandKey::new("", "pl", "slice"),
+            vec![liquers_core::command_metadata::CommandParameterValue::Value(0.into())],
+            vec![liquers_core::command_metadata::ArgumentInfo::integer_argument("n", false)
+                .with_default(5)],
+        )?
+        .with_label("Get first rows")
+        .with_doc("Return first N rows (default: 5)");
 
         Ok::<(), liquers_core::error::Error>(())
     }};
