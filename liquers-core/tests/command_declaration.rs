@@ -206,3 +206,39 @@ async fn int02_declaration_and_macro_agree_including_metadata_version() {
     );
     assert_eq!(macro_comparable, declaration_metadata);
 }
+
+/// plan-policy: `cached: false` reaches `CommandMetadata` from both registration paths — a
+/// declaration document (no pipeline change: a new metadata field is declarable at once) and the
+/// `register_command!` macro — and an undeclared command keeps `None`, which reads as cached.
+#[test]
+fn cached_false_is_recorded_on_command_metadata() -> Result<(), Box<dyn std::error::Error>> {
+    let declared = CommandDeclaration::from_document(json!({ "name": "wide", "cached": false }))
+        .finish()?;
+    assert_eq!(declared.cached, Some(false));
+    assert!(!declared.cached());
+
+    let plain = CommandDeclaration::from_document(json!({ "name": "narrow" })).finish()?;
+    assert_eq!(plain.cached, None);
+    assert!(plain.cached());
+
+    use liquers_core::{
+        command_metadata::CommandKey, context::{Context, SimpleEnvironment}, error::Error, state::State,
+        value::Value as LqValue,
+    };
+    use liquers_macro::register_command;
+    type CommandEnvironment = SimpleEnvironment<LqValue>;
+    fn wide(state: &State<LqValue>) -> Result<LqValue, Error> {
+        Ok(LqValue::from(state.try_into_string()?))
+    }
+    let mut env = SimpleEnvironment::<LqValue>::new();
+    let cr = &mut env.command_registry;
+    register_command!(cr, fn wide(state) -> result
+        cached: false
+    )?;
+    let metadata = cr
+        .command_metadata_registry
+        .get(CommandKey::new_name("wide"))
+        .ok_or("registered")?;
+    assert_eq!(metadata.cached, Some(false));
+    Ok(())
+}

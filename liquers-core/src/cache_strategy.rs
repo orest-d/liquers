@@ -19,7 +19,7 @@
 
 use std::fmt;
 
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer};
 
 /// How much of an evaluation is kept for reuse.
 ///
