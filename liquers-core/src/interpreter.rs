@@ -311,12 +311,14 @@ fn resolve_absolute_query_resource_step(step: Step) -> Step {
             action_name,
             position,
             parameters,
+            origin,
         } => Step::Action {
             realm,
             ns,
             action_name,
             position,
             parameters,
+            origin,
         },
         Step::Filename(filename) => Step::Filename(filename),
         Step::Info(message) => Step::Info(message),
@@ -645,6 +647,7 @@ pub fn do_step<E: Environment>(
             action_name,
             position,
             parameters,
+            origin: _,
         } => async move {
             let command_key = CommandKey::new(&realm, &ns, &action_name);
             let mut materialized_parameters = parameters.clone();
@@ -972,6 +975,7 @@ impl<E: Environment> IsVolatile<E> for Step {
                 action_name,
                 position: _,
                 parameters,
+                origin: _,
             } => {
                 if let Some(cmd) =
                     env.get_command_metadata_registry()
@@ -1091,6 +1095,7 @@ impl<E: Environment> RequiresPayload<E> for Step {
                 action_name,
                 position: _,
                 parameters,
+                origin: _,
             } => {
                 if let Some(cmd) =
                     env.get_command_metadata_registry()
@@ -1694,6 +1699,7 @@ mod tests {
             realm: String::new(),
             ns: String::new(),
             action_name: "collect_materialized".to_owned(),
+            origin: crate::plan::ActionOrigin::Direct,
             position: Position::unknown(),
             parameters: ResolvedParameterValues(vec![
                 ParameterValue::MultipleParameters(
@@ -1752,6 +1758,7 @@ mod tests {
             realm: String::new(),
             ns: String::new(),
             action_name: "must_not_execute".to_owned(),
+            origin: crate::plan::ActionOrigin::Direct,
             position: Position::unknown(),
             parameters: ResolvedParameterValues(vec![ParameterValue::MultipleParameters(
                 "items".to_owned(),

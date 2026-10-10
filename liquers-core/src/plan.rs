@@ -205,6 +205,37 @@ pub fn append_action(
     Ok(append_actions(query, vec![ns_action, action]))
 }
 
+/// Why a [`Step::Action`] calls the command it names.
+///
+/// A plan must be explainable by reading it: an action reached through an alias says so, and the
+/// dependency scan derives the dependency on the alias's metadata from this field. A later kind of
+/// command rewriting (for example type-based specialization) adds a variant here.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+pub enum ActionOrigin {
+    /// The query named this command.
+    #[default]
+    Direct,
+    /// The query named `command`, an alias whose definition resolved to this action.
+    Alias { command: CommandKey },
+}
+
+impl ActionOrigin {
+    /// Returns whether the query named this command itself.
+    pub fn is_direct(&self) -> bool {
+        match self {
+            ActionOrigin::Direct => true,
+            ActionOrigin::Alias { .. } => false,
+        }
+    }
+    /// Returns the alias the action was reached through, if any.
+    pub fn alias(&self) -> Option<&CommandKey> {
+        match self {
+            ActionOrigin::Direct => None,
+            ActionOrigin::Alias { command } => Some(command),
+        }
+    }
+}
+
 /// One operation or diagnostic in an executable [`Plan`].
 ///
 /// Data-producing variants replace the current interpreter value. Context modifiers such as
@@ -245,6 +276,10 @@ pub enum Step {
         position: Position,
         /// Parameter values resolved from metadata, query text, and overrides.
         parameters: ResolvedParameterValues,
+        /// Why this command is called: named by the query, or reached through an alias.
+        /// Omitted from the serialized plan when `Direct`, so unaliased plans are unchanged.
+        #[serde(default, skip_serializing_if = "ActionOrigin::is_direct")]
+        origin: ActionOrigin,
     },
     /// Set the output filename in the current execution context.
     Filename(ResourceName),
@@ -1572,6 +1607,7 @@ impl<'c> PlanBuilder<'c> {
                 self.check_parameters_for_volatile_links(&parameters)?;
 
                 self.plan.steps.push(Step::Action {
+                    origin: ActionOrigin::Direct,
                     realm: command_metadata.realm.clone(),
                     ns: command_metadata.namespace.clone(),
                     action_name: action_request.name.clone(),
@@ -1606,6 +1642,9 @@ impl<'c> PlanBuilder<'c> {
                     action_name: command.name.clone(),
                     position: action_request.position.clone(),
                     parameters,
+                    origin: ActionOrigin::Alias {
+                        command: original_key.clone(),
+                    },
                 });
             }
         }
@@ -3492,6 +3531,7 @@ mod tests {
             init_steps: vec![],
             steps: vec![
                 Step::Action {
+                    origin: ActionOrigin::Direct,
                     realm: "r".to_string(),
                     ns: "n".to_string(),
                     action_name: "a".to_string(),
@@ -3520,6 +3560,7 @@ mod tests {
                 Step::Info("info".to_string()),
                 Step::SetCwd(Key::new()),
                 Step::Action {
+                    origin: ActionOrigin::Direct,
                     realm: "r".to_string(),
                     ns: "n".to_string(),
                     action_name: "a".to_string(),
@@ -3549,6 +3590,7 @@ mod tests {
                 Step::GetAsset(Key::new()),
                 Step::Info("info1".to_string()),
                 Step::Action {
+                    origin: ActionOrigin::Direct,
                     realm: "r".to_string(),
                     ns: "n".to_string(),
                     action_name: "a".to_string(),
@@ -3580,6 +3622,7 @@ mod tests {
             steps: vec![
                 Step::GetAsset(Key::new()),
                 Step::Action {
+                    origin: ActionOrigin::Direct,
                     realm: "r".to_string(),
                     ns: "n".to_string(),
                     action_name: "a1".to_string(),
@@ -3587,6 +3630,7 @@ mod tests {
                     parameters: ResolvedParameterValues::new(),
                 },
                 Step::Action {
+                    origin: ActionOrigin::Direct,
                     realm: "r".to_string(),
                     ns: "n".to_string(),
                     action_name: "a2".to_string(),
@@ -4325,6 +4369,7 @@ mod tests {
             Step::SetCwd(parse_key("a/b")?),
             Step::SetCwd(parse_key("../c")?),
             Step::Action {
+                origin: ActionOrigin::Direct,
                 realm: String::new(),
                 ns: String::new(),
                 action_name: "links".to_owned(),
@@ -4428,6 +4473,7 @@ mod tests {
         plan.steps = vec![
             Step::SetCwd(parse_key("base")?),
             Step::Action {
+                origin: ActionOrigin::Direct,
                 realm: String::new(),
                 ns: String::new(),
                 action_name: "deep".to_owned(),
@@ -5098,6 +5144,7 @@ mod tests {
         plan.steps = vec![
             Step::SetCwd(parse_key("a/b")?),
             Step::Action {
+                origin: ActionOrigin::Direct,
                 realm: String::new(),
                 ns: String::new(),
                 action_name: "act".to_owned(),
@@ -6014,6 +6061,49 @@ mod tests {
         analyze_plan_dependencies(envref, &mut plan, None).await?;
         assert_eq!(provider.recipe_opt_calls(), 2001);
         assert_eq!(plan.dependencies.len(), 2, "direct only: l2000 and its recipe");
+        Ok(())
+    }
+
+    /// Phase 3 test 17 (AC-12) - `origin` is omitted when `Direct`, so unaliased plans serialize
+    /// as before and plans written before the field existed still load; an alias origin
+    /// round-trips.
+    #[test]
+    fn action_origin_serialization() -> Result<(), Box<dyn std::error::Error>> {
+        let direct = Step::Action {
+            realm: String::new(),
+            ns: "pl".to_string(),
+            action_name: "slice".to_string(),
+            position: Position::unknown(),
+            parameters: ResolvedParameterValues::new(),
+            origin: ActionOrigin::Direct,
+        };
+        let json = serde_json::to_string(&direct)?;
+        assert!(
+            !json.contains("origin"),
+            "a direct action must not serialize its origin: {json}"
+        );
+        let reloaded: Step = serde_json::from_str(&json)?;
+        let Step::Action { origin, .. } = reloaded else {
+            panic!("an action deserializes as an action");
+        };
+        assert_eq!(origin, ActionOrigin::Direct);
+
+        let aliased = Step::Action {
+            realm: String::new(),
+            ns: "pl".to_string(),
+            action_name: "slice".to_string(),
+            position: Position::unknown(),
+            parameters: ResolvedParameterValues::new(),
+            origin: ActionOrigin::Alias {
+                command: CommandKey::new("", "pl", "head"),
+            },
+        };
+        let yaml = serde_yaml::to_string(&aliased)?;
+        let reloaded: Step = serde_yaml::from_str(&yaml)?;
+        let Step::Action { origin, .. } = reloaded else {
+            panic!("an action deserializes as an action");
+        };
+        assert_eq!(origin.alias(), Some(&CommandKey::new("", "pl", "head")));
         Ok(())
     }
 }
