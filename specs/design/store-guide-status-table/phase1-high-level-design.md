@@ -2,21 +2,15 @@
 
 ## Design Readiness
 
-- **Readiness:** needs-decision
-- **Automatic fixing:** not-eligible — needs-decision (rule 5). Either answer (a generator test, or
-  closing as documented) is test or documentation work in one crate and would be eligible once
-  chosen
-- **Leading issue:** **Open design question — build a generator, or close the issue now that the
-  guide is honest.** Since the issue was filed, `STORE_IMPLEMENTATION_GUIDE.md` §9 was rewritten.
-  It now says the table is "maintained by hand from the printed reports — no generator exists
-  yet", which is the issue's second option, already done.
-- **Explanation:** The remaining question is whether a generator is worth building. A small
-  design for one is specified, so the decision can be "build" without further design work.
-- **Open questions:**
-  1. **Proposed resolution — build a small generator test.** Hand counts drift on every rule
-     addition (`sidecar04` changed every count at once). A generator also lets
-     `memory-store-metadata-only-entry`'s new rule update the table mechanically. Alternative:
-     close as resolved by the documentation change, with no code.
+- **Readiness:** ready
+- **Automatic fixing:** not-eligible — test and documentation work only, but in two crates: the
+  OpenDAL rows come from `liquers-store/tests/store_conformance_CONF.rs`, which `liquers-core`'s
+  tests cannot run (rule 6)
+- **Leading issue:** None
+- **Explanation:** Decided (Maintainer decision, 2026-10-10): build a small generator. Since the
+  issue was filed the guide already says the table is maintained by hand; the generator makes the
+  native rows reproducible.
+- **Open questions:** None.
 
 ## Problem
 
@@ -26,18 +20,19 @@ derives serde so a generator could exist, but none does.
 
 ## Expected behaviour and acceptance (generator)
 
-1. An `#[ignore]`d test in `liquers-core/tests/store_conformance_CONF.rs` (or a small example)
-   runs each native suite and prints the §9 table as Markdown to stdout. It is a test, so stdout
-   is the binary's own output, which is acceptable under the stdout rule (tests' printed output is
-   captured).
-2. The guide says how to regenerate (`cargo test -p liquers-core --test store_conformance_CONF -- --ignored --nocapture status_table`)
-   and that browser-only rows (`JsStore`, `LocalStorageStore`) are merged by hand from the browser
-   suites.
+1. An `#[ignore]`d `status_table` test in `liquers-core/tests/store_conformance_CONF.rs` runs each
+   core suite (memory, file, router, trait defaults, `NoAsyncStore`, and `FetchStore` if its suite
+   is native) and prints its §9 rows as Markdown to **stderr**; a matching `status_table` in
+   `liquers-store/tests/store_conformance_CONF.rs` prints the two OpenDAL rows.
+2. The guide gives both regeneration commands
+   (`cargo test -p liquers-core --test store_conformance_CONF -- --ignored --nocapture status_table`
+   and the same with `-p liquers-store --features store-conformance`) and says that browser-only rows
+   (`JsStore`, `LocalStorageStore`) are merged by hand from the browser suites.
 3. No new dependency.
 
 ## Scope
 
-Native suites only. The browser suites run under wasm and cannot be run by the native generator.
+Native suites only, in `liquers-core` and `liquers-store`. The browser suites run under wasm and cannot be run by the native generator.
 
 ## Design Dependencies
 
