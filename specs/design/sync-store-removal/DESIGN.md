@@ -5,7 +5,7 @@ title: Remove the synchronous Store trait and the legacy cache module
 form: compact
 workflow: liquers-project
 status: in_review
-phase: high-level
+phase: architecture
 area: [core/store, py, docs]
 issues: [CORE-SYNC-STORE-TRAIT-OBSOLETE]
 created: 2026-10-10
@@ -16,42 +16,30 @@ created: 2026-10-10
 
 ### Purpose
 
-Delete `liquers_core::store::Store` with its four implementations, and `liquers_core::cache`, which
-`design/core-dead-code-hygiene/` assigned to this issue. Nothing in the system can hold either, so
-they are dead weight that reads as live API and doubles the surface every store-contract rule has to
-cover. `AsyncStore` becomes the only store trait, as `STORE_SEMANTICS.md` already says it is in
-practice.
+Delete `liquers_core::store::Store` with its four implementations, and `liquers_core::cache`
+(assigned here by `design/core-dead-code-hygiene/`). Nothing can hold either, so they read as live
+API while being dead, and double the surface of every store-contract rule. `AsyncStore` becomes the
+only store trait.
 
 ### Problem Example
 
-A store author follows the trait whose name looks canonical:
-
 ```rust
-use liquers_core::store::Store;            // the sync trait, liquers-core/src/store.rs:66
-struct MyStore { /* … */ }
+use liquers_core::store::Store;                 // store.rs:66
 impl Store for MyStore { /* get, set, listdir, … */ }
-
-let env = EnvironmentBuilder::new()
-    .with_async_store(Arc::new(MyStore { .. }))   // environment_builder.rs:327
-    .build()?;
+EnvironmentBuilder::new().with_async_store(Arc::new(MyStore { .. }))  // environment_builder.rs:327
 ```
 
-**Today:** `impl Store` compiles, the author writes the whole backend, and only the last call fails
-— `MyStore: AsyncStore` is not satisfied, and there is no adapter (`AsyncStoreWrapper` was deleted)
-and no `Environment` method that takes a `Store`. The same is true for the bundled `MemoryStore`,
-`FileStore`, `StoreRouter` and `NoStore`: four implementations nothing can use, with their own copy of
-the ~20-method contract (`store.rs` ≈66-327) that drifts from `AsyncStore`'s. Tests in `store.rs`
-(`reserved07`, `keyabs09`, …) exist only to stop that drift.
+**Today:** `impl Store` compiles; only the last call fails (`MyStore: AsyncStore` unsatisfied). No
+adapter exists (`AsyncStoreWrapper` was deleted) and no `Environment` takes a `Store`. The same holds
+for `MemoryStore`, `FileStore`, `StoreRouter` and `NoStore`, which carry their own copy of the
+~20-method contract and drift-guard tests (`reserved07`, `keyabs09`, …).
+**After:** the `use` line fails (`no Store in store`), sending the author to `AsyncStore` at once.
 
-**After:** `use liquers_core::store::Store` is a compile error (`no Store in store`), so the author
-is sent to `AsyncStore` at the first line, and the only store contract in the code is `AsyncStore`'s.
-
-**Correction to the issue.** It expects a `liquers-py` *public API* change. Opened at HEAD, no
-Python-visible surface changes: `liquers-py/src/store.rs` (`PyStore`) and `cache.rs` are orphans not
-declared in `lib.rs` and never compiled (`PY-MODULES-NOT-DECLARED-IN-LIB`); `Environment::with_store`
-and `with_cache` are inside a `/* … */` block in `context.rs`; and the `Environment` pyclass is not
-registered in the `#[pymodule]`. What changes is the Rust-level `pub store` and `pub cache` fields of
-`liquers_py::context::Environment`, which no crate depends on.
+**Correction to the issue:** no Python-visible API changes. `liquers-py/src/store.rs` (`PyStore`) and
+`cache.rs` are undeclared orphans (`PY-MODULES-NOT-DECLARED-IN-LIB`); `with_store` / `with_cache`
+are inside a `/* … */` block; the `Environment` pyclass is not registered in the `#[pymodule]`. Only
+the Rust fields `pub store` / `pub cache` of `liquers_py::context::Environment` change, and no crate
+uses them.
 
 ### Scope and Acceptance Criteria
 
@@ -63,70 +51,115 @@ registered in the `#[pymodule]`. What changes is the Rust-level `pub store` and 
   - THEN it fails to compile; result caching is the asset manager's alone
 - **AC-3** Asynchronous store behaviour is unchanged
   - WHEN the `liquers-core` unit tests and the store conformance suites run
-  - THEN every `AsyncStore` assertion that existed before still runs and passes; tests whose only
-    subject was a sync store are removed only where an async twin asserts the same rule
+  - THEN every pre-existing `AsyncStore` assertion still runs and passes; a sync-only test is removed
+    only where an async twin asserts the same rule
 - **AC-4** `liquers-py` builds with an unchanged Python surface
   - WHEN `cargo test -p liquers-py --lib --no-default-features --features async_store` runs
-  - THEN it passes, the `#[pymodule]` registers the same classes and functions as before, and
-    `Environment` has no `store` or `cache` field
+  - THEN it passes, the `#[pymodule]` registers the same items as before, and `Environment` has no
+    `store` or `cache` field
 - **AC-5** Every build configuration still compiles
   - WHEN `scripts/check-build-matrix.sh` runs (including the wasm32 rows)
-  - THEN every row passes — imports used only by the sync stores do not linger as warnings-as-errors
-    or wasm breakage
+  - THEN every row passes
 - **AC-6** No document teaches the removed API, and the door stays open
-  - WHEN `specs/reference`, `specs/guides`, `CLAUDE.md` and `.claude/skills` are searched for
-    `MemoryStore`, `FileStore`, `StoreRouter`, `NoStore`, the sync `Store` trait or `liquers_core::cache`
-  - THEN nothing describes them as existing; `STORE_SEMANTICS.md` stays trait-neutral and records
-    that a synchronous store was removed and that reintroducing one needs a synchronous evaluation
-    path, not only the trait
+  - WHEN `specs/reference`, `specs/guides`, `CLAUDE.md` and `.claude/skills` are searched for the
+    removed names
+  - THEN none describes them as existing; `STORE_SEMANTICS.md` stays trait-neutral and records that
+    a future synchronous store needs a synchronous evaluation path, not only the trait
 
-**Non-goals.** A synchronous or blocking store for Python: `design/python-wrapper/` plans blocking
-wrappers *over* `AsyncStore`, which this removal does not affect. Declaring or repairing the other
-orphaned `liquers-py` modules (`commands`, `interpreter`, `state`). Any change to `AsyncStore`,
+**Non-goals:** a blocking store for Python (`design/python-wrapper/` wraps `AsyncStore`); the other
+`liquers-py` orphans (`commands`, `interpreter`, `state`); any change to `AsyncStore`,
 `AsyncStoreRouter`, `ReservedNames` or the store factory.
 
-**Systems touched and crate placement.** `liquers-core` (`store.rs`, `cache.rs`, `lib.rs`, the
-`store_dir_index.rs` module comment) and `liquers-py` (`context.rs`; deletion of the orphans
-`store.rs`, `cache.rs`). Removal only; no crate gains a dependency.
+**Placement:** `liquers-core` (`store.rs`, `cache.rs`, `lib.rs`, `store_dir_index.rs` comment) and
+`liquers-py` (`context.rs`; delete `store.rs`, `cache.rs`). Removal only.
 
-**Documentation intent.**
-1. *Reference:* no new document. Update `STORE_SEMANTICS.md` (the trait-neutral paragraph ≈36-40,
-   `FileStore::key_to_path` ≈197, `MemoryStore` ≈212), `PROJECT_OVERVIEW.md` (module table rows
-   `store.rs` ≈93 and `cache.rs` ≈103) and `ASSET_SET_OPERATION.md` (`StoreRouter` ≈198).
-2. *Guide:* no new document. Update `LANGUAGE-INTEGRATION_GUIDE.md` ≈244 (cache "scheduled for
-   removal" → removed).
-3. *Other:* `CLAUDE.md` (the Async Patterns line and the "Add sync Store implementations" constraint),
-   `DOCS_STRUCTURE_GUIDE.md` §3 `core/store` row (drops `cache.rs`), the `liquers-unittest`
-   references `testable-components.md` and `test-patterns.md`, and `rust-best-practices/SKILL.md`.
-4. *Records:* close `CORE-SYNC-STORE-TRAIT-OBSOLETE`; narrow `PY-MODULES-NOT-DECLARED-IN-LIB`'s
-   orphan list (`store` and `cache` are deleted, not declared).
+**Documentation intent:** no new reference or guide. Update the references `STORE_SEMANTICS.md`,
+`PROJECT_OVERVIEW.md`, `ASSET_SET_OPERATION.md`; the guide `LANGUAGE-INTEGRATION_GUIDE.md`; and
+`CLAUDE.md`, `DOCS_STRUCTURE_GUIDE.md` §3 and three skill files (Phase 2 table). Close the issue;
+narrow `PY-MODULES-NOT-DECLARED-IN-LIB`.
 
 ### Design Dependencies
 
 | Relation | Item | Note |
 |---|---|---|
-| overlaps | `PY-MODULES-NOT-DECLARED-IN-LIB` | T3 holds for two files only (`liquers-py/src/store.rs`, `cache.rs`), which this design deletes; its real subject — the unreachable Python command path in `commands.rs` — is independent, so not merged. Its orphan list is narrowed here. |
-| covers | `design/core-dead-code-hygiene/` (complete) | Assigned the deletion of `liquers_core::cache` to this issue (`covered-by`). Its non-goal gave the orphan `liquers-py/src/cache.rs` to `PY-MODULES-…`; this design takes it because it would no longer compile against anything (open question 1). |
-| related | `design/store-conformance-suite/` (complete) | Scoped itself to `AsyncStore`; unaffected. |
-| related | `design/python-wrapper/` (complete) | Plans a Python store as a blocking wrapper over `AsyncStore`; consistent with this removal. |
+| overlaps | `PY-MODULES-NOT-DECLARED-IN-LIB` | T3 on two files only (py `store.rs`, `cache.rs`), deleted here; its subject (the Python command path) is independent, so not merged |
+| covers | `design/core-dead-code-hygiene/` (complete) | assigned `liquers_core::cache`'s deletion here; this design also takes the py `cache.rs` orphan it gave to `PY-MODULES-…` |
+| related | `design/store-conformance-suite/`, `design/python-wrapper/` (complete) | `AsyncStore`-only; consistent |
 
-Overlap search: `specs/index.csv` for `sync store`, `Store trait`, `cache`, `liquers-py`; every open
-design's phase 2/4 for `store.rs` sync symbols and `cache.rs`. No open design plans to edit them.
+Overlap search: `index.csv` for sync store / Store trait / cache / liquers-py; open designs' phase
+2/4 for the removed symbols. No open design edits them.
 
 ### Open Questions
 
-1. **Proposed resolution — orphan `liquers-py/src/store.rs` and `cache.rs`:** delete them here.
-   They wrap `liquers_core::store::FileStore` and `liquers_core::cache::BinCache`, which this design
-   removes; kept, they become files that cannot compile even once declared, and a future Python store
-   is to wrap `AsyncStore` (`design/python-wrapper/`) rather than revive `PyStore`. Alternative:
-   leave them to `PY-MODULES-NOT-DECLARED-IN-LIB`, which would then have to delete them anyway.
-2. **Proposed resolution — sync-only tests:** delete `test_simple_store`,
-   `filestore02_sync_missing_directory_lists_empty`, `sync_router_listdir_at_store_prefix`,
-   `keyabs09_file_store_refuses_traversal`, `reserved04_…` and `reserved07_…`, and reduce
-   `memory_store_support`, `keyabs07` and `keyabs10` to their async halves. Each deleted rule has an
-   async twin (`test_async_memory_store_basic`, `filestore01`, `async_router_listdir_at_store_prefix`,
-   `keyabs08`, `reserved02`/`03`/`06`); `reserved04`/`07`'s per-store point (`__lock__` addressable in
-   a lock-free store) disappears with the only lock-free file store. Phase 3 lists the mapping.
-3. **Implementation detail — module docs:** `store.rs`'s module comment (≈35-43) cites
-   `Store::is_supported`, `StoreRouter` and `FileStore`; rewrite it against `AsyncStore`,
-   `AsyncStoreRouter` and `AsyncFileStore` with the same rule.
+All accepted by the user at the Phase 1 gate (2026-10-10):
+
+1. **Resolved — py orphans:** delete `liquers-py/src/store.rs` and `cache.rs` here.
+2. **Resolved — sync-only tests:** delete where an async twin asserts the rule; reduce mixed tests
+   to their async half (mapping in Phase 3).
+3. **Resolved (detail) — module docs:** rewrite `store.rs` ≈35-43 against `AsyncStore`,
+   `AsyncStoreRouter`, `AsyncFileStore`.
+
+## Phase 2: Architecture
+
+### Solution
+
+**Delete, do not deprecate**, in one change, adjusting the one compiled consumer (`liquers-py`
+`Environment`) in the same commit. No `src`, `tests` or `examples` directory of any crate names the
+removed items outside `store.rs`, `cache.rs` and `liquers-py`.
+
+Rejected: *`#[deprecated]` first* — no caller to warn, and the drift tests live on; *a `sync-store`
+feature* — two contracts behind a flag nobody enables, plus a matrix row; *an adapter* — makes the
+trait reachable again, the opposite of the issue.
+
+**Known-issue preflight** (open `core/store` / `py` issues and any naming a removed symbol): none
+blocks or must go first. `PY-MODULES-NOT-DECLARED-IN-LIB`, `STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED`
+(counts `Store` call sites, cites `StoreRouter::find_store`) and
+`STORE-METADATA-LAYOUT-HARDCODED-PER-STORE` (lists `FileStore`) got dated scope notes.
+`CORE-STORE-OPENBIN-MISSING` and `STORES-DISAGREE-ON-…` name no removed symbol.
+
+**Command namespaces:** none; `specs/command_registry.yaml` is untouched.
+
+### Changes
+
+No new or changed signature anywhere — removal only.
+
+- **`liquers-core/src/store.rs`:** delete `pub trait Store` (≈60-327, with the commented-out Python
+  sketch), `NoStore` and its impls (≈583-593), and `FileStore`, `MemoryStore`, `StoreRouter` with
+  their impls (≈1377-2040). Drop imports used only there: `std::fs::File`, `std::io::{Read, Write}`,
+  `RwLock` (`Arc`, `PathBuf`, `BTreeSet` stay; verified by counting uses in the remainder). Module
+  doc: line 1 names only `AsyncStore`; ≈35-43 per question 3, so no intra-doc link dangles. Tests per
+  Phase 3.
+- **`liquers-core/src/cache.rs`:** delete; drop `pub mod cache;` from `lib.rs` ≈118. `chrono` stays
+  (used by `assets.rs`, `metadata.rs`, …).
+- **Comments:** `store_dir_index.rs` ≈8 drops the sync `MemoryStore` clause;
+  `liquers-store/src/opendal_store.rs` ≈261 "matching `AsyncFileStore`".
+- **`liquers-py/src/context.rs`:** remove fields `store`, `cache`, their initialisers, the imports
+  `cache::{Cache, NoCache}`, `store::Store`, `std::sync::Mutex`, and the commented-out
+  `with_store` / `with_cache`. `get_async_store` unchanged. Delete `store.rs`, `cache.rs`; the
+  `lib.rs` orphan comment drops both names.
+- **Errors / async / ownership:** unchanged; `NoAsyncStore` remains the "no store" default; no
+  `unwrap`, no new `match`.
+
+**Documents** (proposed `affects_docs`; reference/guide edits add a History row and bump
+`reviewed:`):
+
+| Document | Change |
+|---|---|
+| `reference/STORE_SEMANTICS.md` | ≈36-40 "was removed", keeping the trait-neutral rationale; ≈197 `AsyncFileStore::key_to_path`; ≈212 drop `MemoryStore` |
+| `reference/PROJECT_OVERVIEW.md` | ≈93 `store.rs` row without `Store`; ≈103 `cache.rs` row removed |
+| `reference/ASSET_SET_OPERATION.md` | ≈198 `AsyncStoreRouter` |
+| `guides/LANGUAGE-INTEGRATION_GUIDE.md` | ≈244 cache module "was removed" |
+| `DOCS_STRUCTURE_GUIDE.md` | §3 `core/store` row: `store.rs` only |
+| `CLAUDE.md` | Async Patterns: no sync store trait exists; constraint: no synchronous store trait or implementation |
+| `.claude/skills/liquers-unittest/references/testable-components.md`, `test-patterns.md`; `.claude/skills/rust-best-practices/SKILL.md` ≈56 | async names and `.await` examples only |
+
+### Risks
+
+| Category | Assessment |
+|---|---|
+| Files | ≈1 000 lines out of `store.rs`, 355 `cache.rs`, ≈300 `liquers-py`; nothing gains code |
+| Tests | only the nine `store.rs` tests of question 2; no integration test names a sync store |
+| Compatibility | Rust-level break with no in-tree or Python-visible user; crates unpublished |
+| Build configs | nothing was `cfg`-gated; the import trim is the only warning risk — AC-5 |
+| Recovery | single revert; no stored data, config or registry changes |
+| Certainty | high — every symbol and range opened at HEAD |

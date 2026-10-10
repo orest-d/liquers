@@ -91,3 +91,11 @@ Sequence:
 
 Until then, `add_python_command` should arguably fail loudly rather than emit an unresolvable
 alias.
+
+## Scope note (2026-10-10)
+
+`design/sync-store-removal/` (`CORE-SYNC-STORE-TRAIT-OBSOLETE`) deletes the orphans
+`liquers-py/src/store.rs` and `cache.rs`: they wrap `liquers_core::store::FileStore` and
+`liquers_core::cache`, which that design removes, and a future Python store wraps `AsyncStore`
+(`design/python-wrapper/`). Once it lands, the remaining orphans are `commands`, `interpreter` and
+`state`.
