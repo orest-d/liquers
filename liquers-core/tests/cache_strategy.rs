@@ -29,6 +29,7 @@ use liquers_core::{
     query::{Key, ResourceName},
     recipes::{AsyncRecipeProvider, Recipe},
     state::State,
+    store::AsyncMemoryStore,
     value::Value,
 };
 
@@ -147,6 +148,7 @@ fn env<K: AssetManagerKind>(
 ) -> Result<EnvRef<Env<K>>, Error> {
     let mut builder = EnvironmentBuilder::<Value, (), K>::new()
         .with_asset_manager_options(options)
+        .with_async_store(Arc::new(AsyncMemoryStore::new(&Key::new())))
         .with_recipe_provider(Arc::new(FixedRecipes {
             recipes: Arc::new(recipes.into_iter().collect()),
         }));
@@ -388,6 +390,25 @@ async fn uncached_link_is_not_registered<K: AssetManagerKind>(tag: &str) -> Resu
     Ok(())
 }
 
+/// A keyed asset that already exists — a value installed by `set_state` — is reused whatever the
+/// recipe strategy, and a key with no recipe (plain data) is not subject to it at all: the
+/// strategy governs recipe evaluations. (PR #102 review.)
+async fn existing_keyed_asset_is_reused_under_recipe_none<K: AssetManagerKind>(
+    tag: &str,
+) -> Result<(), Error> {
+    let envref = env::<K>(opts().with_recipe_cache_strategy(CacheStrategy::None), vec![])?;
+    let manager = envref.get_asset_manager();
+    let key = parse_key(&format!("src-{tag}.txt"))?;
+    manager
+        .set_state(&key, State::new().with_data(Value::from("installed")))
+        .await?;
+    let installed = manager.lookup_key_asset(&key).ok_or(Error::key_not_found(&key))?;
+    let fetched = manager.get(&key).await?;
+    assert_eq!(fetched.id(), installed.id(), "the live keyed asset is reused");
+    assert_eq!(fetched.get().await?.try_into_string()?, "installed");
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // One test per scenario and manager
 // ---------------------------------------------------------------------------
@@ -424,3 +445,9 @@ both_managers!(
 );
 both_managers!(cut_predecessors_false_expands, cut_predecessors_false_expands_default, cut_predecessors_false_expands_immediate, "a8");
 both_managers!(uncached_link_is_not_registered, uncached_link_is_not_registered_default, uncached_link_is_not_registered_immediate, "a9");
+both_managers!(
+    existing_keyed_asset_is_reused_under_recipe_none,
+    existing_keyed_asset_is_reused_under_recipe_none_default,
+    existing_keyed_asset_is_reused_under_recipe_none_immediate,
+    "a10"
+);

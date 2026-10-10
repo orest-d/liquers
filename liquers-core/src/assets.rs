@@ -7812,9 +7812,22 @@ impl<E: Environment> DefaultAssetManager<E> {
             Some(recipe) => (recipe.stored, recipe.cached),
             None => (None, None),
         };
+        // The recipe strategy governs a recipe evaluation: a key with no recipe (plain data) is
+        // kept as before.
+        let keeps_result = match &recipe {
+            Some(recipe) => recipe
+                .effective_cache_strategy(self.recipe_cache_strategy())
+                .keeps_result(),
+            None => true,
+        };
         if is_volatile {
             self.get_volatile_resource_asset(key, stored, cached).await
-        } else if !cached.unwrap_or(self.recipe_cache_strategy()).keeps_result() {
+        } else if !keeps_result {
+            // An asset that already exists — a value installed by `set_state`, say — is reused
+            // under every strategy; only a new one goes unregistered.
+            if let Some(existing) = self.lookup_key_asset(key) {
+                return Ok(existing);
+            }
             self.get_uncached_resource_asset(key, stored, cached).await
         } else {
             self.get_nonvolatile_resource_asset(key, stored, cached)
@@ -9412,7 +9425,20 @@ impl<E: Environment> ImmediateAssetManager<E> {
                 .await);
         }
 
-        if !cached.unwrap_or(self.recipe_cache_strategy()).keeps_result() {
+        // The recipe strategy governs a recipe evaluation: a key with no recipe (plain data) is
+        // kept as before.
+        let keeps_result = match &recipe {
+            Some(recipe) => recipe
+                .effective_cache_strategy(self.recipe_cache_strategy())
+                .keeps_result(),
+            None => true,
+        };
+        if !keeps_result {
+            // An asset that already exists — a value installed by `set_state`, say — is reused
+            // under every strategy; only a new one goes unregistered.
+            if let Some(existing) = self.lookup_key_asset(key) {
+                return Ok(existing);
+            }
             // A strategy keeping no result, non-volatile: a fresh, unregistered asset per
             // request, modeled on the volatile path above but not marked volatile.
             let asset = AssetRef::new_from_recipe(

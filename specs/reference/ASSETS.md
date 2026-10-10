@@ -165,7 +165,7 @@ property of each asset recorded when it is created and read with `AssetRef::cach
 
 | Asset | Its strategy | Registered when |
 |---|---|---|
-| keyed (a recipe) | the recipe's `cached:`, else `recipe_cache_strategy()` | the strategy keeps the result (`result`, `all`). The last command's flag does not matter |
+| keyed (a recipe) | the recipe's `cached:`, else `recipe_cache_strategy()` | the strategy keeps the result (`result`, `all`). The last command's flag does not matter. A key with no recipe (plain data, a `set_state` value) is not subject to the strategy |
 | top-level non-keyed query (`get_asset`) | `query_cache_strategy()` | its last command does not declare `cached: false`, **and** the strategy keeps the result |
 | non-keyed dependency (`get_dependency_asset`: a predecessor boundary, a link, a `context.evaluate`) | **the creating asset's** strategy, written into the new asset's recipe | its last command does not declare `cached: false`, **and** the strategy keeps intermediates (`all`) |
 
@@ -1220,7 +1220,7 @@ each with an `ExpiryReason` (§Why an asset is `Expired`). The rules are in
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-10 | New §When an asset is kept for reuse: caching strategies (keyed, top-level query, dependency following its creator), reuse of an existing asset under every strategy, the plan independent of strategy, `ImmediateAssetManager::get_dependency_asset`, `cached: Some(false)` and the log reason on an unregistered asset, the trait accessors. §`stored` and `cached`: the recipe's `cached` is a strategy; metadata keeps a bool. | phase-5 (`design/plan-policy/`) |
+| 2026-10-10 | New §When an asset is kept for reuse: caching strategies (keyed, top-level query, dependency following its creator), reuse of an existing asset under every strategy, the plan independent of strategy, `ImmediateAssetManager::get_dependency_asset`, `cached: Some(false)` and the log reason on an unregistered asset, the trait accessors. §`stored` and `cached`: the recipe's `cached` is a strategy; metadata keeps a bool. A key with no recipe is not subject to the strategy, and an existing keyed asset is reused before it is consulted (PR #102 review). | phase-5 (`design/plan-policy/`) |
 | 2026-10-09 | Cancellation is a request decided by the run: `Cancelled` status description, the cancellation path diagram, Scenarios 3-5 (`cancel_for_replacement`), §Terminal outcome (`Cancelled` records its cause in `error_data`; `fail_asset` acts once on an in-flight asset; cascade cancellation through `wait_for_dependency`). | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-08 | §Content changed outside Liquers: the memory store no longer answers a metadata-only entry with empty bytes; the empty-bytes skip is kept for older stores. | phase-5 (`design/metadata-only-entry-reload/`) |
 | 2026-10-08 | §AssetManager names the dependency checks (`stored_dependency_state`, the per-key audit over the upstream closure, `trigger_dependency_audit_store`) and links §Consistency policies. The `StaleDependency` row gains the audit routes. | phase-5 (`design/dependency-chain-analysis-cost/`) |

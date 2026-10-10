@@ -161,7 +161,9 @@ reuse). A manager decides what it *registers*; three rules keep it consistent wi
 ones:
 
 - A keyed asset is registered when `recipe.effective_cache_strategy(self.recipe_cache_strategy())`
-  keeps the result — `Recipe::cached` is an `Option<CacheStrategy>`, not a bool.
+  keeps the result — `Recipe::cached` is an `Option<CacheStrategy>`, not a bool. A key with **no**
+  recipe (plain data) is not subject to the strategy, and an asset that already exists for the key
+  (one `set_state` installed, say) is returned before any strategy is consulted.
 - A top-level non-keyed query is registered when its plan's `uncached_by` is `None` and
   `self.query_cache_strategy()` keeps the result.
 - A non-keyed dependency follows its **creator**: in `get_dependency_asset`, read
@@ -493,7 +495,7 @@ store conformance suite: shared scenarios, no rule numbers and no capability mod
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-10 | Provided accessors gain `recipe_cache_strategy`, `query_cache_strategy` and `cut_predecessors`; new caching-strategy rules for a custom manager (keyed, top-level, a dependency following its creator), and `Recipe::cached` is now a strategy. | phase-5, `design/plan-policy/` |
+| 2026-10-10 | Provided accessors gain `recipe_cache_strategy`, `query_cache_strategy` and `cut_predecessors`; new caching-strategy rules for a custom manager (keyed, top-level, a dependency following its creator), and `Recipe::cached` is now a strategy. A key with no recipe is not subject to the strategy, and an existing keyed asset is reused before it is consulted (PR #102 review). | phase-5, `design/plan-policy/` |
 | 2026-10-09 | §Primitives: `cancel_for_replacement` for writes and removals (the `cancel()` row says why not); the write example and the known-limits row follow. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-08 | `DefaultRecipeProvider` is constructed with `::new()` (it holds a recipe cache). The audit-policy section notes that the stored-records walk and the store audit are inherited provided methods. | phase-5 (`design/dependency-chain-analysis-cost/`) |
 | 2026-10-07 | `remove_expired_from_maps`: the id comparison and the removal must be one atomic map operation. Deadlines: a lazy check that finds the deadline passed must cascade (`expire_without_cascade` then `cascade_expire_dependents`); the known-limit row is removed. | phase-5 (`design/queued-manager-conditional-eviction/`, `design/immediate-lazy-expiry-cascade/`) |
