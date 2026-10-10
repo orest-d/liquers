@@ -9,6 +9,7 @@ autofix: not-eligible
 area: [core/plan, core/context]
 issues: [FREE-FUNCTION-EVALUATE-BAKES-A-BIN-DATA-FORMAT, CONTEXT-STEP-REPLACES-INPUT-STATE-METADATA]
 merged: 2026-10-10
+gh_pr: [100]
 affects_docs: [specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md, specs/reference/api/DOC_08_RECIPES_PLANS.md, specs/reference/VALUE_TYPE_SYSTEM.md, specs/guides/COMMAND_REGISTRATION_GUIDE.md]
 created: 2026-10-10
 ---
