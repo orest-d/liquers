@@ -2,7 +2,7 @@
 id: COMMAND-ALIAS-DEFINITION-UNTESTED
 kind: issue
 title: CommandDefinition::Alias has no test and no user, and its head-parameter semantics are unexercised
-status: draft
+status: closed
 priority: P2
 complexity: L
 area: [core/plan, core/commands]
@@ -10,6 +10,18 @@ design: command-alias-contract
 created: 2026-08-29
 github:
 ---
+## Resolution
+
+Fixed in `specs/design/command-alias-contract/`, specified in `specs/reference/COMMAND_ALIASES.md`.
+The head-parameter contract is decided: the target receives the head parameters followed by the
+alias's own arguments, and an alias declares only what its user supplies. An over-long head is a
+`ParameterError` at registration and at planning, never a silent truncation.
+`CommandMetadataRegistry::alias_target` validates every alias; `CommandRegistry::register_alias`
+registers one; plans record `ActionOrigin::Alias` and depend on the alias's metadata. Every case in
+this issue is tested (`liquers-core/tests/command_alias.rs`, `alias_target_*`, the `plan.rs` alias
+tests). `pl/head` is a production alias of `pl/slice`, so `specs/command_registry.yaml` contains a
+`definition: !Alias` and `registry_export` round-trips it.
+
 ## Problem
 
 `CommandDefinition::Alias { command, head_parameters }` is a supported variant of a public enum that

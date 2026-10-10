@@ -9,16 +9,16 @@ Steps 1-2 are independent of each other; everything after depends on both.
 
 ## Progress
 
-- [ ] Step 1: Typed alias errors in `error.rs`
-- [ ] Step 2: `ActionOrigin` and the `origin` field on `Step::Action`
-- [ ] Step 3: `CommandMetadataRegistry::alias_target`
-- [ ] Step 4: Alias planning: `from_alias_action` and the `PlanBuilder` alias arm
-- [ ] Step 5: Dependency scan and interpreter read `origin`
-- [ ] Step 6: `CommandRegistry::register_alias`
-- [ ] Step 7: End-to-end tests `liquers-core/tests/command_alias.rs`
-- [ ] Step 8: `pl/head` becomes an alias; regenerate the registry
-- [ ] Step 9: Documentation
-- [ ] Step 10: Final validation
+- [x] Step 1: Typed alias errors in `error.rs` — f94f681
+- [x] Step 2: `ActionOrigin` and the `origin` field on `Step::Action` — f94f681
+- [x] Step 3: `CommandMetadataRegistry::alias_target` — 518c6cf
+- [x] Step 4: Alias planning: `from_alias_action` and the `PlanBuilder` alias arm — 04d3cba
+- [x] Step 5: Dependency scan and interpreter read `origin` — f8e0f44
+- [x] Step 6: `CommandRegistry::register_alias` — fdbe5c0
+- [x] Step 7: End-to-end tests `liquers-core/tests/command_alias.rs` — 8e9619f
+- [x] Step 8: `pl/head` becomes an alias; regenerate the registry — 5eb0b48
+- [x] Step 9: Documentation — a5312ae
+- [x] Step 10: Final validation — validated, no code change
 
 ## Implementation Steps
 
@@ -146,6 +146,6 @@ them together restores today's behaviour. If Step 8 has not landed, liquers-lib 
 
 ## Phase 5 Entry Criteria
 
-- [ ] Implementation finished and validated
+- [x] Implementation finished and validated
 - [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
+- [x] Documentation checkable against implemented and tested behaviour

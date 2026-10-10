@@ -4,7 +4,7 @@ kind: design
 title: A specified, validated and exercised contract for command aliases
 workflow: liquers-project
 status: approved
-phase: implementation
+phase: documentation
 area: [core/plan, core/commands]
 issues: [COMMAND-ALIAS-DEFINITION-UNTESTED]
 affects_docs: [specs/guides/COMMAND_REGISTRATION_GUIDE.md, specs/guides/COMMAND_DESIGN_GUIDE.md, specs/reference/COMMAND_DECLARATION.md, specs/reference/POLARS_COMMAND_LIBRARY.md, specs/reference/api/DOC_08_RECIPES_PLANS.md]
@@ -19,8 +19,8 @@ Full form (converted from compact on 2026-10-10; see Phase 1 §Scope Changes).
 1. [High-level design](phase1-high-level-design.md) — approved 2026-10-10
 2. [Architecture](phase2-architecture.md) — approved 2026-10-10
 3. [Examples and tests](phase3-examples.md) — approved 2026-10-10
-4. [Implementation plan](phase4-implementation.md) — pre-approved
-5. Documentation — not started
+4. [Implementation plan](phase4-implementation.md) — implemented
+5. [Documentation](phase5-documentation.md) — awaiting confirmation
 
 ## Pre-approval
 
