@@ -194,6 +194,85 @@ async fn sar11_upload_single_file_multipart() {
     assert!(!json["result"]["uploaded"].as_array().unwrap().is_empty());
 }
 
+/// Uploads one multipart part and returns the stored metadata of the uploaded key as JSON.
+async fn upload_and_read_metadata(file_name: &str, content_type: &str) -> serde_json::Value {
+    let (envref, _) = env_with_store();
+    let boundary = "----testboundary";
+    let body = format!(
+        "--{b}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{f}\"\r\nContent-Type: {t}\r\n\r\nhello\r\n--{b}--\r\n",
+        b = boundary,
+        f = file_name,
+        t = content_type
+    );
+    let app = build_app(envref);
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/store/upload/uploads")
+                .header("Content-Type", format!("multipart/form-data; boundary={}", boundary))
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let (status, json) = send(
+        app,
+        "GET",
+        &format!("/api/store/metadata/uploads/{file_name}"),
+        Body::empty(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    json["result"].clone()
+}
+
+/// An upload records its filename; a Content-Type the extension implies is not declared.
+#[tokio::test]
+async fn sar17_upload_records_filename_without_redundant_media_type() {
+    let metadata = upload_and_read_metadata("report.csv", "text/csv").await;
+    assert_eq!(metadata["filename"], "report.csv");
+    assert!(metadata["media_type"].is_null(), "got {metadata}");
+}
+
+/// A Content-Type the extension does not imply is declared.
+#[tokio::test]
+async fn sar18_upload_declares_a_media_type_the_extension_cannot_tell() {
+    let metadata = upload_and_read_metadata("data.bin", "image/png").await;
+    assert_eq!(metadata["filename"], "data.bin");
+    assert_eq!(metadata["media_type"], "image/png");
+}
+
+/// A browser's default `application/octet-stream` is not declared.
+#[tokio::test]
+async fn sar19_upload_ignores_the_octet_stream_default() {
+    let metadata = upload_and_read_metadata("notes.txt", "application/octet-stream").await;
+    assert_eq!(metadata["filename"], "notes.txt");
+    assert!(metadata["media_type"].is_null(), "got {metadata}");
+}
+
+/// Legacy metadata is served as stored by `metadata` and inside `entry`, not as `{}`.
+#[tokio::test]
+async fn sar20_legacy_metadata_is_served_as_stored() {
+    let (envref, store) = env_with_store();
+    let key = parse_key("data/legacy.txt").unwrap();
+    store
+        .set(&key, b"content", &Metadata::LegacyMetadata(serde_json::json!({"x": 1})))
+        .await
+        .unwrap();
+    let app = build_app(envref);
+
+    let (status, json) = send(app.clone(), "GET", "/api/store/metadata/data/legacy.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["result"]["x"], 1, "got {json}");
+
+    let (status, json) = send(app, "GET", "/api/store/entry/data/legacy.txt?format=json", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["metadata"]["x"], 1, "got {json}");
+}
+
 #[tokio::test]
 async fn sar12_get_remove_disabled_by_default() {
     let (envref, store) = env_with_store();
