@@ -3,7 +3,7 @@ title: Polars Command Library Specification
 kind: reference
 audience: internal
 area: [lib/polars]
-reviewed: 2026-09-04
+reviewed: 2026-10-10
 ---
 # Polars Command Library Specification
 
@@ -111,7 +111,7 @@ select_columns requires at least one column name
 
 | Command | Arguments | Description | Polars Method |
 |---------|-----------|-------------|---------------|
-| `head` | `[n]` | Get first N rows (default 5) | `df.head()` |
+| `head` | `[n]` | Get first N rows (default 5). An **alias** of `slice` with `offset = 0` ([`COMMAND_ALIASES.md`](COMMAND_ALIASES.md)) | `df.slice(0, n)` |
 | `tail` | `[n]` | Get last N rows (default 5) | `df.tail()` |
 | `slice` | `offset-length` | Extract rows by range | `df.slice()` |
 | `sample` | `[n-[seed]]` | Random sample of N rows (default 5); optional seed (u64) for reproducibility | `df.sample_n(seed=...)` |
@@ -389,10 +389,10 @@ The `try_to_polars_dataframe` utility function is the foundation of the entire c
    use crate::polars::util::try_to_polars_dataframe;
    use liquers_core::{state::State, error::Error};
 
-   // Example 1: Simple command (head)
-   fn head(state: &State<Value>, n: i32) -> Result<Value, Error> {
+   // Example 1: Simple command (tail)
+   fn tail(state: &State<Value>, n: i32) -> Result<Value, Error> {
        let df = try_to_polars_dataframe(state)?;
-       let result = df.head(Some(n as usize));
+       let result = df.tail(Some(n.max(0) as usize));
        Ok(Value::from_polars_dataframe(result))
    }
 
@@ -856,6 +856,7 @@ To minimize dependencies and enable incremental testing:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | `head` is an alias of `slice` (`offset = 0`) rather than its own implementation; the implementation-pattern example uses `tail`, which still is one. Only the slicing rows were checked against the code. | phase-5, `design/command-alias-contract/` |
 | 2026-09-04 | Qualified every complete Polars resource pipeline with `ns-pl` and documented the namespace selection rule. | `POLARS-DOC-EXAMPLES-OMIT-NAMESPACE` |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
 | 2026-08-12 | Corrected `select_columns` / `drop_columns` usage to the `~_` escape and explained why: `-` separates parameters, so the plain dash form is an arity error since `EXCESS-ACTION-PARAMETERS-ERROR`. Other command examples verified against the registry with `liquers-validate`. | design/excess-action-parameters-error |

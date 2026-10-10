@@ -240,6 +240,52 @@ impl Error {
         )
         .with_position(position)
     }
+    /// An alias names a target command that is not registered.
+    pub fn alias_target_not_registered(alias: &CommandKey, target: &CommandKey) -> Self {
+        Error::new(
+            ErrorType::ActionNotRegistered,
+            format!(
+                "Alias '{}' targets command '{}', which is not registered",
+                command_label(alias),
+                command_label(target)
+            ),
+        )
+    }
+    /// An alias targets another alias (or itself). Aliases resolve in one step only.
+    pub fn alias_chain_not_supported(alias: &CommandKey, target: &CommandKey) -> Self {
+        Error::new(
+            ErrorType::NotSupported,
+            format!(
+                "Alias '{}' targets '{}', which is itself an alias; aliases cannot be chained",
+                command_label(alias),
+                command_label(target)
+            ),
+        )
+    }
+    /// An alias does not fit its target: `problem` says how (an over-long head, a head on an
+    /// injected argument, arguments that do not line up with the target's).
+    pub fn invalid_alias(alias: &CommandKey, target: &CommandKey, problem: &str) -> Self {
+        Error::new(
+            ErrorType::ParameterError,
+            format!(
+                "Alias '{}' does not fit its target '{}': {}",
+                command_label(alias),
+                command_label(target),
+                problem
+            ),
+        )
+    }
+    /// Notes that the failing action was reached through `alias`.
+    ///
+    /// The interpreter calls this when an aliased action fails, so the message names the command
+    /// the user wrote as well as the command that ran. Applying it twice has no further effect.
+    pub fn with_alias(mut self, alias: &CommandKey) -> Self {
+        let suffix = format!(" (via alias '{}')", command_label(alias));
+        if !self.message.ends_with(&suffix) {
+            self.message.push_str(&suffix);
+        }
+        self
+    }
     pub fn conversion_error<W: Display, T: Display>(what: W, to: T) -> Self {
         Error::new(
             ErrorType::ConversionError,
@@ -431,6 +477,20 @@ impl fmt::Display for Error {
     }
 }
 
+/// A command key as a user writes it: `name`, `ns/name`, or `realm:ns/name`.
+fn command_label(key: &CommandKey) -> String {
+    let path = if key.namespace.is_empty() {
+        key.name.clone()
+    } else {
+        format!("{}/{}", key.namespace, key.name)
+    };
+    if key.realm.is_empty() {
+        path
+    } else {
+        format!("{}:{}", key.realm, path)
+    }
+}
+
 impl error::Error for Error {
     fn description(&self) -> &str {
         &self.message
@@ -440,6 +500,32 @@ impl error::Error for Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn alias_errors_name_both_commands_and_carry_their_types() {
+        let alias = CommandKey::new("", "pl", "head");
+        let target = CommandKey::new("", "pl", "slice");
+
+        let missing = Error::alias_target_not_registered(&alias, &target);
+        assert_eq!(missing.error_type, ErrorType::ActionNotRegistered);
+        assert!(missing.message.contains("'pl/head'") && missing.message.contains("'pl/slice'"));
+
+        let chained = Error::alias_chain_not_supported(&alias, &target);
+        assert_eq!(chained.error_type, ErrorType::NotSupported);
+
+        let invalid = Error::invalid_alias(&alias, &target, "2 head parameters, 1 argument");
+        assert_eq!(invalid.error_type, ErrorType::ParameterError);
+        assert!(invalid.message.ends_with("2 head parameters, 1 argument"));
+    }
+
+    #[test]
+    fn with_alias_appends_once() {
+        let alias = CommandKey::new("", "", "first");
+        let err = Error::general_error("boom".to_string())
+            .with_alias(&alias)
+            .with_alias(&alias);
+        assert_eq!(err.message, "boom (via alias 'first')");
+    }
 
     #[test]
     fn test_with_command_key_simple() {

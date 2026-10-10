@@ -3,7 +3,7 @@ title: Command Registration Guide
 kind: guide
 audience: internal
 area: [core/commands, macro]
-reviewed: 2026-10-09
+reviewed: 2026-10-10
 ---
 # Command Registration Guide
 
@@ -16,6 +16,7 @@ This guide covers defining and registering new commands in Liquers. It covers bo
 | `register_command!` macro | Standard commands with metadata | Low |
 | Manual registration | Fine-grained control, closures, tests | Medium |
 | Generic Environment | Library commands for any environment | High |
+| `register_alias` | A command that is another command with leading arguments fixed (§2 *Registering an alias*) | Low |
 
 How a registered command should behave while it runs — checking for cancellation with
 `context.is_cancelled()` / `context.check_cancelled()?`, what `cancel()` guarantees — is in
@@ -616,6 +617,61 @@ refreshes every command `metadata_version` before the registry is shared, so com
 need to recompute versions manually. A version read directly from the registry before `to_ref()` may
 still reflect an earlier registration skeleton if later metadata customization has run.
 
+
+### Registering an alias
+
+An alias is a command with no implementation of its own: queries that name it run its **target**
+with some leading arguments fixed. Whether a command should be an alias is a design question —
+see [`COMMAND_DESIGN_GUIDE.md`](COMMAND_DESIGN_GUIDE.md) §Aliases. The contract is in
+[`reference/COMMAND_ALIASES.md`](../reference/COMMAND_ALIASES.md).
+
+Register the target first, then the alias. `pl/head` is `pl/slice` with `offset = 0`
+(`liquers-lib/src/polars/selection.rs`):
+
+```rust
+use liquers_core::command_metadata::{ArgumentInfo, CommandKey, CommandParameterValue};
+
+register_command!(cr,
+    fn slice(state, offset: i32, length: i32) -> result
+    namespace: "pl"
+)?;
+
+cr.register_alias(
+    CommandKey::new("", "pl", "head"),             // the alias
+    CommandKey::new("", "pl", "slice"),            // its target, already registered
+    vec![CommandParameterValue::Value(0.into())],  // head: fills `offset`
+    vec![ArgumentInfo::integer_argument("n", false).with_default(5)], // the user's arguments
+)?
+.with_label("Get first rows")
+.with_doc("Return first N rows (default: 5)");
+```
+
+`ns-pl/head-10` now runs `slice` with `offset = 0, length = 10`.
+
+**The argument layout.** The target receives the head parameters followed by the alias's own
+arguments, by position. So the alias's `arguments` list exactly what its user writes, and must line
+up with the target's arguments after the heads: same number, same `injected` (for example a trailing
+`context`) and `multiple` flags. Names, labels and defaults are the alias's own — `n` with default 5
+feeds `slice`'s `length`, which has no default.
+
+**What the alias inherits.** `register_alias` copies the target's state argument, `volatile`,
+`payload_required`, `expires` and `is_async`. Set `label` and `doc` on the returned metadata, as for
+any command.
+
+Registering an alias under the key of a registered command replaces that command completely: its
+executors and its `impl_version` are removed. A refused registration changes nothing.
+
+**What it refuses** (each with a typed error naming both commands): a target that is not registered;
+a target that is itself an alias, or the alias itself; more head parameters than the target has
+arguments; a head on an injected or variadic argument; arguments that do not line up.
+
+**Testing an alias.** Plan and evaluate through it, and compare with the target written out —
+`ns-pl/head-2` against `ns-pl/slice-0-2`. `make_plan` shows the target action with
+`origin: Alias { command: … }`, and `plan.dependencies` includes the alias's metadata key.
+`liquers-core/tests/command_alias.rs` covers each rule.
+
+An alias registered in a group exported to `specs/command_registry.yaml` appears there with
+`definition: !Alias`; regenerate the file as for any signature change.
 ---
 
 ## 3. Generic Environment Commands (Library Commands)
@@ -919,6 +975,7 @@ fn apply(...) -> Result<...> { ... }
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | Quick Reference row and §2 *Registering an alias*: `register_alias`, the argument layout, inheritance, replacing a registered command, refusals, testing; `pl/head` as the example. | phase-5, `design/command-alias-contract/` |
 | 2026-10-09 | Quick Reference links the new `COMMAND_DESIGN_GUIDE.md` (cooperative cancellation); "Waiting for dependencies" adds the cascade of a cancelled dependency. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-07 | §Macro DSL Syntax lists every metadata statement; new sections "Commands that need the payload" (`payload: required`) and "Versioning a command…" (`#[command_version]`, `version: auto`, `expires:`). | phase-5, `design/register-command-payload-docs/` |
 | 2026-10-06 | New section "Describing the result: title and description" (`context.set_title` / `set_description`, recipe title takes precedence per field). | phase-5 |

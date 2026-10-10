@@ -311,12 +311,14 @@ fn resolve_absolute_query_resource_step(step: Step) -> Step {
             action_name,
             position,
             parameters,
+            origin,
         } => Step::Action {
             realm,
             ns,
             action_name,
             position,
             parameters,
+            origin,
         },
         Step::Filename(filename) => Step::Filename(filename),
         Step::Info(message) => Step::Info(message),
@@ -645,6 +647,7 @@ pub fn do_step<E: Environment>(
             action_name,
             position,
             parameters,
+            origin,
         } => async move {
             let command_key = CommandKey::new(&realm, &ns, &action_name);
             let mut materialized_parameters = parameters.clone();
@@ -677,10 +680,15 @@ pub fn do_step<E: Environment>(
                 .await
                 .map_err(|e| {
                     // Only set command_key if not already set (to preserve inner command errors)
-                    if e.command_key.is_none() {
+                    let e = if e.command_key.is_none() {
                         e.with_command_key(&command_key).with_position(&position)
                     } else {
                         e.with_position(&position)
+                    };
+                    // Name the command the user wrote when it differs from the one that ran.
+                    match origin.alias() {
+                        Some(alias) => e.with_alias(alias),
+                        None => e,
                     }
                 })
                 .map(|v| Arc::new(v))
@@ -972,7 +980,20 @@ impl<E: Environment> IsVolatile<E> for Step {
                 action_name,
                 position: _,
                 parameters,
+                origin,
             } => {
+                // A hand-built or deserialized alias may be volatile when its target is not.
+                if let Some(alias) = origin.alias() {
+                    if let Some(alias_cmd) = env.get_command_metadata_registry().find_command(
+                        &alias.realm,
+                        &alias.namespace,
+                        &alias.name,
+                    ) {
+                        if alias_cmd.volatile {
+                            return Ok(true);
+                        }
+                    }
+                }
                 if let Some(cmd) =
                     env.get_command_metadata_registry()
                         .find_command(&realm, &ns, action_name)
@@ -1091,7 +1112,19 @@ impl<E: Environment> RequiresPayload<E> for Step {
                 action_name,
                 position: _,
                 parameters,
+                origin,
             } => {
+                if let Some(alias) = origin.alias() {
+                    if let Some(alias_cmd) = env.get_command_metadata_registry().find_command(
+                        &alias.realm,
+                        &alias.namespace,
+                        &alias.name,
+                    ) {
+                        if alias_cmd.payload_required.is_required() {
+                            return Ok(PayloadRequirement::Required);
+                        }
+                    }
+                }
                 if let Some(cmd) =
                     env.get_command_metadata_registry()
                         .find_command(&realm, &ns, action_name)
@@ -1145,6 +1178,46 @@ mod tests {
     use crate::store::{AsyncMemoryStore, AsyncStore};
     use crate::value::Value;
     use liquers_macro::*;
+
+    /// Phase 3 test 11 (AC-8): a hand-built alias may be volatile when its target is not; the
+    /// step that runs the target still reports volatile. (`IsVolatile` is crate-private, so this
+    /// lives here rather than in `tests/command_alias.rs`.)
+    #[tokio::test]
+    async fn step_is_volatile_when_alias_is_volatile() -> Result<(), Error> {
+        let mut env = SimpleEnvironment::<Value>::new();
+        let registry = &mut env.command_registry.command_metadata_registry;
+        registry.add_command(&crate::command_metadata::CommandMetadata::new("steady"));
+        let mut jumpy = crate::command_metadata::CommandMetadata::new("jumpy");
+        jumpy.volatile = true;
+        jumpy.definition = crate::command_metadata::CommandDefinition::Alias {
+            command: CommandKey::new("", "", "steady"),
+            head_parameters: vec![],
+        };
+        registry.add_command(&jumpy);
+        let envref = env.to_ref();
+
+        let step = |origin: crate::plan::ActionOrigin| Step::Action {
+            realm: String::new(),
+            ns: String::new(),
+            action_name: "steady".to_string(),
+            position: Position::unknown(),
+            parameters: ResolvedParameterValues::new(),
+            origin,
+        };
+        assert!(
+            !step(crate::plan::ActionOrigin::Direct)
+                .is_volatile(envref.clone())
+                .await?
+        );
+        assert!(
+            step(crate::plan::ActionOrigin::Alias {
+                command: CommandKey::new("", "", "jumpy"),
+            })
+            .is_volatile(envref)
+            .await?
+        );
+        Ok(())
+    }
 
     /// A predecessor boundary carries its key when the resource header's step reads the content
     /// or listing at the key (as `value_origin_key` does for the step itself), and not otherwise.
@@ -1694,6 +1767,7 @@ mod tests {
             realm: String::new(),
             ns: String::new(),
             action_name: "collect_materialized".to_owned(),
+            origin: crate::plan::ActionOrigin::Direct,
             position: Position::unknown(),
             parameters: ResolvedParameterValues(vec![
                 ParameterValue::MultipleParameters(
@@ -1752,6 +1826,7 @@ mod tests {
             realm: String::new(),
             ns: String::new(),
             action_name: "must_not_execute".to_owned(),
+            origin: crate::plan::ActionOrigin::Direct,
             position: Position::unknown(),
             parameters: ResolvedParameterValues(vec![ParameterValue::MultipleParameters(
                 "items".to_owned(),

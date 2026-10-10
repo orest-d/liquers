@@ -1352,6 +1352,77 @@ impl CommandMetadataRegistry {
         }
         None
     }
+
+    /// Returns the target of an alias after checking that the alias fits it.
+    ///
+    /// `Ok(None)` for a `Registered` command. For an alias, checks that the target is registered,
+    /// is not itself an alias (and is not the alias), and declares enough leading arguments for
+    /// the head parameters, none of them injected or variadic. Registration and planning both
+    /// call this, so an alias built by hand or deserialized is held to the same rules as one
+    /// built by `CommandRegistry::register_alias`. See `specs/reference/COMMAND_ALIASES.md`.
+    pub fn alias_target(&self, alias: &CommandMetadata) -> Result<Option<CommandMetadata>, Error> {
+        let (target_key, head_parameters) = match &alias.definition {
+            CommandDefinition::Registered => return Ok(None),
+            CommandDefinition::Alias {
+                command,
+                head_parameters,
+            } => (command, head_parameters),
+        };
+        let alias_key = alias.key();
+        if *target_key == alias_key {
+            return Err(Error::alias_chain_not_supported(&alias_key, target_key));
+        }
+        let target = self
+            .find_command(&target_key.realm, &target_key.namespace, &target_key.name)
+            .ok_or_else(|| Error::alias_target_not_registered(&alias_key, target_key))?;
+        match &target.definition {
+            CommandDefinition::Registered => {}
+            CommandDefinition::Alias { .. } => {
+                return Err(Error::alias_chain_not_supported(&alias_key, target_key));
+            }
+        }
+        if head_parameters.len() > target.arguments.len() {
+            return Err(Error::invalid_alias(
+                &alias_key,
+                target_key,
+                &format!(
+                    "{} head parameters, but the target declares {} arguments",
+                    head_parameters.len(),
+                    target.arguments.len()
+                ),
+            ));
+        }
+        for (i, argument) in target
+            .arguments
+            .iter()
+            .take(head_parameters.len())
+            .enumerate()
+        {
+            if argument.injected {
+                return Err(Error::invalid_alias(
+                    &alias_key,
+                    target_key,
+                    &format!(
+                        "head parameter #{} would fill the injected argument '{}'",
+                        i + 1,
+                        argument.name
+                    ),
+                ));
+            }
+            if argument.multiple {
+                return Err(Error::invalid_alias(
+                    &alias_key,
+                    target_key,
+                    &format!(
+                        "head parameter #{} would fill the variadic argument '{}'",
+                        i + 1,
+                        argument.name
+                    ),
+                ));
+            }
+        }
+        Ok(Some(target))
+    }
 }
 
 #[cfg(test)]
@@ -1722,5 +1793,114 @@ mod tests {
         let back: CommandMetadata = serde_json::from_str(&json)?;
         assert_eq!(back.payload_required, PayloadRequirement::Required);
         Ok(())
+    }
+
+    /// A registry with `pl/slice(offset, length)` and an injected-first `ctx/use(context, word)`.
+    fn alias_test_registry() -> CommandMetadataRegistry {
+        let mut registry = CommandMetadataRegistry::new();
+        let mut slice = CommandMetadata::new("slice");
+        slice
+            .with_namespace("pl")
+            .with_argument(ArgumentInfo::integer_argument("offset", false))
+            .with_argument(ArgumentInfo::integer_argument("length", false));
+        registry.add_command(&slice);
+        let mut uses = CommandMetadata::new("use");
+        uses.with_namespace("ctx")
+            .with_argument(ArgumentInfo::argument("context").set_injected())
+            .with_argument(ArgumentInfo::string_argument("word"));
+        registry.add_command(&uses);
+        registry
+    }
+
+    fn alias_of(
+        name: &str,
+        target: CommandKey,
+        head: Vec<CommandParameterValue>,
+    ) -> CommandMetadata {
+        let mut alias = CommandMetadata::new(name);
+        alias.with_namespace("pl");
+        alias.definition = CommandDefinition::Alias {
+            command: target,
+            head_parameters: head,
+        };
+        alias
+    }
+
+    fn zero() -> CommandParameterValue {
+        CommandParameterValue::Value(Value::from(0))
+    }
+
+    #[test]
+    fn alias_target_is_none_for_registered() -> Result<(), Error> {
+        let registry = alias_test_registry();
+        let slice = registry
+            .find_command("", "pl", "slice")
+            .expect("slice is registered");
+        assert!(registry.alias_target(&slice)?.is_none());
+        let head = alias_of("head", CommandKey::new("", "pl", "slice"), vec![zero()]);
+        let target = registry
+            .alias_target(&head)?
+            .expect("an alias has a target");
+        assert_eq!(target.name, "slice");
+        Ok(())
+    }
+
+    /// Phase 3 test 13 (AC-5).
+    #[test]
+    fn alias_target_rejects_missing_target() {
+        let registry = alias_test_registry();
+        let alias = alias_of("head", CommandKey::new("", "pl", "nope"), vec![zero()]);
+        let err = registry
+            .alias_target(&alias)
+            .expect_err("target is missing");
+        assert_eq!(err.error_type, crate::error::ErrorType::ActionNotRegistered);
+        assert!(err.message.contains("pl/nope"), "{}", err.message);
+    }
+
+    /// Phase 3 test 13 (AC-6): an alias of an alias, and an alias of itself.
+    #[test]
+    fn alias_target_rejects_chained_alias() {
+        let mut registry = alias_test_registry();
+        let head = alias_of("head", CommandKey::new("", "pl", "slice"), vec![zero()]);
+        registry.add_command(&head);
+        let top = alias_of("top", CommandKey::new("", "pl", "head"), vec![]);
+        let err = registry
+            .alias_target(&top)
+            .expect_err("chains are rejected");
+        assert_eq!(err.error_type, crate::error::ErrorType::NotSupported);
+
+        let selfish = alias_of("me", CommandKey::new("", "pl", "me"), vec![]);
+        let err = registry
+            .alias_target(&selfish)
+            .expect_err("self-alias is rejected");
+        assert_eq!(err.error_type, crate::error::ErrorType::NotSupported);
+    }
+
+    /// Phase 3 test 13 (AC-3): three heads for a two-argument target; nothing is dropped.
+    #[test]
+    fn alias_target_rejects_overlong_head() {
+        let registry = alias_test_registry();
+        let alias = alias_of(
+            "head",
+            CommandKey::new("", "pl", "slice"),
+            vec![zero(), zero(), zero()],
+        );
+        let err = registry
+            .alias_target(&alias)
+            .expect_err("head is too long");
+        assert_eq!(err.error_type, crate::error::ErrorType::ParameterError);
+        assert!(err.message.contains("3 head parameters"), "{}", err.message);
+    }
+
+    /// Phase 3 test 13 (AC-4).
+    #[test]
+    fn alias_target_rejects_head_on_injected_argument() {
+        let registry = alias_test_registry();
+        let alias = alias_of("say", CommandKey::new("", "ctx", "use"), vec![zero()]);
+        let err = registry
+            .alias_target(&alias)
+            .expect_err("context cannot be a head");
+        assert_eq!(err.error_type, crate::error::ErrorType::ParameterError);
+        assert!(err.message.contains("'context'"), "{}", err.message);
     }
 }

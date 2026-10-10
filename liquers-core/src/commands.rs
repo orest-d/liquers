@@ -649,6 +649,98 @@ impl<E: Environment> CommandRegistry<E> {
         Ok(self.command_metadata_registry.get_mut(key).unwrap())
     }
 
+    /// Registers `alias` as a binding to `target` with `head_parameters` pre-filled.
+    ///
+    /// Only metadata is registered: when a query names the alias, the planner emits an action
+    /// for `target`, whose executor runs. The target's parameters are `head_parameters`
+    /// followed by the alias's own `arguments`, so `arguments` must line up, position by
+    /// position, with the target's arguments after the heads (same count, same `injected` and
+    /// `multiple` flags); names, labels and defaults are the alias's own.
+    ///
+    /// The target must already be registered. The alias copies the target's state argument,
+    /// volatility, payload requirement, expiration and `is_async`; label and doc are set on the
+    /// returned metadata. As with `register_command`, a later registration under the same key
+    /// replaces an earlier one; replacing a registered command also removes its executors and
+    /// its `impl_version`. Nothing changes when registration fails. See
+    /// `specs/reference/COMMAND_ALIASES.md`.
+    pub fn register_alias(
+        &mut self,
+        alias: CommandKey,
+        target: CommandKey,
+        head_parameters: Vec<command_metadata::CommandParameterValue>,
+        arguments: Vec<command_metadata::ArgumentInfo>,
+    ) -> Result<&mut CommandMetadata, Error> {
+        if alias == target {
+            return Err(Error::alias_chain_not_supported(&alias, &target));
+        }
+        let target_metadata = self
+            .command_metadata_registry
+            .find_command(&target.realm, &target.namespace, &target.name)
+            .ok_or_else(|| Error::alias_target_not_registered(&alias, &target))?;
+
+        let mut metadata = CommandMetadata::from_key(alias.clone());
+        metadata.state_argument = target_metadata.state_argument.clone();
+        metadata.volatile = target_metadata.volatile;
+        metadata.payload_required = target_metadata.payload_required.clone();
+        metadata.expires = target_metadata.expires.clone();
+        metadata.is_async = target_metadata.is_async;
+        metadata.arguments = arguments;
+        metadata.definition = command_metadata::CommandDefinition::Alias {
+            command: target.clone(),
+            head_parameters,
+        };
+
+        // The rules every alias obeys, however it was built.
+        self.command_metadata_registry.alias_target(&metadata)?;
+
+        // The shape the target's executor reads positionally - checked here because only a
+        // registered alias is guaranteed to have been built against its target.
+        let head_count = match &metadata.definition {
+            command_metadata::CommandDefinition::Alias {
+                head_parameters, ..
+            } => head_parameters.len(),
+            command_metadata::CommandDefinition::Registered => 0,
+        };
+        let remaining = target_metadata
+            .arguments
+            .get(head_count..)
+            .unwrap_or_default();
+        if remaining.len() != metadata.arguments.len() {
+            return Err(Error::invalid_alias(
+                &alias,
+                &target,
+                &format!(
+                    "{} head parameters and {} arguments, but the target declares {} arguments",
+                    head_count,
+                    metadata.arguments.len(),
+                    target_metadata.arguments.len()
+                ),
+            ));
+        }
+        for (own, theirs) in metadata.arguments.iter().zip(remaining.iter()) {
+            if own.injected != theirs.injected || own.multiple != theirs.multiple {
+                return Err(Error::invalid_alias(
+                    &alias,
+                    &target,
+                    &format!(
+                        "argument '{}' does not match the target's argument '{}' \
+                         (injected and multiple must agree)",
+                        own.name, theirs.name
+                    ),
+                ));
+            }
+        }
+
+        // Replacing a registered command: drop its executors and metadata first. Otherwise
+        // `add_command` would carry its `impl_version` over to the alias (which has no
+        // implementation) and its executor would stay callable under the alias's key.
+        self.unregister(alias.clone());
+        self.command_metadata_registry.add_command(&metadata);
+        self.command_metadata_registry
+            .get_mut(alias)
+            .ok_or_else(|| Error::unexpected_error("alias metadata was not stored".to_string()))
+    }
+
     /// Removes a command's sync executor, async executor and metadata.
     ///
     /// Returns `true` if anything was removed. Idempotent: unregistering a command that was
