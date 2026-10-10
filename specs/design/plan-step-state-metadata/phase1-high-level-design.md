@@ -113,6 +113,11 @@ keyed asset and has no key of its own, which `value_origin_key` exists to work a
   THEN the state `c` receives has `query: a/b` and no `key`; in the cut form this is asset
   `a/b`'s own metadata, in the expanded form it is recorded by the plan
 
+- **AC-12** An applied plan says so
+  WHEN a plan is applied to a non-empty input state (`AssetManager::apply`, `Context::apply`)
+  THEN the asset's metadata and `AssetInfo`, and every intermediate state of its plan, carry
+  `is_applied: true` beside the recorded query; an evaluated query carries `false`
+
 **Non-goals.** Letting a command return metadata with its value. State variables (liquer's
 mechanism for carrying values along a query in metadata) — the rule above lets them flow, but the
 mechanism is not built here. Changing what the asset records for a query with a filename. Making
@@ -167,25 +172,25 @@ Settled with the maintainer on 2026-10-10; Phase 2 implements them.
    treat it as information about their input.
 6. **A recipe with argument or link overrides** records no prefix queries; its asset already has
    no query, and the text would not describe what ran.
-7. **Assumption, to confirm at the Phase 2 gate:** a plan applied to an input state still records
-   the prefix query, although the value depends on the input; the applied asset's own record
-   already carries its recipe's query in the same situation.
+7. **An applied plan records its queries and is marked applied** (decided 2026-10-10). The
+   prefix query is recorded as for any plan, and a new flag `is_applied` on `MetadataRecord` and
+   `AssetInfo` says the query is applied to an input rather than self-describing. It is true
+   exactly when the asset's initial state is non-empty — the condition under which an asset is
+   already never keyed, cached or persisted. A recipe cannot name an input; making applied plans
+   self-describing that way is a separate feature, not this design.
 
 ## Design Readiness
 
 Decision log under pre-approval (Phases 3-4 pre-approved after Phase 2 on 2026-10-10).
 
-- **Readiness:** needs-decision
+- **Readiness:** ready
 - **Automatic fixing:** not-eligible — changes documented step-state and plan-cut semantics and a
   public signature (`Recipe::data_format`), and carries an open decision.
-- **Leading issue:** Decision 7, needs decision.
+- **Leading issue:** None.
 - **Explanation:** Phases 1-4 specify a working solution; the consistency pass over all four found
   no contradiction, every AC is cited by a Phase 3 test, and every Phase 4 step has a proof.
 - **Open questions:**
-  1. **Needs decision — prefix query under an applied input state (Decision 7).** Assumed: record
-     it, as the applied asset's own record already carries its recipe's query. Alternative: leave
-     `query` unset on actions of a plan applied to a non-empty state, so the metadata never names
-     a query that does not reproduce the value. Either is a one-line difference in Step 4.
+  1. **Resolved — Decision 7:** record the query and mark the asset `is_applied` (AC-12).
   2. **Proposed resolution — Phase 1 length.** Phase 1 is over the size guideline because of the
      ownership background; it moves into DOC_04 at Phase 5 and Phase 1 then cites it.
 
@@ -213,7 +218,7 @@ with the maintainer, replacing the compact draft's "descriptor overlay".
   attached (T2: once a prefix's metadata is handed on as it is, what that metadata declares is
   this design's contract). Leading source by the overlap rule (equal priority, older issue).
 - Example: the four-row table and the manifest query above.
-- Effect: AC-2..AC-11 added; size M → L; converted to the full form.
+- Effect: AC-2..AC-12 added; size M → L; converted to the full form.
 - Phases updated: Phase 1 only (no later phase existed). Approval: returns to the Phase 1 gate.
 
 ## References

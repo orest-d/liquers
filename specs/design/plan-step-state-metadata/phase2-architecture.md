@@ -65,6 +65,19 @@ async fn prefix_metadata<E: Environment>(
     context: &Context<E>, query: Option<&Query>,
 ) -> Result<Metadata, Error>;
 
+// metadata.rs — new flag on both records, following `payload_required`'s pattern: defaulted on
+// load, skipped when false, so existing records load and serialize unchanged. Legacy JSON
+// metadata reads it from an `is_applied` key, absent = false.
+pub struct MetadataRecord { /* … */
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_applied: bool,
+}
+pub struct AssetInfo { /* … */
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_applied: bool,
+}
+impl Metadata { pub fn is_applied(&self) -> bool; }
+
 // assets.rs — crate-private accessor used by `prefix_metadata`.
 pub(crate) async fn recipe_declared_description(&self) -> (bool, bool); // (title, description)
 ```
@@ -91,6 +104,11 @@ Enumerated over every `Step` variant, no `_ =>`:
 `filename`, `data_format`, `media_type` ← `None`, `unicode_icon` ← default, and title/description
 cleared when `recipe_declared_description` says the recipe set them. Status, log, progress,
 dependencies, version and command-set fields are kept (Phase 1 Decision 1).
+
+**`is_applied`.** `AssetData::new_ext` sets `assetinfo.is_applied = !initial_state.is_none()` —
+the condition its doc comment already names. The `MetadataRecord` ↔ `AssetInfo` conversions copy
+the flag. `prefix_metadata` copies the asset's record, so every intermediate state of an applied
+plan carries it; a fetched state carries its own asset's (false: dependencies are never applied).
 
 `apply_plan_state` loops `state = do_step_state(step, state, …)`; the `origin_key` bookkeeping
 goes. The final state is still discarded by `apply_plan`; the asset's record is untouched (AC-10).
@@ -129,7 +147,10 @@ absent format). The egui recipe widget shows the row only when `Some`.
   `fetched_key_honours_the_resource_header`; `resolve_absolute_query_resource_step` carries `query`.
 - `liquers-core/src/recipes.rs`: `data_format`, `get_asset_info`, `to_plan` override rule (its
   `Step::Action` test patterns use `..` and are unaffected).
-- `liquers-core/src/assets.rs`: `AssetRef::recipe_declared_description`.
+- `liquers-core/src/assets.rs`: `AssetRef::recipe_declared_description`; `AssetData::new_ext` sets
+  `is_applied`.
+- `liquers-core/src/metadata.rs`: `is_applied` on `MetadataRecord` and `AssetInfo`, both
+  conversions, `Metadata::is_applied`, legacy read.
 - `liquers-lib/src/egui/widgets.rs`: `Recipe::data_format` caller.
 - `liquers-lib/src/records/commands.rs` ≈575: comment naming `value_origin_key`.
 - Tests constructing `Step::Action` literally: `liquers-core/tests/command_alias.rs`,
@@ -171,4 +192,4 @@ Exercised: `pl` (`slice`, `head` alias), `rec` (`materialize`, `to_record`).
 | Data / concurrency / performance / security | No stored-format change. Fewer metadata copies per step (pass-through and fetch steps no longer call `get_metadata`). One fewer asset per bare-key-read query |
 | Recovery | Revert the commit; the plan field is optional, so plans serialized meanwhile still load |
 | Log timing | Log entries reach the asset through the service channel, so the copy `prefix_metadata` takes may lag the last entries a command wrote. AC-6 is asserted on the final asset's log, or after the channel drains; the input state's log is informational (Decision 5) |
-| Certainty and open questions | High for the interpreter and `bin`; medium for the cut rule's interaction with recipe prologues (covered by `plan_cwd_freeze` tests). Phase 1 Decision 7 awaits confirmation |
+| Certainty and open questions | High for the interpreter and `bin`; medium for the cut rule's interaction with recipe prologues (covered by `plan_cwd_freeze` tests). Phase 1 Decision 7 resolved (`is_applied`) |

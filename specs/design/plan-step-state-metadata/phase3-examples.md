@@ -36,6 +36,8 @@ an assertion reads what the command received. Queries validated with `liquers-va
 | 22 | Test | `polars_commands::slice_after_info_step_keeps_csv_format` | the issue's failure | AC-1, AC-9 |
 | 23 | Test | `polars_commands::slice_over_stored_csv_bytes_reads_the_stored_format` | stored untyped CSV | AC-9 |
 | 24 | Test | `record_manifest_resource_key::materialize_plan_is_get_asset_then_action` | evaluated plan has no boundary | AC-7 |
+| 25 | Test | `plan_step_state_metadata::applied_plan_is_marked_applied` | applied asset, its `AssetInfo` and `probe`'s input: `is_applied`; evaluated: not | AC-12 |
+| 26 | Test | `liquers_core::metadata::tests::is_applied_round_trips_and_defaults` | serde skip/default, `AssetInfo` round trip, legacy JSON | AC-12 |
 
 ## Example 1: A diagnostic step before an action
 
@@ -79,10 +81,11 @@ Today both report `query: a/b/probe` (the final asset) and `data_format: bin`.
 
 ## Test Plan
 
-- Integration: `liquers-core/tests/plan_step_state_metadata.rs` (new) — tests 3-14 over
+- Integration: `liquers-core/tests/plan_step_state_metadata.rs` (new) — tests 3-14 and 25 over
   `SimpleEnvironment<Value>` with `AsyncMemoryStore` and the default recipe provider; stored
   entries use `Text` with declared `txt` (the core `Value` cannot load `csv`).
-- Unit: `liquers-core/src/plan.rs` tests 15-19; `liquers-core/src/recipes.rs` tests 20-21.
+- Unit: `liquers-core/src/plan.rs` tests 15-19; `liquers-core/src/recipes.rs` tests 20-21;
+  `liquers-core/src/metadata.rs` test 26.
 - Integration: `liquers-lib/tests/polars_commands.rs` tests 22-23 (file already
   `#![cfg(feature = "polars")]`); `liquers-lib/tests/record_manifest_resource_key.rs` test 24
   (file already `#![cfg(feature = "records")]`).

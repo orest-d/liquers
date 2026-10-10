@@ -2,7 +2,7 @@
 
 ## Overview
 
-Four code steps in dependency order, then the `liquers-lib` proof. `bin` goes first because it is
+Five code steps in dependency order, then the `liquers-lib` proof. `bin` goes first because it is
 independent and later tests compare against an absent format. The `Step::Action.query` field comes
 before the interpreter that reads it. The cut rule comes before the interpreter so that removing
 `value_origin_key` never runs against a plan that still wraps a bare key read in a boundary.
@@ -18,8 +18,9 @@ No prerequisite issues (Phase 2 preflight). Signatures re-opened at `b516426`:
 - [ ] Step 1: `Recipe` declares no format without a filename
 - [ ] Step 2: `Step::Action` records its prefix query
 - [ ] Step 3: the cut declines a bare key read
-- [ ] Step 4: each step builds its next state; `value_origin_key` removed
-- [ ] Step 5: `liquers-lib` proof and full validation
+- [ ] Step 4: `is_applied` on `MetadataRecord` and `AssetInfo`
+- [ ] Step 5: each step builds its next state; `value_origin_key` removed
+- [ ] Step 6: `liquers-lib` proof and full validation
 
 ## Implementation Steps
 
@@ -32,7 +33,7 @@ No prerequisite issues (Phase 2 preflight). Signatures re-opened at `b516426`:
 - Depends on: none.
 - Proof: `cargo test -p liquers-core --lib recipes` (tests 20, 21);
   `cargo check -p liquers-lib --features egui`.
-- Rollback: revert the commit; nothing else depends on it until Step 4's tests.
+- Rollback: revert the commit; nothing else depends on it until Step 5's tests.
 
 ### Step 2: `Step::Action` records its prefix query
 - Files / symbols: `liquers-core/src/plan.rs` `Step::Action`, `PlanBuilder::process_action`, the
@@ -50,7 +51,7 @@ No prerequisite issues (Phase 2 preflight). Signatures re-opened at `b516426`:
 - Proof: `cargo test -p liquers-core --lib plan` (tests 15-18);
   `cargo test -p liquers-core --test command_alias --test validate_integration --test plan_cwd_freeze`;
   `cargo check -p liquers-lib --tests`.
-- Rollback: revert; the field is optional and unread until Step 4.
+- Rollback: revert; the field is optional and unread until Step 5.
 
 ### Step 3: the cut declines a bare key read
 - Files / symbols: `liquers-core/src/plan.rs` `Plan::cut_predecessor`.
@@ -59,31 +60,40 @@ No prerequisite issues (Phase 2 preflight). Signatures re-opened at `b516426`:
   `steps[prologue_steps..cut_at]`, ignoring `SetCwd`, is one key-read step (Phase 1 Decision 4;
   the match enumerates every `Step` variant). Update tests that assert the boundary shape of
   `-R/<key>/-/ns-x/action`.
-- Depends on: none; must land before Step 4 removes `fetched_key`.
+- Depends on: none; must land before Step 5 removes `fetched_key`.
 - Proof: `cargo test -p liquers-core --lib plan` (test 19);
   `cargo test -p liquers-core --test plan_cwd_freeze --test recipe_cwd_resolution`.
-- Rollback: revert; `fetched_key` still covers the boundary until Step 4.
+- Rollback: revert; `fetched_key` still covers the boundary until Step 5.
 
-### Step 4: each step builds its next state; `value_origin_key` removed
+### Step 4: `is_applied` on `MetadataRecord` and `AssetInfo`
+- Files / symbols: `liquers-core/src/metadata.rs` `MetadataRecord`, `AssetInfo`, their
+  conversions, `Metadata::is_applied`, the legacy reader; `liquers-core/src/assets.rs`
+  `AssetData::new_ext`.
+- Change: Phase 2 §Interfaces; `new_ext` sets the flag from `!initial_state.is_none()`.
+- Depends on: none.
+- Proof: `cargo test -p liquers-core --lib metadata` (test 26).
+- Rollback: revert; nothing reads the flag but tests.
+
+### Step 5: each step builds its next state; `value_origin_key` removed
 - Files / symbols: `liquers-core/src/interpreter.rs` `apply_plan`, `do_step` (become wrappers),
   new `apply_plan_state`, `do_step_state`, `prefix_metadata`; delete `value_origin_key`,
   `fetched_key`, `fetched_key_honours_the_resource_header`; `liquers-core/src/assets.rs` new
   `AssetRef::recipe_declared_description`; `liquers-lib/src/records/commands.rs` ≈575 comment.
 - Change: the next-state table of Phase 2, enumerated over every `Step` variant; `GetAsset` sets
   `key` when the fetched record lacks it; `GetResource` keeps the stored metadata.
-- Depends on: Steps 1-3.
-- Proof: `cargo test -p liquers-core --test plan_step_state_metadata` (tests 3-14);
+- Depends on: Steps 1-4.
+- Proof: `cargo test -p liquers-core --test plan_step_state_metadata` (tests 3-14, 25);
   `cargo test -p liquers-core --lib --tests`.
 - Rollback: revert this step alone; Steps 1-3 stand on their own (Step 3 then only removes a
   pointless boundary, and the record-streams key falls back to the `GetAsset` path, which
   `value_origin_key` also covers).
 
-### Step 5: `liquers-lib` proof and full validation
+### Step 6: `liquers-lib` proof and full validation
 - Files / symbols: `liquers-lib/tests/polars_commands.rs` (tests 22, 23),
   `liquers-lib/tests/record_manifest_resource_key.rs` (test 24); any `liquers-lib` test asserting
   `bin` or the old step state.
 - Change: tests only.
-- Depends on: Step 4.
+- Depends on: Step 5.
 - Proof: `cargo test -p liquers-lib --lib --tests`;
   `cargo test -p liquers-lib --no-default-features --features records --lib --tests`;
   `bash scripts/check-build-matrix.sh`.
@@ -91,15 +101,15 @@ No prerequisite issues (Phase 2 preflight). Signatures re-opened at `b516426`:
 
 ## Testing Plan
 
-Each step's proof runs when the step lands (`CARGO_INCREMENTAL=0`). After Step 5: the two `cargo
+Each step's proof runs when the step lands (`CARGO_INCREMENTAL=0`). After Step 6: the two `cargo
 test` loops above for `liquers-core` and `liquers-lib`, and `scripts/check-build-matrix.sh`
 because Step 1 touches an `egui`-gated caller. `specs/command_registry.yaml` is unaffected (no
 command signature or body changes), so `registry_export` must stay green unchanged.
 
 ## Rollback Plan
 
-The whole change is five commits on one branch; revert in reverse order. Steps 1-3 are each
-independently correct. Only Step 4 depends on all three; reverting it alone restores today's step
+The whole change is five commits on one branch; revert in reverse order. Steps 1-4 are each
+independently correct. Only Step 5 depends on them; reverting it alone restores today's step
 states with the new plan field unread.
 
 ## Documentation Updates
@@ -107,11 +117,11 @@ states with the new plan field unread.
 Phase 5, against the implemented behaviour:
 - `specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`: new §Metadata ownership during
   evaluation (moving Phase 1's Background there and trimming Phase 1); §Context lifetime rewritten.
-- `specs/reference/api/DOC_08_RECIPES_PLANS.md`: `Step::Action.query`; next-state table; cut
+- `specs/reference/api/DOC_08_RECIPES_PLANS.md`: `Step::Action.query`; `is_applied`; next-state table; cut
   exception; recipe `data_format`.
 - `specs/reference/VALUE_TYPE_SYSTEM.md`: checked; History row if touched.
 - `specs/guides/COMMAND_REGISTRATION_GUIDE.md`: input description vs asset record.
-- `Context::get_metadata` doc comment (with Step 4).
+- `Context::get_metadata` doc comment (with Step 5).
 - Each changed reference/guide: `## History` row and `reviewed:` bump (§9.2).
 - `specs/index.csv` / `index.md` regenerated; `specs/README.md` capability line.
 - Issues: `CONTEXT-STEP-REPLACES-INPUT-STATE-METADATA` and
