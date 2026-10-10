@@ -45,7 +45,7 @@ encoding, and the interpreter that turns a plan into asset evaluation.
 - **Plan building and evaluation** — documented → [`reference/api/DOC_01_ARCHITECTURE_REFERENCE.md`](reference/api/DOC_01_ARCHITECTURE_REFERENCE.md)
 - **One evaluation path: flows and public surface** — documented → [`reference/ASSET_LIFECYCLE.md`](reference/ASSET_LIFECYCLE.md) *(design in [`design/evaluate-path-consolidation/`](design/evaluate-path-consolidation/))*
 - **Recipes and plan contracts** — documented → [`reference/api/DOC_08_RECIPES_PLANS.md`](reference/api/DOC_08_RECIPES_PLANS.md)
-- **Metadata ownership during plan execution (asset, context, step state)** — designing → [`design/plan-step-state-metadata/`](design/plan-step-state-metadata/)
+- **Metadata ownership during plan execution (asset, context, step state)** — documented → [`reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`](reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md) §Metadata ownership during evaluation *(design in [`design/plan-step-state-metadata/`](design/plan-step-state-metadata/))*
 - **Offline query and recipe validation** — built → [`design/query-validation/`](design/query-validation/)
 - **Action-parameter links (`~X~~E`)** — built → [`design/query-link-parser/`](design/query-link-parser/)
 - **Parameter escaping: numeric and named entities** — documented → [`guides/QUERY_ESCAPING_GUIDE.md`](guides/QUERY_ESCAPING_GUIDE.md) *(entity table in [`reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md`](reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md); design in [`design/parameter-entity-escaping/`](design/parameter-entity-escaping/))*

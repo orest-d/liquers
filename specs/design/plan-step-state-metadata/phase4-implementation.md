@@ -15,12 +15,12 @@ No prerequisite issues (Phase 2 preflight). Signatures re-opened at `b516426`:
 
 ## Progress
 
-- [ ] Step 1: `Recipe` declares no format without a filename
-- [ ] Step 2: `Step::Action` records its prefix query
-- [ ] Step 3: the cut declines a bare key read
-- [ ] Step 4: `is_applied` on `MetadataRecord` and `AssetInfo`
-- [ ] Step 5: each step builds its next state; `value_origin_key` removed
-- [ ] Step 6: `liquers-lib` proof and full validation
+- [x] Step 1: `Recipe` declares no format without a filename — 1b7e060
+- [x] Step 2: `Step::Action` records its prefix query — 1b7e060
+- [x] Step 3: the cut declines a bare key read — 1b7e060
+- [x] Step 4: `is_applied` on `MetadataRecord` and `AssetInfo` — ca551d4
+- [x] Step 5: each step builds its next state; `value_origin_key` removed — 94154b2
+- [x] Step 6: `liquers-lib` proof and full validation — 8ecd5cf
 
 ## Implementation Steps
 
@@ -130,6 +130,6 @@ Phase 5, against the implemented behaviour:
 
 ## Phase 5 Entry Criteria
 
-- [ ] Implementation finished and validated
-- [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
+- [x] Implementation finished and validated
+- [x] User and review comments answered
+- [x] Documentation checkable against implemented and tested behaviour

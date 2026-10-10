@@ -4,7 +4,7 @@ kind: design
 title: A plan step's input state is the state its predecessor would produce as an asset
 workflow: liquers-project
 status: in_review
-phase: implementation
+phase: documentation
 readiness: ready
 autofix: not-eligible
 area: [core/plan, core/context]
@@ -26,7 +26,7 @@ because under that rule a prefix asset's metadata reaches the next command as it
 - [x] Phase 2: Architecture — `phase2-architecture.md` (approved 2026-10-10)
 - [x] Phase 3: Examples and Tests — `phase3-examples.md` (pre-approved)
 - [x] Phase 4: Implementation Plan — `phase4-implementation.md` (pre-approved; Decision 7 resolved 2026-10-10)
-- [ ] Phase 5: Documentation
+- [ ] Phase 5: Documentation — `phase5-documentation.md` (in review)
 
 ## Notes
 

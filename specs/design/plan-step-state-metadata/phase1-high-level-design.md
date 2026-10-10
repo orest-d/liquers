@@ -9,14 +9,10 @@ boundary, and a query with no filename stops declaring a `bin` format that the v
 
 ## Background: who owns metadata
 
-Verified against the code on 2026-10-10.
-
-| Holder | Role |
-|---|---|
-| **Plan** | How one asset is built. `Evaluate`, `GetAsset*`, `GetResource*` and parameter links read *other* assets as dependencies. |
-| **Asset** (`AssetData::metadata`) | The one authoritative record of the asset being built. Seeded from the recipe (`Recipe::get_asset_info`), written through the context while it runs, finalized by `AssetRef::complete_evaluation`, persisted for a keyed asset. |
-| **Context** | Holds no metadata of its own. `Context::get_metadata` returns a copy of the asset's record; `set_filename`, `set_title`, `add_log_entry` and the others write to the asset. Its pending dependencies are a buffer merged into the asset at completion. |
-| **Input and intermediate states** | Transient. `apply_plan` returns only the value; the asset's record is what survives. |
+Verified against the code on 2026-10-10 and now normative in
+`reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md` §Metadata ownership during evaluation:
+the **asset** holds the one authoritative record; the **context** holds none of its own (it reads
+and writes the asset's); **step states** are transient, and `apply_plan` returns only the value.
 
 **Two plan forms.** `PlanBuilder::build` produces the **expanded** plan: every step inline in one
 asset (`finalize_plan_expanded`). Evaluation without an input state uses the **cut** plan:
@@ -191,8 +187,7 @@ Decision log under pre-approval (Phases 3-4 pre-approved after Phase 2 on 2026-1
   no contradiction, every AC is cited by a Phase 3 test, and every Phase 4 step has a proof.
 - **Open questions:**
   1. **Resolved — Decision 7:** record the query and mark the asset `is_applied` (AC-12).
-  2. **Proposed resolution — Phase 1 length.** Phase 1 is over the size guideline because of the
-     ownership background; it moves into DOC_04 at Phase 5 and Phase 1 then cites it.
+  2. **Resolved — Phase 1 length.** The ownership background moved into DOC_04 at Phase 5.
 
 ## Design Dependencies
 
