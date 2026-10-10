@@ -26,7 +26,7 @@ use liquers_core::{
     query::Key,
     recipes::{DefaultRecipeProvider, Recipe, RecipeList},
     store::{AsyncFileStore, AsyncMemoryStore, AsyncStore},
-    value::{Value, ValueInterface},
+    value::Value,
 };
 
 /// A uniquely named temporary directory for one file store.

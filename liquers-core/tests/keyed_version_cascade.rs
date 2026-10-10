@@ -22,7 +22,7 @@ use liquers_core::{
     recipes::{DefaultRecipeProvider, Recipe, RecipeList},
     state::State,
     store::{AsyncMemoryStore, AsyncStore},
-    value::{Value, ValueInterface},
+    value::Value,
 };
 use liquers_macro::register_command;
 
