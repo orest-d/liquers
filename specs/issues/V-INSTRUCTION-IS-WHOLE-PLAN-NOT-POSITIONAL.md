@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [core/plan, core/query]
-design: 
+design: plan-policy
 created: 2026-08-26
 github:
 ---
@@ -65,3 +65,6 @@ Two things need care and are the reason this is `M` rather than `S`:
 Raised during `predecessor-cut-equivalence` review, 2026-08-26, while deciding what a
 recipe-level `volatile:` should mean. The question was whether a positional instrument exists to
 express the fine-grained case; `v` is the closest and does not. See that design's `DESIGN.md` notes on what a recipe-level `volatile:` means.
+
+Merged into design `plan-policy` on 2026-10-10 (overlap T3: the same `mark_volatile` /
+`VolatilitySource` change site; T2: the shared boundary rule), at the user's request.

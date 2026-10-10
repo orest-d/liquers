@@ -4,7 +4,7 @@ kind: issue
 title: Plan builder has no configuration and questionable defaults
 status: accepted
 priority: P2
-complexity: M
+complexity: L
 area: [core/plan]
 design: plan-policy
 created: 2026-08-08
@@ -58,6 +58,14 @@ shape of a plan. `DOC_08_RECIPES_PLANS.md` is updated accordingly.
 
 **What remains here:** the `cache`, `volatile flags` and `inline flag` markers at
 `plan.rs:899-901`, untouched.
+
+## Update, 2026-10-10 (`plan-policy`)
+
+Design `plan-policy` owns the remaining markers. `cache` becomes the `stored` / `cached` retention
+model across command, query directive, plan, recipe and asset. `inline flag` is not added, because
+`cached: false` produces the same plan. `volatile flags` was already covered, apart from positional
+`v`, which is merged in from `V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL`. Complexity re-evaluated
+`M` → `L`.
 
 ## Expected behaviour
 
