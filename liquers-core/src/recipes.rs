@@ -208,12 +208,14 @@ impl Recipe {
         Ok(self.get_query()?.extension())
     }
 
-    /// Returns the filename extension used as a data format, or `"bin"` when absent.
-    pub fn data_format(&self) -> Result<String, Error> {
-        if let Some(extension) = self.extension()? {
-            return Ok(extension);
-        }
-        Ok("bin".to_string())
+    /// Returns the data format the recipe's query declares: its filename extension.
+    ///
+    /// `None` when the query has no filename. An absent format means "no format was chosen", so
+    /// the value's own default applies when it is serialized (`State::effective_data_format`);
+    /// declaring a placeholder such as `bin` here would override that default with a format the
+    /// value usually cannot be written in.
+    pub fn data_format(&self) -> Result<Option<String>, Error> {
+        self.extension()
     }
 
     //TODO: specify icons in recipes.yaml?
@@ -297,6 +299,19 @@ impl Recipe {
                     name
                 ))
                 .with_query(&query));
+            }
+        }
+        if self.has_arguments() {
+            // Overrides patch the last action, so its query text no longer describes what runs.
+            // Earlier actions are untouched: their prefixes still name exactly what a cut would
+            // evaluate, so they keep their queries.
+            if let Some(Step::Action { query, .. }) = plan
+                .steps
+                .iter_mut()
+                .rev()
+                .find(|step| matches!(step, Step::Action { .. }))
+            {
+                *query = None;
             }
         }
 
@@ -414,7 +429,7 @@ impl Recipe {
         asset_info.title = self.title.clone();
         asset_info.description = self.description.clone();
         asset_info.filename = self.filename()?.map(|f| f.name);
-        asset_info.data_format = Some(self.data_format()?);
+        asset_info.data_format = self.data_format()?;
         asset_info.is_error = false;
         asset_info.is_dir = false;
         asset_info.status = Status::Recipe;
@@ -1166,6 +1181,40 @@ mod test {
     };
 
     use super::RecipeList;
+
+    /// Phase 3 test 20 (AC-8): a query with no filename declares no data format — neither from
+    /// `Recipe::data_format` nor in the asset information projected from the recipe — so the
+    /// value's own default applies. A filename still declares its extension.
+    /// See `specs/design/plan-step-state-metadata/`.
+    #[test]
+    fn data_format_is_absent_without_a_filename() -> Result<(), crate::error::Error> {
+        let unnamed = super::Recipe::new("a/b".to_string(), String::new(), String::new())?;
+        assert_eq!(unnamed.data_format()?, None);
+        assert_eq!(unnamed.get_asset_info()?.data_format, None);
+
+        let named = super::Recipe::new("a/b/out.csv".to_string(), String::new(), String::new())?;
+        assert_eq!(named.data_format()?.as_deref(), Some("csv"));
+        assert_eq!(named.get_asset_info()?.data_format.as_deref(), Some("csv"));
+        Ok(())
+    }
+
+    /// Phase 3 test 21 (AC-8): a keyed asset whose recipe query has no filename takes its format
+    /// from the key's filename, which `AssetInfo::with_key` seeds only while no format is declared.
+    #[tokio::test]
+    async fn keyed_asset_takes_its_format_from_the_key() -> Result<(), crate::error::Error> {
+        use crate::assets::AssetData;
+        use crate::context::{Environment, SimpleEnvironment};
+        use crate::state::State;
+        use crate::value::Value;
+
+        let envref = SimpleEnvironment::<Value>::new().to_ref();
+        let recipe = super::Recipe::new("a/b".to_string(), String::new(), String::new())?;
+        let key = parse_key("data/report.csv")?;
+        let asset = AssetData::new_ext(1, recipe, State::new(), Some(key), envref).to_ref();
+        let metadata = asset.get_metadata().await?;
+        assert_eq!(metadata.get_data_format(), "csv");
+        Ok(())
+    }
 
     #[test]
     fn empty_recipe() {

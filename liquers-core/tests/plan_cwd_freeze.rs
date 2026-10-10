@@ -4,7 +4,7 @@ use liquers_core::{
     context::{Context, EnvRef, Environment, ImmediateEnvironment},
     error::Error,
     parse::{parse_key, parse_query},
-    plan::{Plan, Step, VolatilitySource},
+    plan::{Plan, PlanBuilder, Step, VolatilitySource},
     query::Key,
     state::State,
     value::Value,
@@ -122,15 +122,11 @@ async fn root_fallback_is_reported_only_when_used() -> Result<(), Box<dyn std::e
 async fn cut_requires_a_frozen_plan() -> Result<(), Box<dyn std::error::Error>> {
     let envref = env()?;
     let cmr = envref.get_command_metadata_registry();
-    let mut plan = Plan::new();
     // A real tail: a boundary covering every step would leave the parent empty, which
-    // `cut_predecessor` declines. See `a_whole_plan_cut_is_declined`.
-    plan.steps = vec![
-        Step::GetAsset(parse_key("a/b/x.csv")?),
-        Step::Info("tail".to_owned()),
-    ];
-    plan.predecessor = Some(parse_query("-R/a/b/x.csv")?);
-    plan.predecessor_steps = 1;
+    // `cut_predecessor` declines (see `a_whole_plan_cut_is_declined`). The prefix runs an action:
+    // one that only reads a key is never cut (`design/plan-step-state-metadata/`).
+    let mut plan =
+        PlanBuilder::new(parse_query("-R/a/b/x.csv/-/where_am_i/where_am_i")?, cmr).build()?;
 
     let error = plan
         .cut_predecessor(cmr)

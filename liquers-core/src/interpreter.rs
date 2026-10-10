@@ -312,6 +312,7 @@ fn resolve_absolute_query_resource_step(step: Step) -> Step {
             position,
             parameters,
             origin,
+            query,
         } => Step::Action {
             realm,
             ns,
@@ -319,6 +320,7 @@ fn resolve_absolute_query_resource_step(step: Step) -> Step {
             position,
             parameters,
             origin,
+            query,
         },
         Step::Filename(filename) => Step::Filename(filename),
         Step::Info(message) => Step::Info(message),
@@ -648,6 +650,7 @@ pub fn do_step<E: Environment>(
             position,
             parameters,
             origin,
+            query: _,
         } => async move {
             let command_key = CommandKey::new(&realm, &ns, &action_name);
             let mut materialized_parameters = parameters.clone();
@@ -981,6 +984,7 @@ impl<E: Environment> IsVolatile<E> for Step {
                 position: _,
                 parameters,
                 origin,
+                query: _,
             } => {
                 // A hand-built or deserialized alias may be volatile when its target is not.
                 if let Some(alias) = origin.alias() {
@@ -1113,6 +1117,7 @@ impl<E: Environment> RequiresPayload<E> for Step {
                 position: _,
                 parameters,
                 origin,
+                query: _,
             } => {
                 if let Some(alias) = origin.alias() {
                     if let Some(alias_cmd) = env.get_command_metadata_registry().find_command(
@@ -1203,6 +1208,7 @@ mod tests {
             position: Position::unknown(),
             parameters: ResolvedParameterValues::new(),
             origin,
+            query: None,
         };
         assert!(
             !step(crate::plan::ActionOrigin::Direct)
@@ -1804,6 +1810,7 @@ mod tests {
                     Position::new(30, 1, 31),
                 ),
             ]),
+            query: None,
         });
 
         let result = apply_plan(plan, State::new(), context, envref).await?;
@@ -1836,6 +1843,7 @@ mod tests {
                     position.clone(),
                 )],
             )]),
+            query: None,
         });
 
         let error = apply_plan(plan, State::new(), context, envref)
