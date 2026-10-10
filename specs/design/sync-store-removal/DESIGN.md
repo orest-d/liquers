@@ -4,12 +4,12 @@ kind: design
 title: Remove the synchronous Store trait and the legacy cache module
 form: compact
 workflow: liquers-project
-status: approved
-phase: documentation
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [core/store, py, docs]
 issues: [CORE-SYNC-STORE-TRAIT-OBSOLETE]
+gh_pr: [101]
 affects_docs: [reference/STORE_SEMANTICS.md, reference/PROJECT_OVERVIEW.md, reference/ASSET_SET_OPERATION.md, guides/LANGUAGE-INTEGRATION_GUIDE.md, guides/STORE_IMPLEMENTATION_GUIDE.md, reference/STORE_CONFIG_FSD.md, reference/api/API_DOCS_GAP_ANALYSIS.md, reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md]
 created: 2026-10-10
 ---
