@@ -4,11 +4,11 @@ kind: design
 title: Caching strategies for recipes and queries, an inline-running command flag, positional volatility, and retirement of the plan-builder policy markers
 workflow: liquers-project
 status: in_review
-phase: high-level
+phase: architecture
 area: [core/plan, core/assets, core/commands, core/query, core/context]
 issues: [CORE-PLAN-POLICY-AND-DEFAULTS, V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL]
 merged: 2026-10-10
-affects_docs: [specs/reference/api/DOC_08_RECIPES_PLANS.md, specs/reference/ENVIRONMENT_CONFIG.md, specs/reference/REGISTER_COMMAND_FSD.md, specs/reference/ASSETS.md, specs/reference/PROJECT_OVERVIEW.md, specs/guides/COMMAND_REGISTRATION_GUIDE.md]
+affects_docs: [specs/reference/ENVIRONMENT_CONFIG.md, specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md, specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md, specs/reference/api/DOC_08_RECIPES_PLANS.md, specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md, specs/reference/PROJECT_OVERVIEW.md, specs/reference/COMMAND_DECLARATION.md, specs/reference/REGISTER_COMMAND_FSD.md, specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md, specs/reference/ASSETS.md, specs/guides/COMMAND_REGISTRATION_GUIDE.md, specs/guides/COMMAND_DESIGN_GUIDE.md, specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md]
 created: 2026-10-10
 ---
 # Plan Policy Design Tracking
@@ -21,8 +21,8 @@ merged on 2026-10-10 at the user's request.
 
 ## Phase Status
 
-- [ ] Phase 1: High-Level Design — in review (rewritten 2026-10-10 after five discussion rounds)
-- [ ] Phase 2: Architecture
+- [x] Phase 1: High-Level Design — **approved 2026-10-10**
+- [ ] Phase 2: Architecture — in review
 - [ ] Phase 3: Examples and Tests
 - [ ] Phase 4: Implementation Plan
 - [ ] Implementation
