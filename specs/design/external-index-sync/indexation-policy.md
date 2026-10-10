@@ -1,6 +1,10 @@
 # Indexation policy: what is searchable, and when it is produced
 
-Companion to [Phase 1](./phase1-high-level-design.md). Two decisions that neither the record model
+> **Moved 2026-10-10** from `store-and-asset-search` to this design, unchanged apart from this note and
+> its links. "Phase 1" below means [that design's Phase 1 at revision 7](../../archive/2026-10-10-store-and-asset-search-rev7-phase1-high-level-design.md);
+> section references to `roadmap.md` mean the [archived roadmap](../../archive/2026-10-10-store-and-asset-search-rev7-roadmap.md).
+
+Companion to Phase 1. Two decisions that neither the record model
 nor the interoperability layer answers:
 
 1. **Not everything should be indexed.** A store holds sources *and* derived artifacts, caches and

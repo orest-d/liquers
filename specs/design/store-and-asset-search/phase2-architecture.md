@@ -1,456 +1,308 @@
 # Phase 2: Solution & Architecture — Store and asset search
 
-> **Revision 7 — the split.** Revisions 1–6 developed a search design and a record model together,
-> and the record half outgrew the search half. Revision 7 moves records, columns, schema, buffers and
-> the stream to [`record-streams`](../record-streams/), leaving this design with what is actually
-> about searching: the predicate, its syntax, its parser, the two execution paths and the
-> `get_asset_info` repair. §0 records the whole revision history.
->
-> **This design now depends on `record-streams`,** which is being stabilized first. Nothing here can
-> be implemented before that design's Phase 1 is approved.
+> **Revision 8, 2026-10-10. Draft, written alongside the revised Phase 1.** It is reviewed at the
+> Phase 2 gate, after Phase 1 is re-approved. It replaces revision 7, which is archived at
+> `specs/archive/2026-10-10-store-and-asset-search-rev7-phase2-architecture.md`. What was kept,
+> dropped or moved is in `DESIGN.md` §"Revision 8".
 
 ## Overview
 
-A search is a **predicate applied to a stream of records**. The records, their columnar batches, the
-schema and the stream come from [`record-streams`](../record-streams/); this design adds the
-predicate that filters them, the syntax a person or an agent writes it in, and the single command
-that applies it. `liquers-core` gains a predicate type; `liquers-lib` gains an `ns-search`
-namespace. **No new method on `AsyncStore` or `AssetManager`** beyond repairing `get_asset_info` so
-that describing an asset stops starting it.
+Search is a **predicate over records**, written as a short syntax and applied by one command,
+`search`. Records come from three places:
 
-Scope is milestones **M0–M3** of [`roadmap.md`](./roadmap.md) plus the `get_asset_info` repair, all
-of it sitting on the record mechanism.
+- `catalog` makes them from a store folder;
+- `commands` makes them from the command registry;
+- any other input is converted (a table, a stored CSV, an evaluated key or query).
 
-## 0. What changed, and what it reverses
+The predicate, the parser, the matching kernels, BM25 ranking and a lazily filtering
+`RecordSource` all live in `liquers-records`. The commands and the state-to-records conversion live
+in `liquers-lib`. There is no store-trait change and no new `Value` variant.
 
-| Rev | Change | Why |
-|---|---|---|
-| 2 | **`root` and `sources` leave the predicate** | The predicate is a filter; *what it filters* is the stream. Putting the source inside it smuggled the set into the filter, contradicting this design's own model ("select records **from a set**"). The source is a **query**, which also gives the two execution paths |
-| 2 | **`SearchSource` deleted** | With the source being a query, command discovery is a command producing records from the registry — not an enum variant |
-| 2 | **`AsyncStore::select` and `AssetManager::select` dropped** | **Reverses Phase 1 axis B2/B3.** If records come from commands, a trait method is a *push-down optimization*, not the mechanism. Removes every change to two widely-implemented traits and the whole conformance-rule family, and forecloses nothing |
-| 2 | **`Hit` replaced** | It embedded an `AssetInfo`, which assumes one record per asset. **A CSV row has no `AssetInfo`; the file does.** Asset description moved to a per-source side table, and retrieval became explicit |
-| 5 | **The predicate is an expression, not a filter pipeline** | A clause chain cannot express `OR` or grouping, never produces the predicate as a whole — so an external engine has a sequence of steps to reverse-engineer — and is eager, which forecloses filter-then-verify and push-down |
-| 6 | **The expression is syntax parsed by the command — no `Value::Predicate`** | Revision 5 reached for link parameters, which would require adding a predicate variant to the core value enum for a capability nothing yet needs. A syntax string in one parameter answers all three objections *better* |
-| **7** | **Records leave this design entirely** | Six revisions established that the interesting half was not the search. Records serve four consumers of which search is one, and carry requirements search never raises (multi-gigabyte lazy processing, per-chunk provenance). They are stabilized first, in their own design, and search is rebuilt on top |
-| **7** | **`ClauseMatch` and the parallel match vector replaced by evidence columns** | A record set that carries a field only search fills is a record set that knows what a clause is. Evidence becomes three `Stored`-role columns on the result batch — **which resolves revision 6's open question 2**, and better than either option it offered. See §"Evidence" |
-
-Revisions 3 and 4 (the columnar, Arrow-laid-out batch, and the schema that owns names, types and
-roles) are not listed as reversed — they were *correct*, and they are exactly what moved to
-`record-streams`. Their reasoning lives there now, together with
-[`record-model.md`](../record-streams/record-model.md), which was written here and moved with them.
-
-## Dependency on `record-streams`
-
-Everything tabular is that design's. This one **consumes** it and adds nothing to it:
-
-| From `record-streams` | Used here for |
-|---|---|
-| `RecordBatch`, `Column`, `Bitmap` | The predicate evaluates to a `Bitmap` per clause over a `Column`; the batch's `filter` gathers the survivors |
-| `RecordSchema`, `FieldSchema`, `FieldRole` | `bind` resolves a field name to a column index once per batch; a `Text` clause targets **every** `Text`-role column |
-| `FieldValue` | What a `FieldTest` compares against |
-| `RecordSource`, `RecordStream` (traits) | A source opens the stream the predicate is applied to, and `RecordSource::chunks()` is the partition an external engine reconciles against. A source is re-openable, so a search can be re-run without re-deriving it |
-| `ChunkOrigin`, `LocatorRule` | How a surviving row is retrieved — the `chunk` query always, the `locator` when the projection offers one |
-| `RecordBatch`, `RecordSource` | The result value. `RecordSet` and `Diagnostics` were **removed** from that design during its Phase 2 review — a result is a batch or a stream, and evaluation facts go to `Metadata`'s log |
-| Field qualification (`meta.`, `attr.`, `key.`) | The names a predicate references |
-| `ExtValue::RecordView`, `ExtValue::RecordSource` | The result is an ordinary value, so a search composes with any record consumer — and a filtered result can be a *view* over its input rather than a copy. Note these are `ExtValue` in `liquers-lib`, **not** `Value` in core — a trait object cannot satisfy `Value`'s `Deserialize` bound |
-
-**If the record design changes, this one follows.** In particular, open questions 5 and 6 there
-(the extension point for derived columns, and where the 64-clause cap is documented) are answered
-jointly with §"Evidence" below.
+Rejected alternatives:
+- **`AsyncStore::select`.** Producing the records is what reads the corpus, so a store method would
+  only push the filter down, and no backend can do that today. `STORE-NO-CONTENT-OR-METADATA-SEARCH`
+  is closed as superseded.
+- **A filter pipeline** (`text-a/not_text-b/…`). It cannot express OR or grouping, and the
+  predicate never exists as a whole (revision 5).
+- **`Value::Predicate`.** A syntax string in one parameter carries the same information. Revision
+  7's conditions for adding the variant are kept below.
 
 ## Known-Issue Preflight
 
-Searched: every non-terminal `issue`/`feature` in `specs/index.csv` whose `area` intersects
-`core/store`, `core/assets`, `core/value`, `core/commands`, `core/context`, `core/query`,
-`core/plan`, `lib/commands`, `macro`, `store/backends`, `axum`, `web` — 93 records.
-
-| Issue | Status | Pri | Relevance and solution impact | First? | Blocking? | Required action | Priority action |
-|---|---|---|---|---|---|---|---|
-| `NO-RECORD-STREAM-ABSTRACTION` | draft | P2 | **The prerequisite.** Search filters a record stream; there is none | **yes** | **yes** | Resolved by the `record-streams` design, which is stabilized first | **raise to P1 when this design's Phase 2 is approved** — a blocker must be at least P1 (§4.4), and it is not one until this design is live |
-| `DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION` | draft | P1 | The record-producing commands describe assets; this call must not schedule | yes | no | **Fixed here** | keep P1 |
-| `STORE-NO-CONTENT-OR-METADATA-SEARCH` | draft | P2 | Asks for selection *on the store*. This design does **not** close it — the user-facing gap closes, the trait gap does not | no | no | Update in Phase 5 to record that the capability exists above the store and push-down remains open | keep P2 |
-| `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` | draft | P2 | Front-matter fields have nowhere to live, so `attr.status:draft` has nothing to match | no | no | Fields resolve by qualified name, so fixing it is a pure upgrade | keep P2 |
-| `COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT` | draft | P2 | Record-producing commands are ordinary commands with a `Context`; nothing stops one evaluating | no | no | Purity is a contract until it lands | keep P2 |
-| `COMMAND-CONTEXT-PARAM-ORDER` | accepted | P2 | `context` must be last | no | no | Honoured | keep P2 |
-| `STORE-COMMAND-NAMESPACE-MISSING` | accepted | P3 | Record-producing commands read the store | no | no | Independent; `ns-search` owns its own commands | keep P3 |
-| `CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS` | draft | P2 | A record-producing command over a directory inherits the divergence | no | no | Document in `SEARCH.md`: the result is exactly what enumeration reported | keep P2 |
-| `AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED` | draft | P0 | — | no | no | No endpoint added | keep P0 |
-| `ASSETS-CANNOT-BE-DECLARED-NON-PERSISTENT`, `DIRECTORY-LISTING-DEPENDENCY-…`, `VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER`, `CORE-STORE-OPENBIN-MISSING`, `ASSET-EXPIRATION-EVENTS-…` | draft/accepted | P2–P3 | M4–M7 only | no | no | Monitor | keep |
-| `CORE-SESSION-AND-KEY-ACL` | accepted | P2 | Excluded by design | no | no | — | keep P2 |
-
-**One blocker: `NO-RECORD-STREAM-ABSTRACTION`,** and it is blocking by construction — the split made
-it so deliberately, rather than leaving it implicit inside a larger design. It is resolved not by a
-fix but by the `record-streams` design completing. **This Phase 2 cannot be approved while that
-design's Phase 1 is unapproved**, which is the intended sequencing rather than an obstacle.
+| Issue | Status | Pri | Impact on this design | Fix first? | Blocking? | Action |
+|---|---|---|---|---|---|---|
+| `NO-RECORD-STREAM-ABSTRACTION` | closed | — | The former blocker, resolved by `record-streams` | — | no | none |
+| `DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION` | closed | — | `get_asset_info` no longer starts an asset, which is what AC-4 relies on | — | no | AC-4's test guards it |
+| `RECORD-SOURCE-WRAPPERS-UNSPECIFIED` | draft | P3 | The filtering source it asks for is `FilteredSource` here | no | no | **Taken into this design**; closed when built |
+| `DIRECTORY-KEY-CANNOT-BE-EVALUATED-AS-A-RESOURCE` | draft | P3 | `-R/<folder>/-/ns-search/catalog` fails with "No recipe found" until it is fixed | no | no | Design around it: documentation and examples use `-R-key/<folder>`, and `catalog` also accepts the `dir` state, so the plain form works once the issue is fixed |
+| `QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH` | draft | P2 | Over HTTP, `search` arguments can only go into the path, escaped | no | no | Filed 2026-10-10; independent |
+| `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` | draft | P2 | Front-matter fields have nowhere to live | no | no | Later columns under an `attr.` prefix |
+| `COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT` | draft | P2 | Non-evaluation is a contract, not enforced | no | no | Tests assert it (AC-4) |
+| `STORE-NO-CONTENT-OR-METADATA-SEARCH` | draft | P2 | Superseded | — | no | Set to `closed_not_planned` with this revision |
 
 ## Data Structures
 
-New module `liquers-lib/src/search/`, behind the `records` feature.
-
-> **Placement to revisit (2026-09-25).** `record-streams` moved the records into their own crate,
-> `liquers-records`, over `liquers-core`. The predicate and the engine sinks need only that crate, so
-> they may become a small crate of their own, with only the commands left in `liquers-lib`. Decided
-> when this design is unblocked and tidied.
-
-**Changed by `record-streams` revision 5.** The predicate operates on `RecordBatch`, and records
-moved to `liquers-lib` behind a feature — so the predicate follows. `liquers-core` gains nothing from
-this design either, which makes the whole search capability additive to one crate. Everything tabular comes from `liquers_core::records`.
-
-### SearchPredicate — a pure filter over a record stream
-
-`SearchPredicate` is a `liquers-core` type — `Serialize`/`Deserialize`, so an HTTP or MCP caller that
-would rather send a structured predicate than a string can — but it is **not** a `Value` variant.
+`liquers-records/src/search/` (new; no feature gate, so wasm builds get it too):
 
 ```rust
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub struct SearchPredicate {
-    pub expr: Predicate,
-    pub limit: Option<usize>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+/// The parsed search syntax. No default match arm anywhere (CLAUDE.md).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Predicate {
-    /// Matches everything — the identity of `All`, and what an empty expression parses to.
-    #[default]
-    Always,
-    Never,
-    All(Vec<Predicate>),
-    Any(Vec<Predicate>),
-    Not(Box<Predicate>),
-    /// Matches against **every** column whose role is `Text`. No privileged target.
-    Text { needle: String, case_sensitive: bool },
-    Field { name: String, test: FieldTest },
+    Always,                                  // an empty expression
+    All(Vec<Predicate>),                     // juxtaposition
+    Any(Vec<Predicate>),                     // `|`
+    Not(Box<Predicate>),                     // leading `-`
+    Term(String),                            // a word, matched as a substring
+    Phrase(String),                          // "a phrase", whitespace-normalized substring
+    Field { name: String, test: FieldTest }, // `name:value`, `name:>v` …
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum FieldTest {
-    Equals(FieldValue),
-    Contains(String),
-    Prefix(String),
-    Glob(String),
-    Range { min: Option<FieldValue>, max: Option<FieldValue> },
-    OneOf(Vec<FieldValue>),
-    Exists,
+    Glob(String),               // `:` — exact unless the value has `*` or `?`
+    Compare(CompareOp, String), // `:>` `:>=` `:<` `:<=`, parsed into the column's FieldType at bind
 }
+
+/// A predicate resolved against one schema. Owns its column indices, so it has no lifetime.
+pub struct BoundPredicate { /* tree of resolved nodes */ }
+
+#[derive(Debug, Clone)]
+pub struct SearchOptions {
+    pub case_sensitive: bool,
+    pub fields: Vec<String>,    // empty: the defaults (below)
+    pub limit: Option<usize>,   // None: all rows
+}
+
+/// A `RecordSource` whose stream yields each inner view filtered (a `RowIndexView`), skipping
+/// empty ones and stopping after `limit` rows. Binds the predicate once per distinct schema.
+#[derive(Debug)]
+pub struct FilteredSource { inner: Arc<dyn RecordSource>, predicate: Predicate, options: SearchOptions }
+
+pub const DEFAULT_SEARCH_FIELDS: [&str; 5] = ["filename", "title", "description", "doc", "content"];
 ```
 
-**No `root`, no `sources`, no `depth`.** The stream decides what is in scope; the predicate decides
-what survives. The `Key` clause of revision 1 becomes `Field { name: "key.path", test: Glob(..) }` —
-a key is a field like any other.
+The grammar is revision 7's, unchanged. `or = and {"|" and}`; `and = unary {unary}`;
+`unary = ["-"] atom`; `atom = "(" or ")" | field ":" [op] value | '"' phrase '"' | term`. Its rules
+are also unchanged:
+- input that is not syntax is taken as a literal term, so the parser never fails;
+- an empty expression is `Always`;
+- an ambiguous unqualified field name is an error from `RecordSchema::resolve_field`.
 
-**A `Text` clause has no privileged target.** It matches against every `Text`-role column, which is
-the review's point: a title, a body and a comment are all text and none is special.
+Revision 7's 64-node cap existed only for the evidence bitmask, so it is gone.
 
-**Evaluation is mask-based and bottom-up over columns.** Each leaf yields a `Bitmap` over the batch;
-`All` ANDs its children, `Any` ORs them, `Not` complements; the surviving rows are gathered once with
-`RecordBatch::filter`. That is how a vectorized engine evaluates a filter tree, it is faster than a
-row walk, and it makes evidence cheap to attribute because the mask says exactly which node admitted
-which row.
+**Search fields.** These are the columns that `Term` and `Phrase` match against:
+1. the explicit list, where an unknown name is an error;
+2. otherwise whichever of `DEFAULT_SEARCH_FIELDS` exist;
+3. otherwise `schema.text_fields()`;
+4. otherwise every `FieldType::Text` column.
 
-Neither `Predicate` nor `FieldTest` is `#[non_exhaustive]`: a consumer that silently ignores a node
-it does not understand is a correctness bug, so an exhaustive match making it a compile error is the
-signal `CLAUDE.md` exists to preserve. No match uses a default arm.
+`Field` tests may name any column. An unknown name matches nothing and is returned as a warning.
 
-### Evidence
+**Matching** is mask-based. Each leaf yields a `Bitmap` over the view, and `All`, `Any` and `Not`
+combine the masks with `and`, `or` and `not`.
+- A term or phrase is a substring test on each search field, ORed across the fields. It is
+  lowercased on both sides unless `case_sensitive` is set.
+- A glob on a Text column is the same kernel with `*`/`?` wildcards, anchored at both ends.
+- On any other column, the value is parsed to the column's `FieldType` and tested with
+  `Column::compare`.
+- A null never matches.
 
-Revision 6 left open whether a search result should be a record set with a parallel
-`matches: Vec<Vec<ClauseMatch>>` or a distinct type wrapping one. **Revision 7 answers: neither.**
-Evidence is expressed the way every other per-row fact is — as columns appended to the result batch
-with role `Stored`:
+**Ranking** is BM25 (k1 = 1.2, b = 0.75) over the rows that survive the mask. The statistics come
+from those rows: tokens are split on non-alphanumerics, in the spirit of `Analyzer::Simple`.
+- A row's score sums, over the search fields, the field weight times the BM25 sum over the positive
+  terms and phrases (those not under `Not`).
+- Term frequency is the substring occurrence count. Document length is the token count.
+- Field weights: `title` 3, `filename` 2, `description` 2, all others 1. A phrase counts double.
+- Sorting is by descending score. The sort is stable, so ties keep input order.
+- `excerpt` is about 160 characters around the first positive match, taken from the first search
+  field that contains one.
+- An expression with no positive terms yields `score = 0` everywhere and leaves the order alone
+  (AC-15).
 
-| Column | Type | Meaning |
+**`catalog` schema:**
+
+| Column | Type | Roles |
 |---|---|---|
-| `match.clauses` | `UInt` | Bitmask; bit *i* is set when node *i* of a pre-order walk of `expr` admitted this row |
-| `match.excerpt` | `Text`, nullable | The best excerpt, when a text clause produced one |
-| `match.score` | `Float`, nullable | `Null` until a scoring clause exists — Phase 1's ordering promise, reserved |
+| `key` | Text | Id; keyword + stored |
+| `filename` | Text | text + stored |
+| `title` and `description` | Text | text + stored |
+| `extension`, `parent`, `status`, `type_identifier` and `media_type` | Text | keyword |
+| `is_dir` | Bool | keyword |
+| `size` | Int, nullable | numeric |
+| `updated` | Timestamp, nullable | numeric |
+| `content` | Text, nullable | text; the column exists only with `content = true` |
 
-This is strictly better than either option that was on the table: a search result composes with any
-record consumer with no unwrapping, evidence serializes as CSV or NDJSON like everything else, and
-the record design loses a field it should never have had (and, in its own review, the whole
-`RecordSet` type). **Two costs, stated rather than discovered
-later:** the bitmask caps a predicate at **64 nodes**, which `parse_search_syntax` reports as an
-error rather than truncating silently; and only one excerpt per row is representable, which is the
-same trade every search UI makes.
+**`commands` schema:**
 
-The columns are added through `RecordBatch::with_columns`, whose suitability as the extension point
-is `record-streams` open question 5 — this is its first user.
-
-## The predicate is written as syntax, parsed by the command
-
-Revision 5 corrected revision 2's clause-chain form
-
-```
--R-key/specs/issues/-/ns-search/records/text-expiration/not_text-expired/field-meta.status-draft
-```
-
-which was described as "the query language already has a syntax for clauses". It does not. That chain
-mixes two different things — building a record stream, then **progressively reducing it** — and a
-filter pipeline is not an expression that evaluates to a predicate. Three consequences, each real:
-
-1. **It cannot express `OR` or grouping.** Sequential filters are AND-only. `a AND (b OR c)` would
-   need `union`/`intersect` commands over materialized record sets.
-2. **The predicate never exists as a value.** It is only a side effect of the chain — so it cannot be
-   handed to an external engine, stored, or reused. That directly undermines execution path (b),
-   where what the engine needs *is the predicate*.
-3. **It is eager.** Each step reduces a set, so nothing can know the whole predicate before touching
-   data — which is what filter-then-verify and push-down both require.
-
-### A syntax and a parser, not a Value variant
-
-The obvious fix — make the predicate a value and pass it through a **link parameter**
-(`~X~<query>~E`, which does exist and would work) — requires `Value::Predicate`. That is a permanent
-addition to the core value enum in exchange for a capability nothing yet needs, so it is **not
-taken**. Instead the predicate is an ordinary Rust type, and a syntax with a parser produces it
-inside the command.
-
-```
--R-key/specs/issues/-/ns-search/records/select-<expression>
-```
-
-**All three objections to the pipeline are answered better this way than by links:**
-
-| Objection | Answer |
-|---|---|
-| Cannot express `OR` or grouping | The *syntax* has `\|` and parentheses. Validated below |
-| The predicate is never a value | It **is** one — as **text in a single parameter**. A perfectly good serialized form: storable in a recipe, inspectable in the plan, and handed to an external engine as one string it parses with the same parser. Strictly better than reverse-engineering a chain of steps, and it costs no `Value` variant |
-| Eager evaluation | The whole expression is parsed **before** the stream is touched, so filter-then-verify and push-down both remain open |
-
-### The syntax
-
-```ebnf
-expr    = or ;
-or      = and , { "|" , and } ;          (* lowest precedence *)
-and     = unary , { unary } ;            (* implicit AND by juxtaposition *)
-unary   = [ "-" ] , atom ;               (* leading "-" negates *)
-atom    = "(" , expr , ")"
-        | field , ":" , value
-        | '"' , phrase , '"'
-        | term ;
-```
-
-The vocabulary is the intersection of what Google, GitHub and Lucene users already expect:
-
-```
-expiration                          a term
-"expiration safety"                 a phrase
--expired                            negation
-meta.status:draft                   a field test
-expiry | expiration                 disjunction
-(expiry | expiration) -expired      grouping
-```
-
-Unrecognised input is a **literal term**, not an error — except an ambiguous unqualified field name,
-which is reported with every candidate, and an expression exceeding 64 nodes, which is reported
-rather than truncated. An empty expression is `Predicate::Always`.
-
-### Ergonomics, honestly
-
-Every operator character must be escaped inside a query parameter. Checked: `(`, `)`, `|`, `:` and
-`>` all **fail to parse raw**; only alphanumerics, `.`, `_` and escapes survive. So
-
-```
-ns-search/select-~nlpar~expiry~.~nverbar~~.expiration~nrpar~~.~_expired~.meta.status~ncolon~draft
-```
-
-decodes to exactly `(expiry | expiration) -expired meta.status:draft` — verified with
-`liquers-validate`. A hand-written search URL is therefore essentially unwritable, and that is fine:
-the user types into a box, and a UI, an MCP tool or `ActionRequest::encode` builds the query. Note
-`~_` for the ASCII hyphen, **not** `~nminus~` (U+2212) — the trap the escaping guide warns about, and
-one this design fell into once already.
-
-### When the `Value` variant would earn its place
-
-Recorded so the decision can be revisited on evidence rather than taste. Add `Value::Predicate` when
-one of these actually arrives:
-
-- a predicate must be **built by one query and consumed by another** — a saved-search asset composed
-  into a larger search;
-- a predicate must be **produced by a command** rather than written, for instance derived from a
-  user's profile or from another record set;
-- **partial predicates need reuse** across several searches without repeating their text.
-
-Until then a string in a parameter carries the same information at no cost to the value system.
-
-## Execution: two paths from one query
-
-Because the source is a query, a search has exactly two executions, and the design supports both
-without choosing:
-
-| Path | How | When |
-|---|---|---|
-| **(a) Evaluate and filter** | Evaluate the source query, consume its `RecordStream`, apply the predicate view by view through the column kernels, retain up to `limit` | The MVP, and the only path for a corpus with no engine |
-| **(b) Push the predicate to an engine** | Hand the source query and the predicate text to an external engine already fed from the same query | [`interoperability-layer.md`](./interoperability-layer.md); what the engine holds and what (a) would compute are the same records, because `partition()` reconciliation keeps them so |
-
-Path (b) needs no new interface here: the engine reads the plan and parses the predicate text with
-the same parser.
+| Column | Type | Roles | Source |
+|---|---|---|---|
+| `id` | Text | Id | `CommandKey` display, `realm-namespace-name` |
+| `realm`, `namespace`, `name`, `module` | Text | keyword | — |
+| `title` | Text | text | `label` |
+| `description` | Text | text | the generated signature, `ns-search/search(query: String = "", rank: Boolean = true, …)` |
+| `doc` | Text | text | `doc` |
+| `volatile` | Bool | keyword | — |
+| `output_filename` | Text | keyword | the metadata's `filename`, renamed so it is not a default search field |
 
 ## Trait Implementations
 
-### `AssetManager::get_asset_info` — repaired, and the only core-trait change
-
-```rust
-/// Describe an asset. **Never schedules evaluation.**
-///
-/// Previously a live key was routed through `get`, which submits to the job queue for an asset
-/// that is neither finished nor fast-trackable — so describing an asset in `Status::Recipe` ran
-/// it. It now reports from the handle `lookup_key_asset` already returns.
-async fn get_asset_info(&self, key: &Key) -> Result<AssetInfo, Error>;
-```
-
-Confirmed at `assets.rs:3967-3970` (trait default) and `:5334-5336` (`DefaultAssetManager`).
-`listdir_asset_info` (`:4043`) calls it per entry and inherits the repair, so listing a directory
-stops starting the assets in it.
-
-### No `select`, and no conformance rules
-
-Revision 1 added `AsyncStore::select` and `AssetManager::select` with a default scan and six
-`select*` conformance rules. **Both are dropped.** With records produced by commands, a trait method
-is a push-down optimization: valuable when a backend can filter without materializing, absent
-everywhere today, and addable later without changing a single consumer. Dropping it removes all
-changes to two widely-implemented traits, removes the rule family, and makes
-`STORE-TEST-IDS-COLLIDE-WITH-CONFORMANCE-RULE-IDS` irrelevant to this design.
-
-The cost is stated plainly: `STORE-NO-CONTENT-OR-METADATA-SEARCH` asks for selection *on the store*
-and is **not** closed by this work. Phase 5 updates it to record that the capability exists above the
-store and that push-down remains open.
+- **`RecordSource for FilteredSource`.**
+  - `stream` maps the inner stream: each view is passed through `view.filter(&mask)` (zero-copy),
+    empty views are skipped, and the stream stops at `limit`.
+  - `chunks`, `describe_chunk` and `schema` delegate to the inner source. A filtered chunk keeps
+    the inner chunk's provenance.
+  - `truncated` reports the inner source's value only. Stopping at `limit` is a caller's choice,
+    not a truncation of the source.
+  - `manifest` is `None`, so the source is re-derived from its recipe.
+- Nothing else. No `AsyncStore`, `AssetManager` or `Value` change.
 
 ## Function Signatures
 
-### `liquers-lib/src/search/predicate.rs` (`records` feature)
+`liquers-records/src/search/`, all sync and pure:
 
 ```rust
-/// A predicate bound to one schema: every field name already resolved to a column index.
-/// Built once per batch, evaluated column-wise.
-pub struct BoundPredicate<'a> { /* … */ }
-
-impl SearchPredicate {
-    /// Resolve names against a schema. Names no schema declares are returned for
-    /// a `Warning` log entry on the evaluation's `Metadata` rather than failing.
-    pub fn bind(&self, schema: &RecordSchema) -> (BoundPredicate<'_>, Vec<String>);
-    /// True when no clause needs a `Text`-role field — the producer may skip projecting bodies.
-    pub fn needs_text(&self) -> bool;
-    /// Node count of a pre-order walk. More than 64 exceeds the evidence bitmask.
-    pub fn node_count(&self) -> usize;
+pub fn parse_search(input: &str) -> Predicate;
+pub fn search_fields(schema: &RecordSchema, requested: &[String]) -> Result<Vec<usize>, Error>;
+impl Predicate {
+    /// Resolve names. Unknown `Field` names come back as warnings, and match nothing.
+    pub fn bind(&self, schema: &RecordSchema, options: &SearchOptions)
+        -> Result<(BoundPredicate, Vec<String>), Error>;
+    pub fn positive_terms(&self) -> Vec<&str>;
 }
-
-impl<'a> BoundPredicate<'a> {
-    /// One mask per node, over the whole batch. Pure; no I/O.
-    pub fn node_masks(&self, batch: &RecordBatch) -> Result<Vec<Bitmap>, Error>;
-    /// Combine the masks, gather the surviving rows, and append the evidence columns.
-    pub fn apply(&self, batch: &RecordBatch) -> Result<RecordBatch, Error>;
+impl BoundPredicate { pub fn mask(&self, view: &dyn RecordView) -> Result<Bitmap, Error>; }
+/// Filter, score, sort, apply the limit, and append `score` (Float) and `excerpt` (Text, nullable).
+pub fn search_view(view: &Arc<dyn RecordView>, predicate: &Predicate, options: &SearchOptions, rank: bool)
+    -> Result<(Arc<dyn RecordView>, Vec<String>), Error>;
+impl FilteredSource {
+    pub fn new(inner: Arc<dyn RecordSource>, predicate: Predicate, options: SearchOptions) -> Self;
 }
-
-pub fn excerpt(text: &str, needle: &str, case_sensitive: bool, radius: usize) -> Option<String>;
 ```
 
-### `liquers-lib/src/search/mod.rs`
+`liquers-lib/src/search/` (feature `records`). Every command is generic over
+`E: Environment<Value = Value>`:
 
 ```rust
-/// Produce records describing the assets under the key carried by the state.
-/// One record per asset (Level 0). Never evaluates: uses the repaired `get_asset_info`.
-pub async fn records(state: State<Value>, context: Context<CommandEnvironment>)
-    -> Result<Value, Error>;
+pub async fn catalog<E>(state: State<Value>, recursive: bool, content: bool, max_bytes: i64,
+    context: Context<E>) -> Result<Value, Error>;
+pub async fn commands<E>(namespace: String, context: Context<E>) -> Result<Value, Error>;
+pub async fn search<E>(state: State<Value>, query: String, rank: bool, case_sensitive: bool,
+    limit: i64, fields: Vec<String>, context: Context<E>) -> Result<Value, Error>;
 
-/// Produce records describing registered commands. Command discovery, no search-specific code.
-pub async fn command_records(state: State<Value>, context: Context<CommandEnvironment>)
-    -> Result<Value, Error>;
+/// The folder a state denotes, if any. The answer depends on the input:
+/// - no value and no key → the root key;
+/// - a `dir` state, or an `AssetInfo` listing from `-R-dir` or `-R-sdir` → the key in its metadata;
+/// - a `Key` value, or a `Query` value whose `key()` is `Some` → that key, when the asset manager
+///   reports it `is_dir`;
+/// - anything else → None.
+pub async fn folder_of<E>(state: &State<Value>, context: &Context<E>) -> Result<Option<Key>, Error>;
 
-/// Parse the search syntax into a predicate. Unrecognised input is a literal term, not an
-/// error; an ambiguous unqualified field name IS an error, naming every candidate, and so is
-/// an expression of more than 64 nodes.
-pub fn parse_search_syntax(input: &str) -> Result<Predicate, Error>;
-
-/// Parse `expr` and apply it to the record stream in the state. The only search command.
-pub fn select(state: &State<Value>, expr: String, limit: i64) -> Result<Value, Error>;
+pub enum SearchInput { View(Arc<dyn RecordView>), Source(Arc<dyn RecordSource>) }
+/// The records a state denotes:
+/// - a folder (`folder_of`) → its catalog, recursive and without content;
+/// - a `Key` or `Query` value → evaluated, then converted again;
+/// - anything else → `records::convert::to_record_source`, which already handles views, sources,
+///   JSON, and bytes or text in the format their metadata declares (CSV, NDJSON, Parquet, …).
+///
+/// A source that is an `InMemorySource` over one view comes back as `View`.
+pub async fn search_input<E>(state: State<Value>, context: &Context<E>) -> Result<SearchInput, Error>;
 ```
 
-`select` is **sync and borrows** — a pure transformation of a value in hand. `records` and
-`command_records` are **async with owned `State`**, per the macro's rule, with `context` last.
+**How `search` handles each input:**
+
+| `rank` | Input | What happens | Result |
+|---|---|---|---|
+| true | `View` | `search_view` | `RecordView` |
+| true | `Source` | materialize (`DEFAULT_MATERIALIZE_MAX_ROWS`), then `search_view` | `RecordView` |
+| false | `View` | `search_view` without scoring | `RecordView` |
+| false | `Source` | `FilteredSource` | `RecordSource` |
+
+**`catalog` steps:**
+1. Resolve the folder with `folder_of`. If it is `None`, fail.
+2. List the entries:
+   - with `recursive`: `listdir_keys_deep`, then `get_asset_info` per key, with up to 16 calls in
+     flight (`buffer_unordered`);
+   - otherwise: `listdir_asset_info`.
+3. Sort the rows by key.
+4. With `content = true`, read an entry's bytes from `store.get(key)` only when:
+   - its status is `Ready`, `Source` or `Override`;
+   - it is not a directory;
+   - its media type is `text/*`, JSON, YAML, TOML, XML or CSV, or its extension is in the matching
+     list;
+   - the bytes are valid UTF-8 after truncation to `max_bytes`, at a character boundary.
+   Entries skipped or truncated are counted in one `Info` log entry.
+
+**Sync or async.** The kernels are sync. The commands are async because they touch the store, the
+asset manager or evaluation. The macro requires an owned `State` with `context` last, and `commands`
+omits the state.
 
 ## Integration Points
 
 | Crate | File | Change |
 |---|---|---|
-| `liquers-lib` | `src/search/predicate.rs` (new, `records` feature) | `SearchPredicate`, `Predicate`, `FieldTest`, `BoundPredicate`, `excerpt` |
-
-| `liquers-core` | `src/assets.rs` | `get_asset_info` repair (two sites) |
-| `liquers-lib` | `src/search/mod.rs` (new) | Record producers, the syntax parser, the `select` command |
-| `liquers-lib` | `src/commands.rs` | `register_command!` registrations |
-| `specs` | `command_registry.yaml` | Regenerated |
-
-**No new dependency.** `serde` and `async_trait` are already direct dependencies of `liquers-core`;
-everything columnar comes from `liquers_core::records`. **`liquers-core/src/store.rs` and
-`src/value.rs` are untouched by this design** — the value variants belong to `record-streams`, and
-live on `ExtValue` in `liquers-lib`.
-
-## Documentation Architecture
-
-| Path | Kind | Audience | Change |
-|---|---|---|---|
-| `specs/reference/SEARCH.md` | reference (new) | contributor, agent | Predicate semantics, the syntax and its grammar, the evidence columns, the ordering promise, the two execution paths, and what a result says when a field is unavailable |
-| `specs/reference/ASSETS.md` | reference | contributor | **`get_asset_info` never schedules** — the behaviour change, stated where the asset lifecycle is owned |
-| `specs/guides/COMMAND_REGISTRATION_GUIDE.md` | guide | contributor | The purity expectation on a record-producing command |
-| `specs/README.md` | map | all | Capability line `designing` → `built` |
-
-`specs/reference/RECORD_STREAMS.md` and `specs/guides/RECORD_STREAM_GUIDE.md` are the
-`record-streams` design's, and `SEARCH.md` links to them rather than restating them.
-
-**No change to `STORE_SEMANTICS.md`, `CONFORMANCE_TERMS.md` or `STORE_IMPLEMENTATION_GUIDE.md`** —
-this design touches no store trait, which is the clearest measure of how much smaller the core change
-became across the revisions.
-
-`affects_docs`: `reference/SEARCH.md`, `reference/ASSETS.md`, `guides/COMMAND_REGISTRATION_GUIDE.md`.
-
-## Relevant Commands — namespace `ns-search`
-
-| Command | Signature | Purpose |
-|---|---|---|
-| `records` | `async fn records(state, context) -> result` | Assets under the state's key become records |
-| `command_records` | `async fn command_records(state, context) -> result` | The registry becomes records |
-| `select` | `fn select(state, expr: String = "", limit: i64 = 50) -> result` | Parse the expression and apply it to the record stream in the state. **The only search command** |
-
-`ns-rec` (serialization, schema inspection, head) belongs to `record-streams`.
+| `liquers-records` | `src/search/{mod,syntax,predicate,rank,source}.rs` (new), `src/lib.rs` | Module and re-exports |
+| `liquers-lib` | `src/search/{mod,catalog,commands}.rs` (new), `src/lib.rs` | Commands, `folder_of`, `search_input`, `register_search_commands!` |
+| `liquers-lib` | `src/commands.rs` | Invoke `register_search_commands!` beside `register_records_commands!` (`records` on), with a no-op stand-in when it is off |
+| `liquers-lib` | `src/bin/export_command_registry.rs` | Register the `search` group |
+| `specs` | `command_registry.yaml` | Regenerated, with a CHANGELOG line |
 
 ## Error Handling
 
-All errors are `liquers_core::error::Error` via typed constructors. No `Error::new`, no new error
-type, no `unwrap`/`expect`.
+All errors go through the typed constructors. There is no `Error::new` and no `unwrap`.
 
 | Situation | Outcome |
 |---|---|
-| State is not a record chunk or stream | `Error::conversion_error` |
-| Unreadable entry while producing records | Skipped, counted in an `Info` log entry on `Metadata` |
-| Unresolvable field | Not an error — the clause does not match; a `Warning` log entry names it |
-| Ambiguous unqualified field name | `Error::general_error` naming every candidate |
-| An expression of more than 64 nodes | `Error::general_error` — the evidence bitmask's cap, reported rather than truncated |
-| Otherwise malformed search syntax | Treated as a literal term |
+| `catalog` input is not a folder | `Error::conversion_error_with_message(identifier, "folder", …)` |
+| `search` input cannot become records | `Error::conversion_error` (from `to_record_source`) |
+| An explicit field the schema lacks | `Error::general_error` naming the field and the available ones |
+| An ambiguous field name | The error `resolve_field` returns |
+| A `Field` name the schema lacks | Not an error: the clause matches nothing, and `context.warning` names it |
+| A `Compare` value that does not parse as the column's type | `Error::general_error` |
+| A negative `limit` or `max_bytes` | `Error::general_error`, as `non_negative_usize` does in `ns-rec` |
+| A source too large to materialize for ranking | The `materialize` error, which names `rank=false` as the alternative |
+| An unreadable entry during content reading | Skipped; counted in the `Info` log entry |
 
-## Sync vs Async, Serialization, Concurrency
+## Sync vs Async
 
-Record production is **async** (store access); predicate binding, evaluation, syntax parsing and
-excerpting are **sync** (pure). `SearchPredicate`, `Predicate` and `FieldTest` derive
-`Serialize, Deserialize` so a structured predicate can arrive over HTTP or MCP; `BoundPredicate`
-borrows a schema and is not serializable. No shared mutable state, no lock held across an `.await`.
+As above: kernels sync, commands async. No lock is held across an `.await`. `FilteredSource`
+satisfies `MaybeSend + MaybeSync`, because it holds only `Arc`s and owned data.
 
-## Compilation Validation
+## Relevant Commands
 
-- `SearchPredicate` and `Predicate` are concrete — no type parameter, because `FieldValue` is a
-  dynamic enum.
-- `BoundPredicate<'a>` borrows the schema it was bound against; the lifetime ties it to one batch's
-  `Arc<RecordSchema>`, which outlives the evaluation.
-- Every `match` on `Predicate` and `FieldTest` is exhaustive; no default arm anywhere.
-- `liquers-core` gains no dependency on `liquers-lib`, and no `unsafe`.
-- No feature gate. The build matrix runs anyway because `record-streams` changes `Value`.
+Namespace **`search`**, new:
 
-## Open Questions for Phase 3
+```
+async fn catalog(state, recursive: bool = true, content: bool = false, max_bytes: i64 = 262144, context) -> result
+async fn commands(namespace: String = "", context) -> result
+async fn search(state, query: String = "", rank: bool = true, case_sensitive: bool = false,
+                limit: i64 = 50, fields: Vec<String> multiple, context) -> result
+```
 
-1. ~~Are `matches` parallel to the rows acceptable, or should a search result be a distinct type?~~
-   **Resolved by the split**: neither — evidence is columns. See §"Evidence".
-2. Should `limit` default to `Some(50)` at the command layer while the type allows `None`, or should
-   the type forbid `None`?
-3. Does a phrase clause need position information, or is substring matching on the concatenated text
-   column honest enough for the MVP?
-4. Does `Text` matching every `Text`-role column need a way to *restrict* to one without naming it as
-   a `Field` clause — `title:(a | b)` — or is the field test enough?
-5. How does an external engine receive the predicate text: as a parameter on the plan step it reads,
-   or reconstructed from the `ActionRequest`? The former is simpler; the latter needs nothing new.
+`limit = 0` means all rows. The namespace interacts with `rec` (`to_json`, `head`, `materialize`,
+`to_record` all accept the results) and `pl` (via the polars bridge).
+
+**Conditions for `Value::Predicate` (kept from revision 7).** Add it only when:
+- a predicate must be built by one query and consumed by another;
+- a predicate is produced by a command;
+- partial predicates need reuse across searches.
+
+## Documentation Architecture
+
+| Path | Kind | Change |
+|---|---|---|
+| `specs/reference/SEARCH.md` | reference (new) | The syntax and its escaping in a query; matching and ranking; default fields; the input table; the `catalog` and `commands` schemas; the non-evaluation rule; the `Value::Predicate` conditions |
+| `specs/reference/RECORD_STREAMS.md` | reference | Roles and `resolve_field` now have a consumer; `FilteredSource` |
+| `specs/README.md` | map | The search capability changes from designing to built |
+
+`affects_docs`: `reference/SEARCH.md`, `reference/RECORD_STREAMS.md`.
+
+## Risks
+
+| Assessment | Finding |
+|---|---|
+| Files likely to change | The new modules above, `liquers-lib/src/commands.rs`, `export_command_registry.rs`, `command_registry.yaml` |
+| Crates and workflows | `liquers-records` and `liquers-lib`; the build matrix (a new `records`-gated module) |
+| Existing tests likely to change | `registry_export` (new commands) |
+| New validation | Unit tests per kernel and for the parser; command tests through `evaluate` for each AC |
+| Performance | `catalog` makes one `get_asset_info` call per entry, plus one read per entry when content is on: O(corpus) on every search. Fine at thousands of entries. An index is `external-index-sync`'s job |
+| Security | Content reading is bounded by `max_bytes` and reads stored bytes only. There is no access control (`CORE-SESSION-AND-KEY-ACL`) |
+| Certainty | High for the kernels and commands. The BM25 constants and field weights are tunable without any contract change |

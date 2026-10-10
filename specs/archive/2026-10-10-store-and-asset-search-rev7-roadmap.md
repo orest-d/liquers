@@ -1,3 +1,7 @@
+> **Archived 2026-10-10.** Snapshot of `specs/design/store-and-asset-search/roadmap.md` at revision 7, before the
+> design was refocused on record-based commands (revision 8) and its external-engine half was split into
+> `specs/design/external-index-sync/`. Relative links below resolve from the original location, not from here.
+
 # Roadmap: what is in scope, and what the agent memory MVP needs
 
 Companion to [Phase 1](./phase1-high-level-design.md). It answers a fair objection: if Level 1 is

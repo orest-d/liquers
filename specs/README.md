@@ -150,7 +150,8 @@ expansion time rather than at runtime. That is the cheapest item here.
 - **Shared directory support for backends without directories** — documented → `liquers-core/src/store_dir_index.rs` *(design in [`design/opendal-path-mapping/`](design/opendal-path-mapping/))*
 - **Streaming binary access (`openbin`)** — planned → [`issues/CORE-STORE-OPENBIN-MISSING.md`](issues/CORE-STORE-OPENBIN-MISSING.md)
 - **Record streams — a chunked, Arrow-interoperable tabular abstraction** — built → [`reference/RECORD_STREAMS.md`](reference/RECORD_STREAMS.md); producing records: [`guides/RECORD_STREAM_GUIDE.md`](guides/RECORD_STREAM_GUIDE.md) *(design in [`design/record-streams/`](design/record-streams/))*
-- **Content and metadata search** — designing → [`design/store-and-asset-search/`](design/store-and-asset-search/) *(its record-stream prerequisite is now built)*
+- **Content and metadata search** — designing → [`design/store-and-asset-search/`](design/store-and-asset-search/) *(revision 8: `ns-search` commands over records)*
+- **External indexes and engines (search engines, vector stores, RAG, SQL mirrors)** — designing → [`design/external-index-sync/`](design/external-index-sync/)
 - **SQL over stored and derived data** — planned → [`issues/NO-SQL-QUERY-CAPABILITY-OVER-STORED-AND-DERIVED-DATA.md`](issues/NO-SQL-QUERY-CAPABILITY-OVER-STORED-AND-DERIVED-DATA.md)
 - **Read-only mounts** — planned → [`issues/STORE-NO-READ-ONLY-ADAPTER.md`](issues/STORE-NO-READ-ONLY-ADAPTER.md)
 - **Conditional writes and concurrent-writer semantics** — planned → [`issues/STORE-WRITE-HAS-NO-PRECONDITION.md`](issues/STORE-WRITE-HAS-NO-PRECONDITION.md)
@@ -184,48 +185,27 @@ name their own open issues.
 
 Sessions and ACL are one item because there is no identity on `Context` to authorize against.
 
-Search is the newest of these and the one with the widest blast radius: a store can enumerate and
-fetch but cannot *select*, so every consumer that wants a subset reads the whole subtree and filters
-in its own code. `design/store-and-asset-search/` delimits that task and carries a use-case survey,
-eleven answered research questions, an options analysis and an interoperability study beside its
-Phase 1. Its model is that every essential use case is one operation — select records by a predicate
-over their fields and their text — so commands become a *record source* rather than a search feature,
-and vector similarity becomes a clause over the same records. Projection is a command because it
-varies with the value type; **selection is also a command**, over the record stream a projection
-produces — Phase 1 put it on the store trait and Phase 2 reversed that, because a trait method is a
-push-down optimization rather than the mechanism, and no store or asset trait gains one.
+Search is the newest of these. A store can enumerate and fetch but cannot *select*, so every
+consumer that wants a subset reads the whole subtree and filters in its own code.
+`design/store-and-asset-search/` answers this with three commands over records, not a store-trait
+method:
+- `ns-search/catalog` turns a folder, taken from the input state, into records without evaluating
+  anything;
+- `ns-search/commands` does the same for the command registry;
+- `ns-search/search` filters any records with a short syntax and optionally ranks them with BM25.
 
-Two invariants carry most of the weight. **A search never evaluates**: a content search reaching an
-unevaluated recipe could recompute a whole corpus. And **an external system's correctness comes from
-reconciliation, never from a delivered notification** — the generalized lesson of the Python
-prototype's indexer hook, where every missed delivery was permanent and undetectable. An external
-search engine, vector store, RAG pipeline and SQL mirror differ only in what they answer, so one
-layer feeds and reconciles all four, built almost entirely from vocabulary the dependency and
-expiration machinery already has.
+`STORE-NO-CONTENT-OR-METADATA-SEARCH` is closed as superseded. **A search never evaluates**: a
+content search that reached an unevaluated recipe could recompute a whole corpus.
 
-What that layer is fed is a **record stream**, at three deliberately distinct scales: a chunk is the
-unit of refresh, a batch the unit of memory, a record the unit of retrieval. A stream query depends
-on a directory and a chunk query on one file — a distinction the resource header instructions
-`-R-key` and `-R-bin` already express — so one changed file re-derives one chunk, while batching
-keeps a parquet file that is a perfectly good dependency unit from having to be a resident one. A
-record is identified by its asset plus a cheap asset-dependent id, with the evaluable locator derived
-on demand rather than stored per row. Because a chunk is a table and a stream is a table in parts,
-the same mechanism serves search, external sinks, SQL and serialization.
-
-That last sentence is why the design **split in two** on 2026-09-19. Six architecture revisions
-established that the record mechanism serves four consumers of which search is one, and carries
-requirements search never raises: lazy processing of multi-gigabyte tables one chunk at a time, a
-memory layout Arrow can consume without a heavy dependency, a DataFrame role for `liquers-web` where
-polars cannot be bundled, and provenance and validity traced per chunk and flyweighted to the record.
-`design/record-streams/` owns all of it and was built first (2026-09-27; see
-[`reference/RECORD_STREAMS.md`](reference/RECORD_STREAMS.md)); `design/store-and-asset-search/`
-keeps the predicate, its syntax and its parser, the indexation policy, the interoperability layer and
-the `get_asset_info` repair, and was blocked on it by declaration rather than by accident.
-
-Designing this found three gaps: `ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET`
-(expiration is notified, but only to something already holding the asset),
-`VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER`, and a new reason to care about
-`CORE-STORE-OPENBIN-MISSING`. Phase 1 of `liquers-project`, awaiting approval.
+The design ran seven revisions before records existed. Its record half became
+`design/record-streams/`, which is built (see [`reference/RECORD_STREAMS.md`](reference/RECORD_STREAMS.md)).
+Revision 8 (2026-10-10) refocused it on the commands above and moved its other half, everything
+held between queries, to `design/external-index-sync/`. That half covers how an external search
+engine, vector store, RAG pipeline or SQL mirror is fed and kept correct. **An external system's
+correctness comes from reconciliation, never from a delivered notification**: the lesson of the
+Python prototype's indexer hook, where every missed delivery was permanent and undetectable. The
+revision-7 documents are archived under `archive/2026-10-10-store-and-asset-search-rev7-*`.
+Phase 1 revision 8 is awaiting approval.
 
 ### Command libraries
 
@@ -423,6 +403,7 @@ deliberately folded behind a broader line.
 - feature `LANGUAGE-STORE-TYPE-NOT-DEFINABLE`
 - feature `NO-RELATIONAL-DATABASE-ACCESS-LAYER`
 - feature `NO-REMOTE-STORE-OR-ASSET-MANAGER`
+- feature `QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH`
 - feature `QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`
 - feature `RECORDS-ARROW-C-DATA-EXPORT-NOT-BUILT`
 - feature `STORE-COMMAND-NAMESPACE-MISSING`

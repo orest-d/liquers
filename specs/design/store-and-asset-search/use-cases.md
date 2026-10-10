@@ -1,5 +1,10 @@
 # Use cases — what "searchable" has to mean
 
+> **Status at revision 8 (2026-10-10).** Background, still valid. Rows A1–A7, U1–U6 and O1 seed the
+> acceptance scenarios in Phase 1. S5 and S6 are external-engine work and now belong to
+> [`external-index-sync`](../external-index-sync/). "Phase 1" below means the revision-7 Phase 1, archived at
+> `specs/archive/2026-10-10-store-and-asset-search-rev7-phase1-high-level-design.md`.
+
 Companion to [Phase 1](./phase1-high-level-design.md). Phase 1 states the delimitation; this
 document is the survey it was drawn from, and the record of which use cases are **essential** and
 which are **optional but must not be foreclosed**.

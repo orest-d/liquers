@@ -1,10 +1,16 @@
 # Options analysis — searchable stores and assets
 
+> **Status at revision 8 (2026-10-10).** Background. §0 describes the codebase as it was on 2026-09-17,
+> before records existed. §1 and axes A, C, F and G still frame the design. Axes B2/B3, E3/E4 and H2, §3,
+> invariant 7 and questions Q1–3 of §6 assumed a store-trait `select` and are superseded. Axis F's and axis
+> I's "ranking forces an external engine" is reversed: `ns-search/search` ranks in-tree with BM25. E2, E5,
+> I2/I3, §5's external rows, Q9 and Q11 move to [`external-index-sync`](../external-index-sync/).
+
 Companion to [Phase 1](./phase1-high-level-design.md), which states the delimitation. The use-case
 survey is in [`use-cases.md`](./use-cases.md); the research questions are answered in
 [`research-questions.md`](./research-questions.md); the record, stream, chunk and schema model is
 [`record-model.md`](../record-streams/record-model.md); the layer for plugging in external engines is
-[`interoperability-layer.md`](./interoperability-layer.md). **This document is the design
+[`interoperability-layer.md`](../external-index-sync/interoperability-layer.md). **This document is the design
 analysis**: the ground truth it rests on, the unifying model, the decision axes, and the
 recommended combination.
 
@@ -219,7 +225,7 @@ otherwise, which is why the default must exist.
 
 **E5. An external engine behind the interoperability layer.** Tantivy, Meilisearch, a vector store
 or an external SQL mirror, fed and reconciled by
-[`interoperability-layer.md`](./interoperability-layer.md) and answering through the ordinary
+[`interoperability-layer.md`](../external-index-sync/interoperability-layer.md) and answering through the ordinary
 selection contract. **Not available on wasm**, so never the baseline. This is the sanctioned route
 to a large index, and it replaces E3 as the recommendation because reconciliation detects drift
 where a write-path decorator cannot.

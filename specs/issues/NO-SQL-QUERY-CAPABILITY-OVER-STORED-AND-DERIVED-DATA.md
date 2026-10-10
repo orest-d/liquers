@@ -45,7 +45,7 @@ rows-and-tables trait and is unrelated to Liquers' `AsyncStore`** — the adapte
 record set as a GlueSQL table.
 
 **An external SQL mirror.** Covered by the interoperability layer designed in
-`design/store-and-asset-search/interoperability-layer.md`: an external database is a sink with a
+`design/external-index-sync/interoperability-layer.md`: an external database is a sink with a
 rows projection, fed by the same `(id, version)` diff and reconciliation as a search engine or a
 vector store. Nothing SQL-specific is needed for the feed.
 

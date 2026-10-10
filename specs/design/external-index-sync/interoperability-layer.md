@@ -1,6 +1,10 @@
 # Interoperability with external index-like systems
 
-Companion to [Phase 1](./phase1-high-level-design.md). This is the design's most consequential
+> **Moved 2026-10-10** from `store-and-asset-search` to this design, unchanged apart from this note and
+> its links. "Phase 1" below means [that design's Phase 1 at revision 7](../../archive/2026-10-10-store-and-asset-search-rev7-phase1-high-level-design.md);
+> section references to `roadmap.md` mean the [archived roadmap](../../archive/2026-10-10-store-and-asset-search-rev7-roadmap.md).
+
+Companion to Phase 1. This is the design's most consequential
 question and it has its own document: **can one mechanism serve an external search engine, a vector
 database, a RAG pipeline and an external SQL database — and can it handle updates and expiration?**
 

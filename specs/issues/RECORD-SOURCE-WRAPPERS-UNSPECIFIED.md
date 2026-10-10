@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [records]
-design: record-streams
+design: store-and-asset-search
 created: 2026-09-26
 github:
 ---
@@ -59,3 +59,11 @@ While implementing `liquers-records/src/sources.rs` (Phase 4, Step 4.2), which n
 two have concrete signatures in §"The types"/§"Function Signatures"; grepping both phase documents
 for a signature, field list or test for the third found nothing, so Step 4.2 implements only what
 is declared and records this gap instead of guessing at one.
+
+## Taken up, 2026-10-10
+
+The filtering wrapper is specified as `FilteredSource` in
+[`store-and-asset-search` Phase 2](../design/store-and-asset-search/phase2-architecture.md)
+(revision 8), because `ns-search/search` with `rank=false` streams through it. It will be closed
+when that design is built. The asynchronously mapping wrapper is not needed there and remains open
+here.

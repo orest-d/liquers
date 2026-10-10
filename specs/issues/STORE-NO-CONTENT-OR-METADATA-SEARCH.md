@@ -2,7 +2,7 @@
 id: STORE-NO-CONTENT-OR-METADATA-SEARCH
 kind: feature
 title: A store cannot be asked which keys match content or metadata
-status: draft
+status: closed_not_planned
 priority: P2
 complexity: L
 area: [core/store]
@@ -54,3 +54,17 @@ better. Shape to be designed; the questions that need answering first:
 Analysis for `AGENT-MEMORY-SERVICE`, 2026-09-15. Verified at HEAD against the `AsyncStore` trait
 in `liquers-core/src/store.rs`: no selection method exists, and `STORE_SEMANTICS.md` specifies
 none.
+
+## Resolution
+
+**Closed, not planned, 2026-10-10: superseded by `store-and-asset-search` revision 8.** No
+selection method will be added to `AsyncStore`. Search is built above the store, as commands over
+records: `ns-search/catalog` turns a folder into records without evaluating anything, and
+`ns-search/search` filters and ranks any records. Producing the records is what reads the corpus,
+so a store method would only push the filter down, and no backend can do that today. The "every
+consumer reimplements retrieval" half of the problem is solved by the commands. The O(corpus)
+half remains, since each search still reads the folder.
+
+**Revisit** when a store keeps its metadata in a queryable backend (a relational database, for
+example) and could therefore evaluate a search predicate itself. That case belongs to
+[`external-index-sync`](../design/external-index-sync/), as an engine fed from the store.
