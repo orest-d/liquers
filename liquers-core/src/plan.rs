@@ -3039,6 +3039,7 @@ impl<E: Environment> DependencyWalk<E> {
                     ns,
                     action_name,
                     parameters,
+                    origin,
                     ..
                 } => {
                     let ck = CommandKey::new(realm, ns, action_name);
@@ -3050,6 +3051,15 @@ impl<E: Environment> DependencyWalk<E> {
                         DependencyKey::for_command_implementation(&ck),
                         DependencyRelation::CommandImplementation,
                     ));
+                    // An alias's head parameters and argument interface live in its metadata,
+                    // so a changed alias must invalidate what was computed through it. It has
+                    // no implementation of its own, hence no implementation key.
+                    if let Some(alias) = origin.alias() {
+                        scan.dependencies.insert(PlanDependency::new(
+                            DependencyKey::for_command_metadata(alias),
+                            DependencyRelation::CommandMetadata,
+                        ));
+                    }
                     let mut links = HashSet::new();
                     for parameter in &parameters.0 {
                         collect_parameter_dependencies(parameter, cursor, &mut links);

@@ -647,7 +647,7 @@ pub fn do_step<E: Environment>(
             action_name,
             position,
             parameters,
-            origin: _,
+            origin,
         } => async move {
             let command_key = CommandKey::new(&realm, &ns, &action_name);
             let mut materialized_parameters = parameters.clone();
@@ -680,10 +680,15 @@ pub fn do_step<E: Environment>(
                 .await
                 .map_err(|e| {
                     // Only set command_key if not already set (to preserve inner command errors)
-                    if e.command_key.is_none() {
+                    let e = if e.command_key.is_none() {
                         e.with_command_key(&command_key).with_position(&position)
                     } else {
                         e.with_position(&position)
+                    };
+                    // Name the command the user wrote when it differs from the one that ran.
+                    match origin.alias() {
+                        Some(alias) => e.with_alias(alias),
+                        None => e,
                     }
                 })
                 .map(|v| Arc::new(v))
@@ -975,8 +980,20 @@ impl<E: Environment> IsVolatile<E> for Step {
                 action_name,
                 position: _,
                 parameters,
-                origin: _,
+                origin,
             } => {
+                // A hand-built or deserialized alias may be volatile when its target is not.
+                if let Some(alias) = origin.alias() {
+                    if let Some(alias_cmd) = env.get_command_metadata_registry().find_command(
+                        &alias.realm,
+                        &alias.namespace,
+                        &alias.name,
+                    ) {
+                        if alias_cmd.volatile {
+                            return Ok(true);
+                        }
+                    }
+                }
                 if let Some(cmd) =
                     env.get_command_metadata_registry()
                         .find_command(&realm, &ns, action_name)
@@ -1095,8 +1112,19 @@ impl<E: Environment> RequiresPayload<E> for Step {
                 action_name,
                 position: _,
                 parameters,
-                origin: _,
+                origin,
             } => {
+                if let Some(alias) = origin.alias() {
+                    if let Some(alias_cmd) = env.get_command_metadata_registry().find_command(
+                        &alias.realm,
+                        &alias.namespace,
+                        &alias.name,
+                    ) {
+                        if alias_cmd.payload_required.is_required() {
+                            return Ok(PayloadRequirement::Required);
+                        }
+                    }
+                }
                 if let Some(cmd) =
                     env.get_command_metadata_registry()
                         .find_command(&realm, &ns, action_name)
