@@ -117,7 +117,7 @@ same key replaces the earlier one (`CommandMetadataRegistry::add_command`).
   - Rewrite `accepted_count_excludes_head_parameters` for `from_alias_action`.
 - `liquers-core/src/interpreter.rs` — each `Step::Action` pattern that lists all fields gains
   `origin`: the CWD rewrite carries it over; `apply_step` calls `Error::with_alias` on failure when
-  the origin is `Alias`; both `IsVolatile` impls also test the alias's own `volatile`.
+  the origin is `Alias`; `impl IsVolatile for Step` and `impl RequiresPayload for Step` also consult the alias's metadata.
 - `liquers-core/src/validate/report.rs` and tests that build `Step::Action` literals: add
   `origin: ActionOrigin::Direct`.
 - `liquers-lib/src/polars/selection.rs` — delete `head` and its `register_command!`. After `slice` is
