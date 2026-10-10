@@ -150,17 +150,42 @@ exact contract is [`reference/COMMAND_ALIASES.md`](../reference/COMMAND_ALIASES.
 
 - **The alias's arguments are its public interface.** Their names, labels and defaults are what
   users and recipes see (`n`, not `length`); recipe overrides use those names.
-- **Behaviour flags come from the target.** Volatility, payload requirement and expiration of the
-  target always apply; an alias cannot hide them.
+- **Behaviour flags come from the target.** Volatility, payload requirement, expiration and
+  `cached: false` of the target always apply; an alias cannot hide them, and an alias may add
+  `cached: false` of its own.
 - **Errors name both.** A failure reports the target and adds *"(via alias 'pl/head')"*; the plan
   records the alias as the action's `origin`.
 - **Caching follows the alias.** Results depend on the alias's metadata as well as the target's, so
   changing the alias's head or arguments recomputes them. Turning an existing command into an alias
   recomputes its cached results once.
 
+## Outputs not worth keeping: `cached: false`
+
+Every value a query produces is kept for reuse by default — and, because a cut predecessor is
+evaluated as its own asset, so is every prefix of the chain. That is right for an expensive
+command and wasteful for a **cheap command with a large output**: selecting columns, filtering,
+renaming, a lossless conversion. Each such step keeps another copy of a large frame that nobody
+asks for twice.
+
+Declare such a command `cached: false`. Its output is then never kept as an intermediate: the plan
+runs it inline after the nearest kept prefix, so `src/parse/select/describe` with `select`
+uncached keeps the parsed frame and the description, and recomputes the selection — cheaply —
+inside each consumer. A non-keyed query ending with it is not kept either.
+
+- **Do** declare it for cheap, deterministic, large-output commands.
+- **Do not** declare it for a command that is expensive, or whose output is small; and never as a
+  substitute for `volatile` — an uncached command is still pure, and its consumers are cached
+  normally. `cached: false` is about memory, `volatile` about correctness.
+- It does not override a recipe: a recipe ending with the command still keeps its own keyed result
+  under its caching strategy.
+
+Registration: [`COMMAND_REGISTRATION_GUIDE.md`](COMMAND_REGISTRATION_GUIDE.md) §*Commands whose
+output is not worth keeping*.
+
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | New §Outputs not worth keeping: when to declare `cached: false` and when not; aliases inherit the target's flag. | phase-5, `design/plan-policy/` |
 | 2026-10-10 | New §Aliases: what an alias is, when to use one (convenience wrapper, bridge), when not to, and the design consequences. Introduction no longer limited to cancellation. | phase-5, `design/command-alias-contract/` |
 | 2026-10-09 | Created: cooperative cancellation — what `cancel()` guarantees, `is_cancelled` / `check_cancelled`, sync vs async commands, returning and propagating `Error::cancelled`, cascade through dependencies, testing. | phase-5, `design/asset-cancellation-outcome/` |

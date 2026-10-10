@@ -2,11 +2,11 @@
 id: V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL
 kind: issue
 title: The `v` instruction marks the whole plan volatile rather than the steps after it
-status: draft
+status: closed
 priority: P3
 complexity: M
 area: [core/plan, core/query]
-design: 
+design: plan-policy
 created: 2026-08-26
 github:
 ---
@@ -65,3 +65,22 @@ Two things need care and are the reason this is `M` rather than `S`:
 Raised during `predecessor-cut-equivalence` review, 2026-08-26, while deciding what a
 recipe-level `volatile:` should mean. The question was whether a positional instrument exists to
 express the fine-grained case; `v` is the closest and does not. See that design's `DESIGN.md` notes on what a recipe-level `volatile:` means.
+
+Merged into design `plan-policy` on 2026-10-10 (overlap T3: the same `mark_volatile` /
+`VolatilitySource` change site; T2: the shared boundary rule), at the user's request.
+
+## Resolution
+
+Closed 2026-10-10 by `design/plan-policy/`. `v` is now `VolatilitySource::Positional`:
+
+- `a/b/v/c` is volatile and cuts `a/b` as a cached boundary;
+- `a/b/v` is `[Evaluate(a/b)]` — the empty-tail guard in `cut_predecessor` admits equality for a
+  volatile plan;
+- `v/a/b/c` stays volatile throughout and cuts nothing.
+
+A recipe's `volatile: true` is the only remaining `Declared` source. This changes the meaning of a
+mid-chain or trailing `v`, as the issue anticipated. Evidence: `the_v_instruction_is_positional`,
+`positional_v_cuts_before_itself`, `trailing_v_cuts_the_whole_prefix` and the re-expressed
+`declared_volatility_declines_before_the_walk` (`plan.rs`), and `plan_cwd_freeze.rs` E16 (cut and
+expanded results equal). Reference: `DOC_08_RECIPES_PLANS.md` §Planning contract and
+`DOC_02_QUERY_LANGUAGE_REFERENCE.md`.

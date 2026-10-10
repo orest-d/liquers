@@ -3,7 +3,7 @@ title: Building and Configuring an Environment
 kind: guide
 audience: both
 area: [core/context, core/assets, core/store]
-reviewed: 2026-10-08
+reviewed: 2026-10-10
 ---
 # Building and Configuring an Environment
 
@@ -122,6 +122,44 @@ cannot honour at `build()` instead of ignoring it: `job_capacity` on `Inline` is
 Which `dependency_audit` to choose, and how to run an optional audit of the whole store right after
 `build()`, is in [`DEPENDENCY_CONSISTENCY_GUIDE.md`](DEPENDENCY_CONSISTENCY_GUIDE.md).
 
+### Choosing caching strategies
+
+By default every value an evaluation produces is kept for reuse: its result, and — because a cut
+predecessor is evaluated as its own asset, recursively — every prefix of its chain. A long chain
+over a large value keeps one copy per step. Three options limit that; each defaults to today's
+behaviour:
+
+```rust,ignore
+use liquers_core::cache_strategy::CacheStrategy;
+
+let options = AssetManagerOptions::default()
+    .with_recipe_cache_strategy(CacheStrategy::All)   // recipes that state no `cached:`
+    .with_query_cache_strategy(CacheStrategy::None)   // top-level ad-hoc queries
+    .with_cut_predecessors(true);                     // false: never cut (debugging)
+```
+
+| Strategy | Result kept | New intermediates |
+|---|---|---|
+| `All` (default) | yes | registered |
+| `Result` | yes | computed, not kept |
+| `None` | no | computed, not kept |
+
+An intermediate that already exists is reused under every strategy, and a dependency — a cut
+predecessor, a link, a `context.evaluate` — follows the strategy of the asset that created it. Two
+settings that commonly go together:
+
+- **A public service** where anyone may run a query but only recipes are approved: recipes `All`,
+  queries `None`. Anonymous queries reuse what recipes cached and add nothing.
+- **A memory-constrained environment** (a browser, a small host): recipes `Result`. A recipe that
+  needs its intermediates kept says `cached: all` itself.
+
+Per-recipe control is the recipe's own `cached:` field; per-command control is a command declaring
+`cached: false` (see [`COMMAND_REGISTRATION_GUIDE.md`](COMMAND_REGISTRATION_GUIDE.md)), which runs
+it inline instead of keeping its output. `with_cut_predecessors(false)` is not a memory setting: it
+expands every plan and so reuses nothing — use it to check whether cutting changes a result. The
+strategies decide *whether* a value is kept, not how much memory the cache may use (`CORE-ASSET-GC`).
+The rules in full: [`ASSETS.md`](../reference/ASSETS.md) §When an asset is kept for reuse.
+
 ## Configuring from a document
 
 `EnvironmentConfig` describes the store, the recipe provider and the manager options in one
@@ -143,6 +181,9 @@ assets:
   dependency_audit: on_load     # explicit | on_load
   verify_versions: on_read      # off | on_read
   external_change: user_input   # user_input | corrupted
+  recipe_cache_strategy: all    # none | result | all
+  query_cache_strategy: all     # none | result | all
+  cut_predecessors: true        # false: never cut (debugging)
 ```
 
 ```rust,ignore
@@ -344,6 +385,7 @@ is the moment when that is safe: it runs before anything else can observe the re
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | New §Choosing caching strategies: `with_recipe_cache_strategy`, `with_query_cache_strategy`, `with_cut_predecessors`, the strategy table, the public-service and memory-constrained setups; the configuration example gains the three keys. | phase-5, `design/plan-policy/` |
 | 2026-10-08 | §Manager options links the new dependency consistency guide (choosing `dependency_audit`, the startup store audit). | phase-5 (`design/dependency-chain-analysis-cost/`) |
 | 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. New §Manager options: the `AssetManagerOptions` setters `with_job_capacity`, `with_dependency_audit`, `with_verify_versions`, `with_external_change`; the configuration example shows the three policy keys. §Choosing an execution model links the new asset-manager guide for a custom kind. §The readiness guarantee: `register_plan_dependencies` no longer skips a dependency with no version, so the account of the old defect is now in the past tense. | phase-5 |
 | 2026-09-27 | Recipe providers as a chain: `with_appended_recipe_provider`, `liquers-lib`'s default chain with `records`, and `with_records_recipe_provider` for builds that replace the base | phase-5 (`design/record-streams/`) |

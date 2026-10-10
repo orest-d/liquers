@@ -1077,6 +1077,13 @@ impl<E: Environment> Context<E> {
         self.assetref.clone()
     }
 
+    /// The caching strategy of the asset this context evaluates — read-only, so a command can see
+    /// how its result and intermediates are being kept. A property of the asset (how it was
+    /// created), not of the context; see [`AssetRef::cache_strategy`].
+    pub async fn cache_strategy(&self) -> crate::cache_strategy::CacheStrategy {
+        self.assetref.cache_strategy().await
+    }
+
     /// Returns the shared environment reference.
     pub fn get_envref(&self) -> EnvRef<E> {
         self.envref.clone()

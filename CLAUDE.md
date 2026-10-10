@@ -368,7 +368,8 @@ register_command!(cr,
 - Default value types: string `"foo"`, bool `true`, int `42`, float `3.14`, query `query "path/to/query"`
 - Return: `-> result` (returns `Result<V, Error>`) or `-> value` (returns `V`)
 - Metadata: `label:`, `doc:`, `namespace:`, `realm:`, `preset:`, `next:`, `filename:`, `volatile:`,
-  `payload:` (bare `required` / `none`; `required` also makes the command volatile), `expires:`
+  `cached:` (`false` for a cheap command with a large output: it runs inline and its output is
+  never kept as an intermediate), `payload:` (bare `required` / `none`; `required` also makes the command volatile), `expires:`
   (a string, checked when the command is registered), `version:` (`auto`, which needs
   `#[liquers_macro::command_version]` on the function; `now`, which changes on every start; a string;
   or an integer)

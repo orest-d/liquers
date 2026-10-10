@@ -78,7 +78,7 @@ CORE-METADATA-TRACEBACK-SUPPORT,issue,Metadata has no place for an error traceba
 CORE-MULTI-REALM-INTERPRETER,issue,The interpreter supports a single realm,accepted,local,,,,P3,XL,core/plan;core/commands,,,,,,2026-08-08,specs/issues/CORE-MULTI-REALM-INTERPRETER.md
 CORE-NO-DEFAULT-FEATURES-BROKEN,issue,liquers-core does not build without default features,closed,local,,covered,not-eligible,P2,S,core/store;build,,,,core-no-default-features-compatibility,,2026-08-29,specs/issues/CORE-NO-DEFAULT-FEATURES-BROKEN.md
 CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC,issue,SimpleEnvironmentWithPayload panics when no recipe provider is configured,closed,local,,,,P1,S,core/context,,,,payload-env-recipe-provider-fallback,,2026-08-27,specs/issues/CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC.md
-CORE-PLAN-POLICY-AND-DEFAULTS,issue,Plan builder has no configuration and questionable defaults,accepted,local,,,,P2,M,core/plan,,,,,,2026-08-08,specs/issues/CORE-PLAN-POLICY-AND-DEFAULTS.md
+CORE-PLAN-POLICY-AND-DEFAULTS,issue,Plan builder has no configuration and questionable defaults,closed,local,,,,P2,L,core/plan,,,,plan-policy,,2026-08-08,specs/issues/CORE-PLAN-POLICY-AND-DEFAULTS.md
 CORE-PLAN-RELATIVE-RESOLUTION-MISSING,issue,Queries are not resolved relative to the current working directory,closed,local,,,,P1,M,core/plan,,,,plan-relative-resolution,,2026-08-08,specs/issues/CORE-PLAN-RELATIVE-RESOLUTION-MISSING.md
 CORE-RECIPES-EXPAND-PREDECESSORS-CRASH,issue,`disable_expand_predecessors` crashes an evaluation test,closed,local,,,,P0,M,core/assets;core/plan,,,,plan-cwd-freeze,,2026-08-08,specs/issues/CORE-RECIPES-EXPAND-PREDECESSORS-CRASH.md
 CORE-SESSION-AND-KEY-ACL,issue,"No session model, and no way to authorize writes per key",accepted,local,,,,P2,L,core/context;core/store;axum,,,,,,2026-08-08,specs/issues/CORE-SESSION-AND-KEY-ACL.md
@@ -181,6 +181,7 @@ PAYLOAD-SOURCED-INJECTION-NOT-DECLARED,issue,An injection that reads the payload
 PLAN-DEPENDENCY-RECORDS-HARDCODE-VERSION-ZERO,issue,Plan dependency records are written with a hard-coded zero version although real versions are available,closed,local,,,,P2,S,core/plan;core/assets,,,,keyed-expiry-cascade-fix,,2026-09-05,specs/issues/PLAN-DEPENDENCY-RECORDS-HARDCODE-VERSION-ZERO.md
 PLAN-EXCESS-ACTION-PARAMETERS-DROPPED,issue,Plan builder silently drops excess action parameters,closed,local,,,,P0,M,core/plan,,,,excess-action-parameters-error,,2026-08-08,specs/issues/PLAN-EXCESS-ACTION-PARAMETERS-DROPPED.md
 PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS,issue,Plan split drops predecessor fields,closed,local,,covered,not-eligible,P2,S,core/plan,,,,plan-split-predecessor-fields,,2026-08-26,specs/issues/PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS.md
+PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG,issue,Planning diagnostics never reach the evaluated asset's log,closed,local,,,,P2,M,core/plan;core/assets,,,,,,2026-10-10,specs/issues/PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG.md
 POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED,issue,The RecordBatch <-> DataFrame bridge cannot convert Vector columns,draft,local,,,,P3,M,records;lib/polars,,,,,,2026-09-27,specs/issues/POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED.md
 POLARS-COMMAND-TESTS-BYPASS-COMMANDS,issue,The polars command integration tests never invoke a polars command,draft,local,,,,P2,M,lib/polars;build,,,,,,2026-08-25,specs/issues/POLARS-COMMAND-TESTS-BYPASS-COMMANDS.md
 POLARS-DOC-EXAMPLES-OMIT-NAMESPACE,issue,Polars reference example queries omit the ns-pl namespace and do not resolve,closed,local,,ready,,P2,S,docs;lib/commands,,,,polars-doc-example-namespace,,2026-08-12,specs/issues/POLARS-DOC-EXAMPLES-OMIT-NAMESPACE.md
@@ -193,6 +194,7 @@ PY-VALUE-TYPE-DESCRIPTIONS-MISSING,issue,"liquers-py's Value describes no types,
 QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS,issue,"Query::absolute names a leading slash, colliding with two other meanings of absolute",draft,local,,ready,not-eligible,P3,S,core/query,,,,query-leading-slash-field,,2026-08-17,specs/issues/QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS.md
 QUERY-AST-DISCARDS-ENTITIES,issue,"Parsed entities are decoded away, so the AST cannot show them",draft,local,,,,P3,L,core/query,,,,,,2026-08-14,specs/issues/QUERY-AST-DISCARDS-ENTITIES.md
 QUERY-BUILDER-TOOLING,issue,No programmatic builder for constructing queries,accepted,local,,,,P2,L,core/query;core/validate,,,,,,2026-08-08,specs/issues/QUERY-BUILDER-TOOLING.md
+QUERY-CANNOT-MARK-CACHED-INTERMEDIATES,feature,A query cannot mark which of its intermediates are worth caching,draft,local,,,,P3,M,core/plan;core/assets;core/query,,,,,,2026-10-10,specs/issues/QUERY-CANNOT-MARK-CACHED-INTERMEDIATES.md
 QUEUED-MANAGER-EVICTION-RACE,issue,The queued manager's cache evictions can delete a replacement asset,closed,local,,ready,,P2,S,core/assets,,,,queued-manager-conditional-eviction,,2026-08-09,specs/issues/QUEUED-MANAGER-EVICTION-RACE.md
 QUEUED-MANAGER-STARTUP-READINESS,issue,Queued asset manager accepts work before it is ready to run it,closed,local,,,,P1,L,core/assets,,,,environment-builder,,2026-08-08,specs/issues/QUEUED-MANAGER-STARTUP-READINESS.md
 REC-ID-PARSES-DATE-AND-TIMESTAMP-IDS-AS-RAW-NUMBERS,issue,"ns-rec/rec_id reads a Date or Timestamp id as a raw day or microsecond count, not as ISO text",closed,local,,ready,not-eligible,P3,S,records;lib/commands,,,,rec-id-iso-date-parsing,,2026-09-27,specs/issues/REC-ID-PARSES-DATE-AND-TIMESTAMP-IDS-AS-RAW-NUMBERS.md
@@ -263,7 +265,7 @@ UI-QUERY-CONSOLE-NO-ERROR-HIGHLIGHT,issue,Query console never highlights the err
 UI-QUERY-EDITOR-LACKS-LIVE-VALIDATION,issue,Query editor cannot validate the current text with command metadata,draft,local,,,,P2,L,lib/ui;lib/egui;web;core/plan;core/query,,,,,,2026-09-04,specs/issues/UI-QUERY-EDITOR-LACKS-LIVE-VALIDATION.md
 UI-VARIADIC-ARGUMENT-LIST-EDITOR,feature,A variadic argument cannot be edited as a list in a parameter editor,draft,local,,,,P3,M,lib/ui;lib/egui;web;core/query,,,,variadic-arguments-declaration,,2026-08-25,specs/issues/UI-VARIADIC-ARGUMENT-LIST-EDITOR.md
 UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION,issue,Expiring an uncached key's stored copy can be overwritten by an evaluation already in flight,draft,local,,,,P3,M,core/assets,,,,record-streams,,2026-09-27,specs/issues/UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION.md
-V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL,issue,The `v` instruction marks the whole plan volatile rather than the steps after it,draft,local,,,,P3,M,core/plan;core/query,,,,,,2026-08-26,specs/issues/V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL.md
+V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL,issue,The `v` instruction marks the whole plan volatile rather than the steps after it,closed,local,,,,P3,M,core/plan;core/query,,,,plan-policy,,2026-08-26,specs/issues/V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL.md
 VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS,feature,liquers-validate cannot validate recipes served by a non-standard or generative recipe provider,draft,local,,,,P3,M,core/commands;core/plan,,,,,,2026-09-25,specs/issues/VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS.md
 VALUE-CONVERSION-CAPABILITY,feature,"Values cannot be converted between types, automatically or explicitly",draft,local,,,,P2,L,core/value;core/commands;lib/value,,,,,,2026-08-18,specs/issues/VALUE-CONVERSION-CAPABILITY.md
 VALUE-DESCRIPTION,feature,Value types have no auto-generated description,accepted,local,,,,P3,L,core/value;lib/value,,,,,,2026-08-08,specs/issues/VALUE-DESCRIPTION.md
@@ -387,6 +389,7 @@ PARAMETER-ENTITY-ESCAPING,design,Parameter entity escaping (numeric and named ti
 PAYLOAD-ENV-RECIPE-PROVIDER-FALLBACK,design,Recipe-provider fallback for the payload environment,complete,local,,,,P1,S,core/context,,,,payload-env-recipe-provider-fallback,,2026-08-29,specs/design/payload-env-recipe-provider-fallback/DESIGN.md
 PAYLOAD-NESTED-EVALUATION-INHERITANCE,design,Payload inheritance in nested evaluation,complete,local,,,,,,core/plan;core/assets,,14,,payload-nested-evaluation-inheritance,,2026-03-02,specs/design/payload-nested-evaluation-inheritance/DESIGN.md
 PLAN-CWD-FREEZE,design,Freeze CWD in the plan and cut correct predecessor boundaries,,github,documentation,,,,,core/plan;core/query;core/context;core/assets,,35,,plan-cwd-freeze,,2026-08-14,specs/design/plan-cwd-freeze/DESIGN.md
+PLAN-POLICY,design,"Caching strategies for recipes and queries, an inline-running command flag, positional volatility, and retirement of the plan-builder policy markers",complete,local,,,,,,core/plan;core/assets;core/commands;core/query;core/context,,102,,plan-policy,,2026-10-10,specs/design/plan-policy/DESIGN.md
 PLAN-RELATIVE-RESOLUTION,design,CWD-relative query resolution in plans,complete,local,,,,P1,M,core/query;core/plan;core/assets;core/context,,,,plan-relative-resolution,,2026-08-10,specs/design/plan-relative-resolution/DESIGN.md
 COVERED-06,design,Coverage record for PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS,in_review,local,architecture,covered,not-eligible,P2,S,docs,,,,plan-split-predecessor-fields,,2026-09-03,specs/design/plan-split-predecessor-fields/DESIGN.md
 PLAN-STEP-STATE-METADATA,design,A plan step's input state is the state its predecessor would produce as an asset,complete,local,,ready,not-eligible,P2,M,core/plan;core/context,,100,,plan-step-state-metadata,,2026-10-10,specs/design/plan-step-state-metadata/DESIGN.md
@@ -455,18 +458,18 @@ WEBUI,design,Web-framework-independent rendering with SSR and wasm,complete,loca
 WP2-TERMINAL-OUTCOME,design,Asset terminal outcome contract,complete,local,,,,,,core/assets,,7,,wp2-terminal-outcome,,2026-03-02,specs/design/wp2-terminal-outcome/DESIGN.md
 API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,,docs,,,,,2026-10-10,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
 DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
-DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,,core/query,,,,,2026-08-17,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
-DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,,core/assets,,,,,2026-10-09,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
+DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,,core/query,,,,,2026-10-10,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
+DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,,core/assets,,,,,2026-10-10,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
 DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,,core/context;core/plan,,,,,2026-10-10,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
 DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/assets;core/context,,,,,2026-10-10,,specs/reference/api/DOC_08_RECIPES_PLANS.md
 ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,,core/assets,,,,,2026-10-09,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,,core/assets,,,,,2026-10-10,,specs/reference/ASSET_SET_OPERATION.md
-ASSETS,reference,Assets Specification,current,local,,,,,,core/assets,,,,,2026-10-09,,specs/reference/ASSETS.md
+ASSETS,reference,Assets Specification,current,local,,,,,,core/assets,,,,,2026-10-10,,specs/reference/ASSETS.md
 COMMAND_ALIASES,reference,Command Aliases,current,local,,,,,,core/commands;core/plan,,,,,2026-10-10,,specs/reference/COMMAND_ALIASES.md
 COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,,core/commands;web;py,,,,,2026-10-10,,specs/reference/COMMAND_DECLARATION.md
 CONFORMANCE_TERMS,reference,Conformance Terms,current,local,,,,,,docs,,,,,2026-09-02,,specs/reference/CONFORMANCE_TERMS.md
 DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,,,core/assets,,,,,2026-10-09,,specs/reference/DEPENDENCIES_STATUS.md
-ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,,core/context;core/store;core/assets,,,,,2026-10-08,,specs/reference/ENVIRONMENT_CONFIG.md
+ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,,core/context;core/store;core/assets,,,,,2026-10-10,,specs/reference/ENVIRONMENT_CONFIG.md
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,local,,,,,,lib/image,,,,,2026-03-02,,specs/reference/IMAGE_COMMAND_LIBRARY.md
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,,core/context;core/commands,,,,,2026-09-04,,specs/reference/PAYLOAD_GUIDE.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-10-10,,specs/reference/POLARS_COMMAND_LIBRARY.md
@@ -478,13 +481,13 @@ STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,,core/st
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-10-10,,specs/reference/VALUE_TYPE_SYSTEM.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-10-09,,specs/reference/WEB_API_SPECIFICATION.md
-ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,,core/assets,,,,,2026-10-09,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
+ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,,core/assets,,,,,2026-10-10,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
 autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_bulk_design.md
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_issue_fixing.md
 COMMAND_DESIGN_GUIDE,guide,Command Design Guide,current,local,,,,,,core/commands,,,,,2026-10-10,,specs/guides/COMMAND_DESIGN_GUIDE.md
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,core/commands;macro,,,,,2026-10-10,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md
-ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-10-08,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
+ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-10-10,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-10-10,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,,,2026-10-07,,specs/guides/QUERY_ESCAPING_GUIDE.md
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-10,,specs/guides/RECORD_STREAM_GUIDE.md

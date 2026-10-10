@@ -87,6 +87,7 @@ volatility work all landed in `assets.rs`.
 - **Expiry reasons, and content changed outside Liquers** — documented → [`reference/ASSETS.md`](reference/ASSETS.md) *(design in [`design/dependency-audit-and-expiry-provenance/`](design/dependency-audit-and-expiry-provenance/))*
 - **Dependency records and consistency policies (trusting `explicit` / conservative `on_load`, startup store audit)** — documented → [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md) §What a dependency record holds, §Consistency policies; how to choose: [`guides/DEPENDENCY_CONSISTENCY_GUIDE.md`](guides/DEPENDENCY_CONSISTENCY_GUIDE.md) *(design in [`design/dependency-chain-analysis-cost/`](design/dependency-chain-analysis-cost/))*
 - **Asset managers outside core** — documented → [`guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md`](guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md) *(design in [`design/dependency-audit-and-expiry-provenance/`](design/dependency-audit-and-expiry-provenance/))*
+- **Caching strategies (what is kept for reuse), `cached: false` commands, positional `v`** — documented → [`reference/ASSETS.md`](reference/ASSETS.md) §When an asset is kept for reuse *(also [`reference/api/DOC_08_RECIPES_PLANS.md`](reference/api/DOC_08_RECIPES_PLANS.md) §Predecessor boundaries, [`reference/ENVIRONMENT_CONFIG.md`](reference/ENVIRONMENT_CONFIG.md); how to choose: [`guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md`](guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md) §Choosing caching strategies; design in [`design/plan-policy/`](design/plan-policy/))*
 - **Combined expiration algebra** — planned → [`issues/COMBINED-EXPIRES.md`](issues/COMBINED-EXPIRES.md)
 - **Execution classes beyond simple loading** — planned → [`issues/EXTENDED-FAST-TRACK.md`](issues/EXTENDED-FAST-TRACK.md)
 - **Asset garbage collection** — planned → [`issues/CORE-ASSET-GC.md`](issues/CORE-ASSET-GC.md)
@@ -424,6 +425,7 @@ deliberately folded behind a broader line.
 - feature `LANGUAGE-STORE-TYPE-NOT-DEFINABLE`
 - feature `NO-RELATIONAL-DATABASE-ACCESS-LAYER`
 - feature `NO-REMOTE-STORE-OR-ASSET-MANAGER`
+- feature `QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`
 - feature `RECORDS-ARROW-C-DATA-EXPORT-NOT-BUILT`
 - feature `STORE-COMMAND-NAMESPACE-MISSING`
 - feature `STORE-CONFIG-FROM-URI`

@@ -292,4 +292,39 @@ assets:
         assert_eq!(again.assets.dependency_audit, DependencyAuditPolicy::OnLoad);
     }
 
+    /// plan-policy: the three caching keys under `assets:` parse, reach the manager, are absent
+    /// from a serialized document at their defaults, and an empty document means today's
+    /// behaviour (`all` / `all` / cutting on).
+    #[test]
+    fn cache_strategy_keys_round_trip_and_default() {
+        use crate::assets::AssetManager;
+        use crate::cache_strategy::CacheStrategy;
+
+        let empty = EnvironmentConfig::from_yaml("recipes: trivial\n").expect("parse");
+        assert_eq!(empty.assets.recipe_cache_strategy, CacheStrategy::All);
+        assert_eq!(empty.assets.query_cache_strategy, CacheStrategy::All);
+        assert!(empty.assets.cut_predecessors());
+        let yaml = empty.to_yaml().expect("to yaml");
+        assert!(!yaml.contains("cache_strategy"), "defaults are not written: {yaml}");
+        assert!(!yaml.contains("cut_predecessors"), "defaults are not written: {yaml}");
+
+        let doc = "assets:\n  recipe_cache_strategy: result\n  query_cache_strategy: none\n  cut_predecessors: false\n";
+        let config = EnvironmentConfig::from_yaml(doc).expect("parse");
+        assert_eq!(config.assets.recipe_cache_strategy, CacheStrategy::Result);
+        assert_eq!(config.assets.query_cache_strategy, CacheStrategy::None);
+        assert!(!config.assets.cut_predecessors());
+        let again = EnvironmentConfig::from_yaml(&config.to_yaml().expect("to yaml")).expect("reparse");
+        assert_eq!(again.assets, config.assets);
+
+        let envref = crate::environment_builder::EnvironmentBuilder::<Value, (), Inline>::new()
+            .with_config(config, Box::new(default_store_factory()))
+            .build()
+            .expect("build");
+        let manager = envref.get_asset_manager();
+        assert_eq!(manager.recipe_cache_strategy(), CacheStrategy::Result);
+        assert_eq!(manager.query_cache_strategy(), CacheStrategy::None);
+        assert!(!manager.cut_predecessors());
+
+        assert!(EnvironmentConfig::from_yaml("assets:\n  query_cache_strategy: some\n").is_err());
+    }
 }

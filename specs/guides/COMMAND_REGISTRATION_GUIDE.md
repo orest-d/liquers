@@ -82,7 +82,7 @@ See `specs/reference/REGISTER_COMMAND_FSD.md` for the complete DSL specification
 - State parameter variations (state, value, text)
 - Parameter types and defaults
 - Injected parameters
-- Metadata statements (label, doc, namespace, realm, filename, volatile, payload, expires,
+- Metadata statements (label, doc, namespace, realm, filename, volatile, cached, payload, expires,
   version, preset, next)
 
 ### Where to put `context`
@@ -119,6 +119,25 @@ register_command!(cr,
     payload: required
 )?;
 ```
+
+### Commands whose output is not worth keeping
+
+A cheap command producing a large value — a column selection, a filter, a rename — declares
+`cached: false`. Its output is then never kept as an intermediate: the plan runs it inline after
+the nearest kept prefix, and a non-keyed query ending with it is not registered. It is not
+volatility, and its consumers are cached normally. When to use it is in
+[`COMMAND_DESIGN_GUIDE.md`](COMMAND_DESIGN_GUIDE.md) §Outputs not worth keeping.
+
+```rust
+register_command!(cr,
+    fn select_columns(state, columns: Vec<String> multiple) -> result
+    cached: false
+)?;
+```
+
+The statement takes a boolean literal and sets `CommandMetadata::cached = Some(false)`; omitting it
+leaves `None`, read as `true`. A command declaration document says the same with `cached: false`.
+An alias's output is uncached when either the alias or its target declares it.
 
 ### Versioning a command so its results expire when its code changes
 
@@ -1006,6 +1025,7 @@ fn apply(...) -> Result<...> { ... }
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | New §Commands whose output is not worth keeping (`cached: false`); `cached` in the metadata statement list. | phase-5, `design/plan-policy/` |
 | 2026-10-10 | New §1 *Reading the input's description*: a command reads its input's format, key and origin from `state.metadata`, and its own asset through `Context`. | phase-5, `design/plan-step-state-metadata/` |
 | 2026-10-10 | New §1 *Where to put `context`*: any position works, the recommended one is last or before a `multiple` argument (Python `*args` parity); §*Accepting a variable number of parameters* points at it. | phase-5, `design/context-param-order/` |
 | 2026-10-10 | Quick Reference row and §2 *Registering an alias*: `register_alias`, the argument layout, inheritance, replacing a registered command, refusals, testing; `pl/head` as the example. | phase-5, `design/command-alias-contract/` |

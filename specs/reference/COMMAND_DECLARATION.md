@@ -251,6 +251,7 @@ of its own, so a field added to `CommandMetadata` is declarable immediately with
 | `module` | `module` | Informational. Integrations set it to the language name |
 | `filename` | `filename` | Suggested filename for the result |
 | `volatile` | `volatile` | Defaults to `false`; forces re-execution |
+| `cached` | `cached` | `false`: the output is not worth keeping for reuse, so the command runs inline and is never a predecessor boundary. Absent reads as `true` — [`REGISTER_COMMAND_FSD.md`](REGISTER_COMMAND_FSD.md) §metadata statements |
 | `expires` | `expires` | Expiration specification; defaults to `never` |
 | `payload_required` | `payload_required` | `none` or `required` |
 | `presets`, `next` | same | UI affordances: ready-made parameter sets, suggested follow-on commands |
@@ -334,6 +335,7 @@ The same rule derives an argument's label from its name.
 | Field | Default |
 |---|---|
 | `volatile` | `false` |
+| `cached` | absent (read as `true`) |
 | `expires` | `never` |
 | `payload_required` | `none` |
 | `definition` | `Registered` |
@@ -510,6 +512,7 @@ so no query parameter is consumed by either — that is conventions.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | §4.1 and §5.2: `cached` (declarable with no pipeline change, as every metadata field is). | phase-5, `design/plan-policy/` |
 | 2026-10-10 | §4.1 `definition` links the new alias reference. Only that row was checked. | phase-5, `design/command-alias-contract/` |
 | 2026-10-07 | `cache` removed from the declarable keys and the defaults table: `CommandMetadata.cache` no longer exists (it was never read). A declaration that still carries it loads, and the key is ignored. §2.1's example uses `volatile`. | phase-5, `design/command-cache-flag/` |
 | 2026-09-05 | Defined the query-consuming variadic-tail rule, the injected exception, and rejection of `multiple` combined with `injected`. | `design/variadic-metadata-tail-check` |

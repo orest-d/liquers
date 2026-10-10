@@ -796,6 +796,8 @@ enum ResultType {
 
 enum CommandSignatureStatement {
     Volatile(bool),
+    /// `cached: false` — the command's output is not worth keeping for reuse.
+    Cached(bool),
     /// `payload: required` / `payload: none`.
     ///
     /// Kept as a bool because only two states exist today; `PayloadRequirement` reserves an
@@ -835,6 +837,10 @@ impl Parse for CommandSignatureStatement {
             "volatile" => {
                 let lit: syn::LitBool = input.parse()?;
                 Ok(CommandSignatureStatement::Volatile(lit.value()))
+            }
+            "cached" => {
+                let lit: syn::LitBool = input.parse()?;
+                Ok(CommandSignatureStatement::Cached(lit.value()))
             }
             "payload" => {
                 // Takes a bare ident (`required` / `none`), not a bool literal.
@@ -1112,6 +1118,9 @@ struct CommandSignature {
     pub next: Vec<CommandPreset>,
     pub filename: String,
     pub volatile: bool,
+    /// `None` when the signature has no `cached:` statement, so undeclared commands keep
+    /// `CommandMetadata::cached == None`.
+    pub cached: Option<bool>,
     pub payload_required: bool,
     pub expires: String,
     pub impl_version: Option<CommandImplVersionSpec>,
@@ -1303,6 +1312,10 @@ impl CommandSignature {
         } else {
             quote!()
         };
+        let cached_code = match self.cached {
+            Some(cached) => quote!(cm.cached = Some(#cached);),
+            None => quote!(),
+        };
         // A payload requirement always implies volatility: setting `volatile` here means
         // every existing volatility-propagation path applies to payload commands unchanged.
         let payload_required_code = if self.payload_required {
@@ -1364,6 +1377,7 @@ impl CommandSignature {
                 #next_code
                 cm.with_filename(#filename);
                 #volatile_code
+                #cached_code
                 #payload_required_code
                 #expires_code
                 #is_async_code
@@ -1884,6 +1898,7 @@ impl Parse for CommandSignature {
         let mut next = Vec::new();
         let mut filename = String::new();
         let mut volatile: bool = false;
+        let mut cached: Option<bool> = None;
         let mut payload_required: bool = false;
         let mut expires: String = String::new();
         let mut impl_version: Option<CommandImplVersionSpec> = None;
@@ -1902,6 +1917,9 @@ impl Parse for CommandSignature {
                 CommandSignatureStatement::Filename(f) => filename = f.clone(),
                 CommandSignatureStatement::Volatile(b) => {
                     volatile = *b;
+                }
+                CommandSignatureStatement::Cached(b) => {
+                    cached = Some(*b);
                 }
                 CommandSignatureStatement::PayloadRequired(b) => {
                     payload_required = *b;
@@ -1929,6 +1947,7 @@ impl Parse for CommandSignature {
             next,
             filename,
             volatile,
+            cached,
             payload_required,
             expires,
             impl_version,
@@ -3209,5 +3228,20 @@ mod tests {
             signature_error(quote! { fn t(state, a: i64 (hint icon: "x")) -> result }),
             "argument hints are not supported; `hint` would be ignored"
         );
+    }
+
+    /// plan-policy: `cached: <bool>` is a command statement like `volatile:`; an undeclared
+    /// command leaves the metadata field `None`.
+    #[test]
+    fn parse_cached_statement() {
+        let sig: CommandSignature = syn::parse_quote! {
+            fn t(state) -> result
+            cached: false
+        };
+        assert_eq!(sig.cached, Some(false));
+        let sig: CommandSignature = syn::parse_quote! { fn t(state) -> result };
+        assert_eq!(sig.cached, None);
+        let bad = syn::parse_str::<CommandSignature>(r#"fn t(state) -> result cached: "x""#);
+        assert!(bad.is_err(), "cached takes a boolean literal");
     }
 }

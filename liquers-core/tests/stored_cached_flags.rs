@@ -137,7 +137,7 @@ impl<E: Environment> AsyncRecipeProvider<E> for TaggedRecipeProvider {
 fn counting_recipe(tag: &str, stored: Option<bool>, cached: Option<bool>) -> Result<Recipe, Error> {
     let mut recipe = Recipe::new(format!("counted-{tag}"), String::new(), String::new())?;
     recipe.stored = stored;
-    recipe.cached = cached;
+    recipe.cached = cached.map(liquers_core::cache_strategy::CacheStrategy::from);
     Ok(recipe)
 }
 
@@ -569,7 +569,7 @@ fn text_record(key: &Key) -> MetadataRecord {
 fn graph_provider(k_cached: Option<bool>) -> Result<TaggedRecipeProvider, Error> {
     let mut k_recipe = Recipe::new("readu/k.txt".to_string(), String::new(), String::new())?;
     k_recipe.cwd = Some("data".to_string());
-    k_recipe.cached = k_cached;
+    k_recipe.cached = k_cached.map(liquers_core::cache_strategy::CacheStrategy::from);
     let mut y_recipe = Recipe::new(
         "-R/data/k.txt/-/upper/y.txt".to_string(),
         String::new(),

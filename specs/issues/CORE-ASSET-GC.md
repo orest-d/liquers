@@ -28,6 +28,15 @@ happens to a stored representation when its in-memory asset is collected.
 
 Wants a design: what makes an asset unreachable is not obvious once recipes can name it by key.
 
+## Update, 2026-10-10 (`plan-policy`)
+
+The maintainer added a requirement while designing the cache strategies in `plan-policy`: a
+global limit on the **size** of the cached data. For example, an internet-facing service bounds its
+in-memory cache in bytes, separately for ad-hoc queries and for recipes. `plan-policy` decides
+*whether* a value is kept (the `assets.recipe_cache_strategy` / `assets.query_cache_strategy`
+settings, a command's `cached: false`). How much is kept, and what is evicted first, belongs here.
+The size limit needs a size estimate per value, which `ValueInterface` does not provide today.
+
 ## Discovery
 
 Migration triage, 2026-08-08. Source: work packages WP-18/19. Verified against HEAD: no GC mechanism exists. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.0c.
