@@ -3,8 +3,7 @@ id: STORE-CONFORMANCE-WARNING-CLEANUP
 kind: design
 title: Build the store-conformance feature without warnings
 form: compact
-status: in_review
-phase: implementation
+gh_pr: [106]
 readiness: ready
 autofix: eligible
 area: [core/store, build]
@@ -61,16 +60,19 @@ None.
 
 ### Consolidated Findings
 
-`rule!` is a `macro_rules!` used inside `rules/mod.rs` itself, so the `pub(crate) use rule;`
-re-export is unneeded there; removing the re-export does not remove the macro. `error_type_of` has
+`rule!` is a `macro_rules!` used inside `rules/mod.rs` itself; the `pub(crate) use rule;` re-export
+is needed only by the harness tests in `store_conformance/mod.rs` (`rules::rule!(…)` stub rules),
+so it is gated `#[cfg(test)]` rather than deleted (found at implementation: deleting it broke the lib
+test build). Likewise `ErrorType` is imported only inside the `tests` module once `error_type_of`
+is gone. `error_type_of` has
 no caller anywhere in the workspace (grep), so deleting it is preferred over gating it.
 
 ## Phase 2: Architecture
 
 ### Solution
 
-Delete the unused `Key` import in `rules/explicit.rs`, the `pub(crate) use rule;` line in
-`rules/mod.rs`, and `store_conformance::error_type_of` in `mod.rs`. Rejected: `#[allow(...)]`
+Delete the unused `Key` import in `rules/explicit.rs` and `store_conformance::error_type_of` in
+`mod.rs`; gate the `pub(crate) use rule;` re-export in `rules/mod.rs` with `#[cfg(test)]`. Rejected: `#[allow(...)]`
 attributes (they hide the next real warning) and `#[cfg]`-gating `error_type_of` (no configuration
 uses it).
 
@@ -104,10 +106,10 @@ No new tests. Proof is the build plus the existing suite:
 
 ### Steps
 
-- [ ] 1. `liquers-core/src/store_conformance/rules/explicit.rs` — remove unused `use crate::query::Key;` — the `cargo check` above
-- [ ] 2. `liquers-core/src/store_conformance/rules/mod.rs` — remove `pub(crate) use rule;` — the `cargo check` above
-- [ ] 3. `liquers-core/src/store_conformance/mod.rs` — delete `error_type_of` — the `cargo check` above, then the conformance test
-- [ ] 4. Close `STORE-CONFORMANCE-FEATURE-BUILD-WARNINGS` with a resolution note — `python3 scripts/docs_index.py --check`
+- [x] 1. `liquers-core/src/store_conformance/rules/explicit.rs` — remove unused `use crate::query::Key;` — the `cargo check` above
+- [x] 2. `liquers-core/src/store_conformance/rules/mod.rs` — gate `pub(crate) use rule;` with `#[cfg(test)]` — the `cargo check` above, then `cargo test -p liquers-core --features store-conformance --lib store_conformance`
+- [x] 3. `liquers-core/src/store_conformance/mod.rs` — delete `error_type_of`; move the `ErrorType` import into `tests` — the `cargo check` above, then the conformance test
+- [x] 4. Close `STORE-CONFORMANCE-FEATURE-BUILD-WARNINGS` with a resolution note — `python3 scripts/docs_index.py --check`
 
 ### Validation
 

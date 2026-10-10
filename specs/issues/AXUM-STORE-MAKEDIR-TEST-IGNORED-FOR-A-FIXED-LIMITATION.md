@@ -2,7 +2,7 @@
 id: AXUM-STORE-MAKEDIR-TEST-IGNORED-FOR-A-FIXED-LIMITATION
 kind: issue
 title: An axum store test is ignored for an AsyncMemoryStore limitation that has been fixed
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [axum, core/store]
@@ -39,3 +39,10 @@ Found 2026-10-10 while searching for references to the synchronous `MemoryStore`
 but the fixture uses `AsyncMemoryStore`. Triage: no open candidate (the matching makedir issues are
 closed); eligible for automatic fixing (size `S`, tests only, no interface change). Not fixed in the
 sync-store-removal branch, which must not widen; filed for its own branch.
+
+## Resolution (2026-10-10)
+
+Confirmed first: `cargo test -p liquers-axum --test store_api_integration -- --ignored test_store_makedir`
+passed, so the note was stale. `#[ignore]` and the note were removed, and the test now also asserts
+`is_dir` on the new directory afterwards. `cargo test -p liquers-axum --test store_api_integration`:
+40 passed, 0 ignored. Design: `design/axum-store-makedir-test-unignore/`.
