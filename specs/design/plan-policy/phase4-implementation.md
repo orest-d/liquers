@@ -21,7 +21,7 @@ paths are in `liquers-core/src/` unless stated.
 ## Progress
 
 - [x] Step 1: `CacheStrategy` module — b21d865
-- [ ] Step 2: `CommandMetadata::cached` and the `cached:` macro keyword
+- [x] Step 2: `CommandMetadata::cached` and the `cached:` macro keyword — 2c23880
 - [ ] Step 3: Plan — `uncached_by`, the walk's third reason, positional `v`, markers retired
 - [ ] Step 4: `Recipe::cached` widened to a strategy; callers and records provider
 - [ ] Step 5: `AssetManagerOptions` keys, trait accessors, `with_policies`
