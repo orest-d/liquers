@@ -10,7 +10,7 @@ readiness: ready
 autofix: not-eligible
 area: [core/store, py, docs]
 issues: [CORE-SYNC-STORE-TRAIT-OBSOLETE]
-affects_docs: [reference/STORE_SEMANTICS.md, reference/PROJECT_OVERVIEW.md, reference/ASSET_SET_OPERATION.md, guides/LANGUAGE-INTEGRATION_GUIDE.md, guides/STORE_IMPLEMENTATION_GUIDE.md]
+affects_docs: [reference/STORE_SEMANTICS.md, reference/PROJECT_OVERVIEW.md, reference/ASSET_SET_OPERATION.md, guides/LANGUAGE-INTEGRATION_GUIDE.md, guides/STORE_IMPLEMENTATION_GUIDE.md, reference/STORE_CONFIG_FSD.md, reference/api/API_DOCS_GAP_ANALYSIS.md, reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md]
 created: 2026-10-10
 ---
 # Remove the synchronous Store trait and the legacy cache module
@@ -253,6 +253,10 @@ a hypothetical Python name). `liquers-py/src/lib.rs` changed only in a comment (
 `reviewed:` bump each): the four updated as in the Phase 2 table, `STORE_IMPLEMENTATION_GUIDE.md`
 without change. Area candidates discarded (no store-trait or cache content): `ENVIRONMENT_CONFIG.md`,
 `ENVIRONMENT_CONSTRUCTION_GUIDE.md`, `STORE_FACTORY_GUIDE.md`, `COMMAND_DECLARATION.md`.
+PR review (Codex) found plain `Store` mentions the AC-6 search pattern missed; a widened search
+(`` `Store` ``, `Store::`, "sync store") added `STORE_CONFIG_FSD.md`, `api/API_DOCS_GAP_ANALYSIS.md`
+and `api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`, whose `with_store` / `with_cache` setters no
+longer existed.
 
 **Issues.** Closed: `CORE-SYNC-STORE-TRAIT-OBSOLETE`. Narrowed by dated notes:
 `PY-MODULES-NOT-DECLARED-IN-LIB`, `STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED`,
