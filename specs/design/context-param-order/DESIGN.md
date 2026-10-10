@@ -3,8 +3,8 @@ id: CONTEXT-PARAM-ORDER
 kind: design
 title: Context parameter at any position in register_command!
 workflow: liquers-project
-status: in_review
-phase: architecture
+status: approved
+phase: implementation
 area: [core/commands, macro]
 issues: [COMMAND-CONTEXT-PARAM-ORDER, MACRO-TESTS-PRINT-TO-STDOUT]
 merged: 2026-10-10
@@ -23,10 +23,12 @@ The folder dates from 2026-03-02. It was rewritten from scratch on 2026-10-10 un
 `specs/archive/2026-09-02-context-param-order-{findings,solution}.md`. It began in the compact form
 and was converted to the full form when its scope became cross-crate (Phase 1, Scope Changes).
 
+Pre-approved after Phase 2 on 2026-10-10 (`proceed all`).
+
 ## Phases
 
 - [x] [Phase 1: High-Level Design](phase1-high-level-design.md) — approved 2026-10-10
-- [ ] [Phase 2: Solution & Architecture](phase2-architecture.md) — in review
-- [ ] Phase 3: Examples and Tests
-- [ ] Phase 4: Implementation Plan (AC-10 implemented ahead, `a849a47`)
+- [x] [Phase 2: Solution & Architecture](phase2-architecture.md) — approved 2026-10-10
+- [x] [Phase 3: Examples and Tests](phase3-examples.md) — pre-approved
+- [x] [Phase 4: Implementation Plan](phase4-implementation.md) — pre-approved; in execution
 - [ ] Phase 5: Documentation

@@ -116,6 +116,9 @@ stays an alias; the issue keeps its title; recommended position per AC-9.
    arguments included), always with the name; it can differ from the n-th query value when an
    injected argument comes first.
 
+**Decision log (pre-approval, 2026-10-10).** The maintainer replied `proceed all` with 1 and 2
+presented, so both are taken as decided. Phases 3–4 raised no further decision.
+
 ## Design Dependencies
 
 Overlaps, none blocking (detail in Phase 2's preflight): `COMMAND-DECLARATION`,
