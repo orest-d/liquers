@@ -4,7 +4,7 @@ kind: design
 title: Classify semantic configuration failures
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 area: [core/error, store/config]
 issues: [CORE-CONFIGURATION-ERROR-KIND]
