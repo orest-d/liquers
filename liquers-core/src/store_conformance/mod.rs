@@ -29,7 +29,7 @@
 //! consuming crate, which is what lets `liquers-web` run the same rules under `wasm_bindgen_test`
 //! while `liquers-core` runs them under `#[tokio::test]`.
 
-use crate::error::{Error, ErrorType};
+use crate::error::Error;
 use crate::maybe_send::BoxFuture;
 use crate::query::Key;
 
@@ -319,14 +319,6 @@ pub fn failed_at(detail: impl Into<String>, subject: Vec<Key>) -> RuleOutcome {
     }
 }
 
-/// Helper: the `ErrorType` a store returned, or `None` if it did not fail.
-pub(crate) fn error_type_of<T>(result: &Result<T, Error>) -> Option<ErrorType> {
-    match result {
-        Ok(_) => None,
-        Err(e) => Some(e.error_type),
-    }
-}
-
 /// Ask the fixture for keys, turning a decline into the outcome that reports it.
 pub(crate) async fn keys_for(
     fixture: &dyn Fixture,
@@ -352,6 +344,7 @@ mod tests {
     //! introduces it.
 
     use super::*;
+    use crate::error::ErrorType;
     use crate::metadata::{Metadata, MetadataRecord};
     use crate::store::AsyncStore;
     use async_trait::async_trait;
