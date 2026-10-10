@@ -48,6 +48,8 @@ macro_rules! rule {
         }
     };
 }
+// Re-exported for the harness tests in `store_conformance/mod.rs`, which build stub rules.
+#[cfg(test)]
 pub(crate) use rule;
 
 /// Every rule, in execution order.
