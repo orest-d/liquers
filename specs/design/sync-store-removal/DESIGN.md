@@ -258,7 +258,7 @@ without change. Area candidates discarded (no store-trait or cache content): `EN
 `PY-MODULES-NOT-DECLARED-IN-LIB`, `STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED`,
 `STORE-METADATA-LAYOUT-HARDCODED-PER-STORE`. Discovered and filed:
 `AXUM-STORE-MAKEDIR-TEST-IGNORED-FOR-A-FIXED-LIMITATION` (eligible for automatic fixing; left for its
-own branch because this session may push only to its designated branch).
+own branch because this session may push only to its designated branch). Also `STORE-CONFORMANCE-FEATURE-BUILD-WARNINGS` (pre-existing warnings seen in the matrix log).
 
 **Learning.** Checking what is *compiled and registered*, not what sits in `src/`, showed no Python
 API change. `compile_fail` doctests with an error code are a cheap, runnable proof an API is gone.
