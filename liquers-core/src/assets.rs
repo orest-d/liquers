@@ -311,6 +311,7 @@ use async_trait::async_trait;
 use scc;
 use tokio::sync::{mpsc, watch, Mutex, Notify, RwLock};
 
+use crate::cache_strategy::CacheStrategy;
 use crate::command_metadata::PayloadRequirement;
 use crate::expiration::ExpirationTime;
 use crate::interpreter::IsVolatile;
@@ -2586,7 +2587,9 @@ impl<E: Environment> AssetRef<E> {
         match manager.owned_key_asset(&candidate).await {
             Some(owner) => Ok((owner.id() == self.id()).then_some(candidate)),
             None => {
-                let unregistered_node = !recipe.cached()
+                let unregistered_node = !recipe
+                    .effective_cache_strategy(CacheStrategy::All)
+                    .keeps_result()
                     && constructed_key.as_ref() == Some(&candidate)
                     && !is_volatile;
                 Ok(unregistered_node.then_some(candidate))
@@ -3626,7 +3629,7 @@ impl<E: Environment> AssetRef<E> {
                                 // if the flags read at construction (from a recipe resolved
                                 // slightly earlier, in `get_resource_asset`) differed.
                                 metadata.stored = recipe.stored;
-                                metadata.cached = recipe.cached;
+                                metadata.cached = recipe.explicit_cached_flag();
                             }
                         }
                         eprintln!(
@@ -7534,7 +7537,11 @@ impl<E: Environment> DefaultAssetManager<E> {
     /// The asset's authoritative recipe is still adopted later, in `evaluate` — this only makes
     /// sure nothing between construction and that point can persist the asset without the flags
     /// already recorded in its metadata (`Recipe::get_asset_info` copies them through).
-    fn ad_hoc_resource_recipe(key: &Key, stored: Option<bool>, cached: Option<bool>) -> Recipe {
+    fn ad_hoc_resource_recipe(
+        key: &Key,
+        stored: Option<bool>,
+        cached: Option<CacheStrategy>,
+    ) -> Recipe {
         let mut recipe: Recipe = key.into();
         recipe.stored = stored;
         recipe.cached = cached;
@@ -7551,7 +7558,7 @@ impl<E: Environment> DefaultAssetManager<E> {
         &self,
         key: &Key,
         stored: Option<bool>,
-        cached: Option<bool>,
+        cached: Option<CacheStrategy>,
     ) -> Result<AssetRef<E>, Error> {
         eprintln!("Getting non-volatile asset for key {}", key);
 
@@ -7587,7 +7594,7 @@ impl<E: Environment> DefaultAssetManager<E> {
         &self,
         key: &Key,
         stored: Option<bool>,
-        cached: Option<bool>,
+        cached: Option<CacheStrategy>,
     ) -> Result<AssetRef<E>, Error> {
         eprintln!("Getting uncached asset for key {}", key);
         Ok(AssetRef::new_from_recipe(
@@ -7609,7 +7616,7 @@ impl<E: Environment> DefaultAssetManager<E> {
         &self,
         key: &Key,
         stored: Option<bool>,
-        cached: Option<bool>,
+        cached: Option<CacheStrategy>,
     ) -> Result<AssetRef<E>, Error> {
         eprintln!("Getting volatile asset for key {}", key);
         let asset_ref = AssetRef::new_from_recipe(
@@ -7654,7 +7661,7 @@ impl<E: Environment> DefaultAssetManager<E> {
         };
         if is_volatile {
             self.get_volatile_resource_asset(key, stored, cached).await
-        } else if !cached.unwrap_or(true) {
+        } else if !cached.unwrap_or(CacheStrategy::All).keeps_result() {
             self.get_uncached_resource_asset(key, stored, cached).await
         } else {
             self.get_nonvolatile_resource_asset(key, stored, cached)
@@ -9091,7 +9098,11 @@ impl<E: Environment> ImmediateAssetManager<E> {
     /// Builds the ad-hoc key recipe a fresh resource asset is constructed with, carrying the
     /// `stored`/`cached` flags resolved from the key's real recipe by [`Self::get_resource_asset`].
     /// See [`DefaultAssetManager::ad_hoc_resource_recipe`] for the same construction there.
-    fn ad_hoc_resource_recipe(key: &Key, stored: Option<bool>, cached: Option<bool>) -> Recipe {
+    fn ad_hoc_resource_recipe(
+        key: &Key,
+        stored: Option<bool>,
+        cached: Option<CacheStrategy>,
+    ) -> Recipe {
         let mut recipe: Recipe = key.into();
         recipe.stored = stored;
         recipe.cached = cached;
@@ -9123,7 +9134,7 @@ impl<E: Environment> ImmediateAssetManager<E> {
                 .await);
         }
 
-        if !cached.unwrap_or(true) {
+        if !cached.unwrap_or(CacheStrategy::All).keeps_result() {
             // `cached: false`, non-volatile: a fresh, unregistered asset per request, modeled
             // on the volatile path above but not marked volatile.
             return Ok(AssetRef::new_from_recipe(
