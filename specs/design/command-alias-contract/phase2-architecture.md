@@ -149,12 +149,13 @@ interface (`ns-pl/head`, `ns-pl/head-<n>`) is unchanged. Namespaces involved: `p
 | Document | Kind | Change |
 |---|---|---|
 | `specs/reference/COMMAND_ALIASES.md` | reference, new | Contract; validation table (AC-3..6, shape); planning (`ActionOrigin`, volatility union, dependencies); errors |
-| `specs/guides/COMMAND_REGISTRATION_GUIDE.md` | guide | *Aliases* section, using `pl/head` |
+| `specs/guides/COMMAND_REGISTRATION_GUIDE.md` | guide | Quick Reference row; §2 *Registering an alias*: `register_alias` call for `pl/head`, the argument layout (head then the alias's own arguments), what is copied from the target, the registration errors, testing an alias. Links the reference |
+| `specs/guides/COMMAND_DESIGN_GUIDE.md` | guide | Intro no longer "cancellation only"; new `## Aliases` section: an alias is a binding, not an implementation. **When to use** — a convenience wrapper that fixes leading arguments of a general command (`pl/head` = `pl/slice` with `offset = 0`); a bridge that dispatches declared commands to one generic executor, the head carrying the identity (`pycall` with module and function). **When not to** — the behaviour differs, not just the arguments (`rec/head` materializes, `rec/slice` does not); the target's arguments need reordering or computing (argument mapping is a later design); a chain of aliases. **Design consequences** — the alias's arguments are its public interface; volatility, payload and expiry come from the target; errors name the target "via alias"; cached results depend on the alias's metadata; changing a registered command into an alias invalidates its cache once |
 | `specs/reference/COMMAND_DECLARATION.md` | reference | §4.1 `definition` row links the new reference |
 | `specs/reference/POLARS_COMMAND_LIBRARY.md` | reference | `head` is an alias of `slice` |
 | `specs/reference/api/DOC_08_RECIPES_PLANS.md` | reference | `Step::Action` shape gains `origin` |
 
-`affects_docs` is the four existing documents. `specs/README.md`: link the new reference from the
+`affects_docs` is the five existing documents. `specs/README.md`: link the new reference from the
 *Command aliases* line when the design completes.
 
 ## Risks

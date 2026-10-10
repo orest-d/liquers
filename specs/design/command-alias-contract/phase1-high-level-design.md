@@ -101,7 +101,11 @@ the dependency flow.
 
 - Reference: new `specs/reference/COMMAND_ALIASES.md` — contract, validation, planning and
   dependency behaviour.
-- Guide: extend `specs/guides/COMMAND_REGISTRATION_GUIDE.md` with an *Aliases* section.
+- Guides:
+  - `specs/guides/COMMAND_REGISTRATION_GUIDE.md` — *how* to register an alias.
+  - `specs/guides/COMMAND_DESIGN_GUIDE.md` — *when* to design a command as an alias: a convenience
+    wrapper over a general command (`pl/head` over `pl/slice`), or a bridge that routes many
+    declared commands through one executor (liquers-py's `pycall`); and when not to.
 - Other documents: none.
 - Documents to update: `specs/reference/COMMAND_DECLARATION.md` §4.1, `specs/reference/POLARS_COMMAND_LIBRARY.md`, `specs/reference/api/DOC_08_RECIPES_PLANS.md`.
 
@@ -138,3 +142,7 @@ None open. Resolved with the user on 2026-10-10:
   plan-format change, an interpreter change and a production command migration; Phase 2 alone took
   the single file past its size limit. Complexity raised to `L`; acceptance criteria unchanged.
   Phases 1-2 moved verbatim into their phase files.
+- **2026-10-10 — both command guides document aliases** (requested at the Phase 3 gate). The
+  registration guide gets the how-to; the design guide gets when to use an alias (convenience
+  wrapper, bridge) and when not to. No acceptance criterion changes; Phases 1 and 2 updated
+  (documentation intent and architecture), and Phase 4 will carry the steps.

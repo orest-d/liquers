@@ -7,7 +7,7 @@ status: in_review
 phase: examples
 area: [core/plan, core/commands]
 issues: [COMMAND-ALIAS-DEFINITION-UNTESTED]
-affects_docs: [specs/guides/COMMAND_REGISTRATION_GUIDE.md, specs/reference/COMMAND_DECLARATION.md, specs/reference/POLARS_COMMAND_LIBRARY.md, specs/reference/api/DOC_08_RECIPES_PLANS.md]
+affects_docs: [specs/guides/COMMAND_REGISTRATION_GUIDE.md, specs/guides/COMMAND_DESIGN_GUIDE.md, specs/reference/COMMAND_DECLARATION.md, specs/reference/POLARS_COMMAND_LIBRARY.md, specs/reference/api/DOC_08_RECIPES_PLANS.md]
 created: 2026-10-09
 ---
 # A specified, validated and exercised contract for command aliases
