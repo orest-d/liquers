@@ -74,7 +74,8 @@ lost.
 ```rust
 /// The schema-less index column name: `index`, or the first of `index_1`, `index_2`, … that is not
 /// a data column name.
-fn free_index_name<'a>(data_columns: impl Iterator<Item = &'a str>) -> String
+fn index_column_name<'n>(schema: ReadSchema<'_>, declared: Option<(&str, FieldType)>,
+                        data_columns: impl IntoIterator<Item = &'n str>) -> String
 ```
 
 Used only when `schema` is `ReadSchema::Infer` (match on `Infer` itself, not on
@@ -91,7 +92,7 @@ Rejected: refusing the read (maintainer decision), and keeping today's silent lo
 
 ### Changes
 
-`liquers-records/src/formats/shapes.rs` only: the private `free_index_name` helper and its use in
+`liquers-records/src/formats/shapes.rs` only: the private `index_column_name` helper and its use in
 `from_json_split`, `from_json_columns`, `from_json_index`. No signature, command or document format
 spelling changes. Document: `specs/reference/RECORD_STREAMS.md` (one sentence).
 
@@ -129,11 +130,11 @@ In the `liquers-records/src/formats/shapes.rs` tests:
 ### Steps
 
 - [x] 1. Decide on the clash behaviour (Phase 1): rename, maintainer decision 2026-10-10.
-- [ ] 2. `formats/shapes.rs`: add `free_index_name` and use it in `from_json_split` (name and
+- [x] 2. `formats/shapes.rs`: add `index_column_name` and use it in `from_json_split` (name and
   `order`), `from_json_columns` and `from_json_index` when the schema is `ReadSchema::Infer` —
   `cargo check -p liquers-records --all-features`
-- [ ] 3. Add the tests above — `cargo test -p liquers-records --all-features --lib --tests`
-- [ ] 4. In `specs/reference/RECORD_STREAMS.md`, add one sentence on the renamed index to the
+- [x] 3. Add the tests above — `cargo test -p liquers-records --all-features --lib --tests`
+- [x] 4. In `specs/reference/RECORD_STREAMS.md`, add one sentence on the renamed index to the
   JSON-orient paragraph, a History row and a `reviewed:` bump; close the issue —
   `python3 scripts/docs_index.py --check`
 

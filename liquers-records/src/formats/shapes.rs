@@ -127,6 +127,33 @@ fn index_field_name(declared: Option<(&str, FieldType)>) -> &str {
     }
 }
 
+/// The name the index column takes in a read: [`index_field_name`] under a declared schema; under
+/// [`ReadSchema::Infer`], `index` unless a data column already has that name, then the first of
+/// `index_1`, `index_2`, … that no data column has. A data column named `index` would otherwise
+/// overwrite the index silently.
+///
+/// This matches on `Infer` itself, not on `declared` being `None`: a declared schema without an
+/// `Id` field reads its own payload field `index` from the data, and must keep doing so.
+fn index_column_name<'n>(
+    schema: ReadSchema<'_>,
+    declared: Option<(&str, FieldType)>,
+    data_columns: impl IntoIterator<Item = &'n str>,
+) -> String {
+    match schema {
+        ReadSchema::Declared(_) => index_field_name(declared).to_string(),
+        ReadSchema::Infer => {
+            let taken: std::collections::HashSet<&str> = data_columns.into_iter().collect();
+            if !taken.contains("index") {
+                return "index".to_string();
+            }
+            (1..)
+                .map(|n| format!("index_{n}"))
+                .find(|name| !taken.contains(name.as_str()))
+                .unwrap_or_else(|| "index".to_string())
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // `records` — exactly the `json` TableFormat's shape
 // ---------------------------------------------------------------------------------------------
@@ -216,7 +243,7 @@ fn from_json_split(value: &Value, schema: ReadSchema<'_>) -> Result<RecordBatch,
     }
 
     let declared = declared_id_field(schema);
-    let id_name = index_field_name(declared);
+    let id_name = index_column_name(schema, declared, columns.iter().copied());
 
     let mut items = Vec::with_capacity(data.len());
     for (row, row_value) in data.iter().enumerate() {
@@ -229,7 +256,7 @@ fn from_json_split(value: &Value, schema: ReadSchema<'_>) -> Result<RecordBatch,
             )));
         }
         let mut map = Map::with_capacity(columns.len() + 1);
-        map.insert(id_name.to_string(), index[row].clone());
+        map.insert(id_name.clone(), index[row].clone());
         for (name, cell) in columns.iter().zip(row_array.iter()) {
             map.insert((*name).to_string(), cell.clone());
         }
@@ -238,7 +265,7 @@ fn from_json_split(value: &Value, schema: ReadSchema<'_>) -> Result<RecordBatch,
     // `columns` states the column order; the index column goes first, as `to_json_split` takes it
     // from the id column.
     let order: Vec<String> =
-        std::iter::once(id_name.to_string()).chain(columns.iter().map(|name| (*name).to_string())).collect();
+        std::iter::once(id_name).chain(columns.iter().map(|name| (*name).to_string())).collect();
     ndjson::objects_to_batch_ordered(&items, schema, Some(&order))
 }
 
@@ -352,7 +379,7 @@ fn ordered_row_keys(keys: Vec<String>) -> Vec<String> {
 fn from_json_columns(value: &Value, schema: ReadSchema<'_>) -> Result<RecordBatch, Error> {
     let obj = require_object(value, "columns")?;
     let declared = declared_id_field(schema);
-    let id_name = index_field_name(declared);
+    let id_name = index_column_name(schema, declared, obj.keys().map(String::as_str));
 
     let mut inner_columns: Vec<(&str, &Map<String, Value>)> = Vec::with_capacity(obj.len());
     let mut keys: Vec<String> = Vec::new();
@@ -371,7 +398,7 @@ fn from_json_columns(value: &Value, schema: ReadSchema<'_>) -> Result<RecordBatc
     let mut items = Vec::with_capacity(keys.len());
     for key in &keys {
         let mut map = Map::with_capacity(inner_columns.len() + 1);
-        map.insert(id_name.to_string(), index_key_to_json(key, declared)?);
+        map.insert(id_name.clone(), index_key_to_json(key, declared)?);
         for (column_name, inner) in &inner_columns {
             let cell = inner.get(key).cloned().unwrap_or(Value::Null);
             map.insert((*column_name).to_string(), cell);
@@ -413,15 +440,24 @@ fn to_json_columns(view: &dyn RecordView) -> Result<Value, Error> {
 fn from_json_index(value: &Value, schema: ReadSchema<'_>) -> Result<RecordBatch, Error> {
     let obj = require_object(value, "index")?;
     let declared = declared_id_field(schema);
-    let id_name = index_field_name(declared);
 
     let keys = ordered_row_keys(obj.keys().cloned().collect());
-    let mut items = Vec::with_capacity(obj.len());
+    let mut rows = Vec::with_capacity(keys.len());
     for key in &keys {
         let row_value = required_field(obj, key, "index")?;
-        let inner = require_object(row_value, &format!("index.{key}"))?;
+        rows.push((key, require_object(row_value, &format!("index.{key}"))?));
+    }
+    // A data column name used by any row is taken, so the name is chosen before any row is built.
+    let id_name = index_column_name(
+        schema,
+        declared,
+        rows.iter().flat_map(|(_, inner)| inner.keys().map(String::as_str)),
+    );
+
+    let mut items = Vec::with_capacity(rows.len());
+    for (key, inner) in rows {
         let mut map = Map::with_capacity(inner.len() + 1);
-        map.insert(id_name.to_string(), index_key_to_json(key, declared)?);
+        map.insert(id_name.clone(), index_key_to_json(key, declared)?);
         for (column_name, cell) in inner.iter() {
             map.insert(column_name.clone(), cell.clone());
         }
@@ -847,6 +883,96 @@ mod tests {
             FieldSchema::new("total", FieldType::Float),
         ])
         .expect("schema")
+    }
+
+    fn column_of(batch: &RecordBatch, name: &str) -> Result<Vec<FieldValue>, Error> {
+        let col = batch
+            .schema
+            .fields
+            .iter()
+            .position(|field| field.name == name)
+            .ok_or_else(|| Error::general_error(format!("no column '{name}'")))?;
+        (0..batch.len).map(|row| batch.value(row, col)).collect()
+    }
+
+    /// AC-1: the Problem Example of `design/json-orient-index-column-collision/`.
+    #[test]
+    fn split_without_schema_renames_the_index_on_clash() -> Result<(), Error> {
+        let json = parse_json(r#"{"columns":["index","a"],"index":[0,1],"data":[[50,1],[60,2]]}"#)?;
+        let batch = from_json(&json, JsonOrient::Split, ReadSchema::Infer)?;
+        assert_eq!(column_names(&batch), vec!["index_1", "index", "a"]);
+        assert_eq!(column_of(&batch, "index_1")?, vec![FieldValue::Int(0), FieldValue::Int(1)]);
+        assert_eq!(column_of(&batch, "index")?, vec![FieldValue::Int(50), FieldValue::Int(60)]);
+        Ok(())
+    }
+
+    /// AC-1: a taken `index_1` is skipped too.
+    #[test]
+    fn split_without_schema_skips_taken_index_names() -> Result<(), Error> {
+        let json = parse_json(r#"{"columns":["index","index_1"],"index":[0],"data":[[50,60]]}"#)?;
+        let batch = from_json(&json, JsonOrient::Split, ReadSchema::Infer)?;
+        assert_eq!(column_names(&batch), vec!["index_2", "index", "index_1"]);
+        assert_eq!(column_of(&batch, "index_2")?, vec![FieldValue::Int(0)]);
+        Ok(())
+    }
+
+    /// AC-2: `columns` and `index` orients; in `index`, a name used by any row is taken.
+    #[test]
+    fn columns_and_index_without_schema_rename_the_index_on_clash() -> Result<(), Error> {
+        let columns = parse_json(r#"{"index":{"r1":50,"r2":60},"a":{"r1":1,"r2":2}}"#)?;
+        let batch = from_json(&columns, JsonOrient::Columns, ReadSchema::Infer)?;
+        assert_eq!(
+            column_of(&batch, "index_1")?,
+            vec![FieldValue::Text("r1".into()), FieldValue::Text("r2".into())]
+        );
+        assert_eq!(column_of(&batch, "index")?, vec![FieldValue::Int(50), FieldValue::Int(60)]);
+
+        let index = parse_json(r#"{"r1":{"a":1},"r2":{"a":2,"index":60}}"#)?;
+        let batch = from_json(&index, JsonOrient::Index, ReadSchema::Infer)?;
+        assert_eq!(
+            column_of(&batch, "index_1")?,
+            vec![FieldValue::Text("r1".into()), FieldValue::Text("r2".into())]
+        );
+        assert_eq!(column_of(&batch, "index")?, vec![FieldValue::Null, FieldValue::Int(60)]);
+        Ok(())
+    }
+
+    /// AC-3: no clash, no change.
+    #[test]
+    fn split_without_clash_keeps_index_name() -> Result<(), Error> {
+        let json = parse_json(r#"{"columns":["a"],"index":[0,1],"data":[[1],[2]]}"#)?;
+        let batch = from_json(&json, JsonOrient::Split, ReadSchema::Infer)?;
+        assert_eq!(column_names(&batch), vec!["index", "a"]);
+        Ok(())
+    }
+
+    /// AC-3: a declared `Id` keeps its own name; the payload `index` is just data.
+    #[test]
+    fn split_with_declared_schema_accepts_a_column_named_index() -> Result<(), Error> {
+        let schema = RecordSchema::new(vec![
+            FieldSchema::new("order_id", FieldType::Int).with_key(KeyRole::Id),
+            FieldSchema::new("index", FieldType::Int),
+        ])
+        .expect("schema");
+        let json = parse_json(r#"{"columns":["index"],"index":[1,2],"data":[[50],[60]]}"#)?;
+        let batch = from_json(&json, JsonOrient::Split, ReadSchema::Declared(&schema))?;
+        assert_eq!(column_of(&batch, "order_id")?, vec![FieldValue::Int(1), FieldValue::Int(2)]);
+        assert_eq!(column_of(&batch, "index")?, vec![FieldValue::Int(50), FieldValue::Int(60)]);
+        Ok(())
+    }
+
+    /// AC-3: a declared schema without an `Id` reads its payload field `index` from the data.
+    #[test]
+    fn split_with_declared_schema_without_id_reads_its_index_field() -> Result<(), Error> {
+        let schema = RecordSchema::new(vec![
+            FieldSchema::new("index", FieldType::Int),
+            FieldSchema::new("a", FieldType::Int),
+        ])
+        .expect("schema");
+        let json = parse_json(r#"{"columns":["index","a"],"index":[0,1],"data":[[50,1],[60,2]]}"#)?;
+        let batch = from_json(&json, JsonOrient::Split, ReadSchema::Declared(&schema))?;
+        assert_eq!(column_of(&batch, "index")?, vec![FieldValue::Int(50), FieldValue::Int(60)]);
+        Ok(())
     }
 
     #[test]

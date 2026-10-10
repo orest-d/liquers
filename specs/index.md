@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 111
+Total rows: 110
 - P2: 53
-- P3: 58
+- P3: 57
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -71,7 +71,6 @@ Total rows: 111
 | [`AXUM-STORE-MAKEDIR-TEST-IGNORED-FOR-A-FIXED-LIMITATION`](issues/AXUM-STORE-MAKEDIR-TEST-IGNORED-FOR-A-FIXED-LIMITATION.md) | issue | An axum store test is ignored for an AsyncMemoryStore limitation that has been fixed | draft | ready | eligible | P3 | S | axum;core/store | [design](design/axum-store-makedir-test-unignore/DESIGN.md) | 2026-10-10 |
 | [`AXUM-STORE-UPLOAD-AND-METADATA-DROP-INFORMATION`](issues/AXUM-STORE-UPLOAD-AND-METADATA-DROP-INFORMATION.md) | issue | Store API uploads carry no media type, and legacy metadata is served as an empty object | draft | ready | eligible | P3 | S | axum | [phase1](design/axum-store-upload-metadata/phase1-high-level-design.md)  [phase2](design/axum-store-upload-metadata/phase2-architecture.md)  [phase3](design/axum-store-upload-metadata/phase3-examples.md)  [phase4](design/axum-store-upload-metadata/phase4-implementation.md)  | 2026-09-28 |
 | [`PY-PYO3-REJECTS-PYTHON-3-13`](issues/PY-PYO3-REJECTS-PYTHON-3-13.md) | issue | liquers-py does not build against Python 3.13 without an environment override | draft | ready | eligible | P3 | S | py;build | [design](design/pyo3-python-3-13-support/DESIGN.md) | 2026-10-06 |
-| [`SCHEMA-LESS-JSON-ORIENT-INDEX-COLUMN-OVERWRITTEN`](issues/SCHEMA-LESS-JSON-ORIENT-INDEX-COLUMN-OVERWRITTEN.md) | issue | A schema-less read of an indexed JSON orient silently drops the index when a data column is named index | draft | ready | eligible | P3 | S | records | [design](design/json-orient-index-column-collision/DESIGN.md) | 2026-10-08 |
 | [`STORE-CONFORMANCE-FEATURE-BUILD-WARNINGS`](issues/STORE-CONFORMANCE-FEATURE-BUILD-WARNINGS.md) | issue | The store-conformance feature build emits unused-import and dead-code warnings | draft | ready | eligible | P3 | S | core/store;build | [design](design/store-conformance-warning-cleanup/DESIGN.md) | 2026-10-10 |
 | [`ARGUMENT-INFO-HAS-NO-DESCRIPTION`](issues/ARGUMENT-INFO-HAS-NO-DESCRIPTION.md) | issue | ArgumentInfo has no per-argument description | draft | ready | not-eligible | P3 | S | core/commands;macro | [design](design/command-metadata-descriptions-and-hints/DESIGN.md) | 2026-09-24 |
 | [`COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS`](issues/COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS.md) | feature | A usage hint can be attached to an argument but not to a command | in_progress | ready | not-eligible | P3 | S | core/commands;lib/ui | [design](design/command-metadata-descriptions-and-hints/DESIGN.md) | 2026-08-30 |
