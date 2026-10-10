@@ -4,7 +4,7 @@ kind: issue
 title: CommandDefinition::Alias has no test and no user, and its head-parameter semantics are unexercised
 status: draft
 priority: P2
-complexity: M
+complexity: L
 area: [core/plan, core/commands]
 design: command-alias-contract
 created: 2026-08-29
