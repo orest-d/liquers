@@ -3,8 +3,7 @@ id: JSON-ORIENT-INDEX-COLUMN-COLLISION
 kind: design
 title: A schema-less indexed JSON read does not let a data column named index overwrite the index
 form: compact
-status: in_review
-phase: implementation
+gh_pr: [107]
 readiness: ready
 autofix: eligible
 area: [records]
