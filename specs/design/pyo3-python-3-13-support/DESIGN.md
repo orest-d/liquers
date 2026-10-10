@@ -3,8 +3,7 @@ id: PYO3-PYTHON-3-13-SUPPORT
 kind: design
 title: liquers-py builds against the current Python
 form: compact
-status: in_review
-phase: implementation
+gh_pr: [110]
 readiness: ready
 autofix: eligible
 area: [py, build]
