@@ -606,7 +606,7 @@ JSON reader refuses a key the schema does not declare and coerces losslessly: a 
 Without a declared `Id`, the index of `split` / `columns` / `index` reads back as a plain column
 named `index`. Without a schema, if a data column is already named `index`, the data column keeps
 that name and the index takes the first free name of `index_1`, `index_2`, … (in `index`, a name
-used by any row is taken), so neither is lost. **Without a schema, the columns of a JSON read whose column order is not specified
+used by any row is taken) and goes first, so neither is lost. **Without a schema, the columns of a JSON read whose column order is not specified
 (NDJSON, `json`, and the `records`, `list`, `columns` and `index` orients) are sorted by name**: JSON
 objects have no key order, so the same columns read the same way whatever the row order
 (`[{"b":1},{"a":2}]` is `a, b`), and the `index` column sorts among them. `split` and `values` state
@@ -806,7 +806,7 @@ materializes to an empty batch; without one it is an error.
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-10 | JSON: a schema-less `split` / `columns` / `index` read whose data has a column named `index` puts the index in the first free `index_<n>` instead of losing it. | `design/json-orient-index-column-collision/` |
+| 2026-10-10 | JSON: a schema-less `split` / `columns` / `index` read whose data has a column named `index` puts the index first, in the first free `index_<n>`, instead of losing it. | `design/json-orient-index-column-collision/` |
 | 2026-10-08 | JSON: a schema-less `split` / `values` read keeps the document's column order; only unordered shapes sort. | phase-5, `design/ordered-json-orient-column-order/` |
 | 2026-10-08 | A chunk refused during a manifest traversal is named in the error message by its index and key or query. | phase-5, `design/manifest-chunk-error-identity/` |
 | 2026-10-07 | Markdown: an empty `Text` writes `<!---->` and round-trips; only the first table is read. | phase-5, `design/markdown-empty-text-and-tables/` |

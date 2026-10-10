@@ -154,6 +154,14 @@ fn index_column_name<'n>(
     }
 }
 
+/// The column order for a `columns` or `index` read under [`ReadSchema::Infer`]: those shapes state
+/// no column order, so columns are sorted by name, except that an index renamed by
+/// [`index_column_name`] goes first, as in `split`. An index that kept its name keeps the sorted
+/// order it always had.
+fn renamed_index_first(id_name: &str) -> Option<[String; 1]> {
+    (id_name != "index").then(|| [id_name.to_string()])
+}
+
 // ---------------------------------------------------------------------------------------------
 // `records` — exactly the `json` TableFormat's shape
 // ---------------------------------------------------------------------------------------------
@@ -405,7 +413,8 @@ fn from_json_columns(value: &Value, schema: ReadSchema<'_>) -> Result<RecordBatc
         }
         items.push(Value::Object(map));
     }
-    ndjson::objects_to_batch(&items, schema)
+    let order = renamed_index_first(&id_name);
+    ndjson::objects_to_batch_ordered(&items, schema, order.as_ref().map(|o| o.as_slice()))
 }
 
 fn to_json_columns(view: &dyn RecordView) -> Result<Value, Error> {
@@ -463,7 +472,8 @@ fn from_json_index(value: &Value, schema: ReadSchema<'_>) -> Result<RecordBatch,
         }
         items.push(Value::Object(map));
     }
-    ndjson::objects_to_batch(&items, schema)
+    let order = renamed_index_first(&id_name);
+    ndjson::objects_to_batch_ordered(&items, schema, order.as_ref().map(|o| o.as_slice()))
 }
 
 fn to_json_index(view: &dyn RecordView) -> Result<Value, Error> {
@@ -921,6 +931,7 @@ mod tests {
     fn columns_and_index_without_schema_rename_the_index_on_clash() -> Result<(), Error> {
         let columns = parse_json(r#"{"index":{"r1":50,"r2":60},"a":{"r1":1,"r2":2}}"#)?;
         let batch = from_json(&columns, JsonOrient::Columns, ReadSchema::Infer)?;
+        assert_eq!(column_names(&batch), vec!["index_1", "a", "index"]);
         assert_eq!(
             column_of(&batch, "index_1")?,
             vec![FieldValue::Text("r1".into()), FieldValue::Text("r2".into())]
@@ -929,6 +940,7 @@ mod tests {
 
         let index = parse_json(r#"{"r1":{"a":1},"r2":{"a":2,"index":60}}"#)?;
         let batch = from_json(&index, JsonOrient::Index, ReadSchema::Infer)?;
+        assert_eq!(column_names(&batch), vec!["index_1", "a", "index"]);
         assert_eq!(
             column_of(&batch, "index_1")?,
             vec![FieldValue::Text("r1".into()), FieldValue::Text("r2".into())]
