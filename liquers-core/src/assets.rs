@@ -1111,6 +1111,10 @@ impl<E: Environment> AssetData<E> {
             .get_asset_info()
             .unwrap_or_else(|_| AssetInfo::default());
         assetinfo.type_identifier = initial_state.type_identifier().to_string();
+        // The same test `finalize_plan` uses to keep a stateful application expanded: a non-empty
+        // initial state is input the recipe does not describe, so the query is applied, not
+        // self-describing (`specs/design/plan-step-state-metadata/`, AC-12).
+        assetinfo.is_applied = !initial_state.is_none();
         // A keyed asset and a non-keyed query asset built from the same query are not the same
         // thing — the keyed one knows its key — so the difference must be visible in metadata,
         // not only in the runtime record.
@@ -4212,6 +4216,13 @@ impl<E: Environment> AssetRef<E> {
     /// whose value came from the key's resolved recipe, which is kept. `Ok(())` either way.
     /// Used by `Context::set_title` and `Context::set_description`; unlike
     /// [`Self::set_description_fields`] it does not override the recipe.
+    /// Whether the resolved recipe declared the title and the description — the fields a
+    /// command cannot override (see [`Self::set_description_fields_from_command`]).
+    pub(crate) async fn recipe_declared_description(&self) -> (bool, bool) {
+        let lock = self.data.read().await;
+        (lock.recipe_sets_title, lock.recipe_sets_description)
+    }
+
     pub(crate) async fn set_description_fields_from_command(
         &self,
         title: Option<String>,

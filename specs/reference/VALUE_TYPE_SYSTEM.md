@@ -3,7 +3,7 @@ title: Value Type System
 kind: reference
 audience: internal
 area: [core/value, lib/value]
-reviewed: 2026-10-09
+reviewed: 2026-10-10
 ---
 
 # Value Type System
@@ -212,6 +212,10 @@ audiences, not two type axes.
 | 2 | the filename extension (`with_filename`, `set_filename`, `set_extension`) | `data_format`, when none was declared |
 | 3 | an explicit declaration (`with_media_type`, or a caller setting `data_format`) | either, verbatim |
 
+A query with no filename seeds nothing: `Recipe::get_asset_info` declares the query's filename
+extension or no format at all (DOC-08 §Recipe contract), so the asset of an unnamed query falls
+through to level 1. It used to declare `bin`, which no `liquers-lib` value serializes as.
+
 **Level 1 resolves rather than writes.** An absent `data_format` *means* "no format was chosen, so
 the value's own default applies". Writing the default into the field would destroy that
 distinction — nobody could then tell a deliberate choice from a fall-through. Resolution happens
@@ -366,6 +370,7 @@ degrades on read.
 
 | Date | Change |
 |---|---|
+| 2026-10-10 | §Seeding: a query with no filename seeds no format — the recipe no longer declares `bin` (`design/plan-step-state-metadata/`, closing `FREE-FUNCTION-EVALUATE-BAKES-A-BIN-DATA-FORMAT`). |
 | 2026-10-09 | §Reading: a combined value picks the half that reads the bytes by the declared identifier; an extension identifier is never read by the base value (`design/combined-value-identifier-dispatch/`, closing `COMBINED-VALUE-DISCRIMINATION`). |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5 (phase-5). Added `RecordView` and `RecordSource` to the registered identifiers, and §The record identifiers: `records`-gated trait-object variants, their `TypeInfo`s (formats and aliases, `ipc`/`parquet` behind `records-ipc`/`records-parquet`, `html` write-only, Parquet read only through polars), manifest-only serialization of a source, single-cell scalar reading by delegation to the base value, and `try_into_json_value`. |
 | 2026-08-18 | Created with the `value-type-system` design, resolving `CORE-METADATA-FORMAT-TYPE-CONSISTENCY`. |

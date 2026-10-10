@@ -2,11 +2,11 @@
 id: FREE-FUNCTION-EVALUATE-BAKES-A-BIN-DATA-FORMAT
 kind: issue
 title: Every unkeyed/ad-hoc asset declares a bin data format it usually cannot serialize as
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [core/plan]
-design: 
+design: plan-step-state-metadata
 created: 2026-09-26
 github:
 ---
@@ -103,3 +103,17 @@ Found while implementing Phase 4 Step 5.6 of the record-streams design
   recommended path, not the free function — and failed with `SerializationError: Unsupported format
   bin` from inside `classify_state`'s bytes fallback. Worked around by giving the fixture dependency
   a `RecordView` value instead of a scalar, which `classify_state` never serializes to bytes.
+
+## Resolution
+
+Closed 2026-10-10 by `design/plan-step-state-metadata/`, which absorbed it: once a predecessor's
+state is handed on unchanged, what a prefix asset declares reaches the next command, so the two
+issues shared one contract. `Recipe::data_format` now returns `Result<Option<String>, Error>`
+(`None` without a filename) and `Recipe::get_asset_info` declares exactly that, so an unnamed query
+— the free `evaluate()` function's `Recipe::default()` asset included — declares no format and the
+value's own default applies; a later filename segment can seed one. Evidence:
+`recipes::test::data_format_is_absent_without_a_filename`,
+`recipes::test::keyed_asset_takes_its_format_from_the_key`,
+`plan_step_state_metadata::unnamed_query_declares_no_data_format`. The workarounds described above
+stay in `resolver_dependency_recording.rs` / `records_end_to_end.rs` as fixtures; their comments now
+record that the defect is fixed.

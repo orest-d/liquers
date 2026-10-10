@@ -822,7 +822,12 @@ impl<E: Environment> Context<E> {
             .await
     }
 
-    /// Returns the current asset's structured metadata record.
+    /// Returns a copy of the current asset's structured metadata record.
+    ///
+    /// The context holds no metadata of its own: the asset's record is the authoritative one, and
+    /// this is a snapshot of it (log entries sent through the service channel may not have arrived
+    /// yet). It describes the asset being produced, not the command's input — that is
+    /// `state.metadata` (DOC-04 §Metadata ownership during evaluation).
     ///
     /// Legacy JSON metadata cannot be represented as `MetadataRecord` and returns
     /// an error.
