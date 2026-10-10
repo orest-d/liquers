@@ -947,18 +947,17 @@ impl ParameterValue {
     }
 }
 
-/// Number of action parameters a command can consume, from argument slot `skip` onward.
+/// Number of action parameters a command can consume.
 ///
 /// This is deliberately not `arguments.len()`. Injected arguments are excluded because they are
-/// supplied by the execution context and consume no query parameter, and `skip` accounts for
-/// alias head parameters, which fill leading slots before the action is consulted. Reporting the
-/// raw length would tell the author of an aliased or injected command that their query accepts
-/// more parameters than it does.
-fn accepted_parameter_count(command_metadata: &CommandMetadata, skip: usize) -> usize {
+/// supplied by the execution context and consume no query parameter. For an alias the metadata
+/// passed here is the alias's own, whose arguments never include the head-filled positions, so
+/// the count is what its user can write. Reporting the raw length would tell the author of an
+/// injected command that their query accepts more parameters than it does.
+fn accepted_parameter_count(command_metadata: &CommandMetadata) -> usize {
     command_metadata
         .arguments
         .iter()
-        .skip(skip)
         .filter(|a| !a.injected)
         .count()
 }
@@ -1026,25 +1025,19 @@ impl ResolvedParameterValues {
     pub fn new() -> Self {
         ResolvedParameterValues(Vec::new())
     }
-    /// Resolves an action, optionally prefixing arguments supplied by an alias definition.
+    /// Resolves an action against `command_metadata`'s own arguments.
     ///
-    /// `head_parameters` fill the first command argument slots; remaining slots consume the
-    /// action request. Defaults and injection rules come from `command_metadata`. Missing required
-    /// arguments become placeholders only when `allow_placeholders` is true.
-    pub fn from_action_extended(
+    /// Each argument consumes action parameters in order; defaults and injection rules come
+    /// from `command_metadata`. Missing required arguments become placeholders only when
+    /// `allow_placeholders` is true. A parameter no argument consumes is an error.
+    pub fn from_action(
         action_request: &ActionRequest,
         command_metadata: &CommandMetadata,
-        head_parameters: &[CommandParameterValue],
         allow_placeholders: bool,
     ) -> Result<Self, Error> {
         let mut parameters = ActionParameterIterator::new(action_request);
-        let mut values = head_parameters
-            .iter()
-            .zip(command_metadata.arguments.iter())
-            .map(|(x, arginfo)| ParameterValue::from_command_parameter_value(&arginfo.name, x))
-            .collect_vec();
-        let n = values.len();
-        for a in command_metadata.arguments.iter().skip(n) {
+        let mut values = Vec::with_capacity(command_metadata.arguments.len());
+        for a in command_metadata.arguments.iter() {
             let pv = ParameterValue::pop_value(a, &mut parameters, allow_placeholders)?;
             values.push(pv);
         }
@@ -1059,7 +1052,7 @@ impl ResolvedParameterValues {
         if let Some(excess) = parameters.next() {
             return Err(Error::too_many_parameters(
                 &format!("command '{}'", command_metadata.name),
-                accepted_parameter_count(command_metadata, n),
+                accepted_parameter_count(command_metadata),
                 // `next()` increments before returning, so this is already the 1-based index
                 // of `excess` in the written parameter list.
                 parameters.parameter_number,
@@ -1069,13 +1062,40 @@ impl ResolvedParameterValues {
         }
         Ok(ResolvedParameterValues(values))
     }
-    /// Resolves an action without alias-supplied leading parameters.
-    pub fn from_action(
+
+    /// Resolves an action written against an alias into the parameters of its target.
+    ///
+    /// The result is `head_parameters` followed by the action resolved against the alias's own
+    /// arguments. Heads are named by the target's leading arguments; the rest keep the alias's
+    /// names, so an excess parameter is reported against the alias the user wrote. The caller
+    /// validates the alias first (`CommandMetadataRegistry::alias_target`), which guarantees the
+    /// target declares an argument for every head.
+    pub fn from_alias_action(
         action_request: &ActionRequest,
-        command_metadata: &CommandMetadata,
+        alias: &CommandMetadata,
+        target: &CommandMetadata,
+        head_parameters: &[CommandParameterValue],
         allow_placeholders: bool,
     ) -> Result<Self, Error> {
-        Self::from_action_extended(action_request, command_metadata, &[], allow_placeholders)
+        if head_parameters.len() > target.arguments.len() {
+            return Err(Error::invalid_alias(
+                &alias.key(),
+                &target.key(),
+                &format!(
+                    "{} head parameters, but the target declares {} arguments",
+                    head_parameters.len(),
+                    target.arguments.len()
+                ),
+            ));
+        }
+        let mut values = head_parameters
+            .iter()
+            .zip(target.arguments.iter())
+            .map(|(x, arginfo)| ParameterValue::from_command_parameter_value(&arginfo.name, x))
+            .collect_vec();
+        let own = Self::from_action(action_request, alias, allow_placeholders)?;
+        values.extend(own.0);
+        Ok(ResolvedParameterValues(values))
     }
 
     /// Removes all resolved parameters.
@@ -1533,6 +1553,33 @@ impl<'c> PlanBuilder<'c> {
         Ok(())
     }
 
+    /// Applies a command's volatility, payload requirement and expiration to the plan.
+    fn apply_command_flags(&mut self, command_key: &CommandKey) {
+        if self.is_action_volatile(command_key) {
+            self.mark_volatile(
+                &format!(
+                    "Volatile due to command '{}/{}/{}'",
+                    command_key.realm, command_key.namespace, command_key.name
+                ),
+                VolatilitySource::Positional,
+            );
+        }
+
+        // Check if command requires an evaluation payload
+        if self.action_payload_requirement(command_key).is_required() {
+            self.mark_payload_required(&format!(
+                "Payload required due to command '{}/{}/{}'",
+                command_key.realm, command_key.namespace, command_key.name
+            ));
+        }
+
+        // Check if command has expiration specification
+        let action_expires = self.get_action_expiration(command_key);
+        if !action_expires.is_never() {
+            self.update_expiration(&action_expires);
+        }
+    }
+
     fn process_action(
         &mut self,
         query: &Query,
@@ -1541,7 +1588,7 @@ impl<'c> PlanBuilder<'c> {
         // Intercept 'v' instruction BEFORE normal action processing
         if action_request.name == "v" {
             // `v` resolves no command metadata, so the arity check in
-            // `ResolvedParameterValues::from_action_extended` never sees it. It takes no
+            // `ResolvedParameterValues::from_action` never sees it. It takes no
             // parameters, so anything written here would be silently discarded.
             if let Some(excess) = action_request.parameters.first() {
                 return Err(Error::too_many_parameters(
@@ -1570,29 +1617,7 @@ impl<'c> PlanBuilder<'c> {
             &command_metadata.namespace,
             &command_metadata.name,
         );
-        if self.is_action_volatile(&command_key) {
-            self.mark_volatile(
-                &format!(
-                    "Volatile due to command '{}/{}/{}'",
-                    command_metadata.realm, command_metadata.namespace, command_metadata.name
-                ),
-                VolatilitySource::Positional,
-            );
-        }
-
-        // Check if command requires an evaluation payload
-        if self.action_payload_requirement(&command_key).is_required() {
-            self.mark_payload_required(&format!(
-                "Payload required due to command '{}/{}/{}'",
-                command_metadata.realm, command_metadata.namespace, command_metadata.name
-            ));
-        }
-
-        // Check if command has expiration specification
-        let action_expires = self.get_action_expiration(&command_key);
-        if !action_expires.is_never() {
-            self.update_expiration(&action_expires);
-        }
+        self.apply_command_flags(&command_key);
 
         match &command_metadata.definition {
             command_metadata::CommandDefinition::Registered => {
@@ -1620,15 +1645,25 @@ impl<'c> PlanBuilder<'c> {
                 head_parameters,
             } => {
                 let original_key = command_metadata.key();
+                // Validated against the registry, not trusted: the alias may come from a
+                // deserialized registry or a language binding that never ran `register_alias`.
+                let target = self
+                    .command_registry
+                    .alias_target(&command_metadata)?
+                    .ok_or_else(|| Error::alias_target_not_registered(&original_key, command))?;
                 self.plan.steps.push(Step::Info(format!(
                     "Alias command {} to {}",
                     original_key, &command
                 )));
 
-                // Resolve parameters first
-                let parameters = ResolvedParameterValues::from_action_extended(
+                // The alias's own flags were applied above; the target's apply as well, so an
+                // alias can never make a volatile or payload-requiring command look stable.
+                self.apply_command_flags(command);
+
+                let parameters = ResolvedParameterValues::from_alias_action(
                     action_request,
                     &command_metadata,
+                    &target,
                     head_parameters,
                     self.allow_placeholders,
                 )?;
@@ -1643,7 +1678,7 @@ impl<'c> PlanBuilder<'c> {
                     position: action_request.position.clone(),
                     parameters,
                     origin: ActionOrigin::Alias {
-                        command: original_key.clone(),
+                        command: original_key,
                     },
                 });
             }
@@ -4936,23 +4971,102 @@ mod tests {
         Ok(())
     }
 
-    /// T5 - alias head parameters fill leading slots, so they too are excluded from `accepted`.
+    /// T5, rewritten for the alias contract (Phase 3 test 16, AC-2): an alias declares only the
+    /// arguments its user supplies, so `accepted` is the alias's own count and the head-filled
+    /// target positions never appear in it.
     #[test]
     fn accepted_count_excludes_head_parameters() -> Result<(), Error> {
-        let mut cm = CommandMetadata::new("cmd");
-        cm.with_argument(ArgumentInfo::string_argument("head"));
-        cm.with_argument(ArgumentInfo::string_argument("tail"));
+        let mut target = CommandMetadata::new("cmd");
+        target.with_argument(ArgumentInfo::string_argument("head"));
+        target.with_argument(ArgumentInfo::string_argument("tail"));
+        let mut alias = CommandMetadata::new("short");
+        alias.with_argument(ArgumentInfo::string_argument("tail"));
 
         let head = vec![CommandParameterValue::Value(Value::String("h".to_string()))];
-        let err =
-            ResolvedParameterValues::from_action_extended(&action_of("cmd-x-y"), &cm, &head, false)
-                .expect_err("only one slot is left for the action to fill");
+        let resolved = ResolvedParameterValues::from_alias_action(
+            &action_of("short-x"),
+            &alias,
+            &target,
+            &head,
+            false,
+        )?;
+        assert_eq!(resolved.0.len(), 2, "head followed by the alias's own argument");
+        assert!(matches!(&resolved.0[0], ParameterValue::DefaultValue(name, _) if name == "head"));
 
+        let err = ResolvedParameterValues::from_alias_action(
+            &action_of("short-x-y"),
+            &alias,
+            &target,
+            &head,
+            false,
+        )
+        .expect_err("the alias accepts one parameter");
         assert!(
-            err.message.contains("accepts 1"),
+            err.message.contains("command 'short': accepts 1"),
             "message: {}",
             err.message
         );
+        Ok(())
+    }
+
+    /// A registry with `src` (volatile, payload-requiring, expiring) and `calm`, an alias of it
+    /// whose own metadata claims none of that - as a hand-built or deserialized alias could.
+    fn alias_flag_registry() -> CommandMetadataRegistry {
+        let mut registry = CommandMetadataRegistry::new();
+        let mut src = CommandMetadata::new("src");
+        src.with_argument(ArgumentInfo::string_argument("word"));
+        src.volatile = true;
+        src.payload_required = PayloadRequirement::Required;
+        src.expires = "in 5 min".parse().unwrap_or(Expires::Immediately);
+        registry.add_command(&src);
+        let mut calm = CommandMetadata::new("calm");
+        calm.definition = CommandDefinition::Alias {
+            command: CommandKey::new("", "", "src"),
+            head_parameters: vec![CommandParameterValue::Value(Value::from("w"))],
+        };
+        registry.add_command(&calm);
+        registry
+    }
+
+    /// Phase 3 test 14 (AC-8): the target's volatility, payload requirement and expiration
+    /// reach the plan even though the alias's own metadata states none of them.
+    #[test]
+    fn alias_planning_inherits_target_volatility() -> Result<(), Error> {
+        let registry = alias_flag_registry();
+        let plan = PlanBuilder::new(parse_query("calm")?, &registry).build()?;
+
+        assert!(plan.is_volatile, "a volatile target makes the plan volatile");
+        assert!(plan.payload_required.is_required());
+        assert!(!plan.expires.is_never(), "the target's expiration applies");
+        let Some(Step::Action {
+            action_name,
+            origin,
+            ..
+        }) = plan.steps.iter().find(|step| step.is_action())
+        else {
+            panic!("the plan holds an action");
+        };
+        assert_eq!(action_name, "src");
+        assert_eq!(origin.alias(), Some(&CommandKey::new("", "", "calm")));
+        Ok(())
+    }
+
+    /// Phase 3 test 15 (AC-5): a missing target fails while planning, not at execution.
+    #[test]
+    fn alias_errors_surface_at_plan_time() -> Result<(), Error> {
+        let mut registry = CommandMetadataRegistry::new();
+        let mut orphan = CommandMetadata::new("orphan");
+        orphan.definition = CommandDefinition::Alias {
+            command: CommandKey::new("", "", "gone"),
+            head_parameters: vec![],
+        };
+        registry.add_command(&orphan);
+
+        let err = PlanBuilder::new(parse_query("orphan")?, &registry)
+            .build()
+            .expect_err("planning must fail");
+        assert_eq!(err.error_type, ErrorType::ActionNotRegistered);
+        assert!(err.message.contains("'gone'"), "{}", err.message);
         Ok(())
     }
 
@@ -5010,7 +5124,7 @@ mod tests {
     }
 
     /// The special instructions bypass command-metadata resolution, so the arity check in
-    /// `from_action_extended` never sees them. Each needs its own rule, and they are not the
+    /// `from_action` never sees them. Each needs its own rule, and they are not the
     /// same rule:
     ///
     /// - `v` takes no parameters -> surplus is an error (it was silently dropped before);
