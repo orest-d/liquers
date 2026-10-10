@@ -4,13 +4,17 @@ kind: design
 title: Remove the synchronous Store trait and the legacy cache module
 form: compact
 workflow: liquers-project
-status: in_review
-phase: architecture
+status: approved
+phase: implementation
+readiness: ready
+autofix: not-eligible
 area: [core/store, py, docs]
 issues: [CORE-SYNC-STORE-TRAIT-OBSOLETE]
 created: 2026-10-10
 ---
 # Remove the synchronous Store trait and the legacy cache module
+
+Pre-approved after Phase 2 on 2026-10-10.
 
 ## Phase 1: High-Level Design
 
@@ -89,6 +93,15 @@ narrow `PY-MODULES-NOT-DECLARED-IN-LIB`.
 Overlap search: `index.csv` for sync store / Store trait / cache / liquers-py; open designs' phase
 2/4 for the removed symbols. No open design edits them.
 
+### Design Readiness
+
+- **Readiness:** `ready` · **Automatic fixing:** `not-eligible` — it removes public API
+  (`auto-fix.md`: no public interface change), though no in-tree user exists.
+- **Leading issue:** None. **Explanation:** removal only; every symbol, consumer and test was
+  opened at HEAD, and Phases 3-4 prove each scenario.
+- **Decision log (pre-approval):** None needing a decision. Phase 3 chose `compile_fail` doctests as
+  the proof of AC-1/AC-2 (implementation detail: core doctests already run, 15 pass at HEAD).
+
 ### Open Questions
 
 All accepted by the user at the Phase 1 gate (2026-10-10):
@@ -163,3 +176,61 @@ No new or changed signature anywhere — removal only.
 | Build configs | nothing was `cfg`-gated; the import trim is the only warning risk — AC-5 |
 | Recovery | single revert; no stored data, config or registry changes |
 | Certainty | high — every symbol and range opened at HEAD |
+
+## Phase 3: Examples and Tests
+
+### Examples
+
+**Primary (AC-1):** a `compile_fail` doctest per removed name, in a new `store.rs` module-doc section
+*There is no synchronous store*, so the removal is both documented and enforced:
+
+```rust,compile_fail
+use liquers_core::store::Store;   // likewise NoStore, MemoryStore, FileStore, StoreRouter
+```
+
+Each name gets its own block, so one unresolved import cannot mask another that still resolves.
+**Secondary (AC-2):** the same for `use liquers_core::cache::BinCache;` in a `lib.rs` crate-doc
+line saying result caching belongs to assets. Written first, all six blocks *fail* at HEAD (the
+imports resolve) — that is the reproduction.
+
+**Edge cases:** none new — removal adds no code path. The risk named in Phase 2 (a lingering import
+or dangling intra-doc link) is covered by AC-5 and `cargo test --doc`.
+
+### Tests
+
+| Test | Proves |
+|---|---|
+| doctests `liquers-core/src/store.rs - store (line …)`, five `compile_fail` blocks | AC-1 |
+| doctest `liquers-core/src/lib.rs - (line …)`, `compile_fail` on `liquers_core::cache` | AC-2 |
+| `memsupport01`…`memsupport06` (helper reduced to `AsyncMemoryStore`), `keyabs07_memory_stores_refuse_relative_keys`, `keyabs10_routers_report_key_not_absolute` (async halves kept) | AC-3 |
+| async twins kept unchanged: `test_async_memory_store_basic` (for `test_simple_store`), `filestore01_async_missing_directory_lists_empty` (`filestore02`), `async_router_listdir_at_store_prefix` (`sync_router_…`), `keyabs08_async_file_store_refuses_traversal` (`keyabs09`), `reserved02`/`reserved03`/`reserved06` (`reserved04`, `reserved07`) | AC-3 |
+| `liquers-core/tests/store_conformance_CONF.rs`, unchanged | AC-3 |
+| `liquers-py` unit tests, plus `git diff` showing the `#[pymodule]` body untouched (no Python interpreter run: the pyclass surface is a compile-time list) | AC-4 |
+| `scripts/check-build-matrix.sh` | AC-5 |
+| `grep -rnP '(?<!Async)\b(MemoryStore|FileStore|StoreRouter|NoStore)\b|liquers_core::cache|trait Store\b' specs/reference specs/guides CLAUDE.md .claude/skills` shows only removal statements; `docs_index.py --check` | AC-6 |
+
+```bash
+cargo test -p liquers-core --lib --tests --doc
+cargo test -p liquers-py --lib --no-default-features --features async_store
+```
+
+## Phase 4: Implementation Plan
+
+### Steps
+
+Steps 1-4 land in one commit, so every commit builds the workspace (`liquers-py` uses `cache`).
+Rollback for any step: `git checkout -- <files>` before commit, `git revert` after.
+
+- [ ] 1. `store.rs` module doc, `lib.rs` crate doc — add the six `compile_fail` blocks — `cargo test -p liquers-core --doc` fails on exactly those six
+- [ ] 2. `store.rs` — delete `Store`, `NoStore`, `FileStore`, `MemoryStore`, `StoreRouter`; trim imports; rewrite module doc ≈1, ≈35-43; delete the six sync-only tests and reduce `memory_store_support`, `keyabs07`, `keyabs10` — `cargo test -p liquers-core --lib --doc`
+- [ ] 3. delete `cache.rs`, `pub mod cache;` in `lib.rs` — `cargo test -p liquers-core --doc` (all six blocks pass)
+- [ ] 4. `liquers-py/src/context.rs` fields, imports, commented setters; delete py `store.rs`, `cache.rs`; `lib.rs` orphan comment — `cargo test -p liquers-py --lib --no-default-features --features async_store`
+- [ ] 5. comments in `store_dir_index.rs` ≈8 and `liquers-store/src/opendal_store.rs` ≈261 — `cargo check -p liquers-store`
+- [ ] 6. full checks — `cargo test -p liquers-core --lib --tests --doc`; `cargo test -p liquers-lib --lib --tests`; `bash scripts/check-build-matrix.sh`
+- [ ] 7. documents per the Phase 2 table, History rows and `reviewed:` bumps — the AC-6 grep; `python3 scripts/docs_index.py --check`
+
+### Validation
+
+Every Phase 3 command passes; `git diff --stat` shows deletions only outside docs; no
+`command_registry.yaml` change. Then Phase 5: close `CORE-SYNC-STORE-TRAIT-OBSOLETE`, set
+`affects_docs`.
