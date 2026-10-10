@@ -90,7 +90,7 @@ keyed asset and has no key of its own, which `value_origin_key` exists to work a
 - **AC-6** An expanded plan approximates the cut plan
   WHEN `a/b/c` is applied as an expanded plan
   THEN `c`'s input state agrees with the cut plan's on `query` (the prefix `a/b`) and on the
-  value-describing fields, and its log contains the entries `b` wrote
+  value-describing fields, and the asset's log contains the entries `a` and `b` wrote
 - **AC-7** No boundary for a bare key read
   WHEN `-R/data/x.manifest.yaml/-/ns-rec/materialize` is evaluated
   THEN the evaluated plan is `GetAsset(data/x.manifest.yaml), Action(rec/materialize)` and
@@ -107,6 +107,11 @@ keyed asset and has no key of its own, which `value_origin_key` exists to work a
   WHEN any plan finishes
   THEN the asset's metadata (log, title, description, filename, dependencies, status, version) is
   what it is today, except that a query with no filename no longer declares `data_format: bin`
+
+- **AC-11** An action's output state names its prefix
+  WHEN `a/b/c` runs in either form
+  THEN the state `c` receives has `query: a/b` and no `key`; in the cut form this is asset
+  `a/b`'s own metadata, in the expanded form it is recorded by the plan
 
 **Non-goals.** Letting a command return metadata with its value. State variables (liquer's
 mechanism for carrying values along a query in metadata) — the rule above lets them flow, but the
@@ -141,26 +146,45 @@ reads `Recipe::data_format` for display and adapts to its new answer. Tests in b
 - Other documents: `Context::get_metadata` doc comment (a copy of the asset's record).
 - Documents to update: the four in `affects_docs`.
 
+## Decisions
+
+Settled with the maintainer on 2026-10-10; Phase 2 implements them.
+
+1. **The expanded form's approximation.** After an action at prefix `p`, the state's value is the
+   action's result and its metadata is a copy of the asset's record with corrections: `query` is
+   `p`, there is no `key`, and the fields the *final* recipe seeded (`filename`, `data_format`,
+   `media_type`, a recipe-declared title or description) are replaced by what a recipe for `p`
+   would seed. Values commands wrote through the context stay.
+2. **Where the prefix query comes from:** the plan records it on each action step (Phase 2
+   option A). The builder already holds it when it emits the step; it is resolved and promoted
+   exactly like `Plan::predecessor`.
+3. **The key:** an action's output has none (in the cut form the prefix is a query asset); a step
+   that reads a key hands on the fetched state with that key.
+4. **Bare key read:** a prefix whose steps, apart from `SetCwd`, are a single `GetAsset`,
+   `GetAssetBinary`, `GetAssetMetadata`, `GetAssetDirectory`, `GetAssetRecipe`, `GetResource`,
+   `GetResourceMetadata` or `GetResourceDirectory` (with any namespace declarations) is not cut.
+5. **The rest of a fetched state** — status, log, version — is handed on whole (AC-2); commands
+   treat it as information about their input.
+6. **A recipe with argument or link overrides** records no prefix queries; its asset already has
+   no query, and the text would not describe what ran.
+7. **Assumption, to confirm at the Phase 2 gate:** a plan applied to an input state still records
+   the prefix query, although the value depends on the input; the applied asset's own record
+   already carries its recipe's query in the same situation.
+
 ## Open Questions
 
-1. **Approximation in the expanded plan (open design, Phase 2).** After an action at prefix `p`,
-   the state is the asset's current record with the fields the *final recipe* seeded (query, key,
-   filename, `data_format`, `media_type`, a recipe-declared title or description) replaced by what
-   a recipe for `p` would seed. Values that commands wrote through the context stay. Recommended;
-   the prefix query per step needs the positions the cut already uses.
-2. **What counts as a bare key read (open design, Phase 2).** Recommended: a prefix whose steps,
-   apart from `SetCwd`, are a single `GetAsset`, `GetAssetBinary`, `GetAssetMetadata`,
-   `GetAssetDirectory`, `GetResource*` or `GetAssetRecipe`, with any namespace declarations.
-   Cutting it would only wrap an asset that is already cached under its key.
-3. **The rest of a fetched state (proposed resolution).** It is handed on whole, status, log and
-   version included, as AC-2 requires; commands treat those as information about their input, not
-   about their own asset.
+None blocking. Decision 7 is an assumption awaiting confirmation at the Phase 2 gate.
 
 ## Design Dependencies
 
 - **extends, complete** `design/predecessor-cut-equivalence/` (result equivalence; this adds
   input-state equivalence) and `design/record-streams/` (introduced `value_origin_key`, removed
   here).
+- **overlaps, open** `design/context-title-predecessor-inheritance/` (in review, implementation
+  phase, no PR): it would copy command-set title and description across the same `Step::Evaluate`
+  arm into the *final asset's* record (T3, same change site; the contracts differ — that design
+  changes the asset record, this one the input state). Neither blocks the other; whichever lands
+  second rebases onto the other's `Step::Evaluate` arm.
 - **related, complete** `design/command-alias-contract/` moved the alias message to
   `plan.init_steps` to work around the source issue; the workaround can stay.
 
@@ -175,7 +199,7 @@ with the maintainer, replacing the compact draft's "descriptor overlay".
   attached (T2: once a prefix's metadata is handed on as it is, what that metadata declares is
   this design's contract). Leading source by the overlap rule (equal priority, older issue).
 - Example: the four-row table and the manifest query above.
-- Effect: AC-2..AC-10 added; size M → L; converted to the full form.
+- Effect: AC-2..AC-11 added; size M → L; converted to the full form.
 - Phases updated: Phase 1 only (no later phase existed). Approval: returns to the Phase 1 gate.
 
 ## References
